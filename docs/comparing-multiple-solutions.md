@@ -10,12 +10,19 @@ to one approach. Git worktrees provide an elegant way to manage this workflow.
 - [Worktrees Are Local](#worktrees-are-local)
   - [What Stays Local](#what-stays-local)
   - [What Can Optionally Be Pushed](#what-can-optionally-be-pushed)
+- [Worktree Storage Location](#worktree-storage-location)
+  - [Storage Options](#storage-options)
+  - [Recommended Structure](#recommended-structure)
 - [Git Worktree Approach](#git-worktree-approach)
   - [Setting Up Worktrees](#setting-up-worktrees)
   - [Running Claude in Each Worktree](#running-claude-in-each-worktree)
 - [Comparing Solutions](#comparing-solutions)
   - [Command Line Diff](#command-line-diff)
   - [Visual Comparison](#visual-comparison)
+- [Using Git Notes for Documentation](#using-git-notes-for-documentation)
+  - [Adding Notes to Track Context](#adding-notes-to-track-context)
+  - [Viewing Notes](#viewing-notes)
+  - [Notes Persist After Merging](#notes-persist-after-merging)
 - [Selecting and Merging the Best Solution](#selecting-and-merging-the-best-solution)
 - [Cleanup](#cleanup)
 - [Alternative: Plan-Only Comparison](#alternative-plan-only-comparison)
@@ -40,7 +47,7 @@ a remote repository.
 
 | Component | Location | Pushed to Remote? |
 |-----------|----------|-------------------|
-| Worktree directories | `../solution-1/`, etc. | No |
+| Worktree directories | `.claude/tmp/worktrees/solution-1/`, etc. | No |
 | Worktree metadata | `.git/worktrees/` | No |
 | Worktree list | Local git config | No |
 
@@ -51,7 +58,7 @@ them if needed:
 
 ```bash
 # Push a branch from a worktree (optional)
-cd ../solution-1
+cd .claude/tmp/worktrees/solution-1
 git push -u origin solution-attempt-1
 ```
 
@@ -79,6 +86,54 @@ git push origin main  # Only this goes to remote
 The worktrees and experimental branches can stay local and be deleted after
 you're done.
 
+## Worktree Storage Location
+
+Worktrees can be stored inside or outside your repository. The modern best
+practice is to keep them inside the repo in a dedicated, gitignored directory.
+
+### Storage Options
+
+| Location | Example | Pros | Cons |
+|----------|---------|------|------|
+| Inside repo (recommended) | `.claude/tmp/worktrees/` | Self-contained, follows tmp conventions | Must gitignore |
+| Dedicated folder | `.worktrees/` | Simple, visible | Another gitignore entry |
+| Sibling directories | `../solution-1` | Traditional | Clutters parent directory |
+| External folder | `~/worktrees/myrepo/` | Centralized | Separated from project |
+
+### Recommended Structure
+
+Use a dedicated worktrees directory inside your repository's tmp folder:
+
+```text
+my-project/
+├── .git/
+├── .gitignore              # Contains ".claude/tmp/"
+├── .claude/
+│   └── tmp/                # Gitignored - temp files live here
+│       └── worktrees/      # Worktrees stored here
+│           ├── solution-1/
+│           ├── solution-2/
+│           └── solution-3/
+├── src/
+└── package.json
+```
+
+**One-time setup:**
+
+```bash
+# Ensure .claude/tmp/ is gitignored (may already be configured)
+echo ".claude/tmp/" >> .gitignore
+mkdir -p .claude/tmp/worktrees
+```
+
+**Key rules:**
+
+- Worktrees inside the repo **must be gitignored** - git won't allow creating
+  worktrees inside tracked paths
+- Worktrees **cannot be nested** - one worktree cannot contain another
+- Worktree **metadata stays in the main repo** at `.git/worktrees/` regardless
+  of where worktree directories are stored
+
 ## Git Worktree Approach
 
 ### Setting Up Worktrees
@@ -93,14 +148,17 @@ git checkout -b explore-base
 Then create N worktrees for N parallel solution attempts:
 
 ```bash
+# Create the worktrees directory if it doesn't exist
+mkdir -p .claude/tmp/worktrees
+
 # Create three worktrees for three parallel attempts
-git worktree add ../solution-1 -b solution-attempt-1
-git worktree add ../solution-2 -b solution-attempt-2
-git worktree add ../solution-3 -b solution-attempt-3
+git worktree add .claude/tmp/worktrees/solution-1 -b solution-attempt-1
+git worktree add .claude/tmp/worktrees/solution-2 -b solution-attempt-2
+git worktree add .claude/tmp/worktrees/solution-3 -b solution-attempt-3
 ```
 
-This creates three sibling directories, each containing a full working copy
-starting from the same commit.
+This creates three directories inside `.claude/tmp/worktrees/`, each containing
+a full working copy starting from the same commit.
 
 ### Running Claude in Each Worktree
 
@@ -108,15 +166,15 @@ Open separate terminal sessions for each worktree:
 
 ```bash
 # Terminal 1
-cd ../solution-1
+cd .claude/tmp/worktrees/solution-1
 claude  # Generate solution A
 
 # Terminal 2
-cd ../solution-2
+cd .claude/tmp/worktrees/solution-2
 claude  # Generate solution B
 
 # Terminal 3
-cd ../solution-3
+cd .claude/tmp/worktrees/solution-3
 claude  # Generate solution C
 ```
 
@@ -159,6 +217,108 @@ git diff --stat explore-base..solution-attempt-1
 git diff --stat explore-base..solution-attempt-2
 ```
 
+## Using Git Notes for Documentation
+
+Git notes allow you to attach metadata to commits without modifying commit
+history. This is useful for documenting:
+
+- **The problem** being solved (on the base commit)
+- **The approach** taken in each solution branch
+- **Evaluation notes** after comparing solutions
+- **Decision rationale** for why one solution was chosen
+
+### Adding Notes to Track Context
+
+When setting up the exploration, document the problem on the base commit:
+
+```bash
+# Create base branch and document the problem
+git checkout -b explore-base
+git notes add -m "Problem: Auth tokens expire without refresh mechanism.
+Goal: Implement token refresh with minimal breaking changes.
+Constraints: Must maintain backward compatibility with existing clients."
+```
+
+After creating worktrees and implementing solutions, add notes describing each
+approach:
+
+```bash
+# In solution-1 worktree, after committing your implementation
+cd .claude/tmp/worktrees/solution-1
+git notes add -m "Approach: JWT refresh tokens with sliding expiration.
+Trade-offs: More complex implementation, but fully stateless.
+Files changed: auth.ts, middleware.ts, token-service.ts"
+
+# In solution-2 worktree
+cd .claude/tmp/worktrees/solution-2
+git notes add -m "Approach: Extend server-side session on activity.
+Trade-offs: Simpler code, but requires Redis for session storage.
+Files changed: session.ts, middleware.ts"
+```
+
+You can also add notes to specific commits within a branch:
+
+```bash
+# Add note to a specific commit
+git notes add <commit-hash> -m "This commit handles the edge case for expired
+tokens during active requests."
+```
+
+### Viewing Notes
+
+View notes alongside commit logs:
+
+```bash
+# Show notes in log output
+git log --show-notes
+
+# View notes across all branches
+git log --all --show-notes --oneline
+
+# View a specific commit's note
+git notes show HEAD
+
+# View note on the base commit
+git notes show explore-base
+```
+
+Compare approaches by viewing notes from each branch:
+
+```bash
+# Quick comparison of approaches
+echo "=== Solution 1 ===" && git notes show solution-attempt-1
+echo "=== Solution 2 ===" && git notes show solution-attempt-2
+echo "=== Solution 3 ===" && git notes show solution-attempt-3
+```
+
+### Notes Persist After Merging
+
+Notes remain accessible even after merging and cleanup:
+
+```bash
+# After merging the winning solution
+git checkout main
+git merge solution-jwt-refresh
+
+# Notes are still accessible by commit hash or ref
+git notes show <original-commit-hash>
+
+# Add a final note documenting the decision
+git notes add HEAD -m "Selected JWT refresh approach.
+Reasoning: Better scalability, no additional infrastructure needed.
+Rejected alternatives: Session extension (required Redis)."
+```
+
+To share notes with your team (optional):
+
+```bash
+# Push notes to remote
+git push origin refs/notes/commits
+
+# Fetch notes from remote
+git fetch origin refs/notes/commits:refs/notes/commits
+```
+
 ## Selecting and Merging the Best Solution
 
 Once you've reviewed all solutions and chosen the best one:
@@ -185,9 +345,9 @@ After merging your chosen solution, clean up the worktrees and branches:
 
 ```bash
 # Remove worktree directories
-git worktree remove ../solution-1
-git worktree remove ../solution-2
-git worktree remove ../solution-3
+git worktree remove .claude/tmp/worktrees/solution-1
+git worktree remove .claude/tmp/worktrees/solution-2
+git worktree remove .claude/tmp/worktrees/solution-3
 
 # Delete branches you no longer need
 git branch -D solution-attempt-1

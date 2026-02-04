@@ -12,9 +12,13 @@ Always track and display session activity at the end of each response when compl
 
 ## Display Format
 
-At the end of substantive responses (not simple Q&A), include a session summary:
+At the end of substantive responses (not simple Q&A), include a session summary.
 
-```bash
+**IMPORTANT**: Always include a blank line BEFORE and AFTER the `---` separator.
+
+```text
+[Your response content here]
+
 ---
 
 Session Activity:
