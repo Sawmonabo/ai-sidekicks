@@ -1,0 +1,164 @@
+# =============================================================================
+# LLM Token-Optimized Markdownlint Configuration
+# =============================================================================
+# This configuration optimizes markdown for LLM token efficiency.
+# Rules are enabled/disabled based on research into how different
+# markdown patterns affect tokenization in language models.
+#
+# Key Research Sources:
+# - arXiv 2411.10541: "Does Prompt Formatting Have Any Impact on LLM Performance?"
+# - Singapore GDS: Aligned tables use ~47% more tokens than minified versions
+# - Anthropic: "Exact formatting is becoming less important as models improve"
+# =============================================================================
+
+# =============================================================================
+# RULES TO KEEP (reduce tokens or improve semantic structure)
+# =============================================================================
+
+# MD001: Heading level increment
+# KEEP ENABLED - Proper heading hierarchy (h1→h2→h3) helps LLMs
+# understand document structure and section relationships.
+MD001: true
+
+# MD009: Trailing whitespace
+# KEEP ENABLED - Trailing spaces waste tokens with no benefit.
+# Each unnecessary space consumes tokenizer capacity.
+MD009:
+  br_spaces: 0           # No trailing spaces allowed (stricter than default 2)
+  list_item_empty_lines: false
+  strict: true
+
+# MD012: Multiple consecutive blank lines
+# KEEP STRICT - Multiple blank lines waste tokens. One blank line
+# provides the same semantic separation as many. Set maximum to 1.
+MD012:
+  maximum: 1
+
+# MD023: Headings must start at beginning of line
+# KEEP ENABLED - Consistent heading positioning aids LLM parsing
+# of document structure without adding extra tokens.
+MD023: true
+
+# MD024: Multiple top-level headings in the same document
+# KEEP ENABLED - Multiple h1s waste tokens.
+MD024: true
+
+# MD025: Single top-level heading (h1)
+# KEEP ENABLED - Single h1 provides clear document identity and
+# hierarchy for LLMs without token overhead.
+MD025:
+  front_matter_title: ''
+
+# MD047: Files should end with a single newline
+# KEEP ENABLED - Token neutral, but ensures consistent file
+# handling across tools and prevents concatenation issues.
+MD047: true
+
+# MD056: Table column count
+# KEEP - Ensures valid tables without adding tokens.
+MD056: true
+
+# =============================================================================
+# RULES TO DISABLE (add unnecessary tokens)
+# =============================================================================
+
+# MD010: Hard tabs vs spaces
+# DISABLED - Tabs are typically tokenized as 1 token, while
+# equivalent spaces (2-4) become multiple tokens. Tabs are more
+# token-efficient for indentation.
+MD010: false
+
+# MD013: Line length limit
+# DISABLED - Forced line wrapping at 80/120 chars adds newline
+# tokens that serve no purpose for LLMs. LLMs process semantic
+# content, not visual line breaks.
+MD013: false
+
+# MD022: Blank lines around headings
+# DISABLED - Requiring blank lines before/after headings adds
+# 2 newline tokens per heading with no LLM comprehension benefit.
+# Headings are already semantically distinct via # markers.
+MD022: false
+
+# MD026: No trailing punctuation in headings
+# DISABLED - Trailing punctuation adds unnecessary tokens.
+MD026: false
+
+# MD030: Spaces after list markers
+# DISABLED - Default requires specific spacing after list markers.
+# Single space is sufficient; extra spaces waste tokens.
+MD030: false
+
+# MD031: Fenced code blocks should be surrounded by blank lines
+# DISABLED - Fenced code blocks are already semantically distinct.
+MD031: false
+
+# MD032: Blank lines around lists
+# DISABLED - Like MD022, requiring blank lines around lists adds
+# newline tokens without improving LLM understanding. List markers
+# (-, *, 1.) already provide clear semantic boundaries.
+MD032: false
+
+# MD033: Inline HTML
+# DISABLED - HTML can sometimes be more token-efficient for
+# complex formatting than verbose markdown alternatives.
+MD033: false
+
+# MD035: Horizontal rule style
+# DISABLED - Style preference only; all HR styles tokenize similarly.
+MD035: false
+
+# MD036: Emphasis used instead of heading
+# DISABLED - Allow flexibility in formatting choices.
+MD036: false
+
+# =============================================================================
+# TABLE FORMATTING
+# =============================================================================
+# Research shows aligned/padded tables use ~47% more tokens than
+# minified tables. Disable rules enforcing table padding.
+#
+# Example token savings:
+#   Aligned:  | Name    | Age |   (more tokens due to padding spaces)
+#   Minified: |Name|Age|         (fewer tokens, same semantic meaning)
+
+# MD055: Table pipe style
+# DISABLED - Allows flexible table formatting for token efficiency.
+# Permits minified tables without leading/trailing pipe padding.
+MD055: false
+
+# MD060: Table pipe spacing
+# DISABLED - Allows tables without spaces around pipes for efficiency.
+MD060: false
+
+# =============================================================================
+# STYLE RULES (token-efficient defaults)
+# =============================================================================
+
+# MD003: Heading style
+# ATX style (#) is more token-efficient than setext (underlines).
+MD003:
+  style: atx
+
+# MD004: Unordered list style
+# Consistent markers; dash is common and single-token.
+MD004:
+  style: dash
+
+# MD007: Unordered list indentation
+# DISABLED - Allow flexible indentation; don't force extra spaces.
+MD007: false
+
+# MD049: Emphasis style
+# Asterisks (*) are standard; underscores may tokenize differently.
+MD049:
+  style: asterisk
+
+# MD050: Strong style
+# Double asterisks (**) for consistency with MD049.
+MD050:
+  style: asterisk
+
+# MD058 Blanks around tables
+# DISABLED - Allows tables without blank lines around them for efficiency.
+MD058: false

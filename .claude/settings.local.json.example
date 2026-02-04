@@ -1,0 +1,14 @@
+{
+  "// NOTE": "Copy this to settings.local.json and customize for your machine",
+  "// This file is gitignored": "settings.local.json will not be tracked",
+
+  "permissions": {
+    "allow": [
+      "Read(/home/YOUR_USERNAME/repos/**)",
+      "Bash(/path/to/your/project/.claude/scripts/*:*)"
+    ],
+    "additionalDirectories": [
+      "/home/YOUR_USERNAME/.claude/plans"
+    ]
+  }
+}

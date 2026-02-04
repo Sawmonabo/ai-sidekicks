@@ -1,0 +1,6 @@
+# Example Asset
+
+This placeholder represents where asset files would be stored.
+Replace with actual assets (templates, images, etc.) or delete.
+
+Assets are used in output, not loaded into context.

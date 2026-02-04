@@ -1,0 +1,86 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+*.pyo
+*.so
+.Python
+*.egg-info/
+*.egg
+.eggs/
+dist/
+build/
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env/
+
+# IDE and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.settings/
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Claude Code local files
+.claude-session
+.claude-history
+
+# Claude Code runtime directories (never track)
+.claude/tmp/
+.claude/cache/
+.claude/session-env/
+.claude/file-history/
+.claude/todos/
+.claude/debug/
+.claude/paste-cache/
+.claude/shell-snapshots/
+.claude/tasks/
+.claude/projects/
+.claude/statsig/
+.claude/telemetry/
+.claude/ide/
+.claude/downloads/
+.claude/plugins/
+.claude/history.jsonl
+.claude/stats-cache.json
+.claude/.credentials.json
+
+# Local settings override (use for machine-specific config)
+.claude/settings.local.json
+
+# Output prompts (root only, nested prompts/ dirs are tracked)
+/prompts/
+
+# Temporary and scratch files
+*.tmp
+*.temp
+*.bak
+*.backup
+scratch/
+tmp/
+output/
+
+# Logs
+*.log
+logs/
+
+# Test outputs
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+
+# Local environment overrides
+*.local
+.env.local

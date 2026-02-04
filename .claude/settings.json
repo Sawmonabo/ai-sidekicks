@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "companyAnnouncements": [
+    "Hey Sawbo, I can't fix bugs you haven't written yet. Get coding!",
+    "Sawbo, today's mass hallucination brought to you by stochastic parrots everywhere.",
+    "Sawbo, if it works on the first try, you probably forgot to save the file.",
+    "Sawbo, I've read your codebase. I have mass opinions. I'm keeping them to myself... for now.",
+    "What's up Sawbo? Ready to mass ship some mass code?"
+  ],
+  "spinnerVerbs": {
+    "mode": "append",
+    "verbs": [
+      "Pulling My Hair Out",
+      "Hallucinating responsibly",
+      "Consulting my training data",
+      "Pretending to understand",
+      "Guessing confidently",
+      "Making things up",
+      "Procrastinating productively",
+      "Overthinking",
+      "Caffeinating",
+      "Touching grass mentally",
+      "Fucking around",
+      "Using Dark Magic",
+      "Using the Force"
+    ]
+  },
+  "plansDirectory": "./.claude/tmp/plans",
+  "permissions": {
+    "allow": [
+      "Bash(uv run pytest:*)",
+      "Bash(uv run python:*)",
+      "Bash(uv run:*)",
+      "Bash(python:*)",
+      "Bash(tree:*)",
+      "Bash(find:*)",
+      "Bash(wc:*)",
+      "Bash(ls:*)",
+      "Bash(test:*)",
+      "WebSearch",
+      "Skill(planning-with-files)",
+      "Skill(prompt-engineering)",
+      "Skill(skill-creator)",
+      "Skill(context-engineering)",
+      "Skill(agent-evaluation)",
+      "Skill(git)"
+    ],
+    "ask": [],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./secrets/**)",
+      "Read(./**/*.pem)",
+      "Read(./**/*.key)",
+      "Read(./**/*credentials*)"
+    ]
+  }
+}
