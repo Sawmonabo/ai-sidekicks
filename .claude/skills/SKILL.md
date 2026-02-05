@@ -13,7 +13,7 @@ This directory contains skills for building effective Claude Code agents, prompt
 |-------|-------------|
 | [agent-evaluation](./agent-evaluation/SKILL.md) | Evaluate and improve Claude Code commands, skills, and agents. Use when testing prompt effectiveness, validating context engineering choices, or measuring improvement quality. |
 | [context-engineering](./context-engineering/SKILL.md) | Understand the components, mechanics, and constraints of context in agent systems. Use when writing, editing, or optimizing commands, skills, or sub-agent prompts. |
-| [prompt-engineering](./prompt-engineering/SKILL.md) | Create production-grade prompts for Claude 4.5 using hybrid markdown + XML approach. Use when crafting system prompts, skill instructions, agent definitions, or structured prompts. |
+| [prompt-engineering](./prompt-engineering/SKILL.md) | Create production-grade prompts for Claude using hybrid markdown + XML approach. Use when crafting system prompts, skill instructions, agent definitions, or structured prompts. |
 | [skill-creator](./skill-creator/SKILL.md) | Create effective Claude Code skills through a guided interview process. Use when creating new skills, updating existing skills, or designing skill architecture. |
 
 ## Skill Categories

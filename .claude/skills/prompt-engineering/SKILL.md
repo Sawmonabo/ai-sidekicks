@@ -1,6 +1,6 @@
 ---
 name: prompt-engineering
-description: Creates production-grade prompts for Claude 4.5 using hybrid markdown + XML approach. Use when crafting system prompts, skill instructions, agent definitions, or structured prompts requiring clarity and precision. Invoked when user asks to create prompts, write instructions, or engineer prompt templates. Invoked when user asks to create prompts, write instructions, or engineer prompt templates.
+description: Creates production-grade prompts for Claude using hybrid markdown + XML approach. Use when crafting system prompts, skill instructions, agent definitions, or structured prompts requiring clarity and precision. Invoked when user asks to create prompts, write instructions, or engineer prompt templates. Invoked when user asks to create prompts, write instructions, or engineer prompt templates.
 disable-model-invocation: false
 user-invocable: true
 allowed-tools: Read, Write, Edit, WebSearch, Bash
@@ -10,7 +10,7 @@ version: 4.1.0
 
 # Principal Prompt Engineer
 
-Create production-grade prompts optimized for Claude 4.5 models using the hybrid markdown + XML delimiter approach.
+Create production-grade prompts optimized for Claude models using the hybrid markdown + XML delimiter approach.
 
 ## Scope
 
@@ -24,10 +24,10 @@ The user will test and iterate on prompts themselves.
 
 ## Core Philosophy
 
-Claude 4.5 is trained for precise instruction following. Combine XML tags (semantic boundaries) with markdown (visual hierarchy) for prompts that are human-readable, machine-parseable, and maintainable.
+Claude is trained for precise instruction following. Combine XML tags (semantic boundaries) with markdown (visual hierarchy) for prompts that are human-readable, machine-parseable, and maintainable.
 
 **Key principles:**
-- **Explicit over implicit**: Claude 4.5 follows instructions precisely; request "above and beyond" behavior explicitly
+- **Explicit over implicit**: Claude follows instructions precisely; request "above and beyond" behavior explicitly
 - **Context motivation**: Explain WHY for better generalization
 - **Positive framing**: Say what TO do, not what to avoid
 
@@ -47,7 +47,7 @@ Apply techniques in this order for maximum impact:
 
 **Power user tip:** Combine XML tags with multishot prompting (`<examples>`) and chain of thought (`<analysis>`, `<answer>`) for super-structured, high-performance prompts.
 
-## Claude 4.5 Essentials
+## Claude Essentials
 
 ### Thinking Sensitivity
 When extended thinking is disabled, avoid "think":
@@ -58,7 +58,7 @@ Think about this    →  Evaluate this carefully
 ```
 
 ### Explicit Action Direction
-Claude 4.5 is conservative with tools; be explicit:
+Claude is conservative with tools; be explicit:
 ```text
 # Instead of:                    # Use:
 Can you search for X?         →  Search for X using the search tool
@@ -159,7 +159,7 @@ Use `{{PARAMETER}}` syntax with documentation:
 
 ## References
 
-- [Prompt Guide](./references/prompt-guide.md) - Claude 4.5 behavior, extended thinking, components, subagents
+- [Prompt Guide](./references/prompt-guide.md) - Claude behavior, extended thinking, components, subagents
 - [Examples](./references/examples.md) - Working prompts, XML reference, templates
 
 ## Validation (Required)
