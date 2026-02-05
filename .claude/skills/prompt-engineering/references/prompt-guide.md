@@ -2,7 +2,7 @@
 
 ## Table of Contents
 
-1. [Claude 4.5 Model Behavior](#part-1-claude-45-model-behavior)
+1. [Claude Model Behavior](#part-1-claude-model-behavior)
 2. [Extended Thinking](#part-2-extended-thinking)
 3. [Prompt Components](#part-3-prompt-components)
 4. [Component Combinations](#part-4-component-combinations)
@@ -14,13 +14,13 @@
 
 ---
 
-## Part 1: Claude 4.5 Model Behavior
+## Part 1: Claude Model Behavior
 
-Claude 4.5 models (Opus, Sonnet, Haiku) are trained for precise instruction following. Understanding their behavior is essential for effective prompts.
+Claude models (Opus, Sonnet, Haiku) are trained for precise instruction following. Understanding their behavior is essential for effective prompts.
 
 ### Explicit Instruction Following
 
-Claude 4.5 follows instructions precisely - no more, no less. If you want
+Claude follows instructions precisely - no more, no less. If you want
 comprehensive output, say so explicitly.
 
 #### Basic (gets minimal result):
@@ -57,7 +57,7 @@ When extended thinking is DISABLED, the word "think" can cause issues.
 
 ### Tool Usage Patterns
 
-Claude 4.5 is conservative with tool calls. Provide explicit direction:
+Claude is conservative with tool calls. Provide explicit direction:
 
 ```markdown
 <!-- Vague - Claude may not act -->
@@ -73,7 +73,7 @@ Claude 4.5 is conservative with tool calls. Provide explicit direction:
 
 ### Communication Style
 
-Claude 4.5 is more concise and direct. Match this in your prompts:
+Claude is more concise and direct. Match this in your prompts:
 - Remove hedging language ("maybe", "perhaps", "you might want to")
 - Use direct imperatives ("Analyze", "Create", "Review")
 - Specify length if longer output is needed
@@ -367,7 +367,7 @@ All 10 components as needed.
 
 ## Part 5: Subagent Orchestration
 
-Claude 4.5 has strong native subagent orchestration capabilities. Use subagents for context management and role specialization.
+Claude has strong native subagent orchestration capabilities. Use subagents for context management and role specialization.
 
 ### When to Use Subagents
 
@@ -425,7 +425,7 @@ This task has three phases. Spawn a subagent for each:
 ```
 
 **Natural delegation:**
-Claude 4.5 can recognize when tasks benefit from subagents and delegate proactively. To enable:
+Claude can recognize when tasks benefit from subagents and delegate proactively. To enable:
 - Ensure subagent tools are available
 - Don't over-constrain the approach
 - Let Claude orchestrate naturally

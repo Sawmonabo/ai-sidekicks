@@ -2,7 +2,7 @@
 """
 Prompt Validation Script v4.0
 
-Validates Claude prompts for best practices, optimized for Claude 4.5.
+Validates Claude prompts for best practices, optimized for Claude.
 
 Usage:
     python validate-prompt.py <prompt_file>
@@ -44,7 +44,7 @@ MIN_PROMPT_WORDS = 50
 
 
 class PromptValidator:
-    """Validates prompts against Claude 4.5 best practices."""
+    """Validates prompts against Claude best practices."""
 
     STRUCTURAL_TAGS: ClassVar[set[str]] = {
         "role",
@@ -298,7 +298,7 @@ class PromptValidator:
                     )
 
     def check_thinking_sensitivity(self):
-        """Check for 'think' usage (Claude 4.5 sensitivity)."""
+        """Check for 'think' usage (Claude sensitivity)."""
         skip_keywords = ["extended_thinking", "thinking_budget"]
         if any(kw in self.content.lower() for kw in skip_keywords):
             return
