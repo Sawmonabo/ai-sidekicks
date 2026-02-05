@@ -42,13 +42,13 @@ show_banner() {
     echo ""
     echo "        o"
     echo "       .-."
-    echo "    .--+-+--."
+    echo "    .--┴-┴--."
     echo "    | O   O |   AI-SIDEKICKS"
     echo "    | ||||| |   >> portable ai configuration"
     echo "    '--___--'"
     echo ""
     if [[ -n "$action" ]]; then
-        echo "    [##########] ${action}..."
+        echo "    [■■■■■■■■■■] ${action}..."
         echo ""
     fi
 }
