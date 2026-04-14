@@ -1,10 +1,6 @@
 # Docs program scratch space
 docs/tmp/
 
-# Local AI/editor state
-.claude/
-.codex/
-
 # Environment and secrets
 .env
 .env.*
@@ -65,3 +61,9 @@ venv/
 
 # Misc tool caches
 .cache/
+
+# Explicitly track repo-local AI config and skills
+!.claude/
+!.claude/**
+!.codex/
+!.codex/**

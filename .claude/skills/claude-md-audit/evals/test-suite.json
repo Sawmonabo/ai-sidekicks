@@ -1,0 +1,191 @@
+{
+  "skill_name": "claude-md-audit",
+  "skill_path": ".claude/skills/claude-md-audit/SKILL.md",
+  "workspace": ".claude/tmp/sessions/claude-md-audit-workspace",
+  "tests": [
+    {
+      "id": "ai-foundations-regression",
+      "prompt": "Run a full redundancy audit on all the CLAUDE.md files in this repository. I want to understand where progressive loading creates duplicate context.",
+      "target_repo": ".",
+      "requires": "Current repository must have CLAUDE.md files and .claude/rules/*.md",
+      "assertions": [
+        {
+          "id": "R1",
+          "text": "Report identifies all 10 instruction files (6 CLAUDE.md + 4 rules)",
+          "check": "Loading Sequence lists exactly 10 files with line counts"
+        },
+        {
+          "id": "R2",
+          "text": "Report distinguishes always-loaded files from path-scoped and on-demand files",
+          "check": "3 phases: ALWAYS LOADED, PATH-SCOPED, SUBDIRECTORY"
+        },
+        {
+          "id": "R3",
+          "text": "rls-enforcement.md identified as highly/fully redundant with root CLAUDE.md",
+          "check": "Per-file breakdown shows rls-enforcement ~100% redundant"
+        },
+        {
+          "id": "R4",
+          "text": "Never-specs warning identified as appearing 5+ times across files",
+          "check": "Hotspot or saturation tracker shows stale specs warning across 3+ files"
+        },
+        {
+          "id": "R5",
+          "text": "Root CLAUDE.md internal duplication identified (Safety Constraints vs Never table)",
+          "check": "Per-file root analysis shows self-duplicated lines"
+        },
+        {
+          "id": "R6",
+          "text": "context-protocol.md identified as containing the priority hierarchy twice",
+          "check": "Explicitly called out as same-file self-duplication"
+        },
+        {
+          "id": "R7",
+          "text": "api/db/services/tests CLAUDE.md files identified as mostly unique content (>90%)",
+          "check": "Per-file breakdowns show <10% redundancy for each"
+        },
+        {
+          "id": "R8",
+          "text": "At least one paraphrased redundancy caught",
+          "check": "Classification includes Paraphrased type for at least one finding"
+        },
+        {
+          "id": "R9",
+          "text": "Report includes a concept saturation tracker showing counts per file",
+          "check": "Section 2 has a multi-row cross-cutting matrix"
+        },
+        {
+          "id": "R10",
+          "text": "Report includes per-file redundancy percentages or line counts",
+          "check": "Section 3 has breakdown with New/Redundant columns and percentages"
+        },
+        {
+          "id": "R11",
+          "text": "Report shows cumulative redundancy accumulating through loading phases",
+          "check": "Section 4 has cumulative table"
+        },
+        {
+          "id": "R12",
+          "text": "Report identifies specific hotspot chains with file:line references",
+          "check": "Section 5 has chains with exact file:line for every occurrence"
+        }
+      ]
+    },
+    {
+      "id": "includes-fixture",
+      "prompt": "Run a full redundancy audit on the repository at {fixture_path}.",
+      "target_repo": "{fixture_path}",
+      "fixture_path": ".claude/tmp/sessions/claude-md-audit-workspace/test-fixture",
+      "requires": "Test fixture must exist at workspace/test-fixture/",
+      "assertions": [
+        {
+          "id": "I1",
+          "text": "AGENTS.md appears in loading sequence with inclusion notation under its including CLAUDE.md",
+          "check": "Section 1 shows AGENTS.md indented under CLAUDE.md with included indicator"
+        },
+        {
+          "id": "I2",
+          "text": "AGENTS.md gets its own column in saturation tracker",
+          "check": "Section 2 has a column for AGENTS.md separate from CLAUDE.md"
+        },
+        {
+          "id": "I3",
+          "text": "AGENTS.md gets its own per-file redundancy breakdown",
+          "check": "Section 3 has a dedicated breakdown for AGENTS.md with New/Redundant counts"
+        },
+        {
+          "id": "I4",
+          "text": "Concepts in AGENTS.md that duplicate root CLAUDE.md are classified as redundant",
+          "check": "Architecture overlap and ORM/validation rules identified as redundant in AGENTS.md"
+        },
+        {
+          "id": "I5",
+          "text": "Concepts unique to AGENTS.md are classified as new",
+          "check": "Code standards, testing strategy, process rules classified as new"
+        },
+        {
+          "id": "I6",
+          "text": "src/api/AGENTS.md overlap with root AGENTS.md detected",
+          "check": "Top-level imports and type hints rules in src/api/AGENTS.md flagged as redundant"
+        },
+        {
+          "id": "I7",
+          "text": "Broken @reference reported in unresolved references section",
+          "check": "docs/CLAUDE.md @missing-standards.md listed as unresolved"
+        }
+      ]
+    },
+    {
+      "id": "m32rimm-real-world",
+      "prompt": "Find and report redundancies between the CLAUDE.md files in /home/sabossedgh/repos/m32rimm that could be cleaned up.",
+      "target_repo": "/home/sabossedgh/repos/m32rimm",
+      "requires": "m32rimm repo must exist at /home/sabossedgh/repos/m32rimm",
+      "assertions": [
+        {
+          "id": "A1",
+          "text": "Root utility table overlap (lines 73-85 vs 293-306)",
+          "ground_truth": "6 of 9 modules in Core Patterns table also appear in Common Utilities Top 10 table."
+        },
+        {
+          "id": "A2",
+          "text": "Root 'When in Doubt' restates 5+ earlier concepts",
+          "ground_truth": "When in Doubt restates retry_run, get_utc_now, BOUpserter, DBOpsHelper, mark_for_aggregation."
+        },
+        {
+          "id": "A3",
+          "text": "Root Quick Navigation vs Related Documentation overlap",
+          "ground_truth": "Quick Navigation and Related Documentation share ~80% of links."
+        },
+        {
+          "id": "A4",
+          "text": "'Flush before aggregating' in 8+ files",
+          "ground_truth": "Appears in root, fisio, imports, aggregations, post_import, common, sbom, clustereng, fix_tools."
+        },
+        {
+          "id": "A5",
+          "text": "common/AGENTS.md identified as highest redundancy with correct sections flagged",
+          "ground_truth": "fisio/fisio/common/AGENTS.md ~46-51% redundancy. Most Used Utilities and When in Doubt are near-verbatim root."
+        },
+        {
+          "id": "A6",
+          "text": "test_cyclonedx vs test_spdx_import peer redundancy (structural clones)",
+          "ground_truth": "~80% structurally identical: Quick Start, Test Phases, Validation, Troubleshooting."
+        },
+        {
+          "id": "A7",
+          "text": "fptest create-sub in 4+ files",
+          "ground_truth": "Duplicated in fptest_module, fisio/tests, test_cyclonedx, test_spdx_import."
+        },
+        {
+          "id": "A8",
+          "text": "fis_common internal self-duplication (3 restatements)",
+          "ground_truth": "Boundary explained 3x: CRITICAL table (17-31), When to Use (279-294), When in Doubt (299-309)."
+        },
+        {
+          "id": "A9",
+          "text": "Import flow restated in 3+ files",
+          "ground_truth": "7-step flow in root, fisio/AGENTS.md, imports/AGENTS.md. sync has own variant."
+        },
+        {
+          "id": "A10",
+          "text": "email_tools and sbom under 5% redundancy",
+          "ground_truth": "email_tools ~2%, sbom ~2-5%. Both nearly all domain-specific unique content."
+        },
+        {
+          "id": "A11",
+          "text": "Multi-tenancy subID in 3+ files beyond root",
+          "ground_truth": "info.owner.subID in root plus fortress_api, fix_tools, fisio, exports."
+        },
+        {
+          "id": "A12",
+          "text": "pytest --fis-config in 4+ files beyond root",
+          "ground_truth": "In root plus fis_common, fix_tools, fortress_api, fptest_module, cijobs."
+        },
+        {"id": "A13", "text": "'When in Doubt' identified as systemic pattern across 10+ files with cumulative overlap", "ground_truth": "At least 10 of 19 files have When in Doubt sections. 50+ lines of cumulative cross-file overlap restating root advice."},
+        {"id": "A14", "text": "data_importer insert/complete pattern in 4+ files", "ground_truth": "data_importer tracking pattern in root, fisio, imports, common, sync — 5 files."},
+        {"id": "A15", "text": "Root Testing Standards internal self-duplication between subsections", "ground_truth": "The 140-line Testing section has overlap between find-and-run-tests and test-execution subsections showing same pytest patterns."},
+        {"id": "A16", "text": "At least 5 of root's 13 gotchas restated in subsystem gotcha sections", "ground_truth": "Gotchas #1 (activities), #2 (flush), #4 (selectizer/grids), #5 (related), #8 (mark_for_agg) appear in fortress_api, fisio, imports, aggregations, fix_tools."}
+      ]
+    }
+  ]
+}

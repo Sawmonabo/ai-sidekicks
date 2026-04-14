@@ -1,0 +1,24 @@
+# :schema https://developers.openai.com/codex/config-schema.json
+
+model = "gpt-5.4"
+personality = "pragmatic"
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
+model_reasoning_effort = "xhigh"
+plan_mode_reasoning_effort = "xhigh"
+model_verbosity = "medium"
+web_search = "live"
+project_doc_max_bytes = 65536
+service_tier = "fast"
+
+[agents]
+max_depth = 2
+max_threads = 10
+job_max_runtime_seconds = 3600
+
+[features]
+multi_agent = true
+shell_tool = true
+
+[tools]
+web_search = {context_size = "high"}
