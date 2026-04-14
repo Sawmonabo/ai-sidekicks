@@ -1,3 +1,7 @@
+# Temporary scratch space in any directory
+tmp/
+.tmp/
+
 # Docs program scratch space
 docs/tmp/
 
@@ -27,9 +31,7 @@ Desktop.ini
 # Logs and temp files
 *.log
 *.log.*
-tmp/
 temp/
-.tmp/
 
 # Node / JS / TS
 node_modules/
@@ -67,3 +69,7 @@ venv/
 !.claude/**
 !.codex/
 !.codex/**
+
+# Still exclude tmp directories inside tracked trees
+tmp/
+.tmp/
