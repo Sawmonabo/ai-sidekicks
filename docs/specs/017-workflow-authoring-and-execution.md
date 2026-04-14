@@ -1,0 +1,105 @@
+# Spec-017: Workflow Authoring And Execution
+
+| Field | Value |
+| --- | --- |
+| **Status** | `approved` |
+| **NNN** | `017` |
+| **Slug** | `workflow-authoring-and-execution` |
+| **Date** | `2026-04-14` |
+| **Author(s)** | `Codex` |
+| **Depends On** | [Multi Agent Channels And Orchestration](../specs/016-multi-agent-channels-and-orchestration.md), [Queue Steer Pause Resume](../specs/004-queue-steer-pause-resume.md), [Agent Channel And Run Model](../domain/agent-channel-and-run-model.md) |
+| **Implementation Plan** | `TBD` |
+
+## Purpose
+
+Define how reusable workflows are authored, versioned, and executed inside sessions.
+
+## Scope
+
+This spec covers workflow definitions, phase execution, phase outputs, and workflow-level gates.
+
+## Non-Goals
+
+- General-purpose external workflow engines
+- Marketplace or sharing semantics for workflow templates
+- Full UI design for workflow editors
+
+## Domain Dependencies
+
+- [Agent Channel And Run Model](../domain/agent-channel-and-run-model.md)
+- [Run State Machine](../domain/run-state-machine.md)
+- [Artifact Diff And Approval Model](../domain/artifact-diff-and-approval-model.md)
+
+## Architectural Dependencies
+
+- [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
+- [Component Architecture Desktop App](../architecture/component-architecture-desktop-app.md)
+
+## Required Behavior
+
+- Workflows must be authored as explicit phase definitions with stable ids and versioned structure.
+- A workflow phase may create runs, request approvals, emit artifacts, or block on participant input.
+- Workflow execution must remain visible in the session timeline and must preserve per-phase provenance.
+- Phase outputs must be durable and addressable after workflow completion.
+- Workflow execution must be resumable after daemon restart or client reconnect.
+
+## Default Behavior
+
+- Workflow phases default to sequential execution unless the definition explicitly marks safe parallelism.
+- Each phase defaults to one primary target channel and one primary producing run.
+- Workflow definitions default to immutable-by-version: editing a workflow creates a new version rather than mutating a running definition in place.
+
+## Fallback Behavior
+
+- If a later phase depends on unavailable capabilities, the workflow must pause in a blocked state instead of silently skipping the phase.
+- If a workflow definition changes while an older version is running, the running instance must continue on the version it started with.
+- If a phase output is large or unavailable inline, the workflow timeline must link to a durable artifact reference instead of dropping the output.
+
+## Interfaces And Contracts
+
+- `WorkflowDefinitionCreate` must persist phase definitions and version metadata.
+- `WorkflowRunStart` must bind a workflow version to a session and create phase execution state.
+- `PhaseOutputRead` must expose durable phase outputs and artifact references.
+- `WorkflowGateResolve` must resolve workflow-scoped approvals or participant questions.
+
+## State And Data Implications
+
+- Workflow definitions, versions, and phase outputs must be durable and replayable.
+- Running workflows require phase-state persistence separate from UI state.
+- Workflow and run histories must remain cross-linked for audit and replay.
+
+## Example Flows
+
+- `Example: A workflow runs `analyze -> plan -> implement -> review`, pausing between plan and implement for a human approval gate.`
+- `Example: A workflow is edited after one instance has already started. The running instance continues on the old version while new runs use the new version.`
+
+## Implementation Notes
+
+- Workflow authoring belongs in the product, but workflow execution still uses the same run, approval, and artifact primitives as free-form sessions.
+- Version immutability simplifies replay and support.
+- Phase-level parallelism should remain explicit and bounded.
+
+## Pitfalls To Avoid
+
+- Mutating running workflow definitions in place
+- Hiding workflow phase outputs outside the session timeline
+- Treating workflow pause as a UI-only banner with no durable execution state
+
+## Acceptance Criteria
+
+- [ ] Workflows can be authored as versioned phase definitions.
+- [ ] Workflow runs survive reconnect and restart with phase state intact.
+- [ ] Workflow phase outputs remain addressable after workflow completion.
+
+## ADR Triggers
+
+- If workflow execution requires a materially different orchestration model than session and run primitives allow, create a new ADR before implementation.
+
+## Open Questions
+
+- Whether global workflow libraries are in scope for the first implementation or only session- and project-scoped definitions.
+
+## References
+
+- [Multi Agent Channels And Orchestration](../specs/016-multi-agent-channels-and-orchestration.md)
+- [Agent Channel And Run Model](../domain/agent-channel-and-run-model.md)

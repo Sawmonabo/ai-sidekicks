@@ -1,0 +1,108 @@
+# Spec-002: Invite Membership And Presence
+
+| Field | Value |
+| --- | --- |
+| **Status** | `approved` |
+| **NNN** | `002` |
+| **Slug** | `invite-membership-and-presence` |
+| **Date** | `2026-04-14` |
+| **Author(s)** | `Codex` |
+| **Depends On** | [Participant And Membership Model](../domain/participant-and-membership-model.md), [Session Model](../domain/session-model.md), [Component Architecture Control Plane](../architecture/component-architecture-control-plane.md), [Security Architecture](../architecture/security-architecture.md), [Shared Session Core](../specs/001-shared-session-core.md) |
+| **Implementation Plan** | [Plan-002: Invite Membership And Presence](../plans/002-invite-membership-and-presence.md) |
+
+## Purpose
+
+Define how participants are invited into sessions, how membership is granted, and how live presence is tracked.
+
+## Scope
+
+This spec covers invite lifecycle, membership assignment, role changes, and participant presence.
+
+## Non-Goals
+
+- Runtime-node attach details
+- Artifact-level sharing policy
+- Full identity-provider contract
+
+## Domain Dependencies
+
+- [Participant And Membership Model](../domain/participant-and-membership-model.md)
+- [Session Model](../domain/session-model.md)
+
+## Architectural Dependencies
+
+- [Component Architecture Control Plane](../architecture/component-architecture-control-plane.md)
+- [Security Architecture](../architecture/security-architecture.md)
+
+## Required Behavior
+
+- The system must support issuing an invite into an existing live session.
+- Accepting an invite must create or activate membership without interrupting active session runs.
+- Invite lifecycle must support `issued`, `accepted`, `declined`, `revoked`, and `expired`.
+- Membership must be durable and separate from ephemeral presence.
+- A participant must be able to join a session before attaching any runtime node.
+- Presence updates must support at least `online`, `idle`, `reconnecting`, and `offline`.
+- Role changes and membership revocation must be explicit events in session history.
+
+## Default Behavior
+
+- Invite default role is `contributor`.
+- Session creator default role is `owner`.
+- Invite default expiry is `7d` from issuance.
+- Presence heartbeat default interval is `15s`, with a reconnect grace window of `45s` before `offline`.
+
+## Fallback Behavior
+
+- If presence heartbeats are missed, the system must move the participant to `reconnecting` before `offline`.
+- If an invited participant cannot attach a runtime node, they may still observe and chat according to membership role.
+- If invite delivery fails, the invite remains durable and may be re-shared or revoked without recreating the session.
+
+## Interfaces And Contracts
+
+- `InviteCreate` must include session id, inviter, proposed role, and expiry.
+- `InviteAccept` must create active membership and emit participant join events.
+- `MembershipUpdate` must support role change, suspension, and revocation.
+- `PresenceHeartbeat` must accept participant id, device or client id, and last-known activity state.
+
+## State And Data Implications
+
+- Invite records must be durable until accepted, declined, revoked, or expired.
+- Membership records must survive client restart and presence loss.
+- Presence records may be ephemeral in memory with durable state-change history emitted as events.
+
+## Example Flows
+
+- `Example: A reviewer is invited into an active implementation session, accepts the invite, appears online in the participant roster, and reads the active timeline without interrupting the current run.`
+- `Example: A participant drops offline mid-session. Their membership remains active while presence moves through reconnecting to offline.`
+
+## Implementation Notes
+
+- Presence timing values must be configurable, but the default behavior must be stable enough for testing.
+- Membership state belongs to shared control-plane storage, not client cache.
+- Invite acceptance should not imply approval or execution authority on any participant machine.
+
+## Pitfalls To Avoid
+
+- Treating socket connectivity as proof of membership
+- Auto-attaching runtime nodes as part of invite acceptance
+- Hiding role changes or revocations from audit history
+
+## Acceptance Criteria
+
+- [ ] An invited participant can join an already active session without resetting active runs.
+- [ ] Membership remains durable when presence goes offline and later returns.
+- [ ] Revoking membership prevents further join and approval actions while preserving historical authorship.
+
+## ADR Triggers
+
+- If membership and runtime trust are collapsed into one permission model, create or update `../decisions/007-collaboration-trust-and-permission-model.md`.
+
+## Open Questions
+
+- Whether guest invites are supported in v1 or all invitees must authenticate before acceptance.
+
+## References
+
+- [Participant And Membership Model](../domain/participant-and-membership-model.md)
+- [Component Architecture Control Plane](../architecture/component-architecture-control-plane.md)
+- [Security Architecture](../architecture/security-architecture.md)

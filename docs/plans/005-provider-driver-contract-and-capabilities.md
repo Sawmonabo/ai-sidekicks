@@ -1,0 +1,90 @@
+# Plan-005: Provider Driver Contract And Capabilities
+
+| Field | Value |
+| --- | --- |
+| **Status** | `approved` |
+| **NNN** | `005` |
+| **Slug** | `provider-driver-contract-and-capabilities` |
+| **Date** | `2026-04-14` |
+| **Author(s)** | `Codex` |
+| **Spec** | [Spec-005: Provider Driver Contract And Capabilities](../specs/005-provider-driver-contract-and-capabilities.md) |
+| **Required ADRs** | [ADR-005](../decisions/005-provider-drivers-use-a-normalized-interface.md) |
+
+## Goal
+
+Implement the normalized provider driver contract, capability registry, and runtime binding persistence.
+
+## Scope
+
+This plan covers shared driver interfaces, two initial drivers, capability refresh, and recovery binding storage.
+
+## Non-Goals
+
+- Multi-agent workflow semantics
+- Provider-specific UI tuning beyond capability exposure
+- Support for every future provider in the first pass
+
+## Preconditions
+
+- [x] Paired spec is approved
+- [x] Required ADRs are accepted
+- [ ] Blocking open questions are resolved or explicitly deferred
+
+## Target Areas
+
+- `packages/contracts/src/provider-driver.ts`
+- `packages/runtime-daemon/src/provider/provider-registry.ts`
+- `packages/runtime-daemon/src/provider/runtime-binding-store.ts`
+- `packages/runtime-daemon/src/provider/drivers/codex/`
+- `packages/runtime-daemon/src/provider/drivers/claude/`
+- `packages/client-sdk/src/providerClient.ts`
+
+## Data And Storage Changes
+
+- Add local `runtime_bindings` and `driver_capabilities` persistence.
+
+## API And Transport Changes
+
+- Add typed driver capability and driver runtime events to the client SDK.
+- Define internal driver interface for create or resume or start or interrupt or respond or close.
+
+## Implementation Steps
+
+1. Define contract types and capability schema.
+2. Implement registry and runtime binding persistence.
+3. Implement initial Codex and Claude drivers against the contract.
+4. Add client SDK exposure for capability-aware controls and diagnostics.
+
+## Parallelization Notes
+
+- Contract work and binding-store work can start first.
+- Codex and Claude driver implementations can proceed in parallel once the contract stabilizes.
+
+## Test And Verification Plan
+
+- Contract conformance tests for driver lifecycle methods
+- Capability matrix tests for control exposure
+- Recovery tests for adopt-existing and resume-handle paths
+
+## Rollout Order
+
+1. Land shared driver contract and registry
+2. Port first driver
+3. Port second driver
+4. Enable capability-driven UI behavior
+
+## Rollback Or Fallback
+
+- Keep one driver behind a compatibility adapter if the full contract rollout regresses.
+
+## Risks And Blockers
+
+- Contract churn while both initial drivers are under construction
+- Recovery semantics may diverge before enough conformance tests exist
+
+## Done Checklist
+
+- [ ] Code changes implemented
+- [ ] Tests added or updated
+- [ ] Verification completed
+- [ ] Related docs updated

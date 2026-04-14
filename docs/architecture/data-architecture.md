@@ -1,0 +1,67 @@
+# Data Architecture
+
+## Purpose
+
+Define the system's durable storage model and the boundary between local runtime state and shared collaboration state.
+
+## Scope
+
+This document covers durable stores, event logs, projections, artifacts, and recovery metadata.
+
+## Context
+
+The product requires durable replay and recovery while keeping local execution private and machine-scoped. That requires a deliberate split between local runtime storage and shared collaboration storage.
+
+## Responsibilities
+
+- persist runtime events, receipts, projections, and recovery handles locally
+- persist session directory, membership, invite, and presence history in shared storage
+- support replay and projection rebuild
+- preserve artifact provenance and audit history
+
+## Component Boundaries
+
+| Store | Responsibility |
+| --- | --- |
+| `Local SQLite Store` | Canonical node-local event log, command receipts, runtime bindings, queue state, run projections, and approval records needed for local recovery. |
+| `Shared Postgres Store` | Shared session metadata, invites, memberships, presence history, session directory, and cross-node coordination records. |
+| `Artifact Storage` | Durable artifact payloads and manifests, split between local-only and shared-visibility artifacts according to policy. |
+| `Projection Layer` | Read-optimized materializations derived from canonical event streams and shared coordination records. |
+
+## Data Flow
+
+1. Local execution state changes append to the local event log.
+2. Local projections update from those events for fast reads and replay safety.
+3. Shared collaboration actions write to the shared relational store.
+4. Artifact manifests record provenance and visibility; payloads are stored locally or shared according to policy.
+5. Clients read merged projections from local and shared stores.
+
+## Trust Boundaries
+
+- Local SQLite stores machine-scoped execution truth and recovery data.
+- Shared Postgres stores collaboration truth, not local code-execution authority.
+- Artifact replication across that boundary must respect visibility and trust policy.
+
+## Failure Modes
+
+- Local SQLite corruption prevents replay until repaired or restored.
+- Projection lag causes stale reads even when canonical events exist.
+- Shared metadata writes succeed while local artifact publication fails, leaving partial visibility that must be reconciled.
+- Artifact visibility policy is misapplied and exposes local-only outputs too broadly.
+
+## Related Domain Docs
+
+- [Session Model](../domain/session-model.md)
+- [Queue And Intervention Model](../domain/queue-and-intervention-model.md)
+- [Artifact Diff And Approval Model](../domain/artifact-diff-and-approval-model.md)
+
+## Related Specs
+
+- [Session Event Taxonomy And Audit Log](../specs/006-session-event-taxonomy-and-audit-log.md)
+- [Artifacts Files And Attachments](../specs/014-artifacts-files-and-attachments.md)
+- [Persistence Recovery And Replay](../specs/015-persistence-recovery-and-replay.md)
+- [Observability And Failure Recovery](../specs/020-observability-and-failure-recovery.md)
+
+## Related ADRs
+
+- [SQLite Local State And Postgres Control Plane](../decisions/004-sqlite-local-state-and-postgres-control-plane.md)
