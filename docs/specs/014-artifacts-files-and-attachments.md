@@ -68,12 +68,16 @@ This spec covers artifact types, attachment ingestion, storage expectations, man
 - `ArtifactRead` must return manifest plus retrievable payload handle or inline content where appropriate.
 - `ArtifactVisibilityUpdate` must require policy and authorization checks.
 - `AttachmentIngest` must normalize names, media type, and size metadata.
+- Artifact storage uses an OCI-inspired manifest envelope: `{id: ArtifactId, sessionId, runId, digest: SHA-256, size, artifactType, annotations, subject?, createdAt}`.
+- `artifactType` is a discriminator: `"diff"`, `"design"`, `"file"`, `"log"`.
+- `subject` field enables artifact linking (e.g., a diff artifact referencing its parent run artifact).
 
 ## State And Data Implications
 
 - Artifact manifests are durable records and part of replayable session history.
 - Payload storage may differ from manifest storage, but provenance must stay intact across both.
 - Artifact visibility changes must be auditable.
+- Plan-014 owns the `artifact_manifests` table. Plan-011's `diff_artifacts` references manifests via foreign key.
 - Any redacted or summarized shareable derivative must be a separate artifact with its own manifest and provenance rather than an in-place mutation of the original artifact.
 
 ## Example Flows
@@ -85,7 +89,7 @@ This spec covers artifact types, attachment ingestion, storage expectations, man
 ## Implementation Notes
 
 - Artifact immutability matters more than original path convenience.
-- Content-addressable payload storage is preferred when practical.
+- Content-addressable storage (CAS) is keyed by SHA-256 for automatic deduplication.
 - Attachment manifests should stay small enough for routine timeline and replay use.
 
 ## Pitfalls To Avoid

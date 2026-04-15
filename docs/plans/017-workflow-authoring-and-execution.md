@@ -9,6 +9,7 @@
 | **Author(s)** | `Codex` |
 | **Spec** | [Spec-017: Workflow Authoring And Execution](../specs/017-workflow-authoring-and-execution.md) |
 | **Required ADRs** | [ADR-001](../decisions/001-session-is-the-primary-domain-object.md), [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md) |
+| **References** | [Updated Spec-017](../specs/017-workflow-authoring-and-execution.md) (V1 scope: single-agent + automated phases, all 4 gates) |
 
 ## Goal
 
@@ -27,7 +28,7 @@ This plan covers workflow definition persistence, versioning, workflow run state
 ## Preconditions
 
 - [x] Paired spec is approved
-- [ ] Required ADRs are accepted
+- [x] Required ADRs are accepted
 - [x] Blocking open questions are resolved or explicitly deferred
 
 Target paths below assume the canonical implementation topology defined in [Container Architecture](../architecture/container-architecture.md).

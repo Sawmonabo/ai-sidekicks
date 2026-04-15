@@ -2,12 +2,12 @@
 
 | Field | Value |
 | -------------- | ------------------------------------------------------------------------ |
-| **Status** | `proposed` |
+| **Status** | `accepted` |
 | **Type** | `Type 2 (one-way door)` |
 | **Domain** | `Data Architecture` |
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
-| **Reviewers** | `Pending assignment` |
+| **Reviewers** | `Accepted 2026-04-15` |
 
 ## Context
 
@@ -152,3 +152,4 @@ JSON files are too weak for replay-heavy, event-oriented runtime truth. A single
 |------|-------|-------|
 | 2026-04-14 | Proposed | Initial draft |
 | 2026-04-14 | Re-baselined | Reviewer assignment and acceptance validation remain incomplete |
+| 2026-04-15 | Accepted | ADR accepted |

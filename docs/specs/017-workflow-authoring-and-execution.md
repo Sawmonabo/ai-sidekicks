@@ -37,12 +37,20 @@ This spec covers workflow definitions, phase execution, phase outputs, and workf
 
 ## Required Behavior
 
+- V1 scope: `single-agent` and `automated` phase types. All 4 gate types (`auto-continue`, `quality-checks`, `human-approval`, `done`). Sequential phase execution. `multi-agent` and `human` phase types deferred to V1.1.
+- Full type hierarchy (define now, implement V1 subset):
+  - Phase types: `single-agent`, `multi-agent` (V1.1), `automated`, `human` (V1.1)
+  - Gate types: `auto-continue`, `quality-checks`, `human-approval`, `done`
+  - Failure behaviors: `retry`, `go-back-to`, `stop`
+  - Phase run statuses: `pending`, `running`, `completed`, `failed`, `skipped`
+  - Gate result statuses: `passed`, `failed`, `waiting-human`
 - Workflows must be authored as explicit phase definitions with stable ids and versioned structure.
 - Workflow definitions must be stored as first-class durable definition and version records. Artifact publication may represent workflow exports or summaries, but it must not be the canonical source of workflow definition truth.
 - A workflow phase may create runs, request approvals, emit artifacts, or block on participant input.
 - Workflow execution must remain visible in the session timeline and must preserve per-phase provenance.
 - Phase outputs must be durable and addressable after workflow completion.
 - Workflow execution must be resumable after daemon restart or client reconnect.
+- All phase execution routes through existing `OrchestrationRunCreate` per Spec-016/017 constraints.
 
 ## Default Behavior
 
@@ -62,6 +70,7 @@ This spec covers workflow definitions, phase execution, phase outputs, and workf
 - `WorkflowDefinitionCreate` must persist phase definitions and version metadata.
 - `WorkflowDefinitionRead` must return the canonical definition record and selected version metadata for the requested scope.
 - `WorkflowRunStart` must bind a workflow version to a session and create phase execution state.
+- Definition/execution entity separation: `WorkflowPhaseId` identifies a phase in the definition (static); `PhaseRunId` identifies a specific execution (with iteration number, status, timestamps).
 - `PhaseOutputRead` must expose durable phase outputs and artifact references.
 - `WorkflowGateResolve` must resolve workflow-scoped approvals or participant questions.
 
@@ -84,6 +93,7 @@ This spec covers workflow definitions, phase execution, phase outputs, and workf
 - Workflow authoring belongs in the product, but workflow execution still uses the same run, approval, and artifact primitives as free-form sessions.
 - Version immutability simplifies replay and support.
 - Phase-level parallelism should remain explicit and bounded.
+- Persistence uses LangGraph-inspired checkpoint pattern on existing SQLite store (Spec-015). No external workflow engines (Temporal, Restate) -- contradicts ADR-002 (local-first).
 
 ## Pitfalls To Avoid
 

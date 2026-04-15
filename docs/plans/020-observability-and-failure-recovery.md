@@ -27,7 +27,7 @@ This plan covers runtime health projections, failure-category reads, stuck-run i
 ## Preconditions
 
 - [x] Paired spec is approved
-- [ ] Required ADRs are accepted
+- [x] Required ADRs are accepted
 - [x] Blocking open questions are resolved or explicitly deferred
 
 Target paths below assume the canonical implementation topology defined in [Container Architecture](../architecture/container-architecture.md).

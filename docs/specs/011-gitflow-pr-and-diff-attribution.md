@@ -39,7 +39,9 @@ This spec covers branch strategy, PR preparation, diff artifacts, and attributio
 - Every writable coding run in `branch`, `worktree`, or `ephemeral clone` mode must execute against an explicit branch context.
 - The git engine must track base branch, head branch, and worktree association for each writable coding context.
 - Diff artifacts must carry provenance to the producing run when that attribution is available.
+- DiffArtifact is a specialized artifact with `artifactType: "diff"` in the shared manifest envelope (defined in Spec-014).
 - When precise run attribution is unavailable, the system must emit a clearly labeled workspace-level diff artifact rather than implying precise run attribution.
+- Code attribution uses Agent Trace standard + git trailers (`Agent-Run: <run-id>`, `Co-authored-by: <agent-name>`) for both commit-level and line-level provenance.
 - PR preparation must use the recorded base and head branch context rather than inferring it from the currently selected client tab.
 - Commit, push, and PR preparation actions must be reviewable before execution.
 
@@ -62,11 +64,13 @@ This spec covers branch strategy, PR preparation, diff artifacts, and attributio
 - `DiffArtifactCreate` must identify attribution mode and compared states.
 - `PRPrepare` must generate a reviewable proposal before any remote mutation.
 - `GitActionExecute` must preserve causation to the requesting run or participant.
+- Git hosting uses a `GitHostingAdapter` interface with `gh` CLI as the V1 implementation. Normalized terminology: `createChangeRequest` (not `createPullRequest`). Auto-detect provider from git remote URL.
 
 ## State And Data Implications
 
 - Branch and PR metadata belong to daemon-owned git projections.
 - Diff artifacts must store attribution mode, provenance, and compared-state identifiers.
+- The `diff_artifacts` table references `artifact_manifests` via foreign key. Plan-014 (artifacts) is a dependency of Plan-011 (git flow).
 - Reviewable git actions require durable audit records.
 
 ## Example Flows
@@ -106,3 +110,4 @@ This spec covers branch strategy, PR preparation, diff artifacts, and attributio
 - [Repo Workspace Worktree Model](../domain/repo-workspace-worktree-model.md)
 - [Artifact Diff And Approval Model](../domain/artifact-diff-and-approval-model.md)
 - [Worktree Lifecycle And Execution Modes](../specs/010-worktree-lifecycle-and-execution-modes.md)
+- [Spec-014](./014-artifacts-files-and-attachments.md)

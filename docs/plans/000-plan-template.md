@@ -41,7 +41,7 @@
 ## Preconditions
 
 - [ ] Paired spec is approved
-- [ ] Required ADRs are accepted
+- [x] Required ADRs are accepted
 - [ ] Blocking open questions are resolved or explicitly deferred
 
 ## Target Areas

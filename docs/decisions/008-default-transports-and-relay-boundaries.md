@@ -2,12 +2,12 @@
 
 | Field | Value |
 | -------------- | ------------------------------------------------------------------------ |
-| **Status** | `proposed` |
+| **Status** | `accepted` |
 | **Type** | `Type 1 (two-way door)` |
 | **Domain** | `Transport Architecture` |
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
-| **Reviewers** | `Pending assignment` |
+| **Reviewers** | `Accepted 2026-04-15` |
 
 ## Context
 
@@ -106,3 +106,4 @@ We will default to OS-local IPC for client-to-daemon communication, use authenti
 |------|-------|-------|
 | 2026-04-14 | Proposed | Initial draft |
 | 2026-04-14 | Re-baselined | Reviewer assignment and template-complete acceptance remain incomplete |
+| 2026-04-15 | Accepted | ADR accepted |

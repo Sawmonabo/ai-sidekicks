@@ -28,6 +28,10 @@ The product requires durable replay and recovery while keeping local execution p
 | `Artifact Storage` | Durable artifact payloads and manifests, split between `local-only` and shared-visible artifacts according to policy. |
 | `Projection Layer` | Read-optimized materializations derived from canonical event streams and shared coordination records. |
 
+Artifact Storage uses an OCI-inspired manifest envelope with content-addressable storage (CAS) keyed by SHA-256 for deduplication. Locally, artifacts are stored on the filesystem. For shared artifacts, blob storage is used.
+
+Presence data is ephemeral. It is maintained as a Yjs Awareness CRDT in memory only and is NOT persisted to any durable store. In V1, cross-node fan-out for presence uses Postgres LISTEN/NOTIFY.
+
 ## Data Flow
 
 1. Local execution state changes append to the local event log.
@@ -41,6 +45,10 @@ The product requires durable replay and recovery while keeping local execution p
 - Local SQLite stores machine-scoped execution truth and recovery data.
 - Shared Postgres stores collaboration truth, not local code-execution authority.
 - Artifact replication across that boundary must respect visibility and trust policy.
+
+## Privacy and Data Protection
+
+PII fields in session events are stored in a separate encrypted column (`pii_payload`) using per-participant AES-256-GCM keys. This enables crypto-shredding for GDPR deletion: destroying a participant's key renders their PII unrecoverable without affecting the rest of the event log.
 
 ## Failure Modes
 

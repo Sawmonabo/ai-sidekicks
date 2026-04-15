@@ -2,12 +2,12 @@
 
 | Field | Value |
 | -------------- | ------------------------------------------------------------------------ |
-| **Status** | `proposed` |
+| **Status** | `accepted` |
 | **Type** | `Type 1 (two-way door)` |
 | **Domain** | `Git Workflow` |
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
-| **Reviewers** | `Pending assignment` |
+| **Reviewers** | `Accepted 2026-04-15` |
 
 ## Context
 
@@ -104,3 +104,4 @@ We will use the four-mode execution taxonomy `read-only`, `branch`, `worktree`, 
 |------|-------|-------|
 | 2026-04-14 | Proposed | Initial draft |
 | 2026-04-14 | Re-baselined | Reviewer assignment and template-complete acceptance remain incomplete |
+| 2026-04-15 | Accepted | ADR accepted |

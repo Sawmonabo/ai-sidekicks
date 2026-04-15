@@ -17,6 +17,7 @@ This file is the active development backlog for the product defined in [vision.m
 - `todo`
 - `in_progress`
 - `blocked`
+- `completed`
 
 ## Priority Values
 
@@ -32,7 +33,8 @@ These items block every plan and feature. Nothing can proceed until they are res
 
 ### BL-001: Accept All 8 ADRs
 
-- Status: `todo`
+- Status: `completed`
+- Resolution: All 8 ADRs accepted 2026-04-15. All plan precondition checkboxes checked.
 - Priority: `P0`
 - Owner: `unassigned`
 - References: [ADR-001](./decisions/001-session-is-the-primary-domain-object.md), [ADR-002](./decisions/002-local-execution-shared-control-plane.md), [ADR-003](./decisions/003-daemon-backed-queue-and-interventions.md), [ADR-004](./decisions/004-sqlite-local-state-and-postgres-control-plane.md), [ADR-005](./decisions/005-provider-drivers-use-a-normalized-interface.md), [ADR-006](./decisions/006-worktree-first-execution-mode.md), [ADR-007](./decisions/007-collaboration-trust-and-permission-model.md), [ADR-008](./decisions/008-default-transports-and-relay-boundaries.md)
@@ -41,7 +43,8 @@ These items block every plan and feature. Nothing can proceed until they are res
 
 ### BL-002: Choose IPC Wire Format
 
-- Status: `todo`
+- Status: `completed`
+- Resolution: JSON-RPC 2.0 + Content-Length framing. See ADR-009, Spec-007.
 - Priority: `P0`
 - Owner: `unassigned`
 - References: [Spec-007](./specs/007-local-ipc-and-daemon-control.md), [Vision](./vision.md)
@@ -69,6 +72,7 @@ These items block every plan and feature. Nothing can proceed until they are res
 ### BL-005: Specify Authentication and Token Model
 
 - Status: `todo`
+- Note: Auth model decisions captured in [ADR-010](./decisions/010-paseto-webauthn-mls-auth.md) and [updated security-architecture.md](./architecture/security-architecture.md). Implementation remains.
 - Priority: `P0`
 - Owner: `unassigned`
 - References: [Security Architecture](./architecture/security-architecture.md), [Spec-002](./specs/002-invite-membership-and-presence.md), [Spec-008](./specs/008-control-plane-relay-and-session-join.md), [ADR-007](./decisions/007-collaboration-trust-and-permission-model.md)
@@ -90,7 +94,8 @@ These items block every plan and feature. Nothing can proceed until they are res
 
 ### BL-007: Add `pauseRun` and `steerRun` Driver Operations to Spec-005
 
-- Status: `todo`
+- Status: `completed`
+- Resolution: applyIntervention added, pause removed from flags. See ADR-011, Spec-005.
 - Priority: `P0`
 - Owner: `unassigned`
 - References: [Spec-005](./specs/005-provider-driver-contract-and-capabilities.md), [Spec-004](./specs/004-queue-steer-pause-resume.md), [Run State Machine](./domain/run-state-machine.md)
@@ -100,6 +105,7 @@ These items block every plan and feature. Nothing can proceed until they are res
 ### BL-008: Complete Run State Machine Transition Table
 
 - Status: `todo`
+- Note: Run state machine updated to 9 states. See [updated run-state-machine.md](./domain/run-state-machine.md). Transition table completion remains.
 - Priority: `P0`
 - Owner: `unassigned`
 - References: [Run State Machine](./domain/run-state-machine.md), [Spec-004](./specs/004-queue-steer-pause-resume.md)
@@ -109,6 +115,7 @@ These items block every plan and feature. Nothing can proceed until they are res
 ### BL-009: Reconcile Intervention States Between Domain Model and Spec-004
 
 - Status: `todo`
+- Note: Intervention model updated to 6 states. See [updated queue-and-intervention-model.md](./domain/queue-and-intervention-model.md). Full reconciliation remains.
 - Priority: `P0`
 - Owner: `unassigned`
 - References: [Queue and Intervention Model](./domain/queue-and-intervention-model.md), [Spec-004](./specs/004-queue-steer-pause-resume.md)
@@ -118,6 +125,7 @@ These items block every plan and feature. Nothing can proceed until they are res
 ### BL-010: Specify Invite Delivery Mechanism
 
 - Status: `todo`
+- Note: Invite token format specified. See [updated Spec-002](./specs/002-invite-membership-and-presence.md). Delivery mechanism specification remains.
 - Priority: `P0`
 - Owner: `unassigned`
 - References: [Spec-002](./specs/002-invite-membership-and-presence.md), [Plan-002](./plans/002-invite-membership-and-presence.md)
@@ -126,7 +134,8 @@ These items block every plan and feature. Nothing can proceed until they are res
 
 ### BL-013: Resolve Sequence-Assignment Contradiction
 
-- Status: `todo`
+- Status: `completed`
+- Resolution: Dual-counter model adopted. See Spec-006.
 - Priority: `P0`
 - Owner: `unassigned`
 - References: [Spec-006](./specs/006-session-event-taxonomy-and-audit-log.md), [Plan-006](./plans/006-session-event-taxonomy-and-audit-log.md)
@@ -135,7 +144,8 @@ These items block every plan and feature. Nothing can proceed until they are res
 
 ### BL-014a: Decide Workflow V1 Scope
 
-- Status: `todo`
+- Status: `completed`
+- Resolution: Workflows are V1: single-agent + automated phases, all 4 gates. See Spec-017.
 - Priority: `P0`
 - Owner: `unassigned`
 - References: [Spec-017](./specs/017-workflow-authoring-and-execution.md), [Vision](./vision.md)
@@ -276,6 +286,7 @@ These items block every plan and feature. Nothing can proceed until they are res
 ### BL-015: Define Per-Driver Capability Matrix
 
 - Status: `todo`
+- Note: Capability flags updated to 7 (pause removed). See [ADR-011](./decisions/011-generic-intervention-dispatch.md). Matrix definition remains.
 - Priority: `P1`
 - Owner: `unassigned`
 - References: [Spec-005](./specs/005-provider-driver-contract-and-capabilities.md), [Plan-005](./plans/005-provider-driver-contract-and-capabilities.md)

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Define the canonical lifecycle of a run so queueing, steering, pause and resume, approvals, recovery, and failure semantics are unambiguous.
+Define the canonical lifecycle of a run so queueing, steering, pause and resume, approvals, interruption, and failure semantics are unambiguous.
 
 ## Scope
 
@@ -53,8 +53,6 @@ The run state machine is the source of truth for execution lifecycle semantics.
 | `waiting_for_approval` | The run is blocked on an approval request. |
 | `waiting_for_input` | The run is blocked on participant input or structured answers. |
 | `paused` | The run has been intentionally suspended and can later continue with the same run id. |
-| `recovering` | The runtime is reconstructing the run after restart or transport failure. |
-| `interrupting` | An interrupt or cancel action has been accepted but not yet finalized. |
 | `completed` | The run finished successfully. |
 | `interrupted` | The run ended because of an interrupt or cancel path. |
 | `failed` | The run ended because of an unrecovered error. |
@@ -63,20 +61,19 @@ Primary allowed transitions:
 
 - `queued -> starting`
 - `starting -> running`
+- `starting -> failed`
 - `running -> waiting_for_approval`
 - `running -> waiting_for_input`
 - `running -> paused`
-- `running -> interrupting`
+- `running -> interrupted`
 - `running -> completed`
 - `running -> failed`
 - `waiting_for_approval -> running`
+- `waiting_for_approval -> interrupted`
 - `waiting_for_input -> running`
+- `waiting_for_input -> interrupted`
 - `paused -> running`
-- `interrupting -> interrupted`
-- `recovering -> running`
-- `recovering -> waiting_for_approval`
-- `recovering -> waiting_for_input`
-- `recovering -> failed`
+- `paused -> interrupted`
 
 ## Derived Failure And Recovery Signals
 
@@ -91,22 +88,30 @@ The canonical run lifecycle has one failure terminal state: `failed`. Additional
 | `local persistence failure` | Canonical local storage was unavailable or inconsistent enough that recovery or safe mutation could not continue. | Failure category, not `RunState` |
 | `projection failure` | Replay or projection rebuild could not produce trustworthy read state. | Failure category, not `RunState` |
 
-- A run may remain in `recovering` while automatic recovery is in progress.
+- Recovery is handled by startup reconciliation: on boot the daemon detects stale runs and dispatches corrective commands. There is no visible `recovering` state.
 - If recovery cannot proceed safely, the run transitions to `failed`; failure detail may then carry one or more failure categories plus `recovery-needed` when intervention is still required.
 
 ## Example Flows
 
 - Example: A queued implementation task is admitted, moves through `starting` to `running`, pauses for approval before a risky file write, returns to `running` after approval, and ends in `completed`.
-- Example: A daemon restarts during execution. The run enters `recovering`, reconstructs provider and workspace bindings, then returns to `running`.
-- Example: A user stops an active run. The run moves to `interrupting` and then `interrupted`.
+- Example: A daemon restarts during execution. Startup reconciliation detects the stale run and dispatches corrective commands to resume or fail it.
+- Example: A user stops an active run. The run transitions directly from `running` to `interrupted`.
+
+## Child-Run Behavior
+
+- When a parent run is interrupted, all child runs are interrupted.
 
 ## Edge Cases
 
 - A run may fail from `starting` if workspace or provider initialization cannot complete.
 - A driver that cannot truly support `paused` must not advertise pause capability for that run.
-- A reconnecting client may observe a run return from `recovering` to a blocking state without ever seeing the intermediate live transport loss.
+- Interruption is a synchronous or near-synchronous provider call. There is no intermediate `interrupting` state; runs transition directly to `interrupted`.
 - A run may be `failed` with `provider failure` detail after an unsuccessful resume attempt; provider-specific failure causes do not create separate run states.
 - A run may be `failed` with visible `recovery-needed` condition after automatic recovery is exhausted; failed recovery remains visible through failure detail and recovery condition rather than a separate terminal run state.
+
+## Implementation Note
+
+Implementation uses a hybrid approach: XState v5 for internal transition logic and guard validation (with Stately Studio visualization), TypeScript discriminated union for the public API (compile-time state narrowing).
 
 ## Related Specs
 

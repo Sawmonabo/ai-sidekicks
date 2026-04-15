@@ -9,6 +9,7 @@
 | **Author(s)** | `Codex` |
 | **Spec** | [Spec-002: Invite Membership And Presence](../specs/002-invite-membership-and-presence.md) |
 | **Required ADRs** | [ADR-002](../decisions/002-local-execution-shared-control-plane.md), [ADR-007](../decisions/007-collaboration-trust-and-permission-model.md), [ADR-008](../decisions/008-default-transports-and-relay-boundaries.md) |
+| **References** | [Spec-002 presence amendments](../specs/002-invite-membership-and-presence.md) (Yjs Awareness, Postgres LISTEN/NOTIFY), [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md) (auth model) |
 
 ## Goal
 
@@ -27,7 +28,7 @@ This plan covers invite create or accept or revoke flows, membership storage, pr
 ## Preconditions
 
 - [x] Paired spec is approved
-- [ ] Required ADRs are accepted
+- [x] Required ADRs are accepted
 - [x] Blocking open questions are resolved or explicitly deferred
 
 Target paths below assume the canonical implementation topology defined in [Container Architecture](../architecture/container-architecture.md).

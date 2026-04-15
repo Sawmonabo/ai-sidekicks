@@ -44,6 +44,15 @@ This spec covers approval requests, approval scopes, remembered grants, and the 
   - tool- and resource-level permission grants
 - The membership role model must distinguish at least `viewer`, `collaborator`, `runtime contributor`, and `owner`.
 - Sensitive actions must require approval or prior grant according to policy. This includes at least destructive git operations, out-of-boundary file writes, unrestricted network access, and high-risk tool execution.
+- The canonical approval category enum is:
+  - `tool_execution` — tool call approval
+  - `file_write` — out-of-boundary file writes
+  - `network_access` — unrestricted network
+  - `destructive_git` — force push, branch delete
+  - `user_input` — freeform questions from agent
+  - `plan_approval` — proposed plan review
+  - `mcp_elicitation` — MCP server input
+  - `gate` — workflow phase gate
 - Approval requests must record requester, target scope, requested capability, and expiry where applicable.
 - Approval resolution must record approver, decision, and effective scope.
 - Membership in a shared session must not imply authority to execute on another participant's machine.
@@ -90,6 +99,7 @@ This spec covers approval requests, approval scopes, remembered grants, and the 
 - Approval UX may present grouped requests, but canonical approval records must remain granular enough for audit.
 - Remembered approval scopes should be explicit enums, not free-form client labels.
 - Trust changes must propagate into approval evaluation immediately.
+- Policy evaluation uses Cedar (CNCF sandbox). V1 uses YAML policy definitions. V1.1 evaluates Cedar WASM (`@cedarpolicy/cedar-wasm`) for runtime evaluation. Cedar's principal-action-resource-context model maps to: principal = participant, action = approval category, resource = target (file, tool, network, etc.), context = session state.
 
 ## Pitfalls To Avoid
 
@@ -117,3 +127,4 @@ This spec covers approval requests, approval scopes, remembered grants, and the 
 
 - [Artifact Diff And Approval Model](../domain/artifact-diff-and-approval-model.md)
 - [Security Architecture](../architecture/security-architecture.md)
+- [ADR-012](../decisions/012-cedar-approval-policy-engine.md)

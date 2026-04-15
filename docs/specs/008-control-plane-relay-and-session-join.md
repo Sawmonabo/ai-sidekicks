@@ -45,6 +45,17 @@ This spec covers session join, relay negotiation, presence attachment, and remot
 - A participant changing between direct and relay connectivity must remain attached to the same session identity when membership is still valid.
 - The control plane must track presence for both participants and runtime nodes, even when relay is not currently in use.
 
+## Relay Encryption
+
+- Relay encryption uses MLS (RFC 9420) for group E2E encryption. Library: `ts-mls`.
+- Properties: forward secrecy, post-compromise security, O(1) sender operations, built-in replay protection.
+- KeyPackages are distributed via the control plane. Each participant's KeyPackage must be signed with their Ed25519 signing key. Recipients verify the signature against the participant's registered public key before accepting a KeyPackage. A compromised control plane cannot forge valid signatures.
+- Wire format: 4-byte length prefix + 1-byte message type (MLS ciphertext vs relay control) + payload.
+- The relay is zero-knowledge -- it forwards opaque encrypted bytes and cannot read, forge, or replay messages.
+- Connection authentication: PASETO v4 tokens.
+- WebSocket Hibernation: relay DOs sleep between messages for cost efficiency.
+- Fallback: if MLS libraries prove immature, fall back to X25519 ECDH + XChaCha20-Poly1305 via `@noble/curves` + `@noble/ciphers` with per-sender sequence numbers for replay protection.
+
 ## Default Behavior
 
 - Session join defaults to direct control-plane API and event-stream attachment.
@@ -107,3 +118,5 @@ This spec covers session join, relay negotiation, presence attachment, and remot
 - [Component Architecture Control Plane](../architecture/component-architecture-control-plane.md)
 - [Security Architecture](../architecture/security-architecture.md)
 - [Deployment Topology](../architecture/deployment-topology.md)
+- [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md)
+- [RFC 9420](https://datatracker.ietf.org/doc/rfc9420/)

@@ -9,6 +9,7 @@
 | **Author(s)** | `Codex` |
 | **Spec** | [Spec-014: Artifacts Files And Attachments](../specs/014-artifacts-files-and-attachments.md) |
 | **Required ADRs** | [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md) |
+| **References** | [Updated Spec-014](../specs/014-artifacts-files-and-attachments.md) (OCI manifest envelope, CAS) |
 
 ## Goal
 
@@ -27,7 +28,7 @@ This plan covers artifact ids and manifests, attachment ingest, payload storage,
 ## Preconditions
 
 - [x] Paired spec is approved
-- [ ] Required ADRs are accepted
+- [x] Required ADRs are accepted
 - [x] Blocking open questions are resolved or explicitly deferred
 
 Target paths below assume the canonical implementation topology defined in [Container Architecture](../architecture/container-architecture.md).

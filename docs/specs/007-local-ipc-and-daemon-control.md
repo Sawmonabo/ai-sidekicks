@@ -46,6 +46,14 @@ This spec covers transport choice, version negotiation, request and stream seman
 - Local IPC must support protocol version negotiation before mutating operations are accepted.
 - The desktop shell must be able to start, stop, supervise, and reconnect to the daemon.
 
+## Wire Format
+
+- The wire format is JSON-RPC 2.0 with LSP-style Content-Length framing (not newline-delimited). Each message is preceded by `Content-Length: <byte-count>\r\n\r\n`.
+- Maximum message size: 1 MB.
+- Every request (except health checks) must include a `protocolVersion` integer field.
+- Serialization: JSON via `JSON.stringify`/`JSON.parse`. No binary serialization.
+- The client SDK in `packages/client-sdk/` wraps JSON-RPC in a thin typed Zod layer (~500-1000 LOC), following the MCP TypeScript SDK pattern.
+
 ## Default Behavior
 
 - Desktop app default is auto-connect to the local daemon through OS-local IPC.
@@ -109,3 +117,4 @@ This spec covers transport choice, version negotiation, request and stream seman
 
 - [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
 - [Component Architecture Desktop App](../architecture/component-architecture-desktop-app.md)
+- [ADR-009](../decisions/009-json-rpc-ipc-wire-format.md)

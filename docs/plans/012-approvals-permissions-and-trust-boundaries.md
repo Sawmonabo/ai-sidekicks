@@ -9,6 +9,7 @@
 | **Author(s)** | `Codex` |
 | **Spec** | [Spec-012: Approvals Permissions And Trust Boundaries](../specs/012-approvals-permissions-and-trust-boundaries.md) |
 | **Required ADRs** | [ADR-002](../decisions/002-local-execution-shared-control-plane.md), [ADR-007](../decisions/007-collaboration-trust-and-permission-model.md) |
+| **References** | [ADR-012](../decisions/012-cedar-approval-policy-engine.md) (Cedar), [Updated Spec-012](../specs/012-approvals-permissions-and-trust-boundaries.md) (8 approval categories) |
 
 ## Goal
 
@@ -27,7 +28,7 @@ This plan covers approval records, remembered grants, daemon-side permission che
 ## Preconditions
 
 - [x] Paired spec is approved
-- [ ] Required ADRs are accepted
+- [x] Required ADRs are accepted
 - [x] Blocking open questions are resolved or explicitly deferred
 
 Target paths below assume the canonical implementation topology defined in [Container Architecture](../architecture/container-architecture.md).

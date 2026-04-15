@@ -269,6 +269,25 @@ If these are modeled cleanly, most major features become straightforward instead
 - Use local IPC as the primary desktop and CLI transport
 - Treat WebSocket as an adapter, not the center of the design
 
+### Add
+
+| Technology | Package | Purpose |
+| --- | --- | --- |
+| PASETO v4 | `paseto-ts` | Internal auth tokens (replaces JWT) |
+| WebAuthn | `@simplewebauthn/server`, `@simplewebauthn/browser` | Primary authentication (desktop) |
+| MLS (RFC 9420) | `ts-mls` | Relay E2E encryption |
+| Crypto primitives | `@noble/curves`, `@noble/ciphers` | X25519, XChaCha20-Poly1305 |
+| XState v5 | `xstate` | Internal state machine logic |
+| tRPC v11 | `@trpc/server`, `@trpc/client` | Control plane API framework |
+| CASL | `@casl/ability` | RBAC authorization |
+| Cedar | `@cedarpolicy/cedar-wasm` | Approval policy engine (V1.1) |
+| Yjs Awareness | `y-protocols` | Presence CRDT |
+| Terminal | `node-pty`, `xterm.js`, `react-xtermjs` | Terminal multiplexing |
+| Push notifications | `@pushforge/builder` | Cross-device notifications (V1.1) |
+| OpenTelemetry | `@opentelemetry/*` | Observability (traces + metrics) |
+| Agent Trace | Agent Trace spec | AI code attribution |
+| Rate limiting | `rate-limiter-flexible` | Self-hosted rate limiting |
+
 ### Add Later If Needed
 
 - a small Rust sidecar for PTY and process supervision if Node becomes the operational bottleneck

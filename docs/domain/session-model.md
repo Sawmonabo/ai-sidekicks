@@ -62,6 +62,8 @@ A session is the durable container that holds:
 | `active` | The session is usable for membership, communication, and execution. |
 | `archived` | The session is retained for history and replay but no longer accepts normal active work. |
 | `closed` | The session has been intentionally terminated and is not resumable without explicit restoration. |
+| `purge_requested` | A participant or admin has requested data purge. The session is locked against further modification while purge processing is pending. |
+| `purged` | Event payloads containing PII have been deleted via crypto-shredding. Audit stubs (timestamps, event types, non-PII metadata) are retained. Purge is irreversible. |
 
 Allowed transitions:
 
@@ -70,6 +72,8 @@ Allowed transitions:
 - `active -> closed`
 - `archived -> active`
 - `archived -> closed`
+- `archived -> purge_requested`
+- `purge_requested -> purged`
 
 ## Example Flows
 
@@ -89,6 +93,7 @@ Allowed transitions:
 - [Shared Session Core](../specs/001-shared-session-core.md)
 - [Session Event Taxonomy And Audit Log](../specs/006-session-event-taxonomy-and-audit-log.md)
 - [Control Plane Relay And Session Join](../specs/008-control-plane-relay-and-session-join.md)
+- [Data Retention And GDPR Compliance](../specs/022-data-retention-and-gdpr.md)
 
 ## Related ADRs
 

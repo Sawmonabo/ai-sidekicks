@@ -9,6 +9,7 @@
 | **Author(s)** | `Codex` |
 | **Spec** | [Spec-005: Provider Driver Contract And Capabilities](../specs/005-provider-driver-contract-and-capabilities.md) |
 | **Required ADRs** | [ADR-005](../decisions/005-provider-drivers-use-a-normalized-interface.md) |
+| **References** | [ADR-011](../decisions/011-generic-intervention-dispatch.md) (generic intervention dispatch), [Updated Spec-005](../specs/005-provider-driver-contract-and-capabilities.md) (applyIntervention, 7 capability flags) |
 
 ## Goal
 
@@ -28,7 +29,7 @@ This plan covers shared driver interfaces, two initial drivers, capability refre
 ## Preconditions
 
 - [x] Paired spec is approved
-- [ ] Required ADRs are accepted
+- [x] Required ADRs are accepted
 - [x] Blocking open questions are resolved or explicitly deferred
 
 Target paths below assume the canonical implementation topology defined in [Container Architecture](../architecture/container-architecture.md).

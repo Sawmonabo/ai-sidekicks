@@ -61,6 +61,11 @@ The canonical monorepo layout for implementation is:
 4. The control plane writes to shared metadata and emits membership, invite, relay, and notification updates.
 5. Renderers merge the two read surfaces into one session experience.
 
+## Transport Protocols
+
+- The control plane uses tRPC v11 for request-response and SSE subscriptions, plus WebSocket (JSON-RPC 2.0) for bidirectional collaboration channels (presence, live event streaming, relay coordination).
+- The local daemon uses JSON-RPC 2.0 with LSP-style Content-Length framing over Unix domain socket (named pipe on Windows).
+
 ## Trust Boundaries
 
 - `Desktop Renderer` is untrusted compared with `Desktop Shell` and `Local Runtime Daemon`.

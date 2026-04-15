@@ -42,6 +42,31 @@ Supported topologies:
 - Relay-assisted access changes connectivity, not execution authority.
 - Self-hosting changes operator ownership, not the logical security model.
 
+## Rate Limiting By Deployment
+
+Rate limiting uses a deployment-aware abstraction with identical limits across all topologies:
+
+| Deployment | Edge Layer | Application Layer |
+| --- | --- | --- |
+| `Collaborative Hosted Control Plane` (Cloudflare) | CF Workers native `rate_limit` binding (zero latency) | Sliding window counters in Durable Objects |
+| `Collaborative Self-Hosted Control Plane` | `rate-limiter-flexible` with Postgres backend | `rate-limiter-flexible` with Postgres backend |
+| `Single-Participant Local` | No rate limiting (trusted by socket reachability) | No rate limiting |
+
+The rate limiting interface is identical regardless of deployment. Implementation swaps via configuration. Self-hosted deployments use `rate-limiter-flexible` (Postgres/Redis/in-memory backends) to achieve the same semantics as the Cloudflare native binding.
+
+## Relay Scaling Strategy
+
+The relay uses Cloudflare Durable Objects with a sharding strategy to handle high-participant sessions:
+
+- **Control DO** manages session membership, connection assignments, and routes new connections to data DOs.
+- **Data DOs** handle encrypted message fan-out. Each data DO handles at most 25 WebSocket connections.
+- When participant count exceeds the per-DO connection cap (default: 25), the control DO spawns additional data DOs and distributes connections across them.
+- This follows the v2 protocol pattern (control socket + per-connection data sockets) from the relay protocol design.
+
+Expected throughput envelope per data DO: 25 connections × 100 events/sec × MLS encrypt = ~2,500 writes/sec — within Durable Object limits.
+
+**Pre-launch requirement:** Load test spike with 50 participants × 10 concurrent runs × streaming events must pass before V1 production launch.
+
 ## Failure Modes
 
 - `local-only` mode lacks collaborative features when no control plane is available.

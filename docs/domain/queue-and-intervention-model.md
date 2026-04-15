@@ -51,15 +51,32 @@ Queue item states:
 | `canceled` | Intentionally removed before admission. |
 | `expired` | No longer valid because its context or timing window lapsed. |
 
-Intervention states:
+Intervention states (6 canonical states):
 
 | State | Meaning |
 | --- | --- |
 | `requested` | Recorded and awaiting evaluation. |
 | `accepted` | Determined to be valid for the target. |
 | `applied` | Successfully changed runtime or scheduling state. |
-| `rejected` | Determined to be invalid or unauthorized. |
-| `expired` | No longer meaningful because the target state changed first. |
+| `rejected` | Determined to be invalid or unauthorized. Authorization failure produces `rejected`. |
+| `degraded` | The driver does not support the intervention type and the orchestration layer fell back (e.g., steer degrades to queue + interrupt for providers without native steer). |
+| `expired` | No longer meaningful because the target state changed first. Version guard mismatch produces `expired`. |
+
+## Intervention Entity Relationship
+
+- `InterventionRequest`: the inbound command that initiates an intervention.
+- `InterventionResult`: the outcome record produced after evaluation and execution.
+- `Intervention`: the lifecycle entity encompassing both the request and the result.
+
+## Intervention Payloads
+
+Intervention payloads are a discriminated union by type:
+
+- `steer`: `{targetRunId, expectedTurnId, expectedRunVersion, content, attachments?}`
+- `interrupt`: `{targetRunId, expectedRunVersion, reason?}`
+- `cancel`: `{targetRunId, expectedRunVersion, reason?}`
+
+All intervention types carry version guards (`expectedRunVersion`). A guard mismatch produces `expired`. An authorization failure produces `rejected`.
 
 ## Example Flows
 

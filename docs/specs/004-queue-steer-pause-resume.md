@@ -39,7 +39,7 @@ This spec covers queue admission, interventions, blocked states, and operator-vi
 - Follow-up work created while a run is active must be stored as persisted queue items unless the user explicitly requests steer and the target run supports it.
 - `pause` must transition a run into `paused`; it must not mean queue-drain suspension or blocked waiting.
 - `resume` must return a `paused` run to active execution with the same run id.
-- `interrupt` must transition a run through `interrupting` to `interrupted`.
+- `interrupt` must transition a run directly to `interrupted`. Interruption is a synchronous or near-synchronous provider call with no intermediate state.
 - Waiting for approval or input must remain `waiting_for_approval` or `waiting_for_input`, not `paused`.
 - Every intervention outcome must be visible in the canonical event stream.
 - Queue items must support cancellation before admission.
@@ -60,7 +60,7 @@ This spec covers queue admission, interventions, blocked states, and operator-vi
 
 - `QueueItemCreate`, `QueueItemList`, and `QueueItemCancel` must operate against runtime-owned durable state.
 - `InterventionRequest` must include target id, intervention type, initiator, and requested scope.
-- `InterventionResult` must distinguish `accepted`, `applied`, `rejected`, and `degraded`.
+- `InterventionResult` must distinguish the 6 canonical intervention states: `requested`, `accepted`, `applied`, `rejected`, `degraded`, and `expired`.
 - `RunStateChange` events must reflect the canonical state machine defined in `../domain/run-state-machine.md`.
 
 ## State And Data Implications
@@ -80,6 +80,7 @@ This spec covers queue admission, interventions, blocked states, and operator-vi
 - Queueing and intervention logic must live in the daemon or equivalent runtime authority, not in the currently open client.
 - UI affordances may be optimistic, but canonical run state changes must come from runtime truth.
 - Capability-aware controls are required so unsupported operations do not masquerade as working.
+- Pause is an orchestration-layer construct. The daemon interrupts the active run, persists conversation history and run state to local SQLite, and queues a resume. The driver never needs to know about pause.
 
 ## Pitfalls To Avoid
 

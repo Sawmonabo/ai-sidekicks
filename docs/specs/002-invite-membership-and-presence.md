@@ -51,6 +51,10 @@ This spec covers invite lifecycle, join-mode assignment, membership role changes
 - Session creator default role is `owner`.
 - Invite default expiry is `7d` from issuance.
 - Presence heartbeat default interval is `15s`, with a reconnect grace window of `45s` before `offline`.
+- Presence state is managed using the Yjs Awareness protocol (`y-protocols`), a purpose-built ephemeral CRDT for presence. Presence data is never persisted to durable storage — it lives in memory and is garbage-collected on disconnect.
+- Presence heartbeat payload must include at minimum: `deviceType`, `focusedSessionId`, `focusedChannelId`, `lastActivityAt`, `appVisible`.
+- Cross-node presence fan-out uses Postgres `LISTEN/NOTIFY` in V1. Redis Pub/Sub is a documented upgrade path for V1.1 if scale demands it.
+- For local IPC (daemon-to-desktop/CLI over JSON-RPC), the daemon exposes a JSON-RPC presence surface (`PresenceUpdate`, `PresenceRead`) that bridges to the Yjs Awareness state. The Yjs binary protocol runs natively on the WebSocket transport to the control plane; the JSON-RPC transport carries serialized presence state.
 
 ## Fallback Behavior
 
@@ -63,13 +67,15 @@ This spec covers invite lifecycle, join-mode assignment, membership role changes
 - `InviteCreate` must include session id, inviter, proposed join mode, and expiry.
 - `InviteAccept` must create active membership and emit participant join events.
 - `MembershipUpdate` must support role change, suspension, and revocation.
-- `PresenceHeartbeat` must accept participant id, device or client id, and last-known activity state.
+- `PresenceHeartbeat` must accept participant id, device or client id, and last-known activity state. Presence metadata carried in heartbeats: `{deviceType, focusedSessionId, focusedChannelId, lastActivityAt, appVisible}`.
+- `PresenceUpdate` (JSON-RPC, local IPC) — daemon pushes serialized Yjs Awareness state to local clients.
+- `PresenceRead` (JSON-RPC, local IPC) — local clients read current presence state for a session.
 
 ## State And Data Implications
 
 - Invite records must be durable until accepted, declined, revoked, or expired.
 - Membership records must survive client restart and presence loss.
-- Presence records may be ephemeral in memory with durable state-change history emitted as events.
+- Presence records are ephemeral (Yjs Awareness CRDT, in-memory only). Durable state-change events (`participant.went_online`, `participant.went_offline`) are emitted to the session event log for audit. Presence data itself is never written to SQLite or Postgres.
 
 ## Example Flows
 

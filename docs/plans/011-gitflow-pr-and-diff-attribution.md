@@ -9,6 +9,8 @@
 | **Author(s)** | `Codex` |
 | **Spec** | [Spec-011: Gitflow PR And Diff Attribution](../specs/011-gitflow-pr-and-diff-attribution.md) |
 | **Required ADRs** | [ADR-006](../decisions/006-worktree-first-execution-mode.md) |
+| **Dependencies** | [Plan-014](./014-artifacts-files-and-attachments.md) (artifact manifests) |
+| **References** | [Updated Spec-011](../specs/011-gitflow-pr-and-diff-attribution.md) (Agent Trace attribution, GitHostingAdapter) |
 
 ## Goal
 
@@ -27,7 +29,7 @@ This plan covers branch context persistence for writable execution modes, diff a
 ## Preconditions
 
 - [x] Paired spec is approved
-- [ ] Required ADRs are accepted
+- [x] Required ADRs are accepted
 - [x] Blocking open questions are resolved or explicitly deferred
 
 Target paths below assume the canonical implementation topology defined in [Container Architecture](../architecture/container-architecture.md).

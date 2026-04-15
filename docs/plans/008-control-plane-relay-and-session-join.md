@@ -9,6 +9,7 @@
 | **Author(s)** | `Codex` |
 | **Spec** | [Spec-008: Control Plane Relay And Session Join](../specs/008-control-plane-relay-and-session-join.md) |
 | **Required ADRs** | [ADR-002](../decisions/002-local-execution-shared-control-plane.md), [ADR-007](../decisions/007-collaboration-trust-and-permission-model.md), [ADR-008](../decisions/008-default-transports-and-relay-boundaries.md) |
+| **References** | [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md) (MLS auth), [Updated Spec-008](../specs/008-control-plane-relay-and-session-join.md) (MLS relay encryption) |
 
 ## Goal
 
@@ -27,7 +28,7 @@ This plan covers join APIs, invite acceptance handoff, presence registration, re
 ## Preconditions
 
 - [x] Paired spec is approved
-- [ ] Required ADRs are accepted
+- [x] Required ADRs are accepted
 - [x] Blocking open questions are resolved or explicitly deferred
 
 Target paths below assume the canonical implementation topology defined in [Container Architecture](../architecture/container-architecture.md).
