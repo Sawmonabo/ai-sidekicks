@@ -25,7 +25,7 @@ The product requires durable replay and recovery while keeping local execution p
 | --- | --- |
 | `Local SQLite Store` | Canonical node-local event log, command receipts, runtime bindings, queue state, run projections, and approval records needed for local recovery. |
 | `Shared Postgres Store` | Shared session metadata, invites, memberships, presence history, session directory, and cross-node coordination records. |
-| `Artifact Storage` | Durable artifact payloads and manifests, split between local-only and shared-visibility artifacts according to policy. |
+| `Artifact Storage` | Durable artifact payloads and manifests, split between `local-only` and shared-visible artifacts according to policy. |
 | `Projection Layer` | Read-optimized materializations derived from canonical event streams and shared coordination records. |
 
 ## Data Flow
@@ -47,7 +47,7 @@ The product requires durable replay and recovery while keeping local execution p
 - Local SQLite corruption prevents replay until repaired or restored.
 - Projection lag causes stale reads even when canonical events exist.
 - Shared metadata writes succeed while local artifact publication fails, leaving partial visibility that must be reconciled.
-- Artifact visibility policy is misapplied and exposes local-only outputs too broadly.
+- Artifact visibility policy is misapplied and exposes `local-only` outputs too broadly.
 
 ## Related Domain Docs
 

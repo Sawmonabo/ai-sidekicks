@@ -36,7 +36,7 @@ This spec covers branch strategy, PR preparation, diff artifacts, and attributio
 
 ## Required Behavior
 
-- Every writable coding run must execute against an explicit branch context.
+- Every writable coding run in `branch`, `worktree`, or `ephemeral clone` mode must execute against an explicit branch context.
 - The git engine must track base branch, head branch, and worktree association for each writable coding context.
 - Diff artifacts must carry provenance to the producing run when that attribution is available.
 - When precise run attribution is unavailable, the system must emit a clearly labeled workspace-level diff artifact rather than implying precise run attribution.
@@ -47,6 +47,7 @@ This spec covers branch strategy, PR preparation, diff artifacts, and attributio
 
 - The default PR target branch is the worktree's recorded base branch.
 - The default attribution mode is `run_attributed` when the daemon can correlate a diff to run provenance.
+- `read-only` runs do not produce writable branch context or PR-preparation side effects.
 - If multiple commits occur within one worktree during one run lineage, the system may prepare one cumulative PR by default.
 
 ## Fallback Behavior
@@ -87,7 +88,7 @@ This spec covers branch strategy, PR preparation, diff artifacts, and attributio
 
 ## Acceptance Criteria
 
-- [ ] Writable coding runs always have an explicit branch context.
+- [ ] Writable coding runs in `branch`, `worktree`, or `ephemeral clone` mode always have an explicit branch context.
 - [ ] Diff artifacts distinguish run-attributed and workspace-fallback attribution modes.
 - [ ] PR preparation produces a reviewable proposal tied to base and head branch context.
 
@@ -97,7 +98,8 @@ This spec covers branch strategy, PR preparation, diff artifacts, and attributio
 
 ## Open Questions
 
-- Whether stacked PR workflows are a first-release feature or deferred to later plans.
+- No blocking open questions remain for v1.
+- V1 decision: stacked PR workflows are deferred. The first release supports single-branch, single-PR proposal flow only.
 
 ## References
 

@@ -8,7 +8,7 @@
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
 | **Depends On** | [Artifact Diff And Approval Model](../domain/artifact-diff-and-approval-model.md), [Participant And Membership Model](../domain/participant-and-membership-model.md), [Security Architecture](../architecture/security-architecture.md) |
-| **Implementation Plan** | `TBD` |
+| **Implementation Plan** | [Plan-012: Approvals Permissions And Trust Boundaries](../plans/012-approvals-permissions-and-trust-boundaries.md) |
 
 ## Purpose
 
@@ -42,10 +42,12 @@ This spec covers approval requests, approval scopes, remembered grants, and the 
   - runtime-node trust
   - run-level approval policy
   - tool- and resource-level permission grants
+- The membership role model must distinguish at least `viewer`, `collaborator`, `runtime contributor`, and `owner`.
 - Sensitive actions must require approval or prior grant according to policy. This includes at least destructive git operations, out-of-boundary file writes, unrestricted network access, and high-risk tool execution.
 - Approval requests must record requester, target scope, requested capability, and expiry where applicable.
 - Approval resolution must record approver, decision, and effective scope.
 - Membership in a shared session must not imply authority to execute on another participant's machine.
+- `runtime contributor` role may allow a participant to attach their own runtime nodes, but it must not imply authority over another participant's node.
 - Driver-native permission flows must be normalized into the canonical approval model.
 
 ## Default Behavior
@@ -77,7 +79,7 @@ This spec covers approval requests, approval scopes, remembered grants, and the 
 ## Example Flows
 
 - `Example: An agent requests write permission outside the bound worktree. A participant approves the request for this run only, and the decision is recorded with explicit path scope.`
-- `Example: A participant has chat membership in a shared session but cannot approve execution on another participant's runtime node because they lack the required trust scope.`
+- `Example: A participant with collaborator role has chat access in a shared session but cannot approve execution on another participant's runtime node because they lack the required trust scope.`
 
 ## Implementation Notes
 
@@ -103,7 +105,8 @@ This spec covers approval requests, approval scopes, remembered grants, and the 
 
 ## Open Questions
 
-- Whether organizations can enforce stricter policy defaults than the product defaults at the control-plane level in v1.
+- No blocking open questions remain for v1.
+- V1 decision: organization-level stricter policy overrides are out of scope. V1 uses product-default policy with local daemon enforcement and explicit per-request approvals.
 
 ## References
 

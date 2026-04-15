@@ -40,18 +40,20 @@ This spec covers repo mount creation, canonical root resolution, workspace bindi
 - Repo attach must resolve and persist the canonical repository root, not only the user-entered path.
 - The system must support multiple repo mounts in one session.
 - Workspace binding must be explicit and must resolve to one concrete execution root before a run begins.
+- Git-backed workspace binding must support the canonical execution-mode taxonomy `read-only`, `branch`, `worktree`, and `ephemeral clone`.
 - The system must reject path traversal or workspace binding outside the declared local trust envelope.
 - Non-git directory workspaces must be supported as a fallback, but with reduced git-aware capabilities.
 
 ## Default Behavior
 
 - Attaching a git repository defaults to creating one repo mount and one default workspace view rooted at the main checkout.
-- Newly attached workspaces default to read context until a run explicitly selects a write-capable execution mode.
+- Newly attached workspaces default to `read-only` context until a run explicitly selects a writable execution mode.
 - Repo metadata defaults to background refresh through daemon-owned git services.
 
 ## Fallback Behavior
 
 - If a path is not a git repository, the system may bind it as a plain directory workspace with git-specific features disabled.
+- If a workspace cannot support one or more git-backed execution modes, the daemon must expose that capability gap explicitly rather than silently substituting a different mode.
 - If canonical root resolution fails, repo attach must fail explicitly rather than guessing.
 - If a workspace path becomes unavailable after binding, the workspace transitions to `stale` and new write runs must be blocked until repair.
 
@@ -59,7 +61,8 @@ This spec covers repo mount creation, canonical root resolution, workspace bindi
 
 - `RepoAttach` must accept a local path, session id, and owning runtime node.
 - `RepoMountRead` must expose canonical root, VCS metadata, and current health.
-- `WorkspaceBind` must accept repo mount or directory root plus intended execution mode.
+- `WorkspaceBind` must accept repo mount or directory root plus intended execution mode from the canonical mode set where applicable.
+- `WorkspaceExecutionModeCapabilitiesRead` must expose which execution modes are currently valid for the bound repo mount or workspace.
 - `WorkspaceList` must expose workspace health and current binding state.
 
 ## State And Data Implications
@@ -71,6 +74,7 @@ This spec covers repo mount creation, canonical root resolution, workspace bindi
 ## Example Flows
 
 - `Example: A participant attaches a repository to a session. The daemon resolves the canonical repo root, stores a repo mount, and exposes a default workspace for inspection.`
+- `Example: A participant later selects worktree mode for a coding run. The workspace remains the same session-bound concept, but the daemon provisions an isolated execution root before the run starts.`
 - `Example: A plain directory is attached for planning work. It becomes a valid workspace, but git-specific commands remain unavailable.`
 
 ## Implementation Notes
@@ -97,7 +101,8 @@ This spec covers repo mount creation, canonical root resolution, workspace bindi
 
 ## Open Questions
 
-- Whether repo attach can optionally clone from URL in the first implementation or only bind existing local checkouts.
+- No blocking open questions remain for v1.
+- V1 decision: the first implementation binds existing local checkouts only. Clone-from-URL attach flows are out of scope for v1.
 
 ## References
 

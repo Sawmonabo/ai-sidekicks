@@ -47,6 +47,12 @@ Primary actors:
 6. Shared metadata, presence, invite state, and notification signals flow through the control plane.
 7. Clients read projections from both local runtime and shared control-plane surfaces to render the session.
 
+## Client Delivery Path
+
+- `CLI` is the first implementation client for the typed local daemon contract.
+- `Desktop App` follows as a richer client over the same client SDK and daemon surfaces.
+- New local execution capabilities should become consumable through the shared client SDK and CLI path before they rely on renderer-only behavior.
+
 ## Trust Boundaries
 
 - The boundary between client and local daemon separates presentation from execution authority.

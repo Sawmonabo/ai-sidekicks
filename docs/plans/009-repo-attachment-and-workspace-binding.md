@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| **Status** | `approved` |
+| **Status** | `review` |
 | **NNN** | `009` |
 | **Slug** | `repo-attachment-and-workspace-binding` |
 | **Date** | `2026-04-14` |
@@ -16,7 +16,7 @@ Implement durable RepoMount attachment and explicit workspace binding for sessio
 
 ## Scope
 
-This plan covers repo root resolution, RepoMount persistence, workspace creation, and workspace health projection.
+This plan covers repo root resolution, RepoMount persistence, workspace creation, execution-mode capability exposure, and workspace health projection.
 
 ## Non-Goals
 
@@ -27,8 +27,10 @@ This plan covers repo root resolution, RepoMount persistence, workspace creation
 ## Preconditions
 
 - [x] Paired spec is approved
-- [x] Required ADRs are accepted
-- [ ] Blocking open questions are resolved or explicitly deferred
+- [ ] Required ADRs are accepted
+- [x] Blocking open questions are resolved or explicitly deferred
+
+Target paths below assume the canonical implementation topology defined in [Container Architecture](../architecture/container-architecture.md).
 
 ## Target Areas
 
@@ -41,16 +43,16 @@ This plan covers repo root resolution, RepoMount persistence, workspace creation
 
 ## Data And Storage Changes
 
-- Add local `repo_mounts` and `workspaces` tables with health and ownership fields.
+- Add local `repo_mounts` and `workspaces` tables with health, ownership, and execution-mode capability fields.
 
 ## API And Transport Changes
 
-- Add repo attach or detach and workspace bind or list APIs to the client SDK.
+- Add repo attach or detach, workspace bind or list, and execution-mode capability read APIs to the client SDK.
 
 ## Implementation Steps
 
 1. Implement canonical repo root resolution and trust-boundary validation.
-2. Add RepoMount and workspace persistence plus projections.
+2. Add RepoMount and workspace persistence plus execution-mode capability projections.
 3. Add client SDK methods for attach and workspace listing.
 4. Add desktop repo attach and workspace-binding UI.
 

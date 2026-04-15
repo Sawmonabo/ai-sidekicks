@@ -6,7 +6,7 @@ Describe the supported deployment shapes for clients, runtime nodes, and the col
 
 ## Scope
 
-This document covers local-only, collaborative, hosted, and self-hosted topology variants.
+This document covers `local-only`, collaborative, hosted, and self-hosted topology variants.
 
 ## Context
 
@@ -24,14 +24,14 @@ Supported topologies:
 
 | Topology | Boundary Summary |
 | --- | --- |
-| `Single-Participant Local` | Desktop or CLI plus one local daemon. No shared control-plane dependency for basic single-user execution. |
+| `Single-Participant Local` | Desktop or CLI plus one local daemon operating in `local-only` continuity. No shared control-plane dependency for basic single-user execution. |
 | `Collaborative Hosted Control Plane` | Multiple local daemons connect to one hosted control plane for invites, presence, relay, and shared metadata. |
 | `Collaborative Self-Hosted Control Plane` | Same architecture as hosted, but the control plane is self-managed by the deploying organization. |
 | `Relay-Assisted Remote Access` | A client or node reaches the shared session through relay coordination without moving execution into the control plane. |
 
 ## Data Flow
 
-1. Local-only mode keeps execution and metadata on one machine except for external provider calls.
+1. `local-only` mode keeps execution and immediately usable session continuity on one participant-owned machine except for external provider calls.
 2. Collaborative mode adds control-plane metadata exchange and relay coordination.
 3. Self-hosted mode preserves the same logical split but changes operational ownership.
 4. Relay-assisted mode changes transport path only; execution remains local to the node.
@@ -44,8 +44,8 @@ Supported topologies:
 
 ## Failure Modes
 
-- Local-only mode loses collaboration features when no control plane is available.
-- Collaborative mode degrades to partial local-only behavior when the control plane is unavailable.
+- `local-only` mode lacks collaborative features when no control plane is available.
+- Collaborative mode degrades to partial `local-only` continuity when the control plane is unavailable.
 - Relay-assisted connectivity fails even though local daemons remain healthy.
 
 ## Related Domain Docs

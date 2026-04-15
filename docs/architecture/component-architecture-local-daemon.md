@@ -33,6 +33,12 @@ The Local Runtime Daemon is the local execution kernel. It must own the parts of
 | `Local Persistence Layer` | Stores canonical local event log, command receipts, runtime bindings, projections, and recovery metadata. |
 | `Local IPC Gateway` | Exposes stable local control APIs to renderer and CLI clients. |
 
+## Implementation Home
+
+- Primary implementation root: `packages/runtime-daemon/`
+- Shared contracts consumed here: `packages/contracts/`
+- Shared client-facing transport types consumed here: `packages/client-sdk/`
+
 ## Data Flow
 
 1. A local client submits a command through IPC.

@@ -29,6 +29,13 @@ The desktop app is the primary interactive client, but it must remain a client. 
 | `Client SDK` | Typed protocol layer used by renderer and CLI to talk to local daemon and control plane. |
 | `Local Cache` | Optional client-side cache for drafts, view state, and offline-friendly presentation metadata. |
 
+## Implementation Home
+
+- Desktop shell root: `apps/desktop/shell/`
+- Desktop renderer root: `apps/desktop/renderer/`
+- Shared client SDK root: `packages/client-sdk/`
+- Related CLI client root: `apps/cli/`
+
 ## Data Flow
 
 1. The renderer issues typed requests through the client SDK.

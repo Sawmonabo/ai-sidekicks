@@ -8,7 +8,7 @@
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
 | **Depends On** | [Session Model](../domain/session-model.md), [Run State Machine](../domain/run-state-machine.md), [Artifact Diff And Approval Model](../domain/artifact-diff-and-approval-model.md), [Data Architecture](../architecture/data-architecture.md), [Observability Architecture](../architecture/observability-architecture.md) |
-| **Implementation Plan** | `TBD` |
+| **Implementation Plan** | [Plan-006: Session Event Taxonomy And Audit Log](../plans/006-session-event-taxonomy-and-audit-log.md) |
 
 ## Purpose
 
@@ -106,7 +106,8 @@ This spec covers event categories, required event fields, ordering, replay, and 
 
 ## Open Questions
 
-- Whether all shared control-plane events are assigned session sequence numbers at write time or during projection merge.
+- No blocking open questions remain for v1.
+- V1 decision: session sequence numbers are assigned by the authoritative session-visible append path at write time. Projection merge must preserve those numbers and must not invent them later.
 
 ## References
 

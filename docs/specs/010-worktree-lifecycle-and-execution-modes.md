@@ -16,7 +16,7 @@ Define the lifecycle of worktrees and the execution modes available for repo-bou
 
 ## Scope
 
-This spec covers local checkout mode, worktree mode, worktree creation and reuse, and worktree retirement.
+This spec covers `read-only`, `branch`, `worktree`, and `ephemeral clone` execution modes plus worktree creation, reuse, and retirement.
 
 ## Non-Goals
 
@@ -36,10 +36,14 @@ This spec covers local checkout mode, worktree mode, worktree creation and reuse
 
 ## Required Behavior
 
+- Every repo-bound run must bind to exactly one canonical execution mode: `read-only`, `branch`, `worktree`, or `ephemeral clone`.
 - Repo-bound coding runs must default to `worktree` execution mode when the repository supports worktrees.
-- `local` execution mode must be an explicit override, not the default for mutable coding runs.
+- `read-only` mode must prohibit repo mutation and support inspection, review, and diagnostic tasks.
+- `branch` mode must be an explicit writable override that uses an existing checkout with explicit branch context.
 - Starting a writable worktree-mode run must create or reuse a valid worktree before execution begins.
+- `ephemeral clone` mode must provision a disposable isolated clone before writable execution begins.
 - The system must not silently fall back from intended worktree mode to mutating the main checkout.
+- The system must not silently substitute one canonical execution mode for another when the requested mode is unavailable.
 - Worktree lifecycle must support `creating`, `ready`, `dirty`, `merged`, `retired`, and `failed`.
 - Reusing an existing worktree must be explicit and must preserve branch and provenance context.
 
@@ -47,37 +51,43 @@ This spec covers local checkout mode, worktree mode, worktree creation and reuse
 
 - Default branch naming pattern is `sidekick/<session-short-id>/<task-slug>`.
 - Default writable coding runs use one dedicated worktree per active task or branch context.
+- `branch` mode and `ephemeral clone` mode are explicit selections or policy-driven overrides, not hidden defaults.
 - Worktree retirement defaults to preserving metadata and artifacts even when filesystem cleanup later removes the checkout.
 
 ## Fallback Behavior
 
-- If a repo does not support worktrees, the system may offer an isolated directory workspace fallback, but it must mark that mode distinctly from normal worktree mode.
+- If a repo does not support worktrees, the system may offer `ephemeral clone` or explicit `branch` mode where safe, but it must mark the selected mode distinctly from normal worktree mode.
 - If worktree creation fails, the run must remain blocked in setup rather than mutating the main checkout.
+- If ephemeral clone preparation fails, the run must remain blocked in setup unless an operator or participant explicitly selects a different execution mode.
 - If an intended reuse candidate is dirty or incompatible with the requested branch strategy, the system must require explicit user choice.
 
 ## Interfaces And Contracts
 
-- `ExecutionModeSelect` must distinguish at least `local` and `worktree`.
-- `WorktreePrepare` must create or bind the execution root before a run enters `running`.
+- `ExecutionModeSelect` must distinguish `read-only`, `branch`, `worktree`, and `ephemeral clone`.
+- `ExecutionRootPrepare` must create or bind the execution root required by the selected mode before a run enters `running`.
 - `WorktreeReuseCheck` must report branch, cleanliness, and compatibility.
+- `EphemeralClonePrepare` must report clone root, lifecycle, and cleanup policy.
 - `WorktreeRetire` must record retirement even if filesystem deletion happens asynchronously.
 
 ## State And Data Implications
 
 - Worktree records must persist branch name, owning repo mount, lifecycle state, and provenance to the creating session and run.
 - Execution mode must be stored as run setup data.
+- Branch context must be persisted for writable `branch`, `worktree`, and `ephemeral clone` runs.
 - Dirty and merged state belong to daemon-owned workspace projections.
 
 ## Example Flows
 
 - `Example: A user starts an implementation run. The daemon creates a dedicated worktree, binds the run to it, and only then starts provider execution.`
+- `Example: A reviewer opens the repo in read-only mode, inspects diffs, and cannot accidentally mutate the checkout.`
+- `Example: A repository cannot use worktrees safely, so a participant explicitly selects ephemeral clone mode and the daemon prepares a disposable clone for the writable run.`
 - `Example: A later follow-up run explicitly reuses the same worktree because it targets the same branch and task lineage.`
 
 ## Implementation Notes
 
 - Branch-name defaults should be deterministic and human-readable, but collision handling must be explicit.
 - Worktree reuse is valuable, but the system should bias toward isolation over convenience.
-- Local mode remains important for read-only or special maintenance tasks, but it must stay clearly non-default for mutable coding work.
+- `branch` mode remains important for special maintenance tasks, but it must stay clearly non-default for mutable coding work.
 
 ## Pitfalls To Avoid
 
@@ -88,6 +98,7 @@ This spec covers local checkout mode, worktree mode, worktree creation and reuse
 ## Acceptance Criteria
 
 - [ ] A writable coding run on a git repo defaults to worktree mode.
+- [ ] The execution-mode contract distinguishes `read-only`, `branch`, `worktree`, and `ephemeral clone`.
 - [ ] Worktree creation failure blocks the run instead of mutating the main checkout.
 - [ ] Reused worktrees remain explicitly linked to branch and prior run context.
 
@@ -97,7 +108,8 @@ This spec covers local checkout mode, worktree mode, worktree creation and reuse
 
 ## Open Questions
 
-- Whether branch prefix and slugging rules should be user-configurable in v1 or locked for consistency.
+- No blocking open questions remain for v1.
+- V1 decision: branch prefix and slugging rules are product-defined and locked for consistency in v1. User-configurable naming rules are deferred.
 
 ## References
 

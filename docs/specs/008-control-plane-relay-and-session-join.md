@@ -8,7 +8,7 @@
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
 | **Depends On** | [System Context](../architecture/system-context.md), [Component Architecture Control Plane](../architecture/component-architecture-control-plane.md), [Security Architecture](../architecture/security-architecture.md), [Shared Session Core](../specs/001-shared-session-core.md), [Invite Membership And Presence](../specs/002-invite-membership-and-presence.md) |
-| **Implementation Plan** | `TBD` |
+| **Implementation Plan** | [Plan-008: Control Plane Relay And Session Join](../plans/008-control-plane-relay-and-session-join.md) |
 
 ## Purpose
 
@@ -53,7 +53,7 @@ This spec covers session join, relay negotiation, presence attachment, and remot
 
 ## Fallback Behavior
 
-- If the control plane is unavailable, existing local-only sessions remain usable on their local nodes, but new shared-session join and invite actions must fail explicitly.
+- If the control plane is unavailable, existing `local-only` sessions remain usable on their local nodes, but new shared-session join and invite actions must fail explicitly.
 - If relay setup fails, the join remains valid but remote live connectivity may remain degraded until an alternate path succeeds.
 - If a client switches connectivity path while within the reconnect grace window, the same participant presence should be re-associated rather than duplicated when possible.
 
@@ -99,7 +99,8 @@ This spec covers session join, relay negotiation, presence attachment, and remot
 
 ## Open Questions
 
-- Whether all session-join traffic must be relay-capable in v1 or direct control-plane connectivity is required for some admin flows.
+- No blocking open questions remain for v1.
+- V1 decision: direct control-plane connectivity is required for admin and join-establishment flows. Relay is a secondary connectivity path for session participation after direct control-plane join succeeds.
 
 ## References
 

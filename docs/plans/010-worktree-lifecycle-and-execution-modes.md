@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| **Status** | `approved` |
+| **Status** | `review` |
 | **NNN** | `010` |
 | **Slug** | `worktree-lifecycle-and-execution-modes` |
 | **Date** | `2026-04-14` |
@@ -12,28 +12,32 @@
 
 ## Goal
 
-Implement worktree-first writable execution and the lifecycle management around worktree preparation, reuse, and retirement.
+Implement the four-mode repo execution contract with worktree-first writable defaults plus the lifecycle management around worktree preparation, reuse, retirement, and ephemeral clone preparation.
 
 ## Scope
 
-This plan covers execution mode selection, worktree creation, reuse validation, lifecycle projection, and fallback handling.
+This plan covers execution mode selection, read-only and branch gating, worktree creation, ephemeral clone preparation, reuse validation, lifecycle projection, and fallback handling.
 
 ## Non-Goals
 
 - PR preparation
 - Diff attribution logic
-- Clone-based workspace strategy
+- Non-repo directory execution semantics
 
 ## Preconditions
 
 - [x] Paired spec is approved
-- [x] Required ADRs are accepted
-- [ ] Blocking open questions are resolved or explicitly deferred
+- [ ] Required ADRs are accepted
+- [x] Blocking open questions are resolved or explicitly deferred
+
+Target paths below assume the canonical implementation topology defined in [Container Architecture](../architecture/container-architecture.md).
 
 ## Target Areas
 
 - `packages/contracts/src/execution-mode.ts`
+- `packages/runtime-daemon/src/workspace/execution-root-service.ts`
 - `packages/runtime-daemon/src/git/worktree-service.ts`
+- `packages/runtime-daemon/src/git/ephemeral-clone-service.ts`
 - `packages/runtime-daemon/src/workspace/execution-mode-service.ts`
 - `packages/runtime-daemon/src/git/worktree-projector.ts`
 - `packages/client-sdk/src/worktreeClient.ts`
@@ -41,17 +45,17 @@ This plan covers execution mode selection, worktree creation, reuse validation, 
 
 ## Data And Storage Changes
 
-- Add local `worktrees` and `branch_contexts` tables.
+- Add local `worktrees`, `ephemeral_clones`, and `branch_contexts` tables.
 
 ## API And Transport Changes
 
-- Add execution-mode select, worktree prepare, reuse-check, and retire APIs.
+- Add execution-mode select, execution-root prepare, worktree reuse-check, ephemeral clone prepare, and retire APIs.
 
 ## Implementation Steps
 
 1. Implement execution-mode contracts and persistence.
-2. Build worktree prepare or reuse or retire services in the daemon.
-3. Integrate run setup so writable coding runs require resolved worktree state.
+2. Build branch, worktree, and ephemeral clone prepare or reuse or retire services in the daemon.
+3. Integrate run setup so repo-bound runs require a resolved execution root consistent with the selected mode.
 4. Add desktop execution-mode picker and worktree status UI.
 
 ## Parallelization Notes
@@ -61,24 +65,27 @@ This plan covers execution mode selection, worktree creation, reuse validation, 
 
 ## Test And Verification Plan
 
+- Execution-mode selection tests across read-only, branch, worktree, and ephemeral clone
 - Worktree create and reuse tests
+- Ephemeral clone prepare and cleanup tests
 - Failure-path tests that ensure no silent main-checkout mutation
 - Manual verification of worktree lifecycle from create through retire
 
 ## Rollout Order
 
 1. Ship worktree persistence and daemon services
-2. Enforce worktree resolution in writable run setup
+2. Enforce canonical execution-mode resolution in repo-bound run setup
 3. Enable desktop execution-mode controls
 
 ## Rollback Or Fallback
 
-- Disable automatic worktree creation and require explicit local mode if rollout blocks too much valid work.
+- Disable automatic worktree creation and require explicit branch or read-only mode if rollout blocks too much valid work.
 
 ## Risks And Blockers
 
 - Branch naming collisions
 - Git edge cases on repos with unusual worktree support
+- Ephemeral clone cleanup may leak disk usage without strong lifecycle handling
 
 ## Done Checklist
 

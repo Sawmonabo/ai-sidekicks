@@ -54,7 +54,7 @@ This spec covers session identity, default session structure, session creation, 
 
 ## Fallback Behavior
 
-- If the control plane is unavailable during single-participant session creation, the system may create a `local_only` session projection that can later be promoted into shared mode.
+- If the control plane is unavailable during single-participant session creation, the system may create a `local-only` session projection that can later be promoted into shared mode.
 - If a client reconnects after missing live updates, it must restore from the canonical snapshot and replay surface rather than trusting client cache.
 
 ## Interfaces And Contracts
@@ -79,7 +79,7 @@ This spec covers session identity, default session structure, session creation, 
 
 - Keep session ids globally unique and opaque.
 - Default channel creation belongs to session creation, not to the first run.
-- Local-only fallback must remain visibly distinct from shared collaborative mode.
+- `local-only` fallback must remain visibly distinct from shared collaborative mode, but it must not become a second session type.
 
 ## Pitfalls To Avoid
 
@@ -96,11 +96,12 @@ This spec covers session identity, default session structure, session creation, 
 ## ADR Triggers
 
 - If the product stops treating session as the primary domain object, create or update `../decisions/001-session-is-the-primary-domain-object.md`.
-- If local-only fallback evolves into a materially different session model, create or update `../decisions/002-local-execution-shared-control-plane.md`.
+- If `local-only` fallback evolves into a materially different session model, create or update `../decisions/002-local-execution-shared-control-plane.md`.
 
 ## Open Questions
 
-- Whether local-only sessions are promotable in place or require explicit collaborative enablement.
+- No blocking open questions remain for v1.
+- V1 decision: `local-only` session continuity is not promotable in place. Shared collaboration requires explicit collaborative enablement as a new shared-session transition rather than silent in-place promotion.
 
 ## References
 

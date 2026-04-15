@@ -13,9 +13,9 @@ Recover the shared Collaboration Control Plane when session join, invites, prese
 
 ## Detection
 
-- Check control-plane health, database connectivity, and auth dependency health
-- Inspect failed invite, membership, and presence write rates
-- Confirm whether relay negotiation failures correlate with control-plane health or only with edge connectivity
+- Read control-plane health plus failure-category projections for auth, shared database, membership, presence, and relay coordination.
+- Inspect recent invite-create, invite-accept, session-join, and presence-write failure rates.
+- Compare the last successful shared write timestamp with current projection freshness for session directory and presence reads.
 
 ## Preconditions
 
@@ -25,17 +25,19 @@ Recover the shared Collaboration Control Plane when session join, invites, prese
 
 ## Recovery Steps
 
-1. Confirm whether the issue is auth, shared database, membership service, or relay coordination.
-2. If shared database connectivity is impaired, restore database availability before restarting higher services.
-3. Restart unhealthy Collaboration Control Plane services only after confirming persistent dependencies are healthy.
-4. Rebuild or refresh presence and session-directory projections if writes recovered but reads remain stale.
-5. Re-run one invite acceptance and one session join verification flow before declaring recovery complete.
+1. Confirm whether the primary failure category is auth, shared database, membership service, presence projection, or relay coordination.
+2. If shared database connectivity is impaired, restore shared Postgres availability before restarting higher services.
+3. If auth is impaired, recover auth reachability and token validation before accepting new invite or join traffic.
+4. Restart only the unhealthy Collaboration Control Plane services after persistent dependencies are healthy again.
+5. Rebuild or refresh session-directory and presence projections if writes recovered but reads remain stale.
+6. Re-run one invite acceptance and one session join verification flow before declaring recovery complete.
 
 ## Validation
 
 - Invite create and accept succeed
 - Shared session join succeeds for at least one known-good membership
 - Presence updates resume within normal heartbeat windows
+- Session-directory and presence projections show current timestamps after recovery
 
 ## Escalation
 

@@ -13,9 +13,13 @@ Recover the participant-local execution daemon, the Local Runtime Daemon, when l
 
 ## Detection
 
-- Read `HealthStatusRead` and `RecoveryStatusRead` from the client SDK or admin surface
-- Check Local Runtime Daemon start or restart outcome from the desktop shell or CLI
-- Inspect local replay status, SQLite availability, and recent crash or restart telemetry
+- Read `DaemonStatusRead`, `HealthStatusRead`, and `RecoveryStatusRead` through the typed client SDK or CLI client.
+- Check the most recent Local Runtime Daemon start or restart outcome from the desktop shell or CLI client.
+- Inspect Local Runtime Daemon logs for one of these categories before acting:
+  - IPC bind failure
+  - SQLite open or lock failure
+  - replay rebuild failure
+  - provider resume or runtime binding recovery failure
 
 ## Preconditions
 
@@ -25,21 +29,24 @@ Recover the participant-local execution daemon, the Local Runtime Daemon, when l
 
 ## Recovery Steps
 
-1. Read current daemon health and recovery status before restarting anything.
-2. If the daemon is blocked on replay or persistence, stop new mutable work and preserve the current state for inspection.
-3. Restart the daemon in normal recovery mode and wait for replay or projection rebuild to complete.
-4. If restart fails repeatedly, inspect local persistence health and last recovery error, then run the documented local repair or restore path.
-5. Reconnect one client and verify session read plus subscribe before re-enabling normal writable work.
+1. Read and record `DaemonStatusRead`, `HealthStatusRead`, and `RecoveryStatusRead` before restarting anything.
+2. If the daemon reports `blocked` or `degraded`, stop new mutable work on the affected node and leave read surfaces available for diagnosis.
+3. Restart the daemon through `DaemonRestart` or by issuing `DaemonStop` followed by `DaemonStart`.
+4. If restart succeeds, wait for `RecoveryStatusRead` to leave replay or rebuild mode before resuming writable work.
+5. If restart fails with SQLite, replay, or projection-rebuild errors, follow [Local Persistence Repair And Restore](./local-persistence-repair-and-restore.md) before trying another restart.
+6. If restart fails because of provider resume or runtime-binding recovery, follow [Provider Failure Runbook](./provider-failure-runbook.md).
+7. Reconnect one CLI client and one desktop client, then verify session read plus live subscribe before re-enabling normal writable work.
 
 ## Validation
 
 - Local Runtime Daemon health returns to `healthy`
+- `DaemonStatusRead` reports a reachable and version-compatible daemon
 - Session read and live subscribe succeed through local IPC
 - One previously affected session can replay and show current state correctly
 
 ## Escalation
 
-- Escalate when local SQLite remains unavailable, replay cannot rebuild, or repeated daemon restarts fail without a clear local fix
+- Escalate when local SQLite remains unavailable, replay cannot rebuild after the repair path, or repeated daemon restarts fail without a stable failure category
 
 ## Related Architecture Docs
 
@@ -57,3 +64,5 @@ Recover the participant-local execution daemon, the Local Runtime Daemon, when l
 
 - [Shared Session Core](../plans/001-shared-session-core.md)
 - [Queue Steer Pause Resume](../plans/004-queue-steer-pause-resume.md)
+- [Persistence Recovery And Replay](../plans/015-persistence-recovery-and-replay.md)
+- [Observability And Failure Recovery](../plans/020-observability-and-failure-recovery.md)

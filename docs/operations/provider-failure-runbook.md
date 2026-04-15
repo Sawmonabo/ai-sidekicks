@@ -7,15 +7,15 @@ Diagnose and contain driver-level provider failures that affect run execution or
 ## Symptoms
 
 - New runs fail during `starting`
-- Active runs enter recovery-needed or provider-failed states
+- Active runs enter `recovering` and later remain `failed` with `provider failure` detail or visible `recovery-needed` condition
 - Driver capability data is missing or inconsistent
 - Scope and blast radius: one provider driver, one RuntimeNode, or all nodes using the same driver
 
 ## Detection
 
-- Inspect provider health projections and capability refresh status
-- Check driver-specific runtime binding recovery failures
-- Read canonical failure events for affected runs and compare with driver logs
+- Read `HealthStatusRead` and `FailureDetailRead` for the affected run or RuntimeNode.
+- Inspect driver capability refresh status and the latest `RuntimeBindingRead` for affected recovery handles.
+- Compare canonical failure events with driver logs for startup failure, transport failure, capability refresh failure, or resume failure.
 
 ## Preconditions
 
@@ -27,15 +27,16 @@ Diagnose and contain driver-level provider failures that affect run execution or
 
 1. Identify whether the failure is startup, active-run, capability-refresh, or resume-related.
 2. Stop routing new work to the affected driver until health is understood.
-3. Attempt driver health refresh and resume-handle adoption or resume if the failure is recovery-related.
-4. If resume is impossible, mark affected runs as recovery-failed and surface operator action rather than silently recreating sessions.
-5. Re-enable scheduling only after a known-good test run starts, streams events, and reaches a terminal state or blocking state normally.
+3. If the failure is recovery-related, issue one bounded `RecoveryActionRequest` for driver health refresh and resume-handle adoption or resume.
+4. If resume is impossible or the bounded recovery action fails, mark affected runs as `failed` with `provider failure` detail and visible `recovery-needed` condition rather than silently recreating sessions.
+5. Re-enable scheduling only after a known-good test run starts, streams events, and reaches a terminal or valid blocking state normally.
 
 ## Validation
 
 - Driver health returns to expected status
 - Capability projection matches supported controls
 - One test run succeeds or blocks cleanly without unexpected driver errors
+- No affected run remains stuck in `recovering` without updated failure or recovery detail
 
 ## Escalation
 

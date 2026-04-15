@@ -2,12 +2,12 @@
 
 | Field | Value |
 | -------------- | ------------------------------------------------------------------------ |
-| **Status** | `accepted` |
+| **Status** | `proposed` |
 | **Type** | `Type 2 (one-way door)` |
 | **Domain** | `Data Architecture` |
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
-| **Reviewers** | `TBD` |
+| **Reviewers** | `Pending assignment` |
 
 ## Context
 
@@ -70,7 +70,7 @@ JSON files are too weak for replay-heavy, event-oriented runtime truth. A single
 | Scenario | Likelihood | Impact | Detection | Mitigation |
 |----------|-----------|--------|-----------|------------|
 | Local SQLite store is corrupted or unavailable | Low | High | Daemon recovery fails or enters degraded mode | Block mutable work, expose repair path, and support restore |
-| Shared Postgres is unavailable | Med | High | Invite, membership, or presence operations fail | Preserve explicit local-only degraded mode |
+| Shared Postgres is unavailable | Med | High | Invite, membership, or presence operations fail | Preserve explicit `local-only` degraded mode |
 | Artifact or metadata is written to the wrong boundary | Med | High | Visibility or audit anomalies appear | Enforce policy-aware manifest classification and tests |
 
 ## Reversibility Assessment
@@ -151,4 +151,4 @@ JSON files are too weak for replay-heavy, event-oriented runtime truth. A single
 | Date | Event | Notes |
 |------|-------|-------|
 | 2026-04-14 | Proposed | Initial draft |
-| 2026-04-14 | Accepted | Required for data and recovery architecture |
+| 2026-04-14 | Re-baselined | Reviewer assignment and acceptance validation remain incomplete |

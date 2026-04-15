@@ -8,7 +8,7 @@
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
 | **Depends On** | [Live Timeline Visibility And Reasoning Surfaces](../specs/013-live-timeline-visibility-and-reasoning-surfaces.md), [Component Architecture Desktop App](../architecture/component-architecture-desktop-app.md), [Observability Architecture](../architecture/observability-architecture.md) |
-| **Implementation Plan** | `TBD` |
+| **Implementation Plan** | [Plan-019: Notifications And Attention Model](../plans/019-notifications-and-attention-model.md) |
 
 ## Purpose
 
@@ -74,8 +74,8 @@ This spec covers in-app attention state, desktop notifications, invite notificat
 
 ## Example Flows
 
-- `Example: A run reaches `waiting_for_approval` while the app is unfocused. The user receives a desktop notification and the session shows a blocking attention badge until the approval is resolved.`
-- `Example: A collaborator invites another participant into a live session. The recipient receives an invite notification, and the pending invite remains visible in-app until accepted or dismissed.`
+- Example: A run reaches `waiting_for_approval` while the app is unfocused. The user receives a desktop notification and the session shows a blocking attention badge until the approval is resolved.
+- Example: An owner invites another participant into a live session. The recipient receives an invite notification, and the pending invite remains visible in-app until accepted or dismissed.
 
 ## Implementation Notes
 
@@ -101,7 +101,8 @@ This spec covers in-app attention state, desktop notifications, invite notificat
 
 ## Open Questions
 
-- Whether notification preferences can be configured per session in the first release or only globally.
+- No blocking open questions remain for v1.
+- V1 decision: notification preferences are global in the first release. Per-session notification preferences are deferred.
 
 ## References
 

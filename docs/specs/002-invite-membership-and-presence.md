@@ -16,7 +16,7 @@ Define how participants are invited into sessions, how membership is granted, an
 
 ## Scope
 
-This spec covers invite lifecycle, membership assignment, role changes, and participant presence.
+This spec covers invite lifecycle, join-mode assignment, membership role changes, and participant presence.
 
 ## Non-Goals
 
@@ -40,13 +40,14 @@ This spec covers invite lifecycle, membership assignment, role changes, and part
 - Accepting an invite must create or activate membership without interrupting active session runs.
 - Invite lifecycle must support `issued`, `accepted`, `declined`, `revoked`, and `expired`.
 - Membership must be durable and separate from ephemeral presence.
+- Invites must support the canonical join modes `viewer`, `collaborator`, and `runtime contributor`.
 - A participant must be able to join a session before attaching any runtime node.
 - Presence updates must support at least `online`, `idle`, `reconnecting`, and `offline`.
 - Role changes and membership revocation must be explicit events in session history.
 
 ## Default Behavior
 
-- Invite default role is `contributor`.
+- Invite default join mode is `collaborator`.
 - Session creator default role is `owner`.
 - Invite default expiry is `7d` from issuance.
 - Presence heartbeat default interval is `15s`, with a reconnect grace window of `45s` before `offline`.
@@ -54,12 +55,12 @@ This spec covers invite lifecycle, membership assignment, role changes, and part
 ## Fallback Behavior
 
 - If presence heartbeats are missed, the system must move the participant to `reconnecting` before `offline`.
-- If an invited participant cannot attach a runtime node, they may still observe and chat according to membership role.
+- If an invited participant in `runtime contributor` mode cannot attach a runtime node yet, they may still join as a human participant according to membership role.
 - If invite delivery fails, the invite remains durable and may be re-shared or revoked without recreating the session.
 
 ## Interfaces And Contracts
 
-- `InviteCreate` must include session id, inviter, proposed role, and expiry.
+- `InviteCreate` must include session id, inviter, proposed join mode, and expiry.
 - `InviteAccept` must create active membership and emit participant join events.
 - `MembershipUpdate` must support role change, suspension, and revocation.
 - `PresenceHeartbeat` must accept participant id, device or client id, and last-known activity state.
@@ -72,7 +73,7 @@ This spec covers invite lifecycle, membership assignment, role changes, and part
 
 ## Example Flows
 
-- `Example: A reviewer is invited into an active implementation session, accepts the invite, appears online in the participant roster, and reads the active timeline without interrupting the current run.`
+- `Example: A reviewer is invited into an active implementation session in viewer mode, accepts the invite, appears online in the participant roster, and reads the active timeline without interrupting the current run.`
 - `Example: A participant drops offline mid-session. Their membership remains active while presence moves through reconnecting to offline.`
 
 ## Implementation Notes
@@ -99,7 +100,8 @@ This spec covers invite lifecycle, membership assignment, role changes, and part
 
 ## Open Questions
 
-- Whether guest invites are supported in v1 or all invitees must authenticate before acceptance.
+- No blocking open questions remain for v1.
+- V1 decision: invitees must authenticate before acceptance. Guest invites are out of scope for the first release.
 
 ## References
 

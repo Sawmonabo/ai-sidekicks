@@ -367,13 +367,19 @@ Diff attribution must be per run, with an explicit fallback path only when provi
 
 1. Build the session and event model.
 2. Build the local daemon and SQLite schema.
-3. Build the CLI against the typed client SDK.
+3. Build the CLI as the first shipped client against the typed client SDK and local daemon contract.
 4. Add Codex and Claude drivers with normalized run events.
 5. Add repo mounts, worktrees, and diff attribution.
-6. Build the Electron shell and desktop UI.
+6. Build the Electron shell and desktop UI as the second client over the same typed client SDK and daemon contract.
 7. Add the collaboration control plane for auth, invites, presence, and relay.
 8. Add workflows and multi-participant discussion orchestration on top of the same session model.
 9. Add a first-party native runtime later for deeper control than provider wrappers allow.
+
+## CLI Delivery Path
+
+- The CLI is the first client delivery track for the product.
+- The CLI must prove the typed client SDK, daemon handshake, local IPC, session control, run control, and repo-bound execution flows before desktop-specific UX is treated as the primary path.
+- The desktop app is a richer client over the same contracts, not a replacement transport or separate execution path.
 
 ## Strategic Conclusion
 

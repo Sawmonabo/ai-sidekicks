@@ -12,6 +12,8 @@ This document covers `Participant`, `Membership`, `Invite`, and `Presence` at th
 
 - `Participant`: the session-scoped human actor.
 - `Membership`: the durable grant that authorizes a participant to belong to a session.
+- `MembershipRole`: the canonical role held by a membership. Supported roles are `owner`, `viewer`, `collaborator`, and `runtime contributor`.
+- `JoinMode`: the invite-time entry mode for a participant joining a session. Supported join modes are `viewer`, `collaborator`, and `runtime contributor`.
 - `Invite`: the pre-membership object that can result in membership when accepted.
 - `Presence`: the ephemeral signal that a participant is connected or recently active.
 
@@ -25,6 +27,7 @@ This model defines who is in a session, what rights they hold, and how their liv
 - Membership is not the same thing as presence.
 - An invite is not itself membership.
 - Presence is not authorization.
+- `owner` is a canonical membership role, not a separate identity type.
 
 ## Invariants
 
@@ -33,6 +36,8 @@ This model defines who is in a session, what rights they hold, and how their liv
 - A participant can have multiple simultaneous presences.
 - Runtime-node attachment must not implicitly create or elevate membership.
 - Role and capability changes apply to membership, not to the participant identity record itself.
+- `contributor` is not a canonical role label; use `collaborator` or `runtime contributor` as appropriate.
+- `owner` is not a normal invite join mode; it is a bootstrap or explicit elevation role.
 
 ## Relationships To Adjacent Concepts
 
@@ -40,6 +45,18 @@ This model defines who is in a session, what rights they hold, and how their liv
 - `Invite` can produce `Membership`.
 - `Presence` attaches to a `Participant` and may optionally describe device or runtime-node connectivity.
 - `Approval` and execution permissions are downstream of membership and trust policy, not substitutes for membership.
+
+## Role Model
+
+| Role | Meaning |
+| --- | --- |
+| `owner` | Session administrator role. Includes collaborator participation plus membership-management authority and the ability to attach owned runtime nodes subject to local trust policy. |
+| `viewer` | Read-focused participation role. Can observe the session according to visibility policy but does not chat or attach runtime nodes by default. |
+| `collaborator` | Human participation role. Can join the live session, chat, and collaborate as a human participant, but does not attach runtime nodes by default. |
+| `runtime contributor` | Collaborator role plus the ability to attach participant-owned runtime nodes subject to node trust and approval policy. |
+
+- Invite join modes are the non-owner subset: `viewer`, `collaborator`, and `runtime contributor`.
+- The session creator bootstraps as `owner` by default unless a stricter product policy is later defined.
 
 ## State Model
 
@@ -63,13 +80,14 @@ Presence states:
 
 ## Example Flows
 
-- Example: A reviewer accepts an invite, becomes a participant with `active` membership, and appears as `online` while connected from the desktop client.
+- Example: A reviewer accepts an invite in `viewer` mode, becomes a participant with `active` membership, and appears as `online` while connected from the desktop client.
 - Example: A participant temporarily disconnects. Their membership remains `active`, their presence transitions to `reconnecting`, and later settles to `offline` if they do not return in time.
 - Example: A session owner revokes a participant's membership. Historical authored events remain in the session, but the participant can no longer join or approve actions.
 
 ## Edge Cases
 
 - A participant can observe a session without attaching a runtime node.
+- A `runtime contributor` may join the session before actually attaching any runtime node.
 - One person can appear through multiple presences at once if they connect from multiple devices.
 - Historical session events remain attributed to a participant after membership is revoked.
 

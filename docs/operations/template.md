@@ -25,6 +25,7 @@ Every operations doc must include:
 - Separate detection from remediation.
 - Name blast radius or scope when relevant.
 - Avoid hand-wavy guidance like `check logs`; say which logs and what to look for.
+- Name the canonical read, command, or related runbook used for each critical recovery branch.
 
 ## Quality Bar
 

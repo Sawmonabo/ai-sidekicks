@@ -8,7 +8,7 @@
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
 | **Depends On** | [Artifact Diff And Approval Model](../domain/artifact-diff-and-approval-model.md), [Observability Architecture](../architecture/observability-architecture.md), [Session Event Taxonomy And Audit Log](../specs/006-session-event-taxonomy-and-audit-log.md) |
-| **Implementation Plan** | `TBD` |
+| **Implementation Plan** | [Plan-013: Live Timeline Visibility And Reasoning Surfaces](../plans/013-live-timeline-visibility-and-reasoning-surfaces.md) |
 
 ## Purpose
 
@@ -98,7 +98,8 @@ This spec covers the canonical timeline read model, child-run visibility, reason
 
 ## Open Questions
 
-- Whether participants can opt into more verbose reasoning visibility per session without changing organization-level defaults.
+- No blocking open questions remain for v1.
+- V1 decision: per-session verbose reasoning opt-in is out of scope. Reasoning visibility follows the canonical product or organization policy without session-level overrides.
 
 ## References
 

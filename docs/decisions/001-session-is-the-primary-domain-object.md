@@ -2,12 +2,12 @@
 
 | Field | Value |
 | -------------- | ------------------------------------------------------------------------ |
-| **Status** | `accepted` |
+| **Status** | `proposed` |
 | **Type** | `Type 2 (one-way door)` |
 | **Domain** | `Domain Model` |
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
-| **Reviewers** | `TBD` |
+| **Reviewers** | `Pending assignment` |
 
 ## Context
 
@@ -149,4 +149,4 @@ The single-user case remains a valid session with one participant and one runtim
 | Date | Event | Notes |
 |------|-------|-------|
 | 2026-04-14 | Proposed | Initial draft |
-| 2026-04-14 | Accepted | Required to anchor the full greenfield doc set |
+| 2026-04-14 | Re-baselined | Reviewer assignment and acceptance validation remain incomplete |

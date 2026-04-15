@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| **Status** | `approved` |
+| **Status** | `review` |
 | **NNN** | `004` |
 | **Slug** | `queue-steer-pause-resume` |
 | **Date** | `2026-04-14` |
@@ -27,8 +27,10 @@ This plan covers queue persistence, intervention records, run-state transitions,
 ## Preconditions
 
 - [x] Paired spec is approved
-- [x] Required ADRs are accepted
-- [ ] Blocking open questions are resolved or explicitly deferred
+- [ ] Required ADRs are accepted
+- [x] Blocking open questions are resolved or explicitly deferred
+
+Target paths below assume the canonical implementation topology defined in [Container Architecture](../architecture/container-architecture.md).
 
 ## Target Areas
 

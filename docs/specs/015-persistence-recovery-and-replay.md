@@ -8,7 +8,7 @@
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
 | **Depends On** | [Data Architecture](../architecture/data-architecture.md), [Run State Machine](../domain/run-state-machine.md), [Session Event Taxonomy And Audit Log](../specs/006-session-event-taxonomy-and-audit-log.md) |
-| **Implementation Plan** | `TBD` |
+| **Implementation Plan** | [Plan-015: Persistence Recovery And Replay](../plans/015-persistence-recovery-and-replay.md) |
 
 ## Purpose
 
@@ -55,7 +55,7 @@ This spec covers local persistence, shared coordination persistence, recovery ru
 
 ## Fallback Behavior
 
-- If a persisted driver handle cannot be resumed, the affected run must transition to explicit recovery failure rather than silently disappearing or restarting as a new run.
+- If a persisted driver handle cannot be resumed, the affected run must transition to `failed` with visible recovery failure detail rather than silently disappearing or restarting as a new run.
 - If projection rebuild fails, the daemon may enter degraded read-only mode while exposing repair signals.
 - If shared control-plane storage is unavailable, local execution may continue for already attached local sessions, but shared membership and invite operations must fail explicitly.
 
@@ -75,7 +75,7 @@ This spec covers local persistence, shared coordination persistence, recovery ru
 ## Example Flows
 
 - `Example: The daemon restarts during a blocked approval state. Startup replay rebuilds the session projection, restores the pending approval, and resumes the session in a recoverable waiting state.`
-- `Example: A provider session cannot be resumed. The daemon records a recovery-failed event and leaves the run visible to users and operators for intervention.`
+- `Example: A provider session cannot be resumed. The daemon records a recovery failure outcome, transitions the run to failed with provider failure detail and recovery-needed condition, and leaves the run visible to users and operators for intervention.`
 
 ## Implementation Notes
 
@@ -101,7 +101,8 @@ This spec covers local persistence, shared coordination persistence, recovery ru
 
 ## Open Questions
 
-- Whether snapshot compaction cadence should be standardized in the first implementation or left to later performance tuning.
+- No blocking open questions remain for v1.
+- V1 decision: snapshot compaction cadence is not standardized in v1. Correctness must not depend on compaction, and implementations may run without scheduled compaction.
 
 ## References
 

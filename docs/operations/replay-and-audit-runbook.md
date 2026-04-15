@@ -13,9 +13,9 @@ Recover replay and audit projections when session history appears incomplete, st
 
 ## Detection
 
-- Compare current replay cursor with latest canonical event sequence
-- Check projection lag metrics and replay status
-- Verify whether missing history is payload compaction or true event-loss symptoms
+- Compare `ReplayReadAfterCursor` results with the latest canonical event sequence for the affected session.
+- Read `RecoveryStatusRead` plus projection lag signals for the affected node or session.
+- Verify whether missing history is expected payload compaction, stale projection state, or true canonical-event loss.
 
 ## Preconditions
 
@@ -27,15 +27,17 @@ Recover replay and audit projections when session history appears incomplete, st
 
 1. Confirm whether canonical events exist for the missing history before attempting rebuild.
 2. If projection lag or failure is present, pause new mutable work on the affected node or session until replay health is understood.
-3. Rebuild the affected projection from canonical events using idempotent replay tooling.
-4. Validate command receipts and artifact manifests for any side-effecting ranges that were replayed.
-5. Re-open mutable work only after session timeline and audit views match canonical event ranges again.
+3. Rebuild the affected projection from canonical events using `ProjectionRebuild` or the equivalent idempotent replay path.
+4. If canonical local storage is damaged or unreadable, stop and follow [Local Persistence Repair And Restore](./local-persistence-repair-and-restore.md) before rebuilding again.
+5. Validate command receipts and artifact manifests for any side-effecting ranges that were replayed.
+6. Re-open mutable work only after session timeline and audit views match canonical event ranges again.
 
 ## Validation
 
 - Replay status returns to healthy
 - Timeline and audit projections match canonical event ranges for the affected session
 - No duplicate side effects appear after replay rebuild
+- `ReplayReadAfterCursor` from the prior failure point returns the expected missing range without divergence
 
 ## Escalation
 
@@ -56,3 +58,5 @@ Recover replay and audit projections when session history appears incomplete, st
 
 - [Shared Session Core](../plans/001-shared-session-core.md)
 - [Queue Steer Pause Resume](../plans/004-queue-steer-pause-resume.md)
+- [Persistence Recovery And Replay](../plans/015-persistence-recovery-and-replay.md)
+- [Observability And Failure Recovery](../plans/020-observability-and-failure-recovery.md)

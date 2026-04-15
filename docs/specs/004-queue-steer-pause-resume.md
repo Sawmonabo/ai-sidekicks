@@ -99,7 +99,8 @@ This spec covers queue admission, interventions, blocked states, and operator-vi
 
 ## Open Questions
 
-- Whether queue priority overrides are supported in the first implementation or deferred until workflow orchestration.
+- No blocking open questions remain for v1.
+- V1 decision: queue priority overrides are deferred. The first implementation uses canonical queue order plus explicit steer, pause, resume, and interrupt controls only.
 
 ## References
 

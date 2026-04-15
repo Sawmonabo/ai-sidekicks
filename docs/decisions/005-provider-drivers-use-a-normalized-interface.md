@@ -2,12 +2,12 @@
 
 | Field | Value |
 | -------------- | ------------------------------------------------------------------------ |
-| **Status** | `accepted` |
+| **Status** | `proposed` |
 | **Type** | `Type 2 (one-way door)` |
 | **Domain** | `Provider Architecture` |
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
-| **Reviewers** | `TBD` |
+| **Reviewers** | `Pending assignment` |
 
 ## Context
 
@@ -149,4 +149,4 @@ Leaky abstraction is a manageable risk if the driver contract is intentionally s
 | Date | Event | Notes |
 |------|-------|-------|
 | 2026-04-14 | Proposed | Initial draft |
-| 2026-04-14 | Accepted | Required for multi-provider runtime correctness |
+| 2026-04-14 | Re-baselined | Reviewer assignment and acceptance validation remain incomplete |

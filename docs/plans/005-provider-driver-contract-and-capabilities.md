@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| **Status** | `approved` |
+| **Status** | `review` |
 | **NNN** | `005` |
 | **Slug** | `provider-driver-contract-and-capabilities` |
 | **Date** | `2026-04-14` |
@@ -27,8 +27,10 @@ This plan covers shared driver interfaces, two initial drivers, capability refre
 ## Preconditions
 
 - [x] Paired spec is approved
-- [x] Required ADRs are accepted
-- [ ] Blocking open questions are resolved or explicitly deferred
+- [ ] Required ADRs are accepted
+- [x] Blocking open questions are resolved or explicitly deferred
+
+Target paths below assume the canonical implementation topology defined in [Container Architecture](../architecture/container-architecture.md).
 
 ## Target Areas
 

@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| **Status** | `approved` |
+| **Status** | `review` |
 | **NNN** | `001` |
 | **Slug** | `shared-session-core` |
 | **Date** | `2026-04-14` |
@@ -27,8 +27,10 @@ This plan covers session ids, default channel creation, owner membership bootstr
 ## Preconditions
 
 - [x] Paired spec is approved
-- [x] Required ADRs are accepted
-- [ ] Blocking open questions are resolved or explicitly deferred
+- [ ] Required ADRs are accepted
+- [x] Blocking open questions are resolved or explicitly deferred
+
+Target paths below assume the canonical implementation topology defined in [Container Architecture](../architecture/container-architecture.md).
 
 ## Target Areas
 
@@ -74,12 +76,12 @@ This plan covers session ids, default channel creation, owner membership bootstr
 
 ## Rollback Or Fallback
 
-- Disable create or join endpoints and keep local-only session bootstrap if shared session flows regress.
+- Disable create or join endpoints and keep `local-only` session bootstrap if shared session flows regress.
 
 ## Risks And Blockers
 
 - Event ordering mistakes between local and shared projections
-- Unresolved local-only session promotion semantics
+- Unresolved `local-only` session promotion semantics
 
 ## Done Checklist
 

@@ -2,12 +2,12 @@
 
 | Field | Value |
 | -------------- | ------------------------------------------------------------------------ |
-| **Status** | `accepted` |
+| **Status** | `proposed` |
 | **Type** | `Type 2 (one-way door)` |
 | **Domain** | `Runtime Control` |
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
-| **Reviewers** | `TBD` |
+| **Reviewers** | `Pending assignment` |
 
 ## Context
 
@@ -150,4 +150,4 @@ Client-side queueing fails the durability and shared-observation requirements ou
 | Date | Event | Notes |
 |------|-------|-------|
 | 2026-04-14 | Proposed | Initial draft |
-| 2026-04-14 | Accepted | Required for durable runtime control semantics |
+| 2026-04-14 | Re-baselined | Reviewer assignment and acceptance validation remain incomplete |

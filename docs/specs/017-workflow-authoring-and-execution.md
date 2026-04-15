@@ -8,7 +8,7 @@
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
 | **Depends On** | [Multi Agent Channels And Orchestration](../specs/016-multi-agent-channels-and-orchestration.md), [Queue Steer Pause Resume](../specs/004-queue-steer-pause-resume.md), [Agent Channel And Run Model](../domain/agent-channel-and-run-model.md) |
-| **Implementation Plan** | `TBD` |
+| **Implementation Plan** | [Plan-017: Workflow Authoring And Execution](../plans/017-workflow-authoring-and-execution.md) |
 
 ## Purpose
 
@@ -70,8 +70,8 @@ This spec covers workflow definitions, phase execution, phase outputs, and workf
 
 ## Example Flows
 
-- `Example: A workflow runs `analyze -> plan -> implement -> review`, pausing between plan and implement for a human approval gate.`
-- `Example: A workflow is edited after one instance has already started. The running instance continues on the old version while new runs use the new version.`
+- Example: A workflow runs `analyze -> plan -> implement -> review`, pausing between plan and implement for a human approval gate.
+- Example: A workflow is edited after one instance has already started. The running instance continues on the old version while new runs use the new version.
 
 ## Implementation Notes
 
@@ -97,7 +97,8 @@ This spec covers workflow definitions, phase execution, phase outputs, and workf
 
 ## Open Questions
 
-- Whether global workflow libraries are in scope for the first implementation or only session- and project-scoped definitions.
+- No blocking open questions remain for v1.
+- V1 decision: the first implementation supports session-scoped and project-scoped workflow definitions only. Global workflow libraries are out of scope.
 
 ## References
 

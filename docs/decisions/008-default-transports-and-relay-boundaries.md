@@ -2,12 +2,12 @@
 
 | Field | Value |
 | -------------- | ------------------------------------------------------------------------ |
-| **Status** | `accepted` |
+| **Status** | `proposed` |
 | **Type** | `Type 1 (two-way door)` |
 | **Domain** | `Transport Architecture` |
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
-| **Reviewers** | `TBD` |
+| **Reviewers** | `Pending assignment` |
 
 ## Context
 
@@ -105,4 +105,4 @@ We will default to OS-local IPC for client-to-daemon communication, use authenti
 | Date | Event | Notes |
 |------|-------|-------|
 | 2026-04-14 | Proposed | Initial draft |
-| 2026-04-14 | Accepted | Selected as the default transport stance |
+| 2026-04-14 | Re-baselined | Reviewer assignment and template-complete acceptance remain incomplete |

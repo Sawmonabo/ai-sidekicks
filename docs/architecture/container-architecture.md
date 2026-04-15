@@ -30,6 +30,29 @@ The system is split so that collaboration can be shared while execution remains 
 | `Local Event Store And Projection Store` | Durable node-local record of run events, receipts, projections, and recovery state. |
 | `Shared Metadata Store` | Durable shared record of memberships, invites, presence history, session directory metadata, and cross-node coordination state. |
 
+## Canonical Implementation Topology
+
+The canonical monorepo layout for implementation is:
+
+| Repo Area | Ownership |
+| --- | --- |
+| `packages/contracts/` | Shared protocol contracts, schema definitions, and cross-container types. |
+| `packages/client-sdk/` | Typed client SDK used by desktop renderer and CLI. |
+| `packages/runtime-daemon/` | Local Runtime Daemon implementation and local execution services. |
+| `packages/control-plane/` | Collaboration Control Plane services and shared-session coordination logic. |
+| `apps/desktop/shell/` | Desktop shell or Electron main-process code. |
+| `apps/desktop/renderer/` | Desktop renderer UI and session-facing application surfaces. |
+| `apps/cli/` | CLI client implementation over the shared client SDK. |
+
+- Implementation plans may target submodules beneath these roots.
+- If the repo shape changes materially, update this architecture doc before treating path-specific plans as canonical.
+
+## Client Delivery Sequence
+
+- `apps/cli/` is the first shipped client path over `packages/client-sdk/` and the typed daemon contract.
+- `apps/desktop/shell/` and `apps/desktop/renderer/` are the second client path and must reuse the same client SDK and daemon semantics rather than introducing a separate local control surface.
+- When a daemon capability is new, the contract and CLI path are the canonical proving ground before renderer-specific UX layers are treated as complete.
+
 ## Data Flow
 
 1. Renderer and CLI call the client SDK.

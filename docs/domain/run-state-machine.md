@@ -13,6 +13,9 @@ This document covers run states, transition rules, and the meaning of control ac
 - `RunState`: the authoritative lifecycle state of a run.
 - `BlockingState`: a non-terminal run state that requires external input before normal progress can continue.
 - `TerminalState`: a run state from which the run does not continue.
+- `RunFailureCategory`: a machine-readable classification that explains why a run failed or degraded without creating a new run state.
+- `RecoveryCondition`: a derived signal that explains whether recovery still requires operator or participant action.
+- `RunHealthSignal`: a derived signal such as `stuck-suspected` that helps operators reason about a live run without changing the canonical `RunState`.
 
 ## What This Is
 
@@ -23,6 +26,7 @@ The run state machine is the source of truth for execution lifecycle semantics.
 - It is not a UI spinner model.
 - It is not provider-specific lifecycle terminology.
 - It is not a queue state model.
+- It is not a separate taxonomy of extra run states for every failure cause.
 
 ## Invariants
 
@@ -74,6 +78,22 @@ Primary allowed transitions:
 - `recovering -> waiting_for_input`
 - `recovering -> failed`
 
+## Derived Failure And Recovery Signals
+
+The canonical run lifecycle has one failure terminal state: `failed`. Additional labels describe why a run failed or whether recovery still needs action; they do not create extra run states.
+
+| Signal Or Category | Meaning | Classification |
+| --- | --- | --- |
+| `stuck-suspected` | The run appears active but has exceeded progress thresholds without reaching a valid blocking or terminal state. | Derived run-health signal, not `RunState` |
+| `recovery-needed` | Automatic recovery did not return the run to safe progress and operator or participant action is required. | Recovery condition, not `RunState` |
+| `provider failure` | The provider or driver could not safely start, continue, or resume the run. | Failure category, not `RunState` |
+| `transport failure` | A required transport path failed independently of provider semantics. | Failure category, not `RunState` |
+| `local persistence failure` | Canonical local storage was unavailable or inconsistent enough that recovery or safe mutation could not continue. | Failure category, not `RunState` |
+| `projection failure` | Replay or projection rebuild could not produce trustworthy read state. | Failure category, not `RunState` |
+
+- A run may remain in `recovering` while automatic recovery is in progress.
+- If recovery cannot proceed safely, the run transitions to `failed`; failure detail may then carry one or more failure categories plus `recovery-needed` when intervention is still required.
+
 ## Example Flows
 
 - Example: A queued implementation task is admitted, moves through `starting` to `running`, pauses for approval before a risky file write, returns to `running` after approval, and ends in `completed`.
@@ -85,6 +105,8 @@ Primary allowed transitions:
 - A run may fail from `starting` if workspace or provider initialization cannot complete.
 - A driver that cannot truly support `paused` must not advertise pause capability for that run.
 - A reconnecting client may observe a run return from `recovering` to a blocking state without ever seeing the intermediate live transport loss.
+- A run may be `failed` with `provider failure` detail after an unsuccessful resume attempt; provider-specific failure causes do not create separate run states.
+- A run may be `failed` with visible `recovery-needed` condition after automatic recovery is exhausted; failed recovery remains visible through failure detail and recovery condition rather than a separate terminal run state.
 
 ## Related Specs
 

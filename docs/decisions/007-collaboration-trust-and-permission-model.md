@@ -2,12 +2,12 @@
 
 | Field | Value |
 | -------------- | ------------------------------------------------------------------------ |
-| **Status** | `accepted` |
+| **Status** | `proposed` |
 | **Type** | `Type 2 (one-way door)` |
 | **Domain** | `Security And Authorization` |
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
-| **Reviewers** | `TBD` |
+| **Reviewers** | `Pending assignment` |
 
 ## Context
 
@@ -23,11 +23,11 @@ The security architecture and approvals spec need a durable model for shared-ses
 
 ## Decision
 
-We will use a layered trust model that separates session membership, runtime-node trust, run-level approval policy, and tool- or resource-level permission grants.
+We will use a layered trust model that separates canonical membership roles, runtime-node trust, run-level approval policy, and tool- or resource-level permission grants.
 
 ### Thesis — Why This Option
 
-Layering matches the real boundary structure of the system. A participant can belong to a session without being trusted to execute on another node. A node can be attached without granting every capability. A run can still require explicit approvals for sensitive actions. This model is strict enough to preserve local-machine trust and flexible enough for shared sessions.
+Layering matches the real boundary structure of the system. A participant can belong to a session as `viewer` or `collaborator` without being trusted to execute on another node. A `runtime contributor` can attach owned nodes without bypassing action-level approvals. An `owner` can manage membership without becoming a proxy for local machine trust. This model is strict enough to preserve local-machine trust and flexible enough for shared sessions.
 
 ### Antithesis — The Strongest Case Against
 
@@ -41,7 +41,7 @@ The simpler flat model is unacceptable because it collapses human collaboration 
 
 ### Option A: Layered Membership + Node + Action Trust (Chosen)
 
-- **What:** Separate session membership, node trust, and action-level approvals.
+- **What:** Separate canonical membership roles, node trust, and action-level approvals.
 - **Steel man:** Preserves the true trust boundaries of collaborative local execution.
 - **Weaknesses:** More concepts to teach and implement.
 
@@ -151,4 +151,4 @@ The simpler flat model is unacceptable because it collapses human collaboration 
 | Date | Event | Notes |
 |------|-------|-------|
 | 2026-04-14 | Proposed | Initial draft |
-| 2026-04-14 | Accepted | Required for collaborative local execution safety |
+| 2026-04-14 | Re-baselined | Reviewer assignment and acceptance validation remain incomplete |

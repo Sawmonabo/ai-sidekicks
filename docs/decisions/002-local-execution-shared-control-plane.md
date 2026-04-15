@@ -2,12 +2,12 @@
 
 | Field | Value |
 | -------------- | ------------------------------------------------------------------------ |
-| **Status** | `accepted` |
+| **Status** | `proposed` |
 | **Type** | `Type 2 (one-way door)` |
 | **Domain** | `Distributed Architecture` |
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
-| **Reviewers** | `TBD` |
+| **Reviewers** | `Pending assignment` |
 
 ## Context
 
@@ -63,13 +63,13 @@ Hosted execution fails the product's local-runtime contribution requirement and 
 |---|-----------|----------|----------------------|
 | 1 | Users need local repo and tool execution to remain on their own machines. | `vision.md` requires participant-contributed local agents. | Hosted execution might be more appropriate. |
 | 2 | Collaboration metadata can be shared without centralizing execution. | Architecture and extraction notes support this split cleanly. | The control plane might need broader authority than intended. |
-| 3 | The product can tolerate control-plane dependency for collaborative features. | Deployment topology includes local-only fallback for non-collaborative use. | Shared-session behavior could be too fragile under outages. |
+| 3 | The product can tolerate control-plane dependency for collaborative features. | Deployment topology includes `local-only` fallback for non-collaborative use. | Shared-session behavior could be too fragile under outages. |
 
 ## Failure Mode Analysis
 
 | Scenario | Likelihood | Impact | Detection | Mitigation |
 |----------|-----------|--------|-----------|------------|
-| Control-plane outage breaks collaboration while local execution remains available | Med | High | Join, invite, or presence operations fail | Preserve local-only continuity and explicit degraded mode |
+| Control-plane outage breaks collaboration while local execution remains available | Med | High | Join, invite, or presence operations fail | Preserve `local-only` continuity and explicit degraded mode |
 | Local nodes become hard to discover or reconnect | Med | Med | Presence churn and repeated attach failures | Strong heartbeat, grace windows, and relay fallback |
 | Security boundary between control plane and local node erodes | Low | High | Unexpected remote execution authority or broad grants appear | Enforce daemon-side policy and explicit capability declaration |
 
@@ -152,4 +152,4 @@ Hosted execution fails the product's local-runtime contribution requirement and 
 | Date | Event | Notes |
 |------|-------|-------|
 | 2026-04-14 | Proposed | Initial draft |
-| 2026-04-14 | Accepted | Required for system and security boundaries |
+| 2026-04-14 | Re-baselined | Reviewer assignment and acceptance validation remain incomplete |

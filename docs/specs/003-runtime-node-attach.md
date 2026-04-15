@@ -55,7 +55,7 @@ This spec covers runtime-node registration, capability declaration, health, and 
 ## Fallback Behavior
 
 - If attach completes but capability validation fails, the node must remain attached in `degraded` or `offline` state rather than being treated as healthy.
-- If the control plane cannot broker collaborative visibility, the local daemon may remain usable for local-only execution on that participant machine.
+- If the control plane cannot broker collaborative visibility, the local daemon may remain usable for `local-only` execution on that participant machine.
 - If a previously attached node disconnects, active membership remains intact and the node may later reconnect under the same node identity.
 
 ## Interfaces And Contracts
@@ -101,7 +101,8 @@ This spec covers runtime-node registration, capability declaration, health, and 
 
 ## Open Questions
 
-- Whether a runtime node may be shared across multiple simultaneous sessions in v1.
+- No blocking open questions remain for v1.
+- V1 decision: a runtime node may participate in one active session at a time in v1. Multi-session sharing is deferred.
 
 ## References
 

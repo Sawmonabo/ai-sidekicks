@@ -8,7 +8,7 @@
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
 | **Depends On** | [Agent Channel And Run Model](../domain/agent-channel-and-run-model.md), [Session Model](../domain/session-model.md), [Shared Session Core](../specs/001-shared-session-core.md), [Queue Steer Pause Resume](../specs/004-queue-steer-pause-resume.md) |
-| **Implementation Plan** | `TBD` |
+| **Implementation Plan** | [Plan-016: Multi-Agent Channels And Orchestration](../plans/016-multi-agent-channels-and-orchestration.md) |
 
 ## Purpose
 
@@ -97,7 +97,8 @@ This spec covers channel creation, parent-child run linkage, cross-agent collabo
 
 ## Open Questions
 
-- Whether channel-level permission restrictions are part of the first implementation or deferred to a later iteration.
+- No blocking open questions remain for v1.
+- V1 decision: channel-level permission restrictions are deferred. New channels inherit session membership and visibility policy in the first implementation.
 
 ## References
 

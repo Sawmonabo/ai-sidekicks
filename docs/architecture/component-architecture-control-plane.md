@@ -33,6 +33,12 @@ The Collaboration Control Plane exists to share session coordination state acros
 | `Notification Service` | Delivers attention, invite, and session-level notifications. |
 | `Shared Metadata Store` | Persists collaboration state used across participants and nodes. |
 
+## Implementation Home
+
+- Primary implementation root: `packages/control-plane/`
+- Shared contracts consumed here: `packages/contracts/`
+- Shared client-facing transport types consumed here: `packages/client-sdk/`
+
 ## Data Flow
 
 1. A client authenticates with the identity service.

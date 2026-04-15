@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| **Status** | `approved` |
+| **Status** | `review` |
 | **NNN** | `011` |
 | **Slug** | `gitflow-pr-and-diff-attribution` |
 | **Date** | `2026-04-14` |
@@ -16,7 +16,7 @@ Implement branch-context tracking, reviewable PR preparation, and diff attributi
 
 ## Scope
 
-This plan covers branch context persistence, diff artifact generation, PR preparation records, and desktop review surfaces.
+This plan covers branch context persistence for writable execution modes, diff artifact generation, PR preparation records, and desktop review surfaces.
 
 ## Non-Goals
 
@@ -27,8 +27,10 @@ This plan covers branch context persistence, diff artifact generation, PR prepar
 ## Preconditions
 
 - [x] Paired spec is approved
-- [x] Required ADRs are accepted
-- [ ] Blocking open questions are resolved or explicitly deferred
+- [ ] Required ADRs are accepted
+- [x] Blocking open questions are resolved or explicitly deferred
+
+Target paths below assume the canonical implementation topology defined in [Container Architecture](../architecture/container-architecture.md).
 
 ## Target Areas
 
@@ -49,7 +51,7 @@ This plan covers branch context persistence, diff artifact generation, PR prepar
 
 ## Implementation Steps
 
-1. Implement branch-context persistence tied to worktrees and runs.
+1. Implement branch-context persistence tied to writable execution modes and runs.
 2. Build diff artifact generation with explicit attribution mode.
 3. Build reviewable PR preparation records and remote mutation handoff.
 4. Add desktop diff and PR preparation review surfaces.

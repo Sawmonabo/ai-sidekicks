@@ -2,12 +2,12 @@
 
 | Field | Value |
 | -------------- | ------------------------------------------------------------------------ |
-| **Status** | `accepted` |
+| **Status** | `proposed` |
 | **Type** | `Type 1 (two-way door)` |
 | **Domain** | `Git Workflow` |
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
-| **Reviewers** | `TBD` |
+| **Reviewers** | `Pending assignment` |
 
 ## Context
 
@@ -23,27 +23,27 @@ The repo and worktree domain docs and specs need a default execution stance befo
 
 ## Decision
 
-We will default writable coding runs to dedicated worktree execution rather than mutating the main checkout.
+We will use the four-mode execution taxonomy `read-only`, `branch`, `worktree`, and `ephemeral clone`, and we will default writable coding runs to dedicated `worktree` execution rather than mutating the main checkout.
 
 ## Alternatives Considered
 
-### Option A: Worktree-First Execution (Chosen)
+### Option A: Four-Mode Taxonomy With Worktree-First Writable Default (Chosen)
 
-- **What:** Create or reuse a dedicated worktree for writable coding work by default.
-- **Steel man:** Gives strong isolation, better provenance, and cleaner PR flow.
-- **Weaknesses:** Adds branch and worktree management overhead.
+- **What:** Standardize repo-bound runs on `read-only`, `branch`, `worktree`, and `ephemeral clone`, with `worktree` as the default writable coding mode.
+- **Steel man:** Gives one complete execution model while preserving strong isolation, better provenance, and cleaner PR flow.
+- **Weaknesses:** Adds branch, worktree, and clone management overhead.
 
-### Option B: Main Checkout Mutation By Default (Rejected)
+### Option B: Branch-Or-Main-Checkout Mutation By Default (Rejected)
 
-- **What:** Let runs write directly into the primary checkout unless users opt into isolation.
+- **What:** Let writable runs default to an existing checkout branch and only opt into isolation when requested.
 - **Steel man:** Simpler mental model and lower setup cost.
 - **Why rejected:** Increases risk, weakens attribution, and makes clean review flow harder.
 
-### Option C: Clone-Or-Copy Isolation By Default (Rejected)
+### Option C: Ephemeral-Clone-First Isolation By Default (Rejected)
 
-- **What:** Use copied directories or clones instead of git worktrees.
+- **What:** Use disposable clones as the normal writable path instead of worktrees.
 - **Steel man:** Works even when worktrees are awkward or unsupported.
-- **Why rejected:** Heavier on disk and less aligned with normal gitflow than worktrees.
+- **Why rejected:** Heavier on disk and less aligned with normal gitflow than worktrees when worktrees are available.
 
 ## Reversibility Assessment
 
@@ -57,16 +57,17 @@ We will default writable coding runs to dedicated worktree execution rather than
 ### Positive
 
 - Better isolation for mutable coding runs
+- One execution-mode taxonomy that matches the product vision end to end
 - Cleaner provenance and review behavior
 
 ### Negative (accepted trade-offs)
 
 - More worktree lifecycle management
-- Some repositories will need an explicit fallback when worktrees are unavailable
+- Some repositories will need explicit `branch` or `ephemeral clone` fallback when worktrees are unavailable
 
 ### Unknowns
 
-- How often users will prefer explicit local mode for special maintenance tasks
+- How often users will prefer explicit `branch` mode or `ephemeral clone` mode for special maintenance tasks
 
 ## References
 
@@ -101,4 +102,4 @@ We will default writable coding runs to dedicated worktree execution rather than
 | Date | Event | Notes |
 |------|-------|-------|
 | 2026-04-14 | Proposed | Initial draft |
-| 2026-04-14 | Accepted | Selected as the default writable execution mode |
+| 2026-04-14 | Re-baselined | Reviewer assignment and template-complete acceptance remain incomplete |

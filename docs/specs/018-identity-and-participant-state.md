@@ -8,7 +8,7 @@
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
 | **Depends On** | [Invite Membership And Presence](../specs/002-invite-membership-and-presence.md), [Participant And Membership Model](../domain/participant-and-membership-model.md), [Component Architecture Control Plane](../architecture/component-architecture-control-plane.md) |
-| **Implementation Plan** | `TBD` |
+| **Implementation Plan** | [Plan-018: Identity And Participant State](../plans/018-identity-and-participant-state.md) |
 
 ## Purpose
 
@@ -38,7 +38,7 @@ This spec covers participant identity mapping, participant profile state, device
 
 - An authenticated identity must map to one canonical participant record per session.
 - A participant may have multiple simultaneous device or client presences.
-- Participant display state must include stable id, display name, role, membership state, and current presence summary.
+- Participant display state must include stable id, display name, canonical membership role, membership state, and current presence summary.
 - Historical participant authorship must remain stable even when display metadata later changes.
 - Participant state changes must be represented in session history when they affect collaboration semantics.
 
@@ -56,7 +56,7 @@ This spec covers participant identity mapping, participant profile state, device
 
 ## Interfaces And Contracts
 
-- `ParticipantProjectionRead` must expose stable participant id and session-scoped role.
+- `ParticipantProjectionRead` must expose stable participant id and canonical session-scoped membership role.
 - `ParticipantStateUpdate` must support display metadata changes that do not rewrite historical events.
 - `PresenceDetailRead` may expose device-level detail for authorized operators or participants.
 
@@ -95,7 +95,8 @@ This spec covers participant identity mapping, participant profile state, device
 
 ## Open Questions
 
-- Whether guest or anonymous participant identities are supported in the first release.
+- No blocking open questions remain for v1.
+- V1 decision: guest and anonymous participant identities are out of scope for the first release. Shared participation requires authenticated identity.
 
 ## References
 

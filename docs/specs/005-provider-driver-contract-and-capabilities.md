@@ -52,7 +52,7 @@ This spec covers required driver operations, capability advertisement, normalize
 
 ## Fallback Behavior
 
-- If a driver cannot resume a previously persisted handle, it must emit a recovery failure outcome; it must not silently create a replacement provider session under the same canonical run.
+- If a driver cannot resume a previously persisted handle, it must surface `provider failure` detail and a visible `recovery-needed` condition; it must not silently create a replacement provider session under the same canonical run.
 - If a provider offers provider-native data that cannot be normalized safely, the runtime must store it as diagnostic metadata only, not as canonical domain state.
 - If a driver does not support dynamic model or mode mutation, the runtime must require a new run or agent configuration rather than simulating mutation.
 
@@ -103,7 +103,7 @@ This spec covers required driver operations, capability advertisement, normalize
 
 - [ ] A new driver can be integrated without changing session or run domain semantics.
 - [ ] Unsupported capabilities remain unavailable to the user and cannot be invoked accidentally.
-- [ ] Driver recovery failure produces explicit recovery-needed state rather than silent session replacement.
+- [ ] Driver recovery failure produces explicit `provider failure` detail and `recovery-needed` condition rather than silent session replacement.
 
 ## ADR Triggers
 
@@ -111,7 +111,8 @@ This spec covers required driver operations, capability advertisement, normalize
 
 ## Open Questions
 
-- Whether driver capability changes are pushed live only or also polled on a regular refresh cadence.
+- No blocking open questions remain for v1.
+- V1 decision: driver capability changes are refreshed on a bounded periodic cadence and may also be pushed live when supported. Correctness must not depend on push-only updates.
 
 ## References
 

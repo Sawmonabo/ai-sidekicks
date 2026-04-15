@@ -8,7 +8,7 @@
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
 | **Depends On** | [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md), [Component Architecture Desktop App](../architecture/component-architecture-desktop-app.md), [Runtime Node Model](../domain/runtime-node-model.md) |
-| **Implementation Plan** | `TBD` |
+| **Implementation Plan** | [Plan-007: Local IPC And Daemon Control](../plans/007-local-ipc-and-daemon-control.md) |
 
 ## Purpose
 
@@ -37,6 +37,7 @@ This spec covers transport choice, version negotiation, request and stream seman
 ## Required Behavior
 
 - The desktop renderer and CLI must use one shared typed client SDK.
+- The CLI must be treated as a first-class local client and the first delivery track for the typed daemon contract.
 - The local daemon must expose a typed request-response and subscription contract for session, run, repo, artifact, settings, and daemon lifecycle operations.
 - The default local IPC transport must be OS-local:
   - Unix domain socket on Unix-like platforms
@@ -50,6 +51,7 @@ This spec covers transport choice, version negotiation, request and stream seman
 - Desktop app default is auto-connect to the local daemon through OS-local IPC.
 - If the daemon is not running, the desktop shell may auto-start it before the renderer gives up.
 - CLI default is connect to the same typed local daemon contract rather than reimplement daemon logic inline.
+- The first implementation release of the local control surface is CLI-first, with desktop shell and renderer consuming the same stabilized contract afterward.
 
 ## Fallback Behavior
 
@@ -80,6 +82,7 @@ This spec covers transport choice, version negotiation, request and stream seman
 - Keep IPC semantics typed and narrow. Avoid renderer-driven arbitrary shell escape hatches.
 - Local IPC choice is a security boundary, not merely a performance choice.
 - Loopback fallback must be visibly second-class compared with OS-local transport.
+- Treat the CLI as the contract proving ground for daemon control behavior, not as a disposable wrapper around desktop-only logic.
 
 ## Pitfalls To Avoid
 
@@ -99,7 +102,8 @@ This spec covers transport choice, version negotiation, request and stream seman
 
 ## Open Questions
 
-- Whether browser-only clients are supported through loopback transport in the first release or desktop and CLI remain the only first-class local clients.
+- No blocking open questions remain for v1.
+- V1 decision: browser-only local clients are out of scope. Desktop and CLI are the only first-class local clients in the first release.
 
 ## References
 

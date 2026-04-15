@@ -8,7 +8,7 @@
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
 | **Depends On** | [Artifact Diff And Approval Model](../domain/artifact-diff-and-approval-model.md), [Repo Workspace Worktree Model](../domain/repo-workspace-worktree-model.md), [Data Architecture](../architecture/data-architecture.md) |
-| **Implementation Plan** | `TBD` |
+| **Implementation Plan** | [Plan-014: Artifacts Files And Attachments](../plans/014-artifacts-files-and-attachments.md) |
 
 ## Purpose
 
@@ -44,7 +44,7 @@ This spec covers artifact types, attachment ingestion, storage expectations, man
   - command or terminal output excerpt
   - design or generated preview output
 - Attachment ingestion must produce stable artifact ids and provenance metadata.
-- Artifact visibility must be explicit and must distinguish local-only from shared-visible artifacts.
+- Artifact visibility must be explicit and must distinguish `local-only` from shared-visible artifacts.
 - Referencing a live workspace file is not sufficient for artifact immutability; the system must capture immutable artifact content or a content-addressed snapshot.
 
 ## Default Behavior
@@ -55,7 +55,7 @@ This spec covers artifact types, attachment ingestion, storage expectations, man
 
 ## Fallback Behavior
 
-- If shared replication is unavailable, the artifact may remain local-only with manifest status `pending_replication` or equivalent.
+- If shared replication is unavailable, the artifact may remain `local-only` with manifest status `pending_replication` or equivalent.
 - If the artifact payload is too large for inline timeline rendering, the timeline must show a manifest row and require explicit fetch for the payload.
 - If preview generation fails, the artifact remains valid and retrievable as raw content.
 
@@ -101,7 +101,8 @@ This spec covers artifact types, attachment ingestion, storage expectations, man
 
 ## Open Questions
 
-- Whether shared artifact replication is always manifest-first with deferred payload upload, or sometimes synchronous for small payloads.
+- No blocking open questions remain for v1.
+- V1 decision: shared artifact replication is manifest-first with deferred payload transfer. Small-payload synchronous optimization does not change the external contract in v1.
 
 ## References
 
