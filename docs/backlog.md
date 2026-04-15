@@ -27,29 +27,57 @@ This file is the active development backlog for the product defined in [vision.m
 
 ---
 
+## Execution Order
+
+Work through items in this sequence. Each step's dependencies are satisfied by prior steps.
+
+| Step | Item | What | Depends On |
+| --- | --- | --- | --- |
+| **Phase 1: Foundation** | | _Blocks all implementation_ | |
+| 1 | BL-006 | Cross-plan dependency graph and ownership map | — |
+| 2 | BL-003 | Database schemas (SQLite + Postgres) | BL-006 |
+| 3 | BL-004 | API payload contracts (Zod schemas) | BL-003 |
+| 4 | BL-005 | Auth implementation spec | — |
+| **Phase 2: Core Model** | | _Blocks critical features_ | |
+| 5 | BL-008 | Complete run state machine transition table | — |
+| 6 | BL-009 | Intervention model field-level reconciliation | BL-008 |
+| 7 | BL-010 | Invite delivery mechanism | BL-005 |
+| **Phase 3: Feature Specs** | | _Blocks specific features_ | |
+| 8 | BL-012 | Enumerate event types (69 types target) | BL-008 |
+| 9 | BL-026 | Error contracts (cross-cutting) | BL-004 |
+| 10 | BL-022 | Runtime binding glossary entry | — |
+| 11 | BL-024 | Steer injection mechanics | BL-009 |
+| 12 | BL-025 | Presence heartbeat transport + channel discovery | — |
+| 13 | BL-015 | Per-driver capability matrix | BL-008, BL-009 |
+| 14 | BL-016 | Owner elevation + membership conflicts | — |
+| 15 | BL-017 | Session/channel/participant limits | — |
+| 16 | BL-018 | Handoff timeline entry type | BL-012 |
+| 17 | BL-019 | Workspace-to-worktree binding transitions | — |
+| 18 | BL-020 | DiffArtifact vs general artifact schema | — |
+| 19 | BL-021 | Approval category enum (verify Plan-012) | — |
+| 20 | BL-023 | Relay protocol specification | BL-005 |
+| 21 | BL-011 | Channel turn/budget/stop policies | — |
+| 22 | BL-014b | Expand Spec-017 workflow spec | — |
+| 23 | BL-037 | Git hosting adapter | BL-020 |
+| **Phase 4: Ship Readiness** | | _Before V1 ship_ | |
+| 24 | BL-027 | V1 feature scope decisions (20 features) | — |
+| 25 | BL-028 | Workflow/WorkflowPhase domain models | BL-014b |
+| 26 | BL-029 | Control-plane transport propagation | — |
+| 27 | BL-030 | Deployment scaling and HA strategy | — |
+| 28 | BL-031 | Operations runbook commands/thresholds | — |
+| 29 | BL-032 | Event compaction policy | BL-012 |
+| 30 | BL-033 | Rate limit values per API | — |
+| 31 | BL-034 | Context window and usage meters | — |
+| 32 | BL-035 | Notification delivery offline/cross-device | — |
+| 33 | BL-036 | GDPR schema implementation + data map | BL-003 |
+
+Items within the same phase can be parallelized if their dependencies are met.
+
+---
+
 ## P0: Blocks All Implementation
 
 These items block every plan and feature. Nothing can proceed until they are resolved.
-
-### BL-001: Accept All 8 ADRs
-
-- Status: `completed`
-- Resolution: All 8 ADRs accepted 2026-04-15. All plan precondition checkboxes checked.
-- Priority: `P0`
-- Owner: `unassigned`
-- References: [ADR-001](./decisions/001-session-is-the-primary-domain-object.md), [ADR-002](./decisions/002-local-execution-shared-control-plane.md), [ADR-003](./decisions/003-daemon-backed-queue-and-interventions.md), [ADR-004](./decisions/004-sqlite-local-state-and-postgres-control-plane.md), [ADR-005](./decisions/005-provider-drivers-use-a-normalized-interface.md), [ADR-006](./decisions/006-worktree-first-execution-mode.md), [ADR-007](./decisions/007-collaboration-trust-and-permission-model.md), [ADR-008](./decisions/008-default-transports-and-relay-boundaries.md)
-- Summary: Every plan lists `[ ] Required ADRs are accepted` as an unchecked precondition. All 8 ADRs (001-008) remain at status `proposed` with "Reviewers: Pending assignment." By the plans' own stated rules, no plan can proceed. This is compounded by a process integrity issue: several specs have already reached `approved` status while their prerequisite ADRs remain `proposed`. Review and accept or amend each ADR, then update all plan precondition checkboxes.
-- Exit Criteria: All 8 ADRs have status `accepted`. All plan precondition checkboxes for ADR acceptance are checked.
-
-### BL-002: Choose IPC Wire Format
-
-- Status: `completed`
-- Resolution: JSON-RPC 2.0 + Content-Length framing. See ADR-009, Spec-007.
-- Priority: `P0`
-- Owner: `unassigned`
-- References: [Spec-007](./specs/007-local-ipc-and-daemon-control.md), [Vision](./vision.md)
-- Summary: Spec-007 defines transport (Unix socket on macOS/Linux, named pipe on Windows) and version negotiation (`DaemonHello` / `DaemonHelloAck`) but never specifies the serialization format. JSON-RPC, protobuf, msgpack — nothing is chosen. No reviewed document mentions WebSocket despite the vision saying "Treat WebSocket as an adapter, not the center of the design." This decision affects `packages/contracts/` and `packages/client-sdk/` fundamentally. Reference apps: Forge uses WebSocket-based RPC with 50+ methods; CodexMonitor uses newline-delimited JSON-RPC over stdio; Paseo uses WebSocket with ~90+ message types. JSON-RPC over Unix socket (with WebSocket adapter for browser/remote) aligns with the vision and matches reference patterns.
-- Exit Criteria: Spec-007 updated with chosen wire format. Decision documented as either an amendment to Spec-007 or a new ADR.
 
 ### BL-003: Design Database Schemas
 
@@ -92,16 +120,6 @@ These items block every plan and feature. Nothing can proceed until they are res
 
 ## P0: Blocks Specific Critical Features
 
-### BL-007: Add `pauseRun` and `steerRun` Driver Operations to Spec-005
-
-- Status: `completed`
-- Resolution: applyIntervention added, pause removed from flags. See ADR-011, Spec-005.
-- Priority: `P0`
-- Owner: `unassigned`
-- References: [Spec-005](./specs/005-provider-driver-contract-and-capabilities.md), [Spec-004](./specs/004-queue-steer-pause-resume.md), [Run State Machine](./domain/run-state-machine.md)
-- Summary: Resolved via `applyIntervention` as a generic dispatcher (10th driver operation). `pause` removed from capability flags (7 flags total). Pause is an orchestration-layer construct (interrupt + persist + queue resume). Steer and cancel route through `applyIntervention`. See ADR-011 and updated Spec-005.
-- Exit Criteria: Every capability flag in Spec-005 has a corresponding driver operation or explicit documentation that an existing operation carries those semantics.
-
 ### BL-008: Complete Run State Machine Transition Table
 
 - Status: `todo`
@@ -132,29 +150,46 @@ These items block every plan and feature. Nothing can proceed until they are res
 - Summary: Spec-002 covers the full invite lifecycle (issued -> accepted/declined/revoked/expired) with default join mode `collaborator`, default expiry 7 days, and authentication requirement before acceptance. However, it does not specify how an invite reaches the invitee — email, shareable link, in-app notification, deep link, or other mechanism. Plan-002 step 4 says "Integrate desktop invite acceptance and participant roster surfaces" but there is no specification for the delivery path. This blocks the end-to-end invite flow. Note: this is the highest-risk feature in the product since zero reference apps (Forge, CodexMonitor, Paseo) implement multi-user invites. Must specify at least one delivery mechanism for v1 (e.g., shareable link with token). Must also specify: invite token format, entropy requirements, single-use vs multi-use, and rate limiting on invite creation.
 - Exit Criteria: Spec-002 updated with at least one invite delivery mechanism. Invite token security properties defined. Rate limiting specified.
 
-### BL-013: Resolve Sequence-Assignment Contradiction
-
-- Status: `completed`
-- Resolution: Single-authority model adopted — sequence numbers assigned by the authoritative session-visible append path at write time. See Spec-006. Plan-006 updated to match.
-- Priority: `P0`
-- Owner: `unassigned`
-- References: [Spec-006](./specs/006-session-event-taxonomy-and-audit-log.md), [Plan-006](./plans/006-session-event-taxonomy-and-audit-log.md)
-- Summary: Direct contradiction between spec and plan. Spec-006 "Open Questions" states: "No blocking open questions remain for v1. V1 decision: session sequence numbers are assigned by the authoritative session-visible append path at write time." Plan-006 "Risks And Blockers" states: "Session-sequence assignment across local and shared producers remains unresolved." The spec claims the question is resolved; the plan claims it is not. One document must be corrected.
-- Exit Criteria: Spec-006 and Plan-006 agree on whether sequence assignment is resolved. If resolved, both say so. If unresolved, both say so and the open question is tracked.
-
-### BL-014a: Decide Workflow V1 Scope
-
-- Status: `completed`
-- Resolution: Workflows are V1: single-agent + automated phases, all 4 gates. See Spec-017.
-- Priority: `P0`
-- Owner: `unassigned`
-- References: [Spec-017](./specs/017-workflow-authoring-and-execution.md), [Vision](./vision.md)
-- Summary: Must decide whether workflows are v1 or post-v1. This decision gates BL-014b. If post-v1, Spec-017 is adequate as a directional document. If v1, Spec-017 needs substantial expansion (see BL-014b).
-- Exit Criteria: Documented v1 scope decision for workflows.
-
 ---
 
 ## P1: Blocks Specific Features
+
+### BL-011: Specify Channel Turn Policy, Budget Policy, and Stop Conditions
+
+- Status: `todo`
+- Priority: `P1`
+- Owner: `unassigned`
+- References: [Spec-016](./specs/016-multi-agent-channels-and-orchestration.md), [Vision](./vision.md)
+- Summary: The vision explicitly lists "turn policy", "budget policy", "stop conditions", and "moderation and approval hooks" as channel attributes for multi-user and multi-agent chat. The current specs define channels as session-local communication streams with states but specify none of these behavioral policies. For context, Forge implements ping-pong deliberation with conclusion detection, 4 channel types (guidance, deliberation, review, system), and per-role model overrides. ai-sidekicks has none of this. Must specify at minimum: (1) turn policy — how do agents/participants take turns? Round-robin, request-based, free-form, ping-pong? (2) budget policy — token limits? cost limits? turn limits per agent? (3) stop conditions — when does a multi-agent conversation end? Conclusion detection? Turn limit? (4) moderation hooks — how are approval/review gates integrated into channels? (5) Default scheduler limits — Spec-016 says rejection for capacity violations must be explicit but proposes no defaults.
+- Exit Criteria: Spec-016 updated with turn policy, budget policy, stop conditions, moderation hooks, and default scheduler limits. At least one concrete policy per dimension is specified for v1.
+
+### BL-012: Enumerate Individual Event Types Within Taxonomy
+
+- Status: `todo`
+- Priority: `P1`
+- Owner: `unassigned`
+- References: [Spec-006](./specs/006-session-event-taxonomy-and-audit-log.md), [Plan-006](./plans/006-session-event-taxonomy-and-audit-log.md)
+- Summary: Spec-006 names 9 event categories (session lifecycle, invite/membership, presence, channel/agent lifecycle, run lifecycle, queue/intervention, approval, repo/workspace/worktree, artifact/diff) and defines envelope fields (`eventId`, `sessionId`, `sequence`, `occurredAt`, `category`, `type`, `actor`, correlation/causation). However, it does not enumerate specific event types within each category (e.g., `run.started`, `run.paused`, `approval.requested`). Implementers must derive these from domain models with no canonical list. For context, Forge defines 27 base + 42 extended orchestration event types (69 total concrete types with full payload schemas). ai-sidekicks has zero concrete event types defined. Must enumerate every event type, its payload schema, and which category it belongs to.
+- Exit Criteria: Spec-006 contains a canonical enumeration of all event types within each category, with payload schemas or references to contract definitions.
+
+### BL-014b: Expand Spec-017 Workflow Specification
+
+- Status: `todo`
+- Priority: `P1`
+- Owner: `unassigned`
+- References: [Spec-017](./specs/017-workflow-authoring-and-execution.md), [Plan-017](./plans/017-workflow-authoring-and-execution.md)
+- Summary: BL-014a is completed — workflows are V1 scope (single-agent + automated phases, all 4 gates). Spec-017 now defines V1 phase types (`single-agent`, `automated`), gate types (`auto-continue`, `quality-checks`, `human-approval`, `done`), full type hierarchy, definition/execution entity separation, and LangGraph checkpoint pattern. Remaining gaps vs Forge baseline: quality-check model (retry targets, max retries), output mode specification, discussion integration, and workflow runtime timeline with phase runs and iterations.
+- Exit Criteria: Spec-017 updated with phase-type taxonomy, gate-type taxonomy with failure/retry semantics, quality-check model, output mode specification, and discussion integration. Domain model docs created for `Workflow` and `WorkflowPhase` entities.
+
+### BL-015: Define Per-Driver Capability Matrix
+
+- Status: `todo`
+- Note: Capability flags updated to 7 (pause removed). See [ADR-011](./decisions/011-generic-intervention-dispatch.md). Matrix definition remains.
+- Priority: `P1`
+- Owner: `unassigned`
+- References: [Spec-005](./specs/005-provider-driver-contract-and-capabilities.md), [Plan-005](./plans/005-provider-driver-contract-and-capabilities.md)
+- Summary: Plan-005 builds two initial drivers (Codex and Claude) against the normalized contract but never specifies which capability flags each driver will support. The 7 flags are: `resume`, `steer`, `interactive_requests`, `mcp`, `tool_calls`, `reasoning_stream`, `model_mutation` (pause removed per ADR-011 — it is an orchestration-layer construct). Implementers building the drivers need to know the expected matrix. For context: Codex supports resume, steer (via `turn/steer`), interactive requests, MCP, tool calls; Claude supports resume (via SDK), interactive requests, MCP, tool calls, reasoning stream, model mutation. This matrix drives fallback behavior: unsupported steer -> reject or degrade to queue item.
+- Exit Criteria: Spec-005 or Plan-005 includes a capability matrix showing expected `true`/`false` for each flag for each initial driver (Codex, Claude).
 
 ### BL-016: Specify Owner Elevation, Last-Owner Departure, and Concurrent Membership Conflicts
 
@@ -254,43 +289,6 @@ These items block every plan and feature. Nothing can proceed until they are res
 - References: All specs
 - Summary: No spec defines error response shapes or error codes for any interface. Error contracts are needed for consistent client behavior across all surfaces (CLI, desktop, SDK). Must define at minimum: error response shape (code, message, details), canonical error codes per domain (auth errors, session errors, run errors, approval errors), and rate limiting responses. Can be done as a single cross-cutting error contract document rather than per-spec.
 - Exit Criteria: Error contract document exists with canonical error shape, error codes per domain, and rate limiting response format. All specs reference or link to it.
-
-### BL-011: Specify Channel Turn Policy, Budget Policy, and Stop Conditions
-
-- Status: `todo`
-- Priority: `P1`
-- Owner: `unassigned`
-- References: [Spec-016](./specs/016-multi-agent-channels-and-orchestration.md), [Vision](./vision.md)
-- Summary: The vision explicitly lists "turn policy", "budget policy", "stop conditions", and "moderation and approval hooks" as channel attributes for multi-user and multi-agent chat. The current specs define channels as session-local communication streams with states but specify none of these behavioral policies. For context, Forge implements ping-pong deliberation with conclusion detection, 4 channel types (guidance, deliberation, review, system), and per-role model overrides. ai-sidekicks has none of this. Must specify at minimum: (1) turn policy — how do agents/participants take turns? Round-robin, request-based, free-form, ping-pong? (2) budget policy — token limits? cost limits? turn limits per agent? (3) stop conditions — when does a multi-agent conversation end? Conclusion detection? Turn limit? (4) moderation hooks — how are approval/review gates integrated into channels? (5) Default scheduler limits — Spec-016 says rejection for capacity violations must be explicit but proposes no defaults.
-- Exit Criteria: Spec-016 updated with turn policy, budget policy, stop conditions, moderation hooks, and default scheduler limits. At least one concrete policy per dimension is specified for v1.
-
-### BL-012: Enumerate Individual Event Types Within Taxonomy
-
-- Status: `todo`
-- Priority: `P1`
-- Owner: `unassigned`
-- References: [Spec-006](./specs/006-session-event-taxonomy-and-audit-log.md), [Plan-006](./plans/006-session-event-taxonomy-and-audit-log.md)
-- Summary: Spec-006 names 9 event categories (session lifecycle, invite/membership, presence, channel/agent lifecycle, run lifecycle, queue/intervention, approval, repo/workspace/worktree, artifact/diff) and defines envelope fields (`eventId`, `sessionId`, `sequence`, `occurredAt`, `category`, `type`, `actor`, correlation/causation). However, it does not enumerate specific event types within each category (e.g., `run.started`, `run.paused`, `approval.requested`). Implementers must derive these from domain models with no canonical list. For context, Forge defines 27 base + 42 extended orchestration event types (69 total concrete types with full payload schemas). ai-sidekicks has zero concrete event types defined. Must enumerate every event type, its payload schema, and which category it belongs to.
-- Exit Criteria: Spec-006 contains a canonical enumeration of all event types within each category, with payload schemas or references to contract definitions.
-
-### BL-014b: Expand Spec-017 Workflow Specification
-
-- Status: `todo`
-- Priority: `P1`
-- Owner: `unassigned`
-- References: [Spec-017](./specs/017-workflow-authoring-and-execution.md), [Plan-017](./plans/017-workflow-authoring-and-execution.md)
-- Summary: BL-014a is completed — workflows are V1 scope (single-agent + automated phases, all 4 gates). Spec-017 now defines V1 phase types (`single-agent`, `automated`), gate types (`auto-continue`, `quality-checks`, `human-approval`, `done`), full type hierarchy, definition/execution entity separation, and LangGraph checkpoint pattern. Remaining gaps vs Forge baseline: quality-check model (retry targets, max retries), output mode specification, discussion integration, and workflow runtime timeline with phase runs and iterations.
-- Exit Criteria: Spec-017 updated with phase-type taxonomy, gate-type taxonomy with failure/retry semantics, quality-check model, output mode specification, and discussion integration. Domain model docs created for `Workflow` and `WorkflowPhase` entities.
-
-### BL-015: Define Per-Driver Capability Matrix
-
-- Status: `todo`
-- Note: Capability flags updated to 7 (pause removed). See [ADR-011](./decisions/011-generic-intervention-dispatch.md). Matrix definition remains.
-- Priority: `P1`
-- Owner: `unassigned`
-- References: [Spec-005](./specs/005-provider-driver-contract-and-capabilities.md), [Plan-005](./plans/005-provider-driver-contract-and-capabilities.md)
-- Summary: Plan-005 builds two initial drivers (Codex and Claude) against the normalized contract but never specifies which capability flags each driver will support. The 7 flags are: `resume`, `steer`, `interactive_requests`, `mcp`, `tool_calls`, `reasoning_stream`, `model_mutation` (pause removed per ADR-011 — it is an orchestration-layer construct). Implementers building the drivers need to know the expected matrix. For context: Codex supports resume, steer (via `turn/steer`), interactive requests, MCP, tool calls; Claude supports resume (via SDK), interactive requests, MCP, tool calls, reasoning stream, model mutation. This matrix drives fallback behavior: unsupported steer -> reject or degrade to queue item.
-- Exit Criteria: Spec-005 or Plan-005 includes a capability matrix showing expected `true`/`false` for each flag for each initial driver (Codex, Claude).
 
 ### BL-037: Specify Git Hosting Adapter Abstraction for PR Preparation
 
@@ -397,6 +395,47 @@ These items block every plan and feature. Nothing can proceed until they are res
 - References: [Session Model](./domain/session-model.md), [Spec-001](./specs/001-shared-session-core.md), [Spec-022](./specs/022-data-retention-and-gdpr.md), [Data Architecture](./architecture/data-architecture.md)
 - Summary: Spec-022 defines the GDPR compliance framework including crypto-shredding, data export, and purge lifecycle. Remaining work: implement the V1 schema (pii_payload column, participant_keys table) and produce the PII data map prerequisite.
 - Exit Criteria: Data retention and deletion policy documented. Session model or data architecture updated with lifecycle beyond `archived`.
+
+---
+
+## Completed
+
+Items resolved. Kept for traceability — BL-XXX IDs are referenced by the reference library.
+
+### BL-001: Accept All 8 ADRs
+
+- Status: `completed`
+- Resolution: All 8 ADRs accepted 2026-04-15. All plan precondition checkboxes checked.
+- Priority: `P0`
+- References: [ADR-001](./decisions/001-session-is-the-primary-domain-object.md) through [ADR-008](./decisions/008-default-transports-and-relay-boundaries.md)
+
+### BL-002: Choose IPC Wire Format
+
+- Status: `completed`
+- Resolution: JSON-RPC 2.0 + Content-Length framing. See ADR-009, Spec-007.
+- Priority: `P0`
+- References: [Spec-007](./specs/007-local-ipc-and-daemon-control.md), [ADR-009](./decisions/009-json-rpc-ipc-wire-format.md)
+
+### BL-007: Add `pauseRun` and `steerRun` Driver Operations to Spec-005
+
+- Status: `completed`
+- Resolution: `applyIntervention` added as generic dispatcher (10th driver operation). `pause` removed from capability flags (7 total). See ADR-011, Spec-005.
+- Priority: `P0`
+- References: [Spec-005](./specs/005-provider-driver-contract-and-capabilities.md), [ADR-011](./decisions/011-generic-intervention-dispatch.md)
+
+### BL-013: Resolve Sequence-Assignment Contradiction
+
+- Status: `completed`
+- Resolution: Single-authority model adopted — sequence numbers assigned by the authoritative session-visible append path at write time. See Spec-006. Plan-006 updated to match.
+- Priority: `P0`
+- References: [Spec-006](./specs/006-session-event-taxonomy-and-audit-log.md), [Plan-006](./plans/006-session-event-taxonomy-and-audit-log.md)
+
+### BL-014a: Decide Workflow V1 Scope
+
+- Status: `completed`
+- Resolution: Workflows are V1: single-agent + automated phases, all 4 gates. See Spec-017.
+- Priority: `P0`
+- References: [Spec-017](./specs/017-workflow-authoring-and-execution.md)
 
 ---
 
