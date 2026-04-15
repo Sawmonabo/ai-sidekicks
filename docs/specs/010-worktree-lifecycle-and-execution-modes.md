@@ -53,6 +53,7 @@ This spec covers `read-only`, `branch`, `worktree`, and `ephemeral clone` execut
 - Default writable coding runs use one dedicated worktree per active task or branch context.
 - `branch` mode and `ephemeral clone` mode are explicit selections or policy-driven overrides, not hidden defaults.
 - Worktree retirement defaults to preserving metadata and artifacts even when filesystem cleanup later removes the checkout.
+- Worktree or ephemeral-clone preparation must not automatically execute repository setup scripts in v1.
 
 ## Fallback Behavior
 
@@ -60,6 +61,7 @@ This spec covers `read-only`, `branch`, `worktree`, and `ephemeral clone` execut
 - If worktree creation fails, the run must remain blocked in setup rather than mutating the main checkout.
 - If ephemeral clone preparation fails, the run must remain blocked in setup unless an operator or participant explicitly selects a different execution mode.
 - If an intended reuse candidate is dirty or incompatible with the requested branch strategy, the system must require explicit user choice.
+- If a repository requires setup commands before useful execution, v1 must surface them as explicit follow-on actions or workflow steps rather than hidden execution-root side effects.
 
 ## Interfaces And Contracts
 
@@ -88,6 +90,7 @@ This spec covers `read-only`, `branch`, `worktree`, and `ephemeral clone` execut
 - Branch-name defaults should be deterministic and human-readable, but collision handling must be explicit.
 - Worktree reuse is valuable, but the system should bias toward isolation over convenience.
 - `branch` mode remains important for special maintenance tasks, but it must stay clearly non-default for mutable coding work.
+- Repository bootstrap or setup commands should be modeled as explicit approved work, not as an implicit part of worktree creation.
 
 ## Pitfalls To Avoid
 
@@ -110,6 +113,7 @@ This spec covers `read-only`, `branch`, `worktree`, and `ephemeral clone` execut
 
 - No blocking open questions remain for v1.
 - V1 decision: branch prefix and slugging rules are product-defined and locked for consistency in v1. User-configurable naming rules are deferred.
+- V1 decision: repository setup scripts do not run automatically during worktree or ephemeral-clone preparation in the first implementation. Setup execution requires an explicit follow-on action under normal approval and policy rules.
 
 ## References
 

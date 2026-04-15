@@ -46,6 +46,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 - Add durable local `approval_requests`, `approval_resolutions`, and `remembered_approval_rules` storage plus invalidation hooks tied to runtime-node trust changes.
 - Extend shared projections so authorized participants can read pending and historical approval state without inferring it from raw events alone.
+- Persist the trust-evaluation inputs needed to distinguish own-node envelope trust from cross-participant or escalated sensitive actions.
 
 ## API And Transport Changes
 
@@ -69,6 +70,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - Permission-enforcement tests covering destructive git, out-of-boundary file writes, network access, and high-risk tool execution
 - Replay and restart tests proving approval state and remembered grants survive recovery
 - Trust-invalidation tests proving membership or node-trust changes revoke dependent grants before reuse
+- Own-node trust tests proving normal local execution is allowed within the node envelope while escalated sensitive actions still require explicit approval
 
 ## Rollout Order
 
@@ -84,6 +86,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 - Organization-level policy defaults remain unresolved for the first implementation
 - Provider-native permission semantics may drift unless normalization is enforced before approval records are written
+- Own-node trust can be over-broadened unless envelope boundaries remain explicit in permission checks and UI copy
 
 ## Done Checklist
 

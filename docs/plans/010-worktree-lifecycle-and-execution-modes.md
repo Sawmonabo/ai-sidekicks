@@ -23,6 +23,7 @@ This plan covers execution mode selection, read-only and branch gating, worktree
 - PR preparation
 - Diff attribution logic
 - Non-repo directory execution semantics
+- Automatic repository setup-script execution during execution-root preparation
 
 ## Preconditions
 
@@ -69,6 +70,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - Worktree create and reuse tests
 - Ephemeral clone prepare and cleanup tests
 - Failure-path tests that ensure no silent main-checkout mutation
+- Tests proving execution-root preparation does not auto-run repository setup scripts
 - Manual verification of worktree lifecycle from create through retire
 
 ## Rollout Order
@@ -86,6 +88,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - Branch naming collisions
 - Git edge cases on repos with unusual worktree support
 - Ephemeral clone cleanup may leak disk usage without strong lifecycle handling
+- Repositories with mandatory bootstrap steps will need explicit follow-on setup flows or workflows rather than hidden automatic preparation
 
 ## Done Checklist
 

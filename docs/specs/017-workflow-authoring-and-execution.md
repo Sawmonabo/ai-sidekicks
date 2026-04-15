@@ -38,6 +38,7 @@ This spec covers workflow definitions, phase execution, phase outputs, and workf
 ## Required Behavior
 
 - Workflows must be authored as explicit phase definitions with stable ids and versioned structure.
+- Workflow definitions must be stored as first-class durable definition and version records. Artifact publication may represent workflow exports or summaries, but it must not be the canonical source of workflow definition truth.
 - A workflow phase may create runs, request approvals, emit artifacts, or block on participant input.
 - Workflow execution must remain visible in the session timeline and must preserve per-phase provenance.
 - Phase outputs must be durable and addressable after workflow completion.
@@ -48,6 +49,7 @@ This spec covers workflow definitions, phase execution, phase outputs, and workf
 - Workflow phases default to sequential execution unless the definition explicitly marks safe parallelism.
 - Each phase defaults to one primary target channel and one primary producing run.
 - Workflow definitions default to immutable-by-version: editing a workflow creates a new version rather than mutating a running definition in place.
+- Workflow definition reads default to the canonical persisted definition record for the requested scope and version rather than to an artifact manifest.
 
 ## Fallback Behavior
 
@@ -58,6 +60,7 @@ This spec covers workflow definitions, phase execution, phase outputs, and workf
 ## Interfaces And Contracts
 
 - `WorkflowDefinitionCreate` must persist phase definitions and version metadata.
+- `WorkflowDefinitionRead` must return the canonical definition record and selected version metadata for the requested scope.
 - `WorkflowRunStart` must bind a workflow version to a session and create phase execution state.
 - `PhaseOutputRead` must expose durable phase outputs and artifact references.
 - `WorkflowGateResolve` must resolve workflow-scoped approvals or participant questions.
@@ -65,13 +68,16 @@ This spec covers workflow definitions, phase execution, phase outputs, and workf
 ## State And Data Implications
 
 - Workflow definitions, versions, and phase outputs must be durable and replayable.
+- Workflow definitions and workflow versions are first-class persisted records distinct from artifact manifests.
 - Running workflows require phase-state persistence separate from UI state.
 - Workflow and run histories must remain cross-linked for audit and replay.
+- Optional workflow exports, previews, or summaries may be published as artifacts, but those artifacts are derivative views and must not replace the canonical definition store.
 
 ## Example Flows
 
 - Example: A workflow runs `analyze -> plan -> implement -> review`, pausing between plan and implement for a human approval gate.
 - Example: A workflow is edited after one instance has already started. The running instance continues on the old version while new runs use the new version.
+- Example: A project-scoped workflow definition is exported as a review artifact for discussion. Later workflow execution still binds to the canonical persisted definition version rather than to the artifact copy.
 
 ## Implementation Notes
 
@@ -99,6 +105,7 @@ This spec covers workflow definitions, phase execution, phase outputs, and workf
 
 - No blocking open questions remain for v1.
 - V1 decision: the first implementation supports session-scoped and project-scoped workflow definitions only. Global workflow libraries are out of scope.
+- V1 decision: workflow definitions are canonical durable definition records, not canonical artifacts. Artifact publication is allowed only for derivative exports, previews, or summaries.
 
 ## References
 

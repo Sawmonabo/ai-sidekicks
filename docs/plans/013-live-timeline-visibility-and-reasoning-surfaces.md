@@ -46,6 +46,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 - Add or extend replayable timeline projection storage for ordered rows, child-run summary rows, and reasoning availability metadata.
 - Preserve provenance links from timeline rows back to canonical event ids, run ids, runtime nodes, and policy-redaction reasons.
+- Store durable reasoning summaries and policy markers separately from any bounded detailed-reasoning diagnostic payloads.
 
 ## API And Transport Changes
 
@@ -56,7 +57,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 1. Define timeline-row, child-run-summary, and reasoning-availability contracts in shared packages.
 2. Implement daemon-owned timeline projection and replay-aware subscription delivery from canonical events.
-3. Implement child-run expansion and policy-aware reasoning-surface reads.
+3. Implement child-run expansion plus summary-first, policy-aware reasoning-surface reads with explicit unavailable-or-compacted states.
 4. Add desktop timeline rendering for live rows, summarized child runs, and visible unavailable or redacted reasoning placeholders.
 
 ## Parallelization Notes
@@ -69,6 +70,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - Projection tests covering ordered messages, run-state changes, tool activity, approvals, artifacts, and child-run summaries
 - Replay-gap tests proving clients can recover missing rows without rebuilding from free-form text
 - Policy-redaction tests proving unavailable reasoning still produces visible explanation surfaces
+- Retention tests proving detailed reasoning expiry or compaction does not erase durable summary and policy surfaces
 
 ## Rollout Order
 
@@ -84,6 +86,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 - Per-session verbose reasoning opt-in remains unresolved
 - Timeline projections will drift if row schemas are allowed to diverge from canonical event provenance
+- Detailed reasoning payloads can be mistaken for canonical history unless summary-first storage stays explicit across contracts and UI
 
 ## Done Checklist
 

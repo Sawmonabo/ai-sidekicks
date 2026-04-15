@@ -75,8 +75,9 @@ We will use the four-mode execution taxonomy `read-only`, `branch`, `worktree`, 
 
 | Source | Type | Key Finding | URL/Location |
 |--------|------|-------------|--------------|
-| `005-repo-git-worktree-diff.md` | Extraction note | Worktree-backed coding is the strongest pattern for isolation and diff review | [tmp/extraction/005-repo-git-worktree-diff.md](../tmp/extraction/005-repo-git-worktree-diff.md) |
+| `domain/repo-workspace-worktree-model.md` | Canonical domain doc | Worktree-backed execution is the default coding mode and the main checkout is not the default write target | [domain/repo-workspace-worktree-model.md](../domain/repo-workspace-worktree-model.md) |
 | `specs/010-worktree-lifecycle-and-execution-modes.md` | Canonical spec | Worktree-first is the default writable execution contract | [specs/010-worktree-lifecycle-and-execution-modes.md](../specs/010-worktree-lifecycle-and-execution-modes.md) |
+| `specs/011-gitflow-pr-and-diff-attribution.md` | Canonical spec | Worktree-backed execution supports attributable diff review and PR preparation | [specs/011-gitflow-pr-and-diff-attribution.md](../specs/011-gitflow-pr-and-diff-attribution.md) |
 
 ### Related Domain Docs
 

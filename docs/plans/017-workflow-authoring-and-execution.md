@@ -46,15 +46,16 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 - Add durable `workflow_definitions`, `workflow_versions`, `workflow_runs`, `workflow_phase_states`, and workflow-gate records.
 - Store phase outputs as artifact references or equivalent durable output records linked back to workflow version and phase id.
+- Keep workflow definitions and versions as first-class persisted records rather than artifact manifests. Any workflow export artifact remains derivative only.
 
 ## API And Transport Changes
 
-- Add `WorkflowDefinitionCreate`, `WorkflowRunStart`, `PhaseOutputRead`, and `WorkflowGateResolve` to shared contracts and the typed client SDK.
+- Add `WorkflowDefinitionCreate`, `WorkflowDefinitionRead`, `WorkflowRunStart`, `PhaseOutputRead`, and `WorkflowGateResolve` to shared contracts and the typed client SDK.
 - Carry workflow version ids, phase ids, and gate states through timeline and run-link events so workflow history remains replayable.
 
 ## Implementation Steps
 
-1. Define workflow-definition, version, phase-state, and gate contracts in shared packages.
+1. Define workflow-definition, version, phase-state, gate, and definition-read contracts in shared packages.
 2. Implement durable workflow definition versioning and workflow-run persistence in the daemon.
 3. Implement phase execution, gate resolution, and restart-safe workflow resumption.
 4. Add desktop workflow authoring and workflow-run visibility surfaces backed by the shared client SDK.
@@ -69,6 +70,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - Versioning tests proving running workflow instances stay pinned to the version they started on
 - Restart and reconnect tests proving workflow phase state and gates survive daemon recovery
 - Phase-output tests proving durable artifact references remain readable after workflow completion
+- Definition-read tests proving workflow execution resolves from canonical definition records rather than derivative artifact exports
 
 ## Rollout Order
 
@@ -84,6 +86,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 - Global workflow libraries remain out of scope and unresolved for the first implementation
 - Workflow execution can drift from core session or run semantics if phase state is not modeled as durable product state
+- Workflow exports can create confusion if the product blurs derivative artifact copies with the canonical definition store
 
 ## Done Checklist
 

@@ -52,11 +52,12 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 - Add `ChannelCreate`, `OrchestrationRunCreate`, and `ChildRunLinkRead` to shared contracts and the typed client SDK.
 - Carry internal-helper flags and target channel metadata through orchestration commands and run lifecycle events.
+- Surface explicit orchestration rejection reasons for delegation-depth and active-child scheduler-limit failures.
 
 ## Implementation Steps
 
 1. Define channel identity, run-link, and orchestration-create contracts in shared packages.
-2. Implement daemon-side channel creation and parent-child run persistence with provider-agnostic orchestration hooks.
+2. Implement daemon-side channel creation and parent-child run persistence with provider-agnostic orchestration hooks plus explicit depth and active-child admission checks.
 3. Implement replayable run-link projections and summarized child-run publication into session timelines.
 4. Add desktop channel and child-run surfaces for concurrent agent activity and expandable delegated-work detail.
 
@@ -69,6 +70,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 - Multi-agent run-link tests covering parent-child durability across replay and restart
 - Driver-adapter tests proving delegated work remains possible when no native subagent primitive exists
+- Scheduler-limit tests proving nested delegation and active-child overflow requests fail explicitly instead of spawning hidden work
 - UI integration tests proving background helper work remains visible without collapsing into plain chat text
 
 ## Rollout Order
@@ -85,6 +87,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 - Channel-level restriction policy remains unresolved for the first implementation
 - Provider-native orchestration differences can leak into product semantics unless normalized at the daemon boundary
+- Scheduler-limit policy must remain visible to users and workflows so bounded fan-out does not look like silent runtime failure
 
 ## Done Checklist
 

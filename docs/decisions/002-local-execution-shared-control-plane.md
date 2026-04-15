@@ -62,7 +62,7 @@ Hosted execution fails the product's local-runtime contribution requirement and 
 | # | Assumption | Evidence | What Breaks If Wrong |
 |---|-----------|----------|----------------------|
 | 1 | Users need local repo and tool execution to remain on their own machines. | `vision.md` requires participant-contributed local agents. | Hosted execution might be more appropriate. |
-| 2 | Collaboration metadata can be shared without centralizing execution. | Architecture and extraction notes support this split cleanly. | The control plane might need broader authority than intended. |
+| 2 | Collaboration metadata can be shared without centralizing execution. | System context, participant-and-membership modeling, and join specs keep membership, presence, and node attachment separate from execution authority. | The control plane might need broader authority than intended. |
 | 3 | The product can tolerate control-plane dependency for collaborative features. | Deployment topology includes `local-only` fallback for non-collaborative use. | Shared-session behavior could be too fragile under outages. |
 
 ## Failure Mode Analysis
@@ -120,8 +120,9 @@ Hosted execution fails the product's local-runtime contribution requirement and 
 | Source | Type | Key Finding | URL/Location |
 |--------|------|-------------|--------------|
 | `vision.md` | Canonical product vision | Local runtime contribution and shared session collaboration are both required | [vision.md](../vision.md) |
-| `007-invite-membership-presence.md` | Extraction note | Membership and node attachment must stay distinct | [tmp/extraction/007-invite-membership-presence.md](../tmp/extraction/007-invite-membership-presence.md) |
 | `architecture/system-context.md` | Canonical architecture doc | The split enables both local execution and shared coordination | [architecture/system-context.md](../architecture/system-context.md) |
+| `specs/002-invite-membership-and-presence.md` | Canonical spec | Membership, presence, and runtime-node attachment are distinct layers and join does not require execution attach | [specs/002-invite-membership-and-presence.md](../specs/002-invite-membership-and-presence.md) |
+| `specs/008-control-plane-relay-and-session-join.md` | Canonical spec | Join, presence, and relay coordination do not make the control plane the execution authority | [specs/008-control-plane-relay-and-session-join.md](../specs/008-control-plane-relay-and-session-join.md) |
 
 ### Related Domain Docs
 

@@ -61,7 +61,7 @@ JSON files are too weak for replay-heavy, event-oriented runtime truth. A single
 
 | # | Assumption | Evidence | What Breaks If Wrong |
 |---|-----------|----------|----------------------|
-| 1 | Local daemon workloads fit SQLite well. | Current architecture is node-local and session-scoped. | SQLite could become a bottleneck or operational pain. |
+| 1 | Local daemon workloads fit SQLite well. | The persistence spec requires SQLite with WAL for node-local execution truth and restart recovery. | SQLite could become a bottleneck or operational pain. |
 | 2 | Shared collaboration data needs multi-actor relational guarantees. | Invite, membership, presence, and session directory data are cross-user. | A lighter shared store might suffice. |
 | 3 | The system can keep local and shared data boundaries explicit. | Data architecture and security docs already separate them. | Replication or visibility bugs could blur the model. |
 
@@ -119,9 +119,9 @@ JSON files are too weak for replay-heavy, event-oriented runtime truth. A single
 
 | Source | Type | Key Finding | URL/Location |
 |--------|------|-------------|--------------|
-| `009-persistence-recovery-audit.md` | Extraction note | Local event-heavy runtime state needs stronger persistence than client cache or flat files | [tmp/extraction/009-persistence-recovery-audit.md](../tmp/extraction/009-persistence-recovery-audit.md) |
 | `architecture/data-architecture.md` | Canonical architecture doc | Local and shared state belong to different trust and workload domains | [architecture/data-architecture.md](../architecture/data-architecture.md) |
 | `specs/015-persistence-recovery-and-replay.md` | Canonical spec | SQLite and Postgres split is part of the correctness contract | [specs/015-persistence-recovery-and-replay.md](../specs/015-persistence-recovery-and-replay.md) |
+| `operations/local-persistence-repair-and-restore.md` | Canonical operations doc | Local persistence integrity and restore behavior are explicit operational requirements | [operations/local-persistence-repair-and-restore.md](../operations/local-persistence-repair-and-restore.md) |
 
 ### Related Domain Docs
 

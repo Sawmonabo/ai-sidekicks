@@ -63,7 +63,7 @@ The single-user case remains a valid session with one participant and one runtim
 |---|-----------|----------|----------------------|
 | 1 | Shared live collaboration is a core requirement, not a later add-on. | `vision.md` makes this the defining requirement. | A simpler agent-centric design might be preferable. |
 | 2 | Single-user flows can still feel lightweight inside a session model. | Domain and spec drafts keep one-participant sessions valid. | Session-centric design could feel unnecessarily heavy. |
-| 3 | Provider thread ids are not a safe long-term product identity. | Extraction notes show provider-specific semantics vary and drift. | Session identity might become overly abstracted from reality. |
+| 3 | Provider thread ids are not a safe long-term product identity. | The session model explicitly rejects provider threads as the root object, and Spec-001 forbids treating provider thread ids as session ids. | Session identity might become overly abstracted from runtime reality. |
 
 ## Failure Mode Analysis
 
@@ -120,8 +120,8 @@ The single-user case remains a valid session with one participant and one runtim
 | Source | Type | Key Finding | URL/Location |
 |--------|------|-------------|--------------|
 | `vision.md` | Canonical product vision | Shared session is the defining product requirement | [vision.md](../vision.md) |
-| `001-session-and-collaboration.md` | Extraction note | Session-backed collaboration is the only model that cleanly spans participants, nodes, and runs | [tmp/extraction/001-session-and-collaboration.md](../tmp/extraction/001-session-and-collaboration.md) |
 | `domain/session-model.md` | Canonical domain doc | Session can contain all core nouns coherently | [domain/session-model.md](../domain/session-model.md) |
+| `specs/001-shared-session-core.md` | Canonical spec | Session is the stable collaborative container and provider thread ids are not session ids | [specs/001-shared-session-core.md](../specs/001-shared-session-core.md) |
 
 ### Related Domain Docs
 

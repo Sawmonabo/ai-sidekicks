@@ -46,6 +46,7 @@ This spec covers in-app attention state, desktop notifications, invite notificat
   - mention or direct request from another participant
 - Notification emission must be derived from canonical session or run state, not from client heuristics alone.
 - Users must be able to distinguish passive informational notifications from actionable blocking attention.
+- The attention model must support both run-scoped attention and session-scoped aggregate attention derived from canonical state.
 
 ## Default Behavior
 
@@ -53,6 +54,7 @@ This spec covers in-app attention state, desktop notifications, invite notificat
 - Run completion and invite receipt are informational attention by default.
 - When the desktop app is unfocused, actionable attention defaults to OS notification plus in-app badge.
 - When the app is focused, attention defaults to in-app surfaces first.
+- Run-scoped attention defaults to the fine-grained source projection, while session-scoped attention defaults to an aggregate of unresolved run, invite, and participant-request signals.
 
 ## Fallback Behavior
 
@@ -62,13 +64,14 @@ This spec covers in-app attention state, desktop notifications, invite notificat
 
 ## Interfaces And Contracts
 
-- `AttentionProjectionRead` must expose current actionable and informational attention state.
+- `AttentionProjectionRead` must expose current actionable and informational attention state at both run and session scope.
 - `NotificationPreferenceRead` and `NotificationPreferenceUpdate` must support per-surface preferences.
 - `NotificationEmit` must reference the underlying canonical event or state trigger.
 
 ## State And Data Implications
 
 - Attention state is a derived projection from canonical events.
+- Session-scoped attention is an aggregate projection over run-scoped and session-native triggers.
 - Notification preferences require durable user-level storage.
 - Notification delivery attempts may be ephemeral, but actionable attention state must remain durable until resolved.
 
@@ -76,6 +79,7 @@ This spec covers in-app attention state, desktop notifications, invite notificat
 
 - Example: A run reaches `waiting_for_approval` while the app is unfocused. The user receives a desktop notification and the session shows a blocking attention badge until the approval is resolved.
 - Example: An owner invites another participant into a live session. The recipient receives an invite notification, and the pending invite remains visible in-app until accepted or dismissed.
+- Example: Two runs in one session require action at the same time. Each run exposes its own actionable attention state, and the session aggregate stays actionable until both are resolved.
 
 ## Implementation Notes
 
@@ -103,6 +107,7 @@ This spec covers in-app attention state, desktop notifications, invite notificat
 
 - No blocking open questions remain for v1.
 - V1 decision: notification preferences are global in the first release. Per-session notification preferences are deferred.
+- V1 decision: attention state exists at both run scope and session scope in v1. Run scope is the fine-grained source of truth for execution-related attention, and session scope is the aggregate used for navigation and notification surfaces.
 
 ## References
 

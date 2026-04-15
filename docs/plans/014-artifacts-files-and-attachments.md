@@ -46,6 +46,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 - Add durable `artifact_manifests`, `artifact_payload_refs`, and replication-status records with provenance, visibility class, and producer metadata.
 - Keep manifest storage separate from large payload storage while preserving content-addressed lookup or equivalent immutable payload identity.
+- Treat any redacted or summarized shared form as a separate derivative artifact record rather than as in-place mutation metadata on the original artifact.
 
 ## API And Transport Changes
 
@@ -56,7 +57,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 1. Define artifact manifest, payload-handle, visibility, and attachment-ingest contracts in shared packages.
 2. Implement daemon-side attachment ingestion, immutable payload storage, and artifact publication flows.
-3. Implement manifest persistence plus replication-status handling for shared-visible artifacts.
+3. Implement manifest persistence plus replication-status handling for shared-visible artifacts and derivative shareable artifacts.
 4. Add desktop artifact surfaces for manifest rows, payload fetch, and explicit visibility state.
 
 ## Parallelization Notes
@@ -69,6 +70,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - Attachment-ingest tests covering stable ids, normalized metadata, and immutable payload reads
 - Visibility tests covering `local-only`, shared-visible, and pending-replication transitions
 - Large-artifact tests proving timeline manifests remain usable without forcing inline payload rendering
+- Derivative-artifact tests proving redacted or summarized shared forms preserve separate provenance and do not mutate the original artifact
 
 ## Rollout Order
 
@@ -84,6 +86,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 - Manifest-first versus synchronous small-payload replication remains unresolved
 - Artifact immutability will be undermined if live workspace paths are allowed to masquerade as durable payload identity
+- Pressure for participant-specific redaction can create accidental in-place mutation semantics unless derivative-artifact handling stays explicit
 
 ## Done Checklist
 

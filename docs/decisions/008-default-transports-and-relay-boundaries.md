@@ -74,9 +74,9 @@ We will default to OS-local IPC for client-to-daemon communication, use authenti
 
 | Source | Type | Key Finding | URL/Location |
 |--------|------|-------------|--------------|
-| `007-invite-membership-presence.md` | Extraction note | Join and relay are separate concerns and should stay that way | [tmp/extraction/007-invite-membership-presence.md](../tmp/extraction/007-invite-membership-presence.md) |
 | `specs/007-local-ipc-and-daemon-control.md` | Canonical spec | Local daemon control should default to OS-local IPC | [specs/007-local-ipc-and-daemon-control.md](../specs/007-local-ipc-and-daemon-control.md) |
-| `specs/008-control-plane-relay-and-session-join.md` | Canonical spec | Relay is a shared-session connectivity aid, not execution authority | [specs/008-control-plane-relay-and-session-join.md](../specs/008-control-plane-relay-and-session-join.md) |
+| `specs/008-control-plane-relay-and-session-join.md` | Canonical spec | Session join and relay are separate concerns, and relay is a shared-session connectivity aid rather than execution authority | [specs/008-control-plane-relay-and-session-join.md](../specs/008-control-plane-relay-and-session-join.md) |
+| `architecture/security-architecture.md` | Canonical architecture doc | The relay path is treated as less trusted than direct local transport | [architecture/security-architecture.md](../architecture/security-architecture.md) |
 
 ### Related Domain Docs
 

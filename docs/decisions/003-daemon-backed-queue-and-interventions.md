@@ -62,7 +62,7 @@ Client-side queueing fails the durability and shared-observation requirements ou
 | # | Assumption | Evidence | What Breaks If Wrong |
 |---|-----------|----------|----------------------|
 | 1 | Queue and intervention state must survive client restart. | Required by recovery and shared-session goals. | Client-local queue might be enough. |
-| 2 | Drivers will not provide one uniform queue/pause model. | Extraction notes show strong capability mismatch. | Provider-native queue could be the main authority. |
+| 2 | Drivers will not provide one uniform queue or pause model. | The queue spec and run-state model require canonical runtime-owned semantics with explicit degraded outcomes when providers cannot match them. | Provider-native queue could be the main authority. |
 | 3 | The Local Runtime Daemon is the right enforcement point for run truth. | Existing architecture keeps execution local and authoritative there. | Another service would need to become the scheduler of record. |
 
 ## Failure Mode Analysis
@@ -119,8 +119,8 @@ Client-side queueing fails the durability and shared-observation requirements ou
 
 | Source | Type | Key Finding | URL/Location |
 |--------|------|-------------|--------------|
-| `002-run-control-semantics.md` | Extraction note | Client-local queueing and fake pause semantics are insufficient | [tmp/extraction/002-run-control-semantics.md](../tmp/extraction/002-run-control-semantics.md) |
 | `specs/004-queue-steer-pause-resume.md` | Canonical spec | Queue and intervention state belongs to runtime truth | [specs/004-queue-steer-pause-resume.md](../specs/004-queue-steer-pause-resume.md) |
+| `domain/queue-and-intervention-model.md` | Canonical domain doc | Queue items and interventions are durable runtime-controlled records rather than client-local state | [domain/queue-and-intervention-model.md](../domain/queue-and-intervention-model.md) |
 | `architecture/component-architecture-local-daemon.md` | Canonical architecture doc | Daemon is the local execution authority | [architecture/component-architecture-local-daemon.md](../architecture/component-architecture-local-daemon.md) |
 
 ### Related Domain Docs

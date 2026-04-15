@@ -38,6 +38,7 @@ This spec covers required driver operations, capability advertisement, normalize
 ## Required Behavior
 
 - Every provider integration must implement a normalized driver contract.
+- Provider drivers must execute within a participant-owned or operator-owned runtime node governed by a local daemon. V1 must not depend on a shared hosted driver service as the execution authority.
 - The driver contract must support create session, resume session, start run, interrupt run, respond to interactive request, close session, and enumerate models or modes or both where available.
 - Drivers must emit normalized runtime events rather than leaking provider-native event types into the session engine.
 - Drivers must declare capability flags for at least `resume`, `steer`, `pause`, `interactive_requests`, `mcp`, `tool_calls`, `reasoning_stream`, and `model_mutation`.
@@ -47,6 +48,7 @@ This spec covers required driver operations, capability advertisement, normalize
 ## Default Behavior
 
 - Driver capability declarations are required at attach time and may be refreshed when provider state changes.
+- Initial provider drivers are local-runtime-node integrations. They may call remote provider APIs or services, but driver control and execution authority remain attached to the local runtime node.
 - Unknown capability fields are ignored until the driver contract version explicitly supports them.
 - The runtime must only surface controls that correspond to supported capabilities for the active run.
 
@@ -55,6 +57,7 @@ This spec covers required driver operations, capability advertisement, normalize
 - If a driver cannot resume a previously persisted handle, it must surface `provider failure` detail and a visible `recovery-needed` condition; it must not silently create a replacement provider session under the same canonical run.
 - If a provider offers provider-native data that cannot be normalized safely, the runtime must store it as diagnostic metadata only, not as canonical domain state.
 - If a driver does not support dynamic model or mode mutation, the runtime must require a new run or agent configuration rather than simulating mutation.
+- If a requested integration path would require shared hosted execution outside the local runtime boundary, v1 must reject or mark that path unsupported rather than routing execution through the collaboration control plane.
 
 ## Interfaces And Contracts
 
@@ -85,6 +88,7 @@ This spec covers required driver operations, capability advertisement, normalize
 ## Example Flows
 
 - `Example: A local Codex driver starts a session through its native transport, exposes resume and steer capability, and emits normalized run events into the daemon.`
+- `Example: A local Claude driver calls a remote provider API from the participant's runtime node. The provider service is remote, but the canonical driver authority and policy enforcement remain local.`
 - `Example: A driver lacks pause support. The runtime hides pause for runs on that driver and continues to offer queue and interrupt controls only.`
 
 ## Implementation Notes
@@ -113,6 +117,7 @@ This spec covers required driver operations, capability advertisement, normalize
 
 - No blocking open questions remain for v1.
 - V1 decision: driver capability changes are refreshed on a bounded periodic cadence and may also be pushed live when supported. Correctness must not depend on push-only updates.
+- V1 decision: the first implementation supports local-runtime-node drivers only. Shared hosted execution drivers are out of scope, even when a local driver talks to a remote provider API.
 
 ## References
 

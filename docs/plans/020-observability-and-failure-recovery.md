@@ -46,6 +46,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 - Add daemon-owned health projections and failure-detail records derived from canonical events, replay state, and provider diagnostics.
 - Add recovery-action audit records and surfaced health snapshots needed for operators and user-facing projections.
+- Add bounded-retention handling for raw diagnostic payload classes so compaction never removes canonical health or failure truth.
 
 ## API And Transport Changes
 
@@ -57,7 +58,8 @@ Target paths below assume the canonical implementation topology defined in [Cont
 1. Define health-status, failure-category, recovery-condition, and stuck-run inspection contracts.
 2. Implement daemon-owned health and failure-detail projections derived from canonical state and provider diagnostics.
 3. Implement safe recovery-action request handling and audit recording.
-4. Add desktop recovery and health surfaces that distinguish runtime state, failure categories, and degraded modes without requiring raw logs.
+4. Implement bounded-retention policy handling for raw diagnostics without weakening canonical diagnosis surfaces.
+5. Add desktop recovery and health surfaces that distinguish runtime state, failure categories, and degraded modes without requiring raw logs.
 
 ## Parallelization Notes
 
@@ -69,6 +71,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - Health-projection tests for healthy, degraded, and blocked runtime conditions
 - Stuck-run detection tests covering thresholds, blocking-state exemptions, and false-positive suppression
 - Recovery-action audit and safety tests for provider, replay, and persistence failure scenarios
+- Retention tests proving compaction of raw diagnostics does not erase canonical failure detail or recovery visibility
 
 ## Rollout Order
 
@@ -84,6 +87,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 - Automated retry policy remains unresolved across drivers
 - Health projections can become misleading if replay and provider diagnostics are not merged from authoritative sources
+- Bounded-retention implementation can become misleading if raw diagnostic expiry is not clearly distinguished from canonical observability truth
 
 ## Done Checklist
 

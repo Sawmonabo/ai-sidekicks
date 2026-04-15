@@ -119,9 +119,9 @@ The simpler flat model is unacceptable because it collapses human collaboration 
 
 | Source | Type | Key Finding | URL/Location |
 |--------|------|-------------|--------------|
-| `008-security-permissions-trust.md` | Extraction note | Trust must be layered across membership, node capability, and action-level grants | [tmp/extraction/008-security-permissions-trust.md](../tmp/extraction/008-security-permissions-trust.md) |
 | `specs/012-approvals-permissions-and-trust-boundaries.md` | Canonical spec | Approval and permission scopes are part of the core product contract | [specs/012-approvals-permissions-and-trust-boundaries.md](../specs/012-approvals-permissions-and-trust-boundaries.md) |
 | `architecture/security-architecture.md` | Canonical architecture doc | Security boundary follows membership, node trust, and transport separation | [architecture/security-architecture.md](../architecture/security-architecture.md) |
+| `domain/participant-and-membership-model.md` | Canonical domain doc | Membership, invite, presence, and runtime contribution stay distinct rather than collapsing into one trust layer | [domain/participant-and-membership-model.md](../domain/participant-and-membership-model.md) |
 
 ### Related Domain Docs
 

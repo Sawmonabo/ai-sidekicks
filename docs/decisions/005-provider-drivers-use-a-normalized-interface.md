@@ -61,7 +61,7 @@ Leaky abstraction is a manageable risk if the driver contract is intentionally s
 
 | # | Assumption | Evidence | What Breaks If Wrong |
 |---|-----------|----------|----------------------|
-| 1 | Providers will continue to differ materially in capabilities and transport. | Extraction notes show major capability and transport variance. | A thinner abstraction might be enough. |
+| 1 | Providers differ materially enough that the product must not expose provider-native semantics as core runtime truth. | The provider-driver spec requires normalized driver contracts and capability-aware control exposure at the daemon edge. | A thinner abstraction might be enough. |
 | 2 | Session and run semantics must remain provider-agnostic. | Core domain and specs depend on stable shared vocabulary. | UI and runtime could become provider-specialized. |
 | 3 | Capability flags can honestly model the differences users need to see. | Spec `005` already frames feature exposure around capability checks. | The contract may need more provider-specific escape hatches. |
 
@@ -119,9 +119,9 @@ Leaky abstraction is a manageable risk if the driver contract is intentionally s
 
 | Source | Type | Key Finding | URL/Location |
 |--------|------|-------------|--------------|
-| `004-provider-runtime-integration.md` | Extraction note | Providers differ heavily but can be normalized at the adapter edge | [tmp/extraction/004-provider-runtime-integration.md](../tmp/extraction/004-provider-runtime-integration.md) |
-| `specs/005-provider-driver-contract-and-capabilities.md` | Canonical spec | Capability-aware normalized drivers are part of the product contract | [specs/005-provider-driver-contract-and-capabilities.md](../specs/005-provider-driver-contract-and-capabilities.md) |
+| `specs/005-provider-driver-contract-and-capabilities.md` | Canonical spec | Provider integrations use a normalized contract with explicit capability advertisement | [specs/005-provider-driver-contract-and-capabilities.md](../specs/005-provider-driver-contract-and-capabilities.md) |
 | `architecture/component-architecture-local-daemon.md` | Canonical architecture doc | Driver management belongs inside the local daemon edge | [architecture/component-architecture-local-daemon.md](../architecture/component-architecture-local-daemon.md) |
+| `specs/020-observability-and-failure-recovery.md` | Canonical spec | Provider failures are surfaced through canonical product failure categories rather than provider-specific runtime truth | [specs/020-observability-and-failure-recovery.md](../specs/020-observability-and-failure-recovery.md) |
 
 ### Related Domain Docs
 

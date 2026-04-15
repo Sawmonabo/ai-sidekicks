@@ -23,6 +23,7 @@ This plan covers shared driver interfaces, two initial drivers, capability refre
 - Multi-agent workflow semantics
 - Provider-specific UI tuning beyond capability exposure
 - Support for every future provider in the first pass
+- Shared hosted execution drivers
 
 ## Preconditions
 
@@ -54,7 +55,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 1. Define contract types and capability schema.
 2. Implement registry and runtime binding persistence.
-3. Implement initial Codex and Claude drivers against the contract.
+3. Implement initial Codex and Claude drivers against the contract as local-runtime-node integrations rather than shared hosted execution services.
 4. Add client SDK exposure for capability-aware controls and diagnostics.
 
 ## Parallelization Notes
@@ -67,6 +68,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - Contract conformance tests for driver lifecycle methods
 - Capability matrix tests for control exposure
 - Recovery tests for adopt-existing and resume-handle paths
+- Integration tests proving driver lifecycle and policy enforcement stay daemon-local even when the provider endpoint itself is remote
 
 ## Rollout Order
 
@@ -83,6 +85,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 - Contract churn while both initial drivers are under construction
 - Recovery semantics may diverge before enough conformance tests exist
+- Remote provider APIs can be mistaken for permission to centralize driver execution unless the local-runtime boundary stays explicit in code and docs
 
 ## Done Checklist
 

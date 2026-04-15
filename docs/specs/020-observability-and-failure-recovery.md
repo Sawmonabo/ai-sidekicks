@@ -47,18 +47,21 @@ This spec covers failure categories, health signals, stuck-run detection, replay
   - policy or approval blockage
 - Operators and users must be able to distinguish canonical `RunState` from derived health signals, failure categories, and recovery conditions.
 - Degraded modes must be explicit and must preserve as much read visibility as possible.
+- Non-canonical observability payloads such as driver raw events, raw command output, high-volume tool traces, and policy-permitted detailed reasoning payloads must use explicit bounded retention separate from canonical event and failure-detail retention.
 
 ## Default Behavior
 
 - Local runtime health defaults to visible status categories `healthy`, `degraded`, and `blocked`.
 - A run is considered `stuck-suspected` when it exceeds expected heartbeat or event-progress thresholds without entering a terminal or blocking state.
 - Replay health defaults to visible status when the daemon is rebuilding projections or recovering bindings after restart.
+- Canonical health and failure-detail projections remain durable even after bounded raw diagnostic payloads are compacted or removed.
 
 ## Fallback Behavior
 
 - If remote telemetry export is unavailable, local logs, traces, and canonical event replay remain sufficient for diagnosis.
 - If projection rebuild fails, the system enters degraded read-only mode instead of accepting unsafe new mutable work.
 - If provider recovery fails, the affected run remains visible in canonical state `failed` with `provider failure` detail and `recovery-needed` condition rather than disappearing.
+- If bounded diagnostic payload retention has expired, diagnosis must fall back to canonical events, health projections, failure detail, and any retained summaries rather than failing closed.
 
 ## Interfaces And Contracts
 
@@ -72,6 +75,7 @@ This spec covers failure categories, health signals, stuck-run detection, replay
 - Failure and recovery signals must be derived from canonical state and observability pipelines.
 - Health projections must remain queryable even when full timeline UIs are not open.
 - Recovery actions and outcomes must be auditable.
+- Raw diagnostic payloads are non-canonical observability records with bounded retention and must not become the only source for audit or recovery truth.
 
 ## Example Flows
 
@@ -104,6 +108,7 @@ This spec covers failure categories, health signals, stuck-run detection, replay
 
 - No blocking open questions remain for v1.
 - V1 decision: automated recovery retries use one product-defined bounded policy across providers in v1. Drivers may mark failures non-retryable, but they do not define independent retry budgets.
+- V1 decision: raw diagnostic payload retention is bounded and non-canonical in v1. The product does not standardize one global duration, but every implementation must apply explicit retention policy for driver raw events, raw command output, high-volume tool traces, and any policy-permitted detailed reasoning payloads.
 
 ## References
 

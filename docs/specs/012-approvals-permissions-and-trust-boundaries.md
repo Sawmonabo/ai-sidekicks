@@ -48,6 +48,7 @@ This spec covers approval requests, approval scopes, remembered grants, and the 
 - Approval resolution must record approver, decision, and effective scope.
 - Membership in a shared session must not imply authority to execute on another participant's machine.
 - `runtime contributor` role may allow a participant to attach their own runtime nodes, but it must not imply authority over another participant's node.
+- A participant's own runtime node may be trusted as the default execution host for that participant within its local daemon policy envelope, but that trust must not bypass approval rules for out-of-envelope or high-risk actions.
 - Driver-native permission flows must be normalized into the canonical approval model.
 
 ## Default Behavior
@@ -56,12 +57,14 @@ This spec covers approval requests, approval scopes, remembered grants, and the 
 - Session-wide remembered approval rules are `off` by default and must require explicit user opt-in.
 - File and tool permissions default to the bound workspace or node trust envelope; out-of-boundary access requires explicit approval.
 - Network access defaults to denied unless the active policy or approval explicitly allows it.
+- A participant's own attached runtime node defaults to trusted for running work on that participant's machine inside the node's declared trust envelope, but it does not grant ambient authority to other participants and does not waive explicit approval for sensitive escalation.
 
 ## Fallback Behavior
 
 - If a driver cannot expose granular permission requests, the daemon must enforce an equal or stricter approval boundary at the local execution layer.
 - If approval state cannot be durably persisted, the sensitive action must not proceed.
 - If a remembered approval rule becomes invalid because membership or node trust changed, the system must revoke it before the next use.
+- If node ownership or trust provenance cannot be established confidently, the daemon must treat the node as requiring strict per-request approval for sensitive actions rather than assuming own-node trust.
 
 ## Interfaces And Contracts
 
@@ -80,6 +83,7 @@ This spec covers approval requests, approval scopes, remembered grants, and the 
 
 - `Example: An agent requests write permission outside the bound worktree. A participant approves the request for this run only, and the decision is recorded with explicit path scope.`
 - `Example: A participant with collaborator role has chat access in a shared session but cannot approve execution on another participant's runtime node because they lack the required trust scope.`
+- `Example: A participant attaches their own runtime node to a shared session and starts a run on that node. Execution is allowed within the node's default trust envelope, but a later unrestricted network request still produces an explicit approval prompt.`
 
 ## Implementation Notes
 
@@ -107,6 +111,7 @@ This spec covers approval requests, approval scopes, remembered grants, and the 
 
 - No blocking open questions remain for v1.
 - V1 decision: organization-level stricter policy overrides are out of scope. V1 uses product-default policy with local daemon enforcement and explicit per-request approvals.
+- V1 decision: own-node trust in v1 is envelope-bound, not blanket. A participant's own runtime node is the default execution host for that participant, but sensitive actions outside the node's normal trust envelope still require explicit approval and no own-node attachment grants authority over another participant's machine.
 
 ## References
 

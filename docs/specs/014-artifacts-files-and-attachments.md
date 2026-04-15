@@ -45,6 +45,7 @@ This spec covers artifact types, attachment ingestion, storage expectations, man
   - design or generated preview output
 - Attachment ingestion must produce stable artifact ids and provenance metadata.
 - Artifact visibility must be explicit and must distinguish `local-only` from shared-visible artifacts.
+- V1 artifact visibility must remain class-based and policy-based. Participant-specific partial redaction is out of scope for the first implementation.
 - Referencing a live workspace file is not sufficient for artifact immutability; the system must capture immutable artifact content or a content-addressed snapshot.
 
 ## Default Behavior
@@ -52,12 +53,14 @@ This spec covers artifact types, attachment ingestion, storage expectations, man
 - Newly uploaded attachments default to local artifact storage with visibility derived from session policy.
 - Artifact manifests default to storing producer, session, run, type, created time, and visibility class.
 - Shared replication defaults to opt-in or policy-driven behavior rather than automatic blind sharing of all local outputs.
+- If an artifact should not be visible to all recipients of a shared-visible class, the default v1 behavior is to keep it `local-only` or publish a separate derived artifact under a different visibility class rather than partially redact the original in place.
 
 ## Fallback Behavior
 
 - If shared replication is unavailable, the artifact may remain `local-only` with manifest status `pending_replication` or equivalent.
 - If the artifact payload is too large for inline timeline rendering, the timeline must show a manifest row and require explicit fetch for the payload.
 - If preview generation fails, the artifact remains valid and retrievable as raw content.
+- If current policy does not allow sharing the full payload, the system must retain the original artifact under its current visibility class and may publish a separate redacted or summarized derivative artifact instead of mutating the original.
 
 ## Interfaces And Contracts
 
@@ -71,11 +74,13 @@ This spec covers artifact types, attachment ingestion, storage expectations, man
 - Artifact manifests are durable records and part of replayable session history.
 - Payload storage may differ from manifest storage, but provenance must stay intact across both.
 - Artifact visibility changes must be auditable.
+- Any redacted or summarized shareable derivative must be a separate artifact with its own manifest and provenance rather than an in-place mutation of the original artifact.
 
 ## Example Flows
 
 - `Example: A participant uploads a design reference image, which becomes an immutable attachment artifact visible to the session.`
 - `Example: A run publishes a diff artifact and a terminal-output artifact. The timeline shows both manifests, but the large terminal payload requires explicit expansion.`
+- `Example: A local-only artifact contains sensitive machine-specific data. The participant keeps the original artifact local and publishes a separate summarized artifact for shared discussion instead of partially redacting the original artifact in place.`
 
 ## Implementation Notes
 
@@ -103,6 +108,7 @@ This spec covers artifact types, attachment ingestion, storage expectations, man
 
 - No blocking open questions remain for v1.
 - V1 decision: shared artifact replication is manifest-first with deferred payload transfer. Small-payload synchronous optimization does not change the external contract in v1.
+- V1 decision: participant-specific fine-grained artifact redaction is out of scope for v1. Visibility remains class-based, and any redacted shareable form must be published as a separate derivative artifact.
 
 ## References
 
