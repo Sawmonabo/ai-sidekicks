@@ -8,7 +8,7 @@ Scope: Full monorepo audit across all 8 workspace packages, official documentati
 
 Method:
 - Direct code inspection of `packages/server`, `packages/app`, `packages/cli`, `packages/desktop`, `packages/relay`, `packages/website`, `packages/highlight`, `packages/expo-two-way-audio`.
-- Consolidation and normalization of 10 prior exploration files (`docs/archive/paseo-repo-exploration/00` through `09`).
+- Consolidation and normalization of 10 prior exploration files (`docs/reference/paseo/implementation-details/00` through `09`).
 - Reading of `docs/ARCHITECTURE.md`, `docs/DATA_MODEL.md`, `SECURITY.md`, `CLAUDE.md`.
 - Deep inspection of session controller, agent manager, provider adapters, services, and skills.
 
