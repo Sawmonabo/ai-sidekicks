@@ -15,8 +15,8 @@ JWT has well-documented algorithm confusion attacks. WebAuthn PRF extension enab
 
 Three-tier authentication:
 
-1. **Local daemon** -- Socket reachability plus a per-session token. No network auth required.
-2. **Control plane** -- PASETO v4 tokens. OAuth 2.1 + PKCE for web clients. Device Authorization Grant (RFC 8628) for CLI (launches browser for primary auth). WebAuthn/Passkeys added at desktop launch.
+1. **Local daemon** -- Socket reachability plus an optional 256-bit session token (mode 0600, rotated per daemon restart). No network auth required.
+2. **Control plane** -- PASETO v4 tokens: access tokens (v4.public, 15 min), refresh tokens (v4.local, 7 days, rotated on use). OAuth 2.1 + PKCE mandatory. DPoP sender-constraining for access tokens. Device Authorization Grant (RFC 8628) for CLI (launches browser for primary auth). WebAuthn/Passkeys added at desktop launch.
 3. **Relay (E2EE)** -- MLS (RFC 9420) group encryption with Ed25519 KeyPackage verification for relay-mediated shared sessions.
 
 ## Alternatives Considered

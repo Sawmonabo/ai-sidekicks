@@ -44,7 +44,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 ## Data And Storage Changes
 
-- Add shared `session_invites`, `session_memberships`, and `participant_presences` tables.
+- Add shared `session_invites` and `session_memberships` tables. Presence data is ephemeral (Yjs Awareness CRDT, in-memory only) and must NOT be persisted to a durable table.
 
 ## API And Transport Changes
 
@@ -52,9 +52,9 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 ## Implementation Steps
 
-1. Implement invite and membership contracts plus migrations.
+1. Implement invite and membership contracts plus migrations. Invite tokens use PASETO v4 (see ADR-010). Define the five invite lifecycle states: `issued`, `accepted`, `declined`, `revoked`, `expired`.
 2. Build control-plane services for invite issuance, acceptance, revocation, and role update.
-3. Add participant presence heartbeat ingestion and summary projection.
+3. Add participant presence heartbeat ingestion and summary projection. Use Yjs Awareness (`y-protocols/awareness`) as the presence CRDT; fan out updates via Postgres LISTEN/NOTIFY in V1. Expose `PresenceUpdate` and `PresenceRead` JSON-RPC methods for local IPC bridging. Default heartbeat timing: 15 s heartbeat interval, 45 s grace period before marking a participant offline.
 4. Integrate desktop invite acceptance and participant roster surfaces.
 
 ## Parallelization Notes

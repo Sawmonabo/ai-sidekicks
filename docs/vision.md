@@ -107,9 +107,9 @@ Electron main and preload only:
 
 This layer must be thin.
 
-### 2. Desktop UI
+### 2. Desktop UI (Desktop Renderer)
 
-React plus Vite renderer:
+React plus Vite renderer (referred to as "Desktop Renderer" in [Container Architecture](./architecture/container-architecture.md)):
 
 - session views
 - orchestration views
@@ -151,6 +151,8 @@ Hosted or self-hosted service for:
 It does not need to execute code. It coordinates people and runtime nodes.
 
 ### 5. Session Engine
+
+The session engine, provider drivers, and git engine are internal responsibilities of the Local Runtime Daemon (see [Container Architecture](./architecture/container-architecture.md)), not standalone containers.
 
 An event-sourced engine where everything important is an event:
 
@@ -276,7 +278,8 @@ If these are modeled cleanly, most major features become straightforward instead
 | PASETO v4 | `paseto-ts` | Internal auth tokens (replaces JWT) |
 | WebAuthn | `@simplewebauthn/server`, `@simplewebauthn/browser` | Primary authentication (desktop) |
 | MLS (RFC 9420) | `ts-mls` | Relay E2E encryption |
-| Crypto primitives | `@noble/curves`, `@noble/ciphers` | X25519, XChaCha20-Poly1305 |
+| Crypto primitives (MLS fallback) | `@noble/curves`, `@noble/ciphers` | X25519, XChaCha20-Poly1305 for MLS fallback if `ts-mls` proves immature |
+| Crypto-shredding cipher | Node.js `crypto` (built-in) | AES-256-GCM for per-participant PII column encryption |
 | XState v5 | `xstate` | Internal state machine logic |
 | tRPC v11 | `@trpc/server`, `@trpc/client` | Control plane API framework |
 | CASL | `@casl/ability` | RBAC authorization |
@@ -399,6 +402,16 @@ Diff attribution must be per run, with an explicit fallback path only when provi
 - The CLI is the first client delivery track for the product.
 - The CLI must prove the typed client SDK, daemon handshake, local IPC, session control, run control, and repo-bound execution flows before desktop-specific UX is treated as the primary path.
 - The desktop app is a richer client over the same contracts, not a replacement transport or separate execution path.
+
+## Architecture Cross-References
+
+For details beyond this vision document, see:
+
+- **Authentication and tokens:** [Security Architecture](./architecture/security-architecture.md) (three-tier auth: local socket, PASETO v4 control plane, MLS relay), [ADR-010](./decisions/010-paseto-webauthn-mls-auth.md)
+- **Deployment topologies:** [Deployment Topology](./architecture/deployment-topology.md) (4 topologies: single-participant, collaborative hosted, collaborative self-hosted, relay-assisted)
+- **Rate limiting:** [Spec-021](./specs/021-rate-limiting-policy.md), [Deployment Topology](./architecture/deployment-topology.md) (CF native hosted, rate-limiter-flexible self-hosted)
+- **Relay scaling:** [Deployment Topology](./architecture/deployment-topology.md) (relay DO sharding, 25 connections per data DO, 50-participant pre-launch load test)
+- **GDPR compliance:** [Spec-022](./specs/022-data-retention-and-gdpr.md) (crypto-shredding, data export, purge lifecycle)
 
 ## Strategic Conclusion
 

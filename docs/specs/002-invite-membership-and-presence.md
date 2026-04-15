@@ -64,6 +64,7 @@ This spec covers invite lifecycle, join-mode assignment, membership role changes
 
 ## Interfaces And Contracts
 
+- Invite tokens use PASETO v4 (consistent with the control-plane auth stack per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md)). Token payload includes session id, inviter, proposed join mode, and expiry.
 - `InviteCreate` must include session id, inviter, proposed join mode, and expiry.
 - `InviteAccept` must create active membership and emit participant join events.
 - `MembershipUpdate` must support role change, suspension, and revocation.
@@ -114,3 +115,4 @@ This spec covers invite lifecycle, join-mode assignment, membership role changes
 - [Participant And Membership Model](../domain/participant-and-membership-model.md)
 - [Component Architecture Control Plane](../architecture/component-architecture-control-plane.md)
 - [Security Architecture](../architecture/security-architecture.md)
+- [PASETO WebAuthn MLS Auth](../decisions/010-paseto-webauthn-mls-auth.md)

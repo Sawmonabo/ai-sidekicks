@@ -56,8 +56,8 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 ## Implementation Steps
 
-1. Define canonical approval categories, scope enums, remembered-grant rules, and trust-evaluation inputs in shared contracts.
-2. Implement daemon-side permission checks and approval persistence before any sensitive local action executes.
+1. Define canonical approval categories, scope enums, remembered-grant rules, and trust-evaluation inputs in shared contracts. The 8 canonical approval categories are: `tool_execution`, `file_write`, `network_access`, `destructive_git`, `user_input`, `plan_approval`, `mcp_elicitation`, and `gate`.
+2. Implement daemon-side permission checks and approval persistence before any sensitive local action executes. V1 evaluates Cedar policies compiled from YAML policy definitions (Cedar policy engine, CNCF sandbox). **V1.1:** Migrate policy evaluation to Cedar WASM (`@cedarpolicy/cedar-wasm`) for in-process execution.
 3. Implement approval projection reads and invalidation flows when membership, role, or runtime-node trust changes.
 4. Add desktop approval surfaces for pending requests, historical decisions, and remembered-grant revocation.
 

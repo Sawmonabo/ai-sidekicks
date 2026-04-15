@@ -13,7 +13,7 @@ No reference app or provider runtime exposes pause or steer as driver-level oper
 
 ## Decision
 
-Add `applyIntervention(type, payload)` as a generic dispatcher in the driver contract. Remove `pause` from capability flags. Pause becomes an orchestration-layer construct: the Forge interrupts the run, persists checkpoint state, and queues a resume event. Steer and other future interventions follow the same generic dispatch path.
+Add `applyIntervention(type, payload)` as a generic dispatcher in the driver contract. Remove `pause` from capability flags. Pause becomes an orchestration-layer construct: the daemon interrupts the run, persists checkpoint state, and queues a resume event. Steer and other future interventions follow the same generic dispatch path.
 
 ## Alternatives Considered
 

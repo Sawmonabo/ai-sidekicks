@@ -37,7 +37,7 @@ This spec covers queue admission, interventions, blocked states, and operator-vi
 ## Required Behavior
 
 - Follow-up work created while a run is active must be stored as persisted queue items unless the user explicitly requests steer and the target run supports it.
-- `pause` must transition a run into `paused`; it must not mean queue-drain suspension or blocked waiting.
+- `pause` is an orchestration-layer construct: the daemon interrupts the active run, persists conversation history and run state, and queues a resume event. The resulting `paused` state must not mean queue-drain suspension or blocked waiting.
 - `resume` must return a `paused` run to active execution with the same run id.
 - `interrupt` must transition a run directly to `interrupted`. Interruption is a synchronous or near-synchronous provider call with no intermediate state.
 - Waiting for approval or input must remain `waiting_for_approval` or `waiting_for_input`, not `paused`.
@@ -48,19 +48,20 @@ This spec covers queue admission, interventions, blocked states, and operator-vi
 
 - The default follow-up behavior while a run is active is `queue`.
 - Queue ordering default is FIFO within the target scheduling scope.
-- If a driver does not advertise pause support, the product must default to `queue` and `interrupt` controls only.
+- If a driver does not support steer natively, the intervention must be rejected or degraded to a new queue item. Pause does not require driver support — it is handled entirely by the orchestration layer via `applyIntervention`.
 
 ## Fallback Behavior
 
-- If `steer` is requested against a run that cannot accept it, the system must either reject the intervention or explicitly downgrade it to a new queue item.
+- If `steer` is requested against a run that cannot accept it, the system must either reject the intervention or explicitly degrade it to a new queue item.
 - If a paused run cannot be resumed because driver state is lost, the system must transition it through recovery logic and then to `failed` or `interrupted`; it must not pretend the same run resumed.
 - If queue persistence is temporarily unavailable, the system must reject new queue creation rather than silently storing queue state only in client memory.
 
 ## Interfaces And Contracts
 
 - `QueueItemCreate`, `QueueItemList`, and `QueueItemCancel` must operate against runtime-owned durable state.
-- `InterventionRequest` must include target id, intervention type, initiator, and requested scope.
-- `InterventionResult` must distinguish the 6 canonical intervention states: `requested`, `accepted`, `applied`, `rejected`, `degraded`, and `expired`.
+- `InterventionRequest` must include target run id, intervention type, and version guard (`expectedRunVersion`). Payload fields vary by type: `steer` includes `expectedTurnId`, `content`, and optional `attachments`; `interrupt` and `cancel` include optional `reason`. See [Queue And Intervention Model](../domain/queue-and-intervention-model.md) for canonical payload shapes.
+- `InterventionResult` must distinguish the 6 canonical intervention states: `requested`, `accepted`, `applied`, `rejected`, `degraded`, and `expired`. A version guard mismatch produces `expired`. An authorization failure produces `rejected`.
+- Intervention dispatch uses `applyIntervention` (see [Spec-005](../specs/005-provider-driver-contract-and-capabilities.md) and [ADR-011](../decisions/011-generic-intervention-dispatch.md)), which routes to the appropriate driver-specific handler based on intervention type and declared capabilities.
 - `RunStateChange` events must reflect the canonical state machine defined in `../domain/run-state-machine.md`.
 
 ## State And Data Implications
@@ -91,12 +92,13 @@ This spec covers queue admission, interventions, blocked states, and operator-vi
 ## Acceptance Criteria
 
 - [ ] Follow-up work while a run is active is durably queued by default.
-- [ ] Pause and resume operate on the same run id and same run history.
-- [ ] Unsupported steer or pause requests result in explicit degraded or rejected outcomes rather than silent behavior changes.
+- [ ] Pause (orchestration-layer interrupt + persist + queue resume) and resume operate on the same run id and same run history.
+- [ ] Unsupported intervention requests result in explicit `degraded` or `rejected` outcomes rather than silent behavior changes.
 
 ## ADR Triggers
 
 - If the product stops using daemon-backed queue state, create or update `../decisions/003-daemon-backed-queue-and-interventions.md`.
+- If the product changes how interventions are dispatched to drivers, create or update `../decisions/011-generic-intervention-dispatch.md`.
 
 ## Open Questions
 

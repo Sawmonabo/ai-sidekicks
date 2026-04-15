@@ -13,7 +13,7 @@ The control plane needs request-response APIs, streaming notifications, and bidi
 
 ## Decision
 
-Use tRPC v11 for control plane request-response operations and SSE subscriptions (notifications, run streaming). Use WebSocket with JSON-RPC 2.0 payloads for bidirectional collaboration channels (presence, real-time co-editing).
+Use tRPC v11 for control plane request-response operations and SSE subscriptions (notifications, run streaming). Use WebSocket with JSON-RPC 2.0 payloads for bidirectional collaboration channels (presence, live event streaming, relay coordination).
 
 ## Alternatives Considered
 

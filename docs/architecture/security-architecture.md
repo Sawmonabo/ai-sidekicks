@@ -69,3 +69,4 @@ The product combines multiple humans, multiple runtime nodes, and local code exe
 
 - [Collaboration Trust And Permission Model](../decisions/007-collaboration-trust-and-permission-model.md)
 - [Default Transports And Relay Boundaries](../decisions/008-default-transports-and-relay-boundaries.md)
+- [PASETO WebAuthn MLS Auth](../decisions/010-paseto-webauthn-mls-auth.md)

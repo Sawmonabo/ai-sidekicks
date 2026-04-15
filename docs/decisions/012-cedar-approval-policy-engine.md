@@ -20,7 +20,7 @@ Use Cedar (CNCF sandbox) as the approval policy engine. V1 defines policies in Y
 ### Option A: Cedar with YAML Policy Definitions (Chosen)
 
 - **What:** Define approval policies in YAML, compile to Cedar policy sets. Evaluate with Cedar WASM in V1.1.
-- **Steel man:** Cedar's entity-action-resource model is purpose-built for authorization. CNCF backing signals longevity. WASM target enables in-process evaluation without native FFI.
+- **Steel man:** Cedar's principal-action-resource-context model is purpose-built for authorization. CNCF backing signals longevity. WASM target enables in-process evaluation without native FFI.
 
 ### Option B: OPA / Rego (Rejected)
 
@@ -48,5 +48,6 @@ Use Cedar (CNCF sandbox) as the approval policy engine. V1 defines policies in Y
 ## References
 
 - [ADR-007: Collaboration Trust And Permission Model](./007-collaboration-trust-and-permission-model.md)
+- [Spec-012: Approvals Permissions And Trust Boundaries](../specs/012-approvals-permissions-and-trust-boundaries.md)
 - [Cedar Language -- CNCF Sandbox](https://www.cedarpolicy.com/)
 - [Microsoft Agent Governance Toolkit](https://github.com/microsoft/agent-governance-toolkit)

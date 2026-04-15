@@ -9,6 +9,7 @@
 | **Author(s)** | `Codex` |
 | **Spec** | [Spec-014: Artifacts Files And Attachments](../specs/014-artifacts-files-and-attachments.md) |
 | **Required ADRs** | [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md) |
+| **Dependencies** | None |
 | **References** | [Updated Spec-014](../specs/014-artifacts-files-and-attachments.md) (OCI manifest envelope, CAS) |
 
 ## Goal

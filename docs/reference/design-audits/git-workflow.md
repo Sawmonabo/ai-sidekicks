@@ -2,6 +2,8 @@
 
 Date: 2026-04-14
 
+**Staleness note:** This audit predates the 2026-04-15 batch update. Claims that Spec-017 lacks phase/gate types and Spec-012 lacks an approval enum are now resolved. See current canonical docs.
+
 Scope: Specs 009, 010, 011, 012, 014, 017; Plans 009, 011, 012, 014, 017; Domain models repo-workspace-worktree and artifact-diff-approval; ADRs 004 and 006. Compared against the Forge feature audit where relevant.
 
 ---

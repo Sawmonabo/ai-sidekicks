@@ -50,14 +50,14 @@ Target paths below assume the canonical implementation topology defined in [Cont
 ## API And Transport Changes
 
 - Add typed driver capability and driver runtime events to the client SDK.
-- Define internal driver interface for create or resume or start or interrupt or respond or close.
+- Define internal driver interface for 10 operations: create, resume, start, interrupt, respond, close, applyIntervention, listModels, listModes, getCapabilities.
 
 ## Implementation Steps
 
-1. Define contract types and capability schema.
+1. Define contract types and capability schema. The driver contract enumerates 10 operations: `create`, `resume`, `start`, `interrupt`, `respond`, `close`, `applyIntervention`, `listModels`, `listModes`, `getCapabilities`. The capability schema defines 7 flags: `resume`, `steer`, `interactive_requests`, `mcp`, `tool_calls`, `reasoning_stream`, `model_mutation`.
 2. Implement registry and runtime binding persistence.
 3. Implement initial Codex and Claude drivers against the contract as local-runtime-node integrations rather than shared hosted execution services.
-4. Add client SDK exposure for capability-aware controls and diagnostics.
+4. Add client SDK exposure for capability-aware controls and diagnostics. Include degraded-fallback behavior: when `applyIntervention` receives an unsupported intervention type the driver returns a structured rejection so the caller can degrade gracefully rather than error.
 
 ## Parallelization Notes
 

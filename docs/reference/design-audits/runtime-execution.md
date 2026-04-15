@@ -3,6 +3,7 @@
 **Date:** 2026-04-14
 **Reviewer:** Claude Opus 4.6 (1M context)
 **Documents reviewed:** 6 specs, 6 plans, 3 domain models, 3 ADRs (15 documents total)
+**Staleness note:** This audit predates the 2026-04-15 batch update. References to 11 states (now 9), 8 capability flags (now 7), and 5 intervention states (now 6) are outdated. See current canonical docs for authoritative numbers.
 
 ---
 

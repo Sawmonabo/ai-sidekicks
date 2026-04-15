@@ -47,14 +47,14 @@ This spec covers:
 - The session lifecycle must include two additional states beyond `archived`: `purge_requested` and `purged`.
 - `purge_requested`: a participant or admin has requested data purge for the session. The session is locked against further modification while purge processing is pending.
 - `purged`: event payloads containing PII have been destroyed. Audit stubs (timestamps, event types, non-PII metadata) are retained.
-- Allowed transitions: `archived -> purge_requested -> purged`. Purge is irreversible. A `purged` session must not transition to any other state.
+- Allowed transitions: `archived -> purge_requested -> purged` and `closed -> purge_requested -> purged`. Both `archived` and `closed` sessions may be purged. Purge is irreversible. A `purged` session must not transition to any other state.
 
 ### Retention Policy
 
 - Archived sessions must be retained for 90 days from the date of archival.
 - After the 90-day retention period, archived sessions become eligible for purge. Eligibility does not imply automatic purge; purge must be triggered explicitly by a participant request, admin action, or automated retention policy execution.
 
-### Crypto-Shredding (SQLite Event Log)
+### Crypto-shredding (SQLite Event Log)
 
 - PII fields in session events must be encrypted with per-participant AES-256-GCM keys.
 - Per-participant encryption keys must be stored in a separate `participant_keys` table, not inline with event data.

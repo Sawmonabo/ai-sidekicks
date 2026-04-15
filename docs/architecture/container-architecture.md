@@ -94,3 +94,4 @@ The canonical monorepo layout for implementation is:
 
 - [Local Execution Shared Control Plane](../decisions/002-local-execution-shared-control-plane.md)
 - [SQLite Local State And Postgres Control Plane](../decisions/004-sqlite-local-state-and-postgres-control-plane.md)
+- [tRPC Control Plane API](../decisions/014-trpc-control-plane-api.md)

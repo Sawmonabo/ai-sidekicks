@@ -77,9 +77,9 @@ This directory contains the complete analysis of three reference applications (F
 |---|---|
 | **Forge** | [review.md §3.2 Session Lifecycle](forge/review.md#32-session-lifecycle) — 7 statuses, 10 session commands, turn lifecycle events |
 | | [server.md §12 Session Types and Lifecycle](forge/server.md#12-session-types-and-lifecycle) — session types, decider logic, state transitions |
-| **CodexMonitor** | [review.md §4.2 Queue Steer Pause Resume](codexmonitor/review.md#42-queue-steer-pause-resume) — stop vs pause vs resume behavioral analysis |
+| **CodexMonitor** | [review.md §4.2 Queue Steer Pause Resume](codexmonitor/review.md#43-queue-steer-pause-resume) — stop vs pause vs resume behavioral analysis |
 | | [review.md Appendix A.2](codexmonitor/review.md#a2-queue-steer-stop-pause-resume-and-multi-agent-semantics) — detailed behavioral normalization |
-| **Paseo** | [review.md §4.2](paseo/review.md#42-queue-steer-pause-resume) — provider-level pause/resume, no formal run state machine |
+| **Paseo** | [review.md §4.2](paseo/review.md#43-queue-steer-pause-resume) — provider-level pause/resume, no formal run state machine |
 | | [implementation-details/08](paseo/implementation-details/08-session-and-agent-manager.md) — agent run orchestration, replaceAgentRun stale-run prevention |
 | **Our docs** | [design-audits/runtime-execution.md §2](design-audits/runtime-execution.md#2-run-state-machine-analysis) — missing transitions, gap analysis |
 
@@ -87,10 +87,10 @@ This directory contains the complete analysis of three reference applications (F
 
 | App | Reference |
 |---|---|
-| **Forge** | [review.md §4.2](forge/review.md#42-queue-steer-pause-resume) — daemon-side queue via orchestration commands |
+| **Forge** | [review.md §4.2](forge/review.md#43-queue-steer-pause-resume) — daemon-side queue via orchestration commands |
 | | [server.md §5 Orchestration Engine](forge/server.md#5-orchestration-engine) — command queue, serialized processing |
 | **CodexMonitor** | [review.md Appendix A.2](codexmonitor/review.md#a2-queue-steer-stop-pause-resume-and-multi-agent-semantics) — CRITICAL: queue is client-side in-memory only, pause is queue-drain only, resume is thread refresh |
-| **Paseo** | [review.md §4.2](paseo/review.md#42-queue-steer-pause-resume) — no formal queue, provider-level interrupt |
+| **Paseo** | [review.md §4.2](paseo/review.md#43-queue-steer-pause-resume) — no formal queue, provider-level interrupt |
 | **Our docs** | [design-audits/runtime-execution.md §4](design-audits/runtime-execution.md#4-queueintervention-model) — intervention state divergence |
 
 ### Session Model / Events
@@ -169,7 +169,7 @@ This directory contains the complete analysis of three reference applications (F
 |---|---|
 | **Forge** | [review.md §7 Real-Time and Visibility](forge/review.md#7-real-time-and-visibility-architecture) — orchestration event streaming, timeline projection |
 | | [frontend.md](forge/frontend.md) — MessagesTimeline, session-logic pipeline, background task tray |
-| **CodexMonitor** | [review.md §4.5 Visibility](codexmonitor/review.md#45-visibility-into-agent-work) — message/tool rendering, no state timeline |
+| **CodexMonitor** | [review.md §4.5 Visibility](codexmonitor/review.md#45-visibility) — message/tool rendering, no state timeline |
 | | [frontend.md](codexmonitor/frontend.md) — message render utils, 7 item types |
 | **Paseo** | [review.md §7 Real-Time and Visibility](paseo/review.md#7-real-time-and-visibility-architecture) — stream normalization, timeline rendering |
 | | [implementation-details/07](paseo/implementation-details/07-app-state-ui-and-routing.md) — stream-normalization rules, gap detection |

@@ -7,7 +7,7 @@ Diagnose and contain driver-level provider failures that affect run execution or
 ## Symptoms
 
 - New runs fail during `starting`
-- Active runs enter `recovering` and later remain `failed` with `provider failure` detail or visible `recovery-needed` condition
+- Active runs transition to `failed` with `provider failure` detail or visible `recovery-needed` condition
 - Driver capability data is missing or inconsistent
 - Scope and blast radius: one provider driver, one RuntimeNode, or all nodes using the same driver
 
@@ -36,7 +36,7 @@ Diagnose and contain driver-level provider failures that affect run execution or
 - Driver health returns to expected status
 - Capability projection matches supported controls
 - One test run succeeds or blocks cleanly without unexpected driver errors
-- No affected run remains stuck in `recovering` without updated failure or recovery detail
+- No affected run remains stuck in a non-terminal state without updated failure or recovery detail
 
 ## Escalation
 

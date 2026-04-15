@@ -116,6 +116,7 @@ This spec covers approval requests, approval scopes, remembered grants, and the 
 ## ADR Triggers
 
 - If the system materially changes how collaboration trust and approval scopes work, create or update `../decisions/007-collaboration-trust-and-permission-model.md`.
+- If the system changes the approval policy evaluation engine, create or update `../decisions/012-cedar-approval-policy-engine.md`.
 
 ## Open Questions
 

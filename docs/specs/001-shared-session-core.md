@@ -48,7 +48,7 @@ This spec covers session identity, default session structure, session creation, 
 
 ## Default Behavior
 
-- A newly created session defaults to state `active`.
+- A newly created session starts in `provisioning` state and transitions to `active` once initial membership, storage, and control-plane metadata are ready. See [Session Model](../domain/session-model.md) for the full lifecycle including `archived`, `closed`, `purge_requested`, and `purged` states (see [Spec-022](../specs/022-data-retention-and-gdpr.md) for GDPR states).
 - A newly created session defaults to one `owner` membership for the creator and one default `main` channel.
 - If the creator has a healthy local runtime node available, the client may offer immediate node attach after session creation.
 

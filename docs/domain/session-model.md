@@ -63,7 +63,7 @@ A session is the durable container that holds:
 | `archived` | The session is retained for history and replay but no longer accepts normal active work. |
 | `closed` | The session has been intentionally terminated and is not resumable without explicit restoration. |
 | `purge_requested` | A participant or admin has requested data purge. The session is locked against further modification while purge processing is pending. |
-| `purged` | Event payloads containing PII have been deleted via crypto-shredding. Audit stubs (timestamps, event types, non-PII metadata) are retained. Purge is irreversible. |
+| `purged` | Event payloads containing PII have been destroyed via crypto-shredding. Audit stubs (timestamps, event types, non-PII metadata) are retained. Purge is irreversible. |
 
 Allowed transitions:
 
@@ -72,6 +72,7 @@ Allowed transitions:
 - `active -> closed`
 - `archived -> active`
 - `archived -> closed`
+- `closed -> purge_requested`
 - `archived -> purge_requested`
 - `purge_requested -> purged`
 

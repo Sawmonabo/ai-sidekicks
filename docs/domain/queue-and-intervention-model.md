@@ -35,7 +35,7 @@ This model defines how the system stores follow-up work, prioritizes it, and rec
 ## Relationships To Adjacent Concepts
 
 - A `QueueItem` can create a future `Run`.
-- An `Intervention` can target a `Run`, a `QueueItem`, or the session scheduler.
+- An `Intervention` targets a `Run` via `targetRunId`. Queue-item cancellation uses `QueueItemCancel`, not the intervention model.
 - `Approval` can be required before certain interventions take effect.
 - `Channel` context determines where admitted queued work will publish.
 
@@ -81,7 +81,7 @@ All intervention types carry version guards (`expectedRunVersion`). A guard mism
 ## Example Flows
 
 - Example: A queued follow-up becomes a persisted `QueueItem` and is later steered into the active run.
-- Example: A user requests `pause` against a running task. The system records an intervention, validates pause support, and transitions the run only if the runtime can honor it.
+- Example: A user requests `pause` against a running task. The orchestration layer records an intervention, interrupts the run, persists state, and queues a resume event. The driver never needs to know about pause.
 - Example: A later urgent fix supersedes an older queued follow-up. The old queue item is marked `superseded`, not silently discarded.
 
 ## Edge Cases

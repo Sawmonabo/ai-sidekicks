@@ -57,8 +57,12 @@ Target paths below assume the canonical implementation topology defined in [Cont
 ## Implementation Steps
 
 1. Define workflow-definition, version, phase-state, gate, and definition-read contracts in shared packages.
-2. Implement durable workflow definition versioning and workflow-run persistence in the daemon.
-3. Implement phase execution, gate resolution, and restart-safe workflow resumption.
+   - Full type hierarchy: `WorkflowDefinition`, `WorkflowVersion`, `WorkflowPhaseDefinition`, `WorkflowRun`, `WorkflowPhaseRun`.
+   - All 4 gate types: `auto-continue`, `quality-checks`, `human-approval`, `done`.
+   - Entity separation: `WorkflowPhaseId` (identifies a phase in the definition) vs `PhaseRunId` (identifies a specific execution instance with iteration number, status, timestamps).
+   - Failure behaviors per phase: `retry`, `go-back-to`, `stop`.
+2. Implement durable workflow definition versioning and workflow-run persistence in the daemon. Persistence uses the LangGraph checkpoint pattern on the existing SQLite store (per Spec-015). No external workflow engines.
+3. Implement phase execution, gate resolution, and restart-safe workflow resumption. V1 scope: `single-agent` and `automated` phase types only (`multi-agent` and `human` deferred to V1.1). Phase execution routes through `OrchestrationRunCreate` per Spec-016/017 constraints.
 4. Add desktop workflow authoring and workflow-run visibility surfaces backed by the shared client SDK.
 
 ## Parallelization Notes

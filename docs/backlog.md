@@ -99,7 +99,7 @@ These items block every plan and feature. Nothing can proceed until they are res
 - Priority: `P0`
 - Owner: `unassigned`
 - References: [Spec-005](./specs/005-provider-driver-contract-and-capabilities.md), [Spec-004](./specs/004-queue-steer-pause-resume.md), [Run State Machine](./domain/run-state-machine.md)
-- Summary: SPEC CONTRADICTION. Spec-005 declares `pause` and `steer` as two of its 8 capability flags, but the 9 required driver operations (`createSession`, `resumeSession`, `startRun`, `interruptRun`, `respondToRequest`, `closeSession`, `listModels`, `listModes`, `getCapabilities`) include no `pauseRun` or `steerRun`. The runtime can check whether a driver supports pause and steer but has no defined method to invoke those behaviors. Similarly, `mcp`, `tool_calls`, and `reasoning_stream` are capability flags with no explicit operations. Fix options: (a) add `pauseRun`, `steerRun`, and other missing operations, (b) document that existing operations subsume these (e.g., steer via `respondToRequest` with intervention payload), or (c) add a generic `applyIntervention` operation.
+- Summary: Resolved via `applyIntervention` as a generic dispatcher (10th driver operation). `pause` removed from capability flags (7 flags total). Pause is an orchestration-layer construct (interrupt + persist + queue resume). Steer and cancel route through `applyIntervention`. See ADR-011 and updated Spec-005.
 - Exit Criteria: Every capability flag in Spec-005 has a corresponding driver operation or explicit documentation that an existing operation carries those semantics.
 
 ### BL-008: Complete Run State Machine Transition Table
@@ -109,8 +109,8 @@ These items block every plan and feature. Nothing can proceed until they are res
 - Priority: `P0`
 - Owner: `unassigned`
 - References: [Run State Machine](./domain/run-state-machine.md), [Spec-004](./specs/004-queue-steer-pause-resume.md)
-- Summary: Three categories of missing transitions in the normative transition table: (1) `starting -> failed` is described in the edge-cases prose ("A run may fail from starting if workspace or provider initialization cannot complete") but absent from the primary allowed transitions table — the normative table contradicts the edge-case prose; (2) No transitions are defined INTO `recovering` — the model defines 4 transitions OUT of `recovering` but never specifies which states can transition TO it (only edge cases say "A daemon restarts during execution. The run enters recovering" without specifying which source states); (3) No interrupt paths from `paused`, `waiting_for_approval`, or `waiting_for_input` — users must be able to cancel work in these states, but no `paused -> interrupting`, `waiting_for_approval -> interrupting`, or `waiting_for_input -> interrupting` transitions are listed. Also missing: `starting -> interrupted` for early cancellation. Note: true `paused` as a runtime state is novel — no reference app implements it. This makes precise specification critical since there is no prior implementation to validate against.
-- Exit Criteria: Transition table includes all transitions described in edge cases. Entry conditions for `recovering` are exhaustively listed. Interrupt paths from all blocking states are defined or explicitly prohibited with justification. Child-run behavior when a parent run is paused or terminated is defined.
+- Summary: Run state machine updated to 9 states (dropped `recovering` and `interrupting`). `starting -> failed` added. Interrupt paths from `paused`, `waiting_for_approval`, and `waiting_for_input` added. Recovery is handled by startup reconciliation (no visible state). Child-run cascade behavior defined. Transition table completion remains — validate all transitions against implementation.
+- Exit Criteria: Transition table includes all transitions described in edge cases. Interrupt paths from all blocking states are defined. Child-run behavior when a parent run is paused or terminated is defined.
 
 ### BL-009: Reconcile Intervention States Between Domain Model and Spec-004
 
@@ -119,7 +119,7 @@ These items block every plan and feature. Nothing can proceed until they are res
 - Priority: `P0`
 - Owner: `unassigned`
 - References: [Queue and Intervention Model](./domain/queue-and-intervention-model.md), [Spec-004](./specs/004-queue-steer-pause-resume.md)
-- Summary: The domain model (queue-and-intervention-model.md "State Model") defines 5 intervention states: `requested`, `accepted`, `applied`, `rejected`, `expired`. Spec-004 "Interfaces And Contracts" says `InterventionResult` must distinguish `accepted`, `applied`, `rejected`, and `degraded`. The domain model has `expired` but not `degraded`; the spec has `degraded` but not `expired`. Neither document acknowledges the other's deviation. Additionally, the domain model uses `Intervention` as the top-level entity while Spec-004 introduces `InterventionRequest` and `InterventionResult` as separate contract interfaces — it is unclear whether the domain entity is the Request, the Result, or both.
+- Summary: Domain model and Spec-004 now both define 6 canonical intervention states: `requested`, `accepted`, `applied`, `rejected`, `degraded`, `expired`. Entity relationship is explicit: `InterventionRequest` (inbound command), `InterventionResult` (outcome record), `Intervention` (lifecycle entity encompassing both). Spec-004 now references domain model payload shapes and version guard semantics. Full reconciliation remains — verify field-level consistency during implementation.
 - Exit Criteria: One canonical set of intervention states exists in the domain model. Spec-004 references the domain model states consistently. The relationship between `Intervention`, `InterventionRequest`, and `InterventionResult` is explicit.
 
 ### BL-010: Specify Invite Delivery Mechanism
@@ -135,7 +135,7 @@ These items block every plan and feature. Nothing can proceed until they are res
 ### BL-013: Resolve Sequence-Assignment Contradiction
 
 - Status: `completed`
-- Resolution: Dual-counter model adopted. See Spec-006.
+- Resolution: Single-authority model adopted — sequence numbers assigned by the authoritative session-visible append path at write time. See Spec-006. Plan-006 updated to match.
 - Priority: `P0`
 - Owner: `unassigned`
 - References: [Spec-006](./specs/006-session-event-taxonomy-and-audit-log.md), [Plan-006](./plans/006-session-event-taxonomy-and-audit-log.md)
@@ -207,7 +207,7 @@ These items block every plan and feature. Nothing can proceed until they are res
 - Priority: `P1`
 - Owner: `unassigned`
 - References: [Spec-012](./specs/012-approvals-permissions-and-trust-boundaries.md), [Plan-012](./plans/012-approvals-permissions-and-trust-boundaries.md)
-- Summary: Spec-012 says approval categories include "at least destructive git operations, out-of-boundary file writes, unrestricted network access, and high-risk tool execution" but does not provide the canonical enum. Plan-012 step 1 defers this to "define canonical approval categories, scope enums." The spec delegates enumeration to implementation, which means different implementations could define different categories. Must define the canonical approval category enum for consistent behavior.
+- Summary: Spec-012 now defines all 8 canonical approval categories: `tool_execution`, `file_write`, `network_access`, `destructive_git`, `user_input`, `plan_approval`, `mcp_elicitation`, `gate`. ADR-012 defines the Cedar policy engine for evaluation. Remaining work: verify Plan-012 references these categories and Cedar.
 - Exit Criteria: Canonical approval category enum exists in Spec-012 or the domain model.
 
 ### BL-022: Add Runtime Binding to Domain Glossary
@@ -225,7 +225,7 @@ These items block every plan and feature. Nothing can proceed until they are res
 - Priority: `P1`
 - Owner: `unassigned`
 - References: [Spec-008](./specs/008-control-plane-relay-and-session-join.md), [ADR-008](./decisions/008-default-transports-and-relay-boundaries.md), [Security Architecture](./architecture/security-architecture.md)
-- Summary: Spec-008 separates join (membership action) from relay (connectivity action) and says the control plane coordinates relay but never gains execution authority. However, no relay protocol specification exists. The relay negotiation interface is named (`RelayNegotiation`) but "minimum transport data" is undefined. For context, Paseo implements Curve25519 ECDH + XSalsa20-Poly1305 (NaCl/TweetNaCl) encryption with dual protocol versions (v1 single socket pair, v2 control + per-connection data sockets) over Cloudflare Durable Objects with WebSocket hibernation. The Paseo relay is zero-knowledge (untrusted, cannot read/forge/replay messages) with an acknowledged gap of no within-session replay protection. The ai-sidekicks relay should evaluate adopting a similar model.
+- Summary: Spec-008 separates join (membership action) from relay (connectivity action) and says the control plane coordinates relay but never gains execution authority. ADR-010 decided MLS (RFC 9420) for relay E2EE (rejecting NaCl box due to lack of forward secrecy). Spec-008 now includes MLS relay encryption details, KeyPackage signing, and wire format. Remaining work: full relay protocol specification including connection lifecycle, message framing, and relay negotiation payload shape. Relay sharding (25 connections per data DO) is specified in deployment-topology.md.
 - Exit Criteria: Relay protocol specification exists covering encryption model, key exchange, message framing, connection lifecycle, and trust properties.
 
 ### BL-024: Specify Steer Injection Mechanics and Intervention Payloads
@@ -234,8 +234,8 @@ These items block every plan and feature. Nothing can proceed until they are res
 - Priority: `P1`
 - Owner: `unassigned`
 - References: [Spec-004](./specs/004-queue-steer-pause-resume.md), [Queue and Intervention Model](./domain/queue-and-intervention-model.md)
-- Summary: Steer is well-defined as a concept (intervention against an active run) but the actual payload shape is undefined. What does the driver receive for a steer? How does it differ from `respondToRequest`? The domain model says an Intervention can target "a Run, a QueueItem, or the session scheduler" but does not describe the payload shape for steer vs pause vs interrupt interventions. `InterventionRequest` names fields (target id, intervention type, initiator, requested scope) but defines no concrete payload for each type.
-- Exit Criteria: Intervention payload shapes defined for each intervention type (steer, pause, interrupt, cancel). Steer injection mechanics documented at the driver interface level.
+- Summary: Intervention payload shapes are now defined in the domain model as a discriminated union by type: `steer` (`targetRunId`, `expectedTurnId`, `expectedRunVersion`, `content`, `attachments?`), `interrupt` (`targetRunId`, `expectedRunVersion`, `reason?`), `cancel` (`targetRunId`, `expectedRunVersion`, `reason?`). All carry version guards. Spec-004 now references these shapes. Remaining work: steer injection mechanics at the driver interface level — how does `applyIntervention(type: "steer")` differ from `respondToRequest`? Document the boundary between intervention dispatch and interactive request handling.
+- Exit Criteria: Intervention payload shapes defined for each intervention type (steer, interrupt, cancel). Steer injection mechanics documented at the driver interface level.
 
 ### BL-025: Specify Presence Heartbeat Transport and Channel Discovery
 
@@ -275,12 +275,11 @@ These items block every plan and feature. Nothing can proceed until they are res
 
 ### BL-014b: Expand Spec-017 Workflow Specification
 
-- Status: `blocked`
+- Status: `todo`
 - Priority: `P1`
 - Owner: `unassigned`
 - References: [Spec-017](./specs/017-workflow-authoring-and-execution.md), [Plan-017](./plans/017-workflow-authoring-and-execution.md)
-- Blocked By: BL-014a (scope decision must confirm workflows are v1)
-- Summary: Spec-017 is the least implementation-ready spec relative to the reference app baseline. Forge already ships 4 phase execution modes (single-agent, multi-agent deliberation, automated, human), gate types (auto-continue, quality-checks, human-approval, done), quality checks per phase with retry targets and max retries, human approval gate UI (summaries, quality results, corrections, approve/correct/reject actions), workflow output modes (conversation markdown, channel transcripts, structured JSON drill-down), a discussion model (multi-participant with per-role models and system prompts), child-session transcripts within workflow phases, and workflow runtime timelines with phase runs, iterations, and transition states. Spec-017 has none of this — it says phases "may create runs, request approvals, emit artifacts, or block on participant input" and that phase outputs must be "durable and addressable." No phase-type taxonomy, no gate-type taxonomy, no quality-check model, no output mode specification, no discussion model.
+- Summary: BL-014a is completed — workflows are V1 scope (single-agent + automated phases, all 4 gates). Spec-017 now defines V1 phase types (`single-agent`, `automated`), gate types (`auto-continue`, `quality-checks`, `human-approval`, `done`), full type hierarchy, definition/execution entity separation, and LangGraph checkpoint pattern. Remaining gaps vs Forge baseline: quality-check model (retry targets, max retries), output mode specification, discussion integration, and workflow runtime timeline with phase runs and iterations.
 - Exit Criteria: Spec-017 updated with phase-type taxonomy, gate-type taxonomy with failure/retry semantics, quality-check model, output mode specification, and discussion integration. Domain model docs created for `Workflow` and `WorkflowPhase` entities.
 
 ### BL-015: Define Per-Driver Capability Matrix
@@ -290,7 +289,7 @@ These items block every plan and feature. Nothing can proceed until they are res
 - Priority: `P1`
 - Owner: `unassigned`
 - References: [Spec-005](./specs/005-provider-driver-contract-and-capabilities.md), [Plan-005](./plans/005-provider-driver-contract-and-capabilities.md)
-- Summary: Plan-005 builds two initial drivers (Codex and Claude) against the normalized contract but never specifies which capability flags each driver will support. The 8 flags are: `resume`, `steer`, `pause`, `interactive_requests`, `mcp`, `tool_calls`, `reasoning_stream`, `model_mutation`. Implementers building the drivers need to know the expected matrix. For context: Codex supports resume, steer (via `turn/steer`), interactive requests, MCP, tool calls; Claude supports resume (via SDK), interactive requests, MCP, tool calls, reasoning stream, model mutation. Neither reference app implements true pause. This matrix drives fallback behavior: unsupported pause -> queue+interrupt only; unsupported steer -> reject or degrade to queue item.
+- Summary: Plan-005 builds two initial drivers (Codex and Claude) against the normalized contract but never specifies which capability flags each driver will support. The 7 flags are: `resume`, `steer`, `interactive_requests`, `mcp`, `tool_calls`, `reasoning_stream`, `model_mutation` (pause removed per ADR-011 — it is an orchestration-layer construct). Implementers building the drivers need to know the expected matrix. For context: Codex supports resume, steer (via `turn/steer`), interactive requests, MCP, tool calls; Claude supports resume (via SDK), interactive requests, MCP, tool calls, reasoning stream, model mutation. This matrix drives fallback behavior: unsupported steer -> reject or degrade to queue item.
 - Exit Criteria: Spec-005 or Plan-005 includes a capability matrix showing expected `true`/`false` for each flag for each initial driver (Codex, Claude).
 
 ### BL-037: Specify Git Hosting Adapter Abstraction for PR Preparation
@@ -327,10 +326,11 @@ These items block every plan and feature. Nothing can proceed until they are res
 ### BL-029: Specify Control-Plane Transport Protocol
 
 - Status: `todo`
+- Note: Transport protocol decided in [ADR-014](./decisions/014-trpc-control-plane-api.md): tRPC v11 for request-response and SSE subscriptions, WebSocket (JSON-RPC 2.0) for bidirectional collaboration channels. Container-architecture.md updated.
 - Priority: `P2`
 - Owner: `unassigned`
-- References: [Container Architecture](./architecture/container-architecture.md), [Spec-008](./specs/008-control-plane-relay-and-session-join.md)
-- Summary: The boundary between client SDK and control plane is described structurally but the transport protocol is not named. The client SDK "talks to" the control plane for auth, invites, presence, relay coordination — but over what? HTTP REST? gRPC? WebSocket? This affects control-plane API design and client SDK implementation.
+- References: [Container Architecture](./architecture/container-architecture.md), [Spec-008](./specs/008-control-plane-relay-and-session-join.md), [ADR-014](./decisions/014-trpc-control-plane-api.md)
+- Summary: Transport protocol decided (tRPC v11 + WebSocket). Remaining work: propagate protocol choice into Spec-008 relay negotiation details and client SDK implementation guidance.
 - Exit Criteria: Control-plane transport protocol chosen and documented in architecture docs.
 
 ### BL-030: Define Deployment Scaling and HA Strategy
@@ -363,10 +363,11 @@ These items block every plan and feature. Nothing can proceed until they are res
 ### BL-033: Specify Rate Limiting for All APIs
 
 - Status: `todo`
+- Note: [Spec-021](./specs/021-rate-limiting-policy.md) now exists and defines deployment-aware rate limiting (CF native hosted, rate-limiter-flexible self-hosted). Deployment-topology.md updated with rate limiting by deployment table.
 - Priority: `P2`
 - Owner: `unassigned`
-- References: All specs
-- Summary: No rate limits are specified for any API — invite creation, session creation, presence heartbeats, channel creation, queue item creation, or any other interface. This is a security and operational concern, especially for the collaboration features where external participants interact with the control plane.
+- References: [Spec-021](./specs/021-rate-limiting-policy.md), [Deployment Topology](./architecture/deployment-topology.md), All specs
+- Summary: Spec-021 defines the rate limiting framework and deployment-aware implementation strategy. Remaining work: specify concrete rate limit values for each control-plane API (invite creation, session creation, presence heartbeats, etc.).
 - Exit Criteria: Rate limiting policy exists for at least the control-plane-facing APIs (invite, session, presence).
 
 ### BL-034: Specify Context Window and Usage Meters
@@ -390,10 +391,11 @@ These items block every plan and feature. Nothing can proceed until they are res
 ### BL-036: Specify Session Data Retention, Deletion, and GDPR Compliance
 
 - Status: `todo`
+- Note: [Spec-022](./specs/022-data-retention-and-gdpr.md) now exists and defines crypto-shredding, data export, purge states, and 90-day retention. Session model updated with `purge_requested` and `purged` states (including `closed -> purge_requested` path).
 - Priority: `P2`
 - Owner: `unassigned`
-- References: [Session Model](./domain/session-model.md), [Spec-001](./specs/001-shared-session-core.md), [Data Architecture](./architecture/data-architecture.md)
-- Summary: Sessions can be `closed` or `archived`, but no spec addresses data retention, purging, or GDPR-style deletion. Any product that stores user data, session history, collaboration records, and presence logs needs a data lifecycle policy. Must specify: (1) retention periods for session events, presence records, and archived sessions; (2) deletion mechanics — can a user request deletion of their participation data? What happens to events authored by a deleted participant? (3) Purge vs soft-delete semantics for sessions and memberships; (4) Data export capabilities if required by regulation.
+- References: [Session Model](./domain/session-model.md), [Spec-001](./specs/001-shared-session-core.md), [Spec-022](./specs/022-data-retention-and-gdpr.md), [Data Architecture](./architecture/data-architecture.md)
+- Summary: Spec-022 defines the GDPR compliance framework including crypto-shredding, data export, and purge lifecycle. Remaining work: implement the V1 schema (pii_payload column, participant_keys table) and produce the PII data map prerequisite.
 - Exit Criteria: Data retention and deletion policy documented. Session model or data architecture updated with lifecycle beyond `archived`.
 
 ---
@@ -408,7 +410,7 @@ Use this shape for new backlog items:
 - Status: `todo`
 - Priority: `P1`
 - Owner: `unassigned`
-- References: [Relevant Spec](./specs/000-example.md), [Relevant Plan](./plans/000-example.md)
+- References: [Relevant Spec](./specs/000-spec-template.md), [Relevant Plan](./plans/000-plan-template.md)
 - Summary: One or two sentences describing the deliverable or change.
 - Exit Criteria: Concrete condition that makes this item complete.
 ```

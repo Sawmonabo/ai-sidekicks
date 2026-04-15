@@ -96,6 +96,7 @@ The canonical run lifecycle has one failure terminal state: `failed`. Additional
 - Example: A queued implementation task is admitted, moves through `starting` to `running`, pauses for approval before a risky file write, returns to `running` after approval, and ends in `completed`.
 - Example: A daemon restarts during execution. Startup reconciliation detects the stale run and dispatches corrective commands to resume or fail it.
 - Example: A user stops an active run. The run transitions directly from `running` to `interrupted`.
+- Example: A user cancels a run via `applyIntervention(type: "cancel")`. The cancel intervention maps to the `interrupted` terminal state — cancel is a user-initiated interruption distinct from queue-level `QueueItemCancel`.
 
 ## Child-Run Behavior
 
@@ -104,7 +105,7 @@ The canonical run lifecycle has one failure terminal state: `failed`. Additional
 ## Edge Cases
 
 - A run may fail from `starting` if workspace or provider initialization cannot complete.
-- A driver that cannot truly support `paused` must not advertise pause capability for that run.
+- Pause is an orchestration-layer construct (interrupt + persist + queue resume) that does not require driver capability support. See ADR-011.
 - Interruption is a synchronous or near-synchronous provider call. There is no intermediate `interrupting` state; runs transition directly to `interrupted`.
 - A run may be `failed` with `provider failure` detail after an unsuccessful resume attempt; provider-specific failure causes do not create separate run states.
 - A run may be `failed` with visible `recovery-needed` condition after automatic recovery is exhausted; failed recovery remains visible through failure detail and recovery condition rather than a separate terminal run state.
