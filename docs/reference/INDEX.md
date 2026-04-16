@@ -39,12 +39,6 @@ This directory contains the complete analysis of three reference applications (F
 | `paseo/desktop-relay.md` | Desktop + relay + infrastructure inventory: Electron shell, Curve25519 ECDH + NaCl encryption, Cloudflare Durable Objects relay, 6 skills (code, shell, web, docs, image, mcp), 8-package monorepo structure, website. |
 | `paseo/implementation-details/` | 10-file deep implementation walkthrough: server daemon internals, app client architecture, CLI/desktop, relay/support packages, server services (file-backed persistence, loops, schedules, speech, terminals), provider normalization (adapter signatures, wrapSessionProvider), app state/UI/routing, session/agent manager (role split, timeline projection, attention), provider transports (per-provider specifics: Claude spawn hooks, Codex JSON-RPC, OpenCode singleton, ACP stdio). |
 
-### Analysis
-
-| File | Content |
-|---|---|
-| `backlog-reference-analysis.md` | Complete per-backlog-item analysis with reference app evidence, web research, and final recommendations for all 37 backlog items. Includes technology decisions table and compatibility resolution log. |
-
 ### Design Audits (`design-audits/`)
 
 | File | Content |
