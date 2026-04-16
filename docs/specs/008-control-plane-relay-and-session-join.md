@@ -56,6 +56,63 @@ This spec covers session join, relay negotiation, presence attachment, and remot
 - WebSocket Hibernation: relay DOs sleep between messages for cost efficiency.
 - Fallback: if MLS libraries prove immature, fall back to X25519 ECDH + XChaCha20-Poly1305 via `@noble/curves` + `@noble/ciphers` with per-sender sequence numbers for replay protection.
 
+## Relay Connection Lifecycle
+
+1. **Connect**: Client establishes a WSS connection to the relay endpoint. The endpoint URL is provided by the control plane via `RelayNegotiationResponse`.
+2. **Authenticate**: Client presents a PASETO v4.public token in the WebSocket handshake (`Sec-WebSocket-Protocol: paseto-v4`). The relay validates the token and establishes the session-scoped channel.
+3. **Group Join**: If an MLS group already exists for the session, the client fetches KeyPackages from the control plane and joins. If no group exists yet, the client creates one and uploads the initial epoch state to the control plane.
+4. **Message Exchange**: All messages are MLS-encrypted. The relay sees only opaque ciphertext and forwards it without inspection.
+5. **Graceful Close**: The client sends an MLS `Remove` proposal for itself, the group state is updated via `Commit`, and the WebSocket connection is closed.
+6. **Reconnect**: The client re-authenticates with a fresh PASETO token, fetches any missed messages via the control plane, and re-joins the MLS group with a new KeyPackage.
+
+### Message Framing
+
+- **Wire format**: WebSocket binary frames.
+- **Frame structure**: `[4-byte big-endian length][MLS ciphertext]`.
+- **Maximum frame size**: 64 KB. Messages larger than 64 KB must be chunked at the application layer before encryption.
+- **Heartbeat**: WebSocket ping/pong at 30-second intervals for keepalive. If no pong is received within 60 seconds, the client must treat the connection as dead and begin reconnect.
+
+### MLS Group Management
+
+- **Group creation**: The first participant in a session creates the MLS group and uploads the initial epoch state to the control plane.
+- **Member addition**: The control plane distributes the new member's KeyPackage to existing group members. An existing member issues an MLS `Add` proposal followed by a `Commit`.
+- **Member removal**: Any member can propose `Remove`. The remover issues a `Commit` that re-keys the group, ensuring the removed member loses access to future messages.
+- **Key rotation**: Automatic after every 100 messages or 1 hour, whichever comes first. The committer sends an `Update` proposal followed by a `Commit`.
+- **Epoch advancement**: Each `Commit` advances the epoch. Clients must track epoch state locally and reject messages from prior epochs.
+
+### Relay Negotiation
+
+The control plane provides the following via `RelayNegotiationResponse`:
+
+| Field | Value |
+| --- | --- |
+| Relay endpoint URL | WSS URL for the relay Durable Object |
+| Transport protocol | `websocket` |
+| Connection token | Short-lived PASETO v4.public token (TTL: 300 seconds) |
+| MLS group ID | The session's MLS group identifier |
+
+**KeyPackage requirements:**
+
+- Signing key: Ed25519
+- Init key: X25519
+- Cipher suite: `MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519`
+
+Clients must upload a fresh KeyPackage to the control plane before requesting relay negotiation. Stale or reused KeyPackages must be rejected by the control plane.
+
+### Trust Properties
+
+**Threat model**: The relay operator is honest-but-curious. The relay can observe metadata (who connects, when, message sizes) but cannot read message content.
+
+**Trust anchors**: Participant identity is established via control plane authentication. KeyPackage signing keys are bound to participant identity via the control plane. Any KeyPackage with an unrecognized signing key is rejected.
+
+**Guarantees:**
+
+- **Forward secrecy** -- past messages become undecryptable after key update (tree-based ratcheting).
+- **Post-compromise security** -- a compromised member can be removed and the group re-keyed, restoring confidentiality for future messages.
+- **Zero-knowledge relay** -- the relay sees only opaque ciphertext and cannot read, forge, or replay messages.
+
+**Non-guarantees**: The relay CAN perform traffic analysis (timing, message sizes, connection patterns). Metadata protection is out of scope for V1.
+
 ## Default Behavior
 
 - Session join defaults to direct control-plane API and event-stream attachment.
@@ -75,6 +132,7 @@ This spec covers session join, relay negotiation, presence attachment, and remot
 - `PresenceRegister` must exist independently of runtime-node attach.
 - `SessionResumeAfterReconnect` must accept a prior participant or client identity handle where applicable.
 - See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
+- See [Error Contracts](../architecture/contracts/error-contracts.md) for error response schemas and error codes.
 
 ## State And Data Implications
 

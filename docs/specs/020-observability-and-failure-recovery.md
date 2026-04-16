@@ -70,6 +70,7 @@ This spec covers failure categories, health signals, stuck-run detection, replay
 - `StuckRunInspect` must expose the last known progress point, last event time, blocking reason if any, and whether the run is currently `stuck-suspected`.
 - `RecoveryActionRequest` must support safe operator-triggered retry where allowed.
 - See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
+- See [Error Contracts](../architecture/contracts/error-contracts.md) for error response schemas and error codes.
 
 ## State And Data Implications
 

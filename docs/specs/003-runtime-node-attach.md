@@ -65,6 +65,7 @@ This spec covers runtime-node registration, capability declaration, health, and 
 - `RuntimeNodeCapabilityUpdate` must support capability additions, removals, and health changes.
 - `RuntimeNodeDetach` must explicitly retire or disconnect a node from the session.
 - See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
+- See [Error Contracts](../architecture/contracts/error-contracts.md) for error response schemas and error codes.
 
 ## State And Data Implications
 

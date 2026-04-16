@@ -87,6 +87,29 @@ This spec covers required driver operations, capability advertisement, normalize
 - Capability changes must be emitted as events so clients and projections can adjust behavior safely.
 - Diagnostic raw events may be retained separately from canonical normalized events.
 - See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
+- See [Error Contracts](../architecture/contracts/error-contracts.md) for error response schemas and error codes.
+
+## Per-Driver Capability Matrix
+
+| Flag | Codex | Claude | Description |
+| --- | --- | --- | --- |
+| `resume` | true | true | Can resume a paused run from a saved handle |
+| `steer` | true | false | Supports native mid-run content injection |
+| `interactive_requests` | true | true | Can issue tool confirmations and clarification questions |
+| `mcp` | true | true | Supports MCP server tool calls |
+| `tool_calls` | true | true | Supports structured tool/function calling |
+| `reasoning_stream` | false | true | Exposes reasoning/thinking tokens in output |
+| `model_mutation` | false | true | Supports switching models mid-session |
+
+### Fallback Behavior
+
+For each `false` in the matrix:
+
+- **Codex `reasoning_stream: false`**: reasoning surface shows "unavailable" in timeline UI. No degradation — reasoning simply isn't exposed.
+- **Codex `model_mutation: false`**: model switching requires a new run. The orchestration layer interrupts the current run and starts a new one with the desired model.
+- **Claude `steer: false`**: steer intervention degrades to queue + interrupt (see [Spec-004](../specs/004-queue-steer-pause-resume.md) § Driver-Level Steer Mechanics). InterventionResult state = `degraded`.
+
+This matrix is the initial V1 capability set. Drivers self-report capabilities via `getCapabilities()`. The matrix above documents expected V1 values; actual runtime values may differ as drivers evolve.
 
 ## Example Flows
 

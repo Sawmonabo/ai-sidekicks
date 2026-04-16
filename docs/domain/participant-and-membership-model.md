@@ -38,6 +38,7 @@ This model defines who is in a session, what rights they hold, and how their liv
 - Role and capability changes apply to membership, not to the participant identity record itself.
 - `contributor` is not a canonical role label; use `collaborator` or `runtime contributor` as appropriate.
 - `owner` is not a normal invite join mode; it is a bootstrap or explicit elevation role.
+- A session must always have at least one owner. The last owner cannot depart until ownership is transferred.
 
 ## Relationships To Adjacent Concepts
 
@@ -77,6 +78,30 @@ Presence states:
 | `idle` | The participant is connected but inactive. |
 | `reconnecting` | The system is within a reconnect grace window. |
 | `offline` | No active presence is currently observed. |
+
+## Owner Elevation
+
+Only an existing owner can elevate another member to the `owner` role. Elevation uses an explicit `MembershipUpdate` with action `change_role` and `newRole: owner`. No invite is required — the target must already hold active membership in the session. Non-owner participants cannot grant or request the owner role; attempts to do so must be rejected with an authorization error.
+
+### Last-Owner Departure
+
+The system must prevent the last remaining owner from leaving a session. A session must always have at least one owner. If the last owner attempts to leave, the system returns the error: "Cannot leave: you are the last owner. Transfer ownership first."
+
+**Rationale:** Auto-elevation (promoting another member automatically) is dangerous because the wrong person may be elevated without consent. Archiving the session on last-owner departure is destructive. Prevention is the simplest and safest approach for V1.
+
+### Concurrent Mutation Resolution
+
+Membership records use optimistic concurrency. Each membership record carries a version field (`updated_at` timestamp) that the system checks before committing a mutation.
+
+- **Non-conflicting changes:** Last-write-wins. Independent mutations to different membership records proceed without contention.
+- **Conflicting operations** (e.g., two simultaneous owner revocations targeting the same member, or two concurrent role changes on the same membership): The mutation that commits first wins. The second attempt receives a conflict error that includes the current state of the membership record, allowing the caller to retry with fresh data.
+
+### Mid-Run Membership Revocation
+
+When a participant's membership is revoked while activity is in progress, the system applies role-specific cleanup:
+
+- **Runtime contributor revocation:** Active runs executing on the revoked participant's runtime node are interrupted. Their runtime node is detached from the session. Queued items targeting that node are returned to the session queue for reassignment.
+- **Collaborator revocation:** Pending interventions authored by the revoked participant are expired immediately. Write access (chat, approvals, steering) is revoked immediately. Read access is revoked after a 30-second grace period to allow UI refresh and prevent abrupt visual disruption.
 
 ## Example Flows
 

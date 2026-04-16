@@ -98,6 +98,7 @@ This spec covers:
 - `DELETE /participants/{id}/data` must delete the participant's key from `participant_keys` (crypto-shredding) and hard-delete their Postgres records.
 - All deletion and export endpoints must require authenticated admin or self-service participant authorization.
 - See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
+- See [Error Contracts](../architecture/contracts/error-contracts.md) for error response schemas and error codes.
 
 ## State And Data Implications
 

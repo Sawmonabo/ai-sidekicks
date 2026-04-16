@@ -71,6 +71,7 @@ This spec covers `read-only`, `branch`, `worktree`, and `ephemeral clone` execut
 - `EphemeralClonePrepare` must report clone root, lifecycle, and cleanup policy.
 - `WorktreeRetire` must record retirement even if filesystem deletion happens asynchronously.
 - See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
+- See [Error Contracts](../architecture/contracts/error-contracts.md) for error response schemas and error codes.
 
 ## State And Data Implications
 

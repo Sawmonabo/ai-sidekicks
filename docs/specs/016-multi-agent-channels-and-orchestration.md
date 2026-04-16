@@ -68,6 +68,7 @@ This spec covers channel creation, parent-child run linkage, cross-agent collabo
 - `ChildRunLinkRead` must expose parent-child relationships.
 - `InternalRunFlag` must distinguish internal helper work from user-facing agents.
 - See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
+- See [Error Contracts](../architecture/contracts/error-contracts.md) for error response schemas and error codes.
 
 ## State And Data Implications
 
@@ -80,6 +81,50 @@ This spec covers channel creation, parent-child run linkage, cross-agent collabo
 - `Example: An architect agent and reviewer agent discuss a change in a design channel while an implementer agent works in a separate implementation channel inside the same session.`
 - `Example: A parent run delegates a verification task to a child run on another runtime node. The session timeline shows the child run summary and links to its detailed output.`
 - `Example: A child run attempts to spawn its own helper run in v1. The runtime rejects the request as unsupported nested delegation and records the refusal visibly.`
+
+## Turn Policies
+
+| Policy | Behavior | Default |
+|--------|----------|---------|
+| `free-form` | Any participant or agent can send at any time | Yes (default) |
+| `round-robin` | Agents take turns in a fixed order | No |
+| `request-based` | Agents speak only when explicitly addressed | No |
+
+## Budget Policies
+
+| Budget Type | Description | Default Limit |
+|-------------|-------------|---------------|
+| Token limit per run | Max input+output tokens for a single run | 100,000 |
+| Cost limit per session | Max estimated cost across all runs | $10.00 |
+| Turn limit per agent | Max consecutive turns an agent can take | 50 |
+
+Budgets are advisory in V1. The daemon tracks usage and emits `usage_telemetry` events. Hard enforcement (interrupting runs at limit) is V1.1.
+
+## Stop Conditions
+
+| Condition | Trigger | Behavior |
+|-----------|---------|----------|
+| Turn limit reached | Agent exceeds turn limit | Run completes with `turn_limit` metadata |
+| Budget exhausted | Token or cost limit exceeded | Run interrupted with `budget_exhausted` reason |
+| Explicit stop | User sends stop command | Run interrupted via cancel intervention |
+| Idle timeout | No activity for configurable duration (default: 5 min) | Run interrupted with `idle_timeout` reason |
+
+Conclusion detection (agent determines task is complete) is V2.
+
+## Moderation Hooks
+
+- Pre-turn approval: before an agent's output is committed to the timeline, an approval gate can require human review.
+- Post-turn review: after output is committed, a review flag marks it for human inspection (non-blocking).
+- Both hooks integrate with the approval system (Plan-012): category `gate` for pre-turn, informational event for post-turn.
+- V1 default: no moderation hooks enabled. Opt-in per channel.
+
+## Scheduler Limits
+
+| Limit | Default |
+|-------|---------|
+| Max concurrent channels executing | 5 per session |
+| Max queue depth per channel | 50 items |
+| Max pending orchestration runs | 10 per session |
 
 ## Implementation Notes
 

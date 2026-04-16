@@ -72,6 +72,7 @@ This spec covers artifact types, attachment ingestion, storage expectations, man
 - `artifactType` is a discriminator: `"diff"`, `"design"`, `"file"`, `"log"`.
 - `subject` field enables artifact linking (e.g., a diff artifact referencing its parent run artifact).
 - See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
+- See [Error Contracts](../architecture/contracts/error-contracts.md) for error response schemas and error codes.
 
 ## State And Data Implications
 

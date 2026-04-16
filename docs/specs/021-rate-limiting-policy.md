@@ -94,6 +94,7 @@ The local daemon is explicitly excluded. It is trusted by socket reachability an
 - All HTTP responses from rate-limited endpoints must include `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset` headers.
 - The admin API must expose `POST /admin/bans` and `DELETE /admin/bans/{id}` for permanent ban management.
 - See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
+- See [Error Contracts](../architecture/contracts/error-contracts.md) for error response schemas and error codes.
 
 ## State And Data Implications
 

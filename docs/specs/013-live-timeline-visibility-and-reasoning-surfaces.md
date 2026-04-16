@@ -38,7 +38,7 @@ This spec covers the canonical timeline read model, child-run visibility, reason
 ## Required Behavior
 
 - The system must expose one live timeline per session or channel view built from canonical events.
-- Timeline rows must cover at least messages, run state changes, tool activity, approval events, interventions, artifacts, and child-run activity.
+- Timeline rows must cover at least messages, handoffs, run state changes, tool activity, approval events, interventions, artifacts, and child-run activity.
 - Background runs and child runs must be visible in the primary session experience, even when details are lazy-loaded.
 - Reasoning surfaces must be normalized and policy-aware; unavailable or redacted reasoning must still produce a visible reason surface.
 - Durable reasoning surfaces must be limited to normalized reasoning summaries, state transitions, tool-intent or tool-result summaries, and policy-redaction markers. Provider-native detailed reasoning is not guaranteed durable.
@@ -59,6 +59,31 @@ This spec covers the canonical timeline read model, child-run visibility, reason
 - If a child-run detail fetch fails, the summary row remains visible and marked incomplete rather than disappearing.
 - If detailed reasoning has been compacted or was never retained, the durable reasoning summary or policy placeholder remains the canonical visible surface.
 
+## Timeline Entry Types
+
+> These timeline entry types are projection-layer constructs derived from canonical session events (see [Spec-006](../specs/006-session-event-taxonomy-and-audit-log.md)). They do not create new event types.
+
+### `handoff`
+
+Agent-to-agent and participant-to-agent handoffs rendered as discrete timeline rows, visually distinct from normal messages.
+
+- **Payload**: `{fromActor: string, toActor: string, reason?: string, channelId?: ChannelId}`
+- A `handoff` entry is emitted when:
+  - Orchestration transfers a run between agents.
+  - A participant explicitly delegates to an agent.
+  - An agent spawns a child run on a different node.
+
+### Run-State Subtypes
+
+Run-state subtypes are rendering types that map from underlying run lifecycle events. They exist so the timeline can render distinct visual treatments without inspecting raw event payloads.
+
+| Entry Type | Rendered As | Source Condition |
+| --- | --- | --- |
+| `run.paused` | Status row with pause icon | Run transitions to `paused` state |
+| `run.resumed` | Status row with resume icon | Run transitions from `paused` to `running` |
+| `run.blocked` | Status row with block indicator | Run enters `waiting_for_approval` or `waiting_for_input` |
+| `run.unblocked` | Status row with unblock indicator | Approval or input resolves the block |
+
 ## Interfaces And Contracts
 
 - `TimelineRead` must support bounded windows and cursor-based continuation.
@@ -66,6 +91,7 @@ This spec covers the canonical timeline read model, child-run visibility, reason
 - `ReasoningSurfaceRead` must identify availability status and policy reason when content is withheld.
 - `ChildRunExpand` must read detailed activity for a summarized child-run row.
 - See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
+- See [Error Contracts](../architecture/contracts/error-contracts.md) for error response schemas and error codes.
 
 ## State And Data Implications
 
@@ -97,6 +123,7 @@ This spec covers the canonical timeline read model, child-run visibility, reason
 - [ ] A client can see live run, approval, artifact, and child-run activity in one timeline surface.
 - [ ] Missing live updates can be recovered through replay without rebuilding state from free-form text.
 - [ ] Reasoning surfaces clearly distinguish available, unavailable, and policy-redacted cases.
+- [ ] Handoff and run-state entries render as distinct timeline rows with appropriate visual treatment.
 
 ## ADR Triggers
 

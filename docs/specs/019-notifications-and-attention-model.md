@@ -68,6 +68,7 @@ This spec covers in-app attention state, desktop notifications, invite notificat
 - `NotificationPreferenceRead` and `NotificationPreferenceUpdate` must support per-surface preferences.
 - `NotificationEmit` must reference the underlying canonical event or state trigger.
 - See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
+- See [Error Contracts](../architecture/contracts/error-contracts.md) for error response schemas and error codes.
 
 ## State And Data Implications
 

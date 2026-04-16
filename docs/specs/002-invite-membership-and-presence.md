@@ -44,6 +44,8 @@ This spec covers invite lifecycle, join-mode assignment, membership role changes
 - A participant must be able to join a session before attaching any runtime node.
 - Presence updates must support at least `online`, `idle`, `reconnecting`, and `offline`.
 - Role changes and membership revocation must be explicit events in session history.
+- Owner elevation must require an existing owner to issue the `MembershipUpdate` with action `change_role` and `newRole: owner`. The target must already hold active membership.
+- The system must prevent the last remaining owner from leaving a session. Attempts must return an error directing the owner to transfer ownership first.
 
 ## Default Behavior
 
@@ -53,8 +55,16 @@ This spec covers invite lifecycle, join-mode assignment, membership role changes
 - Presence heartbeat default interval is `15s`, with a reconnect grace window of `45s` before `offline`.
 - Presence state is managed using the Yjs Awareness protocol (`y-protocols`), a purpose-built ephemeral CRDT for presence. Presence data is never persisted to durable storage — it lives in memory and is garbage-collected on disconnect.
 - Presence heartbeat payload must include at minimum: `deviceType`, `focusedSessionId`, `focusedChannelId`, `lastActivityAt`, `appVisible`.
+- When a runtime contributor's membership is revoked mid-run, active runs on their node are interrupted and the node is detached. When a collaborator's membership is revoked, pending interventions are expired immediately; read access is revoked after a 30-second grace period.
 - Cross-node presence fan-out uses Postgres `LISTEN/NOTIFY` in V1. Redis Pub/Sub is a documented upgrade path for V1.1 if scale demands it.
 - For local IPC (daemon-to-desktop/CLI over JSON-RPC), the daemon exposes a JSON-RPC presence surface (`PresenceUpdate`, `PresenceRead`) that bridges to the Yjs Awareness state. The Yjs binary protocol runs natively on the WebSocket transport to the control plane; the JSON-RPC transport carries serialized presence state.
+
+### Heartbeat Transport
+
+Heartbeats piggyback on the existing event subscription connection. No separate polling endpoint is introduced.
+
+- **Local IPC:** The daemon exposes `PresenceUpdate` and `PresenceRead` JSON-RPC methods (see Interfaces below). The heartbeat is implicit in the WebSocket connection keepalive between the daemon and local clients; a dropped WebSocket triggers the reconnect grace window defined above.
+- **Remote (control plane relay):** Presence heartbeats are sent as lightweight messages on the relay WebSocket -- the same connection used for MLS-encrypted session traffic (see [Spec-008](../specs/008-control-plane-relay-and-session-join.md)). No additional transport or endpoint is required.
 
 ## Fallback Behavior
 
@@ -71,7 +81,9 @@ This spec covers invite lifecycle, join-mode assignment, membership role changes
 - `PresenceHeartbeat` must accept participant id, device or client id, and last-known activity state. Presence metadata carried in heartbeats: `{deviceType, focusedSessionId, focusedChannelId, lastActivityAt, appVisible}`.
 - `PresenceUpdate` (JSON-RPC, local IPC) — daemon pushes serialized Yjs Awareness state to local clients.
 - `PresenceRead` (JSON-RPC, local IPC) — local clients read current presence state for a session.
+- `ChannelList` — read-only projection of channels in a session. Request: `{sessionId: SessionId}`. Response: `{channels: Array<{id: ChannelId, name?: string, state: ChannelState, participantCount: number}>}`. Channel creation is handled by [Plan-016](../plans/016-multi-agent-channels-and-orchestration.md).
 - See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
+- See [Error Contracts](../architecture/contracts/error-contracts.md) for error response schemas and error codes.
 
 ## Invite Delivery
 

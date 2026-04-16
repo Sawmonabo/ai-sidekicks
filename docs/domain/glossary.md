@@ -23,6 +23,7 @@ This glossary covers the primary domain terms from `vision.md` and the canonical
 | `Channel` | A communication surface inside a session where participants and agents exchange messages or coordination events. |
 | `Agent` | A configured execution persona bound to a runtime node and used to perform runs. |
 | `Run` | A single execution episode performed by one agent inside one session. |
+| `RuntimeBinding` | An association between a `Run` and a specific provider driver instance. Fields: `driver_name`, `contract_version`, `resume_handle`, `runtime_metadata`. Persists recovery handles so a run can be resumed after interruption. Created by Plan-005 (provider driver contract), extended by Plan-015 for recovery. Stored in the `runtime_bindings` SQLite table. See [Spec-005](../specs/005-provider-driver-contract-and-capabilities.md) and [Spec-015](../specs/015-persistence-recovery-and-replay.md). |
 | `QueueItem` | A persisted unit of deferred work awaiting admission into the run engine. |
 | `Intervention` | An auditable control action that changes, redirects, pauses, resumes, or cancels active or queued work. |
 | `RepoMount` | A repository attached to a session as a source of work and artifacts. |
@@ -58,6 +59,7 @@ This glossary is not a substitute for the detailed domain docs. Each term is def
 - `Worktree` is a specialized repository execution surface inside a `Workspace`; it is not a synonym for `Workspace`.
 - `ExecutionMode` determines how a `Run` uses a repo-bound `Workspace`.
 - `Run` is an execution episode, while `Agent` is the reusable configured actor that performs runs.
+- `RuntimeBinding` ties a `Run` to a specific provider driver instance and carries the recovery handles needed for persistence and replay.
 - `local-only` may describe session continuity, execution scope, or artifact visibility, but it does not define a second kind of `Session`.
 
 ## Lifecycle
@@ -81,7 +83,9 @@ The glossary is versioned through canonical doc updates. A term becomes stable o
 - [Runtime Node Attach](../specs/003-runtime-node-attach.md)
 - [Queue Steer Pause Resume](../specs/004-queue-steer-pause-resume.md)
 - [Repo Attachment And Workspace Binding](../specs/009-repo-attachment-and-workspace-binding.md)
+- [Provider Driver Contract And Capabilities](../specs/005-provider-driver-contract-and-capabilities.md)
 - [Approvals Permissions And Trust Boundaries](../specs/012-approvals-permissions-and-trust-boundaries.md)
+- [Persistence Recovery And Replay](../specs/015-persistence-recovery-and-replay.md)
 
 ## Related ADRs
 

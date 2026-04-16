@@ -66,6 +66,7 @@ This spec covers local persistence, shared coordination persistence, recovery ru
 - `ProjectionRebuild` must be idempotent.
 - `RuntimeBindingRead` must expose the data needed to attempt session adoption or resume.
 - See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
+- See [Error Contracts](../architecture/contracts/error-contracts.md) for error response schemas and error codes.
 
 ## State And Data Implications
 

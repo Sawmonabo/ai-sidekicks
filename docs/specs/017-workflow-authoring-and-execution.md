@@ -74,6 +74,7 @@ This spec covers workflow definitions, phase execution, phase outputs, and workf
 - `PhaseOutputRead` must expose durable phase outputs and artifact references.
 - `WorkflowGateResolve` must resolve workflow-scoped approvals or participant questions.
 - See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
+- See [Error Contracts](../architecture/contracts/error-contracts.md) for error response schemas and error codes.
 
 ## State And Data Implications
 
@@ -88,6 +89,50 @@ This spec covers workflow definitions, phase execution, phase outputs, and workf
 - Example: A workflow runs `analyze -> plan -> implement -> review`, pausing between plan and implement for a human approval gate.
 - Example: A workflow is edited after one instance has already started. The running instance continues on the old version while new runs use the new version.
 - Example: A project-scoped workflow definition is exported as a review artifact for discussion. Later workflow execution still binds to the canonical persisted definition version rather than to the artifact copy.
+
+## Quality-Check Model
+
+- Retry targets: the phase that produced the output, or a specific earlier phase (configured per gate).
+- Max retries: configurable per gate (default: 3).
+- Quality-check failure behavior: `block` (halt workflow), `warn` (continue with flag), `skip` (bypass gate).
+- Quality checks are evaluated by a dedicated agent or automated script -- not by the same agent that produced the output.
+
+## Output Mode Specification
+
+- V1: structured JSON with artifact references. Each phase produces: `{artifacts: ArtifactId[], summary: string, metadata: Record<string, unknown>}`.
+- V2 (deferred): conversation markdown, channel transcripts, rich media.
+- Phase outputs are stored as artifacts (Plan-014) with `artifactType: 'workflow_output'`.
+
+## Discussion Integration Path
+
+- V1: single-agent phases only. Each phase runs one agent in one channel.
+- V1.1 (deferred): multi-agent deliberation. A phase can spawn a multi-agent channel (Spec-016) where agents discuss before producing output. The channel's conclusion becomes the phase output.
+- V2 (deferred): cross-phase discussion. Agents from different phases can collaborate in shared channels.
+
+## Workflow Timeline Integration
+
+- Workflow phases appear as distinct sections in the session timeline (Spec-013).
+- Each phase start/end emits events: `workflow.phase_started`, `workflow.phase_completed`, `workflow.phase_failed`.
+- Gate resolution emits: `workflow.gate_resolved` with resolution (passed/failed/waiting-human).
+- Retry iterations appear as sub-entries within the phase section.
+
+## Phase-Type and Gate-Type Taxonomy
+
+Phase types (V1):
+
+| Type | Description |
+|------|-------------|
+| `single-agent` | One agent executes the phase autonomously |
+| `automated` | No agent -- executes a script or validation check |
+
+Gate types (V1):
+
+| Gate Type | Behavior | Failure Behavior |
+|-----------|----------|------------------|
+| `auto-continue` | Phase completes, next phase starts automatically | N/A (no gate check) |
+| `quality-checks` | Automated quality check runs on phase output | Configurable: block / warn / skip. Retry: re-run phase up to max_retries. |
+| `human-approval` | Human must approve phase output before continuing | Block until approved. Reject: retry or stop (configurable). |
+| `done` | Terminal gate -- marks workflow as complete | N/A |
 
 ## Implementation Notes
 

@@ -919,11 +919,13 @@ interface GitActionExecuteResponse {
   error?: string
 }
 
-// GitHostingAdapter (internal interface)
+// GitHostingAdapter (internal interface — host-agnostic; V1 wraps `gh` CLI)
 interface GitHostingAdapter {
   createChangeRequest(params: ChangeRequestParams): Promise<ChangeRequestResult>
   updateChangeRequest(params: UpdateChangeRequestParams): Promise<void>
   listChangeRequests(params: ListChangeRequestsParams): Promise<ChangeRequestSummary[]>
+  getChangeRequestStatus(params: GetChangeRequestStatusParams): Promise<ChangeRequestStatus>
+  addComment(params: AddCommentParams): Promise<CommentResult>
 }
 ```
 

@@ -62,8 +62,10 @@ This spec covers queue admission, interventions, blocked states, and operator-vi
 - `InterventionRequest` must include target run id, intervention type, and version guard (`expectedRunVersion`). Payload fields vary by type: `steer` includes `expectedTurnId`, `content`, and optional `attachments`; `interrupt` and `cancel` include optional `reason`. See [Queue And Intervention Model](../domain/queue-and-intervention-model.md) for canonical payload shapes.
 - `InterventionResult` must distinguish the 6 canonical intervention states: `requested`, `accepted`, `applied`, `rejected`, `degraded`, and `expired`. A version guard mismatch produces `expired`. An authorization failure produces `rejected`.
 - Intervention dispatch uses `applyIntervention` (see [Spec-005](../specs/005-provider-driver-contract-and-capabilities.md) and [ADR-011](../decisions/011-generic-intervention-dispatch.md)), which routes to the appropriate driver-specific handler based on intervention type and declared capabilities.
+- See [Queue And Intervention Model](../domain/queue-and-intervention-model.md) § Boundary: Interventions vs Interactive Requests for the steer/respondToRequest distinction.
 - `RunStateChange` events must reflect the canonical state machine defined in `../domain/run-state-machine.md`.
 - See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
+- See [Error Contracts](../architecture/contracts/error-contracts.md) for error response schemas and error codes.
 
 ## State And Data Implications
 
@@ -76,6 +78,20 @@ This spec covers queue admission, interventions, blocked states, and operator-vi
 - `Example: A queued follow-up becomes a persisted QueueItem and is later steered into the active run.`
 - `Example: A user pauses a long-running implementation run, later resumes it, and the run id remains unchanged throughout the pause cycle.`
 - `Example: A run waits for approval. A second follow-up is queued but does not change the blocked run into paused state.`
+
+## Driver-Level Steer Mechanics
+
+- **Codex driver**: native `turn/steer` API — content is injected mid-conversation as a new user turn. The active generation is interrupted and the model continues from the steer content.
+- **Claude driver**: no native steer support — degrades to queue + interrupt. The orchestration layer: (1) interrupts the active run (transitioning it to `interrupted`), (2) creates a new queue item with the steer content, (3) admits the queue item as a new run. The conversation history is preserved.
+- **Generic driver fallback**: same as Claude (queue + interrupt).
+
+### Steer Content Injection Point
+
+- For native steer (Codex): content appears as a new user message in the conversation, immediately after the point of interruption. The model sees it as if the user sent a follow-up.
+- For degraded steer (queue + interrupt): content becomes the initial message of the new run. Previous conversation history is loaded from the session event log.
+- In both cases: steer content is marked with `source: 'steer'` in the event payload so the timeline can distinguish it from normal user messages.
+
+The typed payload shapes for steer, interrupt, and cancel interventions are defined in [Queue And Intervention Model](../domain/queue-and-intervention-model.md) and verified against API contracts in that document's Field-Level Consistency section.
 
 ## Implementation Notes
 

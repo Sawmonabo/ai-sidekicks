@@ -60,6 +60,7 @@ This spec covers participant identity mapping, participant profile state, device
 - `ParticipantStateUpdate` must support display metadata changes that do not rewrite historical events.
 - `PresenceDetailRead` may expose device-level detail for authorized operators or participants.
 - See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
+- See [Error Contracts](../architecture/contracts/error-contracts.md) for error response schemas and error codes.
 
 ## State And Data Implications
 

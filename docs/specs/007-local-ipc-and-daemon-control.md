@@ -74,6 +74,7 @@ This spec covers transport choice, version negotiation, request and stream seman
 - `LocalSubscription` must support replay-capable event streams where appropriate.
 - The typed client SDK must expose the same semantic surface to renderer and CLI callers.
 - See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
+- See [Error Contracts](../architecture/contracts/error-contracts.md) for error response schemas and error codes.
 
 ## State And Data Implications
 

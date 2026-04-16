@@ -57,6 +57,23 @@ This spec covers session identity, default session structure, session creation, 
 - If the control plane is unavailable during single-participant session creation, the system may create a `local-only` session projection that can later be promoted into shared mode.
 - If a client reconnects after missing live updates, it must restore from the canonical snapshot and replay surface rather than trusting client cache.
 
+## Resource Limits
+
+| Resource | Default Limit | Enforcement Point |
+| --- | --- | --- |
+| Participants per session | 10 | Control plane (on join) |
+| Channels per session | 20 | Daemon (on channel create) |
+| Concurrent runs per session | 5 | Daemon (on run admit) |
+| Agents per session | 10 | Daemon (on agent attach) |
+| Concurrent child runs per parent | 3 | Daemon (on child spawn) |
+| Queue depth per session | 100 | Daemon (on queue item create) |
+
+### Limit Enforcement
+
+- Each limit check returns a standard error: `{code: "resource.limit_exceeded", message: "...", details: {resource, limit, current}}`.
+- Limits are configurable per session via session config. The values above are defaults.
+- Exceeding a limit does NOT terminate existing resources -- it prevents creating new ones.
+
 ## Interfaces And Contracts
 
 - `SessionCreate` must return the session id, session state, initial memberships, and initial channels.
@@ -64,6 +81,7 @@ This spec covers session identity, default session structure, session creation, 
 - `SessionJoin` must verify membership and return the same session id plus the latest shared metadata.
 - `SessionSubscribe` must stream canonical session events and support replay from a known cursor.
 - See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
+- See [Error Contracts](../architecture/contracts/error-contracts.md) for error response schemas and error codes.
 
 ## State And Data Implications
 
