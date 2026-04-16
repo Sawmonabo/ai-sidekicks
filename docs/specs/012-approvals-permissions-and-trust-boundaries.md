@@ -81,6 +81,7 @@ This spec covers approval requests, approval scopes, remembered grants, and the 
 - `ApprovalResolve` must include approver, decision, optional remembered-scope request, and audit metadata.
 - `PermissionCheck` must run inside the local daemon before executing a sensitive local action.
 - `ApprovalProjectionRead` must surface pending and historical approval state to participants authorized to see it.
+- See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
 
 ## State And Data Implications
 

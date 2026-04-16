@@ -67,6 +67,7 @@ This spec covers in-app attention state, desktop notifications, invite notificat
 - `AttentionProjectionRead` must expose current actionable and informational attention state at both run and session scope.
 - `NotificationPreferenceRead` and `NotificationPreferenceUpdate` must support per-surface preferences.
 - `NotificationEmit` must reference the underlying canonical event or state trigger.
+- See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
 
 ## State And Data Implications
 

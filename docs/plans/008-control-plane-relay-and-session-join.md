@@ -9,6 +9,8 @@
 | **Author(s)** | `Codex` |
 | **Spec** | [Spec-008: Control Plane Relay And Session Join](../specs/008-control-plane-relay-and-session-join.md) |
 | **Required ADRs** | [ADR-002](../decisions/002-local-execution-shared-control-plane.md), [ADR-007](../decisions/007-collaboration-trust-and-permission-model.md), [ADR-008](../decisions/008-default-transports-and-relay-boundaries.md), [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md) |
+| **Dependencies** | [Plan-001](./001-shared-session-core.md) (session core), [Plan-002](./002-invite-membership-and-presence.md) (invite/presence) |
+| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
 | **References** | [Updated Spec-008](../specs/008-control-plane-relay-and-session-join.md) (MLS relay encryption) |
 
 ## Goal
@@ -47,6 +49,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 - Add shared join, reconnect, and relay-negotiation records needed to correlate membership, presence, and relay attempts.
 - Extend presence history with reconnect-association metadata where needed for duplicate suppression.
+- See [Shared Postgres Schema](../architecture/schemas/shared-postgres-schema.md) for column definitions.
 
 ## API And Transport Changes
 
@@ -54,6 +57,8 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - Ensure relay negotiation only exposes the minimum transport data required to establish connectivity.
 
 ## Implementation Steps
+
+- Contracts: See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed schemas this plan consumes.
 
 1. Define authenticated join, presence, reconnect, and relay-negotiation contracts. Include the relay wire format for relay messages.
 2. Implement control-plane join and presence services with membership verification and invite-acceptance handoff.

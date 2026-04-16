@@ -9,6 +9,8 @@
 | **Author(s)** | `Codex` |
 | **Spec** | [Spec-001: Shared Session Core](../specs/001-shared-session-core.md) |
 | **Required ADRs** | [ADR-001](../decisions/001-session-is-the-primary-domain-object.md), [ADR-002](../decisions/002-local-execution-shared-control-plane.md), [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md) |
+| **Dependencies** | None |
+| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
 
 ## Goal
 
@@ -45,12 +47,16 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 - Add shared `sessions` and `session_memberships` tables to Collaboration Control Plane storage.
 - Add local `session_events` and `session_snapshots` tables to Local Runtime Daemon SQLite.
+- See [Local SQLite Schema](../architecture/schemas/local-sqlite-schema.md) for column definitions.
+- See [Shared Postgres Schema](../architecture/schemas/shared-postgres-schema.md) for column definitions.
 
 ## API And Transport Changes
 
 - Add `SessionCreate`, `SessionRead`, `SessionJoin`, and `SessionSubscribe` to the shared client SDK and daemon/control-plane contracts.
 
 ## Implementation Steps
+
+- Contracts: See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed schemas this plan consumes.
 
 1. Define session contracts and ids in `packages/contracts`.
 2. Implement shared Collaboration Control Plane session directory create or read or join paths.

@@ -65,6 +65,7 @@ This spec covers local persistence, shared coordination persistence, recovery ru
 - `ReplayReadAfterCursor` must read authoritative events after a known cursor.
 - `ProjectionRebuild` must be idempotent.
 - `RuntimeBindingRead` must expose the data needed to attempt session adoption or resume.
+- See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
 
 ## State And Data Implications
 

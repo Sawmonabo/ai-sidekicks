@@ -9,6 +9,8 @@
 | **Author(s)** | `Codex` |
 | **Spec** | [Spec-003: Runtime Node Attach](../specs/003-runtime-node-attach.md) |
 | **Required ADRs** | [ADR-002](../decisions/002-local-execution-shared-control-plane.md), [ADR-008](../decisions/008-default-transports-and-relay-boundaries.md) |
+| **Dependencies** | [Plan-001](./001-shared-session-core.md) (session model) |
+| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
 
 ## Goal
 
@@ -45,12 +47,16 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 - Add shared `runtime_node_attachments` and `runtime_node_presence` tables.
 - Add local `node_capabilities` and `node_trust_state` persistence.
+- See [Local SQLite Schema](../architecture/schemas/local-sqlite-schema.md) for column definitions.
+- See [Shared Postgres Schema](../architecture/schemas/shared-postgres-schema.md) for column definitions.
 
 ## API And Transport Changes
 
 - Add `RuntimeNodeAttach`, `RuntimeNodeHeartbeat`, `RuntimeNodeCapabilityUpdate`, and `RuntimeNodeDetach` to the client SDK and control-plane contracts.
 
 ## Implementation Steps
+
+- Contracts: See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed schemas this plan consumes.
 
 1. Define node contracts and migration shape.
 2. Implement Local Runtime Daemon node registry and capability declaration service.

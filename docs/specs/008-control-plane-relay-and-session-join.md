@@ -74,6 +74,7 @@ This spec covers session join, relay negotiation, presence attachment, and remot
 - `RelayNegotiation` must return only the information needed to establish remote session connectivity.
 - `PresenceRegister` must exist independently of runtime-node attach.
 - `SessionResumeAfterReconnect` must accept a prior participant or client identity handle where applicable.
+- See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
 
 ## State And Data Implications
 

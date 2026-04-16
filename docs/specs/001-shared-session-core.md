@@ -63,6 +63,7 @@ This spec covers session identity, default session structure, session creation, 
 - `SessionRead` must return the authoritative session snapshot plus timeline cursors.
 - `SessionJoin` must verify membership and return the same session id plus the latest shared metadata.
 - `SessionSubscribe` must stream canonical session events and support replay from a known cursor.
+- See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
 
 ## State And Data Implications
 

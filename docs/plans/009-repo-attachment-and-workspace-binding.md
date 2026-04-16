@@ -9,6 +9,8 @@
 | **Author(s)** | `Codex` |
 | **Spec** | [Spec-009: Repo Attachment And Workspace Binding](../specs/009-repo-attachment-and-workspace-binding.md) |
 | **Required ADRs** | [ADR-006](../decisions/006-worktree-first-execution-mode.md) |
+| **Dependencies** | None |
+| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
 
 ## Goal
 
@@ -44,12 +46,15 @@ Target paths below assume the canonical implementation topology defined in [Cont
 ## Data And Storage Changes
 
 - Add local `repo_mounts` and `workspaces` tables with health, ownership, and execution-mode capability fields.
+- See [Local SQLite Schema](../architecture/schemas/local-sqlite-schema.md) for column definitions.
 
 ## API And Transport Changes
 
 - Add repo attach or detach, workspace bind or list, and execution-mode capability read APIs to the client SDK.
 
 ## Implementation Steps
+
+- Contracts: See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed schemas this plan consumes.
 
 1. Implement canonical repo root resolution and trust-boundary validation.
 2. Add RepoMount and workspace persistence plus execution-mode capability projections.

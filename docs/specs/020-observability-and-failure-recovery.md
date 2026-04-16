@@ -69,6 +69,7 @@ This spec covers failure categories, health signals, stuck-run detection, replay
 - `FailureDetailRead` must expose machine-readable failure category, recovery condition where applicable, and human-readable summary.
 - `StuckRunInspect` must expose the last known progress point, last event time, blocking reason if any, and whether the run is currently `stuck-suspected`.
 - `RecoveryActionRequest` must support safe operator-triggered retry where allowed.
+- See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
 
 ## State And Data Implications
 

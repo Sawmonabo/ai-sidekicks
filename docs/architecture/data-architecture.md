@@ -50,6 +50,26 @@ Presence data is ephemeral. It is maintained as a Yjs Awareness CRDT in memory o
 
 PII fields in session events are stored in a separate encrypted column (`pii_payload`) using per-participant AES-256-GCM keys. This enables crypto-shredding for GDPR deletion: destroying a participant's key renders their PII unrecoverable without affecting the rest of the event log.
 
+## Schema References
+
+- [Local SQLite Schema](./schemas/local-sqlite-schema.md) — canonical DDL for daemon-local tables
+- [Shared Postgres Schema](./schemas/shared-postgres-schema.md) — canonical DDL for control plane tables
+- [Cross-Plan Dependency Graph](./cross-plan-dependencies.md) — table ownership map (which plan owns CREATE vs ALTER for each table)
+
+## Migration Strategy
+
+### Local SQLite
+
+- **Versioning:** Embedded migration runner with a `schema_version` table. Forward-only migrations.
+- **Upgrade path:** The daemon checks `schema_version` on startup. If the current binary expects a higher version, it runs pending migrations in order. No rollback — failed migrations halt startup with an explicit error.
+- **Extension pattern:** When Plan-015 (or other extending plans) needs to ALTER a table owned by Plan-001, the extending plan's migration must declare a dependency on the base table's creation migration. The migration runner enforces ordering via version numbers.
+
+### Shared Postgres
+
+- **Versioning:** Migration tool (e.g., golang-migrate, dbmate, or equivalent). `schema_migrations` table tracks applied versions.
+- **Rollback policy:** Each migration must include a down migration. Rollbacks are available but discouraged in production — prefer forward-fix migrations.
+- **Multi-node coordination:** Migrations run from a single coordinator (deploy pipeline), not from individual nodes. Nodes connecting to a database with a newer schema than expected must refuse to start and surface a version mismatch error.
+
 ## Failure Modes
 
 - Local SQLite corruption prevents replay until repaired or restored.
@@ -69,6 +89,10 @@ PII fields in session events are stored in a separate encrypted column (`pii_pay
 - [Artifacts Files And Attachments](../specs/014-artifacts-files-and-attachments.md)
 - [Persistence Recovery And Replay](../specs/015-persistence-recovery-and-replay.md)
 - [Observability And Failure Recovery](../specs/020-observability-and-failure-recovery.md)
+
+## Related Architecture Docs
+
+- [Cross-Plan Dependency Graph and Ownership Map](./cross-plan-dependencies.md) — table ownership, package path ownership, build order, and inter-plan dependency declarations
 
 ## Related ADRs
 

@@ -65,6 +65,7 @@ This spec covers branch strategy, PR preparation, diff artifacts, and attributio
 - `PRPrepare` must generate a reviewable proposal before any remote mutation.
 - `GitActionExecute` must preserve causation to the requesting run or participant.
 - Git hosting uses a `GitHostingAdapter` interface with `gh` CLI as the V1 implementation. Normalized terminology: `createChangeRequest` (not `createPullRequest`). Auto-detect provider from git remote URL.
+- See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
 
 ## State And Data Implications
 

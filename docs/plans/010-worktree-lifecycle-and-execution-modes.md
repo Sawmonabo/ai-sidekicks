@@ -9,6 +9,8 @@
 | **Author(s)** | `Codex` |
 | **Spec** | [Spec-010: Worktree Lifecycle And Execution Modes](../specs/010-worktree-lifecycle-and-execution-modes.md) |
 | **Required ADRs** | [ADR-006](../decisions/006-worktree-first-execution-mode.md) |
+| **Dependencies** | [Plan-009](./009-repo-attachment-and-workspace-binding.md) (workspace infrastructure) |
+| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
 
 ## Goal
 
@@ -47,12 +49,15 @@ Target paths below assume the canonical implementation topology defined in [Cont
 ## Data And Storage Changes
 
 - Add local `worktrees`, `ephemeral_clones`, and `branch_contexts` tables.
+- See [Local SQLite Schema](../architecture/schemas/local-sqlite-schema.md) for column definitions.
 
 ## API And Transport Changes
 
 - Add execution-mode select, execution-root prepare, worktree reuse-check, ephemeral clone prepare, and retire APIs.
 
 ## Implementation Steps
+
+- Contracts: See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed schemas this plan consumes.
 
 1. Implement execution-mode contracts and persistence.
 2. Build branch, worktree, and ephemeral clone prepare or reuse or retire services in the daemon.

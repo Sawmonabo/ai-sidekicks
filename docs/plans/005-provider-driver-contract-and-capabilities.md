@@ -9,6 +9,8 @@
 | **Author(s)** | `Codex` |
 | **Spec** | [Spec-005: Provider Driver Contract And Capabilities](../specs/005-provider-driver-contract-and-capabilities.md) |
 | **Required ADRs** | [ADR-005](../decisions/005-provider-drivers-use-a-normalized-interface.md) |
+| **Dependencies** | None |
+| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
 | **References** | [ADR-011](../decisions/011-generic-intervention-dispatch.md) (generic intervention dispatch), [Updated Spec-005](../specs/005-provider-driver-contract-and-capabilities.md) (applyIntervention, 7 capability flags) |
 
 ## Goal
@@ -46,6 +48,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 ## Data And Storage Changes
 
 - Add local `runtime_bindings` and `driver_capabilities` persistence.
+- See [Local SQLite Schema](../architecture/schemas/local-sqlite-schema.md) for column definitions.
 
 ## API And Transport Changes
 
@@ -53,6 +56,8 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - Define internal driver interface for 10 operations: create, resume, start, interrupt, respond, close, applyIntervention, listModels, listModes, getCapabilities.
 
 ## Implementation Steps
+
+- Contracts: See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed schemas this plan consumes.
 
 1. Define contract types and capability schema. The driver contract enumerates 10 operations: `create`, `resume`, `start`, `interrupt`, `respond`, `close`, `applyIntervention`, `listModels`, `listModes`, `getCapabilities`. The capability schema defines 7 flags: `resume`, `steer`, `interactive_requests`, `mcp`, `tool_calls`, `reasoning_stream`, `model_mutation`.
 2. Implement registry and runtime binding persistence.

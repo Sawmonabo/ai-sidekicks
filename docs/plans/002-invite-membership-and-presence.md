@@ -9,6 +9,8 @@
 | **Author(s)** | `Codex` |
 | **Spec** | [Spec-002: Invite Membership And Presence](../specs/002-invite-membership-and-presence.md) |
 | **Required ADRs** | [ADR-002](../decisions/002-local-execution-shared-control-plane.md), [ADR-007](../decisions/007-collaboration-trust-and-permission-model.md), [ADR-008](../decisions/008-default-transports-and-relay-boundaries.md) |
+| **Dependencies** | [Plan-001](./001-shared-session-core.md) (session tables) |
+| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
 | **References** | [Spec-002 presence amendments](../specs/002-invite-membership-and-presence.md) (Yjs Awareness, Postgres LISTEN/NOTIFY), [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md) (auth model) |
 
 ## Goal
@@ -45,12 +47,15 @@ Target paths below assume the canonical implementation topology defined in [Cont
 ## Data And Storage Changes
 
 - Add shared `session_invites` and `session_memberships` tables. Presence data is ephemeral (Yjs Awareness CRDT, in-memory only) and must NOT be persisted to a durable table.
+- See [Shared Postgres Schema](../architecture/schemas/shared-postgres-schema.md) for column definitions.
 
 ## API And Transport Changes
 
 - Add invite CRUD endpoints, membership update endpoints, and presence heartbeat transport to the client SDK.
 
 ## Implementation Steps
+
+- Contracts: See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed schemas this plan consumes.
 
 1. Implement invite and membership contracts plus migrations. Invite tokens use PASETO v4 (see ADR-010). Define the five invite lifecycle states: `issued`, `accepted`, `declined`, `revoked`, `expired`.
 2. Build control-plane services for invite issuance, acceptance, revocation, and role update.

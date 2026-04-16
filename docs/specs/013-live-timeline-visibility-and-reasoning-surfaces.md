@@ -65,6 +65,7 @@ This spec covers the canonical timeline read model, child-run visibility, reason
 - `TimelineSubscribe` must support live append plus replay recovery.
 - `ReasoningSurfaceRead` must identify availability status and policy reason when content is withheld.
 - `ChildRunExpand` must read detailed activity for a summarized child-run row.
+- See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
 
 ## State And Data Implications
 

@@ -73,6 +73,7 @@ This spec covers transport choice, version negotiation, request and stream seman
 - `DaemonStatusRead`, `DaemonStart`, `DaemonStop`, and `DaemonRestart` must exist for supervised environments.
 - `LocalSubscription` must support replay-capable event streams where appropriate.
 - The typed client SDK must expose the same semantic surface to renderer and CLI callers.
+- See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
 
 ## State And Data Implications
 

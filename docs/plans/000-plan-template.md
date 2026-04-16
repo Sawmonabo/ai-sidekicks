@@ -25,6 +25,8 @@
 | **Author(s)** | `{name(s)}` |
 | **Spec** | `{link to specs/NNN-...}` |
 | **Required ADRs** | `{link(s)}` |
+| **Dependencies** | `{Plan-NNN (reason), or None}` |
+| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
 
 ## Goal
 

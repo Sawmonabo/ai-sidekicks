@@ -67,6 +67,7 @@ This spec covers channel creation, parent-child run linkage, cross-agent collabo
 - `OrchestrationRunCreate` failure must surface explicit limit or policy rejection when depth or active-child bounds are exceeded.
 - `ChildRunLinkRead` must expose parent-child relationships.
 - `InternalRunFlag` must distinguish internal helper work from user-facing agents.
+- See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
 
 ## State And Data Implications
 

@@ -9,6 +9,8 @@
 | **Author(s)** | `Codex` |
 | **Spec** | [Spec-006: Session Event Taxonomy And Audit Log](../specs/006-session-event-taxonomy-and-audit-log.md) |
 | **Required ADRs** | [ADR-001](../decisions/001-session-is-the-primary-domain-object.md), [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md) |
+| **Dependencies** | [Plan-001](./001-shared-session-core.md) (session event tables) |
+| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
 
 ## Goal
 
@@ -46,6 +48,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 - Extend local `session_events` and `session_snapshots` persistence with canonical envelope fields, replay cursors, and compaction-stub support.
 - Add shared event-sequencing or event-bridge records where control-plane coordination events must become session-visible.
+- See [Local SQLite Schema](../architecture/schemas/local-sqlite-schema.md) for column definitions.
 
 ## API And Transport Changes
 
@@ -53,6 +56,8 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - Define versioned `EventEnvelope` and canonical event-category schema in shared contracts.
 
 ## Implementation Steps
+
+- Contracts: See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed schemas this plan consumes.
 
 1. Define the canonical event envelope, category registry, and idempotency markers in shared contracts.
 2. Implement append-only local event persistence plus projector hooks in the Local Runtime Daemon.

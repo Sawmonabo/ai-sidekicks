@@ -10,6 +10,7 @@
 | **Spec** | [Spec-014: Artifacts Files And Attachments](../specs/014-artifacts-files-and-attachments.md) |
 | **Required ADRs** | [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md) |
 | **Dependencies** | None |
+| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
 | **References** | [Updated Spec-014](../specs/014-artifacts-files-and-attachments.md) (OCI manifest envelope, CAS) |
 
 ## Goal
@@ -49,6 +50,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - Add durable `artifact_manifests`, `artifact_payload_refs`, and replication-status records with provenance, visibility class, and producer metadata.
 - Keep manifest storage separate from large payload storage while preserving content-addressed lookup or equivalent immutable payload identity.
 - Treat any redacted or summarized shared form as a separate derivative artifact record rather than as in-place mutation metadata on the original artifact.
+- See [Local SQLite Schema](../architecture/schemas/local-sqlite-schema.md) for column definitions.
 
 ## API And Transport Changes
 
@@ -56,6 +58,8 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - Return manifest metadata first and use explicit payload handles for large or deferred content reads.
 
 ## Implementation Steps
+
+- Contracts: See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed schemas this plan consumes.
 
 1. Define artifact manifest, payload-handle, visibility, and attachment-ingest contracts in shared packages.
 2. Implement daemon-side attachment ingestion, immutable payload storage, and artifact publication flows.

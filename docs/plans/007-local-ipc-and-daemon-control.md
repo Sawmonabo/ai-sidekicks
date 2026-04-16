@@ -9,6 +9,8 @@
 | **Author(s)** | `Codex` |
 | **Spec** | [Spec-007: Local IPC And Daemon Control](../specs/007-local-ipc-and-daemon-control.md) |
 | **Required ADRs** | [ADR-002](../decisions/002-local-execution-shared-control-plane.md), [ADR-008](../decisions/008-default-transports-and-relay-boundaries.md) |
+| **Dependencies** | None |
+| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
 
 ## Goal
 
@@ -59,6 +61,8 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - Desktop shell supervision and renderer status surfaces follow on the same stabilized daemon contract rather than defining a second local client path.
 
 ## Implementation Steps
+
+- Contracts: See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed schemas this plan consumes.
 
 1. Define daemon handshake, lifecycle, and subscription contracts in shared packages.
 2. Implement OS-local IPC gateway and protocol-version negotiation in the Local Runtime Daemon.

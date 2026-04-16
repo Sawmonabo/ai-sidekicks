@@ -64,6 +64,7 @@ This spec covers repo mount creation, canonical root resolution, workspace bindi
 - `WorkspaceBind` must accept repo mount or directory root plus intended execution mode from the canonical mode set where applicable.
 - `WorkspaceExecutionModeCapabilitiesRead` must expose which execution modes are currently valid for the bound repo mount or workspace.
 - `WorkspaceList` must expose workspace health and current binding state.
+- See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
 
 ## State And Data Implications
 

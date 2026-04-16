@@ -9,6 +9,8 @@
 | **Author(s)** | `Codex` |
 | **Spec** | [Spec-018: Identity And Participant State](../specs/018-identity-and-participant-state.md) |
 | **Required ADRs** | [ADR-001](../decisions/001-session-is-the-primary-domain-object.md), [ADR-007](../decisions/007-collaboration-trust-and-permission-model.md) |
+| **Dependencies** | [Plan-002](./002-invite-membership-and-presence.md) (presence infrastructure) |
+| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
 
 ## Goal
 
@@ -46,6 +48,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 - Add shared `participants`, participant-profile projection records, and device-presence or presence-lease storage needed for aggregation.
 - Ensure canonical event authorship references stable participant ids rather than mutable display metadata.
+- See [Shared Postgres Schema](../architecture/schemas/shared-postgres-schema.md) for column definitions.
 
 ## API And Transport Changes
 
@@ -53,6 +56,8 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - Expose one session-scoped participant identity with aggregated presence plus optional authorized device detail.
 
 ## Implementation Steps
+
+- Contracts: See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed schemas this plan consumes.
 
 1. Define participant-id, authorship, projection, and device-presence contracts in shared packages.
 2. Implement control-plane participant mapping from authenticated identity into one canonical participant record per session.

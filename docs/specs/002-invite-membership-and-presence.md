@@ -71,6 +71,7 @@ This spec covers invite lifecycle, join-mode assignment, membership role changes
 - `PresenceHeartbeat` must accept participant id, device or client id, and last-known activity state. Presence metadata carried in heartbeats: `{deviceType, focusedSessionId, focusedChannelId, lastActivityAt, appVisible}`.
 - `PresenceUpdate` (JSON-RPC, local IPC) — daemon pushes serialized Yjs Awareness state to local clients.
 - `PresenceRead` (JSON-RPC, local IPC) — local clients read current presence state for a session.
+- See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
 
 ## State And Data Implications
 

@@ -9,6 +9,8 @@
 | **Author(s)** | `Codex` |
 | **Spec** | [Spec-004: Queue Steer Pause Resume](../specs/004-queue-steer-pause-resume.md) |
 | **Required ADRs** | [ADR-003](../decisions/003-daemon-backed-queue-and-interventions.md), [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md) |
+| **Dependencies** | [Plan-001](./001-shared-session-core.md) (session core), [Plan-005](./005-provider-driver-contract-and-capabilities.md) (driver capability checks) |
+| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
 | **References** | [Updated Spec-004](../specs/004-queue-steer-pause-resume.md) (6 intervention states, pause as orchestration-layer), [Run State Machine](../domain/run-state-machine.md) (9 states) |
 
 ## Goal
@@ -46,12 +48,15 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 - Add local `queue_items`, `interventions`, and `command_receipts` tables.
 - Extend `session_events` projections with queue and intervention read models.
+- See [Local SQLite Schema](../architecture/schemas/local-sqlite-schema.md) for column definitions.
 
 ## API And Transport Changes
 
 - Add queue list/create/cancel endpoints and intervention request or result events to the client SDK.
 
 ## Implementation Steps
+
+- Contracts: See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed schemas this plan consumes.
 
 1. Define run-control contracts and migrations.
 2. Implement queue store and serialized intervention application in the daemon.

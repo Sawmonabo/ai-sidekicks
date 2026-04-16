@@ -70,6 +70,7 @@ This spec covers event categories, required event fields, ordering, replay, and 
 - `EventReadAfterCursor` must return ordered events plus next replay cursor.
 - `EventReadWindow` must support bounded historical windows for replay and inspection.
 - `EventSubscription` must expose live append-only delivery together with replay catch-up semantics.
+- See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
 
 ## State And Data Implications
 

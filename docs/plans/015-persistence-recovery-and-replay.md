@@ -9,6 +9,8 @@
 | **Author(s)** | `Codex` |
 | **Spec** | [Spec-015: Persistence Recovery And Replay](../specs/015-persistence-recovery-and-replay.md) |
 | **Required ADRs** | [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md), [ADR-005](../decisions/005-provider-drivers-use-a-normalized-interface.md) |
+| **Dependencies** | [Plan-001](./001-shared-session-core.md) (session events), [Plan-004](./004-queue-steer-pause-resume.md) (queue state), [Plan-005](./005-provider-driver-contract-and-capabilities.md) (runtime bindings), [Plan-006](./006-session-event-taxonomy-and-audit-log.md) (event log), [Plan-012](./012-approvals-permissions-and-trust-boundaries.md) (approval records) |
+| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
 
 ## Goal
 
@@ -46,6 +48,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 - Add or extend local `session_events`, `session_snapshots`, `command_receipts`, `runtime_bindings`, `queue_items`, and approval-state tables for recovery completeness.
 - Add recovery-status projection data and replay cursors needed to expose healthy, replaying, degraded, or blocked startup state.
+- See [Local SQLite Schema](../architecture/schemas/local-sqlite-schema.md) for column definitions.
 
 ## API And Transport Changes
 
@@ -53,6 +56,8 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - Expose machine-readable recovery outcomes, failure categories, and recovery conditions through the same contracts.
 
 ## Implementation Steps
+
+- Contracts: See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed schemas this plan consumes.
 
 1. Finalize SQLite schema, receipts, and runtime-binding persistence needed for replay-safe restart.
 2. Implement replay rebuild and idempotent projection restoration on daemon startup.

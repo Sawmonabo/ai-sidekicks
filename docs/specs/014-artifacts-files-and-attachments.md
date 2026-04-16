@@ -71,6 +71,7 @@ This spec covers artifact types, attachment ingestion, storage expectations, man
 - Artifact storage uses an OCI-inspired manifest envelope: `{id: ArtifactId, sessionId, runId, digest: SHA-256, size, artifactType, annotations, subject?, createdAt}`.
 - `artifactType` is a discriminator: `"diff"`, `"design"`, `"file"`, `"log"`.
 - `subject` field enables artifact linking (e.g., a diff artifact referencing its parent run artifact).
+- See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
 
 ## State And Data Implications
 

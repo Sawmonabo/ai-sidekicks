@@ -86,6 +86,7 @@ This spec covers required driver operations, capability advertisement, normalize
 - Runtime bindings must store driver name, contract version, resume handle, and runtime metadata needed for recovery.
 - Capability changes must be emitted as events so clients and projections can adjust behavior safely.
 - Diagnostic raw events may be retained separately from canonical normalized events.
+- See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
 
 ## Example Flows
 

@@ -9,6 +9,8 @@
 | **Author(s)** | `Codex` |
 | **Spec** | [Spec-020: Observability And Failure Recovery](../specs/020-observability-and-failure-recovery.md) |
 | **Required ADRs** | [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md), [ADR-005](../decisions/005-provider-drivers-use-a-normalized-interface.md) |
+| **Dependencies** | [Plan-015](./015-persistence-recovery-and-replay.md) (persistence layer) |
+| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
 
 ## Goal
 
@@ -47,6 +49,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - Add daemon-owned health projections and failure-detail records derived from canonical events, replay state, and provider diagnostics.
 - Add recovery-action audit records and surfaced health snapshots needed for operators and user-facing projections.
 - Add bounded-retention handling for raw diagnostic payload classes so compaction never removes canonical health or failure truth.
+- See [Shared Postgres Schema](../architecture/schemas/shared-postgres-schema.md) for column definitions.
 
 ## API And Transport Changes
 
@@ -54,6 +57,8 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - Expose control-plane dependency health in a form that can be merged with daemon-owned observability projections.
 
 ## Implementation Steps
+
+- Contracts: See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed schemas this plan consumes.
 
 1. Define health-status, failure-category, recovery-condition, and stuck-run inspection contracts.
 2. Implement daemon-owned health and failure-detail projections derived from canonical state and provider diagnostics.

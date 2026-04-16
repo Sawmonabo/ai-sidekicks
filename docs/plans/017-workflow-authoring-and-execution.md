@@ -9,6 +9,8 @@
 | **Author(s)** | `Codex` |
 | **Spec** | [Spec-017: Workflow Authoring And Execution](../specs/017-workflow-authoring-and-execution.md) |
 | **Required ADRs** | [ADR-001](../decisions/001-session-is-the-primary-domain-object.md), [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md) |
+| **Dependencies** | [Plan-016](./016-multi-agent-channels-and-orchestration.md) (orchestration), [Plan-004](./004-queue-steer-pause-resume.md) (queue/steer) |
+| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
 | **References** | [Updated Spec-017](../specs/017-workflow-authoring-and-execution.md) (V1 scope: single-agent + automated phases, all 4 gates) |
 
 ## Goal
@@ -48,6 +50,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - Add durable `workflow_definitions`, `workflow_versions`, `workflow_runs`, `workflow_phase_states`, and workflow-gate records.
 - Store phase outputs as artifact references or equivalent durable output records linked back to workflow version and phase id.
 - Keep workflow definitions and versions as first-class persisted records rather than artifact manifests. Any workflow export artifact remains derivative only.
+- See [Local SQLite Schema](../architecture/schemas/local-sqlite-schema.md) for column definitions.
 
 ## API And Transport Changes
 
@@ -55,6 +58,8 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - Carry workflow version ids, phase ids, and gate states through timeline and run-link events so workflow history remains replayable.
 
 ## Implementation Steps
+
+- Contracts: See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed schemas this plan consumes.
 
 1. Define workflow-definition, version, phase-state, gate, and definition-read contracts in shared packages.
    - Full type hierarchy: `WorkflowDefinition`, `WorkflowVersion`, `WorkflowPhaseDefinition`, `WorkflowRun`, `WorkflowPhaseRun`.

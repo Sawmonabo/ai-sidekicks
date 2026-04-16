@@ -10,6 +10,7 @@
 | **Spec** | [Spec-011: Gitflow PR And Diff Attribution](../specs/011-gitflow-pr-and-diff-attribution.md) |
 | **Required ADRs** | [ADR-006](../decisions/006-worktree-first-execution-mode.md) |
 | **Dependencies** | [Plan-010](./010-worktree-lifecycle-and-execution-modes.md) (worktree infrastructure), [Plan-014](./014-artifacts-files-and-attachments.md) (artifact manifests) |
+| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
 | **References** | [Updated Spec-011](../specs/011-gitflow-pr-and-diff-attribution.md) (Agent Trace attribution, GitHostingAdapter) |
 
 ## Goal
@@ -46,12 +47,15 @@ Target paths below assume the canonical implementation topology defined in [Cont
 ## Data And Storage Changes
 
 - Add local `diff_artifacts`, `branch_contexts`, and `pr_preparations` tables.
+- See [Local SQLite Schema](../architecture/schemas/local-sqlite-schema.md) for column definitions.
 
 ## API And Transport Changes
 
 - Add branch-context read, diff artifact read, and PR prepare APIs to the client SDK.
 
 ## Implementation Steps
+
+- Contracts: See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed schemas this plan consumes.
 
 1. Implement branch-context persistence tied to writable execution modes and runs.
 2. Build diff artifact generation with explicit attribution mode. Use Agent Trace standard and git trailers (`Agent-Run: <run-id>`, `Co-authored-by: <agent-name>`) for commit-level and line-level provenance. DiffArtifact is a specialized artifact (`artifactType: "diff"`) using the OCI manifest envelope defined in Spec-014.

@@ -63,6 +63,7 @@ This spec covers queue admission, interventions, blocked states, and operator-vi
 - `InterventionResult` must distinguish the 6 canonical intervention states: `requested`, `accepted`, `applied`, `rejected`, `degraded`, and `expired`. A version guard mismatch produces `expired`. An authorization failure produces `rejected`.
 - Intervention dispatch uses `applyIntervention` (see [Spec-005](../specs/005-provider-driver-contract-and-capabilities.md) and [ADR-011](../decisions/011-generic-intervention-dispatch.md)), which routes to the appropriate driver-specific handler based on intervention type and declared capabilities.
 - `RunStateChange` events must reflect the canonical state machine defined in `../domain/run-state-machine.md`.
+- See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
 
 ## State And Data Implications
 

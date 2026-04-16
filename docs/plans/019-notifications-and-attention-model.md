@@ -9,6 +9,8 @@
 | **Author(s)** | `Codex` |
 | **Spec** | [Spec-019: Notifications And Attention Model](../specs/019-notifications-and-attention-model.md) |
 | **Required ADRs** | [ADR-001](../decisions/001-session-is-the-primary-domain-object.md), [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md) |
+| **Dependencies** | [Plan-013](./013-live-timeline-visibility-and-reasoning-surfaces.md) (timeline visibility) |
+| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
 
 ## Goal
 
@@ -47,6 +49,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - Add durable user-level `notification_preferences` storage and replay-derived attention projections keyed to canonical session or run state.
 - Keep delivery-attempt metadata ephemeral where possible while preserving outstanding actionable attention until resolved.
 - Maintain both run-scoped attention projections and session-scoped aggregate attention projections so client surfaces do not reconstruct aggregate state ad hoc.
+- See [Shared Postgres Schema](../architecture/schemas/shared-postgres-schema.md) for column definitions.
 
 ## API And Transport Changes
 
@@ -54,6 +57,8 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - Require emitted notifications to reference the underlying canonical event or derived blocking state that triggered them.
 
 ## Implementation Steps
+
+- Contracts: See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed schemas this plan consumes.
 
 1. Define attention categories, run-scope and session-scope projection shapes, notification-preference contracts, and canonical trigger references in shared packages.
 2. Implement replay-derived attention projections and preference storage with global defaults plus later extension points.

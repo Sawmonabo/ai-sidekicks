@@ -73,6 +73,7 @@ This spec covers workflow definitions, phase execution, phase outputs, and workf
 - Definition/execution entity separation: `WorkflowPhaseId` identifies a phase in the definition (static); `PhaseRunId` identifies a specific execution (with iteration number, status, timestamps).
 - `PhaseOutputRead` must expose durable phase outputs and artifact references.
 - `WorkflowGateResolve` must resolve workflow-scoped approvals or participant questions.
+- See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
 
 ## State And Data Implications
 

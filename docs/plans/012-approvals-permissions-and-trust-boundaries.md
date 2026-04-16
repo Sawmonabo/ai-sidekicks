@@ -9,6 +9,8 @@
 | **Author(s)** | `Codex` |
 | **Spec** | [Spec-012: Approvals Permissions And Trust Boundaries](../specs/012-approvals-permissions-and-trust-boundaries.md) |
 | **Required ADRs** | [ADR-002](../decisions/002-local-execution-shared-control-plane.md), [ADR-007](../decisions/007-collaboration-trust-and-permission-model.md) |
+| **Dependencies** | None |
+| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
 | **References** | [ADR-012](../decisions/012-cedar-approval-policy-engine.md) (Cedar), [Updated Spec-012](../specs/012-approvals-permissions-and-trust-boundaries.md) (8 approval categories) |
 
 ## Goal
@@ -48,6 +50,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - Add durable local `approval_requests`, `approval_resolutions`, and `remembered_approval_rules` storage plus invalidation hooks tied to runtime-node trust changes.
 - Extend shared projections so authorized participants can read pending and historical approval state without inferring it from raw events alone.
 - Persist the trust-evaluation inputs needed to distinguish own-node envelope trust from cross-participant or escalated sensitive actions.
+- See [Local SQLite Schema](../architecture/schemas/local-sqlite-schema.md) for column definitions.
 
 ## API And Transport Changes
 
@@ -55,6 +58,8 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - Normalize driver-native permission requests into canonical approval categories, scopes, and requested resources before mutation is attempted.
 
 ## Implementation Steps
+
+- Contracts: See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed schemas this plan consumes.
 
 1. Define canonical approval categories, scope enums, remembered-grant rules, and trust-evaluation inputs in shared contracts. The 8 canonical approval categories are: `tool_execution`, `file_write`, `network_access`, `destructive_git`, `user_input`, `plan_approval`, `mcp_elicitation`, and `gate`.
 2. Implement daemon-side permission checks and approval persistence before any sensitive local action executes. V1 evaluates Cedar policies compiled from YAML policy definitions (Cedar policy engine, CNCF sandbox). **V1.1:** Migrate policy evaluation to Cedar WASM (`@cedarpolicy/cedar-wasm`) for in-process execution.
