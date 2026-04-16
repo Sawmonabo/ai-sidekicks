@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>sidekicks CLI</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #1a1b26;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 40px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .terminal-window {
+    width: 920px;
+    background: #0d1117;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 25px 60px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255,255,255,0.06);
+  }
+
+  .terminal-titlebar {
+    height: 40px;
+    background: #161b22;
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    border-bottom: 1px solid #21262d;
+  }
+
+  .traffic-lights {
+    display: flex;
+    gap: 8px;
+  }
+
+  .dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+  }
+  .dot.red { background: #ff5f57; }
+  .dot.yellow { background: #febc2e; }
+  .dot.green { background: #28c840; }
+
+  .terminal-title {
+    flex: 1;
+    text-align: center;
+    font-size: 13px;
+    color: #8b949e;
+  }
+
+  .terminal-body {
+    padding: 20px 24px;
+    font-size: 13.5px;
+    line-height: 1.7;
+    color: #c9d1d9;
+    min-height: 560px;
+  }
+
+  .prompt {
+    color: #58a6ff;
+  }
+  .prompt-symbol {
+    color: #3fb950;
+  }
+  .cmd {
+    color: #e6edf3;
+    font-weight: 600;
+  }
+  .flag {
+    color: #d2a8ff;
+  }
+  .value {
+    color: #a5d6ff;
+  }
+  .comment {
+    color: #484f58;
+    font-style: italic;
+  }
+  .dim {
+    color: #484f58;
+  }
+  .green { color: #3fb950; }
+  .blue { color: #58a6ff; }
+  .cyan { color: #39d2c0; }
+  .orange { color: #d29922; }
+  .red { color: #f85149; }
+  .purple { color: #d2a8ff; }
+  .bold { font-weight: 700; }
+  .white { color: #e6edf3; }
+
+  .line {
+    min-height: 1.7em;
+  }
+
+  .blank { height: 0.5em; }
+
+  /* Box drawing */
+  .box-top { color: #30363d; }
+  .box-mid { color: #30363d; }
+  .box-bot { color: #30363d; }
+
+  /* Table styling */
+  .table-border { color: #30363d; }
+  .table-header { color: #8b949e; font-weight: 600; }
+
+  /* Status indicators */
+  .status-running {
+    display: inline-block;
+    color: #58a6ff;
+  }
+  .status-paused {
+    display: inline-block;
+    color: #d29922;
+  }
+  .status-done {
+    display: inline-block;
+    color: #3fb950;
+  }
+
+  .spinner {
+    display: inline-block;
+    color: #58a6ff;
+  }
+
+  .bar-filled { color: #3fb950; }
+  .bar-empty { color: #21262d; }
+
+  .cursor-block {
+    display: inline-block;
+    width: 8px;
+    height: 16px;
+    background: #58a6ff;
+    animation: blink 1s step-end infinite;
+    vertical-align: text-bottom;
+    margin-left: 2px;
+  }
+
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+  }
+</style>
+</head>
+<body>
+  <div class="terminal-window">
+    <div class="terminal-titlebar">
+      <div class="traffic-lights">
+        <div class="dot red"></div>
+        <div class="dot yellow"></div>
+        <div class="dot green"></div>
+      </div>
+      <div class="terminal-title">sidekicks &mdash; ~/dev/acme/backend</div>
+      <div style="width: 52px;"></div>
+    </div>
+    <div class="terminal-body">
+<div class="line"><span class="prompt">~/dev/acme/backend</span> <span class="prompt-symbol">$</span> <span class="cmd">sidekicks</span> <span class="flag">session start</span> <span class="flag">--name</span> <span class="value">"Auth Middleware Rewrite"</span> <span class="flag">--repo</span> <span class="value">.</span></div>
+<div class="blank"></div>
+<div class="line"><span class="green bold">  AI Sidekicks</span> <span class="dim">v1.0.0</span></div>
+<div class="blank"></div>
+<div class="line"><span class="dim">  Session</span>  <span class="white">Auth Middleware Rewrite</span></div>
+<div class="line"><span class="dim">  ID</span>       <span class="cyan">ses_7kx9m2pq4r</span></div>
+<div class="line"><span class="dim">  Repo</span>     <span class="blue">acme/backend</span> <span class="dim">(worktree:</span> <span class="cyan">sidekicks/auth-rewrite</span><span class="dim">)</span></div>
+<div class="line"><span class="dim">  Owner</span>    <span class="white">Sawmon</span> <span class="dim">(local runtime)</span></div>
+<div class="blank"></div>
+<div class="line"><span class="dim">  ────────────────────────────────────────────────────────────────</span></div>
+<div class="blank"></div>
+<div class="line"><span class="prompt">~/dev/acme/backend</span> <span class="prompt-symbol">$</span> <span class="cmd">sidekicks</span> <span class="flag">run start</span> <span class="flag">--agent</span> <span class="value">claude</span> <span class="flag">--agent</span> <span class="value">codex</span></div>
+<div class="blank"></div>
+<div class="line">  <span class="green">&#10003;</span> <span class="white">Claude</span> attached <span class="dim">(claude-driver, 200K context)</span></div>
+<div class="line">  <span class="green">&#10003;</span> <span class="white">Codex</span> attached <span class="dim">(codex-driver, 192K context)</span></div>
+<div class="line">  <span class="green">&#10003;</span> Worktree created at <span class="cyan">.worktrees/sidekicks-auth-rewrite</span></div>
+<div class="blank"></div>
+<div class="line">  <span class="dim">&#9474;</span> <span class="blue bold">Run #1</span> <span class="dim">&middot;</span> <span class="white">Claude</span> <span class="dim">&middot;</span> <span class="status-running">&#9679; running</span></div>
+<div class="line">  <span class="dim">&#9474;</span> <span class="dim">Reading</span> <span class="cyan">src/middleware/auth.ts</span> <span class="dim">(142ms)</span></div>
+<div class="line">  <span class="dim">&#9474;</span> <span class="dim">Reading</span> <span class="cyan">src/lib/tokens.ts</span> <span class="dim">(89ms)</span></div>
+<div class="line">  <span class="dim">&#9474;</span> <span class="dim">Writing</span> <span class="cyan">src/middleware/auth.ts</span> <span class="green">+47</span> <span class="red">-31</span></div>
+<div class="line">  <span class="dim">&#9474;</span> <span class="dim">Writing</span> <span class="cyan">src/lib/paseto.ts</span> <span class="green">+93</span> <span class="dim">(new file)</span></div>
+<div class="line">  <span class="dim">&#9474;</span></div>
+<div class="line">  <span class="dim">&#9474;</span> <span class="blue bold">Run #2</span> <span class="dim">&middot;</span> <span class="white">Codex</span> <span class="dim">&middot;</span> <span class="status-running">&#9679; running</span></div>
+<div class="line">  <span class="dim">&#9474;</span> <span class="dim">Writing</span> <span class="cyan">test/auth/paseto-middleware.test.ts</span> <span class="green">+156</span> <span class="dim">(new file)</span></div>
+<div class="line">  <span class="dim">&#9474;</span></div>
+<div class="line">  <span class="dim">&#9474;</span> <span class="orange bold">&#9888; Approval Required</span></div>
+<div class="line">  <span class="dim">&#9474;</span> <span class="dim">Codex wants to run:</span> <span class="white">npm install paseto-ts@^2.1.0</span></div>
+<div class="line">  <span class="dim">&#9474;</span> <span class="dim">Category:</span> <span class="orange">dependency_install</span></div>
+<div class="line">  <span class="dim">&#9474;</span></div>
+<div class="line">  <span class="dim">&#9474;</span> <span class="white">[a]pprove</span>  <span class="white">[d]eny</span>  <span class="white">[s]kip</span>  <span class="dim">&gt;</span> <span class="cursor-block"></span></div>
+<div class="blank"></div>
+<div class="line"><span class="dim">  ────────────────────────────────────────────────────────────────</span></div>
+<div class="blank"></div>
+<div class="line"><span class="prompt">~/dev/acme/backend</span> <span class="prompt-symbol">$</span> <span class="cmd">sidekicks</span> <span class="flag">status</span></div>
+<div class="blank"></div>
+<pre style="margin: 0; font-family: inherit; font-size: inherit; line-height: inherit; color: inherit;">  <span class="dim">┌───────────┬────────────┬──────────────┬────────────────┐</span>
+  <span class="dim">│</span> <span class="table-header">Agent     </span><span class="dim">│</span> <span class="table-header">Status     </span><span class="dim">│</span> <span class="table-header">Duration     </span><span class="dim">│</span> <span class="table-header">Tokens         </span><span class="dim">│</span>
+  <span class="dim">├───────────┼────────────┼──────────────┼────────────────┤</span>
+  <span class="dim">│</span> <span class="white">Claude    </span><span class="dim">│</span> <span class="status-running">● running</span>  <span class="dim">│</span> <span class="white">4m 12s       </span><span class="dim">│</span> <span class="cyan">24.1K / 200K   </span><span class="dim">│</span>
+  <span class="dim">│</span> <span class="white">Codex     </span><span class="dim">│</span> <span class="status-running">● running</span>  <span class="dim">│</span> <span class="white">3m 28s       </span><span class="dim">│</span> <span class="cyan">18.7K / 192K   </span><span class="dim">│</span>
+  <span class="dim">└───────────┴────────────┴──────────────┴────────────────┘</span></pre>
+<div class="blank"></div>
+<div class="line">  <span class="dim">Diffs:</span> <span class="green">+296</span> <span class="red">-31</span> <span class="dim">across</span> <span class="white">4 files</span> <span class="dim">&middot;</span> <span class="dim">Approvals pending:</span> <span class="orange">1</span></div>
+<div class="line">  <span class="dim">Participants:</span> <span class="white">Sawmon</span> <span class="green">(online)</span><span class="dim">,</span> <span class="white">Jordan K.</span> <span class="green">(online)</span></div>
+<div class="blank"></div>
+    </div>
+  </div>
+</body>
+</html>

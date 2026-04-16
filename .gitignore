@@ -64,6 +64,9 @@ venv/
 # Misc tool caches
 .cache/
 
+# Playwright MCP
+.playwright-mcp/
+
 # Explicitly track repo-local AI config and skills
 !.claude/
 !.claude/**
