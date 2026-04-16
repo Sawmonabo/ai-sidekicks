@@ -33,6 +33,7 @@ This spec covers transport choice, version negotiation, request and stream seman
 
 - [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
 - [Component Architecture Desktop App](../architecture/component-architecture-desktop-app.md)
+- [ADR-008: Default Transports And Relay Boundaries](../decisions/008-default-transports-and-relay-boundaries.md)
 
 ## Required Behavior
 

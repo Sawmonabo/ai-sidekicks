@@ -57,7 +57,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 - Contracts: See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed schemas this plan consumes.
 
-1. Implement invite and membership contracts plus migrations. Invite tokens use PASETO v4 (see ADR-010). Define the five invite lifecycle states: `issued`, `accepted`, `declined`, `revoked`, `expired`.
+1. Implement invite and membership contracts plus migrations. Invite tokens use PASETO v4 (see ADR-010). Define the four invite lifecycle states: `pending`, `accepted`, `revoked`, `expired`. Declining is implicit in V1 (unopened invites expire); no explicit `declined` state is required.
 2. Build control-plane services for invite issuance, acceptance, revocation, and role update.
 3. Add participant presence heartbeat ingestion and summary projection. Use Yjs Awareness (`y-protocols/awareness`) as the presence CRDT; fan out updates via Postgres LISTEN/NOTIFY in V1. Expose `PresenceUpdate` and `PresenceRead` JSON-RPC methods for local IPC bridging. Default heartbeat timing: 15 s heartbeat interval, 45 s grace period before marking a participant offline.
 4. Integrate desktop invite acceptance and participant roster surfaces.

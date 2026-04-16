@@ -33,6 +33,7 @@ This spec covers `read-only`, `branch`, `worktree`, and `ephemeral clone` execut
 
 - [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
 - [Deployment Topology](../architecture/deployment-topology.md)
+- [ADR-006: Worktree First Execution Mode](../decisions/006-worktree-first-execution-mode.md)
 
 ## Required Behavior
 

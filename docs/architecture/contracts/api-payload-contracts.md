@@ -243,6 +243,20 @@ interface PresenceReadResult {
     lastSeen: string
   }>
 }
+
+// ChannelList — read-only projection of channels in a session (see Spec-002 Interfaces And Contracts).
+// Channel creation is handled by Plan-016 (multi-agent channels and orchestration).
+interface ChannelListRequest {
+  sessionId: SessionId
+}
+interface ChannelListResponse {
+  channels: Array<{
+    id: ChannelId
+    name?: string
+    state: ChannelState
+    participantCount: number
+  }>
+}
 ```
 
 ---

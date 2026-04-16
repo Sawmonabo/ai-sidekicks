@@ -33,6 +33,7 @@ This spec covers branch strategy, PR preparation, diff artifacts, and attributio
 
 - [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
 - [Observability Architecture](../architecture/observability-architecture.md)
+- [ADR-006: Worktree First Execution Mode](../decisions/006-worktree-first-execution-mode.md)
 
 ## Required Behavior
 
@@ -72,7 +73,7 @@ This spec covers branch strategy, PR preparation, diff artifacts, and attributio
 
 - Branch and PR metadata belong to daemon-owned git projections.
 - Diff artifacts must store attribution mode, provenance, and compared-state identifiers.
-- The `diff_artifacts` table references `artifact_manifests` via foreign key. Plan-014 (artifacts) is a dependency of Plan-011 (git flow).
+- The `diff_artifacts` table references `artifact_manifests` via foreign key. Plan-014 (artifacts) is a dependency of Plan-011 (Gitflow).
 - Reviewable git actions require durable audit records.
 
 ## DiffArtifact and General Artifact Relationship
@@ -170,7 +171,7 @@ See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) 
 
 ## ADR Triggers
 
-- If the system abandons worktree-centered gitflow as the default coding path, create or update `../decisions/006-worktree-first-execution-mode.md`.
+- If the system abandons worktree-centered Gitflow as the default coding path, create or update `../decisions/006-worktree-first-execution-mode.md`.
 
 ## Open Questions
 

@@ -30,7 +30,7 @@
 - [1. Mid-Session Invites And Shared Runtime Contribution](#1-mid-session-invites-and-shared-runtime-contribution)
 - [2. Multi-User And Multi-Agent Chat](#2-multi-user-and-multi-agent-chat)
 - [3. Queue, Steer, Pause, Resume](#3-queue-steer-pause-resume)
-- [4. Repo Attach And Git Flow](#4-repo-attach-and-git-flow)
+- [4. Repo Attach And Gitflow](#4-repo-attach-and-gitflow)
 - [5. Visibility](#5-visibility)
 - [Suggested Greenfield Stack](#suggested-greenfield-stack)
 - [Build Order](#build-order)
@@ -52,7 +52,7 @@ Build the best environment for:
 - multiple users with multiple agents
 - Codex and Claude support first
 - pause, resume, steer, queue, and intervene during execution
-- attaching repositories so agents can work with proper git flow and clear diffs
+- attaching repositories so agents can work with proper Gitflow and clear diffs
 - full visibility into what agents are doing, thinking, saying, and calling
 - inviting another human into an existing or new session so they can participate directly or bring their own agents
 
@@ -345,7 +345,7 @@ This must be real runtime behavior, not a UI illusion.
 - Pause must be a runtime state, not just a delay in draining queued messages.
 - Resume must continue from persisted run state, not just re-read the thread.
 
-### 4. Repo Attach And Git Flow
+### 4. Repo Attach And Gitflow
 
 Every run must bind to a repo mount and execution mode:
 

@@ -24,10 +24,10 @@ The product combines multiple humans, multiple runtime nodes, and local code exe
 
 | Component | Responsibility |
 | --- | --- |
-| `Identity And Session Authorization` | Authenticates users and authorizes membership in sessions. Auth methods are deployed incrementally: Device Auth Grant (RFC 8628) + password/TOTP at CLI launch, WebAuthn/Passkeys added at desktop launch, with WebAuthn becoming the recommended default for desktop users. Tokens: PASETO v4 — access tokens (v4.public, 15 min), refresh tokens (v4.local, 7 days, rotated on use). OAuth 2.1 with PKCE mandatory. DPoP sender-constraining for access tokens. |
+| `Identity And Session Authorization` | Authenticates users and authorizes membership in sessions. Auth methods are deployed incrementally: Device Authorization Grant (RFC 8628) at CLI launch (browser handshake for primary auth), WebAuthn/Passkeys added at desktop launch, with WebAuthn becoming the recommended default for desktop users. Tokens: PASETO v4 — access tokens (v4.public, 15 min), refresh tokens (v4.local, 7 days, rotated on use). OAuth 2.1 with PKCE mandatory. DPoP sender-constraining for access tokens. |
 | `Membership Policy Engine` | Determines session roles and participant capabilities. |
 | `Runtime Capability Registry` | Tracks what each runtime node can expose and under what trust envelope. |
-| `Approval Policy Engine` | Evaluates and records approval requests and resolutions. |
+| `Approval Policy Engine` | Evaluates and records approval requests and resolutions. Uses Cedar (CNCF sandbox) with principal-action-resource-context model: V1 compiles YAML policy definitions to Cedar policy sets at build time; V1.1 evaluates Cedar WASM in-process for runtime policy updates without redeployment. |
 | `Transport Security Layer` | Protects local IPC, client-daemon, and relay/control-plane traffic. Local daemon: socket reachability + optional 256-bit session token (mode 0600, rotated per restart). Control plane: HTTPS/TLS. Relay: MLS (RFC 9420) group E2EE via `ts-mls` — forward secrecy, post-compromise security, zero-knowledge relay. KeyPackages distributed via control plane with Ed25519 signature verification to prevent MITM substitution. Fallback: X25519 + XChaCha20-Poly1305 via `@noble/curves` + `@noble/ciphers` if MLS libraries prove immature. |
 | `Audit Layer` | Records grants, denials, escalations, and revocations. |
 
@@ -170,7 +170,7 @@ Encrypted with: XChaCha20-Poly1305 (control plane's symmetric key)
 
 ### Permission Matrix (Task 5.4)
 
-| Action | Owner | Collaborator | Runtime Contributor | Viewer |
+| Action | `owner` | `collaborator` | `runtime contributor` | `viewer` |
 | --- | --- | --- | --- | --- |
 | **Session lifecycle** | | | | |
 | Create session | Yes | No | No | No |
@@ -249,3 +249,4 @@ Encrypted with: XChaCha20-Poly1305 (control plane's symmetric key)
 - [Collaboration Trust And Permission Model](../decisions/007-collaboration-trust-and-permission-model.md)
 - [Default Transports And Relay Boundaries](../decisions/008-default-transports-and-relay-boundaries.md)
 - [PASETO WebAuthn MLS Auth](../decisions/010-paseto-webauthn-mls-auth.md)
+- [Cedar Approval Policy Engine](../decisions/012-cedar-approval-policy-engine.md)

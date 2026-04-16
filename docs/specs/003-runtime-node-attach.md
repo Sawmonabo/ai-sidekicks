@@ -35,6 +35,10 @@ This spec covers runtime-node registration, capability declaration, health, and 
 - [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
 - [Component Architecture Control Plane](../architecture/component-architecture-control-plane.md)
 - [Security Architecture](../architecture/security-architecture.md)
+- [ADR-001: Session Is The Primary Domain Object](../decisions/001-session-is-the-primary-domain-object.md)
+- [ADR-002: Local Execution Shared Control Plane](../decisions/002-local-execution-shared-control-plane.md)
+- [ADR-005: Provider Drivers Use A Normalized Interface](../decisions/005-provider-drivers-use-a-normalized-interface.md)
+- [ADR-007: Collaboration Trust And Permission Model](../decisions/007-collaboration-trust-and-permission-model.md)
 
 ## Required Behavior
 

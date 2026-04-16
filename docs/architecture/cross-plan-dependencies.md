@@ -155,7 +155,7 @@ Implementation must follow this tier sequence. Plans in a tier can generally run
 | **2** | Plan-002 | Plan-001 complete | Extends `session_memberships`; creates `presence/` directory |
 | **3** | Plan-003 | Plan-001 complete | Creates `runtime_nodes`, `node_attachments` |
 | **4** | Plan-005, Plan-006, Plan-007 | Tier 1 complete (Plan-006 needs Plan-001 tables; Plan-005 and Plan-007 are standalone) | Plan-005 creates `runtime-binding-store.ts`; Plan-006 creates `timeline/` directory and extends `session_events` |
-| **5** | Plan-004, Plan-008, Plan-018 | Plan-004 needs Plan-001 + Plan-005; Plan-008 needs Plan-001 + Plan-002; Plan-018 needs Plan-002 | Plan-004 creates `queue_items`, `intervention_records`; Plan-008 extends `presence/`; Plan-018 extends `presence/` |
+| **5** | Plan-004, Plan-008, Plan-018 | Plan-004 needs Plan-001 + Plan-005; Plan-008 needs Plan-001 + Plan-002; Plan-018 needs Plan-002 | Plan-004 creates `queue_items`, `interventions`; Plan-008 extends `presence/`; Plan-018 extends `presence/` |
 | **6** | Plan-009, Plan-010, Plan-012 | Plan-009 is standalone; Plan-010 needs Plan-009; Plan-012 is standalone | Plan-009 creates `workspace/` directory; Plan-010 extends `workspace/` and creates `branch_contexts` |
 | **7** | Plan-011, Plan-014, Plan-015 | Plan-011 needs Plan-010 + Plan-014; Plan-014 is standalone; Plan-015 needs Plans 001, 004, 005, 006, 012 | Plan-014 creates `artifacts/` directory; Plan-011 extends `artifacts/` and `branch_contexts` |
 | **8** | Plan-013, Plan-019, Plan-020 | Plan-013 needs Plan-006; Plan-019 needs Plan-013; Plan-020 needs Plan-015 | Plan-013 extends `timeline/` |

@@ -59,7 +59,7 @@ sidekicks run inspect <run-id> --failure-detail
 |---|---|
 | Provider response timeout | 30s |
 | Retry budget | 3 attempts with exponential backoff (1s, 5s, 15s) |
-| Driver health check interval | every 15s |
+| Provider driver capability probe interval | every 15s |
 | Capability refresh latency | < 5s |
 | Recovery action timeout | 60s |
 

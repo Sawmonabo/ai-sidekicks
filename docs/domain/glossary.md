@@ -33,6 +33,12 @@ This glossary covers the primary domain terms from `vision.md` and the canonical
 | `Artifact` | An immutable output or record produced by a run, a participant, or the system. |
 | `DiffArtifact` | An artifact that captures the change between two repository or workspace states. |
 | `Approval` | A durable decision record that resolves a gated request. |
+| `Workflow` | A reusable, versioned execution template that structures multi-phase work inside a session. |
+| `WorkflowDefinition` | The named, durable definition record describing a workflow's reusable sequence of phases. Scoped to a session or channel. |
+| `WorkflowVersion` | An immutable snapshot of a `WorkflowDefinition`'s phase structure at a point in time. |
+| `WorkflowRun` | A single execution instance of a specific `WorkflowVersion` within a session. |
+| `PhaseDefinition` | The static configuration inside a `WorkflowVersion` that describes one step in the workflow. |
+| `Gate` | A checkpoint between workflow phases that must resolve before the next phase can start. |
 | `local-only` | A visibility or operating constraint meaning the relevant session continuity, execution path, or artifact remains usable on one participant-owned local runtime node without requiring current control-plane-backed sharing. `local-only` is not a separate domain object or an alternate session model. |
 
 ## What This Is
@@ -60,6 +66,8 @@ This glossary is not a substitute for the detailed domain docs. Each term is def
 - `ExecutionMode` determines how a `Run` uses a repo-bound `Workspace`.
 - `Run` is an execution episode, while `Agent` is the reusable configured actor that performs runs.
 - `RuntimeBinding` ties a `Run` to a specific provider driver instance and carries the recovery handles needed for persistence and replay.
+- `Workflow` is a reusable execution template. `WorkflowDefinition` records the template; `WorkflowVersion` is an immutable snapshot; `WorkflowRun` is an execution instance inside a `Session`.
+- `PhaseDefinition` is one step inside a `WorkflowVersion`; a `Gate` is the checkpoint between phases that must resolve before the next phase can start.
 - `local-only` may describe session continuity, execution scope, or artifact visibility, but it does not define a second kind of `Session`.
 
 ## Lifecycle
@@ -86,6 +94,7 @@ The glossary is versioned through canonical doc updates. A term becomes stable o
 - [Provider Driver Contract And Capabilities](../specs/005-provider-driver-contract-and-capabilities.md)
 - [Approvals Permissions And Trust Boundaries](../specs/012-approvals-permissions-and-trust-boundaries.md)
 - [Persistence Recovery And Replay](../specs/015-persistence-recovery-and-replay.md)
+- [Workflow Authoring And Execution](../specs/017-workflow-authoring-and-execution.md)
 
 ## Related ADRs
 

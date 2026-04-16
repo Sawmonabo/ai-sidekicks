@@ -12,9 +12,11 @@ Diagnose runs that appear active but are no longer making observable progress.
 
 ## Detection
 
-- Read `StuckRunInspect` or equivalent health projection
+- Read `StuckRunInspect` and check the `stuck-suspected` flag against the last known progress point, last event time, and any blocking reason.
 - Compare current run state with last canonical event time and last driver heartbeat
 - Check whether the run is actually blocked on approval or input instead of truly stuck
+- Check queue depth for the session via `sidekicks run queue` to identify backlog contributing to stalled runs.
+- Inspect cross-component traces for the run if tracing is enabled.
 
 ## Preconditions
 

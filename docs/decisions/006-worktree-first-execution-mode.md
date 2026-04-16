@@ -43,7 +43,7 @@ We will use the four-mode execution taxonomy `read-only`, `branch`, `worktree`, 
 
 - **What:** Use disposable clones as the normal writable path instead of worktrees.
 - **Steel man:** Works even when worktrees are awkward or unsupported.
-- **Why rejected:** Heavier on disk and less aligned with normal gitflow than worktrees when worktrees are available.
+- **Why rejected:** Heavier on disk and less aligned with normal Gitflow than worktrees when worktrees are available.
 
 ## Reversibility Assessment
 

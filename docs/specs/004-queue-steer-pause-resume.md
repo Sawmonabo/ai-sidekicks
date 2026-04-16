@@ -33,6 +33,7 @@ This spec covers queue admission, interventions, blocked states, and operator-vi
 
 - [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
 - [Data Architecture](../architecture/data-architecture.md)
+- [ADR-003: Daemon Backed Queue And Interventions](../decisions/003-daemon-backed-queue-and-interventions.md)
 
 ## Required Behavior
 

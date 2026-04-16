@@ -34,6 +34,8 @@ This spec covers local persistence, shared coordination persistence, recovery ru
 
 - [Data Architecture](../architecture/data-architecture.md)
 - [Observability Architecture](../architecture/observability-architecture.md)
+- [ADR-003: Daemon Backed Queue And Interventions](../decisions/003-daemon-backed-queue-and-interventions.md)
+- [ADR-004: SQLite Local State And Postgres Control Plane](../decisions/004-sqlite-local-state-and-postgres-control-plane.md)
 
 ## Required Behavior
 

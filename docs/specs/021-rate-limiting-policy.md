@@ -60,9 +60,11 @@ The local daemon is explicitly excluded. It is trusted by socket reachability an
 | Limit | Scope | Threshold |
 | --- | --- | --- |
 | Invite creation | per session per hour | 20 invites/session/hr |
+| Invite creation | per participant per hour | 50 invites/participant/hr |
+| Pending invites | per session | 100 pending invites/session |
 | Invite redemption attempts | per IP per minute | 5 redemption attempts/IP/min |
 | Session creation | per participant per minute | 10 sessions/participant/min |
-| Heartbeat | per participant per minute | 4 heartbeats/participant/min |
+| Heartbeat | per participant per minute | 10 heartbeats/participant/min |
 | Messages | per participant per minute | 60 messages/participant/min |
 | KeyPackage uploads | per user per hour | 5 KeyPackage uploads/user/hr |
 
@@ -85,8 +87,10 @@ The local daemon is explicitly excluded. It is trusted by socket reachability an
 | Session create | 10/min | per participant | authenticated |
 | Session join | 30/min | per participant | authenticated |
 | Invite create | 20/hr | per session | authenticated |
+| Invite create | 50/hr | per participant | authenticated |
+| Pending invites | 100 concurrent | per session | authenticated |
 | Invite accept | 10/min | per token-hash | anonymous |
-| Presence heartbeat | 4/min | per participant | authenticated |
+| Presence heartbeat | 10/min | per participant | authenticated |
 | Event query (read) | 60/min | per participant | authenticated |
 | Event subscribe (SSE) | 5 concurrent | per participant | authenticated |
 | Approval resolve | 30/min | per participant | authenticated |

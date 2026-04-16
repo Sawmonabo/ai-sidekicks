@@ -34,6 +34,7 @@ This spec covers required driver operations, capability advertisement, normalize
 
 - [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
 - [Data Architecture](../architecture/data-architecture.md)
+- [ADR-005: Provider Drivers Use A Normalized Interface](../decisions/005-provider-drivers-use-a-normalized-interface.md)
 
 ## Required Behavior
 

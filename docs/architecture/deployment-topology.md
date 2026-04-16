@@ -101,7 +101,7 @@ Expected throughput envelope per data DO: 25 connections × 100 events/sec × ML
 | Events per second (write) | 500 |
 | Events per second (read) | 2,000 |
 | Relay connections | 2,000 concurrent |
-| Session event log size | 100,000 events/session |
+| Session event log size | 100,000 events/session lifetime (50,000 active before compaction per Spec-006) |
 
 ## Infrastructure Requirements
 

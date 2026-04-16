@@ -35,6 +35,8 @@ This spec covers session join, relay negotiation, presence attachment, and remot
 - [Component Architecture Control Plane](../architecture/component-architecture-control-plane.md)
 - [Security Architecture](../architecture/security-architecture.md)
 - [Deployment Topology](../architecture/deployment-topology.md)
+- [ADR-002: Local Execution Shared Control Plane](../decisions/002-local-execution-shared-control-plane.md)
+- [ADR-008: Default Transports And Relay Boundaries](../decisions/008-default-transports-and-relay-boundaries.md)
 
 ## Required Behavior
 

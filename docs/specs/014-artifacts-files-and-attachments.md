@@ -33,6 +33,7 @@ This spec covers artifact types, attachment ingestion, storage expectations, man
 
 - [Data Architecture](../architecture/data-architecture.md)
 - [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
+- [ADR-004: SQLite Local State And Postgres Control Plane](../decisions/004-sqlite-local-state-and-postgres-control-plane.md)
 
 ## Required Behavior
 

@@ -43,7 +43,7 @@ The following specs provide cross-cutting infrastructure required by multiple V1
 | Spec | Coverage |
 |------|----------|
 | [Spec-008](../specs/008-control-plane-relay-and-session-join.md) | Control plane relay and session join (V1 with X25519 fallback) |
-| [Spec-011](../specs/011-gitflow-pr-and-diff-attribution.md) | Git flow, PR preparation, and diff attribution |
+| [Spec-011](../specs/011-gitflow-pr-and-diff-attribution.md) | Gitflow, PR preparation, and diff attribution |
 | [Spec-018](../specs/018-identity-and-participant-state.md) | Identity and participant state |
 | [Spec-019](../specs/019-notifications-and-attention-model.md) | Notifications and attention model |
 | [Spec-020](../specs/020-observability-and-failure-recovery.md) | Observability and failure recovery |

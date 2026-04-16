@@ -34,10 +34,13 @@ This spec covers failure categories, health signals, stuck-run detection, replay
 
 - [Observability Architecture](../architecture/observability-architecture.md)
 - [Data Architecture](../architecture/data-architecture.md)
+- [ADR-003: Daemon Backed Queue And Interventions](../decisions/003-daemon-backed-queue-and-interventions.md)
+- [ADR-004: SQLite Local State And Postgres Control Plane](../decisions/004-sqlite-local-state-and-postgres-control-plane.md)
+- [ADR-005: Provider Drivers Use A Normalized Interface](../decisions/005-provider-drivers-use-a-normalized-interface.md)
 
 ## Required Behavior
 
-- The system must expose health and failure signals for local daemon, provider drivers, replay state, queue state, and control-plane connectivity.
+- The system must expose health and failure signals for local daemon, provider drivers, replay state, queue state, control-plane connectivity, and run latency and run duration distributions.
 - The system must detect and surface `stuck-suspected` runs, projection lag, failed recovery attempts, and provider-session recovery failures.
 - Operators and users must be able to distinguish:
   - transport failure
@@ -52,7 +55,7 @@ This spec covers failure categories, health signals, stuck-run detection, replay
 ## Default Behavior
 
 - Local runtime health defaults to visible status categories `healthy`, `degraded`, and `blocked`.
-- A run is considered `stuck-suspected` when it exceeds expected heartbeat or event-progress thresholds without entering a terminal or blocking state.
+- A run is considered `stuck-suspected` after 60 seconds without new progress events, and auto-escalates to a health signal after 5 minutes.
 - Replay health defaults to visible status when the daemon is rebuilding projections or recovering bindings after restart.
 - Canonical health and failure-detail projections remain durable even after bounded raw diagnostic payloads are compacted or removed.
 
@@ -89,6 +92,7 @@ This spec covers failure categories, health signals, stuck-run detection, replay
 - Observability is not separate from recovery; it is the mechanism that makes recovery safe to reason about.
 - Failure categories should be enumerable and stable for automation and operations docs.
 - Degraded read-only mode is preferable to silent partial mutation during uncertain recovery state.
+- Operational handling for policy and approval blockage is covered by approval-UX surfaces in Spec-012 and is not a separate runbook in V1.
 
 ## Pitfalls To Avoid
 

@@ -35,6 +35,8 @@ This spec covers session identity, default session structure, session creation, 
 - [System Context](../architecture/system-context.md)
 - [Container Architecture](../architecture/container-architecture.md)
 - [Component Architecture Control Plane](../architecture/component-architecture-control-plane.md)
+- [ADR-001: Session Is The Primary Domain Object](../decisions/001-session-is-the-primary-domain-object.md)
+- [ADR-002: Local Execution Shared Control Plane](../decisions/002-local-execution-shared-control-plane.md)
 
 ## Required Behavior
 

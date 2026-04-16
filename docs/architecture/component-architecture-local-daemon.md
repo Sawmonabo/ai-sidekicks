@@ -20,6 +20,8 @@ The Local Runtime Daemon is the local execution kernel. It must own the parts of
 - execute tools and terminals within local trust policy
 - persist local events, receipts, projections, and runtime bindings
 - expose the local control surface used by the desktop app and CLI
+- push coordination data (presence, relay connectivity, shared-session metadata) to the Collaboration Control Plane via tRPC/SSE for request-response and WebSocket (JSON-RPC 2.0) for bidirectional channels per ADR-014 and Spec-008
+- authenticate to the Collaboration Control Plane using PASETO v4 tokens per Spec-008 when pushing presence, relay coordination, and shared session metadata
 
 ## Component Boundaries
 
@@ -32,6 +34,7 @@ The Local Runtime Daemon is the local execution kernel. It must own the parts of
 | `Tool And Terminal Service` | Runs shell commands, terminal sessions, and local tools under policy control. |
 | `Local Persistence Layer` | Stores canonical local event log, command receipts, runtime bindings, projections, and recovery metadata. |
 | `Local IPC Gateway` | Exposes stable local control APIs to renderer and CLI clients. |
+| `Control-Plane Adapter` | Produces SessionJoin, RelayNegotiation, PresenceRegister, and SessionResumeAfterReconnect payloads per Spec-008 and forwards canonical events over the control-plane transport. |
 
 ## Implementation Home
 
@@ -59,6 +62,7 @@ The Local Runtime Daemon is the local execution kernel. It must own the parts of
 - The local event store is unavailable or inconsistent.
 - Worktree creation or repo binding fails before a run can start.
 - Terminal or tool subprocesses outlive the client connection and require daemon-owned cleanup.
+- The daemon loses connectivity to the Collaboration Control Plane; local-only sessions continue but shared-session coordination (presence push, relay negotiation, invite/membership sync) degrades per Spec-008 fallback behavior.
 
 ## Related Domain Docs
 

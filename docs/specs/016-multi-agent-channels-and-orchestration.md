@@ -123,7 +123,7 @@ Conclusion detection (agent determines task is complete) is V2.
 | Limit | Default |
 |-------|---------|
 | Max concurrent channels executing | 5 per session |
-| Max queue depth per channel | 50 items |
+| Max queue depth per channel | 25 items (subject to Spec-001 per-session queue depth of 100) |
 | Max pending orchestration runs | 10 per session |
 
 ## Implementation Notes

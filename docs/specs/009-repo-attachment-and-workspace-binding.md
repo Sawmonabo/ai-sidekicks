@@ -33,6 +33,7 @@ This spec covers repo mount creation, canonical root resolution, workspace bindi
 
 - [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
 - [Data Architecture](../architecture/data-architecture.md)
+- [ADR-006: Worktree First Execution Mode](../decisions/006-worktree-first-execution-mode.md)
 
 ## Required Behavior
 

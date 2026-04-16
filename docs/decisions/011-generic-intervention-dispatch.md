@@ -3,13 +3,23 @@
 | Field | Value |
 | -------------- | ------------------------------------------------------------------------ |
 | **Status** | `accepted` |
+| **Type** | `Type 1 (two-way door)` |
 | **Domain** | `Driver Contract / Orchestration` |
 | **Date** | `2026-04-15` |
 | **Author(s)** | `Claude` |
+| **Reviewers** | `Accepted 2026-04-15` |
 
 ## Context
 
 No reference app or provider runtime exposes pause or steer as driver-level operations. Vercel AI SDK uses a registry plus middleware pattern for cross-cutting concerns. Codex treats steer as a protocol-level turn extension, not a driver capability. Pause is fundamentally an orchestration concern: interrupt the run, persist state, queue a resume event. Encoding specific intervention verbs into the driver interface creates rigidity -- each new intervention type would require an interface change.
+
+## Problem Statement
+
+How should the driver contract expose mid-run interventions (pause, steer, and future verbs) without coupling every new intervention type to an interface change?
+
+### Trigger
+
+Early driver interface drafts added `pauseRun` as a capability flag and method, but neither reference apps nor provider runtimes support pause natively, and the queue for additional interventions (steer, interject, reprioritize) would keep expanding the interface. A generic dispatch pattern was needed before driver implementations proliferated.
 
 ## Decision
 
@@ -50,3 +60,10 @@ Add `applyIntervention(type, payload)` as a generic dispatcher in the driver con
 - [ADR-003: Daemon-Backed Queue And Interventions](./003-daemon-backed-queue-and-interventions.md)
 - [ADR-005: Provider Drivers Use A Normalized Interface](./005-provider-drivers-use-a-normalized-interface.md)
 - [Vercel AI SDK Registry Pattern](https://sdk.vercel.ai/docs)
+
+## Decision Log
+
+| Date | Event | Notes |
+|------|-------|-------|
+| 2026-04-15 | Proposed | Initial draft |
+| 2026-04-15 | Accepted | ADR accepted |

@@ -33,6 +33,7 @@ This spec covers participant identity mapping, participant profile state, device
 
 - [Component Architecture Control Plane](../architecture/component-architecture-control-plane.md)
 - [Security Architecture](../architecture/security-architecture.md)
+- [ADR-008: Default Transports And Relay Boundaries](../decisions/008-default-transports-and-relay-boundaries.md)
 
 ## Required Behavior
 

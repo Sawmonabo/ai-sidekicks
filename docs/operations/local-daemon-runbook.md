@@ -68,7 +68,7 @@ sidekicks daemon start
 | Event append latency | < 10ms |
 | SQLite WAL checkpoint | < 5s |
 | IPC round-trip latency (p99) | < 50ms |
-| Health check interval | every 10s |
+| Daemon liveness probe interval | every 10s |
 
 ## On-Call Routing
 

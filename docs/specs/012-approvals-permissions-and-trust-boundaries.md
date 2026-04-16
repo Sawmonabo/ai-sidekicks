@@ -34,6 +34,7 @@ This spec covers approval requests, approval scopes, remembered grants, and the 
 
 - [Security Architecture](../architecture/security-architecture.md)
 - [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
+- [ADR-007: Collaboration Trust And Permission Model](../decisions/007-collaboration-trust-and-permission-model.md)
 
 ## Required Behavior
 
