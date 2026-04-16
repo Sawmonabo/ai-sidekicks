@@ -38,7 +38,7 @@ This spec covers invite lifecycle, join-mode assignment, membership role changes
 
 - The system must support issuing an invite into an existing live session.
 - Accepting an invite must create or activate membership without interrupting active session runs.
-- Invite lifecycle must support `issued`, `accepted`, `declined`, `revoked`, and `expired`.
+- Invite lifecycle must support `pending`, `accepted`, `revoked`, and `expired`. Declining is implicit in V1 (the invitee does not click the shareable link); no explicit `declined` state is required.
 - Membership must be durable and separate from ephemeral presence.
 - Invites must support the canonical join modes `viewer`, `collaborator`, and `runtime contributor`.
 - A participant must be able to join a session before attaching any runtime node.
@@ -72,6 +72,67 @@ This spec covers invite lifecycle, join-mode assignment, membership role changes
 - `PresenceUpdate` (JSON-RPC, local IPC) — daemon pushes serialized Yjs Awareness state to local clients.
 - `PresenceRead` (JSON-RPC, local IPC) — local clients read current presence state for a session.
 - See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
+
+## Invite Delivery
+
+In V1, invites are delivered as shareable links. The inviter's client (desktop or CLI) calls the `InviteCreate` API, which returns a link in the form:
+
+```
+https://<control-plane-host>/invite/<token>
+```
+
+The `<token>` is a PASETO v4.local encrypted token (consistent with [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md) and the control-plane auth stack defined in [Security Architecture](../architecture/security-architecture.md)). The link is shared out-of-band by the inviter — copied to clipboard and pasted into Slack, email, or any other communication channel. No email delivery service is required for V1.
+
+When a recipient clicks the link, it resolves to a web page hosted by the control plane that:
+1. Validates the token (checks signature, expiry, and revocation status).
+2. Displays the session name and proposed join mode.
+3. Prompts the recipient to authenticate before acceptance. Guest (unauthenticated) invites are out of scope for V1.
+
+### Token Security Properties
+
+- **Single-use:** A token is consumed on first successful accept. The control plane sets the invite state to `accepted` atomically. Subsequent attempts to use the same token return an "invite already accepted" error.
+- **Entropy:** The PASETO payload includes 256-bit CSPRNG randomness (consistent with the daemon token specification in [Security Architecture](../architecture/security-architecture.md), which uses `crypto.randomBytes(32)`).
+- **Hash storage:** The control plane stores only the SHA-256 hash of the token in the `session_invites.token_hash` column (see [Shared Postgres Schema](../architecture/schemas/shared-postgres-schema.md)). The plaintext token is never persisted.
+- **Expiry enforcement:** The server validates the `expires_at` claim in the PASETO payload on every access. Expired tokens return an "invite expired" error regardless of database state.
+- **Token payload structure:** `{session_id, inviter_id, join_mode, expires_at, jti}` — all fields are encrypted inside the PASETO v4.local envelope. The `jti` (JWT ID) claim uniquely identifies the token and is used for single-use enforcement and revocation lookups.
+
+### Rate Limiting
+
+Invite creation is rate-limited to prevent abuse:
+
+| Limit | Threshold |
+| --- | --- |
+| Max invites per session per hour | 20 |
+| Max invites per participant per hour (across all sessions) | 50 |
+| Max pending (non-accepted, non-expired) invites per session | 100 |
+
+When a rate limit is exceeded, the API returns the standard `RateLimitResponse` contract (see [API Payload Contracts](../architecture/contracts/api-payload-contracts.md)):
+
+```typescript
+{
+  code: 'rate_limited',
+  retryAfter: number,    // seconds until the limit resets
+  limit: number,         // the applicable threshold
+  remaining: number      // always 0 when rate-limited
+}
+```
+
+### Invite Revocation
+
+- Revocation is immediate: the control plane sets `session_invites.state` to `'revoked'` in the database upon the revocation request.
+- A revoked token that is subsequently clicked returns a clear error: "This invite has been revoked."
+- No push notification is sent to the invitee about revocation. The invitee may not have the application installed yet, so the error is surfaced only when the link is accessed.
+- Revocation events are recorded in session history for audit (consistent with the Required Behavior above: "Role changes and membership revocation must be explicit events in session history").
+- Only the session owner can revoke invites, per the permission matrix in [Security Architecture](../architecture/security-architecture.md) (owner-only: "Invite participants", "Suspend/revoke member").
+
+### Future Delivery Mechanisms (V2)
+
+The following delivery mechanisms are deferred to V2. All V2 mechanisms will use the same underlying PASETO v4.local token; only the delivery channel changes.
+
+- **Email delivery:** Transactional email service sends the invite link directly to the recipient's email address.
+- **In-app notifications:** For users already on the platform, invites appear as in-app notifications with a one-click accept flow.
+- **Deep links:** Mobile clients receive invite links as deep links that open directly into the session join flow.
+- **QR codes:** For in-person collaboration, the invite link is encoded as a QR code that can be scanned by a mobile client.
 
 ## State And Data Implications
 

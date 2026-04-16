@@ -74,6 +74,59 @@ Primary allowed transitions:
 - `waiting_for_input -> interrupted`
 - `paused -> running`
 - `paused -> interrupted`
+- `waiting_for_approval -> failed` (provider or transport failure while waiting)
+- `waiting_for_input -> failed` (provider or transport failure while waiting)
+- `paused -> failed` (resume handle lost or recovery exhausted)
+
+## Recovery Transitions
+
+During startup reconciliation the daemon detects runs left in non-terminal states after a crash or restart. The following recovery transitions apply:
+
+- From `starting`, `running`, `waiting_for_approval`, `waiting_for_input`: the daemon may transition the run to `failed` if automatic recovery cannot safely resume execution.
+- From `paused`: the daemon may transition the run to `failed` if the resume handle is lost and recovery is impossible.
+- From any non-terminal state during recovery: the run transitions to `interrupted` if a pending user-initiated stop (interrupt or cancel intervention) was recorded before the crash; it transitions to `failed` otherwise.
+
+Decision rule — `interrupted` vs `failed` during recovery:
+
+- `interrupted`: the run had a pending user-initiated stop. The user's intent was to end the run; recovery honours that intent.
+- `failed`: recovery itself fails with no prior user-initiated stop. The run did not end on its own terms.
+
+## Complete Transition Table
+
+The following table is the single authoritative reference for every allowed run state transition. It includes primary transitions, the failure paths added above, and recovery transitions.
+
+| From | To | Trigger | Condition |
+| --- | --- | --- | --- |
+| `queued` | `starting` | Run admitted to execution | Queue slot available |
+| `starting` | `running` | Initialization complete | Provider and workspace ready |
+| `starting` | `failed` | Initialization error | Provider or workspace setup cannot complete |
+| `running` | `waiting_for_approval` | Approval requested | Run requires explicit approval before continuing |
+| `running` | `waiting_for_input` | Input requested | Run requires participant input or structured answers |
+| `running` | `paused` | Pause intervention | User or orchestration initiates pause |
+| `running` | `interrupted` | Interrupt or cancel intervention | User-initiated stop |
+| `running` | `completed` | Execution finished | Run reaches successful terminal condition |
+| `running` | `failed` | Unrecovered error | Provider, transport, or internal error during execution |
+| `waiting_for_approval` | `running` | Approval granted | Valid approval received |
+| `waiting_for_approval` | `interrupted` | Interrupt or cancel intervention | User-initiated stop while waiting |
+| `waiting_for_approval` | `failed` | Provider or transport failure | Failure occurs while run is blocked on approval |
+| `waiting_for_input` | `running` | Input received | Valid participant input received |
+| `waiting_for_input` | `interrupted` | Interrupt or cancel intervention | User-initiated stop while waiting |
+| `waiting_for_input` | `failed` | Provider or transport failure | Failure occurs while run is blocked on input |
+| `paused` | `running` | Resume intervention | Resume handle valid and provider ready |
+| `paused` | `interrupted` | Interrupt or cancel intervention | User-initiated stop while paused |
+| `paused` | `failed` | Resume failure | Resume handle lost or recovery exhausted |
+| `queued` | `failed` | Startup reconciliation | Recovery fails with no prior user-initiated stop |
+| `queued` | `interrupted` | Startup reconciliation | Pending user-initiated stop recorded before crash |
+| `starting` | `failed` | Startup reconciliation | Recovery fails with no prior user-initiated stop |
+| `starting` | `interrupted` | Startup reconciliation | Pending user-initiated stop recorded before crash |
+| `running` | `failed` | Startup reconciliation | Recovery fails with no prior user-initiated stop |
+| `running` | `interrupted` | Startup reconciliation | Pending user-initiated stop recorded before crash |
+| `waiting_for_approval` | `failed` | Startup reconciliation | Recovery fails with no prior user-initiated stop |
+| `waiting_for_approval` | `interrupted` | Startup reconciliation | Pending user-initiated stop recorded before crash |
+| `waiting_for_input` | `failed` | Startup reconciliation | Recovery fails with no prior user-initiated stop |
+| `waiting_for_input` | `interrupted` | Startup reconciliation | Pending user-initiated stop recorded before crash |
+| `paused` | `failed` | Startup reconciliation | Resume impossible and no prior user-initiated stop |
+| `paused` | `interrupted` | Startup reconciliation | Pending user-initiated stop recorded before crash |
 
 ## Derived Failure And Recovery Signals
 
@@ -100,7 +153,16 @@ The canonical run lifecycle has one failure terminal state: `failed`. Additional
 
 ## Child-Run Behavior
 
-- When a parent run is interrupted, all child runs are interrupted.
+When a parent run changes state, child runs are affected as follows:
+
+| Parent State | Child-Run Effect |
+| --- | --- |
+| `interrupted` | All child runs are interrupted. Children did not fail; they end because the parent was stopped. |
+| `failed` | All child runs are interrupted. Children are interrupted (not failed) because the parent died, not the children themselves. |
+| `paused` | All child runs are paused. Children pause when the parent pauses and resume when the parent resumes. |
+| `completed` | Child runs continue to completion. They were spawned for a reason and are allowed to finish. |
+| `waiting_for_approval` | Child runs continue running. The parent blocking on approval does not block children. |
+| `waiting_for_input` | Child runs continue running. The parent blocking on input does not block children. |
 
 ## Edge Cases
 
@@ -113,6 +175,13 @@ The canonical run lifecycle has one failure terminal state: `failed`. Additional
 ## Implementation Note
 
 Implementation uses a hybrid approach: XState v5 for internal transition logic and guard validation (with Stately Studio visualization), TypeScript discriminated union for the public API (compile-time state narrowing).
+
+Validation against the complete transition table:
+
+- All transitions are deterministic: a given trigger combined with its guard condition produces exactly one target state. No ambiguous transitions exist.
+- Guards required: version checks for interventions (ensuring stale interventions do not apply), recovery eligibility checks (determining whether a stale run can be safely resumed or must fail), and child-run cascade guards (ensuring parent state changes propagate correctly to children).
+- No self-transitions or history states are required. Every transition moves the run to a different state.
+- The complete transition table is expressible in both XState v5 (as an explicit transition map with guard functions) and as a TypeScript discriminated union (where each state variant enumerates its valid next states at compile time).
 
 ## Related Specs
 
