@@ -79,7 +79,7 @@ This spec covers:
 
 ### Data Map Prerequisite
 
-- A data map documenting all PII fields across both the SQLite event log and Postgres control plane must be produced before crypto-shredding logic is implemented. The data map is a prerequisite, not a deliverable of this spec.
+- A data map documenting all PII fields across both the SQLite event log and Postgres control plane must be produced before crypto-shredding logic is implemented. The PII data map is documented in the [PII Data Map](#pii-data-map) section below.
 
 ## Default Behavior
 
@@ -106,6 +106,59 @@ This spec covers:
 - The `participant_keys` table introduces a new storage dependency for the SQLite event log.
 - Crypto-shredding means that once a key is deleted, historical PII in the event log is permanently unrecoverable. This is by design.
 - Audit stubs in `purged` sessions provide a non-PII record that the session existed and what structural events occurred.
+
+## PII Payload Column Pattern
+
+Tables with PII in the SQLite event log use a dedicated encrypted column to separate PII from non-PII data:
+
+- **Table**: `session_events` contains a `pii_payload BLOB` column (see [Local SQLite Schema](../architecture/schemas/local-sqlite-schema.md)).
+- **Encryption**: Per-participant AES-256-GCM. Each participant has a unique encryption key stored in the `participant_keys` table.
+- **Encryption flow**: PII fields (user messages, file paths, code snippets) are extracted from the event payload, encrypted with the participant's key, and stored in `pii_payload`. The main `payload` column contains only non-PII data (event type metadata, timestamps, structural references).
+- **Key derivation**: The participant key is derived from the participant's auth credentials using HKDF-SHA256. The derived key is then encrypted at rest with the daemon's master key before storage in `participant_keys.encrypted_key_blob`.
+- **Tables that do NOT get `pii_payload`**: All Postgres control-plane tables. PII in Postgres is handled via access control and row-level deletion, not column-level encryption. The control plane is a trusted environment with its own access boundaries.
+
+### Participant Keys
+
+The `participant_keys` table (SQLite, owned by Spec-022) stores per-participant encryption keys for the crypto-shredding mechanism.
+
+**Schema** (matches [Local SQLite Schema](../architecture/schemas/local-sqlite-schema.md)):
+
+```
+participant_id      TEXT NOT NULL PRIMARY KEY
+encrypted_key_blob  BLOB NOT NULL            -- AES-256-GCM key, encrypted at rest with daemon master key
+key_version         INTEGER NOT NULL DEFAULT 1
+created_at          TEXT NOT NULL             -- ISO 8601
+rotated_at          TEXT                      -- ISO 8601, NULL until first rotation
+```
+
+**Key rotation**: Triggered on password change or explicit rotation request. When a key is rotated, the old key version is retained for decrypting historical events until re-encryption of those events with the new key is complete. The `key_version` column is incremented and `rotated_at` is updated on each rotation.
+
+**Key deletion (crypto-shredding)**: Deleting a participant's row from `participant_keys` makes all their PII in `session_events.pii_payload` permanently unrecoverable. This is the GDPR right-to-erasure mechanism for the SQLite event log.
+
+## PII Data Map
+
+| Table | Column | PII Type | Retention | Shredding |
+|-------|--------|----------|-----------|-----------|
+| `session_events` (SQLite) | `pii_payload` | User messages, file paths, code snippets | 90 days (full) / indefinite (audit stub) | Crypto-shred via participant key deletion |
+| `participants` (PG) | `display_name` | Name | Account lifetime | DELETE row on account deletion |
+| `participants` (PG) | `identity_ref` | Email/OAuth ID | Account lifetime | DELETE row on account deletion |
+| `identity_mappings` (PG) | `external_id` | Provider-specific ID | Account lifetime | DELETE row on account deletion |
+| `session_invites` (PG) | `token_hash` | Invite token hash | Invite lifetime | DELETE row on invite expiry/revocation |
+| `notification_preferences` (PG) | `preference_value` | Notification settings | Account lifetime | DELETE row on account deletion |
+
+## Data Retention and Deletion Policy
+
+This section verifies end-to-end GDPR coverage across both storage tiers.
+
+- **Crypto-shredding**: Verified. Deleting a participant's row from `participant_keys` renders all their `pii_payload` data in the SQLite event log permanently unrecoverable.
+- **Data export**: Verified. `GET /participants/{id}/export` decrypts and exports all PII for a participant using their key from `participant_keys`. Export must be completed before key deletion.
+- **90-day retention**: Verified. The event compaction policy ([Spec-006](006-session-event-taxonomy-and-audit-log.md)) compacts events older than 90 days; PII is stripped at compaction, leaving only audit stubs.
+- **Purge lifecycle**: Verified. Session states `purge_requested` and `purged` exist in the [Session Model](../domain/session-model.md) with transitions `archived -> purge_requested -> purged` and `closed -> purge_requested -> purged`.
+- **Right to erasure**: Participant deletion triggers the following sequence:
+  1. Crypto-shred via key deletion (DELETE from `participant_keys`)
+  2. DELETE Postgres PII rows (`participants`, `identity_mappings`, `notification_preferences`)
+  3. Revoke all session memberships (anonymize membership references with tombstone identifier)
+  4. Emit `participant.deleted` event for audit trail
 
 ## Example Flows
 

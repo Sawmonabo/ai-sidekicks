@@ -45,6 +45,58 @@ This spec covers session join, relay negotiation, presence attachment, and remot
 - A participant changing between direct and relay connectivity must remain attached to the same session identity when membership is still valid.
 - The control plane must track presence for both participants and runtime nodes, even when relay is not currently in use.
 
+## Control-Plane Transport Protocol
+
+The control plane uses a dual-transport architecture per [ADR-014](../decisions/014-trpc-control-plane-api.md):
+
+- **tRPC v11** for request-response operations and SSE subscriptions.
+- **WebSocket (JSON-RPC 2.0)** for bidirectional collaboration channels.
+
+**tRPC (request-response) handles:**
+
+- Session CRUD (create, read, update, archive)
+- Membership management (add, remove, role changes)
+- Invite lifecycle (create, revoke, accept)
+- Approval operations (request, resolve, escalate)
+- Artifact metadata (publish, query, reference)
+- Health checks
+
+**SSE (via tRPC subscriptions) handles:**
+
+- Event streaming (session timeline, run output)
+- Run state updates (started, paused, resumed, completed, failed)
+- Notification delivery (mentions, approval requests, membership changes)
+
+**WebSocket (JSON-RPC 2.0) handles:**
+
+- Presence sync (heartbeats, cursor position, active/idle state)
+- Relay message exchange (MLS-encrypted collaboration traffic)
+- Live collaboration events (typing indicators, shared editing state)
+
+### Client SDK Implementation Guidance
+
+**Desktop renderer:**
+
+- Uses tRPC client with React Query integration for typed queries and mutations.
+- SSE subscription (via tRPC `subscription`) for live timeline updates and notifications.
+- WebSocket connection for presence sync and collaboration events.
+
+**CLI:**
+
+- Uses tRPC client (vanilla, no React Query) for typed queries and mutations.
+- SSE for event tailing (run output, session timeline).
+- WebSocket for presence is optional -- CLI may skip live presence when non-interactive.
+
+**Shared contract surface:**
+
+- Both clients import types from `packages/contracts/` -- no codegen needed (tRPC router type inference).
+
+**Connection lifecycle:**
+
+- tRPC client reuses HTTP/2 connections; connection pooling is handled by the runtime (Node.js `fetch` or browser).
+- WebSocket reconnects with exponential backoff (initial 1s, max 30s, jitter).
+- SSE auto-reconnects via the EventSource spec (`Last-Event-ID` header for resumption).
+
 ## Relay Encryption
 
 - Relay encryption uses MLS (RFC 9420) for group E2E encryption. Library: `ts-mls`.

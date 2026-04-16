@@ -295,6 +295,57 @@ Total enumerated event types: **76**
 | `usage_telemetry` | 3 | `usage.token_count` through `usage.context_window_update` |
 | **Total** | **76** | Exceeds Forge's 69-type baseline |
 
+## Event Compaction Policy
+
+Compaction reduces storage and event volume by replacing full event payloads with lightweight audit stubs. Any one of the following triggers initiates compaction:
+
+| Trigger | Threshold | Description |
+| --- | --- | --- |
+| Event count | 50,000 events per session | Oldest events beyond this are compaction candidates |
+| Event age | 90 days | Events older than 90 days are compaction candidates |
+| Storage threshold | 500 MB per session SQLite | When session DB exceeds this, compact oldest events first |
+
+Compaction runs as a background daemon task during idle periods. It never runs during active runs.
+
+### Retention Windows
+
+| Retention Class | Retained | Compacted |
+| --- | --- | --- |
+| Audit stubs | Indefinitely | Never — audit stubs are the compacted form |
+| Full event payloads | 90 days or 50K events (whichever is more generous) | Replaced by audit stubs |
+| PII payloads | Per GDPR policy (Spec-022) | Crypto-shredded independently of compaction |
+| Reasoning content | 7 days (detailed) / indefinitely (summary) | Detailed reasoning compacted; durable summary retained |
+
+### Compacted Event Format
+
+An audit stub retains:
+
+```
+{
+  id: string,           // original event ID preserved
+  sessionId: SessionId,
+  sequence: number,     // original sequence preserved
+  occurredAt: string,   // original timestamp preserved
+  category: EventCategory,
+  type: string,         // original type preserved
+  actor: string | null,
+  compactedAt: string,  // when compaction occurred
+  retentionClass: 'audit_stub',
+  summary: string       // human-readable one-line summary
+}
+```
+
+The full `payload`, `pii_payload`, `correlationId`, and `causationId` are removed. The `summary` field is generated at compaction time from the original payload.
+
+### Replay Interaction with Compacted Regions
+
+- Replay from compacted regions returns audit stubs, not full events.
+- The replay cursor tracks whether a session has compacted regions.
+- Projection rebuild from compacted regions uses the audit stub summary — this produces a degraded but functional timeline.
+- If a projection requires full event data (e.g., to rebuild approval state), and that data has been compacted, the projection enters `degraded` state and surfaces a warning.
+- Clients can detect compacted regions via the `retentionClass: 'audit_stub'` field and render them as summarized timeline segments.
+- See [Spec-015](015-persistence-recovery-and-replay.md) for full replay and recovery semantics.
+
 ## State And Data Implications
 
 - Canonical events are the source of truth for replay and audit.

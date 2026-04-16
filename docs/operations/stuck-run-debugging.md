@@ -40,6 +40,33 @@ Diagnose runs that appear active but are no longer making observable progress.
 
 - Escalate when repeated stuck runs cluster by driver, node, or specific workspace and cannot be cleared through safe interrupt
 
+## CLI Commands
+
+```bash
+sidekick run inspect <run-id>
+sidekick run list --state running --session <id>
+sidekick run interrupt <run-id> --reason "stuck"
+sidekick run history <run-id>
+sidekick run queue --session <id>
+sidekick run retry <run-id>
+```
+
+## SLOs and Thresholds
+
+| Metric | Target |
+|---|---|
+| Stuck detection threshold | No progress for 60s |
+| Auto-escalation | After 5min stuck, emit health signal |
+| Interrupt delivery latency | < 5s |
+| Stuck-to-terminal resolution | < 10min |
+
+## On-Call Routing
+
+- **Severity 1** (service down): Page on-call engineer immediately. Escalate to team lead after 15min.
+- **Severity 2** (degraded): Alert on-call via Slack. Investigate within 30min.
+- **Severity 3** (warning): Log alert. Review during business hours.
+- **Domain routing**: Stuck run issues route to **platform on-call**.
+
 ## Related Architecture Docs
 
 - [Observability Architecture](../architecture/observability-architecture.md)

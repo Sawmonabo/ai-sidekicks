@@ -43,6 +43,33 @@ Recover replay and audit projections when session history appears incomplete, st
 
 - Escalate when canonical events are missing, replay tooling is not idempotent, or audit surfaces diverge again immediately after rebuild
 
+## CLI Commands
+
+```bash
+sidekick replay status --session <id>
+sidekick replay rebuild --session <id> --force
+sidekick events list --session <id> --after <cursor>
+sidekick events export --session <id> --format json
+sidekick replay lag --session <id>
+sidekick events count --session <id>
+```
+
+## SLOs and Thresholds
+
+| Metric | Target |
+|---|---|
+| Replay projection lag | < 30s behind canonical events |
+| Projection rebuild | < 60s per 10k events |
+| Audit query p99 latency | < 500ms |
+| Event export throughput | > 1k events/s |
+
+## On-Call Routing
+
+- **Severity 1** (service down): Page on-call engineer immediately. Escalate to team lead after 15min.
+- **Severity 2** (degraded): Alert on-call via Slack. Investigate within 30min.
+- **Severity 3** (warning): Log alert. Review during business hours.
+- **Domain routing**: Replay and audit issues route to **backend on-call**.
+
 ## Related Architecture Docs
 
 - [Data Architecture](../architecture/data-architecture.md)

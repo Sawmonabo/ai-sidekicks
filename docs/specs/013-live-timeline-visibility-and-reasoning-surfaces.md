@@ -84,6 +84,34 @@ Run-state subtypes are rendering types that map from underlying run lifecycle ev
 | `run.blocked` | Status row with block indicator | Run enters `waiting_for_approval` or `waiting_for_input` |
 | `run.unblocked` | Status row with unblock indicator | Approval or input resolves the block |
 
+## Context Window and Usage Meters
+
+The session composer area must always display a context-window meter reflecting the current provider conversation state.
+
+- **Fields**:
+  - `usagePercent` (0-100): current context window consumption as a percentage of the provider limit.
+  - `tokenCount`: combined input + output token count for the active conversation.
+  - `maxTokens`: the provider's context window limit for the active model.
+- **Auto-compaction hint**: when `usagePercent` exceeds 80%, the meter must display a warning suggesting conversation compaction. The warning is informational; compaction is not triggered automatically.
+- **Visibility**: the context-window meter is always visible in the session composer area regardless of usage level.
+- **Update mechanism**: the meter is updated via `usage.context_window_update` events from the canonical event stream (see [Spec-006](../specs/006-session-event-taxonomy-and-audit-log.md)).
+
+### Rate-Limit Display
+
+A rate-limit indicator shows the remaining API quota for the current session.
+
+- **Fields**:
+  - `remaining`: number of requests remaining in the current rate-limit window.
+  - `limit`: total requests permitted in the current window.
+  - `resetAt`: ISO-8601 timestamp when the rate-limit window resets (sourced from `RateLimitResponse` headers).
+- **Threshold coloring**:
+  - Green: >50% remaining.
+  - Yellow: 20-50% remaining.
+  - Red: <20% remaining.
+- **Reset timing**: when the indicator is visible, it displays a countdown to the `resetAt` time.
+- **Visibility**: the rate-limit indicator is shown when remaining quota is below 50% of the limit. It is hidden when quota is healthy (above 50%).
+- **Update mechanism**: rate-limit fields are extracted from response headers returned by control-plane API calls. The indicator updates on each response.
+
 ## Interfaces And Contracts
 
 - `TimelineRead` must support bounded windows and cursor-based continuation.

@@ -48,6 +48,35 @@ Recover the participant-local execution daemon, the Local Runtime Daemon, when l
 
 - Escalate when local SQLite remains unavailable, replay cannot rebuild after the repair path, or repeated daemon restarts fail without a stable failure category
 
+## CLI Commands
+
+```bash
+sidekick daemon status
+sidekick daemon restart
+sidekick daemon logs --tail 100
+sidekick daemon config show
+sidekick daemon health
+sidekick daemon stop
+sidekick daemon start
+```
+
+## SLOs and Thresholds
+
+| Metric | Target |
+|---|---|
+| Startup time | < 3s |
+| Event append latency | < 10ms |
+| SQLite WAL checkpoint | < 5s |
+| IPC round-trip latency (p99) | < 50ms |
+| Health check interval | every 10s |
+
+## On-Call Routing
+
+- **Severity 1** (service down): Page on-call engineer immediately. Escalate to team lead after 15min.
+- **Severity 2** (degraded): Alert on-call via Slack. Investigate within 30min.
+- **Severity 3** (warning): Log alert. Review during business hours.
+- **Domain routing**: Daemon issues route to **platform on-call**.
+
 ## Related Architecture Docs
 
 - [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)

@@ -77,6 +77,23 @@ This spec covers in-app attention state, desktop notifications, invite notificat
 - Notification preferences require durable user-level storage.
 - Notification delivery attempts may be ephemeral, but actionable attention state must remain durable until resolved.
 
+## Notification Delivery
+
+### Desktop-to-Desktop Delivery
+
+- **Primary path**: the control plane pushes notifications to connected clients via the existing SSE subscription (tRPC subscription, per [ADR-014](../decisions/014-trpc-control-plane-api.md)).
+- **Desktop shell**: receives SSE events and surfaces them as OS-native notifications using the Electron Notification API.
+- **CLI**: receives SSE events and prints notification content to stderr.
+- **Notification filtering**: only events matching the participant's notification preferences (from the `notification_preferences` table, see [shared Postgres schema](../architecture/schemas/shared-postgres-schema.md)) are delivered. Events that do not match are silently dropped at the control plane before emission.
+
+### Cross-Device Delivery
+
+- **V1**: notifications are delivered only to currently-connected devices via SSE. If no device is connected, notifications are queued in the control plane.
+- **Reconnect catch-up**: on next device connect, queued notifications are delivered as a batch via the SSE catch-up mechanism (replay from last cursor, per [Spec-008](../specs/008-control-plane-relay-and-session-join.md)).
+- **V2 (deferred)**: email digest for extended offline (>24h without connection). Push notifications via FCM/APNs for mobile clients.
+- **Queue retention**: undelivered notifications are retained for 7 days, then expired and permanently deleted.
+- **No webhook delivery in V1**: external integrations use the SSE subscription directly rather than a separate webhook endpoint.
+
 ## Example Flows
 
 - Example: A run reaches `waiting_for_approval` while the app is unfocused. The user receives a desktop notification and the session shows a blocking attention badge until the approval is resolved.

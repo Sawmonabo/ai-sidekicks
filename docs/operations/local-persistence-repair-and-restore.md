@@ -42,6 +42,33 @@ Repair or restore the Local Runtime Daemon SQLite store when daemon startup, rep
 
 - Escalate when integrity check fails and no viable backup exists, restore does not unblock replay, or repaired storage diverges again immediately after restart
 
+## CLI Commands
+
+```bash
+sidekick db status
+sidekick db integrity-check
+sidekick db backup --output <path>
+sidekick db restore --from <path>
+sidekick db wal-status
+sidekick db vacuum
+```
+
+## SLOs and Thresholds
+
+| Metric | Target |
+|---|---|
+| SQLite integrity check | < 30s |
+| Backup restore | < 60s |
+| Projection rebuild after restore | < 120s |
+| WAL checkpoint latency | < 5s |
+
+## On-Call Routing
+
+- **Severity 1** (service down): Page on-call engineer immediately. Escalate to team lead after 15min.
+- **Severity 2** (degraded): Alert on-call via Slack. Investigate within 30min.
+- **Severity 3** (warning): Log alert. Review during business hours.
+- **Domain routing**: Local persistence issues route to **platform on-call**.
+
 ## Related Architecture Docs
 
 - [Data Architecture](../architecture/data-architecture.md)

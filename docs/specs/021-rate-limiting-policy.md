@@ -59,10 +59,10 @@ The local daemon is explicitly excluded. It is trusted by socket reachability an
 
 | Limit | Scope | Threshold |
 | --- | --- | --- |
-| Invite creation | per session per hour | 10 invites/session/hr |
+| Invite creation | per session per hour | 20 invites/session/hr |
 | Invite redemption attempts | per IP per minute | 5 redemption attempts/IP/min |
-| Session creation | per user per hour | 20 sessions/user/hr |
-| Heartbeat | per client per second | 1 heartbeat/client/sec |
+| Session creation | per participant per minute | 10 sessions/participant/min |
+| Heartbeat | per participant per minute | 4 heartbeats/participant/min |
 | Messages | per participant per minute | 60 messages/participant/min |
 | KeyPackage uploads | per user per hour | 5 KeyPackage uploads/user/hr |
 
@@ -77,6 +77,31 @@ The local daemon is explicitly excluded. It is trusted by socket reachability an
 - 3 violations within 5 minutes must trigger a 15-minute block for the offending identity.
 - 10 violations within 1 hour must trigger a 1-hour block for the offending identity and must emit an ops alert.
 - Permanent bans must be manageable exclusively via the admin API. Automated escalation must not permanently ban without human action.
+
+## Rate Limit Values
+
+| Endpoint Group | Limit | Window | Tier |
+| --- | --- | --- | --- |
+| Session create | 10/min | per participant | authenticated |
+| Session join | 30/min | per participant | authenticated |
+| Invite create | 20/hr | per session | authenticated |
+| Invite accept | 10/min | per token-hash | anonymous |
+| Presence heartbeat | 4/min | per participant | authenticated |
+| Event query (read) | 60/min | per participant | authenticated |
+| Event subscribe (SSE) | 5 concurrent | per participant | authenticated |
+| Approval resolve | 30/min | per participant | authenticated |
+| Artifact publish | 20/min | per session | authenticated |
+| Health check | 120/min | per IP | anonymous |
+
+### Rate Limit Tiers
+
+| Tier | Description | Multiplier |
+| --- | --- | --- |
+| anonymous | Unauthenticated requests (invite accept, health check) | 1x (base) |
+| authenticated | Standard authenticated participant | 1x |
+| elevated | Session owner or system service | 3x |
+
+The elevated tier allows burst operations during session setup. All limits use the sliding window algorithm. Responses include the standard `RateLimitResponse` from [Error Contracts](../architecture/contracts/error-contracts.md).
 
 ## Default Behavior
 

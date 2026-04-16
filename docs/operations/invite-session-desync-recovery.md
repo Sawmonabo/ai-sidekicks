@@ -41,6 +41,33 @@ Recover mismatches between invite or membership state and the visible session pa
 
 - Escalate when authoritative membership records are corrupted, participant authorship is inconsistent, or projection rebuild repeatedly reintroduces duplicates
 
+## CLI Commands
+
+```bash
+sidekick invite list --session <id> --state pending
+sidekick invite revoke <invite-id>
+sidekick membership list --session <id>
+sidekick membership repair --session <id>
+sidekick membership diff --session <id>
+sidekick invite reissue <invite-id>
+```
+
+## SLOs and Thresholds
+
+| Metric | Target |
+|---|---|
+| Projection refresh latency | < 5s after membership write |
+| Roster convergence across clients | within 10s |
+| Invite accept-to-visible | < 15s end-to-end |
+| Duplicate participant detection | < 5s |
+
+## On-Call Routing
+
+- **Severity 1** (service down): Page on-call engineer immediately. Escalate to team lead after 15min.
+- **Severity 2** (degraded): Alert on-call via Slack. Investigate within 30min.
+- **Severity 3** (warning): Log alert. Review during business hours.
+- **Domain routing**: Invite and membership desync issues route to **backend on-call**.
+
 ## Related Architecture Docs
 
 - [Component Architecture Control Plane](../architecture/component-architecture-control-plane.md)

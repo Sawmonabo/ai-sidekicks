@@ -41,6 +41,33 @@ Recover RepoMount records, workspace bindings, and worktrees when execution root
 
 - Escalate when repo root canonicalization is inconsistent, repeated worktree creation fails, or local git state is damaged beyond safe automated recovery
 
+## CLI Commands
+
+```bash
+sidekick workspace list --session <id>
+sidekick worktree list --repo <mount-id>
+sidekick worktree retire <worktree-id>
+sidekick workspace reprovision <workspace-id>
+sidekick workspace health --session <id>
+sidekick worktree create --repo <mount-id> --branch <name>
+```
+
+## SLOs and Thresholds
+
+| Metric | Target |
+|---|---|
+| Worktree creation | < 10s |
+| Workspace rebind latency | < 5s |
+| Repo health check | < 3s |
+| Worktree retire-to-clean | < 15s |
+
+## On-Call Routing
+
+- **Severity 1** (service down): Page on-call engineer immediately. Escalate to team lead after 15min.
+- **Severity 2** (degraded): Alert on-call via Slack. Investigate within 30min.
+- **Severity 3** (warning): Log alert. Review during business hours.
+- **Domain routing**: Repo and worktree issues route to **platform on-call**.
+
 ## Related Architecture Docs
 
 - [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)

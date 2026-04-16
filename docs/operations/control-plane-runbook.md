@@ -43,6 +43,34 @@ Recover the shared Collaboration Control Plane when session join, invites, prese
 
 - Escalate when shared Postgres recovery requires failover or restore, or when auth and relay services fail simultaneously
 
+## CLI Commands
+
+```bash
+sidekick cp status
+sidekick cp sessions --state active
+sidekick cp health
+sidekick cp migrate --status
+sidekick cp sessions --state degraded --since 1h
+sidekick cp presence --session <id>
+```
+
+## SLOs and Thresholds
+
+| Metric | Target |
+|---|---|
+| API p99 latency | < 200ms |
+| Availability | 99.9% uptime |
+| Error rate | < 0.1% of requests |
+| Session join latency (p95) | < 500ms |
+| Presence staleness | < 30s from last heartbeat |
+
+## On-Call Routing
+
+- **Severity 1** (service down): Page on-call engineer immediately. Escalate to team lead after 15min.
+- **Severity 2** (degraded): Alert on-call via Slack. Investigate within 30min.
+- **Severity 3** (warning): Log alert. Review during business hours.
+- **Domain routing**: Control-plane issues route to **backend on-call**.
+
 ## Related Architecture Docs
 
 - [Component Architecture Control Plane](../architecture/component-architecture-control-plane.md)

@@ -42,6 +42,34 @@ Diagnose and contain driver-level provider failures that affect run execution or
 
 - Escalate when a driver regression affects multiple nodes, resume failures are systemic, or provider transport semantics have changed without a compatible driver update
 
+## CLI Commands
+
+```bash
+sidekick driver status
+sidekick driver capabilities <driver-name>
+sidekick run retry <run-id>
+sidekick driver health <driver-name>
+sidekick driver logs <driver-name> --tail 50
+sidekick run inspect <run-id> --failure-detail
+```
+
+## SLOs and Thresholds
+
+| Metric | Target |
+|---|---|
+| Provider response timeout | 30s |
+| Retry budget | 3 attempts with exponential backoff (1s, 5s, 15s) |
+| Driver health check interval | every 15s |
+| Capability refresh latency | < 5s |
+| Recovery action timeout | 60s |
+
+## On-Call Routing
+
+- **Severity 1** (service down): Page on-call engineer immediately. Escalate to team lead after 15min.
+- **Severity 2** (degraded): Alert on-call via Slack. Investigate within 30min.
+- **Severity 3** (warning): Log alert. Review during business hours.
+- **Domain routing**: Provider issues route to **integrations on-call**.
+
 ## Related Architecture Docs
 
 - [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
