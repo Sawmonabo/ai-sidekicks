@@ -80,10 +80,6 @@
   },
   "alwaysThinkingEnabled": true,
   "effortLevel": "high",
-  "model": "opus[1m]",
-  "availableModels": [
-    "claude-opus-4-6"
-  ],
   "companyAnnouncements": [
     "Hey Sawbo, I can't fix bugs you haven't written yet. Get coding!",
     "Sawbo, today's mass hallucination brought to you by stochastic parrots everywhere.",
