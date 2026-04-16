@@ -46,12 +46,12 @@ Recover the shared Collaboration Control Plane when session join, invites, prese
 ## CLI Commands
 
 ```bash
-sidekick cp status
-sidekick cp sessions --state active
-sidekick cp health
-sidekick cp migrate --status
-sidekick cp sessions --state degraded --since 1h
-sidekick cp presence --session <id>
+sidekicks cp status
+sidekicks cp sessions --state active
+sidekicks cp health
+sidekicks cp migrate --status
+sidekicks cp sessions --state degraded --since 1h
+sidekicks cp presence --session <id>
 ```
 
 ## SLOs and Thresholds

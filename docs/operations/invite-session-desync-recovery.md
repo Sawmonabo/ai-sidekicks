@@ -44,12 +44,12 @@ Recover mismatches between invite or membership state and the visible session pa
 ## CLI Commands
 
 ```bash
-sidekick invite list --session <id> --state pending
-sidekick invite revoke <invite-id>
-sidekick membership list --session <id>
-sidekick membership repair --session <id>
-sidekick membership diff --session <id>
-sidekick invite reissue <invite-id>
+sidekicks invite list --session <id> --state pending
+sidekicks invite revoke <invite-id>
+sidekicks membership list --session <id>
+sidekicks membership repair --session <id>
+sidekicks membership diff --session <id>
+sidekicks invite reissue <invite-id>
 ```
 
 ## SLOs and Thresholds

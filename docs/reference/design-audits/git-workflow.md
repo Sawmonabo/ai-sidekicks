@@ -23,7 +23,7 @@ The documentation covers a full lifecycle from repository attachment through wor
 - Workspace: `provisioning` -> `ready` -> `busy` -> `stale` -> `archived`
 - Worktree: `creating` -> `ready` -> `dirty` -> `merged` -> `retired` -> `failed`
 
-**Branch strategy.** Spec-010 "Default Behavior" defines the default branch naming pattern as `sidekick/<session-short-id>/<task-slug>`. One dedicated worktree per active task or branch context is the default.
+**Branch strategy.** Spec-010 "Default Behavior" defines the default branch naming pattern as `sidekicks/<session-short-id>/<task-slug>`. One dedicated worktree per active task or branch context is the default.
 
 **Diff attribution.** Spec-011 "Required Behavior" defines two attribution modes: `run_attributed` (when the daemon can correlate a diff to run provenance) and `workspace_fallback` (when precise attribution is unavailable). Attribution quality is a first-class field.
 
@@ -55,7 +55,7 @@ The documentation covers a full lifecycle from repository attachment through wor
 
 ## 3. Git Flow and Diff Attribution Assessment
 
-**Branch strategy: specified.** Default naming (`sidekick/<session-short-id>/<task-slug>`) is locked for v1 per Spec-010 "Open Questions." Branch context persistence (base, head, upstream, worktree association) is required by Spec-011 "Interfaces And Contracts" via `BranchContextRead`. Plan-011 "Data And Storage Changes" adds `branch_contexts` table.
+**Branch strategy: specified.** Default naming (`sidekicks/<session-short-id>/<task-slug>`) is locked for v1 per Spec-010 "Open Questions." Branch context persistence (base, head, upstream, worktree association) is required by Spec-011 "Interfaces And Contracts" via `BranchContextRead`. Plan-011 "Data And Storage Changes" adds `branch_contexts` table.
 
 **Diff attribution per run: specified.** Two quality levels (`run_attributed` and `workspace_fallback`) are defined in Spec-011. Plan-011 targets `diff_artifacts` and `branch_contexts` tables. The spec requires attribution mode to be a first-class field, not inferred UI decoration.
 

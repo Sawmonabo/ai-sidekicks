@@ -51,13 +51,13 @@ Recover the participant-local execution daemon, the Local Runtime Daemon, when l
 ## CLI Commands
 
 ```bash
-sidekick daemon status
-sidekick daemon restart
-sidekick daemon logs --tail 100
-sidekick daemon config show
-sidekick daemon health
-sidekick daemon stop
-sidekick daemon start
+sidekicks daemon status
+sidekicks daemon restart
+sidekicks daemon logs --tail 100
+sidekicks daemon config show
+sidekicks daemon health
+sidekicks daemon stop
+sidekicks daemon start
 ```
 
 ## SLOs and Thresholds

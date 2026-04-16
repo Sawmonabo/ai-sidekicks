@@ -45,12 +45,12 @@ Repair or restore the Local Runtime Daemon SQLite store when daemon startup, rep
 ## CLI Commands
 
 ```bash
-sidekick db status
-sidekick db integrity-check
-sidekick db backup --output <path>
-sidekick db restore --from <path>
-sidekick db wal-status
-sidekick db vacuum
+sidekicks db status
+sidekicks db integrity-check
+sidekicks db backup --output <path>
+sidekicks db restore --from <path>
+sidekicks db wal-status
+sidekicks db vacuum
 ```
 
 ## SLOs and Thresholds

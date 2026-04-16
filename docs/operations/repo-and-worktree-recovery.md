@@ -44,12 +44,12 @@ Recover RepoMount records, workspace bindings, and worktrees when execution root
 ## CLI Commands
 
 ```bash
-sidekick workspace list --session <id>
-sidekick worktree list --repo <mount-id>
-sidekick worktree retire <worktree-id>
-sidekick workspace reprovision <workspace-id>
-sidekick workspace health --session <id>
-sidekick worktree create --repo <mount-id> --branch <name>
+sidekicks workspace list --session <id>
+sidekicks worktree list --repo <mount-id>
+sidekicks worktree retire <worktree-id>
+sidekicks workspace reprovision <workspace-id>
+sidekicks workspace health --session <id>
+sidekicks worktree create --repo <mount-id> --branch <name>
 ```
 
 ## SLOs and Thresholds

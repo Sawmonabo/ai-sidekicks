@@ -43,12 +43,12 @@ Diagnose runs that appear active but are no longer making observable progress.
 ## CLI Commands
 
 ```bash
-sidekick run inspect <run-id>
-sidekick run list --state running --session <id>
-sidekick run interrupt <run-id> --reason "stuck"
-sidekick run history <run-id>
-sidekick run queue --session <id>
-sidekick run retry <run-id>
+sidekicks run inspect <run-id>
+sidekicks run list --state running --session <id>
+sidekicks run interrupt <run-id> --reason "stuck"
+sidekicks run history <run-id>
+sidekicks run queue --session <id>
+sidekicks run retry <run-id>
 ```
 
 ## SLOs and Thresholds

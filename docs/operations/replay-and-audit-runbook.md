@@ -46,12 +46,12 @@ Recover replay and audit projections when session history appears incomplete, st
 ## CLI Commands
 
 ```bash
-sidekick replay status --session <id>
-sidekick replay rebuild --session <id> --force
-sidekick events list --session <id> --after <cursor>
-sidekick events export --session <id> --format json
-sidekick replay lag --session <id>
-sidekick events count --session <id>
+sidekicks replay status --session <id>
+sidekicks replay rebuild --session <id> --force
+sidekicks events list --session <id> --after <cursor>
+sidekicks events export --session <id> --format json
+sidekicks replay lag --session <id>
+sidekicks events count --session <id>
 ```
 
 ## SLOs and Thresholds

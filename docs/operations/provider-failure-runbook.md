@@ -45,12 +45,12 @@ Diagnose and contain driver-level provider failures that affect run execution or
 ## CLI Commands
 
 ```bash
-sidekick driver status
-sidekick driver capabilities <driver-name>
-sidekick run retry <run-id>
-sidekick driver health <driver-name>
-sidekick driver logs <driver-name> --tail 50
-sidekick run inspect <run-id> --failure-detail
+sidekicks driver status
+sidekicks driver capabilities <driver-name>
+sidekicks run retry <run-id>
+sidekicks driver health <driver-name>
+sidekicks driver logs <driver-name> --tail 50
+sidekicks run inspect <run-id> --failure-detail
 ```
 
 ## SLOs and Thresholds

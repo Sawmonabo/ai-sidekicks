@@ -49,7 +49,7 @@ This spec covers `read-only`, `branch`, `worktree`, and `ephemeral clone` execut
 
 ## Default Behavior
 
-- Default branch naming pattern is `sidekick/<session-short-id>/<task-slug>`.
+- Default branch naming pattern is `sidekicks/<session-short-id>/<task-slug>`.
 - Default writable coding runs use one dedicated worktree per active task or branch context.
 - `branch` mode and `ephemeral clone` mode are explicit selections or policy-driven overrides, not hidden defaults.
 - Worktree retirement defaults to preserving metadata and artifacts even when filesystem cleanup later removes the checkout.
