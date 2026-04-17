@@ -4,9 +4,9 @@
       o
      .-.
   .--┴-┴--.
-  | O   O |   AI SIDEKICKS
-  | ||||| |   >> A collaborative agent operating system for software work.
-  '--___--'   >> Humans + agents, one session.
+  | O   O |   >> A collaborative agent operating system for software work.
+  | ||||| |   >> Humans + agents, one session.
+  '--___--'
 ```
 
 AI Sidekicks is a desktop runtime where humans and AI agents share live sessions, co-edit code through proper git flow, and collaborate in real time. Think of it as a shared workspace where you can invite teammates, attach multiple AI agents from different providers, and steer their work as it happens — all inside one unified session.
