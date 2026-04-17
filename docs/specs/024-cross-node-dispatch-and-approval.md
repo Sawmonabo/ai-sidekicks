@@ -79,14 +79,14 @@ A cross-node dispatch request originates on the caller's daemon and is delivered
 - `created_at` — ISO-8601 UTC timestamp.
 - `expires_at` — absolute expiry (default: `created_at + 60s`; max: `created_at + 300s`).
 - `caller_token` — a PASETO v4.public token (per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md)) signed by the caller's participant identity key, carrying claims: `sub = caller_participant_id`, `aud = target_node_id`, `sid = session_id`, `jti = dispatch_id`, `iat = created_at`, `exp = expires_at`, `cnf.jkt = <DPoP thumbprint per RFC 9449>`, and the canonical BLAKE3 hash of the request body in a claim `req_hash = b3:<64-hex>`.
-- `request_body_hash` — BLAKE3 hash of the canonically serialized dispatch body (all fields above except `caller_token` itself); duplicated here for envelope-level verification without token parsing.
+- `request_body_hash` — BLAKE3 hash of the dispatch body (all fields above except `caller_token` itself) after canonicalization per [RFC 8785 JSON Canonical Serialization (JCS)](https://datatracker.ietf.org/doc/rfc8785/); duplicated here for envelope-level verification without token parsing. Implementations must produce byte-identical canonical JSON before hashing so independent daemons compute the same digest.
 
 ### Target-Side Authentication And Cedar Evaluation
 
 Target-side processing must perform these steps strictly in order; failure at any step rejects the dispatch and emits a `dispatch.rejected` event with the reason:
 
 1. **Token verification.** Verify `caller_token` against the caller participant's known long-term public key (retrieved from the session participant roster on the target daemon). Reject on invalid signature, expired token, audience mismatch, or session-id mismatch.
-2. **Body binding.** Compute BLAKE3 over the canonical serialization of the dispatch body and compare against both `request_body_hash` (envelope) and `caller_token.req_hash` (token claim). All three must match.
+2. **Body binding.** Canonicalize the received dispatch body via [RFC 8785 JSON Canonical Serialization (JCS)](https://datatracker.ietf.org/doc/rfc8785/), compute BLAKE3 over the canonical bytes, and compare against both `request_body_hash` (envelope) and `caller_token.req_hash` (token claim). All three must match. Any deviation from RFC 8785 canonical form (field ordering, Unicode normalization, numeric representation) breaks hash agreement and rejects the dispatch.
 3. **Replay guard.** Check `dispatch_id` against the local per-session dispatch-id cache (retained for at least `2 × max(expires_at - created_at)` = 10 minutes). Reject on replay.
 4. **Capability check.** Verify the target node has declared the `capability` named in the dispatch and has any required session-owner approval for dangerous capability classes.
 5. **Cedar evaluation.** Build the Cedar authorization request with:
@@ -263,5 +263,6 @@ Same opening through step 5 execution. Mid-execution (Bob's side), Alice's runti
 - [PASERK Specification](https://github.com/paseto-standard/paserk) — covers key wrapping and key identifiers; does not define token-wrapping types for multi-sig envelopes (Paragon Initiative Enterprises, undated / living document).
 - [PASETO Payload Processing Implementation Guide](https://github.com/paseto-standard/paseto-spec/blob/master/docs/02-Implementation-Guide/01-Payload-Processing.md) — footer usage and cryptographic key identification patterns (Paragon Initiative Enterprises, undated / living document).
 - [RFC 9449 — OAuth 2.0 Demonstrating Proof of Possession (DPoP)](https://datatracker.ietf.org/doc/rfc9449/) — `cnf.jkt` thumbprint semantics reused inside PASETO claims (IETF, September 2023).
+- [RFC 8785 — JSON Canonical Serialization (JCS)](https://datatracker.ietf.org/doc/rfc8785/) — canonicalization algorithm governing `request_body_hash` computation; guarantees byte-identical JSON across implementations before BLAKE3 hashing (IETF, June 2020).
 - [Teleport Just-In-Time Access Requests](https://goteleport.com/docs/identity-governance/access-requests/) — precedent for per-request runtime approval in cross-machine developer tooling (Teleport / Gravitational, undated / living document).
 - [Teleport Audit Events Reference](https://goteleport.com/docs/reference/audit-events/) — `access_request.create` (T5000I) and `access_request.review` (T5002I) event structures, referenced as the pattern for Spec-024's request/approval/execution event split (Teleport / Gravitational, undated / living document).
