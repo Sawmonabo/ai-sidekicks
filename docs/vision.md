@@ -172,6 +172,8 @@ An event-sourced engine where everything important is an event:
 
 This gives replay, auditability, determinism, and better collaboration semantics.
 
+V1 scopes event-sourcing to per-daemon local event logs — each daemon owns its own authoritative log, and cross-participant events are delivered via the relay per [ADR-010](./decisions/010-paseto-webauthn-mls-auth.md) and appended to each receiving daemon's local log. Cross-participant audit is federated across daemons; a shared session event log is a V1.1 candidate gated on MLS group encryption. See [ADR-017: Shared Event-Sourcing Scope](./decisions/017-shared-event-sourcing-scope.md).
+
 ### 6. Provider Drivers
 
 Provider integrations must live behind explicit drivers:

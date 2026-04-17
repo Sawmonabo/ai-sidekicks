@@ -40,6 +40,20 @@ Presence data is ephemeral. It is maintained as a Yjs Awareness CRDT in memory o
 4. Artifact manifests record provenance and visibility; payloads are stored locally or shared according to policy.
 5. Clients read merged projections from local and shared stores.
 
+## Event-Sourcing Scope
+
+Governed by [ADR-017: Shared Event-Sourcing Scope](../decisions/017-shared-event-sourcing-scope.md).
+
+V1 scopes event-sourcing to per-daemon local event logs. Each daemon owns an authoritative `session_events` table in its Local SQLite (Plan-001 owner; see [local-sqlite-schema.md](./schemas/local-sqlite-schema.md)). There is no shared session event log in Postgres; shared-postgres-schema.md contains coordination records only.
+
+**Cross-participant event delivery.** When Alice's daemon emits an event, the event payload is pairwise-encrypted per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md) and distributed via the relay to every session participant. Each receiving daemon validates the sender signature, decrypts the payload, and appends the event to its own local `session_events` table with its own per-session monotonic sequence number. Alice's sequence and Bob's sequence for the same event payload will differ.
+
+**Federated audit model (accepted trade-off).** Cross-participant audit — "what happened in session X across all participants between T1 and T2?" — spans multiple daemons. There is no single Postgres query that returns a canonical cross-participant event list. Audit export collects log exports from every participant's daemon and merges them. This is the explicit accepted cost of V1's zero-knowledge relay.
+
+**Per-daemon sequence semantics (accepted consequence).** Per-daemon `sequence` is monotonic only within that daemon's own log. Daemons may disagree on the ordering of concurrent events that arrived from different peers at overlapping wall-clock times. Consumers that need cross-daemon ordering must use wall-clock timestamps with origin-participant-id tiebreakers, or Hybrid Logical Clocks (BL-076). Raw `sequence` is not a cross-daemon ordering primitive.
+
+**V1.1 upgrade path.** ADR-017 retains shared event log (Option A) as a V1.1 candidate, gated on [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md) MLS promotion gates (audit + interop + 4-week soak). V1.1 would add a `session_events_shared` Postgres table populated in parallel with per-daemon logs; local logs remain authoritative for local replay.
+
 ## Trust Boundaries
 
 - Local SQLite stores machine-scoped execution truth and recovery data.
@@ -97,3 +111,4 @@ PII fields in session events are stored in a separate encrypted column (`pii_pay
 ## Related ADRs
 
 - [SQLite Local State And Postgres Control Plane](../decisions/004-sqlite-local-state-and-postgres-control-plane.md)
+- [Shared Event-Sourcing Scope](../decisions/017-shared-event-sourcing-scope.md) — V1 per-daemon local event logs; shared log deferred to V1.1 gated on ADR-010 MLS promotion gates

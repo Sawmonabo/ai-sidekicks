@@ -76,3 +76,6 @@ venv/
 # Still exclude tmp directories inside tracked trees
 tmp/
 .tmp/
+
+# Session-local Claude scratch space (research synthesis, ephemeral notes)
+.claude/scratch/
