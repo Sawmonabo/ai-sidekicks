@@ -11,7 +11,7 @@
 | **Required ADRs** | [ADR-002](../decisions/002-local-execution-shared-control-plane.md), [ADR-007](../decisions/007-collaboration-trust-and-permission-model.md), [ADR-008](../decisions/008-default-transports-and-relay-boundaries.md), [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md) |
 | **Dependencies** | [Plan-001](./001-shared-session-core.md) (session core), [Plan-002](./002-invite-membership-and-presence.md) (invite/presence) |
 | **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
-| **References** | [Updated Spec-008](../specs/008-control-plane-relay-and-session-join.md) (MLS relay encryption) |
+| **References** | [Spec-008](../specs/008-control-plane-relay-and-session-join.md) (V1 relay encryption: pairwise X25519 + XChaCha20-Poly1305 per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md); MLS deferred to V1.1) |
 
 ## Goal
 
@@ -62,7 +62,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 1. Define authenticated join, presence, reconnect, and relay-negotiation contracts. Include the relay wire format for relay messages.
 2. Implement control-plane join and presence services with membership verification and invite-acceptance handoff.
-3. Implement relay broker flows and reconnect association logic without coupling them to execution authority. Relay encryption uses MLS (RFC 9420) with KeyPackage Ed25519 signature verification and a NaCl fallback encryption path. Relay sharding targets 25 connections per data DO using WebSocket Hibernation for Durable Objects. Relay authentication uses PASETO v4 tokens (per ADR-010).
+3. Implement relay broker flows and reconnect association logic without coupling them to execution authority. V1 relay encryption uses pairwise X25519 ECDH + XChaCha20-Poly1305 (via `@noble/curves` and `@noble/ciphers`) with Ed25519 signature verification over each participant's ephemeral X25519 key bundle per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md). Relay sharding targets 25 connections per data DO using WebSocket Hibernation for Durable Objects. Relay authentication uses PASETO v4 tokens (per ADR-010).
 4. Add desktop and CLI shared-session join surfaces plus typed client SDK integration.
 
 ## Parallelization Notes
@@ -75,7 +75,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - Membership-verified join integration tests
 - Presence re-association tests across reconnect and transport-path changes
 - Relay negotiation tests proving join remains valid even when relay setup degrades
-- MLS encryption round-trip and NaCl fallback path verification tests
+- Pairwise X25519 + XChaCha20-Poly1305 encryption round-trip tests covering ephemeral-key zeroization on session end, HKDF-SHA256 session-key derivation, and Ed25519 signature verification over the ephemeral X25519 key bundle
 
 ## Rollout Order
 

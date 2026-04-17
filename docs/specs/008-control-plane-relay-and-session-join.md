@@ -72,7 +72,7 @@ The control plane uses a dual-transport architecture per [ADR-014](../decisions/
 **WebSocket (JSON-RPC 2.0) handles:**
 
 - Presence sync (heartbeats, cursor position, active/idle state)
-- Relay message exchange (MLS-encrypted collaboration traffic)
+- Relay message exchange (end-to-end encrypted collaboration traffic; V1 pairwise X25519 + XChaCha20-Poly1305, V1.1+ MLS — see §Relay Encryption)
 - Live collaboration events (typing indicators, shared editing state)
 
 ### Client SDK Implementation Guidance
@@ -101,38 +101,51 @@ The control plane uses a dual-transport architecture per [ADR-014](../decisions/
 
 ## Relay Encryption
 
-- Relay encryption uses MLS (RFC 9420) for group E2E encryption. Library: `ts-mls`.
-- Properties: forward secrecy, post-compromise security, O(1) sender operations, built-in replay protection.
-- KeyPackages are distributed via the control plane. Each participant's KeyPackage must be signed with their Ed25519 signing key. Recipients verify the signature against the participant's registered public key before accepting a KeyPackage. A compromised control plane cannot forge valid signatures.
-- Wire format: 4-byte length prefix + 1-byte message type (MLS ciphertext vs relay control) + payload.
-- The relay is zero-knowledge -- it forwards opaque encrypted bytes and cannot read, forge, or replay messages.
+V1 relay encryption is defined by [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md); the properties summarized here are authoritative for V1 implementation.
+
+**V1 cipher suite (pairwise X25519 ECDH + XChaCha20-Poly1305):**
+
+- Libraries: `@noble/curves` (X25519) and `@noble/ciphers` (XChaCha20-Poly1305), both independently audited (Cure53, Kudelski Security).
+- Each participant generates an **ephemeral X25519 key pair per session** (not per message); these are zeroed when the session ends. A long-term **Ed25519 identity key** signs the ephemeral X25519 public key, binding the session key exchange to the participant's control-plane-registered identity.
+- The control plane distributes signed `SessionKeyBundle` entries (`{ephemeral_x25519_public, ed25519_identity_public, signature}`). A compromised control plane cannot forge valid Ed25519 signatures.
+- Session keys are derived via HKDF-SHA256 (RFC 5869) from the ECDH shared secret: `sessionKey = HKDF-SHA256(shared, salt=session_id, info="ai-sidekicks/v1/pairwise", length=32)`.
+- Each message is encrypted per-recipient with a fresh 24-byte random nonce and the recipient's principal identifier as AEAD associated data, yielding per-recipient `(recipient_id, nonce, ciphertext+tag)` envelopes. Per-sender monotonic sequence numbers included in the associated data provide replay protection within a session.
+- Properties: **session-granularity forward secrecy** (ephemeral X25519 discarded at session end), zero-knowledge relay. Post-compromise security and per-message ratcheting are V1.1 properties delivered by the MLS upgrade (see below).
+- **Participant cap:** V1 pairwise sessions are limited to ≤ 10 active participants to bound the N² per-message fan-out cost.
+- Wire format: 4-byte length prefix + 1-byte message type (pairwise ciphertext envelope vs relay control) + payload.
 - Connection authentication: PASETO v4 tokens.
 - WebSocket Hibernation: relay DOs sleep between messages for cost efficiency.
-- Fallback: if MLS libraries prove immature, fall back to X25519 ECDH + XChaCha20-Poly1305 via `@noble/curves` + `@noble/ciphers` with per-sender sequence numbers for replay protection.
+
+**V1.1+ upgrade path (MLS, RFC 9420):**
+
+MLS via an audited implementation (OpenMLS, mls-rs, or a post-audit TypeScript implementation) is the planned V1.1 relay encryption layer, adding post-compromise security and O(log N) group rekeying. MLS ships behind a feature flag and is promoted to the default cipher once all three promotion gates in [ADR-010 §Success Criteria](../decisions/010-paseto-webauthn-mls-auth.md) pass (external audit, interop testing, production soak). The V1 pairwise layer continues to serve sessions whose participants have not yet adopted V1.1. KeyPackage distribution, group-add/remove, and welcome-message flows will be specified in the V1.1 relay spec revision once implementation selection lands.
 
 ## Relay Connection Lifecycle
 
 1. **Connect**: Client establishes a WSS connection to the relay endpoint. The endpoint URL is provided by the control plane via `RelayNegotiationResponse`.
 2. **Authenticate**: Client presents a PASETO v4.public token in the WebSocket handshake (`Sec-WebSocket-Protocol: paseto-v4`). The relay validates the token and establishes the session-scoped channel.
-3. **Group Join**: If an MLS group already exists for the session, the client fetches KeyPackages from the control plane and joins. If no group exists yet, the client creates one and uploads the initial epoch state to the control plane.
-4. **Message Exchange**: All messages are MLS-encrypted. The relay sees only opaque ciphertext and forwards it without inspection.
-5. **Graceful Close**: The client sends an MLS `Remove` proposal for itself, the group state is updated via `Commit`, and the WebSocket connection is closed.
-6. **Reconnect**: The client re-authenticates with a fresh PASETO token, fetches any missed messages via the control plane, and re-joins the MLS group with a new KeyPackage.
+3. **Session Key Establishment**: The client generates an ephemeral X25519 key pair, signs the public key with its long-term Ed25519 identity key, and posts the resulting `SessionKeyBundle` to the control plane. The control plane verifies the Ed25519 signature, publishes the bundle to other session participants, and returns their bundles. The client derives per-pair session keys via HKDF-SHA256 from each X25519 ECDH shared secret and caches them for the session's lifetime.
+4. **Message Exchange**: All message payloads are encrypted per-recipient under the derived pairwise session keys. The relay sees only opaque per-recipient ciphertext envelopes and forwards them without inspection.
+5. **Graceful Close**: The client notifies the control plane that the session has ended, zeroes its ephemeral X25519 secret key and derived session keys in memory, and closes the WebSocket connection. The control plane discards the participant's `SessionKeyBundle`.
+6. **Reconnect**: The client re-authenticates with a fresh PASETO token, fetches any missed messages via the control plane, and (if its ephemeral X25519 material is still resident) resumes using the same session keys. If the client restarted between sessions, it generates a new ephemeral X25519 key pair and re-establishes session keys as in step 3.
 
 ### Message Framing
 
 - **Wire format**: WebSocket binary frames.
-- **Frame structure**: `[4-byte big-endian length][MLS ciphertext]`.
+- **Frame structure**: `[4-byte big-endian length][1-byte message type][payload]`. V1 payload is a pairwise ciphertext envelope (`{recipient_id, nonce, ciphertext+tag}`). V1.1+ payload (MLS) is an MLSCiphertext structure.
 - **Maximum frame size**: 64 KB. Messages larger than 64 KB must be chunked at the application layer before encryption.
 - **Heartbeat**: WebSocket ping/pong at 30-second intervals for keepalive. If no pong is received within 60 seconds, the client must treat the connection as dead and begin reconnect.
 
-### MLS Group Management
+### Session Membership Management (V1 Pairwise)
 
-- **Group creation**: The first participant in a session creates the MLS group and uploads the initial epoch state to the control plane.
-- **Member addition**: The control plane distributes the new member's KeyPackage to existing group members. An existing member issues an MLS `Add` proposal followed by a `Commit`.
-- **Member removal**: Any member can propose `Remove`. The remover issues a `Commit` that re-keys the group, ensuring the removed member loses access to future messages.
-- **Key rotation**: Automatic after every 100 messages or 1 hour, whichever comes first. The committer sends an `Update` proposal followed by a `Commit`.
-- **Epoch advancement**: Each `Commit` advances the epoch. Clients must track epoch state locally and reject messages from prior epochs.
+- **Session creation**: The first participant posts a `SessionKeyBundle` (ephemeral X25519 public key signed by the long-term Ed25519 identity key) to the control plane. No group state is maintained beyond the set of active `SessionKeyBundle` entries.
+- **Member addition**: The joining participant posts its own `SessionKeyBundle`. Existing members fetch the new bundle, verify the Ed25519 signature, and derive a pairwise session key with the new member via X25519 + HKDF-SHA256.
+- **Member removal**: When a participant leaves (or is removed for policy reasons), the control plane discards that participant's `SessionKeyBundle`. Remaining participants drop the per-pair session keys that reference the removed participant. Because there is no shared group key, no rekey is required on removal — future messages are simply not addressed to the removed participant.
+- **Key rotation**: Session keys rotate at session boundary. Long-running sessions that require intra-session key rotation must end and restart the session (acceptable trade-off for V1; V1.1+ MLS adds automatic mid-session rekeying via `Update`/`Commit`).
+
+### Group Management (V1.1+ MLS — Planned)
+
+Once the MLS promotion gates in [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md) pass, V1.1+ relay sessions use MLS group management: a participant-opened group, `Add`/`Remove`/`Update` proposals followed by `Commit` messages that advance the group epoch, and automatic rekey every 100 messages or 1 hour. KeyPackage distribution flows and epoch-tracking requirements will be detailed in the V1.1 relay spec revision.
 
 ### Relay Negotiation
 
@@ -143,29 +156,41 @@ The control plane provides the following via `RelayNegotiationResponse`:
 | Relay endpoint URL | WSS URL for the relay Durable Object |
 | Transport protocol | `websocket` |
 | Connection token | Short-lived PASETO v4.public token (TTL: 300 seconds) |
-| MLS group ID | The session's MLS group identifier |
+| Session ID | The session's identifier, used as HKDF salt during session-key derivation |
+| Cipher suite version | `v1/pairwise` for V1; a V1.1+ client may indicate MLS capability and the control plane returns the negotiated suite |
 
-**KeyPackage requirements:**
+**V1 SessionKeyBundle requirements:**
+
+- Ephemeral X25519 public key (32 bytes)
+- Long-term Ed25519 identity public key (32 bytes)
+- Ed25519 signature over the concatenation of session ID and ephemeral X25519 public key
+- Bundle lifetime: the session's lifetime. Each new session requires a fresh ephemeral X25519 key pair.
+
+Clients must post a fresh `SessionKeyBundle` to the control plane before requesting relay negotiation. Reused ephemeral X25519 public keys across distinct sessions must be rejected by the control plane.
+
+**V1.1+ KeyPackage requirements (planned, ships with MLS upgrade):**
 
 - Signing key: Ed25519
 - Init key: X25519
 - Cipher suite: `MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519`
 
-Clients must upload a fresh KeyPackage to the control plane before requesting relay negotiation. Stale or reused KeyPackages must be rejected by the control plane.
-
 ### Trust Properties
 
 **Threat model**: The relay operator is honest-but-curious. The relay can observe metadata (who connects, when, message sizes) but cannot read message content.
 
-**Trust anchors**: Participant identity is established via control plane authentication. KeyPackage signing keys are bound to participant identity via the control plane. Any KeyPackage with an unrecognized signing key is rejected.
+**Trust anchors**: Participant identity is established via control plane authentication. In V1, each participant's long-term Ed25519 identity key signs its per-session ephemeral X25519 public key; the control plane verifies each signature before distributing the `SessionKeyBundle` to other participants, and any bundle whose Ed25519 signing key is not bound to a registered participant identity is rejected. In V1.1+, the same identity-binding applies to MLS KeyPackages.
 
-**Guarantees:**
+**V1 guarantees:**
 
-- **Forward secrecy** -- past messages become undecryptable after key update (tree-based ratcheting).
+- **Session-granularity forward secrecy** -- past session keys become undecryptable after the session ends, because the ephemeral X25519 material is zeroed. Compromise of the long-term Ed25519 identity key does not reveal past session keys.
+- **Zero-knowledge relay** -- the relay sees only opaque per-recipient ciphertext and cannot read, forge, or replay messages. Per-sender monotonic sequence numbers bound into AEAD associated data provide in-session replay protection.
+
+**V1.1+ additional guarantees (delivered by MLS upgrade):**
+
+- **Per-message forward secrecy** via tree-based key ratcheting.
 - **Post-compromise security** -- a compromised member can be removed and the group re-keyed, restoring confidentiality for future messages.
-- **Zero-knowledge relay** -- the relay sees only opaque ciphertext and cannot read, forge, or replay messages.
 
-**Non-guarantees**: The relay CAN perform traffic analysis (timing, message sizes, connection patterns). Metadata protection is out of scope for V1.
+**Non-guarantees (V1 and V1.1+)**: The relay CAN perform traffic analysis (timing, message sizes, connection patterns). Metadata protection is out of scope for V1. Post-compromise security and per-message forward secrecy are V1.1+ properties, not V1.
 
 ## Default Behavior
 

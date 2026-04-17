@@ -28,7 +28,7 @@ The product combines multiple humans, multiple runtime nodes, and local code exe
 | `Membership Policy Engine` | Determines session roles and participant capabilities. |
 | `Runtime Capability Registry` | Tracks what each runtime node can expose and under what trust envelope. |
 | `Approval Policy Engine` | Evaluates and records approval requests and resolutions. Uses Cedar (CNCF sandbox) with principal-action-resource-context model: V1 compiles YAML policy definitions to Cedar policy sets at build time; V1.1 evaluates Cedar WASM in-process for runtime policy updates without redeployment. |
-| `Transport Security Layer` | Protects local IPC, client-daemon, and relay/control-plane traffic. Local daemon: socket reachability + optional 256-bit session token (mode 0600, rotated per restart). Control plane: HTTPS/TLS. Relay: MLS (RFC 9420) group E2EE via `ts-mls` — forward secrecy, post-compromise security, zero-knowledge relay. KeyPackages distributed via control plane with Ed25519 signature verification to prevent MITM substitution. Fallback: X25519 + XChaCha20-Poly1305 via `@noble/curves` + `@noble/ciphers` if MLS libraries prove immature. |
+| `Transport Security Layer` | Protects local IPC, client-daemon, and relay/control-plane traffic. Local daemon: socket reachability + optional 256-bit session token (mode 0600, rotated per restart). Control plane: HTTPS/TLS. Relay (V1): pairwise X25519 ECDH + XChaCha20-Poly1305 via audited `@noble/curves` and `@noble/ciphers` with ephemeral per-session X25519 keys authenticated by long-term Ed25519 identity keys — session-granularity forward secrecy, zero-knowledge relay (see §Relay Authentication And Encryption and [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md)). Relay (V1.1+ upgrade path): MLS (RFC 9420) via an audited implementation once the promotion gates in ADR-010 pass, adding per-message ratcheting and post-compromise security. |
 | `Audit Layer` | Records grants, denials, escalations, and revocations. |
 
 ## Data Flow
@@ -140,33 +140,65 @@ Encrypted with: XChaCha20-Poly1305 (control plane's symmetric key)
 
 ### Relay Authentication And Encryption (Task 5.3)
 
-**MLS (RFC 9420) group encryption:**
+Per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md), relay E2EE ships as two distinct layers: V1 uses a pairwise X25519 + XChaCha20-Poly1305 construction; V1.1+ introduces MLS (RFC 9420) via an audited implementation once the promotion gates in ADR-010 are met. The V1 subsection below is authoritative for the V1 product horizon and stands on its own.
+
+#### V1 Relay Encryption: Pairwise X25519 + XChaCha20-Poly1305
+
+**Cipher construction:**
 
 | Component | Specification |
 | --- | --- |
-| Protocol | MLS RFC 9420 via `ts-mls` or equivalent WASM-portable implementation |
-| Cipher suite | MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519 |
-| Forward secrecy | Yes — tree-based key ratcheting ensures past messages are undecryptable after key update |
-| Post-compromise security | Yes — compromised member can be removed and group re-keyed |
+| Key agreement | X25519 ECDH via `@noble/curves` (audited: Cure53, Kudelski Security) |
+| Handshake authentication | Long-term Ed25519 identity key signs the ephemeral X25519 public key |
+| Key derivation | HKDF-SHA256 (RFC 5869) from the X25519 shared secret, 32-byte output |
+| AEAD | XChaCha20-Poly1305 (Bernstein 2011) via `@noble/ciphers` (audited), 24-byte random nonce, 16-byte authentication tag |
+| Forward secrecy | Session-granularity: each session generates a fresh X25519 key pair per participant, zeroed at session end. Compromise of a long-term Ed25519 identity key does not reveal past session keys. |
+| Post-compromise security | Not provided in V1. Session keys remain fixed for the session's lifetime. V1.1+ MLS introduces per-message ratcheting and post-compromise security. |
+| Participant cap | ≤ 10 active participants per pairwise session to bound the N² per-message encryption cost |
 
-**KeyPackage format and distribution:**
-1. Each participant generates an Ed25519 signing key pair and an X25519 encryption key pair
-2. KeyPackage bundles: `{protocol_version, cipher_suite, init_key (X25519), credential (Ed25519 public key), signature}`
-3. KeyPackages are uploaded to the control plane and signed with the participant's Ed25519 key
-4. When joining a group, the control plane distributes KeyPackages to existing members
-5. **MITM prevention:** KeyPackages are verified against the participant's known Ed25519 public key (bound to their identity via the control plane). Any KeyPackage with an unknown signing key is rejected.
+**Session key establishment (per participant pair):**
+1. At session start, each participant generates an ephemeral X25519 key pair
+2. Each participant signs its ephemeral X25519 public key with its long-term Ed25519 identity key; the signature and both keys are bound into a `SessionKeyBundle` posted to the control plane
+3. The control plane verifies each `SessionKeyBundle` signature against the participant's registered Ed25519 identity key before distribution
+4. Each participant computes `shared = X25519(mySecret, peerPublic)` for every other participant, then derives `sessionKey = HKDF-SHA256(shared, salt=session_id, info="ai-sidekicks/v1/pairwise", length=32)`
+5. On session end, ephemeral X25519 secret keys are zeroed in memory; the control plane discards the `SessionKeyBundle` entries
+
+**Message encryption:**
+- Sender: for each recipient, encrypt plaintext under that pair's `sessionKey` with a fresh 24-byte random nonce and the recipient's principal identifier as AEAD associated data; relay sees `(recipient_id, nonce, ciphertext+tag)`
+- Relay: never sees plaintext; forwards each per-recipient envelope as opaque ciphertext
+- Recipient: verifies associated data, decrypts, and delivers to local session state
 
 **WebSocket authentication to relay:**
 1. Client connects to relay via WSS
 2. Client presents a PASETO v4.public token in the initial WebSocket handshake (`Sec-WebSocket-Protocol: paseto-v4`)
 3. Relay validates token and establishes the session-scoped channel
-4. All subsequent messages are MLS-encrypted — the relay sees only opaque ciphertext
+4. All subsequent message payloads are encrypted under the pairwise session keys derived above — the relay sees only opaque ciphertext per-recipient envelopes
 
-**Fallback path (if MLS libraries prove immature):**
-- Pairwise X25519 ECDH key agreement via `@noble/curves`
-- XChaCha20-Poly1305 symmetric encryption via `@noble/ciphers`
-- No forward secrecy (accepted trade-off for fallback only)
-- Upgrade path: replace fallback with MLS when library stability is confirmed
+**Concrete API shape (`@noble/curves` v2.x, `@noble/ciphers` v2.x, `@noble/hashes` v2.x):**
+
+```ts
+import { x25519 } from '@noble/curves/ed25519.js';
+import { xchacha20poly1305 } from '@noble/ciphers/chacha.js';
+import { hkdf } from '@noble/hashes/hkdf.js';
+import { sha256 } from '@noble/hashes/sha2.js';
+import { randomBytes } from '@noble/ciphers/utils.js';
+
+const { secretKey, publicKey } = x25519.keygen();            // ephemeral per session
+const shared     = x25519.getSharedSecret(secretKey, peerPublic); // 32 bytes
+const sessionKey = hkdf(sha256, shared, salt, info, 32);    // RFC 5869
+const nonce      = randomBytes(24);                          // 192-bit
+const aead       = xchacha20poly1305(sessionKey, nonce, aad);// 16-byte auth tag
+```
+
+#### V1.1+ Relay Encryption: MLS (Planned Upgrade Path)
+
+V1.1 introduces MLS (RFC 9420) via an audited implementation to provide per-message ratcheting, post-compromise security, and O(log N) group rekeying. The upgrade ships behind a feature flag and negotiates cipher suite at session start; the V1 pairwise layer continues to serve sessions whose participants have not yet adopted V1.1. MLS becomes the default relay cipher once all three promotion gates defined in [ADR-010 §Success Criteria — V1.1 MLS Promotion Gates](../decisions/010-paseto-webauthn-mls-auth.md) pass:
+
+- External third-party security audit of the selected implementation
+- Interoperability tests against at least one other MLS implementation at a pinned commit
+- ≥ 4 weeks of production soak behind the feature flag with < 1% MLS-code-path session error rate
+
+Candidate implementations under evaluation include OpenMLS (Rust, MIT) and mls-rs (Rust, Apache-2.0, AWS Labs). The V1.1 cipher suite target is `MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519`. Full KeyPackage distribution, group-add/remove, and welcome-message flows will be specified in the V1.1 relay spec once implementation selection lands.
 
 ### Permission Matrix (Task 5.4)
 
@@ -217,8 +249,8 @@ Encrypted with: XChaCha20-Poly1305 (control plane's symmetric key)
 | Local daemon (Unix socket) | Unix domain socket | Socket permissions (mode 0700) + optional 256-bit token | None needed (same-machine) | Highest trust — local execution authority |
 | Local daemon (localhost TCP) | TCP on 127.0.0.1 | 256-bit session token required | None needed (loopback only) | High trust — token prevents cross-process access |
 | Client to control plane | HTTPS | PASETO v4.public + DPoP | TLS 1.3 minimum, no TLS 1.2 fallback | Medium trust — authenticated but shared infrastructure |
-| Client to relay | WSS | PASETO v4.public initial auth | MLS E2EE (relay sees only ciphertext) | Low trust — relay is zero-knowledge |
-| Node to node (via relay) | WSS via relay | MLS group membership | MLS E2EE | Low trust — all inter-node traffic is E2EE |
+| Client to relay | WSS | PASETO v4.public initial auth | V1: pairwise X25519 + XChaCha20-Poly1305 (relay sees only per-recipient ciphertext). V1.1+: MLS E2EE once promotion gates pass. | Low trust — relay is zero-knowledge |
+| Node to node (via relay) | WSS via relay | Pairwise Ed25519-signed X25519 key bundle (V1); MLS group membership (V1.1+) | V1: pairwise X25519 + XChaCha20-Poly1305. V1.1+: MLS E2EE. | Low trust — all inter-node traffic is E2EE |
 
 **Certificate requirements:**
 - Control plane: Valid TLS certificate from a public CA. No self-signed certificates in production.
@@ -228,7 +260,7 @@ Encrypted with: XChaCha20-Poly1305 (control plane's symmetric key)
 **Inter-node trust boundaries:**
 - Session membership does NOT imply machine trust. A participant's runtime node cannot execute code on another participant's machine.
 - Runtime node capability declaration is self-asserted. The approval policy engine governs what a node is actually allowed to do.
-- Node-to-node communication is always relay-mediated and MLS-encrypted. Direct node-to-node connections are not supported in V1.
+- Node-to-node communication is always relay-mediated and end-to-end encrypted. V1 uses the pairwise X25519 + XChaCha20-Poly1305 construction defined above; V1.1+ upgrades to MLS once the promotion gates in [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md) pass. Direct node-to-node connections are not supported in V1.
 
 ---
 

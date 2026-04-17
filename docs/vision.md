@@ -277,8 +277,8 @@ If these are modeled cleanly, most major features become straightforward instead
 | --- | --- | --- |
 | PASETO v4 | `paseto-ts` | Internal auth tokens (replaces JWT) |
 | WebAuthn | `@simplewebauthn/server`, `@simplewebauthn/browser` | Primary authentication (desktop) |
-| MLS (RFC 9420) | `ts-mls` | Relay E2E encryption |
-| Crypto primitives (MLS fallback) | `@noble/curves`, `@noble/ciphers` | X25519, XChaCha20-Poly1305 for MLS fallback if `ts-mls` proves immature |
+| Relay E2EE (V1 primary) | `@noble/curves`, `@noble/ciphers`, `@noble/hashes` | Pairwise X25519 ECDH + XChaCha20-Poly1305 AEAD + HKDF-SHA256 for relay-mediated session encryption per [ADR-010](./decisions/010-paseto-webauthn-mls-auth.md). Audited by Cure53 and Kudelski Security. |
+| Relay E2EE (V1.1+ upgrade) | MLS (RFC 9420) via an audited implementation (OpenMLS, mls-rs, or post-audit TypeScript implementation) | Post-compromise security and O(log N) group rekeying, gated on audit / interop / soak criteria in [ADR-010](./decisions/010-paseto-webauthn-mls-auth.md) |
 | Crypto-shredding cipher | Node.js `crypto` (built-in) | AES-256-GCM for per-participant PII column encryption |
 | XState v5 | `xstate` | Internal state machine logic |
 | tRPC v11 | `@trpc/server`, `@trpc/client` | Control plane API framework |

@@ -57,7 +57,7 @@ V1 consists of **16 features**. V1.1 defers **4 features**. Everything else infe
 
 | # | Feature | Deferral Rationale |
 |---|---------|-------------------|
-| 1 | MLS relay E2EE | Pending audit of an MLS implementation (OpenMLS-WASM, Wire core-crypto, or post-audit ts-mls); V1 ships pairwise X25519 + XChaCha20-Poly1305 per ADR-010 (to be rewritten per BL-048). |
+| 1 | MLS relay E2EE | Pending audit of an MLS implementation (OpenMLS, mls-rs, or a post-audit TypeScript implementation); V1 ships pairwise X25519 + XChaCha20-Poly1305 per [ADR-010](./010-paseto-webauthn-mls-auth.md). |
 | 2 | Email invite delivery | V1 uses shareable-link tokens; email delivery adds an external-service dependency with no category-positioning payoff. |
 | 3 | Cross-node shared artifacts | Local artifact publication ships in V1; shared-artifact relay is incremental scope on top of relay core. |
 | 4 | Workflow authoring and execution | V1 queue + approval gates + multi-agent channels cover the structured-execution use case; the workflow authoring engine is incremental scope. |

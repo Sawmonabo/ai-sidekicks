@@ -66,7 +66,7 @@ The local daemon is explicitly excluded. It is trusted by socket reachability an
 | Session creation | per participant per minute | 10 sessions/participant/min |
 | Heartbeat | per participant per minute | 10 heartbeats/participant/min |
 | Messages | per participant per minute | 60 messages/participant/min |
-| KeyPackage uploads | per user per hour | 5 KeyPackage uploads/user/hr |
+| KeyPackage uploads (V1.1+) | per user per hour | 5 KeyPackage uploads/user/hr — applies once MLS ships per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md); no KeyPackage endpoint exists in V1 |
 
 ### Overflow Response
 

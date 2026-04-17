@@ -33,7 +33,7 @@ Features with a governing spec already written that defer implementation past V1
 
 | # | Feature | Deferral Gate | Governing Spec(s) |
 |---|---------|---------------|-------------------|
-| 1 | MLS relay E2EE | Pending audit of an MLS implementation (OpenMLS-WASM, Wire core-crypto, or post-audit ts-mls); V1 ships pairwise X25519 + XChaCha20-Poly1305 per ADR-010 (rewritten under BL-048). | [Spec-008](../specs/008-control-plane-relay-and-session-join.md) |
+| 1 | MLS relay E2EE | Pending audit of an MLS implementation (OpenMLS, mls-rs, or a post-audit TypeScript implementation); V1 ships pairwise X25519 + XChaCha20-Poly1305 per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md). | [Spec-008](../specs/008-control-plane-relay-and-session-join.md) |
 | 2 | Email invite delivery | V1 uses shareable-link tokens; email delivery adds an external-service dependency with no category-positioning payoff for V1. | [Spec-002](../specs/002-invite-membership-and-presence.md) |
 | 3 | Cross-node shared artifacts | Local artifact publication (feature 14) ships in V1; the shared-artifact relay layer is incremental scope on top of relay core. | [Spec-014](../specs/014-artifacts-files-and-attachments.md) (local portion is V1; cross-node is V1.1) |
 | 4 | Workflow authoring and execution | V1 queue + approval gates + multi-agent channels cover the structured-execution use case; the dedicated workflow engine is incremental scope. | [Spec-017](../specs/017-workflow-authoring-and-execution.md) |
