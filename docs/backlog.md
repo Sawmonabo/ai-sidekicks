@@ -42,7 +42,7 @@ Everything downstream depends on these landing first. Without the anchor, subseq
 - Owner: `unassigned`
 - References: [v1-feature-scope.md](./architecture/v1-feature-scope.md), [vision.md](./vision.md), [BL-027 archive entry](./archive/backlog-archive.md) (prior V1 triage provenance)
 - Summary: Write ADR-015 declaring the V1 feature scope. V1 consists of 16 features: Session creation and join, Mid-session invites, Membership roles, Runtime node attach/detach, Single-agent runs, Queue/steer/pause/resume, Approval gates, Repo attach, Worktree execution, Session timeline, Local daemon with CLI, Presence, Event audit log, Artifact publication (local), Desktop GUI, and Multi-Agent Channels. V1.1 defers MLS relay E2EE, email invite delivery, cross-node shared artifacts, and workflow authoring. The ADR text must read as a definition (no "expansion," "rescope," "now includes," or other retrospective/amendment phrasing). Alternatives section must steel-man at least: (a) a narrower V1 deferring Desktop GUI and Multi-Agent Channels, (b) a tiered M1–M4 milestone track. Decision Log references the 2026-04-16 audit (session `2026-04-16-arch-audit-163537`). BL-039 rewrites `v1-feature-scope.md` to cite this ADR.
-- Exit Criteria: `docs/decisions/015-v1-scope-reframing.md` exists with Context, Decision, Alternatives, Consequences, Reversibility, and Decision Log sections; status `accepted`; the ADR body contains no retrospective/amendment phrasing (`rescope`, `expand V1`, `now includes`, `is being added`, `reversal`, `revert`, or similar).
+- Exit Criteria: `docs/decisions/015-v1-feature-scope-definition.md` exists with Context, Decision, Alternatives, Consequences, Reversibility, and Decision Log sections; status `accepted`; the ADR body contains no retrospective/amendment phrasing (`rescope`, `expand V1`, `now includes`, `is being added`, `reversal`, `revert`, or similar).
 
 #### BL-039: Rewrite v1-feature-scope.md against ADR-015
 
@@ -50,7 +50,7 @@ Everything downstream depends on these landing first. Without the anchor, subseq
 - Priority: `P0`
 - Owner: `unassigned`
 - Depends-on: BL-038 (ADR-015 must exist for this doc to cite it authoritatively)
-- References: [v1-feature-scope.md](./architecture/v1-feature-scope.md), [ADR-015](./decisions/015-v1-scope-reframing.md) (from BL-038)
+- References: [v1-feature-scope.md](./architecture/v1-feature-scope.md), [ADR-015](./decisions/015-v1-feature-scope-definition.md) (from BL-038)
 - Summary: Rewrite the triage into a V1 / V1.1 / V2 three-way split consistent with ADR-015. V1 = 16 features per ADR-015. V1.1 = 4 features (MLS relay E2EE, Email invite delivery, Cross-node shared artifacts, Workflow authoring). V2 = out-of-scope for the foreseeable horizon. Update the Spec Coverage and Backlog Coverage Assessment paragraphs to reflect V1 = 16 features. The document must read as the authoritative V1 scope definition; do not use "expansion," "now includes," "moving to V1," or similar amendment phrasing.
 - Exit Criteria: `v1-feature-scope.md` declares V1 = 16 features, V1.1 = 4 features, and V2 = out-of-scope; cites ADR-015 as the governing decision; references Spec-023 (from BL-041) for the Desktop GUI row; internal references to Spec-016 and Spec-017 reflect their V1 / V1.1 status; the document contains no retrospective/amendment phrasing and reads as a greenfield V1 definition to a first-time reader.
 
@@ -215,7 +215,7 @@ Propagate the scope anchor through the plan graph. Without this, implementers hi
 - Priority: `P0`
 - Owner: `unassigned`
 - Depends-on: BL-038 (ADR-015 is the citation target), BL-039 (v1-feature-scope.md is the scope-of-truth for the grep audit)
-- References: `docs/plans/001-shared-session-core.md` through `docs/plans/020-observability-and-failure-recovery.md`, [ADR-015](./decisions/015-v1-scope-reframing.md) (from BL-038)
+- References: `docs/plans/001-shared-session-core.md` through `docs/plans/020-observability-and-failure-recovery.md`, [ADR-015](./decisions/015-v1-feature-scope-definition.md) (from BL-038)
 - Summary: Remove `V1.1 — deferred` / `V2 — deferred` markers on renderer sections across the 19 plans that carry them (Desktop GUI is a V1 feature per ADR-015, so these deferrals no longer apply). Add a single inline note in each plan pointing to ADR-015 for the canonical V1 definition. Resolve any remaining scope inconsistencies between plan bodies and `v1-feature-scope.md`. Plan text must read as a current V1 declaration, not as "this feature is being moved to V1" or "previously V1.1."
 - Exit Criteria: grep for `V1\.1|V2|deferred` across `docs/plans/*.md` returns only intentional references (e.g., features genuinely deferred — MLS, email invite delivery, cross-node artifacts, workflow authoring); all 20 plan bodies cite ADR-015; no plan body contains retrospective/amendment phrasing about scope changes.
 
