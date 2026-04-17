@@ -56,7 +56,7 @@ In scope:
 
 ## Architectural Dependencies
 
-- [ADR-016: Electron Desktop Shell](../decisions/016-electron-desktop-shell.md) — Electron 30+ as the V1 shell; the forward declaration this spec implements
+- [ADR-016: Electron Desktop Shell](../decisions/016-electron-desktop-shell.md) — Electron as the V1 shell and authoritative source for the supported stable-branch floor; the forward declaration this spec implements
 - [ADR-010: PASETO + WebAuthn + MLS Auth](../decisions/010-paseto-webauthn-mls-auth.md) — desktop credential path (WebAuthn PRF); this spec is the shell-side implementation surface
 - [ADR-009: JSON-RPC IPC Wire Format](../decisions/009-json-rpc-ipc-wire-format.md) — wire format the preload bridge forwards
 - [Container Architecture](../architecture/container-architecture.md) — renderer-untrusted trust boundary; canonical monorepo topology
@@ -380,7 +380,7 @@ _This section captures architecture-relevant, non-normative implementation guida
 
 ### Electron Version And Support Window
 
-V1 builds must target **Electron 41.x** (stable release 2026-03-10, Chromium 146.0.7680.65, V8 14.6, Node v24.14.0) at minimum patch version **41.1.0** to pick up the Q1 2026 high-severity CVE batch (CVE-2026-34769, -34770, -34771, -34772, -34774, -34764, all fixed 2026-04-02 in 39.8.5 / 40.8.5 / 41.1.0). Electron 42 is scheduled for 2026-05-05; by V1 GA the target is expected to be Electron 42.x.
+V1 builds must target **Electron 41.x** (stable release 2026-03-10, Chromium 146.0.7680.65, V8 14.6, Node v24.14.0) at minimum patch version **41.1.0** to pick up the Q1 2026 high-severity CVE batch (CVE-2026-34769, -34770, -34771, -34772, -34774, -34764, all fixed 2026-04-02 in 39.8.5 / 40.8.5 / 41.1.0). 41.1.0 also subsumes the earlier [CVE-2026-34776](https://nvd.nist.gov/vuln/detail/CVE-2026-34776) fix ([GHSA-3c8v-cfp5-9885](https://github.com/electron/electron/security/advisories/GHSA-3c8v-cfp5-9885), out-of-bounds heap read in `requestSingleInstanceLock()` second-instance IPC parser on macOS and Linux; shipped in 41.0.0), whose per-branch floors are the source-of-truth in [ADR-016 §Decision](../decisions/016-electron-desktop-shell.md#decision). Electron 42 is scheduled for 2026-05-05; by V1 GA the target is expected to be Electron 42.x.
 
 Electron has **no LTS lane**. The project team supports the latest three stable majors on an 8-week release cadence aligned with Chromium's 4-week stable channel. Support windows as of 2026-04-17:
 

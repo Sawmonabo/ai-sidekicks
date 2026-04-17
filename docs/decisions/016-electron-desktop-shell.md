@@ -13,7 +13,7 @@
 
 The product ships a cross-platform desktop application alongside a CLI as part of V1 (ADR-015 lists Desktop GUI as feature 15). The desktop app renders a React + Vite UI, supervises the local daemon, handles native dialogs, implements auto-update, and hosts the preload bridge that sits between the renderer and the trusted main process (per `container-architecture.md`). ADR-010 names WebAuthn PRF as the primary desktop authentication mechanism for credential wrapping and relay session bootstrap.
 
-The pre-implementation architecture audit (session `2026-04-16-arch-audit-163537`) evaluated Electron 30+, Tauri 2.x, and Wails v3 as desktop shell options. No desktop shell code exists. This ADR is the forward declaration of the V1 shell choice so Plan-023 (desktop shell implementation, from BL-043) can begin against a decided target.
+The pre-implementation architecture audit (session `2026-04-16-arch-audit-163537`) evaluated Electron, Tauri 2.x, and Wails v3 as desktop shell options. No desktop shell code exists. This ADR is the forward declaration of the V1 shell choice so Plan-023 (desktop shell implementation, from BL-043) can begin against a decided target.
 
 ## Problem Statement
 
@@ -25,7 +25,7 @@ ADR-010 commits to WebAuthn PRF as the primary desktop credential path, which tu
 
 ## Decision
 
-Electron 30+ is the V1 desktop shell. The Electron main process supervises the local daemon, handles native dialogs and auto-update via `electron-updater`, and hosts the preload bridge. The renderer runs React + Vite under Chromium on all three target platforms.
+Electron is the V1 desktop shell. The minimum supported Electron stable-branch floor is **≥ 39.8.1 on branch 39, ≥ 40.8.1 on branch 40, and ≥ 41.0.0 on branch 41** — the supported-branches subset of the fixed-version floors published in [GHSA-3c8v-cfp5-9885](https://github.com/electron/electron/security/advisories/GHSA-3c8v-cfp5-9885) for [CVE-2026-34776](https://nvd.nist.gov/vuln/detail/CVE-2026-34776), an out-of-bounds heap read in the `requestSingleInstanceLock()` second-instance IPC message parser on macOS and Linux (Windows is unaffected by this advisory). GHSA-3c8v-cfp5-9885 additionally lists ≥ 38.8.6 on branch 38; branch 38 reached end-of-life on 2026-03-10 per the Electron release timeline (see Assumption 3) and is therefore excluded from the V1-target enumeration — listed here for completeness of the fix-floor record only. Any Electron release on a supported branch must meet or exceed the floor above; any build tooling or supervisor that would select a release below this floor is non-conformant. The Electron main process supervises the local daemon, handles native dialogs and auto-update via `electron-updater`, and hosts the preload bridge. The renderer runs React + Vite under Chromium on all three target platforms.
 
 ### Thesis — Why This Option
 
@@ -44,7 +44,7 @@ The antithesis wins on bundle size and baseline memory but loses on the one cons
 
 ## Alternatives Considered
 
-### Option A: Electron 30+ (Chosen)
+### Option A: Electron (Chosen)
 
 - **What:** Chromium renderer with a Node.js main process, `contextBridge` preload, `electron-updater` for delta-patch auto-update, `electron-builder` for packaging and code-signing.
 - **Steel man:** Uniform Chromium renderer on all three platforms; WebAuthn supported uniformly; mature ecosystem (VS Code, Slack, Discord, Teams, Notion, Figma Desktop); TypeScript-native main process aligns with the rest of the stack; preload-bridge model maps to the renderer-untrusted trust boundary.
@@ -79,9 +79,10 @@ The antithesis wins on bundle size and baseline memory but loses on the one cons
 | # | Assumption | Evidence | What Breaks If Wrong |
 |---|-----------|----------|----------------------|
 | 1 | WebKitGTK's WebAuthn support remains absent through the V1 launch window. | WebKit2GTK as of 2026-04 has no WebAuthn implementation in any public branch; WebKitGTK is downstream of WebKit and typically lags; no upstream signal of WebAuthn landing. | The primary Tauri rejection reason weakens; Tripwire 1 fires for revisit. |
-| 2 | Electron tracks Chromium security patches within 1–2 weeks of Chromium stable releases. | Electron has consistently met this cadence in 2025–2026 release history; Electron 30+ has a documented patch SLA. | We would need to monitor Chromium CVE feeds ourselves, or move to Chromium-Embedded-Framework directly, or swap shells. |
-| 3 | `electron-updater` delta-patch flow is reliable across Windows, macOS, Linux. | Proven at scale by VS Code, 1Password (pre-8), Slack, and others. | Larger update payloads; ongoing bandwidth cost; user-visible update-time regression. |
-| 4 | The ~100 MB baseline bundle is acceptable to our target developer audience. | VS Code (~100 MB) and JetBrains IDEs (500 MB+) receive no material user pushback on install size. Our target user already has similar-footprint tools installed. | Competitive pressure from a lightweight alternative with feature parity; Tripwire 4 fires. |
+| 2 | Electron tracks Chromium security patches within 1–2 weeks of Chromium stable releases. | Electron has consistently met this cadence in 2025–2026 release history; Electron maintains a documented patch SLA across its supported stable branches. | We would need to monitor Chromium CVE feeds ourselves, or move to Chromium-Embedded-Framework directly, or swap shells. |
+| 3 | Electron's supported stable branches continue to publish point releases at or above the §Decision floor (≥ 39.8.1 / 40.8.1 / 41.0.0 on branches 39 / 40 / 41, with branch 38 EOL 2026-03-10 and excluded as a V1 target). | Current stable heads as of 2026-04-17 are 41.2.1, 40.9.1, 39.8.8 — all above the floor per [releases.electronjs.org](https://releases.electronjs.org/). Electron supports the latest three stable branches per [electron/electron release timeline](https://www.electronjs.org/docs/latest/tutorial/electron-timelines). | A supported branch falls out of compliance (EOL before reaching the floor, or a regression ships below it) — that branch is ineligible for distribution and the build supervisor must select a different supported branch or fail closed. |
+| 4 | `electron-updater` delta-patch flow is reliable across Windows, macOS, Linux. | Proven at scale by VS Code, 1Password (pre-8), Slack, and others. | Larger update payloads; ongoing bandwidth cost; user-visible update-time regression. |
+| 5 | The ~100 MB baseline bundle is acceptable to our target developer audience. | VS Code (~100 MB) and JetBrains IDEs (500 MB+) receive no material user pushback on install size. Our target user already has similar-footprint tools installed. | Competitive pressure from a lightweight alternative with feature parity; Tripwire 4 fires. |
 
 ## Failure Mode Analysis
 
@@ -125,7 +126,7 @@ The antithesis wins on bundle size and baseline memory but loses on the one cons
 
 ### Pre-Implementation Checklist
 
-- [x] All unvalidated assumptions have a validation plan (Plan-023 CI covers Assumption 3; ongoing monitoring covers 1, 2, 4)
+- [x] All unvalidated assumptions have a validation plan (Plan-023 CI covers Assumptions 3 and 4; ongoing monitoring covers 1, 2, 5)
 - [x] At least one alternative was seriously considered and steel-manned (Tauri 2.x and Wails v3 both steel-manned)
 - [x] Antithesis was reviewed (written in Thesis/Antithesis/Synthesis triad; reviewed at ADR acceptance)
 - [x] Failure modes have detection mechanisms
@@ -154,6 +155,9 @@ The antithesis wins on bundle size and baseline memory but loses on the one cons
 | Source | Type | Key Finding | URL/Location |
 |--------|------|-------------|--------------|
 | Electron releases | Documentation | Chromium security-patch SLA, preload bridge stability | https://www.electronjs.org/releases |
+| Electron release timeline | Documentation | "Latest three stable branches" support policy; current stable heads 41.2.1 / 40.9.1 / 39.8.8 as of 2026-04-17 | https://www.electronjs.org/docs/latest/tutorial/electron-timelines |
+| GHSA-3c8v-cfp5-9885 | Security advisory (primary) | Fixed-version floors 38.8.6 / 39.8.1 / 40.8.1 / 41.0.0 for the `requestSingleInstanceLock()` second-instance IPC parser out-of-bounds heap read on macOS and Linux (Windows unaffected) | https://github.com/electron/electron/security/advisories/GHSA-3c8v-cfp5-9885 |
+| NVD CVE-2026-34776 | CVE record (primary) | CWE-125 out-of-bounds read; CVSS 3.1 base 5.3 (vector `AV:L/AC:H/PR:L/UI:N/S:U/C:H/I:N/A:L`) | https://nvd.nist.gov/vuln/detail/CVE-2026-34776 |
 | WebKit2GTK changelog | Documentation | No WebAuthn implementation as of 2026-04 | https://webkitgtk.org/ |
 | Tauri v2 documentation | Documentation | OS-native webview strategy; WebKitGTK on Linux | https://v2.tauri.app/ |
 | Wails v3 status page | Documentation | v3 alpha status; no flagship production apps | https://wails.io/ |

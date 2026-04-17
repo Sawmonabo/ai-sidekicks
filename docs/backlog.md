@@ -270,7 +270,7 @@ Product/infra calls that required human judgment. Both items resolved 2026-04-16
 
 #### BL-085: Bump ADR-016 Electron minimum version floor to ≥ 38.8.6 / 39.8.1 / 40.8.1 / 41.0.0 (CVE-2026-34776)
 
-- Status: `todo`
+- Status: `completed`
 - Priority: `P0`
 - Owner: `unassigned`
 - Depends-on: BL-041 (Spec-023 is the implementing spec whose deep-link path this CVE affects); BL-081 (Spec-026 Option 3 hosted-SaaS sign-up is the V1 consumer of the deep-link handler)
