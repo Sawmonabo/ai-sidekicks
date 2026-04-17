@@ -273,4 +273,4 @@ The entire design corpus is written, cross-verified, and internally consistent:
 
 ## License
 
-TBD
+AI Sidekicks is licensed under the [Apache License, Version 2.0](./LICENSE) — see [ADR-020](docs/decisions/020-v1-deployment-model-and-oss-license.md) for the deployment-model and license commitment.

@@ -247,7 +247,7 @@ Product/infra calls that required human judgment. Both items resolved 2026-04-16
 
 #### BL-083: Commit OSS LICENSE file at repo root (MIT vs Apache-2.0)
 
-- Status: `todo`
+- Status: `completed`
 - Priority: `P0`
 - Owner: `unassigned`
 - Depends-on: BL-053 (ADR-020 commits to a permissive OSS license)

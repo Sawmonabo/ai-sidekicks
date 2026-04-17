@@ -1,0 +1,7 @@
+{
+  "name": "ai-sidekicks",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A collaborative agent operating system for software work.",
+  "license": "Apache-2.0"
+}
