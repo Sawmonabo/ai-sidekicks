@@ -35,7 +35,7 @@ This set was generated from the 2026-04-16 pre-implementation architecture audit
 
 Everything downstream depends on these landing first. Without the anchor, subsequent spec/plan edits drift.
 
-#### BL-038: Write ADR-015 V1 Scope Reframing
+#### BL-038: Write ADR-015 V1 Feature Scope Definition
 
 - Status: `todo`
 - Priority: `P0`
