@@ -5,9 +5,10 @@
 | **Status** | `approved` |
 | **NNN** | `016` |
 | **Slug** | `multi-agent-channels-and-orchestration` |
-| **Date** | `2026-04-14` |
+| **Date** | `2026-04-14` (V1-readiness review 2026-04-17) |
 | **Author(s)** | `Codex` |
-| **Depends On** | [Agent Channel And Run Model](../domain/agent-channel-and-run-model.md), [Session Model](../domain/session-model.md), [Shared Session Core](../specs/001-shared-session-core.md), [Queue Steer Pause Resume](../specs/004-queue-steer-pause-resume.md) |
+| **Depends On** | [Agent Channel And Run Model](../domain/agent-channel-and-run-model.md), [Session Model](../domain/session-model.md), [Shared Session Core](../specs/001-shared-session-core.md), [Queue Steer Pause Resume](../specs/004-queue-steer-pause-resume.md), [Runtime Node Attach](../specs/003-runtime-node-attach.md), [Persistence Recovery And Replay](../specs/015-persistence-recovery-and-replay.md) |
+| **V1 Quality Bar** | Declared per [ADR-015](../decisions/015-v1-feature-scope-definition.md); V1-readiness review 2026-04-17 (BL-042) |
 | **Implementation Plan** | [Plan-016: Multi-Agent Channels And Orchestration](../plans/016-multi-agent-channels-and-orchestration.md) |
 
 ## Purpose
@@ -33,6 +34,8 @@ This spec covers channel creation, parent-child run linkage, cross-agent collabo
 
 - [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
 - [Component Architecture Desktop App](../architecture/component-architecture-desktop-app.md)
+- [ADR-011: Generic Intervention Dispatch](../decisions/011-generic-intervention-dispatch.md)
+- [ADR-015: V1 Feature Scope Definition](../decisions/015-v1-feature-scope-definition.md)
 
 ## Required Behavior
 
@@ -98,7 +101,7 @@ This spec covers channel creation, parent-child run linkage, cross-agent collabo
 | Cost limit per session | Max estimated cost across all runs | $10.00 |
 | Turn limit per agent | Max consecutive turns an agent can take | 50 |
 
-Budgets are advisory in V1. The daemon tracks usage and emits `usage_telemetry` events. Hard enforcement (interrupting runs at limit) is V1.1.
+V1 budget enforcement is a hard ceiling, tightened from advisory during the 2026-04-17 V1-readiness review (Spec-016 was authored 2026-04-14, predating ADR-015's V1 quality bar declaration by three days, so the original advisory posture no longer matches the V1 gate). The daemon emits `usage_warning` events at 80% of any budget limit and issues an `interrupt` intervention via the generic dispatcher ([ADR-011](../decisions/011-generic-intervention-dispatch.md)) at 100%. Per-run and per-agent ceilings interrupt the specific offending run with `reason: budget_exhausted`. Session-level cost ceilings interrupt all active runs in the session and block further queue admission until a session admin raises the limit. Conclusion detection (agent determines task is complete) remains V2.
 
 ## Stop Conditions
 
@@ -110,6 +113,16 @@ Budgets are advisory in V1. The daemon tracks usage and emits `usage_telemetry` 
 | Idle timeout | No activity for configurable duration (default: 5 min) | Run interrupted with `idle_timeout` reason |
 
 Conclusion detection (agent determines task is complete) is V2.
+
+## Intervention Propagation
+
+Interventions use the generic dispatcher defined by [Spec-004](../specs/004-queue-steer-pause-resume.md) and [ADR-011](../decisions/011-generic-intervention-dispatch.md). Spec-016 introduces no new intervention verbs.
+
+- A pause, interrupt, or steer applied to a parent run does not auto-cascade to its child runs. Each child run is an independent intervention target.
+- Propagating an intervention across a parent/child subtree requires the caller to submit one intervention per run. This preserves Spec-004's audit property that every run-state transition corresponds to a distinct `InterventionResult` record.
+- A steer applied to a parent run does not inject content into child-run conversations — child runs receive steer content only when the steer is targeted at the child run's id.
+- Child runs accept pause, steer, and interrupt via the same `applyIntervention` surface as standalone runs. Driver capability semantics (Spec-004's steer degradation, for example) apply uniformly.
+- If a future requirement demands subtree-wide propagation (e.g., "cancel this parent and all its descendants atomically"), that is a new ADR rather than a payload field addition, consistent with ADR-011's Type-1 reversibility stance.
 
 ## Moderation Hooks
 
@@ -125,6 +138,21 @@ Conclusion detection (agent determines task is complete) is V2.
 | Max concurrent channels executing | 5 per session |
 | Max queue depth per channel | 25 items (subject to Spec-001 per-session queue depth of 100) |
 | Max pending orchestration runs | 10 per session |
+
+## Partition And Reconnect Behavior
+
+Multi-agent sessions span multiple runtime nodes; partition behavior inherits from [Spec-003](../specs/003-runtime-node-attach.md) and [Spec-015](../specs/015-persistence-recovery-and-replay.md). Spec-016 adds only the turn-arbitration and channel-visibility rules specific to multi-agent semantics.
+
+- When a node loses its relay connection, the control plane marks it `offline` per Spec-003. Session membership is preserved and the node may reconnect under the same node identity.
+- Child runs on the offline node continue locally if the node can still reach its provider; events buffer against the node's local audit log ([Spec-006](../specs/006-session-event-taxonomy-and-audit-log.md)) until relay catch-up via Spec-015 replay.
+- Parent-channel views on connected nodes show the offline node's runs in an `unreachable` state with the last-known state preserved from the event cursor. `unreachable` is a visibility outcome, not a run-state transition — it is distinct from the run-level `paused` state defined in Spec-004.
+- Turn-policy arbitration degrades by policy:
+  - `free-form`: unaffected; remaining agents continue to speak.
+  - `round-robin`: if the next agent is on an unreachable node, arbitration pauses the channel and emits an `arbitration.paused` event (with `arbitration.resumed` on reconnect). Arbitration must not silently skip the unreachable agent (which would let a disconnected participant miss their turn without record) and must not auto-fail-over to free-form without explicit operator action. `arbitration.paused` and `arbitration.resumed` are not yet present in the [Spec-006](../specs/006-session-event-taxonomy-and-audit-log.md) canonical event taxonomy; registering them is tracked as BL-084 and must land before Plan-016 implementation begins.
+  - `request-based`: unaffected on the sender side; responders on unreachable nodes do not consume their turn and the request expires per its normal timeout.
+- On reconnect, buffered events catch up via Spec-015 replay and any arbitration pause resolves automatically once the canonical ordering is restored.
+- Runs that cannot be resumed because provider-session state was lost transition to `failed` per Spec-015; they must not reappear as a new run.
+- The control plane does not enforce cross-node consensus on turn arbitration. Local daemons own their attached runs; cross-node ordering is eventually consistent through the event log. A round-robin channel with two agents on two partitioned node-halves may briefly see divergent local views; Spec-015 replay reconciles on reconnect. Availability over consistency (AP) is the explicit trade-off for the collaboration surface.
 
 ## Implementation Notes
 
@@ -147,6 +175,8 @@ Conclusion detection (agent determines task is complete) is V2.
 ## ADR Triggers
 
 - If orchestration requires a new root model beyond session, create or update `../decisions/001-session-is-the-primary-domain-object.md`.
+- If intervention propagation behavior changes (e.g., auto-cascade to children becomes the default), create or update `../decisions/011-generic-intervention-dispatch.md`.
+- If the V1 Multi-Agent Channels quality bar declared by ADR-015 changes (e.g., scope demotion to V1.1), create or update `../decisions/015-v1-feature-scope-definition.md`.
 
 ## Open Questions
 
@@ -156,7 +186,26 @@ Conclusion detection (agent determines task is complete) is V2.
 - V1 decision: canonical nested delegation depth is one parent-child layer in v1. Deeper delegation requires a future spec revision.
 - V1 decision: concurrent child runs are allowed, but v1 does not impose one product-wide numeric ceiling. Each runtime scheduler must expose bounded active-child admission behavior and explicit limit rejection.
 
+## V1 Readiness Review (BL-042, 2026-04-17)
+
+Review against the V1 quality bar declared by [ADR-015](../decisions/015-v1-feature-scope-definition.md) §Thesis. Findings:
+
+- **Turn policy defaults** — `free-form` is the explicit default. Round-robin and request-based are documented alternatives with deterministic triggers. No "configurable without default" surfaces remain.
+- **Budget policy defaults** — Named defaults for per-run token (100,000), per-session cost ($10.00), and per-agent turn (50) limits. V1 enforcement tightened from advisory to hard ceiling via intervention dispatch during this review. Soft warning at 80%, hard interrupt at 100%.
+- **Stop conditions** — Four named conditions (turn limit, budget exhausted, explicit stop, idle timeout) with deterministic triggers. Idle timeout default is 5 minutes. Conclusion detection deferred to V2.
+- **Moderation / approval hooks** — Pre-turn (category `gate`) and post-turn (informational) hooks integrate with [Plan-012](../plans/012-approvals-permissions-and-trust-boundaries.md) approval categories. Opt-in per channel is the V1 default.
+- **Turn arbitration under partition** — Named partition behavior added: `round-robin` pauses arbitration when the next agent is on an unreachable node with explicit `arbitration.paused` / `arbitration.resumed` events (registration in Spec-006 is a Plan-016 precondition — tracked as BL-084); `free-form` and `request-based` degrade gracefully. Reconnect semantics align with Spec-003 node-identity continuation and Spec-015 replay. Eventually-consistent cross-node ordering is the accepted trade-off (AP over CP for the collaboration surface).
+- **ADR-011 intervention dispatch** — Non-cascading propagation clarified; no new intervention verbs introduced; subtree-wide cascade would be a new ADR, not a Spec-016 edit.
+
+Behavioral change: budget enforcement posture (advisory → hard ceiling). No blocking changes required to ADR-011, Spec-004, Spec-012, or the approval policy surface. Turn arbitration pause is an orchestration-layer visibility state distinct from run-level `paused`, consistent with Spec-004's discrimination of waiting states.
+
 ## References
 
 - [Agent Channel And Run Model](../domain/agent-channel-and-run-model.md)
 - [Shared Session Core](../specs/001-shared-session-core.md)
+- [Queue Steer Pause Resume](../specs/004-queue-steer-pause-resume.md)
+- [Runtime Node Attach](../specs/003-runtime-node-attach.md)
+- [Persistence Recovery And Replay](../specs/015-persistence-recovery-and-replay.md)
+- [Approvals Permissions And Trust Boundaries](../specs/012-approvals-permissions-and-trust-boundaries.md)
+- [ADR-011: Generic Intervention Dispatch](../decisions/011-generic-intervention-dispatch.md)
+- [ADR-015: V1 Feature Scope Definition](../decisions/015-v1-feature-scope-definition.md)
