@@ -37,7 +37,7 @@ Everything downstream depends on these landing first. Without the anchor, subseq
 
 #### BL-038: Write ADR-015 V1 Feature Scope Definition
 
-- Status: `todo`
+- Status: `completed`
 - Priority: `P0`
 - Owner: `unassigned`
 - References: [v1-feature-scope.md](./architecture/v1-feature-scope.md), [vision.md](./vision.md), [BL-027 archive entry](./archive/backlog-archive.md) (prior V1 triage provenance)
@@ -46,7 +46,7 @@ Everything downstream depends on these landing first. Without the anchor, subseq
 
 #### BL-039: Rewrite v1-feature-scope.md against ADR-015
 
-- Status: `todo`
+- Status: `completed`
 - Priority: `P0`
 - Owner: `unassigned`
 - Depends-on: BL-038 (ADR-015 must exist for this doc to cite it authoritatively)
@@ -56,7 +56,7 @@ Everything downstream depends on these landing first. Without the anchor, subseq
 
 #### BL-040: Write ADR-016 Electron Desktop Shell (Tauri/Wails rejected)
 
-- Status: `todo`
+- Status: `completed`
 - Priority: `P0`
 - Owner: `unassigned`
 - References: [vision.md](./vision.md) §Technology Position, [component-architecture-desktop-app.md](./architecture/component-architecture-desktop-app.md), audit artifact `tauri-wails-vs-electron-evaluation.md` (session 2026-04-16-arch-audit-163537)
@@ -227,7 +227,7 @@ Product/infra calls that required human judgment. Both items resolved 2026-04-16
 
 #### BL-052: Write ADR-019 Windows V1 Tier and Rust PTY Sidecar Strategy
 
-- Status: `todo`
+- Status: `completed`
 - Priority: `P0`
 - Owner: `unassigned`
 - Decision (resolved 2026-04-16): Windows ships in V1 as **GA** with a **Rust PTY sidecar** as the primary PTY backend on Windows. node-pty stays as the primary backend on macOS/Linux and as the fallback implementation on Windows. All PTY execution flows through a `PtyHost` interface in `packages/contracts/`. Research brief (evidence-grade, with citations): [bl-052-windows-tier-research.md](./research/bl-052-windows-tier-research.md).
@@ -237,7 +237,7 @@ Product/infra calls that required human judgment. Both items resolved 2026-04-16
 
 #### BL-053: Write ADR-020 V1 Deployment Model (OSS Self-Host + Hosted SaaS) and OSS License
 
-- Status: `todo`
+- Status: `completed`
 - Priority: `P0`
 - Owner: `unassigned`
 - Decision (resolved 2026-04-16): V1 ships both deployment options over a **single codebase** under a **permissive OSS license**. (1) **Free self-hosted (OSS):** users `git clone` / install a distributed binary; the daemon defaults to a project-operated free public relay so first-run collaboration is zero-config; users can override to point the daemon at their own self-hosted relay. Community-supported via GitHub Issues, no SLA. (2) **Hosted SaaS:** the project operates the same codebase as a managed service users sign up for; their daemons point at our hosted control plane. Same feature set in both options (no feature-gating between free and hosted in V1). License starts **MIT or Apache-2.0**; revisit only on concrete competitive re-hosting signal (Sentry BSL/FSL precedent). Research brief: [bl-053-self-hosted-scope-research.md](./research/bl-053-self-hosted-scope-research.md). The brief's Option B recommendation (V1 hosted-only, defer self-host) was superseded after product-framing clarified this is OSS-first / "anyone can git clone and invite a friend," not an enterprise-commercial-SaaS — which eliminates the ongoing vendor-support cost argument that drove the brief's recommendation.

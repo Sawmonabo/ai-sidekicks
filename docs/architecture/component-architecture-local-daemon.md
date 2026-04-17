@@ -31,7 +31,7 @@ The Local Runtime Daemon is the local execution kernel. It must own the parts of
 | `Provider Driver Manager` | Creates, resumes, interrupts, and closes provider-backed execution sessions through normalized driver contracts. |
 | `Git Engine` | Owns repo attach, worktree lifecycle, branch strategy, diff generation, and PR preparation. |
 | `Workspace Service` | Resolves execution roots, file access policy, attachments, and local filesystem context. |
-| `Tool And Terminal Service` | Runs shell commands, terminal sessions, and local tools under policy control. |
+| `Tool And Terminal Service` | Runs shell commands, terminal sessions, and local tools under policy control. All PTY access flows through the `PtyHost` interface in `packages/contracts/` (see §PTY Backend Strategy). |
 | `Local Persistence Layer` | Stores canonical local event log, command receipts, runtime bindings, projections, and recovery metadata. |
 | `Local IPC Gateway` | Exposes stable local control APIs to renderer and CLI clients. |
 | `Control-Plane Adapter` | Produces SessionJoin, RelayNegotiation, PresenceRegister, and SessionResumeAfterReconnect payloads per Spec-008 and forwards canonical events over the control-plane transport. |
@@ -41,6 +41,15 @@ The Local Runtime Daemon is the local execution kernel. It must own the parts of
 - Primary implementation root: `packages/runtime-daemon/`
 - Shared contracts consumed here: `packages/contracts/`
 - Shared client-facing transport types consumed here: `packages/client-sdk/`
+
+## PTY Backend Strategy
+
+Per [ADR-019](../decisions/019-windows-v1-tier-and-pty-sidecar.md), all PTY access flows through a `PtyHost` interface declared in `packages/contracts/` with two implementations under one platform selector:
+
+- **`RustSidecarPtyHost`** — primary on Windows. Spawns a child-process Rust sidecar built on `portable-pty` (wezterm) and communicates via LSP-style Content-Length framing over stdio (JSON control channel + length-prefixed binary data channel). The sidecar's lifecycle is tied to the daemon's session lifecycle; supervisor auto-restarts on crash and surfaces backpressure to the caller.
+- **`NodePtyHost`** — primary on macOS and Linux (in-process, zero per-spawn process overhead). Also ships as the Windows fallback for cases where the sidecar binary is missing, fails to start, or is explicitly disabled for debugging.
+
+The platform selector enforces the defaults above; consumers of `PtyHost` never see the backend choice. Implementation detail for the sidecar (crate structure, IPC protocol, distribution, signing, test matrix) lives in Plan-024 (tracked under BL-078).
 
 ## Data Flow
 
@@ -84,3 +93,4 @@ The Local Runtime Daemon is the local execution kernel. It must own the parts of
 - [Local Execution Shared Control Plane](../decisions/002-local-execution-shared-control-plane.md)
 - [Provider Drivers Use A Normalized Interface](../decisions/005-provider-drivers-use-a-normalized-interface.md)
 - [Worktree First Execution Mode](../decisions/006-worktree-first-execution-mode.md)
+- [Windows V1 Tier and PTY Sidecar Strategy](../decisions/019-windows-v1-tier-and-pty-sidecar.md)

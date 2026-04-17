@@ -290,10 +290,11 @@ If these are modeled cleanly, most major features become straightforward instead
 | OpenTelemetry | `@opentelemetry/*` | Observability (traces + metrics) |
 | Agent Trace | Agent Trace spec | AI code attribution |
 | Rate limiting | `rate-limiter-flexible` | Self-hosted rate limiting |
+| Rust PTY sidecar | `portable-pty` (wezterm) via child-process sidecar | Windows-primary PTY backend per [ADR-019](./decisions/019-windows-v1-tier-and-pty-sidecar.md); `node-pty` remains the macOS/Linux primary and the Windows fallback |
 
 ### Add Later If Needed
 
-- a small Rust sidecar for PTY and process supervision if Node becomes the operational bottleneck
+- a first-party native runtime for deeper control than provider wrappers allow (see §Build Order step 9)
 
 ## Signature Features And Their Correct Implementation
 
