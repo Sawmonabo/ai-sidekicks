@@ -46,6 +46,16 @@ The product combines multiple humans, multiple runtime nodes, and local code exe
 - The relay path must be treated as less trusted than direct local transport.
 - The local daemon remains the enforcement point for local execution permissions.
 
+### Inter-Node Trust Boundaries
+
+When one participant's daemon dispatches work to another participant's daemon, three invariants govern the cross-machine boundary. The full protocol is [Spec-024: Cross-Node Dispatch And Approval](../specs/024-cross-node-dispatch-and-approval.md).
+
+- **Authenticated caller identity.** The target daemon must cryptographically verify the caller's PASETO v4.public token before any policy evaluation. The Cedar `principal` is set from the token's verified `sub` claim only after signature verification succeeds; the `request_body_hash` carried in both envelope and token binds the signature to the exact request body. An unverified participant-id header must never reach Cedar.
+- **Per-dispatch target-owner approval.** No session role grants standing authority to execute on another participant's machine. Every cross-node dispatch requires an explicit approval signed by the target-node owner for that specific request; session-membership, runtime-node attachment, and capability declaration are necessary but not sufficient pre-conditions.
+- **Tamper-evident dual-signed audit.** Each successful dispatch produces an `ApprovalRecord` envelope containing two PASETO v4.public tokens — the caller's request and the approver's decision — bound by a shared `request_body_hash` and by the approver's `bound_jti` claim pointing back to the caller token's `jti`. The envelope is independently verifiable by either party or by an auditor holding both long-term public keys, with no reliance on the relay or the control plane.
+
+These invariants hold regardless of the network path (direct local, relay-mediated, offline-then-synced) and regardless of the caller's session role — a session owner dispatching to a collaborator's node is bound by the same rules as the reverse.
+
 ## Failure Modes
 
 - An invited participant is over-trusted and gains unintended execution capability.

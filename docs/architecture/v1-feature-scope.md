@@ -76,7 +76,7 @@ Cross-cutting V1 specs that multiple V1 features depend on. These are required b
 | [Spec-020](../specs/020-observability-and-failure-recovery.md) | Observability and failure recovery |
 | [Spec-021](../specs/021-rate-limiting-policy.md) | Rate limiting policy (both backends ship in V1) |
 | [Spec-022](../specs/022-data-retention-and-gdpr.md) | Data retention and GDPR compliance |
-| Spec-024 (to be authored per BL-047) | Cross-node dispatch and approval |
+| [Spec-024](../specs/024-cross-node-dispatch-and-approval.md) | Cross-node dispatch and approval |
 | Spec-025 (to be authored per BL-079) | Self-hostable Node relay (V1 self-host deployment) |
 | Spec-026 (to be authored per BL-081) | First-run three-way-choice onboarding |
 
