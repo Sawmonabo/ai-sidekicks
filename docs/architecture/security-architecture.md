@@ -274,6 +274,68 @@ Candidate implementations under evaluation include OpenMLS (Rust, MIT) and mls-r
 
 ---
 
+## Audit Log Integrity
+
+Local per-daemon event logs are tamper-evident. Each `session_events` row is chained to its predecessor via a BLAKE3 hash and carries a per-event Ed25519 signature from the emitting daemon. A Merkle root is computed over contiguous event ranges on a bounded cadence and anchored to the control plane as metadata only — the control plane never stores event payloads, keeping this design consistent with [ADR-017 Shared Event-Sourcing Scope](../decisions/017-shared-event-sourcing-scope.md).
+
+### Hash Chain
+
+Every `session_events` row carries two new columns:
+
+- `prev_hash BLOB(32)`: the `row_hash` of the immediately preceding row in `(session_id, sequence)` order. For `sequence = 0` the value is 32 zero bytes.
+- `row_hash BLOB(32)`: `BLAKE3( prev_hash || canonical_bytes(row) )`, where `canonical_bytes(row)` is the [RFC 8785 JSON Canonicalization Scheme (JCS)](https://datatracker.ietf.org/doc/html/rfc8785) serialization of the event envelope fields (`id`, `sessionId`, `sequence`, `occurredAt`, `category`, `type`, `actor`, `payload`, `correlationId`, `causationId`, `version`). `pii_payload` is **not** included in the canonical form. Events whose `pii_payload` column is non-NULL MUST embed a `pii_ciphertext_digest` field in `payload` (BLAKE3 over the ciphertext bytes of `pii_payload`); the digest is inside the canonical bytes and is never shredded, so [Spec-022](../specs/022-sensitive-data-handling-and-privacy.md) crypto-shredding of `pii_payload` does not break the chain.
+
+BLAKE3 is the same digest used for `request_body_hash` in [Spec-024 Cross-Node Dispatch And Approval](../specs/024-cross-node-dispatch-and-approval.md). JCS is reused identically — two honest implementations producing divergent serializations would produce divergent chains, so a single canonicalization rule is mandatory.
+
+References:
+- [RFC 8785 — JSON Canonicalization Scheme (JCS)](https://datatracker.ietf.org/doc/html/rfc8785)
+- [BLAKE3 specification](https://github.com/BLAKE3-team/BLAKE3-specs/blob/master/blake3.pdf)
+
+### Per-Event Daemon Signature
+
+Every row carries `daemon_signature BLOB(64)` — an Ed25519 signature (per [RFC 8032 §5.1](https://datatracker.ietf.org/doc/html/rfc8032#section-5.1)) over the **same** `canonical_bytes(row)` that feeds `row_hash`. Signing and hashing share one byte string so a verifier never has to re-canonicalize: it hashes and signature-verifies the identical input.
+
+Signing key resolution:
+- Each daemon holds a session-scoped Ed25519 signing keypair. The public key is registered in the **session participant roster** at join time, keyed by `NodeId`. Any audit reader — local replay, peer daemon verifying relayed events, forensic export — resolves the verification key by looking up `NodeId` in the roster snapshot for the anchored range.
+- Key rotation follows [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md). Superseded public keys remain resolvable in the roster with validity windows so historical rows remain verifiable after rotation.
+
+Sensitive events (approvals, policy changes, membership revocations) additionally carry `participant_signature BLOB(64)` — a second Ed25519 signature from the participant's own key. Desktop uses the WebAuthn PRF-derived key ([ADR-010](../decisions/010-paseto-webauthn-mls-auth.md)); CLI uses the at-rest identity key tracked by BL-057. The column is `NULL` for events that do not require participant attestation.
+
+References:
+- [RFC 8032 — Edwards-Curve Digital Signature Algorithm (EdDSA), §5.1 Ed25519](https://datatracker.ietf.org/doc/html/rfc8032#section-5.1)
+
+### Merkle Anchors (Control-Plane Witness)
+
+Anchoring converts per-row tamper-evidence into tamper-evidence against an external timestamp without exposing event content. On the earlier of `ANCHOR_INTERVAL_EVENTS = 1000` events or `ANCHOR_INTERVAL_SECONDS = 300` seconds the emitting daemon:
+
+1. Builds a binary Merkle tree over the `row_hash` values of the range `[last_anchored_sequence + 1, current_sequence]`, using BLAKE3 as the internal node-hash function (concatenated left‖right children).
+2. Signs the Merkle root with its session-scoped Ed25519 key (same key used for `daemon_signature`).
+3. Uploads `(session_id, node_id, start_sequence, end_sequence, merkle_root, root_signature, anchored_at)` to the control plane's `event_log_anchors` table. **Only anchor metadata is uploaded — event payloads stay on the emitting daemon**, preserving ADR-017's rejection of a shared event log.
+
+Precedent: hash-chain plus periodic root anchor is the core transparency-log pattern specified in [RFC 9162 — Certificate Transparency v2](https://datatracker.ietf.org/doc/html/rfc9162). V1 applies the scoped-down local variant (no third-party auditors, no gossip protocol); RFC 9162's leaf-prefix is omitted because this is an internal log, not a CT log.
+
+References:
+- [RFC 9162 — Certificate Transparency v2](https://datatracker.ietf.org/doc/html/rfc9162)
+
+### Verification Rules
+
+A read-side verifier runs three checks, in order. Any failure halts replay and emits `audit_integrity_failed` per [Spec-006 §Integrity Protocol](../specs/006-session-event-taxonomy-and-audit-log.md):
+
+1. **Chain check.** For each row, recompute `BLAKE3(prev_hash || canonical_bytes(row))` and compare to the stored `row_hash`. Mismatch → `audit_integrity_failed { failureKind: 'chain_break' }`.
+2. **Signature check.** Verify `daemon_signature` against `canonical_bytes(row)` using the `NodeId`-resolved Ed25519 public key from the session participant roster. If `participant_signature` is present, verify it with the participant's public key. Failure → `audit_integrity_failed { failureKind: 'signature_invalid' }`.
+3. **Anchor check.** For each anchored range, recompute the Merkle root from locally stored `row_hash` values and compare to `event_log_anchors.merkle_root`; verify `root_signature` against the same `NodeId`-resolved key. Failure → `audit_integrity_failed { failureKind: 'anchor_mismatch' }`.
+
+**Verifier roles.** The three checks above require access to the local event rows on the emitting daemon (or to a peer that has replicated those rows through the relay). A control-plane-only auditor — seeing only `event_log_anchors` metadata, never event payloads, consistent with [ADR-017](../decisions/017-shared-event-sourcing-scope.md) — cannot perform the chain check or per-row signature check. Its available checks reduce to verifying each anchor's `root_signature` against `merkle_root` (using the `NodeId`-resolved Ed25519 key) and confirming anchor-sequence monotonicity per `(session_id, node_id)`.
+
+The `audit_integrity_failed` event is itself a `session_events` row and is therefore covered by the chain/signature/anchor protocol going forward — a tampered integrity failure cannot be silently appended after the fact.
+
+### Schema Migration
+
+- **Local SQLite** — `session_events` gains four columns: `prev_hash BLOB(32) NOT NULL`, `row_hash BLOB(32) NOT NULL`, `daemon_signature BLOB(64) NOT NULL`, `participant_signature BLOB(64)` (NULL-able). See [Local SQLite Schema](schemas/local-sqlite-schema.md) § Session Events.
+- **Shared Postgres** — a new `event_log_anchors` table is added. It stores anchor metadata only (Merkle roots + signatures), never event payloads. See [Shared Postgres Schema](schemas/shared-postgres-schema.md) § Event Log Anchors.
+
+---
+
 ## Related Domain Docs
 
 - [Participant And Membership Model](../domain/participant-and-membership-model.md)

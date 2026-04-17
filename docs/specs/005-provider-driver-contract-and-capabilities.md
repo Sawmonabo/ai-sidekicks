@@ -46,6 +46,7 @@ This spec covers required driver operations, capability advertisement, normalize
 - Drivers must declare capability flags for at least `resume`, `steer`, `interactive_requests`, `mcp`, `tool_calls`, `reasoning_stream`, and `model_mutation`. The `pause` flag is intentionally excluded — no current provider implements native pause. Pause is an orchestration-layer construct (interrupt run, persist state, queue resume) that does not require driver support.
 - Drivers must persist provider-owned resume handles separately from canonical session and run ids.
 - The runtime must treat undeclared capabilities as unsupported.
+- Drivers must declare a per-tool `idempotency_class ∈ {idempotent, compensable, manual_reconcile_only}` alongside their tool list. This metadata controls crash-recovery behavior for in-flight side-effecting tool calls; see [Spec-015 § Idempotency Protocol](015-persistence-recovery-and-replay.md#idempotency-protocol) for recovery semantics.
 
 ## Default Behavior
 
@@ -111,6 +112,24 @@ For each `false` in the matrix:
 - **Claude `steer: false`**: steer intervention degrades to queue + interrupt (see [Spec-004](../specs/004-queue-steer-pause-resume.md) § Driver-Level Steer Mechanics). InterventionResult state = `degraded`.
 
 This matrix is the initial V1 capability set. Drivers self-report capabilities via `getCapabilities()`. The matrix above documents expected V1 values; actual runtime values may differ as drivers evolve.
+
+## Tool Metadata
+
+Driver capabilities describe what the driver supports as a whole (e.g., `resume`, `steer`). Driver **tool metadata** is per-tool information the driver exposes for each tool in its catalog. The canonical V1 per-tool metadata field is `idempotency_class`, used by the daemon's two-phase command-receipt protocol during crash recovery.
+
+### `idempotency_class`
+
+| Value | Meaning |
+| --- | --- |
+| `idempotent` | Safe to re-execute on recovery. Either a pure read (`file.read`, `shell.stat`) or a write whose external target is server-side idempotent (for example `S3 PutObject` with `If-Match`). |
+| `compensable` | Re-executable only when paired with a caller-supplied `dedupe_key` that the remote side honors (for example [Stripe idempotency keys](https://docs.stripe.com/api/idempotent_requests)). The driver is responsible for propagating `dedupe_key` to the remote invocation so that a duplicate request is rejected or treated as a no-op. |
+| `manual_reconcile_only` | **Not** safe to re-execute automatically. Recovery halts the run with a `recovery-needed` condition (see §Fallback Behavior) and requires operator reconciliation. |
+
+If a driver does not declare `idempotency_class` for a tool, the runtime MUST treat it as `manual_reconcile_only`. This is the conservative default and matches the existing rule that the runtime treats undeclared capabilities as unsupported.
+
+### Recovery Consequences
+
+Recovery behavior for a receipt that was in-flight at daemon restart (Phase 2 started, Phase 3 not reached) is dispatched on `idempotency_class`. The runtime emits `tool.replayed` for an `idempotent` or `compensable` re-execution and `tool.skipped_during_recovery` for a halt; full semantics live in [Spec-015 § Idempotency Protocol](015-persistence-recovery-and-replay.md#idempotency-protocol), and event-type registration lives in [Spec-006](006-session-event-taxonomy-and-audit-log.md) (full taxonomy-row integration tracked in [BL-064](../backlog.md)).
 
 ## Example Flows
 

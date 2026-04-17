@@ -38,6 +38,7 @@ interface ErrorResponse {
 | `auth.token_invalid` | Authentication token is malformed or invalid | 401 |
 | `auth.insufficient_scope` | Token does not have the required scope for this operation | 403 |
 | `auth.dpop_mismatch` | DPoP proof does not match the bound token | 401 |
+| `auth.principal_mismatch` | Body-supplied actor field (e.g. `approver`, `inviter`, `initiatorId`) disagrees with the verified PASETO `sub` claim; see [api-payload-contracts §Authenticated Principal And Authorization Model](./api-payload-contracts.md#authenticated-principal-and-authorization-model) | 403 |
 
 ### Run
 

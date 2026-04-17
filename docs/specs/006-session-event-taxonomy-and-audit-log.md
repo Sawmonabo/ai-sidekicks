@@ -259,6 +259,8 @@ Payload shape: `{sessionId, runId, toolName, toolCallId?, channelId?, durationMs
 | `tool.invoked` | A tool has been invoked by the assistant during a run. |
 | `tool.result` | A tool invocation has returned a result. |
 | `tool.error` | A tool invocation has failed with an error. |
+| `tool.replayed` | A tool with `idempotency_class ∈ {idempotent, compensable}` was re-executed during restart recovery. Registered for BL-051; full taxonomy-row integration tracked in [BL-064](../backlog.md). Payload: `{sessionId, runId, commandId, idempotencyClass, dedupeKey?}`. |
+| `tool.skipped_during_recovery` | A tool with `idempotency_class = 'manual_reconcile_only'` was detected in-flight during recovery and was **not** re-executed. Registered for BL-051; full taxonomy-row integration tracked in [BL-064](../backlog.md). Payload: `{sessionId, runId, commandId, reason}`. |
 
 > See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed payload definitions.
 
@@ -294,6 +296,41 @@ Total enumerated event types: **76**
 | `tool_activity` | 3 | `tool.invoked` through `tool.error` |
 | `usage_telemetry` | 3 | `usage.token_count` through `usage.context_window_update` |
 | **Total** | **76** | Exceeds Forge's 69-type baseline |
+
+## Integrity Protocol
+
+Canonical events are append-only AND tamper-evident. Every `session_events` row is chained to its predecessor via a BLAKE3 hash and signed by the emitting daemon with Ed25519 over the **same** canonical byte string. On a bounded cadence, a Merkle root over contiguous ranges is anchored to the control plane's `event_log_anchors` table as metadata only — the control plane does not store event payloads, consistent with [ADR-017 Shared Event-Sourcing Scope](../decisions/017-shared-event-sourcing-scope.md). Full protocol, including schema additions and verification order, is specified in [Security Architecture § Audit Log Integrity](../architecture/security-architecture.md#audit-log-integrity).
+
+### Canonical Serialization Rules
+
+Both the `row_hash` input and the Ed25519-signed bytes are computed over the **same** canonical form. Two honest implementations that diverge here produce incompatible hashes and signatures for identical events, so the rules below are mandatory.
+
+- Canonicalization standard: [RFC 8785 — JSON Canonicalization Scheme (JCS)](https://datatracker.ietf.org/doc/html/rfc8785). Re-used identically from [Spec-024 Cross-Node Dispatch And Approval](024-cross-node-dispatch-and-approval.md) so the daemon runs one canonicalization rule across integrity and dispatch.
+- Hash function: [BLAKE3](https://github.com/BLAKE3-team/BLAKE3-specs/blob/master/blake3.pdf). Same digest used for Spec-024's `request_body_hash`.
+- Signature scheme: [RFC 8032 §5.1 — Ed25519](https://datatracker.ietf.org/doc/html/rfc8032#section-5.1).
+- Fields included, in this order: `id`, `sessionId`, `sequence`, `occurredAt`, `category`, `type`, `actor`, `payload`, `correlationId`, `causationId`, `version`.
+- Fields with value `null` MUST be included (so "present-but-null" and "absent" are distinguishable after serialization).
+- `occurredAt` MUST be RFC 3339 UTC with millisecond precision (`YYYY-MM-DDTHH:MM:SS.sssZ`) so ordering is byte-stable.
+- `pii_payload` is NOT included in the canonical form. Events whose `pii_payload` column is non-NULL MUST embed a `pii_ciphertext_digest` field in `payload` — BLAKE3 over the ciphertext bytes of `pii_payload` — so a [Spec-022](022-sensitive-data-handling-and-privacy.md) crypto-shred of `pii_payload` does not break the hash chain. The digest sits inside the canonical bytes and is never shredded; shredding clears only the ciphertext column.
+
+Verification is the inverse: recompute `canonical_bytes(row)`, recompute `BLAKE3(prev_hash || canonical_bytes(row))`, compare to the stored `row_hash`, and verify `daemon_signature` against the canonical bytes using the `NodeId`-resolved public key from the session participant roster (see Security Architecture § Audit Log Integrity for roster lookup semantics).
+
+### Anchoring Cadence
+
+Anchors fire on the earlier of `ANCHOR_INTERVAL_EVENTS = 1000` events or `ANCHOR_INTERVAL_SECONDS = 300` seconds since the previous anchor. The anchor payload is `(session_id, node_id, start_sequence, end_sequence, merkle_root, root_signature, anchored_at)` — metadata only — uploaded to the control plane's `event_log_anchors` table.
+
+### Integrity Events
+
+Two event types are reserved for integrity outcomes, both with category `session_lifecycle`:
+
+| Type | Description |
+| --- | --- |
+| `audit_integrity_verified` | A read-side verifier has completed hash, signature, and anchor checks successfully over a range. Payload: `{sessionId, startSequence, endSequence, verifierNodeId}`. |
+| `audit_integrity_failed` | A read-side verifier detected a chain break, signature failure, or anchor mismatch. Payload: `{sessionId, sequence, failureKind ∈ ['chain_break','signature_invalid','anchor_mismatch'], detail}`. |
+
+These event types are registered here and will be added to the full taxonomy enumeration tables as part of [BL-064](../backlog.md). `audit_integrity_failed` halts replay at the affected row and must be surfaced to operators.
+
+> See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed payload definitions.
 
 ## Event Compaction Policy
 

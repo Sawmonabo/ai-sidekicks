@@ -69,7 +69,7 @@ V1 (per ADR-015) includes a Desktop GUI feature with no governing spec today, an
 
 #### BL-041: Write Spec-023 Desktop Shell + Renderer
 
-- Status: `todo`
+- Status: `completed`
 - Priority: `P0`
 - Owner: `unassigned`
 - References: [vision.md](./vision.md) §§1–2, [component-architecture-desktop-app.md](./architecture/component-architecture-desktop-app.md), [ADR-009](./decisions/009-json-rpc-ipc-wire-format.md), [Spec-007](./specs/007-local-ipc-and-daemon-control.md), [specs/000-spec-template.md](./specs/000-spec-template.md)
@@ -78,7 +78,7 @@ V1 (per ADR-015) includes a Desktop GUI feature with no governing spec today, an
 
 #### BL-042: V1-Readiness Review of Spec-016 Multi-Agent Channels
 
-- Status: `todo`
+- Status: `completed`
 - Priority: `P0`
 - Owner: `unassigned`
 - References: [Spec-016](./specs/016-multi-agent-channels-and-orchestration.md)
@@ -125,7 +125,7 @@ V1 (per ADR-015) includes a Desktop GUI feature with no governing spec today, an
 
 #### BL-079: Write Spec-025 Self-Hostable Node Relay
 
-- Status: `todo`
+- Status: `completed`
 - Priority: `P0`
 - Owner: `unassigned`
 - Depends-on: BL-053 (ADR-020 must land first; this spec implements the self-host relay it commits to)
@@ -145,7 +145,7 @@ V1 (per ADR-015) includes a Desktop GUI feature with no governing spec today, an
 
 #### BL-081: Write Spec-026 First-Run Three-Way-Choice Onboarding
 
-- Status: `todo`
+- Status: `completed`
 - Priority: `P0`
 - Owner: `unassigned`
 - Depends-on: BL-053 (ADR-020 commits to the three-way choice), BL-041 (Spec-023 Desktop Shell — desktop first-run UI lives here)
@@ -199,7 +199,7 @@ Doc edits that resolve convergent architectural gaps. None require code.
 
 #### BL-049: Add Authenticated-Principal preamble to api-payload-contracts
 
-- Status: `todo`
+- Status: `completed`
 - Priority: `P0`
 - Owner: `unassigned`
 - References: [api-payload-contracts.md](./architecture/contracts/api-payload-contracts.md), [Spec-012 §ApprovalResolve](./specs/012-approvals-permissions-and-trust-boundaries.md), [ADR-011](./decisions/011-generic-intervention-dispatch.md), [Spec-004 applyIntervention](./specs/004-queue-steer-pause-resume.md)
@@ -208,7 +208,7 @@ Doc edits that resolve convergent architectural gaps. None require code.
 
 #### BL-050: Add Audit Log Integrity protocol
 
-- Status: `todo`
+- Status: `completed`
 - Priority: `P0`
 - Owner: `unassigned`
 - References: [security-architecture.md](./architecture/security-architecture.md), [Spec-006](./specs/006-session-event-taxonomy-and-audit-log.md), [local-sqlite-schema.md](./architecture/schemas/local-sqlite-schema.md)
@@ -217,7 +217,7 @@ Doc edits that resolve convergent architectural gaps. None require code.
 
 #### BL-051: Add Idempotency Protocol for Side-Effecting Tool Calls
 
-- Status: `todo`
+- Status: `completed`
 - Priority: `P0`
 - Owner: `unassigned`
 - References: [Spec-006](./specs/006-session-event-taxonomy-and-audit-log.md), [Spec-015](./specs/015-persistence-recovery-and-replay.md), [Spec-005](./specs/005-provider-driver-contract-and-capabilities.md), [local-sqlite-schema.md](./architecture/schemas/local-sqlite-schema.md) (`command_receipts`)
@@ -432,7 +432,7 @@ Each surface below is Plan-001-, Plan-004-, or Plan-006-adjacent.
 - Priority: `P1`
 - Owner: `unassigned`
 - References: [Spec-006](./specs/006-session-event-taxonomy-and-audit-log.md)
-- Summary: Add event types: `runtime_node.registered/online/degraded/offline/revoked`, `runtime_node.capability_declared/capability_updated`, `tool.replayed`, `tool.skipped_during_recovery` (from BL-051), `recovery.attempted/succeeded/failed`, `clock_corrected`, `clock_unsynced` (both from BL-062), `schema.migrated`, `event.compacted`, `event.shredded`, `participant.exported`, `participant.purge_requested`, `participant.purged`, `participant.tokens_revoked_all` (from BL-070), `participant.device_reset`, `key_reuse_detected` (from BL-057), `policy_bundle.loaded`, `policy_bundle.rejected` (from BL-059), `audit_integrity_failed` (from BL-050).
+- Summary: Add event types: `runtime_node.registered/online/degraded/offline/revoked`, `runtime_node.capability_declared/capability_updated`, `tool.replayed`, `tool.skipped_during_recovery` (from BL-051), `recovery.attempted/succeeded/failed`, `clock_corrected`, `clock_unsynced` (both from BL-062), `schema.migrated`, `event.compacted`, `event.shredded`, `participant.exported`, `participant.purge_requested`, `participant.purged`, `participant.tokens_revoked_all` (from BL-070), `participant.device_reset`, `key_reuse_detected` (from BL-057), `policy_bundle.loaded`, `policy_bundle.rejected` (from BL-059), `audit_integrity_verified`, `audit_integrity_failed` (both from BL-050).
 - Exit Criteria: Spec-006 enumeration includes all new types with payload schemas.
 
 #### BL-065: Write ADR-018 Cross-Version Multi-Node Compatibility

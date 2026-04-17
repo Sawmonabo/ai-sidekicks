@@ -186,6 +186,35 @@ CREATE INDEX idx_health_snapshots_recorded ON health_snapshots(recorded_at);
 
 ---
 
+## Event Log Anchors (Plan-006 — Integrity Witness)
+
+The control plane stores Merkle-root **anchors** (metadata only) for per-daemon event logs; it does **not** store event payloads. This is consistent with [ADR-017 Shared Event-Sourcing Scope](../../decisions/017-shared-event-sourcing-scope.md), which rejected a shared event log for V1, and with [Security Architecture § Audit Log Integrity](../security-architecture.md#audit-log-integrity), which defines the tamper-evidence protocol.
+
+```sql
+-- Owner: Plan-006 (BL-050)
+-- Witness-only storage: Merkle roots + signatures for per-daemon local event logs.
+-- Event payloads remain on the emitting daemon's local SQLite; never uploaded here.
+CREATE TABLE event_log_anchors (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  session_id        UUID NOT NULL REFERENCES sessions(id),
+  node_id           TEXT NOT NULL,                    -- emitting daemon's NodeId (roster key)
+  start_sequence    BIGINT NOT NULL,                  -- first session_events.sequence in anchor range
+  end_sequence      BIGINT NOT NULL,                  -- last session_events.sequence in anchor range
+  merkle_root       BYTEA NOT NULL,                   -- 32 bytes; BLAKE3 Merkle root over row_hash leaves
+  root_signature    BYTEA NOT NULL,                   -- 64 bytes; Ed25519 signature over merkle_root by emitting daemon
+  anchored_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CHECK (end_sequence >= start_sequence),
+  UNIQUE(session_id, node_id, start_sequence)
+);
+
+CREATE INDEX idx_event_log_anchors_session ON event_log_anchors(session_id, anchored_at DESC);
+CREATE INDEX idx_event_log_anchors_node ON event_log_anchors(node_id, anchored_at DESC);
+```
+
+**Verification**: an audit reader resolves the emitting daemon's Ed25519 public key from the session participant roster (keyed by `node_id` with validity windows for rotation per [ADR-010](../../decisions/010-paseto-webauthn-mls-auth.md)) and checks `root_signature` against `merkle_root`. Anchor cadence defaults (`ANCHOR_INTERVAL_EVENTS = 1000` events or `ANCHOR_INTERVAL_SECONDS = 300` seconds, whichever first) are set in [Spec-006 § Integrity Protocol](../../specs/006-session-event-taxonomy-and-audit-log.md#integrity-protocol).
+
+---
+
 ## Schema Migrations
 
 ```sql

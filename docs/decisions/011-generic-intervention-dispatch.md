@@ -25,6 +25,8 @@ Early driver interface drafts added `pauseRun` as a capability flag and method, 
 
 Add `applyIntervention(type, payload)` as a generic dispatcher in the driver contract. Remove `pause` from capability flags. Pause becomes an orchestration-layer construct: the daemon interrupts the run, persists checkpoint state, and queues a resume event. Steer and other future interventions follow the same generic dispatch path.
 
+**Authorization.** The Cedar `principal` for any `applyIntervention` call is the verified `sub` claim of the caller's PASETO v4.public access token (a `ParticipantId`). The token's DPoP `cnf.jkt` binding (per [RFC 9449 §3.1](https://datatracker.ietf.org/doc/html/rfc9449#section-3.1)) is a proof-of-possession check — not a second principal identity. Any body-level actor field (for example `initiatorId` on an `InterventionRequest`) is informational/routing metadata only and is never read by Cedar as an authorization input. See [API Payload Contracts §Authenticated Principal And Authorization Model](../architecture/contracts/api-payload-contracts.md#authenticated-principal-and-authorization-model).
+
 ## Alternatives Considered
 
 ### Option A: Generic `applyIntervention` Dispatcher (Chosen)

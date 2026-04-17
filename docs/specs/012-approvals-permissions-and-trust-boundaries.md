@@ -79,7 +79,7 @@ This spec covers approval requests, approval scopes, remembered grants, and the 
 ## Interfaces And Contracts
 
 - `ApprovalRequestCreate` must include category, scope, requested resource, and expiry policy.
-- `ApprovalResolve` must include approver, decision, optional remembered-scope request, and audit metadata.
+- `ApprovalResolve` must include approver, decision, optional remembered-scope request, and audit metadata. The Cedar `principal` for authorization is the verified PASETO `sub` of the caller; the `approver` field in the request body is informational/routing metadata and is rejected when it disagrees with the verified `sub`. See [API Payload Contracts §Authenticated Principal And Authorization Model](../architecture/contracts/api-payload-contracts.md#authenticated-principal-and-authorization-model).
 - `PermissionCheck` must run inside the local daemon before executing a sensitive local action.
 - `ApprovalProjectionRead` must surface pending and historical approval state to participants authorized to see it.
 - See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.

@@ -17,20 +17,25 @@ PRAGMA busy_timeout = 5000;
 ## Session Events (Plan-001, extended by Plans 006, 015)
 
 ```sql
--- Owner: Plan-001 | Extended by: Plan-006 (event taxonomy), Plan-015 (replay cursors)
+-- Owner: Plan-001 | Extended by: Plan-006 (event taxonomy + integrity protocol), Plan-015 (replay cursors)
 CREATE TABLE session_events (
-  id              TEXT PRIMARY KEY,           -- ULID or UUID
-  session_id      TEXT NOT NULL,
-  sequence        INTEGER NOT NULL,           -- monotonic per session
-  occurred_at     TEXT NOT NULL,              -- ISO 8601 timestamp
-  category        TEXT NOT NULL,              -- e.g. 'run_lifecycle', 'assistant_output', 'tool_activity'
-  type            TEXT NOT NULL,              -- specific event type within category
-  actor           TEXT,                       -- participant_id or agent_id or NULL for system
-  payload         TEXT NOT NULL DEFAULT '{}', -- JSON event payload
-  pii_payload     BLOB,                       -- encrypted per-participant AES-256-GCM (GDPR)
-  correlation_id  TEXT,                       -- links related events
-  causation_id    TEXT,                       -- parent event that caused this one
-  version         INTEGER NOT NULL DEFAULT 1, -- schema version for payload evolution
+  id                     TEXT PRIMARY KEY,           -- ULID or UUID
+  session_id             TEXT NOT NULL,
+  sequence               INTEGER NOT NULL,           -- monotonic per session
+  occurred_at            TEXT NOT NULL,              -- RFC 3339 UTC with ms precision
+  category               TEXT NOT NULL,              -- e.g. 'run_lifecycle', 'assistant_output', 'tool_activity'
+  type                   TEXT NOT NULL,              -- specific event type within category
+  actor                  TEXT,                       -- participant_id or agent_id or NULL for system
+  payload                TEXT NOT NULL DEFAULT '{}', -- JSON event payload
+  pii_payload            BLOB,                       -- encrypted per-participant AES-256-GCM (GDPR); NOT hashed/signed
+  correlation_id         TEXT,                       -- links related events
+  causation_id           TEXT,                       -- parent event that caused this one
+  version                INTEGER NOT NULL DEFAULT 1, -- schema version for payload evolution
+  -- Integrity protocol (BL-050): hash-chain + per-event daemon signature
+  prev_hash              BLOB NOT NULL,              -- 32 bytes; row_hash of previous row (zero-filled at sequence=0)
+  row_hash               BLOB NOT NULL,              -- 32 bytes; BLAKE3(prev_hash || JCS-canonical envelope bytes)
+  daemon_signature       BLOB NOT NULL,              -- 64 bytes; Ed25519 over same canonical bytes
+  participant_signature  BLOB,                       -- 64 bytes; Ed25519 from participant key; NULL for non-sensitive events
   UNIQUE(session_id, sequence)
 );
 
@@ -38,6 +43,8 @@ CREATE INDEX idx_session_events_session_seq ON session_events(session_id, sequen
 CREATE INDEX idx_session_events_type ON session_events(session_id, type);
 CREATE INDEX idx_session_events_correlation ON session_events(correlation_id) WHERE correlation_id IS NOT NULL;
 ```
+
+**Integrity protocol.** `prev_hash`, `row_hash`, `daemon_signature` are required; `participant_signature` is NULL-able and present only for sensitive events (approvals, policy changes, membership revocations). The canonical serialization (RFC 8785 JCS) and verification order are specified in [Security Architecture § Audit Log Integrity](../security-architecture.md#audit-log-integrity) and [Spec-006 § Integrity Protocol](../../specs/006-session-event-taxonomy-and-audit-log.md#integrity-protocol).
 
 ## Session Snapshots (Plan-001, extended by Plans 006, 015)
 
@@ -95,17 +102,26 @@ CREATE TABLE interventions (
 CREATE INDEX idx_interventions_run ON interventions(target_run_id);
 CREATE INDEX idx_interventions_state ON interventions(state) WHERE state IN ('requested', 'accepted');
 
--- Owner: Plan-004 | Extended by: Plan-015 (recovery)
+-- Owner: Plan-004 | Extended by: Plan-015 (recovery + two-phase idempotency protocol, BL-051)
 CREATE TABLE command_receipts (
-  id              TEXT PRIMARY KEY,
-  command_id      TEXT NOT NULL UNIQUE,       -- idempotency key
-  run_id          TEXT,
-  status          TEXT NOT NULL
-                  CHECK(status IN ('accepted', 'rejected', 'completed', 'failed')),
-  created_at      TEXT NOT NULL
+  id                TEXT PRIMARY KEY,
+  command_id        TEXT NOT NULL UNIQUE,         -- idempotency key (client-supplied)
+  run_id            TEXT,
+  status            TEXT NOT NULL
+                    CHECK(status IN ('accepted', 'rejected', 'completed', 'failed')),
+  -- BL-051 two-phase commit columns
+  idempotency_class TEXT NOT NULL
+                    CHECK(idempotency_class IN ('idempotent', 'compensable', 'manual_reconcile_only')),
+  dedupe_key        TEXT,                         -- propagated to remote side for 'compensable' tools
+  started_at        TEXT,                         -- set by Phase 2 optimistic CAS; NULL until claimed
+  completed_at      TEXT,                         -- set by Phase 3; NULL until terminal-status
+  created_at        TEXT NOT NULL
 );
 
 CREATE INDEX idx_command_receipts_run ON command_receipts(run_id) WHERE run_id IS NOT NULL;
+-- Recovery sweep index: find in-flight receipts needing idempotency-class-based handling
+CREATE INDEX idx_command_receipts_inflight ON command_receipts(run_id)
+  WHERE started_at IS NOT NULL AND completed_at IS NULL;
 ```
 
 ---
