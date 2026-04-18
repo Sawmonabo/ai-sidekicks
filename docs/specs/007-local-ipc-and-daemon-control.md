@@ -12,7 +12,7 @@
 
 ## Purpose
 
-Define the typed local control surface used by the desktop renderer and CLI to communicate with the local daemon.
+Define the typed local control surface used by the Desktop Shell and CLI to communicate with the local daemon. Renderer-originated traffic reaches the daemon through the Desktop Shell via the preload bridge per [Spec-023 §Trust Stance](./023-desktop-shell-and-renderer.md) — the renderer is not a direct daemon client.
 
 ## Scope
 
@@ -37,7 +37,7 @@ This spec covers transport choice, version negotiation, request and stream seman
 
 ## Required Behavior
 
-- The desktop renderer and CLI must use one shared typed client SDK.
+- The Desktop Shell and CLI must use one shared typed client SDK. Renderer-originated traffic is brokered by the Shell via the preload bridge per [Spec-023 §Trust Stance](./023-desktop-shell-and-renderer.md) and reaches the daemon as Shell-originated JSON-RPC traffic.
 - The CLI must be treated as a first-class local client and the first delivery track for the typed daemon contract.
 - The local daemon must expose a typed request-response and subscription contract for session, run, repo, artifact, settings, and daemon lifecycle operations.
 - The default local IPC transport must be OS-local:
@@ -60,7 +60,7 @@ This spec covers transport choice, version negotiation, request and stream seman
 - Desktop app default is auto-connect to the local daemon through OS-local IPC.
 - If the daemon is not running, the desktop shell may auto-start it before the renderer gives up.
 - CLI default is connect to the same typed local daemon contract rather than reimplement daemon logic inline.
-- The first implementation release of the local control surface is CLI-first, with desktop shell and renderer consuming the same stabilized contract afterward.
+- The first implementation release of the local control surface is CLI-first, with the Desktop Shell consuming the same stabilized contract afterward. The renderer consumes the preload bridge API per [Spec-023 §Trust Stance](./023-desktop-shell-and-renderer.md), not this daemon contract directly.
 
 ## Fallback Behavior
 
@@ -73,7 +73,7 @@ This spec covers transport choice, version negotiation, request and stream seman
 - `DaemonHello` and `DaemonHelloAck` must perform version negotiation.
 - `DaemonStatusRead`, `DaemonStart`, `DaemonStop`, and `DaemonRestart` must exist for supervised environments.
 - `LocalSubscription` must support replay-capable event streams where appropriate.
-- The typed client SDK must expose the same semantic surface to renderer and CLI callers.
+- The typed client SDK must expose the same semantic surface to Desktop Shell and CLI callers. The renderer consumes a narrower preload bridge API per [Spec-023 §Trust Stance](./023-desktop-shell-and-renderer.md), not this SDK directly.
 - See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
 - See [Error Contracts](../architecture/contracts/error-contracts.md) for error response schemas and error codes.
 
@@ -85,7 +85,7 @@ This spec covers transport choice, version negotiation, request and stream seman
 
 ## Example Flows
 
-- `Example: The desktop renderer starts while the daemon is not running. The shell launches the daemon, negotiates protocol version, and then the renderer attaches through the typed client SDK.`
+- `Example: The desktop renderer starts while the daemon is not running. The shell launches the daemon, negotiates protocol version via the typed client SDK, and then exposes renderer-accessible capabilities via the preload bridge per Spec-023 §Trust Stance; the renderer is not a direct daemon client.`
 - `Example: The CLI requests a run-state subscription through the same client SDK and receives canonical updates without duplicating daemon logic.`
 
 ## Implementation Notes
@@ -103,7 +103,7 @@ This spec covers transport choice, version negotiation, request and stream seman
 
 ## Acceptance Criteria
 
-- [ ] Renderer and CLI share one typed daemon client surface.
+- [ ] Desktop Shell and CLI share one typed daemon client surface; the renderer consumes the preload bridge API per Spec-023 §Trust Stance, not this daemon contract directly.
 - [ ] The daemon can be started, pinged, and subscribed to through local IPC.
 - [ ] Version mismatch blocks unsafe mutation while keeping status visibility available.
 

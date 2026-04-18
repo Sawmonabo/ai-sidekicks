@@ -47,7 +47,7 @@ Ship the Spec-023 Electron desktop shell and React + Vite renderer as a three-pr
 - **MSIX (Windows Store) distribution.** V1 ships NSIS + MSI direct-download; MSIX is a V1.1 re-evaluation per Spec-023 §Open Questions.
 - **Reproducible builds.** Not claimed by V1 per Spec-023 §Open Questions; neither `electron-builder` nor `electron-vite` guarantees bit-reproducibility.
 - **Snap / Flatpak packaging.** V1 ships `.AppImage` + `.deb` + `.rpm`; Snap / Flatpak is a user-demand-gated follow-up per Spec-023 §Open Questions.
-- **Reconciling `security-architecture.md` §Local Daemon Authentication.** The renderer-untrusted stance reconciliation is BL-056 scope; Plan-023 consumes the stance declared in Spec-023 §Trust Stance but does not edit `security-architecture.md`.
+- **Reconciling `security-architecture.md` §Local Daemon Authentication.** Reconciled under BL-056 on 2026-04-18 before Plan-023 execution. Plan-023 consumes the renderer-untrusted stance as declared in Spec-023 §Trust Stance and now consistent in `security-architecture.md` §Local Daemon Authentication; no further alignment work is required in this plan.
 
 ## Preconditions
 

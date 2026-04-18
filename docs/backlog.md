@@ -342,7 +342,7 @@ Each surface below will be touched in the first implementation sprint.
 
 #### BL-056: Resolve Desktop Renderer trust stance
 
-- Status: `todo`
+- Status: `completed`
 - Priority: `P1`
 - Owner: `unassigned`
 - References: [container-architecture.md:71](./architecture/container-architecture.md), [security-architecture.md](./architecture/security-architecture.md) §Local Daemon Authentication, [Spec-023](./specs/023-desktop-shell-and-renderer.md) (from BL-041)
@@ -351,10 +351,10 @@ Each surface below will be touched in the first implementation sprint.
 
 #### BL-057: Specify CLI at-rest identity key storage
 
-- Status: `todo`
+- Status: `completed`
 - Priority: `P1`
 - Owner: `unassigned`
-- References: [ADR-010](./decisions/010-paseto-webauthn-mls-auth.md), [security-architecture.md](./architecture/security-architecture.md), [Spec-008](./specs/008-control-plane-relay-and-session-join.md)
+- References: [ADR-010](./decisions/010-paseto-webauthn-mls-auth.md), [ADR-021](./decisions/021-cli-identity-key-storage-custody.md), [security-architecture.md](./architecture/security-architecture.md), [Spec-008](./specs/008-control-plane-relay-and-session-join.md)
 - Summary: Specify the fallback order for CLI identity key storage when WebAuthn PRF is not available: (1) OS-native keystore (libsecret / Keychain / DPAPI), (2) Argon2id-derived KEK from user password with explicit weaker-tier warning, (3) refuse to participate in shared-session E2EE. Specify rotation on daemon restart (opt-in), mandatory rotation on device reset, and stolen-key reuse detection (same Ed25519 pubkey from two machines simultaneously).
 - Exit Criteria: ADR-010 has a new §CLI Identity Key Storage; security-architecture.md cites the fallback order; Spec-008 references the storage contract.
 

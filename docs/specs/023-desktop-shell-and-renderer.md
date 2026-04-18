@@ -61,7 +61,7 @@ In scope:
 - [ADR-009: JSON-RPC IPC Wire Format](../decisions/009-json-rpc-ipc-wire-format.md) — wire format the preload bridge forwards
 - [Container Architecture](../architecture/container-architecture.md) — renderer-untrusted trust boundary; canonical monorepo topology
 - [Component Architecture Desktop App](../architecture/component-architecture-desktop-app.md) — shell/renderer/client-SDK component boundaries
-- [Security Architecture](../architecture/security-architecture.md) — auth material handling and trust boundaries (note: §Local Daemon Authentication is inconsistent with this spec and will be reconciled under BL-056)
+- [Security Architecture](../architecture/security-architecture.md) — auth material handling and trust boundaries (§Local Daemon Authentication reconciled with this spec under BL-056 on 2026-04-18)
 - [Spec-007: Local IPC And Daemon Control](./007-local-ipc-and-daemon-control.md) — the typed daemon contract the renderer reuses via the shared client SDK
 
 ## Required Behavior
@@ -76,7 +76,7 @@ The desktop application must run as three cooperating processes:
 
 The renderer must never fork, spawn, or exec a process. The renderer must never open a filesystem handle or a network socket directly — every such operation flows through the preload bridge and is enforced in the shell's main process.
 
-### Trust Stance (Resolves The BL-056 Contradiction In Spec-023's Favor)
+### Trust Stance
 
 The renderer is **untrusted** relative to the shell and daemon, consistent with `container-architecture.md` §Trust Boundaries and `component-architecture-desktop-app.md` §Trust Boundaries.
 
@@ -96,7 +96,7 @@ All renderer-originated daemon or control-plane requests flow through the preloa
 3. forwards the request over the Spec-007 Content-Length JSON-RPC transport (daemon) or the ADR-014 tRPC / WebSocket transport (control plane)
 4. returns only the sanitized response payload to the renderer — never the raw auth headers
 
-`security-architecture.md` §Local Daemon Authentication currently asserts "the renderer is a trusted local process" and permits socket-reachability-only access. That statement contradicts the trust stance declared here and in the two container/component architecture documents. Reconciliation of `security-architecture.md` to match this spec is tracked under BL-056 (P1).
+`security-architecture.md` §Local Daemon Authentication was reconciled with this spec's renderer-untrusted stance under BL-056 on 2026-04-18. It now states that the renderer is **not a direct daemon client**; all renderer-originated requests flow through the preload bridge to the Desktop Shell, which forwards them to the daemon with attached auth headers. The Shell and CLI both present the 256-bit session token at daemon-connect time (token is primary; socket permissions 0700 are defense-in-depth). The prior "trusted local process" framing and the "token optional for renderer / CLI" permission have been removed.
 
 ### Security Hardening Baseline
 
@@ -273,7 +273,7 @@ Update signature verification must use an Ed25519 or ECDSA-P256 signing key pinn
 
 ## Default Behavior
 
-- The renderer auto-connects to the local daemon at shell startup, with the shell starting the daemon if needed (per Spec-007 §Default Behavior)
+- The shell auto-connects to the local daemon at shell startup (starting the daemon if needed, per Spec-007 §Default Behavior) and exposes renderer-accessible capabilities via the preload bridge per §Trust Stance; the renderer is not a direct daemon client
 - Auto-update is **enabled** by default; user may disable it via settings
 - Crash reporting is **enabled** by default with PII-stripping; user may opt out via settings
 - Notifications are **enabled** by default; user may mute per session or globally
@@ -672,13 +672,13 @@ A dedicated current-state research pass (Electron version / cadence, security ha
 
 - [Container Architecture](../architecture/container-architecture.md) — renderer-untrusted trust boundary; canonical monorepo topology
 - [Component Architecture Desktop App](../architecture/component-architecture-desktop-app.md) — shell / renderer / client-SDK component decomposition
-- [Security Architecture](../architecture/security-architecture.md) — auth material handling; note §Local Daemon Authentication reconciliation in BL-056
+- [Security Architecture](../architecture/security-architecture.md) — auth material handling; §Local Daemon Authentication reconciled with this spec under BL-056 on 2026-04-18
 - [Deployment Topology](../architecture/deployment-topology.md) — desktop-shell placement in the per-participant local container set
 
 ### Related Backlog Items
 
 - [BL-041](../backlog.md) — this spec (authoring)
 - [BL-043](../backlog.md) — Plan-023 implementation plan (implements this spec)
-- [BL-056](../backlog.md) — resolve `security-architecture.md` §Local Daemon Authentication to match this spec's renderer-untrusted stance
+- [BL-056](../backlog.md) — resolved 2026-04-18; `security-architecture.md` §Local Daemon Authentication now reflects the renderer-untrusted stance this spec declares
 - [BL-078](../backlog.md) — Plan-024 Rust PTY sidecar (supervised by the daemon, not the shell; referenced for completeness)
 - [BL-081](../backlog.md) — Spec-026 first-run onboarding (the shell surfaces the three-way-choice UX)

@@ -28,7 +28,7 @@ The product combines multiple humans, multiple runtime nodes, and local code exe
 | `Membership Policy Engine` | Determines session roles and participant capabilities. |
 | `Runtime Capability Registry` | Tracks what each runtime node can expose and under what trust envelope. |
 | `Approval Policy Engine` | Evaluates and records approval requests and resolutions. Uses Cedar (CNCF sandbox) with principal-action-resource-context model: V1 compiles YAML policy definitions to Cedar policy sets at build time; V1.1 evaluates Cedar WASM in-process for runtime policy updates without redeployment. |
-| `Transport Security Layer` | Protects local IPC, client-daemon, and relay/control-plane traffic. Local daemon: socket reachability + optional 256-bit session token (mode 0600, rotated per restart). Control plane: HTTPS/TLS. Relay (V1): pairwise X25519 ECDH + XChaCha20-Poly1305 via audited `@noble/curves` and `@noble/ciphers` with ephemeral per-session X25519 keys authenticated by long-term Ed25519 identity keys — session-granularity forward secrecy, zero-knowledge relay (see §Relay Authentication And Encryption and [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md)). Relay (V1.1+ upgrade path): MLS (RFC 9420) via an audited implementation once the promotion gates in ADR-010 pass, adding per-message ratcheting and post-compromise security. |
+| `Transport Security Layer` | Protects local IPC, client-daemon, and relay/control-plane traffic. Local daemon: socket reachability plus a required 256-bit session token (mode 0600, rotated per restart) presented by the Desktop Shell or CLI client — see §Local Daemon Authentication for the authoritative model (BL-056 reconciliation, 2026-04-18). Control plane: HTTPS/TLS. Relay (V1): pairwise X25519 ECDH + XChaCha20-Poly1305 via audited `@noble/curves` and `@noble/ciphers` with ephemeral per-session X25519 keys authenticated by long-term Ed25519 identity keys — session-granularity forward secrecy, zero-knowledge relay (see §Relay Authentication And Encryption and [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md)). Relay (V1.1+ upgrade path): MLS (RFC 9420) via an audited implementation once the promotion gates in ADR-010 pass, adding per-message ratcheting and post-compromise security. |
 | `Audit Layer` | Records grants, denials, escalations, and revocations. |
 
 ## Data Flow
@@ -69,16 +69,17 @@ These invariants hold regardless of the network path (direct local, relay-mediat
 
 ### Local Daemon Authentication (Task 5.1)
 
-The local daemon uses a layered trust model based on socket reachability.
+The local daemon uses a layered trust model based on socket reachability **plus** a 256-bit session token. The desktop **renderer is not a direct daemon client** — all renderer-originated requests are brokered by the Desktop Shell via the preload bridge and arrive at the daemon as shell-originated traffic. See [Spec-023 §Trust Stance](../specs/023-desktop-shell-and-renderer.md) and [container-architecture.md §Trust Boundaries](./container-architecture.md) for the canonical renderer-untrusted stance this section aligns with.
 
 **Socket reachability model:**
 
 | Client Type | Auth Required | Rationale |
 | --- | --- | --- |
-| Desktop renderer (same machine) | Socket access only | Process isolation is sufficient; the renderer is a trusted local process |
-| CLI (same machine) | Socket access only | Same-user process; socket permissions (mode 0700) prevent cross-user access |
-| External process (same machine) | 256-bit session token | Untrusted processes on the same machine must present a token |
-| Remote client | Not supported in V1 | Remote daemon access is out of scope; all remote communication goes through the control plane |
+| Desktop shell (same machine) | Socket access + 256-bit session token | Shell is the daemon client for the desktop tier; holds all session-scoped auth material per Spec-023 §Trust Stance; forwards renderer-originated requests with auth headers attached and response payloads sanitized. |
+| CLI (same machine) | Socket access + 256-bit session token | Same-user process; socket permissions (mode 0700) prevent cross-user access; token is defense-in-depth against misconfigured socket permissions. |
+| External process (same machine) | 256-bit session token (required) | Untrusted processes on the same machine must present a token. |
+| Desktop renderer (same machine) | Not a daemon client | All renderer-originated requests flow through the preload bridge to the Desktop Shell, which forwards them to the daemon with attached auth headers. The renderer never holds the daemon session token, PASETO access tokens, or the Ed25519 DPoP key per Spec-023 §Trust Stance. |
+| Remote client | Not supported in V1 | Remote daemon access is out of scope; all remote communication goes through the control plane. |
 
 **Session token specification:**
 - **Generation:** CSPRNG (Node.js `crypto.randomBytes(32)`) producing a 256-bit token
@@ -87,9 +88,10 @@ The local daemon uses a layered trust model based on socket reachability.
 - **Verification:** Constant-time comparison (`crypto.timingSafeEqual`) to prevent timing attacks
 - **Transport:** Passed in the `Authorization: Bearer <token>` header for HTTP, or as the first message in the IPC handshake for Unix domain sockets
 
-**When token is required vs optional:**
-- **Required:** When the connecting process is not the desktop renderer or CLI launched by the same user (i.e., any external integration or tool)
-- **Optional:** When socket permissions alone provide sufficient isolation (desktop renderer, CLI). The daemon accepts connections without a token if the socket's file permissions restrict access to the owning user.
+**Token presentation requirements:**
+- **Always required** for Desktop Shell and CLI clients. Both read the token from `$XDG_RUNTIME_DIR/ai-sidekicks/daemon.token` at daemon-connect time and present it. Socket permissions (mode 0700) are defense-in-depth; the token is primary. The prior "token optional for renderer / CLI" framing — which treated the renderer as a trusted local process — was reconciled under BL-056; renderer is no longer a direct daemon client, and CLI presentation of the token is no longer optional.
+- **Required** for any external integration or tool connecting to the daemon socket.
+- **Not applicable** to the desktop renderer, which is not a direct daemon client per Spec-023 §Trust Stance.
 
 ### Control-Plane Authentication (Task 5.2)
 
@@ -172,6 +174,11 @@ Per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md), relay E2EE ships as
 3. The control plane verifies each `SessionKeyBundle` signature against the participant's registered Ed25519 identity key before distribution
 4. Each participant computes `shared = X25519(mySecret, peerPublic)` for every other participant, then derives `sessionKey = HKDF-SHA256(shared, salt=session_id, info="ai-sidekicks/v1/pairwise", length=32)`
 5. On session end, ephemeral X25519 secret keys are zeroed in memory; the control plane discards the `SessionKeyBundle` entries
+
+**Long-term Ed25519 identity key custody:**
+
+- Desktop clients derive (or wrap) the long-term Ed25519 identity key from a WebAuthn/passkey PRF ceremony per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md); the key is reconstructed per session and never hits disk in plaintext.
+- CLI clients store the long-term Ed25519 identity key at rest using the three-tier custody ladder defined in [ADR-021](../decisions/021-cli-identity-key-storage-custody.md): (1) OS-native keystore (libsecret / Keychain / DPAPI) gated by write-probe-read-delete verification, (2) libsodium XChaCha20-Poly1305 + Argon2id file with OWASP 2026 parameters, (3) refuse to participate in shared-session E2EE. Silent backend substitution and silent key rotation are both explicitly prohibited — silent rotation would invalidate every prior `SessionKeyBundle` signature and drop the participant from all active shared sessions.
 
 **Message encryption:**
 - Sender: for each recipient, encrypt plaintext under that pair's `sessionKey` with a fresh 24-byte random nonce and the recipient's principal identifier as AEAD associated data; relay sees `(recipient_id, nonce, ciphertext+tag)`
@@ -256,7 +263,7 @@ Candidate implementations under evaluation include OpenMLS (Rust, MIT) and mls-r
 
 | Transport | Protocol | Authentication | Encryption | Trust Boundary |
 | --- | --- | --- | --- | --- |
-| Local daemon (Unix socket) | Unix domain socket | Socket permissions (mode 0700) + optional 256-bit token | None needed (same-machine) | Highest trust — local execution authority |
+| Local daemon (Unix socket) | Unix domain socket | Socket permissions (mode 0700) + 256-bit session token (required for Desktop Shell + CLI per §Local Daemon Authentication) | None needed (same-machine) | Highest trust — local execution authority |
 | Local daemon (localhost TCP) | TCP on 127.0.0.1 | 256-bit session token required | None needed (loopback only) | High trust — token prevents cross-process access |
 | Client to control plane | HTTPS | PASETO v4.public + DPoP | TLS 1.3 minimum, no TLS 1.2 fallback | Medium trust — authenticated but shared infrastructure |
 | Client to relay | WSS | PASETO v4.public initial auth | V1: pairwise X25519 + XChaCha20-Poly1305 (relay sees only per-recipient ciphertext). V1.1+: MLS E2EE once promotion gates pass. | Low trust — relay is zero-knowledge |
@@ -299,7 +306,7 @@ Signing key resolution:
 - Each daemon holds a session-scoped Ed25519 signing keypair. The public key is registered in the **session participant roster** at join time, keyed by `NodeId`. Any audit reader — local replay, peer daemon verifying relayed events, forensic export — resolves the verification key by looking up `NodeId` in the roster snapshot for the anchored range.
 - Key rotation follows [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md). Superseded public keys remain resolvable in the roster with validity windows so historical rows remain verifiable after rotation.
 
-Sensitive events (approvals, policy changes, membership revocations) additionally carry `participant_signature BLOB(64)` — a second Ed25519 signature from the participant's own key. Desktop uses the WebAuthn PRF-derived key ([ADR-010](../decisions/010-paseto-webauthn-mls-auth.md)); CLI uses the at-rest identity key tracked by BL-057. The column is `NULL` for events that do not require participant attestation.
+Sensitive events (approvals, policy changes, membership revocations) additionally carry `participant_signature BLOB(64)` — a second Ed25519 signature from the participant's own key. Desktop uses the WebAuthn PRF-derived key ([ADR-010](../decisions/010-paseto-webauthn-mls-auth.md)); CLI uses the at-rest identity key whose custody is specified by [ADR-021](../decisions/021-cli-identity-key-storage-custody.md). The column is `NULL` for events that do not require participant attestation.
 
 References:
 - [RFC 8032 — Edwards-Curve Digital Signature Algorithm (EdDSA), §5.1 Ed25519](https://datatracker.ietf.org/doc/html/rfc8032#section-5.1)

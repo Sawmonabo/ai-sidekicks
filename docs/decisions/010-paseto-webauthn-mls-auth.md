@@ -25,7 +25,7 @@ The CLI ships before the desktop app, so the auth stack must be chosen once and 
 
 Three-tier authentication:
 
-1. **Local daemon** -- Socket reachability plus an optional 256-bit session token (mode 0600, rotated per daemon restart). No network auth required.
+1. **Local daemon** -- Socket reachability plus a required 256-bit session token (mode 0600, rotated per daemon restart) presented by the Desktop Shell and CLI clients. The renderer is not a direct daemon client — all renderer-originated requests are brokered by the shell via the preload bridge. See [security-architecture.md §Local Daemon Authentication](../architecture/security-architecture.md) for the full authentication model. No network auth required.
 2. **Control plane** -- PASETO v4 tokens: access tokens (v4.public, 15 min), refresh tokens (v4.local, 7 days, rotated on use). OAuth 2.1 + PKCE mandatory. DPoP sender-constraining for access tokens. Device Authorization Grant (RFC 8628) for CLI (launches browser for primary auth). WebAuthn/Passkeys added at desktop launch.
 3. **Relay (E2EE)** -- V1 ships pairwise X25519 ECDH + XChaCha20-Poly1305 via the audited `@noble/curves` and `@noble/ciphers` libraries. Each session establishes **ephemeral X25519 key pairs** per participant (generated at session start, zeroed at session end), authenticated by each participant's long-term Ed25519 identity key. A per-session symmetric key is derived via HKDF-SHA256 from the ECDH shared secret and used with XChaCha20-Poly1305 (24-byte random nonce, 16-byte authentication tag). This design provides **session-granularity forward secrecy** — compromise of the long-term Ed25519 identity key does not reveal past session keys because the X25519 material is discarded at session end. Messaging Layer Security (MLS, RFC 9420) via an audited implementation is the V1.1 upgrade path and will replace the pairwise layer once promotion gates are met (see Assumption #2 and Success Criteria). V1 pairwise sessions are capped at ≤10 active participants to keep the N² fan-out cost bounded.
 
@@ -124,6 +124,15 @@ Three-tier authentication:
 | Interop | The implementation passes interoperability test vectors against at least one other independent MLS implementation at a pinned commit. | CI job exercising MLS interop matrix; test result artifacts archived per release. |
 | Production soak | MLS ships behind a feature flag to opt-in sessions for ≥ 4 weeks with a < 1% session-level error rate attributable to the MLS code path. | Telemetry dashboard showing soak window, error rate, and decision-review sign-off recorded in release notes. |
 
+## CLI Identity Key Storage
+
+The long-term Ed25519 identity key used for `SessionKeyBundle` signing (item 3 in §Decision) requires at-rest custody on every client platform. The storage contract differs by client:
+
+- **Desktop** derives or wraps the Ed25519 identity key from a WebAuthn/passkey PRF ceremony. The key is reconstructed per session; the passkey's resident material stays in the authenticator, and the derived key never hits disk in plaintext.
+- **CLI** stores the Ed25519 identity key at rest via the three-tier custody ladder defined in [ADR-021: CLI Identity Key Storage Custody](./021-cli-identity-key-storage-custody.md): (1) OS-native keystore (libsecret / Keychain / DPAPI via `@napi-rs/keyring`) gated by write-probe-read-delete verification, (2) libsodium XChaCha20-Poly1305 + Argon2id file with OWASP 2026 parameters, (3) refuse to participate in shared-session E2EE when neither tier can be established. Silent backend substitution (Linux kernel keyutils, locked macOS keychain, enterprise-policy-blocked Wincred) and silent Ed25519 key rotation are both explicitly prohibited; silent rotation would invalidate every prior `SessionKeyBundle` signature and drop the participant from all active shared sessions.
+
+[ADR-021](./021-cli-identity-key-storage-custody.md) is the authoritative CLI at-rest custody spec. Any conflict between this summary and ADR-021 resolves in favor of ADR-021.
+
 ## References
 
 - [ADR-007: Collaboration Trust And Permission Model](./007-collaboration-trust-and-permission-model.md)
@@ -146,3 +155,5 @@ Three-tier authentication:
 | 2026-04-15 | Proposed | Initial draft |
 | 2026-04-15 | Accepted | ADR accepted |
 | 2026-04-17 | Rewritten | Pairwise X25519 + XChaCha20-Poly1305 declared V1 relay encryption choice; MLS promoted to V1.1 upgrade path with explicit audit / interop / soak gates (BL-048). |
+| 2026-04-18 | Amended | Item 1 (local daemon) updated to reflect BL-056 reconciliation: session token is required for Shell + CLI (not optional), and renderer is not a direct daemon client. Authoritative specification lives in security-architecture.md §Local Daemon Authentication. |
+| 2026-04-18 | Amended | §CLI Identity Key Storage added, cross-referencing [ADR-021](./021-cli-identity-key-storage-custody.md) as the authoritative CLI at-rest custody spec (BL-057 resolution). |
