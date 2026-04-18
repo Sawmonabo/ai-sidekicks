@@ -8,7 +8,7 @@
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
 | **Spec** | [Spec-015: Persistence Recovery And Replay](../specs/015-persistence-recovery-and-replay.md) |
-| **Required ADRs** | [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md), [ADR-005](../decisions/005-provider-drivers-use-a-normalized-interface.md) |
+| **Required ADRs** | [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md), [ADR-005](../decisions/005-provider-drivers-use-a-normalized-interface.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md) |
 | **Dependencies** | [Plan-001](./001-shared-session-core.md) (session events), [Plan-004](./004-queue-steer-pause-resume.md) (queue state), [Plan-005](./005-provider-driver-contract-and-capabilities.md) (runtime bindings), [Plan-006](./006-session-event-taxonomy-and-audit-log.md) (event log), [Plan-012](./012-approvals-permissions-and-trust-boundaries.md) (approval records) |
 | **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
 

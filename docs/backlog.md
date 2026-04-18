@@ -314,7 +314,7 @@ Propagate the scope anchor through the plan graph. Without this, implementers hi
 
 #### BL-054: Align cross-plan-dependencies.md with V1 = 16 and fix Tier 3 table-name drift
 
-- Status: `todo`
+- Status: `completed`
 - Priority: `P0`
 - Owner: `unassigned`
 - Depends-on: BL-038 (ADR-015 defines V1 = 16), BL-039 (v1-feature-scope.md is the canonical V1 definition), BL-041 (Spec-023 must exist to be cited), BL-043 (Plan-023 must exist), BL-044 (Plan-021), BL-045 (Plan-022), BL-047 (Spec-024 cross-node)
@@ -324,7 +324,7 @@ Propagate the scope anchor through the plan graph. Without this, implementers hi
 
 #### BL-055: Propagate V1 scope across all 20 plan files
 
-- Status: `todo`
+- Status: `completed`
 - Priority: `P0`
 - Owner: `unassigned`
 - Depends-on: BL-038 (ADR-015 is the citation target), BL-039 (v1-feature-scope.md is the scope-of-truth for the grep audit)

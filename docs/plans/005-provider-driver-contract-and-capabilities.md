@@ -8,7 +8,7 @@
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
 | **Spec** | [Spec-005: Provider Driver Contract And Capabilities](../specs/005-provider-driver-contract-and-capabilities.md) |
-| **Required ADRs** | [ADR-005](../decisions/005-provider-drivers-use-a-normalized-interface.md) |
+| **Required ADRs** | [ADR-005](../decisions/005-provider-drivers-use-a-normalized-interface.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md) |
 | **Dependencies** | None |
 | **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
 | **References** | [ADR-011](../decisions/011-generic-intervention-dispatch.md) (generic intervention dispatch), [Updated Spec-005](../specs/005-provider-driver-contract-and-capabilities.md) (applyIntervention, 7 capability flags) |

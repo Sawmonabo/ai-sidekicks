@@ -8,7 +8,7 @@
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
 | **Spec** | [Spec-014: Artifacts Files And Attachments](../specs/014-artifacts-files-and-attachments.md) |
-| **Required ADRs** | [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md) |
+| **Required ADRs** | [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md) |
 | **Dependencies** | None |
 | **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
 | **References** | [Updated Spec-014](../specs/014-artifacts-files-and-attachments.md) (OCI manifest envelope, CAS) |
