@@ -84,6 +84,22 @@ PII fields in session events are stored in a separate encrypted column (`pii_pay
 - **Rollback policy:** Each migration must include a down migration. Rollbacks are available but discouraged in production — prefer forward-fix migrations.
 - **Multi-node coordination:** Migrations run from a single coordinator (deploy pipeline), not from individual nodes. Nodes connecting to a database with a newer schema than expected must refuse to start and surface a version mismatch error.
 
+## Cross-Version Compatibility
+
+DDL schema migration (above) is distinct from **wire-format** compatibility between participants running different client versions. Schema migration answers "how does one node upgrade its own storage?" Wire-format compatibility answers "how do nodes at different versions interoperate during a session?"
+
+AI Sidekicks is peer-to-peer multi-node with independent upgrade cadences per [ADR-020: V1 Deployment Model and OSS License](../decisions/020-v1-deployment-model-and-oss-license.md). Mixed-version participation within a single session is the normal case, not an edge case. The wire format carried between participants — `EventEnvelope` defined in [Spec-006](../specs/006-session-event-taxonomy-and-audit-log.md) — is therefore evolved under a versioning contract specified in [ADR-018: Cross-Version Compatibility](../decisions/018-cross-version-compatibility.md).
+
+Key properties the rest of the architecture depends on:
+
+- **Wire version** is an envelope-level `EventEnvelope.version` field using semver string `"MAJOR.MINOR"`. Producer writes its own outgoing version at emit time.
+- **Session metadata** carries `min_client_version` as a monotonic-raise floor. Control plane is authoritative per [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md); peers never trust peer-reported floor values.
+- **Audit log is never rewritten.** Receivers encountering unknown event types persist the original canonical bytes as signed **version stubs** — a distinct artifact from the compaction stubs defined in [Spec-006 §Event Compaction Policy](../specs/006-session-event-taxonomy-and-audit-log.md#event-compaction-policy). A version stub retains all canonical fields verbatim (so Ed25519 signatures remain verifiable per Spec-006 §Integrity Protocol); a compaction stub removes `payload` and is therefore no longer signature-verifiable. Upgrade-time re-interpretation happens via an upcaster chain at read/dispatch time, never by rewriting committed rows.
+- **MINOR bumps are additive-only.** New optional fields, new event types, new enum values. Any semantic or structural break requires a MAJOR bump.
+- **Version stubs are excluded from compaction** until re-interpreted at least once, so post-upgrade replay is lossless.
+
+See [ADR-018 §Decision](../decisions/018-cross-version-compatibility.md#decision) for the full semantics and [ADR-018 §Reviewer Checklist for MINOR Bumps](../decisions/018-cross-version-compatibility.md#reviewer-checklist-for-minor-bumps) for the author discipline that governs each additive bump.
+
 ## Failure Modes
 
 - Local SQLite corruption prevents replay until repaired or restored.

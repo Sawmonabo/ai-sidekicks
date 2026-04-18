@@ -437,12 +437,13 @@ Each surface below is Plan-001-, Plan-004-, or Plan-006-adjacent.
 
 #### BL-065: Write ADR-018 Cross-Version Multi-Node Compatibility
 
-- Status: `todo`
+- Status: `done`
 - Priority: `P1`
 - Owner: `unassigned`
-- References: [data-architecture.md](./architecture/data-architecture.md), [Spec-006](./specs/006-session-event-taxonomy-and-audit-log.md) (`EventEnvelope.version`)
+- References: [ADR-018](./decisions/018-cross-version-compatibility.md), [data-architecture.md](./architecture/data-architecture.md), [Spec-006](./specs/006-session-event-taxonomy-and-audit-log.md) (`EventEnvelope.version`)
 - Summary: `EventEnvelope.version` becomes the wire-format version. Clients MUST ignore unknown event types gracefully with a persisted audit stub that is re-interpretable on upgrade. Session metadata gets `min_client_version`; below-minimum clients can read but not write new events. Breaking envelope changes bump major; minor bumps require forward-compat (new optional fields only).
 - Exit Criteria: `docs/decisions/018-cross-version-compatibility.md` exists; data-architecture.md has §Cross-Version Compatibility; Spec-006 documents `EventEnvelope.version` usage.
+- Resolution (2026-04-18): ADR-018 authored (accepted, Type 2 one-way door) with 11 binding Decisions: semver `MAJOR.MINOR` envelope version, producer-written; `min_client_version` as monotonic-raise session floor; MINOR bumps additive-only (new optional fields / new event types / new enum values); unknown types persisted as signed **version stubs** (distinct from Spec-006 compaction stubs — version stubs retain full canonical bytes so Ed25519 signatures remain verifiable); upcaster chain at read/dispatch time keyed on `(original_version, original_type)` — log never rewritten; version stubs excluded from compaction until re-interpreted ≥ once so post-upgrade replay is lossless; `VERSION_FLOOR_EXCEEDED` / `VERSION_CEILING_EXCEEDED` typed errors forward-declared for error-contracts.md registration; catastrophic-floor-mistake recovery requires abandoning the affected session (monotonicity absolute). Industry precedents cited (accessed 2026-04-18): Kubernetes Version Skew Policy v1.35 (3-minor skew), Confluent Schema Registry FORWARD_TRANSITIVE, Protobuf Editions unknown-field preservation, CloudEvents 1.0.2. data-architecture.md §Cross-Version Compatibility + Spec-006 §EventEnvelope Version Semantics added with terminology disambiguation ("version stub" vs "compaction stub").
 
 #### BL-066: Extend PII data-map fan-out on shred
 

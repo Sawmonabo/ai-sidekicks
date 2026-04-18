@@ -73,6 +73,22 @@ This spec covers event categories, required event fields, ordering, replay, and 
 - See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
 - See [Error Contracts](../architecture/contracts/error-contracts.md) for error response schemas and error codes.
 
+### EventEnvelope Version Semantics
+
+Full semantics of the `.version` field are specified in [ADR-018: Cross-Version Compatibility](../decisions/018-cross-version-compatibility.md). The binding contract summary:
+
+> **Terminology note — "version stub" vs. "compaction stub":** This section uses "**version stub**" for the receiver-side artifact produced when an unknown-type event is preserved verbatim (full canonical bytes retained so the Ed25519 signature stays verifiable). This is structurally distinct from the "audit stub" form produced by §Event Compaction Policy below, which removes `payload`, `correlationId`, and `causationId` and replaces them with a `summary`. A version stub retains all canonical fields; a compaction stub does not. A version stub is only eligible for compaction once it has been re-interpreted at least once, per ADR-018 §Decision #11.
+
+- **Format:** Semver string `"MAJOR.MINOR"` (no PATCH component on the wire). Integer form is not used.
+- **Producer sets it:** The emitting daemon writes its own outgoing wire version at emit time. `.version` is never copied from a received event. Version stubs record their original received version in version-stub metadata, separate from `.version`.
+- **Validation is two-sided:** The control plane validates at write time; receiving peers validate on parse. A receiver that cannot interpret a given `.version` MUST persist the event as a version stub rather than drop or crash.
+- **Unknown MAJOR (same or higher than receiver's supported MAJOR):** Persist as version stub with full original canonical bytes; never dispatched to application handlers. The canonical row's `.version` field stays the producer's original — version-stubbing is a read-side behavior, not a rewrite. On upgrade, the upcaster chain transforms the stub to a typed event at dispatch time; the log row is never rewritten.
+- **Unknown MINOR (same MAJOR, higher MINOR):** Event dispatches normally; unknown optional fields and unknown enum values within the payload are preserved verbatim for future upcasting. MINOR bumps MUST be additive-only per ADR-018.
+- **MAJOR mismatch at session join:** Hard error with typed code. `VERSION_FLOOR_EXCEEDED` if client is below `session.min_client_version`; `VERSION_CEILING_EXCEEDED` if client is above the session's highest supported MAJOR. Errors carry a human-readable upgrade/downgrade path; join is rejected, client does not crash. Both codes MUST be registered in [Error Contracts](../architecture/contracts/error-contracts.md) before the first Plan-001 emitter lands.
+- **Below-floor clients may READ but NOT WRITE.** A below-floor write attempt returns `VERSION_FLOOR_EXCEEDED` while the client remains joined in read-only state.
+- **Immutability:** `.version` is set once at producer emit time and is part of the event's durable identity. It is never rewritten by upcasters, version-stub re-interpretation, or upgrade processes. This is load-bearing for the §Integrity Protocol hash-chain and signature invariants — the signed bytes include `.version`, so rewriting it would break all downstream verification.
+- **Envelope version vs. event-type registry:** `.version` governs the envelope contract only. New event-type introductions are additive and MAY be allowed under the same envelope version if they follow the additive-only MINOR rule. V1 uses an accept-and-stub model for unknown types (each unknown type becomes a version stub on receipt); a central control-plane event-type registry is deferred to V1.1 per ADR-018 §Alternatives Considered Option C.
+
 ## Event Type Enumeration
 
 This section enumerates every individual event type within each `EventCategory`. Each type is a string value for the `type` field of `EventEnvelope`. The payload fields listed are the category-specific fields carried inside the `payload` object; the envelope-level fields (`id`, `sessionId`, `sequence`, `occurredAt`, `category`, `actor`, `correlationId`, `causationId`, `version`) are always present and are not repeated here.
