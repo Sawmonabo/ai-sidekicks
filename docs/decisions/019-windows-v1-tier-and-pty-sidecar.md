@@ -48,14 +48,14 @@ What is the V1 quality tier for Windows, and what PTY backend strategy on Window
 4. **All PTY access flows through a `PtyHost` interface in `packages/contracts/`**, with two implementations (`RustSidecarPtyHost`, `NodePtyHost`) and a platform selector that picks the Windows-primary/Unix-primary defaults. Consumers never see the backend choice.
 5. **Sidecar IPC uses LSP-style Content-Length framing over stdio**, matching the daemon's own JSON-RPC 2.0 + Content-Length IPC design (ADR-009). A JSON control channel handles `spawn`, `resize`, `kill`, `exit-code`, and `ping`; a length-prefixed binary data channel carries stdout/stderr.
 6. **Distribution follows the `@esbuild/*` platform-package pattern** — one signed binary per platform published as `@ai-sidekicks/pty-sidecar-{win32-x64,darwin-arm64,darwin-x64,linux-x64,linux-arm64}` with npm `optionalDependencies` + `os`/`cpu` filters, so an install pulls exactly one binary.
-7. **Windows code-signing uses Azure Trusted Signing as the preferred path** (eligible if the publishing entity can demonstrate 3+ years of verifiable business history), with a traditional **EV code-signing certificate (~$325–$581/year)** as the documented fallback.
+7. **Windows code-signing uses Azure Artifact Signing as the preferred path for publishers in eligible geographies** (Public Trust is available to USA / Canada / EU / UK organizations and to USA / Canada individual developers per the [Azure Artifact Signing FAQ](https://learn.microsoft.com/en-us/azure/artifact-signing/faq)), with a traditional **EV code-signing certificate (~$400–$1,200/year at the CA/Browser Forum Ballot CSC-31 15-month renewal cycle)** as the alternative procurement path for ineligible geographies or EV-chain-required distributions.
 8. **SmartScreen reputation accrues to the signer**, so the sidecar binary and the Electron app share the same signing identity to ensure reputation pooling rather than split accrual.
 
 ### Thesis — Why This Option
 
 The `node-pty` Windows bug cluster has a concrete first-party trigger in `openai/codex#13973`. Codex is a V1 driver. Shipping V1 Windows on `node-pty` alone puts us on the same path Tabby walked — GA on a known-fragile PTY stack, followed by a user-visible crash cluster and a reactive pin-the-dependency workaround. The Tabby precedent is the strongest evidence we have that the bug cluster is not theoretical: another production team shipped through it, and the visible failure mode was user rollback. The Rust sidecar side-steps the entire bug cluster by using a different PTY implementation (`portable-pty`) that does not share `node-pty`'s ConPTY code path. The in-process node-pty latency and ergonomics are preserved on macOS and Linux where the bug cluster does not exist. The `PtyHost` interface isolates the platform-selection decision so consumers are unaffected.
 
-The cost of the sidecar approach is three things: a new binary distribution surface, a new language in the critical path (Rust), and signing-pipeline work. Under human-implementation cost models, those are material. Under AI-implementation cost models (Claude Opus 4.7 executes the plan), the implementation-cost portion collapses. The distribution and signing work remain, but those are one-time setup costs, not ongoing burdens. Distribution uses a pattern (`@esbuild/*`) proven at massive scale and is copy-adaptable rather than invented-here. Signing uses Azure Trusted Signing's established flow. The residual ongoing cost is Rust-in-the-stack maintenance, which is bounded to a single crate with a stable external dependency (`portable-pty`) and no frequent-edit churn expected.
+The cost of the sidecar approach is three things: a new binary distribution surface, a new language in the critical path (Rust), and signing-pipeline work. Under human-implementation cost models, those are material. Under AI-implementation cost models (Claude Opus 4.7 executes the plan), the implementation-cost portion collapses. The distribution and signing work remain, but those are one-time setup costs, not ongoing burdens. Distribution uses a pattern (`@esbuild/*`) proven at massive scale and is copy-adaptable rather than invented-here. Signing uses either Azure Artifact Signing's established flow (in eligible geographies) or a traditional EV code-signing cert (everywhere else) — both are documented procurement paths, not invent-here work. The residual ongoing cost is Rust-in-the-stack maintenance, which is bounded to a single crate with a stable external dependency (`portable-pty`) and no frequent-edit churn expected.
 
 ### Antithesis — The Strongest Case Against
 
@@ -63,15 +63,15 @@ The industry norm is `node-pty` everywhere. VS Code, Cursor, Windsurf, Tabby, Wa
 
 ### Synthesis — Why It Still Holds
 
-The antithesis is the correct default position for a team that is one major bug away from capacity exhaustion. It is the wrong position for a team where AI-implementation collapses the cost half of the cost-benefit. The load-bearing fact is the Codex first-party issue (`openai/codex#13973`): we are shipping V1 with a provider driver that has an open bug triggering the exact assertion class that caused the Tabby rollback. "Use the industry norm" is sound advice when the industry norm works; the industry norm has a known open bug against our first-party provider, and the Tabby precedent shows what happens when you ship GA on top of it. "Ship Beta" (research brief Option C) is the hedge move: it delays the problem without solving it, and it communicates to Windows users that the product does not take their tier seriously — a category-positioning cost for a collaborative-agent product that targets the developer market. The sidecar move is not "doing something different from the norm"; it is "doing what the product can do now that it could not do under a human-only cost model." Distribution and signing costs are real but are one-time, copy-adaptable from `@esbuild/*` and Azure Trusted Signing documented flows. Ongoing Rust maintenance is bounded. The structural fix beats the hedge.
+The antithesis is the correct default position for a team that is one major bug away from capacity exhaustion. It is the wrong position for a team where AI-implementation collapses the cost half of the cost-benefit. The load-bearing fact is the Codex first-party issue (`openai/codex#13973`): we are shipping V1 with a provider driver that has an open bug triggering the exact assertion class that caused the Tabby rollback. "Use the industry norm" is sound advice when the industry norm works; the industry norm has a known open bug against our first-party provider, and the Tabby precedent shows what happens when you ship GA on top of it. "Ship Beta" (research brief Option C) is the hedge move: it delays the problem without solving it, and it communicates to Windows users that the product does not take their tier seriously — a category-positioning cost for a collaborative-agent product that targets the developer market. The sidecar move is not "doing something different from the norm"; it is "doing what the product can do now that it could not do under a human-only cost model." Distribution and signing costs are real but are one-time, copy-adaptable from `@esbuild/*` (distribution) and Azure Artifact Signing or EV-cert documented procurement flows (signing). Ongoing Rust maintenance is bounded. The structural fix beats the hedge.
 
 ## Alternatives Considered
 
 ### Option A: Windows V1 GA + Rust PTY Sidecar (Chosen)
 
 - **What:** Decision above.
-- **Steel man:** Structural fix to the `node-pty` Windows bug cluster. Uniform V1 quality tier across Windows, macOS, Linux. Preserves `node-pty`'s in-process latency on macOS/Linux where the bug cluster does not exist. AI-implementation cost model makes the implementation work tractable in a V1 window. Distribution pattern is proven (`@esbuild/*`); signing pattern is documented (Azure Trusted Signing or EV cert).
-- **Weaknesses:** New binary distribution surface; cross-compile CI infrastructure; Rust-in-the-stack ongoing maintenance (bounded); sidecar-originated crashes (if any) debug in less-familiar territory; signing-cert setup dependency on Azure Trusted Signing eligibility or EV cert procurement.
+- **Steel man:** Structural fix to the `node-pty` Windows bug cluster. Uniform V1 quality tier across Windows, macOS, Linux. Preserves `node-pty`'s in-process latency on macOS/Linux where the bug cluster does not exist. AI-implementation cost model makes the implementation work tractable in a V1 window. Distribution pattern is proven (`@esbuild/*`); signing pattern is documented (Azure Artifact Signing or EV cert).
+- **Weaknesses:** New binary distribution surface; cross-compile CI infrastructure; Rust-in-the-stack ongoing maintenance (bounded); sidecar-originated crashes (if any) debug in less-familiar territory; signing-cert setup dependency on Azure Artifact Signing eligibility or EV cert procurement.
 
 ### Option B: Windows V1 GA on `node-pty` only (Rejected)
 
@@ -97,7 +97,7 @@ The antithesis is the correct default position for a team that is one major bug 
 |---|-----------|----------|----------------------|
 | 1 | `portable-pty` (wezterm) does not share `node-pty`'s ConPTY bug cluster. | `portable-pty` is a separate Rust implementation of the ConPTY API, used in production by wezterm which handles heavier terminal workloads than an agent driver; no open-issue pattern matching the `node-pty` cluster. | Fallback to `node-pty` via `PtyHost` works while we debug; sidecar sunset evaluated. |
 | 2 | AI implementation materially compresses the 3–5 engineer-weeks estimate for sidecar implementation. | Comparable implementation tasks under AI execution have shown > 70% cycle-time compression; `@esbuild/*` distribution pattern is copy-adaptable; `portable-pty` is a stable external dependency. | Sidecar delivery slips V1; Windows ships on `node-pty` fallback; sidecar moves to V1.1. |
-| 3 | Azure Trusted Signing or EV cert procurement is achievable in the V1 timeline. | Azure Trusted Signing eligibility criterion is 3+ years verifiable business history; EV cert is a commercial procurement with a 1–2 week turnaround. | Sidecar ships unsigned initially, triggering SmartScreen warnings; V1 ships with UX-banner mitigation while signing catches up. |
+| 3 | Azure Artifact Signing or EV cert procurement is achievable in the V1 timeline. | Azure Artifact Signing Public Trust is regionally available (USA / Canada / EU / UK organizations and USA / Canada individual developers) per the [Azure Artifact Signing FAQ](https://learn.microsoft.com/en-us/azure/artifact-signing/faq); EV cert is a commercial procurement with a 1–2 week turnaround. | Sidecar ships unsigned initially, triggering SmartScreen warnings; V1 ships with UX-banner mitigation while signing catches up. |
 | 4 | LSP-style Content-Length framing over stdio is adequate throughput for agent PTY data. | VS Code LSP, TypeScript language service, and our own daemon IPC (ADR-009) all operate on this framing at equivalent or higher data rates. | Throughput bottleneck on sidecar-agent; upgrade to a shared-memory or Unix-domain-socket variant. |
 
 ## Failure Mode Analysis
@@ -106,7 +106,7 @@ The antithesis is the correct default position for a team that is one major bug 
 |----------|-----------|--------|-----------|------------|
 | Sidecar-originated Sev-1 bug traceable to `portable-pty` | Low | High | Crash reporting; structured-log correlation; `PtyHost` path telemetry | Fallback to `node-pty` via `PtyHost`; upstream bug report to wezterm; sunset evaluation per Tripwire 1 |
 | Sidecar binary missing on user machine (npm install fell back wrong) | Low | High | Daemon-startup PTY-backend probe; health check | `PtyHost` selects `NodePtyHost` fallback; loud warning banner; install-doc link |
-| Azure Trusted Signing eligibility denied | Med | Med | Eligibility determination in signing pipeline setup | EV cert fallback (already documented; budget-line allocated) |
+| Azure Artifact Signing eligibility denied | Med | Med | Eligibility determination in signing pipeline setup | EV cert fallback (already documented; budget-line allocated) |
 | Cross-compile CI regression (Rust toolchain or `portable-pty` build break) | Low | Med | CI build matrix across all 5 platform targets | Revert to last-known-good crate version; file upstream issue |
 | `node-pty` v1.2.0 or later ships with ThreadSafeFunction race fix (reversal signal) | Low | Low (positive) | `node-pty` release-note monitoring | Evaluate sidecar sunset per Tripwire 3 |
 
@@ -137,13 +137,13 @@ The antithesis is the correct default position for a team that is one major bug 
 ### Unknowns
 
 - Actual sidecar spawn-latency overhead in production workloads; measured in Plan-024 CI once sidecar scaffolding lands.
-- Azure Trusted Signing eligibility determination timeline; known once application submitted.
+- Azure Artifact Signing eligibility determination timeline; known once application submitted.
 
 ## Decision Validation
 
 ### Pre-Implementation Checklist
 
-- [x] All unvalidated assumptions have a validation plan (Plan-024 CI; Azure Trusted Signing application; cross-compile CI matrix)
+- [x] All unvalidated assumptions have a validation plan (Plan-024 CI; Azure Artifact Signing application; cross-compile CI matrix)
 - [x] At least one alternative was seriously considered and steel-manned (Options B and C both steel-manned; Option D documented as deferred gate)
 - [x] Antithesis was reviewed (Thesis/Antithesis/Synthesis triad in the Decision section)
 - [x] Failure modes have detection mechanisms
@@ -161,7 +161,7 @@ The antithesis is the correct default position for a team that is one major bug 
 ### Tripwires (Revisit Triggers)
 
 1. **Sidecar-originated Sev-1 bug traceable to `portable-pty`.** — Evaluate sidecar sunset; reassess whether `node-pty` primary is viable with targeted workarounds.
-2. **Azure Trusted Signing eligibility denied AND EV cert procurement blocked.** — Evaluate unsigned-release interim with documented SmartScreen guidance; escalate signing strategy review.
+2. **Azure Artifact Signing eligibility denied AND EV cert procurement blocked.** — Evaluate unsigned-release interim with documented SmartScreen guidance; escalate signing strategy review.
 3. **`node-pty` v1.2.0 stable ships with the ThreadSafeFunction race fixed AND 50 consecutive clean `windows-latest` Codex + `/resume` CI runs accumulate against the patched version.** — Evaluate sidecar sunset as a cost-reduction move; `node-pty` primary returns as a viable Windows option.
 
 ## References
@@ -181,7 +181,7 @@ The antithesis is the correct default position for a team that is one major bug 
 | `wezterm/portable-pty` | Reference implementation | Production Rust PTY crate used by wezterm | https://github.com/wezterm/wezterm/tree/main/pty |
 | Tauri v2 sidecar docs | Documentation | Sidecar spawn + lifecycle patterns (pattern-informative, Tauri-specific) | https://v2.tauri.app/develop/sidecar/ |
 | `@esbuild/*` npm packages | Distribution precedent | Platform-specific binary distribution via `optionalDependencies` + `os`/`cpu` filters | https://www.npmjs.com/package/esbuild |
-| Azure Trusted Signing | Documentation | Eligibility criteria; signing pipeline integration | https://learn.microsoft.com/azure/trusted-signing/ |
+| Azure Artifact Signing | Documentation | Eligibility criteria (geography + publisher verification); signing pipeline integration | https://learn.microsoft.com/en-us/azure/artifact-signing/faq |
 
 ### Related ADRs
 

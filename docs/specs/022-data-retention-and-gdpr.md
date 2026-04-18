@@ -8,7 +8,7 @@
 | **Date** | `2026-04-15` |
 | **Author(s)** | `Codex` |
 | **Depends On** | [Data Architecture](../architecture/data-architecture.md), [Session Model](../domain/session-model.md) |
-| **Implementation Plan** | _(none yet)_ |
+| **Implementation Plan** | [Plan-022: Data Retention And GDPR Compliance](../plans/022-data-retention-and-gdpr.md) |
 
 ## Purpose
 

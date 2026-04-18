@@ -106,7 +106,7 @@ V1 (per ADR-015) includes a Desktop GUI feature with no governing spec today, an
 
 #### BL-045: Create Plan-022 Data Retention / GDPR
 
-- Status: `todo`
+- Status: `completed`
 - Priority: `P0`
 - Owner: `unassigned`
 - References: [Spec-022](./specs/022-data-retention-and-gdpr.md), [local-sqlite-schema.md](./architecture/schemas/local-sqlite-schema.md) (`participant_keys`, `session_events.pii_payload`), [Plan-018](./plans/018-identity-and-participant-state.md)
@@ -115,7 +115,7 @@ V1 (per ADR-015) includes a Desktop GUI feature with no governing spec today, an
 
 #### BL-078: Write Plan-024 Rust PTY Sidecar
 
-- Status: `todo`
+- Status: `completed`
 - Priority: `P0`
 - Owner: `unassigned`
 - Depends-on: BL-052 (ADR-019 must land first; this plan implements the sidecar strategy it decides)
