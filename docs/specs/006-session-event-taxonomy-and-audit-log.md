@@ -156,6 +156,19 @@ Payload shape: `{sessionId, channelId?, agentId?, actor}`
 
 > See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed payload definitions.
 
+### Channel Arbitration (`channel_arbitration`)
+
+Orchestration-layer visibility events for multi-agent channels whose turn-policy arbitration stalls or resumes. These are distinct from run-level `run.paused` — they describe whose turn it was when arbitration stalled, not an intentional run suspension. Registered here from [Spec-016 §Partition And Reconnect Behavior](./016-multi-agent-channels-and-orchestration.md).
+
+Payload shape: `{sessionId, channelId, unreachableNodeId, unreachableAgentId, turnPolicy, timestamp}`
+
+| Type | Description (When Fired) |
+| --- | --- |
+| `arbitration.paused` | A `round-robin` channel's next-due agent sits on a runtime node that has transitioned to `offline` per [Spec-003](./003-runtime-node-attach.md). Arbitration halts so canonical turn ordering is preserved rather than skipping ahead. |
+| `arbitration.resumed` | The previously unreachable node has reconnected and canonical ordering has been restored; arbitration resumes from the stored next-due agent. |
+
+> See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed payload definitions.
+
 ### Run Lifecycle (`run_lifecycle`)
 
 One event per state from the [Run State Machine](../domain/run-state-machine.md)'s 9 canonical states.
@@ -280,6 +293,44 @@ Payload shape: `{sessionId, runId, toolName, toolCallId?, channelId?, durationMs
 
 > See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed payload definitions.
 
+### Cross-Node Dispatch (`cross_node_dispatch`)
+
+Cross-participant runtime-dispatch lifecycle events produced by [Spec-024](./024-cross-node-dispatch-and-approval.md). Each dispatch crosses two daemons — the caller's and the target's — and each daemon appends the complementary events to its own local `session_events` log per [ADR-017](../decisions/017-shared-event-sourcing-scope.md); no shared Postgres event log exists for these events in V1. Payloads never carry full PASETO tokens or secret material — ApprovalRecord envelopes are referenced by `approvalRecordRef` pointing to the local `cross_node_dispatch_approvals` row, not embedded verbatim in events.
+
+Base payload shape: `{sessionId, dispatchId, callerParticipantId, targetParticipantId, targetNodeId, capability, timestamp}`. Per-event payload extensions (on top of base):
+
+- Pre-approval failure (`.rejected`): `+ {reason}` naming which step failed (invalid signature, expired token, body-hash mismatch, replay, undeclared capability, policy-engine error).
+- Approval refusal (`.denied`): `+ {approvalRecordRef, reason?}` — signed deny envelope reference.
+- Approval success (`.approved`, `.approval_observed`): `+ {approvalRecordRef}`.
+- Execution success (`.executed`, `.completed`, `.result_observed`): `+ {approvalRecordRef, resultRef?}` — `resultRef` points to the local dispatch-result record; full result payload is not carried inline.
+- Post-approval failure (`.failed`): `+ {approvalRecordRef, reason}`.
+- Mid-flight timeout (`.expired`): `+ {reason: 'caller_token_expired' | 'execution_deadline'}`.
+- Buffered delivery (`.result_buffered`): `+ {approvalRecordRef, bufferedUntil}`.
+- UI-notification stage (`.approval_requested`): base only (UI surface resolves additional context via `dispatchId`).
+- Intake stage (`.sent`, `.received`): base only.
+
+Lifecycle discipline: five terminal events — `.rejected`, `.denied`, `.failed`, `.expired`, `.completed` — are the **only** events that terminate a dispatch's lifecycle. Exactly one fires per `dispatchId`. Intermediate events may fire in sequence before the terminal event. `.executed` is intermediate: it records that the capability handler finished the action; the lifecycle is not terminated until `.completed` (success with result delivered) or `.failed` (post-approval execution fault) fires. This distinction exists because audit reconstruction must be able to tell a successful-but-undelivered result (`.executed` with no terminal) from a fully-successful lifecycle (`.completed`).
+
+| Type | Side | Description (When Fired) |
+| --- | --- | --- |
+| `dispatch.sent` | caller | Caller daemon has transmitted the dispatch envelope via the relay's pairwise-encrypted channel. |
+| `dispatch.received` | target | Target daemon has received the envelope and passed intake validation (token signature, RFC 8785 body-hash binding, replay guard, capability declared). Intermediate. |
+| `dispatch.rejected` | target | **Terminal, pre-approval.** Target rejected the dispatch before the approval stage — invalid signature, expired token, body-hash mismatch, replay, undeclared capability, or policy-engine error. Payload `reason` names the specific failure per Spec-024 §Target-Side Authentication. |
+| `dispatch.approval_requested` | target | Cedar evaluation returned "requires owner approval" and the target daemon has surfaced the approval request to the node owner's UI per Spec-024 §Approval Gate. Intermediate, not terminal — the UI resolution produces `.approved` or `.denied`. |
+| `dispatch.approved` | target | Node owner approved the dispatch and the dual-signed ApprovalRecord envelope has been constructed and persisted per Spec-024 §Dual-Signed ApprovalRecord. Intermediate — execution has not yet started. |
+| `dispatch.denied` | target | **Terminal, approval refusal.** Cedar denied the dispatch by class rule, or the node owner clicked Deny. The signed deny ApprovalRecord is persisted as a durable audit artifact per Spec-024 §Pitfalls ("treating a deny as absent" is prohibited). |
+| `dispatch.executed` | target | The capability handler finished executing the action. **Intermediate** — the lifecycle is not terminal until `.completed` (success path) or `.failed` (post-execution fault) fires. Emitters must not conflate `.executed` with `.completed`. |
+| `dispatch.completed` | target | **Terminal, success.** The full dispatch lifecycle succeeded end-to-end, including successful result emission back to the caller. Exactly one per dispatch when the success path is followed. |
+| `dispatch.failed` | target | **Terminal, post-approval failure.** Execution failed after approval succeeded — capability-handler error, result-emission error, or post-approval runtime fault per Spec-024 §Cross-Node Failure Semantics. Distinct from `.rejected` (pre-approval) and `.expired` (token timeout). Payload `reason` names the specific failure. |
+| `dispatch.expired` | target | **Terminal, mid-flight timeout.** `caller_token.exp` elapsed during approval wait or during in-flight execution; auto-denial fires (approval wait) or in-flight work is aborted (execution) per Spec-024 §Cross-Node Failure Semantics. |
+| `dispatch.result_buffered` | target | Dispatch completed while caller was detached; result is held in target-local storage for delivery on caller reconnect within `caller_token.exp + 5 minutes`. Past that window, the result remains in the target log only; caller must re-observe via audit export. Intermediate — terminal is `.completed` on actual delivery. |
+| `dispatch.approval_observed` | caller | Caller daemon has received the mirrored ApprovalRecord (allow or deny) back through the relay and recorded it locally. |
+| `dispatch.result_observed` | caller | Caller daemon has received the dispatch result payload and appended it to the local log. Live-delivered after target `.completed`, or via buffered-delivery after target `.result_buffered`. |
+
+**Precedent.** [Teleport Just-In-Time Access Requests](https://goteleport.com/docs/identity-governance/access-requests/) is the closest public precedent for per-request cross-machine runtime approval. Teleport registers `access_request.create` (T5000I), `access_request.review` (T5002I), `access_request.update` (T5001I), `access_request.delete` (T5003I), `access_request.search` (T5004I), and `access_request.expire` (T5005I) per [Teleport Audit Events Reference](https://goteleport.com/docs/reference/audit-events/) (accessed 2026-04-18). Teleport carries approval / denial as state transitions on `access_request.update` with an embedded `state` field; AI Sidekicks' taxonomy is more granular, emitting distinct `.approved`, `.denied`, `.failed`, and `.completed` events so a single dispatch's lifecycle can be reconstructed from event types alone without parsing transition payloads.
+
+> See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed payload definitions.
+
 ### Usage Telemetry (`usage_telemetry`)
 
 Payload shape: `{sessionId, runId?, tokenCount?, inputTokens?, outputTokens?, costCents?, windowUsedTokens?, windowMaxTokens?}`
@@ -292,9 +343,22 @@ Payload shape: `{sessionId, runId?, tokenCount?, inputTokens?, outputTokens?, co
 
 > See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed payload definitions.
 
+### Onboarding Lifecycle (`onboarding_lifecycle`)
+
+Daemon-local first-run lifecycle events recording the resolution of the three-way deployment choice (free public relay / self-hosted / hosted SaaS) introduced by [ADR-020](../decisions/020-v1-deployment-model-and-oss-license.md) and implemented in [Spec-026](./026-first-run-onboarding.md). These events belong to the daemon's own session-independent event stream — a daemon emits them once per onboarding resolution (or reset), not per collaborative session.
+
+Payloads must never contain secret material. SPKI pins live in `config.toml`; self-host admin tokens and hosted-SaaS scoped tokens live in the OS keystore per [Spec-023](./023-desktop-shell-and-renderer.md). Event payloads carry only the public subset surfaced by `OnboardingRead()` in Spec-026 §Interfaces And Contracts.
+
+| Type | Description (When Fired) | Payload |
+| --- | --- | --- |
+| `onboarding.choice_made` | The daemon has persisted a resolved three-way choice after successful reachability validation, or via the deferred-validation fallback when the daemon cannot reach the chosen relay at onboarding time. | `{participantId, choiceId, relayUrl, migrated: boolean, deferredValidation: boolean, keystoreAvailable: boolean, timestamp}` |
+| `onboarding.choice_reset` | The operator has cleared the stored onboarding choice via `sidekicks onboarding reset` or via daemon-operator-initiated reset, returning the daemon to the pre-choice state so the next first-invite re-triggers the three-way prompt. | `{participantId, previousChoiceId, reason: 'cli-reset' \| 'operator-reset', timestamp}` |
+
+> See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed payload definitions.
+
 ### Event Type Summary
 
-Total enumerated event types: **76**
+Total enumerated event types: **93**
 
 | Category | Count | Types |
 | --- | --- | --- |
@@ -302,6 +366,7 @@ Total enumerated event types: **76**
 | `membership_change` (invite/membership) | 8 | `invite.created` through `membership.reactivated` |
 | `membership_change` (presence) | 4 | `presence.online` through `presence.offline` |
 | `session_lifecycle` (channel/agent) | 6 | `channel.created` through `agent.config_updated` |
+| `channel_arbitration` | 2 | `arbitration.paused`, `arbitration.resumed` |
 | `run_lifecycle` | 9 | `run.queued` through `run.failed` |
 | `interactive_request` (queue) | 5 | `queue_item.created` through `queue_item.expired` |
 | `interactive_request` (intervention) | 6 | `intervention.requested` through `intervention.expired` |
@@ -310,8 +375,10 @@ Total enumerated event types: **76**
 | `artifact_publication` | 6 | `artifact.published` through `pr.submitted` |
 | `assistant_output` | 2 | `assistant.message`, `assistant.thinking_update` |
 | `tool_activity` | 3 | `tool.invoked` through `tool.error` |
+| `cross_node_dispatch` | 13 | `dispatch.sent`, `dispatch.received`, `dispatch.rejected`, `dispatch.approval_requested`, `dispatch.approved`, `dispatch.denied`, `dispatch.executed`, `dispatch.completed`, `dispatch.failed`, `dispatch.expired`, `dispatch.result_buffered`, `dispatch.approval_observed`, `dispatch.result_observed` |
 | `usage_telemetry` | 3 | `usage.token_count` through `usage.context_window_update` |
-| **Total** | **76** | Exceeds Forge's 69-type baseline |
+| `onboarding_lifecycle` | 2 | `onboarding.choice_made`, `onboarding.choice_reset` |
+| **Total** | **93** | Exceeds Forge's 69-type baseline |
 
 ## Integrity Protocol
 
