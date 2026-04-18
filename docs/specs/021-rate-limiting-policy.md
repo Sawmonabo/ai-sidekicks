@@ -8,7 +8,7 @@
 | **Date** | `2026-04-15` |
 | **Author(s)** | `Codex` |
 | **Depends On** | [Deployment Topology](../architecture/deployment-topology.md), [Security Architecture](../architecture/security-architecture.md) |
-| **Implementation Plan** | _(none yet)_ |
+| **Implementation Plan** | [Plan-021: Rate Limiting Policy](../plans/021-rate-limiting-policy.md) |
 
 ## Purpose
 

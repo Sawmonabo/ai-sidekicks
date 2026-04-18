@@ -8,7 +8,7 @@
 | **Date** | `2026-04-17` |
 | **Author(s)** | `Claude (AI-assisted)` |
 | **Depends On** | [ADR-020: V1 Deployment Model (OSS Self-Host + Hosted SaaS) and OSS License](../decisions/020-v1-deployment-model-and-oss-license.md), [ADR-008: Default Transports And Relay Boundaries](../decisions/008-default-transports-and-relay-boundaries.md), [ADR-010: PASETO + WebAuthn + MLS Auth](../decisions/010-paseto-webauthn-mls-auth.md), [Spec-008: Control-Plane Relay And Session Join](./008-control-plane-relay-and-session-join.md), [Spec-021: Rate Limiting Policy](./021-rate-limiting-policy.md), [Deployment Topology](../architecture/deployment-topology.md) |
-| **Implementation Plan** | Plan-025 (to be authored per BL-080) |
+| **Implementation Plan** | [Plan-025: Self-Hostable Node Relay](../plans/025-self-hostable-node-relay.md) |
 
 ## Purpose
 

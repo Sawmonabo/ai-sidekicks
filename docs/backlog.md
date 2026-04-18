@@ -97,7 +97,7 @@ V1 (per ADR-015) includes a Desktop GUI feature with no governing spec today, an
 
 #### BL-044: Create Plan-021 Rate Limiting
 
-- Status: `todo`
+- Status: `completed`
 - Priority: `P0`
 - Owner: `unassigned`
 - References: [Spec-021](./specs/021-rate-limiting-policy.md), [ADR-014](./decisions/014-trpc-control-plane-api.md), [deployment-topology.md](./architecture/deployment-topology.md)
@@ -135,7 +135,7 @@ V1 (per ADR-015) includes a Desktop GUI feature with no governing spec today, an
 
 #### BL-080: Create Plan-025 Self-Hostable Node Relay
 
-- Status: `todo`
+- Status: `completed`
 - Priority: `P0`
 - Owner: `unassigned`
 - Depends-on: BL-079 (Plan-025 implements Spec-025)
