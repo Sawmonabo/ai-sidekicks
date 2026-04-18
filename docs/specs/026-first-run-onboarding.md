@@ -8,7 +8,7 @@
 | **Date** | `2026-04-17` |
 | **Author(s)** | `Claude (AI-assisted)` |
 | **Depends On** | [ADR-020: V1 Deployment Model (OSS Self-Host + Hosted SaaS) and OSS License](../decisions/020-v1-deployment-model-and-oss-license.md), [Spec-007: Local IPC And Daemon Control](./007-local-ipc-and-daemon-control.md), [Spec-008: Control-Plane Relay And Session Join](./008-control-plane-relay-and-session-join.md), [Spec-023: Desktop Shell And Renderer](./023-desktop-shell-and-renderer.md), [Spec-025: Self-Hostable Node Relay](./025-self-hostable-node-relay.md), [Spec-006: Session Event Taxonomy And Audit Log](./006-session-event-taxonomy-and-audit-log.md) |
-| **Implementation Plan** | Plan-026 (to be authored per BL-082) |
+| **Implementation Plan** | [Plan-026: First-Run Onboarding](../plans/026-first-run-onboarding.md) |
 
 ## Purpose
 

@@ -87,7 +87,7 @@ V1 (per ADR-015) includes a Desktop GUI feature with no governing spec today, an
 
 #### BL-043: Create Plan-023 Desktop Shell + Renderer
 
-- Status: `todo`
+- Status: `completed`
 - Priority: `P0`
 - Owner: `unassigned`
 - Depends-on: BL-041 (Plan-023 implements Spec-023)
@@ -155,7 +155,7 @@ V1 (per ADR-015) includes a Desktop GUI feature with no governing spec today, an
 
 #### BL-082: Create Plan-026 First-Run Three-Way-Choice Onboarding
 
-- Status: `todo`
+- Status: `completed`
 - Priority: `P0`
 - Owner: `unassigned`
 - Depends-on: BL-081 (Plan-026 implements Spec-026)

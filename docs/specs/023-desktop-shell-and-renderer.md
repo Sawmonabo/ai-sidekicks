@@ -8,7 +8,7 @@
 | **Date** | `2026-04-17` |
 | **Author(s)** | `Claude (AI-assisted)` |
 | **Depends On** | [ADR-016: Electron Desktop Shell](../decisions/016-electron-desktop-shell.md), [ADR-010: PASETO + WebAuthn + MLS Auth](../decisions/010-paseto-webauthn-mls-auth.md), [ADR-009: JSON-RPC IPC Wire Format](../decisions/009-json-rpc-ipc-wire-format.md), [Container Architecture](../architecture/container-architecture.md), [Component Architecture Desktop App](../architecture/component-architecture-desktop-app.md), [Security Architecture](../architecture/security-architecture.md), [Spec-007: Local IPC And Daemon Control](./007-local-ipc-and-daemon-control.md) |
-| **Implementation Plan** | Plan-023 (to be authored per BL-043) |
+| **Implementation Plan** | [Plan-023: Desktop Shell And Renderer](../plans/023-desktop-shell-and-renderer.md) |
 
 ## Purpose
 
