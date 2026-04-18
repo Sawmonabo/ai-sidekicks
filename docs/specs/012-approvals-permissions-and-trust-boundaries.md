@@ -102,7 +102,7 @@ This spec covers approval requests, approval scopes, remembered grants, and the 
 - Approval UX may present grouped requests, but canonical approval records must remain granular enough for audit.
 - Remembered approval scopes should be explicit enums, not free-form client labels.
 - Trust changes must propagate into approval evaluation immediately.
-- Policy evaluation uses Cedar (CNCF sandbox). V1 uses YAML policy definitions. V1.1 evaluates Cedar WASM (`@cedarpolicy/cedar-wasm`) for runtime evaluation. Cedar's principal-action-resource-context model maps to: principal = participant, action = approval category, resource = target (file, tool, network, etc.), context = session state.
+- Policy evaluation uses Cedar (CNCF sandbox). V1 uses YAML policy definitions. V1.1 evaluates Cedar WASM (`@cedarpolicy/cedar-wasm`) for runtime evaluation. Cedar's principal-action-resource-context model maps to: principal = participant, action = approval category, resource = target (file, tool, network, etc.), context = session state. Policy artifact signing, verification, and operator key lifecycle are governed by [ADR-012 §Policy Chain of Custody](../decisions/012-cedar-approval-policy-engine.md#policy-chain-of-custody); operational procedures are in [Cedar Policy Signing And Rotation](../operations/cedar-policy-signing-and-rotation.md).
 
 ## Pitfalls To Avoid
 

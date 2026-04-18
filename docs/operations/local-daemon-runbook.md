@@ -35,7 +35,8 @@ Recover the participant-local execution daemon, the Local Runtime Daemon, when l
 4. If restart succeeds, wait for `RecoveryStatusRead` to leave replay or rebuild mode before resuming writable work.
 5. If restart fails with SQLite, replay, or projection-rebuild errors, follow [Local Persistence Repair And Restore](./local-persistence-repair-and-restore.md) before trying another restart.
 6. If restart fails because of provider resume or runtime-binding recovery, follow [Provider Failure Runbook](./provider-failure-runbook.md).
-7. Reconnect one CLI client and one desktop client, then verify session read plus live subscribe before re-enabling normal writable work.
+7. If the daemon starts but `RecoveryStatusRead` reports `ApprovalPolicyEngineUnavailable` (Cedar policy signature verification failed), follow [Cedar Policy Signing And Rotation](./cedar-policy-signing-and-rotation.md).
+8. Reconnect one CLI client and one desktop client, then verify session read plus live subscribe before re-enabling normal writable work.
 
 ## Validation
 

@@ -360,21 +360,23 @@ Each surface below will be touched in the first implementation sprint.
 
 #### BL-058: Specify daemon master key storage + rotation + backup constraint
 
-- Status: `todo`
+- Status: `completed`
 - Priority: `P1`
 - Owner: `unassigned`
-- References: [Spec-022](./specs/022-data-retention-and-gdpr.md), [security-architecture.md](./architecture/security-architecture.md), [local-persistence-repair-and-restore.md](./operations/local-persistence-repair-and-restore.md)
-- Summary: Master key lives in OS keystore, never touches disk plaintext. Tied to participant credentials: WebAuthn PRF wraps the master key when available, Argon2id KEK otherwise. Wipe decrypted master key on idle (configurable grace) and on shutdown. Backups MUST NOT capture both `participant_keys` AND the plaintext master key; master key recovered from OS keystore separately. Rotate master key on every shred.
-- Exit Criteria: Spec-022 has new §Daemon Master Key; security-architecture.md reflects the rotation policy; operations runbook's backup section names the separation constraint.
+- References: [Spec-022 §Daemon Master Key](./specs/022-data-retention-and-gdpr.md#daemon-master-key), [security-architecture.md §Daemon Master Key Rotation](./architecture/security-architecture.md#daemon-master-key-rotation), [local-persistence-repair-and-restore.md §Backup Constraints](./operations/local-persistence-repair-and-restore.md#backup-constraints), [ADR-021](./decisions/021-cli-identity-key-storage-custody.md)
+- Summary: Master key custody tied to participant credentials via KEK derivation (WebAuthn PRF or Argon2id). Two-tier + refuse ladder (OS keystore cache, Argon2id-encrypted file fallback, refuse). Wrapped envelope reuses ADR-021's 50-byte format. Idle-wipe (default 15min) + shutdown-wipe + lock-wipe via `sodium_mlock`. Rotate-on-shred re-wraps all remaining `participant_keys` rows atomically. Backup separation: wrapped master blob MUST be excluded from any backup that captures `participant_keys` ciphertext. Divergence from ADR-021's keystore-authoritative ladder is intentional and documented: CLI identity key's threat model prioritizes durability; daemon master key's threat model prioritizes binding-to-credential (crypto-shred).
+- Exit Criteria: Spec-022 has new §Daemon Master Key ✅; security-architecture.md reflects the rotation policy ✅; operations runbook's backup section names the separation constraint ✅.
+- Resolved: 2026-04-18 (Session D2).
 
 #### BL-059: Specify Cedar policy chain-of-custody
 
-- Status: `todo`
+- Status: `completed`
 - Priority: `P1`
 - Owner: `unassigned`
-- References: [ADR-012](./decisions/012-cedar-approval-policy-engine.md), `docs/operations/` (new runbook)
-- Summary: Policy sets are signed by an operator signing key (owner-org in hosted; org operator in self-hosted). Daemon only evaluates policies verifiable against a pinned operator public key bundled in the daemon image. Policy updates are atomic, versioned, signed; daemon rejects unsigned or unverifiable updates. On-start hash mismatch triggers fail-closed refusal to enforce approvals. V1 + V1.1 evaluation happens on the daemon; control plane is a signed-distribution channel only.
-- Exit Criteria: ADR-012 has new §Policy Chain of Custody; `docs/operations/cedar-policy-signing-and-rotation.md` exists.
+- References: [ADR-012 §Policy Chain of Custody](./decisions/012-cedar-approval-policy-engine.md#policy-chain-of-custody), [Cedar Policy Signing And Rotation](./operations/cedar-policy-signing-and-rotation.md), [Spec-012](./specs/012-approvals-permissions-and-trust-boundaries.md), [Plan-012](./plans/012-approvals-permissions-and-trust-boundaries.md)
+- Summary: V1/V1.1 layer carve-out: V1 signed artifact = daemon container image (policies-in-binary covered by image signing); V1.1 signed artifact = separate `policy-bundle-v{N}.cedar.tar.gz` + detached `.sig` evaluated at runtime by `@cedarpolicy/cedar-wasm`. Ed25519 primary (ECDSA P-256 FIPS fallback). Pinned `OPERATOR_PUBLIC_KEY` baked into daemon image at build time; self-hosters rebuild with their own operator key. Monotonic unsigned integer version counter with rollback rejection. Fail-closed on: unsigned bundle, wrong-key signature, hash mismatch, timestamp-expired, algorithm mismatch. V1 rotation = coordinated fleet upgrade (no dual-pinning); compromise response acknowledges upgrade-gap window honestly. Cedar v4.5 pinned. V2+ forward declarations: TUF, Sigstore/Fulcio/Rekor, HSM, multi-sig, PQC, online revocation.
+- Exit Criteria: ADR-012 has new §Policy Chain of Custody ✅; `docs/operations/cedar-policy-signing-and-rotation.md` exists ✅.
+- Resolved: 2026-04-18 (Session D2).
 
 #### BL-060: Implement secure-by-default behaviors for self-host deployment + companion doc
 
