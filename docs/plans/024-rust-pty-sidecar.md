@@ -8,7 +8,7 @@
 | **Date** | `2026-04-17` |
 | **Author(s)** | `Claude Opus 4.7` |
 | **Spec** | _(none; ADR-driven per ADR-019)_ |
-| **Required ADRs** | [ADR-019: Windows V1 Tier and Rust PTY Sidecar Strategy](../decisions/019-windows-v1-tier-and-pty-sidecar.md), [ADR-009: JSON-RPC IPC Wire Format](../decisions/009-json-rpc-ipc-wire-format.md) |
+| **Required ADRs** | [ADR-019: Windows V1 Tier and Rust PTY Sidecar Strategy](../decisions/019-windows-v1-tier-and-pty-sidecar.md), [ADR-009: JSON-RPC IPC Wire Format](../decisions/009-json-rpc-ipc-wire-format.md), [ADR-015: V1 Feature Scope Definition](../decisions/015-v1-feature-scope-definition.md) |
 | **Dependencies** | `None` (upstream of Plan-005; sidecar binary and `PtyHost` contract must land before Plan-005 authors runtime-binding consumers) |
 | **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
 
