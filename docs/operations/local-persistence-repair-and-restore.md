@@ -21,7 +21,7 @@ Repair or restore the Local Runtime Daemon SQLite store when daemon startup, rep
 
 - Access to the affected participant machine and daemon-owned SQLite files
 - Permission to stop the Local Runtime Daemon
-- Access to the most recent known-good local persistence backup if one exists
+- Access to the most recent known-good local persistence backup (daily backups are always available per [Spec-015 §Backup Policy](../specs/015-persistence-recovery-and-replay.md#backup-policy) — 7-daily + 4-weekly retention; restore SLO ≤ 24h staleness)
 
 ### Backup Constraints
 
@@ -64,8 +64,8 @@ The daemon master key that wraps all `participant_keys.encrypted_key_blob` entri
 2. Create a timestamped backup copy of the current SQLite database, WAL, and SHM files before attempting repair or restore.
 3. Run a SQLite integrity check against the copied database to determine whether the canonical local store is structurally healthy.
 4. If integrity is healthy, restart the daemon and run `ProjectionRebuild` from canonical events instead of replacing the database.
-5. If integrity fails and a known-good backup exists, restore the last known-good SQLite, WAL, and SHM set, then restart the daemon and allow replay rebuild to run.
-6. If integrity fails and no known-good backup exists, preserve the broken files for later analysis, keep new mutable work blocked, and escalate rather than creating a fresh empty database.
+5. If integrity fails, restore the last known-good SQLite, WAL, and SHM set from the backup tree at `$XDG_STATE_HOME/ai-sidekicks/backups/` (host) or the operator's bind-mounted backup path (container) per [Spec-015 §Backup Policy](../specs/015-persistence-recovery-and-replay.md#backup-policy), then restart the daemon and allow replay rebuild to run.
+6. If integrity fails AND the backup tree is itself unreadable (catastrophic filesystem loss — not the normal case, since Spec-015 §Backup Policy guarantees daily backups by default), preserve the broken files for later analysis, keep new mutable work blocked, and escalate rather than creating a fresh empty database.
 
 ## Validation
 

@@ -23,7 +23,7 @@ The product requires durable replay and recovery while keeping local execution p
 
 | Store | Responsibility |
 | --- | --- |
-| `Local SQLite Store` | Canonical node-local event log, command receipts, runtime bindings, queue state, run projections, and approval records needed for local recovery. |
+| `Local SQLite Store` | Canonical node-local event log, command receipts, runtime bindings, queue state, run projections, and approval records needed for local recovery. V1 driver pin: `better-sqlite3@^12.9.0` on a single-writer worker thread (see [Spec-015 §Writer Concurrency](../specs/015-persistence-recovery-and-replay.md#writer-concurrency)). |
 | `Shared Postgres Store` | Shared session metadata, invites, memberships, presence history, session directory, and cross-node coordination records. |
 | `Artifact Storage` | Durable artifact payloads and manifests, split between `local-only` and shared-visible artifacts according to policy. |
 | `Projection Layer` | Read-optimized materializations derived from canonical event streams and shared coordination records. |
@@ -51,6 +51,8 @@ V1 scopes event-sourcing to per-daemon local event logs. Each daemon owns an aut
 **Federated audit model (accepted trade-off).** Cross-participant audit — "what happened in session X across all participants between T1 and T2?" — spans multiple daemons. There is no single Postgres query that returns a canonical cross-participant event list. Audit export collects log exports from every participant's daemon and merges them. This is the explicit accepted cost of V1's zero-knowledge relay.
 
 **Per-daemon sequence semantics (accepted consequence).** Per-daemon `sequence` is monotonic only within that daemon's own log. Daemons may disagree on the ordering of concurrent events that arrived from different peers at overlapping wall-clock times. Consumers that need cross-daemon ordering must use wall-clock timestamps with origin-participant-id tiebreakers, or Hybrid Logical Clocks (BL-076). Raw `sequence` is not a cross-daemon ordering primitive.
+
+**Within-daemon ordering primitive.** For ordering events emitted by a single daemon across wall-clock discontinuities (NTP step, VM resume, operator clock edit), the authoritative primitive is `session_events.monotonic_ns` — a BIGINT produced by `process.hrtime.bigint()` per [Spec-015 §Clock Handling](../specs/015-persistence-recovery-and-replay.md#clock-handling). Its zero point is unspecified and resets on every daemon restart, so it is strictly a within-process ordering primitive, never a cross-daemon one.
 
 **V1.1 upgrade path.** ADR-017 retains shared event log (Option A) as a V1.1 candidate, gated on [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md) MLS promotion gates (audit + interop + 4-week soak). V1.1 would add a `session_events_shared` Postgres table populated in parallel with per-daemon logs; local logs remain authoritative for local replay.
 

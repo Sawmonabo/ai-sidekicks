@@ -22,7 +22,8 @@ CREATE TABLE session_events (
   id                     TEXT PRIMARY KEY,           -- ULID or UUID
   session_id             TEXT NOT NULL,
   sequence               INTEGER NOT NULL,           -- monotonic per session
-  occurred_at            TEXT NOT NULL,              -- RFC 3339 UTC with ms precision
+  occurred_at            TEXT NOT NULL,              -- RFC 3339 UTC with ms precision (wall-clock; display + audit)
+  monotonic_ns           INTEGER NOT NULL,           -- process.hrtime.bigint() at emit; within-daemon ordering only (see Spec-015 §Clock Handling, BL-062)
   category               TEXT NOT NULL,              -- e.g. 'run_lifecycle', 'assistant_output', 'tool_activity'
   type                   TEXT NOT NULL,              -- specific event type within category
   actor                  TEXT,                       -- participant_id or agent_id or NULL for system
