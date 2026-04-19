@@ -1,0 +1,73 @@
+# Self-Host Secure Defaults
+
+## Purpose
+
+Describe the secure defaults that are active out-of-the-box for a self-host deployment of AI Sidekicks: what is on without operator configuration, how to verify each default is actually active, what the override path is, and the one-line reason the default is what it is. This doc is the operator-facing companion to [Spec-027](../specs/027-self-host-secure-defaults.md); it does not state requirements — it describes current shipped behavior in declarative form.
+
+If a row in the table below does not match what your deployment is doing, treat that as a deviation worth investigating — the first-run banner (row 10) should agree with this doc on every fresh boot.
+
+## The Eleven Defaults
+
+| # | What is on by default | How to verify it is active | How to opt out / override | Reason the default is what it is |
+| --- | --- | --- | --- | --- |
+| 1 | **Relay traffic over TLS via Caddy.** Operator declares `DEPLOY_MODE=public` (default) or `DEPLOY_MODE=lan`. `DEPLOY_MODE=public` uses ACME — DNS-01 preferred when a DNS provider plugin is configured, HTTP-01 otherwise; renewals follow RFC 9773 ARI windows (exempt from Let's Encrypt rate limits). `DEPLOY_MODE=lan` uses Caddy's internal CA (`tls internal`) directly, prints SPKI-SHA256 + SSH-style fingerprints, and persists them at `./data/trust/fingerprint.txt`. Caddy does NOT silently fall back from a failed public-ACME issuance to an internal CA (caddyserver/caddy#4735); a mismatched mode/hostname combination is refused at parse time. | `curl -vk https://<host>/` shows `TLS 1.3` with issuer `Let's Encrypt` (`DEPLOY_MODE=public`) or `Caddy Local Authority` (`DEPLOY_MODE=lan`). `cat ./data/trust/fingerprint.txt` shows both SPKI-SHA256 and SSH-style hashes under `DEPLOY_MODE=lan`. | Mismatch refusal: `DEPLOY_MODE=public` with `.localhost` / `.local` / `.home.arpa` / `.internal` / RFC1918 hostname, OR `DEPLOY_MODE=lan` with a public DNS hostname, exits non-zero at parse time. `--relay-no-tls` permitted only when bind is loopback; non-loopback + no-TLS refused at parse time. | DNS-01 reaches private hosts HTTP-01 cannot; ARI-coordinated renewals don't get rate-limited. Operator-declared intent beats runtime auto-detect on a security-critical branch. |
+| 2 | **Refuse-to-start without encryption on non-loopback binds.** Parse-time check; process exits non-zero with the offending option named. | Try to start with `DAEMON_BIND=0.0.0.0 --no-tls` → expect `FATAL:` exit. | `--insecure` (or `INSECURE=1`) prints a loud banner every boot and emits `security.default.override=insecure_bind`. | A docs-only "don't do this" warning (Supabase-style) has been shown to fail in the field; the check lives in the code. |
+| 3 | **All secrets auto-generated on first run.** Daemon master key, session-signing key, relay admin token are generated with `crypto.randomBytes` and written `0600`. Public material (fingerprints, public keys) is printed to both stdout and the top of the on-disk file; private material is only in the file body. | `ls -la ./data/*.key ./data/admin-token` → all `-rw-------`. `head -1 ./data/admin-token` shows the public-material header comment (the file body below the comment is the private token). Startup banner (row 10) prints the fingerprints. | No override. Secrets cannot be pre-seeded via env vars or `.env.example`. Sentinel file `./data/trust/first-run.complete` records that generation ran; removing it blocks daemon start until re-init is explicitly invoked. | Supabase's experimental `generate-keys.sh` has shipped with bugs (issue #42562 — writes a non-existent env var). The spec ships generation, not an optional helper. |
+| 4 | **Loopback bind for the daemon.** Daemon local-IPC socket and daemon HTTP listener both default to `127.0.0.1`. Relay `RELAY_BIND=0.0.0.0:8787` is container-internal (Caddy fronts on `:443`). | `ss -ltn \| grep -E '127\.0\.0\.1:(4317\|<daemon-http>)'` returns both listeners bound to `127.0.0.1`. Host `netstat -ltn` on the host shows only `:443` (Caddy) reachable from outside. | `DAEMON_BIND=0.0.0.0` requires TLS to be enabled simultaneously — row 2's check will refuse the combination otherwise. | Localhost-first closes the entire class of "daemon on public Wi-Fi by accident" incidents. |
+| 5 | **Postgres `sslmode=verify-full`, plus weak-auth rejection and version probe.** Daemon refuses to start if `pg_hba.conf` contains any enabled line with `trust`, `password`, or `md5`. Daemon refuses to start if Postgres `server_version_num < 170000`. A non-fatal advisory is logged for `< 180000`. | On a running deployment: `PGSSLMODE=verify-full psql …` succeeds for your daemon's connection string. Attempt to connect to a MITM'd DB → connection refused. `SELECT current_setting('server_version_num')` returns ≥ `170000`. `SELECT auth_method FROM pg_hba_file_rules` contains only `scram-sha-256` / `cert` / `oauth`. | `sslmode=verify-ca` with a loud banner is accepted; `disable`, `allow`, `prefer`, `require` are refused. No override for weak auth methods. | CVE-2024-10977 (libpq MITM error-message injection, 2024-11-14) is exploitable under `require` and defeated by `verify-ca`/`verify-full`. Postgres 14 hits EOL 2026-11-12; shipping ≥ 17 is the 2026 floor. |
+| 6 | **SQLite online-backup on by default.** Default cadence: session-end event + nightly full. Default destination: `./data/backups/` (`0700`). | `ls -la ./data/backups/` shows recent backup files. `/metrics` → `backup_success_total` increments on each cycle. | `BACKUP_DIR=<path>` changes destination; `BACKUP_CADENCE=off` disables backup entirely with a loud banner and `security.default.override=backup_disabled`. Plug-in point (S3/GCS/custom) is owned by BL-063. | Data durability is a security property; silent session loss is a breach class. |
+| 7a | **Auto-update — notify-by-default (daemon).** Daemon polls GitHub Releases on a cadence owned by Plan-007. On detection of a newer version: surface a prompt on next CLI invocation, add a line to the next startup banner, emit `security.update.available`. Daemon MUST NOT self-swap its binary while IPC is live. | `/metrics` → `auto_update_check_status` gauge (`0=ok / 1=behind / 2=poll_failed`). Startup banner includes `Update available: vX.Y.Z` when behind. | `AUTO_UPDATE_CHECK=off` disables polling. | A running daemon with open IPC sockets and file locks cannot safely self-replace mid-session. |
+| 7b | **Auto-update — opt-in self-update (CLI).** `ai-sidekicks self-update` dual-path verifies: Ed25519 signature on the release manifest AND a GitHub Artifact Attestation (Sigstore bundle) on the artifact. Manifest includes `version` (monotonic), `released_at`, `expires_at`, `previous_manifest_hash`, `next_signing_keys` — any of rollback / freeze / broken-chain triggers refusal. | Run `ai-sidekicks self-update --dry-run` and observe both `Ed25519: OK` and `Sigstore bundle: OK` in output. A tampered bundle or missing attestation will show `FATAL:` and refuse. | No override — dual-path verification is not bypassable. (Operator may install via a system package manager; self-update refuses to run if the binary lives in a package-manager-owned path.) | Post-Shai-Hulud (2025-09/11, 25k+ npm repos) and post-Axios (2026-03-31, direct-publish from hijacked maintainer) established that single-trust-path update distribution is insufficient. Dual-path forces an attacker to compromise two independent systems. |
+| 8 | **TLS 1.3 minimum everywhere TLS is used.** Node `minVersion=maxVersion=TLSv1.3`. Caddy `tls { protocols tls1.3 }`. | `openssl s_client -connect <host>:443 -tls1_2` → handshake fails. `-tls1_3` → succeeds. | `--legacy-tls12` or `LEGACY_TLS12=1` with a loud banner and `security.default.override=legacy_tls12`. | TLS 1.2 is not formally deprecated in 2026 (only ≤1.1 via RFC 8996), but 1.3-only is feasible (>92% cross-browser support) and closes the downgrade-attack surface. |
+| 9 | **Security `/metrics` exports on a Prometheus v0.0.4 endpoint bound to `127.0.0.1`.** Exposed counter families: `token_auth_failure_total`, `rate_limit_trip_total`, `cedar_deny_total` (Cedar policy-engine denies per ADR-012), `relay_connection_churn_total`, `backup_success_total`, `auto_update_check_status` (gauge). | `curl http://127.0.0.1:<metrics-port>/metrics` returns Prometheus-format text; all six families present. | `METRICS_BIND=off` disables entirely. `METRICS_BIND=0.0.0.0:<port>` is accepted only with a bearer token (owned by Plan-020); scraping without the token is rejected. | Operators running blind cannot detect credential-stuffing, rate-limit ceiling breaches, or update-check flatlines. Loopback default avoids making metrics an attack surface. |
+| 10 | **Loud first-run banner on every process start.** Single-screen printout enumerating: TLS mode + fingerprint; all bind addresses; backup destination + cadence; admin-token file path; update channel + mode; any active `security.default.override=*` rows. | Restart daemon or relay → expect the banner on stdout. A `BANNER_FORMAT=json` mode emits the same payload as one JSON line (for structured-log environments). | No opt-out. `BANNER_FORMAT=json` is a format switch, not a suppression. | An operator who ran `docker compose up` on a borrowed laptop without ever reading docs MUST still be told what security posture they got. |
+
+## Operational Events To Expect
+
+These are shipped-behavior facts that will affect operator experience over the V1 lifecycle. They are not requirements — they are heads-up notes.
+
+- **Let's Encrypt certificate lifetime default shifts on 2026-05-13.** LE's default profile moves to 45-day certs on 2026-05-13; the 64-day `classic` profile follows on 2027-02-10. The deployed ACME client is ARI-driven (RFC 9773) and handles both 90-day and 45-day defaults without code changes, so the change is transparent to the operator — but expect shorter cert validity periods in dashboards and monitoring after mid-May 2026.
+- **Postgres 14 reaches end-of-life on 2026-11-12.** The daemon's startup probe already refuses to start against `server_version_num < 170000`, so operators still on PG 14/15/16 will see a clear failure. Plan your upgrade to PG 17 (or PG 18, recommended) before upgrading the daemon.
+- **LE short-lived cert profile (6 days, `shortlived`) GA'd on 2026-01-15.** Not enabled by default in V1 because wildcard DNS-01 at daily cadence is a rate-limit risk on some DNS provider APIs. V1.1 may expose `ACME_PROFILE=shortlived` as an opt-in.
+- **Postgres 18 is current as of 2025-09-25.** Daemon behavior 5 advises (not requires) PG 18 for the `oauth` auth method and the `md5_password_warnings` knob. An operator on PG 17 will see the advisory line on startup logs but the daemon will proceed.
+- **Cosign v3.0.6 is the 2026-04 reference for Sigstore bundle verification.** The self-update CLI (behavior 7b) embeds the `@sigstore/verify` semantics equivalent. Operators who run `gh attestation verify` manually against release artifacts will get the same verdict the CLI does.
+
+## Verifying A Deployment Against This Doc
+
+If you are auditing or triaging a self-host deployment and want a single pass:
+
+1. Restart the daemon and the relay. Capture the first-run banner of each (row 10).
+2. Compare the banner against the table above, column by column.
+3. For any row where the banner shows an override (`security.default.override=*`), check the reason — overrides are legitimate when explicitly chosen; they are not legitimate when the operator did not set them.
+4. Scrape `/metrics` on loopback (row 9). All six counter families should be present.
+5. Confirm `./data/trust/first-run.complete` exists and `./data/trust/fingerprint.txt` contains both the SPKI-SHA256 pin and the SSH-style hash.
+6. Try a deliberate violation: attempt to start the daemon with `DAEMON_BIND=0.0.0.0` and no TLS. Expect a `FATAL:` exit (row 2). If the daemon actually starts, the deployment is not on the shipped code path and MUST be investigated.
+
+## Related Architecture Docs
+
+- [deployment-topology.md](../architecture/deployment-topology.md) — the self-host topology this doc configures.
+- [security-architecture.md](../architecture/security-architecture.md) — trust boundaries, secret custody, and observability surface.
+
+## Related Specs
+
+- [Spec-027 — Self-Host Secure Defaults](../specs/027-self-host-secure-defaults.md) — the normative spec for this doc.
+- [Spec-007 — Local IPC and Daemon Control](../specs/007-local-ipc-and-daemon-control.md) — daemon lifecycle.
+- [Spec-020 — Observability and Failure Recovery](../specs/020-observability-and-failure-recovery.md) — `/metrics` surface.
+- [Spec-021 — Rate Limiting Policy](../specs/021-rate-limiting-policy.md) — rate-limiter counter source (row 9).
+- [Spec-022 — Data Retention and GDPR](../specs/022-data-retention-and-gdpr.md) — secret custody internals (row 3 references).
+- [Spec-025 — Self-Hostable Node Relay](../specs/025-self-hostable-node-relay.md) — relay transport and `RELAY_BIND` semantics (row 4).
+- [Spec-026 — First-Run Onboarding](../specs/026-first-run-onboarding.md) — banner format (row 10).
+
+## Related Plans
+
+- [Plan-007 — Local IPC and Daemon Control](../plans/007-local-ipc-and-daemon-control.md) — owns rows 2, 3, 4, 7a, 7b (daemon side), 8 (daemon), 10 (daemon content).
+- [Plan-020 — Observability and Failure Recovery](../plans/020-observability-and-failure-recovery.md) — owns row 9 (`/metrics`).
+- [Plan-025 — Self-Hostable Node Relay](../plans/025-self-hostable-node-relay.md) — owns rows 1, 2 (relay), 3 (admin token), 5 (Postgres config + cert helper), 7b (relay CLI), 8 (relay/Caddy), 10 (relay content).
+- [Plan-026 — First-Run Onboarding](../plans/026-first-run-onboarding.md) — owns row 10 format.
+- [Plan-001 — Shared Session Core](../plans/001-shared-session-core.md) (with BL-063 additions) — owns row 6 SQLite online-backup implementation.
+
+## Related Operations Runbooks
+
+- [cedar-policy-signing-and-rotation.md](./cedar-policy-signing-and-rotation.md) — Cedar policy-bundle signing (the source of row 9's `cedar_deny_total` counter upstream).
+- [local-daemon-runbook.md](./local-daemon-runbook.md) — recover-and-restart flows that interact with the first-run sentinel (row 3).
+- [local-persistence-repair-and-restore.md](./local-persistence-repair-and-restore.md) — backup restore flows that depend on row 6 output.
