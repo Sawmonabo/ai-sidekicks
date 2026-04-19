@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| **Status** | `review` |
+| **Status** | `approved` |
 | **NNN** | `009` |
 | **Slug** | `repo-attachment-and-workspace-binding` |
 | **Date** | `2026-04-14` |

@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| **Status** | `review` |
+| **Status** | `approved` |
 | **NNN** | `010` |
 | **Slug** | `worktree-lifecycle-and-execution-modes` |
 | **Date** | `2026-04-14` |

@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| **Status** | `review` |
+| **Status** | `approved` |
 | **NNN** | `004` |
 | **Slug** | `queue-steer-pause-resume` |
 | **Date** | `2026-04-14` |

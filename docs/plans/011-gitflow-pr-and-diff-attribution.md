@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| **Status** | `review` |
+| **Status** | `approved` |
 | **NNN** | `011` |
 | **Slug** | `gitflow-pr-and-diff-attribution` |
 | **Date** | `2026-04-14` |

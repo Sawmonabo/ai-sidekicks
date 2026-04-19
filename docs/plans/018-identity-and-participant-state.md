@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| **Status** | `review` |
+| **Status** | `approved` |
 | **NNN** | `018` |
 | **Slug** | `identity-and-participant-state` |
 | **Date** | `2026-04-14` |

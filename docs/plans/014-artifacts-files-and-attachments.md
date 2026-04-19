@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| **Status** | `review` |
+| **Status** | `approved` |
 | **NNN** | `014` |
 | **Slug** | `artifacts-files-and-attachments` |
 | **Date** | `2026-04-14` |

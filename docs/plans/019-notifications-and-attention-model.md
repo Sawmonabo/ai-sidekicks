@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| **Status** | `review` |
+| **Status** | `approved` |
 | **NNN** | `019` |
 | **Slug** | `notifications-and-attention-model` |
 | **Date** | `2026-04-14` |
