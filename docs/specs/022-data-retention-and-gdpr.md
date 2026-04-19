@@ -232,6 +232,10 @@ This divergence is intentional. The CLI identity key's loss is a liveness failur
 
 ## PII Data Map
 
+The data map enumerates **every** PII-carrying path reachable from `DELETE /participants/{id}/data`. [BL-066](../backlog.md) requires exhaustive enumeration so the shred fan-out in the next section has no gaps. Paths are grouped by durability tier.
+
+**Durable tier (canonical audit log + control plane):**
+
 | Table | Column | PII Type | Retention | Shredding |
 |-------|--------|----------|-----------|-----------|
 | `session_events` (SQLite) | `pii_payload` | User messages, file paths, code snippets | 90 days (full) / indefinite (audit stub) | Crypto-shred via participant key deletion |
@@ -240,6 +244,25 @@ This divergence is intentional. The CLI identity key's loss is a liveness failur
 | `identity_mappings` (PG) | `external_id` | Provider-specific ID | Account lifetime | DELETE row on account deletion |
 | `session_invites` (PG) | `token_hash` | Invite token hash | Invite lifetime | DELETE row on invite expiry/revocation |
 | `notification_preferences` (PG) | `preference_value` | Notification settings | Account lifetime | DELETE row on account deletion |
+
+**Bounded-retention diagnostic tier (daemon-local, non-canonical per [Spec-020 §Required Behavior](020-observability-and-failure-recovery.md#required-behavior)):**
+
+| Table | Column | PII Type | Retention | Shredding |
+|-------|--------|----------|-----------|-----------|
+| `driver_raw_events` (SQLite, daemon-local) | `raw_payload` | Provider-native prompts, completions, tool-call bodies | ≤ 7 days (bounded) | TTL bucket purge; participant-scoped rows purged on shred |
+| `command_output` (SQLite, daemon-local) | `stdout`, `stderr` | Shell command output bytes | ≤ 7 days (bounded) | TTL bucket purge; participant-scoped rows purged on shred |
+| `tool_traces` (SQLite, daemon-local) | `args`, `result_body` | Tool call arguments and result bodies | ≤ 7 days (bounded) | TTL bucket purge; participant-scoped rows purged on shred |
+| `reasoning_detail` (SQLite, daemon-local) | `detailed_payload` | Full reasoning/thinking payloads (if policy-enabled) | ≤ 7 days detailed / indefinite summary-only | TTL bucket purge on detailed; summary retained (non-PII stub per [Spec-006 §Event Compaction Policy](006-session-event-taxonomy-and-audit-log.md#event-compaction-policy)) |
+
+**Telemetry export tier (OTel/Datadog/Sentry sinks — optional, opt-in):**
+
+| Sink | Attribute | PII Type | Retention | Shredding |
+|-------|--------|----------|-----------|-----------|
+| OTel span attributes (outbound) | `gen_ai.prompt`, `gen_ai.completion` | Model prompts/completions if opt-in | Per remote sink | Redacted by default (see [Spec-020 §PII in Diagnostics](020-observability-and-failure-recovery.md#pii-in-diagnostics)); opt-in required |
+| OTel log body (outbound) | log `body` | Free-text log lines that may contain PII | Per remote sink | Redacted by default; operator scrubbing policy required |
+| Error-tracker sink (outbound) | `request`, `extra` | Exception context that may reference PII | Per remote sink | Server-side scrubbing required (default-deny keyname list) |
+
+Signed canonical-event bytes (`session_events.signature_payload`) are **not** a shred path — they are analyzed under [§Signature Safety Under Shred](#signature-safety-under-shred) below. The canonical form deliberately excludes `pii_payload` and embeds `pii_ciphertext_digest` (BLAKE3 over ciphertext) so the signature survives crypto-shred intact while committing to no plaintext PII.
 
 ## Data Retention and Deletion Policy
 
@@ -253,7 +276,79 @@ This section verifies end-to-end GDPR coverage across both storage tiers.
   1. Crypto-shred via key deletion (DELETE from `participant_keys`)
   2. DELETE Postgres PII rows (`participants`, `identity_mappings`, `notification_preferences`)
   3. Revoke all session memberships (anonymize membership references with tombstone identifier)
-  4. Emit `participant.deleted` event for audit trail
+  4. Emit `participant.purged` event for audit trail (see [Spec-006 §Participant Lifecycle](006-session-event-taxonomy-and-audit-log.md#participant-lifecycle-participant_lifecycle))
+
+## Shred Fan-Out
+
+`DELETE /participants/{id}/data` fans out across three independent storage paths enumerated below. All three MUST complete before the daemon emits `participant.purged`; on any per-path failure, `participant.purge_requested` remains the most recent durable state and the failure is logged for operator retry per [§Fallback Behavior](#fallback-behavior). No `participant.purged` event is emitted against a partial shred.
+
+### Path 1 — SQLite `session_events.pii_payload` (crypto-shred)
+
+**Mechanism.** DELETE the participant's row from `participant_keys`. The per-participant AES-256-GCM key is destroyed; all `pii_payload` ciphertext bytes across every session the participant touched become permanently unrecoverable.
+
+**Scope.** Every `session_events` row with a non-NULL `pii_payload` authored by or containing the participant's PII. The SQL selector uses the durable participant-id stamp on the event row, not the ciphertext (which is opaque). Membership-level references in other participants' events remain, but their `pii_payload` columns — if any — are encrypted under a different participant's key and are not affected.
+
+**Audit artifact.** One `event.shredded` event emitted per Spec-006 §Event Maintenance carrying `{participantId, affectedSessionIds[], piiPayloadsCleared, shredReason}`. The event's own payload contains no PII; it is retained indefinitely.
+
+### Path 2 — Postgres PII rows (hard DELETE)
+
+**Mechanism.** Hard DELETE from `participants`, `identity_mappings`, `notification_preferences`. Anonymize participant references in `session_invites` and `session_memberships` using the tombstone-identifier pattern from the existing §Postgres (Control Plane) Deletion behavior above.
+
+**Scope.** Exhaustive over the Postgres tables listed in [§PII Data Map](#pii-data-map) durable tier. If any row fails DELETE (foreign-key constraint, row lock, connection failure), the whole path is reported as failed; the daemon does not partially advance.
+
+**Audit artifact.** No event-log row is emitted per Postgres table — the control plane's own Postgres audit logging (not in V1 scope) would record the DELETEs. The daemon records the aggregate `participant.purged` event only after all Postgres deletes succeed.
+
+### Path 3 — Bounded-retention diagnostic buckets (TTL purge + scoped flush)
+
+**Mechanism.** For each diagnostic table listed in the [§PII Data Map](#pii-data-map) bounded-retention tier (`driver_raw_events`, `command_output`, `tool_traces`, `reasoning_detail`):
+
+1. Scoped flush: DELETE all rows tagged with the purged `participant_id`. This short-circuits the TTL — the rows are not waiting for the 7-day sweep.
+2. Retention policy continues normally for other participants' rows.
+
+The daemon MAY retain summary-only variants (e.g., `reasoning_summary` distinct from `reasoning_detail`) that never contained PII by construction per [Spec-020 §Required Behavior](020-observability-and-failure-recovery.md#required-behavior). Summary-only variants are not a shred path because their PII content is zero.
+
+**Scope.** Every participant-scoped row in the bounded-retention diagnostic tier. The scoped flush is issued **before** `event.shredded` emission so the diagnostic rows are not observable by a reader between path 1 completion and this path completion.
+
+**Audit artifact.** Counters only (`diagnostic_rows_purged` by table). The aggregate `participant.purged` event references the counts but does not enumerate row IDs.
+
+### Ordering And Atomicity
+
+Paths execute in the order Path 1 → Path 2 → Path 3, then the aggregate `participant.purged` event is emitted. Rationale:
+
+- **Path 1 before Path 2** — crypto-shred first so a concurrent reader cannot decrypt `pii_payload` via a Postgres lookup chain during the Postgres-row-delete window. After Path 1, the ciphertext is unrecoverable regardless of what Postgres contains.
+- **Path 2 before Path 3** — hard-delete the Postgres-side participant record before clearing diagnostic buckets so a diagnostic-bucket reader cannot re-derive PII via Postgres JOIN during the bucket-flush window.
+- **Aggregate event last** — `participant.purged` is the durable audit artifact of the whole operation; emitting it before all three paths complete would misrepresent the operation's completion state.
+
+No ACID transaction spans the three paths — SQLite and Postgres are distinct durability domains. Partial-completion recovery anchors on the earliest durable state (`participant.purge_requested` in SQLite + row-exists-in-Postgres) and the daemon re-executes the remaining paths on operator retry. Path 1 is idempotent (key already deleted is a no-op); Path 2 is idempotent (DELETE of already-deleted row affects zero rows); Path 3 is idempotent (flush of already-flushed buckets affects zero rows).
+
+## Signature Safety Under Shred
+
+Event rows carry an Ed25519 signature over the canonical bytes of the envelope per [Spec-006 §Integrity Protocol](006-session-event-taxonomy-and-audit-log.md#integrity-protocol). After a crypto-shred operation, the signature bytes remain in place for every pre-shred event. This section establishes that signatures do **not** re-introduce PII recoverability after a shred, so the integrity protocol and crypto-shred coexist.
+
+### Argument
+
+**Claim.** An attacker holding every pre-shred event row (including `signature_payload`) and the daemon's Ed25519 public key cannot recover the plaintext PII that was encrypted in `pii_payload` before the key was destroyed.
+
+**Proof sketch.**
+
+1. Per [Spec-006 §Canonical Serialization Rules](006-session-event-taxonomy-and-audit-log.md#canonical-serialization-rules), the canonical bytes include `id`, `sessionId`, `sequence`, `occurredAt`, `category`, `type`, `actor`, `payload`, `correlationId`, `causationId`, `version` — and **not** `pii_payload`. Events whose `pii_payload` is non-NULL embed `pii_ciphertext_digest` = `BLAKE3(pii_payload_ciphertext)` inside `payload`, which **is** in the canonical form.
+2. The Ed25519 signature commits to the canonical bytes — i.e., to `pii_ciphertext_digest`, not to plaintext PII. Per [RFC 8032 §5.1 — Ed25519](https://datatracker.ietf.org/doc/html/rfc8032#section-5.1), Ed25519 signature verification is a public operation: anyone with the public key can check that the signature matches the canonical bytes. No plaintext oracle is introduced by verification.
+3. `pii_ciphertext_digest` is a BLAKE3 digest. BLAKE3 is one-way; given only the digest, recovering the preimage (the ciphertext bytes) requires brute force over the preimage space. The preimage space is ciphertext produced by AES-256-GCM, not plaintext.
+4. Even if an attacker somehow recovered the ciphertext preimage of `pii_ciphertext_digest`, they would still need the per-participant AES-256-GCM key to decrypt. That key lived only in `participant_keys.encrypted_key_blob`, wrapped under the daemon master key. The `participant_keys` row was DELETEd in Path 1 of the shred fan-out; no credential can unwrap a key that is no longer present.
+5. Per NIST SP 800-38D, AES-256-GCM provides no cryptanalytic shortcut that allows plaintext recovery without the key. Brute-forcing a 256-bit AES key is out of reach of any known-feasible attacker.
+
+Therefore the signature bytes — although retained indefinitely for audit integrity — commit only to ciphertext that the shred operation rendered irrecoverable. Verification remains possible; plaintext recovery remains infeasible.
+
+### Why This Matters
+
+Without the `pii_ciphertext_digest` indirection, a naïve implementation might sign `(canonical_bytes || pii_payload_ciphertext)`. After a shred, the ciphertext bytes are zero but the signature still exists on disk — and a sophisticated attacker holding the signature could mount signature-commitment attacks to learn byte-level facts about the original ciphertext (e.g., length, structure). The `pii_ciphertext_digest` indirection collapses ciphertext into a 32-byte BLAKE3 digest before the signature is computed, so the signature commits to a fixed-size preimage-hiding value instead of the variable-length ciphertext itself.
+
+### Cross-Reference To Related Constraints
+
+- [Spec-006 §Canonical Serialization Rules](006-session-event-taxonomy-and-audit-log.md#canonical-serialization-rules) — `pii_ciphertext_digest` field presence and position in canonical bytes
+- [Spec-006 §Integrity Protocol](006-session-event-taxonomy-and-audit-log.md#integrity-protocol) — Ed25519 signature and BLAKE3 hash-chain over canonical bytes
+- [Spec-006 §Event Maintenance](006-session-event-taxonomy-and-audit-log.md#event-maintenance-event_maintenance) — `event.shredded` audit artifact for the shred operation
+- [Daemon Master Key](#daemon-master-key) above — master-key custody model that prevents backup-based key resurrection (the master key's deliberately-narrow custody makes Path 1 irreversible even under backup restore)
 
 ## Example Flows
 

@@ -288,8 +288,8 @@ Payload shape: `{sessionId, runId, toolName, toolCallId?, channelId?, durationMs
 | `tool.invoked` | A tool has been invoked by the assistant during a run. |
 | `tool.result` | A tool invocation has returned a result. |
 | `tool.error` | A tool invocation has failed with an error. |
-| `tool.replayed` | A tool with `idempotency_class ∈ {idempotent, compensable}` was re-executed during restart recovery. Registered for BL-051; full taxonomy-row integration tracked in [BL-064](../backlog.md). Payload: `{sessionId, runId, commandId, idempotencyClass, dedupeKey?}`. |
-| `tool.skipped_during_recovery` | A tool with `idempotency_class = 'manual_reconcile_only'` was detected in-flight during recovery and was **not** re-executed. Registered for BL-051; full taxonomy-row integration tracked in [BL-064](../backlog.md). Payload: `{sessionId, runId, commandId, reason}`. |
+| `tool.replayed` | A tool with `idempotency_class ∈ {idempotent, compensable}` was re-executed during restart recovery per [Spec-015 §Idempotency Classes and Recovery Behavior](015-persistence-recovery-and-replay.md#idempotency-classes-and-recovery-behavior). Payload: `{sessionId, runId, commandId, idempotencyClass, dedupeKey?}`. |
+| `tool.skipped_during_recovery` | A tool with `idempotency_class = 'manual_reconcile_only'` was detected in-flight during recovery and was **not** re-executed per [Spec-015 §Idempotency Classes and Recovery Behavior](015-persistence-recovery-and-replay.md#idempotency-classes-and-recovery-behavior). Payload: `{sessionId, runId, commandId, reason}`. |
 
 > See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed payload definitions.
 
@@ -356,9 +356,132 @@ Payloads must never contain secret material. SPKI pins live in `config.toml`; se
 
 > See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed payload definitions.
 
+### Runtime Node Lifecycle (`runtime_node_lifecycle`)
+
+Durable state-change events recording the lifecycle of runtime nodes per [Spec-003: Runtime Node Attach](./003-runtime-node-attach.md) and daemon clock observability promoted from [Spec-015 §Reserved Events](./015-persistence-recovery-and-replay.md#reserved-events). These events belong to a distinct category from `run_lifecycle` because they describe **the node** (the daemon process and its attachment to a session), not the work a session is doing. A node can be `online` while every session on it is idle, and runs can execute on a node without changing node state.
+
+Payload shape: `{sessionId?, nodeId, previousState?, newState, actor?}` (base). Per-event payload extensions called out inline.
+
+| Type | Description | Payload Extension |
+| --- | --- | --- |
+| `runtime_node.registered` | A node has declared its identity to the session and been accepted into the roster per Spec-003 §Attach Protocol. | base + `{capabilities[], nodeVersion, platform}` |
+| `runtime_node.online` | A node transitioned to `online` — reachable via the control plane and ready to accept work. | base |
+| `runtime_node.degraded` | A node is still reachable but reports one or more degraded capabilities (provider driver unhealthy, workspace storage failing, etc.). Runs may still dispatch to this node, but operators should investigate before assigning new work. | base + `{degradedCapabilities[], detail}` |
+| `runtime_node.offline` | A node has been unreachable for longer than the heartbeat grace window per Spec-003. Arbitration on round-robin channels halts per [Spec-016 §Partition And Reconnect Behavior](./016-multi-agent-channels-and-orchestration.md). | base + `{lastHeartbeatAt, reason ∈ ['heartbeat_lost','explicit_shutdown','network_partition']}` |
+| `runtime_node.revoked` | A node's attachment has been explicitly revoked by session owner or admin. The node cannot rejoin without a fresh attach handshake. | base + `{revokedBy, reason?}` |
+| `runtime_node.capability_declared` | A node declared a new capability (provider driver, tool, workspace backend) after initial registration. | base + `{capability, capabilityDetails}` |
+| `runtime_node.capability_updated` | An existing capability's health or configuration changed — driver version bump, tool addition, etc. | base + `{capability, previousState, newState}` |
+| `session.clock_unsynced` | NTP sync probe failed at daemon startup per [Spec-015 §NTP Sync Precondition](./015-persistence-recovery-and-replay.md#ntp-sync-precondition). Daemon continues to accept writes. Promoted from Spec-015 §Reserved Events with category corrected from `run_lifecycle` → `runtime_node_lifecycle` (the event describes daemon-host clock state, not a run's state). | `{nodeId, platform, probeCommand, probeStdout}` |
+| `session.clock_corrected` | Runtime wall-clock correction exceeded the 500 ms material-skew threshold per [Spec-015 §Material-Skew Threshold](./015-persistence-recovery-and-replay.md#material-skew-threshold). Promoted from Spec-015 §Reserved Events with category corrected from `run_lifecycle` → `runtime_node_lifecycle`. | `{nodeId, wallClockDeltaMs, priorMonotonicNs, postMonotonicNs}` |
+
+**Name preservation.** `session.clock_*` event names retain the `session.` prefix as shipped in Spec-015 at Session E1 commit `b495a5f` — renaming would be wire-breaking under [ADR-018 §Decision #3](../decisions/018-cross-version-compatibility.md) (MINOR bumps are additive-only; event-type rename is not additive). Only the `category` field moves.
+
+**Precedent — node lifecycle vocabulary.** [Temporal Worker Deployment Versions](https://docs.temporal.io/production-deployment/worker-deployments/worker-deployment-versions) (accessed 2026-04-19) publishes a worker lifecycle with verbatim states `Inactive`, `Active`, `Draining`, `Drained` tracked via `WorkerDeploymentVersionStatus`, `DrainageStatus`, `BuildId`, `DeploymentName`, with a 60-second heartbeat default. [HashiCorp Nomad Event Stream](https://developer.hashicorp.com/nomad/api-docs/events) (accessed 2026-04-19) publishes a node-event topic set — verbatim topics `Node`, `NodeDrain`, `NodePool` — with event types `NodeRegistration`, `NodeDeregistration`, `NodeDrain`, `NodeEligibility`, and a per-driver health array `Drivers[{Detected, Healthy, HealthDescription, UpdateTime}]`. Our `runtime_node.*` taxonomy mirrors the Nomad `NodeRegistration`/`NodeDeregistration` + Temporal `Active`/`Draining`/`Drained` split rather than Kubernetes' monolithic condition array (`Ready`/`DiskPressure`/`MemoryPressure`/`PIDPressure`/`NetworkUnavailable` per [kubernetes.io/docs/reference/node/node-status](https://kubernetes.io/docs/reference/node/node-status/), accessed 2026-04-19), which collapses too many orthogonal failure modes into a single status object to support per-condition audit queries.
+
+> See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed payload definitions.
+
+### Recovery Events (`recovery_events`)
+
+Daemon-startup recovery lifecycle events producing the durable record of replay rebuild, binding restoration, and in-flight run disposition per [Spec-015 §Required Behavior](./015-persistence-recovery-and-replay.md#required-behavior). These events belong to their own category rather than `run_lifecycle` because a single recovery cycle may touch zero, one, or many runs across multiple sessions, and the category scope is **the daemon's recovery pass**, not any one run.
+
+Payload shape: `{nodeId, recoveryId, phase, attemptNumber}` (base). Per-event payload extensions called out inline.
+
+| Type | Description | Payload Extension |
+| --- | --- | --- |
+| `recovery.attempted` | A recovery attempt has started — daemon startup is proceeding through the Spec-015 sequence (projection rebuild → binding restoration → in-flight resumption). | base + `{recoveryTrigger ∈ ['startup','manual','supervisor'], priorFailureCount, startedAt}` |
+| `recovery.succeeded` | Recovery completed successfully. Projections are rebuilt, bindings restored, and in-flight runs either resumed or deterministically transitioned to `failed` per Spec-015 §Fallback Behavior. | base + `{eventsReplayed, bindingsRestored, runsResumed, runsFailedDeterministically, durationMs, completedAt}` |
+| `recovery.failed` | Recovery failed before completion. Daemon enters `blocked` read-only mode per Spec-015 §Fallback Behavior. The affected runs remain visible; new mutable work is refused. | base + `{failureKind ∈ ['projection_rebuild_failed','binding_restore_failed','persistence_unavailable','other'], detail, runsLeftInFlight[], durationMs}` |
+
+**Precedent.** [Apache Kafka Streams `StateRestoreListener`](https://kafka.apache.org/documentation/streams/developer-guide/processor-api.html#state-restoration) (accessed 2026-04-19) publishes verbatim callbacks: `onRestoreStart(TopicPartition, storeName, startingOffset, endingOffset)`, `onBatchRestored`, `onRestoreEnd(TopicPartition, storeName, totalRestored)`, `onRestoreSuspended`. Our `recovery.attempted` / `recovery.succeeded` / `recovery.failed` split mirrors Kafka Streams' start/end/suspend semantics but narrows the surface to daemon-level restart (not per-partition), because AI Sidekicks' SQLite event log is single-writer per [Spec-015 §Writer Concurrency](./015-persistence-recovery-and-replay.md#writer-concurrency) and therefore has no per-partition recovery.
+
+> See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed payload definitions.
+
+### Participant Lifecycle (`participant_lifecycle`)
+
+Durable state-change events recording participant-level GDPR operations per [Spec-022 §Right to erasure](./022-data-retention-and-gdpr.md#data-retention-and-deletion-policy). These events belong to a distinct category from `membership_change` because they describe **the participant entity itself** (account-level existence and keyring state), not the participant's role in any one session. A single `participant.purged` event affects all sessions the participant touched; a `membership_change` event affects exactly one session.
+
+Payload shape: `{participantId, actor, reason?}` (base). Per-event payload extensions called out inline.
+
+| Type | Description | Payload Extension |
+| --- | --- | --- |
+| `participant.exported` | The participant's data has been exported via `GET /participants/{id}/export` per [Spec-022 §Data Export](./022-data-retention-and-gdpr.md#data-export). Required pre-requisite for `participant.purged` — export MUST be completed before key deletion since crypto-shred destroys the PII under encryption. | base + `{exportedAt, exportArtifactRef, encryptedEventCount}` |
+| `participant.purge_requested` | A purge of participant data has been initiated. The request itself is durable so operator retries can reconcile against the initial state per Spec-022 §Fallback Behavior (*"the session must remain in `purge_requested` state and the failure must be logged for operator retry"*). | base + `{requestedAt, trigger ∈ ['self_service','admin_action','retention_policy']}` |
+| `participant.purged` | **Replaces the prior `participant.deleted` name.** Crypto-shred is complete: the participant's encrypted PII in `session_events.pii_payload` is permanently unrecoverable (key row deleted from `participant_keys`), Postgres PII rows have been hard-deleted, and membership references have been anonymized per [Spec-022 §Right to erasure](./022-data-retention-and-gdpr.md#data-retention-and-deletion-policy). | base + `{purgedAt, affectedSessionIds[], piiPayloadsCleared}` |
+| `participant.tokens_revoked_all` | All refresh tokens for the participant have been revoked (from [BL-070](../backlog.md)). Distinct from `participant.purged` because token revocation is reversible (re-issue on next sign-in) while crypto-shred is not. | base + `{revokedAt, tokenCount}` |
+| `participant.device_reset` | A participant's WebAuthn credentials and identity-key device bindings have been revoked. Used when a device is lost or stolen; distinct from purge (participant remains; device binding is reset). | base + `{resetAt, revokedCredentialIds[], revokedDeviceIds[]}` |
+
+**Name rationale (`purged` vs `deleted`).** The verb `purged` aligns with Spec-022's session state names (`purge_requested`, `purged`) where "delete" is ambiguous between the Postgres row DELETE and the SQLite crypto-shred. The participant's Postgres row *is* hard-deleted but PII in the event log is only cryptographically destroyed (key removed, ciphertext remains); `purged` carries the precise GDPR semantic — the data is irrecoverable but the audit stub (category + type + timestamp) persists. The prior `participant.deleted` name was registered in [Spec-022 §Right to erasure](./022-data-retention-and-gdpr.md#data-retention-and-deletion-policy) before this taxonomy pass; Spec-022 is updated in the same change set.
+
+**Precedent.** GDPR Article 17 names the right verbatim as *"Right to erasure ('right to be forgotten')"* ([EUR-Lex GDPR consolidated 2016/679](https://eur-lex.europa.eu/eli/reg/2016/679/oj), Article 17(1), accessed 2026-04-19). [NIST SP 800-88 Rev. 2 — Guidelines for Media Sanitization](https://csrc.nist.gov/pubs/sp/800/88/r2/final) (final, Sept 26, 2025, accessed 2026-04-19) introduces *"Cryptographic Erasure (CE) that leverages encryption and key management"* as a distinct sanitization category alongside "Clear" and "Destroy" — our `participant.purged` is a CE-category operation, hence preferred over `deleted`. [EDPB CEF Report on the right of erasure (Feb 18, 2026)](https://www.edpb.europa.eu/our-work-tools/our-documents/report/cef-report-right-erasure-article-17-gdpr_en) (accessed 2026-04-19) flags anonymisation-as-substitute as a common misapplication; CE with `pii_ciphertext_digest` preserved in the signed canonical bytes avoids that pattern because the ciphertext itself is destroyed rather than hashed-then-nulled.
+
+> See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed payload definitions.
+
+### Audit Integrity (`audit_integrity`)
+
+Integrity-verification events recording the outcomes of hash-chain, Ed25519 signature, and Merkle-anchor checks per [§Integrity Protocol](#integrity-protocol) above. These events belong to a distinct category from `session_lifecycle` because they describe **the audit log's tamper-evidence state**, not a session's operational state — a single verification pass may cover events from many sessions, and a failure does not end a session but does halt replay.
+
+**Invariant: audit-integrity events are never compacted, never shredded.** Compacting or shredding these events would defeat the integrity protocol — a verifier could not distinguish between "no failure occurred" and "the failure record was compacted." They are explicitly excluded from [§Event Compaction Policy](#event-compaction-policy) triggers and from the crypto-shred fan-out in [Spec-022 §Shred Fan-Out](./022-data-retention-and-gdpr.md#shred-fan-out).
+
+Payload shape: `{sessionId, anchorId?, verifierNodeId}` (base). Per-event payload extensions called out inline.
+
+| Type | Description | Payload Extension |
+| --- | --- | --- |
+| `audit_integrity_verified` | A read-side verifier has completed hash, signature, and anchor checks successfully over a range. Promoted from §Integrity Events with category corrected from `session_lifecycle` → `audit_integrity`. | base + `{treeSize, rootHash, fromSeq, toSeq, verifiedAt, signatureAlgorithm}` |
+| `audit_integrity_failed` | A read-side verifier detected a chain break, signature failure, or anchor mismatch. Halts replay at the affected row and must be surfaced to operators. Promoted from §Integrity Events with category corrected from `session_lifecycle` → `audit_integrity`. | base + `{treeSize, expectedRootHash, observedRootHash, failureMode ∈ ['hash_mismatch','signature_mismatch','anchor_mismatch','inclusion_proof_failed','consistency_proof_failed','log_file_missing','log_file_moved'], failurePath ∈ ['inclusion','consistency','signature'], offendingSeq?, detail}` |
+| `key_reuse_detected` | An observer/monitor detected an event signed by a `NodeId` whose Ed25519 public key collides with a prior rotated-out key — the rotation invariant `refuse_on_rotation` has been violated. Security-grade signal: an attacker may be replaying a compromised key, or a legitimate key-rotation bug has reused a retired public key. | `{offendingKeyFingerprint, observedPeerIds[], firstSeenAt, rotationInvariantViolated: 'refuse_on_rotation', detectorNodeId}` |
+
+**Precedent — envelope and failure vocabulary.** [RFC 9162 — Certificate Transparency v2.0 (December 2021)](https://datatracker.ietf.org/doc/html/rfc9162) (accessed 2026-04-19) *"obsoletes RFC 6962"* and publishes the canonical envelope: `SignedTreeHeadDataV2 { LogID log_id; TreeHeadDataV2 tree_head; opaque signature<1..2^16-1>; }` (§4.10 verbatim); `TreeHeadDataV2 { uint64 timestamp; uint64 tree_size; NodeHash root_hash; Extension sth_extensions<0..2^16-1>; }` (§4.9 verbatim); `InclusionProofDataV2 { LogID log_id; uint64 tree_size; uint64 leaf_index; NodeHash inclusion_path<...>; }` (§4.11 verbatim); `ConsistencyProofDataV2 { LogID log_id; uint64 tree_size_1; uint64 tree_size_2; NodeHash consistency_path<...>; }` (§4.12 verbatim). Failure vocabulary from RFC 9162 §§2.1.3.2 and 2.1.4.2 (verbatim): *"If `leaf_index` is greater than or equal to `tree_size`, then fail the proof verification"*; *"If `sn` is 0, then stop the iteration and fail the proof verification"*; *"If `consistency_path` is an empty array, stop and fail the proof verification"*. Our `failureMode` enum ports this vocabulary and extends it with log-file-level failures (missing, moved) observed in production systems.
+
+**Precedent — production chain + message surface.** [AWS CloudTrail Log File Integrity Validation — Digest File Structure](https://docs.aws.amazon.com/awscloudtrail/latest/userguide/cloudtrail-log-file-validation-digest-file-structure.html) and [AWS CloudTrail `validate-logs` CLI](https://docs.aws.amazon.com/awscloudtrail/latest/userguide/cloudtrail-log-file-validation-cli.html) (both accessed 2026-04-19) publish 15 verbatim digest-file JSON fields including `previousDigestHashValue`, `previousDigestHashAlgorithm`, `previousDigestSignature`, `digestSignatureAlgorithm`, `digestPublicKeyFingerprint`, and per-log-file `hashValue` / `hashAlgorithm`. CloudTrail's `validate-logs` CLI emits verbatim message strings including `"valid"`, `"INVALID: has been moved from its original location"`, `"INVALID: invalid format"`, `"INVALID: not found"`, `"INVALID: public key not found for fingerprint <fingerprint>"`, `"INVALID: signature verification failed"`, `"INVALID: hash value doesn't match"` — these map to our `failureMode` enum's `log_file_*` and hash/signature variants.
+
+**Precedent — observer/monitor pattern (`key_reuse_detected`).** [Sigstore Security Model](https://docs.sigstore.dev/about/security/) (accessed 2026-04-19) states verbatim: *"users can detect any mis-issued certificates, either due to the CA acting maliciously or a compromised OIDC identity provider"*; *"Fulcio itself does not monitor the certificate transparency log; users are responsible for monitoring the log for unauthorized certificates issued to their identities"*; *"these certificates are useless unless they are published to the certificate transparency log, so such compromise can be detected."* Our `key_reuse_detected` event is the local-daemon observer-pattern equivalent: a monitor process watching the canonical event log for Ed25519 public-key collisions that violate the rotation invariant.
+
+**Negative precedent.** [Google Cloud Audit Logs Overview](https://docs.cloud.google.com/logging/docs/audit) (Last updated 2026-04-17 UTC, accessed 2026-04-19) states verbatim: *"Log entries written by Cloud Audit Logs are immutable."* — and publishes no hash-chain, signed-log, or cryptographic integrity verification mechanism. Our `audit_integrity_*` events intentionally exceed GCP Audit Logs' model; the RFC 9162 + CloudTrail composition is the operationally-mature precedent.
+
+> See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed payload definitions.
+
+### Event Maintenance (`event_maintenance`)
+
+Daemon-level events recording operations on the event stream itself — schema migrations, compaction passes, and crypto-shred fan-out. These events belong to a distinct category from any session-scoped category because they describe **the event log as infrastructure**, not the session content it carries. One `event.compacted` event may compact thousands of prior events across multiple sessions; one `event.shredded` event spans every session a purged participant touched.
+
+**Invariant: event-maintenance events are never compacted, never shredded.** Compacting a `schema.migrated` event would destroy the audit trail for a non-reversible schema change; shredding an `event.shredded` event would be self-referential and break the audit stub record of the shred. Like `audit_integrity` events, they are excluded from [§Event Compaction Policy](#event-compaction-policy) and from [Spec-022 §Shred Fan-Out](./022-data-retention-and-gdpr.md#shred-fan-out).
+
+Payload shape: `{nodeId, operationId, occurredAt}` (base). Per-event payload extensions called out inline.
+
+| Type | Description | Payload Extension |
+| --- | --- | --- |
+| `schema.migrated` | A schema migration has completed. Fires once per migration batch (equivalent to Flyway's `AFTER_MIGRATE_OPERATION_FINISH`), not once per SQL statement. | base + `{fromVersion, toVersion, migrationId, description, checksum, appliedBy, executionMs, success}` |
+| `event.compacted` | A compaction pass has replaced full event payloads in a range with audit stubs per [§Event Compaction Policy](#event-compaction-policy). | base + `{sessionId?, fromSeq, toSeq, eventsBefore, eventsAfter, bytesReclaimed, tombstoneCount, compactionReason ∈ ['age_threshold','count_threshold','storage_threshold']}` |
+| `event.shredded` | A crypto-shred operation has cleared `pii_payload` ciphertext across the affected sessions per [Spec-022 §Crypto-shredding](./022-data-retention-and-gdpr.md#crypto-shredding-sqlite-event-log). The `payload` column and `pii_ciphertext_digest` field remain; only the encrypted ciphertext bytes are zeroed. Signed canonical bytes of prior events are unaffected because `pii_ciphertext_digest` (over the ciphertext) is part of the canonical form per [§Canonical Serialization Rules](#canonical-serialization-rules) — see [Spec-022 §Signature Safety Under Shred](./022-data-retention-and-gdpr.md#signature-safety-under-shred) for the full argument. | base + `{participantId, affectedSessionIds[], piiPayloadsCleared, shredReason ∈ ['gdpr_article_17','retention_policy','admin_action']}` |
+
+**Precedent — `schema.migrated`.** [Flyway `flyway_schema_history` table](https://documentation.red-gate.com/flyway/flyway-concepts/flyway-schema-history-table) publishes the verbatim column list `installed_rank`, `version`, `description`, `type`, `script`, `checksum`, `installed_by`, `installed_on`, `execution_time`, `success`; Flyway's `Event` callback enum (captured verbatim from [`flyway-core/src/main/java/org/flywaydb/core/api/callback/Event.java`](https://github.com/flyway/flyway/blob/main/flyway-core/src/main/java/org/flywaydb/core/api/callback/Event.java), fetched 2026-04-19) distinguishes per-migration (`AFTER_EACH_MIGRATE`) from batch-complete (`AFTER_MIGRATE_OPERATION_FINISH`). Our `schema.migrated` fires at the batch-complete boundary to match the *operation* granularity — one event per `sidekicks db migrate` invocation, not one per migration file. [Liquibase `DATABASECHANGELOG`](https://docs.liquibase.com/concepts/tracking-tables/databasechangelog-table.html) (docs version "Secure 5.1"; WebFetch 403'd on 2026-04-19, columns below confirmed via WebSearch result summary citing that URL) adds `DEPLOYMENT_ID` to group changesets from one run — our `operationId` serves the same purpose. [golang-migrate `schema_migrations`](https://github.com/golang-migrate/migrate/blob/master/database/postgres/postgres.go) (accessed 2026-04-19) carries only `(version bigint not null primary key, dirty boolean not null)` with no event emission — a deliberate counter-example showing why our field set is strictly richer.
+
+**Precedent — `event.compacted`.** Apache Kafka's log-compaction semantics publish `tombstone` + segment-recopy vocabulary; range endpoints `fromSeq` / `toSeq` mirror RFC 9162's `tree_size_1` / `tree_size_2` from `ConsistencyProofDataV2`. No single upstream event literally named `event.compacted` — the field set is composed from Kafka's compaction terminology and our §Event Compaction Policy triggers.
+
+**Precedent — `event.shredded`.** No primary-source event-shape precedent found for an audit event describing the shred operation itself. GDPR Article 17 prescribes the right, not an event field set. [EventStoreDB crypto-shred pattern](https://www.eventstore.com/blog/eventstoredb-crypto-shred-feature), [Conduktor Kafka-field-level-encryption shred guidance](https://docs.conduktor.io/platform/guides/complete-gdpr-compliance/), and [Axon Server data protection](https://docs.axoniq.io/axon-server-reference/v2025.1/) (all accessed 2026-04-19) describe the crypto-shred pattern but none publishes an event envelope for the operation. The field set above is composed from [Spec-022 §Crypto-shredding](./022-data-retention-and-gdpr.md#crypto-shredding-sqlite-event-log) and the crypto-shred-preservation discipline in [EDPB Guidelines 02/2025 on processing of personal data through blockchain technologies](https://www.edpb.europa.eu/our-work-tools/documents/public-consultations/2025/guidelines-022025-processing-personal-data_en) (accessed 2026-04-19), which blesses `ciphertext_digest` + off-chain-shred as an Article 17-compliant pattern.
+
+> See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed payload definitions.
+
+### Policy Events (`policy_events`)
+
+Durable state-change events recording the daemon's loading and validation of signed Cedar policy bundles per [ADR-012](../decisions/012-local-policy-signing.md) (local policy signing). These events belong to a distinct category from `approval_flow` because they describe **the policy infrastructure** (bundle lifecycle, validator outcomes) rather than individual approval decisions — a single bundle load may affect millions of subsequent approval decisions.
+
+Payload shape: `{nodeId, bundleId, bundleVersion}` (base). Per-event payload extensions called out inline.
+
+| Type | Description | Payload Extension |
+| --- | --- | --- |
+| `policy_bundle.loaded` | A signed Cedar policy bundle passed signature verification, hash validation, and Cedar validation, and is now the daemon's active policy source. | base + `{bundleHash, signerId, signatureAlgorithm, policyCount, schemaHash, loadedAt}` |
+| `policy_bundle.rejected` | A bundle load attempt failed verification. The prior active bundle remains in force; the new bundle is not adopted. | base + `{bundleHash?, rejectionReason ∈ ['signature_invalid','hash_mismatch','version_downgrade','cedar_validation_failed'], cedarValidationErrors[]?}` |
+
+**Precedent — envelope.** [AWS Verified Permissions CloudTrail Events](https://docs.aws.amazon.com/verifiedpermissions/latest/userguide/monitoring-cloudtrail.html) (accessed 2026-04-19) publishes a verbatim event inventory: `CreatePolicyStore`, `ListPolicyStores`, `DeletePolicyStore`, `PutSchema`, `GetSchema`, `CreatePolicyTemplate`, `DeletePolicyTemplate`, `CreatePolicy`, `GetPolicy`, `CreateIdentitySource`, `GetIdentitySource`, `ListIdentitySources`, `DeleteIdentitySource`, `IsAuthorized`, `BatchIsAuthorized`. No VP event is literally named `policy_bundle.loaded` — VP tracks individual policies, not bundles; our bundle-scoped event is composed from VP's envelope shape plus our ADR-012 signed-bundle semantics.
+
+**Precedent — `cedarValidationErrors[]` enum.** [Cedar Policy Validation](https://docs.cedarpolicy.com/policies/validation.html) (accessed 2026-04-19) publishes a verbatim enumeration of validator errors and warnings. Errors (8): *"Unrecognized entity types"*, *"Unrecognized actions"*, *"Action applied to unsupported principal or resource"*, *"Improper use of `in` or `==`"*, *"Unrecognized attributes"*, *"Unsafe access to optional attributes"*, *"Type mismatch in operators"*, *"Invalid entity literals of enumerated entity types"*. Warnings (4): *"Cases that always evaluate to false, and thus never apply"*, *"Mixed script strings and identifiers"*, *"Bidirectional text control characters in strings and identifiers"*, *"Unexpected characters in entity identifiers"*. Our `cedarValidationErrors[]` payload field carries these strings verbatim so bundle-rejection reasons are wire-stable across Cedar version upgrades.
+
+> See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed payload definitions.
+
 ### Event Type Summary
 
-Total enumerated event types: **93**
+Total enumerated event types: **120**
 
 | Category | Count | Types |
 | --- | --- | --- |
@@ -374,11 +497,17 @@ Total enumerated event types: **93**
 | `session_lifecycle` (repo/workspace/worktree) | 11 | `repo.attached` through `worktree.retired` |
 | `artifact_publication` | 6 | `artifact.published` through `pr.submitted` |
 | `assistant_output` | 2 | `assistant.message`, `assistant.thinking_update` |
-| `tool_activity` | 3 | `tool.invoked` through `tool.error` |
+| `tool_activity` | 5 | `tool.invoked` through `tool.skipped_during_recovery` |
 | `cross_node_dispatch` | 13 | `dispatch.sent`, `dispatch.received`, `dispatch.rejected`, `dispatch.approval_requested`, `dispatch.approved`, `dispatch.denied`, `dispatch.executed`, `dispatch.completed`, `dispatch.failed`, `dispatch.expired`, `dispatch.result_buffered`, `dispatch.approval_observed`, `dispatch.result_observed` |
 | `usage_telemetry` | 3 | `usage.token_count` through `usage.context_window_update` |
 | `onboarding_lifecycle` | 2 | `onboarding.choice_made`, `onboarding.choice_reset` |
-| **Total** | **93** | Exceeds Forge's 69-type baseline |
+| `runtime_node_lifecycle` | 9 | `runtime_node.registered` through `session.clock_corrected` |
+| `recovery_events` | 3 | `recovery.attempted`, `recovery.succeeded`, `recovery.failed` |
+| `participant_lifecycle` | 5 | `participant.exported` through `participant.device_reset` |
+| `audit_integrity` | 3 | `audit_integrity_verified`, `audit_integrity_failed`, `key_reuse_detected` |
+| `event_maintenance` | 3 | `schema.migrated`, `event.compacted`, `event.shredded` |
+| `policy_events` | 2 | `policy_bundle.loaded`, `policy_bundle.rejected` |
+| **Total** | **120** | Exceeds Forge's 69-type baseline by 74% |
 
 ## Integrity Protocol
 
@@ -394,7 +523,7 @@ Both the `row_hash` input and the Ed25519-signed bytes are computed over the **s
 - Fields included, in this order: `id`, `sessionId`, `sequence`, `occurredAt`, `category`, `type`, `actor`, `payload`, `correlationId`, `causationId`, `version`.
 - Fields with value `null` MUST be included (so "present-but-null" and "absent" are distinguishable after serialization).
 - `occurredAt` MUST be RFC 3339 UTC with millisecond precision (`YYYY-MM-DDTHH:MM:SS.sssZ`) so ordering is byte-stable.
-- `pii_payload` is NOT included in the canonical form. Events whose `pii_payload` column is non-NULL MUST embed a `pii_ciphertext_digest` field in `payload` — BLAKE3 over the ciphertext bytes of `pii_payload` — so a [Spec-022](022-sensitive-data-handling-and-privacy.md) crypto-shred of `pii_payload` does not break the hash chain. The digest sits inside the canonical bytes and is never shredded; shredding clears only the ciphertext column.
+- `pii_payload` is NOT included in the canonical form. Events whose `pii_payload` column is non-NULL MUST embed a `pii_ciphertext_digest` field in `payload` — BLAKE3 over the ciphertext bytes of `pii_payload` — so a [Spec-022](022-data-retention-and-gdpr.md) crypto-shred of `pii_payload` does not break the hash chain. The digest sits inside the canonical bytes and is never shredded; shredding clears only the ciphertext column.
 
 Verification is the inverse: recompute `canonical_bytes(row)`, recompute `BLAKE3(prev_hash || canonical_bytes(row))`, compare to the stored `row_hash`, and verify `daemon_signature` against the canonical bytes using the `NodeId`-resolved public key from the session participant roster (see Security Architecture § Audit Log Integrity for roster lookup semantics).
 
@@ -404,16 +533,7 @@ Anchors fire on the earlier of `ANCHOR_INTERVAL_EVENTS = 1000` events or `ANCHOR
 
 ### Integrity Events
 
-Two event types are reserved for integrity outcomes, both with category `session_lifecycle`:
-
-| Type | Description |
-| --- | --- |
-| `audit_integrity_verified` | A read-side verifier has completed hash, signature, and anchor checks successfully over a range. Payload: `{sessionId, startSequence, endSequence, verifierNodeId}`. |
-| `audit_integrity_failed` | A read-side verifier detected a chain break, signature failure, or anchor mismatch. Payload: `{sessionId, sequence, failureKind ∈ ['chain_break','signature_invalid','anchor_mismatch'], detail}`. |
-
-These event types are registered here and will be added to the full taxonomy enumeration tables as part of [BL-064](../backlog.md). `audit_integrity_failed` halts replay at the affected row and must be surfaced to operators.
-
-> See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed payload definitions.
+The `audit_integrity_verified` and `audit_integrity_failed` event types are fully enumerated under [§Audit Integrity](#audit-integrity-audit_integrity) below with category `audit_integrity`. `audit_integrity_failed` halts replay at the affected row and must be surfaced to operators. The prior interim registration under category `session_lifecycle` is superseded — integrity events describe the audit log's tamper-evidence state, not a session's operational state.
 
 ## Event Compaction Policy
 

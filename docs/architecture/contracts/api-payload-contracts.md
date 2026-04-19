@@ -448,7 +448,15 @@ type EventCategory =
   | 'session_lifecycle'
   | 'approval_flow'
   | 'usage_telemetry'
-// Individual event types within each category are enumerated in BL-012.
+  // Extended per Spec-006 §Runtime Node Lifecycle, §Recovery Events, §Participant Lifecycle,
+  // §Audit Integrity, §Event Maintenance, §Policy Events (15 categories total).
+  | 'runtime_node_lifecycle'
+  | 'recovery_events'
+  | 'participant_lifecycle'
+  | 'audit_integrity'
+  | 'event_maintenance'
+  | 'policy_events'
+// Individual event types within each category are enumerated in Spec-006 §Event Type Enumeration.
 
 // EventReadAfterCursor
 interface EventReadAfterCursorRequest {

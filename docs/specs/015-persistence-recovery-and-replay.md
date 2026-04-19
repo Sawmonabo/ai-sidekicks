@@ -229,12 +229,12 @@ Kubernetes kubelet publishes no clock-skew tolerance ([kubernetes.io/docs/refere
 
 ### Reserved Events
 
-Two event types are reserved here for clock observability. Full taxonomy-table enumeration is tracked under [BL-064](../backlog.md).
+The `session.clock_unsynced` and `session.clock_corrected` event types are enumerated under [Spec-006 §Runtime Node Lifecycle](006-session-event-taxonomy-and-audit-log.md#runtime-node-lifecycle-runtime_node_lifecycle) with category `runtime_node_lifecycle`. The event names are preserved verbatim for wire stability per [ADR-018 §Decision #3](../decisions/018-cross-version-compatibility.md) (MINOR bumps are additive-only; event-type rename is not additive) even though the prior `run_lifecycle` category classification was incorrect — these events describe daemon state (clock source), not a run's state. Only the category field moves in the canonical enumeration.
 
-| Type | Description |
-|---|---|
-| `session.clock_unsynced` | NTP sync probe failed at daemon startup. Payload: `{platform, probeCommand, probeStdout}`. Category: `run_lifecycle`. |
-| `session.clock_corrected` | Runtime wall-clock correction exceeded 500 ms material-skew threshold. Payload: `{wallClockDeltaMs, priorMonotonicNs, postMonotonicNs}` — `wallClockDeltaMs` is the wall-clock jump that triggered the event; the two `monotonic_ns` readings bracket that jump and will differ only by the time elapsed in the correction handler (they are not a re-statement of the delta). Category: `run_lifecycle`. |
+Behavioral semantics anchored in this spec:
+
+- `session.clock_unsynced` is emitted when the NTP sync probe described in [§NTP Sync Precondition](#ntp-sync-precondition) above fails at daemon startup. The daemon continues to accept writes — refusing writes would hard-fail nodes on legitimately offline networks; operators monitoring emission rates have the audit trail needed to investigate without the daemon losing availability.
+- `session.clock_corrected` is emitted when a runtime NTP correction applies a wall-clock jump greater than the 500 ms material-skew threshold described in [§Material-Skew Threshold](#material-skew-threshold) above. The `wallClockDeltaMs` payload field is the wall-clock jump that triggered the event; the two `monotonic_ns` readings in the payload bracket that jump and will differ only by the time elapsed in the correction handler (they are not a re-statement of the delta).
 
 ### References
 

@@ -82,6 +82,32 @@ This spec covers failure categories, health signals, stuck-run detection, replay
 - Recovery actions and outcomes must be auditable.
 - Raw diagnostic payloads are non-canonical observability records with bounded retention and must not become the only source for audit or recovery truth.
 
+## PII in Diagnostics
+
+Diagnostic pipelines (driver raw events, raw command output, tool traces, detailed reasoning payloads, OpenTelemetry spans/logs, error-tracker events) carry PII-carrying content by default of their purpose — they capture the full model prompt, the full command arguments, the full tool-call result — so the baseline question is not *"does this carry PII"* but *"what is the redaction and retention discipline that keeps diagnostics from becoming an Article-17 escape hatch."* This section establishes that discipline as a required-behavior policy; Spec-022 owns the storage-and-shred side.
+
+### Required Behavior (policy)
+
+- **Default-deny on outbound telemetry.** Free-text fields that may contain user input (OTel span attributes like `gen_ai.prompt` / `gen_ai.completion`, OTel log `body`, error-tracker `request`/`extra`) MUST be redacted at the exporter before any network egress to a third-party sink. "Redacted" means either replaced by a shape-preserving placeholder or dropped entirely; partial masking (last-4-characters, asterisks over substrings) is NOT acceptable because partial PII is still PII.
+- **Opt-in for raw content.** Operators may enable raw-content capture on a per-deployment, per-sink basis with a durable configuration record. The opt-in MUST name the sink, the field set, and the operator who authorized it. Enabling raw capture flips no default; each captured event carries a flag so downstream consumers can distinguish raw-opt-in events from default-redacted events.
+- **Bounded local retention.** Local diagnostic buckets (`driver_raw_events`, `command_output`, `tool_traces`, `reasoning_detail` per [Spec-022 §PII Data Map](022-data-retention-and-gdpr.md#pii-data-map) bounded-retention tier) MUST apply a ≤ 7-day TTL by default. The daemon MAY expose a per-deployment override but MUST emit a `retention_policy_override` warning metric if the override exceeds 30 days.
+- **Shred fan-out coverage.** Every diagnostic bucket that stores PII MUST be included in the crypto-shred fan-out per [Spec-022 §Shred Fan-Out](022-data-retention-and-gdpr.md#shred-fan-out) Path 3. A diagnostic pipeline that emits PII-carrying records to a sink outside the shred fan-out's reach is a spec violation; either the pipeline must be redacted or a per-participant scoped-flush mechanism must be added to the sink.
+- **Summary-only retention.** Where detailed reasoning or high-volume tool traces are compacted, the summary form MUST be constructed from non-PII signals (counts, categories, durations) by construction. A summary derived by truncation of free-text input is NOT compliant because truncated PII is still PII.
+
+### Industry Precedent
+
+**OpenTelemetry Generative AI semantic conventions.** [OTel GenAI semconv v1.36.0](https://opentelemetry.io/docs/specs/semconv/gen-ai/) (accessed 2026-04-19) defines attributes `gen_ai.prompt`, `gen_ai.completion`, `gen_ai.system`. The spec states verbatim regarding these attributes: *"Instrumentations SHOULD NOT capture them by default"* — a baseline opt-in posture this spec mirrors for outbound telemetry.
+
+**Datadog Sensitive Data Scanner.** [Datadog Sensitive Data Scanner documentation](https://docs.datadoghq.com/sensitive_data_scanner/) (accessed 2026-04-19) publishes a managed-rule library of default scanners (email addresses, US/EU national IDs, credit cards, API tokens, private IPs) that redact matching substrings at ingest. Our default-deny-on-outbound policy is stricter than Datadog's default-allow-with-redaction posture because we redact the entire field when PII-risk is suspected rather than attempting substring identification — consistent with the "partial PII is still PII" invariant.
+
+**Sentry server-side scrubbing.** [Sentry data scrubbing documentation](https://docs.sentry.io/product/data-management-settings/scrubbing/server-side-scrubbing/) (accessed 2026-04-19) publishes a default keyname list (`password`, `secret`, `passwd`, `api_key`, `apikey`, `auth`, `credentials`, `mysql_pwd`, `privatekey`, `private_key`, `token`) scrubbed at ingest before persistence. Our operator opt-in record mirrors Sentry's "advanced data scrubbing" pattern where operators can declare custom rules but the defaults remain default-deny.
+
+### Cross-Reference To Spec-022
+
+- [Spec-022 §PII Data Map — bounded-retention tier](022-data-retention-and-gdpr.md#pii-data-map) — owns the durability-and-retention side of the four diagnostic buckets
+- [Spec-022 §Shred Fan-Out — Path 3](022-data-retention-and-gdpr.md#shred-fan-out) — owns the crypto-shred fan-out for the bounded-retention diagnostic tier
+- [Spec-006 §Event Maintenance](006-session-event-taxonomy-and-audit-log.md#event-maintenance-event_maintenance) — `event.shredded` records the shred operation
+
 ## Example Flows
 
 - `Example: A provider session stops emitting events without reaching a terminal state. The run is marked stuck-suspected, the health projection turns degraded, and an operator can inspect the last known progress point. If resume later fails, the run moves to failed with provider failure detail and recovery-needed condition.`
