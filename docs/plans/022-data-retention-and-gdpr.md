@@ -56,6 +56,40 @@ Ship the V1 **schema and write-path** of the Spec-022 crypto-shredding model so 
 
 ## Data And Storage Changes
 
+### PII Data Map (Three Durability Tiers)
+
+Per [Spec-022 §PII Data Map](../specs/022-data-retention-and-gdpr.md#pii-data-map), three PII durability tiers are reachable from `DELETE /participants/{id}/data`. Plan-022 owns the V1 schema and write-path for the durable-tier SQLite side (below); Plan-018 owns the Postgres side of the durable tier; Plan-020 owns the bounded-retention tier; the telemetry-export tier is covered by Plan-020's default-deny outbound posture. Plan-022 is the orchestrator that reconciles the three tiers when the V1.1 deletion handler ships (see Implementation Step 11 + [§Signature Safety Under Shred](#signature-safety-under-shred)).
+
+**Durable tier** (V1 schema in scope for Plan-022's SQLite side; Postgres side referenced for V1.1 orchestration):
+
+| Table | Column | Owner Plan | Shred Path |
+| --- | --- | --- | --- |
+| `session_events` (SQLite) | `pii_payload` | Plan-022 write-path; Plan-001 migration forward-declaration | Path 1 — crypto-shred via `participant_keys` row DELETE |
+| `participant_keys` (SQLite) | `encrypted_key_blob` | Plan-022 | Path 1 — row DELETE destroys per-participant AES-256-GCM key |
+| `participants` (PG) | `display_name`, `identity_ref` | Plan-018 (identity model) | Path 2 — hard DELETE row |
+| `identity_mappings` (PG) | `external_id` | Plan-018 | Path 2 — hard DELETE row |
+| `session_invites` (PG) | `token_hash` | Plan-018 | Path 2 — anonymize participant reference |
+| `notification_preferences` (PG) | `preference_value` | Plan-018 | Path 2 — hard DELETE row |
+
+**Bounded-retention diagnostic tier** (daemon-local SQLite, non-canonical per [Spec-020 §Required Behavior](../specs/020-observability-and-failure-recovery.md#required-behavior); ≤ 7-day TTL; Plan-020 ownership):
+
+| Table | Column | Owner Plan | Shred Path |
+| --- | --- | --- | --- |
+| `driver_raw_events` (SQLite, daemon-local) | `raw_payload` | Plan-020 | Path 3 — scoped flush before TTL |
+| `command_output` (SQLite, daemon-local) | `stdout`, `stderr` | Plan-020 | Path 3 — scoped flush before TTL |
+| `tool_traces` (SQLite, daemon-local) | `args`, `result_body` | Plan-020 | Path 3 — scoped flush before TTL |
+| `reasoning_detail` (SQLite, daemon-local) | `detailed_payload` | Plan-020 | Path 3 — scoped flush before TTL; summary retained (non-PII by construction) |
+
+**Telemetry export tier** (outbound OTel / error-tracker sinks; default-deny, opt-in; Plan-020 redaction-policy ownership):
+
+| Sink | Attribute | Owner Plan | Shred Coverage |
+| --- | --- | --- | --- |
+| OTel span attributes (outbound) | `gen_ai.prompt`, `gen_ai.completion` | Plan-020 | Redacted by default per [Spec-020 §PII in Diagnostics](../specs/020-observability-and-failure-recovery.md#pii-in-diagnostics); opt-in required |
+| OTel log body (outbound) | log `body` | Plan-020 | Redacted by default; operator scrubbing policy |
+| Error-tracker sink (outbound) | `request`, `extra` | Plan-020 | Server-side scrubbing (default-deny keyname list) |
+
+Plan-022 does not operate against remote sinks directly. Telemetry-tier shred coverage is achieved by Plan-020's default-deny outbound posture (no PII content leaves the daemon unless opt-in per bucket, per [Spec-020 §PII in Diagnostics](../specs/020-observability-and-failure-recovery.md#pii-in-diagnostics)).
+
 ### SQLite: `participant_keys` (new, owned by Plan-022)
 
 ```sql
@@ -101,6 +135,18 @@ Routes:
 
 The stubs preserve the URL contract so V1.1 can ship real handlers without a breaking route addition. No request validation or authentication beyond Plan-007's standard IPC auth; 501 is returned unconditionally.
 
+## Signature Safety Under Shred
+
+Event rows carry an Ed25519 signature over canonical bytes per [Spec-006 §Integrity Protocol](../specs/006-session-event-taxonomy-and-audit-log.md#integrity-protocol). After Path 1 destroys a participant's AES-256-GCM key (see Implementation Step 11), the signature bytes on every pre-shred event row remain on disk indefinitely for audit integrity. Plan-022's write-path obligations (Implementation Step 7 below) ensure these retained signatures **cannot** re-introduce plaintext PII recoverability, per [Spec-022 §Signature Safety Under Shred](../specs/022-data-retention-and-gdpr.md#signature-safety-under-shred). Five-point proof:
+
+1. **Canonical bytes exclude `pii_payload`.** Per [Spec-006 §Canonical Serialization Rules](../specs/006-session-event-taxonomy-and-audit-log.md#canonical-serialization-rules), canonical-bytes-under-signature cover 11 envelope fields (`id`, `sessionId`, `sequence`, `occurredAt`, `category`, `type`, `actor`, `payload`, `correlationId`, `causationId`, `version`) — **not** `pii_payload`. Events whose `pii_payload` is non-NULL embed `pii_ciphertext_digest = BLAKE3(pii_payload_ciphertext)` inside `payload`, which **is** in the canonical form. Plan-022's write-path (Implementation Step 7, `write-with-pii.ts`) MUST compute this digest and embed it in `payload` BEFORE the canonicalizer runs; Plan-006 owns the canonical-serialization semantics — see Plan-006 §PII Columns 7-step Encrypt-Then-Digest-Then-Sign order. Any implementation path that signs `pii_payload` ciphertext directly (skipping the digest indirection) is a signature-integrity regression.
+2. **Ed25519 signature verification is a public operation.** Per [RFC 8032 §5.1](https://datatracker.ietf.org/doc/html/rfc8032#section-5.1), Ed25519 verification takes `(public key, message, signature) → bool`. No plaintext oracle is introduced by verification; an attacker holding every signed row and the daemon's public key learns only that canonical bytes are authentic, never plaintext PII.
+3. **BLAKE3 digest is one-way.** `pii_ciphertext_digest` commits to ciphertext via a 32-byte BLAKE3 digest. Preimage recovery requires brute force over the ciphertext preimage space (AES-256-GCM output bytes, not plaintext).
+4. **AES-256-GCM key destruction is load-bearing.** The per-participant AES-256-GCM key lives only in `participant_keys.encrypted_key_blob`, wrapped under the daemon master key. Path 1 DELETE of the `participant_keys` row destroys the content key by construction — no credential can unwrap a key that is no longer present. Even if an attacker somehow recovered the ciphertext preimage of `pii_ciphertext_digest` (infeasible per point 3), the AES-256-GCM key required to decrypt it is already gone. This matches the cryptographic-construction argument in [Spec-022 §Signature Safety Under Shred point 4](../specs/022-data-retention-and-gdpr.md#signature-safety-under-shred).
+5. **256-bit brute force is infeasible.** Per [NIST SP 800-38D](https://csrc.nist.gov/publications/detail/sp/800-38d/final), AES-256-GCM provides no cryptanalytic shortcut that allows plaintext recovery without the key; 2^256 keyspace rules out brute force for any known-feasible attacker.
+
+**Therefore.** Signature bytes retained indefinitely for audit integrity commit only to ciphertext that Path 1 rendered irrecoverable. Verification remains possible; plaintext recovery remains infeasible. This is the audit-integrity-load-bearing property that lets V1 ship `pii_payload` crypto-shred without breaking Spec-006's BLAKE3 hash chain or Ed25519 signature chain.
+
 ## Implementation Steps
 
 1. Add `@noble/hashes` (HKDF-SHA256) and `@noble/ciphers` (AES-256-GCM) to `packages/runtime-daemon/package.json` at the same major versions pinned by ADR-010 for relay encryption (implementation economy: one audited crypto surface).
@@ -109,10 +155,24 @@ The stubs preserve the URL contract so V1.1 can ship real handlers without a bre
 4. Implement `packages/runtime-daemon/src/crypto/wrap-codec.ts`: AES-256-GCM wrap with `AAD = participant_id || "ais.master-wrap.v1"`.
 5. Implement `packages/runtime-daemon/src/persistence/participant-keys/participant-keys-store.ts`: CRUD on `participant_keys` using `wrap-codec`; provides `ensureKeyFor(participantId, ikm)` idempotent provisioning.
 6. Implement `packages/runtime-daemon/src/crypto/pii-codec.ts`: AES-256-GCM with `AAD = participant_id || event_id`, 12-byte random nonce, wire format `iv || ciphertext || tag`.
-7. Implement `packages/runtime-daemon/src/persistence/session-events/write-with-pii.ts`: PII splitter consuming Spec-006 taxonomy's `pii:true|false` marker; returns `{payload, pii_payload}`. Consumed by Plan-001's event-writer helper on integration.
+7. Implement `packages/runtime-daemon/src/persistence/session-events/write-with-pii.ts`: PII splitter consuming Spec-006 taxonomy's `pii:true|false` marker; returns `{payload, pii_payload}`. When `pii_payload` is non-NULL, the splitter MUST compute `pii_ciphertext_digest = BLAKE3(pii_payload_ciphertext)` and embed it in `payload` BEFORE returning — the canonicalizer (owned by Plan-006) then hashes and signs `payload` with the digest present. This embed-before-canonicalize order is load-bearing for [§Signature Safety Under Shred](#signature-safety-under-shred) and matches Plan-006 §PII Columns 7-step Encrypt-Then-Digest-Then-Sign order exactly. Plan-022 owns the digest-embed on the write path; Plan-006's `pii-indirection.ts` is the sole canonicalization path. Consumed by Plan-001's event-writer helper on integration.
 8. Forward-declare schema: during Plan-001 authoring (Session 4), migration `0001-initial.sql` must include `pii_payload BLOB` on `session_events` and the full `participant_keys` CREATE TABLE. Capture this dependency in BL-054's propagation pass.
 9. Implement `packages/runtime-daemon/src/http/gdpr-stub-routes.ts`: three 501 handlers returning `gdpr.endpoint_not_v1`; registered via Plan-007's IPC host.
 10. Document the new error code in `docs/architecture/contracts/error-contracts.md` and the new schema elements in `docs/architecture/schemas/local-sqlite-schema.md`.
+11. **Reserve Shred Fan-Out Orchestration surface (V1.1+).** Plan-022 is the V1 schema + write-path surface; the real `DELETE /participants/{id}/data` handler is V1.1+ (per §Non-Goals — 501 stubs in V1). When the real handler ships in V1.1, it MUST execute these three paths in the order below before emitting `participant.purged`, per [Spec-022 §Shred Fan-Out](../specs/022-data-retention-and-gdpr.md#shred-fan-out):
+
+    1. **Path 1 — SQLite crypto-shred.** DELETE the participant's row from `participant_keys`. Per-participant AES-256-GCM key is destroyed; all `pii_payload` ciphertext for every session the participant touched becomes permanently unrecoverable. Audit artifact: one `event.shredded` event (payload contains no PII; retained indefinitely per [Spec-006 §Event Maintenance](../specs/006-session-event-taxonomy-and-audit-log.md#event-maintenance-event_maintenance)); `event.shredded` emission is owned by [Plan-006](./006-session-event-taxonomy-and-audit-log.md) §Shred Fan-Out Cross-References.
+    2. **Path 2 — Postgres hard DELETE.** DELETE rows from `participants`, `identity_mappings`, `notification_preferences`. Anonymize participant references in `session_invites` and `session_memberships` via the tombstone-identifier pattern per [Spec-022 §Postgres (Control Plane) Deletion](../specs/022-data-retention-and-gdpr.md#postgres-control-plane-deletion). Postgres-side table ownership is Plan-018 (identity model) + Plan-001 (`session_memberships`); Plan-022 is the orchestrator. Any DELETE failure reports the whole path failed; daemon does not partially advance.
+    3. **Path 3 — Bounded-retention scoped flush.** For each of the 4 diagnostic buckets (`driver_raw_events`, `command_output`, `tool_traces`, `reasoning_detail` — all owned by Plan-020), DELETE all rows tagged with the purged participant ID. Scoped flush short-circuits the normal 7-day TTL. Counters-only audit artifact (`diagnostic_rows_purged` per table).
+
+    After all three paths complete, the daemon emits the aggregate `participant.purged` event. No ACID transaction spans the three paths — SQLite and Postgres are distinct durability domains. Per-path idempotence supports operator-retry on partial completion: key-already-deleted is a no-op (Path 1); DELETE-of-nonexistent is a no-op (Path 2); flush-of-empty-buckets is a no-op (Path 3).
+
+    **Ordering rationale** (per [Spec-022 §Ordering And Atomicity](../specs/022-data-retention-and-gdpr.md#ordering-and-atomicity)):
+    - **Path 1 before Path 2** — crypto-shred first so a concurrent reader cannot decrypt `pii_payload` via a Postgres lookup chain during the Postgres-row-delete window. After Path 1, ciphertext is unrecoverable regardless of what Postgres contains.
+    - **Path 2 before Path 3** — hard-delete the Postgres participant record before clearing diagnostic buckets so a diagnostic-bucket reader cannot re-derive PII via Postgres JOIN during the bucket-flush window.
+    - **`participant.purged` last** — the aggregate event is the durable audit artifact of the whole operation; emitting it before all three paths complete would misrepresent completion state.
+
+    **V1 code requirement: zero.** This step is a cross-plan alignment checkpoint, not a code-landing step. It verifies: (a) Plan-001's `participant_keys` schema emits no foreign-key cascade barrier blocking a Path 1 DELETE; (b) Plan-018's Postgres schema exposes all Path 2 deletion/anonymization targets; (c) Plan-020's diagnostic-bucket tables accept per-participant-id scoped flush as Path 3 targets; (d) Plan-006's `event.shredded` emission on Path 1 completion is wired per Plan-006 §Shred Fan-Out Cross-References. Any cross-plan drift surfaced by this checkpoint is fixed at the drifted plan; Plan-022 is the reporter, not the fixer.
 
 ## Parallelization Notes
 
@@ -126,6 +186,7 @@ The stubs preserve the URL contract so V1.1 can ship real handlers without a bre
 - **Unit, `participant-key-deriver`**: RFC 5869 test vectors (Appendix A, A.1–A.3) for HKDF-SHA256.
 - **Unit, `wrap-codec`**: AAD mismatch (wrong `participant_id` in wrap AAD) MUST fail decrypt.
 - **Unit, `pii-splitter`**: given a fixture of Spec-006 event types (some PII, some not), confirm routing is correct.
+- **Unit, `write-with-pii` digest embedding (signature-safety gate)**: given a fixture event with non-NULL `pii_payload`, confirm the returned shape includes `pii_ciphertext_digest` field in `payload` equal to `BLAKE3(pii_payload_ciphertext)`. Verify BLAKE3 output against [BLAKE3 official test vectors](https://github.com/BLAKE3-team/BLAKE3/blob/master/test_vectors/test_vectors.json) for correctness. This test is the V1 gate on [§Signature Safety Under Shred](#signature-safety-under-shred) — Plan-006's canonicalizer relies on this digest being present in `payload` before it hashes and signs.
 - **Integration, migration**: Plan-001's migration 0001 fixture must include `pii_payload` on `session_events` and the full `participant_keys` table; test asserts `PRAGMA table_info(session_events)` and `PRAGMA table_info(participant_keys)`.
 - **Integration, write-path**: end-to-end participant provisioning → event write → SQLite inspection shows `pii_payload` is ciphertext bytes (not plaintext JSON) and that the `payload` column contains only non-PII fields.
 - **Integration, master-key bootstrap**: mocked keychain-unavailable case falls back to file, emits `daemon.master_key_source` event with `source: "file"`.
@@ -162,6 +223,10 @@ The stubs preserve the URL contract so V1.1 can ship real handlers without a bre
 - [ ] AES-256-GCM master-key wrap round-trips with `AAD = participant_id || "ais.master-wrap.v1"`
 - [ ] OS keychain bootstrap succeeds on macOS and Windows; file fallback succeeds on Linux-without-libsecret
 - [ ] PII splitter routes Spec-006 events correctly per the `pii` marker; missing-marker events default to PII
+- [ ] `write-with-pii.ts` computes `pii_ciphertext_digest = BLAKE3(pii_payload_ciphertext)` and embeds it in `payload` BEFORE the canonicalizer runs, per [§Signature Safety Under Shred](#signature-safety-under-shred) and Plan-006 §PII Columns 7-step order
+- [ ] [§PII Data Map (Three Durability Tiers)](#pii-data-map-three-durability-tiers) enumerates durable + bounded-retention + telemetry-export tiers with owner-plan attribution (Plan-018 / Plan-020 / Plan-022) per [Spec-022 §PII Data Map](../specs/022-data-retention-and-gdpr.md#pii-data-map)
+- [ ] Implementation Step 11 reserves the V1.1 ordered Path 1 → Path 2 → Path 3 execution contract with rationale per [Spec-022 §Shred Fan-Out](../specs/022-data-retention-and-gdpr.md#shred-fan-out) and §Ordering And Atomicity
+- [ ] Cross-plan alignment confirmed: Plan-001 `participant_keys` cascade-barrier-free (Path 1); Plan-018 Postgres deletion targets (Path 2); Plan-020 diagnostic-bucket scoped flush (Path 3); Plan-006 `event.shredded` emission on Path 1 completion
 - [ ] All three GDPR stub routes return HTTP 501 with `gdpr.endpoint_not_v1` error code
 - [ ] `docs/architecture/contracts/error-contracts.md` documents `gdpr.endpoint_not_v1`
 - [ ] `docs/architecture/schemas/local-sqlite-schema.md` documents `participant_keys` + `pii_payload`
