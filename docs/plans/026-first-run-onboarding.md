@@ -31,7 +31,7 @@ Ship the Spec-026 three-way first-run-choice onboarding flow across both V1 clie
 - Option 2 TOFU: a one-shot TLS probe (`tls.connect()` + `getPeerCertificate()`) extracting the SPKI SHA-256 hash base64-encoded for pinning per [OWASP Certificate and Public Key Pinning](https://owasp.org/www-community/controls/Certificate_and_Public_Key_Pinning).
 - Option 3 callback: a loopback HTTP server bound to **`'127.0.0.1'`** (not `'localhost'` — see §Risks And Blockers), ephemeral port, one-shot callback, 5-minute `AbortSignal.timeout(300_000)` ceiling, PKCE S256 via [`oauth4webapi`](https://github.com/panva/oauth4webapi) v3.8.5 (panva's minimal-surface-area primitives — `openid-client` v6.8.3 would also work but carries full OIDC machinery we do not need).
 - Headless environment detection via `!process.stdin.isTTY` (CLI only) + three env-var overrides (`SIDEKICKS_ONBOARDING_CHOICE`, `SIDEKICKS_RELAY_URL`, `SIDEKICKS_HOSTED_TOKEN_STDIN`) producing byte-identical persisted state to the interactive path.
-- Event emission for `onboarding.choice_made` / `onboarding.choice_reset` wired into the daemon event bus (already owned by Plan-006); payload shapes per Spec-026 §Event Taxonomy Additions. Spec-006 registration is out of this plan's scope and deferred to BL-086 (same follow-up pattern as BL-084 for `arbitration.paused` / `arbitration.resumed`).
+- Event emission for `onboarding.choice_made` / `onboarding.choice_reset` wired into the daemon event bus (already owned by Plan-006); payload shapes per Spec-026 §Event Taxonomy Additions. Spec-006 registration landed under BL-086 (completed 2026-04-18) in the `onboarding_lifecycle` category — this plan now consumes that registration rather than forward-declaring it.
 
 ## Non-Goals
 
@@ -55,7 +55,7 @@ Ship the Spec-026 three-way first-run-choice onboarding flow across both V1 clie
 - [ ] Plan-023 ships the preload bridge (`window.sidekicks`), the keystore surface, the `safeStorage` backend probe, and the main-process modal pattern. Plan-026's desktop surface is a strictly-additive namespace extension (`window.sidekicks.onboarding`). Until Plan-023's main-process scaffold is in, only the CLI path of this plan can ship.
 - [ ] Plan-025 exposes the self-hostable relay's `GET /readyz` endpoint with a TLS-terminated HTTPS listener; Option 2's TOFU probe needs a reachable HTTPS certificate chain to pin.
 - [ ] Plan-008 serves the project-operated hosted relay so the hosted-sign-up redirect URL is a real, served URL. Without Plan-008's deployment, Option 3 can be code-complete but not end-to-end testable.
-- [x] BL-086 is filed in `docs/backlog.md` (landed during Session 3c paired with Spec-026) to register `onboarding.choice_made` and `onboarding.choice_reset` under Spec-006's event taxonomy. This plan emits events before BL-086 *resolves* (the entry exists but is not yet worked); consumers of the Spec-006 catalogue fall back to the domain-event union type until BL-086 resolution wires the events into the Spec-006 §Event Taxonomy table.
+- [x] BL-086 `completed` (2026-04-18) registered `onboarding.choice_made` and `onboarding.choice_reset` under Spec-006's `onboarding_lifecycle` category with payload shapes matching this plan's emitter. This plan consumes the registered `EventType` union directly.
 
 ## Target Areas
 
@@ -277,7 +277,7 @@ interface OnboardingChoiceResetPayload {
 ```
 
 - No secret material: no `admin_token`, no `hosted_token`, no raw SPKI bytes (the pin is in config, not events — a re-pin does not need to replay via event stream).
-- Events are emitted into the daemon event bus owned by Plan-006; this plan does not author the bus. Registration under Spec-006's §Event Taxonomy table is BL-086 follow-up scope.
+- Events are emitted into the daemon event bus owned by Plan-006; this plan does not author the bus. Registration under Spec-006's §Event Taxonomy table landed under BL-086 (completed 2026-04-18) in the `onboarding_lifecycle` category.
 
 ## Implementation Steps
 
@@ -485,7 +485,7 @@ Added to `docs/architecture/contracts/error-contracts.md` in step 21.
 - **Electron `safeStorage` Linux backend refusal.** Spec-023 requires refusing `'basic_text'` and `'unknown'` backends because they are plaintext files masquerading as keystores. Plan-026 implements this refusal on the hosted / self-host token write path. If a barebones Linux install lacks `gnome-keyring` or `kwallet*`, Options 2 and 3 fail at the keystore step — documented in Spec-026 §Open Questions as an intentional refusal.
 - **Single-flight trigger discipline.** Two concurrent invite attempts on a fresh install must not both trigger two overlapping onboarding flows. Mitigation: the service holds a single in-flight lock (a `Promise` stored on `OnboardingService.activeFlow`); the second caller awaits the first's completion rather than starting anew. Acceptance test in §Test And Verification Plan covers this.
 - **Partial-state races.** If the daemon crashes after the keystore write but before the `[onboarding]` promote, the next `OnboardingStart` must detect "keystore present AND partial state in `token-persisted-telemetry-pending` step" and resume at the telemetry step. Mitigation: the service's resume logic reads both the partial state file AND probes the keystore for the expected entry, resolving to the further-along step if they disagree. Edge case covered by integration test.
-- **BL-086 follow-up ordering.** Events are emitted before Spec-006 registers them. Consumers of Spec-006's `EventType` union type will not see the new events in the enumeration until BL-086 lands. Mitigation: Plan-026's event emission uses the generic `DomainEvent` shape with a string `type` field; it does not depend on Spec-006's narrow union. Plan-006 consumers that require exhaustive handling of the union will need BL-086 to land before they can match on the new events.
+- **Spec-006 registration resolved.** BL-086 (completed 2026-04-18) registered `onboarding.choice_made` / `onboarding.choice_reset` in the Spec-006 `onboarding_lifecycle` category with payload shapes matching this plan's emitter. Plan-026's event emission consumes the registered `EventType` union directly; no generic `DomainEvent` fallback is required.
 - **Renderer plaintext-token leak risk.** The password-dialog isolated-BrowserWindow pattern (step 15) is the one place we render plaintext in the renderer process. A review must verify the password-dialog window carries: `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`, a CSP of `default-src 'none'`, and a preload script whose only import is `ipcRenderer.send` with one channel (`password-entered`) subscribed. Plan-023's restricted-imports CI gate should cover this; Plan-026 adds the specific password-dialog path to the ESLint ignore-list only under the `apps/desktop/src/password-dialog/` subtree.
 - **Hosted-sign-up redirect URL is a build-time constant.** Option 3's redirect URL is hardcoded in the daemon binary at build time (per Spec-026 §Open Questions tentative). If the hosted-SaaS sign-up URL changes, users on older daemons remain pointed at the old URL until they upgrade. Mitigation: ship the URL as a config-overrideable field (`AIS_HOSTED_SIGNUP_URL`) for power users; the happy path uses the build-time constant. Mid-term: adopt well-known discovery at `<hosted-saas-base>/.well-known/onboarding` per Spec-026 §Open Questions.
 - **Walkthrough host-window accessibility.** The VS-Code-walkthrough-patterned renderer must expose keyboard navigation and screen-reader labels. Plan-026 does not author the full a11y audit (deferred to the desktop design track), but the walkthrough shell must not ship without minimal landmark roles + focus management or the first-run UX is inaccessible. Acceptance test: `axe-core` pass under Playwright `_electron` harness.
@@ -537,7 +537,7 @@ And **strictly upstream** of nothing — it is a leaf-node plan. CLI-first-relea
 - [ADR-010: PASETO + WebAuthn + MLS Auth](../decisions/010-paseto-webauthn-mls-auth.md)
 - [ADR-009: JSON-RPC IPC Wire Format](../decisions/009-json-rpc-ipc-wire-format.md)
 - [Plan-023: Desktop Shell And Renderer](./023-desktop-shell-and-renderer.md)
-- [Plan-007: Local Daemon IPC](./007-local-daemon-ipc.md)
+- [Plan-007: Local IPC And Daemon Control](./007-local-ipc-and-daemon-control.md)
 - [Plan-025: Self-Hostable Node Relay](./025-self-hostable-node-relay.md)
 
 ### External primary sources

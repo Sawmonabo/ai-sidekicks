@@ -160,10 +160,10 @@ Per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md), relay E2EE ships as
 
 | Component | Specification |
 | --- | --- |
-| Key agreement | X25519 ECDH via `@noble/curves` (audited: Cure53, Kudelski Security) |
+| Key agreement | X25519 ECDH via `@noble/curves` (audited: Cure53, Kudelski Security, Trail of Bits) |
 | Handshake authentication | Long-term Ed25519 identity key signs the ephemeral X25519 public key |
 | Key derivation | HKDF-SHA256 (RFC 5869) from the X25519 shared secret, 32-byte output |
-| AEAD | XChaCha20-Poly1305 (Bernstein 2011) via `@noble/ciphers` (audited), 24-byte random nonce, 16-byte authentication tag |
+| AEAD | XChaCha20-Poly1305 (Bernstein 2011) via `@noble/ciphers` (audited: Cure53), 24-byte random nonce, 16-byte authentication tag |
 | Forward secrecy | Session-granularity: each session generates a fresh X25519 key pair per participant, zeroed at session end. Compromise of a long-term Ed25519 identity key does not reveal past session keys. |
 | Post-compromise security | Not provided in V1. Session keys remain fixed for the session's lifetime. V1.1+ MLS introduces per-message ratcheting and post-compromise security. |
 | Participant cap | ≤ 10 active participants per pairwise session to bound the N² per-message encryption cost |
@@ -298,7 +298,7 @@ Local per-daemon event logs are tamper-evident. Each `session_events` row is cha
 Every `session_events` row carries two new columns:
 
 - `prev_hash BLOB(32)`: the `row_hash` of the immediately preceding row in `(session_id, sequence)` order. For `sequence = 0` the value is 32 zero bytes.
-- `row_hash BLOB(32)`: `BLAKE3( prev_hash || canonical_bytes(row) )`, where `canonical_bytes(row)` is the [RFC 8785 JSON Canonicalization Scheme (JCS)](https://datatracker.ietf.org/doc/html/rfc8785) serialization of the event envelope fields (`id`, `sessionId`, `sequence`, `occurredAt`, `category`, `type`, `actor`, `payload`, `correlationId`, `causationId`, `version`). `pii_payload` is **not** included in the canonical form. Events whose `pii_payload` column is non-NULL MUST embed a `pii_ciphertext_digest` field in `payload` (BLAKE3 over the ciphertext bytes of `pii_payload`); the digest is inside the canonical bytes and is never shredded, so [Spec-022](../specs/022-sensitive-data-handling-and-privacy.md) crypto-shredding of `pii_payload` does not break the chain.
+- `row_hash BLOB(32)`: `BLAKE3( prev_hash || canonical_bytes(row) )`, where `canonical_bytes(row)` is the [RFC 8785 JSON Canonicalization Scheme (JCS)](https://datatracker.ietf.org/doc/html/rfc8785) serialization of the event envelope fields (`id`, `sessionId`, `sequence`, `occurredAt`, `category`, `type`, `actor`, `payload`, `correlationId`, `causationId`, `version`). `pii_payload` is **not** included in the canonical form. Events whose `pii_payload` column is non-NULL MUST embed a `pii_ciphertext_digest` field in `payload` (BLAKE3 over the ciphertext bytes of `pii_payload`); the digest is inside the canonical bytes and is never shredded, so [Spec-022](../specs/022-data-retention-and-gdpr.md) crypto-shredding of `pii_payload` does not break the chain.
 
 BLAKE3 is the same digest used for `request_body_hash` in [Spec-024 Cross-Node Dispatch And Approval](../specs/024-cross-node-dispatch-and-approval.md). JCS is reused identically — two honest implementations producing divergent serializations would produce divergent chains, so a single canonicalization rule is mandatory.
 

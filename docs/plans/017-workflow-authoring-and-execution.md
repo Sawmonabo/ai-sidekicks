@@ -11,7 +11,7 @@
 | **Required ADRs** | [ADR-001](../decisions/001-session-is-the-primary-domain-object.md), [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md) |
 | **Dependencies** | [Plan-016](./016-multi-agent-channels-and-orchestration.md) (orchestration), [Plan-004](./004-queue-steer-pause-resume.md) (queue/steer) |
 | **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
-| **References** | [Updated Spec-017](../specs/017-workflow-authoring-and-execution.md) (V1 scope: single-agent + automated phases, all 4 gates) |
+| **References** | [Updated Spec-017](../specs/017-workflow-authoring-and-execution.md); Plan-017 deferred to V1.1+ per [ADR-015 §V1 Feature Inventory](../decisions/015-v1-feature-scope-definition.md) — see [cross-plan-dependencies.md §V1.1+ Plans](../architecture/cross-plan-dependencies.md#v11-plans-out-of-v1-tier-set) |
 
 ## Goal
 

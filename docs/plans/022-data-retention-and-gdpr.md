@@ -39,7 +39,7 @@ Ship the V1 **schema and write-path** of the Spec-022 crypto-shredding model so 
 
 - [x] Spec-022 is approved (this plan is paired with it)
 - [x] ADR-015 V1 Feature Scope Definition is accepted (places GDPR schema readiness as V1 surface requirement)
-- [x] `@noble/hashes` and `@noble/ciphers` crypto-library decision (ADR-010 §Relay Authentication — already fixed to `@noble` v2.x for V1)
+- [x] `@noble/hashes` and `@noble/ciphers` crypto-library decision ([ADR-010 §Decision point 3](../decisions/010-paseto-webauthn-mls-auth.md#decision) / [security-architecture.md §Relay Authentication And Encryption](../architecture/security-architecture.md#relay-authentication-and-encryption-task-53) — already fixed to `@noble` v2.x for V1)
 - [ ] Plan-001 is authored and accepts the forward-declaration (actioned in Session 4 per BL-054)
 - [ ] Spec-006 event taxonomy has a per-event `pii:true|false` marker (BL-087 follow-up work for shared-log taxonomy; this plan assumes the marker exists at implementation time)
 

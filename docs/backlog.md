@@ -102,7 +102,7 @@ V1 (per ADR-015) includes a Desktop GUI feature with no governing spec today, an
 - Owner: `unassigned`
 - References: [Spec-021](./specs/021-rate-limiting-policy.md), [ADR-014](./decisions/014-trpc-control-plane-api.md), [deployment-topology.md](./architecture/deployment-topology.md)
 - Summary: Author implementation plan for Spec-021. Scope: a `RateLimiter` abstraction swappable between Cloudflare native and `rate-limiter-flexible` Postgres-backed; per-endpoint enforcement on every control-plane tRPC + WS route; `/admin/bans` endpoint; three-stage escalation ladder (3 violations → 15-min block; 10 → 1-hr block; admin-issued permanent); ban-rate and false-positive-rate metrics.
-- Exit Criteria: `docs/plans/021-rate-limiting.md` exists; Spec-021 header's "Implementation Plan" field no longer reads `_(none yet)_`. (Cross-plan-dependencies.md §5 tier-graph update is BL-054's scope; Plan-021's body states the tier intent and dependency on Plan-008.)
+- Exit Criteria: `docs/plans/021-rate-limiting-policy.md` exists; Spec-021 header's "Implementation Plan" field no longer reads `_(none yet)_`. (Cross-plan-dependencies.md §5 tier-graph update is BL-054's scope; Plan-021's body states the tier intent and dependency on Plan-008.)
 
 #### BL-045: Create Plan-022 Data Retention / GDPR
 
@@ -195,7 +195,7 @@ Doc edits that resolve convergent architectural gaps. None require code.
 - Decision (resolved 2026-04-17): ADR-010 Decision point 3 rewritten to declare V1 relay encryption as pairwise X25519 ECDH + XChaCha20-Poly1305 via audited `@noble/curves` and `@noble/ciphers`, with session-granularity forward secrecy via ephemeral X25519 key pairs authenticated by long-term Ed25519 identities; V1 participant cap ≤ 10 to bound N² per-recipient fan-out; MLS (RFC 9420) via an audited implementation (OpenMLS, mls-rs, or a post-audit TypeScript implementation) is the V1.1 upgrade path, gated on three testable promotion gates — (a) named audit firm + published report, (b) interop tests pass against ≥ 1 other implementation at a pinned commit, (c) ≥ 4 weeks production soak under feature flag with < 1% session error rate. Security-architecture.md §Relay Authentication And Encryption split into self-contained V1 subsection (pairwise, no MLS reference, includes `@noble` v2.x API recipe) and V1.1+ subsection (MLS planned upgrade). Spec-008 §Relay Encryption through §Trust Properties rewritten for internal consistency — sweep surfaced MLS-as-V1 framing beyond the one "fallback" line that half-rewriting would have locked in. Vision.md relay-E2EE rows split V1 primary / V1.1+ upgrade. Plan-008 encryption step + test plan reflect pairwise-first. No amendment phrasings (`invert`, `reversal`, `revert`, `rollback`, `the earlier default`, `changed our mind`) remain in ADR-010; `fallback` sweep of `docs/` returned no pairwise-as-fallback framings.
 - References: [ADR-010](./decisions/010-paseto-webauthn-mls-auth.md), [vision.md:280](./vision.md), [security-architecture.md](./architecture/security-architecture.md), [Spec-008](./specs/008-control-plane-relay-and-session-join.md), [Plan-008](./plans/008-control-plane-relay-and-session-join.md), [Spec-021](./specs/021-rate-limiting-policy.md) (KeyPackage-upload row marked V1.1+ to match the ADR deferral); [Bernstein 2011 XSalsa20/XChaCha20 construction](https://cr.yp.to/snuffle/xsalsa-20110204.pdf); [RFC 9420 (MLS)](https://datatracker.ietf.org/doc/rfc9420/); [RFC 5869 (HKDF)](https://datatracker.ietf.org/doc/rfc5869/); @noble audits ([paulmillr/noble-audits](https://github.com/paulmillr/noble-audits)).
 - Summary: Rewrite ADR-010 Decision point 3 to declare: "V1 ships pairwise X25519 + XChaCha20-Poly1305 via audited `@noble/curves` + `@noble/ciphers`. MLS (RFC 9420) via an audited implementation is the V1.1 upgrade path." Rewrite Assumption #2 to remove the unsupported "ts-mls is production-grade" claim and state instead that an audited MLS implementation (OpenMLS-WASM, Wire core-crypto, or post-audit ts-mls) is expected to be available for V1.1 promotion. Add explicit promotion gates: (a) external audit of selected MLS implementation, (b) interop tests pass against ≥ 1 other implementation, (c) ≥ 4 weeks production soak under a feature flag. Split security-architecture.md §Relay Authentication And Encryption into "V1 (pairwise X25519 + XChaCha20-Poly1305)" and "V1.1+ (MLS)" subsections; the V1 subsection is authoritative and stands on its own. ADR text declares the pairwise-first position as the forward choice, not as a reversal of a prior shipped default.
-- Exit Criteria: ADR-010 declares pairwise-first as the V1 relay encryption choice with MLS as the V1.1 upgrade (with explicit promotion gates); `vision.md` Add table marks ts-mls as V1.1/V2 (also per BL-071); security-architecture.md has a V1 subsection that is self-contained and does not reference MLS; the ADR body contains no amendment phrasing (`invert`, `reversal`, `revert`, `rollback`, `the earlier default`). Additionally, sweep the corpus for residual "pairwise fallback," "NaCl fallback," "MLS fallback," and "fallback encryption" phrasings that describe the now-primary pairwise choice — update each to the declarative form. Known targets: `ADR-010` Success Metrics row, `vision.md:281` (`@noble/*` row purpose cell), `docs/architecture/v1-feature-scope.md` row 19 (MLS relay E2EE), and `docs/plans/008-control-plane-relay-and-session-join.md` encryption description. Post-edit grep for `fallback` in `docs/` must return no remaining references framing pairwise as fallback.
+- Exit Criteria: ADR-010 declares pairwise-first as the V1 relay encryption choice with MLS as the V1.1 upgrade (with explicit promotion gates); `vision.md` Add table marks ts-mls as V1.1/V2 (also per BL-071); security-architecture.md has a V1 subsection that is self-contained and does not reference MLS; the ADR body contains no amendment phrasing (`invert`, `reversal`, `revert`, `rollback`, `the earlier default`). Additionally, sweep the corpus for residual "pairwise fallback," "NaCl fallback," "MLS fallback," and "fallback encryption" phrasings that describe the now-primary pairwise choice — update each to the declarative form. Known targets: `ADR-010` Success Metrics row, `vision.md:280` and `vision.md:282` (both `@noble/*` row purpose cells: PASETO v4 row and Relay E2EE V1 primary row), `docs/architecture/v1-feature-scope.md` row 19 (MLS relay E2EE), and `docs/plans/008-control-plane-relay-and-session-join.md` encryption description. Post-edit grep for `fallback` in `docs/` must return no remaining references framing pairwise as fallback.
 
 #### BL-049: Add Authenticated-Principal preamble to api-payload-contracts
 
@@ -248,6 +248,16 @@ Product/infra calls that required human judgment. Both items resolved 2026-04-16
 - Summary: Write ADR-020 declaring the V1 deployment model. The ADR must state: (1) **Single codebase, two deployment options.** The daemon, the relay, and the control-plane code live in one repository under a permissive OSS license. Both deployment options ship the same 16-feature V1 surface — no feature-gating between free OSS and our hosted SaaS. (2) **Free self-hosted (OSS):** users install via `git clone` / npm / Homebrew / release binary; daemon defaults to a project-operated free public relay at a published URL so first-run collaboration is zero-config; users can override via an env var or config file (e.g., `RELAY_URL=…`) to point at their own self-hosted relay; community-supported via GitHub Issues and Security Advisories with no SLA. (3) **Hosted SaaS:** the project operates the same codebase as a managed service at a separate URL; users sign up, receive a scoped token, and their daemons point at the hosted control plane; vendor-supported for paying customers. (4) **First-run UX:** on first invite, the daemon presents a one-time three-way choice — free public relay (default) / self-host your own / sign up for hosted — stored in config, never re-prompts. (5) **License:** MIT or Apache-2.0 at repo root from day one. Revisit only if a competitor materially re-hosts our code as a competing managed service (the Sentry BSL→FSL saga is the precedent for deferred re-licensing). (6) **Relay infrastructure:** the project-operated free relay runs on Cloudflare Workers + Durable Objects using the sharded control/data-DO architecture from `deployment-topology.md` §Relay Scaling Strategy; the self-hostable relay is a Node.js WebSocket implementation of the same wire protocol, shipped alongside the daemon in the same repo with a `docker-compose.yml` for single-command self-host; both backends implement the v2 relay protocol behind one shared contract (so protocol-level changes land once and ship to both). (7) **Rate-limiter backends:** both ship in V1 under the deployment-aware abstraction already named in `deployment-topology.md` — CF-native `rate_limit` binding for the project-operated relay and hosted SaaS; `rate-limiter-flexible` with Postgres backend for the self-hostable relay. Alternatives the ADR must steel-man: (a) **Option Brief-B** (V1 hosted-only, V1.1 self-host) — the research brief's recommendation, superseded by the OSS-first product framing; (b) **Option Brief-A** (full enterprise self-hosted with Helm / OIDC / SAML / CVE contracts / vendor support) — rejected for V1 because no named enterprise pipeline today justifies the 0.2–1 FTE sustained cost; (c) **No default relay** (users must bring their own relay URL) — rejected because it breaks the "git clone and invite a friend immediately" UX; (d) **Pure P2P with STUN/TURN** — rejected because every ~30% NAT-blocked case still needs a relay fallback, so the architecture still ends up operating a coordination endpoint. The ADR's rationale must name the constraint that tipped the call: this is an OSS developer tool whose value is the tool itself, not an enterprise compliance wrapper. Vendor-supported-enterprise ongoing-cost arguments do not apply to community-supported OSS. Decision Log cites the research brief, the 2026-04-16 OSS-framing clarification, and the PostHog/Supabase/Sentry/tmate precedents. ADR body must read as a forward declaration — no "reconsidered," "expanded," or "changed direction" framing.
 - Exit Criteria: `docs/decisions/020-v1-deployment-model-and-oss-license.md` exists with Context, Decision, Alternatives (a–d steel-manned), Consequences, Reversibility, Tripwires, and Decision Log sections; status `accepted`; Tripwires section names at least three reversal/adjustment triggers (examples: a competitor hosts our code as a competing managed service with measurable revenue impact → relicense to FSL/BSL/ELv2 per Sentry precedent; community support drag exceeds 30% of weekly engineering capacity for 4+ consecutive weeks → tighten OSS scope or deprecate the free default relay in favor of self-host-only; hosted-SaaS monthly active users stays below a named threshold 6 months post-launch → reconsider monetization shape before V1.1 planning); `v1-feature-scope.md` gains a "Deployment Options" section naming "Free self-hosted (OSS)" and "Hosted SaaS" as V1 deployment shapes (both over the same 16-feature V1 feature set — this is not a feature-count change to ADR-015); `deployment-topology.md` cross-links to ADR-020 from the Collaborative Hosted Control Plane and Collaborative Self-Hosted Control Plane topology rows (the topology model is unchanged; only the V1 commitment changes); an OSS `LICENSE` file (MIT or Apache-2.0) lands at the repo root; a `README` section documents the `--relay-url` / `RELAY_URL=` override and points at the self-host relay setup docs; the research brief (`docs/research/bl-053-self-hosted-scope-research.md`) is cross-linked from ADR-020 Decision Log with an explicit note that its Option B recommendation was superseded by the OSS-first product posture; no retrospective/amendment phrasing anywhere in the ADR body. Follow-up scope (now tracked as separate backlog items): (a) BL-079 (Spec-025 self-hostable Node relay) + BL-080 (Plan-025); (b) BL-081 (Spec-026 first-run three-way-choice onboarding) + BL-082 (Plan-026); (c) BL-083 (commit OSS `LICENSE` at repo root — MIT vs Apache-2.0).
 
+#### BL-083: Commit OSS LICENSE file at repo root (MIT vs Apache-2.0)
+
+- Status: `completed`
+- Priority: `P0`
+- Owner: `unassigned`
+- Depends-on: BL-053 (ADR-020 commits to a permissive OSS license)
+- References: [ADR-020](./decisions/020-v1-deployment-model-and-oss-license.md) (from BL-053); [MIT License](https://choosealicense.com/licenses/mit/); [Apache License 2.0](https://choosealicense.com/licenses/apache-2.0/); precedent — VS Code (MIT), Node.js (MIT), Supabase (Apache-2.0), Kubernetes (Apache-2.0), Terraform (originally MPL, now BSL), Mattermost (MIT + proprietary enterprise), PostHog (MIT → re-licensed), Sentry (originally BSD → BSL → FSL).
+- Summary: Choose between MIT and Apache-2.0 and commit the corresponding `LICENSE` file at the repo root. Staff-level recommendation: **Apache-2.0**. Rationale: (1) explicit patent grant protects contributors and users from patent litigation by other contributors — a concrete advantage MIT does not give; (2) explicit contribution-terms clause codifies inbound-is-outbound CLA semantics in the license itself, reducing the need for a separate CLA; (3) dominant choice in modern OSS developer-tool projects (Kubernetes, Terraform-pre-BSL, Supabase, etc.); (4) SPDX-clean and recognized by all major dependency scanners. MIT remains a defensible choice if the constraint is maximal ecosystem compat with copyleft-aware downstream (GPL inclusion is cleaner under MIT than under Apache-2.0 due to the patent-termination clause in Apache-2.0 §3). Deliverables: (a) `LICENSE` file at repo root with text matching the chosen SPDX identifier exactly; (b) `package.json` top-level `license` field set to matching SPDX identifier (`Apache-2.0` or `MIT`); (c) README section naming the license and linking to `LICENSE`; (d) ADR-020 Decision Log entry recording which license was chosen and why. Revisit gate: if a competitor materially re-hosts the codebase as a competing managed service with measurable revenue impact, re-license to FSL/BSL/ELv2 per the Sentry precedent (already named in ADR-020 Tripwires).
+- Exit Criteria: `LICENSE` file exists at repo root with text matching the chosen SPDX identifier exactly; `package.json` `license` field matches; `README.md` references the license; ADR-020 Decision Log entry records the choice; no conflicting license text anywhere in the repo.
+
 #### BL-084: Register `arbitration.paused` / `arbitration.resumed` events in Spec-006 event taxonomy
 
 - Status: `completed`
@@ -258,16 +268,6 @@ Product/infra calls that required human judgment. Both items resolved 2026-04-16
 - References: [Spec-006](./specs/006-session-event-taxonomy-and-audit-log.md) §Event Types and §Event Category Counts; [Spec-016](./specs/016-multi-agent-channels-and-orchestration.md) §Partition And Reconnect Behavior; [Spec-003](./specs/003-runtime-node-attach.md) (node `offline` semantics); [ADR-011](./decisions/011-generic-intervention-dispatch.md) (intervention surface that arbitration pauses ride on)
 - Summary: Spec-016's V1 Readiness Review introduced two new orchestration-layer events — `arbitration.paused` (emitted when a `round-robin` channel's next-due agent sits on an unreachable node) and `arbitration.resumed` (emitted when the node reconnects and canonical ordering is restored) — that do not yet exist in the Spec-006 canonical event taxonomy. Register them: (1) add both events to the Event Types table under a new `orchestration_lifecycle` category or an existing category that matches their scope (candidate: `session_lifecycle` next to `channel.*`, or a new category `channel_arbitration` if categorization by subsystem is preferred); (2) define the payload shape (`{sessionId, channelId, unreachableNodeId, unreachableAgentId, turnPolicy, timestamp}`); (3) update the §Event Category Counts table with the new category's count; (4) cross-reference Spec-016 §Partition And Reconnect Behavior from the event definitions so the semantics are discoverable from Spec-006. These events are orchestration-layer visibility states distinct from run-level `run.paused` (Spec-004) — the payload and category must reflect that separation. No Spec-016 edits are required by this BL; Spec-016 already cites the events in dotted form.
 - Exit Criteria: Spec-006 §Event Types table lists `arbitration.paused` and `arbitration.resumed` with descriptions; payload shape is defined; §Event Category Counts table is updated consistently; Spec-016 §Partition And Reconnect Behavior cross-reference is resolvable (anchor or explicit event names match Spec-006 exactly); no retrospective/amendment phrasing.
-
-#### BL-083: Commit OSS LICENSE file at repo root (MIT vs Apache-2.0)
-
-- Status: `completed`
-- Priority: `P0`
-- Owner: `unassigned`
-- Depends-on: BL-053 (ADR-020 commits to a permissive OSS license)
-- References: [ADR-020](./decisions/020-v1-deployment-model-and-oss-license.md) (from BL-053); [MIT License](https://choosealicense.com/licenses/mit/); [Apache License 2.0](https://choosealicense.com/licenses/apache-2.0/); precedent — VS Code (MIT), Node.js (MIT), Supabase (Apache-2.0), Kubernetes (Apache-2.0), Terraform (originally MPL, now BSL), Mattermost (MIT + proprietary enterprise), PostHog (MIT → re-licensed), Sentry (originally BSD → BSL → FSL).
-- Summary: Choose between MIT and Apache-2.0 and commit the corresponding `LICENSE` file at the repo root. Staff-level recommendation: **Apache-2.0**. Rationale: (1) explicit patent grant protects contributors and users from patent litigation by other contributors — a concrete advantage MIT does not give; (2) explicit contribution-terms clause codifies inbound-is-outbound CLA semantics in the license itself, reducing the need for a separate CLA; (3) dominant choice in modern OSS developer-tool projects (Kubernetes, Terraform-pre-BSL, Supabase, etc.); (4) SPDX-clean and recognized by all major dependency scanners. MIT remains a defensible choice if the constraint is maximal ecosystem compat with copyleft-aware downstream (GPL inclusion is cleaner under MIT than under Apache-2.0 due to the patent-termination clause in Apache-2.0 §3). Deliverables: (a) `LICENSE` file at repo root with text matching the chosen SPDX identifier exactly; (b) `package.json` top-level `license` field set to matching SPDX identifier (`Apache-2.0` or `MIT`); (c) README section naming the license and linking to `LICENSE`; (d) ADR-020 Decision Log entry recording which license was chosen and why. Revisit gate: if a competitor materially re-hosts the codebase as a competing managed service with measurable revenue impact, re-license to FSL/BSL/ELv2 per the Sentry precedent (already named in ADR-020 Tripwires).
-- Exit Criteria: `LICENSE` file exists at repo root with text matching the chosen SPDX identifier exactly; `package.json` `license` field matches; `README.md` references the license; ADR-020 Decision Log entry records the choice; no conflicting license text anywhere in the repo.
 
 #### BL-085: Bump ADR-016 Electron minimum version floor to ≥ 38.8.6 / 39.8.1 / 40.8.1 / 41.0.0 (CVE-2026-34776)
 
@@ -414,7 +414,7 @@ Each surface below is Plan-001-, Plan-004-, or Plan-006-adjacent.
 
 #### BL-061: Specify SQLite writer concurrency model
 
-- Status: `done`
+- Status: `completed`
 - Priority: `P1`
 - Owner: `unassigned`
 - References: [Spec-015](./specs/015-persistence-recovery-and-replay.md), [component-architecture-local-daemon.md](./architecture/component-architecture-local-daemon.md), [data-architecture.md](./architecture/data-architecture.md)
@@ -424,7 +424,7 @@ Each surface below is Plan-001-, Plan-004-, or Plan-006-adjacent.
 
 #### BL-062: Specify clock-handling strategy for event timestamps
 
-- Status: `done`
+- Status: `completed`
 - Priority: `P1`
 - Owner: `unassigned`
 - References: [Spec-015](./specs/015-persistence-recovery-and-replay.md), [local-sqlite-schema.md](./architecture/schemas/local-sqlite-schema.md) (`session_events.occurred_at`)
@@ -434,7 +434,7 @@ Each surface below is Plan-001-, Plan-004-, or Plan-006-adjacent.
 
 #### BL-063: Require automated SQLite backup policy
 
-- Status: `done`
+- Status: `completed`
 - Priority: `P1`
 - Owner: `unassigned`
 - References: [Spec-015](./specs/015-persistence-recovery-and-replay.md), [local-persistence-repair-and-restore.md](./operations/local-persistence-repair-and-restore.md)
@@ -444,7 +444,7 @@ Each surface below is Plan-001-, Plan-004-, or Plan-006-adjacent.
 
 #### BL-064: Extend event taxonomy with missing types
 
-- Status: `done`
+- Status: `completed`
 - Priority: `P1`
 - Owner: `unassigned`
 - References: [Spec-006](./specs/006-session-event-taxonomy-and-audit-log.md)
@@ -454,7 +454,7 @@ Each surface below is Plan-001-, Plan-004-, or Plan-006-adjacent.
 
 #### BL-065: Write ADR-018 Cross-Version Multi-Node Compatibility
 
-- Status: `done`
+- Status: `completed`
 - Priority: `P1`
 - Owner: `unassigned`
 - References: [ADR-018](./decisions/018-cross-version-compatibility.md), [data-architecture.md](./architecture/data-architecture.md), [Spec-006](./specs/006-session-event-taxonomy-and-audit-log.md) (`EventEnvelope.version`)
@@ -464,7 +464,7 @@ Each surface below is Plan-001-, Plan-004-, or Plan-006-adjacent.
 
 #### BL-066: Extend PII data-map fan-out on shred
 
-- Status: `done`
+- Status: `completed`
 - Priority: `P1`
 - Owner: `unassigned`
 - References: [Spec-022](./specs/022-data-retention-and-gdpr.md), [Spec-020](./specs/020-observability-and-failure-recovery.md)
@@ -482,7 +482,7 @@ Low-stakes cleanup. Some trivial, some require small edits across multiple docs.
 - Priority: `P2`
 - Owner: `unassigned`
 - References: [vision.md:280](./vision.md), [ADR-010 §PASETO v4 Implementation Library](./decisions/010-paseto-webauthn-mls-auth.md), [Plan-025](./plans/025-self-hostable-node-relay.md)
-- Summary: Replace `paseto-ts` with `panva/paseto`. Rationale: ~24× more weekly downloads, zero deps, maintained by the author of `jose` and `oidc-provider`. PASETO tokens are library-agnostic on the wire, so this is a drop-in swap at implementation time.
+- Summary (original charter — superseded by Session G1 Resolution below): "Replace `paseto-ts` with `panva/paseto`." Rationale as originally filed: library-agnostic wire format, swap would have been drop-in. Resolution at line 487 documents the 2026-04-19 reframe that rejected both third-party libraries and aligned with Plan-025's in-house `packages/crypto-paseto/` package.
 - Exit Criteria: vision.md Add table and ADR-010 both reference the chosen PASETO library ✅.
 - Resolution: BL-067's original premise was invalid. Session G1 research (2026-04-19, Opus 4.7 subagent with websearch against primary sources) confirmed that `panva/paseto` was archived by its maintainer on 2025-03-29 and does not implement `v4.local` — making it unusable for ADR-010's 7-day refresh-token requirement regardless of download count. `paseto-ts` is active but single-maintainer (`miunau`) and unaudited, which fails ADR-010's Type 2 (one-way door) concentration-risk bar. Resolution: align with [Plan-025](./plans/025-self-hostable-node-relay.md)'s in-house `packages/crypto-paseto/` package on audited `@noble/curves` + `@noble/ciphers` primitives. Both third-party libraries rejected. See [ADR-010 §PASETO v4 Implementation Library](./decisions/010-paseto-webauthn-mls-auth.md) for the full evaluation and citations.
 - Resolved: 2026-04-19 (Session G1).
@@ -492,7 +492,7 @@ Low-stakes cleanup. Some trivial, some require small edits across multiple docs.
 - Status: `todo`
 - Priority: `P2`
 - Owner: `unassigned`
-- References: [deployment-topology.md:59-68](./architecture/deployment-topology.md), [vision.md:413](./vision.md)
+- References: [deployment-topology.md:59-68](./architecture/deployment-topology.md), [vision.md:416](./vision.md)
 - Summary: Rewrite "25 connections per DO" as a tunable design choice rather than a platform cap. State Cloudflare's actual limits (32,768 concurrent WS per DO; 1,000 rps soft cap) and explain the sharding rationale (keeping per-DO throughput well under rps cap when amortizing 100 events/sec/client × encrypt cost). Add a decision trigger for re-evaluating the sharding factor.
 - Exit Criteria: deployment-topology.md distinguishes platform limits from design choices; vision.md Relay Scaling reference aligns.
 
@@ -539,7 +539,7 @@ Low-stakes cleanup. Some trivial, some require small edits across multiple docs.
 - Status: `todo`
 - Priority: `P2`
 - Owner: `unassigned`
-- References: [vision.md:291](./vision.md)
+- References: [vision.md:293](./vision.md)
 - Summary: Change the vision Add table entry for Agent Trace to note "(spec, no npm library yet; we emit trace records against the Cursor-authored RFC pinned at revision X)".
 - Exit Criteria: vision.md entry distinguishes emitted-spec from imported-library.
 

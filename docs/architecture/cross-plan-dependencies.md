@@ -127,7 +127,7 @@ Plan-001 ──────┬────────────────�
 
 Plan-005 ──────┬──────────────────────────────────────────┐
                │                                          │
-          Plan-004 ──── Plan-016 ──── Plan-017       Plan-015
+          Plan-004 ──── Plan-016 ──── Plan-017*      Plan-015
                │                                     ▲   ▲
                └─────────────────────────────────────┘   │
                                                           │
@@ -162,6 +162,8 @@ Plan-024 ──┘                   ▲
                                │
 Plan-006, Plan-008, Plan-025 ──┘
 ```
+
+Plan-017 in the diagram above is deferred to V1.1+ per [ADR-015](../decisions/015-v1-feature-scope-definition.md) / §V1.1+ Plans below; shown for architectural continuity only.
 
 ---
 
@@ -214,7 +216,7 @@ Plans below are not part of V1 per ADR-015 and are **not** placed in the numbere
 
 [Spec-024: Cross-Node Dispatch And Approval](../specs/024-cross-node-dispatch-and-approval.md) is **V1 scope**, recorded here per BL-054 exit criteria as an implicit dependency of Plan-002, Plan-003, Plan-008, and Plan-012 (the V1 plans whose runtime surface Spec-024 governs at cross-node boundaries). Spec-024 depends on Spec-003 and Spec-012, which map to Plan-003 and Plan-012 — **the dependency direction is Spec-024 → Plan-003/012, not the reverse.** Plan-003 and Plan-012 do **not** pick up new work from Spec-024.
 
-**Open V1 Gap:** Spec-024 has no implementation plan at V1-scope-definition time — the spec itself declares `Implementation Plan | (none yet — BL-047 produces this spec only)` at line 11, and no backlog item has been filed for plan-authoring as of 2026-04-17. Spec-024 introduces a `cross_node_dispatch_approvals` table whose allocation is deferred to plan-authoring per Spec-024 §State And Data Implications line 172. Before the V1 approval pass (BL-077), this gap must be resolved — either by filing a dedicated plan-authoring backlog item (target plan number TBD since the `024` slot is taken by the Rust PTY Sidecar plan) or by folding the dispatch/approval behaviors into Plans 002/003/008/012 and amending their headers. When the plan is authored, this document must be updated with its tier placement, its `cross_node_dispatch_approvals` table ownership row in §1, and any package-path ownership it introduces.
+**Open V1 Gap (carried past BL-077):** Spec-024 has no implementation plan. The spec header declares `Implementation Plan | (none yet — BL-047 produces this spec only)` at line 11. BL-077 (Session F, 2026-04-19) ran without resolving this gap — Plans 002/003/008/012 were flipped to `approved` without Spec-024 Dependencies citations. The remaining resolution paths are (a) file a dedicated plan-authoring backlog item to own the `cross_node_dispatch_approvals` table per Spec-024 §State And Data Implications line 172 (target plan number TBD — the `024` slot is taken by the Rust PTY Sidecar plan), or (b) incorporate Spec-024 Dependencies into the relevant plan headers as a follow-up pass (Session H-interim audit introduces this patch at C12). When the plan is authored, this document must be updated with its tier placement, its `cross_node_dispatch_approvals` table ownership row in §1, and any package-path ownership it introduces.
 
 ### Optimization Notes
 

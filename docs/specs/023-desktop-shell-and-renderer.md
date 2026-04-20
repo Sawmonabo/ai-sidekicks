@@ -659,7 +659,7 @@ A dedicated current-state research pass (Electron version / cadence, security ha
 - [Spec-016: Multi-Agent Channels And Orchestration](./016-multi-agent-channels-and-orchestration.md) — Multi-Agent Channels view composition target (V1-readiness review in BL-042)
 - [Spec-002: Invite, Membership, Presence](./002-invite-membership-and-presence.md) — Invites view composition target
 - [Spec-004: Queue, Steer, Pause, Resume](./004-queue-steer-pause-resume.md) — Runs view composition target
-- [Spec-026: First-Run Three-Way-Choice Onboarding](./026-first-run-three-way-choice-onboarding.md) — first-run relay choice surfaced by the shell (to be authored per BL-081)
+- [Spec-026: First-Run Onboarding](./026-first-run-onboarding.md) — first-run relay choice surfaced by the shell (to be authored per BL-081)
 
 ### Related ADRs
 

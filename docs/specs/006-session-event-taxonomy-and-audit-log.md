@@ -464,7 +464,7 @@ Payload shape: `{nodeId, operationId, occurredAt}` (base). Per-event payload ext
 
 ### Policy Events (`policy_events`)
 
-Durable state-change events recording the daemon's loading and validation of signed Cedar policy bundles per [ADR-012](../decisions/012-local-policy-signing.md) (local policy signing). These events belong to a distinct category from `approval_flow` because they describe **the policy infrastructure** (bundle lifecycle, validator outcomes) rather than individual approval decisions — a single bundle load may affect millions of subsequent approval decisions.
+Durable state-change events recording the daemon's loading and validation of signed Cedar policy bundles per [ADR-012](../decisions/012-cedar-approval-policy-engine.md) (Cedar approval policy engine). These events belong to a distinct category from `approval_flow` because they describe **the policy infrastructure** (bundle lifecycle, validator outcomes) rather than individual approval decisions — a single bundle load may affect millions of subsequent approval decisions.
 
 Payload shape: `{nodeId, bundleId, bundleVersion}` (base). Per-event payload extensions called out inline.
 

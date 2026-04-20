@@ -160,7 +160,7 @@ The tier 1 and tier 2 blobs are byte-identical; tier 1 is cache, tier 2 is the a
 
 - **CLI (headless, no WebAuthn)**: `KEK = Argon2id(passphrase, salt, m=19456 KiB, t=2, p=1)` (OWASP 2026 baseline). The participant is prompted for their passphrase at daemon start. Parameters are stored in the on-disk header for forward-compatibility.
 
-**On-disk format** (reuses [ADR-021](../decisions/021-cli-identity-key-storage-custody.md)'s envelope verbatim for consistency):
+**On-disk format** (extends [ADR-021](../decisions/021-cli-identity-key-storage-custody.md)'s envelope shape; ADR-021 defines a single `version=0x01` envelope for CLI identity-key storage — Spec-022 adds a KEK-branch byte at the same position where `0x01` denotes the PRF-KEK branch and `0x02` denotes the Argon2id-passphrase-KEK branch, with the remaining parameter fields zeroed under the PRF branch):
 
 ```
 [version:1][argon2_m:4][argon2_t:4][argon2_p:1][salt:16][nonce:24][ciphertext:32+tag:16]

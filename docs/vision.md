@@ -8,7 +8,7 @@
 - [Architectural Position](#architectural-position)
 - [Top-Level Architecture](#top-level-architecture)
 - [1. Desktop Shell](#1-desktop-shell)
-- [2. Desktop UI](#2-desktop-ui)
+- [2. Desktop UI (Desktop Renderer)](#2-desktop-ui-desktop-renderer)
 - [3. Local Runtime Daemon](#3-local-runtime-daemon)
 - [4. Collaboration Control Plane](#4-collaboration-control-plane)
 - [5. Session Engine](#5-session-engine)
@@ -25,6 +25,7 @@
 - [Technology Position](#technology-position)
 - [Keep](#keep)
 - [Change](#change)
+- [Add](#add)
 - [Add Later If Needed](#add-later-if-needed)
 - [Signature Features And Their Correct Implementation](#signature-features-and-their-correct-implementation)
 - [1. Mid-Session Invites And Shared Runtime Contribution](#1-mid-session-invites-and-shared-runtime-contribution)
@@ -279,7 +280,7 @@ If these are modeled cleanly, most major features become straightforward instead
 | --- | --- | --- |
 | PASETO v4 | In-house `packages/crypto-paseto/` ([Plan-025](./plans/025-self-hostable-node-relay.md)) on `@noble/curves` + `@noble/ciphers` | Internal auth tokens (replaces JWT); third-party TypeScript PASETO libraries rejected — see [ADR-010 §PASETO v4 Implementation Library](./decisions/010-paseto-webauthn-mls-auth.md) |
 | WebAuthn | `@simplewebauthn/server`, `@simplewebauthn/browser` | Primary authentication (desktop) |
-| Relay E2EE (V1 primary) | `@noble/curves`, `@noble/ciphers`, `@noble/hashes` | Pairwise X25519 ECDH + XChaCha20-Poly1305 AEAD + HKDF-SHA256 for relay-mediated session encryption per [ADR-010](./decisions/010-paseto-webauthn-mls-auth.md). Audited by Cure53 and Kudelski Security. |
+| Relay E2EE (V1 primary) | `@noble/curves`, `@noble/ciphers`, `@noble/hashes` | Pairwise X25519 ECDH + XChaCha20-Poly1305 AEAD + HKDF-SHA256 for relay-mediated session encryption per [ADR-010](./decisions/010-paseto-webauthn-mls-auth.md). `@noble/curves` audited by Cure53, Kudelski Security, and Trail of Bits; `@noble/ciphers` audited by Cure53. |
 | Relay E2EE (V1.1+ upgrade) | MLS (RFC 9420) via an audited implementation (OpenMLS, mls-rs, or post-audit TypeScript implementation) | Post-compromise security and O(log N) group rekeying, gated on audit / interop / soak criteria in [ADR-010](./decisions/010-paseto-webauthn-mls-auth.md) |
 | Crypto-shredding cipher | Node.js `crypto` (built-in) | AES-256-GCM for per-participant PII column encryption |
 | XState v5 | `xstate` | Internal state machine logic |
