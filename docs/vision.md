@@ -262,7 +262,7 @@ If these are modeled cleanly, most major features become straightforward instead
 ### Keep
 
 - TypeScript for daemon, contracts, CLI, and Electron
-- React for the renderer
+- React 19 for the renderer (pinned `~19.2.5` for auto security uptake; minors require explicit review)
 - Electron for the desktop shell
 - Zod and typed contracts across boundaries
 
@@ -277,7 +277,7 @@ If these are modeled cleanly, most major features become straightforward instead
 
 | Technology | Package | Purpose |
 | --- | --- | --- |
-| PASETO v4 | `paseto-ts` | Internal auth tokens (replaces JWT) |
+| PASETO v4 | In-house `packages/crypto-paseto/` ([Plan-025](./plans/025-self-hostable-node-relay.md)) on `@noble/curves` + `@noble/ciphers` | Internal auth tokens (replaces JWT); third-party TypeScript PASETO libraries rejected — see [ADR-010 §PASETO v4 Implementation Library](./decisions/010-paseto-webauthn-mls-auth.md) |
 | WebAuthn | `@simplewebauthn/server`, `@simplewebauthn/browser` | Primary authentication (desktop) |
 | Relay E2EE (V1 primary) | `@noble/curves`, `@noble/ciphers`, `@noble/hashes` | Pairwise X25519 ECDH + XChaCha20-Poly1305 AEAD + HKDF-SHA256 for relay-mediated session encryption per [ADR-010](./decisions/010-paseto-webauthn-mls-auth.md). Audited by Cure53 and Kudelski Security. |
 | Relay E2EE (V1.1+ upgrade) | MLS (RFC 9420) via an audited implementation (OpenMLS, mls-rs, or post-audit TypeScript implementation) | Post-compromise security and O(log N) group rekeying, gated on audit / interop / soak criteria in [ADR-010](./decisions/010-paseto-webauthn-mls-auth.md) |

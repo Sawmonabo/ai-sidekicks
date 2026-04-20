@@ -202,7 +202,7 @@ Out of scope (see Non-Goals for full list):
 | `ws` package CVE history | Documentation | HeadersTimeout DoS fixed in 8.17.1 (June 2024); no new 2025–2026 CVEs at time of writing | https://github.com/websockets/ws/security/advisories |
 | `rate-limiter-flexible` | Documentation | Postgres backend; `INSERT...ON CONFLICT` atomicity; ~500 req/s ceiling per namespace | https://github.com/animir/node-rate-limiter-flexible |
 | `panva/paseto` | Primary source | Archived 2025-03-29 by maintainer; no further security fixes | https://github.com/panva/paseto |
-| `paseto-ts` | Primary source | Actively maintained but single-maintainer; ~1.5k weekly downloads | https://github.com/auth70/paseto-ts |
+| `paseto-ts` | Primary source | Actively maintained but single-maintainer (`miunau`); ~4.5k weekly downloads per npm on 2026-04-19; unaudited. Rejected as V1 dependency — see [ADR-010 §PASETO v4 Implementation Library](../decisions/010-paseto-webauthn-mls-auth.md) | https://github.com/auth70/paseto-ts |
 | `@noble/curves` | Primary source | Paul Miller's audited Ed25519/secp256k1/X25519 primitives; multiple production deployments | https://github.com/paulmillr/noble-curves |
 | `@noble/ciphers` | Primary source | Paul Miller's audited AEAD primitives (XChaCha20-Poly1305, AES-GCM) | https://github.com/paulmillr/noble-ciphers |
 | PASETO v4 RFC | Primary source | v4.public structure and conformance test vectors | https://github.com/paseto-standard/paseto-spec |

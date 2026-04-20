@@ -478,12 +478,14 @@ Low-stakes cleanup. Some trivial, some require small edits across multiple docs.
 
 #### BL-067: Swap paseto-ts library reference to panva/paseto
 
-- Status: `todo`
+- Status: `completed`
 - Priority: `P2`
 - Owner: `unassigned`
-- References: [vision.md:278](./vision.md), [ADR-010](./decisions/010-paseto-webauthn-mls-auth.md)
+- References: [vision.md:280](./vision.md), [ADR-010 §PASETO v4 Implementation Library](./decisions/010-paseto-webauthn-mls-auth.md), [Plan-025](./plans/025-self-hostable-node-relay.md)
 - Summary: Replace `paseto-ts` with `panva/paseto`. Rationale: ~24× more weekly downloads, zero deps, maintained by the author of `jose` and `oidc-provider`. PASETO tokens are library-agnostic on the wire, so this is a drop-in swap at implementation time.
-- Exit Criteria: vision.md Add table and ADR-010 both reference `panva/paseto`.
+- Exit Criteria: vision.md Add table and ADR-010 both reference the chosen PASETO library ✅.
+- Resolution: BL-067's original premise was invalid. Session G1 research (2026-04-19, Opus 4.7 subagent with websearch against primary sources) confirmed that `panva/paseto` was archived by its maintainer on 2025-03-29 and does not implement `v4.local` — making it unusable for ADR-010's 7-day refresh-token requirement regardless of download count. `paseto-ts` is active but single-maintainer (`miunau`) and unaudited, which fails ADR-010's Type 2 (one-way door) concentration-risk bar. Resolution: align with [Plan-025](./plans/025-self-hostable-node-relay.md)'s in-house `packages/crypto-paseto/` package on audited `@noble/curves` + `@noble/ciphers` primitives. Both third-party libraries rejected. See [ADR-010 §PASETO v4 Implementation Library](./decisions/010-paseto-webauthn-mls-auth.md) for the full evaluation and citations.
+- Resolved: 2026-04-19 (Session G1).
 
 #### BL-068: Reframe Cloudflare Durable Objects scaling claims
 
@@ -523,12 +525,14 @@ Low-stakes cleanup. Some trivial, some require small edits across multiple docs.
 
 #### BL-072: Pin React 19 in vision
 
-- Status: `todo`
+- Status: `completed`
 - Priority: `P2`
 - Owner: `unassigned`
-- References: [vision.md:263](./vision.md)
+- References: [vision.md:265](./vision.md)
 - Summary: Replace "React for the renderer" with "React 19 for the renderer" to pin the major version.
-- Exit Criteria: vision.md names React 19.
+- Exit Criteria: vision.md names React 19 ✅.
+- Resolution: vision.md line 265 now pins React 19 with the tilde-patch pin `~19.2.5`. React 19.2.5 is the current stable release as of 2026-04-19 per [react.dev](https://react.dev/versions) (19.2 line released 2025-10-01; 19.2.5 is latest patch). The tilde pin takes patch-level security updates automatically while requiring explicit review for minor bumps, matching ADR-010's security-conscious dependency stance. Session G1 Opus 4.7 research confirmed compatibility with Electron 41.2.1 (Chromium 146) and `@vitejs/plugin-react` 6.0.1. React Server Components remain out of scope for the Vite+Electron renderer.
+- Resolved: 2026-04-19 (Session G1).
 
 #### BL-073: Clarify Agent Trace as emitted-spec, not imported library
 
@@ -541,12 +545,14 @@ Low-stakes cleanup. Some trivial, some require small edits across multiple docs.
 
 #### BL-074: Fill or remove ADR-013 reserved stub
 
-- Status: `todo`
+- Status: `completed`
 - Priority: `P2`
 - Owner: `unassigned`
 - References: [ADR-013](./decisions/013-reserved.md)
 - Summary: Either fill ADR-013 with a real decision or delete the placeholder. 161-byte reserved stubs are documentation debt.
 - Exit Criteria: ADR-013 is either a substantive ADR or removed.
+- Resolution: Neither. Git log for `docs/decisions/013-reserved.md` shows a single creation commit (`d186470`, 2026-04-15, adversarial-review cleanup, co-authored by Claude Opus 4.6) with no prior topic. Fabricating a decision to fill the slot would be dishonest; deleting the file would require renumbering ADRs 014–021 (cited across 296 occurrences in 58 files per Session G1 review) for zero decision-quality benefit. Chosen path: formally document the slot as `reserved-skipped` with an explicit record of why the number was left empty and why renumbering is off the table. ADR-013 is now a formal authoritative record of a non-decision that a future AI agent can read unambiguously.
+- Resolved: 2026-04-19 (Session G1).
 
 #### BL-075: Rename "Open Questions" sections to reflect V1 decisions
 
@@ -654,6 +660,16 @@ Follow-up work identified during the Session F plan approval pass (BL-077). BL-0
 - References: [Plan-026](./plans/026-first-run-onboarding.md), [Spec-026](./specs/026-first-run-onboarding.md), [Spec-006 §Onboarding events](./specs/006-session-event-taxonomy-and-audit-log.md)
 - Summary: Plan-026 is already at `Status: approved` but the plan body contains 9+ references phrased as pending BL-086 (onboarding event taxonomy registration). BL-086 landed in Session C (2026-04-18); Spec-006 now canonically registers `onboarding.choice_made` and `onboarding.choice_reset` in the appropriate event category. Amendment required: grep Plan-026 for every `BL-086`, "pending registration", or "once event taxonomy registers" phrasing and flip to resolved (remove the pending qualifier + reference Spec-006 directly). Rework magnitude: purely text cleanup; no structural or schema change.
 - Exit Criteria: grep for `BL-086` across Plan-026 returns only resolved/historical references (or none); no phrasing characterizes the onboarding events as pending registration; plan status remains `approved`; no retrospective/amendment phrasing.
+
+#### BL-096: Reconcile `paseto-ts` references in marketing mock HTML assets
+
+- Status: `todo`
+- Priority: `P2`
+- Owner: `unassigned`
+- Depends-on: BL-067 (paseto-ts rejected as V1 dependency — completed 2026-04-19 Session G1)
+- References: [assets/hero/desktop-app.html](../assets/hero/desktop-app.html) lines 1352, 1382; [assets/hero/cli-terminal.html](../assets/hero/cli-terminal.html) line 191; [ADR-010 §PASETO v4 Implementation Library](./decisions/010-paseto-webauthn-mls-auth.md)
+- Summary: After BL-067 rejected `paseto-ts` as a V1 dependency (ADR-010 §PASETO v4 Implementation Library anchored in-house `packages/crypto-paseto/` on `@noble/curves` + `@noble/ciphers` instead), three marketing mock HTML fragments continue to name `paseto-ts@^2.1.0` as an illustrative example of a Codex-suggested package that the operator would review: `desktop-app.html:1352` (`import { V4 } from 'paseto-ts';` in a mock diff), `desktop-app.html:1382` (`Codex wants to install paseto-ts@^2.1.0 as a production`), and `cli-terminal.html:191` (`Codex wants to run: npm install paseto-ts@^2.1.0`). These are intentionally illustrative — depicting the supply-chain-scanning feature flow where Codex proposes a real-looking package and the operator sees a review prompt — not recommending the package. The product question is whether continuing to name `paseto-ts` in marketing copy creates brand/SEO risk given our security docs now explicitly reject it. Two paths: (A) leave as-is (the mock is a scan-demo; naming a real, plausibly-suspicious package makes the demo credible and matches the feature it illustrates); (B) swap to a different plausibly-suspicious package name or a generic stand-in (eliminates any implication that AI Sidekicks ships paseto-ts and removes any perceived endorsement). Initial recommendation: option A, since the mock's demonstrative purpose is served either way and the `paseto-ts` choice actively reinforces the scan-flow's narrative credibility. Product/design review owns the final call.
+- Exit Criteria: Product/design review has chosen option A or option B; if option B, the three mock HTML fragments are updated accordingly and any screenshot regeneration is scheduled; decision recorded in this BL Resolution block with a one-line rationale.
 
 ---
 
