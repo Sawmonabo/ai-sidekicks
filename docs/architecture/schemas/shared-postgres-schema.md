@@ -29,6 +29,12 @@ CREATE TABLE sessions (
                   CHECK(state IN ('provisioning', 'active', 'archived', 'closed', 'purge_requested', 'purged')),
   config          JSONB NOT NULL DEFAULT '{}',   -- session configuration
   metadata        JSONB NOT NULL DEFAULT '{}',   -- extensible metadata
+  min_client_version TEXT,                       -- NULL = no floor; semver "MAJOR.MINOR" per ADR-018 §Decision #1
+                                                 -- (format) and §Decision #3 (monotonic session-floor enforcement).
+                                                 -- Control plane is authoritative for session metadata (ADR-004);
+                                                 -- peers read floor from here at join and reject below-floor
+                                                 -- writes with VERSION_FLOOR_EXCEEDED per ADR-018 §Decision #4.
+                                                 -- Enforcement owned by Plan-003 attach flow (BL-090).
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );

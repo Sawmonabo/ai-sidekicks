@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| **Status** | `review` |
+| **Status** | `approved` |
 | **NNN** | `020` |
 | **Slug** | `observability-and-failure-recovery` |
 | **Date** | `2026-04-14` |
@@ -40,30 +40,42 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - `packages/runtime-daemon/src/observability/health-status-service.ts`
 - `packages/runtime-daemon/src/observability/failure-detail-service.ts`
 - `packages/runtime-daemon/src/observability/stuck-run-inspector.ts`
+- `packages/runtime-daemon/src/observability/diagnostic-redaction-policy.ts` (PII redaction gate on all 4 diagnostic buckets)
+- `packages/runtime-daemon/src/observability/diagnostic-buckets/` (TTL-bucket implementations for `driver_raw_events`, `command_output`, `tool_traces`, `reasoning_detail`)
 - `packages/control-plane/src/health/`
 - `packages/client-sdk/src/healthClient.ts`
 - `apps/desktop/renderer/src/health-and-recovery/`
+
+## PII in Diagnostics
+
+Plan-020 is the implementation surface for [Spec-020 §PII in Diagnostics](../specs/020-observability-and-failure-recovery.md) and must honor the [Spec-022 §PII Data Map](../specs/022-data-retention-and-gdpr.md) classification of diagnostic data. The 4 bounded-retention diagnostic buckets — `driver_raw_events`, `command_output`, `tool_traces`, `reasoning_detail` — are runtime-local stores that may transit raw user content and therefore require TTL-bounded local retention, default-deny outbound telemetry, and opt-in raw-content capture.
+
+- Default TTL: ≤ 7 days per Spec-020 §PII in Diagnostics. Operator-configured overrides > 30 days MUST emit the `retention_policy_override` warning metric on every daemon startup and on each policy read.
+- Default-deny outbound: no diagnostic bucket content MAY leave the daemon host by default. Outbound telemetry carries summary-only signals derived by construction from non-PII inputs (counts, categories, latencies). Raw content transmission is opt-in per bucket.
+- Shred fan-out coverage: each bucket's TTL purge path participates in the crypto-shred fan-out per [Spec-022 §Shred Fan-Out](../specs/022-data-retention-and-gdpr.md) Path 3 (bounded-retention purge) so a participant-purge request triggers purge of any bucket rows authored by the purged participant before the TTL would otherwise expire them.
 
 ## Data And Storage Changes
 
 - Add daemon-owned health projections and failure-detail records derived from canonical events, replay state, and provider diagnostics.
 - Add recovery-action audit records and surfaced health snapshots needed for operators and user-facing projections.
+- Add the 4 diagnostic-bucket tables (`driver_raw_events`, `command_output`, `tool_traces`, `reasoning_detail`) to Local Runtime Daemon SQLite with TTL-purge indices per [Local SQLite Schema](../architecture/schemas/local-sqlite-schema.md). These are runtime-local; they have no shared-Postgres counterpart per [ADR-017](../decisions/017-shared-event-sourcing-scope.md).
 - Add bounded-retention handling for raw diagnostic payload classes so compaction never removes canonical health or failure truth.
 - See [Shared Postgres Schema](../architecture/schemas/shared-postgres-schema.md) for column definitions.
 
 ## API And Transport Changes
 
 - Add `HealthStatusRead`, `FailureDetailRead`, `StuckRunInspect`, and `RecoveryActionRequest` to the typed client SDK and daemon contracts.
+- Add `DiagnosticRedactionPolicy` contract: operator-readable current policy, opt-in toggles per bucket, and `retention_policy_override` warning surface. Default state is deny-outbound, ≤ 7-day TTL, no raw-content capture.
 - Expose control-plane dependency health in a form that can be merged with daemon-owned observability projections.
 
 ## Implementation Steps
 
 - Contracts: See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed schemas this plan consumes.
 
-1. Define health-status, failure-category, recovery-condition, and stuck-run inspection contracts.
+1. Define health-status, failure-category, recovery-condition, stuck-run inspection, and `DiagnosticRedactionPolicy` contracts.
 2. Implement daemon-owned health and failure-detail projections derived from canonical state and provider diagnostics.
 3. Implement safe recovery-action request handling and audit recording.
-4. Implement bounded-retention policy handling for raw diagnostics without weakening canonical diagnosis surfaces.
+4. Implement bounded-retention policy handling for raw diagnostics without weakening canonical diagnosis surfaces. Wire default-deny outbound telemetry for all 4 diagnostic buckets; expose per-bucket opt-in raw-content capture with explicit operator acknowledgement; emit `retention_policy_override` warning metric when TTL override > 30 days.
 5. Add desktop recovery and health surfaces that distinguish runtime state, failure categories, and degraded modes without requiring raw logs.
 
 ## Parallelization Notes
@@ -77,6 +89,10 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - Stuck-run detection tests covering thresholds, blocking-state exemptions, and false-positive suppression
 - Recovery-action audit and safety tests for provider, replay, and persistence failure scenarios
 - Retention tests proving compaction of raw diagnostics does not erase canonical failure detail or recovery visibility
+- Outbound-telemetry-default-deny: no diagnostic-bucket row content appears in any outbound payload unless the corresponding per-bucket opt-in is explicitly enabled
+- Raw-content-opt-in-explicit-only: opt-in toggle requires operator acknowledgement and is audited; a flipped toggle does not retroactively release previously-captured data
+- TTL-bucket-purge-coverage: each of the 4 buckets expires rows at or before the configured TTL; participant-purge requests trigger immediate purge of that participant's rows ahead of TTL per [Spec-022 §Shred Fan-Out](../specs/022-data-retention-and-gdpr.md) Path 3
+- `retention_policy_override` warning emission: any policy read observing TTL > 30 days emits the warning metric on daemon startup and on each policy read
 
 ## Rollout Order
 
