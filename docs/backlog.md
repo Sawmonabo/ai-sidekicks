@@ -489,30 +489,36 @@ Low-stakes cleanup. Some trivial, some require small edits across multiple docs.
 
 #### BL-068: Reframe Cloudflare Durable Objects scaling claims
 
-- Status: `todo`
+- Status: `completed`
 - Priority: `P2`
 - Owner: `unassigned`
-- References: [deployment-topology.md:59-68](./architecture/deployment-topology.md), [vision.md:416](./vision.md)
+- References: [deployment-topology.md §Relay Scaling Strategy](./architecture/deployment-topology.md), [vision.md:417](./vision.md)
 - Summary: Rewrite "25 connections per DO" as a tunable design choice rather than a platform cap. State Cloudflare's actual limits (32,768 concurrent WS per DO; 1,000 rps soft cap) and explain the sharding rationale (keeping per-DO throughput well under rps cap when amortizing 100 events/sec/client × encrypt cost). Add a decision trigger for re-evaluating the sharding factor.
-- Exit Criteria: deployment-topology.md distinguishes platform limits from design choices; vision.md Relay Scaling reference aligns.
+- Exit Criteria: deployment-topology.md distinguishes platform limits from design choices ✅; vision.md Relay Scaling reference aligns ✅.
+- Resolution: Session G2 research (2026-04-20, Opus 4.7 subagent with WebFetch against Cloudflare primary docs) replaced the unverified "~2,500 writes/sec within Durable Object limits" framing. Cloudflare publishes a **1,000 requests/sec per-DO soft cap** that returns `overloaded` errors ([DO limits](https://developers.cloudflare.com/durable-objects/platform/limits/)) and explicitly states DOs "can act as WebSocket servers that connect thousands of clients per instance" with **no published concurrent-connection cap per DO** ([DO WebSockets best practices](https://developers.cloudflare.com/durable-objects/best-practices/websockets/)). CF's "Rules of Durable Objects" guidance pegs practical throughput at 500–1,000 rps for simple ops and 200–500 rps for complex ops ([DO rules](https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/)). The 25-connections-per-data-DO target is now framed as *our design choice* derived from the envelope `25 conns × 100 events/sec ÷ ~6:1 batching ratio ≈ 400 rps/DO` with ~2.5× headroom vs the 1,000 rps soft cap; the un-batched envelope would be ~2,500 rps/DO (breaching the soft cap), so **batched WebSocket messages are a design baseline** enabled by the 2025-10-31 raise of WebSocket message size from 1 MiB to 32 MiB. Five decision triggers for re-tuning the shard factor are documented, including an emergency-reduction trigger if batching regresses. `vision.md` line 417 summary updated to align. The 100 events/sec/connection load-model assumption and ~6:1 batching ratio are marked as internal assumptions and gated on the 50-participant pre-launch load test.
+- Resolved: 2026-04-20 (Session G2).
 
 #### BL-069: Specify local-only → shared session reconciliation
 
-- Status: `todo`
+- Status: `completed`
 - Priority: `P2`
 - Owner: `unassigned`
-- References: [session-model.md](./domain/session-model.md), [shared-postgres-schema.md:13-21](./architecture/schemas/shared-postgres-schema.md)
+- References: [session-model.md §Local-Only Reconciliation](./domain/session-model.md), [shared-postgres-schema.md §Sessions and Membership](./architecture/schemas/shared-postgres-schema.md)
 - Summary: Define reconnect semantics: (a) session_id is preserved (daemon-assigned ULID/UUID used as-is); (b) Postgres `sessions` row created on first reconnect with `state='provisioning' → 'active'`; (c) owner identity comes from the first PASETO authentication at reconnect.
-- Exit Criteria: session-model.md has new §Local-Only Reconciliation; shared-postgres-schema.md documents the id-preservation rule.
+- Exit Criteria: session-model.md has new §Local-Only Reconciliation ✅; shared-postgres-schema.md documents the id-preservation rule ✅.
+- Resolution: Session G2 research (2026-04-20, Opus 4.7 subagent with WebSearch against primary sources) landed the reconciliation invariants in `domain/session-model.md §Local-Only Reconciliation` and the adjacent `shared-postgres-schema.md` BL-069 invariant note. Core invariants: (1) Session IDs are daemon-assigned UUID v7 per [RFC 9562](https://www.rfc-editor.org/rfc/rfc9562.html) (Proposed Standard, May 2024) — lexicographically sortable by creation timestamp, so sessions remain orderable when reconciliation is delayed; Postgres 18 exposes native `uuidv7()` and `uuid_extract_timestamp()` for reverse-validation; (2) the daemon generates the session ID for daemon-originated sessions (the `gen_random_uuid()` schema default only applies to rare control-plane-originated admin-provisioned rows, not the normal production path); (3) first reconciliation executes `provisioning → active` via idempotent upsert `ON CONFLICT (id) DO UPDATE SET updated_at = sessions.updated_at RETURNING *` — the DO UPDATE clause (not DO NOTHING) guarantees `RETURNING *` yields a row on every attempt so the daemon distinguishes retry-after-crash from silent write loss; (4) owner identity is bound at the first authenticated RPC via PASETO v4 trust-on-first-use — the TOFU-seeding rule itself is the BL-069 invariant; [ADR-010](./decisions/010-paseto-webauthn-mls-auth.md) defines only the underlying token format and issuance flows; (5) reconciliation is never destructive. State-machine precedent cited: Kubernetes Pod (`Pending → Running`) and Amazon ECS (`PROVISIONING → PENDING → ACTIVATING → RUNNING`). Schema SQL comment block and domain doc are internally consistent on the `gen_random_uuid()` admin-provisioning carve-out.
+- Resolved: 2026-04-20 (Session G2).
 
 #### BL-070: Add refresh-token revoke-all-for-participant endpoint
 
-- Status: `todo`
+- Status: `completed`
 - Priority: `P2`
 - Owner: `unassigned`
-- References: [security-architecture.md](./architecture/security-architecture.md) §Token revocation, [api-payload-contracts.md](./architecture/contracts/api-payload-contracts.md)
+- References: [security-architecture.md §Bulk Revoke All For Participant (BL-070)](./architecture/security-architecture.md), [api-payload-contracts.md](./architecture/contracts/api-payload-contracts.md), [shared-postgres-schema.md §Token Revocation (BL-070 — Auth Infrastructure)](./architecture/schemas/shared-postgres-schema.md)
 - Summary: Add `POST /auth/revoke-all-for-participant` for account-compromise recovery. Specify that refresh-token family-revocation list lives in Postgres and syncs across regions for multi-region self-hosted.
-- Exit Criteria: security-architecture.md has the endpoint spec; api-payload-contracts.md includes the payload.
+- Exit Criteria: security-architecture.md has the endpoint spec ✅; api-payload-contracts.md includes the payload ✅.
+- Resolution: Session G2 research (2026-04-20, Opus 4.7 subagent with WebFetch against 4 IdP vendor docs + OWASP/NIST/GDPR primary sources) landed the endpoint spec across three files. `shared-postgres-schema.md` adds §Token Revocation (BL-070 — Auth Infrastructure) with two tables (`revoked_jtis`, `revoked_token_families`) owned by BL-070 (not Plan-018). `security-architecture.md` replaces the single-bullet §Token revocation with a structured 4-bullet section and adds §Bulk Revoke All For Participant (BL-070) defining: endpoint `POST /auth/revoke-all-for-participant`, auth (admin `admin:participants:revoke` OR self + step-up reauth — the 5-minute step-up is a BL-070 tightening of the [NIST SP 800-63B §4.2.3](https://pages.nist.gov/800-63-3/sp800-63b.html#aal2) 12-hour AAL2 cadence baseline, not a NIST mandate), request body with `reason` enum (`account_compromise | password_reset | admin_action | self_service`), response `204 No Content`, side effects including emission of the existing `participant.tokens_revoked_all` event per [Spec-006](./specs/006-session-event-taxonomy-and-audit-log.md) line 410 (payload `base + {revokedAt, tokenCount}`), multi-region Postgres logical-replication propagation modeled on Aurora Global Database sub-second cross-region replication, and regulatory mapping to [OWASP ASVS 5.0 V7.4.5](https://owasp.org/ASVS) admin-terminate-all-sessions + [GDPR Article 32(1)(c)](https://gdpr-info.eu/art-32-gdpr/) timely-restoration-after-incident. IdP precedent (Auth0 `DELETE /api/v2/users/{id}/refresh-tokens`, Okta `DELETE /api/v1/users/{uid}/sessions?oauthTokens=true`, Keycloak `POST /admin/realms/{realm}/users/{id}/logout`, Amazon Cognito `AdminUserGlobalSignOut`) surveyed 2026-04-20 — all four treat bulk per-user revocation as a vendor extension beyond [RFC 7009](https://www.rfc-editor.org/rfc/rfc7009) per-token scope; BL-070 follows this industry precedent. `api-payload-contracts.md` adds `RevokeAllTokensForParticipantRequest` TypeScript interface in the Plan-018 block with cross-references to security-architecture.md for semantics.
+- Resolved: 2026-04-20 (Session G2).
 
 #### BL-071: V1/V1.1/V2 annotations on vision.md Add table
 

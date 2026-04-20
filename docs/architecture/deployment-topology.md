@@ -56,16 +56,46 @@ The rate limiting interface is identical regardless of deployment. Implementatio
 
 ## Relay Scaling Strategy
 
-The relay uses Cloudflare Durable Objects with a sharding strategy to handle high-participant sessions:
+The relay uses Cloudflare Durable Objects with a sharding strategy to handle high-participant sessions.
+
+**Cloudflare Durable Object platform limits (verified 2026-04-19):**
+
+- An individual DO has a **soft limit of 1,000 requests/sec**; exceeding it returns an `overloaded` error to the caller ([DO limits][do-limits]).
+- There is **no published cap on concurrent WebSocket connections per DO** — Cloudflare states DOs "can act as WebSocket servers that connect thousands of clients per instance" ([DO WebSockets best practices][do-ws]).
+- Each DO is single-threaded; horizontal scale is achieved by spawning more objects ([DO limits][do-limits]).
+- CF's own guidance pegs practical throughput at ~500–1,000 rps for simple operations and ~200–500 rps for complex operations that involve transformation plus storage writes ([Rules of Durable Objects][do-rules]).
+
+**Design choice: 25 WebSocket connections per data DO.** This is *our* target, not a platform cap. It derives from the per-DO throughput envelope we need to stay inside, not from any Cloudflare connection ceiling:
+
+| Input | Value | Source |
+| --- | --- | --- |
+| Events/sec/connection (p95, streaming agent output + MLS control frames) | ~100 | AI Sidekicks load-model assumption — **unverified in CF docs**; must be validated in pre-launch load test |
+| MLS encrypt + storage write cost per event | ~1 DO request | Spec-006 relay data-path |
+| Safety headroom vs. 1,000 rps soft cap | 2.5× | Intentional — CF guidance places complex ops in the 200–500 rps band ([Rules of DO][do-rules]) |
+
+Envelope (batching is a design baseline, not a future enhancement): **25 conns × 100 events/sec of raw client traffic ÷ ~6 events per batched DO request ≈ 400 rps/DO** of DO-request throughput per data DO. The 400 rps operating point sits inside CF's 200–500 rps "complex op" band and leaves ~2.5× headroom vs the 1,000 rps overloaded-error threshold. Without batching the same raw envelope would yield ~2,500 rps/DO, which would breach the 1,000 rps soft cap — so **batched WebSocket messages are assumed at design time**, enabled by the 2025-10-31 raise of WebSocket message size from 1 MiB to 32 MiB ([DO changelog][do-changelog]). The 100 events/sec/connection figure and the ~6:1 batching ratio are internal load-model assumptions — CF does not publish a per-connection event-rate model or a batching-ratio model.
+
+**Routing:**
 
 - **Control DO** manages session membership, connection assignments, and routes new connections to data DOs.
-- **Data DOs** handle encrypted message fan-out. Each data DO handles at most 25 WebSocket connections.
-- When participant count exceeds the per-DO connection cap (default: 25), the control DO spawns additional data DOs and distributes connections across them.
-- This follows the v2 protocol pattern (control socket + per-connection data sockets) from the relay protocol design.
+- **Data DOs** handle encrypted message fan-out. The 25-connection target is a tunable shard factor, not a ceiling imposed by Cloudflare.
+- When participant count exceeds the per-DO target, the control DO spawns additional data DOs and distributes connections across them.
+- Follows the v2 protocol pattern (control socket + per-connection data sockets) from the relay protocol design.
 
-Expected throughput envelope per data DO: 25 connections × 100 events/sec × MLS encrypt = ~2,500 writes/sec — within Durable Object limits.
+**Decision triggers for re-tuning the 25-connection shard factor.** Re-evaluate when any of the following is true:
 
-**Pre-launch requirement:** Load test spike with 50 participants × 10 concurrent runs × streaming events must pass before V1 production launch.
+1. Measured p95 events/sec/connection drops below ~40 (we have 2.5× slack — raise the shard factor toward ~60 connections/DO).
+2. Measured p95 events/sec/connection exceeds ~200 (we are burning our headroom — drop the shard factor toward ~10 connections/DO).
+3. Cloudflare raises the per-DO rps soft cap above 1,000 ([monitor DO changelog][do-changelog]).
+4. Batching is lost or the ~6:1 batching ratio drops materially. Because the un-batched envelope (2,500 rps/DO) exceeds the 1,000 rps soft cap, a batching regression forces an emergency reduction of the shard factor toward ~10 connections/DO pending root-cause fix.
+5. MLS encrypt cost per event materially changes (e.g., Spec-006 revision, new ciphersuite).
+
+**Pre-launch requirement:** Load test spike with 50 participants × 10 concurrent runs × streaming events must pass, and must measure actual events/sec/connection to validate the 100 events/sec assumption, before V1 production launch.
+
+[do-limits]: https://developers.cloudflare.com/durable-objects/platform/limits/
+[do-ws]: https://developers.cloudflare.com/durable-objects/best-practices/websockets/
+[do-rules]: https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/
+[do-changelog]: https://developers.cloudflare.com/changelog/product/durable-objects/
 
 ## Failure Modes
 

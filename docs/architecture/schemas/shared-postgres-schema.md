@@ -35,6 +35,19 @@ CREATE TABLE sessions (
 
 CREATE INDEX idx_sessions_state ON sessions(state);
 
+-- BL-069 invariant: `sessions.id` is daemon-assigned UUID v7 per RFC 9562 for the
+-- normal production path. Local-only sessions are created by daemons without
+-- control-plane contact; the daemon generates the UUID v7 and presents it on
+-- reconciliation via idempotent upsert:
+--   INSERT INTO sessions (id, ...) VALUES (...)
+--     ON CONFLICT (id) DO UPDATE SET updated_at = sessions.updated_at RETURNING *;
+-- DO UPDATE (not DO NOTHING) is required so RETURNING * yields a row on every
+-- attempt, letting the daemon distinguish retry-after-crash from silent write
+-- loss. The gen_random_uuid() default above handles the rare control-plane-
+-- originated row (e.g., admin provisioning). Postgres 18's native uuidv7() and
+-- uuid_extract_timestamp() reverse-validate any daemon-generated id. See
+-- domain/session-model.md §Local-Only Reconciliation.
+
 -- Owner: Plan-001 | Extended by: Plan-002 (invite-driven membership flows)
 CREATE TABLE session_memberships (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -102,6 +115,44 @@ CREATE TABLE identity_mappings (
 
 CREATE INDEX idx_identity_mappings_participant ON identity_mappings(participant_id);
 ```
+
+---
+
+## Token Revocation (BL-070 — Auth Infrastructure)
+
+Backs `POST /auth/revoke-all-for-participant` (see [security-architecture.md §Bulk Revoke All For Participant](../security-architecture.md#bulk-revoke-all-for-participant-bl-070)). Cross-plan auth infrastructure, not Plan-018 identity schema.
+
+```sql
+-- Owner: BL-070
+CREATE TABLE revoked_jtis (
+  jti              TEXT PRIMARY KEY,
+  participant_id   UUID NOT NULL REFERENCES participants(id),
+  family_id        UUID NOT NULL,                 -- refresh-token rotation family
+  revoked_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  reason           TEXT NOT NULL
+                   CHECK(reason IN ('account_compromise', 'password_reset', 'admin_action', 'self_service')),
+  expires_at       TIMESTAMPTZ NOT NULL            -- aligns with the revoked token's natural expiry
+);
+
+CREATE INDEX idx_revoked_jtis_participant ON revoked_jtis(participant_id);
+CREATE INDEX idx_revoked_jtis_family ON revoked_jtis(family_id);
+CREATE INDEX idx_revoked_jtis_expires ON revoked_jtis(expires_at);
+
+-- Owner: BL-070
+CREATE TABLE revoked_token_families (
+  family_id        UUID PRIMARY KEY,
+  participant_id   UUID NOT NULL REFERENCES participants(id),
+  revoked_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  reason           TEXT NOT NULL
+                   CHECK(reason IN ('account_compromise', 'password_reset', 'admin_action', 'self_service'))
+);
+
+CREATE INDEX idx_revoked_families_participant ON revoked_token_families(participant_id);
+```
+
+**Retention:** Rows are reaped after `expires_at + 24h` safety margin. The 7-day refresh-token TTL (see [security-architecture.md §Token revocation](../security-architecture.md#token-revocation)) bounds the total row count — worst case is roughly `7 days × daily-active refresh tokens per participant`.
+
+**Multi-region propagation:** The control plane writes a revocation row to the local region, then propagates via Postgres logical replication (publication/subscription) to peer regions. Propagation is best-effort and eventually consistent; see [security-architecture.md §Bulk Revoke All For Participant](../security-architecture.md#bulk-revoke-all-for-participant-bl-070) for the eventual-consistency window analysis.
 
 ---
 

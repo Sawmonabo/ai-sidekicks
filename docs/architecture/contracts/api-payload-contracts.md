@@ -702,6 +702,20 @@ interface PresenceDetailReadResponse {
   }>
   aggregateState: PresenceState
 }
+
+// RevokeAllTokensForParticipant (BL-070)
+// Backs POST /auth/revoke-all-for-participant. See security-architecture.md
+// §Bulk Revoke All For Participant (BL-070) for auth, side effects, multi-region
+// propagation, and regulatory mapping.
+interface RevokeAllTokensForParticipantRequest {
+  participantId: ParticipantId
+  reason: 'account_compromise' | 'password_reset' | 'admin_action' | 'self_service'
+}
+// Response: 204 No Content (no body).
+// Emits `participant.tokens_revoked_all` per Spec-006 (BL-064) with payload
+// base + {revokedAt, tokenCount}.
+// Auth: admin scope `admin:participants:revoke` OR participant's own access
+// token with step-up reauth per NIST SP 800-63B §4.2.3.
 ```
 
 ---

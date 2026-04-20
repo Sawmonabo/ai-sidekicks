@@ -146,9 +146,61 @@ Encrypted with: XChaCha20-Poly1305 (control plane's symmetric key)
 - Prevents stolen access tokens from being used by a different client
 
 **Token revocation:**
-- Explicit revocation via `POST /auth/revoke` with the token to revoke
-- Revocation propagation: access tokens are short-lived (15 min) so revocation is eventual. Refresh token revocation is immediate (checked on every refresh).
-- On participant removal from a session: all that participant's tokens for that session scope are revoked.
+
+- **Single-token revocation** via `POST /auth/revoke` per [RFC 7009](https://www.rfc-editor.org/rfc/rfc7009) (the token to revoke is supplied in the request body).
+- **Bulk-per-participant revocation** via `POST /auth/revoke-all-for-participant` for account-compromise recovery (see §Bulk Revoke All For Participant (BL-070) below).
+- **Propagation semantics:** access tokens are short-lived (15 min — see refresh token claims above) so access-token revocation is eventual; refresh-token revocation is immediate because every refresh checks `revoked_jtis` and `revoked_token_families` on the request path.
+- **On participant removal from a session:** all that participant's tokens for that session scope are revoked. This is a scoped variant of single-token revocation; it does not trigger bulk family invalidation.
+
+#### Bulk Revoke All For Participant (BL-070)
+
+For account-compromise recovery, credential-reset flows, and admin termination-of-session per [OWASP ASVS 5.0 V7.4.5](https://owasp.org/ASVS), the control plane exposes an endpoint that invalidates **every** refresh-token family for a participant in a single atomic operation.
+
+**Endpoint:** `POST /auth/revoke-all-for-participant`
+
+**Authentication (one of):**
+
+- Admin scope `admin:participants:revoke` (RBAC policy; applies to organization administrators acting on a user).
+- The participant's own current access token **plus step-up reauth**. The step-up requires a fresh WebAuthn assertion or equivalent within the last 5 minutes to confirm possession of the authenticator. The step-up design is informed by the AAL2 reauthentication principles in [NIST SP 800-63B §4.2.3](https://pages.nist.gov/800-63-3/sp800-63b.html#aal2) (§4.2.3 establishes a 12-hour cadence baseline and a 30-minute inactivity threshold for AAL2); the 5-minute step-up for bulk revocation is a BL-070 tightening above that baseline, not a NIST mandate.
+
+**Request body:**
+
+```ts
+{
+  participantId: ParticipantId
+  reason: 'account_compromise' | 'password_reset' | 'admin_action' | 'self_service'
+}
+```
+
+**Response:** `204 No Content` on success. No body.
+
+**Side effects:**
+
+1. All active refresh-token families for the participant are inserted into `revoked_token_families`.
+2. All unexpired `jti` values across those families are inserted into `revoked_jtis` (bounded by the 7-day refresh-token TTL).
+3. A `participant.tokens_revoked_all` event is emitted per [Spec-006](../specs/006-session-event-taxonomy-and-audit-log.md) (payload `base + {revokedAt, tokenCount}`).
+4. No per-access-token invalidation is performed. Access tokens are bounded by their short TTL (see Token revocation above); bulk revocation targets refresh tokens and future issuance.
+
+**Multi-region propagation:** The local region's Postgres commit triggers logical replication (publication/subscription) to peer regions. Aurora Global Database models sub-second cross-region replication for typical write rates. During a partition, the worst-case eventual-consistency window equals partition heal time for refresh tokens.
+
+**Regulatory and control mapping:**
+
+| Control | Source |
+| --- | --- |
+| Admin ability to terminate all active sessions for a user | [OWASP ASVS 5.0 V7.4.5](https://owasp.org/ASVS) |
+| AAL2 reauthentication cadence baseline (12-hour cadence / 30-min inactivity); 5-minute step-up for bulk revocation is a BL-070 tightening above this baseline | [NIST SP 800-63B §4.2.3](https://pages.nist.gov/800-63-3/sp800-63b.html#aal2) |
+| Ability to restore availability and access to personal data in a timely manner after an incident | [GDPR Article 32(1)(c)](https://gdpr-info.eu/art-32-gdpr/) |
+
+**IdP-API precedent** (surveyed 2026-04-19 — informs endpoint shape, not security posture):
+
+| Vendor | Endpoint | Scope |
+| --- | --- | --- |
+| Auth0 | `DELETE /api/v2/users/{id}/refresh-tokens` | Bulk per user, admin-only ([docs](https://auth0.com/docs/api/management/v2/users-by-id/delete-refresh-tokens-for-user)) |
+| Okta | `DELETE /api/v1/users/{uid}/sessions?oauthTokens=true` | Sessions + optional tokens ([docs](https://developer.okta.com/docs/api/openapi/okta-management/management/tag/User/#tag/User/operation/revokeUserSessions)) |
+| Keycloak | `POST /admin/realms/{realm}/users/{id}/logout` | Revokes all sessions, admin-only ([docs](https://www.keycloak.org/docs-api/latest/rest-api/index.html#_logout)) |
+| Amazon Cognito | `AdminUserGlobalSignOut` | Signs out all sessions for a user ([docs](https://docs.aws.amazon.com/cognito-user-identity-pools/latest/APIReference/API_AdminUserGlobalSignOut.html)) |
+
+All four vendors treat bulk per-user revocation as a vendor extension beyond [RFC 7009](https://www.rfc-editor.org/rfc/rfc7009), which scopes formally only to per-token revocation. BL-070 follows this industry precedent.
 
 ### Relay Authentication And Encryption (Task 5.3)
 

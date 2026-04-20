@@ -414,7 +414,7 @@ For details beyond this vision document, see:
 - **Authentication and tokens:** [Security Architecture](./architecture/security-architecture.md) (three-tier auth: local socket, PASETO v4 control plane, MLS relay), [ADR-010](./decisions/010-paseto-webauthn-mls-auth.md)
 - **Deployment topologies:** [Deployment Topology](./architecture/deployment-topology.md) (4 topologies: single-participant, collaborative hosted, collaborative self-hosted, relay-assisted)
 - **Rate limiting:** [Spec-021](./specs/021-rate-limiting-policy.md), [Deployment Topology](./architecture/deployment-topology.md) (CF native hosted, rate-limiter-flexible self-hosted)
-- **Relay scaling:** [Deployment Topology](./architecture/deployment-topology.md) (relay DO sharding, 25 connections per data DO, 50-participant pre-launch load test)
+- **Relay scaling:** [Deployment Topology](./architecture/deployment-topology.md) (relay DO sharding; Cloudflare publishes a 1,000 rps per-DO soft cap and no per-DO WebSocket connection cap — our 25-connections-per-data-DO target plus batched WebSocket messages as design baseline keep realistic rps/DO near 400 rps, inside CF's 200–500 rps 'complex op' guidance with ~2.5× headroom vs the soft cap; 50-participant pre-launch load test validates both the events/sec/connection assumption and the ~6:1 batching ratio)
 - **GDPR compliance:** [Spec-022](./specs/022-data-retention-and-gdpr.md) (crypto-shredding, data export, purge lifecycle)
 
 ## Strategic Conclusion
