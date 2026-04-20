@@ -9,12 +9,12 @@
 | **Author(s)** | `Claude Opus 4.7` |
 | **Spec** | [Spec-026: First-Run Three-Way-Choice Onboarding](../specs/026-first-run-onboarding.md) |
 | **Required ADRs** | [ADR-020: V1 Deployment Model And OSS License](../decisions/020-v1-deployment-model-and-oss-license.md); [ADR-009: JSON-RPC IPC Wire Format](../decisions/009-json-rpc-ipc-wire-format.md); [ADR-010: PASETO + WebAuthn + MLS Auth](../decisions/010-paseto-webauthn-mls-auth.md); [ADR-015: V1 Feature Scope Definition](../decisions/015-v1-feature-scope-definition.md); [ADR-016: Electron Desktop Shell](../decisions/016-electron-desktop-shell.md) |
-| **Dependencies** | Plan-007 (local daemon JSON-RPC transport and typed config surface — this plan adds five new `Onboarding*` methods to it); Plan-023 (desktop shell — this plan extends the preload bridge with an `onboarding.*` namespace, consumes the Spec-023 keystore surface and the `safeStorage` backend probe, and runs inside the main-process modal orchestration pattern); Plan-025 (self-hostable relay — Option 2's TOFU reachability probe targets its `GET /readyz` endpoint); Plan-008 (control-plane surface — Option 3's hosted-SaaS redirect URL is served by the project-operated deployment of this relay); Plan-006 (session event taxonomy — `onboarding.choice_made` / `onboarding.choice_reset` register here via the BL-086 follow-up) |
+| **Dependencies** | Plan-007 (local daemon JSON-RPC transport and typed config surface — this plan adds five new `Onboarding*` methods to it); Plan-023 (desktop shell — this plan extends the preload bridge with an `onboarding.*` namespace, consumes the Spec-023 keystore surface and the `safeStorage` backend probe, and runs inside the main-process modal orchestration pattern); Plan-025 (self-hostable relay — Option 2's TOFU reachability probe targets its `GET /readyz` endpoint); Plan-008 (control-plane surface — Option 3's hosted-SaaS redirect URL is served by the project-operated deployment of this relay); Plan-006 (session event taxonomy — `onboarding.choice_made` / `onboarding.choice_reset` are registered here under BL-086, completed 2026-04-18; this plan consumes that registration) |
 | **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
 
 ## Goal
 
-Ship the Spec-026 three-way first-run-choice onboarding flow across both V1 clients (CLI via `@inquirer/prompts` v8.x; desktop via the Plan-023 preload bridge + a VS-Code-walkthrough-patterned renderer) with: single-trigger discipline (first outbound invite OR explicit `sidekicks onboarding start`), typed `[onboarding]` TOML persistence at `$XDG_CONFIG_HOME/ai-sidekicks/config.toml` via `smol-toml` v1.6.1, keystore-only secret persistence via Spec-023's surface (never `config.toml`), RFC 8252 §7.3 loopback-preferred + RFC 7636 PKCE S256 callback for hosted SaaS (Option 3), OWASP-recommended SPKI SHA-256 TOFU pin for self-host (Option 2), explicit-second-step telemetry opt-in default-off per EU ePrivacy Directive Art. 5(3), headless env-var path producing byte-identical persisted state to the interactive path, and partial-state resume across daemon restart with a 24-hour staleness window. Event emission wires `onboarding.choice_made` / `onboarding.choice_reset` into the daemon event log; Spec-006 registration is deferred to BL-086 per the same follow-up pattern as BL-084.
+Ship the Spec-026 three-way first-run-choice onboarding flow across both V1 clients (CLI via `@inquirer/prompts` v8.x; desktop via the Plan-023 preload bridge + a VS-Code-walkthrough-patterned renderer) with: single-trigger discipline (first outbound invite OR explicit `sidekicks onboarding start`), typed `[onboarding]` TOML persistence at `$XDG_CONFIG_HOME/ai-sidekicks/config.toml` via `smol-toml` v1.6.1, keystore-only secret persistence via Spec-023's surface (never `config.toml`), RFC 8252 §7.3 loopback-preferred + RFC 7636 PKCE S256 callback for hosted SaaS (Option 3), OWASP-recommended SPKI SHA-256 TOFU pin for self-host (Option 2), explicit-second-step telemetry opt-in default-off per EU ePrivacy Directive Art. 5(3), headless env-var path producing byte-identical persisted state to the interactive path, and partial-state resume across daemon restart with a 24-hour staleness window. Event emission wires `onboarding.choice_made` / `onboarding.choice_reset` into the daemon event log; Spec-006 registration landed under BL-086 (completed 2026-04-18) per the same follow-up pattern BL-084 used, and this plan consumes the registered `EventType` union directly.
 
 ## Scope
 
@@ -39,7 +39,7 @@ Ship the Spec-026 three-way first-run-choice onboarding flow across both V1 clie
 - **Installer / package-manager bootstrap.** This plan does not ship brew / apt / npm post-install hooks or a `setup.exe` wizard. Spec-026 §Scope excludes this; first-run onboarding starts when the daemon does, not when the installer runs.
 - **Self-hosted operator first-run.** `docker-compose up` for the Spec-025 relay is a separate operator-facing flow owned by Plan-025. This plan is the *client*-side onboarding.
 - **Hosted-SaaS sign-up web UX.** This plan authors only the daemon-side loopback callback contract; the sign-up page + pricing + billing UI lives in the hosted-product track. No new routes land here; the redirect URL is a build-time constant.
-- **Spec-006 event registration.** The two new `onboarding.*` events are emitted here but registered under the Spec-006 §Event Taxonomy table by BL-086, following the same post-land follow-up pattern BL-084 uses for `arbitration.paused` / `arbitration.resumed`.
+- **Spec-006 event registration.** The two new `onboarding.*` events are emitted here but were registered under the Spec-006 §Event Taxonomy table by BL-086 (completed 2026-04-18), matching the post-land follow-up pattern BL-084 used for `arbitration.paused` / `arbitration.resumed`.
 - **Enterprise SSO onboarding (OIDC / SAML).** Deferred to V1.1+ per Spec-026 §Out Of Scope and BL-060.
 - **Control-plane API for telemetry collection.** `sidekicks telemetry set {on,off}` flips the local flag; the server-side telemetry ingestion surface is tracked in a separate, unscheduled track.
 - **Prompting on initial install, first daemon start, or first local session.** Single-user local-daemon mode reaches a working session without ever hitting this flow. Implementations that prompt earlier than the first-outbound-invite trigger are a review rejection (Spec-026 §Pitfalls To Avoid).
@@ -115,7 +115,7 @@ Ship the Spec-026 three-way first-run-choice onboarding flow across both V1 clie
 
 - `docs/architecture/contracts/api-payload-contracts.md` — **extended by this plan.** Adds the five new JSON-RPC request / response shapes under a new §Onboarding APIs section.
 - `docs/architecture/contracts/error-contracts.md` — **extended by this plan.** Adds error codes `onboarding.already_resolved` (409), `onboarding.partial_stale` (410), `onboarding.spki_mismatch` (412), `onboarding.keystore_unavailable` (503), `onboarding.callback_timeout` (408), `onboarding.pkce_state_mismatch` (400), `onboarding.headless_required` (428).
-- `docs/backlog.md` — **read-only verified by this plan.** BL-086 — "Register `onboarding.choice_made` / `onboarding.choice_reset` under Spec-006 §Event Taxonomy" was already filed during Session 3c paired with Spec-026 (same pattern BL-084 uses); step 22 of this plan is an existence-check + payload-shape cross-reference, not a filing action.
+- `docs/backlog.md` — **read-only verified by this plan.** BL-086 — "Register `onboarding.choice_made` / `onboarding.choice_reset` under Spec-006 §Event Taxonomy" completed 2026-04-18 (same pattern BL-084 uses); step 22 of this plan is a registration-landed + payload-shape cross-check against Spec-006, not a filing action.
 
 ### Touched but not owned
 
@@ -389,7 +389,7 @@ interface OnboardingChoiceResetPayload {
 19. **Wire partial-state resume.** On `OnboardingStart`, the service reads partial state (step 3); if non-null and fresh (< 24h), it returns `OnboardingStartResponse { state: 'partial', partial: ... }` and the CLI / desktop resumes at the indicated step. If stale, the partial-state file is deleted and the service returns `state: 'unresolved'`.
 20. **Wire config-schema-version migration.** When the daemon starts and reads `config.toml` with a `schema_version` older than the version shipped by this plan, it treats the `[onboarding]` block as absent (or as legacy `[onboarding-legacy]` if such a block is found on the explicit migration path) and emits `onboarding.choice_made` with `migrated: true` when the user next resolves. The legacy-block mapping is a no-op today because there is no legacy onboarding config; the infrastructure is wired so that future migrations have a hook.
 21. **Reconcile contracts docs.** Extend `docs/architecture/contracts/api-payload-contracts.md` with the five request / response shapes from §API And Transport Changes under a new §Onboarding APIs section (positioned before §GDPR And Rate Limiting to match the spec's rough alphabetic-by-domain ordering). Extend `docs/architecture/contracts/error-contracts.md` with the seven new error codes (see §Error Codes below).
-22. **Verify BL-086 exists.** Read `docs/backlog.md` and confirm BL-086 is already present under the "V1 approved backlog — post-land follow-ups" section registering `onboarding.choice_made` / `onboarding.choice_reset` under Spec-006 §Event Taxonomy (it was filed during Session 3c paired with Spec-026, following the BL-084 pattern). Cross-check its exit-criteria payload shapes against this plan's `events.ts` emitter output — any drift between the BL-086 expected payload and what this plan emits is a review-blocking mismatch and must be resolved by editing whichever side is wrong *before* merge.
+22. **Verify BL-086 registration landed.** Confirm Spec-006 §Event Taxonomy now carries the `onboarding.choice_made` / `onboarding.choice_reset` entries registered under BL-086 (completed 2026-04-18, `onboarding_lifecycle` category). Cross-check the registered payload shapes against this plan's `events.ts` emitter output — any drift between the Spec-006-registered payload and what this plan emits is a review-blocking mismatch and must be resolved by editing whichever side is wrong *before* merge.
 
 ### Error Codes
 
@@ -416,7 +416,7 @@ Added to `docs/architecture/contracts/error-contracts.md` in step 21.
 - Steps 14, 15, 16 (desktop) consume step 9 **AND** Plan-023's preload-bridge scaffold. Until Plan-023 step 1-5 land, only the CLI path can ship.
 - Steps 17, 18, 19, 20 (end-to-end flows + migration) consume the entire stack.
 - Step 21 (contracts docs) is doc-only; can happen any time, ideally before merge.
-- Step 22 (BL-086 existence + payload-shape cross-check) is a read-only verification; any time before merge.
+- Step 22 (BL-086 registration-landed + payload-shape cross-check against Spec-006) is a read-only verification; any time before merge.
 
 ## Test And Verification Plan
 
@@ -461,7 +461,7 @@ Added to `docs/architecture/contracts/error-contracts.md` in step 21.
 7. End-to-end flow wiring for desktop Options 1/2/3 (steps 17-19, desktop side).
 8. Config-schema-version migration wiring (step 20).
 9. Contracts-doc reconciliation (step 21).
-10. BL-086 existence + payload-shape cross-check (step 22).
+10. BL-086 registration-landed + payload-shape cross-check against Spec-006 (step 22).
 11. Staging: drive all six test scenarios (CLI × 3 options, desktop × 3 options); monitor event log for correct `onboarding.choice_made` payloads.
 12. Production: flip on via feature-flag gate; revert plan = flip gate off (flow reverts to "no onboarding, default = free-public-relay silent" which is acceptable for a few days while the team investigates).
 
@@ -508,7 +508,7 @@ Added to `docs/architecture/contracts/error-contracts.md` in step 21.
 - [ ] Partial-state resume correctly re-enters at the step the user left when the daemon crashes mid-onboarding; integration test covers crash-resume for every step transition.
 - [ ] Config-schema-version bump wired: older daemons detect the new `[onboarding]` schema and either migrate or refuse with `onboarding.already_resolved`.
 - [ ] `docs/architecture/contracts/api-payload-contracts.md` has a new §Onboarding APIs section; `docs/architecture/contracts/error-contracts.md` has the seven new error codes from §Error Codes.
-- [ ] BL-086 is verified present in `docs/backlog.md` (was filed during Session 3c paired with Spec-026) and its exit-criteria payload shapes have been cross-checked against this plan's `events.ts` emitter output; any drift resolved before merge.
+- [ ] BL-086 (completed 2026-04-18) registration of `onboarding.choice_made` / `onboarding.choice_reset` in Spec-006 §Event Taxonomy (`onboarding_lifecycle` category) has been cross-checked against this plan's `events.ts` emitter output; any drift resolved before merge.
 - [ ] All six test scenarios pass (CLI × 3 options, desktop × 3 options); shared contract test suite confirms CLI and desktop produce identical `[onboarding]` state for identical inputs.
 
 ## Tier Placement
