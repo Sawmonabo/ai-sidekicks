@@ -522,12 +522,14 @@ Low-stakes cleanup. Some trivial, some require small edits across multiple docs.
 
 #### BL-071: V1/V1.1/V2 annotations on vision.md Add table
 
-- Status: `todo`
+- Status: `completed`
 - Priority: `P2`
 - Owner: `unassigned`
-- References: [vision.md:276-293](./vision.md)
-- Summary: Add a V1 / V1.1 / V2 column to every row of the Add table. Resolves ambiguity: Cedar WASM runtime = V1.1; YAML compile = V1; ts-mls = V1.1+ (post-audit, per BL-048); WebAuthn = V2 (desktop launch); push notifications transport = V1.1; notifications model = V1.
-- Exit Criteria: Every row has an explicit V1/V1.1/V2 column value consistent with ADR-015 and ADR-010.
+- References: [vision.md §Add table](./vision.md)
+- Summary (original charter — superseded by Session G3 Resolution below): "Add a V1 / V1.1 / V2 column to every row of the Add table. Resolves ambiguity: Cedar WASM runtime = V1.1; YAML compile = V1; ts-mls = V1.1+ (post-audit, per BL-048); **WebAuthn = V2 (desktop launch)**; push notifications transport = V1.1; notifications model = V1." The "WebAuthn = V2" hint in this charter was stale — ADR-015 Feature 15 places Desktop GUI in V1, making WebAuthn V1 (desktop) per ADR-010. The Resolution below is authoritative.
+- Exit Criteria: Every row has an explicit V1/V1.1/V2 column value consistent with ADR-015 and ADR-010 ✅.
+- Resolution: Session G3 (2026-04-20) added a structured `V1/V1.1/V2` column to the vision.md §Add table (all 16 rows) plus a column-rules preamble citing [ADR-015](./decisions/015-v1-feature-scope-definition.md) as the authority. Classifications verified against ADR-015 V1 feature list (16 features) and V1.1 deferrals (4 features: MLS relay E2EE, email invite, cross-node shared artifacts, workflow authoring). Two corrections vs original charter: **(1) WebAuthn is V1 (desktop), not V2** — ADR-015 Feature 15 places Desktop GUI in V1, and ADR-010 Consequences §91 confirms "CLI ships without WebAuthn dependency; passkeys added when desktop client launches." The CLI uses Device Authorization Grant (RFC 8628) without WebAuthn; the desktop client adds WebAuthn PRF ceremony for Ed25519 identity key derivation per ADR-010 §144. **(2) Push notifications is V2, not V1.1** — ADR-015 enumerates only 4 V1.1 deferrals (MLS, email invite, cross-node shared artifacts, workflow authoring) and does not include push notifications. [Spec-019 §Cross-Device Delivery](./specs/019-notifications-and-attention-model.md) line 93 explicitly classifies push notifications via FCM/APNs as **V2 (deferred)**. Per ADR-015 line 67, features not listed in V1 or V1.1 default to V2. Session G3 Opus 4.7 review caught this during Check 1 sourcing; the initial classification propagated the original BL charter's "push notifications transport = V1.1" hint uncritically. Cedar WASM confirmed V1.1 per [Spec-012 §Implementation Notes](./specs/012-approvals-permissions-and-trust-boundaries.md) ("V1 uses YAML policy definitions. V1.1 evaluates Cedar WASM runtime"). Redundant inline "(V1.1)" annotations on Cedar and Push notifications Purpose cells were removed (the column now carries that information). Inline "(V1 primary)" / "(V1.1+ upgrade)" annotations on the two Relay E2EE rows were retained because they convey role relationships (two technologies for the same role at different versions) that a single column value cannot capture.
+- Resolved: 2026-04-20 (Session G3).
 
 #### BL-072: Pin React 19 in vision
 
@@ -542,12 +544,14 @@ Low-stakes cleanup. Some trivial, some require small edits across multiple docs.
 
 #### BL-073: Clarify Agent Trace as emitted-spec, not imported library
 
-- Status: `todo`
+- Status: `completed`
 - Priority: `P2`
 - Owner: `unassigned`
-- References: [vision.md:293](./vision.md)
-- Summary: Change the vision Add table entry for Agent Trace to note "(spec, no npm library yet; we emit trace records against the Cursor-authored RFC pinned at revision X)".
-- Exit Criteria: vision.md entry distinguishes emitted-spec from imported-library.
+- References: [vision.md §Add table](./vision.md)
+- Summary (original charter — superseded by Session G3 Resolution below): "Change the vision Add table entry for Agent Trace to note '(spec, no npm library yet; we emit trace records against the Cursor-authored RFC pinned at revision X).'" The "no npm library yet" framing in this charter was partially wrong — an unofficial community npm package `agent-trace` (unrelated to Cursor) exists and must be explicitly disambiguated. The Resolution below is authoritative.
+- Exit Criteria: vision.md entry distinguishes emitted-spec from imported-library ✅.
+- Resolution: Session G3 (2026-04-20) research (Opus 4.7 subagent with WebFetch + `gh api` against Cursor's GitHub organization + agent-trace.dev + npm registry) verified the Cursor-authored Agent Trace RFC and corrected the charter's stale "no npm library yet" framing. Authoritative findings: (1) RFC exists at [cursor/agent-trace](https://github.com/cursor/agent-trace), authored by Cursor (Anysphere), published 2026-01-27 with partner backing from Cognition, Cloudflare, Vercel, Google Jules, Amp, OpenCode, and git-ai. Canonical spec site: [agent-trace.dev](https://agent-trace.dev). Spec version 0.1.0 draft. (2) **No git tags or GitHub releases exist** (verified via `gh api repos/cursor/agent-trace/releases` returning `[]`) — pinning must be by commit SHA, not version tag. Latest `main` commit as of 2026-04-19: [`2754f077`](https://github.com/cursor/agent-trace/tree/2754f077f3e50c1fb5088183f5c9362077cc8ca1) ("Update abstract," Lee Robinson / Vercel, 2026-02-06); repo quiescent since. (3) **No Cursor-authored npm package exists** — the reference implementation lives in-tree at `cursor/agent-trace/index.ts` + `schemas.ts`. (4) **A confusingly-named unofficial community npm package `agent-trace` (by `attharrva15`, [github.com/Atharva-Kanherkar/agent-trace](https://github.com/Atharva-Kanherkar/agent-trace)) exists but is unrelated to Cursor and must not be used** — this disambiguation is now explicit in vision.md to prevent future AI agents or contributors from installing the wrong package. vision.md row now pins the commit SHA, cites the in-tree reference, and carries the explicit "must not be used" warning for the unofficial package. Cross-linked to [Spec-011](./specs/011-gitflow-pr-and-diff-attribution.md) (gitflow PR and diff attribution), which is the consumer of these records as a cross-cutting V1 spec (not one of the 16 numbered ADR-015 V1 Features; ADR-015 Feature 11 is "Local daemon with CLI" per Spec-007). Sources: [cursor/agent-trace repo](https://github.com/cursor/agent-trace), [agent-trace.dev](https://agent-trace.dev), [Cognition announcement 2026-01-29](https://cognition.ai/blog/agent-trace), [InfoQ Feb 2026 coverage](https://www.infoq.com/news/2026/02/agent-trace-cursor/), [unofficial npm package page](https://www.npmjs.com/package/agent-trace).
+- Resolved: 2026-04-20 (Session G3).
 
 #### BL-074: Fill or remove ADR-013 reserved stub
 
@@ -562,21 +566,25 @@ Low-stakes cleanup. Some trivial, some require small edits across multiple docs.
 
 #### BL-075: Rename "Open Questions" sections to reflect V1 decisions
 
-- Status: `todo`
+- Status: `completed`
 - Priority: `P2`
 - Owner: `unassigned`
 - References: `docs/specs/*.md` with "Open Questions" sections
 - Summary: Rename "Open Questions" sections that actually contain `V1 decision:` statements to "Resolved Questions and V1 Scope Decisions" (or move decisions to ADRs). Readers currently can't tell what's actually open.
-- Exit Criteria: Every spec "Open Questions" section genuinely contains open questions; resolved items are relocated or renamed.
+- Exit Criteria: Every spec "Open Questions" section genuinely contains open questions; resolved items are relocated or renamed ✅.
+- Resolution: Session G3 (2026-04-20) Opus 4.7 triage subagent classified all 28 spec files with `## Open Questions` sections into three buckets and applied renames per the triage. **Bucket A "fully resolved" (22 specs renamed to `## Resolved Questions and V1 Scope Decisions`):** Specs 001, 002, 003, 004, 005, 006, 007, 008, 009, 010, 011, 012, 013, 014, 015, 016, 017, 018, 019, 020, 021, 022. **Bucket B "truly open" (5 specs retain `## Open Questions` header — items are genuinely unresolved):** Spec-023 (8 items awaiting follow-up — crash-reporter sink, Azure Artifact Signing regional eligibility, WebAuthn native-module lock-in, Win10 V1 support horizon, MSIX distribution, reproducible builds, Snap/Flatpak, WebAuthn PRF fallback UX); Spec-024 (2 V1.1 forward-looking items — ApprovalRecord delegation third signer, composition with V1.1 MLS); Spec-025 (3 "Lean:" tentative items — Grafana dashboard shipping, PASETO key-rotation-window configurability, GHCR publication); Spec-026 (4 "Tentative:" items — Linux keystore degradation UX, hosted signup URL, telemetry opt-in copy, hashed `machine_id` in onboarding event); Spec-027 (5 items explicitly deferred to other plans/BLs — Behavior 7a polling cadence, Behavior 6 plug-in point, Behavior 9 `/metrics` auth on non-loopback, LE profile opt-in, OAuth auth method on PG 18). **Bucket 0 "template" (1 file, no rename):** Spec-000 (template — keeps generic header so downstream specs copy the canonical convention). Zero specs fell into Bucket C "mixed" — the pattern was bimodal. Spec-022 edge case (`Post-V1:` bullet, not `V1 decision:`) treated as Bucket A because the deferral is closed-for-V1. Readers can now unambiguously distinguish sections that require further decisions from sections that record closed decisions.
+- Resolved: 2026-04-20 (Session G3).
 
 #### BL-076: Add decision trigger on 256MB daemon memory budget
 
-- Status: `todo`
+- Status: `completed`
 - Priority: `P2`
 - Owner: `unassigned`
-- References: [deployment-topology.md](./architecture/deployment-topology.md)
+- References: [deployment-topology.md §Local Daemon Memory Instrumentation And Budget Triggers](./architecture/deployment-topology.md)
 - Summary: Add instrumentation requirement (RSS metric with 80%-of-budget alert) and a decision trigger: "if real workloads consistently breach 256 MB, raise budget to 384–512 MB before considering a runtime change."
-- Exit Criteria: deployment-topology.md states both the instrumentation requirement and the decision trigger.
+- Exit Criteria: deployment-topology.md states both the instrumentation requirement and the decision trigger ✅.
+- Resolution: Session G3 (2026-04-20) added a new `### Local Daemon Memory Instrumentation And Budget Triggers` subsection under [deployment-topology.md §Infrastructure Requirements](./architecture/deployment-topology.md) stating: **(1) Instrumentation requirement** — daemon MUST expose `process_resident_memory_bytes` via the default Prometheus [prom-client](https://github.com/siimon/prom-client#default-metrics) collector, with explicit rationale for preferring RSS over V8 heap-used (RSS captures native allocations from SQLite page cache, `node-pty` file descriptors, and `@noble/*` cryptographic buffers that heap-used excludes). **(2) Alert threshold** — RSS exceeds 80% of budget (≥ 205 MB) sustained for ≥ 5 minutes; "sustained" framed as reducing false positives from transient build-step allocations. 80% threshold and 5-minute window flagged as design choices, not external standards. **(3) Decision trigger** (verbatim from BL charter) — "If real workloads consistently breach the 256 MB budget, raise the budget to 384–512 MB before considering a runtime change." Rationale captured: budget raise is reversible and low-blast-radius (documentation + alert-threshold update); runtime change is high-cost and reserved for breaches that persist after a budget raise. "Consistently breach" defined as ≥ 20% of operating daemons over a rolling 7-day window exceeding 256 MB; thresholds explicitly marked as internal and subject to revision once real deployment telemetry is available.
+- Resolved: 2026-04-20 (Session G3).
 
 #### BL-077: Promote plan status from `review` to `approved`
 

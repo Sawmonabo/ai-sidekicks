@@ -157,7 +157,7 @@ Gate types (V1):
 
 - If workflow execution requires a materially different orchestration model than session and run primitives allow, create a new ADR before implementation.
 
-## Open Questions
+## Resolved Questions and V1 Scope Decisions
 
 - No blocking open questions remain for v1.
 - V1 decision: the first implementation supports session-scoped and project-scoped workflow definitions only. Global workflow libraries are out of scope.

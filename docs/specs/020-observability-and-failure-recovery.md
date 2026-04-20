@@ -136,7 +136,7 @@ Diagnostic pipelines (driver raw events, raw command output, tool traces, detail
 
 - If the system changes how replay or health truth is derived, update `../decisions/004-sqlite-local-state-and-postgres-control-plane.md` or create a new observability ADR.
 
-## Open Questions
+## Resolved Questions and V1 Scope Decisions
 
 - No blocking open questions remain for v1.
 - V1 decision: automated recovery retries use one product-defined bounded policy across providers in v1. Drivers may mark failures non-retryable, but they do not define independent retry budgets.

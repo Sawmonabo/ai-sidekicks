@@ -166,7 +166,7 @@ The elevated tier allows burst operations during session setup. All limits use t
 - If the deployment topology changes such that the local daemon becomes network-reachable (not socket-only), rate limiting scope must be revisited and an ADR created.
 - If a third deployment target is introduced beyond Cloudflare Workers and self-hosted Postgres, the abstraction layer design must be revisited.
 
-## Open Questions
+## Resolved Questions and V1 Scope Decisions
 
 - No blocking open questions remain for v1.
 

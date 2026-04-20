@@ -118,7 +118,7 @@ The typed payload shapes for steer, interrupt, and cancel interventions are defi
 - If the product stops using daemon-backed queue state, create or update `../decisions/003-daemon-backed-queue-and-interventions.md`.
 - If the product changes how interventions are dispatched to drivers, create or update `../decisions/011-generic-intervention-dispatch.md`.
 
-## Open Questions
+## Resolved Questions and V1 Scope Decisions
 
 - No blocking open questions remain for v1.
 - V1 decision: queue priority overrides are deferred. The first implementation uses canonical queue order plus explicit steer, pause, resume, and interrupt controls only.

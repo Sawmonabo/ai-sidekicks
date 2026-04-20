@@ -160,7 +160,7 @@ Recovery behavior for a receipt that was in-flight at daemon restart (Phase 2 st
 
 - If the runtime stops using a normalized driver interface, create or update `../decisions/005-provider-drivers-use-a-normalized-interface.md`.
 
-## Open Questions
+## Resolved Questions and V1 Scope Decisions
 
 - No blocking open questions remain for v1.
 - V1 decision: driver capability changes are refreshed on a bounded periodic cadence and may also be pushed live when supported. Correctness must not depend on push-only updates.

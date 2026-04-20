@@ -41,7 +41,7 @@ In scope:
 - Renderer visual design, component library choice, theme system (owned by the design track; this spec specifies *what* views compose, not *how* they look)
 - Daemon internals (owned by `component-architecture-local-daemon.md` and Spec-007)
 - Control-plane authentication protocol details (owned by Spec-008 and ADR-010)
-- Mobile or browser-hosted renderer surfaces (out of V1 per ADR-015; browser-only local clients explicitly out of scope per Spec-007 §Open Questions)
+- Mobile or browser-hosted renderer surfaces (out of V1 per ADR-015; browser-only local clients explicitly out of scope per Spec-007 §Resolved Questions and V1 Scope Decisions)
 - The CLI client (Spec-007 owns the IPC contract the renderer reuses; CLI-specific UX is out of scope here)
 - Provider-driver internal protocols (owned by Spec-005)
 - Workflow authoring UX (workflow engine is V1.1 per ADR-015; renderer composition sketch is omitted)

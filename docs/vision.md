@@ -276,24 +276,26 @@ If these are modeled cleanly, most major features become straightforward instead
 
 ### Add
 
-| Technology | Package | Purpose |
-| --- | --- | --- |
-| PASETO v4 | In-house `packages/crypto-paseto/` ([Plan-025](./plans/025-self-hostable-node-relay.md)) on `@noble/curves` + `@noble/ciphers` | Internal auth tokens (replaces JWT); third-party TypeScript PASETO libraries rejected — see [ADR-010 §PASETO v4 Implementation Library](./decisions/010-paseto-webauthn-mls-auth.md) |
-| WebAuthn | `@simplewebauthn/server`, `@simplewebauthn/browser` | Primary authentication (desktop) |
-| Relay E2EE (V1 primary) | `@noble/curves`, `@noble/ciphers`, `@noble/hashes` | Pairwise X25519 ECDH + XChaCha20-Poly1305 AEAD + HKDF-SHA256 for relay-mediated session encryption per [ADR-010](./decisions/010-paseto-webauthn-mls-auth.md). `@noble/curves` audited by Cure53, Kudelski Security, and Trail of Bits; `@noble/ciphers` audited by Cure53. |
-| Relay E2EE (V1.1+ upgrade) | MLS (RFC 9420) via an audited implementation (OpenMLS, mls-rs, or post-audit TypeScript implementation) | Post-compromise security and O(log N) group rekeying, gated on audit / interop / soak criteria in [ADR-010](./decisions/010-paseto-webauthn-mls-auth.md) |
-| Crypto-shredding cipher | Node.js `crypto` (built-in) | AES-256-GCM for per-participant PII column encryption |
-| XState v5 | `xstate` | Internal state machine logic |
-| tRPC v11 | `@trpc/server`, `@trpc/client` | Control plane API framework |
-| CASL | `@casl/ability` | RBAC authorization |
-| Cedar | `@cedarpolicy/cedar-wasm` | Approval policy engine (V1.1) |
-| Yjs Awareness | `y-protocols` | Presence CRDT |
-| Terminal | `node-pty`, `xterm.js`, `react-xtermjs` | Terminal multiplexing |
-| Push notifications | `@pushforge/builder` | Cross-device notifications (V1.1) |
-| OpenTelemetry | `@opentelemetry/*` | Observability (traces + metrics) |
-| Agent Trace | Agent Trace spec | AI code attribution |
-| Rate limiting | `rate-limiter-flexible` | Self-hosted rate limiting |
-| Rust PTY sidecar | `portable-pty` (wezterm) via child-process sidecar | Windows-primary PTY backend per [ADR-019](./decisions/019-windows-v1-tier-and-pty-sidecar.md); `node-pty` remains the macOS/Linux primary and the Windows fallback |
+Column rules: the `V1/V1.1/V2` column annotates each technology against the release scope defined in [ADR-015: V1 Feature Scope Definition](./decisions/015-v1-feature-scope-definition.md). `V1` = shipped in V1; `V1.1` = deferred to V1.1; `V1 (desktop)` = V1 scope but gated on the desktop client launch (CLI ships without it). MLS and Cedar WASM are the two notable V1.1 deferrals. For the authoritative V1 / V1.1 / V2 feature list (not library list), see ADR-015 directly.
+
+| Technology | Package | V1/V1.1/V2 | Purpose |
+| --- | --- | --- | --- |
+| PASETO v4 | In-house `packages/crypto-paseto/` ([Plan-025](./plans/025-self-hostable-node-relay.md)) on `@noble/curves` + `@noble/ciphers` | V1 | Internal auth tokens (replaces JWT); third-party TypeScript PASETO libraries rejected — see [ADR-010 §PASETO v4 Implementation Library](./decisions/010-paseto-webauthn-mls-auth.md) |
+| WebAuthn | `@simplewebauthn/server`, `@simplewebauthn/browser` | V1 (desktop) | Primary authentication at desktop launch. CLI ships without WebAuthn via Device Authorization Grant (RFC 8628) per [ADR-010](./decisions/010-paseto-webauthn-mls-auth.md) Consequences §91; desktop client adds passkey/WebAuthn PRF ceremony for Ed25519 identity key derivation per ADR-010 §144. Desktop is V1 Feature 15 per ADR-015. |
+| Relay E2EE (V1 primary) | `@noble/curves`, `@noble/ciphers`, `@noble/hashes` | V1 | Pairwise X25519 ECDH + XChaCha20-Poly1305 AEAD + HKDF-SHA256 for relay-mediated session encryption per [ADR-010](./decisions/010-paseto-webauthn-mls-auth.md). `@noble/curves` audited by Cure53, Kudelski Security, and Trail of Bits; `@noble/ciphers` audited by Cure53. |
+| Relay E2EE (V1.1+ upgrade) | MLS (RFC 9420) via an audited implementation (OpenMLS, mls-rs, or post-audit TypeScript implementation) | V1.1 | Post-compromise security and O(log N) group rekeying, gated on audit / interop / soak criteria in [ADR-010](./decisions/010-paseto-webauthn-mls-auth.md). ADR-015 V1.1 Feature #1. |
+| Crypto-shredding cipher | Node.js `crypto` (built-in) | V1 | AES-256-GCM for per-participant PII column encryption |
+| XState v5 | `xstate` | V1 | Internal state machine logic — supports ADR-015 V1 Feature 6 (queue, steer, pause, resume) |
+| tRPC v11 | `@trpc/server`, `@trpc/client` | V1 | Control plane API framework |
+| CASL | `@casl/ability` | V1 | RBAC authorization — supports ADR-015 V1 Feature 3 (membership roles and permissions) |
+| Cedar | `@cedarpolicy/cedar-wasm` | V1.1 | Approval policy engine. V1 evaluates YAML policy definitions; V1.1 swaps to Cedar WASM runtime per [Spec-012](./specs/012-approvals-permissions-and-trust-boundaries.md) §Implementation Notes. V1 approval gates (ADR-015 Feature 7) ship without the Cedar runtime. |
+| Yjs Awareness | `y-protocols` | V1 | Presence CRDT — supports ADR-015 V1 Feature 12 (presence) |
+| Terminal | `node-pty`, `xterm.js`, `react-xtermjs` | V1 | Terminal multiplexing inside Desktop GUI (ADR-015 V1 Feature 15) |
+| Push notifications | `@pushforge/builder` | V2 | Cross-device notifications via FCM/APNs. V1 delivers notifications to currently-connected devices via SSE only; V2 adds push delivery per [Spec-019 §Cross-Device Delivery](./specs/019-notifications-and-attention-model.md). Not listed in ADR-015 V1 or V1.1; defaults to V2 per [ADR-015](./decisions/015-v1-feature-scope-definition.md) line 67. |
+| OpenTelemetry | `@opentelemetry/*` | V1 | Observability (traces + metrics) |
+| Agent Trace | In-tree TypeScript reference implementation (no official npm package) | V1 | AI code attribution via the [cursor/agent-trace](https://github.com/cursor/agent-trace) RFC v0.1.0 draft, pinned at commit [`2754f077`](https://github.com/cursor/agent-trace/tree/2754f077f3e50c1fb5088183f5c9362077cc8ca1) (latest `main` as of 2026-04-19; no git tags or releases exist — pin by commit SHA, not version tag). We emit trace records against the in-tree reference implementation (`index.ts` + `schemas.ts` in the repo); the unofficial community npm package `agent-trace` (by `attharrva15`, `github.com/Atharva-Kanherkar/agent-trace`) is unrelated to Cursor and **must not be used**. Supports V1 gitflow PR and diff attribution per [Spec-011](./specs/011-gitflow-pr-and-diff-attribution.md) (a cross-cutting V1 spec; ADR-015 Feature 11 is "Local daemon with CLI" / Spec-007, not this spec). |
+| Rate limiting | `rate-limiter-flexible` | V1 | Self-hosted rate limiting per [ADR-020](./decisions/020-v1-deployment-model-and-oss-license.md) (self-host path is V1) |
+| Rust PTY sidecar | `portable-pty` (wezterm) via child-process sidecar | V1 | Windows-primary PTY backend per [ADR-019](./decisions/019-windows-v1-tier-and-pty-sidecar.md); `node-pty` remains the macOS/Linux primary and the Windows fallback |
 
 ### Add Later If Needed
 

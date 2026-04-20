@@ -87,7 +87,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 ## Risks And Blockers
 
-- Session-sequence assignment resolved: sequence numbers are assigned by the authoritative session-visible append path at write time (see Spec-006 Open Questions). Category drift remains the primary risk
+- Session-sequence assignment resolved: sequence numbers are assigned by the authoritative session-visible append path at write time (see Spec-006 §Resolved Questions and V1 Scope Decisions). Category drift remains the primary risk
 - Category drift can break replay or audit interpretation if additive discipline is not enforced
 
 ## Done Checklist

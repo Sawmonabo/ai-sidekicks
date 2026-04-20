@@ -246,7 +246,7 @@ Clients must post a fresh `SessionKeyBundle` to the control plane before request
 
 - If relay boundaries, trust assumptions, or default transport choices change materially, create or update `../decisions/008-default-transports-and-relay-boundaries.md`.
 
-## Open Questions
+## Resolved Questions and V1 Scope Decisions
 
 - No blocking open questions remain for v1.
 - V1 decision: direct control-plane connectivity is required for admin and join-establishment flows. Relay is a secondary connectivity path for session participation after direct control-plane join succeeds.

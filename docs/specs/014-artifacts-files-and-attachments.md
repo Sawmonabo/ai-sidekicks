@@ -111,7 +111,7 @@ This spec covers artifact types, attachment ingestion, storage expectations, man
 
 - If the system changes the local-vs-shared artifact boundary materially, create or update `../decisions/004-sqlite-local-state-and-postgres-control-plane.md`.
 
-## Open Questions
+## Resolved Questions and V1 Scope Decisions
 
 - No blocking open questions remain for v1.
 - V1 decision: shared artifact replication is manifest-first with deferred payload transfer. Small-payload synchronous optimization does not change the external contract in v1.

@@ -157,7 +157,7 @@ A rate-limit indicator shows the remaining API quota for the current session.
 
 - If reasoning visibility or audit exposure materially changes the observability boundary, create or update `../decisions/004-sqlite-local-state-and-postgres-control-plane.md` or a replacement observability ADR.
 
-## Open Questions
+## Resolved Questions and V1 Scope Decisions
 
 - No blocking open questions remain for v1.
 - V1 decision: per-session verbose reasoning opt-in is out of scope. Reasoning visibility follows the canonical product or organization policy without session-level overrides.

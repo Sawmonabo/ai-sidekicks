@@ -112,7 +112,7 @@ This spec covers `read-only`, `branch`, `worktree`, and `ephemeral clone` execut
 
 - If worktree-first stops being the default execution strategy, create or update `../decisions/006-worktree-first-execution-mode.md`.
 
-## Open Questions
+## Resolved Questions and V1 Scope Decisions
 
 - No blocking open questions remain for v1.
 - V1 decision: branch prefix and slugging rules are product-defined and locked for consistency in v1. User-configurable naming rules are deferred.

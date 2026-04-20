@@ -122,7 +122,7 @@ This spec covers in-app attention state, desktop notifications, invite notificat
 
 - If attention or notification routing requires a new shared service boundary, create a new ADR before implementation.
 
-## Open Questions
+## Resolved Questions and V1 Scope Decisions
 
 - No blocking open questions remain for v1.
 - V1 decision: notification preferences are global in the first release. Per-session notification preferences are deferred.

@@ -96,7 +96,7 @@ This spec covers participant identity mapping, participant profile state, device
 
 - If participant identity and membership are no longer session-scoped projections, revisit `../decisions/001-session-is-the-primary-domain-object.md`.
 
-## Open Questions
+## Resolved Questions and V1 Scope Decisions
 
 - No blocking open questions remain for v1.
 - V1 decision: guest and anonymous participant identities are out of scope for the first release. Shared participation requires authenticated identity.

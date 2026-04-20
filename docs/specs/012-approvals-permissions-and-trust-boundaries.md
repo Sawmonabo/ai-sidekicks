@@ -121,7 +121,7 @@ This spec covers approval requests, approval scopes, remembered grants, and the 
 - If the system materially changes how collaboration trust and approval scopes work, create or update `../decisions/007-collaboration-trust-and-permission-model.md`.
 - If the system changes the approval policy evaluation engine, create or update `../decisions/012-cedar-approval-policy-engine.md`.
 
-## Open Questions
+## Resolved Questions and V1 Scope Decisions
 
 - No blocking open questions remain for v1.
 - V1 decision: organization-level stricter policy overrides are out of scope. V1 uses product-default policy with local daemon enforcement and explicit per-request approvals.

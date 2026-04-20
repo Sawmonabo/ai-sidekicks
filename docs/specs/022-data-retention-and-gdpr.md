@@ -388,7 +388,7 @@ Without the `pii_ciphertext_digest` indirection, a naïve implementation might s
 - If crypto-shredding is replaced by a different deletion mechanism, create an ADR documenting the alternative and its trade-offs.
 - If a third data store is introduced that holds PII, the data map and deletion strategy must be revisited.
 
-## Open Questions
+## Resolved Questions and V1 Scope Decisions
 
 - No blocking open questions remain for v1.
 - Post-V1: determine whether key rotation for long-lived sessions is necessary and define the rotation protocol.

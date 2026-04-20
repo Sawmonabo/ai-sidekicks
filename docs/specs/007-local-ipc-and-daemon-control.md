@@ -111,7 +111,7 @@ This spec covers transport choice, version negotiation, request and stream seman
 
 - If the system chooses a different default local transport boundary, create or update `../decisions/008-default-transports-and-relay-boundaries.md`.
 
-## Open Questions
+## Resolved Questions and V1 Scope Decisions
 
 - No blocking open questions remain for v1.
 - V1 decision: browser-only local clients are out of scope. Desktop and CLI are the only first-class local clients in the first release.

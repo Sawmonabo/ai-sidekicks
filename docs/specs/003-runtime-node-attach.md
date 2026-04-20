@@ -105,7 +105,7 @@ This spec covers runtime-node registration, capability declaration, health, and 
 - If attach requires a fundamentally different remote-execution model, create or update `../decisions/002-local-execution-shared-control-plane.md`.
 - If transport and relay rules materially change, create or update `../decisions/008-default-transports-and-relay-boundaries.md`.
 
-## Open Questions
+## Resolved Questions and V1 Scope Decisions
 
 - No blocking open questions remain for v1.
 - V1 decision: a runtime node may participate in one active session at a time in v1. Multi-session sharing is deferred.

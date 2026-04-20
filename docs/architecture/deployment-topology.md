@@ -142,6 +142,14 @@ Envelope (batching is a design baseline, not a future enhancement): **25 conns �
 | Relay (per process) | 1 vCPU | 256 MB | — |
 | Local daemon (per machine) | 0.5 vCPU | 256 MB | 1 GB (SQLite + artifacts) |
 
+### Local Daemon Memory Instrumentation And Budget Triggers
+
+The 256 MB local daemon budget above is an operating target derived from small-team collaboration sizing, not a hard ceiling. Budget violations MUST be observable so that operators and product owners can decide between a budget raise and a deeper change.
+
+**Instrumentation requirement.** The daemon MUST expose `process_resident_memory_bytes` via the default Prometheus `prom-client` collector ([default metrics](https://github.com/siimon/prom-client#default-metrics)). RSS (resident set size) is the authoritative metric for process footprint — distinct from V8 heap-used, which excludes native allocations from SQLite page cache, `node-pty` file descriptors, and `@noble/*` cryptographic buffers. Alert fires when RSS exceeds **80% of the budget (≥ 205 MB)** sustained for ≥ 5 minutes. Sustained (not instantaneous) reduces false positives from transient build-step allocations. The 80% threshold and 5-minute window are design choices, not external standards.
+
+**Decision trigger.** If real workloads consistently breach the 256 MB budget, **raise the budget to 384–512 MB before considering a runtime change.** Rationale: a budget raise is reversible and low-blast-radius (documentation + alert-threshold update); changing the runtime (e.g., replacing Node.js with a different language) carries much larger implementation cost and is reserved for breaches that persist after a budget raise. "Consistently breach" is defined as ≥ 20% of operating daemons observed over a rolling 7-day window exceeding 256 MB; these thresholds are internal and will be revisited once real deployment telemetry is available.
+
 ## Container and Packaging
 
 **Control plane:** Docker container, multi-stage build, Alpine-based.

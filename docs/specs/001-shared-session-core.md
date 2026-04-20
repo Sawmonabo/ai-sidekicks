@@ -119,7 +119,7 @@ This spec covers session identity, default session structure, session creation, 
 - If the product stops treating session as the primary domain object, create or update `../decisions/001-session-is-the-primary-domain-object.md`.
 - If `local-only` fallback evolves into a materially different session model, create or update `../decisions/002-local-execution-shared-control-plane.md`.
 
-## Open Questions
+## Resolved Questions and V1 Scope Decisions
 
 - No blocking open questions remain for v1.
 - V1 decision: `local-only` session continuity is not promotable in place. Shared collaboration requires explicit collaborative enablement as a new shared-session transition rather than silent in-place promotion.

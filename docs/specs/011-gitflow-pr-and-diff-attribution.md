@@ -173,7 +173,7 @@ See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) 
 
 - If the system abandons worktree-centered Gitflow as the default coding path, create or update `../decisions/006-worktree-first-execution-mode.md`.
 
-## Open Questions
+## Resolved Questions and V1 Scope Decisions
 
 - No blocking open questions remain for v1.
 - V1 decision: stacked PR workflows are deferred. The first release supports single-branch, single-PR proposal flow only.

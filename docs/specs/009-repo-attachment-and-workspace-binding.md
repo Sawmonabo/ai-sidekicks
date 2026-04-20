@@ -131,7 +131,7 @@ Cleanup is asynchronous. The `ephemeral_clones` table marks the clone `retired` 
 
 - If repo mounts and workspaces cease to be separate concepts, create or update `../decisions/006-worktree-first-execution-mode.md` or a replacement architecture decision.
 
-## Open Questions
+## Resolved Questions and V1 Scope Decisions
 
 - No blocking open questions remain for v1.
 - V1 decision: the first implementation binds existing local checkouts only. Clone-from-URL attach flows are out of scope for v1.

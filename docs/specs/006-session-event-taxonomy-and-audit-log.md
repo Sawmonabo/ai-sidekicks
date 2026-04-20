@@ -619,7 +619,7 @@ The full `payload`, `pii_payload`, `correlationId`, and `causationId` are remove
 
 - If the system stops using append-only canonical events as the replay source, create or update `../decisions/004-sqlite-local-state-and-postgres-control-plane.md`.
 
-## Open Questions
+## Resolved Questions and V1 Scope Decisions
 
 - No blocking open questions remain for v1.
 - V1 decision: session sequence numbers are assigned by the authoritative session-visible append path at write time. Projection merge must preserve those numbers and must not invent them later.

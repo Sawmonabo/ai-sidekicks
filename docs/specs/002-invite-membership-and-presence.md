@@ -181,7 +181,7 @@ The following delivery mechanisms are deferred to V2. All V2 mechanisms will use
 
 - If membership and runtime trust are collapsed into one permission model, create or update `../decisions/007-collaboration-trust-and-permission-model.md`.
 
-## Open Questions
+## Resolved Questions and V1 Scope Decisions
 
 - No blocking open questions remain for v1.
 - V1 decision: invitees must authenticate before acceptance. Guest invites are out of scope for the first release.

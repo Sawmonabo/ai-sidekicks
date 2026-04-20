@@ -178,7 +178,7 @@ Multi-agent sessions span multiple runtime nodes; partition behavior inherits fr
 - If intervention propagation behavior changes (e.g., auto-cascade to children becomes the default), create or update `../decisions/011-generic-intervention-dispatch.md`.
 - If the V1 Multi-Agent Channels quality bar declared by ADR-015 changes (e.g., scope demotion to V1.1), create or update `../decisions/015-v1-feature-scope-definition.md`.
 
-## Open Questions
+## Resolved Questions and V1 Scope Decisions
 
 - No blocking open questions remain for v1.
 - V1 decision: channel-level permission restrictions are deferred. New channels inherit session membership and visibility policy in the first implementation.

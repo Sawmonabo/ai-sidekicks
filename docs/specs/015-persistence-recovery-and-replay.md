@@ -349,7 +349,7 @@ Data staleness on restore is bounded at **≤ 24 hours** (worst case = crash 23h
 
 - If the product changes the local-vs-shared storage split or the default local persistence engine, create or update `../decisions/004-sqlite-local-state-and-postgres-control-plane.md`.
 
-## Open Questions
+## Resolved Questions and V1 Scope Decisions
 
 - No blocking open questions remain for v1.
 - V1 decision: snapshot compaction cadence is not standardized in v1. Correctness must not depend on compaction, and implementations may run without scheduled compaction.
