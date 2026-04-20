@@ -1,6 +1,6 @@
 # BL-053: Self-Hosted Control-Plane Scope for V1 — Research Brief
 
-**Date:** 2026-04-16
+**Date:** 2026-04-16 (§4.1 / §4.4 envelope aligned to [deployment-topology.md](../architecture/deployment-topology.md) Session G2 update on 2026-04-20 — see BL-068 Resolution in [backlog.md](../backlog.md))
 **Question:** Does V1 ship a first-class self-hosted control-plane deployment path alongside the Cloudflare-hosted path, or is self-hosted deferred to V1.1 / V2?
 **Decision class:** Product/ops commitment with multi-year human cost tail. Not a pure engineering call.
 
@@ -123,9 +123,9 @@ The most decision-relevant rows for *our* product (greenfield, collaborative, ag
 From `deployment-topology.md` §Relay Scaling Strategy:
 
 - Control DO manages session membership, connection assignments, routes new connections to data DOs.
-- Data DOs handle encrypted message fan-out, ≤25 WebSocket connections per data DO.
+- Data DOs handle encrypted message fan-out; the target is 25 WebSocket connections per data DO (a design choice, not a CF-platform connection cap — CF publishes no concurrent-WS cap per DO).
 - Control + data DO split follows the v2 protocol.
-- Expected throughput per data DO: 25 × 100 events/sec × pairwise-encrypt ≈ 2,500 writes/sec.
+- Expected throughput per data DO: ~400 rps batched (envelope: `25 conns × 100 events/sec ÷ ~6:1 batching ratio`); see [deployment-topology.md §Relay Scaling Strategy](../architecture/deployment-topology.md) for the authoritative derivation, the 1,000 rps per-DO soft cap, and the ~2.5× headroom calculation. Batched WebSocket messages are the design baseline (enabled by the 2025-10-31 CF raise of WS message size from 1 MiB to 32 MiB); the un-batched framing (~2,500 writes/sec) would breach the soft cap and is superseded per BL-068.
 
 Cloudflare's authoritative description of DO semantics [27]: "Each Durable Object runs in exactly one location, in one single thread, at a time." Input gates prevent event delivery while storage ops are in flight; output gates hold network messages until writes confirm; automatic coalescing makes a sequence of sync reads-and-writes atomic.
 
@@ -155,7 +155,7 @@ This is structurally the same pattern as our rate-limiter abstraction, and it is
 
 ### 4.4 Sharding strategy portability
 
-The 25-WS-per-DO sharding strategy on CF exists because that is the platform's per-instance connection limit. On Node, a single process easily handles 1,000–5,000 WebSocket connections. So on self-host you would probably **not** preserve the 25-per-shard pattern — you'd run one process per node and use a different scaling lever (more Node processes, sticky routing). This means self-host is not a drop-in backend swap; the sharding mental model is different, and the ops team has to learn it. **Inferred:** this is the single biggest source of "why does self-hosted behave differently" support tickets over the product's life.
+The 25-WS-per-DO sharding strategy on CF exists as a design choice — driven by the 1,000 rps per-DO soft cap and the CF "Rules of Durable Objects" 200–500 rps complex-op guidance, not by any platform-published per-instance connection limit (CF publishes no concurrent-WS cap per DO). On Node, a single process easily handles 1,000–5,000 WebSocket connections and the 1,000 rps soft cap does not apply. So on self-host you would probably **not** preserve the 25-per-shard pattern — you'd run one process per node and use a different scaling lever (more Node processes, sticky routing). This means self-host is not a drop-in backend swap; the sharding mental model is different, and the ops team has to learn it. **Inferred:** this is the single biggest source of "why does self-hosted behave differently" support tickets over the product's life.
 
 ### 4.5 Durable-Object portability verdict
 
