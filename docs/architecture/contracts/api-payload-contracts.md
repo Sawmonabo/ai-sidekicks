@@ -423,6 +423,15 @@ interface DriverCapabilities {
 ### Plan-006 — Session Event Taxonomy
 
 ```ts
+// EventEnvelopeVersion — branded semver "MAJOR.MINOR" string per ADR-018 §Decision #1.
+// Wire form and persisted form are both string (never numeric). Parsing extracts MAJOR
+// and MINOR as integers for numeric comparison; lexical string comparison is unsafe
+// (e.g. "1.10" lexically < "1.9"). Range errors map to `version.floor_exceeded` /
+// `version.ceiling_exceeded` in error-contracts.md (typed: VERSION_FLOOR_EXCEEDED /
+// VERSION_CEILING_EXCEEDED per ADR-018 §Decision #4).
+type EventEnvelopeVersion = string & { readonly __brand: 'EventEnvelopeVersion' }
+// Format: /^(0|[1-9]\d*)\.(0|[1-9]\d*)$/ — validated at envelope construction.
+
 // EventEnvelope — canonical event message
 interface EventEnvelope {
   id: string
@@ -435,7 +444,7 @@ interface EventEnvelope {
   payload: Record<string, unknown>
   correlationId?: string
   causationId?: string
-  version: number                // schema version for payload evolution
+  version: EventEnvelopeVersion  // semver "MAJOR.MINOR" per ADR-018 §Decision #1 (never numeric)
 }
 
 type EventCategory =

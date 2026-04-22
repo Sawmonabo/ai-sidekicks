@@ -26,7 +26,7 @@ Supported topologies:
 | --- | --- |
 | `Single-Participant Local` | Desktop or CLI plus one local daemon operating in `local-only` continuity. No shared control-plane dependency for basic single-user execution. |
 | `Collaborative Hosted Control Plane` | Multiple local daemons connect to one hosted control plane for invites, presence, relay, and shared metadata. Project-operated hosted offering per [ADR-020](../decisions/020-v1-deployment-model-and-oss-license.md). |
-| `Collaborative Self-Hosted Control Plane` | Same architecture as hosted, but the control plane is self-managed by the deploying organization. The free OSS deployment path per [ADR-020](../decisions/020-v1-deployment-model-and-oss-license.md); ships the same 16-feature V1 surface as hosted. |
+| `Collaborative Self-Hosted Control Plane` | Same architecture as hosted, but the control plane is self-managed by the deploying organization. The free OSS deployment path per [ADR-020](../decisions/020-v1-deployment-model-and-oss-license.md); ships the same 16-feature V1 surface as hosted. Secure-defaults posture for this topology is normative per [Spec-027: Self-Host Secure Defaults](../specs/027-self-host-secure-defaults.md) with operator-facing companion at [Operations › Self-Host Secure Defaults](../operations/self-host-secure-defaults.md) (Spec-027 Acceptance Criterion). |
 | `Relay-Assisted Remote Access` | A client or node reaches the shared session through relay coordination without moving execution into the control plane. |
 
 ## Data Flow

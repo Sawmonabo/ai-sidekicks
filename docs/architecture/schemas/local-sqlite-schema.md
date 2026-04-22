@@ -31,7 +31,10 @@ CREATE TABLE session_events (
   pii_payload            BLOB,                       -- encrypted per-participant AES-256-GCM (GDPR); NOT hashed/signed
   correlation_id         TEXT,                       -- links related events
   causation_id           TEXT,                       -- parent event that caused this one
-  version                INTEGER NOT NULL DEFAULT 1, -- schema version for payload evolution
+  version                TEXT NOT NULL DEFAULT '1.0'
+                         CHECK (version GLOB '[0-9]*.[0-9]*'), -- semver "MAJOR.MINOR" per ADR-018 §Decision #1
+                                                               -- (never INTEGER; comparison must parse MAJOR/MINOR as ints —
+                                                               -- lexical TEXT comparison is unsafe, e.g. "1.10" < "1.9")
   -- Integrity protocol (BL-050): hash-chain + per-event daemon signature
   prev_hash              BLOB NOT NULL,              -- 32 bytes; row_hash of previous row (zero-filled at sequence=0)
   row_hash               BLOB NOT NULL,              -- 32 bytes; BLAKE3(prev_hash || JCS-canonical envelope bytes)

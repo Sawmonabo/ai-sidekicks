@@ -152,7 +152,7 @@ The following delivery mechanisms are deferred to V2. All V2 mechanisms will use
 
 - Invite records must be durable until they reach a terminal state (`accepted`, `revoked`, or `expired`).
 - Membership records must survive client restart and presence loss.
-- Presence records are ephemeral (Yjs Awareness CRDT, in-memory only). Durable state-change events (`participant.went_online`, `participant.went_offline`) are emitted to the session event log for audit. Presence data itself is never written to SQLite or Postgres.
+- Presence records are ephemeral (Yjs Awareness CRDT, in-memory only). Durable state-change events under the `presence` category — `presence.online`, `presence.idle`, `presence.reconnecting`, `presence.offline` — are emitted to the session event log for audit per [Spec-006 §Presence](./006-session-event-taxonomy-and-audit-log.md). Presence data itself is never written to SQLite or Postgres.
 
 ## Example Flows
 

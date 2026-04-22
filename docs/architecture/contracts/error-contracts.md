@@ -120,6 +120,15 @@ interface ErrorResponse {
 | `system.internal_error` | Unexpected internal error | 500 |
 | `system.maintenance` | System is undergoing maintenance | 503 |
 
+### Version
+
+Cross-version compatibility errors per [ADR-018](../../decisions/018-cross-version-compatibility.md) §Decision #4. These errors fire when a client, daemon, or event envelope declares a version outside the accepted range for the session or the platform. The wire/persisted envelope version is a semver `MAJOR.MINOR` string per ADR-018 §Decision #1 — numeric form is rejected at validation. Typed error names (`VERSION_FLOOR_EXCEEDED`, `VERSION_CEILING_EXCEEDED`) from ADR-018 map to the dotted registry codes below.
+
+| Code | Description | HTTP Status |
+| --- | --- | --- |
+| `version.floor_exceeded` | Client attach or event envelope version is below the session's `min_client_version` floor per [ADR-018](../../decisions/018-cross-version-compatibility.md) §Decision #3 / §Decision #4 (typed: `VERSION_FLOOR_EXCEEDED`) | 409 |
+| `version.ceiling_exceeded` | Event envelope version exceeds the maximum supported by the reading party per ADR-018 §Decision #4 (typed: `VERSION_CEILING_EXCEEDED`) | 409 |
+
 ---
 
 ## Rate Limiting

@@ -12,14 +12,14 @@
 
 ## Purpose
 
-A self-host operator who `git clone`s the repository and runs the product MUST get a secure deployment without reading a hardening guide. This spec defines the eleven secure-default rows that ship on-by-default in V1, enumerates the override path for each, and names the plan that owns the implementation of each. It exists because BL-060 (backlog) retargets from "enterprise-grade requirements doc" to "ship the behaviors in the app and a one-page companion for what's default and how to opt out."
+A self-host operator who `git clone`s the repository and runs the product MUST get a secure deployment without reading a hardening guide. This spec defines the twelve secure-default rows that ship on-by-default in V1, enumerates the override path for each, and names the plan that owns the implementation of each. It exists because BL-060 (backlog) retargets from "enterprise-grade requirements doc" to "ship the behaviors in the app and a one-page companion for what's default and how to opt out."
 
 The spec is the authoritative answer to the question "what is on by default, and why is that the default?" It is not the authoritative answer to "how does the implementation work internally" — those details are owned by the plans and ADRs listed in the Plan Ownership column and by backlog items that govern adjacent surfaces (most notably BL-063 for backup internals).
 
 ## Scope
 
 - Cross-cutting secure-default behaviors that span the daemon, the self-hostable relay, the CLI, and first-run UX.
-- The eleven behavior rows enumerated in §Required Behavior.
+- The twelve behavior rows enumerated in §Required Behavior.
 - Bind-address reconciliation between Spec-025 (relay container internals) and this spec (daemon host posture).
 - Authority split with BL-063 (backup internals) and with Spec-022 (secret custody internals).
 - First-run banner content contract.
@@ -50,7 +50,7 @@ The spec is the authoritative answer to the question "what is on by default, and
 
 ## Required Behavior
 
-The product MUST implement all eleven rows below. Each row has a default that is active with no operator configuration, an override path (where one exists), the reason the default is what it is, and the plan that owns the implementation.
+The product MUST implement all twelve rows below. Each row has a default that is active with no operator configuration, an override path (where one exists), the reason the default is what it is, and the plan that owns the implementation.
 
 | # | Behavior | Default (on without operator action) | Override | Reason | Plan Ownership |
 | --- | --- | --- | --- | --- | --- |
@@ -63,10 +63,11 @@ The product MUST implement all eleven rows below. Each row has a default that is
 | 7a | **Auto-update — notify-by-default (daemon)** | The daemon MUST poll GitHub Releases (or the operator-configured release feed) on a cadence owned by Plan-007. When a newer release is detected, the daemon MUST surface a prompt on the next CLI invocation, in the first-run banner of subsequent boots, and as a `security.update.available` log event. The daemon MUST NOT self-swap its binary while IPC is live. | `AUTO_UPDATE_CHECK=off` disables polling. Operator remains responsible for keeping the release channel tracked. | A long-running daemon with open IPC sockets and file locks cannot safely self-replace mid-session. Notify is the safe floor; actual replacement is behavior 7b, invoked out-of-session. | Plan-007 |
 | 7b | **Auto-update — opt-in self-update (CLI)** | `ai-sidekicks self-update` (explicit CLI invocation) fetches the release manifest AND a GitHub Artifact Attestation (Sigstore bundle) for the target binary. It MUST verify **both**: (a) the Ed25519 signature on the manifest AND (b) the Sigstore bundle (via `gh attestation verify` semantics or a `@sigstore/verify` equivalent embedded in the CLI). Verification passing EITHER check alone MUST NOT be accepted. The manifest MUST include `version` (monotonic), `released_at`, `expires_at`, `previous_manifest_hash`, and `next_signing_keys`. Manifests with `version <= last_seen_version` OR `now > expires_at` MUST be rejected. After verification, the CLI performs an atomic swap and re-execs. Platform-specific swap rules apply (see Implementation Notes). | N/A — behavior 7b is always opt-in by being CLI-invoked. | Post–Shai-Hulud (2025-09/11, 25k+ npm repos) and post-Axios (2026-03-31, direct-publish from hijacked maintainer) incidents established that single-trust-path update distribution is insufficient. Dual-path (release key + transparency-log-backed Sigstore bundle) forces an attacker to compromise two independent systems. Anti-rollback/freeze fields close the freeze-and-downgrade attack paths that bare manifest-signing leaves open. TUF would give stronger guarantees but requires a multi-role key hierarchy and recurring re-signing operations that are out of scope for V1 (see §ADR Triggers). | Plan-007 (daemon-side self-update) + Plan-025 (relay CLI self-update) |
 | 8 | **TLS 1.3 minimum** | All TLS surfaces (daemon HTTPS, Caddy front, Postgres TLS, any WebSocket Secure) MUST negotiate TLS 1.3 only. On Node, this is `minVersion: 'TLSv1.3'` AND `maxVersion: 'TLSv1.3'` on `tls.createServer` / `https.createServer` (NOT `secureProtocol`, which is legacy and cannot enforce 1.3-only). On Caddy, `tls { protocols tls1.3 }`. TLS ≤ 1.1 MUST be rejected outright (RFC 8996). | `--legacy-tls12` or `LEGACY_TLS12=1` permits 1.2 with a loud startup banner and `security.default.override=legacy_tls12` log event. | TLS 1.2 is not formally deprecated by IETF (as of 2026-04-19; only ≤1.1 is via RFC 8996) and no NIST SP 800-52 Rev 3 exists. But >92% cross-browser support for 1.3 is present, Node and Caddy both support 1.3-only, and refusing 1.2 by default closes the downgrade-attack surface without breaking any V1-supported client. | Plan-007 (daemon TLS) + Plan-025 (relay + Caddy) |
-| 9 | **Security `/metrics` exports** | Daemon and relay expose a Prometheus v0.0.4 exposition `/metrics` endpoint binding to `127.0.0.1` by default. Metric families that MUST be exposed (counters unless marked otherwise): (a) `token_auth_failure_total`, (b) `rate_limit_trip_total`, (c) `cedar_deny_total` (ADR-012 source), (d) `relay_connection_churn_total`, (e) `backup_success_total`, (f) `auto_update_check_status` (gauge: `0=ok`, `1=behind`, `2=poll_failed`). Companion doc documents the semantics of each family so self-hosters know what to scrape. | `METRICS_BIND=off` disables the endpoint. Non-loopback `METRICS_BIND` MUST require auth (token-bearer); token auth is owned by Plan-020. | Observability is a security property — operators running blind cannot detect credential-stuffing, rate-limit ceiling breaches, or update-check flatlines. Loopback-only default avoids making metrics an attack surface. | Plan-020 (observability + /metrics) |
+| 9a | **Security `/metrics` exports — daemon scope** | Daemon exposes a Prometheus v0.0.4 exposition `/metrics` endpoint binding to `127.0.0.1` by default. Metric families that MUST be exposed (counters unless marked otherwise): (a) `token_auth_failure_total`, (b) `rate_limit_trip_total`, (c) `cedar_deny_total` (ADR-012 source), (d) `relay_connection_churn_total`, (e) `backup_success_total`, (f) `auto_update_check_status` (gauge: `0=ok`, `1=behind`, `2=poll_failed`). Labels MUST be bounded and PII-free per Plan-020 §Prometheus `/metrics` Exposition invariants; cardinality ceiling < 200 series per daemon instance. Companion doc documents the semantics of each family so self-hosters know what to scrape. | `METRICS_BIND=off` disables the endpoint + emits banner + `security.default.override=metrics_disabled` log event. Non-loopback `METRICS_BIND` MUST require auth (bearer-token OR mTLS); missing auth on non-loopback bind is a config-parse-time error. | Observability is a security property — operators running blind cannot detect credential-stuffing, rate-limit ceiling breaches, or update-check flatlines. Loopback-only default avoids making metrics an attack surface. | Plan-020 (daemon endpoint + contract shape + label allow-list + cardinality ceiling) |
+| 9b | **Security `/metrics` exports — relay scope** | Relay exposes an equivalent Prometheus v0.0.4 `/metrics` endpoint consuming Plan-020's bind/auth secure-default contract. Relay-specific counter families added to the daemon set: `relay_ws_connections_active`, `relay_ws_frames_total{direction}`, `relay_http_requests_total{method,route,status}`, `relay_http_request_duration_seconds` (histogram), plus Plan-021's `ratelimit_*` counters. Same PII-free label invariant and bounded-cardinality rule apply. | Same `METRICS_BIND=off` disable path and `METRICS_AUTH=bearer\|mtls` gate as row 9a. | Relay observability is a distinct process but shares the security boundary. Keeping the bind/auth contract shape in Plan-020 (not fragmented across daemon and relay) yields one auditable secure-default posture across both surfaces. | Plan-025 (relay endpoint wiring, consumes Plan-020 contract) |
 | 10 | **Loud first-run banner** | On every daemon or relay process start, a single-screen banner MUST be printed to stdout listing: (a) TLS mode + fingerprint (SPKI-SHA256 and whole-cert hash) if self-signed/internal-CA; (b) all effective bind addresses; (c) backup destination + cadence; (d) admin-token file path; (e) update channel + mode (notify-only / off); (f) any active `security.default.override=*` rows. Banner format is owned by Plan-026 (first-run-onboarding) but this spec specifies the *content contract*. | N/A — the banner is always on. Environments that must suppress banner output for log-formatting reasons MAY set `BANNER_FORMAT=json` to emit the same payload as a single JSON line. | Operators who run `docker compose up` on a borrowed laptop without ever reading docs must still be told what security posture they got. Caddy and Syncthing establish this as a standard pattern for self-host OSS. | Plan-026 (format) + Plan-007 (daemon content) + Plan-025 (relay content) |
 
-The eleven rows are grouped for authoring convenience only; each row is independently normative. Nothing in this spec implies that a product missing one row but shipping the other ten is compliant — all eleven MUST ship in V1.
+The twelve rows are grouped for authoring convenience only; each row is independently normative. Nothing in this spec implies that a product missing one row but shipping the other eleven is compliant — all twelve MUST ship in V1.
 
 ## Default Behavior
 
@@ -134,14 +135,14 @@ The following interfaces are normative for this spec:
 
 - **Sigstore bundle verification** (row 7b): `gh attestation verify <artifact> --owner <gh-owner>` semantics OR direct `@sigstore/verify` against the bundle published alongside the release binary via `actions/attest-build-provenance`.
 - **`security.default.override` log event schema** (rows 2, 5, 6, 8): structured log with fields `behavior` (integer 1–10), `row` (`7a`/`7b` as string), `effective_value` (string), `banner_printed_at` (ISO-8601).
-- **`/metrics` endpoint** (row 9): Prometheus v0.0.4 exposition format. Counter names and semantics listed in the companion doc.
+- **`/metrics` endpoint** (rows 9a daemon / 9b relay): Prometheus v0.0.4 exposition format. Counter names and semantics listed in the companion doc. Bind/auth contract shape owned by Plan-020; relay wiring owned by Plan-025.
 
 ## State And Data Implications
 
 - **First-run state transition**: absence of `./data/trust/first-run.complete` → generate all secrets → write files with `0600` → write sentinel → emit banner. The sentinel is the only on-disk signal that first-run ceremony happened; deleting it MUST force re-generation and MUST NOT overwrite existing secrets silently (the daemon MUST refuse to start if sentinel is absent AND secrets are present, to force explicit operator action).
 - **Fingerprint persistence**: `./data/trust/fingerprint.txt` is stable across daemon restarts. Rotating the underlying keypair MUST rewrite this file AND emit a banner warning on the next startup that pins have changed.
 - **Override state ephemerality**: override banners emit once per startup; override state is NOT persisted to the DB. This is intentional — operators who set `INSECURE=1` in a systemd unit see the banner on every restart.
-- **Audit impact**: every override path contributes a `security.default.override=*` log event that feeds `/metrics` (row 9) and is visible to Spec-006 event taxonomy.
+- **Audit impact**: every override path contributes a `security.default.override=*` log event that feeds `/metrics` (rows 9a daemon / 9b relay) and is visible to Spec-006 event taxonomy.
 - **Spec-022 interaction**: secrets generated in row 3 are the master key custody domain of Spec-022 §Daemon Master Key. Envelope format and tier-1/tier-2 storage rules are owned by that spec; Spec-027 only asserts *that* they are generated on first run.
 
 ## Example Flows
@@ -186,7 +187,7 @@ These are non-normative planning hints; they do not add or weaken requirements.
 
 ## Acceptance Criteria
 
-- [ ] A fresh clone followed by `docker compose up` produces a running deployment with all eleven default-row behaviors active AND the first-run banner (row 10) enumerates each active row with its effective value.
+- [ ] A fresh clone followed by `docker compose up` produces a running deployment with all twelve default-row behaviors active AND the first-run banner (row 10) enumerates each active row with its effective value.
 - [ ] Every override path emits a one-screen banner on stdout AND exactly one `security.default.override=<behavior>` structured log event per process start.
 - [ ] Daemon startup probe refuses to start when `pg_hba.conf` contains any enabled row with `auth_method IN ('trust','password','md5')`. Error message names the offending line number.
 - [ ] Daemon startup probe refuses to start against Postgres `server_version_num < 170000`. Error message names the detected version.
@@ -229,7 +230,7 @@ These are non-normative planning hints; they do not add or weaken requirements.
 - Specs: 007, 020, 021, 022, 025, 026.
 - ADRs: 010 (PASETO/WebAuthn/MLS auth primitives), 012 (Cedar policy engine + `/metrics` source), 020 (V1 deployment model).
 - Architecture: `docs/architecture/deployment-topology.md`, `docs/architecture/security-architecture.md`.
-- Operations: `docs/operations/self-host-secure-defaults.md` (companion — operator-facing), `docs/operations/cedar-policy-signing-and-rotation.md` (referenced for row 9 Cedar-deny counter source).
+- Operations: `docs/operations/self-host-secure-defaults.md` (companion — operator-facing), `docs/operations/cedar-policy-signing-and-rotation.md` (referenced for row 9a Cedar-deny counter source).
 
 ### External / Research Sources (accessed 2026-04-19)
 

@@ -24,7 +24,7 @@ Every V1 feature has a governing spec. Cross-cutting V1 specs (identity, observa
 | 12 | Presence (online/idle/offline) | [Spec-002](../specs/002-invite-membership-and-presence.md) |
 | 13 | Event audit log | [Spec-006](../specs/006-session-event-taxonomy-and-audit-log.md) |
 | 14 | Artifact publication (local) | [Spec-014](../specs/014-artifacts-files-and-attachments.md) |
-| 15 | Desktop GUI | Spec-023 (to be authored per BL-041) |
+| 15 | Desktop GUI | [Spec-023: Desktop Shell and Renderer](../specs/023-desktop-shell-and-renderer.md) |
 | 16 | Multi-Agent Channels | [Spec-016](../specs/016-multi-agent-channels-and-orchestration.md) (V1-readiness review per BL-042) |
 
 ## V1.1 Features (4, Deferred)
@@ -77,12 +77,12 @@ Cross-cutting V1 specs that multiple V1 features depend on. These are required b
 | [Spec-021](../specs/021-rate-limiting-policy.md) | Rate limiting policy (both backends ship in V1) |
 | [Spec-022](../specs/022-data-retention-and-gdpr.md) | Data retention and GDPR compliance |
 | [Spec-024](../specs/024-cross-node-dispatch-and-approval.md) | Cross-node dispatch and approval |
-| Spec-025 (to be authored per BL-079) | Self-hostable Node relay (V1 self-host deployment) |
-| Spec-026 (to be authored per BL-081) | First-run three-way-choice onboarding |
+| [Spec-025: Self-Hostable Node Relay](../specs/025-self-hostable-node-relay.md) | Self-hostable Node relay (V1 self-host deployment) |
+| [Spec-026: First-Run Three-Way-Choice Onboarding](../specs/026-first-run-onboarding.md) | First-run three-way-choice onboarding |
 
 ## Spec Coverage Assessment
 
-- **V1 features:** 14 of 16 have an existing governing spec. Spec-023 (Desktop Shell + Renderer) is to be authored per BL-041; Spec-016 (Multi-Agent Channels) gets a V1-readiness review per BL-042.
+- **V1 features:** all 16 have a governing spec — Spec-023 (Desktop Shell + Renderer) landed per BL-041, and Spec-016 (Multi-Agent Channels) completed its V1-readiness review per BL-042.
 - **V1.1 features:** all 4 have a governing spec referenced above. The MLS spec surface (Spec-008) is being rewritten to declare pairwise-first for V1 and MLS as the V1.1 upgrade per BL-048.
 - **V2 features:** intentionally uncovered. V2 scope decisions are made post-V1 and add specs as needed.
 

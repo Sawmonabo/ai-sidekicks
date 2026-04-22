@@ -26,7 +26,7 @@ In scope:
 - Reset semantics: the CLI reset command, the daemon-side state transition, and the next-onboarding trigger shape.
 - Telemetry opt-in flow: presented as a *separate* step after the three-way choice resolves.
 - Fallback handling for the structural branches: keystore unavailable, self-host TLS trust-on-first-use (TOFU) mismatch, no-network, conflicting daemon already configured, headless-no-TTY environments, resume of a partially-completed first-run.
-- Event taxonomy additions that must be registered in [Spec-006](./006-session-event-taxonomy-and-audit-log.md) under the same follow-up pattern BL-084 uses.
+- Event taxonomy additions (`onboarding.choice_made`, `onboarding.choice_reset`) registered in [Spec-006](./006-session-event-taxonomy-and-audit-log.md) under the `onboarding_lifecycle` category (BL-086, completed 2026-04-18).
 
 Out of scope (see Non-Goals):
 - Installer or package-manager bootstrap (brew, apt, npm, release binary).
@@ -180,7 +180,7 @@ Request/response schemas belong in [api-payload-contracts.md](../architecture/co
 
 ### Event Taxonomy Additions
 
-This spec introduces two new events that must be registered in Spec-006 via a follow-up BL (same pattern BL-084 uses):
+This spec's two onboarding events are registered in [Spec-006](./006-session-event-taxonomy-and-audit-log.md) under the `onboarding_lifecycle` category (BL-086, completed 2026-04-18):
 
 | Event (dotted form) | Payload |
 | --------------------------- | --------------------------------------------------------------------------------------------------------- |
@@ -194,7 +194,7 @@ Payloads must not contain secret material (no tokens, no SPKI pin raw bytes — 
 - **Config persistence.** `[onboarding]` block in `config.toml` is the single source of truth for the resolved choice. Secrets are keystore-resident; only public state (choice ID, relay URL, SPKI pin, opt-in flag) lives in the config file.
 - **Partial state.** `$XDG_STATE_HOME/ai-sidekicks/onboarding.partial.json` (or `$HOME/.local/state/ai-sidekicks/onboarding.partial.json` if `XDG_STATE_HOME` is unset) holds in-progress state until the choice resolves. It is cleared on success, on reset, or after a 24-hour staleness window.
 - **Keystore writes.** Option 2 writes one entry keyed `ai-sidekicks:self-host-admin-token:<relay_url_host>`. Option 3 writes one entry keyed `ai-sidekicks:hosted-saas-scoped-token`. Both use the platform-appropriate backend per Spec-023.
-- **Audit.** Both new events (`onboarding.choice_made`, `onboarding.choice_reset`) append to the daemon's local event log per [Spec-015](./015-persistence-recovery-and-replay.md) and must be registered in Spec-006 via the follow-up BL.
+- **Audit.** Both new events (`onboarding.choice_made`, `onboarding.choice_reset`) append to the daemon's local event log per [Spec-015](./015-persistence-recovery-and-replay.md); registration in Spec-006 under `onboarding_lifecycle` landed via BL-086 (completed 2026-04-18).
 - **Multi-daemon coexistence.** A single OS user may run multiple daemon versions during upgrade overlap. The onboarding block is keyed to the daemon binary's config-schema version; the running daemon ignores `[onboarding]` blocks with incompatible schema versions and re-triggers the flow under the current schema (`migrated: true` path).
 
 ## Example Flows
@@ -269,7 +269,7 @@ Payloads must not contain secret material (no tokens, no SPKI pin raw bytes — 
 - [ ] Self-host TLS fingerprint mismatch on reconnect refuses the connection and surfaces the recovery paths (reset or explicit `relay repin --force`) without silent re-trust.
 - [ ] Headless-no-TTY detection fails loud with the env-var instruction and exit 2; the env-var path produces byte-identical persisted state to the interactive path.
 - [ ] Partial state at `$XDG_STATE_HOME/ai-sidekicks/onboarding.partial.json` (fallback `$HOME/.local/state/ai-sidekicks/onboarding.partial.json`) allows resume across daemon restart and clears on success, reset, or 24-hour staleness.
-- [ ] `onboarding.choice_made` and `onboarding.choice_reset` events are emitted with the payload shapes defined here; both events are registered in Spec-006 via a follow-up BL (same pattern as BL-084) before V1 acceptance.
+- [ ] `onboarding.choice_made` and `onboarding.choice_reset` events are emitted with the payload shapes defined here; registration in Spec-006 under `onboarding_lifecycle` landed via BL-086 (completed 2026-04-18).
 
 ## ADR Triggers
 
@@ -313,8 +313,8 @@ Payloads must not contain secret material (no tokens, no SPKI pin raw bytes — 
 | OWASP Certificate and Public Key Pinning | <https://owasp.org/www-community/controls/Certificate_and_Public_Key_Pinning> | 2026-04-17 |
 | `@napi-rs/keyring` (v1.2.0, Node-native OS keystore) | <https://github.com/napi-rs/node-keyring> | 2026-04-17 |
 
-### Related follow-up BLs
+### Related BLs (completed)
 
 - BL-082 — Plan-026 implementation plan (this spec's plan counterpart).
-- BL-084 — register `arbitration.paused` / `arbitration.resumed` events in Spec-006 (pattern this spec's event additions follow).
-- BL-086 — register `onboarding.choice_made` / `onboarding.choice_reset` in Spec-006.
+- BL-084 — `arbitration.paused` / `arbitration.resumed` events registered in Spec-006 `channel_arbitration` category (completed 2026-04-18).
+- BL-086 — `onboarding.choice_made` / `onboarding.choice_reset` registered in Spec-006 `onboarding_lifecycle` category (completed 2026-04-18).

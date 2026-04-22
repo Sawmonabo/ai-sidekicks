@@ -19,6 +19,23 @@ These invariants apply to every subsequent `CREATE TABLE` in this schema. Downst
 
 ---
 
+## Participants Identity Anchor (Plan-001)
+
+**Migration-order invariant:** Plan-001's first shared Postgres migration creates the minimal `participants` identity-anchor row shape below, **before** any FK-bearing shared table is created. This is required because `session_memberships.participant_id`, `session_invites.inviter_id`, and `runtime_node_attachments.participant_id` all `REFERENCES participants(id)`, and Plan-001/002/003 execute before Plan-018 per [cross-plan-dependencies.md](../cross-plan-dependencies.md). Plan-018 extends this anchor with identity/profile columns and side tables via additive ALTER migrations — see [Participants and Identity (Plan-018)](#participants-and-identity-plan-018) below.
+
+```sql
+-- Owner: Plan-001 (minimal identity anchor for FK resolution)
+-- Extended by: Plan-018 (identity/profile columns via ALTER TABLE — see below)
+CREATE TABLE participants (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+```
+
+The anchor contains only the stable, non-PII fields needed for referential integrity. Plan-018 adds identity-specific columns (`display_name`, `identity_ref`, `metadata`) and the `identity_mappings` side table. No participant rows are inserted before Plan-018's registration flow lands — the anchor table exists only so FK constraints in Plan-001/002/003 tables can be declared at migration time.
+
+---
+
 ## Sessions and Membership (Plan-001, Plan-002)
 
 ```sql
@@ -97,15 +114,16 @@ CREATE INDEX idx_session_invites_state ON session_invites(state) WHERE state = '
 
 ## Participants and Identity (Plan-018)
 
+Plan-018 extends the [Plan-001 Participants Identity Anchor](#participants-identity-anchor-plan-001) with identity/profile columns via additive ALTER migrations, and adds the `identity_mappings` side table. The base `participants(id, created_at)` table is already present from Plan-001's first migration — Plan-018 does not re-create it.
+
 ```sql
--- Owner: Plan-018
-CREATE TABLE participants (
-  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  display_name    TEXT NOT NULL,
-  identity_ref    TEXT NOT NULL UNIQUE,          -- stable identity reference (e.g. email, OAuth sub)
-  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-  metadata        JSONB NOT NULL DEFAULT '{}'    -- extensible profile data
-);
+-- Owner: Plan-018 (additive extension of the Plan-001 participants anchor)
+-- Strategy: add columns as NULL-able, backfill from Plan-018 registration flow, then
+-- ALTER COLUMN ... SET NOT NULL in a follow-up migration once backfill completes.
+ALTER TABLE participants
+  ADD COLUMN display_name TEXT,                  -- set NOT NULL after backfill
+  ADD COLUMN identity_ref TEXT UNIQUE,           -- set NOT NULL after backfill
+  ADD COLUMN metadata     JSONB NOT NULL DEFAULT '{}';
 
 CREATE INDEX idx_participants_identity ON participants(identity_ref);
 
