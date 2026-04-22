@@ -45,7 +45,7 @@ V1 ships with **two deployment options** over a **single codebase** under a **pe
 1. **Free self-hosted (OSS).** Users obtain the product via `git clone`, `npm install`, Homebrew formula, or direct release-binary download. The daemon defaults to a **project-operated free public relay** at a published URL so first-run collaboration is zero-configuration. Users can override via config (`RELAY_URL=…` or `--relay-url=…`) to point at their own self-hosted relay. Community-supported via GitHub Issues and Security Advisories; no SLA.
 2. **Hosted SaaS.** The project operates the same codebase as a managed service at a separate URL. Users sign up, receive a scoped token, and their daemons point at the hosted control plane. Vendor-supported for paying customers.
 
-The two options share one codebase and one 16-feature V1 surface (no feature-gating between free and hosted in V1).
+The two options share one codebase and one 17-feature V1 surface (no feature-gating between free and hosted in V1).
 
 ### License
 
@@ -160,7 +160,7 @@ The QA-matrix cost is structurally limited by the decision to put both relay bac
 - Category-positioning matches developer-tool norm; OSS-first signal to the target audience from day one.
 - Any user can `git clone` and invite a collaborator with zero configuration (the default free relay delivers this).
 - Hosted SaaS serves users who prefer managed, using the same codebase so engineering effort is not fragmented.
-- Single 16-feature surface in both options; no feature-gating complexity.
+- Single 17-feature surface in both options; no feature-gating complexity.
 - Shared protocol contract between Cloudflare-DO and Node-relay backends contains the QA-matrix cost.
 - License choice (permissive) signals open contribution and matches the category norm.
 
@@ -221,7 +221,7 @@ The QA-matrix cost is structurally limited by the decision to put both relay bac
 
 - [ADR-002: Local Execution, Shared Control Plane](./002-local-execution-shared-control-plane.md) — trust-boundary framing that makes the self-host + hosted split coherent.
 - [ADR-004: SQLite Local State, Postgres Control Plane](./004-sqlite-local-state-and-postgres-control-plane.md) — persistence layer shared across both deployment options.
-- [ADR-015: V1 Feature Scope Definition](./015-v1-feature-scope-definition.md) — the 16-feature V1 surface that both deployment options ship.
+- [ADR-015: V1 Feature Scope Definition](./015-v1-feature-scope-definition.md) — the 17-feature V1 surface that both deployment options ship.
 
 ### Related Docs
 

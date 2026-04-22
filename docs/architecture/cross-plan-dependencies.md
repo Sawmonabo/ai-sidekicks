@@ -43,7 +43,7 @@ All other tables have a single owning plan. See `docs/plans/NNN-*.md` Data And S
 | Plan-014 | `artifact_manifests`, `artifact_payload_refs` (SQLite) |
 | Plan-015 | `replay_cursors`, `recovery_checkpoints` (SQLite) |
 | Plan-016 | `channels`, `run_links` (SQLite) |
-| Plan-017 | `workflow_definitions`, `workflow_versions`, `workflow_runs`, `workflow_phase_states` (SQLite) |
+| Plan-017 | `workflow_definitions`, `workflow_versions`, `workflow_runs`, `workflow_phase_states`, `phase_outputs`, `workflow_gate_resolutions`, `parallel_join_state`, `workflow_channels`, `human_phase_form_state` (SQLite; full 9-table Pass G §2 schema per Spec-017 amendment SA-24 / BL-097) |
 | Plan-018 | `participants`, `identity_mappings` (Postgres) |
 | Plan-019 | `notification_preferences` (Postgres) |
 | Plan-020 | `health_snapshots` (Postgres) |
@@ -66,7 +66,7 @@ These directories or files are targeted by multiple plans. The owning plan creat
 | `packages/runtime-daemon/src/provider/runtime-binding-store.ts` | Plan-005 | Plan-015 | Plan-015 extends the store with recovery-aware persistence methods |
 | `packages/runtime-daemon/src/artifacts/` | Plan-014 | Plan-011 | Plan-011: `diff-artifact-service.ts` |
 | `packages/runtime-daemon/src/workspace/` | Plan-009 | Plan-010 | Plan-010: `execution-root-service.ts`, `execution-mode-service.ts` |
-| `apps/desktop/renderer/` | Plan-023 (creates the React + Vite renderer app at Tier 8) | Plan-009, Plan-011, Plan-012, Plan-013, Plan-014, Plan-016, Plan-019, Plan-026 (all Tier 8 or later, composed as renderer views) | Each extending plan adds renderer views as thin projections over the Spec-023 preload-bridge surface (`window.sidekicks`). Extending plans must not bypass the bridge to reach daemon or control-plane state directly. Plan-013's live timeline components land here under `src/timeline/` (Plan-013's Tier 8 placement is the earliest tier at which `apps/desktop/renderer/` exists). |
+| `apps/desktop/renderer/` | Plan-023 (creates the React + Vite renderer app at Tier 8) | Plan-009, Plan-011, Plan-012, Plan-013, Plan-014, Plan-016, Plan-017, Plan-019, Plan-026 (all Tier 8 or later, composed as renderer views) | Each extending plan adds renderer views as thin projections over the Spec-023 preload-bridge surface (`window.sidekicks`). Extending plans must not bypass the bridge to reach daemon or control-plane state directly. Plan-013's live timeline components land here under `src/timeline/` (Plan-013's Tier 8 placement is the earliest tier at which `apps/desktop/renderer/` exists). |
 | `packages/contracts/src/` | No single owner — single-file-per-contract convention | Plan-024 (`pty-host.ts` precedent), Plan-021 (`rate-limiter.ts`) | The directory is a shared home for cross-plan contract files. No two plans edit the same file, so no shared-resource conflict exists. |
 | `packages/crypto-paseto/` | Plan-025 (steps 1–4 first-deliverable — see Tier 5 co-dep carve-out in §5) | Plan-018 (PASETO v4.public issuer; imports this package to compile) | **Symmetric co-dep per Plan-025 §Risks And Blockers line 159.** Plan-025 formally depends on Plan-018's issuer key-publication surface, but the shared crypto primitive package must land first (from Plan-025) or Plan-018 cannot compile. Plan-025's first-four steps ship at Tier 5 alongside Plan-018; the rest of Plan-025 lands at Tier 7. |
 | `packages/pty-sidecar/` + 5 platform packages (`@ai-sidekicks/pty-sidecar-{win32-x64,darwin-arm64,darwin-x64,linux-x64,linux-arm64}`) | Plan-024 | Plan-005 (consumes the `PtyHost` contract from `packages/contracts/src/pty-host.ts`) | Plan-024 publishes the umbrella + platform packages via the esbuild-precedent `optionalDependencies` + `os`/`cpu` filter pattern. Plan-005 runtime bindings import the `PtyHost` contract, not the binary directly. |
@@ -102,7 +102,7 @@ Each dependency is annotated with its type:
 | Plan-015 | Plan-006 (event log replay) | spec-declared |
 | Plan-015 | Plan-001 (session events), Plan-004 (queue state recovery), Plan-005 (runtime binding restoration), Plan-012 (approval record recovery) | implementation-derived |
 | Plan-016 | Plan-001 (session core), Plan-004 (queue/steer orchestration) | spec-declared |
-| Plan-017 | Plan-016 (orchestration routing), Plan-004 (queue/steer) | spec-declared |
+| Plan-017 | Plan-006 (event taxonomy, integrity protocol), Plan-012 (approval records, Cedar policy), Plan-014 (artifact manifests, OWASP upload), Plan-015 (recovery, writer worker, replay), Plan-016 (channel lifecycle), Plan-004 (queue/steer) | spec-declared |
 | Plan-018 | Plan-002 (presence infrastructure) | spec-declared |
 | Plan-018 | Plan-025 (symmetric co-dep on `packages/crypto-paseto/` — Plan-025's first-deliverable must land before Plan-018 can compile; see §2 row and Tier 5 co-dep carve-out) | implementation-derived |
 | Plan-019 | Plan-013 (timeline visibility) | spec-declared |
@@ -127,7 +127,7 @@ Plan-001 ──────┬────────────────�
 
 Plan-005 ──────┬──────────────────────────────────────────┐
                │                                          │
-          Plan-004 ──── Plan-016 ──── Plan-017*      Plan-015
+          Plan-004 ──── Plan-016 ──── Plan-017       Plan-015
                │                                     ▲   ▲
                └─────────────────────────────────────┘   │
                                                           │
@@ -163,8 +163,6 @@ Plan-024 ──┘                   ▲
 Plan-006, Plan-008, Plan-025 ──┘
 ```
 
-Plan-017 in the diagram above is deferred to V1.1+ per [ADR-015](../decisions/015-v1-feature-scope-definition.md) / §V1.1+ Plans below; shown for architectural continuity only.
-
 ---
 
 ## 4. Plans With No Inter-Plan Dependencies
@@ -186,7 +184,7 @@ These plans depend only on domain models and architecture docs, not on other pla
 
 Implementation must follow this tier sequence. Plans in a tier can generally run in parallel, but some tiers contain intra-tier ordering noted in the Prerequisites column. All plans in a tier must complete before the next tier begins.
 
-V1 scope is 16 features per [ADR-015: V1 Feature Scope Definition](../decisions/015-v1-feature-scope-definition.md). All tiers below are the V1 tier set. Plans outside the V1 set are listed in the V1.1+ subsection after this table.
+V1 scope is 17 features per [ADR-015: V1 Feature Scope Definition](../decisions/015-v1-feature-scope-definition.md) (amended 2026-04-22 per BL-097 — workflow V1.1→V1). All tiers below are the V1 tier set. Plans outside the V1 set are listed in the V1.1+ subsection after this table.
 
 | Tier | Plans | Prerequisites | Shared Resources to Coordinate |
 | --- | --- | --- | --- |
@@ -197,7 +195,7 @@ V1 scope is 16 features per [ADR-015: V1 Feature Scope Definition](../decisions/
 | **5** | Plan-004, Plan-008, Plan-018, Plan-022, Plan-025 (steps 1–4 only — see co-dep carve-out below) | Plan-004 needs Plan-001 + Plan-005; Plan-008 needs Plan-001 + Plan-002; Plan-018 needs Plan-002 and `packages/crypto-paseto/` (from Plan-025 first-deliverable); Plan-022 needs Plan-001 + Plan-007 (implementation code paths; schema already forward-declared in Tier 1) | Plan-004 creates `queue_items`, `interventions`; Plan-008 extends `presence/`; Plan-018 extends `presence/`; Plan-025's first-deliverable publishes `packages/crypto-paseto/` that Plan-018 imports (see §2 co-dep row) |
 | **6** | Plan-009, Plan-010, Plan-012, Plan-016, Plan-021 | Plan-009 is standalone; Plan-010 needs Plan-009; Plan-012 is standalone; Plan-016 needs Plan-001 + Plan-004 (**V1 feature #16 Multi-Agent Channels per ADR-015**); Plan-021 needs Plan-008 + Plan-018 + Plan-007 (scope exclusion) | Plan-009 creates `workspace/` directory; Plan-010 extends `workspace/` and creates `branch_contexts`; Plan-021 creates `admin_bans`, `rate_limit_escalations` + `packages/contracts/src/rate-limiter.ts` |
 | **7** | Plan-011, Plan-014, Plan-015, Plan-025 (remaining steps) | Plan-011 needs Plan-010 + Plan-014; Plan-014 is standalone; Plan-015 needs Plans 001, 004, 005, 006, 012; Plan-025 remainder needs Plan-008 + Plan-018 + Plan-021 all complete | Plan-014 creates `artifacts/` directory; Plan-011 extends `artifacts/` and `branch_contexts`; Plan-025 publishes `packages/node-relay/` and the `docker-compose.yml` + operator runbook |
-| **8** | Plan-013, Plan-019, Plan-020, Plan-023 | Plan-013 needs Plan-006; Plan-019 needs Plan-013; Plan-020 needs Plan-015; Plan-023 needs Plan-007 + Plan-018 + Plan-008 + Plan-024 | Plan-013 extends `timeline/`; Plan-023 creates `apps/desktop/` (main + preload + `apps/desktop/renderer/`) — see §2 for the renderer subtree ownership map |
+| **8** | Plan-013, Plan-017, Plan-019, Plan-020, Plan-023 | Plan-013 needs Plan-006; Plan-017 needs Plan-006 + Plan-012 + Plan-014 + Plan-015 + Plan-016 + Plan-004 (all Tier 4–7 deps resolved by Tier 7 end); Plan-019 needs Plan-013; Plan-020 needs Plan-015; Plan-023 needs Plan-007 + Plan-018 + Plan-008 + Plan-024 | Plan-013 extends `timeline/`; Plan-017 creates 9-table workflow schema (see §1) + `packages/contracts/src/workflows/` and `packages/runtime-daemon/src/workflows/`; Plan-017 also extends `apps/desktop/renderer/` per §2 (workflow renderer subtree at `src/workflows/`); Plan-023 creates `apps/desktop/` (main + preload + `apps/desktop/renderer/`) — see §2 for the renderer subtree ownership map |
 | **9** | Plan-026 | Plan-026 needs Plan-023 + Plan-007 + Plan-025 + Plan-008 + Plan-006 | Plan-026 adds the `onboarding.*` namespace to the Spec-023 preload bridge, five `Onboarding*` IPC methods to Plan-007's JSON-RPC surface, and registers `onboarding.choice_made`/`choice_reset` in Plan-006's taxonomy (via BL-086) |
 
 ### Plan-025 / Plan-018 Symmetric Co-Dep Carve-Out (Tier 5)
@@ -208,9 +206,7 @@ Plan-025's `Dependencies` header declares Plan-018 as a dependency (PASETO issue
 
 Plans below are not part of V1 per ADR-015 and are **not** placed in the numbered tier sequence above. Their tier placement will be decided at V1.1 plan-authoring time, against the then-current V1 build state.
 
-| Plan | V1.1+ Disposition |
-| --- | --- |
-| Plan-017 | Workflow Authoring And Execution — deferred to V1.1 per [ADR-015 §V1 Feature Inventory](../decisions/015-v1-feature-scope-definition.md). Table ownership (`workflow_definitions`, `workflow_versions`, `workflow_runs`, `workflow_phase_states`) remains recorded in §1 Uncontested so V1.1 plan-authoring can pick up the same rows without re-deriving them. |
+No plans currently deferred to V1.1+ tier set. (Plan-017 was promoted to V1 per [ADR-015 Amendment 2026-04-22](../decisions/015-v1-feature-scope-definition.md#amendment-history) / BL-097; placed at Tier 8 above.)
 
 ### Spec-024 (V1 Gap — Implementation Plan Pending)
 

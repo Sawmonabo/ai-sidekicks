@@ -11,7 +11,7 @@
 
 ## Context
 
-AI Sidekicks is a collaborative operating system for AI coding sessions. Per [ADR-015](./015-v1-feature-scope-definition.md), V1 ships 16 features across two deployment options (OSS self-host plus hosted SaaS) on a single codebase. Session activity is modeled as events for replay, auditability, and determinism; [vision.md §Session Engine](../vision.md) names the product an "event-sourced engine where everything important is an event."
+AI Sidekicks is a collaborative operating system for AI coding sessions. Per [ADR-015](./015-v1-feature-scope-definition.md), V1 ships 17 features across two deployment options (OSS self-host plus hosted SaaS) on a single codebase. Session activity is modeled as events for replay, auditability, and determinism; [vision.md §Session Engine](../vision.md) names the product an "event-sourced engine where everything important is an event."
 
 The system already has a two-store split per [ADR-004: SQLite Local State and Postgres Control Plane](./004-sqlite-local-state-and-postgres-control-plane.md):
 

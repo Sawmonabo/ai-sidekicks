@@ -6,31 +6,34 @@
 | **NNN** | `017` |
 | **Slug** | `workflow-authoring-and-execution` |
 | **Date** | `2026-04-14` |
+| **Amended** | `2026-04-22` (full engine V1 per [BL-097](../backlog.md) / [ADR-015](../decisions/015-v1-feature-scope-definition.md) amendment — was V1.1-deferred-subset at original approval; absorbs SA-24/29/30/31 from [wave-2-synthesis.md §5](../research/bl-097-workflow-scope/wave-2-synthesis.md)) |
 | **Author(s)** | `Codex` |
 | **Spec** | [Spec-017: Workflow Authoring And Execution](../specs/017-workflow-authoring-and-execution.md) |
-| **Required ADRs** | [ADR-001](../decisions/001-session-is-the-primary-domain-object.md), [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md) |
-| **Dependencies** | [Plan-016](./016-multi-agent-channels-and-orchestration.md) (orchestration), [Plan-004](./004-queue-steer-pause-resume.md) (queue/steer) |
+| **Required ADRs** | [ADR-001](../decisions/001-session-is-the-primary-domain-object.md), [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md), [ADR-018](../decisions/018-cross-version-compatibility.md) |
+| **Dependencies** | [Plan-006](./006-session-event-taxonomy-and-audit-log.md) (event taxonomy, integrity protocol), [Plan-012](./012-approvals-permissions-and-trust-boundaries.md) (approval records, Cedar policy), [Plan-014](./014-artifacts-files-and-attachments.md) (artifact manifests, OWASP upload), [Plan-015](./015-persistence-recovery-and-replay.md) (recovery, writer worker, replay), [Plan-016](./016-multi-agent-channels-and-orchestration.md) (channel lifecycle), [Plan-004](./004-queue-steer-pause-resume.md) (queue/steer) |
 | **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
-| **References** | [Updated Spec-017](../specs/017-workflow-authoring-and-execution.md); Plan-017 deferred to V1.1+ per [ADR-015 §V1 Feature Inventory](../decisions/015-v1-feature-scope-definition.md) — see [cross-plan-dependencies.md §V1.1+ Plans](../architecture/cross-plan-dependencies.md#v11-plans-out-of-v1-tier-set) |
+| **References** | [Updated Spec-017](../specs/017-workflow-authoring-and-execution.md); [BL-097 Wave 2 Synthesis](../research/bl-097-workflow-scope/wave-2-synthesis.md) (SA-24/29/30/31); [Pass G Persistence](../research/bl-097-workflow-scope/pass-g-persistence-model.md); [Pass H Testing](../research/bl-097-workflow-scope/pass-h-testing-strategy.md) |
 
 ## Goal
 
-Implement versioned workflow definitions and durable workflow execution using the same session, run, approval, and artifact primitives as free-form collaboration.
+Implement versioned workflow definitions and durable workflow execution for the full V1 engine — four phase types, four gate types, parallel phases with named pools, and append-only hash-chained approval history — reusing existing session, run, approval, artifact, and recovery primitives.
 
 ## Scope
 
-This plan covers workflow definition persistence, versioning, workflow run state, phase execution, phase outputs, and workflow-level gate resolution.
+Workflow definition persistence (content-hashed, immutable versions), workflow run state, phase execution for all four V1 phase types (`single-agent`, `multi-agent`, `automated`, `human`), all four gate types, parallel phase execution with `ParallelJoinPolicy`, resource-pool admission, workflow-level gate resolution with per-run hash chain, OWN-only channel linkage, and replay-deterministic projection rebuild.
 
 ## Non-Goals
 
 - Marketplace or global workflow distribution
 - External workflow-engine integration
-- Final workflow editor polish
+- Workflow editor polish beyond V1 ambition
+- BIND channel ownership (V1.1 criterion-gated per ADR-015)
+- Cross-node workflow dispatch (Spec-024 V1.1)
 
 ## Preconditions
 
-- [x] Paired spec is approved
-- [x] Required ADRs are accepted
+- [x] Paired spec is approved (amended 2026-04-22 for full-engine V1)
+- [x] Required ADRs are accepted (ADR-015 amended 2026-04-22)
 - [x] Blocking open questions are resolved or explicitly deferred
 
 Target paths below assume the canonical implementation topology defined in [Container Architecture](../architecture/container-architecture.md).
@@ -41,62 +44,105 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - `packages/runtime-daemon/src/workflows/workflow-definition-service.ts`
 - `packages/runtime-daemon/src/workflows/workflow-run-service.ts`
 - `packages/runtime-daemon/src/workflows/phase-executor.ts`
+- `packages/runtime-daemon/src/workflows/parallel-join-resolver.ts`
+- `packages/runtime-daemon/src/workflows/resource-pool-admitter.ts`
+- `packages/runtime-daemon/src/workflows/gate-chain-writer.ts`
+- `packages/runtime-daemon/src/workflows/gate-chain-verifier.ts`
 - `packages/runtime-daemon/src/workflows/workflow-projector.ts`
+- `packages/runtime-daemon/src/workflows/human-phase-form-service.ts`
 - `packages/client-sdk/src/workflowClient.ts`
 - `apps/desktop/renderer/src/workflows/`
 
 ## Data And Storage Changes
 
-- Add durable `workflow_definitions`, `workflow_versions`, `workflow_runs`, `workflow_phase_states`, and workflow-gate records.
-- Store phase outputs as artifact references or equivalent durable output records linked back to workflow version and phase id.
-- Keep workflow definitions and versions as first-class persisted records rather than artifact manifests. Any workflow export artifact remains derivative only.
-- See [Local SQLite Schema](../architecture/schemas/local-sqlite-schema.md) for column definitions.
+- Add the 9-table workflow schema per [Local SQLite Schema §Workflow Tables](../architecture/schemas/local-sqlite-schema.md#workflow-tables-plan-017) (SA-24): `workflow_definitions`, `workflow_versions`, `workflow_runs`, `workflow_phase_states`, `phase_outputs`, `workflow_gate_resolutions`, `parallel_join_state`, `workflow_channels`, `human_phase_form_state`.
+- Source-of-truth hierarchy (SA-25): `session_events` remains canonical; tables 1/2/5/6 are immutable truth, 3/4/7/8/9 are projections rebuildable via Plan-015 `ProjectionRebuild`.
+- `workflow_gate_resolutions` carries a per-run BLAKE3 hash chain anchored to `session_events` via dual-anchor payload (`gate_resolution_id` + `row_hash`) on the `workflow.gate_resolved` event (SA-26). Dual-hash: BLAKE3 for daemon-internal identity, SHA-256 reserved for Plan-014 artifact content (SA-27).
+- `human_phase_form_state` ships empty at V1; clients persist drafts via localStorage/IndexedDB per [Pass C §3](../research/bl-097-workflow-scope/pass-c-human-phase-ux.md). Table reserved for V1.x daemon-side fallback (SA-28).
+- See [Local SQLite Schema](../architecture/schemas/local-sqlite-schema.md) for column definitions, index rationale, and write-amplification estimates.
 
 ## API And Transport Changes
 
-- Add `WorkflowDefinitionCreate`, `WorkflowDefinitionRead`, `WorkflowRunStart`, `PhaseOutputRead`, and `WorkflowGateResolve` to shared contracts and the typed client SDK.
-- Carry workflow version ids, phase ids, and gate states through timeline and run-link events so workflow history remains replayable.
+- Add `WorkflowDefinitionCreate`, `WorkflowDefinitionRead`, `WorkflowVersionRead`, `WorkflowRunStart`, `WorkflowRunRead`, `PhaseOutputRead`, `WorkflowGateResolve`, `HumanPhaseFormDraftSave`, `HumanPhaseFormSubmit`, and `WorkflowGateChainVerify` to shared contracts and the typed client SDK.
+- Carry workflow version ids, `phase_run_id`s (which double as the channel-owning phase id per SA-6), gate states, and parallel-join resolution through timeline events per [Pass F event taxonomy](../research/bl-097-workflow-scope/pass-f-event-taxonomy.md) — 5 categories, 23 event types.
+- Event payload schemas evolve additive-MINOR per [ADR-018](../decisions/018-cross-version-compatibility.md); the `row_hash` + `gate_resolution_id` fields on `workflow.gate_resolved` are such an addition (Pass G §5).
 
 ## Implementation Steps
 
 - Contracts: See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed schemas this plan consumes.
 
 1. Define workflow-definition, version, phase-state, gate, and definition-read contracts in shared packages.
-   - Full type hierarchy: `WorkflowDefinition`, `WorkflowVersion`, `WorkflowPhaseDefinition`, `WorkflowRun`, `WorkflowPhaseRun`.
+   - Full type hierarchy: `WorkflowDefinition`, `WorkflowVersion`, `WorkflowPhaseDefinition`, `WorkflowRun`, `WorkflowPhaseRun`, `PhaseOutput`, `WorkflowGateResolution`, `ParallelJoinState`.
    - All 4 gate types: `auto-continue`, `quality-checks`, `human-approval`, `done`.
-   - Entity separation: `WorkflowPhaseId` (identifies a phase in the definition) vs `PhaseRunId` (identifies a specific execution instance with iteration number, status, timestamps).
-   - Failure behaviors per phase: `retry`, `go-back-to`, `stop`.
-2. Implement durable workflow definition versioning and workflow-run persistence in the daemon. Persistence uses the LangGraph checkpoint pattern on the existing SQLite store (per Spec-015). No external workflow engines.
-3. Implement phase execution, gate resolution, and restart-safe workflow resumption. V1 scope: `single-agent` and `automated` phase types only (`multi-agent` and `human` deferred to V1.1). Phase execution routes through `OrchestrationRunCreate` per Spec-016/017 constraints.
-4. Add desktop workflow authoring and workflow-run visibility surfaces backed by the shared client SDK.
+   - Entity separation: `WorkflowPhaseId` (logical phase in the definition) vs `PhaseRunId` (specific execution instance: ULID that also anchors channel OWN 1:1 per SA-6). `PhaseRunId` derived via `BLAKE3(workflowRunId || phaseDefinitionId || attemptNumber)` per SA-21.
+   - Failure behaviors per phase: `retry` (new attempt row, C-9), `go-back-to` (bounded by `max_phase_transitions`), `stop`.
+2. Implement durable workflow definition versioning and workflow-run persistence. Definition bodies are content-hashed via BLAKE3 over RFC 8785 JCS canonicalization; schema-version marker enforced by CHECK (C-8). All writes route through the Plan-015 single writer worker (50-event / 10 ms batch cadence).
+3. Implement phase execution for all four V1 phase types:
+   - `single-agent` — one agent, one driver adapter; inherits Plan-015 runtime-binding restore + `command_receipts` idempotency.
+   - `multi-agent` — OWN channel 1:1 via `workflow_channels`; cancel cascade honors `CLOSE_WITH_RECORDS_PRESERVED` with a 30s grace window (SA-9). Per-turn moderation gate fires per Plan-012.
+   - `automated` — subtype routes `auto-continue` / `quality-checks` / `done`; `quality-checks` writes a gate-resolution row.
+   - `human` — form submission writes `phase_outputs` with `value_kind='artifact_ref'` when upload fields present (C-16). `human_phase_contribution` approval category (SA-12) covers non-approval phase submissions. Default timeout semantics per ADR-015 Decision D1: `timeout: "none" | Duration` with no default.
+4. Implement `ParallelJoinPolicy` resolver (SA-4): `fail-fast` / `all-settled` / `any-success`. Cancel cascade is tick-synchronous; `cancel_wave_tick` on `parallel_join_state` records the executor tick for audit. Resource-pool admission enforces `agent_memory_mb` + `pty_slots` pools with SA-3 defaults.
+5. Implement workflow-gate resolution with append-only hash chain:
+   - Writer-worker-only INSERTs to `workflow_gate_resolutions`; per-run `sequence` monotonic from 1.
+   - `row_hash = BLAKE3(prev_hash || JCS-canonical(row_body))`; Ed25519 daemon signature over same bytes; optional approver signature.
+   - Dual-anchor: every row paired with a `session_events` row (category `workflow_gate_resolution`) carrying `gate_resolution_id` + `row_hash` in payload (SA-26 / Pass G §5).
+6. Implement restart-safe workflow resumption and `ProjectionRebuild` integration: projection tables rebuildable from `session_events` via Plan-015; hash-chain replay re-verifies each row in `sequence` order and halts on `chain_break_detected` per [Pass G §5](../research/bl-097-workflow-scope/pass-g-persistence-model.md).
+7. Add `sidekicks workflow verify-gate-chain <run_id>` CLI subcommand exposing the dual-anchor verification procedure.
+8. Add desktop workflow authoring, run-detail, and human-phase form surfaces backed by the shared client SDK. Human-phase drafts use localStorage/IndexedDB at V1.
 
 ## Parallelization Notes
 
-- Definition-versioning work and workflow-run persistence can proceed in parallel once contract ids and phase semantics are fixed.
+- Definition-versioning work, workflow-run persistence, and the gate-chain writer can proceed in parallel once contracts are fixed.
 - UI work should wait for phase-output and restart-resume semantics to stabilize.
+- `parallel-join-resolver` and `resource-pool-admitter` are independent of the gate-chain path.
 
 ## Test And Verification Plan
 
-- Versioning tests proving running workflow instances stay pinned to the version they started on
-- Restart and reconnect tests proving workflow phase state and gates survive daemon recovery
-- Phase-output tests proving durable artifact references remain readable after workflow completion
-- Definition-read tests proving workflow execution resolves from canonical definition records rather than derivative artifact exports
+Five test categories per [Pass H §1](../research/bl-097-workflow-scope/pass-h-testing-strategy.md) (SA-29). Each carries a V1 *ambition level* so the category can be stop-marked independently.
+
+| Category | Covers | V1 Ambition | CI Cadence |
+| --- | --- | --- | --- |
+| Property-based (`fast-check`) | DAG acyclicity, ready-set determinism, `max_phase_transitions` / `max_duration`, `ParallelJoinPolicy` semantics, retry-re-entry stability | **Hardened** — adversarial + concurrency | PR (numRuns=100); nightly (numRuns=10 000) |
+| Fuzz (`@jazzer.js/core` v4.x) | Workflow-definition parser, expression grammar (I2), secrets resolver (I4) | **Foundational+** — 15 min/target PR; 2 h/target nightly | PR (15m) + nightly (2h) |
+| Load | Parallel executor contention, resource-pool admission, `max_concurrent_phases` backstop, SQLite write-amp | **Foundational** — baseline regression only, no SLO gate | Nightly |
+| Long-running integration (`@playwright/test` + real daemon) | Multi-day `human` phase resume, checkpoint/replay determinism, multi-agent channel lifecycle, optimistic-concurrency on human submit | **Hardened** — compressed-time nightly + real-time weekly | Nightly (compressed) + weekly (real-time) |
+| Security regression | Per-invariant I1–I7 battery with CVE-reproducer corpora (SA-30) | **Hardened** — full battery gates merge | PR + merge |
+
+**Security regression battery (SA-30) — per-invariant CVE corpora:**
+
+| Invariant | Assertion | CVE / source seed |
+| --- | --- | --- |
+| I1 — argv-list-only execution | Semgrep rule bans `exec`/`shell:true`; dynamic test proves shell metachars reach argv unshelled | Generic shell-injection corpus |
+| I2 — typed substitution, no eval | Every expression payload either parses to whitelisted AST or throws `ExpressionParseError` | n8n [CVE-2025-68613](https://github.com/advisories/GHSA-wfw3-33mq-9c84); Airflow [CVE-2024-39877](https://nvd.nist.gov/vuln/detail/CVE-2024-39877); Airflow [CVE-2024-56373](https://nvd.nist.gov/vuln/detail/CVE-2024-56373); Jenkins `CVE-2024-34144` / `CVE-2024-34145` |
+| I3 — typed approver capability | Cedar capability check; admin override logged as distinct entry kind | Plan-012 policy corpus |
+| I4 — secrets never in argv/logs/artifacts | Canary secret never appears raw / base64 / URL-encoded / JSON-stringified | Airflow `#54540` masker-bypass reproducer |
+| I5 — content-addressed external refs | Mutating pinned tool bytes yields `ContentHashMismatch` | GitHub Actions v3→v4 artifact mutability precedent |
+| I6 — human-phase OWASP uploads | Zip bomb, polyglot, symlink-traversal, oversize, mismatched Content-Type all quarantined | Argo [CVE-2025-66626](https://nvd.nist.gov/vuln/detail/CVE-2025-66626); [OWASP File Upload Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html) |
+| I7 — append-only hash-chained approval log | Row-level tampering detected at daemon start; replay uses at-approval-time policy | Crosby & Wallach 2009 flat-chain pattern; Spec-006 integrity protocol |
+
+**Replay-testing contract (SA-31).** Temporal `runReplayHistory` pattern: replay executor consumes `session_events` history and asserts `DeterminismViolationError` is not thrown; final state is `deepEqual` to original. Every Pass F event type has at least one replay-correctness test ([Temporal TS SDK testing](https://docs.temporal.io/develop/typescript/testing-suite)).
+
+**CI budget.** PR pipeline ≤ 30 min wall-clock; nightly ≤ 8 h; weekly unbounded real-time integration. Fuzz crashers are minimized, checked in under `corpus/<target>/regressions/`, and promoted to named `vitest` regression tests.
 
 ## Rollout Order
 
-1. Land workflow definition and versioning contracts plus persistence
-2. Enable sequential workflow execution and workflow-gate handling
-3. Enable authoring surfaces and explicit parallel-phase execution where the definition allows it
+1. Land workflow definition + version contracts, 9-table schema, and writer-worker integration.
+2. Enable sequential execution for `single-agent` + `automated` phases with the four gate types and gate-chain writer.
+3. Enable `multi-agent` phase with OWN channel linkage + `human` phase with local-draft UX.
+4. Enable parallel phase execution with resource-pool admission and `ParallelJoinPolicy`.
+5. Enable authoring surfaces and run-detail UI.
 
 ## Rollback Or Fallback
 
-- Disable workflow editing and keep execution to a smaller internal-definition set if versioning or resumption behavior regresses.
+- If parallel execution or gate-chain writer regresses, disable parallel blocks and restrict to sequential `single-agent` + `automated` — the engine still satisfies C-1…C-7 for V1 partial rollout.
+- If `human_phase_form_state` daemon-side fallback is needed before V1.x, ship the empty table is already in place; enabling only requires a writer path without migration.
 
 ## Risks And Blockers
 
-- Global workflow libraries remain out of scope and unresolved for the first implementation
-- Workflow execution can drift from core session or run semantics if phase state is not modeled as durable product state
-- Workflow exports can create confusion if the product blurs derivative artifact copies with the canonical definition store
+- Write amplification under pathological `progressed` heartbeat floods — Pass G §7 load tests in V1.x will calibrate the executor rate-limit.
+- Per-run gate-chain verification cost scales linearly (~1 ms/row) — acceptable for operator-triggered audit; not in the hot path.
+- Non-determinism in replay if driver adapters leak wall-clock or random seed state — Plan-015 runtime-binding resume is the guard; Pass H §5.2 replay test is the regression.
 
 ## Done Checklist
 

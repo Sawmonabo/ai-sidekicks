@@ -385,56 +385,301 @@ CREATE INDEX idx_remembered_rules_participant ON remembered_approval_rules(parti
 
 ## Workflow Tables (Plan-017)
 
+Full workflow-engine V1 schema per [BL-097 Wave 2 Pass G](../../research/bl-097-workflow-scope/pass-g-persistence-model.md). Nine tables implement the 10-state phase machine, append-only hash-chained gate history (C-13/I7), parallel-join bookkeeping, and OWN-only channel linkage. `session_events` remains canonical truth; tables 3/4/7/8/9 are rebuildable projections, and 1/2/5/6 are immutable truth (6 additionally carries a per-run BLAKE3 chain).
+
 ```sql
+-- ========================================================================
+-- 1. workflow_definitions — content-hashed, immutable, schema-versioned
+-- ========================================================================
 -- Owner: Plan-017
+-- Wave-1 commitments: C-1 (YAML + TS SDK), C-8 (schema version marker)
 CREATE TABLE workflow_definitions (
-  id              TEXT PRIMARY KEY,
-  session_id      TEXT NOT NULL,
-  name            TEXT NOT NULL,
-  scope           TEXT NOT NULL DEFAULT 'session', -- 'session' or 'channel'
-  created_at      TEXT NOT NULL,
-  updated_at      TEXT NOT NULL
+  id                   TEXT PRIMARY KEY,               -- ULID; NOT the content hash
+  session_id           TEXT NOT NULL,                  -- owning session
+  name                 TEXT NOT NULL,                  -- author-facing name
+  scope                TEXT NOT NULL DEFAULT 'session'
+                       CHECK(scope IN ('session','channel')),
+  content_hash         TEXT NOT NULL,                  -- BLAKE3 over JCS-canonicalized definition body
+  schema_version       TEXT NOT NULL                   -- `ai-sidekicks-schema: 1.0` per C-8
+                       CHECK(schema_version GLOB '[0-9]*.[0-9]*'),
+  definition_body      TEXT NOT NULL,                  -- JSON (canonicalized per RFC 8785); full author-supplied definition
+  created_at           TEXT NOT NULL,
+  created_by           TEXT,                           -- participant_id
+  UNIQUE(session_id, content_hash)                     -- dedupe identical submissions
 );
 
 CREATE INDEX idx_workflow_definitions_session ON workflow_definitions(session_id);
+CREATE INDEX idx_workflow_definitions_content_hash ON workflow_definitions(content_hash);
 
+-- Note: `updated_at` intentionally absent — definitions are immutable by C-9/F13 convention.
+-- Edits create a new row in workflow_versions referencing this row as a parent.
+
+-- ========================================================================
+-- 2. workflow_versions — definition history chain (F13 additive versioning)
+-- ========================================================================
 -- Owner: Plan-017
+-- Wave-1 commitments: F13 / C-8 version-API-at-V1 (Pass D §2.2)
 CREATE TABLE workflow_versions (
-  id                TEXT PRIMARY KEY,
-  definition_id     TEXT NOT NULL REFERENCES workflow_definitions(id),
-  version_number    INTEGER NOT NULL,
-  phase_definitions TEXT NOT NULL DEFAULT '[]', -- JSON array of phase configs
-  created_at        TEXT NOT NULL,
-  UNIQUE(definition_id, version_number)
+  id                   TEXT PRIMARY KEY,               -- ULID
+  definition_id        TEXT NOT NULL REFERENCES workflow_definitions(id),
+  version_number       INTEGER NOT NULL,               -- monotonic per definition_id
+  parent_version_id    TEXT REFERENCES workflow_versions(id), -- NULL at version_number=1
+  parent_content_hash  TEXT,                           -- BLAKE3 of parent definition body; NULL at version 1
+  content_hash         TEXT NOT NULL,                  -- BLAKE3 of THIS version's body
+  phase_definitions    TEXT NOT NULL DEFAULT '[]',     -- JSON array of phase configs
+  author_note          TEXT,                           -- opt-in changelog message
+  created_at           TEXT NOT NULL,
+  created_by           TEXT,                           -- participant_id
+  UNIQUE(definition_id, version_number),
+  UNIQUE(content_hash)                                 -- dedupe across definitions too
 );
 
+CREATE INDEX idx_workflow_versions_definition ON workflow_versions(definition_id, version_number DESC);
+CREATE INDEX idx_workflow_versions_parent ON workflow_versions(parent_version_id)
+  WHERE parent_version_id IS NOT NULL;
+
+-- ========================================================================
+-- 3. workflow_runs — top-level run state; counters and deadlines
+-- ========================================================================
 -- Owner: Plan-017
+-- Wave-1 commitments: SA-1 (max_phase_transitions), SA-2 (max_duration), SA-3 (resource pools)
 CREATE TABLE workflow_runs (
-  id                    TEXT PRIMARY KEY,
-  workflow_version_id   TEXT NOT NULL REFERENCES workflow_versions(id),
-  session_id            TEXT NOT NULL,
-  state                 TEXT NOT NULL DEFAULT 'pending'
-                        CHECK(state IN ('pending', 'running', 'completed', 'failed', 'canceled')),
-  started_at            TEXT,
-  completed_at          TEXT
+  id                        TEXT PRIMARY KEY,          -- ULID
+  workflow_version_id       TEXT NOT NULL REFERENCES workflow_versions(id),
+  session_id                TEXT NOT NULL,
+  status                    TEXT NOT NULL DEFAULT 'pending'
+                            CHECK(status IN (
+                              'pending','running','suspended','completed','failed','cancelled'
+                            )),
+  -- SA-1 iteration counter
+  phase_transitions_count   INTEGER NOT NULL DEFAULT 0,
+  max_phase_transitions     INTEGER NOT NULL DEFAULT 100, -- SA-1 default
+  -- SA-2 duration deadline
+  started_at                TEXT,                      -- RFC 3339 UTC
+  deadline_at               TEXT,                      -- started_at + max_duration (computed at start)
+  max_duration_ms           INTEGER NOT NULL DEFAULT 86400000, -- SA-2 default 24h
+  completed_at              TEXT,
+  -- SA-3 pool reservations (snapshot only; pool runtime state is ephemeral and NOT persisted)
+  pool_reservations_snapshot TEXT NOT NULL DEFAULT '{}', -- JSON: {pty_slots: n, agent_memory_mb: n}
+  -- Result
+  failure_reason            TEXT,                       -- null unless status in ('failed','cancelled')
+  failure_detail            TEXT,                       -- JSON; includes cancellation_reason per Pass F
+  created_at                TEXT NOT NULL,
+  created_by                TEXT,                       -- participant_id or trigger
+  CHECK(phase_transitions_count <= max_phase_transitions),
+  CHECK(max_duration_ms > 0)
 );
 
 CREATE INDEX idx_workflow_runs_session ON workflow_runs(session_id);
+CREATE INDEX idx_workflow_runs_status ON workflow_runs(status)
+  WHERE status IN ('pending','running','suspended');
+CREATE INDEX idx_workflow_runs_deadline ON workflow_runs(deadline_at)
+  WHERE status IN ('running','suspended') AND deadline_at IS NOT NULL;
+CREATE INDEX idx_workflow_runs_version ON workflow_runs(workflow_version_id);
 
+-- ========================================================================
+-- 4. workflow_phase_states — per-phase state machine projection
+-- ========================================================================
 -- Owner: Plan-017
+-- Wave-1 commitments: 10-state machine from Wave-1 §7.1 / Pass F scope
+-- Phase types cover all four V1 types: single-agent, multi-agent, automated, human
+-- (`automated` subtype `auto-continue`/`done`/`quality-checks`; `human` subtype `human-approval`/`human`)
 CREATE TABLE workflow_phase_states (
-  id                TEXT PRIMARY KEY,
-  workflow_run_id   TEXT NOT NULL REFERENCES workflow_runs(id),
-  phase_id          TEXT NOT NULL,            -- references phase_definitions JSON key
-  state             TEXT NOT NULL DEFAULT 'pending'
-                    CHECK(state IN ('pending', 'running', 'completed', 'failed', 'skipped')),
-  gate_state        TEXT DEFAULT 'closed'
-                    CHECK(gate_state IN ('closed', 'open', 'bypassed')),
-  started_at        TEXT,
-  completed_at      TEXT,
-  UNIQUE(workflow_run_id, phase_id)
+  id                      TEXT PRIMARY KEY,            -- ULID; also the phase_run_id used by Pass B channels
+  workflow_run_id         TEXT NOT NULL REFERENCES workflow_runs(id),
+  phase_id                TEXT NOT NULL,               -- logical phase id from workflow_versions.phase_definitions
+  phase_type              TEXT NOT NULL
+                          CHECK(phase_type IN (
+                            'single-agent','multi-agent','auto-continue','done',
+                            'human-approval','human','quality-checks','gate','terminal'
+                          )),
+  -- 10-state machine per Wave-1 §7.1 / Pass F
+  state                   TEXT NOT NULL DEFAULT 'admitted'
+                          CHECK(state IN (
+                            'admitted','waiting_on_pool','started','progressed',
+                            'suspended','resumed','cancelling','failed','completed','retried'
+                          )),
+  attempt_number          INTEGER NOT NULL DEFAULT 1,  -- 1..max_retries; retry creates new row per C-9
+  -- Parent-sibling (for parallel blocks)
+  parallel_join_id        TEXT REFERENCES parallel_join_state(id), -- NULL unless under a parallel join
+  -- Timing
+  admitted_at             TEXT NOT NULL,
+  started_at              TEXT,
+  progressed_at           TEXT,                        -- most recent progress heartbeat
+  completed_at            TEXT,
+  -- Failure & cancellation
+  failure_reason          TEXT,
+  cancellation_reason     TEXT
+                          CHECK(cancellation_reason IS NULL
+                                OR cancellation_reason IN ('sibling_failure','deadline_exceeded','user_cancel','gate_rejected')),
+  -- Pool reservation (transient; for crash recovery decision)
+  pool_reservation        TEXT,                        -- JSON {pty_slots: n, agent_memory_mb: n}; NULL after release
+  -- Resume metadata
+  resume_cursor           TEXT,                        -- opaque; for driver adapter; see Plan-015 recovery
+  last_event_sequence     INTEGER,                     -- session_events.sequence projected from at rebuild
+  UNIQUE(workflow_run_id, phase_id, attempt_number)    -- retry creates new attempt row per C-9
 );
+
+CREATE INDEX idx_workflow_phase_states_run ON workflow_phase_states(workflow_run_id);
+CREATE INDEX idx_workflow_phase_states_active ON workflow_phase_states(workflow_run_id, state)
+  WHERE state IN ('admitted','waiting_on_pool','started','progressed','suspended','cancelling');
+CREATE INDEX idx_workflow_phase_states_parallel ON workflow_phase_states(parallel_join_id)
+  WHERE parallel_join_id IS NOT NULL;
+
+-- ========================================================================
+-- 5. phase_outputs — immutable per C-9; retry creates new output identity
+-- ========================================================================
+-- Owner: Plan-017
+-- Wave-1 commitment: C-9 output immutability; GitHub Actions v3→v4 artifact-API lesson
+CREATE TABLE phase_outputs (
+  id                      TEXT PRIMARY KEY,            -- ULID; content-stable identity
+  phase_run_id            TEXT NOT NULL REFERENCES workflow_phase_states(id),
+  workflow_run_id         TEXT NOT NULL REFERENCES workflow_runs(id), -- denormalized for index
+  output_name             TEXT NOT NULL,               -- name within the phase's output contract
+  value_kind              TEXT NOT NULL
+                          CHECK(value_kind IN ('scalar','json','artifact_ref','agent_transcript_ref')),
+  value_json              TEXT,                        -- primitive/JSON payload; NULL when value_kind=artifact_ref
+  artifact_manifest_id    TEXT REFERENCES artifact_manifests(id), -- Plan-014 integration; NULL unless value_kind=artifact_ref
+  content_hash            TEXT NOT NULL,               -- BLAKE3 of canonicalized output bytes (for dedupe + replay check)
+  created_at              TEXT NOT NULL,
+  UNIQUE(phase_run_id, output_name)                    -- outputs are write-once per attempt
+);
+
+CREATE INDEX idx_phase_outputs_run ON phase_outputs(workflow_run_id);
+CREATE INDEX idx_phase_outputs_phase ON phase_outputs(phase_run_id);
+CREATE INDEX idx_phase_outputs_artifact ON phase_outputs(artifact_manifest_id)
+  WHERE artifact_manifest_id IS NOT NULL;
+-- Immutability invariant: no UPDATE trigger — all writes INSERT-only; a retry inserts
+-- a new row under a new phase_run_id (attempt_number+1) rather than mutating the existing row.
+
+-- ========================================================================
+-- 6. workflow_gate_resolutions — append-only hash-chained per C-13 / I7
+-- ========================================================================
+-- Owner: Plan-017
+-- Wave-1 commitment: C-13 append-only hash-chained approval history (Pass E §4.7)
+-- Algorithm anchored to Spec-006 §Integrity Protocol (BLAKE3 + Ed25519 + RFC 8785 JCS)
+-- to keep one canonicalization rule across the daemon.
+CREATE TABLE workflow_gate_resolutions (
+  id                         TEXT PRIMARY KEY,          -- ULID
+  workflow_run_id            TEXT NOT NULL REFERENCES workflow_runs(id),
+  sequence                   INTEGER NOT NULL,          -- per-run monotonic starting at 1
+  phase_run_id               TEXT REFERENCES workflow_phase_states(id), -- NULL for run-level gates
+  -- Gate identity
+  gate_kind                  TEXT NOT NULL
+                             CHECK(gate_kind IN (
+                               'human-approval','quality-checks','human','channel-moderation',
+                               'workflow-phase','definition-edit-audit'
+                             )),
+  approval_category          TEXT                       -- mirrors Plan-012 approval_requests.category when applicable
+                             CHECK(approval_category IS NULL OR approval_category IN (
+                               'tool_execution','file_write','network_access','destructive_git',
+                               'user_input','plan_approval','mcp_elicitation','gate',
+                               'human_phase_contribution'                                      -- SA-12 addition
+                             )),
+  approval_request_id        TEXT REFERENCES approval_requests(id), -- Plan-012 integration; NULL for non-approval gate kinds
+  -- Resolution
+  outcome                    TEXT NOT NULL
+                             CHECK(outcome IN ('approved','rejected','timed_out','withdrawn','admin_override')),
+  approver_id                TEXT,                      -- participant_id; NULL for 'timed_out' / 'withdrawn'
+  approver_capability        TEXT,                      -- Cedar capability string (C-14 typed capability)
+  resolved_at                TEXT NOT NULL,
+  -- Policy-at-resolution-time (C-13: replays use at-execution-time policy, not current)
+  policy_snapshot_hash       TEXT NOT NULL,             -- BLAKE3 of the Plan-012 policy bundle active at resolved_at
+  decision_context           TEXT NOT NULL DEFAULT '{}', -- JSON: scope, resource, reason text, etc.
+  -- Hash chain (per-run, anchored to Spec-006 scheme)
+  prev_hash                  BLOB NOT NULL,             -- 32 bytes; row_hash of prior entry; zero-filled at sequence=1
+  row_hash                   BLOB NOT NULL,             -- 32 bytes; BLAKE3(prev_hash || JCS-canonical(row_body))
+  daemon_signature           BLOB NOT NULL,             -- 64 bytes; Ed25519 over same canonical bytes
+  approver_signature         BLOB,                      -- 64 bytes; Ed25519 from approver's participant key; NULL for 'timed_out'
+  UNIQUE(workflow_run_id, sequence)
+);
+
+CREATE INDEX idx_gate_resolutions_run ON workflow_gate_resolutions(workflow_run_id, sequence);
+CREATE INDEX idx_gate_resolutions_phase ON workflow_gate_resolutions(phase_run_id)
+  WHERE phase_run_id IS NOT NULL;
+CREATE INDEX idx_gate_resolutions_approval ON workflow_gate_resolutions(approval_request_id)
+  WHERE approval_request_id IS NOT NULL;
+
+-- No UPDATE or DELETE triggers — append-only enforced at application layer (writer worker only inserts).
+-- Verification procedure: Pass G §5 (BLAKE3 chain recompute + dual-anchor cross-check vs session_events payload).
+
+-- ========================================================================
+-- 7. parallel_join_state — sibling set + cancellation bookkeeping
+-- ========================================================================
+-- Owner: Plan-017
+-- Wave-1 commitment: SA-4 ParallelJoinPolicy (Pass A §3.4)
+CREATE TABLE parallel_join_state (
+  id                      TEXT PRIMARY KEY,           -- ULID; referenced by workflow_phase_states.parallel_join_id
+  workflow_run_id         TEXT NOT NULL REFERENCES workflow_runs(id),
+  join_node_id            TEXT NOT NULL,              -- phase id of the join node in the DAG
+  policy                  TEXT NOT NULL
+                          CHECK(policy IN ('fail-fast','all-settled','any-success')),
+  expected_sibling_count  INTEGER NOT NULL,           -- number of siblings entering the join
+  completed_count         INTEGER NOT NULL DEFAULT 0,
+  failed_count            INTEGER NOT NULL DEFAULT 0,
+  cancelled_count         INTEGER NOT NULL DEFAULT 0,
+  resolution              TEXT
+                          CHECK(resolution IS NULL OR resolution IN ('all_succeeded','any_succeeded','any_failed','all_failed','cancelled')),
+  resolved_at             TEXT,                       -- set when the join condition fires
+  -- Cancellation cascade bookkeeping (Wave-1 §3.1 synchrony verification)
+  cancel_wave_tick        INTEGER,                    -- executor tick at which cancel wave fired; NULL until fail-fast triggers
+  created_at              TEXT NOT NULL
+);
+
+CREATE INDEX idx_parallel_join_state_run ON parallel_join_state(workflow_run_id);
+CREATE INDEX idx_parallel_join_state_unresolved ON parallel_join_state(workflow_run_id)
+  WHERE resolution IS NULL;
+
+-- ========================================================================
+-- 8. workflow_channels — phase_run_id ↔ channel_id (OWN-only V1)
+-- ========================================================================
+-- Owner: Plan-017
+-- Wave-1 commitment: SA-6 ownership: OWN V1 (BIND deferred to V1.1 under criterion-gated commitments per ADR-015)
+-- Pass B §3.1 channel-lifecycle coupling; Spec-016 linkage
+CREATE TABLE workflow_channels (
+  id                      TEXT PRIMARY KEY,           -- ULID
+  phase_run_id            TEXT NOT NULL UNIQUE REFERENCES workflow_phase_states(id), -- UNIQUE = OWN 1:1
+  channel_id              TEXT NOT NULL REFERENCES channels(id),
+  ownership               TEXT NOT NULL DEFAULT 'OWN'
+                          CHECK(ownership IN ('OWN')),  -- V1: OWN only; BIND reserved for V1.1 per ADR-015
+  termination_policy      TEXT NOT NULL DEFAULT 'CLOSE_WITH_RECORDS_PRESERVED'
+                          CHECK(termination_policy IN (
+                            'CLOSE_WITH_RECORDS_PRESERVED','REQUEST_CANCEL','TERMINATE'
+                          )),
+  grace_period_ms         INTEGER NOT NULL DEFAULT 30000, -- SA-9: 30s grace on REQUEST_CANCEL
+  created_at              TEXT NOT NULL,
+  terminated_at           TEXT,
+  termination_reason      TEXT
+);
+
+CREATE INDEX idx_workflow_channels_channel ON workflow_channels(channel_id);
+
+-- ========================================================================
+-- 9. human_phase_form_state — draft autosave (daemon-side fallback for V1.x)
+-- ========================================================================
+-- Owner: Plan-017
+-- Wave-1 status: Pass C §3 — V1 clients use localStorage/IndexedDB; this table
+-- ships empty in V1 so the V1.x daemon-side draft persistence has no migration cost.
+CREATE TABLE human_phase_form_state (
+  id                      TEXT PRIMARY KEY,           -- ULID
+  phase_run_id            TEXT NOT NULL REFERENCES workflow_phase_states(id),
+  participant_id          TEXT NOT NULL,              -- who's drafting (implicit-claim on first open)
+  draft_json              TEXT NOT NULL DEFAULT '{}', -- JSON: current form field values
+  draft_version           INTEGER NOT NULL DEFAULT 1, -- bumps on each autosave tick; optimistic-concurrency token
+  submitted               INTEGER NOT NULL DEFAULT 0  -- boolean; 1 terminal
+                          CHECK(submitted IN (0,1)),
+  created_at              TEXT NOT NULL,
+  updated_at              TEXT NOT NULL,
+  UNIQUE(phase_run_id, participant_id)                -- one draft slot per (phase, participant)
+);
+
+CREATE INDEX idx_human_phase_form_state_phase ON human_phase_form_state(phase_run_id)
+  WHERE submitted = 0;
 ```
+
+**Index rationale + write-amplification estimate:** [Pass G §3](../../research/bl-097-workflow-scope/pass-g-persistence-model.md) documents per-index query justifications and a ~42 KB / 110-write projection for a 10-phase workflow under Spec-015's 50-event batch.
+
+**Hash-chain verification:** [Pass G §5](../../research/bl-097-workflow-scope/pass-g-persistence-model.md) specifies the per-run BLAKE3 chain recompute + the dual-anchor check against `session_events` (category `workflow_gate_resolution`, payload fields `gate_resolution_id` + `row_hash`). Verification is exposed as a CLI subcommand (Plan-017).
 
 ---
 
