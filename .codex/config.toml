@@ -1,12 +1,12 @@
 # :schema https://developers.openai.com/codex/config-schema.json
 
-model = "gpt-5.4"
+model = "gpt-5.5"
 personality = "pragmatic"
 approval_policy = "never"
 sandbox_mode = "danger-full-access"
 model_reasoning_effort = "xhigh"
 plan_mode_reasoning_effort = "xhigh"
-model_verbosity = "medium"
+model_verbosity = "high"
 web_search = "live"
 project_doc_max_bytes = 65536
 service_tier = "fast"
