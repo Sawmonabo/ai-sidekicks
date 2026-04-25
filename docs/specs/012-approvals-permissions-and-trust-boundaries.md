@@ -54,6 +54,7 @@ This spec covers approval requests, approval scopes, remembered grants, and the 
   - `plan_approval` — proposed plan review
   - `mcp_elicitation` — MCP server input
   - `gate` — workflow phase gate
+  - `human_phase_contribution` — phase-level human contribution (Spec-017 `human` phase submission; SA-12 addition per BL-097 Wave-1 synthesis)
 - Approval requests must record requester, target scope, requested capability, and expiry where applicable.
 - Approval resolution must record approver, decision, and effective scope.
 - Membership in a shared session must not imply authority to execute on another participant's machine.

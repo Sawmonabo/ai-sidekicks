@@ -19,7 +19,7 @@ PTY on Windows is a distinct surface. Windows 10 1809 introduced ConPTY as the m
 - [`microsoft/node-pty#904`](https://github.com/microsoft/node-pty/issues/904) — `SIGABRT` on Electron exit via a `ThreadSafeFunction` race condition (OPEN).
 - [`microsoft/node-pty#887`](https://github.com/microsoft/node-pty/issues/887) — ConoutConnection worker strands the Node exit path (OPEN).
 - [`microsoft/node-pty#894`](https://github.com/microsoft/node-pty/issues/894) — PowerShell 7 exhibits a 3.5-second delay under `useConptyDll: true` (OPEN).
-- [`microsoft/node-pty#437`](https://github.com/microsoft/node-pty/issues/437) — Process-tree kill is unreliable on Windows; orphaned children survive.
+- [`microsoft/node-pty#437`](https://github.com/microsoft/node-pty/issues/437) — `ptyProcess.kill()` hangs indefinitely on Windows (confirmed on Windows 10); unaffected on Linux.
 - [`microsoft/node-pty#647`](https://github.com/microsoft/node-pty/issues/647) — Spawn can lock the cwd on Windows (blocks deletion until process exit).
 
 The Tabby terminal (Eugeny/tabby) shipped GA on `node-pty` on Windows and hit the same ConPTY assertion class as `openai/codex#13973`; the [`Eugeny/tabby#10134`](https://github.com/Eugeny/tabby/issues/10134) thread documents the user-rollback wave that followed. Tabby's closure strategy was to pin to an older `node-pty` version — a workaround, not a structural fix.
@@ -175,7 +175,7 @@ The antithesis is the correct default position for a team that is one major bug 
 | `microsoft/node-pty#904` | Upstream issue | `SIGABRT` on Electron exit; ThreadSafeFunction race | https://github.com/microsoft/node-pty/issues/904 |
 | `microsoft/node-pty#887` | Upstream issue | ConoutConnection worker strands Node exit | https://github.com/microsoft/node-pty/issues/887 |
 | `microsoft/node-pty#894` | Upstream issue | PowerShell 7 3.5 s delay under `useConptyDll: true` | https://github.com/microsoft/node-pty/issues/894 |
-| `microsoft/node-pty#437` | Upstream issue | Process-tree kill unreliable on Windows | https://github.com/microsoft/node-pty/issues/437 |
+| `microsoft/node-pty#437` | Upstream issue | `ptyProcess.kill()` hangs on Windows, works on Linux | https://github.com/microsoft/node-pty/issues/437 |
 | `microsoft/node-pty#647` | Upstream issue | Spawn locks cwd on Windows | https://github.com/microsoft/node-pty/issues/647 |
 | `Eugeny/tabby#10134` | Upstream issue (precedent) | Tabby GA on `node-pty` → user-rollback wave on ConPTY assertion class; closed by pinning `node-pty` | https://github.com/Eugeny/tabby/issues/10134 |
 | `wezterm/portable-pty` | Reference implementation | Production Rust PTY crate used by wezterm | https://github.com/wezterm/wezterm/tree/main/pty |

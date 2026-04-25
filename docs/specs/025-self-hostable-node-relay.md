@@ -76,7 +76,7 @@ Out of scope (see Non-Goals for full list):
 
 ## Default Behavior
 
-- **Runtime:** Node.js LTS ≥ 22. Node.js 20 (Iron) is end-of-life 2026-04-30 and is not supported. The container base image must be Node.js 22 LTS or newer.
+- **Runtime:** Node.js LTS ≥ 22. Node.js 20 (Iron) is end-of-life 2026-03-24 and is not supported. The container base image must be Node.js 22 LTS or newer.
 - **Database:** Postgres ≥ 17. Older versions are not supported in V1 (no PostgreSQL 15/16 back-compat shim ships).
 - **HTTP + WebSocket server:** [Fastify v5](https://fastify.dev/) with [`@fastify/websocket`](https://github.com/fastify/fastify-websocket) (which wraps the `ws` package). The choice follows the 2026 Node.js server ecosystem; Fastify is the mainstream framework with continuous 2025–2026 development, and `@fastify/websocket` delegates to `ws` (also actively maintained 2025–2026).
 - **Rate limiter:** [`rate-limiter-flexible`](https://github.com/animir/node-rate-limiter-flexible) with its Postgres backend. Limits follow the deployment-aware abstraction in [Spec-021](./021-rate-limiting-policy.md).
@@ -161,7 +161,7 @@ Out of scope (see Non-Goals for full list):
 - **Assuming Postgres 15/16 compatibility.** V1 baselines Postgres 17. Operators running older Postgres must upgrade before deploying the relay.
 - **Binding the relay directly to `0.0.0.0:443` without a reverse proxy.** Caddy is the default for TLS termination; operators who bypass it must handle certificate renewal, HTTP/2 negotiation, and forward-proxy headers themselves. Direct-TLS mode exists for advanced operators and is not the documented default.
 - **Logging PASETO token bodies or encrypted payload plaintext.** Logs are operator-visible; tokens and plaintext must never appear. Mask at the log-emit boundary, not at the viewer.
-- **Assuming Node.js 20 (Iron) is supported.** Iron goes EOL 2026-04-30; V1 baselines Node.js 22 LTS from day one.
+- **Assuming Node.js 20 (Iron) is supported.** Iron goes EOL 2026-03-24; V1 baselines Node.js 22 LTS from day one.
 
 ## Acceptance Criteria
 
@@ -196,7 +196,7 @@ Out of scope (see Non-Goals for full list):
 
 | Source | Type | Key Finding | URL/Location |
 |---|---|---|---|
-| Node.js release schedule | Documentation | Node 20 (Iron) EOL 2026-04-30; Node 22 LTS is the 2026 baseline | https://nodejs.org/en/about/previous-releases |
+| Node.js release schedule | Documentation | Node 20 (Iron) EOL 2026-03-24; Node 22 LTS is the 2026 baseline | https://nodejs.org/en/about/previous-releases |
 | Fastify v5 | Documentation | Mainstream 2026 Node.js HTTP framework; active 2025–2026 release cadence | https://fastify.dev/ |
 | `@fastify/websocket` | Documentation | Fastify-official WebSocket plugin wrapping `ws` | https://github.com/fastify/fastify-websocket |
 | `ws` package CVE history | Documentation | HeadersTimeout DoS fixed in 8.17.1 (June 2024); no new 2025–2026 CVEs at time of writing | https://github.com/websockets/ws/security/advisories |

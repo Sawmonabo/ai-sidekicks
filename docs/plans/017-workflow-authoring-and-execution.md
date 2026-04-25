@@ -114,7 +114,7 @@ Five test categories per [Pass H §1](../research/bl-097-workflow-scope/pass-h-t
 | Invariant | Assertion | CVE / source seed |
 | --- | --- | --- |
 | I1 — argv-list-only execution | Semgrep rule bans `exec`/`shell:true`; dynamic test proves shell metachars reach argv unshelled | Generic shell-injection corpus |
-| I2 — typed substitution, no eval | Every expression payload either parses to whitelisted AST or throws `ExpressionParseError` | n8n [CVE-2025-68613](https://github.com/advisories/GHSA-wfw3-33mq-9c84); Airflow [CVE-2024-39877](https://nvd.nist.gov/vuln/detail/CVE-2024-39877); Airflow [CVE-2024-56373](https://nvd.nist.gov/vuln/detail/CVE-2024-56373); Jenkins `CVE-2024-34144` / `CVE-2024-34145` |
+| I2 — typed substitution, no eval | Every expression payload either parses to whitelisted AST or throws `ExpressionParseError` | n8n [CVE-2025-68613](https://github.com/advisories/GHSA-v98v-ff95-f3cp); Airflow [CVE-2024-39877](https://nvd.nist.gov/vuln/detail/CVE-2024-39877); Airflow [CVE-2024-56373](https://nvd.nist.gov/vuln/detail/CVE-2024-56373); Jenkins `CVE-2024-34144` / `CVE-2024-34145` |
 | I3 — typed approver capability | Cedar capability check; admin override logged as distinct entry kind | Plan-012 policy corpus |
 | I4 — secrets never in argv/logs/artifacts | Canary secret never appears raw / base64 / URL-encoded / JSON-stringified | Airflow `#54540` masker-bypass reproducer |
 | I5 — content-addressed external refs | Mutating pinned tool bytes yields `ContentHashMismatch` | GitHub Actions v3→v4 artifact mutability precedent |

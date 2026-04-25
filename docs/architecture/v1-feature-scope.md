@@ -84,7 +84,7 @@ Cross-cutting V1 specs that multiple V1 features depend on. These are required b
 
 ## Spec Coverage Assessment
 
-- **V1 features:** all 17 have a governing spec — Spec-023 (Desktop Shell + Renderer) landed per BL-041, Spec-016 (Multi-Agent Channels) completed its V1-readiness review per BL-042, and Spec-017 (Workflow authoring and execution) carries 31 amendments SA-1…SA-31 from BL-097 Wave 1+2 research.
+- **V1 features:** all 17 have a governing spec — Spec-023 (Desktop Shell + Renderer) landed per BL-041, Spec-016 (Multi-Agent Channels) completed its V1-readiness review per BL-042, and Spec-017 (Workflow authoring and execution) carries 27 of 31 amendments from BL-097 Wave 1+2 research in its body (SA-1…SA-23, SA-25, SA-26, SA-27, SA-28); SA-24/29/30/31 land in Plan-017 per implementation-detail separation.
 - **V1.1 features:** all 3 have a governing spec referenced above. The MLS spec surface (Spec-008) is being rewritten to declare pairwise-first for V1 and MLS as the V1.1 upgrade per BL-048.
 - **V2 features:** intentionally uncovered. V2 scope decisions are made post-V1 and add specs as needed.
 

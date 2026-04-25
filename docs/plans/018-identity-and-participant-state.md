@@ -46,7 +46,8 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 ## Data And Storage Changes
 
-- Add shared `participants`, participant-profile projection records, and device-presence or presence-lease storage needed for aggregation.
+- Extend `participants` (owner: Plan-001 per [cross-plan-dependencies.md §1 Contested](../architecture/cross-plan-dependencies.md#1-table-ownership-map) row for `participants` — Plan-018 ALTER/USE adds `display_name`, `identity_ref`, `metadata` columns via additive migrations).
+- Add shared `identity_mappings` side table (CREATE per §1 Uncontested row). Participant-profile projection records and device-presence or presence-lease storage needed for aggregation follow from these base tables; presence data is ephemeral per Plan-002 (Yjs Awareness CRDT, in-memory only) and MUST NOT be persisted to a durable table.
 - Ensure canonical event authorship references stable participant ids rather than mutable display metadata.
 - See [Shared Postgres Schema](../architecture/schemas/shared-postgres-schema.md) for column definitions.
 
@@ -87,7 +88,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 ## Risks And Blockers
 
-- Guest or anonymous identity support remains unresolved for the first implementation
+- Guest or anonymous identity support remains unresolved for the first implementation (deferral tracked in parent [Spec-018](../specs/018-identity-and-participant-state.md))
 - Presence aggregation can become misleading if conflicting device activity is not handled conservatively
 
 ## Done Checklist

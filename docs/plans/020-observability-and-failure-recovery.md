@@ -149,7 +149,7 @@ Plan-020 owns the daemon-side `/metrics` endpoint required by [Spec-027 row 9](.
 
 ## Risks And Blockers
 
-- Automated retry policy remains unresolved across drivers
+- Automated retry policy remains unresolved across drivers (deferral tracked in parent [Spec-020](../specs/020-observability-and-failure-recovery.md))
 - Health projections can become misleading if replay and provider diagnostics are not merged from authoritative sources
 - Bounded-retention implementation can become misleading if raw diagnostic expiry is not clearly distinguished from canonical observability truth
 

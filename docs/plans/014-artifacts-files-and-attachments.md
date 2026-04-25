@@ -90,7 +90,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 ## Risks And Blockers
 
-- Manifest-first versus synchronous small-payload replication remains unresolved
+- Manifest-first versus synchronous small-payload replication remains unresolved (deferral tracked in parent [Spec-014](../specs/014-artifacts-files-and-attachments.md))
 - Artifact immutability will be undermined if live workspace paths are allowed to masquerade as durable payload identity
 - Pressure for participant-specific redaction can create accidental in-place mutation semantics unless derivative-artifact handling stays explicit
 

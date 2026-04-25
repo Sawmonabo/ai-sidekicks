@@ -234,7 +234,7 @@ Event rows carry an Ed25519 signature over canonical bytes per [Spec-006 §Integ
 
 ## Tier Intent
 
-This plan lands in **Tier 2** of the canonical build order per BL-045 exit criteria. Reasoning: Plan-022's schema must be present in Plan-001's Tier 1 migration (forward-declaration), but Plan-022's code paths can ship alongside Plan-002 in Tier 2 because the operational deletion/export/purge paths are V1.1+ (501 stubs only in V1). BL-054's cross-plan-dependencies.md §5 propagation pass will move `participant_keys` ownership from the current placeholder `Spec-022` row to a `Plan-022` row, and place Plan-022 in Tier 2 alongside Plan-002.
+This plan lands in **Tier 5** of the [canonical build order](../architecture/cross-plan-dependencies.md#5-canonical-build-order) per BL-045 exit criteria, co-tier with Plan-004, Plan-008, Plan-018, Plan-025 (steps 1–4). Reasoning: Plan-022's schema must be present in Plan-001's Tier 1 migration (forward-declaration per §1 Contested `participant_keys` row), but Plan-022's implementation code paths (store, rotation, wrap-codec) ship at Tier 5 because the operational deletion/export/purge paths are V1.1+ (501 stubs only in V1). BL-054 propagation resolved 2026-04-22 per [Session H-final audit §5.7.1](../audit/session-h-final-h5-remediation-plan.md#571); `participant_keys` §1 Contested row carries Plan-001 (forward-declarer) + Plan-022 (schema-origin + Tier 5 code paths).
 
 ## References
 

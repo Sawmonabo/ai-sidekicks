@@ -89,7 +89,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 ## Risks And Blockers
 
-- Session-join traffic requirements for admin or recovery flows remain unresolved
+- Session-join traffic requirements for admin or recovery flows remain unresolved (operational sizing deferred; see parent [Spec-008](../specs/008-control-plane-relay-and-session-join.md))
 - Presence duplication is likely if reconnect association is not made authoritative early
 
 ## Done Checklist

@@ -90,7 +90,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 ## Risks And Blockers
 
-- Channel-level restriction policy remains unresolved for the first implementation
+- Channel-level restriction policy remains unresolved for the first implementation (deferred per [Spec-016 §Resolved Questions](../specs/016-multi-agent-channels-and-orchestration.md) — V1 decision: channel-level permission restrictions deferred)
 - Provider-native orchestration differences can leak into product semantics unless normalized at the daemon boundary
 - Scheduler-limit policy must remain visible to users and workflows so bounded fan-out does not look like silent runtime failure
 

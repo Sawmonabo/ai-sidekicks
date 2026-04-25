@@ -59,7 +59,7 @@ This spec covers:
 ### Authoring + versioning
 
 - Workflows must be authored as explicit phase definitions with stable ids and versioned structure.
-- Workflow authoring format: YAML definitions + typed TypeScript SDK. **No bespoke DSL** (no CUE, no HCL, no custom expression language) — C-1 commitment. DSL lock-in cost is precedent-heavy: Dagger rewrote its CUE-based SDK over ~2.5 years ([Dagger — next Dagger SDKs, 2023](https://dagger.io/blog/next-dagger-sdks)); GitHub Actions migrated off HCL to YAML under breaking-change pressure ([GitHub Actions HCL→YAML deprecation, 2019](https://github.blog/changelog/2019-06-06-updated-github-actions-workflow-syntax/)).
+- Workflow authoring format: YAML definitions + typed TypeScript SDK. **No bespoke DSL** (no CUE, no HCL, no custom expression language) — C-1 commitment. DSL lock-in cost is precedent-heavy: Dagger maintained its CUE SDK as primary authoring language from Jan 2022 (v0.1.0) through Dec 2023, then ended CUE SDK support after a year of dual-maintenance against multi-language SDKs, citing that "engineers...want to write code in a language they already know. Learning a brand new language, however powerful, is simply not what they're looking for" ([Dagger — Ending Support for the Dagger CUE SDK, 2023](https://dagger.io/blog/ending-cue-support/); [Solomon Hykes on Changelog #550, 2023](https://changelog.com/podcast/550)); GitHub Actions migrated off HCL to YAML under breaking-change pressure ([GitHub Actions HCL→YAML deprecation, 2019](https://github.blog/changelog/2019-09-17-github-actions-will-stop-running-workflows-written-in-hcl/)).
 - Workflow definition files must carry an explicit schema version marker (e.g., `ai-sidekicks-schema: 1.0`). Daemon must support compat mode for reading older-marker files (SA-14 / C-8 — Temporal's Version Sets → Build IDs retrofit is the precedent cost avoided here).
 - Workflow definitions must be stored as first-class durable definition and version records. Artifact publication may represent workflow exports or summaries, but it must not be the canonical source of workflow definition truth.
 - `WorkflowDefinitionCreate` must run a DFS three-color cycle check against the phase graph and reject invalid definitions with a typed error. Graph stays acyclic at definition time; `go-back-to` is a state-reset operation, not a cyclic edge.
@@ -144,7 +144,7 @@ Workflow gates (`WorkflowGateResolve`) and channel moderation gates (Spec-016 pe
 - Phase B receives phase A's channel transcript as read-only context via SDK ergonomic `inheritContext: { from: "previous_phase" }`.
 - Retry creates a new channel per iteration — never reuses a phase-owned channel across attempts.
 - `BIND` (multi-phase channel reuse) is committed to V1.1 under three named criteria in [ADR-015 §V1.1 Criterion-Gated Commitments](../decisions/015-v1-feature-scope-definition.md): (a) ≥3 production reports of OWN+transcript-inheritance insufficient, (b) concrete failure case documented, (c) BIND lifecycle contract addressing the five ambiguities in [Pass B §3.1](../research/bl-097-workflow-scope/pass-b-multi-agent-channel-contract.md).
-- Modern multi-agent composition convergence (2025–2026) is **state-passing, not handle-binding**: Temporal Child Workflows + Signals ([Temporal — Child Workflows](https://docs.temporal.io/develop/typescript/child-workflows)), LangGraph `Command(goto, state)` ([LangGraph multi-agent handoff](https://langchain-ai.github.io/langgraph/concepts/multi_agent/)), AutoGen `HandoffMessage` ([AutoGen Teams](https://microsoft.github.io/autogen/stable/user-guide/agentchat-user-guide/teams.html)), OpenAI Assistants API Threads removal ([OpenAI Assistants deprecation, Threads removal 2026-08-26](https://platform.openai.com/docs/assistants/migration)). Airflow SubDAG — the closest BIND analogue — was deprecated in 2.x because its shared-scope ambiguity took 3+ years to patch ([Airflow SubDAG deprecation](https://airflow.apache.org/docs/apache-airflow/stable/core-concepts/dags.html#subdags)).
+- Modern multi-agent composition convergence (2025–2026) is **state-passing, not handle-binding**: Temporal Child Workflows + Signals ([Temporal — Child Workflows](https://docs.temporal.io/develop/typescript/child-workflows)), LangGraph `Command(goto, state)` ([LangGraph multi-agent handoff](https://langchain-ai.github.io/langgraph/concepts/multi_agent/)), AutoGen `HandoffMessage` ([AutoGen Teams](https://microsoft.github.io/autogen/stable/user-guide/agentchat-user-guide/tutorial/teams.html)), OpenAI Assistants API Threads removal ([OpenAI Assistants deprecation, Threads removal 2026-08-26](https://platform.openai.com/docs/assistants/migration)). Airflow SubDAG — the closest BIND analogue — was deprecated in 2.x because its shared-scope ambiguity took 3+ years to patch ([Airflow — Deprecate SubDags in Favor of TaskGroups, #12292](https://github.com/apache/airflow/issues/12292)).
 
 ### Human phase — `HumanPhaseConfig` (SA-10, SA-11, SA-12)
 
@@ -162,7 +162,7 @@ type HumanPhaseConfig = {
 ```
 
 - `timeout` is **required** at the SDK-type level — no field-default footgun (Wave 1 §5.1 SDK ergonomic safeguard). Author must type either `"none"` (no deadline; session timeline shows `waiting-human` until resolved) or an explicit `Duration`.
-- Three independent durable-execution engines converge on no-default-timeout: [Temporal Workflow Execution Timeouts](https://docs.temporal.io/workflow-execution/timeouts) default ∞, [Argo — Suspending Workflows](https://argo-workflows.readthedocs.io/en/latest/walk-through/suspending/) with `{}` = indefinite suspend, [Camunda 8 User Task dueDate](https://docs.camunda.io/docs/next/components/modeler/bpmn/user-tasks/#user-task-properties) optional/expression-based. This is modern durable-execution convention across independent implementations — not one-camp disagreement.
+- Three independent durable-execution engines converge on no-default-timeout: [Temporal Workflow Execution Timeouts](https://docs.temporal.io/encyclopedia/detecting-workflow-failures) default ∞, [Argo — Suspending Workflows](https://argo-workflows.readthedocs.io/en/latest/walk-through/suspending/) with `{}` = indefinite suspend, [Camunda 8 User Task dueDate](https://docs.camunda.io/docs/components/modeler/bpmn/user-tasks/) optional/expression-based. This is modern durable-execution convention across independent implementations — not one-camp disagreement.
 - `timeoutBehavior: 'escalate'` emits the `workflow.human_phase_escalated` telemetry event only at V1 (SA-11). No paging primitive exists; default-timeout is reconsidered V1.x once notification routing ships (see [ADR-015 §V1.1 Criterion-Gated Commitments](../decisions/015-v1-feature-scope-definition.md)).
 - `human` phase uses the new Spec-012 approval category `human_phase_contribution` (SA-12). See [Spec-012 Approvals](../specs/012-approvals-permissions-and-trust-boundaries.md).
 - Deep-link URL: `/session/:sid/workflow/:rid/phase/:pid`. Client-side autosave via localStorage / IndexedDB keyed on `(phaseRunId, participantId)` — daemon-side draft persistence deferred V1.x.
@@ -212,7 +212,7 @@ Plan-017 specifies the concrete 9-table SQLite schema (SA-24 lands there — imp
 
 ### I/O format invariants (C-5)
 
-Workflow state, step inputs/outputs, captures: **JSON-only**. No pickle, no YAML-with-`!!python/object`, no eval-of-user-expression. Airflow XCom's pickle default enabled a direct RCE path, disabled in 2.0 ([Airflow XCom serialization](https://airflow.apache.org/docs/apache-airflow/stable/core-concepts/xcoms.html)).
+Workflow state, step inputs/outputs, captures: **JSON-only**. No pickle, no YAML-with-`!!python/object`, no eval-of-user-expression. Airflow XCom's pickle default enabled a direct RCE path, disabled in 2.0 ([Airflow — Turn off pickling of XCom by default in 2.0, #9606](https://github.com/apache/airflow/issues/9606)).
 
 ## Example Flows
 
@@ -258,7 +258,7 @@ V1 introduces **5 new Spec-006 categories** (not one monolithic `workflow_lifecy
 
 Scope-of-query split matches Spec-006's existing `run_lifecycle` / `approval_flow` pattern. No collision with existing `presence.*`, `run.*`, `approval.*`, `channel.*`, `recovery.*` categories.
 
-Reverse-DNS `workflow.*` namespace convention follows [CloudEvents Specification v1.0.2 §3.1.1](https://github.com/cloudevents/spec/blob/v1.0.2/cloudevents/spec.md).
+Reverse-DNS `workflow.*` namespace convention follows [CloudEvents Specification v1.0.2 `type` attribute](https://github.com/cloudevents/spec/blob/v1.0.2/cloudevents/spec.md#type).
 
 ### Event types (SA-19) — 23 types under `workflow.*`
 
@@ -341,8 +341,8 @@ Engine implementations violating any of the following are **non-conformant**. Ea
 
 - **I1 — argv-only execution.** The engine **MUST NOT** accept a shell-string command form for user-templated content. No `shell=true`, no `/bin/sh -c "..."` over author-controlled fields. All commands execute via argv-list spawn only. Closes [GitHub Actions — Script-injection guidance](https://docs.github.com/en/actions/concepts/security/script-injections), [n8n CVE-2025-68613 (CVSS 9.9)](https://github.com/n8n-io/n8n/security/advisories/GHSA-v98v-ff95-f3cp), and [Airflow CVE-2024-39877](https://nvd.nist.gov/vuln/detail/CVE-2024-39877) in one architectural choice.
 - **I2 — typed substitution; no templating over author-controlled fields.** The engine **MUST NOT** evaluate Jinja2, `${...}`, `{{}}`-eval, or any Turing-complete expression language over workflow-definition strings. Parameter substitution is a closed, non-Turing-complete lookup grammar with a whitelist. Closes the template-injection class.
-- **I3 — typed approver capability.** The engine **MUST NOT** treat approver permission as a submitter string or as "whoever has `Read`". Approver principal is a typed capability bound to an identity (Spec-012). Admin override is a distinct audited capability. Anti-pattern: Jenkins `input` step where `Read` permission approves and admin bypass is silent ([Jenkins SECURITY-383 advisory, 2017](https://www.jenkins.io/security/advisory/2017-04-10/)).
-- **I4 — secrets by reference only.** The engine **MUST NOT** accept inline secret material in workflow definitions. Secrets are referenced as `secret://<scope>/<name>` and resolved at phase-launch into env / stdin / named-file fd — never argv. Logging redaction is defense-in-depth on top, not primary control. Closes [tj-actions/changed-files CVE-2025-30066](https://nvd.nist.gov/vuln/detail/CVE-2025-30066) runner-memory-via-argv class. The redaction-is-defense-in-depth stance is motivated by [Airflow secret masker issue #54540](https://github.com/apache/airflow/issues/54540) encoding-bypass.
+- **I3 — typed approver capability.** The engine **MUST NOT** treat approver permission as a submitter string or as "whoever has `Read`". Approver principal is a typed capability bound to an identity (Spec-012). Admin override is a distinct audited capability. Anti-pattern: Jenkins Pipeline Input Step historically approved on `Item/Read` (CVE-2017-1000108, fixed in plugin 2.8 on 2017-08-07) and still silently bypasses the `submitter` allow-list for holders of `Jenkins.ADMINISTER` with no audit emission ([Jenkins SECURITY-576 advisory, 2017-08-07](https://www.jenkins.io/security/advisory/2017-08-07/); [`InputStepExecution.java` `canSettle()`](https://github.com/jenkinsci/pipeline-input-step-plugin/blob/master/src/main/java/org/jenkinsci/plugins/workflow/support/steps/input/InputStepExecution.java); [JENKINS-56016 Won't Fix](https://issues.jenkins.io/browse/JENKINS-56016)).
+- **I4 — secrets by reference only.** The engine **MUST NOT** accept inline secret material in workflow definitions. Secrets are referenced as `secret://<scope>/<name>` and resolved at phase-launch into env / stdin / named-file fd — never argv. Logging redaction is defense-in-depth on top, not primary control. Closes [tj-actions/changed-files CVE-2025-30066](https://nvd.nist.gov/vuln/detail/CVE-2025-30066) runner-memory-via-argv class. The redaction-is-defense-in-depth stance is motivated by [Airflow secret masker issue #54540](https://github.com/apache/airflow/issues/54540) Vault masking regression (Airflow 3.0.0-3.0.4).
 - **I5 — content-addressed external references.** The engine **MUST NOT** resolve external tool references by mutable tag. References carry hash pins (`codex@v1.2.3#sha256=...`). Closes CVE-2025-30066 retroactive-tag-repointing class.
 - **I6 — OWASP File Upload minimums on human-phase uploads.** The engine **MUST** enforce size cap, extension allowlist, magic-byte sniff, storage rename, path validate, AV hook, quarantine-on-fail per [OWASP File Upload Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html). Closes [Argo CVE-2025-66626](https://www.endorlabs.com/learn/when-a-broken-fix-leads-to-rce-how-we-found-cve-2025-66626-in-argo) symlink-traversal-via-broken-fix class.
 - **I7 — append-only hash-chained approval history.** The engine **MUST NOT** permit mutation of `workflow_gate_resolutions` rows. Workflow-definition edits are a separate audit entry. Replays use at-execution-time policy — not current definition ([Crosby & Wallach USENIX 2009](https://static.usenix.org/event/sec09/tech/full_papers/crosby.pdf); [AuditableLLM MDPI 2025](https://www.mdpi.com/2079-9292/15/1/56); Temporal's Event History is the reference pattern).
@@ -351,7 +351,7 @@ Engine implementations violating any of the following are **non-conformant**. Ea
 ### Terminology discipline (SA-17 / C-12)
 
 - Use **"workflow"** (not pipeline / flow), **"phase"** (not stage / task), **"artifact"** (not output / capture when persisted), **"step"** reserved for intra-phase operations if any.
-- Airflow Datasets→Assets, SubDAG→TaskGroup, execution_date→logical_date terminology churn is the precedent for cost of late rename ([Airflow 2→3 terminology migration guide](https://airflow.apache.org/docs/apache-airflow/stable/installation/upgrading.html)).
+- Airflow Datasets→Assets, SubDAG→TaskGroup, execution_date→logical_date terminology churn is the precedent for cost of late rename ([Airflow — Upgrading to Airflow 3](https://airflow.apache.org/docs/apache-airflow/stable/installation/upgrading_to_airflow3.html)).
 
 ## Acceptance Criteria
 
@@ -404,16 +404,15 @@ Engine implementations violating any of the following are **non-conformant**. Ea
 ### Governing docs
 
 - [ADR-015 — V1 Feature Scope Definition](../decisions/015-v1-feature-scope-definition.md) (amended 2026-04-22 per BL-097)
-- [ADR-002 — Local-first architecture](../decisions/002-local-first-architecture.md)
+- [ADR-002 — Local Execution Shared Control Plane](../decisions/002-local-execution-shared-control-plane.md)
 - [ADR-018 — Cross-Version Compatibility](../decisions/018-cross-version-compatibility.md)
-- [ADR-020 — Agent capabilities and contract-ordering](../decisions/020-agent-capabilities-and-contract-ordering.md)
 
 ### Related specs
 
 - [Spec-016 — Multi-agent channels and orchestration](../specs/016-multi-agent-channels-and-orchestration.md) (phase-owned channel dependency)
 - [Spec-006 — Session event taxonomy and audit log](../specs/006-session-event-taxonomy-and-audit-log.md) (new categories + event types land here)
 - [Spec-012 — Approvals, permissions, and trust boundaries](../specs/012-approvals-permissions-and-trust-boundaries.md) (`human_phase_contribution` category; Plan-012 backend)
-- [Spec-013 — Session timeline](../specs/013-session-timeline-and-presence.md) (phase surfacing, pending-human count)
+- [Spec-013 — Live timeline visibility and reasoning surfaces](../specs/013-live-timeline-visibility-and-reasoning-surfaces.md) (phase surfacing, pending-human count)
 - [Spec-014 — Artifacts, files, and attachments](../specs/014-artifacts-files-and-attachments.md) (Plan-014 artifact refs; SHA-256 manifest)
 - [Spec-015 — Persistence, recovery, and replay](../specs/015-persistence-recovery-and-replay.md) (projection-rebuild path; replay corpus)
 
@@ -421,12 +420,13 @@ Engine implementations violating any of the following are **non-conformant**. Ea
 
 **DSL / schema-version / freeze-regret precedents (C-1, C-6, C-8, C-9, C-11, C-12, SA-14, SA-15, SA-16, SA-17):**
 
-- [Dagger — next Dagger SDKs (CUE→SDK migration)](https://dagger.io/blog/next-dagger-sdks) — 2023
-- [GitHub Actions — HCL→YAML deprecation](https://github.blog/changelog/2019-06-06-updated-github-actions-workflow-syntax/) — 2019
+- [Dagger — Ending Support for the Dagger CUE SDK](https://dagger.io/blog/ending-cue-support/) — 2023
+- [Changelog #550 — From Docker to Dagger with Solomon Hykes](https://changelog.com/podcast/550) — 2023
+- [GitHub Actions — HCL→YAML deprecation](https://github.blog/changelog/2019-09-17-github-actions-will-stop-running-workflows-written-in-hcl/) — 2019
 - [Airflow 2.0 provider packages](https://airflow.apache.org/docs/apache-airflow-providers/) — forced split from `airflow.contrib`
-- [Airflow XCom serialization](https://airflow.apache.org/docs/apache-airflow/stable/core-concepts/xcoms.html) — pickle disabled 2.0
-- [Airflow 2→3 terminology migration](https://airflow.apache.org/docs/apache-airflow/stable/installation/upgrading.html) — Datasets→Assets, SubDAG→TaskGroup, execution_date→logical_date
-- [Airflow SubDAG deprecation notice](https://airflow.apache.org/docs/apache-airflow/stable/core-concepts/dags.html#subdags)
+- [Airflow — Turn off pickling of XCom by default in 2.0, #9606](https://github.com/apache/airflow/issues/9606) — JSON replaced Pickle to close RCE exposure; `[core] enable_xcom_pickling` forced to `False`
+- [Airflow — Upgrading to Airflow 3](https://airflow.apache.org/docs/apache-airflow/stable/installation/upgrading_to_airflow3.html) — Datasets→Assets, SubDAG→TaskGroup, execution_date→logical_date
+- [Airflow — Deprecate SubDags in Favor of TaskGroups, #12292](https://github.com/apache/airflow/issues/12292) — SubDAG removed in Airflow 3.0; TaskGroup is the canonical replacement
 - [GitHub Actions — v3 artifact deprecation notice (2024-04-16)](https://github.blog/changelog/2024-04-16-deprecation-notice-v3-of-the-artifact-actions/) — mutability-forced v3→v4 migration precedent for C-9 / SA-16
 
 **Security invariants (I1–I7, C-7, C-15, C-16):**
@@ -435,19 +435,22 @@ Engine implementations violating any of the following are **non-conformant**. Ea
 - [n8n CVE-2025-68613 advisory (CVSS 9.9)](https://github.com/n8n-io/n8n/security/advisories/GHSA-v98v-ff95-f3cp)
 - [Airflow CVE-2024-39877](https://nvd.nist.gov/vuln/detail/CVE-2024-39877)
 - [tj-actions/changed-files CVE-2025-30066](https://nvd.nist.gov/vuln/detail/CVE-2025-30066)
-- [Airflow secret masker issue #54540 (encoding-bypass)](https://github.com/apache/airflow/issues/54540)
+- [Airflow secret masker issue #54540 (Vault masking regression, Airflow 3.0.0-3.0.4)](https://github.com/apache/airflow/issues/54540)
 - [OWASP File Upload Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html) — 2025
 - [Endor Labs — CVE-2025-66626 Argo broken-fix analysis](https://www.endorlabs.com/learn/when-a-broken-fix-leads-to-rce-how-we-found-cve-2025-66626-in-argo)
-- [Jenkins SECURITY-383 input-step advisory](https://www.jenkins.io/security/advisory/2017-04-10/)
+- [Jenkins SECURITY-576 / CVE-2017-1000108 advisory (2017-08-07)](https://www.jenkins.io/security/advisory/2017-08-07/)
+- [NVD CVE-2017-1000108 — Pipeline Input Step Item/Read → Item/Build](https://nvd.nist.gov/vuln/detail/CVE-2017-1000108)
+- [Pipeline Input Step source — `canSettle()` admin bypass](https://github.com/jenkinsci/pipeline-input-step-plugin/blob/master/src/main/java/org/jenkinsci/plugins/workflow/support/steps/input/InputStepExecution.java)
+- [JENKINS-56016 — submitterParameter ignored for admins (Won't Fix)](https://issues.jenkins.io/browse/JENKINS-56016)
 
 **Execution semantics + human phase (D1, D2, SA-1…SA-11):**
 
-- [Temporal — Workflow Execution Timeouts](https://docs.temporal.io/workflow-execution/timeouts)
+- [Temporal — Workflow Execution Timeouts](https://docs.temporal.io/encyclopedia/detecting-workflow-failures)
 - [Temporal — Child Workflows (TypeScript)](https://docs.temporal.io/develop/typescript/child-workflows)
 - [Argo — Suspending Workflows walkthrough](https://argo-workflows.readthedocs.io/en/latest/walk-through/suspending/)
-- [Camunda 8 — User Task properties](https://docs.camunda.io/docs/next/components/modeler/bpmn/user-tasks/#user-task-properties)
+- [Camunda 8 — User tasks](https://docs.camunda.io/docs/components/modeler/bpmn/user-tasks/) — assignments, scheduling, dueDate, followUpDate
 - [LangGraph — Multi-agent handoff](https://langchain-ai.github.io/langgraph/concepts/multi_agent/)
-- [AutoGen — Teams and HandoffMessage](https://microsoft.github.io/autogen/stable/user-guide/agentchat-user-guide/teams.html)
+- [AutoGen — Teams and HandoffMessage](https://microsoft.github.io/autogen/stable/user-guide/agentchat-user-guide/tutorial/teams.html)
 - [OpenAI Assistants API — Migration / Threads removal 2026-08-26](https://platform.openai.com/docs/assistants/migration)
 
 **Event taxonomy + replay determinism (SA-18…SA-23, SA-21):**

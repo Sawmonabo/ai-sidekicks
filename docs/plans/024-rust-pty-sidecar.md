@@ -94,7 +94,7 @@ None. The sidecar is stateless across restarts — per-session PTY handles live 
     1. `codesign --timestamp --options runtime --sign "Developer ID Application: <org name> (<team id>)" sidecar` — the hardened-runtime `--options runtime` flag is mandatory for notarization acceptance.
     2. Zip and submit to notarization: `ditto -c -k --keepParent sidecar sidecar.zip && xcrun notarytool submit sidecar.zip --apple-id <id> --team-id <team> --password <app-specific-pwd> --wait`. Use `xcrun notarytool` — `altool` has been deprecated since 2023-11-01 per Spec-023 §macOS and MUST NOT be used.
     3. Staple: `xcrun stapler staple sidecar` so the notarization ticket rides with the binary (required for offline first-launch).
-    4. **Queue-delay mitigation.** Apple's notarization queue has shown 16+ hour delays in February 2026 and later per [Apple Developer Forums thread 813441](https://developer.apple.com/forums/thread/813441) (also cited by Spec-023 §macOS Operational risk). The release pipeline MUST implement timeout + retry rather than synchronously blocking on `notarytool --wait`. Recommended shape: submit async, poll every 5 minutes for up to 24 hours, fail the release job (not the build) on hard timeout so the binary can be re-submitted without rebuilding.
+    4. **Queue-delay mitigation.** Apple's notarization queue has shown 24–120+ hour delays in January 2026 and later per [Apple Developer Forums thread 813441](https://developer.apple.com/forums/thread/813441) (also cited by Spec-023 §macOS Operational risk). The release pipeline MUST implement timeout + retry rather than synchronously blocking on `notarytool --wait`. Recommended shape: submit async, poll every 5 minutes for up to 24 hours, fail the release job (not the build) on hard timeout so the binary can be re-submitted without rebuilding.
     5. **Identity inheritance note.** This uses the **same Apple Developer ID Application certificate** as the Electron shell (Spec-023 §macOS). The identity inherits; the codesign + notarize operation is net-new per this plan because npm-delivered Mach-O binaries ship outside of the shell's `.app` bundle — Gatekeeper enforces `codesign --options runtime` + notarization on first spawn of any standalone Mach-O distributed outside a signed/notarized bundle. The shell's notarization ticket does NOT cover the npm-installed sidecar.
 13. **Linux packaging.** `strip` the ELF, publish unsigned. No Gatekeeper / SmartScreen-equivalent exists for an npm-distributed Linux binary; trust rests on npm registry integrity + lockfile pinning. Record the SHA-256 of each published artifact in the package's `README.md` as an out-of-band integrity check.
 14. **Publish script.** `tools/publish-sidecar.mjs` publishes the five `@ai-sidekicks/pty-sidecar-<platform>-<arch>` packages (each containing one `bin/sidecar` binary + `package.json` with `os` / `cpu` / `bin` fields) plus the umbrella `@ai-sidekicks/pty-sidecar` package, which declares the five as `optionalDependencies`. Exactly one optional dep installs per user machine per the `os` / `cpu` gates — identical shape to esbuild 0.28.0's 26-package fan-out and to napi-rs v3's pattern (which additionally offers a WASM fallback; out of scope for V1 sidecar).
@@ -109,7 +109,7 @@ This plan treats the two signing paths as **parallel tracks selected by the publ
 ### Track A — Azure Artifact Signing (eligible geographies)
 
 - Applicable to organizations in USA / Canada / EU / UK and individuals in USA / Canada.
-- **Product identity:** Renamed from "Azure Trusted Signing" to **"Azure Artifact Signing"**; [GA on 2026-01-12](https://techcommunity.microsoft.com/blog/microsoft-security-blog/simplifying-code-signing-for-windows-apps-artifact-signing-ga/4482789).
+- **Product identity:** Microsoft renamed "Trusted Signing" to **"Artifact Signing"** (commonly prefixed "Azure" in Microsoft Learn docs); [GA on 2026-01-12](https://techcommunity.microsoft.com/blog/microsoft-security-blog/simplifying-code-signing-for-windows-apps-artifact-signing-ga/4482789).
 - **SKU:** Basic — $9.99/month, 5,000 signatures, 1 certificate profile, FIPS 140-2 Level 3 HSM-backed, zero-touch cert lifecycle. No hardware token. Chains to a CA in the Microsoft Trusted Root Program (SmartScreen-friendly).
 - **Does NOT issue EV certificates.** If publishing requires EV chain (e.g., for instant SmartScreen reputation), Track A is insufficient and Track B applies instead or in addition.
 - **Integration:** [`Azure/artifact-signing-action`](https://github.com/Azure/artifact-signing-action) GitHub Action, pinned to `@v1.2.0` (published 2026-03-23). The repository was renamed from `Azure/trusted-signing-action` alongside the product rename; GitHub auto-redirects the old path, but new workflow references should use the new name. Works end-to-end in a GitHub-hosted runner; no self-hosted secure enclave needed.
@@ -163,7 +163,7 @@ This plan treats the two signing paths as **parallel tracks selected by the publ
 - **[cargo-zigbuild#316](https://github.com/rust-cross/cargo-zigbuild/issues/316)** — aarch64-apple-darwin iconv linker regression under Rust ≥ 1.82 with `zstd-sys` transitive deps. Mitigated by using native `macos-14` / `macos-15` arm64 runners (Apple Silicon runners are GA on GitHub Actions as of 2026), avoiding the cross-compile path for that target entirely.
 - **`portable-pty` 0.8.x → 0.9.0 breaking migration** — the crate swapped its serial-port dep from `serial` to `serial2` in the 0.9.0 bump (repo move to `wezterm/wezterm` org on 2025-02-07). Mitigation: start at 0.9.0, never back-port to 0.8.x.
 - **`portable-pty` maintainer continuity** — no formal maintainer-handoff statement after the wezterm org repo move; 0.9.0 (2025-02-11) is the current release. Bounded by the fallback path: `PtyHost` selector can pick `NodePtyHost` on any platform if `portable-pty` becomes unmaintained (ADR-019 Assumption 1's "What Breaks If Wrong" path).
-- **Apple notarization queue 16+ hour delays** (Spec-023 §macOS, [Apple Developer Forums 813441](https://developer.apple.com/forums/thread/813441)). Mitigated by async submit + poll release-pipeline pattern (step 12.4 above).
+- **Apple notarization queue 24–120+ hour delays** (Spec-023 §macOS, [Apple Developer Forums 813441](https://developer.apple.com/forums/thread/813441)). Mitigated by async submit + poll release-pipeline pattern (step 12.4 above).
 - **Linux supply-chain gap — no OS-level signature check at sidecar spawn on Linux.** No Gatekeeper / SmartScreen equivalent exists for npm-distributed ELF binaries. A compromised `@ai-sidekicks/pty-sidecar-linux-*` npm package would execute unchecked. Accepted trade-off matching the esbuild / napi-rs security posture; mitigation rests on npm registry TUF + lockfile pinning + (post-V1) Sigstore provenance attestations at publish. V1.1 may add optional daemon-side pubkey verification per §Non-Goals as defense-in-depth.
 - **Azure Artifact Signing business-history threshold uncertainty** — no specific threshold is enumerated in the primary-source [Azure Artifact Signing FAQ](https://learn.microsoft.com/en-us/azure/artifact-signing/faq) as of 2026-04-17 research; confirm exact criteria with Microsoft at procurement time.
 
@@ -182,7 +182,7 @@ This plan treats the two signing paths as **parallel tracks selected by the publ
 
 ## Tier Intent
 
-Tier 2 per BL-078 exit criteria — daemon-foundational; pairs with Plan-001 (shared session core) and Plan-007 (local IPC host). Upstream of Plan-005 (runtime bindings) which is the first consumer of the `PtyHost` contract. Placement update to `docs/architecture/cross-plan-dependencies.md` §5 Canonical Build Order is out of scope for this plan and belongs to BL-054's propagation pass.
+Tier 1 per [cross-plan-dependencies.md §5 Canonical Build Order](../architecture/cross-plan-dependencies.md#5-canonical-build-order) — daemon-foundational, co-tier with Plan-001. Upstream of Plan-005 (runtime bindings) which is the first consumer of the `PtyHost` contract; consumption begins at Tier 4 once Plan-005 lands. BL-054 propagation resolved 2026-04-22 per [Session H-final audit §5.7.1](../audit/session-h-final-h5-remediation-plan.md#571).
 
 ## References
 
@@ -190,13 +190,13 @@ Tier 2 per BL-078 exit criteria — daemon-foundational; pairs with Plan-001 (sh
 - [ADR-009: JSON-RPC IPC Wire Format](../decisions/009-json-rpc-ipc-wire-format.md) — Content-Length framing parity
 - [ADR-016: Electron Desktop Shell](../decisions/016-electron-desktop-shell.md) — shared signing-identity policy
 - [Spec-023: Desktop Shell And Renderer](../specs/023-desktop-shell-and-renderer.md) — Apple Developer ID + Azure Artifact Signing precedent; macOS notarization queue mitigation
-- [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) — Tier 2 placement target for BL-054
+- [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) — Tier 1 canonical placement (co-tier with Plan-001; upstream of Plan-005 at Tier 4)
 - [portable-pty crate](https://github.com/wezterm/wezterm/tree/main/pty) — PTY backend, ≥ 0.9.0, WezTerm org
 - [openai/codex#13973](https://github.com/openai/codex/issues/13973) — first-party ConPTY trigger (V1 driver)
 - [microsoft/node-pty#904](https://github.com/microsoft/node-pty/issues/904) — SIGABRT on Electron exit
 - [microsoft/node-pty#887](https://github.com/microsoft/node-pty/issues/887) — ConoutConnection worker strand
 - [microsoft/node-pty#894](https://github.com/microsoft/node-pty/issues/894) — PowerShell 7 delay under `useConptyDll`
-- [microsoft/node-pty#437](https://github.com/microsoft/node-pty/issues/437) — process-tree kill unreliable on Windows
+- [microsoft/node-pty#437](https://github.com/microsoft/node-pty/issues/437) — `ptyProcess.kill()` hangs on Windows
 - [microsoft/node-pty#647](https://github.com/microsoft/node-pty/issues/647) — spawn locks cwd on Windows
 - [Eugeny/tabby#10134](https://github.com/Eugeny/tabby/issues/10134) — Tabby GA-on-node-pty rollback precedent
 - [esbuild optionalDependencies pattern](https://www.npmjs.com/package/esbuild) — distribution precedent (26 platform packages as of 0.28.0 / 2026-04-02)
@@ -206,6 +206,6 @@ Tier 2 per BL-078 exit criteria — daemon-foundational; pairs with Plan-001 (sh
 - [CA/Browser Forum Ballot CSC-31](https://cabforum.org/working-groups/code-signing/requirements/) — 460-day cert-validity cap effective 2026-03-01
 - [Apple Developer ID program](https://developer.apple.com/developer-id/) — Developer ID Application certificate
 - [`xcrun notarytool` notarization workflow (Apple developer docs)](https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution/customizing_the_notarization_workflow) — `notarytool` + `stapler`; `altool` deprecated 2023-11-01
-- [Apple Developer Forums thread 813441](https://developer.apple.com/forums/thread/813441) — 16+ hour notarization queue delays (Feb 2026+)
+- [Apple Developer Forums thread 813441](https://developer.apple.com/forums/thread/813441) — 24–120+ hour notarization queue delays (Jan 2026+)
 - [cargo-zigbuild](https://github.com/rust-cross/cargo-zigbuild) — v0.22.2 (2026-04-16); healthier than the stale `cross-rs/cross` v0.2.5 (2024-02-04)
 - [cargo-zigbuild#316](https://github.com/rust-cross/cargo-zigbuild/issues/316) — aarch64-apple-darwin iconv linker regression under Rust ≥ 1.82 with `zstd-sys`

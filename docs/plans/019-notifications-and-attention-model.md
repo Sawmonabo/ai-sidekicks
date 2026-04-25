@@ -89,7 +89,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 ## Risks And Blockers
 
-- Per-session notification preferences remain unresolved for the first implementation
+- Per-session notification preferences remain unresolved for the first implementation (deferred per [Spec-019](../specs/019-notifications-and-attention-model.md) — V1 ships global preferences only; per-session post-V1)
 - Cross-device duplicate delivery can become noisy if canonical attention state and local notification emission are not separated cleanly
 - Aggregate session attention can drift if clients try to reconstruct it locally instead of consuming the canonical derived projection
 

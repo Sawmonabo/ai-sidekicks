@@ -489,7 +489,7 @@ Sources:
 - **Identity:** Apple Developer ID Application certificate, issued free under the $99/year Apple Developer Program membership.
 - **Process:** Hardened runtime enabled + Apple notarization via `xcrun notarytool` (the `altool` command has been deprecated since 2023-11-01 and must not be used) + `xcrun stapler` to attach the notarization ticket to the artifact so it works offline.
 - **Entitlements:** The hardened runtime must declare only what the shell needs. V8/JIT commonly requires `com.apple.security.cs.allow-unsigned-executable-memory` and `com.apple.security.cs.allow-jit`; dynamic loading of native modules may require `com.apple.security.cs.allow-dyld-environment-variables`; keystore access uses `keychain-access-groups`.
-- **Operational risk (Feb 2026+):** Apple's notarization queues have been experiencing delays of 16+ hours per active developer-forum threads. Plan-023's release pipeline must include **timeout + retry** logic rather than synchronous blocking on notarization.
+- **Operational risk (Jan 2026+):** Apple's notarization queues have been experiencing delays of 24–120+ hours per active developer-forum threads. Plan-023's release pipeline must include **timeout + retry** logic rather than synchronous blocking on notarization.
 
 #### Windows
 
@@ -640,7 +640,7 @@ A dedicated current-state research pass (Electron version / cadence, security ha
 | Microsoft — Artifact Signing GA | Primary source | Renamed from Trusted Signing; GA 2026-01-12; Basic SKU pricing | https://techcommunity.microsoft.com/blog/microsoft-security-blog/simplifying-code-signing-for-windows-apps-artifact-signing-ga/4482789 |
 | Azure Artifact Signing FAQ | Documentation | Regional eligibility (USA/Canada/EU/UK orgs; US/Canada individuals); no EV cert issuance | https://learn.microsoft.com/en-us/azure/artifact-signing/faq |
 | Apple Developer ID | Documentation | Developer ID cert free under $99/yr program; notarization required | https://developer.apple.com/developer-id/ |
-| Apple Developer forum — notarization delays | Primary source | February 2026: 16+ hour queue delays reported | https://developer.apple.com/forums/thread/813441 |
+| Apple Developer forum — notarization delays | Primary source | January 2026: 24–120+ hour queue delays reported | https://developer.apple.com/forums/thread/813441 |
 | Microsoft — Windows 10 lifecycle | Primary source | Windows 10 EOL 2025-10-14 | https://learn.microsoft.com/en-us/lifecycle/products/windows-10-home-and-pro |
 | Sentry Electron SDK documentation | Documentation | Per-process init (`@sentry/electron/main` / `/renderer` / `/utility`) | https://docs.sentry.io/platforms/javascript/guides/electron/ |
 | `electron-webauthn-mac` (Vault12) | Source | Jan 2026 open-source release; bridges Apple `AuthenticationServices` for passkeys | https://github.com/vault12/electron-webauthn-mac |

@@ -153,13 +153,13 @@ The long-term Ed25519 identity key used for `SessionKeyBundle` signing (item 3 i
 - [RFC 9420 -- Messaging Layer Security](https://www.rfc-editor.org/rfc/rfc9420)
 - [RFC 8628 -- OAuth 2.0 Device Authorization Grant](https://www.rfc-editor.org/rfc/rfc8628)
 - [RFC 5869 -- HKDF (HMAC-based Extract-and-Expand Key Derivation Function)](https://www.rfc-editor.org/rfc/rfc5869)
-- [RFC 8446 §1.2 -- TLS 1.3 forward secrecy via ephemeral key exchange](https://www.rfc-editor.org/rfc/rfc8446#section-1.2)
+- [RFC 8446 §1.2 -- Major Differences from TLS 1.2](https://www.rfc-editor.org/rfc/rfc8446#section-1.2) — section establishes TLS 1.3 forward secrecy by removing static-key cipher suites in favor of ephemeral key exchange
 - [Bernstein 2011 -- Extending the Salsa20 nonce (XSalsa20/XChaCha20 construction)](https://cr.yp.to/snuffle/xsalsa-20110204.pdf) — primary source for XChaCha20 construction; `draft-irtf-cfrg-xchacha-03` was archived as a Dead IRTF Document
 - [Signal X3DH Specification](https://signal.org/docs/specifications/x3dh/) — precedent for long-term-identity-authenticated ephemeral X25519 handshake
 - [@noble/curves audits (Cure53, Kudelski Security)](https://github.com/paulmillr/noble-curves#audit) — audited primitive library selection for V1
 - [@noble/ciphers audits](https://github.com/paulmillr/noble-ciphers#audit) — audited AEAD library selection for V1
 - [OpenMLS (Rust MLS implementation, MIT)](https://github.com/openmls/openmls) — V1.1 MLS promotion candidate
-- [mls-rs (Rust MLS implementation, Apache-2.0, AWS Labs)](https://github.com/awslabs/mls-rs) — V1.1 MLS promotion candidate
+- [mls-rs (Rust MLS implementation, Apache-2.0 or MIT, AWS Labs)](https://github.com/awslabs/mls-rs) — V1.1 MLS promotion candidate
 
 ## Decision Log
 

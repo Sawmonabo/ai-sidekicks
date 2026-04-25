@@ -7,7 +7,8 @@ Canonical schema for the local daemon's SQLite database. Each runtime node maint
 ## Pragmas
 
 ```sql
-PRAGMA journal_mode = WAL;
+PRAGMA journal_mode = WAL;      -- concurrent readers during writes
+PRAGMA synchronous = FULL;      -- override better-sqlite3 default (NORMAL) for chain-of-custody durability (see Spec-015 §Pragmas + Spec-006 §Integrity Protocol)
 PRAGMA foreign_keys = ON;
 PRAGMA busy_timeout = 5000;
 ```

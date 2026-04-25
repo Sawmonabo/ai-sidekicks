@@ -46,7 +46,8 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 ## Data And Storage Changes
 
-- Add local `diff_artifacts`, `branch_contexts`, and `pr_preparations` tables.
+- Add local `diff_artifacts` and `pr_preparations` tables (CREATE).
+- Extend `branch_contexts` (owner: Plan-010 per [cross-plan-dependencies.md §1 Contested](../architecture/cross-plan-dependencies.md#1-table-ownership-map) row for `branch_contexts` — Plan-011 ALTER/USE).
 - See [Local SQLite Schema](../architecture/schemas/local-sqlite-schema.md) for column definitions.
 
 ## API And Transport Changes

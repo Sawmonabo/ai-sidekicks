@@ -61,7 +61,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 - Contracts: See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed schemas this plan consumes.
 
-1. Define canonical approval categories, scope enums, remembered-grant rules, and trust-evaluation inputs in shared contracts. The 8 canonical approval categories are: `tool_execution`, `file_write`, `network_access`, `destructive_git`, `user_input`, `plan_approval`, `mcp_elicitation`, and `gate`.
+1. Define canonical approval categories, scope enums, remembered-grant rules, and trust-evaluation inputs in shared contracts. The 9 canonical approval categories are: `tool_execution`, `file_write`, `network_access`, `destructive_git`, `user_input`, `plan_approval`, `mcp_elicitation`, `gate`, and `human_phase_contribution` (SA-12 addition per BL-097 Wave-1 — see Spec-012 canonical enum).
 2. Implement daemon-side permission checks and approval persistence before any sensitive local action executes. V1 evaluates Cedar policies compiled from YAML policy definitions (Cedar policy engine, CNCF sandbox); the V1 signed policy artifact is the daemon container image itself, signed by the operator release key and verified on daemon start against the pinned `OPERATOR_PUBLIC_KEY` (see [ADR-012 §Policy Chain of Custody](../decisions/012-cedar-approval-policy-engine.md#policy-chain-of-custody)). **V1.1:** Migrate policy evaluation to Cedar WASM (`@cedarpolicy/cedar-wasm`) for in-process execution. V1.1 adds: (a) `policy-bundle-v{N}.cedar.tar.gz` build/sign/verify CLI surface (`sidekicks policy bundle build/sign/verify`), (b) daemon-side verifier with monotonic version counter and rollback rejection, (c) `ApprovalPolicyEngineUnavailable` recovery-status plumbing, (d) freshness-window timestamp enforcement. Operational procedures: [Cedar Policy Signing And Rotation](../operations/cedar-policy-signing-and-rotation.md).
 3. Implement approval projection reads and invalidation flows when membership, role, or runtime-node trust changes.
 4. Add desktop approval surfaces for pending requests, historical decisions, and remembered-grant revocation.
@@ -90,7 +90,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 ## Risks And Blockers
 
-- Organization-level policy defaults remain unresolved for the first implementation
+- Organization-level policy defaults remain unresolved for the first implementation (deferral tracked in parent [Spec-012](../specs/012-approvals-permissions-and-trust-boundaries.md))
 - Provider-native permission semantics may drift unless normalization is enforced before approval records are written
 - Own-node trust can be over-broadened unless envelope boundaries remain explicit in permission checks and UI copy
 

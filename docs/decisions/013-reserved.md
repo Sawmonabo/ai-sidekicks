@@ -5,7 +5,7 @@
 | **Status** | `reserved-skipped` |
 | **Type** | `N/A (no decision recorded)` |
 | **Domain** | `N/A` |
-| **Date** | `2026-04-15` (created) / `2026-04-19` (formalized) |
+| **Date** | `2026-04-15` |
 | **Author(s)** | `Claude` |
 | **Reviewers** | `Formalized 2026-04-19` |
 

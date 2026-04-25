@@ -53,7 +53,7 @@ V1 consists of **17 features** (amended 2026-04-22 per BL-097 — was 16 at 2026
 | 14 | Artifact publication (local) | [Spec-014](../specs/014-artifacts-files-and-attachments.md) |
 | 15 | Desktop GUI | Spec-023 (from BL-041) |
 | 16 | Multi-Agent Channels | [Spec-016](../specs/016-multi-agent-channels-and-orchestration.md) |
-| 17 | Workflow authoring and execution (full engine) | [Spec-017](../specs/017-workflow-authoring-and-execution.md); V1 engine scope per BL-097 resolution (see §Amendment History) covers DAG executor, all four phase types (`single-agent`, `automated`, `multi-agent` OWN-only, `human`), all four gate types, parallel execution with `ParallelJoinPolicy`, resource pools, and 24 workflow event types — full contract pinned in Spec-017 (31 amendments SA-1…SA-31 from `docs/research/bl-097-workflow-scope/wave-1-synthesis.md` + `wave-2-synthesis.md`). |
+| 17 | Workflow authoring and execution (full engine) | [Spec-017](../specs/017-workflow-authoring-and-execution.md); V1 engine scope per BL-097 resolution (see §Amendment History) covers DAG executor, all four phase types (`single-agent`, `automated`, `multi-agent` OWN-only, `human`), all four gate types, parallel execution with `ParallelJoinPolicy`, resource pools, and 23 workflow event types — full contract pinned in Spec-017 + Plan-017 (31 amendments SA-1…SA-31 from `docs/research/bl-097-workflow-scope/wave-1-synthesis.md` + `wave-2-synthesis.md`: 27 land in Spec-017 body; SA-24/29/30/31 land in Plan-017 per implementation-detail separation). |
 
 ### V1.1 Features (3, deferred)
 
@@ -146,7 +146,7 @@ The antithesis assumes V1 launch speed is the dominant cost. For this product, l
 - Larger V1 surface means more implementation work before first ship.
 - Multi-Agent Channels V1-readiness review (BL-042) becomes a V1 gate rather than a V1.1 nice-to-have; hardening cost is real.
 - Desktop GUI adds Electron packaging, auto-update, code-signing, and cross-platform QA work to V1; carried via ADR-016 (desktop shell) and Plan-023 (desktop implementation, from BL-043).
-- **(Added 2026-04-22 per BL-097)** Full workflow engine surface per Spec-017 (V1 feature 17) is V1 build cost — covers DAG executor, four phase types, four gate types, parallel execution, resource pools, 24 workflow event types, 9-table SQLite persistence schema, property/fuzz/load/integration/security test battery. Justified by BL-097 research showing post-V1 retrofit of phase-type additions, parallel execution, and durable human-phase resumption is architecturally heavier than V1-native implementation: every surveyed system (Airflow, Dagger, GitHub Actions, n8n, Temporal, Argo, CircleCI) paid breaking-change cost retrofitting what V1-native would have covered additively. Sources: `docs/research/bl-097-workflow-scope/pass-d-post-v1-freeze-regrets.md` (7-system survey, 3 patterns: additive enum expansion — safe; replacement expansion — breaking per [Dagger CUE→SDK rewrite](https://dagger.io/blog/ending-cue-support/); execution-model commitment — deprecate-within-releases).
+- **(Added 2026-04-22 per BL-097)** Full workflow engine surface per Spec-017 (V1 feature 17) is V1 build cost — covers DAG executor, four phase types, four gate types, parallel execution, resource pools, 23 workflow event types, 9-table SQLite persistence schema, property/fuzz/load/integration/security test battery. Justified by BL-097 research showing post-V1 retrofit of phase-type additions, parallel execution, and durable human-phase resumption is architecturally heavier than V1-native implementation: every surveyed system (Airflow, Dagger, GitHub Actions, n8n, Temporal, Argo, CircleCI) paid breaking-change cost retrofitting what V1-native would have covered additively. Sources: `docs/research/bl-097-workflow-scope/pass-d-post-v1-freeze-regrets.md` (7-system survey, 3 patterns: additive enum expansion — safe; replacement expansion — breaking per [Dagger CUE→SDK rewrite](https://dagger.io/blog/ending-cue-support/); execution-model commitment — deprecate-within-releases).
 
 ### Unknowns
 
@@ -168,7 +168,7 @@ The antithesis assumes V1 launch speed is the dominant cost. For this product, l
 - [V1 Feature Scope](../architecture/v1-feature-scope.md) — V1 / V1.1 / V2 triage rewritten against this ADR per BL-039.
 - [Cross-Plan Dependencies](../architecture/cross-plan-dependencies.md) — tier graph updated against this ADR per BL-054.
 - [Spec-016: Multi-Agent Channels and Orchestration](../specs/016-multi-agent-channels-and-orchestration.md) — V1 per this ADR; V1-readiness review tracked in BL-042.
-- [Spec-017: Workflow Authoring and Execution](../specs/017-workflow-authoring-and-execution.md) — governs V1 Feature 17 (added per 2026-04-22 amendment). Spec-017 body carries all 31 load-bearing amendments SA-1…SA-31 from BL-097 research.
+- [Spec-017: Workflow Authoring and Execution](../specs/017-workflow-authoring-and-execution.md) — governs V1 Feature 17 (added per 2026-04-22 amendment). Spec-017 body carries 27 of 31 load-bearing amendments from BL-097 research (SA-1…SA-23, SA-25, SA-26, SA-27, SA-28); SA-24/29/30/31 land in Plan-017 per implementation-detail separation.
 - [Spec-023: Desktop Shell and Renderer](../specs/023-desktop-shell-and-renderer.md) — to be authored per BL-041; enables Feature 15 implementation.
 
 ### BL-097 Research Provenance (added 2026-04-22)
@@ -204,7 +204,7 @@ This section records material amendments to this ADR. Each amendment preserves t
 | V1 feature count | 16 | **17** (added Feature 17: Workflow authoring and execution) |
 | V1.1 deferred features | 4 (MLS, email invite, cross-node artifacts, workflow) | **3** (MLS, email invite, cross-node artifacts) |
 | V1.1 criterion-gated commitments | 0 | **2** (BIND multi-phase channel reuse; human-phase default-timeout) |
-| Spec-017 status | Deferred V1.1 (conflicted with Spec-017:40 subset claim) | Authoritative V1 (31 amendments SA-1…SA-31 land in Spec-017 body) |
+| Spec-017 status | Deferred V1.1 (conflicted with Spec-017:40 subset claim) | Authoritative V1 (31 amendments SA-1…SA-31 split: 27 land in Spec-017 body; SA-24/29/30/31 land in Plan-017 per implementation-detail separation) |
 
 **Why:** BL-097 opened 2026-04-21 surfaced a direct contradiction — Spec-017:40 declared a V1 workflow subset (single-agent + automated + all 4 gates + sequential), while ADR-015 row 4 and `v1-feature-scope.md:39` declared the entire workflow feature was V1.1-deferred. Three resolution paths were on the table (α — keep subset, β — declare all-V1.1, γ-i/ii/iii — expand V1 scope to full engine). The user selected γ-iii (full engine) on the basis that post-V1 retrofit of phase-type additions, parallel execution, and durable human-phase resumption is architecturally heavier than V1-native implementation. Wave 1 + Wave 2 research (`docs/research/bl-097-workflow-scope/`) confirmed:
 
@@ -217,7 +217,7 @@ This section records material amendments to this ADR. Each amendment preserves t
 **Cross-references that consume this amendment:**
 
 - [v1-feature-scope.md](../architecture/v1-feature-scope.md) — mirror amendment (BL-097 task #29)
-- [Spec-017](../specs/017-workflow-authoring-and-execution.md) — body rewrite to carry SA-1…SA-31 (BL-097 task #27); §Non-Goals line 40 V1/V1.1 subset language removed
+- [Spec-017](../specs/017-workflow-authoring-and-execution.md) — body rewrite to carry 27 of 31 amendments (SA-1…SA-23, SA-25, SA-26, SA-27, SA-28; SA-24/29/30/31 land in Plan-017 per BL-097 task #27); §Non-Goals line 40 V1/V1.1 subset language removed
 - [Plan-017](../plans/017-workflow-authoring-and-execution.md) — design-section rewrite (BL-097 task #28)
 - [ADR-017: Shared Event Sourcing Scope](./017-shared-event-sourcing-scope.md) — "16 features" reference updated to "17" (BL-097 task #30)
 - [ADR-020: V1 Deployment Model and OSS License](./020-v1-deployment-model-and-oss-license.md) — "16-feature surface" → "17-feature surface" (BL-097 task #30)

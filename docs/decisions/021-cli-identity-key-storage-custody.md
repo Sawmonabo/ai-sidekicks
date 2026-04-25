@@ -42,7 +42,7 @@ The CLI stores its long-term Ed25519 identity key using a **three-tier custody l
 
 #### Tier 1 — OS-native keystore (preferred)
 
-- Transport library: [`@napi-rs/keyring`](https://github.com/napi-rs/keyring) (v1.2.0), a thin N-API wrapper over [`keyring-rs`](https://github.com/open-source-cooperative/keyring-rs) (v3.6.3).
+- Transport library: [`@napi-rs/keyring`](https://github.com/Brooooooklyn/keyring-node) (v1.2.0), a thin N-API wrapper over [`keyring-rs`](https://github.com/open-source-cooperative/keyring-rs) (v3.6.3).
 - Platform backends:
   - **Linux:** D-Bus Secret Service (GNOME Keyring, KeePassXC, KDE Wallet). Never kernel keyutils at tier 1 — kernel session keyring's reboot-volatile, 3-day TTL semantics are incompatible with a long-term identity key, and `keyring-rs` will silently fall back to it when D-Bus is unreachable.
   - **macOS:** Legacy file-based keychain via `SecKeychainAddGenericPassword` (`login.keychain-db`). Not Data Protection Keychain — Data Protection Keychain requires app entitlements and an Apple-signed bundle path that a Homebrew-installed CLI cannot satisfy in V1.
@@ -263,7 +263,7 @@ The following are explicitly deferred past V1 and are recorded here so downstrea
 - [Spec-008 §Relay Encryption](../specs/008-control-plane-relay-and-session-join.md) — describes the `SessionKeyBundle` Ed25519 signing role.
 - [Spec-007: Local IPC And Daemon Control](../specs/007-local-ipc-and-daemon-control.md) — session-token contract that bounds CLI access to decrypted key material.
 - [security-architecture.md §Local Daemon Authentication](../architecture/security-architecture.md) — authoritative daemon-auth model whose mode-0600 session token is the transport-layer peer of this ADR's at-rest custody model.
-- [`@napi-rs/keyring` v1.2.0](https://github.com/napi-rs/keyring) — transport library for tier 1.
+- [`@napi-rs/keyring` v1.2.0](https://github.com/Brooooooklyn/keyring-node) — transport library for tier 1.
 - [`keyring-rs` v3.6.3](https://github.com/open-source-cooperative/keyring-rs) — wrapped backend; `src/windows.rs:413` is the `CRED_PERSIST_ENTERPRISE` hardcoding site.
 - [OWASP Password Storage Cheat Sheet (2026 revision)](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html) — Argon2id parameter source for tier 2.
 - [libsodium documentation](https://libsodium.gitbook.io/doc/) — XChaCha20-Poly1305 AEAD and Argon2id KDF reference implementation.

@@ -46,7 +46,9 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 ## Data And Storage Changes
 
-- Add shared `session_invites` and `session_memberships` tables. Presence data is ephemeral (Yjs Awareness CRDT, in-memory only) and must NOT be persisted to a durable table.
+- Add shared `session_invites` table (CREATE).
+- Extend `session_memberships` (owner: Plan-001 per [cross-plan-dependencies.md §1 Contested](../architecture/cross-plan-dependencies.md#1-table-ownership-map) row for `session_memberships` — Plan-002 ALTER/USE adds invite-driven membership flows).
+- Presence data is ephemeral (Yjs Awareness CRDT, in-memory only) and must NOT be persisted to a durable table.
 - See [Shared Postgres Schema](../architecture/schemas/shared-postgres-schema.md) for column definitions.
 
 ## API And Transport Changes
@@ -85,7 +87,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 ## Risks And Blockers
 
-- Guest identity policy remains unresolved
+- Guest identity policy remains unresolved (deferral tracked in parent [Spec-002](../specs/002-invite-membership-and-presence.md))
 - Presence churn can create noisy state unless heartbeat thresholds are tuned carefully
 
 ## Done Checklist

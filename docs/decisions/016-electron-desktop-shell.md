@@ -158,7 +158,7 @@ The antithesis wins on bundle size and baseline memory but loses on the one cons
 | Electron release timeline | Documentation | "Latest three stable branches" support policy; current stable heads 41.2.1 / 40.9.1 / 39.8.8 as of 2026-04-17 | https://www.electronjs.org/docs/latest/tutorial/electron-timelines |
 | GHSA-3c8v-cfp5-9885 | Security advisory (primary) | Fixed-version floors 38.8.6 / 39.8.1 / 40.8.1 / 41.0.0 for the `requestSingleInstanceLock()` second-instance IPC parser out-of-bounds heap read on macOS and Linux (Windows unaffected) | https://github.com/electron/electron/security/advisories/GHSA-3c8v-cfp5-9885 |
 | NVD CVE-2026-34776 | CVE record (primary) | CWE-125 out-of-bounds read; CVSS 3.1 base 5.3 (vector `AV:L/AC:H/PR:L/UI:N/S:U/C:H/I:N/A:L`) | https://nvd.nist.gov/vuln/detail/CVE-2026-34776 |
-| WebKit2GTK changelog | Documentation | No WebAuthn implementation as of 2026-04 | https://webkitgtk.org/ |
+| WebKitGTK project site | Documentation | No WebAuthn implementation noted across project releases as of 2026-04 | https://webkitgtk.org/ |
 | Tauri v2 documentation | Documentation | OS-native webview strategy; WebKitGTK on Linux | https://v2.tauri.app/ |
 | Wails v3 status page | Documentation | v3 alpha status; no flagship production apps | https://wails.io/ |
 | Pre-implementation audit | Primary research | Evaluated Electron, Tauri, Wails; recommended Electron | session `2026-04-16-arch-audit-163537` |

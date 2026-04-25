@@ -88,7 +88,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 ## Risks And Blockers
 
-- Per-session verbose reasoning opt-in remains unresolved
+- Per-session verbose reasoning opt-in remains unresolved (deferral tracked in parent [Spec-013](../specs/013-live-timeline-visibility-and-reasoning-surfaces.md))
 - Timeline projections will drift if row schemas are allowed to diverge from canonical event provenance
 - Detailed reasoning payloads can be mistaken for canonical history unless summary-first storage stays explicit across contracts and UI
 
