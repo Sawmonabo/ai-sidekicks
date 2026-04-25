@@ -386,7 +386,9 @@ CREATE INDEX idx_remembered_rules_participant ON remembered_approval_rules(parti
 
 ## Workflow Tables (Plan-017)
 
-Full workflow-engine V1 schema per [BL-097 Wave 2 Pass G](../../research/bl-097-workflow-scope/pass-g-persistence-model.md). Nine tables implement the 10-state phase machine, append-only hash-chained gate history (C-13/I7), parallel-join bookkeeping, and OWN-only channel linkage. `session_events` remains canonical truth; tables 3/4/7/8/9 are rebuildable projections, and 1/2/5/6 are immutable truth (6 additionally carries a per-run BLAKE3 chain).
+Full workflow-engine V1 schema. Nine tables implement the 10-state phase machine, append-only hash-chained gate history (C-13/I7), parallel-join bookkeeping, and OWN-only channel linkage. `session_events` remains canonical truth; tables 3/4/7/8/9 are rebuildable projections, and 1/2/5/6 are immutable truth (6 additionally carries a per-run BLAKE3 chain anchored to [Spec-006 § Integrity Protocol](../../specs/006-session-event-taxonomy-and-audit-log.md#integrity-protocol)).
+
+The normalized-table-over-blob shape, the per-run hash-chained gate-resolution audit trail, and the rebuildable-projection split align with industry persistence precedents: durable-execution engines persist normalized state per run rather than monolithic blobs (*"Restate stores the state of each invocation in a durable log"* — [Restate — Building Modern Durable Execution, 2025](https://restate.dev/blog/building-modern-durable-execution/), fetched 2026-04-25); large-engine persistence tiers separate hot live state from cold archive ([Argo Workflows — Workflow Archive](https://argo-workflows.readthedocs.io/en/latest/workflow-archive/), fetched 2026-04-25); and append-only hash-chained audit trails are the canonical academic precedent for tamper-evident logging (*"a tamper-evident log... uses a hash chain to detect tampering with high probability"* — [Crosby & Wallach, Efficient Data Structures for Tamper-Evident Logging, USENIX Security 2009](https://static.usenix.org/event/sec09/tech/full_papers/crosby.pdf), fetched 2026-04-25). Spec-017 §References > Persistence + hash-chain enumerates the full primary-source corpus.
 
 ```sql
 -- ========================================================================
@@ -602,7 +604,7 @@ CREATE INDEX idx_gate_resolutions_approval ON workflow_gate_resolutions(approval
   WHERE approval_request_id IS NOT NULL;
 
 -- No UPDATE or DELETE triggers — append-only enforced at application layer (writer worker only inserts).
--- Verification procedure: Pass G §5 (BLAKE3 chain recompute + dual-anchor cross-check vs session_events payload).
+-- Verification procedure: BLAKE3 chain recompute per Spec-006 §Integrity Protocol + dual-anchor cross-check vs session_events payload (see "Hash-chain verification" note below this block).
 
 -- ========================================================================
 -- 7. parallel_join_state — sibling set + cancellation bookkeeping
@@ -678,9 +680,9 @@ CREATE INDEX idx_human_phase_form_state_phase ON human_phase_form_state(phase_ru
   WHERE submitted = 0;
 ```
 
-**Index rationale + write-amplification estimate:** [Pass G §3](../../research/bl-097-workflow-scope/pass-g-persistence-model.md) documents per-index query justifications and a ~42 KB / 110-write projection for a 10-phase workflow under Spec-015's 50-event batch.
+**Index rationale + write-amplification estimate:** Per-index query justifications above are sized against SQLite's standard query-planner cost model — partial indexes with `WHERE` clauses are evaluated only over the matching subset, yielding the smallest workable index for the live-set queries ([SQLite — Partial Indexes](https://www.sqlite.org/partialindex.html), fetched 2026-04-25). The ~42 KB / 110-write projection for a 10-phase workflow assumes Spec-015's 50-event batch flushed under one `db.transaction(fn)` call — `better-sqlite3` commits each batch atomically and rolls back on throw (*"Calling [.transaction()] returns a new function that, when called, runs the given function inside an SQLite transaction"* — [better-sqlite3 API docs](https://github.com/WiseLibs/better-sqlite3/blob/master/docs/api.md), fetched 2026-04-25). Two to three batch flushes therefore absorb the full workflow lifecycle without triggering write-amplification regressions under `synchronous = FULL` WAL ([SQLite — Write-Ahead Logging](https://www.sqlite.org/wal.html), fetched 2026-04-25).
 
-**Hash-chain verification:** [Pass G §5](../../research/bl-097-workflow-scope/pass-g-persistence-model.md) specifies the per-run BLAKE3 chain recompute + the dual-anchor check against `session_events` (category `workflow_gate_resolution`, payload fields `gate_resolution_id` + `row_hash`). Verification is exposed as a CLI subcommand (Plan-017).
+**Hash-chain verification:** Per-run BLAKE3 chain recompute follows the exact algorithm specified in [Spec-006 § Integrity Protocol](../../specs/006-session-event-taxonomy-and-audit-log.md#integrity-protocol) — recompute `BLAKE3(prev_hash || canonical_bytes(row))` for each entry and compare to the stored `row_hash`, then verify `daemon_signature` against the canonical bytes. The hash function is the BLAKE3 reference specification ([BLAKE3 specification](https://github.com/BLAKE3-team/BLAKE3-specs/blob/master/blake3.pdf), fetched 2026-04-25). The dual-anchor check additionally cross-checks `session_events` (category `workflow_gate_resolution`, payload fields `gate_resolution_id` + `row_hash`) so a tampered `workflow_gate_resolutions` row is detected even if its local chain is internally consistent — the same tamper-evidence pattern Crosby & Wallach formalized ([Efficient Data Structures for Tamper-Evident Logging, USENIX Security 2009](https://static.usenix.org/event/sec09/tech/full_papers/crosby.pdf), fetched 2026-04-25). Verification is exposed as a CLI subcommand (Plan-017).
 
 ---
 

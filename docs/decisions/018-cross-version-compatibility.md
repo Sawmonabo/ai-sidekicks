@@ -202,12 +202,12 @@ Every proposed MINOR bump MUST be reviewed against this checklist before landing
 
 | Source | Type | Key Finding | URL/Location |
 |--------|------|-------------|--------------|
-| Kubernetes Version Skew Policy (v1.35) | Upstream policy | Asymmetric read-tolerance (old reads new OK; old writes new NOT OK); no-skip-minors; anchor-at-apiserver model | https://kubernetes.io/releases/version-skew-policy/ (accessed 2026-04-18) |
-| Confluent Schema Registry — Schema Evolution and Compatibility | Platform documentation | FORWARD_TRANSITIVE compatibility class matches additive-only minor-bump pattern, checked against all historical versions | https://docs.confluent.io/platform/current/schema-registry/fundamentals/schema-evolution.html (accessed 2026-04-18) |
-| Protobuf — Proto Best Practices | Language guide | Unknown-field preservation discipline; reserved-tag rule; "changing a field number is equivalent to deletion and re-addition" | https://protobuf.dev/best-practices/dos-donts/ (accessed 2026-04-18) |
-| Protobuf — Language Guide (Editions) | Language guide | Editions-based evolution; forward-compat discipline for wire-format changes | https://protobuf.dev/programming-guides/editions/ (accessed 2026-04-18) |
-| CloudEvents v1.0.2 Specification | Specification | `specversion` attribute; silent-ignore discipline for unknown content (weaker precedent; spec has never bumped from 1.0, so no field-tested MAJOR-bump precedent) | https://github.com/cloudevents/spec/blob/v1.0.2/cloudevents/spec.md (accessed 2026-04-18) |
-| How to (not) do the events versioning? | Industry commentary (event sourcing) | Upcaster-chain on read; never rewrite log; events immutable | https://event-driven.io/en/how_to_do_event_versioning/ (accessed 2026-04-18) |
+| Kubernetes Version Skew Policy (v1.35) | Upstream policy | Asymmetric read-tolerance (old reads new OK; old writes new NOT OK); no-skip-minors; anchor-at-apiserver model | <https://kubernetes.io/releases/version-skew-policy/> (accessed 2026-04-18) |
+| Confluent Schema Registry — Schema Evolution and Compatibility | Platform documentation | FORWARD_TRANSITIVE compatibility class matches additive-only minor-bump pattern, checked against all historical versions | <https://docs.confluent.io/platform/current/schema-registry/fundamentals/schema-evolution.html> (accessed 2026-04-18) |
+| Protobuf — Proto Best Practices | Language guide | Unknown-field preservation discipline; reserved-tag rule; "changing a field number is equivalent to deletion and re-addition" | <https://protobuf.dev/best-practices/dos-donts/> (accessed 2026-04-18) |
+| Protobuf — Language Guide (Editions) | Language guide | Editions-based evolution; forward-compat discipline for wire-format changes | <https://protobuf.dev/programming-guides/editions/> (accessed 2026-04-18) |
+| CloudEvents v1.0.2 Specification | Specification | `specversion` attribute; silent-ignore discipline for unknown content (weaker precedent; spec has never bumped from 1.0, so no field-tested MAJOR-bump precedent) | <https://github.com/cloudevents/spec/blob/v1.0.2/cloudevents/spec.md> (accessed 2026-04-18) |
+| How to (not) do the events versioning? | Industry commentary (event sourcing) | Upcaster-chain on read; never rewrite log; events immutable | <https://event-driven.io/en/how_to_do_event_versioning/> (accessed 2026-04-18) |
 
 ### Related ADRs
 

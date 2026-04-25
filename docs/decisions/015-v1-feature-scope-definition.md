@@ -53,7 +53,7 @@ V1 consists of **17 features** (amended 2026-04-22 per BL-097 — was 16 at 2026
 | 14 | Artifact publication (local) | [Spec-014](../specs/014-artifacts-files-and-attachments.md) |
 | 15 | Desktop GUI | Spec-023 (from BL-041) |
 | 16 | Multi-Agent Channels | [Spec-016](../specs/016-multi-agent-channels-and-orchestration.md) |
-| 17 | Workflow authoring and execution (full engine) | [Spec-017](../specs/017-workflow-authoring-and-execution.md); V1 engine scope per BL-097 resolution (see §Amendment History) covers DAG executor, all four phase types (`single-agent`, `automated`, `multi-agent` OWN-only, `human`), all four gate types, parallel execution with `ParallelJoinPolicy`, resource pools, and 23 workflow event types — full contract pinned in Spec-017 + Plan-017 (31 amendments SA-1…SA-31 from `docs/research/bl-097-workflow-scope/wave-1-synthesis.md` + `wave-2-synthesis.md`: 27 land in Spec-017 body; SA-24/29/30/31 land in Plan-017 per implementation-detail separation). |
+| 17 | Workflow authoring and execution (full engine) | [Spec-017](../specs/017-workflow-authoring-and-execution.md); V1 engine scope per BL-097 resolution (see §Amendment History) covers DAG executor, all four phase types (`single-agent`, `automated`, `multi-agent` OWN-only, `human`), all four gate types, parallel execution with `ParallelJoinPolicy`, resource pools, and 23 workflow event types — full contract pinned in Spec-017 + Plan-017 (31 amendments SA-1…SA-31 from BL-097 research: 27 land in Spec-017 body; SA-24/29/30/31 land in Plan-017 per implementation-detail separation; primary sources consolidated in §Research Conducted). |
 
 ### V1.1 Features (3, deferred)
 
@@ -65,7 +65,7 @@ V1 consists of **17 features** (amended 2026-04-22 per BL-097 — was 16 at 2026
 
 ### V1.1 Criterion-Gated Commitments
 
-Sub-features explicitly committed for V1.1 under named criteria (per memory `feedback_criterion_gated_deferrals` — V1→V1.1 deferrals require concrete promotion gates in the ADR, not vague "maybe later"). Criteria are drawn from `docs/research/bl-097-workflow-scope/wave-1-synthesis.md` §5.3 and grounded in 2025–2026 durable-execution convergence evidence.
+Sub-features explicitly committed for V1.1 under named criteria (per memory `feedback_criterion_gated_deferrals` — V1→V1.1 deferrals require concrete promotion gates in the ADR, not vague "maybe later"). Criteria below are stated inline; they are grounded in 2025–2026 durable-execution convergence evidence (primary sources consolidated in §Research Conducted).
 
 **C1 — BIND multi-phase channel reuse (committed V1.1):**
 
@@ -73,7 +73,7 @@ Add `ownership: 'BIND'` to `multi-agent` phase contract in V1.1, contingent on *
 
 - (a) **Production signal:** ≥3 production workflows reporting OWN + transcript-inheritance insufficient for a documented user goal, AND
 - (b) **Concrete failure case:** at least one documented case where the transcript-as-context pattern degrades UX measurably (e.g., agent context loss detectable in outcomes), AND
-- (c) **Lifecycle contract:** a BIND lifecycle contract addressing the 5 ambiguities documented in `docs/research/bl-097-workflow-scope/pass-b-multi-agent-channel-contract.md` §3.1 — phase-A-retry semantics, phase-A-abandonment handling, gate-scoping-lattice resolution, membership-snapshot timing, termination-authority resolution.
+- (c) **Lifecycle contract:** a BIND lifecycle contract addressing the 5 ambiguities — phase-A-retry semantics, phase-A-abandonment handling, gate-scoping-lattice resolution, membership-snapshot timing, termination-authority resolution.
 
 If (a)–(c) are satisfied, BIND ships as an additive amendment to the `multi-agent` phase type (SDK ergonomics: new `ownership: 'BIND'` discriminant). If any of (a)–(c) is not satisfied within V1.1's scoping window, BIND remains deferred under the same criteria.
 
@@ -146,7 +146,7 @@ The antithesis assumes V1 launch speed is the dominant cost. For this product, l
 - Larger V1 surface means more implementation work before first ship.
 - Multi-Agent Channels V1-readiness review (BL-042) becomes a V1 gate rather than a V1.1 nice-to-have; hardening cost is real.
 - Desktop GUI adds Electron packaging, auto-update, code-signing, and cross-platform QA work to V1; carried via ADR-016 (desktop shell) and Plan-023 (desktop implementation, from BL-043).
-- **(Added 2026-04-22 per BL-097)** Full workflow engine surface per Spec-017 (V1 feature 17) is V1 build cost — covers DAG executor, four phase types, four gate types, parallel execution, resource pools, 23 workflow event types, 9-table SQLite persistence schema, property/fuzz/load/integration/security test battery. Justified by BL-097 research showing post-V1 retrofit of phase-type additions, parallel execution, and durable human-phase resumption is architecturally heavier than V1-native implementation: every surveyed system (Airflow, Dagger, GitHub Actions, n8n, Temporal, Argo, CircleCI) paid breaking-change cost retrofitting what V1-native would have covered additively. Sources: `docs/research/bl-097-workflow-scope/pass-d-post-v1-freeze-regrets.md` (7-system survey, 3 patterns: additive enum expansion — safe; replacement expansion — breaking per [Dagger CUE→SDK rewrite](https://dagger.io/blog/ending-cue-support/); execution-model commitment — deprecate-within-releases).
+- **(Added 2026-04-22 per BL-097)** Full workflow engine surface per Spec-017 (V1 feature 17) is V1 build cost — covers DAG executor, four phase types, four gate types, parallel execution, resource pools, 23 workflow event types, 9-table SQLite persistence schema, property/fuzz/load/integration/security test battery. Justified by BL-097 research showing post-V1 retrofit of phase-type additions, parallel execution, and durable human-phase resumption is architecturally heavier than V1-native implementation: every surveyed system (Airflow, Dagger, GitHub Actions, n8n, Temporal, Argo, CircleCI) paid breaking-change cost retrofitting what V1-native would have covered additively. Three freeze-regret patterns: additive enum expansion (safe); replacement expansion (breaking, e.g., [Dagger CUE→SDK rewrite](https://dagger.io/blog/ending-cue-support/)); execution-model commitment (deprecate-within-releases). Primary sources consolidated in §Research Conducted.
 
 ### Unknowns
 
@@ -154,6 +154,73 @@ The antithesis assumes V1 launch speed is the dominant cost. For this product, l
 - Whether the Multi-Agent Channels V1 quality bar can be met without in-production traffic; BL-042 review is the primary gate.
 
 ## References
+
+### Research Conducted
+
+The 2026-04-22 amendment promoting Feature 17 (Workflow authoring and execution) from V1.1 → V1 is grounded in primary-source evidence across seven research dimensions: parallel execution (Pass A — DAG executor, resource pools, parallel join policy), multi-agent channel contract (Pass B — ownership, sub-workflow lifecycle, BIND-criterion evidence backing §V1.1 Criterion-Gated Commitments), event taxonomy (CloudEvents / OpenTelemetry / Temporal — anchors SA-18/19/20), persistence patterns (Pass G — SQLite WAL, Crosby & Wallach hash-chain, Trillian, AuditableLLM), test infrastructure (fast-check, Jazzer.js — anchors SA-29), human-phase upload safety (OWASP — anchors I6), post-V1 freeze-regret evidence (Pass D — 7-system V1-shipping-pattern survey backing the full-engine-at-V1 thesis), and security invariants I1–I7 (Pass E — CVE corpus per invariant). Cross-Pass duplications (Crosby & Wallach, OWASP File Upload, CloudEvents, OpenTelemetry semconv, Temporal events) are cited once with the broadest-applicable Pass framing. Additional Pass C (human-phase UX), Pass F (event-taxonomy detail), Pass G (persistence-pattern detail), and Pass H (testing-strategy detail) primaries land in Spec-017 §References and Plan-017 §References per dual-mapping established at amendment time.
+
+| Source | Type | Key Finding | URL/Location |
+|--------|------|-------------|--------------|
+| CloudEvents v1.0.2 specification | Specification (CNCF) | Envelope additive-bump rules anchor SA-18 (workflow event envelope additive MINOR bump); subject field carries workflow-run scoping | <https://github.com/cloudevents/spec/blob/v1.0.2/cloudevents/spec.md> |
+| OpenTelemetry Semantic Conventions for Events | Specification (CNCF) | Event-name hierarchical convention anchors SA-19 (`workflow.<resource>.<lifecycle>` naming) | <https://github.com/open-telemetry/semantic-conventions/blob/main/docs/general/events.md> |
+| Temporal Events Reference | Documentation | Reserved-event taxonomy (`WorkflowExecutionStarted`, `ActivityTaskScheduled`, etc.) anchors SA-20 reserved-event list and projection-rebuild contract | <https://docs.temporal.io/references/events> |
+| SQLite Write-Ahead Logging | Specification (SQLite) | WAL-mode durability and `synchronous=FULL` rationale for the 9-table workflow persistence schema (Pass G) | <https://www.sqlite.org/wal.html> |
+| Crosby & Wallach — "Efficient Data Structures for Tamper-Evident Logging" (USENIX Security 2009) | Academic paper | Per-run hash-chain construction underwriting C-13 (event-log integrity) and I7 (append-only event log invariant) | <https://www.usenix.org/legacy/event/sec09/tech/full_papers/crosby.pdf> |
+| AuditableLLM — "Auditable AI: Tamper-Evident Logging of LLM Interactions" (MDPI Electronics 14 (10): 2059, 2025) | Academic paper | LLM-specific audit-log precedent corroborating C-13 hash-chain choice for agent-execution event streams | <https://www.mdpi.com/2079-9292/14/10/2059> |
+| Google Trillian | Code (Apache-2.0) | Operational transparency-log precedent for hash-chained append-only logging at scale; reference implementation underpinning C-13 | <https://github.com/google/trillian> |
+| fast-check (model-based property testing) | Code (MIT) | Property-test framework anchoring SA-29 test-category battery (property/fuzz/load/integration/security-regression) | <https://github.com/dubzzz/fast-check> |
+| Jazzer.js (coverage-guided fuzzing for Node.js) | Code (Apache-2.0) | Fuzz-test framework anchoring SA-29 fuzz-target category for parameter-substitution and event-envelope parsing | <https://github.com/CodeIntelligenceTesting/jazzer.js> |
+| OWASP File Upload Cheat Sheet | Specification (OWASP) | Human-upload validation minimums anchoring I6 (human-phase upload OWASP minimums) and SA-26 form-state lifecycle | <https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html> |
+| Apache Airflow `dag.py` source | Code (Apache-2.0) | Kahn's-algorithm topological-sort DAG executor precedent anchoring C-3 (DAG executor) | <https://github.com/apache/airflow/blob/main/airflow/models/dag.py> |
+| Apache Airflow Pools | Documentation | Slot-based concurrency pools anchoring SA-3 (resource pools) | <https://airflow.apache.org/docs/apache-airflow/stable/administration-and-deployment/pools.html> |
+| Astronomer — Managing Dependencies (Airflow trigger rules) | Documentation | Trigger-rules taxonomy (`all_success`, `one_failed`, etc.) anchoring C-3 (DAG executor) trigger semantics | <https://www.astronomer.io/docs/learn/managing-dependencies> |
+| Temporal Go SDK (workflow primitives) | Documentation | Durable-execution primitive precedent anchoring C-3 (DAG executor) and C-7 (sub-workflow contract) | <https://docs.temporal.io/develop/go> |
+| Argo Workflows — Parallelism | Documentation | Workflow-level parallelism cap anchoring SA-3 (resource pools) parallelism budget | <https://argo-workflows.readthedocs.io/en/latest/walk-through/parallelism/> |
+| Dagster Run Concurrency | Documentation | Multi-tier resource-pool precedent (run-tags + concurrency keys) anchoring SA-3 (resource pools) | <https://docs.dagster.io/concepts/configuration/run-tags#run-concurrency> |
+| AWS Step Functions — Error Handling | Documentation | `Catch` / `Retry` semantics anchoring SA-4 (`ParallelJoinPolicy` `fail-fast` precedent) | <https://docs.aws.amazon.com/step-functions/latest/dg/concepts-error-handling.html> |
+| Temporal — ParentClosePolicy | Documentation | Child-workflow lifecycle on parent close anchors SA-6 (multi-agent ownership: OWN-only V1) and BIND lifecycle deltas | <https://docs.temporal.io/develop/typescript/child-workflows#parent-close-policy> |
+| Apache Airflow 2.0 release blog | Release blog | SubDAG → TaskGroup migration cost evidence backing BIND-criterion (b) (concrete failure case) and §V1.1 Criterion-Gated Commitments | <https://airflow.apache.org/blog/airflow-2.0/> |
+| `apache/airflow#1350` (SubDAG removal) | Issue | SubDAG deprecation primary record anchoring BIND-criterion (b) failure case | <https://github.com/apache/airflow/issues/1350> |
+| Astronomer — Airflow 2.0 upgrade guide | Documentation | SubDAG migration cost evidence anchoring BIND-criterion freeze-regret rationale | <https://www.astronomer.io/docs/learn/airflow-2-0/> |
+| Twine Labs — Airflow SubDAG deadlock writeup | Engineering blog (post) | Concrete BIND failure mode (worker-slot starvation deadlock) backing BIND-criterion (b) | <https://blog.twinelabs.io/blog/airflow-subdag-deadlock> |
+| n8n — `executeWorkflow` node | Documentation | Sub-workflow precedent anchoring C-7 (sub-workflow contract) industry alignment | <https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.executeworkflow/> |
+| Activepieces SubFlows | Documentation | Sub-workflow precedent anchoring C-7 (sub-workflow contract) industry alignment | <https://www.activepieces.com/docs/automation/subflows> |
+| Argo Workflows — DAG walkthrough | Documentation | DAG/template/suspending composition anchoring C-7 (sub-workflow contract) | <https://argo-workflows.readthedocs.io/en/latest/walk-through/dag/> |
+| `argoproj/argo-workflows#12425` | Issue | Sub-workflow lifecycle ambiguity precedent anchoring BIND lifecycle-contract requirement | <https://github.com/argoproj/argo-workflows/issues/12425> |
+| AWS Step Functions — Best Practices | Documentation | Sub-workflow break-down precedent anchoring C-7 (sub-workflow contract) | <https://docs.aws.amazon.com/step-functions/latest/dg/bp-cwl.html> |
+| Dapr — Workflow Patterns | Documentation | Sub-workflow industry-alignment evidence anchoring C-7 (sub-workflow contract) | <https://docs.dapr.io/developing-applications/building-blocks/workflow/workflow-patterns/> |
+| Apache Airflow 3.0 release blog | Release blog | Major-version break pattern evidence backing the full-engine-at-V1 thesis (Pass D freeze-regret) | <https://airflow.apache.org/blog/airflow-3.0/> |
+| Astronomer — Airflow upgrade guide | Documentation | Cross-version migration-cost precedent backing the full-engine-at-V1 thesis | <https://www.astronomer.io/docs/learn/airflow-upgrades/> |
+| `apache/airflow#9606` (Smart Sensors) | Issue | Smart Sensors deprecate-within-releases precedent backing freeze-regret pattern (deprecate-within-releases) | <https://github.com/apache/airflow/issues/9606> |
+| Apache Airflow 2.4.0 release notes | Release notes | Smart Sensors removal record backing freeze-regret pattern | <https://airflow.apache.org/docs/apache-airflow/2.4.0/release_notes.html> |
+| Temporal — Versioning with Patches | Engineering blog (post) | Workflow-versioning precedent for V1 contract evolution backing additive-amendment strategy | <https://temporal.io/blog/versioning-with-patches> |
+| Temporal — Worker Versioning (legacy) | Documentation | Worker-version migration cost backing freeze-regret pattern (replacement expansion) | <https://docs.temporal.io/dev-guide/worker-versioning-legacy> |
+| Temporal — Worker Versioning (new) | Documentation | Worker-version forward-compat strategy backing additive-amendment strategy | <https://docs.temporal.io/workers/versioning> |
+| `dagger/dagger#4086` (CUE → SDK) | Issue | DSL-replacement break detail backing freeze-regret pattern (replacement expansion); supplements [Dagger CUE→SDK rewrite](https://dagger.io/blog/ending-cue-support/) cited in §Consequences and §Amendment History | <https://github.com/dagger/dagger/issues/4086> |
+| n8n — BREAKING-CHANGES.md | Code (Sustainable Use) | Workflow-engine break manifest backing freeze-regret evidence (every surveyed system broke later) | <https://github.com/n8n-io/n8n/blob/master/packages/cli/BREAKING-CHANGES.md> |
+| n8n — 1.0 migration guide | Documentation | n8n 1.0 break detail backing freeze-regret evidence | <https://docs.n8n.io/release-notes/1-0-migration-guide/> |
+| n8n — 2.0 migration guide | Documentation | n8n 2.0 break detail backing freeze-regret evidence | <https://docs.n8n.io/release-notes/2-0-migration-guide/> |
+| GitHub Actions — HCL → YAML migration (2019) | Engineering blog (post) | Early DSL-replacement break precedent (HCL deprecated for YAML) backing freeze-regret pattern | <https://github.blog/2019-08-08-github-actions-now-supports-ci-cd/> |
+| GitHub Actions — `set-output` deprecation | Changelog | Deprecate-then-postpone pattern backing freeze-regret evidence | <https://github.blog/changelog/2022-10-11-github-actions-deprecating-save-state-and-set-output-commands/> |
+| GitHub Actions — Node 16 → Node 20 migration | Changelog | Forced-runtime-migration cost backing freeze-regret evidence | <https://github.blog/changelog/2024-03-07-github-actions-all-actions-will-run-on-node20-instead-of-node16-by-default/> |
+| GitHub Actions — Artifact v3 deprecation | Changelog | Artifact-API break backing C-9 (artifact immutability) rationale and freeze-regret evidence | <https://github.blog/changelog/2024-04-16-deprecation-notice-v3-of-the-artifact-actions/> |
+| GitHub Actions — Immutable Actions GA | Changelog | Immutability rationale supporting C-9 (artifact immutability) | <https://github.blog/changelog/2025-09-02-immutable-actions-are-now-generally-available/> |
+| CircleCI 1.0 EOL announcement | Engineering blog (post) | DSL-replacement break precedent (1.0 → 2.0) backing freeze-regret evidence | <https://circleci.com/blog/sunsetting-1-0/> |
+| OWASP CI/CD Top 10 | Specification (OWASP) | Anchors C-12 (secrets-by-reference) / I1 (argv-only) / I3 (typed substitution) industry-minimum bar | <https://owasp.org/www-project-top-10-ci-cd-security-risks/> |
+| NVD CVE-2025-54550 (Airflow secret-masker bypass) | CVE record (NVD) | Anchors I2 (secrets-by-reference invariant) — proves need for cipher-pinned reference indirection | <https://nvd.nist.gov/vuln/detail/CVE-2025-54550> |
+| NVD CVE-2025-67895 (Airflow Edge3 RCE) | CVE record (NVD) | Anchors I1 (argv-only execution) — proves need to forbid in-template-string command construction | <https://nvd.nist.gov/vuln/detail/CVE-2025-67895> |
+| NVD CVE-2024-53862 (Argo Workflows) | CVE record (NVD) | Anchors I6 (human-upload OWASP minimums) — secondary corroboration to CVE-2025-66626 | <https://nvd.nist.gov/vuln/detail/CVE-2024-53862> |
+| NVD CVE-2024-47827 (Argo Workflows) | CVE record (NVD) | Anchors I4 (content-addressed external refs) — proves need for content-hash pinning of external workflow refs | <https://nvd.nist.gov/vuln/detail/CVE-2024-47827> |
+| NVD CVE-2025-30066 (tj-actions supply-chain compromise) | CVE record (NVD) | Anchors I4 (content-addressed external refs) — supply-chain breach proving content-addressing rationale | <https://nvd.nist.gov/vuln/detail/CVE-2025-30066> |
+| CISA — tj-actions advisory | Government advisory (CISA) | Government-attested incident corroborating I4 (content-addressed external refs) for CVE-2025-30066 | <https://www.cisa.gov/news-events/alerts/2025/03/18/supply-chain-compromise-third-party-github-action-cve-2025-30066> |
+| GitHub Security Lab — script-injection research | Engineering research (post) | Anchors I3 (typed substitution) — categorizes untrusted-input handling failure modes | <https://securitylab.github.com/research/github-actions-untrusted-input/> |
+| GitHub Actions — Security hardening guide | Documentation | I3 industry-minimum bar (default-deny untrusted input) anchoring typed-substitution invariant | <https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions> |
+| NVD CVE-2025-61671 (GitHub Actions `pull_request_target`) | CVE record (NVD) | Anchors I3 (typed substitution) — `pull_request_target` exploit class motivating default-deny | <https://nvd.nist.gov/vuln/detail/CVE-2025-61671> |
+| Jenkins Script Security plugin | Code (MIT) | I1 (argv-only execution) sandbox precedent anchoring untrusted-script-eval prohibition | <https://plugins.jenkins.io/script-security/> |
+| Temporal — Data Encryption | Documentation | C-12 (secrets-by-reference) — encryption-at-rest precedent for workflow payloads | <https://docs.temporal.io/security#encryption-in-transit> |
+| NVD CVE-2025-3248 (Langflow) | CVE record (NVD) | Anchors I1 (argv-only execution) — untrusted-code-eval RCE in agent workflow tooling | <https://nvd.nist.gov/vuln/detail/CVE-2025-3248> |
+| NVD CVE-2024-8183 (Prefect) | CVE record (NVD) | Anchors I3 (typed substitution) — input-injection in workflow-engine context | <https://nvd.nist.gov/vuln/detail/CVE-2024-8183> |
+| CircleCI January 2023 security incident | Engineering blog (post) | I2 (secrets-by-reference) severity evidence — concrete secrets-incident at CI/CD-engine scope | <https://circleci.com/blog/january-4-2023-security-alert/> |
 
 ### Related ADRs
 
@@ -170,21 +237,6 @@ The antithesis assumes V1 launch speed is the dominant cost. For this product, l
 - [Spec-016: Multi-Agent Channels and Orchestration](../specs/016-multi-agent-channels-and-orchestration.md) — V1 per this ADR; V1-readiness review tracked in BL-042.
 - [Spec-017: Workflow Authoring and Execution](../specs/017-workflow-authoring-and-execution.md) — governs V1 Feature 17 (added per 2026-04-22 amendment). Spec-017 body carries 27 of 31 load-bearing amendments from BL-097 research (SA-1…SA-23, SA-25, SA-26, SA-27, SA-28); SA-24/29/30/31 land in Plan-017 per implementation-detail separation.
 - [Spec-023: Desktop Shell and Renderer](../specs/023-desktop-shell-and-renderer.md) — to be authored per BL-041; enables Feature 15 implementation.
-
-### BL-097 Research Provenance (added 2026-04-22)
-
-Amendment to Feature 17 (Workflow authoring and execution) is grounded in the BL-097 research body under `docs/research/bl-097-workflow-scope/`:
-
-- [Wave 1 synthesis](../research/bl-097-workflow-scope/wave-1-synthesis.md) — consolidates Passes A–E; lands V1 commitments C-1 through C-16 and security invariants I1–I7; resolves D1 (human-phase default timeout) and D2 (multi-phase channel reuse) decisions; drafts ADR-015 amendment language in §5.3.
-- [Wave 2 synthesis](../research/bl-097-workflow-scope/wave-2-synthesis.md) — consolidates Passes F–H; adds 14 Spec-017 amendments SA-18…SA-31; resolves 6 themed cross-pass open questions; lands event taxonomy, persistence schema, and testing strategy. §7 References lists 29 primary sources.
-- [Pass A — Parallel execution](../research/bl-097-workflow-scope/pass-a-parallel-execution.md) (scheduling, loop safety, backpressure, parallel join policy, cancellation synchrony)
-- [Pass B — Multi-agent phase ↔ channel contract](../research/bl-097-workflow-scope/pass-b-multi-agent-channel-contract.md) (ownership, gate scoping, channel-lifecycle deltas, termination; source of BIND criteria in §V1.1 Criterion-Gated Commitments)
-- [Pass C — Human phase UX + contract](../research/bl-097-workflow-scope/pass-c-human-phase-ux.md) (`human` phase vs `human-approval` gate semantic separation, Cedar `human_phase_contribution` category, timeout decision)
-- [Pass D — Post-V1 freeze-regret patterns](../research/bl-097-workflow-scope/pass-d-post-v1-freeze-regrets.md) (7-system V1 shipping-pattern survey; justifies full-engine-at-V1 over subset-now-expand-later)
-- [Pass E — Security surface](../research/bl-097-workflow-scope/pass-e-security-surface.md) (invariants I1–I7 — argv-only, typed substitution, typed approver capability, secrets-by-reference, content-addressed external refs, human-upload OWASP minimums, append-only approval history)
-- [Pass F — Event taxonomy + observability](../research/bl-097-workflow-scope/pass-f-event-taxonomy.md) (24 workflow event types across 5 new Spec-006 categories; envelope additive MINOR bump)
-- [Pass G — Persistence model](../research/bl-097-workflow-scope/pass-g-persistence-model.md) (9-table normalized SQLite schema; hash-chain anchored to Spec-006; truth/projection/ephemeral hierarchy)
-- [Pass H — Testing strategy](../research/bl-097-workflow-scope/pass-h-testing-strategy.md) (5 test categories: property/fuzz/load/integration/security-regression; 85/95/90% coverage targets)
 
 ### Provenance
 
@@ -206,13 +258,13 @@ This section records material amendments to this ADR. Each amendment preserves t
 | V1.1 criterion-gated commitments | 0 | **2** (BIND multi-phase channel reuse; human-phase default-timeout) |
 | Spec-017 status | Deferred V1.1 (conflicted with Spec-017:40 subset claim) | Authoritative V1 (31 amendments SA-1…SA-31 split: 27 land in Spec-017 body; SA-24/29/30/31 land in Plan-017 per implementation-detail separation) |
 
-**Why:** BL-097 opened 2026-04-21 surfaced a direct contradiction — Spec-017:40 declared a V1 workflow subset (single-agent + automated + all 4 gates + sequential), while ADR-015 row 4 and `v1-feature-scope.md:39` declared the entire workflow feature was V1.1-deferred. Three resolution paths were on the table (α — keep subset, β — declare all-V1.1, γ-i/ii/iii — expand V1 scope to full engine). The user selected γ-iii (full engine) on the basis that post-V1 retrofit of phase-type additions, parallel execution, and durable human-phase resumption is architecturally heavier than V1-native implementation. Wave 1 + Wave 2 research (`docs/research/bl-097-workflow-scope/`) confirmed:
+**Why:** BL-097 opened 2026-04-21 surfaced a direct contradiction — Spec-017:40 declared a V1 workflow subset (single-agent + automated + all 4 gates + sequential), while ADR-015 row 4 and `v1-feature-scope.md:39` declared the entire workflow feature was V1.1-deferred. Three resolution paths were on the table (α — keep subset, β — declare all-V1.1, γ-i/ii/iii — expand V1 scope to full engine). The user selected γ-iii (full engine) on the basis that post-V1 retrofit of phase-type additions, parallel execution, and durable human-phase resumption is architecturally heavier than V1-native implementation. Wave 1 + Wave 2 research confirmed:
 
 1. **Freeze-regret evidence** (Pass D): every surveyed workflow system (Airflow, Dagger, GitHub Actions, n8n, Temporal, Argo, CircleCI) paid breaking-change cost retrofitting features that V1-native implementation would have covered additively. Three freeze-regret patterns were identified — additive enum expansion (safe) vs. replacement expansion (breaking, e.g., [Dagger CUE→SDK 2023 rewrite](https://dagger.io/blog/ending-cue-support/)) vs. execution-model commitment (deprecate-within-releases, e.g., [Airflow SubDAG → TaskGroup migration](https://github.com/apache/airflow/issues/12292)).
 2. **Security invariant grounding** (Pass E): 7 testable security invariants I1–I7 close the workflow-engine vulnerability class at V1 contract time (argv-only execution, typed substitution, typed approver capability, secrets-by-reference, content-addressed external refs, human-upload OWASP minimums, append-only approval history). These are expensive to retrofit — they shape the parameter-substitution model and state-access boundary.
 3. **Composition-model convergence** (Pass B): 2025–2026 durable-execution and agent-framework convergence is explicit state-passing ([Temporal Child Workflows + Signals](https://docs.temporal.io/child-workflows)), not implicit handle-binding. V1 takes this stance directly.
 
-**How decided:** Staff-engineer analysis against four criteria (architectural correctness, modern 2025–2026 practices, bug/regression surface, vulnerability surface) was applied to the two load-bearing sub-decisions (D1: `human` phase default timeout; D2: multi-phase channel reuse). D1 resolved to "no default, required typed opt-in" (matches Temporal, Argo, Camunda convergence). D2 resolved to "V1 OWN-only + criterion-gated V1.1 BIND" (keeps V1 engineering surface small while giving scope-hygiene a concrete promotion path). Rationale in `wave-1-synthesis.md` §5.
+**How decided:** Staff-engineer analysis against four criteria (architectural correctness, modern 2025–2026 practices, bug/regression surface, vulnerability surface) was applied to the two load-bearing sub-decisions (D1: `human` phase default timeout; D2: multi-phase channel reuse). D1 resolved to "no default, required typed opt-in" (matches Temporal, Argo, Camunda convergence). D2 resolved to "V1 OWN-only + criterion-gated V1.1 BIND" (keeps V1 engineering surface small while giving scope-hygiene a concrete promotion path). Rationale captured inline in §V1.1 Criterion-Gated Commitments above; primary sources in §Research Conducted.
 
 **Cross-references that consume this amendment:**
 
@@ -231,4 +283,4 @@ This section records material amendments to this ADR. Each amendment preserves t
 |------|-------|-------|
 | 2026-04-17 | Proposed | Drafted against BL-038 exit criteria |
 | 2026-04-17 | Accepted | ADR accepted as the governing V1 scope definition |
-| 2026-04-22 | Amended | Workflow promoted V1.1 → V1 per BL-097; feature count 16 → 17; V1.1 deferred-feature count 4 → 3; added 2 V1.1 criterion-gated commitments (BIND multi-phase channel reuse; human-phase default timeout). Amendment grounded in Wave 1 + Wave 2 research under `docs/research/bl-097-workflow-scope/`. See §Amendment History for full rationale and cross-reference list. |
+| 2026-04-22 | Amended | Workflow promoted V1.1 → V1 per BL-097; feature count 16 → 17; V1.1 deferred-feature count 4 → 3; added 2 V1.1 criterion-gated commitments (BIND multi-phase channel reuse; human-phase default timeout). Amendment grounded in Wave 1 + Wave 2 research; primary-source citations consolidated in §References → §Research Conducted; rationale and cross-reference list in §Amendment History. |

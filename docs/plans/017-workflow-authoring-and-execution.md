@@ -6,13 +6,13 @@
 | **NNN** | `017` |
 | **Slug** | `workflow-authoring-and-execution` |
 | **Date** | `2026-04-14` |
-| **Amended** | `2026-04-22` (full engine V1 per [BL-097](../backlog.md) / [ADR-015](../decisions/015-v1-feature-scope-definition.md) amendment — was V1.1-deferred-subset at original approval; absorbs SA-24/29/30/31 from [wave-2-synthesis.md §5](../research/bl-097-workflow-scope/wave-2-synthesis.md)) |
+| **Amended** | `2026-04-22` (full engine V1 per [BL-097](../backlog.md) / [ADR-015](../decisions/015-v1-feature-scope-definition.md) amendment — was V1.1-deferred-subset at original approval; absorbs SA-24/29/30/31 per [Spec-017](../specs/017-workflow-authoring-and-execution.md) + [ADR-015 §Amendment History](../decisions/015-v1-feature-scope-definition.md#amendment-history)) |
 | **Author(s)** | `Codex` |
 | **Spec** | [Spec-017: Workflow Authoring And Execution](../specs/017-workflow-authoring-and-execution.md) |
 | **Required ADRs** | [ADR-001](../decisions/001-session-is-the-primary-domain-object.md), [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md), [ADR-018](../decisions/018-cross-version-compatibility.md) |
 | **Dependencies** | [Plan-006](./006-session-event-taxonomy-and-audit-log.md) (event taxonomy, integrity protocol), [Plan-012](./012-approvals-permissions-and-trust-boundaries.md) (approval records, Cedar policy), [Plan-014](./014-artifacts-files-and-attachments.md) (artifact manifests, OWASP upload), [Plan-015](./015-persistence-recovery-and-replay.md) (recovery, writer worker, replay), [Plan-016](./016-multi-agent-channels-and-orchestration.md) (channel lifecycle), [Plan-004](./004-queue-steer-pause-resume.md) (queue/steer) |
 | **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
-| **References** | [Updated Spec-017](../specs/017-workflow-authoring-and-execution.md); [BL-097 Wave 2 Synthesis](../research/bl-097-workflow-scope/wave-2-synthesis.md) (SA-24/29/30/31); [Pass G Persistence](../research/bl-097-workflow-scope/pass-g-persistence-model.md); [Pass H Testing](../research/bl-097-workflow-scope/pass-h-testing-strategy.md) |
+| **References** | [Spec-017](../specs/017-workflow-authoring-and-execution.md) (canonical contract surface; SA-24/29/30/31 narrative); [ADR-015 §Research Conducted](../decisions/015-v1-feature-scope-definition.md#research-conducted) (BL-097 primary-source corpus); see also `## References` at end of file |
 
 ## Goal
 
@@ -58,13 +58,13 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - Add the 9-table workflow schema per [Local SQLite Schema §Workflow Tables](../architecture/schemas/local-sqlite-schema.md#workflow-tables-plan-017) (SA-24): `workflow_definitions`, `workflow_versions`, `workflow_runs`, `workflow_phase_states`, `phase_outputs`, `workflow_gate_resolutions`, `parallel_join_state`, `workflow_channels`, `human_phase_form_state`.
 - Source-of-truth hierarchy (SA-25): `session_events` remains canonical; tables 1/2/5/6 are immutable truth, 3/4/7/8/9 are projections rebuildable via Plan-015 `ProjectionRebuild`.
 - `workflow_gate_resolutions` carries a per-run BLAKE3 hash chain anchored to `session_events` via dual-anchor payload (`gate_resolution_id` + `row_hash`) on the `workflow.gate_resolved` event (SA-26). Dual-hash: BLAKE3 for daemon-internal identity, SHA-256 reserved for Plan-014 artifact content (SA-27).
-- `human_phase_form_state` ships empty at V1; clients persist drafts via localStorage/IndexedDB per [Pass C §3](../research/bl-097-workflow-scope/pass-c-human-phase-ux.md). Table reserved for V1.x daemon-side fallback (SA-28).
+- `human_phase_form_state` ships empty at V1; clients persist drafts via localStorage/IndexedDB per [Spec-017 §Ship-empty tables (SA-28)](../specs/017-workflow-authoring-and-execution.md#ship-empty-tables-sa-28). Table reserved for V1.x daemon-side fallback.
 - See [Local SQLite Schema](../architecture/schemas/local-sqlite-schema.md) for column definitions, index rationale, and write-amplification estimates.
 
 ## API And Transport Changes
 
 - Add `WorkflowDefinitionCreate`, `WorkflowDefinitionRead`, `WorkflowVersionRead`, `WorkflowRunStart`, `WorkflowRunRead`, `PhaseOutputRead`, `WorkflowGateResolve`, `HumanPhaseFormDraftSave`, `HumanPhaseFormSubmit`, and `WorkflowGateChainVerify` to shared contracts and the typed client SDK.
-- Carry workflow version ids, `phase_run_id`s (which double as the channel-owning phase id per SA-6), gate states, and parallel-join resolution through timeline events per [Pass F event taxonomy](../research/bl-097-workflow-scope/pass-f-event-taxonomy.md) — 5 categories, 23 event types.
+- Carry workflow version ids, `phase_run_id`s (which double as the channel-owning phase id per SA-6), gate states, and parallel-join resolution through timeline events — 5 categories, 23 event types per Spec-017 §Workflow Timeline Integration. Envelope follows [CloudEvents v1.0.2](https://github.com/cloudevents/spec/blob/v1.0.2/cloudevents/spec.md) additive-extension rules; semantic-convention naming aligns with [OpenTelemetry Semantic Conventions for Events](https://github.com/open-telemetry/semantic-conventions/blob/main/docs/general/events.md).
 - Event payload schemas evolve additive-MINOR per [ADR-018](../decisions/018-cross-version-compatibility.md); the `row_hash` + `gate_resolution_id` fields on `workflow.gate_resolved` are such an addition (Pass G §5).
 
 ## Implementation Steps
@@ -87,7 +87,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
    - Writer-worker-only INSERTs to `workflow_gate_resolutions`; per-run `sequence` monotonic from 1.
    - `row_hash = BLAKE3(prev_hash || JCS-canonical(row_body))`; Ed25519 daemon signature over same bytes; optional approver signature.
    - Dual-anchor: every row paired with a `session_events` row (category `workflow_gate_resolution`) carrying `gate_resolution_id` + `row_hash` in payload (SA-26 / Pass G §5).
-6. Implement restart-safe workflow resumption and `ProjectionRebuild` integration: projection tables rebuildable from `session_events` via Plan-015; hash-chain replay re-verifies each row in `sequence` order and halts on `chain_break_detected` per [Pass G §5](../research/bl-097-workflow-scope/pass-g-persistence-model.md).
+6. Implement restart-safe workflow resumption and `ProjectionRebuild` integration: projection tables rebuildable from `session_events` via Plan-015; hash-chain replay re-verifies each row in `sequence` order and halts on `chain_break_detected`. Per-row recompute walks `prev_hash || JCS-canonical(row_body)` and asserts equality with the persisted `row_hash` (flat hash-chain pattern per [Local SQLite Schema §Workflow Tables](../architecture/schemas/local-sqlite-schema.md#workflow-tables-plan-017)).
 7. Add `sidekicks workflow verify-gate-chain <run_id>` CLI subcommand exposing the dual-anchor verification procedure.
 8. Add desktop workflow authoring, run-detail, and human-phase form surfaces backed by the shared client SDK. Human-phase drafts use localStorage/IndexedDB at V1.
 
@@ -99,7 +99,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 ## Test And Verification Plan
 
-Five test categories per [Pass H §1](../research/bl-097-workflow-scope/pass-h-testing-strategy.md) (SA-29). Each carries a V1 *ambition level* so the category can be stop-marked independently.
+Five test categories (SA-29): property-based, fuzz, load, long-running integration, security regression. Each carries a V1 *ambition level* so the category can be stop-marked independently. Replay-determinism scaffolding follows the Temporal `runReplayHistory` pattern; property + fuzz frameworks pinned to `fast-check` and `@jazzer.js/core`; CVE-reproducer corpus seeds the security-regression battery (SA-30).
 
 | Category | Covers | V1 Ambition | CI Cadence |
 | --- | --- | --- | --- |
@@ -150,3 +150,47 @@ Five test categories per [Pass H §1](../research/bl-097-workflow-scope/pass-h-t
 - [ ] Tests added or updated
 - [ ] Verification completed
 - [ ] Related docs updated
+
+## References
+
+- [Spec-017: Workflow Authoring And Execution](../specs/017-workflow-authoring-and-execution.md) — paired spec; canonical SA-1…SA-31 narrative
+- [ADR-015: V1 Feature Scope Definition](../decisions/015-v1-feature-scope-definition.md) — Decision D1/D2 + V1.1 criterion-gated commitments + §Research Conducted (BL-097 primary-source corpus)
+- [Local SQLite Schema §Workflow Tables](../architecture/schemas/local-sqlite-schema.md#workflow-tables-plan-017) — 9-table schema, hash-chain layout, write-amplification estimates
+- [Plan-006: Session Event Taxonomy and Audit Log](./006-session-event-taxonomy-and-audit-log.md) — event taxonomy + integrity protocol
+- [Plan-012: Approvals, Permissions, and Trust Boundaries](./012-approvals-permissions-and-trust-boundaries.md) — Cedar policy + approval categories
+- [Plan-014: Artifacts, Files, and Attachments](./014-artifacts-files-and-attachments.md) — artifact manifests, OWASP upload pipeline
+- [Plan-015: Persistence, Recovery and Replay](./015-persistence-recovery-and-replay.md) — single writer worker, `ProjectionRebuild`, replay
+- [Plan-016: Multi-Agent Channels and Orchestration](./016-multi-agent-channels-and-orchestration.md) — channel lifecycle, OWN ownership
+- [CloudEvents v1.0.2 spec](https://github.com/cloudevents/spec/blob/v1.0.2/cloudevents/spec.md) — envelope additive-bump rules (SA-18)
+- [OpenTelemetry Semantic Conventions for Events](https://github.com/open-telemetry/semantic-conventions/blob/main/docs/general/events.md) — event-name convention precedent (SA-19)
+- [OpenTelemetry GenAI observability blog (2025)](https://opentelemetry.io/blog/2025/genai-observability/) — LLM-event semantic-convention rationale (SA-19)
+- [Argo Workflows architecture — workflow events](https://argo-workflows.readthedocs.io/en/latest/architecture/#workflow-engine) — event-engine industry comparison
+- [n8n executions API reference](https://docs.n8n.io/api/api-reference/#tag/Execution) — execution-event industry comparison
+- [Argo Workflows — intermediate parameters](https://argo-workflows.readthedocs.io/en/latest/intermediate-inputs/) — human-phase form input pattern
+- [Argo Workflows — `suspend-template-outputs.yaml` example](https://github.com/argoproj/argo-workflows/blob/main/examples/suspend-template-outputs.yaml) — output-projection-on-resume pattern
+- [argoproj/argo-workflows#8365](https://github.com/argoproj/argo-workflows/discussions/8365) — form-input UX gap (Argo discussion)
+- [Camunda 8 — user tasks](https://docs.camunda.io/docs/components/modeler/bpmn/user-tasks/) — human-phase claim-semantics precedent
+- [Camunda 8 — user-tasks form-data best practices](https://docs.camunda.io/docs/components/best-practices/development/dealing-with-data-in-processes/#using-user-task-forms) — form-data persistence pattern
+- [GitHub Actions — reviewing deployments](https://docs.github.com/en/actions/managing-workflow-runs-and-deployments/managing-deployments/reviewing-deployments) — approval-gate UX precedent
+- [AWS Step Functions — human-approval tutorial](https://docs.aws.amazon.com/step-functions/latest/dg/sample-project-human-approval.html) — approval-gate sample
+- [AWS Step Functions — `SendTaskHeartbeat`](https://docs.aws.amazon.com/step-functions/latest/apireference/API_SendTaskHeartbeat.html) — heartbeat-based liveness pattern
+- [Temporal — Python message passing](https://docs.temporal.io/develop/python/message-passing) — signal-based human input
+- [Temporal — TypeScript HITL tutorial](https://learn.temporal.io/tutorials/typescript/human-in-the-loop/) — HITL workflow pattern
+- [Cloudflare Workflows — `waitForEvent`](https://developers.cloudflare.com/workflows/build/events-and-parameters/) — wait-for-event primitive
+- [LangGraph — human-in-the-loop](https://langchain-ai.github.io/langgraph/concepts/human_in_the_loop/) — HITL primitive (LLM stack)
+- [Microsoft Agent Framework — HITL (2026-03-31)](https://learn.microsoft.com/en-us/agent-framework/concepts/human-in-the-loop) — HITL primitive (recent industry)
+- [W3C WCAG 2.2 §3.3.7 Redundant Entry](https://www.w3.org/TR/WCAG22/#redundant-entry) — accessibility requirement for form-state UX (SA-26)
+- [OWASP File Upload Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html) — I6 human-upload minimums (also inline in Test table)
+- [Restate — Building Modern Durable Execution (2025)](https://restate.dev/blog/building-modern-durable-execution/) — per-run hash-chain rationale (C-13)
+- [Temporal — custom persistence (2024)](https://temporal.io/blog/custom-persistence-2024) — persistence-model precedent
+- [Argo Workflows — workflow archive](https://argo-workflows.readthedocs.io/en/latest/workflow-archive/) — persistence-tier precedent
+- [Argo Workflows — offloading large workflows](https://argo-workflows.readthedocs.io/en/latest/offloading-large-workflows/) — large-workflow persistence pattern
+- [Cadence — cross-DC replication / persistence](https://cadenceworkflow.io/docs/concepts/cross-dc-replication/) — persistence-tier industry comparison
+- [SQLite — JSON1 extension](https://www.sqlite.org/json1.html) — JSON-column rationale for `workflow_definitions`
+- [`fast-check` (model-based testing)](https://github.com/dubzzz/fast-check) — property-test framework pin (SA-29)
+- [Jazzer.js (fuzzing)](https://github.com/CodeIntelligenceTesting/jazzer.js) — fuzz-test framework pin (SA-29)
+- [Jazzer.js — fuzz-targets docs](https://github.com/CodeIntelligenceTesting/jazzer.js/blob/main/docs/fuzz-targets.md) — fuzz-target shape (SA-29)
+- [Endor Labs — Argo CVE-2025-66626 broken-fix analysis](https://www.endorlabs.com/learn/cve-2025-66626-argo-workflows) — broken-fix-precedent rationale for security-regression category
+- [Astronomer — testing Airflow](https://www.astronomer.io/docs/learn/testing-airflow/) — DAG-test precedent
+- [Bitovi — replay testing in Temporal](https://www.bitovi.com/blog/replay-testing-temporal-workflows) — replay-test pattern (SA-31)
+- [Temporal — TypeScript SDK testing suite](https://docs.temporal.io/develop/typescript/testing-suite) — `runReplayHistory` contract (SA-31; also inline)

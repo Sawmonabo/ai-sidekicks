@@ -143,7 +143,7 @@ Workflow gates (`WorkflowGateResolve`) and channel moderation gates (Spec-016 pe
 
 - Phase B receives phase A's channel transcript as read-only context via SDK ergonomic `inheritContext: { from: "previous_phase" }`.
 - Retry creates a new channel per iteration — never reuses a phase-owned channel across attempts.
-- `BIND` (multi-phase channel reuse) is committed to V1.1 under three named criteria in [ADR-015 §V1.1 Criterion-Gated Commitments](../decisions/015-v1-feature-scope-definition.md): (a) ≥3 production reports of OWN+transcript-inheritance insufficient, (b) concrete failure case documented, (c) BIND lifecycle contract addressing the five ambiguities in [Pass B §3.1](../research/bl-097-workflow-scope/pass-b-multi-agent-channel-contract.md).
+- `BIND` (multi-phase channel reuse) is committed to V1.1 under three named criteria in [ADR-015 §V1.1 Criterion-Gated Commitments](../decisions/015-v1-feature-scope-definition.md): (a) ≥3 production reports of OWN+transcript-inheritance insufficient, (b) concrete failure case documented, (c) BIND lifecycle contract addressing the five ambiguities recorded canonically in ADR-015 §V1.1 Criterion-Gated Commitments.
 - Modern multi-agent composition convergence (2025–2026) is **state-passing, not handle-binding**: Temporal Child Workflows + Signals ([Temporal — Child Workflows](https://docs.temporal.io/develop/typescript/child-workflows)), LangGraph `Command(goto, state)` ([LangGraph multi-agent handoff](https://langchain-ai.github.io/langgraph/concepts/multi_agent/)), AutoGen `HandoffMessage` ([AutoGen Teams](https://microsoft.github.io/autogen/stable/user-guide/agentchat-user-guide/tutorial/teams.html)), OpenAI Assistants API Threads removal ([OpenAI Assistants deprecation, Threads removal 2026-08-26](https://platform.openai.com/docs/assistants/migration)). Airflow SubDAG — the closest BIND analogue — was deprecated in 2.x because its shared-scope ambiguity took 3+ years to patch ([Airflow — Deprecate SubDags in Favor of TaskGroups, #12292](https://github.com/apache/airflow/issues/12292)).
 
 ### Human phase — `HumanPhaseConfig` (SA-10, SA-11, SA-12)
@@ -266,7 +266,7 @@ Reverse-DNS `workflow.*` namespace convention follows [CloudEvents Specification
 - **`workflow_phase_lifecycle` (12):** `workflow.phase_admitted` (new; resource-pool admission), `workflow.phase_waiting_on_pool` (diagnostic), `workflow.phase_started`, `workflow.phase_progressed`, `workflow.phase_cancelling`, `workflow.phase_failed` (extended with `cancellation_reason: 'sibling_failure' | null`), `workflow.phase_retried`, `workflow.phase_suspended`, `workflow.phase_resumed`, `workflow.phase_completed`, `workflow.human_phase_claimed` (informational), `workflow.human_phase_escalated` (telemetry-only at V1 per SA-11; no `nextAction` pre-declaration — additive-field discipline per ADR-018)
 - **`workflow_parallel_coordination` (1):** `workflow.parallel_join_cancellation` (sibling cancel driven by `ParallelJoinPolicy`)
 - **`workflow_channel_coordination` (3):** `workflow.channel_created_for_phase`, `workflow.channel_closed_with_records_preserved`, `workflow.channel_terminated_forcibly`
-- **`workflow_gate_resolution` (1):** `workflow.gate_resolved` — carries `scope: channel | workflow-phase` + `outcome`. Base payload per [Pass F §2.5](../research/bl-097-workflow-scope/pass-f-event-taxonomy.md); extended at the persistence layer with `gate_resolution_id` + `row_hash` fields per [Pass G §5 verification procedure](../research/bl-097-workflow-scope/pass-g-persistence-model.md) to realize the `session_events` dual-anchor (SA-26). No separate chain-advance event — the gate-resolved event carries the chain extension. Payload additions are additive MINOR bumps under [ADR-018](../decisions/018-cross-version-compatibility.md).
+- **`workflow_gate_resolution` (1):** `workflow.gate_resolved` — carries `scope: channel | workflow-phase` + `outcome`. The base payload is extended at the persistence layer with `gate_resolution_id` + `row_hash` fields to realize the `session_events` dual-anchor (SA-26). No separate chain-advance event — the gate-resolved event carries the chain extension. Payload additions are additive MINOR bumps under [ADR-018](../decisions/018-cross-version-compatibility.md).
 
 ### Ordering invariants (SA-20)
 
@@ -373,8 +373,8 @@ Engine implementations violating any of the following are **non-conformant**. Ea
 ## ADR Triggers
 
 - If workflow execution requires a materially different orchestration model than session and run primitives allow, create a new ADR before implementation.
-- If the `BIND` criterion-gated commitment (per ADR-015) is activated, draft a BIND-lifecycle ADR resolving the five ambiguities documented in [Pass B §3.1](../research/bl-097-workflow-scope/pass-b-multi-agent-channel-contract.md).
-- If cross-plan SQLite STRICT adoption warrants, draft the SQLite STRICT policy ADR (proposed follow-up task per [Wave 2 §4.1](../research/bl-097-workflow-scope/wave-2-synthesis.md)).
+- If the `BIND` criterion-gated commitment (per ADR-015) is activated, draft a BIND-lifecycle ADR resolving the five ambiguities documented in [ADR-015 §V1.1 Criterion-Gated Commitments](../decisions/015-v1-feature-scope-definition.md).
+- If cross-plan SQLite STRICT adoption warrants, draft the SQLite STRICT policy ADR (proposed follow-up task per [ADR-015 §V1.1 Criterion-Gated Commitments](../decisions/015-v1-feature-scope-definition.md)).
 - If OpenTelemetry workflow semantic conventions ratify, draft an additive ADR-018 MINOR bump for `traceparent` carriage on the envelope.
 
 ## Resolved Questions and V1 Scope Decisions
@@ -387,19 +387,6 @@ Engine implementations violating any of the following are **non-conformant**. Ea
 - **V1 decision:** one execution model (local) at V1 per C-11. No `local | queued | remote` enum at V1.
 
 ## References
-
-### BL-097 research provenance
-
-- [Wave 1 synthesis](../research/bl-097-workflow-scope/wave-1-synthesis.md) — SA-1…SA-17 amendments; C-1…C-16 commitments; I1–I7 invariants (via Pass E); D1 / D2 resolutions
-- [Wave 2 synthesis](../research/bl-097-workflow-scope/wave-2-synthesis.md) — SA-18…SA-31 amendments
-- [Pass A — Parallel execution semantics](../research/bl-097-workflow-scope/pass-a-parallel-execution.md)
-- [Pass B — Multi-agent channel contract](../research/bl-097-workflow-scope/pass-b-multi-agent-channel-contract.md)
-- [Pass C — Human phase UX](../research/bl-097-workflow-scope/pass-c-human-phase-ux.md)
-- [Pass D — Post-V1 freeze-regret patterns](../research/bl-097-workflow-scope/pass-d-post-v1-freeze-regrets.md)
-- [Pass E — Security surface](../research/bl-097-workflow-scope/pass-e-security-surface.md)
-- [Pass F — Event taxonomy + observability](../research/bl-097-workflow-scope/pass-f-event-taxonomy.md)
-- [Pass G — Persistence model](../research/bl-097-workflow-scope/pass-g-persistence-model.md)
-- [Pass H — Testing + verification strategy](../research/bl-097-workflow-scope/pass-h-testing-strategy.md)
 
 ### Governing docs
 
@@ -443,15 +430,22 @@ Engine implementations violating any of the following are **non-conformant**. Ea
 - [Pipeline Input Step source — `canSettle()` admin bypass](https://github.com/jenkinsci/pipeline-input-step-plugin/blob/master/src/main/java/org/jenkinsci/plugins/workflow/support/steps/input/InputStepExecution.java)
 - [JENKINS-56016 — submitterParameter ignored for admins (Won't Fix)](https://issues.jenkins.io/browse/JENKINS-56016)
 
-**Execution semantics + human phase (D1, D2, SA-1…SA-11):**
+**Execution semantics + human phase (D1, D2, SA-1…SA-12, SA-26):**
 
 - [Temporal — Workflow Execution Timeouts](https://docs.temporal.io/encyclopedia/detecting-workflow-failures)
 - [Temporal — Child Workflows (TypeScript)](https://docs.temporal.io/develop/typescript/child-workflows)
 - [Argo — Suspending Workflows walkthrough](https://argo-workflows.readthedocs.io/en/latest/walk-through/suspending/)
+- [Argo — Intermediate Parameters](https://argo-workflows.readthedocs.io/en/latest/intermediate-inputs/) — human-phase form-input pattern (SA-10)
+- [Airflow — Pools](https://airflow.apache.org/docs/apache-airflow/stable/administration-and-deployment/pools.html) — resource-pool precedent for SA-3 named pools
+- [AWS Step Functions — Error handling](https://docs.aws.amazon.com/step-functions/latest/dg/concepts-error-handling.html) — `fail-fast` `ParallelJoinPolicy` precedent (SA-4)
+- [Dagster — Run concurrency](https://docs.dagster.io/concepts/configuration/run-tags#run-concurrency) — multi-tier resource-pool precedent (SA-3)
 - [Camunda 8 — User tasks](https://docs.camunda.io/docs/components/modeler/bpmn/user-tasks/) — assignments, scheduling, dueDate, followUpDate
+- [GitHub Actions — Reviewing deployments](https://docs.github.com/en/actions/managing-workflow-runs-and-deployments/managing-deployments/reviewing-deployments) — approval-gate UX precedent for `human-approval` gate (SA-12)
 - [LangGraph — Multi-agent handoff](https://langchain-ai.github.io/langgraph/concepts/multi_agent/)
 - [AutoGen — Teams and HandoffMessage](https://microsoft.github.io/autogen/stable/user-guide/agentchat-user-guide/tutorial/teams.html)
 - [OpenAI Assistants API — Migration / Threads removal 2026-08-26](https://platform.openai.com/docs/assistants/migration)
+- [Model Context Protocol — Elicitations](https://spec.modelcontextprotocol.io/specification/2025-06-18/server/utilities/elicitations/) — `mcp_elicitation` Cedar-category overlap with `human_phase_contribution` (SA-12)
+- [W3C WCAG 2.2 §3.3.7 — Redundant Entry](https://www.w3.org/TR/WCAG22/#redundant-entry) — human-phase form-state UX requirement (SA-26 / SA-28 deferral rationale)
 
 **Event taxonomy + replay determinism (SA-18…SA-23, SA-21):**
 
