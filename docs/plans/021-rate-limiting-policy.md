@@ -374,8 +374,7 @@ All rate-limited responses must set:
 
 ## Tier Placement
 
-Tier 6 per [cross-plan-dependencies.md §5 Canonical Build Order](../architecture/cross-plan-dependencies.md#5-canonical-build-order). Strictly **downstream of Plan-008** (this plan consumes Plan-008's tRPC router and WS frame hook) and **upstream of Plan-025** (Plan-025 is the self-hostable Node relay that instantiates `PostgresRateLimiter` inside its compose-deployed process). BL-054 propagation resolved 2026-04-23 per [Session H-final audit §5.7.1](../audit/session-h-final-h5-remediation-plan.md#571) (remediation-time finding).
-
+Tier 6 per [cross-plan-dependencies.md §5 Canonical Build Order](../architecture/cross-plan-dependencies.md#5-canonical-build-order). Strictly **downstream of Plan-008** (this plan consumes Plan-008's tRPC router and WS frame hook) and **upstream of Plan-025** (Plan-025 is the self-hostable Node relay that instantiates `PostgresRateLimiter` inside its compose-deployed process).
 ## References
 
 - [Spec-021: Rate Limiting Policy](../specs/021-rate-limiting-policy.md)

@@ -234,8 +234,7 @@ This plan treats the two signing paths as **parallel tracks selected by the publ
 
 ## Tier Intent
 
-Tier 1 per [cross-plan-dependencies.md §5 Canonical Build Order](../architecture/cross-plan-dependencies.md#5-canonical-build-order) — daemon-foundational, co-tier with Plan-001. Upstream of Plan-005 (runtime bindings) which is the first consumer of the `PtyHost` contract; consumption begins at Tier 4 once Plan-005 lands. BL-054 propagation resolved 2026-04-22 per [Session H-final audit §5.7.1](../audit/session-h-final-h5-remediation-plan.md#571).
-
+Tier 1 per [cross-plan-dependencies.md §5 Canonical Build Order](../architecture/cross-plan-dependencies.md#5-canonical-build-order) — daemon-foundational, co-tier with Plan-001. Upstream of Plan-005 (runtime bindings) which is the first consumer of the `PtyHost` contract; consumption begins at Tier 4 once Plan-005 lands.
 ## References
 
 - [ADR-019: Windows V1 Tier and Rust PTY Sidecar Strategy](../decisions/019-windows-v1-tier-and-pty-sidecar.md) — primary decision source

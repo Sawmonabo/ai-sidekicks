@@ -520,8 +520,7 @@ Tier 9 per [cross-plan-dependencies.md §5 Canonical Build Order](../architectur
 - Plan-025 (self-hostable relay — Option 2's TOFU probe target).
 - Plan-008 (hosted relay / control-plane — Option 3's sign-up redirect endpoint, when deployed).
 
-And **strictly upstream** of nothing — it is a leaf-node plan. CLI-first-release shippability is gated on Plan-007 only; desktop shippability is additionally gated on Plan-023. BL-054 propagation resolved 2026-04-23 per [Session H-final audit §5.7.1](../audit/session-h-final-h5-remediation-plan.md#571) (remediation-time finding).
-
+And **strictly upstream** of nothing — it is a leaf-node plan. CLI-first-release shippability is gated on Plan-007 only; desktop shippability is additionally gated on Plan-023.
 ## References
 
 ### Primary project docs

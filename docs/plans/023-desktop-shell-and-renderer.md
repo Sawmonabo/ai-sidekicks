@@ -312,8 +312,7 @@ The full `SidekicksBridge` interface from Spec-023 §Preload Bridge Contract liv
 
 ## Tier Placement
 
-Tier 8 per [cross-plan-dependencies.md §5 Canonical Build Order](../architecture/cross-plan-dependencies.md#5-canonical-build-order). Strictly **downstream of Plan-007** (consumes the daemon IPC contract), **downstream of Plan-018** (consumes PASETO tokens), **downstream of Plan-008** (consumes the control-plane tRPC + WebSocket client), **parallel to Plan-024** (both are shell-surface plans but Plan-024 is owned by the daemon, not the shell), and **upstream of Plan-026** (Plan-026 consumes the `onboarding.*` preload-bridge surface authored here). BL-054 propagation resolved 2026-04-23 per [Session H-final audit §5.7.1](../audit/session-h-final-h5-remediation-plan.md#571) (remediation-time finding).
-
+Tier 8 per [cross-plan-dependencies.md §5 Canonical Build Order](../architecture/cross-plan-dependencies.md#5-canonical-build-order). Strictly **downstream of Plan-007** (consumes the daemon IPC contract), **downstream of Plan-018** (consumes PASETO tokens), **downstream of Plan-008** (consumes the control-plane tRPC + WebSocket client), **parallel to Plan-024** (both are shell-surface plans but Plan-024 is owned by the daemon, not the shell), and **upstream of Plan-026** (Plan-026 consumes the `onboarding.*` preload-bridge surface authored here).
 ## References
 
 - [Spec-023: Desktop Shell And Renderer](../specs/023-desktop-shell-and-renderer.md)
