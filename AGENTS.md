@@ -14,19 +14,19 @@ When tool-specific guidance conflicts with this file, this file wins for *cross-
 Subagents conducting research (current-state checks, primary-source verification, version surveys, API-shape investigations) MUST write findings to:
 
 ```
-.agents/research/<topic>/<axis>.md
+.agents/tmp/research/<topic>/<axis>.md
 ```
 
 - `<topic>` — the consuming ADR / spec / plan / backlog item the research informs (e.g. `adr-023-ci-cd`, `bl-097-workflow-engine`)
 - `<axis>` — one file per parallel-fan-out subagent (each axis owns its own file to avoid Read-modify-write races on shared files when subagents run concurrently)
 
-`.agents/research/` is **gitignored** at repo root. The location is provider-neutral, outside the docs corpus, and never committed.
+`.agents/tmp/research/` is **gitignored** at repo root. The location is provider-neutral, outside the docs corpus, and never committed.
 
 ### Surface-Forward-Then-Delete Pattern
 
 Research artifacts are transient drafting locations, not authoritative state.
 
-1. **Draft** — subagents write findings (citations + extracted claims) under `.agents/research/<topic>/<axis>.md`
+1. **Draft** — subagents write findings (citations + extracted claims) under `.agents/tmp/research/<topic>/<axis>.md`
 2. **Surface forward** — the parent agent extracts citations into the consuming ADR/spec/plan References section per the doc-type's citation pattern:
    - **ADRs**: `### Research Conducted` table — `Source | Type | Key Finding | URL/Location`
    - **Specs**: inline citations in body prose + per-section `### References` blocks
@@ -44,7 +44,7 @@ The fix: research files live entirely outside the docs corpus (gitignored, provi
 
 Before deleting a research file, verify:
 
-- (a) Zero inbound citations to `.agents/research/<file>` from anywhere in the docs corpus (trivially true by construction — gitignored top-level dirs cannot be linked from canonical docs)
+- (a) Zero inbound citations to `.agents/tmp/research/<file>` from anywhere in the docs corpus (trivially true by construction — gitignored top-level dirs cannot be linked from canonical docs)
 - (b) Embed-log claims in the consuming doc match the actual subagent findings (anti-hallucination check — the extracted claim must be supported by the cited primary source the subagent surfaced)
 
 ## Citation Standard
