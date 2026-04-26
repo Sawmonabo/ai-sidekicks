@@ -13,7 +13,7 @@ When tool-specific guidance conflicts with this file, this file wins for *cross-
 
 Subagents conducting research (current-state checks, primary-source verification, version surveys, API-shape investigations) MUST write findings to:
 
-```
+```text
 .agents/tmp/research/<topic>/<axis>.md
 ```
 
