@@ -1,6 +1,6 @@
 # CodexMonitor Frontend -- Exhaustive Feature and Implementation Inventory
 
-Source: `/home/sabossedgh/dev/CodexMonitor/src/`
+Source: `/home/sabossedgh/dev/external/CodexMonitor/src/`
 Explored: 2026-04-14
 
 ---

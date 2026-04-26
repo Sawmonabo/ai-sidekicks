@@ -29,7 +29,7 @@ Completed backlog items from the implementation readiness phase. Retained for tr
 | BL-018 | Handoff timeline entry type | `docs/specs/013-live-timeline-visibility-and-reasoning-surfaces.md` | Phase 3 |
 | BL-019 | Workspace-to-worktree transitions | `docs/specs/009-repo-attachment-and-workspace-binding.md` | Phase 3 |
 | BL-020 | DiffArtifact vs general artifact | `docs/specs/011-gitflow-pr-and-diff-attribution.md` (subtype, CAS storage) | Phase 3 |
-| BL-021 | Approval category enum | `docs/specs/012-approvals-permissions-and-trust-boundaries.md` (8 categories verified) | Phase 3 |
+| BL-021 | Approval category enum | `docs/specs/012-approvals-permissions-and-trust-boundaries.md` (9 categories verified after SA-12) | Phase 3 |
 | BL-023 | Relay protocol | `docs/specs/008-control-plane-relay-and-session-join.md` (MLS, connection lifecycle) | Phase 3 |
 | BL-011 | Channel turn/budget/stop policies | `docs/specs/016-multi-agent-channels-and-orchestration.md` | Phase 3 |
 | BL-014b | Expand workflow spec | `docs/specs/017-workflow-authoring-and-execution.md` (phase/gate taxonomy) | Phase 3 |

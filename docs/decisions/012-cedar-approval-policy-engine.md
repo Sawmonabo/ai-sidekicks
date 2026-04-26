@@ -11,11 +11,11 @@
 
 ## Context
 
-The system defines 8 approval categories that govern what actions agents may take autonomously versus what requires human confirmation. Microsoft's Agent Governance Toolkit uses Cedar for agent policy enforcement. Cedar's principal-action-resource-context model maps directly to approval decisions (who is requesting, what action, on what resource, under what session context). Externalizing policies from application code makes them auditable and changeable without redeployment.
+The system defines 9 approval categories that govern what actions agents may take autonomously versus what requires human confirmation. Microsoft's Agent Governance Toolkit uses Cedar for agent policy enforcement. Cedar's principal-action-resource-context model maps directly to approval decisions (who is requesting, what action, on what resource, under what session context). Externalizing policies from application code makes them auditable and changeable without redeployment.
 
 ## Problem Statement
 
-What policy engine should evaluate the 8 approval categories so that authorization decisions stay auditable, operator-tunable, and decoupled from application release cadence?
+What policy engine should evaluate the 9 approval categories so that authorization decisions stay auditable, operator-tunable, and decoupled from application release cadence?
 
 ### Trigger
 
@@ -46,7 +46,7 @@ Use Cedar (CNCF sandbox) as the approval policy engine. V1 defines policies in Y
 
 | # | Assumption | Evidence | What Breaks If Wrong |
 |---|-----------|----------|----------------------|
-| 1 | Cedar's principal-action-resource-context model can express all 8 approval categories without contortion. | Cedar is purpose-built for authorization; Microsoft's Agent Governance Toolkit uses it for agent policy. | We would need a second policy language for categories that do not fit, fragmenting the engine. |
+| 1 | Cedar's principal-action-resource-context model can express all 9 approval categories without contortion. | Cedar is purpose-built for authorization; Microsoft's Agent Governance Toolkit uses it for agent policy. | We would need a second policy language for categories that do not fit, fragmenting the engine. |
 | 2 | Cedar WASM is usable in-process from a TypeScript host without unacceptable startup or evaluation overhead. | Cedar publishes WASM artifacts; policy evaluation benchmarks are in the microsecond range for typical request counts. | We would need a sidecar policy service or a native Go/Rust binding, complicating deployment. |
 | 3 | YAML-to-Cedar compilation in V1 gives operators enough authoring ergonomics until runtime evaluation ships in V1.1. | YAML captures the structural aspects of policies; runtime Cedar arrives as soon as WASM integration is proven. | Operators demand live policy edits before V1.1, forcing an earlier WASM ship with more risk. |
 | 4 | Cedar remains an actively maintained CNCF project over the product lifetime. | Cedar is a CNCF sandbox project with AWS and Microsoft involvement and a published roadmap. | If Cedar stagnates, we would migrate to OPA/Rego or a bespoke engine — a multi-quarter effort. |
@@ -182,7 +182,7 @@ The operational procedures for signing a V1.1 policy bundle, diagnosing a daemon
 
 | Metric | Target | Measurement Method | Check Date |
 |--------|--------|--------------------|------------|
-| Approval categories expressible purely in Cedar (no app-side fallback) | 8 / 8 categories | Policy spec review | `2026-07-01` |
+| Approval categories expressible purely in Cedar (no app-side fallback) | 9 / 9 categories from the canonical `ApprovalCategory` enum | Policy spec review | `2026-07-01` |
 | Cedar policy evaluation latency per request | < 1 ms at p95 | Approval service metrics | `2026-10-01` |
 | Operator-initiated policy updates that ship without a code deploy (V1.1) | 100% of tuning changes post-V1.1 | Change log of policy sets vs code releases | `2026-12-01` |
 

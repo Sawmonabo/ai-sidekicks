@@ -13,20 +13,20 @@
 `packages/server` is the system kernel. It owns daemon startup, transport, session handling, provider integration, persistence, and the long-running services that make Paseo feel stateful across app launches and client reconnects.[S1][S2]
 
 ## Bootstrap Path
-The executable entrypoint in `src/server/index.ts` does only a small number of critical things: resolve `PASEO_HOME`, load persisted config, create the root logger, acquire the PID lock when unsupervised, build the daemon, start it, and manage restart or shutdown intents delivered either by signals or by client requests.[S1]
+The executable entrypoint in `packages/server/src/server/index.ts` does only a small number of critical things: resolve `PASEO_HOME`, load persisted config, create the root logger, acquire the PID lock when unsupervised, build the daemon, start it, and manage restart or shutdown intents delivered either by signals or by client requests.[S1]
 
-The real composition root is `src/server/bootstrap.ts`. That file parses the listen target, creates the Express app, applies host-allowlist and CORS checks, mounts health and status endpoints, and adds the download-token backed file download endpoint.[S2]
+The real composition root is `packages/server/src/server/bootstrap.ts`. That file parses the listen target, creates the Express app, applies host-allowlist and CORS checks, mounts health and status endpoints, and adds the download-token backed file download endpoint.[S2]
 
 After the HTTP surface is in place, bootstrap assembles the runtime graph: `AgentStorage`, `FileBackedProjectRegistry`, `FileBackedWorkspaceRegistry`, `FileBackedChatService`, `AgentManager`, `providerRegistry`, `TerminalManager`, `WorkspaceGitServiceImpl`, `LoopService`, `ScheduleService`, MCP routing, and speech services. Only after those pieces are wired does the daemon start listening and expose the final bound listen target.[S2]
 
 That structure matters architecturally: almost every server subsystem is injected once here and then threaded into the WebSocket server and session layer rather than being discovered dynamically later.[S2][S3]
 
 ## Protocol And Session Layer
-The protocol contract lives in `src/shared/messages.ts`. That file defines the stream-event union, the agent snapshot schema, and the request schemas for key directory fetches such as `fetch_agents_request` and `fetch_workspaces_request`. Because older mobile clients must continue to parse newer daemons, these schemas are a compatibility boundary, not just a typing convenience.[S4][S5]
+The protocol contract lives in `packages/server/src/shared/messages.ts`. That file defines the stream-event union, the agent snapshot schema, and the request schemas for key directory fetches such as `fetch_agents_request` and `fetch_workspaces_request`. Because older mobile clients must continue to parse newer daemons, these schemas are a compatibility boundary, not just a typing convenience.[S4][S5]
 
-`src/server/websocket-server.ts` owns connection admission. Its constructor requires the server-wide dependencies, builds a provider snapshot manager, validates host and origin on `/ws`, installs the hello timeout, and creates a `Session` only after the client has completed the initial handshake.[S3]
+`packages/server/src/server/websocket-server.ts` owns connection admission. Its constructor requires the server-wide dependencies, builds a provider snapshot manager, validates host and origin on `/ws`, installs the hello timeout, and creates a `Session` only after the client has completed the initial handshake.[S3]
 
-`src/server/session.ts` is the main RPC controller. The `handleMessage` switch covers agent creation and resumption, timeline fetches, workspace fetches, worktree operations, git and PR flows, file explorer access, terminal creation and streaming, provider snapshot queries, chat RPCs, schedule RPCs, loop RPCs, speech and dictation flows, and daemon restart/shutdown requests.[S6]
+`packages/server/src/server/session.ts` is the main RPC controller. The `handleMessage` switch covers agent creation and resumption, timeline fetches, workspace fetches, worktree operations, git and PR flows, file explorer access, terminal creation and streaming, provider snapshot queries, chat RPCs, schedule RPCs, loop RPCs, speech and dictation flows, and daemon restart/shutdown requests.[S6]
 
 The same file also contains explicit compatibility gates for older app versions, which is consistent with the repo rule that message schemas must remain backward-compatible for older mobile clients talking to newer daemons.[S6]
 
@@ -63,11 +63,11 @@ The overall pattern is consistent across the package: stateful things live serve
 ## How To Read This Package
 Read the package in this order:
 
-1. `src/server/index.ts` for process lifecycle.[S1]
-2. `src/server/bootstrap.ts` for service composition.[S2]
-3. `src/server/websocket-server.ts` and `src/shared/messages.ts` for transport and protocol.[S3][S4]
-4. `src/server/session.ts` for the request dispatch surface.[S6]
-5. `src/server/agent/agent-manager.ts`, `provider-manifest.ts`, and `provider-registry.ts` for the core agent abstraction.[S7][S8][S9][S10]
+1. `packages/server/src/server/index.ts` for process lifecycle.[S1]
+2. `packages/server/src/server/bootstrap.ts` for service composition.[S2]
+3. `packages/server/src/server/websocket-server.ts` and `packages/server/src/shared/messages.ts` for transport and protocol.[S3][S4]
+4. `packages/server/src/server/session.ts` for the request dispatch surface.[S6]
+5. `packages/server/src/server/agent/agent-manager.ts`, `packages/server/src/server/agent/provider-manifest.ts`, and `packages/server/src/server/agent/provider-registry.ts` for the core agent abstraction.[S7][S8][S9][S10]
 
 ## Sources
 - [S1] `packages/server/src/server/index.ts#L18-L205`, daemon process lifecycle, PID locking, and graceful shutdown.

@@ -2,7 +2,7 @@
 
 Date: 2026-04-15
 
-Project root: `/home/sabossedgh/dev/paseo`
+Project root: `/home/sabossedgh/dev/external/paseo`
 
 Scope: Full monorepo audit across all 8 workspace packages, official documentation, and the skills directory.
 
@@ -210,7 +210,7 @@ Evidence: `packages/server/src/server/bootstrap.ts`, `packages/server/src/server
 | Worktree path computation and slug validation | daemon | `utils/worktree.ts` |
 | Worktree runtime env resolution | daemon | `utils/worktree.ts` |
 | CLI worktree flag on `paseo run` | cli-only | `commands/agent/run.ts` |
-| Worktree detection for dev Electron isolation | desktop-only | `desktop/src/main.ts` |
+| Worktree detection for dev Electron isolation | desktop-only | `packages/desktop/src/main.ts` |
 
 ### 3.8 Terminals
 
@@ -363,28 +363,28 @@ Evidence: `packages/server/src/server/bootstrap.ts`, `packages/server/src/server
 
 | Feature | Surface | Evidence |
 |---|---|---|
-| Local daemon supervision (start, restart, version mismatch) | desktop-only | `desktop/src/daemon/daemon-manager.ts` |
-| Custom `paseo://` protocol registration | desktop-only | `desktop/src/main.ts` |
-| Single-instance lock | desktop-only | `desktop/src/main.ts` |
-| Dev worktree isolation (separate userData) | desktop-only | `desktop/src/main.ts` |
-| Login shell environment inheritance | desktop-only | `desktop/src/login-shell-env.ts` |
-| Local transport (in-process daemon communication) | desktop-only | `desktop/src/daemon/local-transport.ts` |
-| Desktop IPC: file dialogs, notifications, openers, menu | desktop-only | `desktop/src/features/` |
-| Pairing offer flow for relay setup | desktop-only | `daemon-manager.ts` |
-| Open-project routing from deep links | desktop-only | `desktop/src/open-project-routing.ts` |
+| Local daemon supervision (start, restart, version mismatch) | desktop-only | `packages/desktop/src/daemon/daemon-manager.ts` |
+| Custom `paseo://` protocol registration | desktop-only | `packages/desktop/src/main.ts` |
+| Single-instance lock | desktop-only | `packages/desktop/src/main.ts` |
+| Dev worktree isolation (separate userData) | desktop-only | `packages/desktop/src/main.ts` |
+| Login shell environment inheritance | desktop-only | `packages/desktop/src/login-shell-env.ts` |
+| Local transport (in-process daemon communication) | desktop-only | `packages/desktop/src/daemon/local-transport.ts` |
+| Desktop IPC: file dialogs, notifications, openers, menu | desktop-only | `packages/desktop/src/features/` |
+| Pairing offer flow for relay setup | desktop-only | `packages/desktop/src/daemon/daemon-manager.ts` |
+| Open-project routing from deep links | desktop-only | `packages/desktop/src/open-project-routing.ts` |
 
 ### 3.17 Relay and Remote Access
 
 | Feature | Surface | Evidence |
 |---|---|---|
 | End-to-end encrypted relay channel | daemon | `packages/relay/src/encrypted-channel.ts` |
-| ECDH key exchange + XSalsa20-Poly1305 encryption | daemon | `relay/src/crypto.ts` |
-| Daemon keypair persistence (mode 0600) | daemon | `server/daemon-keypair.ts` |
-| Client-side and daemon-side channel creation | daemon | `relay/src/encrypted-channel.ts` |
-| Relay transport with control ping/pong and stale detection | daemon | `server/relay-transport.ts` |
-| QR code pairing (transfers daemon public key) | user | `server/pairing-qr.ts`, `server/pairing-offer.ts` |
-| Connection offer encoding | daemon | `server/connection-offer.ts` |
-| Handshake retry logic | daemon | `relay/src/encrypted-channel.ts` |
+| ECDH key exchange + XSalsa20-Poly1305 encryption | daemon | `packages/relay/src/crypto.ts` |
+| Daemon keypair persistence (mode 0600) | daemon | `packages/server/src/server/daemon-keypair.ts` |
+| Client-side and daemon-side channel creation | daemon | `packages/relay/src/encrypted-channel.ts` |
+| Relay transport with control ping/pong and stale detection | daemon | `packages/server/src/server/relay-transport.ts` |
+| QR code pairing (transfers daemon public key) | user | `packages/server/src/server/pairing-qr.ts`, `packages/server/src/server/pairing-offer.ts` |
+| Connection offer encoding | daemon | `packages/server/src/server/connection-offer.ts` |
+| Handshake retry logic | daemon | `packages/relay/src/encrypted-channel.ts` |
 
 ### 3.18 Skills (Claude Code Skills)
 
@@ -401,11 +401,11 @@ Evidence: `packages/server/src/server/bootstrap.ts`, `packages/server/src/server
 
 | Feature | Surface | Evidence |
 |---|---|---|
-| Multi-host management with per-host sessions | user | `app/src/runtime/host-runtime.ts` |
-| Adaptive connection probing (direct + relay, latency threshold) | user | `host-runtime.ts` `ConnectionProbeState` |
-| Agent directory hydration with pagination | user | `host-runtime.ts` `refreshAgentDirectory()` |
-| Host-aware routing (`/h/:serverId/...`) | user | `app/src/utils/host-routes.ts` |
-| Draft agent creation screen with form state preservation | user | `app/src/screens/agent/draft-agent-screen.tsx` |
+| Multi-host management with per-host sessions | user | `packages/app/src/runtime/host-runtime.ts` |
+| Adaptive connection probing (direct + relay, latency threshold) | user | `packages/app/src/runtime/host-runtime.ts` `ConnectionProbeState` |
+| Agent directory hydration with pagination | user | `packages/app/src/runtime/host-runtime.ts` `refreshAgentDirectory()` |
+| Host-aware routing (`/h/:serverId/...`) | user | `packages/app/src/utils/host-routes.ts` |
+| Draft agent creation screen with form state preservation | user | `packages/app/src/screens/agent/draft-agent-screen.tsx` |
 | Form state priority: explicit > stored prefs > provider defaults | user | `app/src/hooks/use-agent-form-state.ts` |
 | Provider snapshot query and live subscription | user | `app/src/hooks/use-providers-snapshot.ts` |
 | Session stream reducers (epoch/sequence gating, gap recovery) | user | `app/src/contexts/session-stream-reducers.ts` |

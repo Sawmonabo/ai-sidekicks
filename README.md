@@ -84,7 +84,7 @@ Real runtime control — not UI illusions. The queue is daemon-backed. Steer is 
 
 ### Approval Gates
 
-8 categories of approval gates (tool execution, dependency install, file write, git push, and more) ensure agents never take unsupervised action on anything that matters. Approve, deny, or set remembered rules.
+9 categories of approval gates (tool execution, file write, network access, destructive git, user input, plan approval, MCP elicitation, workflow gate, and human phase contribution) ensure agents never take unsupervised action on anything that matters. Approve, deny, or set remembered rules.
 
 ### Worktree-First Git Flow
 
@@ -195,7 +195,7 @@ V1 ships 17 core features across CLI and Desktop GUI per [ADR-015: V1 Feature Sc
 | 4 | Runtime node attach | Participants contribute local compute |
 | 5 | Single-agent runs | Claude and Codex via provider drivers |
 | 6 | Queue, steer, pause, resume | Real runtime control and interventions |
-| 7 | Approval gates | 8 categories of human-in-the-loop safety |
+| 7 | Approval gates | 9 categories of human-in-the-loop safety |
 | 8 | Repo attach | Bind sessions to git repositories |
 | 9 | Worktree execution | Isolated branches per agent run |
 | 10 | Session timeline | Unified event stream with replay |

@@ -1,6 +1,6 @@
 # CodexMonitor Tauri Backend -- Exhaustive Source-Code Exploration
 
-> Produced by source-code reading of `/home/sabossedgh/dev/CodexMonitor/src-tauri/`.
+> Produced by source-code reading of `/home/sabossedgh/dev/external/CodexMonitor/src-tauri/`.
 > Version 0.7.68. Every Rust module, every Tauri command, and every Codex integration detail documented below.
 
 ---

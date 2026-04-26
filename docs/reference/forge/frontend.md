@@ -1,6 +1,6 @@
 # Forge Frontend Source-Code Exploration
 
-> Exhaustive feature and implementation inventory of `/home/sabossedgh/dev/forge/apps/web/`
+> Exhaustive feature and implementation inventory of `/home/sabossedgh/dev/external/forge/apps/web/`
 > Generated from direct source-code reading, not docs or archives.
 
 ---
