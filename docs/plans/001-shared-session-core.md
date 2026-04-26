@@ -8,7 +8,7 @@
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
 | **Spec** | [Spec-001: Shared Session Core](../specs/001-shared-session-core.md) |
-| **Required ADRs** | [ADR-001](../decisions/001-session-is-the-primary-domain-object.md), [ADR-002](../decisions/002-local-execution-shared-control-plane.md), [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md), [ADR-017](../decisions/017-shared-event-sourcing-scope.md), [ADR-018](../decisions/018-cross-version-compatibility.md), [ADR-022](../decisions/022-v1-toolchain-selection.md). **PR #1 ship-gate**: ADR-023 — V1 CI/CD, Pre-Commit Hooks, and Release Automation (pending per [BL-100](../backlog.md)). |
+| **Required ADRs** | [ADR-001](../decisions/001-session-is-the-primary-domain-object.md), [ADR-002](../decisions/002-local-execution-shared-control-plane.md), [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md), [ADR-017](../decisions/017-shared-event-sourcing-scope.md), [ADR-018](../decisions/018-cross-version-compatibility.md), [ADR-022](../decisions/022-v1-toolchain-selection.md), [ADR-023](../decisions/023-v1-ci-cd-and-release-automation.md). **PR #1 ship-gate**: [ADR-023](../decisions/023-v1-ci-cd-and-release-automation.md) governs the engineering CI surface that lands in PR #1 (accepted 2026-04-26 per [BL-100](../backlog.md)). |
 | **Dependencies** | None (tier-entry plan; owns `0001-initial.sql` migration and forward-declares schema shape consumed by [Plan-003](./003-runtime-node-attach.md), [Plan-006](./006-session-event-taxonomy-and-audit-log.md), [Plan-022](./022-data-retention-and-gdpr.md)) |
 | **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
 
@@ -30,7 +30,7 @@ This plan covers session ids, default channel creation, owner membership bootstr
 
 - [x] Paired spec is approved
 - [x] Required ADRs are accepted (plan body)
-- [ ] **PR #1 ship-gate**: ADR-023 — V1 CI/CD, Pre-Commit Hooks, and Release Automation accepted per [BL-100](../backlog.md). The plan body is approved; the engineering CI surface PR #1 must include (`.github/workflows/`, pre-commit hooks, commit-message linter, branch protection, dependency-update bot, secret scanner, release-automation skeleton, code-signing custody) is gated on ADR-023 to avoid landing workflow YAML and hooks without a governing decision.
+- [x] **PR #1 ship-gate**: [ADR-023](../decisions/023-v1-ci-cd-and-release-automation.md) — V1 CI/CD, Pre-Commit Hooks, and Release Automation accepted 2026-04-26 per [BL-100](../backlog.md). The engineering CI surface that lands in PR #1 (`.github/workflows/{ci,release}.yml`, lefthook 2.1.6 pre-commit framework, commitlint 20.5.2, Renovate dependency-update config, Gitleaks v8.30+ secret scanner, release-please-action@v5 + actions/attest@v4 release skeleton, code-signing custody artifacts) is now governed by an accepted ADR.
 - [x] Blocking open questions are resolved or explicitly deferred
 
 Target paths below assume the canonical implementation topology defined in [Container Architecture](../architecture/container-architecture.md).
@@ -58,7 +58,7 @@ Workspace topology is authoritative in [Container Architecture](../architecture/
 - `.nvmrc` — pins the lower-tier Node target per [ADR-022](../decisions/022-v1-toolchain-selection.md)
 - `eslint.config.mjs` and `prettier.config.js` at root
 
-**Engineering CI surface** — `.github/workflows/{ci,release}.yml`, pre-commit hook framework + config, `lint-staged` config, commitlint config, dependency-update bot config, `CODEOWNERS`, and code-signing custody artifacts are owned by ADR-023 (proposed per [BL-100](../backlog.md)). PR #1 will enumerate the concrete artifact list once ADR-023 is accepted.
+**Engineering CI surface** — `.github/workflows/{ci,release}.yml`, lefthook 2.1.6 pre-commit hook framework + `lefthook.yml`, `lint-staged.config.mjs`, commitlint 20.5.2 config (10-type set, drops `style`), Renovate config (`renovate.json5` with `minimumReleaseAge: 14 days`), `CODEOWNERS`, Gitleaks v8.30+ workflow, and code-signing custody artifacts (Apple Developer Individual + Azure Artifact Signing OIDC + Sigstore keyless + AWS KMS Ed25519 hot key + YubiHSM 2 cold key envelope) are owned by [ADR-023](../decisions/023-v1-ci-cd-and-release-automation.md) (accepted 2026-04-26 per [BL-100](../backlog.md)). PR #1 lands the concrete artifact list per ADR-023 §Decision.
 
 ### Per-Package Scaffolding
 
@@ -161,15 +161,15 @@ Plan-001 implementation lands as a sequence of small PRs. Each PR exercises one 
 
 ### PR #1 — Workspace Bootstrap
 
-**Goal:** All packages compile; one passing tooling test verifies the workspace is healthy; the daemon's native-binding rebuild path is exercised at bootstrap; the engineering CI surface (per ADR-023) is wired and gates subsequent PRs.
+**Goal:** All packages compile; one passing tooling test verifies the workspace is healthy; the daemon's native-binding rebuild path is exercised at bootstrap; the engineering CI surface (per [ADR-023](../decisions/023-v1-ci-cd-and-release-automation.md)) is wired and gates subsequent PRs.
 
-**Ship-gate:** ADR-023 — V1 CI/CD, Pre-Commit Hooks, and Release Automation — must be accepted before PR #1 can land. The CI workflow files, pre-commit hooks, commitlint config, dependency-update bot config, `CODEOWNERS`, and code-signing custody scaffolding authored by ADR-023 land in this PR. See [BL-100](../backlog.md).
+**Ship-gate:** [ADR-023](../decisions/023-v1-ci-cd-and-release-automation.md) — V1 CI/CD, Pre-Commit Hooks, and Release Automation — accepted 2026-04-26 per [BL-100](../backlog.md). The CI workflow files, lefthook + commitlint pre-commit framework, Renovate dependency-update config, Gitleaks secret scanner, `CODEOWNERS`, and code-signing custody scaffolding authored by ADR-023 land in this PR.
 
 - Create root scaffolding (per § Repo Layout And Bootstrap above)
 - Create empty `packages/contracts/`, `packages/client-sdk/`, `packages/runtime-daemon/`, `packages/control-plane/`, `apps/desktop/` skeletons with `package.json` + `tsconfig.json` + `src/index.ts` (no exports)
 - Install `better-sqlite3` 12.9+ as a workspace dep on `packages/runtime-daemon/` per [ADR-022](../decisions/022-v1-toolchain-selection.md). Even without imports, this exercises the postinstall native-binding rebuild path for the daemon target under `node-linker=isolated` at bootstrap time, surfacing native-rebuild integration risk before behavior PRs land.
 - Install `pg` 8.20+ as a workspace dep on `packages/control-plane/` per [ADR-022](../decisions/022-v1-toolchain-selection.md)
-- Wire engineering CI surface per ADR-023: `.github/workflows/{ci,release}.yml`, pre-commit hook framework + config, commitlint config, dependency-update bot config, secret scanner, `CODEOWNERS`, release-automation skeleton (no actual release runs yet — first release is post-Plan-001 ship)
+- Wire engineering CI surface per [ADR-023](../decisions/023-v1-ci-cd-and-release-automation.md): `.github/workflows/{ci,release}.yml`, lefthook 2.1.6 + `lefthook.yml`, `lint-staged.config.mjs`, commitlint 20.5.2 config, Renovate config, Gitleaks workflow, `CODEOWNERS`, release-please-action@v5 + actions/attest@v4 release-automation skeleton (no actual release runs yet — first release is post-Plan-001 ship)
 - Verify: `pnpm install`, `pnpm turbo build`, `pnpm turbo typecheck`, and `pnpm turbo lint` all green; CI runs green on this PR; pre-commit hooks active locally; required-checks gate is enforced on subsequent PRs
 - Single passing test (in `packages/contracts/`): trivial sanity check that Vitest is wired
 
