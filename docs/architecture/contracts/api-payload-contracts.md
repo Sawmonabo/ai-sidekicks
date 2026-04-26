@@ -104,7 +104,7 @@ type QueueItemState = 'queued' | 'admitted' | 'superseded' | 'canceled' | 'expir
 type InterventionType = 'steer' | 'interrupt' | 'cancel'
 type InterventionState = 'requested' | 'accepted' | 'applied' | 'rejected' | 'degraded' | 'expired'
 
-type ApprovalCategory = 'tool_execution' | 'file_write' | 'network_access' | 'destructive_git' | 'user_input' | 'plan_approval' | 'mcp_elicitation' | 'gate'
+type ApprovalCategory = 'tool_execution' | 'file_write' | 'network_access' | 'destructive_git' | 'user_input' | 'plan_approval' | 'mcp_elicitation' | 'gate' | 'human_phase_contribution'
 type ApprovalDecision = 'approved' | 'rejected'
 type ApprovalState = 'pending' | 'approved' | 'rejected' | 'expired' | 'canceled'
 

@@ -327,7 +327,7 @@ CREATE INDEX idx_artifact_payload_refs_manifest ON artifact_payload_refs(manifes
 
 ## Approval Tables (Plan-012)
 
-The 8 canonical approval categories: `tool_execution`, `file_write`, `network_access`, `destructive_git`, `user_input`, `plan_approval`, `mcp_elicitation`, `gate`.
+The 9 canonical approval categories: `tool_execution`, `file_write`, `network_access`, `destructive_git`, `user_input`, `plan_approval`, `mcp_elicitation`, `gate`, `human_phase_contribution`.
 
 ```sql
 -- Owner: Plan-012
@@ -337,7 +337,8 @@ CREATE TABLE approval_requests (
   category              TEXT NOT NULL
                         CHECK(category IN (
                           'tool_execution', 'file_write', 'network_access', 'destructive_git',
-                          'user_input', 'plan_approval', 'mcp_elicitation', 'gate'
+                          'user_input', 'plan_approval', 'mcp_elicitation', 'gate',
+                          'human_phase_contribution'                              -- SA-12 addition; mirrors Spec-012 canonical enum
                         )),
   scope                 TEXT NOT NULL,        -- requested scope descriptor
   resource_descriptor   TEXT,                 -- target resource details (JSON)
@@ -371,7 +372,8 @@ CREATE TABLE remembered_approval_rules (
   category              TEXT NOT NULL
                         CHECK(category IN (
                           'tool_execution', 'file_write', 'network_access', 'destructive_git',
-                          'user_input', 'plan_approval', 'mcp_elicitation', 'gate'
+                          'user_input', 'plan_approval', 'mcp_elicitation', 'gate',
+                          'human_phase_contribution'                              -- SA-12 addition; mirrors Spec-012 canonical enum
                         )),
   scope_pattern         TEXT NOT NULL,        -- pattern for matching future requests
   granted_at            TEXT NOT NULL,
@@ -434,7 +436,7 @@ CREATE INDEX idx_cross_node_dispatch_approvals_expiry
 
 Full workflow-engine V1 schema. Nine tables implement the 10-state phase machine, append-only hash-chained gate history (C-13/I7), parallel-join bookkeeping, and OWN-only channel linkage. `session_events` remains canonical truth; tables 3/4/7/8/9 are rebuildable projections, and 1/2/5/6 are immutable truth (6 additionally carries a per-run BLAKE3 chain anchored to [Spec-006 § Integrity Protocol](../../specs/006-session-event-taxonomy-and-audit-log.md#integrity-protocol)).
 
-The normalized-table-over-blob shape, the per-run hash-chained gate-resolution audit trail, and the rebuildable-projection split align with industry persistence precedents: durable-execution engines persist normalized state per run rather than monolithic blobs (*"Restate stores the state of each invocation in a durable log"* — [Restate — Building Modern Durable Execution, 2025](https://restate.dev/blog/building-modern-durable-execution/), fetched 2026-04-25); large-engine persistence tiers separate hot live state from cold archive ([Argo Workflows — Workflow Archive](https://argo-workflows.readthedocs.io/en/latest/workflow-archive/), fetched 2026-04-25); and append-only hash-chained audit trails are the canonical academic precedent for tamper-evident logging (*"a tamper-evident log... uses a hash chain to detect tampering with high probability"* — [Crosby & Wallach, Efficient Data Structures for Tamper-Evident Logging, USENIX Security 2009](https://static.usenix.org/event/sec09/tech/full_papers/crosby.pdf), fetched 2026-04-25). Spec-017 §References > Persistence + hash-chain enumerates the full primary-source corpus.
+The normalized-table-over-blob shape, the per-run hash-chained gate-resolution audit trail, and the rebuildable-projection split align with industry persistence precedents: durable-execution engines persist normalized state per run rather than monolithic blobs ([Restate — What is Durable Execution](https://restate.dev/what-is-durable-execution), fetched 2026-04-26); large-engine persistence tiers separate hot live state from cold archive ([Argo Workflows — Workflow Archive](https://argo-workflows.readthedocs.io/en/latest/workflow-archive/), fetched 2026-04-25); and append-only hash-chained audit trails are the canonical academic precedent for tamper-evident logging (*"a tamper-evident log... uses a hash chain to detect tampering with high probability"* — [Crosby & Wallach, Efficient Data Structures for Tamper-Evident Logging, USENIX Security 2009](https://static.usenix.org/event/sec09/tech/full_papers/crosby.pdf), fetched 2026-04-25). Spec-017 §References > Persistence + hash-chain enumerates the full primary-source corpus.
 
 ```sql
 -- ========================================================================
