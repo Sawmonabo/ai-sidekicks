@@ -438,7 +438,7 @@ Engine implementations violating any of the following are **non-conformant**. Ea
 - [Argo — Intermediate Parameters](https://argo-workflows.readthedocs.io/en/latest/intermediate-inputs/) — human-phase form-input pattern (SA-10)
 - [Airflow — Pools](https://airflow.apache.org/docs/apache-airflow/stable/administration-and-deployment/pools.html) — resource-pool precedent for SA-3 named pools
 - [AWS Step Functions — Error handling](https://docs.aws.amazon.com/step-functions/latest/dg/concepts-error-handling.html) — `fail-fast` `ParallelJoinPolicy` precedent (SA-4)
-- [Dagster — Run concurrency](https://docs.dagster.io/concepts/configuration/run-tags#run-concurrency) — multi-tier resource-pool precedent (SA-3)
+- [Dagster — Managing concurrency](https://docs.dagster.io/guides/operate/managing-concurrency) — multi-tier resource-pool precedent (SA-3)
 - [Camunda 8 — User tasks](https://docs.camunda.io/docs/components/modeler/bpmn/user-tasks/) — assignments, scheduling, dueDate, followUpDate
 - [GitHub Actions — Reviewing deployments](https://docs.github.com/en/actions/managing-workflow-runs-and-deployments/managing-deployments/reviewing-deployments) — approval-gate UX precedent for `human-approval` gate (SA-12)
 - [LangGraph — Multi-agent handoff](https://langchain-ai.github.io/langgraph/concepts/multi_agent/)

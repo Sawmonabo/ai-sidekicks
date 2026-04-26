@@ -90,7 +90,7 @@ Cross-cutting V1 specs that multiple V1 features depend on. These are required b
 
 ## Backlog Coverage Assessment
 
-All V1 features have corresponding implementation plans (Plans 001–020 for existing V1 features, including Plan-016 for Multi-Agent Channels and Plan-017 for Workflow authoring and execution promoted to V1 per BL-097; Plan-021 per BL-044, Plan-022 per BL-045, Plan-023 per BL-043, Plan-024 per BL-078, Plan-025 per BL-080, Plan-026 per BL-082 for V1 items introduced by ADR-015 / ADR-019 / ADR-020). Tier assignments in `cross-plan-dependencies.md` align against ADR-015 per BL-054.
+All V1 features and supporting V1 specs have corresponding implementation plans (Plans 001–020 for existing V1 features, including Plan-016 for Multi-Agent Channels and Plan-017 for Workflow authoring and execution promoted to V1 per BL-097; Plan-021 per BL-044, Plan-022 per BL-045, Plan-023 per BL-043, Plan-024 per BL-078, Plan-025 per BL-080, Plan-026 per BL-082, and Plan-027 for Spec-024 cross-node dispatch and approval). Tier assignments in `cross-plan-dependencies.md` align against ADR-015 per BL-054.
 
 ## References
 

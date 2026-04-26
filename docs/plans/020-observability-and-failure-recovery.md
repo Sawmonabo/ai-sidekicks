@@ -91,9 +91,9 @@ Plan-020 owns the daemon-side `/metrics` endpoint required by [Spec-027 row 9](.
 
 - Add daemon-owned health projections and failure-detail records derived from canonical events, replay state, and provider diagnostics.
 - Add recovery-action audit records and surfaced health snapshots needed for operators and user-facing projections.
-- Add the 4 diagnostic-bucket tables (`driver_raw_events`, `command_output`, `tool_traces`, `reasoning_detail`) to Local Runtime Daemon SQLite with TTL-purge indices per [Local SQLite Schema](../architecture/schemas/local-sqlite-schema.md). These are runtime-local; they have no shared-Postgres counterpart per [ADR-017](../decisions/017-shared-event-sourcing-scope.md).
+- Add the 4 diagnostic-bucket tables (`driver_raw_events`, `command_output`, `tool_traces`, `reasoning_detail`) to Local Runtime Daemon SQLite with TTL-purge and participant-scoped purge indices per [Local SQLite Schema §Diagnostic Bucket Tables](../architecture/schemas/local-sqlite-schema.md#diagnostic-bucket-tables-plan-020). These are runtime-local; they have no shared-Postgres counterpart per [ADR-017](../decisions/017-shared-event-sourcing-scope.md).
 - Add bounded-retention handling for raw diagnostic payload classes so compaction never removes canonical health or failure truth.
-- See [Shared Postgres Schema](../architecture/schemas/shared-postgres-schema.md) for column definitions.
+- See [Shared Postgres Schema](../architecture/schemas/shared-postgres-schema.md) for the shared `health_snapshots` column definitions; diagnostic bucket column definitions live in the Local SQLite schema because raw diagnostics never leave the daemon by default.
 
 ## API And Transport Changes
 

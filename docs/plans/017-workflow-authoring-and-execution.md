@@ -163,34 +163,34 @@ Five test categories (SA-29): property-based, fuzz, load, long-running integrati
 - [Plan-016: Multi-Agent Channels and Orchestration](./016-multi-agent-channels-and-orchestration.md) — channel lifecycle, OWN ownership
 - [CloudEvents v1.0.2 spec](https://github.com/cloudevents/spec/blob/v1.0.2/cloudevents/spec.md) — envelope additive-bump rules (SA-18)
 - [OpenTelemetry Semantic Conventions for Events](https://github.com/open-telemetry/semantic-conventions/blob/main/docs/general/events.md) — event-name convention precedent (SA-19)
-- [OpenTelemetry GenAI observability blog (2025)](https://opentelemetry.io/blog/2025/genai-observability/) — LLM-event semantic-convention rationale (SA-19)
+- [OpenTelemetry AI Agent observability blog (2025)](https://opentelemetry.io/blog/2025/ai-agent-observability/) — LLM-event semantic-convention rationale (SA-19)
 - [Argo Workflows architecture — workflow events](https://argo-workflows.readthedocs.io/en/latest/architecture/#workflow-engine) — event-engine industry comparison
 - [n8n executions API reference](https://docs.n8n.io/api/api-reference/#tag/Execution) — execution-event industry comparison
 - [Argo Workflows — intermediate parameters](https://argo-workflows.readthedocs.io/en/latest/intermediate-inputs/) — human-phase form input pattern
 - [Argo Workflows — `suspend-template-outputs.yaml` example](https://github.com/argoproj/argo-workflows/blob/main/examples/suspend-template-outputs.yaml) — output-projection-on-resume pattern
 - [argoproj/argo-workflows#8365](https://github.com/argoproj/argo-workflows/discussions/8365) — form-input UX gap (Argo discussion)
 - [Camunda 8 — user tasks](https://docs.camunda.io/docs/components/modeler/bpmn/user-tasks/) — human-phase claim-semantics precedent
-- [Camunda 8 — user-tasks form-data best practices](https://docs.camunda.io/docs/components/best-practices/development/dealing-with-data-in-processes/#using-user-task-forms) — form-data persistence pattern
+- [Camunda 8 — handling data in processes](https://docs.camunda.io/docs/components/best-practices/development/handling-data-in-processes/) — form-data persistence pattern
 - [GitHub Actions — reviewing deployments](https://docs.github.com/en/actions/managing-workflow-runs-and-deployments/managing-deployments/reviewing-deployments) — approval-gate UX precedent
 - [AWS Step Functions — human-approval tutorial](https://docs.aws.amazon.com/step-functions/latest/dg/sample-project-human-approval.html) — approval-gate sample
 - [AWS Step Functions — `SendTaskHeartbeat`](https://docs.aws.amazon.com/step-functions/latest/apireference/API_SendTaskHeartbeat.html) — heartbeat-based liveness pattern
 - [Temporal — Python message passing](https://docs.temporal.io/develop/python/message-passing) — signal-based human input
-- [Temporal — TypeScript HITL tutorial](https://learn.temporal.io/tutorials/typescript/human-in-the-loop/) — HITL workflow pattern
+- [Temporal — automation of human-in-the-loop workflows](https://pages.temporal.io/webinar-automation-of-human-in-the-loop-workflows-with-temporal.html) — HITL workflow pattern
 - [Cloudflare Workflows — `waitForEvent`](https://developers.cloudflare.com/workflows/build/events-and-parameters/) — wait-for-event primitive
 - [LangGraph — human-in-the-loop](https://langchain-ai.github.io/langgraph/concepts/human_in_the_loop/) — HITL primitive (LLM stack)
-- [Microsoft Agent Framework — HITL (2026-03-31)](https://learn.microsoft.com/en-us/agent-framework/concepts/human-in-the-loop) — HITL primitive (recent industry)
+- [Microsoft Agent Framework — AG-UI HITL](https://learn.microsoft.com/en-us/agent-framework/integrations/ag-ui/human-in-the-loop) — HITL primitive (recent industry)
 - [W3C WCAG 2.2 §3.3.7 Redundant Entry](https://www.w3.org/TR/WCAG22/#redundant-entry) — accessibility requirement for form-state UX (SA-26)
 - [OWASP File Upload Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html) — I6 human-upload minimums (also inline in Test table)
 - [Restate — Building Modern Durable Execution (2025)](https://restate.dev/blog/building-modern-durable-execution/) — per-run hash-chain rationale (C-13)
-- [Temporal — custom persistence (2024)](https://temporal.io/blog/custom-persistence-2024) — persistence-model precedent
+- [Temporal — custom persistence (2024)](https://temporal.io/blog/higher-throughput-and-lower-latency-temporal-clouds-custom-persistence-layer) — persistence-model precedent
 - [Argo Workflows — workflow archive](https://argo-workflows.readthedocs.io/en/latest/workflow-archive/) — persistence-tier precedent
 - [Argo Workflows — offloading large workflows](https://argo-workflows.readthedocs.io/en/latest/offloading-large-workflows/) — large-workflow persistence pattern
-- [Cadence — cross-DC replication / persistence](https://cadenceworkflow.io/docs/concepts/cross-dc-replication/) — persistence-tier industry comparison
+- [Cadence — cross-DC replication / persistence](https://cadenceworkflow.io/docs/concepts/cross-dc-replication) — persistence-tier industry comparison
 - [SQLite — JSON1 extension](https://www.sqlite.org/json1.html) — JSON-column rationale for `workflow_definitions`
 - [`fast-check` (model-based testing)](https://github.com/dubzzz/fast-check) — property-test framework pin (SA-29)
 - [Jazzer.js (fuzzing)](https://github.com/CodeIntelligenceTesting/jazzer.js) — fuzz-test framework pin (SA-29)
 - [Jazzer.js — fuzz-targets docs](https://github.com/CodeIntelligenceTesting/jazzer.js/blob/main/docs/fuzz-targets.md) — fuzz-target shape (SA-29)
-- [Endor Labs — Argo CVE-2025-66626 broken-fix analysis](https://www.endorlabs.com/learn/cve-2025-66626-argo-workflows) — broken-fix-precedent rationale for security-regression category
+- [Endor Labs — Argo CVE-2025-66626 broken-fix analysis](https://www.endorlabs.com/learn/when-a-broken-fix-leads-to-rce-how-we-found-cve-2025-66626-in-argo) — broken-fix-precedent rationale for security-regression category
 - [Astronomer — testing Airflow](https://www.astronomer.io/docs/learn/testing-airflow/) — DAG-test precedent
-- [Bitovi — replay testing in Temporal](https://www.bitovi.com/blog/replay-testing-temporal-workflows) — replay-test pattern (SA-31)
+- [Bitovi — replay testing in Temporal](https://www.bitovi.com/blog/replay-testing-to-avoid-non-determinism-in-temporal-workflows) — replay-test pattern (SA-31)
 - [Temporal — TypeScript SDK testing suite](https://docs.temporal.io/develop/typescript/testing-suite) — `runReplayHistory` contract (SA-31; also inline)

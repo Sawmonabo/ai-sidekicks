@@ -169,15 +169,15 @@ The CLI (`sidekicks`) is the first client delivery track — it proves the typed
 | Language | TypeScript (daemon, CLI, desktop, contracts) |
 | Desktop Shell | Electron |
 | Desktop UI | React + Vite |
-| Local Database | SQLite (WAL mode, 30 tables) |
-| Shared Database | Postgres (11 tables) |
+| Local Database | SQLite (WAL mode, 41 tables) |
+| Shared Database | Postgres (16 tables) |
 | Auth | PASETO v4 (access + refresh), WebAuthn, DPoP |
 | Relay Encryption | X25519 + XChaCha20-Poly1305 (V1), MLS RFC 9420 (V2) |
 | State Machines | XState v5 |
 | API Framework | tRPC v11 |
 | IPC | Unix socket (macOS/Linux), named pipe (Windows) |
 | Validation | Zod |
-| Authorization | Cedar (policy-based) per [ADR-012](docs/decisions/012-cedar-authorization-policy-engine.md) |
+| Authorization | Cedar (policy-based) per [ADR-012](docs/decisions/012-cedar-approval-policy-engine.md) |
 | Presence | Yjs Awareness protocol |
 | Observability | OpenTelemetry |
 
@@ -185,7 +185,7 @@ The CLI (`sidekicks`) is the first client delivery track — it proves the typed
 
 ## V1 Scope
 
-V1 ships 16 core features across CLI and Desktop GUI per [ADR-015: V1 Feature Scope Definition](docs/decisions/015-v1-feature-scope-definition.md).
+V1 ships 17 core features across CLI and Desktop GUI per [ADR-015: V1 Feature Scope Definition](docs/decisions/015-v1-feature-scope-definition.md).
 
 | # | Feature | Description |
 |---|---------|-------------|
@@ -205,17 +205,19 @@ V1 ships 16 core features across CLI and Desktop GUI per [ADR-015: V1 Feature Sc
 | 14 | Local artifacts | Diffs, files, and attachments |
 | 15 | Desktop GUI | Electron shell + React/Vite renderer over the same typed SDK |
 | 16 | Multi-agent channels | Cross-agent coordination primitives per [Spec-016](docs/specs/016-multi-agent-channels-and-orchestration.md) |
+| 17 | Workflow authoring and execution | Full workflow engine per [Spec-017](docs/specs/017-workflow-authoring-and-execution.md) |
 
-**V1.1 additions:** MLS relay E2EE, email invite delivery, cross-node shared artifacts, workflow authoring (deferred per ADR-015).
+**V1.1 additions:** MLS relay E2EE, email invite delivery, cross-node shared artifacts, plus the criterion-gated workflow subfeatures named in ADR-015.
 
 ---
 
 ## Build Order
 
-Implementation follows the tiered dependency graph defined in [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md). V1 spans 25 implementation plans (Plan-017 Workflow Authoring is deferred to V1.1 per ADR-015).
+Implementation follows the tiered dependency graph defined in [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md). V1 spans 27 implementation plans; Plan-017 Workflow Authoring remains in `review` while the other V1 plans are approved.
 
 ```
 Tier 1  ► Plan-001  Shared Session Core
+         Plan-024  Rust PTY Sidecar
 Tier 2  ► Plan-002  Invite, Membership, Presence
 Tier 3  ► Plan-003  Runtime Node Attach
 Tier 4  ► Plan-005  Provider Driver Contract
@@ -224,22 +226,24 @@ Tier 4  ► Plan-005  Provider Driver Contract
 Tier 5  ► Plan-004  Queue, Steer, Pause, Resume
          Plan-008  Control Plane Relay
          Plan-018  Identity and Participant State
-         Plan-021  Rate Limiting Policy
          Plan-022  Data Retention and GDPR
+         Plan-025  Self-Hostable Node Relay (crypto package only)
 Tier 6  ► Plan-009  Repo Attachment and Workspace Binding
          Plan-010  Worktree Lifecycle
          Plan-012  Approvals and Permissions
-         Plan-024  Rust PTY Sidecar
-         Plan-025  Self-Hostable Node Relay
+         Plan-016  Multi-Agent Channels
+         Plan-021  Rate Limiting Policy
 Tier 7  ► Plan-011  Git Flow, PR, Diff Attribution
          Plan-014  Artifacts, Files, Attachments
          Plan-015  Persistence, Recovery, Replay
-         Plan-016  Multi-Agent Channels (V1)
+         Plan-025  Self-Hostable Node Relay (remaining steps)
 Tier 8  ► Plan-013  Live Timeline and Visibility
+         Plan-017  Workflow Authoring and Execution
          Plan-019  Notifications and Attention
          Plan-020  Observability and Failure Recovery
          Plan-023  Desktop Shell and Renderer
-         Plan-026  First-Run Three-Way-Choice Onboarding
+Tier 9  ► Plan-026  First-Run Three-Way-Choice Onboarding
+         Plan-027  Cross-Node Dispatch and Approval
 ```
 
 Each tier's prerequisites are the prior tier's completion. See [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md) for the full dependency graph and table ownership map.
@@ -248,17 +252,17 @@ Each tier's prerequisites are the prior tier's completion. See [`docs/architectu
 
 ## Project Status
 
-**Phase: Implementation readiness complete. Code implementation not yet started.**
+**Phase: Documentation validation remediation complete. Code implementation not yet started.**
 
-The entire design corpus is written, cross-verified, and internally consistent:
+Current documentation corpus:
 
-- **25 V1 implementation plans** with step-by-step build instructions (plus Plan-024 PTY sidecar and Plan-017 Workflow Authoring deferred to V1.1 per ADR-015)
+- **27 V1 implementation plans** with step-by-step build instructions; 26 are `approved` and Plan-017 is in `review`
 - **26 approved specifications** covering every feature and cross-cutting concern, plus Spec-027 (Self-Host Secure Defaults) currently in `draft`
-- **8 domain models** (run state machine, intervention model, participant model, workflow model, etc.)
-- **9 architecture documents** (schemas, contracts, security, deployment, dependencies)
+- **12 domain models** (run state machine, intervention model, participant model, workflow model, etc.)
+- **16 architecture documents** (schemas, contracts, security, deployment, dependencies)
 - **11 operations runbooks** (CLI commands, SLOs, on-call routing, self-host secure defaults)
 - **21 accepted ADRs** recording key design decisions (ADR-013 reserved-skipped)
-- **259+ crosscheck verifications** across 4+ review phases, converged to 0 issues
+- **Automated validation checks** for link, schema, scope, and citation health
 
 ---
 
@@ -267,8 +271,8 @@ The entire design corpus is written, cross-verified, and internally consistent:
 | Area | Path | Description |
 |------|------|-------------|
 | Vision | [`docs/vision.md`](docs/vision.md) | Product thesis and architectural position |
-| Specs | [`docs/specs/`](docs/specs/) | Feature specifications (001-022) |
-| Plans | [`docs/plans/`](docs/plans/) | Implementation plans (001-020) |
+| Specs | [`docs/specs/`](docs/specs/) | Feature specifications (001-027) |
+| Plans | [`docs/plans/`](docs/plans/) | Implementation plans (001-027) |
 | Architecture | [`docs/architecture/`](docs/architecture/) | Schemas, contracts, security, deployment |
 | Domain Models | [`docs/domain/`](docs/domain/) | State machines, glossary, entity models |
 | ADRs | [`docs/decisions/`](docs/decisions/) | Architectural decision records |

@@ -239,6 +239,33 @@ CREATE INDEX idx_relay_connections_session ON relay_connections(session_id);
 
 ---
 
+## Cross-Node Dispatch Coordination (Plan-027)
+
+Routing metadata only. The control plane never stores dispatch payloads, ApprovalRecord envelopes, PASETO tokens, action payloads, or result payloads; those remain daemon-local per ADR-017 and Spec-024.
+
+```sql
+-- Owner: Plan-027
+CREATE TABLE cross_node_dispatch_coordination (
+  dispatch_id           UUID PRIMARY KEY,
+  session_id            UUID NOT NULL REFERENCES sessions(id),
+  caller_participant_id UUID NOT NULL REFERENCES participants(id),
+  target_participant_id UUID NOT NULL REFERENCES participants(id),
+  target_node_id        TEXT NOT NULL,
+  status                TEXT NOT NULL DEFAULT 'requested'
+                        CHECK(status IN ('requested', 'approved', 'denied', 'executed', 'expired')),
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+  resolved_at           TIMESTAMPTZ
+);
+
+CREATE INDEX idx_cross_node_dispatch_coordination_session
+  ON cross_node_dispatch_coordination(session_id, status);
+
+CREATE INDEX idx_cross_node_dispatch_coordination_target
+  ON cross_node_dispatch_coordination(target_node_id, status);
+```
+
+---
+
 ## Notification Preferences (Plan-019)
 
 ```sql
