@@ -39,6 +39,7 @@ This spec covers runtime-node registration, capability declaration, health, and 
 - [ADR-002: Local Execution Shared Control Plane](../decisions/002-local-execution-shared-control-plane.md)
 - [ADR-005: Provider Drivers Use A Normalized Interface](../decisions/005-provider-drivers-use-a-normalized-interface.md)
 - [ADR-007: Collaboration Trust And Permission Model](../decisions/007-collaboration-trust-and-permission-model.md)
+- [ADR-018: Cross-Version Compatibility](../decisions/018-cross-version-compatibility.md)
 
 ## Required Behavior
 
@@ -49,6 +50,7 @@ This spec covers runtime-node registration, capability declaration, health, and 
 - Runtime-node attach must not require session recreation.
 - Runtime-node detach or offline state must not revoke session membership by default.
 - The control plane must coordinate runtime-node discovery and presence, but execution must remain local to the attached node.
+- At attach, the control plane MUST verify the daemon's reported version against the session's `min_client_version` floor (declared in [Spec-001 §State And Data Implications](./001-shared-session-core.md#state-and-data-implications)). A NULL floor permits all daemons. A daemon below the floor MUST be admitted in read-only state — the daemon remains joined and may read session state, but any subsequent write attempt MUST return typed `VERSION_FLOOR_EXCEEDED` per [ADR-018 §Decision #4](../decisions/018-cross-version-compatibility.md). Ejection MUST NOT be the response to a floor mismatch (graceful degradation, not ejection).
 
 ## Default Behavior
 
@@ -99,6 +101,7 @@ This spec covers runtime-node registration, capability declaration, health, and 
 - [ ] A participant can attach a local runtime node to an already active session.
 - [ ] A degraded or offline node remains distinguishable from a healthy online node.
 - [ ] Multiple runtime nodes can coexist in one session without changing session identity.
+- [ ] A daemon attaching with a version below the session's `min_client_version` is admitted in read-only state, surfaces typed `VERSION_FLOOR_EXCEEDED` on any subsequent write attempt, and is never ejected for the floor mismatch (per [ADR-018 §Decision #4](../decisions/018-cross-version-compatibility.md)).
 
 ## ADR Triggers
 

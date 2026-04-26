@@ -90,6 +90,7 @@ This spec covers session identity, default session structure, session creation, 
 - Session records must be durable before active run state is admitted.
 - The system must maintain a canonical session event stream and session snapshot projection.
 - Clients may cache presentation state, but cache must not be authoritative for session membership or run truth.
+- Session records may carry an optional minimum client-version floor (`min_client_version`) per [ADR-018: Cross-Version Compatibility](../decisions/018-cross-version-compatibility.md). A NULL floor means no minimum is enforced. Attach-time enforcement is performed at the [Runtime Node Attach](./003-runtime-node-attach.md) boundary.
 
 ## Example Flows
 
@@ -110,9 +111,14 @@ This spec covers session identity, default session structure, session creation, 
 
 ## Acceptance Criteria
 
-- [ ] Creating a session yields one stable session id, one owner membership, and one default channel.
-- [ ] A second participant can join the same live session without changing the session id or resetting existing runs.
-- [ ] Reconnecting clients can restore session state from authoritative snapshot plus replay data.
+- [ ] AC1 — Creating a session yields one stable session id, one owner membership, and one default channel.
+- [ ] AC2 — Session record is durable in shared state before any run admission or attached-node activity.
+- [ ] AC3 — Session id is stable across reconnect, client restart, and transport change.
+- [ ] AC4 — A second client `SessionJoin` to an existing session returns the same session id, existing membership state, and full event history.
+- [ ] AC5 — `SessionJoin` does not silently fork the session, change the session id, or reset existing runs.
+- [ ] AC6 — Reconnecting clients restore session state from the authoritative snapshot plus replay data, never from client cache.
+- [ ] AC7 — Concurrent participants, channels, and runs up to the [Resource Limits](#resource-limits) defaults are supported without timeline corruption.
+- [ ] AC8 — Each Resource Limits enforcement returns the standard `{code: "resource.limit_exceeded", ...}` error shape and does not terminate existing resources.
 
 ## ADR Triggers
 
