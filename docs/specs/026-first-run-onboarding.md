@@ -33,7 +33,7 @@ Out of scope (see Non-Goals):
 - Self-hosted *operator* first-run — that is `docker-compose up` per Spec-025.
 - Hosted SaaS sign-up page UX, pricing surface, billing, or account dashboard (hosted product concerns).
 - Relay protocol design or endpoint validation contract beyond calling the Spec-008 / Spec-025 endpoints that already exist.
-- Enterprise SSO onboarding (OIDC / SAML) — deferred to V1.1+ alongside the rest of the enterprise track in [BL-060](../backlog.md).
+- Enterprise SSO onboarding (OIDC / SAML) — deferred to V1.1+ alongside the rest of the enterprise track in [BL-060](../archive/backlog-archive.md).
 
 ## Non-Goals
 

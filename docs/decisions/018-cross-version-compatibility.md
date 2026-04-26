@@ -227,8 +227,8 @@ Every proposed MINOR bump MUST be reviewed against this checklist before landing
 
 ### Related Backlog Items
 
-- [BL-064: Phase 6 event-type cascade](../backlog.md) — first MINOR bump candidate; adds ~20+ new types under the additive-only rule.
-- [BL-065: Write ADR-018 Cross-Version Multi-Node Compatibility](../backlog.md) — this ADR closes this backlog item.
+- [BL-064: Phase 6 event-type cascade](../archive/backlog-archive.md) — first MINOR bump candidate; adds ~20+ new types under the additive-only rule.
+- [BL-065: Write ADR-018 Cross-Version Multi-Node Compatibility](../archive/backlog-archive.md) — this ADR closes this backlog item.
 
 ## Decision Log
 

@@ -6,7 +6,7 @@
 | **NNN** | `017` |
 | **Slug** | `workflow-authoring-and-execution` |
 | **Date** | `2026-04-14` |
-| **Amended** | `2026-04-22` (full engine V1 per [BL-097](../backlog.md) / [ADR-015](../decisions/015-v1-feature-scope-definition.md) amendment — was V1.1-deferred-subset at original approval; absorbs SA-24/29/30/31 per [Spec-017](../specs/017-workflow-authoring-and-execution.md) + [ADR-015 §Amendment History](../decisions/015-v1-feature-scope-definition.md#amendment-history)) |
+| **Amended** | `2026-04-22` (full engine V1 per [BL-097](../archive/backlog-archive.md) / [ADR-015](../decisions/015-v1-feature-scope-definition.md) amendment — was V1.1-deferred-subset at original approval; absorbs SA-24/29/30/31 per [Spec-017](../specs/017-workflow-authoring-and-execution.md) + [ADR-015 §Amendment History](../decisions/015-v1-feature-scope-definition.md#amendment-history)) |
 | **Author(s)** | `Codex` |
 | **Spec** | [Spec-017: Workflow Authoring And Execution](../specs/017-workflow-authoring-and-execution.md) |
 | **Required ADRs** | [ADR-001](../decisions/001-session-is-the-primary-domain-object.md), [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md), [ADR-018](../decisions/018-cross-version-compatibility.md) |

@@ -123,7 +123,7 @@ Examples: `idempotent` covers pure reads (`file.read`, `shell.stat`) and server-
 
 ### Recovery Events
 
-Two event types are reserved for tool-recovery outcomes, both with category `tool_activity`. They are registered here and in [Spec-006](006-session-event-taxonomy-and-audit-log.md), with full taxonomy-table enumeration tracked by [BL-064](../backlog.md):
+Two event types are reserved for tool-recovery outcomes, both with category `tool_activity`. They are registered here and in [Spec-006](006-session-event-taxonomy-and-audit-log.md), with full taxonomy-table enumeration tracked by [BL-064](../archive/backlog-archive.md):
 
 | Type | Description |
 | --- | --- |
@@ -162,7 +162,7 @@ The `synchronous = FULL` override is load-bearing. The `better-sqlite3` bundled 
 
 ### Bounded Queue and Batched Transactions
 
-The writer worker consumes events from a bounded in-memory queue. Per the charter in [BL-061](../backlog.md), the queue cap is `10_000` events and batches flush at `50` events OR `10 ms`, whichever fires first. Each batch runs under one `db.transaction(fn)` call — the `better-sqlite3` primitive that commits atomically on return and rolls back on throw ([API docs](https://github.com/WiseLibs/better-sqlite3/blob/master/docs/api.md), fetched 2026-04-19).
+The writer worker consumes events from a bounded in-memory queue. Per the charter in [BL-061](../archive/backlog-archive.md), the queue cap is `10_000` events and batches flush at `50` events OR `10 ms`, whichever fires first. Each batch runs under one `db.transaction(fn)` call — the `better-sqlite3` primitive that commits atomically on return and rolls back on throw ([API docs](https://github.com/WiseLibs/better-sqlite3/blob/master/docs/api.md), fetched 2026-04-19).
 
 **Hash-chain serialization within a batch.** Spec-006 §Integrity Protocol chains `row_hash` **per `session_id`** (the chain is rooted at the session's sequence-0 zero-fill and each `prev_hash_i = row_hash_{i-1}` is scoped to the same session). Within a single transaction the writer therefore groups pending events by `session_id`, reads each session's last-persisted `row_hash` once at batch start, then for each group processes events in enqueue order: for each event `i` derive `prev_hash_i = row_hash_{i-1}` (from the same session), compute `row_hash_i = BLAKE3(prev_hash_i || canonical_bytes_i)`, sign the canonical envelope with the daemon Ed25519 key, and INSERT. A batch mixing sessions A and B runs two independent chain computations, one per session — never a single cross-session chain. Chain integrity and batching therefore coexist without weakening Spec-006.
 
@@ -199,7 +199,7 @@ Session events carry two timestamps: `occurred_at` (RFC 3339 wall-clock UTC) for
 
 **Semantics.** `monotonic_ns` is not a UNIX timestamp. Its zero point is unspecified and changes on every daemon restart. It serves exactly two purposes: (a) stable within-daemon event ordering when the wall clock jumps (NTP step, VM resume, manual operator edit); (b) precise duration measurements between events produced by the same daemon process.
 
-**Out-of-scope explicitly.** `monotonic_ns` is **not** a cross-daemon ordering primitive. See [data-architecture.md §Event-Sourcing Scope](../architecture/data-architecture.md#event-sourcing-scope) on why per-daemon `sequence` and `monotonic_ns` do not induce a total order across daemons. Hybrid Logical Clocks (HLC) are tracked under [BL-076](../backlog.md) and are out-of-scope for V1 per [ADR-017](../decisions/017-shared-event-sourcing-scope.md) (V1 chose Option B — daemon-authoritative per-participant ordering, no shared event log to order against).
+**Out-of-scope explicitly.** `monotonic_ns` is **not** a cross-daemon ordering primitive. See [data-architecture.md §Event-Sourcing Scope](../architecture/data-architecture.md#event-sourcing-scope) on why per-daemon `sequence` and `monotonic_ns` do not induce a total order across daemons. Hybrid Logical Clocks (HLC) are tracked under [BL-076](../archive/backlog-archive.md) and are out-of-scope for V1 per [ADR-017](../decisions/017-shared-event-sourcing-scope.md) (V1 chose Option B — daemon-authoritative per-participant ordering, no shared event log to order against).
 
 ### Wall-Clock Format
 
@@ -245,7 +245,7 @@ Behavioral semantics anchored in this spec:
 - [CockroachDB operational FAQs](https://www.cockroachlabs.com/docs/stable/operational-faqs) — `--max-offset` 500 ms precedent (v26.1)
 - [Microsoft Learn — Windows Time Service tools](https://learn.microsoft.com/en-us/windows-server/networking/windows-time-service/windows-time-service-tools-and-settings) — `w32tm /query /status` parse fields
 - [ADR-017](../decisions/017-shared-event-sourcing-scope.md) — V1 daemon-authoritative ordering; HLC deferred to V1.1
-- [BL-076](../backlog.md) — Hybrid Logical Clocks tracking (out-of-scope for V1)
+- [BL-076](../archive/backlog-archive.md) — Hybrid Logical Clocks tracking (out-of-scope for V1)
 
 ## Backup Policy
 

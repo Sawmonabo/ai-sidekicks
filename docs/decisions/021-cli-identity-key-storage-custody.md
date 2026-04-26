@@ -31,7 +31,7 @@ Where and how should the CLI persist the long-term Ed25519 identity key that ADR
 
 ### Trigger
 
-- [BL-057](../backlog.md) names the storage contract gap: ADR-010 references the long-term Ed25519 identity key but does not specify at-rest storage for the CLI, which cannot use WebAuthn PRF.
+- [BL-057](../archive/backlog-archive.md) names the storage contract gap: ADR-010 references the long-term Ed25519 identity key but does not specify at-rest storage for the CLI, which cannot use WebAuthn PRF.
 - The four research passes dispatched 2026-04-18 (Linux headless behavior of `@napi-rs/keyring`; Windows Wincred `CRED_PERSIST_ENTERPRISE` disclosure; macOS Data Protection Keychain eligibility; encrypted-file primitive choice + CLI industry precedent) independently surfaced the same cross-platform gap: `@napi-rs/keyring` does not expose a backend-identity signal on any of its three target platforms. Silent fallback is the dominant failure mode the ADR must defend against.
 
 ## Decision
@@ -111,7 +111,7 @@ The Ed25519 identity key MUST NOT be silently regenerated. Specifically:
 - The decrypted Ed25519 private key lives only in the daemon process's memory.
 - The CLI binary itself MUST NOT hold the decrypted key — CLI invocations talk to the daemon over the [Spec-007 local IPC contract](../specs/007-local-ipc-and-daemon-control.md) and ask the daemon to perform signing operations on their behalf.
 - This constraint is inherited from [security-architecture.md §Local Daemon Authentication](../architecture/security-architecture.md) and is the reason the session token is required (not optional) — if any CLI binary could silently request the private key over IPC, the daemon's confidentiality boundary would collapse into the IPC surface.
-- Secret zeroization at daemon shutdown: the daemon overwrites the decrypted private-key buffer before process exit and on idle-timeout eviction (see [BL-058 forward declaration](../backlog.md)).
+- Secret zeroization at daemon shutdown: the daemon overwrites the decrypted private-key buffer before process exit and on idle-timeout eviction (see [BL-058 forward declaration](../archive/backlog-archive.md)).
 
 ### Platform-Specific Preconditions
 
@@ -288,6 +288,6 @@ The following are explicitly deferred past V1 and are recorded here so downstrea
 
 | Date | Event | Notes |
 |------|-------|-------|
-| 2026-04-18 | Proposed | Initial draft resolving [BL-057](../backlog.md). Three-tier custody ladder with write-probe-read-delete invariant. Research-informed via 4 Opus 4.7 passes (Linux silent-keyutils, Windows `CRED_PERSIST_ENTERPRISE` hardcoding, macOS no-backend-inspection / no-Secure-Enclave, encrypted-file primitive selection + CLI industry precedent). |
+| 2026-04-18 | Proposed | Initial draft resolving [BL-057](../archive/backlog-archive.md). Three-tier custody ladder with write-probe-read-delete invariant. Research-informed via 4 Opus 4.7 passes (Linux silent-keyutils, Windows `CRED_PERSIST_ENTERPRISE` hardcoding, macOS no-backend-inspection / no-Secure-Enclave, encrypted-file primitive selection + CLI industry precedent). |
 | 2026-04-18 | Amended | Opus 4.7 BL-057 review pass resolved blocking citation errors: `keyring-rs` hardcoding line corrected to `src/windows.rs:413` (v3.6.3); age scrypt path corrected to root `scrypt.go` (quoted phrase verbatim preserved); Credential Guard URL updated to `considerations-known-issues` (the page that actually states Generic-credentials are unprotected); Secure Enclave citation expanded to cite CryptoKit `SecureEnclave.P256` API surface as primary source with sec59b0b31ff retained as secondary. `@napi-rs/keyring` release-date removed (npm signal inconsistent with research claim); `hwchen/keyring-rs` URL updated to canonical `open-source-cooperative/keyring-rs`. Antithesis-review checkbox flipped. |
 | 2026-04-18 | Accepted | ADR accepted at Session D1 close-out. BL-057 Exit Criteria satisfied: ADR-010 amended with §CLI Identity Key Storage cross-reference; security-architecture.md cites fallback order; Spec-008 references storage contract. |

@@ -232,7 +232,7 @@ This divergence is intentional. The CLI identity key's loss is a liveness failur
 
 ## PII Data Map
 
-The data map enumerates **every** PII-carrying path reachable from `DELETE /participants/{id}/data`. [BL-066](../backlog.md) requires exhaustive enumeration so the shred fan-out in the next section has no gaps. Paths are grouped by durability tier.
+The data map enumerates **every** PII-carrying path reachable from `DELETE /participants/{id}/data`. [BL-066](../archive/backlog-archive.md) requires exhaustive enumeration so the shred fan-out in the next section has no gaps. Paths are grouped by durability tier.
 
 **Durable tier (canonical audit log + control plane):**
 

@@ -23,7 +23,7 @@ ADRs 014 through 021 already exist and are cited by plans, specs, and other ADRs
 
 ## Canonical Resolution Of BL-074
 
-[BL-074](../backlog.md) asked whether to fill or remove this stub. The resolution is **neither**: the number is retained as a formally-skipped slot. This document is the explicit record of that decision. A future ADR must choose the next free integer in the sequence (see ADR registry in `docs/decisions/`) — it must not attempt to reclaim this number.
+[BL-074](../archive/backlog-archive.md) asked whether to fill or remove this stub. The resolution is **neither**: the number is retained as a formally-skipped slot. This document is the explicit record of that decision. A future ADR must choose the next free integer in the sequence (see ADR registry in `docs/decisions/`) — it must not attempt to reclaim this number.
 
 ## Next Decision In Sequence
 

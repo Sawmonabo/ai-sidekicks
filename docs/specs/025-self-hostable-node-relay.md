@@ -23,7 +23,7 @@ In scope:
 - Postgres as the single persistence dependency for shared state (membership, invites, presence, relay sequencing).
 - Rate-limiter backend: `rate-limiter-flexible` on Postgres, behind the deployment-aware abstraction from [Spec-021](./021-rate-limiting-policy.md).
 - PASETO v4.public verification of access tokens at the relay boundary.
-- `docker-compose.yml`-based single-command deployment for operators (the file itself ships in [BL-080](../backlog.md) Plan-025).
+- `docker-compose.yml`-based single-command deployment for operators (the file itself ships in [BL-080](../archive/backlog-archive.md) Plan-025).
 - Reverse-proxy baseline (Caddy) for TLS termination, HTTP/2, and automatic certificate acquisition.
 - Observability endpoints (`/healthz`, `/readyz`, `/metrics`) and OTLP export posture.
 - Supply-chain hardening baseline (npm provenance verification, `--ignore-scripts` in CI, signed release artifacts).
@@ -31,7 +31,7 @@ In scope:
 
 Out of scope (see Non-Goals for full list):
 - The v2 relay protocol itself (Spec-008 is authoritative).
-- Enterprise operator features (OIDC/SAML, HSM-backed signing keys, SOC 2 artifacts, offline-root infrastructure) — [BL-060](../backlog.md) tracks secure-by-default V1 posture; enterprise compliance is V1.1+.
+- Enterprise operator features (OIDC/SAML, HSM-backed signing keys, SOC 2 artifacts, offline-root infrastructure) — [BL-060](../archive/backlog-archive.md) tracks secure-by-default V1 posture; enterprise compliance is V1.1+.
 - Kubernetes Helm charts and multi-node scale-out topologies.
 - End-user account management UX — that is the hosted SaaS concern.
 
@@ -41,7 +41,7 @@ Out of scope (see Non-Goals for full list):
 - Shipping a Cloudflare Workers + Durable Objects backend. The hosted deployment uses Cloudflare per [Deployment Topology](../architecture/deployment-topology.md) §Relay Scaling Strategy; this spec is the **self-host** track that runs on commodity infrastructure.
 - Operating or distributing the project-operated free public relay. ADR-020's free public relay runs on Cloudflare; this spec's output is the software operators deploy on their own infrastructure.
 - Kubernetes Helm charts, Nomad jobs, Terraform modules, or any orchestrator other than the `docker-compose.yml` reference deployment.
-- OIDC/SAML SSO, HSM-backed operator keys, SOC 2 compliance artifacts, offline-root signing infrastructure (see [BL-060](../backlog.md) for V1 secure-by-default; enterprise features are V1.1+).
+- OIDC/SAML SSO, HSM-backed operator keys, SOC 2 compliance artifacts, offline-root signing infrastructure (see [BL-060](../archive/backlog-archive.md) for V1 secure-by-default; enterprise features are V1.1+).
 - End-user or operator UI. Relay is headless; operators use CLI, config files, and log/metrics endpoints.
 
 ## Domain Dependencies
@@ -110,7 +110,7 @@ Out of scope (see Non-Goals for full list):
   - `OTEL_EXPORTER_OTLP_ENDPOINT` — optional OTLP endpoint for opt-in distributed tracing.
   - `LOG_LEVEL` — `info` by default; `debug` available but must not leak token material.
   - `SHUTDOWN_DRAIN_TIMEOUT_MS` — default `30000`.
-- **Reference `docker-compose.yml`** — ships in [BL-080](../backlog.md) Plan-025. Must use Compose Specification (no top-level `version:` field — [Compose Spec 2025](https://docs.docker.com/reference/compose-file/legacy-versions/) deprecated it) and must use `depends_on` with `condition: service_healthy` and `restart: true` so the relay waits for Postgres and restarts on its recovery.
+- **Reference `docker-compose.yml`** — ships in [BL-080](../archive/backlog-archive.md) Plan-025. Must use Compose Specification (no top-level `version:` field — [Compose Spec 2025](https://docs.docker.com/reference/compose-file/legacy-versions/) deprecated it) and must use `depends_on` with `condition: service_healthy` and `restart: true` so the relay waits for Postgres and restarts on its recovery.
 
 ## State And Data Implications
 
@@ -225,5 +225,5 @@ Out of scope (see Non-Goals for full list):
 - [Spec-021: Rate Limiting Policy](./021-rate-limiting-policy.md) — deployment-aware rate-limiter contract
 - [Spec-026: First-Run Onboarding](./026-first-run-onboarding.md) — daemon selects this relay via the three-way-choice flow
 - [Deployment Topology](../architecture/deployment-topology.md)
-- [BL-080](../backlog.md) — Plan-025 (implementation plan, including `docker-compose.yml`)
-- [BL-060](../backlog.md) — secure-by-default self-host behaviors (V1 posture; enterprise features V1.1+)
+- [BL-080](../archive/backlog-archive.md) — Plan-025 (implementation plan, including `docker-compose.yml`)
+- [BL-060](../archive/backlog-archive.md) — secure-by-default self-host behaviors (V1 posture; enterprise features V1.1+)

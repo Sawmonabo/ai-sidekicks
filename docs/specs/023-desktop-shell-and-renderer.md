@@ -677,8 +677,8 @@ A dedicated current-state research pass (Electron version / cadence, security ha
 
 ### Related Backlog Items
 
-- [BL-041](../backlog.md) — this spec (authoring)
-- [BL-043](../backlog.md) — Plan-023 implementation plan (implements this spec)
-- [BL-056](../backlog.md) — resolved 2026-04-18; `security-architecture.md` §Local Daemon Authentication now reflects the renderer-untrusted stance this spec declares
-- [BL-078](../backlog.md) — Plan-024 Rust PTY sidecar (supervised by the daemon, not the shell; referenced for completeness)
-- [BL-081](../backlog.md) — Spec-026 first-run onboarding (the shell surfaces the three-way-choice UX)
+- [BL-041](../archive/backlog-archive.md) — this spec (authoring)
+- [BL-043](../archive/backlog-archive.md) — Plan-023 implementation plan (implements this spec)
+- [BL-056](../archive/backlog-archive.md) — resolved 2026-04-18; `security-architecture.md` §Local Daemon Authentication now reflects the renderer-untrusted stance this spec declares
+- [BL-078](../archive/backlog-archive.md) — Plan-024 Rust PTY sidecar (supervised by the daemon, not the shell; referenced for completeness)
+- [BL-081](../archive/backlog-archive.md) — Spec-026 first-run onboarding (the shell surfaces the three-way-choice UX)

@@ -261,11 +261,11 @@ The QA-matrix cost is structurally limited by the decision to put both relay bac
 - [Spec-008: Control Plane Relay and Session Join](../specs/008-control-plane-relay-and-session-join.md) — v2 relay protocol that both relay backends implement.
 - [Spec-021: Rate Limiting Policy](../specs/021-rate-limiting-policy.md) — deployment-aware rate-limiter abstraction.
 - [Spec-027: Self-Host Secure Defaults](../specs/027-self-host-secure-defaults.md) — normative secure-defaults posture for the `Collaborative Self-Hosted Control Plane` topology committed to by this ADR; operator-facing companion at [Operations › Self-Host Secure Defaults](../operations/self-host-secure-defaults.md) (Spec-027 Acceptance Criterion).
-- [BL-044](../backlog.md) — Plan-021 Rate Limiting (ships both backends in V1).
-- [BL-060](../backlog.md) — secure-by-default behaviors for self-host deployment.
-- [BL-079 / BL-080](../backlog.md) — Spec-025 + Plan-025 self-hostable Node relay (this ADR's self-host implementation).
-- [BL-081 / BL-082](../backlog.md) — Spec-026 + Plan-026 first-run three-way-choice onboarding (this ADR's UX implementation).
-- [BL-083](../backlog.md) — commit OSS `LICENSE` at repo root (this ADR's license deliverable).
+- [BL-044](../archive/backlog-archive.md) — Plan-021 Rate Limiting (ships both backends in V1).
+- [BL-060](../archive/backlog-archive.md) — secure-by-default behaviors for self-host deployment.
+- [BL-079 / BL-080](../archive/backlog-archive.md) — Spec-025 + Plan-025 self-hostable Node relay (this ADR's self-host implementation).
+- [BL-081 / BL-082](../archive/backlog-archive.md) — Spec-026 + Plan-026 first-run three-way-choice onboarding (this ADR's UX implementation).
+- [BL-083](../archive/backlog-archive.md) — commit OSS `LICENSE` at repo root (this ADR's license deliverable).
 
 ## Decision Log
 

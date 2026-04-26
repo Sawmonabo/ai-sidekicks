@@ -106,7 +106,7 @@ The Linear pattern is retained as the reference architecture for Option A's V1.1
 ### Unknowns
 
 - Whether V1.1 will actually promote Option A or whether the federated-audit model proves sufficient in production and Option A gets deferred further. Depends on customer demand for single-query cross-participant audit and on MLS promotion gate status.
-- How [BL-076 Hybrid Logical Clocks](../backlog.md) interacts with per-daemon sequence numbers. BL-076 is independent of this decision and addresses the ordering problem at the event-taxonomy level.
+- How [BL-076 Hybrid Logical Clocks](../archive/backlog-archive.md) interacts with per-daemon sequence numbers. BL-076 is independent of this decision and addresses the ordering problem at the event-taxonomy level.
 
 ## References
 
