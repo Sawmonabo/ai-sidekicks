@@ -170,7 +170,7 @@ The CLI (`sidekicks`) is the first client delivery track — it proves the typed
 | Desktop Shell | Electron |
 | Desktop UI | React + Vite |
 | Local Database | SQLite (WAL mode, 41 tables) |
-| Shared Database | Postgres (16 tables) |
+| Shared Database | Postgres (18 tables) |
 | Auth | PASETO v4 (access + refresh), WebAuthn, DPoP |
 | Relay Encryption | X25519 + XChaCha20-Poly1305 (V1), MLS RFC 9420 (V2) |
 | State Machines | XState v5 |
@@ -262,7 +262,6 @@ Current documentation corpus:
 - **16 architecture documents** (schemas, contracts, security, deployment, dependencies)
 - **11 operations runbooks** (CLI commands, SLOs, on-call routing, self-host secure defaults)
 - **21 accepted ADRs** recording key design decisions (ADR-013 reserved-skipped)
-- **Automated validation checks** for link, schema, scope, and citation health
 
 ---
 
