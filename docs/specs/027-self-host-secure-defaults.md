@@ -37,8 +37,8 @@ The spec is the authoritative answer to the question "what is on by default, and
 
 ## Domain Dependencies
 
-- `docs/domain/sessions.md` — session lifecycle defines the session-end event that triggers backup (behavior 6).
-- `docs/domain/trust-and-identity.md` — first-run secret generation (behavior 3) and fingerprint-display (behaviors 1, 10) feed the trust ceremony.
+- `docs/domain/session-model.md` — session lifecycle defines the session-end event that triggers backup (behavior 6).
+- `docs/domain/participant-and-membership-model.md` — first-run secret generation (behavior 3) and fingerprint-display (behaviors 1, 10) feed the trust ceremony (participant identity establishment).
 
 ## Architectural Dependencies
 

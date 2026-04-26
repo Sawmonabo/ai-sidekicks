@@ -444,7 +444,7 @@ Engine implementations violating any of the following are **non-conformant**. Ea
 - [LangGraph — Multi-agent handoff](https://langchain-ai.github.io/langgraph/concepts/multi_agent/)
 - [AutoGen — Teams and HandoffMessage](https://microsoft.github.io/autogen/stable/user-guide/agentchat-user-guide/tutorial/teams.html)
 - [OpenAI Assistants API — Migration / Threads removal 2026-08-26](https://platform.openai.com/docs/assistants/migration)
-- [Model Context Protocol — Elicitations](https://spec.modelcontextprotocol.io/specification/2025-06-18/server/utilities/elicitations/) — `mcp_elicitation` Cedar-category overlap with `human_phase_contribution` (SA-12)
+- [Model Context Protocol — Elicitations](https://modelcontextprotocol.io/specification/2025-06-18/client/elicitation) — `mcp_elicitation` Cedar-category overlap with `human_phase_contribution` (SA-12)
 - [W3C WCAG 2.2 §3.3.7 — Redundant Entry](https://www.w3.org/TR/WCAG22/#redundant-entry) — human-phase form-state UX requirement (SA-26 / SA-28 deferral rationale)
 
 **Event taxonomy + replay determinism (SA-18…SA-23, SA-21):**

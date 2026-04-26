@@ -29,7 +29,14 @@ This file is the active development backlog for the product defined in [vision.m
 
 ## Active Items
 
-_(All V1 doc-first phase items (BL-038 through BL-097) completed 2026-04-17 → 2026-04-25 and moved to [Backlog Archive](./archive/backlog-archive.md). No active items at present; new items follow the Item Template below.)_
+### BL-099: Author `docs/domain/trust-and-identity.md`
+
+- Status: `todo`
+- Priority: `P2`
+- Owner: `unassigned`
+- References: [Spec-027 — Self-Host Secure Defaults](./specs/027-self-host-secure-defaults.md), [Participant And Membership Model](./domain/participant-and-membership-model.md), [Security Architecture](./architecture/security-architecture.md), [ADR-010 — PASETO/WebAuthn/MLS Auth](./decisions/010-paseto-webauthn-mls-auth.md)
+- Summary: Author the missing `docs/domain/trust-and-identity.md` domain doc to canonicalize trust-ceremony semantics (first-run secret generation, fingerprint display, device-trust establishment) currently scattered across `participant-and-membership-model.md`, `security-architecture.md`, and Spec-027. Surfaced by the 2026-04-26 read-only docs audit (M-003): Spec-027 §Domain Dependencies originally cited the file as if it existed; the audit-driven fix re-pointed Spec-027 to `participant-and-membership-model.md` as the closest existing scope match, but the trust-ceremony surface deserves its own domain doc.
+- Exit Criteria: `docs/domain/trust-and-identity.md` exists; covers identity-material provisioning, fingerprint verification ceremony, and trust-state lifecycle; is referenced from Spec-027 §Domain Dependencies, ADR-010, and security-architecture.md; sibling docs cross-link consistently.
 
 ---
 

@@ -181,7 +181,7 @@ Five test categories (SA-29): property-based, fuzz, load, long-running integrati
 - [Microsoft Agent Framework — AG-UI HITL](https://learn.microsoft.com/en-us/agent-framework/integrations/ag-ui/human-in-the-loop) — HITL primitive (recent industry)
 - [W3C WCAG 2.2 §3.3.7 Redundant Entry](https://www.w3.org/TR/WCAG22/#redundant-entry) — accessibility requirement for form-state UX (SA-26)
 - [OWASP File Upload Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html) — I6 human-upload minimums (also inline in Test table)
-- [Restate — Building Modern Durable Execution (2025)](https://restate.dev/blog/building-modern-durable-execution/) — per-run hash-chain rationale (C-13)
+- [Restate — What is Durable Execution](https://restate.dev/what-is-durable-execution) — per-invocation durable-log precedent (C-13)
 - [Temporal — custom persistence (2024)](https://temporal.io/blog/higher-throughput-and-lower-latency-temporal-clouds-custom-persistence-layer) — persistence-model precedent
 - [Argo Workflows — workflow archive](https://argo-workflows.readthedocs.io/en/latest/workflow-archive/) — persistence-tier precedent
 - [Argo Workflows — offloading large workflows](https://argo-workflows.readthedocs.io/en/latest/offloading-large-workflows/) — large-workflow persistence pattern
