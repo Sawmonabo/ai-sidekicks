@@ -123,6 +123,9 @@ jobs:
         # paths_released is a JSON array (e.g. `["packages/contracts","packages/client-sdk"]`);
         # `for path in ${...}` would expand it as one shell token. Parse with jq so each
         # path is iterated individually.
+        #
+        # Note: this loop has not executed live as of Plan-001 PR #1; verify
+        # behavior on first real release.
         run: |
           echo '${{ needs.release-please.outputs.paths_released }}' | jq -r '.[]' | while IFS= read -r path; do
             echo "Publishing $path"
