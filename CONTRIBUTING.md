@@ -113,6 +113,14 @@ Either form drives a major-version bump in [`release-please-action`](https://git
 
 Branch protection ensures no direct pushes to `develop` or `main`. The squash-merge produces one clean conventional-commit per PR on `develop`; `release-please-action` observes `develop` to drive per-package version bumps and orchestrates `develop` → `main` integration at release time.
 
+## Plan Execution (Agentic)
+
+When Claude Code is executing an [implementation plan](docs/plans/) PR-by-PR, the workflow above is automated by the [`plan-execution` skill](.claude/skills/plan-execution/SKILL.md). The methodology — three-subagent fan-out (implementer + spec-reviewer + code-quality-reviewer), state canonicality on the branch, four-mode failure routing — is decided in [ADR-024](docs/decisions/024-agentic-plan-execution-methodology.md).
+
+Trigger phrases: `execute Plan-NNN` (auto-detects next PR) or `execute Plan-NNN PR #M` (explicit override). The skill enforces every rule on this page (branch off `develop`, Conventional Commits, draft PR base `develop`, squash-merge with `--delete-branch`); humans can still execute the workflow manually using the [Worked Example](#worked-example) below.
+
+For non-Claude executors (Codex, Cursor, Aider), the methodology principles transfer; see [`AGENTS.md`](AGENTS.md#plan-execution-methodology) for the tool-neutral statement.
+
 ## Worked Example
 
 A hypothetical Plan-001 PR #1 lifecycle:

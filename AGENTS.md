@@ -59,6 +59,17 @@ When claims depend on recent data (post-knowledge-cutoff or fast-moving librarie
 
 When dispatching parallel research subagents, ensure file targets are disjoint to avoid Read-modify-write race conditions on shared files (e.g., `docs/backlog.md`). When multiple tasks must touch the same file, dispatch serially.
 
+## Plan Execution Methodology
+
+[ADR-024](docs/decisions/024-agentic-plan-execution-methodology.md) defines the cross-tool methodology for executing implementation plans (`docs/plans/NNN-*.md`) PR-by-PR. The principles are tool-neutral:
+
+- **Three roles per PR** — one implementer, one spec-reviewer (does the diff match plan + spec + cited ADRs?), one code-quality-reviewer (does the diff meet idiomatic / test / type / maintainability standards?). Reviewers run in parallel.
+- **State canonicality on the branch.** Branch commits are the durable cross-session truth. In-session task tracking and PR descriptions are bookkeeping, not authority.
+- **Four observed exit states** — `DONE`, `DONE_WITH_CONCERNS`, `NEEDS_CONTEXT`, `BLOCKED` — drive deterministic routing rather than ad-hoc handling.
+- **Branch off `develop`, squash-merge to `develop`** per [ADR-023](docs/decisions/023-v1-ci-cd-and-release-automation.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
+
+The Claude Code executable form lives at [`.claude/skills/plan-execution/`](.claude/skills/plan-execution/SKILL.md). Other agents (Codex, Cursor, Aider) implement the same loop with their own tooling — the methodology principles above are the contract; the executor is per-tool.
+
 ## Doc-First Discipline
 
 Code execution is gated on the governing doc surface (specs, ADRs, plans, backlog items) being complete. Before a code-execution plan ships its first PR, every cross-referenced spec/ADR/plan must be `approved` and every blocking backlog item must be `completed` (or explicitly deferred with a named gate).

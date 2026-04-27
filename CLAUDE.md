@@ -30,6 +30,8 @@ Cross-tool conventions for AI agents in this repo (Claude, Codex, Cursor, Aider)
 
 Branch naming, commit format, and PR workflow conventions live in [`CONTRIBUTING.md`](CONTRIBUTING.md). It owns the GitFlow-lite branch model (feature branches off `develop`; squash-merge into `develop`; `develop` → `main` only at release), [Conventional Branch](https://conventional-branch.github.io/) 2-segment shape (`<type>/<topic>`), [Conventional Commits 1.0](https://www.conventionalcommits.org/en/v1.0.0/) message format with package-noun scope, footer-trailer conventions (`Refs: ADR-NNN, BL-NNN, Plan-NNN` and `Co-Authored-By:`), and squash-merge workflow per [ADR-023](docs/decisions/023-v1-ci-cd-and-release-automation.md).
 
+The agentic plan-execution methodology — how Claude walks an [implementation plan](docs/plans/) PR-by-PR — is decided in [ADR-024](docs/decisions/024-agentic-plan-execution-methodology.md) and operationalized by the [`plan-execution` skill](.claude/skills/plan-execution/SKILL.md). The skill triggers on `execute Plan-NNN` (auto-detects next PR) or `execute Plan-NNN PR #M` (explicit). It dispatches three subagent roles (implementer + spec-reviewer + code-quality-reviewer) on a feature branch off `develop` and gates squash-merge on green CI plus reviewer sign-off.
+
 Read `AGENTS.md` on demand before:
 
 - Authoring a new spec, ADR, plan, or architecture doc that requires primary-source citations
