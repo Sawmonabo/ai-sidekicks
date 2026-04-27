@@ -54,12 +54,12 @@ sidekicks worktree create --repo <mount-id> --branch <name>
 
 ## SLOs and Thresholds
 
-| Metric | Target |
-|---|---|
-| Worktree creation | < 10s |
-| Workspace rebind latency | < 5s |
-| Repo health check | < 3s |
-| Worktree retire-to-clean | < 15s |
+| Metric                   | Target |
+| ------------------------ | ------ |
+| Worktree creation        | < 10s  |
+| Workspace rebind latency | < 5s   |
+| Repo health check        | < 3s   |
+| Worktree retire-to-clean | < 15s  |
 
 ## On-Call Routing
 

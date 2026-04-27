@@ -20,14 +20,14 @@ If the user names a plan but the trigger phrase is ambiguous, use this skill any
 
 ## Your Role: Orchestrator
 
-You are the orchestrator. You don't implement code; you dispatch subagents who do, then route their outputs and gate the merge. The four roles defined in [`references/subagent-roles.md`](references/subagent-roles.md) (one implementer + three reviewers) are *your* subagents — you brief them, parse their `RESULT:` tags, and decide what happens next.
+You are the orchestrator. You don't implement code; you dispatch subagents who do, then route their outputs and gate the merge. The four roles defined in [`references/subagent-roles.md`](references/subagent-roles.md) (one implementer + three reviewers) are _your_ subagents — you brief them, parse their `RESULT:` tags, and decide what happens next.
 
 ### Mindset
 
 Reason like a principal-engineer project lead:
 
 - **Socratic about state.** Before dispatching, interrogate the branch state (Step 1). What's already committed? What's the next step? Don't dispatch on stale assumptions.
-- **Adversarial about subagent outputs.** Trust but verify. A subagent's `DONE` tag is a *claim*, not a guarantee — read the diff (implementer) or finding list (reviewer) before advancing.
+- **Adversarial about subagent outputs.** Trust but verify. A subagent's `DONE` tag is a _claim_, not a guarantee — read the diff (implementer) or finding list (reviewer) before advancing.
 - **Ruthless about state hygiene.** Branch commits are the durable truth. TaskCreate is in-session bookkeeping. Don't let either drift.
 
 ### Hard rules
@@ -103,7 +103,7 @@ Decision tree:
   - Else: count merged PRs whose title contains `Plan-NNN`; next-up `M` = count + 1.
 - **Mismatch** (e.g., on `feat/plan-001-*` but user said `PR #5` and the branch is for `PR #3`) → halt, ask the user to disambiguate. Do not silently switch branches.
 
-Confirm to the user in one sentence: *"Executing Plan-NNN PR #M (`<inferred-or-explicit>`) — branching off `develop`."* Then proceed without waiting for ack unless the inference was ambiguous.
+Confirm to the user in one sentence: _"Executing Plan-NNN PR #M (`<inferred-or-explicit>`) — branching off `develop`."_ Then proceed without waiting for ack unless the inference was ambiguous.
 
 ### 2. Read the plan task for PR #M
 
@@ -173,9 +173,9 @@ Wait for the implementer to return. Route per `references/failure-modes.md`.
 
 After implementer returns `DONE` or `DONE_WITH_CONCERNS`, dispatch **all three** reviewers in the same message (single multi-Agent block) so they run concurrently. Each is an adversarial staff-level reviewer; each catches a distinct failure class:
 
-- **Spec-reviewer** — *intent match*. Diff against plan task, governing spec, cited ADRs. Spec drift, missing fields, wrong shapes, unimplemented branches. Prompt template: `references/subagent-roles.md` "Spec Reviewer".
-- **Code-quality-reviewer** — *style and maintainability*. Idiom, test depth, type safety, naming, dead code, comment drift, against [`.claude/rules/coding-standards.md`](../../rules/coding-standards.md). Prompt template: `references/subagent-roles.md` "Code Quality Reviewer".
-- **Code-reviewer** — *correctness and regressions*. Bugs, off-by-ones, null derefs, race conditions, security boundaries, broken consumers of touched files, edge cases, staff-level bar. Prompt template: `references/subagent-roles.md` "Code Reviewer".
+- **Spec-reviewer** — _intent match_. Diff against plan task, governing spec, cited ADRs. Spec drift, missing fields, wrong shapes, unimplemented branches. Prompt template: `references/subagent-roles.md` "Spec Reviewer".
+- **Code-quality-reviewer** — _style and maintainability_. Idiom, test depth, type safety, naming, dead code, comment drift, against [`.claude/rules/coding-standards.md`](../../rules/coding-standards.md). Prompt template: `references/subagent-roles.md` "Code Quality Reviewer".
+- **Code-reviewer** — _correctness and regressions_. Bugs, off-by-ones, null derefs, race conditions, security boundaries, broken consumers of touched files, edge cases, staff-level bar. Prompt template: `references/subagent-roles.md` "Code Reviewer".
 
 **All findings round-trip to the implementer** — regardless of severity. There is no "non-blocking nit" pass-through; if a reviewer surfaces a concern, the implementer addresses it and the reviewers re-run. The PR advances only when all three reviewers return `DONE`.
 
@@ -237,7 +237,7 @@ The canonicality order is:
 
 The orchestrator owns the TaskCreate list; subagents do not. Three rules keep parent context clean across multi-PR runs:
 
-1. **Scope per-PR, not per-plan.** Active tasks reflect the *current* PR (5–10 workflow steps + iteration rounds), not all PRs of the plan. When PR #M merges, mark its tasks completed and clear before opening PR #M+1.
+1. **Scope per-PR, not per-plan.** Active tasks reflect the _current_ PR (5–10 workflow steps + iteration rounds), not all PRs of the plan. When PR #M merges, mark its tasks completed and clear before opening PR #M+1.
 2. **Workflow-step granularity.** One task per skill step (`state-inference`, `branch-off-develop`, `dispatch-implementer`, `dispatch-3-reviewers`, `address-findings-round-N`, `mark-ready`, `watch-CI`, `squash-merge`). The implementer subagent decomposes its own internal work; the orchestrator does not mirror that decomposition.
 3. **Never embed the TaskList in a subagent prompt.** Subagent briefs contain branch + PR + plan task verbatim — nothing else. Subagents start with a fresh context window by design; preserving that protects them from parent-state pollution and keeps each role focused on its single responsibility.
 
@@ -274,8 +274,8 @@ This skill is designed to learn. After Plan-001 PR #1 completes, before starting
 - Did the all-findings-round-trip rule produce productive iteration, or did it spiral into trivial back-and-forth (signal that severity gates need re-introducing)?
 - Did state recovery work cleanly, or did the branch / TaskCreate / PR diverge?
 
-If the answer to any is "no," edit this SKILL.md and the relevant reference file. The methodology rationale is recorded in [ADR-024](../../../docs/decisions/024-agentic-plan-execution-methodology.md); supersede the ADR only if the *decision itself* changes (Type 1 reversibility — supersede is hours of work, not weeks).
+If the answer to any is "no," edit this SKILL.md and the relevant reference file. The methodology rationale is recorded in [ADR-024](../../../docs/decisions/024-agentic-plan-execution-methodology.md); supersede the ADR only if the _decision itself_ changes (Type 1 reversibility — supersede is hours of work, not weeks).
 
 ---
 
-*See [ADR-024 — Agentic Plan Execution Methodology](../../../docs/decisions/024-agentic-plan-execution-methodology.md) for the decision rationale, antithesis, and trade-offs behind this skill.*
+_See [ADR-024 — Agentic Plan Execution Methodology](../../../docs/decisions/024-agentic-plan-execution-methodology.md) for the decision rationale, antithesis, and trade-offs behind this skill._

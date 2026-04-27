@@ -1,16 +1,16 @@
 # Plan-001: Shared Session Core
 
-| Field | Value |
-| --- | --- |
-| **Status** | `approved` |
-| **NNN** | `001` |
-| **Slug** | `shared-session-core` |
-| **Date** | `2026-04-14` |
-| **Author(s)** | `Codex` |
-| **Spec** | [Spec-001: Shared Session Core](../specs/001-shared-session-core.md) |
-| **Required ADRs** | [ADR-001](../decisions/001-session-is-the-primary-domain-object.md), [ADR-002](../decisions/002-local-execution-shared-control-plane.md), [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md), [ADR-017](../decisions/017-shared-event-sourcing-scope.md), [ADR-018](../decisions/018-cross-version-compatibility.md), [ADR-022](../decisions/022-v1-toolchain-selection.md), [ADR-023](../decisions/023-v1-ci-cd-and-release-automation.md). **PR #1 ship-gate**: [ADR-023](../decisions/023-v1-ci-cd-and-release-automation.md) governs the engineering CI surface that lands in PR #1 (accepted 2026-04-26 per [BL-100](../backlog.md)). |
-| **Dependencies** | None (tier-entry plan; owns `0001-initial.sql` migration and forward-declares schema shape consumed by [Plan-003](./003-runtime-node-attach.md), [Plan-006](./006-session-event-taxonomy-and-audit-log.md), [Plan-022](./022-data-retention-and-gdpr.md)) |
-| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
+| Field               | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Status**          | `approved`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| **NNN**             | `001`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| **Slug**            | `shared-session-core`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| **Date**            | `2026-04-14`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| **Author(s)**       | `Codex`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| **Spec**            | [Spec-001: Shared Session Core](../specs/001-shared-session-core.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| **Required ADRs**   | [ADR-001](../decisions/001-session-is-the-primary-domain-object.md), [ADR-002](../decisions/002-local-execution-shared-control-plane.md), [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md), [ADR-017](../decisions/017-shared-event-sourcing-scope.md), [ADR-018](../decisions/018-cross-version-compatibility.md), [ADR-022](../decisions/022-v1-toolchain-selection.md), [ADR-023](../decisions/023-v1-ci-cd-and-release-automation.md). **PR #1 ship-gate**: [ADR-023](../decisions/023-v1-ci-cd-and-release-automation.md) governs the engineering CI surface that lands in PR #1 (accepted 2026-04-26 per [BL-100](../backlog.md)). |
+| **Dependencies**    | None (tier-entry plan; owns `0001-initial.sql` migration and forward-declares schema shape consumed by [Plan-003](./003-runtime-node-attach.md), [Plan-006](./006-session-event-taxonomy-and-audit-log.md), [Plan-022](./022-data-retention-and-gdpr.md))                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 
 ## Goal
 
@@ -83,13 +83,13 @@ Plan-001 owns the initial migration (`0001-initial.sql`) and declares the schema
 
 Plan-001 emits the DDL above at tier entry (first migration). The downstream plans below own the read/write semantics and invariants for each forward-declared element. Engineers implementing Plan-001 MUST NOT add read/write logic for these columns; that logic belongs in the owner plan's implementation window.
 
-| Forward-Declared Element | Semantics Owner | Invariant / Protocol |
-| --- | --- | --- |
-| `session_events.pii_payload` | [Plan-022](./022-data-retention-and-gdpr.md) | Encrypted under per-participant AES-256-GCM key (key in `participant_keys.encrypted_key_blob`); deleting the participant's key row crypto-shreds this column by construction per [Spec-022 §Shred Fan-Out](../specs/022-data-retention-and-gdpr.md) Path 1 |
-| `session_events.monotonic_ns / prev_hash / row_hash / daemon_signature / participant_signature` | [Plan-006](./006-session-event-taxonomy-and-audit-log.md) | BLAKE3 hash chain + Ed25519 signatures over RFC 8785 JCS canonical bytes; `pii_payload` is excluded from canonical bytes but a `pii_ciphertext_digest` is embedded (one-way BLAKE3 over ciphertext) so signatures remain verifiable after crypto-shred per [Spec-022 §Signature Safety Under Shred](../specs/022-data-retention-and-gdpr.md) |
-| `participant_keys` (table) | [Plan-022](./022-data-retention-and-gdpr.md) | Wrapped under daemon master key (XChaCha20-Poly1305); row DELETE = crypto-shred for all events authored by that participant; rotation updates `key_version` and stamps `rotated_at` |
-| `sessions.min_client_version` | [Plan-003](./003-runtime-node-attach.md) | Attach-time floor check: daemons below floor are admitted in read-only state; below-floor write attempts return typed `VERSION_FLOOR_EXCEEDED` per [ADR-018](../decisions/018-cross-version-compatibility.md) §Decision #4. Ejection is never the response (graceful degradation per [Spec-003 §Required Behavior](../specs/003-runtime-node-attach.md#required-behavior)) |
-| `participants` (minimal anchor: `id`, `created_at`) | [Plan-018](./018-identity-and-participant-state.md) | Plan-001 creates the anchor row shape; no participant rows are inserted until Plan-018's registration flow lands; Plan-018 adds `display_name`, `identity_ref`, `metadata`, and `identity_mappings` via additive ALTER migrations per [Shared Postgres Schema §Participants and Identity](../architecture/schemas/shared-postgres-schema.md#participants-and-identity-plan-018) |
+| Forward-Declared Element                                                                        | Semantics Owner                                           | Invariant / Protocol                                                                                                                                                                                                                                                                                                                                                            |
+| ----------------------------------------------------------------------------------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `session_events.pii_payload`                                                                    | [Plan-022](./022-data-retention-and-gdpr.md)              | Encrypted under per-participant AES-256-GCM key (key in `participant_keys.encrypted_key_blob`); deleting the participant's key row crypto-shreds this column by construction per [Spec-022 §Shred Fan-Out](../specs/022-data-retention-and-gdpr.md) Path 1                                                                                                                      |
+| `session_events.monotonic_ns / prev_hash / row_hash / daemon_signature / participant_signature` | [Plan-006](./006-session-event-taxonomy-and-audit-log.md) | BLAKE3 hash chain + Ed25519 signatures over RFC 8785 JCS canonical bytes; `pii_payload` is excluded from canonical bytes but a `pii_ciphertext_digest` is embedded (one-way BLAKE3 over ciphertext) so signatures remain verifiable after crypto-shred per [Spec-022 §Signature Safety Under Shred](../specs/022-data-retention-and-gdpr.md)                                    |
+| `participant_keys` (table)                                                                      | [Plan-022](./022-data-retention-and-gdpr.md)              | Wrapped under daemon master key (XChaCha20-Poly1305); row DELETE = crypto-shred for all events authored by that participant; rotation updates `key_version` and stamps `rotated_at`                                                                                                                                                                                             |
+| `sessions.min_client_version`                                                                   | [Plan-003](./003-runtime-node-attach.md)                  | Attach-time floor check: daemons below floor are admitted in read-only state; below-floor write attempts return typed `VERSION_FLOOR_EXCEEDED` per [ADR-018](../decisions/018-cross-version-compatibility.md) §Decision #4. Ejection is never the response (graceful degradation per [Spec-003 §Required Behavior](../specs/003-runtime-node-attach.md#required-behavior))      |
+| `participants` (minimal anchor: `id`, `created_at`)                                             | [Plan-018](./018-identity-and-participant-state.md)       | Plan-001 creates the anchor row shape; no participant rows are inserted until Plan-018's registration flow lands; Plan-018 adds `display_name`, `identity_ref`, `metadata`, and `identity_mappings` via additive ALTER migrations per [Shared Postgres Schema §Participants and Identity](../architecture/schemas/shared-postgres-schema.md#participants-and-identity-plan-018) |
 
 ## API And Transport Changes
 
@@ -115,38 +115,38 @@ The TDD test list below is enumerated and ordered by implementation dependency. 
 
 ### Contract Layer (`packages/contracts/`)
 
-| ID | Test | Asserts | Spec-001 AC |
-| --- | --- | --- | --- |
-| C1 | `SessionId.parse rejects malformed UUIDs` | id format invariant | Foundation for AC1, AC3, AC4 |
-| C2 | `SessionCreate payload validates required fields` | request schema | AC1 |
-| C3 | `SessionEvent discriminated union round-trips through JSON` | event serialization | AC1, AC6 |
-| C4 | `Resource limit error matches resource.limit_exceeded shape` | error contract | AC8 |
+| ID  | Test                                                         | Asserts             | Spec-001 AC                  |
+| --- | ------------------------------------------------------------ | ------------------- | ---------------------------- |
+| C1  | `SessionId.parse rejects malformed UUIDs`                    | id format invariant | Foundation for AC1, AC3, AC4 |
+| C2  | `SessionCreate payload validates required fields`            | request schema      | AC1                          |
+| C3  | `SessionEvent discriminated union round-trips through JSON`  | event serialization | AC1, AC6                     |
+| C4  | `Resource limit error matches resource.limit_exceeded shape` | error contract      | AC8                          |
 
 ### Daemon Projection Layer (`packages/runtime-daemon/src/session/`)
 
-| ID | Test | Asserts | Spec-001 AC |
-| --- | --- | --- | --- |
-| D1 | `Single SessionCreated event yields snapshot with owner membership and main channel` | bootstrap projection | AC1 |
-| D2 | `Replay reads events by sequence ASC and reproduces snapshot deterministically` | replay correctness; `sequence` is the canonical ordering key per [ADR-017](../decisions/017-shared-event-sourcing-scope.md) | AC6 |
-| D3 | `Replay uses sequence not monotonic_ns even when monotonic_ns is non-monotonic across rows` | clock-skew defense; `monotonic_ns` is within-daemon debug data, never the replay key (per [local-sqlite-schema §session_events](../architecture/schemas/local-sqlite-schema.md)) | AC6 |
-| D4 | `Snapshot survives daemon restart and yields identical projection on rehydrate` | durability across restart | AC2, AC6 |
+| ID  | Test                                                                                        | Asserts                                                                                                                                                                          | Spec-001 AC |
+| --- | ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
+| D1  | `Single SessionCreated event yields snapshot with owner membership and main channel`        | bootstrap projection                                                                                                                                                             | AC1         |
+| D2  | `Replay reads events by sequence ASC and reproduces snapshot deterministically`             | replay correctness; `sequence` is the canonical ordering key per [ADR-017](../decisions/017-shared-event-sourcing-scope.md)                                                      | AC6         |
+| D3  | `Replay uses sequence not monotonic_ns even when monotonic_ns is non-monotonic across rows` | clock-skew defense; `monotonic_ns` is within-daemon debug data, never the replay key (per [local-sqlite-schema §session_events](../architecture/schemas/local-sqlite-schema.md)) | AC6         |
+| D4  | `Snapshot survives daemon restart and yields identical projection on rehydrate`             | durability across restart                                                                                                                                                        | AC2, AC6    |
 
 ### Control Plane Layer (`packages/control-plane/`)
 
-| ID | Test | Asserts | Spec-001 AC |
-| --- | --- | --- | --- |
-| P1 | `SessionCreate returns stable session id and persists to directory` | shared write | AC1, AC2 |
-| P2 | `Second SessionCreate by same client does not silently fork` | no shadow sessions | AC5 |
-| P3 | `SessionJoin verifies membership and returns existing timeline cursor` | join contract | AC4, AC5 |
+| ID  | Test                                                                   | Asserts            | Spec-001 AC |
+| --- | ---------------------------------------------------------------------- | ------------------ | ----------- |
+| P1  | `SessionCreate returns stable session id and persists to directory`    | shared write       | AC1, AC2    |
+| P2  | `Second SessionCreate by same client does not silently fork`           | no shadow sessions | AC5         |
+| P3  | `SessionJoin verifies membership and returns existing timeline cursor` | join contract      | AC4, AC5    |
 
 ### SDK And Integration Layer (`packages/client-sdk/`, integration)
 
-| ID | Test | Asserts | Spec-001 AC |
-| --- | --- | --- | --- |
-| I1 | `SessionCreate then SessionRead returns identical session id` | round-trip | AC1, AC3 |
-| I2 | `Second client SessionJoin sees existing event history` | no fork on join | AC4 |
-| I3 | `SessionSubscribe yields events in sequence ASC across reconnect` | reconnect ordering by canonical key | AC3, AC7 |
-| I4 | `Reconnect after lost stream restores from snapshot, not client cache` | snapshot authority | AC6 |
+| ID  | Test                                                                   | Asserts                             | Spec-001 AC |
+| --- | ---------------------------------------------------------------------- | ----------------------------------- | ----------- |
+| I1  | `SessionCreate then SessionRead returns identical session id`          | round-trip                          | AC1, AC3    |
+| I2  | `Second client SessionJoin sees existing event history`                | no fork on join                     | AC4         |
+| I3  | `SessionSubscribe yields events in sequence ASC across reconnect`      | reconnect ordering by canonical key | AC3, AC7    |
+| I4  | `Reconnect after lost stream restores from snapshot, not client cache` | snapshot authority                  | AC6         |
 
 ### Verification
 

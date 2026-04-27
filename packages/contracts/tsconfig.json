@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "../../tsconfig.node22.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "tsBuildInfoFile": "./.tsbuildinfo"
+  },
+  "include": ["src/**/*"],
+  // Test files are excluded from `tsc -b` so they don't ship in `dist/` (the
+  // package's `files` array is `["dist"]`). Test type-validation runs separately
+  // via `tsconfig.test.json` which includes tests with `noEmit: true`.
+  "exclude": ["dist", "node_modules", "src/**/__tests__/**"]
+}

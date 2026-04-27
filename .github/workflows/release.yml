@@ -1,0 +1,198 @@
+# Release automation skeleton per ADR-023 §Axis 3.
+#
+# This is the V1 PR #1 SKELETON ONLY — release-please-action is wired but the
+# actual publish step is gated behind `if: false` until the per-package npm
+# Trusted Publisher entries are registered (per ADR-023 §F-6, bootstrap requires
+# one traditional NPM_TOKEN publish per package before Trusted Publisher works).
+# First real release is post-Plan-001 ship.
+#
+# Surface 1 (npm packages: @ai-sidekicks/contracts, @ai-sidekicks/client-sdk):
+#   release-please-action@v5 manifest mode (this file).
+# Surface 2 (desktop binary, Spec-027 §7b dual-trust): wired in a later PR.
+# Surface 3 (Rust sidecar, 5 platform packages): wired in a later PR (no sidecar yet).
+#
+# release-please observes `develop` (the integration branch) per the 2026-04-26
+# branch-model amendment to ADR-023; release tags ultimately land on `main`. The
+# release-PR opens against develop; merging it bumps versions; the publish-job
+# fast-forwards develop → main and tags on main. Exact tag-on-main mechanics are
+# finalized when the first real release runs.
+#
+# OIDC environment-gate per ADR-023 §Axis 1 / §Axis 5 — federated credentials
+# bind to repo:<org>/<repo>:environment:production, NOT to a tag ref. Without
+# the environment gate, a compromised contributor pushing a malicious tag still
+# mints a valid OIDC token. The gate is the dual-trust property's keystone.
+
+name: Release
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Release runs serialize on the integration branch — never cancel-in-progress (a
+# half-finished release-please PR or a cancelled npm publish leaves the registry
+# in an indeterminate state). Independent runs on the same ref queue.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  TURBO_TELEMETRY_DISABLED: 1
+  DO_NOT_TRACK: 1
+
+jobs:
+  release-please:
+    name: release-please (open release PR)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # release-please needs to push the release branch
+      pull-requests: write # and open the release PR
+      issues: write # and label release PRs
+    outputs:
+      releases_created: ${{ steps.release.outputs.releases_created }}
+      paths_released: ${{ steps.release.outputs.paths_released }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Run release-please
+        id: release
+        # SHA-pinned per ADR-023 §Axis 4 supply-chain hygiene; Renovate's
+        # helpers:pinGitHubActionDigests preset (renovate.json5) keeps this current.
+        # The v5 moving tag is the canonical entry point — pinning the SHA it
+        # currently resolves to preserves the same upstream contract.
+        uses: googleapis/release-please-action@0dfd8538845b8e92600d271a895a5372865d4062 # v5
+        with:
+          # release-please observes `develop` per the 2026-04-26 branch-model amendment.
+          # Without `target-branch`, the action queries the repo's default branch from
+          # GitHub (currently `main`), which would skip every commit on `develop`.
+          target-branch: develop
+          # Manifest mode — config + manifest files are committed in the repo root.
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          # release-please-action@v5 reads the GH token from the env by default.
+
+  publish-npm:
+    name: publish-npm (Trusted Publisher / OIDC)
+    runs-on: ubuntu-latest
+    needs: [release-please]
+    # SKELETON GATE: keep publish step inert until npm Trusted Publishers are
+    # registered for each published package per ADR-023 §F-6. Flip to
+    # `if: ${{ needs.release-please.outputs.releases_created == 'true' }}` when
+    # bootstrap is complete.
+    if: false
+    environment: production # OIDC environment-gate per ADR-023 §Axis 1/3/5.
+    permissions:
+      contents: read
+      id-token: write # OIDC for npm Trusted Publishing.
+      attestations: write # actions/attest@v4 outputs.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        # SHA-pinned per ADR-023 §Axis 4 supply-chain hygiene; Renovate's
+        # helpers:pinGitHubActionDigests preset (renovate.json5) keeps this current.
+        uses: pnpm/action-setup@8b2eead6074fefa43a68bf4c9e0f03ea4126b5ba # v6.0.3
+        with:
+          version: 10.33.2
+          run_install: false
+
+      - name: Setup Node.js (24.x — Trusted Publishing requires npm CLI >= 11.5.1)
+        # Per ADR-023 §Axis 3 resolution: release CI runs on Node 24 (control-plane
+        # tier per ADR-022 §Decision row 8); the daemon's engines.node: 22.12+ is
+        # unchanged. The release-CI Node version is independent of engines.node for
+        # the published package.
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org/
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm turbo run build
+
+      - name: Publish via Trusted Publishing
+        # Provenance auto-emitted under Trusted Publishing — no --provenance flag needed.
+        # paths_released is a JSON array (e.g. `["packages/contracts","packages/client-sdk"]`);
+        # `for path in ${...}` would expand it as one shell token. Parse with jq so each
+        # path is iterated individually.
+        #
+        # Note: this loop has not executed live as of Plan-001 PR #1; verify
+        # behavior on first real release.
+        run: |
+          echo '${{ needs.release-please.outputs.paths_released }}' | jq -r '.[]' | while IFS= read -r path; do
+            echo "Publishing $path"
+            (cd "$path" && pnpm publish --no-git-checks --access public)
+          done
+
+  sbom:
+    name: sbom (Anchore Syft + actions/attest@v4)
+    runs-on: ubuntu-latest
+    needs: [release-please]
+    # SKELETON GATE: keep SBOM emission inert until first real release per ADR-023
+    # §F-6 bootstrap. Flip to `if: ${{ needs.release-please.outputs.releases_created
+    # == 'true' }}` together with publish-npm.
+    #
+    # Per ADR-023 §Axis 4 sub-axis 2: full-surface SBOM via Anchore Syft v1.43+
+    # (catalogs pnpm-lockfile; CycloneDX + SPDX), signed via actions/attest@v4
+    # with --predicate-type sbom. Avoid actions/attest-sbom (deprecated wrapper)
+    # and `npm sbom` (CycloneDX 1.5 only, no pnpm-lockfile parsing).
+    #
+    # actions/attest@v4 is also the unified primitive for Surface 2 (desktop
+    # binary, Spec-027 §7b dual-trust) and Surface 3 (Rust sidecar) — wired in
+    # later PRs. This job pins the action+permission shape now so later PRs
+    # extend rather than re-discover.
+    if: false
+    environment: production # OIDC environment-gate per ADR-023 §Axis 1/3/5.
+    permissions:
+      contents: read
+      id-token: write # OIDC for Sigstore keyless signing (actions/attest@v4).
+      attestations: write # actions/attest@v4 outputs.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        # SHA-pinned per ADR-023 §Axis 4 supply-chain hygiene; Renovate's
+        # helpers:pinGitHubActionDigests preset (renovate.json5) keeps this current.
+        uses: pnpm/action-setup@8b2eead6074fefa43a68bf4c9e0f03ea4126b5ba # v6.0.3
+        with:
+          version: 10.33.2
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm turbo run build
+
+      - name: Generate SBOM (Anchore Syft, full surface)
+        # Syft v1.43+ catalogs pnpm-lockfile natively (PR #4765, GA in v1.43).
+        # SHA-pinned per ADR-023 §Axis 4 supply-chain hygiene; Renovate's
+        # helpers:pinGitHubActionDigests preset (renovate.json5) keeps this current.
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: sbom.cdx.json
+
+      - name: Attest SBOM via actions/attest@v4
+        # Unified attestation primitive per ADR-023 §Cross-axis attestation surface.
+        uses: actions/attest@v4
+        with:
+          subject-path: sbom.cdx.json
+          predicate-type: https://cyclonedx.org/bom/v1.5
+          predicate-path: sbom.cdx.json

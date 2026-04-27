@@ -1,6 +1,7 @@
 # Repo Exploration: Provider Transports And Features
 
 ## Table of Contents
+
 - [Common Contract](#common-contract)
 - [Launch Overrides And Provider Selection](#launch-overrides-and-provider-selection)
 - [Claude: SDK Over A Spawned Claude Code Process](#claude-sdk-over-a-spawned-claude-code-process)
@@ -13,11 +14,13 @@
 - [Sources](#sources)
 
 ## Common Contract
+
 Paseo does not let `Session` or `AgentManager` talk to Claude, Codex, OpenCode, Copilot, or Pi directly. Every provider is adapted to the same `AgentClient` and `AgentSession` interfaces in `agent-sdk-types.ts`. Those interfaces define the common lifecycle: create or resume a session, start a turn, stream history, expose runtime info, list models and modes, manage pending permissions, persist a handle, interrupt, close, and optionally expose slash commands or mutable model, thinking, and feature settings.[S1]
 
 The capability flags are also normalized there. Every provider advertises whether it supports streaming, session persistence, dynamic modes, MCP servers, reasoning streams, and tool invocations, so the rest of the daemon can reason about features without branching on provider name first.[S1]
 
 ## Launch Overrides And Provider Selection
+
 Provider execution is configurable before any session exists. `provider-launch-config.ts` defines runtime command overrides, environment overrides, and richer provider override profiles, while `provider-registry.ts` merges those settings into built-in and derived provider entries.[S2][S3]
 
 That means two things are true at once:
@@ -26,6 +29,7 @@ That means two things are true at once:
 2. The actual command, environment, label, description, enabled state, and even static model list can be overridden from config without changing the daemon code.[S2][S3]
 
 ## Claude: SDK Over A Spawned Claude Code Process
+
 Claude is the only provider here that is primarily implemented through a vendor SDK inside Paseo itself. `claude-agent.ts` imports `query` and related types from `@anthropic-ai/claude-agent-sdk`, then injects a custom `spawnClaudeCodeProcess` implementation into the SDK options.[S4]
 
 That custom spawn hook is important: Paseo is not calling Anthropic's HTTP API directly. It is using the Claude agent SDK, and the SDK in turn launches the Claude Code process. Paseo intercepts the process spawn so it can apply runtime command overrides, sanitize environment variables, avoid shell mangling on Windows, and pass through launch-scoped environment variables like the daemon-assigned agent ID.[S4]
@@ -35,6 +39,7 @@ At the session layer, `ClaudeAgentSession` manages foreground turns, interruptio
 So the correct summary for Claude is: Paseo uses the Claude agent SDK, but that SDK itself is driving a spawned Claude Code process rather than Paseo speaking a raw network API directly.[S4][S5]
 
 ## Codex: Local App-Server Over JSON-RPC
+
 Codex is not integrated through a generic OpenAI REST client. Paseo spawns `codex app-server` as a child process, then talks to it over line-delimited JSON-RPC using `CodexAppServerClient`.[S6]
 
 The transport class handles request IDs, timeouts, notifications, request handlers, stderr buffering, and child-process exit propagation. That is a local process protocol, not a direct HTTP API from Paseo to OpenAI.[S6]
@@ -46,6 +51,7 @@ Discovery also happens through that app server. Model listing comes from `model/
 So the correct summary for Codex is: Paseo drives a local Codex app-server subprocess over JSON-RPC. The Codex app-server is the thing that owns the upstream API integration, not Paseo itself.[S6][S7][S8]
 
 ## OpenCode: Local Server Plus OpenCode SDK Client
+
 OpenCode is different again. Paseo starts a shared local `opencode serve` process through `OpenCodeServerManager`, then talks to that server using the typed `@opencode-ai/sdk/v2/client` client library.[S9][S10]
 
 This is neither a one-shot CLI wrapper nor a raw custom HTTP client. Paseo spawns the local OpenCode server once, waits for it to announce that it is listening, and then creates SDK clients pointed at that local base URL for session creation, model discovery, mode discovery, prompting, and MCP registration.[S9][S10]
@@ -55,6 +61,7 @@ This is neither a one-shot CLI wrapper nor a raw custom HTTP client. Paseo spawn
 So the correct summary for OpenCode is: Paseo uses the OpenCode SDK against a local OpenCode server process that Paseo starts and supervises.[S9][S10][S11]
 
 ## ACP Family: Stdio Protocol Clients
+
 Copilot, Pi, and generic custom ACP providers all go through the same ACP adapter. `acp-agent.ts` imports `ClientSideConnection` and the ACP types from `@agentclientprotocol/sdk`, spawns the target process with stdio pipes, wraps those pipes in an NDJSON transport, and speaks the ACP protocol over that stream.[S12][S13]
 
 For new sessions, Paseo sends `newSession`; for persisted sessions it tries `loadSession` or `unstable_resumeSession`; and it maps the shared MCP schema into ACP's MCP server shape before sending it over the wire.[S12][S13]
@@ -68,6 +75,7 @@ The concrete built-ins are thin wrappers:
 So the correct summary for Copilot, Pi, and custom ACP providers is: Paseo is not using a provider-specific SDK or web API. It is acting as an ACP client over stdio to a spawned ACP-compatible process.[S12][S13][S14][S15][S16]
 
 ## Capabilities Features And Functionality
+
 The normalization layer exposes common capability flags, but providers still differ in the knobs they implement.[S1]
 
 Claude advertises dynamic modes, MCP support, reasoning streams, tool calls, session persistence, and slash commands. Its session object supports mode switching, model switching, thinking-effort switching, permission handling, and history replay through the Claude SDK-backed query object.[S4][S5]
@@ -81,6 +89,7 @@ ACP providers are the most variable, so the ACP adapter contains fallback logic.
 Pi is the clearest example of provider-specific feature normalization: its ACP implementation reports thinking levels as modes, so Paseo transforms those modes into a shared `thought_level` select option and exposes them as thinking choices instead of normal execution modes.[S15]
 
 ## Normalization Layer
+
 The important architectural fact is not just that there are multiple adapters. It is that each adapter translates provider-native concepts into a shared internal grammar.[S1][S3]
 
 Examples:
@@ -94,6 +103,7 @@ Examples:
 That normalization is why the daemon can archive, resume, schedule, loop, and render all of these providers through the same `AgentManager` and `Session` machinery.[S18]
 
 ## How Agent Management Stays Provider-Agnostic
+
 `AgentManager` is where these provider clients finally converge. It only depends on `AgentClient` and `AgentSession`; creation, resume, run, cancel, fetch timeline, wait for state, and permission handling all operate on that normalized interface rather than on provider-specific classes.[S18]
 
 That means "how Paseo manages agents" is the same answer across providers:
@@ -106,6 +116,7 @@ That means "how Paseo manages agents" is the same answer across providers:
 So the daemon is provider-aware at the edge, but provider-agnostic in the core management layer.[S3][S18][S19]
 
 ## Sources
+
 - [S1] `packages/server/src/server/agent/agent-sdk-types.ts#L1-L518`, common provider, session, capability, feature, prompt, timeline, permission, and persistence interfaces.
 - [S2] `packages/server/src/server/agent/provider-launch-config.ts#L1-L191`, command and env overrides, provider override schema, and launch-prefix resolution.
 - [S3] `packages/server/src/server/agent/provider-registry.ts#L1-L473`, built-in and derived provider assembly, identity wrapping, and client creation.

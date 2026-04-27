@@ -1,16 +1,16 @@
 # Plan-019: Notifications And Attention Model
 
-| Field | Value |
-| --- | --- |
-| **Status** | `approved` |
-| **NNN** | `019` |
-| **Slug** | `notifications-and-attention-model` |
-| **Date** | `2026-04-14` |
-| **Author(s)** | `Codex` |
-| **Spec** | [Spec-019: Notifications And Attention Model](../specs/019-notifications-and-attention-model.md) |
-| **Required ADRs** | [ADR-001](../decisions/001-session-is-the-primary-domain-object.md), [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md) |
-| **Dependencies** | [Plan-013](./013-live-timeline-visibility-and-reasoning-surfaces.md) (timeline visibility) |
-| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
+| Field               | Value                                                                                                                                                                                                         |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Status**          | `approved`                                                                                                                                                                                                    |
+| **NNN**             | `019`                                                                                                                                                                                                         |
+| **Slug**            | `notifications-and-attention-model`                                                                                                                                                                           |
+| **Date**            | `2026-04-14`                                                                                                                                                                                                  |
+| **Author(s)**       | `Codex`                                                                                                                                                                                                       |
+| **Spec**            | [Spec-019: Notifications And Attention Model](../specs/019-notifications-and-attention-model.md)                                                                                                              |
+| **Required ADRs**   | [ADR-001](../decisions/001-session-is-the-primary-domain-object.md), [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md) |
+| **Dependencies**    | [Plan-013](./013-live-timeline-visibility-and-reasoning-surfaces.md) (timeline visibility)                                                                                                                    |
+| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md)                                                                                                                                     |
 
 ## Goal
 

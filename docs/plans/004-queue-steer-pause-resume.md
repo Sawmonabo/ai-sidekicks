@@ -1,17 +1,17 @@
 # Plan-004: Queue Steer Pause Resume
 
-| Field | Value |
-| --- | --- |
-| **Status** | `approved` |
-| **NNN** | `004` |
-| **Slug** | `queue-steer-pause-resume` |
-| **Date** | `2026-04-14` |
-| **Author(s)** | `Codex` |
-| **Spec** | [Spec-004: Queue Steer Pause Resume](../specs/004-queue-steer-pause-resume.md) |
-| **Required ADRs** | [ADR-003](../decisions/003-daemon-backed-queue-and-interventions.md), [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md) |
-| **Dependencies** | [Plan-001](./001-shared-session-core.md) (session core), [Plan-005](./005-provider-driver-contract-and-capabilities.md) (driver capability checks) |
-| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
-| **References** | [Updated Spec-004](../specs/004-queue-steer-pause-resume.md) (6 intervention states, pause as orchestration-layer), [Run State Machine](../domain/run-state-machine.md) (9 states) |
+| Field               | Value                                                                                                                                                                                                          |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Status**          | `approved`                                                                                                                                                                                                     |
+| **NNN**             | `004`                                                                                                                                                                                                          |
+| **Slug**            | `queue-steer-pause-resume`                                                                                                                                                                                     |
+| **Date**            | `2026-04-14`                                                                                                                                                                                                   |
+| **Author(s)**       | `Codex`                                                                                                                                                                                                        |
+| **Spec**            | [Spec-004: Queue Steer Pause Resume](../specs/004-queue-steer-pause-resume.md)                                                                                                                                 |
+| **Required ADRs**   | [ADR-003](../decisions/003-daemon-backed-queue-and-interventions.md), [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md) |
+| **Dependencies**    | [Plan-001](./001-shared-session-core.md) (session core), [Plan-005](./005-provider-driver-contract-and-capabilities.md) (driver capability checks)                                                             |
+| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md)                                                                                                                                      |
+| **References**      | [Updated Spec-004](../specs/004-queue-steer-pause-resume.md) (6 intervention states, pause as orchestration-layer), [Run State Machine](../domain/run-state-machine.md) (9 states)                             |
 
 ## Goal
 

@@ -1,14 +1,14 @@
 # Spec-021: Rate Limiting Policy
 
-| Field | Value |
-| --- | --- |
-| **Status** | `approved` |
-| **NNN** | `021` |
-| **Slug** | `rate-limiting-policy` |
-| **Date** | `2026-04-15` |
-| **Author(s)** | `Codex` |
-| **Depends On** | [Deployment Topology](../architecture/deployment-topology.md), [Security Architecture](../architecture/security-architecture.md) |
-| **Implementation Plan** | [Plan-021: Rate Limiting Policy](../plans/021-rate-limiting-policy.md) |
+| Field                   | Value                                                                                                                            |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| **Status**              | `approved`                                                                                                                       |
+| **NNN**                 | `021`                                                                                                                            |
+| **Slug**                | `rate-limiting-policy`                                                                                                           |
+| **Date**                | `2026-04-15`                                                                                                                     |
+| **Author(s)**           | `Codex`                                                                                                                          |
+| **Depends On**          | [Deployment Topology](../architecture/deployment-topology.md), [Security Architecture](../architecture/security-architecture.md) |
+| **Implementation Plan** | [Plan-021: Rate Limiting Policy](../plans/021-rate-limiting-policy.md)                                                           |
 
 ## Purpose
 
@@ -49,24 +49,24 @@ The local daemon is explicitly excluded. It is trusted by socket reachability an
 
 ### Edge Limits
 
-| Limit | Scope | Threshold |
-| --- | --- | --- |
-| General API | per user per minute | 100 req/user/min |
-| Auth endpoints | per IP per minute | 20 req/min |
-| Unauthenticated | per IP per minute | 30 req/min |
+| Limit           | Scope               | Threshold        |
+| --------------- | ------------------- | ---------------- |
+| General API     | per user per minute | 100 req/user/min |
+| Auth endpoints  | per IP per minute   | 20 req/min       |
+| Unauthenticated | per IP per minute   | 30 req/min       |
 
 ### Application Limits
 
-| Limit | Scope | Threshold |
-| --- | --- | --- |
-| Invite creation | per session per hour | 20 invites/session/hr |
-| Invite creation | per participant per hour | 50 invites/participant/hr |
-| Pending invites | per session | 100 pending invites/session |
-| Invite redemption attempts | per IP per minute | 5 redemption attempts/IP/min |
-| Session creation | per participant per minute | 10 sessions/participant/min |
-| Heartbeat | per participant per minute | 10 heartbeats/participant/min |
-| Messages | per participant per minute | 60 messages/participant/min |
-| KeyPackage uploads (V1.1+) | per user per hour | 5 KeyPackage uploads/user/hr — applies once MLS ships per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md); no KeyPackage endpoint exists in V1 |
+| Limit                      | Scope                      | Threshold                                                                                                                                              |
+| -------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Invite creation            | per session per hour       | 20 invites/session/hr                                                                                                                                  |
+| Invite creation            | per participant per hour   | 50 invites/participant/hr                                                                                                                              |
+| Pending invites            | per session                | 100 pending invites/session                                                                                                                            |
+| Invite redemption attempts | per IP per minute          | 5 redemption attempts/IP/min                                                                                                                           |
+| Session creation           | per participant per minute | 10 sessions/participant/min                                                                                                                            |
+| Heartbeat                  | per participant per minute | 10 heartbeats/participant/min                                                                                                                          |
+| Messages                   | per participant per minute | 60 messages/participant/min                                                                                                                            |
+| KeyPackage uploads (V1.1+) | per user per hour          | 5 KeyPackage uploads/user/hr — applies once MLS ships per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md); no KeyPackage endpoint exists in V1 |
 
 ### Overflow Response
 
@@ -82,28 +82,28 @@ The local daemon is explicitly excluded. It is trusted by socket reachability an
 
 ## Rate Limit Values
 
-| Endpoint Group | Limit | Window | Tier |
-| --- | --- | --- | --- |
-| Session create | 10/min | per participant | authenticated |
-| Session join | 30/min | per participant | authenticated |
-| Invite create | 20/hr | per session | authenticated |
-| Invite create | 50/hr | per participant | authenticated |
-| Pending invites | 100 concurrent | per session | authenticated |
-| Invite accept | 10/min | per token-hash | anonymous |
-| Presence heartbeat | 10/min | per participant | authenticated |
-| Event query (read) | 60/min | per participant | authenticated |
-| Event subscribe (SSE) | 5 concurrent | per participant | authenticated |
-| Approval resolve | 30/min | per participant | authenticated |
-| Artifact publish | 20/min | per session | authenticated |
-| Health check | 120/min | per IP | anonymous |
+| Endpoint Group        | Limit          | Window          | Tier          |
+| --------------------- | -------------- | --------------- | ------------- |
+| Session create        | 10/min         | per participant | authenticated |
+| Session join          | 30/min         | per participant | authenticated |
+| Invite create         | 20/hr          | per session     | authenticated |
+| Invite create         | 50/hr          | per participant | authenticated |
+| Pending invites       | 100 concurrent | per session     | authenticated |
+| Invite accept         | 10/min         | per token-hash  | anonymous     |
+| Presence heartbeat    | 10/min         | per participant | authenticated |
+| Event query (read)    | 60/min         | per participant | authenticated |
+| Event subscribe (SSE) | 5 concurrent   | per participant | authenticated |
+| Approval resolve      | 30/min         | per participant | authenticated |
+| Artifact publish      | 20/min         | per session     | authenticated |
+| Health check          | 120/min        | per IP          | anonymous     |
 
 ### Rate Limit Tiers
 
-| Tier | Description | Multiplier |
-| --- | --- | --- |
-| anonymous | Unauthenticated requests (invite accept, health check) | 1x (base) |
-| authenticated | Standard authenticated participant | 1x |
-| elevated | Session owner or system service | 3x |
+| Tier          | Description                                            | Multiplier |
+| ------------- | ------------------------------------------------------ | ---------- |
+| anonymous     | Unauthenticated requests (invite accept, health check) | 1x (base)  |
+| authenticated | Standard authenticated participant                     | 1x         |
+| elevated      | Session owner or system service                        | 3x         |
 
 The elevated tier allows burst operations during session setup. All limits use the sliding window algorithm. Responses include the standard `RateLimitResponse` from [Error Contracts](../architecture/contracts/error-contracts.md).
 

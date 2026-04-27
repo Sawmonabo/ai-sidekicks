@@ -1,14 +1,14 @@
 # Spec-001: Shared Session Core
 
-| Field | Value |
-| --- | --- |
-| **Status** | `approved` |
-| **NNN** | `001` |
-| **Slug** | `shared-session-core` |
-| **Date** | `2026-04-14` |
-| **Author(s)** | `Codex` |
-| **Depends On** | [Glossary](../domain/glossary.md), [Session Model](../domain/session-model.md), [Participant And Membership Model](../domain/participant-and-membership-model.md), [Agent Channel And Run Model](../domain/agent-channel-and-run-model.md), [System Context](../architecture/system-context.md), [Container Architecture](../architecture/container-architecture.md) |
-| **Implementation Plan** | [Plan-001: Shared Session Core](../plans/001-shared-session-core.md) |
+| Field                   | Value                                                                                                                                                                                                                                                                                                                                                                |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Status**              | `approved`                                                                                                                                                                                                                                                                                                                                                           |
+| **NNN**                 | `001`                                                                                                                                                                                                                                                                                                                                                                |
+| **Slug**                | `shared-session-core`                                                                                                                                                                                                                                                                                                                                                |
+| **Date**                | `2026-04-14`                                                                                                                                                                                                                                                                                                                                                         |
+| **Author(s)**           | `Codex`                                                                                                                                                                                                                                                                                                                                                              |
+| **Depends On**          | [Glossary](../domain/glossary.md), [Session Model](../domain/session-model.md), [Participant And Membership Model](../domain/participant-and-membership-model.md), [Agent Channel And Run Model](../domain/agent-channel-and-run-model.md), [System Context](../architecture/system-context.md), [Container Architecture](../architecture/container-architecture.md) |
+| **Implementation Plan** | [Plan-001: Shared Session Core](../plans/001-shared-session-core.md)                                                                                                                                                                                                                                                                                                 |
 
 ## Purpose
 
@@ -61,14 +61,14 @@ This spec covers session identity, default session structure, session creation, 
 
 ## Resource Limits
 
-| Resource | Default Limit | Enforcement Point |
-| --- | --- | --- |
-| Participants per session | 10 | Control plane (on join) |
-| Channels per session | 20 | Daemon (on channel create) |
-| Concurrent runs per session | 5 | Daemon (on run admit) |
-| Agents per session | 10 | Daemon (on agent attach) |
-| Concurrent child runs per parent | 3 | Daemon (on child spawn) |
-| Queue depth per session | 100 | Daemon (on queue item create) |
+| Resource                         | Default Limit | Enforcement Point             |
+| -------------------------------- | ------------- | ----------------------------- |
+| Participants per session         | 10            | Control plane (on join)       |
+| Channels per session             | 20            | Daemon (on channel create)    |
+| Concurrent runs per session      | 5             | Daemon (on run admit)         |
+| Agents per session               | 10            | Daemon (on agent attach)      |
+| Concurrent child runs per parent | 3             | Daemon (on child spawn)       |
+| Queue depth per session          | 100           | Daemon (on queue item create) |
 
 ### Limit Enforcement
 

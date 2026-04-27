@@ -214,6 +214,7 @@ src/
 ## 2. App Shell and Routing
 
 ### Entry Point (`main.tsx`)
+
 - Initializes **Sentry** error tracking with `@sentry/react`.
 - Tracks `app_open` metric on launch.
 - Disables mobile zoom gestures (pinch, gesture events).
@@ -222,21 +223,25 @@ src/
 - Renders `<App />` inside `React.StrictMode`.
 
 ### Root Component (`App.tsx`)
+
 - Uses `useWindowLabel()` to distinguish window types.
 - If window label is `"about"`, renders lazy-loaded `AboutView`.
 - Otherwise renders `MainApp`.
 
 ### MainApp (`features/app/components/MainApp.tsx`)
+
 - Central orchestrator (~900 lines). Instantiates and wires together all major hooks.
 - Key hooks consumed: `useAppBootstrapOrchestration`, `useWorkspaceController`, `useMobileServerSetup`, `useLayoutController`, `useModels`, `useCollaborationModes`, `useSkills`, `useApps`, `useCustomPrompts`, `useThreads`, `useQueuedSend`, `useTerminalController`, `usePullRequestComposer`, `useUpdaterController`, `useErrorToasts`, `useComposerShortcuts`, `useComposerMenuActions`, `useComposerEditorState`, `useThreadRows`, `usePlanReadyActions`, and many more.
 - Renders `MainAppShell` which composes: drag strip, titlebar expand controls, window caption controls, lazy `GitHubPanelData`, `AppLayout`, `AppModals`, and optionally `MobileServerSetupWizard`.
 
 ### AppLayout (`features/app/components/AppLayout.tsx`)
+
 - Dispatches to three responsive layouts: `DesktopLayout`, `TabletLayout`, `PhoneLayout`.
 - Props include: sidebar node, messages node, composer node, approval toasts, update toast, error toasts, home node, header nodes, git diff panels, plan panel, debug panel, terminal dock.
 - Supports `centerMode: "chat" | "diff"` with optional split view (`splitChatDiffView`).
 
 ### Responsive Layouts
+
 - **DesktopLayout**: Three-column layout (sidebar | center | right panel) with resizable dividers. Center has layered chat/diff panes. Bottom docks for terminal, debug, and plan panels.
 - **TabletLayout**: Two-section layout with swipeable tab navigation.
 - **PhoneLayout**: Single-column stacked layout with bottom tab bar.
@@ -246,6 +251,7 @@ src/
 ## 3. Composer System
 
 ### Architecture
+
 - **Composer** (`features/composer/components/Composer.tsx`): Main composer wrapper. Manages text state, autocomplete, prompt history, draft effects, key handling.
 - **ComposerInput** (`ComposerInput.tsx`): Textarea with action buttons (send/stop, mic, expand, image attach). Supports drag-and-drop image attachment.
 - **ComposerMetaBar** (`ComposerMetaBar.tsx`): Bottom bar displaying model selector, access mode, reasoning effort, collaboration mode, service tier, codex args override, context usage (token counts).
@@ -256,6 +262,7 @@ src/
 - **ReviewInlinePrompt** (`ReviewInlinePrompt.tsx`): Review target selection UI.
 
 ### Hooks
+
 - `useComposerAutocompleteState`: Manages autocomplete trigger detection and item matching. Triggers: `@` (files), `/` (skills, prompts, slash commands), `$` (apps).
 - `useComposerAutocomplete`: Core autocomplete logic -- file matching, skill matching, prompt matching, app matching.
 - `useComposerKeyDown`: Handles Enter (send), Shift+Enter (newline or list continuation), Shift+Cmd+Enter (opposite follow-up intent), arrow keys (autocomplete navigation), backtick expansion, Tab (accept suggestion).
@@ -272,21 +279,26 @@ src/
 - `usePromptHistory`: Arrow-key prompt history navigation (up/down through previously sent prompts).
 
 ### Sending Modes
+
 - **Default send**: Enter key. Sends message to active thread.
 - **Queue**: When agent is processing, messages are queued for sequential delivery.
 - **Steer**: When agent is processing and steer is enabled, sends a steer command to redirect the active turn.
 - **Follow-up behavior**: Configurable default (queue vs steer). Shift+Cmd+Enter sends with the opposite intent.
 
 ### Slash Commands
+
 Parsed in `useQueuedSend`: `/fork`, `/review`, `/compact`, `/new`, `/resume`, `/fast`, `/mcp`, `/apps`, `/status`.
 
 ### Autocomplete Triggers
+
 - `@` -- File mention autocomplete from workspace file listing.
 - `/` -- Skill names, custom prompts (prefixed `prompts:`), slash commands.
 - `$` -- App mentions (connected apps/connectors).
 
 ### Editor Features (Composer Presets)
+
 Three presets: Default, Helpful, Smart. Each controls:
+
 - `expandFenceOnSpace` / `expandFenceOnEnter` -- Auto-expand triple backtick triggers.
 - `fenceLanguageTags` -- Recognize language tags after backticks.
 - `fenceWrapSelection` -- Wrap selected text in fence block.
@@ -299,6 +311,7 @@ Three presets: Default, Helpful, Smart. Each controls:
 ## 4. Thread Management
 
 ### State Management (`useThreadsReducer.ts`)
+
 - Uses `useReducer` with a complex thread reducer. State shape includes:
   - `threadsByWorkspace`: Record<workspaceId, ThreadSummary[]>
   - `activeThreadIdByWorkspace`: Record<workspaceId, threadId>
@@ -314,6 +327,7 @@ Three presets: Default, Helpful, Smart. Each controls:
   - `lastAgentMessageByThread`
 
 ### Thread Reducer Slices
+
 - `threadItemsSlice`: Add/replace/append conversation items.
 - `threadSnapshotSlice`: Thread list management (add, remove, rename, archive, unarchive).
 - `threadLifecycleSlice`: Processing status, turn tracking, unread state.
@@ -321,6 +335,7 @@ Three presets: Default, Helpful, Smart. Each controls:
 - `threadQueueSlice`: Approval and user input request management.
 
 ### Thread Hooks
+
 - `useThreads`: Master hook coordinating all thread sub-hooks.
 - `useThreadActions`: Start, fork, resume, refresh, archive, reset, list threads. Supports pagination (`loadOlderThreadsForWorkspace`).
 - `useThreadMessaging`: Send messages, steer turns, start reviews, fork, compact, resume. Handles prompt expansion, service tier, collaboration mode.
@@ -342,6 +357,7 @@ Three presets: Default, Helpful, Smart. Each controls:
 - `useCopyThread`: Copy thread content to clipboard.
 
 ### Thread List UI
+
 - **Sidebar** (`features/app/components/Sidebar.tsx`): Full sidebar with search, workspace groups, thread list, pinned threads, bottom rail.
 - **ThreadRow** (`ThreadRow.tsx`): Individual thread row with status indicator, subagent pill (color-coded by hash), time label, context menu.
 - **PinnedThreadList** (`PinnedThreadList.tsx`): Pinned threads section above main list.
@@ -352,6 +368,7 @@ Three presets: Default, Helpful, Smart. Each controls:
 - **ThreadList** (`ThreadList.tsx`): Virtualized thread list with time buckets (Now, Earlier today, Yesterday, This week, Older).
 
 ### Thread List Features
+
 - Sort by `created_at` or `updated_at`.
 - Organize by project (workspace groups), project activity, or threads only.
 - Search/filter across thread names and workspace names.
@@ -365,6 +382,7 @@ Three presets: Default, Helpful, Smart. Each controls:
 ## 5. Message Rendering
 
 ### ConversationItem Types
+
 Seven distinct kinds with specialized renderers:
 
 1. **message** (`MessageRow`): User and assistant messages.
@@ -408,11 +426,13 @@ Seven distinct kinds with specialized renderers:
    - Preview format: "answered: [question]: [answer] +N more".
 
 ### Message Grouping
+
 - `buildToolGroups()`: Groups consecutive tool/reasoning/explore/userInput items into collapsible tool groups.
 - Groups show summary: "N tool calls, M messages".
 - Single items are not grouped.
 
 ### Additional Message Features
+
 - **WorkingIndicator**: Spinner with elapsed timer during processing. Shows "Done in X:XX" after completion. Remote polling countdown display.
 - **PlanReadyFollowupMessage**: Shows accept/modify buttons when a plan completes.
 - **RequestUserInputMessage**: Multi-question form with option selection and freetext notes.
@@ -424,6 +444,7 @@ Seven distinct kinds with specialized renderers:
 ## 6. Plan and Approval UI
 
 ### Plan Panel (`PlanPanel.tsx`)
+
 - Displays active `TurnPlan` with step progress (completed/total).
 - Optional explanation text.
 - Ordered step list with status indicators: `[ ]` pending, `[>]` in-progress, `[x]` completed.
@@ -431,11 +452,13 @@ Seven distinct kinds with specialized renderers:
 - Resizable panel height.
 
 ### Plan Ready Follow-up
+
 - `PlanReadyFollowupMessage`: Shown when a plan tool completes successfully.
 - Two actions: "Accept" (proceed with plan) and "Submit changes" (modify the plan).
 - Plan export: "Export .md" button saves plan content to file via system save dialog.
 
 ### Approval Toasts (`ApprovalToasts.tsx`)
+
 - Toast-based approval UI displayed as a viewport-anchored stack.
 - Shows: workspace name, method name (parsed from `codex/requestApproval/`), parameter details.
 - Actions: **Decline**, **Always allow** (remembers command pattern), **Approve (Enter)**.
@@ -443,6 +466,7 @@ Seven distinct kinds with specialized renderers:
 - Parameters rendered as key-value pairs; arrays/objects shown as JSON code blocks.
 
 ### Request User Input
+
 - `RequestUserInputMessage`: Structured form for agent-requested user input.
 - Supports multiple questions per request.
 - Each question can have selectable options and/or freetext input.
@@ -453,12 +477,14 @@ Seven distinct kinds with specialized renderers:
 ## 7. Workspace Management
 
 ### Workspace Types
+
 - `WorkspaceKind`: `"main"` | `"worktree"`.
 - `WorkspaceInfo`: id, name, path, connected status, kind, parentId, worktree info, settings.
 - `WorkspaceSettings`: sidebarCollapsed, sortOrder, groupId, cloneSourceWorkspaceId, gitRoot, launchScript, launchScripts, worktreeSetupScript, worktreesFolder.
 - `WorkspaceGroup`: id, name, sortOrder, copiesFolder.
 
 ### Workspace Hooks
+
 - `useWorkspaces`: Lists and manages workspaces via Tauri backend.
 - `useWorkspaceCrud`: Add, remove, update workspace settings.
 - `useWorkspaceSelection`: Tracks active workspace, handles workspace switching.
@@ -476,6 +502,7 @@ Seven distinct kinds with specialized renderers:
 - `useWorkspaceAgentMd`: Read/write workspace-level agents.md file.
 
 ### Workspace Components
+
 - **WorkspaceHome** (`WorkspaceHome.tsx`): Workspace landing page with:
   - Git init banner (for repos without git).
   - Run controls (start agent, run mode selection).
@@ -493,6 +520,7 @@ Seven distinct kinds with specialized renderers:
 - **WorkspaceHomeHistory** (`WorkspaceHomeHistory.tsx`): Recent thread instances list.
 
 ### Workspace Operations (Tauri Service Layer)
+
 - `addWorkspace(path)`, `addWorkspaceFromGitUrl(url, dest, name)`, `addClone(sourceId, folder, name)`.
 - `addWorktree(parentId, branch, name, copyAgentsMd)`, `removeWorktree(id)`, `renameWorktree(id, branch)`.
 - `connectWorkspace(id)`, `removeWorkspace(id)`, `updateWorkspaceSettings(id, settings)`.
@@ -501,6 +529,7 @@ Seven distinct kinds with specialized renderers:
 - `listWorkspaces()`.
 
 ### Launch Scripts
+
 - Each workspace can have multiple launch scripts (`LaunchScriptEntry`).
 - Icons: play, build, debug, wrench, terminal, code, server, database, package, test, lint, dev, git, config, logs.
 - `LaunchScriptButton`, `LaunchScriptEntryButton`, `LaunchScriptIconPicker` components.
@@ -512,6 +541,7 @@ Seven distinct kinds with specialized renderers:
 ## 8. Settings Surface
 
 ### Settings Sections (13 total)
+
 Accessed via `SettingsView` modal with side navigation (`SettingsNav`).
 
 1. **Projects** (`SettingsProjectsSection`): Workspace list with reorder, delete, group assignment. Workspace group management (create, rename, move, delete).
@@ -544,6 +574,7 @@ Accessed via `SettingsView` modal with side navigation (`SettingsNav`).
 13. **Features** (`SettingsFeaturesSection`): Experimental feature flags from Codex backend. Each feature: name, stage (under_development/beta/stable/deprecated/removed), enabled toggle, description, announcement.
 
 ### App-Level Settings (`AppSettings` type, ~75 fields)
+
 - Backend: codexBin, codexArgs, backendMode, remoteBackendProvider/Host/Token, remoteBackends, activeRemoteBackendId, keepDaemonRunningAfterAppClose.
 - Defaults: defaultAccessMode, reviewDeliveryMode.
 - Composer shortcuts: composerModelShortcut, composerAccessShortcut, composerReasoningShortcut, composerCollaborationShortcut.
@@ -556,7 +587,7 @@ Accessed via `SettingsView` modal with side navigation (`SettingsNav`).
 - Git: splitChatDiffView, preloadGitDiffs, gitDiffIgnoreWhitespaceChanges, commitMessagePrompt, commitMessageModelId.
 - Advanced: collaborationModesEnabled, steerEnabled, followUpMessageBehavior, composerFollowUpHintEnabled, pauseQueuedMessagesWhenResponseRequired, unifiedExecEnabled.
 - Apps: experimentalAppsEnabled, personality, dictationEnabled, dictationModelId, dictationPreferredLanguage, dictationHoldKey.
-- Composer editor: composerEditorPreset, composerFence* toggles, composerListContinuation, composerCodeBlockCopyUseModifier.
+- Composer editor: composerEditorPreset, composerFence\* toggles, composerListContinuation, composerCodeBlockCopyUseModifier.
 - Workspace: workspaceGroups, globalWorktreesFolder, openAppTargets, selectedOpenAppId.
 
 ---
@@ -564,6 +595,7 @@ Accessed via `SettingsView` modal with side navigation (`SettingsNav`).
 ## 9. File Browsing and Mentions
 
 ### File Tree Panel (`FileTreePanel.tsx`)
+
 - Virtualized file tree using `@tanstack/react-virtual`.
 - Builds tree from flat file paths. Folders are collapsible.
 - Search/filter bar for file names.
@@ -575,17 +607,20 @@ Accessed via `SettingsView` modal with side navigation (`SettingsNav`).
 - Supports `PanelTabId` mode switching.
 
 ### File Preview (`FilePreviewPopover.tsx`)
+
 - Reads file content via `readWorkspaceFile` Tauri command.
 - Shows syntax-highlighted preview.
 - Handles truncation for large files.
 
 ### File Mentions
+
 - `@` trigger in composer activates file autocomplete.
 - Files from workspace listing matched against typed query.
 - File path inserted into composer text.
 - Workspace file listing provided by `useWorkspaceFiles` hook via `getWorkspaceFiles` Tauri command.
 
 ### File Link Handling
+
 - `useFileLinkOpener`: Opens file links in configured external editor.
 - `fileLinks.ts`: Parses `path:line:col` format from message text.
 - `remarkFileLinks.ts`: Remark plugin that converts file paths in markdown to clickable links.
@@ -596,6 +631,7 @@ Accessed via `SettingsView` modal with side navigation (`SettingsNav`).
 ## 10. Git and GitHub Integration
 
 ### Git Hooks
+
 - `useGitStatus`: Fetches git status (branch, staged/unstaged files, additions/deletions). Auto-refreshes on thread message activity.
 - `useGitDiffs`: Fetches file diffs for the workspace.
 - `useGitLog`: Fetches commit log (entries, ahead/behind counts, upstream).
@@ -611,6 +647,7 @@ Accessed via `SettingsView` modal with side navigation (`SettingsNav`).
 - `useDiffFileSelection`: Tracks selected file in diff view.
 
 ### GitHub Hooks
+
 - `useGitHubIssues`: Fetches GitHub issues for the repo.
 - `useGitHubPullRequests`: Fetches pull requests.
 - `useGitHubPullRequestDiffs`: Fetches PR diffs.
@@ -620,6 +657,7 @@ Accessed via `SettingsView` modal with side navigation (`SettingsNav`).
 - `usePullRequestReviewActions`: Review action buttons (full review, risks, tests, summary, question).
 
 ### Git Panel Components
+
 - **GitDiffPanel** (`GitDiffPanel.tsx`): Main git panel with multiple modes:
   - Status mode: File list with staged/unstaged status, additions/deletions.
   - Diff mode: Side-by-side or unified diff viewer.
@@ -638,6 +676,7 @@ Accessed via `SettingsView` modal with side navigation (`SettingsNav`).
 - **GitHubPanelData** (`GitHubPanelData.tsx`): Data fetcher component for GitHub integration (lazy loaded).
 
 ### Git Operations (Tauri Layer)
+
 - `getGitStatus`, `getGitDiffs`, `getGitLog`, `getGitCommitDiff`, `getGitRemote`.
 - `stageGitFile`, `stageGitAll`, `unstageGitFile`, `revertGitFile`, `revertGitAll`.
 - `commitGit`, `pushGit`, `pullGit`, `fetchGit`, `syncGit`.
@@ -646,6 +685,7 @@ Accessed via `SettingsView` modal with side navigation (`SettingsNav`).
 - `getGitHubIssues`, `getGitHubPullRequests`, `getGitHubPullRequestDiff`, `getGitHubPullRequestComments`, `checkoutGitHubPullRequest`.
 
 ### Review System
+
 - `/review` command opens multi-step review prompt.
 - Review targets: uncommitted changes, base branch, specific commit, custom instructions.
 - Review delivery: inline (blocks parent thread) or detached (separate thread).
@@ -658,12 +698,15 @@ Accessed via `SettingsView` modal with side navigation (`SettingsNav`).
 ## 11. Prompt Library
 
 ### Data Model
+
 - `CustomPromptOption`: name, path, description, argumentHint, content, scope (workspace/global).
 
 ### Prompt Hooks
+
 - `useCustomPrompts`: Fetches prompt list from backend. Provides create, update, delete, move operations.
 
 ### Prompt Panel (`PromptPanel.tsx`)
+
 - Lists workspace and global prompts with search filtering.
 - Context menu per prompt: Send to agent, Send to new agent, Edit, Move (workspace<->global), Delete.
 - Create/edit form: name, description, argument hint, content (multi-line), scope selector.
@@ -671,11 +714,13 @@ Accessed via `SettingsView` modal with side navigation (`SettingsNav`).
 - Prompt command format: `/prompts:promptName [args]`.
 
 ### Prompt Expansion
+
 - `expandCustomPromptText()` in `utils/customPrompts.ts`: Resolves `/prompts:name` references in message text.
 - Supports argument substitution into prompt content.
 - Error handling for missing prompts.
 
 ### Autocomplete Integration
+
 - Prompts appear in `/` autocomplete with `prompts:` prefix.
 - Shows prompt name, description, and argument hint in autocomplete.
 
@@ -684,6 +729,7 @@ Accessed via `SettingsView` modal with side navigation (`SettingsNav`).
 ## 12. Home and Dashboard
 
 ### Home View (`features/home/components/Home.tsx`)
+
 - Title: "Codex Monitor" with subtitle "Orchestrate agents across your local projects."
 - **HomeLatestAgentsSection**: Shows recent agent runs across all workspaces with project name, message preview, timestamp, processing status. Clicking navigates to the thread.
 - **HomeActions**: "Add workspace" and "Add from URL" buttons.
@@ -696,12 +742,14 @@ Accessed via `SettingsView` modal with side navigation (`SettingsNav`).
   - Top models by usage share.
 
 ### Home Types
+
 - `LatestAgentRun`: message, timestamp, projectName, groupName, workspaceId, threadId, isProcessing.
 - `UsageMetric`: "tokens" | "time".
 - `UsageWorkspaceOption`: id, label.
 - `HomeStatCard`: label, value, suffix, caption.
 
 ### Local Usage Data
+
 - `LocalUsageSnapshot`: days array, totals, top models.
 - `LocalUsageDay`: day, inputTokens, cachedInputTokens, outputTokens, totalTokens, agentTimeMs, agentRuns.
 - `useLocalUsage` hook fetches via `localUsageSnapshot` Tauri command.
@@ -711,6 +759,7 @@ Accessed via `SettingsView` modal with side navigation (`SettingsNav`).
 ## 13. State Management
 
 ### Architecture: Hook-Based State (No Store Library)
+
 The application uses React hooks and `useReducer` as its state management pattern. There is no external store library (no Redux, Zustand, Jotai, etc.).
 
 ### Core State Holders
@@ -730,12 +779,15 @@ The application uses React hooks and `useReducer` as its state management patter
 7. **Composer State**: Distributed across multiple hooks (text, autocomplete, images, drafts, dictation).
 
 ### Data Flow Pattern
+
 - Tauri backend events arrive via `subscribeAppServerEvents` -> `useAppServerEvents` -> `useThreadEventHandlers` -> dispatch to thread reducer.
 - User actions flow: Component -> hook callback -> Tauri invoke -> backend response -> state update -> re-render.
 - Settings changes: Component -> `setAppSettings` -> `queueSaveSettings` (debounced) -> `updateAppSettings` Tauri invoke.
 
 ### Orchestration Hooks
+
 The `app/orchestration/` directory contains composition hooks that wire together multiple hooks:
+
 - `useThreadOrchestration`: Bootstrap, sync, selection handlers, UI orchestration for threads.
 - `useWorkspaceOrchestration`: Workspace insights and ordering orchestration.
 - `useLayoutOrchestration`: App shell class names and layout state.
@@ -747,6 +799,7 @@ The `app/orchestration/` directory contains composition hooks that wire together
 ## 14. Service Layer (Tauri Bridge)
 
 ### `services/tauri.ts` (~950 lines)
+
 All communication with the Rust Tauri backend happens through `invoke()` calls. Major categories:
 
 **Workspace Management**: `listWorkspaces`, `addWorkspace`, `addWorkspaceFromGitUrl`, `addClone`, `addWorktree`, `removeWorkspace`, `removeWorktree`, `renameWorktree`, `renameWorktreeUpstream`, `updateWorkspaceSettings`, `connectWorkspace`, `applyWorktreeChanges`, `getWorktreeSetupStatus`, `markWorktreeSetupRan`, `isWorkspacePathDir`.
@@ -782,14 +835,17 @@ All communication with the Rust Tauri backend happens through `invoke()` calls. 
 **Tray**: `setTrayRecentThreads`, `setTraySessionUsage`.
 
 ### `services/events.ts`
+
 Event hub pattern using `createEventHub<T>()`. Subscriptions auto-start/stop Tauri event listeners.
 
 Event channels: `app-server-event`, `dictation-download`, `dictation-event`, `terminal-output`, `terminal-exit`, `updater-check`, `tray-open-thread`, `menu-new-agent`, `menu-new-worktree-agent`, `menu-new-clone-agent`, `menu-add-workspace`, `menu-add-workspace-from-url`, `menu-open-settings`, `menu-toggle-*-sidebar/panel/terminal`, `menu-next/prev-agent/workspace`, `menu-composer-cycle-*`.
 
 ### `services/toasts.ts`
+
 Simple pub/sub for error toasts with auto-generated IDs.
 
 ### `services/dragDrop.ts`
+
 Window-level drag-and-drop event subscription via `getCurrentWindow().onDragDropEvent()`.
 
 ---
@@ -797,27 +853,32 @@ Window-level drag-and-drop event subscription via `getCurrentWindow().onDragDrop
 ## 15. Multi-Agent Visualization
 
 ### Subagent Trees
+
 - `subagentTree.ts`: `getSubagentDescendantThreadIds()` performs BFS traversal of parent-child thread relationships to find all subagent descendants.
 - `threadParentById`: Record mapping child thread IDs to parent thread IDs.
 - Thread linking: `useThreadLinking` hook maintains parent-child relationships.
 - Subagent detection: `isSubagent` flag on `ThreadSummary`, `onSubagentThreadDetected` callback.
 
 ### Thread Grouping in Sidebar
+
 - Subagent threads are nested under their parent threads with indentation.
 - `ThreadRow` shows subagent pill with color-coded hue based on hash of workspace+nickname/role.
 - Subagent groups are collapsible/expandable via toggle.
 - Formatting: `formatSubagentRoleLabel()` normalizes role labels (replace underscores, capitalize words).
 
 ### Cascade Operations
+
 - Archiving a parent thread cascades to archive all subagent descendants.
 - `CASCADE_ARCHIVE_SKIP_TTL_MS = 120000` (2 min TTL for skipping cascade re-triggers).
 
 ### Collaboration Tool Rendering
+
 - `collabToolCall` tool type renders sender/receiver agent information.
 - Labels: "spawning/spawned", "sending to/sent to", "waiting for/waited for", "resuming/resumed", "closing/closed".
 - Multiple receivers: Shows first receiver with "+N" indicator.
 
 ### Thread Hydration
+
 - `hydrateSubagentThreads()`: Reads full thread data for discovered subagent threads to populate nickname, role, timestamps.
 - In-flight tracking prevents duplicate hydration requests.
 
@@ -826,18 +887,21 @@ Window-level drag-and-drop event subscription via `getCurrentWindow().onDragDrop
 ## 16. Notification and Sound System
 
 ### Sound Notifications
+
 - `useAgentSoundNotifications`: Plays success/error sounds when agent turns complete.
 - Sound files: `success-notification.mp3`, `error-notification.mp3`.
 - Controlled by `notificationSoundsEnabled` setting.
 - `notificationSounds.ts`: Audio playback utility.
 
 ### System Notifications
+
 - `useAgentSystemNotifications`: Native OS notifications via `@tauri-apps/plugin-notification`.
 - `useAgentResponseRequiredNotifications`: Notifications for approval requests and user input.
 - Controlled by `systemNotificationsEnabled` and `subagentSystemNotificationsEnabled`.
 - `useSystemNotificationThreadLinks`: Links notification clicks to thread navigation.
 
 ### Error Toasts
+
 - `useErrorToasts`: Manages error toast stack.
 - `ErrorToasts` component renders toast cards with dismiss buttons.
 - Toasts auto-dismiss after configurable duration.
@@ -847,12 +911,14 @@ Window-level drag-and-drop event subscription via `getCurrentWindow().onDragDrop
 ## 17. Dictation / Voice Features
 
 ### Dictation System
+
 - **Model Management**: `useDictationModel` hook manages Whisper model lifecycle (download, cancel, remove).
 - Five model sizes: tiny (75MB), base (142MB), small (466MB), medium (1.5GB), large-v3 (3.0GB).
 - Model states: missing, downloading, ready, error.
 - Download progress tracking (totalBytes, downloadedBytes).
 
 ### Dictation Session
+
 - `useDictation`: Core dictation session management.
 - `useHoldToDictate`: Hold-key-to-dictate mode (configurable hold key).
 - Session states: idle, listening, processing.
@@ -861,6 +927,7 @@ Window-level drag-and-drop event subscription via `getCurrentWindow().onDragDrop
 - `DictationWaveform` component: Visual audio level indicator.
 
 ### Integration
+
 - Mic button in composer: Toggle dictation, cancel, open settings.
 - Dictation transcripts are inserted into composer text via `useComposerDraftEffects`.
 - Configurable preferred language.
@@ -871,21 +938,25 @@ Window-level drag-and-drop event subscription via `getCurrentWindow().onDragDrop
 ## 18. Terminal Integration
 
 ### Terminal Hooks
+
 - `useTerminalController`: Manages terminal lifecycle, spawning, and session coordination.
 - `useTerminalSession`: Individual terminal session (xterm.js integration). Handles resize, write, output events.
 - `useTerminalTabs`: Multi-tab terminal management.
 
 ### Terminal Components
+
 - `TerminalPanel`: Renders xterm.js terminal surface with status overlay (idle/connecting/ready/error).
 - `TerminalDock`: Dockable terminal panel with tab bar and resize handle.
 
 ### Tauri Commands
+
 - `terminalSpawn(workspaceId, terminalId)`: Spawn a new terminal process.
 - `terminalWrite(workspaceId, terminalId, data)`: Send data to terminal.
 - `terminalResize(workspaceId, terminalId, cols, rows)`: Resize terminal.
 - `terminalKill(workspaceId, terminalId)`: Kill terminal process.
 
 ### Events
+
 - `terminal-output`: Terminal output data events.
 - `terminal-exit`: Terminal process exit events.
 
@@ -894,10 +965,12 @@ Window-level drag-and-drop event subscription via `getCurrentWindow().onDragDrop
 ## 19. Update System
 
 ### Update Hooks
+
 - `useUpdater`: Manages app update lifecycle. Stages: idle, checking, available, downloading, installing, restarting, latest, error.
 - `useUpdaterController`: Coordinates update checks and notifications.
 
 ### Update UI
+
 - `UpdateToast`: Toast-based update notification with progress bar.
 - Shows: version, download progress (bytes/total), status messages.
 - Actions: Update, Later, Retry (on error), Dismiss.
@@ -909,10 +982,12 @@ Window-level drag-and-drop event subscription via `getCurrentWindow().onDragDrop
 ## 20. Mobile / Responsive Support
 
 ### Platform Detection
+
 - `isMobilePlatform()` and `isMobileRuntime()` (Tauri command).
 - Three layout modes: Desktop, Tablet, Phone.
 
 ### Mobile-Specific Features
+
 - `MobileServerSetupWizard`: Setup flow for connecting mobile to remote server.
 - `MobileRemoteWorkspacePrompt`: Path entry for remote workspaces.
 - `useComposerMobileActions`: Mobile actions menu (attach, dictation, expand).
@@ -921,6 +996,7 @@ Window-level drag-and-drop event subscription via `getCurrentWindow().onDragDrop
 - Composer focus state tracking for mobile keyboard handling.
 
 ### Responsive CSS
+
 - `compact-base.css`: Shared compact mode styles.
 - `compact-phone.css`: Phone-specific styles.
 - `compact-tablet.css`: Tablet-specific styles.
@@ -934,6 +1010,7 @@ Window-level drag-and-drop event subscription via `getCurrentWindow().onDragDrop
 ## 21. Design System
 
 ### Primitives
+
 - `ModalShell`: Reusable modal container with backdrop and escape handling.
 - `PanelPrimitives`: `PanelMeta`, `PanelSearchField` for consistent panel headers.
 - `PopoverPrimitives`: Popover positioning and rendering.
@@ -947,16 +1024,19 @@ Window-level drag-and-drop event subscription via `getCurrentWindow().onDragDrop
 ## 22. Account and Authentication
 
 ### Account Types
+
 - `AccountSnapshot`: type (chatgpt/apikey/unknown), email, planType, requiresOpenaiAuth.
 - `RateLimitSnapshot`: primary/secondary windows, credits, planType.
 - `CreditsSnapshot`: hasCredits, unlimited, balance.
 
 ### Account Hooks
+
 - `useThreadAccountInfo`: Fetches account info per workspace.
 - `useAccountSwitching`: Handles OpenAI auth login flow (`runCodexLogin`, `cancelCodexLogin`).
 - `useHomeAccount`: Provides account data for home dashboard.
 
 ### Tray Integration
+
 - `useTrayRecentThreads`: Updates system tray with recent thread list.
 - `useTraySessionUsage`: Updates tray with session/weekly usage labels.
 - `subscribeTrayOpenThread`: Handles "open thread" from tray click.
@@ -966,9 +1046,11 @@ Window-level drag-and-drop event subscription via `getCurrentWindow().onDragDrop
 ## 23. Debug System
 
 ### Debug Hooks
+
 - `useDebugLog`: Manages debug entry collection with max capacity.
 
 ### Debug Panel
+
 - `DebugPanel`: Scrollable log viewer showing timestamped entries.
 - Entry sources: client, server, event, stderr, error.
 - Copy all entries to clipboard functionality.
@@ -980,11 +1062,13 @@ Window-level drag-and-drop event subscription via `getCurrentWindow().onDragDrop
 ## 24. Skills and Apps
 
 ### Skills
+
 - `useSkills`: Fetches skill list from Codex backend.
 - `SkillOption`: name, path, description.
 - Skills appear in `/` autocomplete.
 
 ### Apps (Connected Apps / Connectors)
+
 - `useApps`: Fetches available apps from backend.
 - `AppOption`: id, name, description, isAccessible, installUrl, distributionChannel.
 - `$` trigger in composer for app mentions.
@@ -992,6 +1076,7 @@ Window-level drag-and-drop event subscription via `getCurrentWindow().onDragDrop
 - `AppMention`: name, path (sent with messages for context).
 
 ### Collaboration Modes
+
 - `useCollaborationModes`: Fetches available collaboration modes.
 - `CollaborationModeOption`: id, label, mode, model, reasoningEffort, developerInstructions, value.
 - Selectable per-thread and per-message.
@@ -1001,6 +1086,7 @@ Window-level drag-and-drop event subscription via `getCurrentWindow().onDragDrop
 ## 25. Keyboard Shortcuts Summary
 
 ### Global Shortcuts (configurable)
+
 - Cycle model, cycle access mode, cycle reasoning effort, cycle collaboration mode.
 - Interrupt agent, new agent, new worktree agent, new clone agent.
 - Archive thread, toggle projects sidebar, toggle git sidebar.
@@ -1008,6 +1094,7 @@ Window-level drag-and-drop event subscription via `getCurrentWindow().onDragDrop
 - Cycle agent next/prev, cycle workspace next/prev.
 
 ### Composer Shortcuts
+
 - Enter: Send (or queue/steer when processing).
 - Shift+Enter: New line (or continue list).
 - Shift+Cmd+Enter: Send with opposite follow-up intent.
@@ -1016,5 +1103,6 @@ Window-level drag-and-drop event subscription via `getCurrentWindow().onDragDrop
 - Backtick triggers: Auto-expand code fences.
 
 ### UI Scale
+
 - Cmd+Plus / Cmd+Minus: Zoom in/out.
 - Cmd+0: Reset zoom.

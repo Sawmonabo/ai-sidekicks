@@ -1,14 +1,14 @@
 # Spec-023: Desktop Shell And Renderer
 
-| Field | Value |
-| --- | --- |
-| **Status** | `approved` |
-| **NNN** | `023` |
-| **Slug** | `desktop-shell-and-renderer` |
-| **Date** | `2026-04-17` |
-| **Author(s)** | `Claude (AI-assisted)` |
-| **Depends On** | [ADR-016: Electron Desktop Shell](../decisions/016-electron-desktop-shell.md), [ADR-010: PASETO + WebAuthn + MLS Auth](../decisions/010-paseto-webauthn-mls-auth.md), [ADR-009: JSON-RPC IPC Wire Format](../decisions/009-json-rpc-ipc-wire-format.md), [Container Architecture](../architecture/container-architecture.md), [Component Architecture Desktop App](../architecture/component-architecture-desktop-app.md), [Security Architecture](../architecture/security-architecture.md), [Spec-007: Local IPC And Daemon Control](./007-local-ipc-and-daemon-control.md) |
-| **Implementation Plan** | [Plan-023: Desktop Shell And Renderer](../plans/023-desktop-shell-and-renderer.md) |
+| Field                   | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Status**              | `approved`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| **NNN**                 | `023`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| **Slug**                | `desktop-shell-and-renderer`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| **Date**                | `2026-04-17`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| **Author(s)**           | `Claude (AI-assisted)`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| **Depends On**          | [ADR-016: Electron Desktop Shell](../decisions/016-electron-desktop-shell.md), [ADR-010: PASETO + WebAuthn + MLS Auth](../decisions/010-paseto-webauthn-mls-auth.md), [ADR-009: JSON-RPC IPC Wire Format](../decisions/009-json-rpc-ipc-wire-format.md), [Container Architecture](../architecture/container-architecture.md), [Component Architecture Desktop App](../architecture/component-architecture-desktop-app.md), [Security Architecture](../architecture/security-architecture.md), [Spec-007: Local IPC And Daemon Control](./007-local-ipc-and-daemon-control.md) |
+| **Implementation Plan** | [Plan-023: Desktop Shell And Renderer](../plans/023-desktop-shell-and-renderer.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 
 ## Purpose
 
@@ -23,6 +23,7 @@ Define the Electron desktop shell (main process + preload) and React + Vite rend
 ## Scope
 
 In scope:
+
 - Electron main-process architecture and lifecycle
 - Preload bridge contract (capability surface between renderer and main)
 - Renderer composition of V1 Signature Features (timeline, approvals, invites, runs, multi-agent channels)
@@ -38,7 +39,7 @@ In scope:
 
 ## Non-Goals
 
-- Renderer visual design, component library choice, theme system (owned by the design track; this spec specifies *what* views compose, not *how* they look)
+- Renderer visual design, component library choice, theme system (owned by the design track; this spec specifies _what_ views compose, not _how_ they look)
 - Daemon internals (owned by `component-architecture-local-daemon.md` and Spec-007)
 - Control-plane authentication protocol details (owned by Spec-008 and ADR-010)
 - Mobile or browser-hosted renderer surfaces (out of V1 per ADR-015; browser-only local clients explicitly out of scope per Spec-007 §Resolved Questions and V1 Scope Decisions)
@@ -152,7 +153,10 @@ interface SidekicksBridge {
   // daemon RPC — request/response over Spec-007 JSON-RPC contract
   daemon: {
     call<M extends DaemonMethod>(method: M, params: DaemonParams<M>): Promise<DaemonResult<M>>;
-    subscribe<E extends DaemonEvent>(event: E, handler: (payload: DaemonEventPayload<E>) => void): Unsubscribe;
+    subscribe<E extends DaemonEvent>(
+      event: E,
+      handler: (payload: DaemonEventPayload<E>) => void,
+    ): Unsubscribe;
   };
 
   // control-plane RPC — request/response over tRPC, live updates over WebSocket JSON-RPC 2.0
@@ -167,7 +171,7 @@ interface SidekicksBridge {
     showSaveDialog(options: SaveDialogOptions): Promise<SaveDialogResult>;
     showMessageBox(options: MessageBoxOptions): Promise<MessageBoxResult>;
     showNotification(options: NotificationOptions): void;
-    openExternal(url: string): Promise<void>;           // main-process allowlist-validated
+    openExternal(url: string): Promise<void>; // main-process allowlist-validated
     copyToClipboard(text: string): Promise<void>;
     revealInFileExplorer(path: FilePathRef): Promise<void>;
   };
@@ -177,7 +181,7 @@ interface SidekicksBridge {
   webAuthn: {
     createCredential(options: PublicKeyCredentialCreationOptions): Promise<PublicKeyCredential>;
     getAssertion(options: PublicKeyCredentialRequestOptions): Promise<PublicKeyCredential>;
-    deriveKeyMaterial(input: PrfInput): Promise<ArrayBuffer>;  // PRF extension per ADR-010
+    deriveKeyMaterial(input: PrfInput): Promise<ArrayBuffer>; // PRF extension per ADR-010
   };
 
   // auto-update — renderer observes state; main process drives
@@ -191,8 +195,8 @@ interface SidekicksBridge {
   // app meta — read-only
   app: {
     version: string;
-    platform: 'darwin' | 'linux' | 'win32';
-    arch: 'arm64' | 'x64';
+    platform: "darwin" | "linux" | "win32";
+    arch: "arm64" | "x64";
     locale: string;
   };
 }
@@ -393,6 +397,7 @@ Electron has **no LTS lane**. The project team supports the latest three stable 
 **Consequence:** Plan-023 must budget two forced major-version upgrades in V1's first year after ship. Same-week patch adoption is required on security-advisory drops. This is the single largest recurring operational cost of choosing Electron and is accepted per ADR-016; Plan-023 must include release-engineering capacity for the cadence.
 
 Sources:
+
 - [Electron release timeline](https://www.electronjs.org/docs/latest/tutorial/electron-timelines)
 - [Release schedule](https://releases.electronjs.org/schedule)
 - [Electron 41.0 release notes](https://www.electronjs.org/blog/electron-41-0)
@@ -419,6 +424,7 @@ Exit-reason handling: as of Electron 40, `utilityProcess` exits may carry the re
 Gotcha: `utilityProcess` has no direct network-interception API equivalent to a renderer's `session` object. If the daemon needs Electron's network stack (for cert pinning, for example), requests must proxy back through the shell main process. If the daemon is content with Node's native `https`, this is moot.
 
 Sources:
+
 - [Electron utilityProcess API](https://www.electronjs.org/docs/latest/api/utility-process)
 - [Electron 40.0 release notes](https://www.electronjs.org/blog/electron-40-0) — `"memory-eviction"` exit reason
 - [Electron Message Ports tutorial](https://www.electronjs.org/docs/latest/tutorial/message-ports)
@@ -438,6 +444,7 @@ For simple encrypt-one-blob use cases (e.g., small settings values), Electron's 
 The same rule applies to `@napi-rs/keyring` on headless Linux without Secret Service: the abstraction layer must detect the no-keystore case and refuse to persist auth material rather than silently falling back.
 
 Sources:
+
 - [`node-keytar` archive notice](https://github.com/atom/node-keytar) — "archived by the owner on Dec 15, 2022"
 - [`@napi-rs/keyring` v1.2.0](https://www.npmjs.com/package/@napi-rs/keyring)
 - [MSAL JS keytar migration issue](https://github.com/AzureAD/microsoft-authentication-library-for-js/issues/7170) — corroborating MSAL's move off keytar
@@ -454,6 +461,7 @@ Decision: `electron-builder` wins for this spec because cross-platform auto-upda
 **Reproducibility limit:** Neither `electron-builder` nor Electron Forge guarantees bit-reproducible binaries out of the box. No primary source found in the 2026-04 research pass claims Electron apps can be bit-reproducibly built today. If Spec-023 needs reproducibility (supply-chain verification, for example), Plan-023 must architect supporting infrastructure (SOURCE_DATE_EPOCH, deterministic filesystem ordering, stripped metadata). V1 does **not** claim reproducible builds; this is an accepted scope gap to revisit in V1.1.
 
 Sources:
+
 - [electron-builder v26.9.0 release](https://github.com/electron-userland/electron-builder/releases)
 - [Electron Forge v7.11.1 / v8.0.0-alpha](https://github.com/electron/forge)
 - [Electron Forge overview](https://www.electronjs.org/docs/latest/tutorial/forge-overview)
@@ -474,6 +482,7 @@ Update feed hosting: project-operated static artifact store (S3-backed) with an 
 **Alternative (not chosen):** Electron's built-in `autoUpdater` module uses Squirrel.Mac on macOS and Squirrel.Windows (or MSIX updater, auto-detected) on Windows; it has **no built-in Linux support**. The hosted `update.electronjs.org` service is restricted to public GitHub repos, macOS (DMG) + Windows (NSIS) only, and requires signed macOS builds. Neither covers V1's Linux requirement.
 
 Sources:
+
 - [electron-updater v6.8.4 release](https://github.com/electron-userland/electron-builder/releases)
 - [electron-updater documentation](https://www.electron.build/auto-update)
 - [Electron built-in autoUpdater API](https://www.electronjs.org/docs/latest/api/auto-updater)
@@ -497,7 +506,7 @@ Sources:
   - **Eligibility gate:** Public Trust is available to organizations in **USA, Canada, EU, UK** and to **individual developers in USA and Canada only**. Outside those regions, Artifact Signing is not available for public-trust signing and this project must use a traditional EV cert. Per-deployment decision; confirm eligibility before locking in.
   - **Does not issue EV certificates.** If distribution requires EV (e.g., for instant SmartScreen reputation), Artifact Signing is not sufficient and a traditional EV cert from DigiCert / Sectigo / SSL.com is required in addition.
 - **Fallback path:** EV code-signing cert from DigiCert / Sectigo / SSL.com. Typical OV pricing $300–$700/year; EV pricing $400–$1,200/year. Under CSC-31, renewal is now every 15 months rather than 3 years — factor this into vendor comparison vs. Artifact Signing's monthly subscription.
-- **Smart App Control reality:** Valid code signing is **not sufficient** for Smart App Control to allow a binary. SAC evaluates cert trust chain *and* cloud reputation (Intelligent Security Graph). New binaries with low distribution get blocked until reputation builds, even with a valid EV signature. First-launch UX on Windows 11 will be rough until reputation accumulates; mitigation is Artifact Signing's Public Trust chain + clear user-facing "Run anyway" instructions.
+- **Smart App Control reality:** Valid code signing is **not sufficient** for Smart App Control to allow a binary. SAC evaluates cert trust chain _and_ cloud reputation (Intelligent Security Graph). New binaries with low distribution get blocked until reputation builds, even with a valid EV signature. First-launch UX on Windows 11 will be rough until reputation accumulates; mitigation is Artifact Signing's Public Trust chain + clear user-facing "Run anyway" instructions.
 - **Windows 10 EOL:** Windows 10 reached end-of-support on 2025-10-14. Per Spec-023 §Scope, V1 supports Windows 10 + 11 (x64). Because Windows 10 is EOL, this spec accepts the security-posture implication of shipping to an EOL OS for V1. Plan-023 must surface this as a known-state item; a V1.1 decision may tighten to Windows 11 only.
 
 #### Linux
@@ -511,6 +520,7 @@ There is no universal code-signing model for Linux. Three distinct formats, thre
 `electron-builder` supports all of the above. No automatic signing beyond what each format specifies.
 
 Sources:
+
 - [CA/Browser Forum CSC-31 ballot](https://cabforum.org/working-groups/code-signing/requirements/)
 - [Microsoft — Azure Artifact Signing GA announcement (2026-01-12)](https://techcommunity.microsoft.com/blog/microsoft-security-blog/simplifying-code-signing-for-windows-apps-artifact-signing-ga/4482789)
 - [Azure Artifact Signing FAQ — eligibility & EV scope](https://learn.microsoft.com/en-us/azure/artifact-signing/faq)
@@ -536,6 +546,7 @@ Electron's built-in `crashReporter` module uses **Crashpad** (not Breakpad as ol
 Final sink decision is a BL-to-be-filed and owned by Plan-023; this spec declares the requirements the choice must satisfy.
 
 Sources:
+
 - [Electron `crashReporter` API (Crashpad)](https://www.electronjs.org/docs/latest/api/crash-reporter)
 - [Sentry Electron SDK documentation](https://docs.sentry.io/platforms/javascript/guides/electron/)
 
@@ -549,6 +560,7 @@ V1 therefore depends on a **native module** to bridge the platform authenticator
 - **`@electron-webauthn/native`** — published as cross-platform, but the research pass could not confirm platform coverage beyond the marketing claim. [npm](https://www.npmjs.com/package/@electron-webauthn/native).
 
 **Required Plan-023 work before lock-in:** Prototype platform-authenticator flows on all three target OSes and confirm:
+
 1. Touch ID works via the Vault12 module on macOS arm64 + x64.
 2. Windows Hello works on Windows 10 + 11 via the chosen cross-platform module.
 3. FIDO2 roaming authenticators (and, where available, platform authenticators) work on Linux.
@@ -611,43 +623,43 @@ React + Vite per ADR-016; TypeScript strict. Vite produces ES module output; the
 
 A dedicated current-state research pass (Electron version / cadence, security hardening, IPC / preload bridge, code signing, auto-updater, native keystore, crash reporting, build tooling, utility-process patterns, WebAuthn, and 2026 greenfield red flags) was run on 2026-04-17 and integrated inline in §Required Behavior and §Implementation Notes. Primary sources are cited with each integration. The table below indexes the sources for reviewer traceability.
 
-| Source | Type | Key Finding | URL |
-|--------|------|-------------|-----|
-| Electron release timeline | Documentation | 3-major support window, 8-week cadence, no LTS lane | https://www.electronjs.org/docs/latest/tutorial/electron-timelines |
-| Electron release schedule | Documentation | v41 EOL 2026-08-25; forced upgrade cadence confirmation | https://releases.electronjs.org/schedule |
-| Electron 41.0 release notes | Release notes | Chromium 146, Node 24.14, ASAR Integrity Digest, MSIX auto-update | https://www.electronjs.org/blog/electron-41-0 |
-| Electron 40.0 release notes | Release notes | `utilityProcess` `"memory-eviction"` exit reason; renderer clipboard deprecation; macOS dSYM format change | https://www.electronjs.org/blog/electron-40-0 |
-| Electron 39.0 release notes | Release notes | ASAR Integrity graduated to stable; `@electron/packager` v19 enables it by default | https://www.electronjs.org/blog/electron-39-0 |
-| Electron Security Checklist | Documentation | 20-item hardening checklist — the basis for §Security Hardening Baseline | https://www.electronjs.org/docs/latest/tutorial/security |
-| Electron Fuses documentation | Documentation | Fuse defaults and recommended production posture | https://www.electronjs.org/docs/latest/tutorial/fuses |
-| Electron IPC tutorial | Documentation | `contextBridge` + `invoke` / `handle` patterns | https://www.electronjs.org/docs/latest/tutorial/ipc |
-| Electron `utilityProcess` API | Documentation | Chromium-Services-backed process model; `MessagePortMain`; post-`app.ready` requirement | https://www.electronjs.org/docs/latest/api/utility-process |
-| Electron Message Ports tutorial | Documentation | `ipcRenderer.postMessage` required for MessagePort transfer | https://www.electronjs.org/docs/latest/tutorial/message-ports |
-| Electron `safeStorage` API | Documentation | Linux plaintext-fallback when no keystore; `getSelectedStorageBackend` check | https://www.electronjs.org/docs/latest/api/safe-storage |
-| Electron `autoUpdater` API | Documentation | Built-in updater: Squirrel.Mac / Squirrel.Windows or MSIX; no Linux support | https://www.electronjs.org/docs/latest/api/auto-updater |
-| Electron `crashReporter` API | Documentation | Crashpad-based; multipart/form-data upload; 39/127-byte metadata limits | https://www.electronjs.org/docs/latest/api/crash-reporter |
-| Electron Forge overview | Documentation | Officially-recommended packaging; v7.11.1 stable, v8.0.0 alpha (ESM) | https://www.electronjs.org/docs/latest/tutorial/forge-overview |
-| Electron GitHub Security Advisories | Primary source | Q1 2026 CVE batch (2026-04-02): 34769/34770/34771/34772/34774/34764 | https://github.com/electron/electron/security/advisories |
-| electron-builder releases | Release notes | v26.9.0 (2026-04-14); v26.8.2 (2026-03-04) tar security patches | https://github.com/electron-userland/electron-builder/releases |
-| electron.build auto-update docs | Documentation | Code-signature validation on macOS + Windows; staged rollouts; NSIS-only block-map delta | https://www.electron.build/auto-update |
-| Electron Forge GitHub | Source | v7.11.1 stable (2026-01-12); v8.0.0-alpha.7 (2026-04-10) | https://github.com/electron/forge |
-| update.electronjs.org | Source | Restrictions: public GitHub repos only; macOS + Windows only; no Linux | https://github.com/electron/update.electronjs.org |
-| node-keytar archive | Primary source | Archived 2022-12-15; last release v7.9.0 (2022-02-17) | https://github.com/atom/node-keytar |
-| `@napi-rs/keyring` npm | Package | v1.2.0 (2025-09-02); keytar-compatible replacement; no libsecret required on Linux | https://www.npmjs.com/package/@napi-rs/keyring |
-| `@napi-rs/keyring` GitHub | Source | Rust napi-rs binding to keyring-rs crate | https://github.com/Brooooooklyn/keyring-node |
-| MSAL JS issue #7170 | Primary source | Microsoft's migration off keytar (corroborating) | https://github.com/AzureAD/microsoft-authentication-library-for-js/issues/7170 |
-| CA/Browser Forum CSC-31 | Primary source | Adopted 2025-11-17, effective 2026-03-01: 460-day max cert validity | https://cabforum.org/working-groups/code-signing/requirements/ |
-| Microsoft — Artifact Signing GA | Primary source | Renamed from Trusted Signing; GA 2026-01-12; Basic SKU pricing | https://techcommunity.microsoft.com/blog/microsoft-security-blog/simplifying-code-signing-for-windows-apps-artifact-signing-ga/4482789 |
-| Azure Artifact Signing FAQ | Documentation | Regional eligibility (USA/Canada/EU/UK orgs; US/Canada individuals); no EV cert issuance | https://learn.microsoft.com/en-us/azure/artifact-signing/faq |
-| Apple Developer ID | Documentation | Developer ID cert free under $99/yr program; notarization required | https://developer.apple.com/developer-id/ |
-| Apple Developer forum — notarization delays | Primary source | January 2026: 24–120+ hour queue delays reported | https://developer.apple.com/forums/thread/813441 |
-| Microsoft — Windows 10 lifecycle | Primary source | Windows 10 EOL 2025-10-14 | https://learn.microsoft.com/en-us/lifecycle/products/windows-10-home-and-pro |
-| Sentry Electron SDK documentation | Documentation | Per-process init (`@sentry/electron/main` / `/renderer` / `/utility`) | https://docs.sentry.io/platforms/javascript/guides/electron/ |
-| `electron-webauthn-mac` (Vault12) | Source | Jan 2026 open-source release; bridges Apple `AuthenticationServices` for passkeys | https://github.com/vault12/electron-webauthn-mac |
-| `@electron-webauthn/native` | Package | Published as cross-platform; scope beyond macOS not authoritatively confirmed in this pass | https://www.npmjs.com/package/@electron-webauthn/native |
-| electron/electron #15404 | Primary source | Long-standing open issue on native WebAuthn support | https://github.com/electron/electron/issues/15404 |
-| electron/electron #24573 | Primary source | Long-standing open issue on WebAuthn bindings | https://github.com/electron/electron/issues/24573 |
-| GitLab Advisory DB — CVE-2026-34769 | Primary source | Example high-severity entry from Q1 2026 batch | https://advisories.gitlab.com/pkg/npm/electron/CVE-2026-34769/ |
+| Source                                      | Type           | Key Finding                                                                                                | URL                                                                                                                                    |
+| ------------------------------------------- | -------------- | ---------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Electron release timeline                   | Documentation  | 3-major support window, 8-week cadence, no LTS lane                                                        | https://www.electronjs.org/docs/latest/tutorial/electron-timelines                                                                     |
+| Electron release schedule                   | Documentation  | v41 EOL 2026-08-25; forced upgrade cadence confirmation                                                    | https://releases.electronjs.org/schedule                                                                                               |
+| Electron 41.0 release notes                 | Release notes  | Chromium 146, Node 24.14, ASAR Integrity Digest, MSIX auto-update                                          | https://www.electronjs.org/blog/electron-41-0                                                                                          |
+| Electron 40.0 release notes                 | Release notes  | `utilityProcess` `"memory-eviction"` exit reason; renderer clipboard deprecation; macOS dSYM format change | https://www.electronjs.org/blog/electron-40-0                                                                                          |
+| Electron 39.0 release notes                 | Release notes  | ASAR Integrity graduated to stable; `@electron/packager` v19 enables it by default                         | https://www.electronjs.org/blog/electron-39-0                                                                                          |
+| Electron Security Checklist                 | Documentation  | 20-item hardening checklist — the basis for §Security Hardening Baseline                                   | https://www.electronjs.org/docs/latest/tutorial/security                                                                               |
+| Electron Fuses documentation                | Documentation  | Fuse defaults and recommended production posture                                                           | https://www.electronjs.org/docs/latest/tutorial/fuses                                                                                  |
+| Electron IPC tutorial                       | Documentation  | `contextBridge` + `invoke` / `handle` patterns                                                             | https://www.electronjs.org/docs/latest/tutorial/ipc                                                                                    |
+| Electron `utilityProcess` API               | Documentation  | Chromium-Services-backed process model; `MessagePortMain`; post-`app.ready` requirement                    | https://www.electronjs.org/docs/latest/api/utility-process                                                                             |
+| Electron Message Ports tutorial             | Documentation  | `ipcRenderer.postMessage` required for MessagePort transfer                                                | https://www.electronjs.org/docs/latest/tutorial/message-ports                                                                          |
+| Electron `safeStorage` API                  | Documentation  | Linux plaintext-fallback when no keystore; `getSelectedStorageBackend` check                               | https://www.electronjs.org/docs/latest/api/safe-storage                                                                                |
+| Electron `autoUpdater` API                  | Documentation  | Built-in updater: Squirrel.Mac / Squirrel.Windows or MSIX; no Linux support                                | https://www.electronjs.org/docs/latest/api/auto-updater                                                                                |
+| Electron `crashReporter` API                | Documentation  | Crashpad-based; multipart/form-data upload; 39/127-byte metadata limits                                    | https://www.electronjs.org/docs/latest/api/crash-reporter                                                                              |
+| Electron Forge overview                     | Documentation  | Officially-recommended packaging; v7.11.1 stable, v8.0.0 alpha (ESM)                                       | https://www.electronjs.org/docs/latest/tutorial/forge-overview                                                                         |
+| Electron GitHub Security Advisories         | Primary source | Q1 2026 CVE batch (2026-04-02): 34769/34770/34771/34772/34774/34764                                        | https://github.com/electron/electron/security/advisories                                                                               |
+| electron-builder releases                   | Release notes  | v26.9.0 (2026-04-14); v26.8.2 (2026-03-04) tar security patches                                            | https://github.com/electron-userland/electron-builder/releases                                                                         |
+| electron.build auto-update docs             | Documentation  | Code-signature validation on macOS + Windows; staged rollouts; NSIS-only block-map delta                   | https://www.electron.build/auto-update                                                                                                 |
+| Electron Forge GitHub                       | Source         | v7.11.1 stable (2026-01-12); v8.0.0-alpha.7 (2026-04-10)                                                   | https://github.com/electron/forge                                                                                                      |
+| update.electronjs.org                       | Source         | Restrictions: public GitHub repos only; macOS + Windows only; no Linux                                     | https://github.com/electron/update.electronjs.org                                                                                      |
+| node-keytar archive                         | Primary source | Archived 2022-12-15; last release v7.9.0 (2022-02-17)                                                      | https://github.com/atom/node-keytar                                                                                                    |
+| `@napi-rs/keyring` npm                      | Package        | v1.2.0 (2025-09-02); keytar-compatible replacement; no libsecret required on Linux                         | https://www.npmjs.com/package/@napi-rs/keyring                                                                                         |
+| `@napi-rs/keyring` GitHub                   | Source         | Rust napi-rs binding to keyring-rs crate                                                                   | https://github.com/Brooooooklyn/keyring-node                                                                                           |
+| MSAL JS issue #7170                         | Primary source | Microsoft's migration off keytar (corroborating)                                                           | https://github.com/AzureAD/microsoft-authentication-library-for-js/issues/7170                                                         |
+| CA/Browser Forum CSC-31                     | Primary source | Adopted 2025-11-17, effective 2026-03-01: 460-day max cert validity                                        | https://cabforum.org/working-groups/code-signing/requirements/                                                                         |
+| Microsoft — Artifact Signing GA             | Primary source | Renamed from Trusted Signing; GA 2026-01-12; Basic SKU pricing                                             | https://techcommunity.microsoft.com/blog/microsoft-security-blog/simplifying-code-signing-for-windows-apps-artifact-signing-ga/4482789 |
+| Azure Artifact Signing FAQ                  | Documentation  | Regional eligibility (USA/Canada/EU/UK orgs; US/Canada individuals); no EV cert issuance                   | https://learn.microsoft.com/en-us/azure/artifact-signing/faq                                                                           |
+| Apple Developer ID                          | Documentation  | Developer ID cert free under $99/yr program; notarization required                                         | https://developer.apple.com/developer-id/                                                                                              |
+| Apple Developer forum — notarization delays | Primary source | January 2026: 24–120+ hour queue delays reported                                                           | https://developer.apple.com/forums/thread/813441                                                                                       |
+| Microsoft — Windows 10 lifecycle            | Primary source | Windows 10 EOL 2025-10-14                                                                                  | https://learn.microsoft.com/en-us/lifecycle/products/windows-10-home-and-pro                                                           |
+| Sentry Electron SDK documentation           | Documentation  | Per-process init (`@sentry/electron/main` / `/renderer` / `/utility`)                                      | https://docs.sentry.io/platforms/javascript/guides/electron/                                                                           |
+| `electron-webauthn-mac` (Vault12)           | Source         | Jan 2026 open-source release; bridges Apple `AuthenticationServices` for passkeys                          | https://github.com/vault12/electron-webauthn-mac                                                                                       |
+| `@electron-webauthn/native`                 | Package        | Published as cross-platform; scope beyond macOS not authoritatively confirmed in this pass                 | https://www.npmjs.com/package/@electron-webauthn/native                                                                                |
+| electron/electron #15404                    | Primary source | Long-standing open issue on native WebAuthn support                                                        | https://github.com/electron/electron/issues/15404                                                                                      |
+| electron/electron #24573                    | Primary source | Long-standing open issue on WebAuthn bindings                                                              | https://github.com/electron/electron/issues/24573                                                                                      |
+| GitLab Advisory DB — CVE-2026-34769         | Primary source | Example high-severity entry from Q1 2026 batch                                                             | https://advisories.gitlab.com/pkg/npm/electron/CVE-2026-34769/                                                                         |
 
 ### Related Specs
 

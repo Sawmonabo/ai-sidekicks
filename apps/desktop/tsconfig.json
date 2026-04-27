@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "../../tsconfig.node22.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "tsBuildInfoFile": "./.tsbuildinfo"
+  },
+  "references": [{ "path": "../../packages/contracts" }, { "path": "../../packages/client-sdk" }],
+  "include": ["src/**/*"],
+  "exclude": ["dist", "node_modules", "src/**/__tests__/**"]
+}

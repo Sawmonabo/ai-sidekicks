@@ -1,13 +1,13 @@
 # ADR-001: Session Is The Primary Domain Object
 
-| Field | Value |
-| -------------- | ------------------------------------------------------------------------ |
-| **Status** | `accepted` |
-| **Type** | `Type 2 (one-way door)` |
-| **Domain** | `Domain Model` |
-| **Date** | `2026-04-14` |
-| **Author(s)** | `Codex` |
-| **Reviewers** | `Accepted 2026-04-15` |
+| Field         | Value                   |
+| ------------- | ----------------------- |
+| **Status**    | `accepted`              |
+| **Type**      | `Type 2 (one-way door)` |
+| **Domain**    | `Domain Model`          |
+| **Date**      | `2026-04-14`            |
+| **Author(s)** | `Codex`                 |
+| **Reviewers** | `Accepted 2026-04-15`   |
 
 ## Context
 
@@ -48,7 +48,7 @@ The single-user case remains a valid session with one participant and one runtim
 ### Option B: Agent-Thread-Centric Model (Rejected)
 
 - **What:** Treat a provider-backed agent thread as the primary unit and attach other concerns later.
-- **Steel man:** Maps closely to existing provider runtimes and is fast for single-user execution. 
+- **Steel man:** Maps closely to existing provider runtimes and is fast for single-user execution.
 - **Why rejected:** It cannot cleanly model multiple humans, shared presence, invites, and participant-owned runtime-node contribution without semantic drift.
 
 ### Option C: Workspace-Centric Model (Rejected)
@@ -59,19 +59,19 @@ The single-user case remains a valid session with one participant and one runtim
 
 ## Assumptions Audit
 
-| # | Assumption | Evidence | What Breaks If Wrong |
-|---|-----------|----------|----------------------|
-| 1 | Shared live collaboration is a core requirement, not a later add-on. | `vision.md` makes this the defining requirement. | A simpler agent-centric design might be preferable. |
-| 2 | Single-user flows can still feel lightweight inside a session model. | Domain and spec drafts keep one-participant sessions valid. | Session-centric design could feel unnecessarily heavy. |
-| 3 | Provider thread ids are not a safe long-term product identity. | The session model explicitly rejects provider threads as the root object, and Spec-001 forbids treating provider thread ids as session ids. | Session identity might become overly abstracted from runtime reality. |
+| #   | Assumption                                                           | Evidence                                                                                                                                    | What Breaks If Wrong                                                  |
+| --- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| 1   | Shared live collaboration is a core requirement, not a later add-on. | `vision.md` makes this the defining requirement.                                                                                            | A simpler agent-centric design might be preferable.                   |
+| 2   | Single-user flows can still feel lightweight inside a session model. | Domain and spec drafts keep one-participant sessions valid.                                                                                 | Session-centric design could feel unnecessarily heavy.                |
+| 3   | Provider thread ids are not a safe long-term product identity.       | The session model explicitly rejects provider threads as the root object, and Spec-001 forbids treating provider thread ids as session ids. | Session identity might become overly abstracted from runtime reality. |
 
 ## Failure Mode Analysis
 
-| Scenario | Likelihood | Impact | Detection | Mitigation |
-|----------|-----------|--------|-----------|------------|
-| Session model becomes over-complex for common single-user flows | Med | Med | Product usage shows excessive setup and thin sessions | Keep defaults minimal: one owner, one channel, optional auto-attach |
-| Teams still use agent or thread language inconsistently | Med | High | Spec wording and implementation names drift | Enforce glossary and domain-doc review gates |
-| Session projections become performance-heavy | Low | Med | Projection lag and large replay windows | Add compaction and projection tuning without changing session semantics |
+| Scenario                                                        | Likelihood | Impact | Detection                                             | Mitigation                                                              |
+| --------------------------------------------------------------- | ---------- | ------ | ----------------------------------------------------- | ----------------------------------------------------------------------- |
+| Session model becomes over-complex for common single-user flows | Med        | Med    | Product usage shows excessive setup and thin sessions | Keep defaults minimal: one owner, one channel, optional auto-attach     |
+| Teams still use agent or thread language inconsistently         | Med        | High   | Spec wording and implementation names drift           | Enforce glossary and domain-doc review gates                            |
+| Session projections become performance-heavy                    | Low        | Med    | Projection lag and large replay windows               | Add compaction and projection tuning without changing session semantics |
 
 ## Reversibility Assessment
 
@@ -108,20 +108,20 @@ The single-user case remains a valid session with one participant and one runtim
 
 ### Success Criteria
 
-| Metric | Target | Measurement Method | Check Date |
-|--------|--------|--------------------|------------|
-| Canonical docs reuse one stable session-centric vocabulary | 100% of foundational docs | Review checklist across domain, architecture, and spec docs | `2026-04-14` |
-| Shared-session features do not require parallel root models | 0 duplicate root aggregates | Architecture and spec review | `2026-04-14` |
+| Metric                                                      | Target                      | Measurement Method                                          | Check Date   |
+| ----------------------------------------------------------- | --------------------------- | ----------------------------------------------------------- | ------------ |
+| Canonical docs reuse one stable session-centric vocabulary  | 100% of foundational docs   | Review checklist across domain, architecture, and spec docs | `2026-04-14` |
+| Shared-session features do not require parallel root models | 0 duplicate root aggregates | Architecture and spec review                                | `2026-04-14` |
 
 ## References
 
 ### Research Conducted
 
-| Source | Type | Key Finding | URL/Location |
-|--------|------|-------------|--------------|
-| `vision.md` | Canonical product vision | Shared session is the defining product requirement | [vision.md](../vision.md) |
-| `domain/session-model.md` | Canonical domain doc | Session can contain all core nouns coherently | [domain/session-model.md](../domain/session-model.md) |
-| `specs/001-shared-session-core.md` | Canonical spec | Session is the stable collaborative container and provider thread ids are not session ids | [specs/001-shared-session-core.md](../specs/001-shared-session-core.md) |
+| Source                             | Type                     | Key Finding                                                                               | URL/Location                                                            |
+| ---------------------------------- | ------------------------ | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `vision.md`                        | Canonical product vision | Shared session is the defining product requirement                                        | [vision.md](../vision.md)                                               |
+| `domain/session-model.md`          | Canonical domain doc     | Session can contain all core nouns coherently                                             | [domain/session-model.md](../domain/session-model.md)                   |
+| `specs/001-shared-session-core.md` | Canonical spec           | Session is the stable collaborative container and provider thread ids are not session ids | [specs/001-shared-session-core.md](../specs/001-shared-session-core.md) |
 
 ### Related Domain Docs
 
@@ -146,8 +146,8 @@ The single-user case remains a valid session with one participant and one runtim
 
 ## Decision Log
 
-| Date | Event | Notes |
-|------|-------|-------|
-| 2026-04-14 | Proposed | Initial draft |
+| Date       | Event        | Notes                                                           |
+| ---------- | ------------ | --------------------------------------------------------------- |
+| 2026-04-14 | Proposed     | Initial draft                                                   |
 | 2026-04-14 | Re-baselined | Reviewer assignment and acceptance validation remain incomplete |
-| 2026-04-15 | Accepted | ADR accepted |
+| 2026-04-15 | Accepted     | ADR accepted                                                    |

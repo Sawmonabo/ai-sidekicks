@@ -63,6 +63,7 @@ venv/
 
 # Misc tool caches
 .cache/
+.eslintcache
 
 # Playwright MCP
 .playwright-mcp/
@@ -79,6 +80,9 @@ tmp/
 
 # Session-local Claude scratch space (research synthesis, ephemeral notes)
 .claude/scratch/
+
+# Claude Code scheduled-wakeup runtime lockfile (ephemeral; per-session)
+.claude/scheduled_tasks.lock
 
 # Cross-tool agent transient artifacts (provider-neutral; convention documented in AGENTS.md)
 # Subagent findings + other transient agent scratch drafted under .agents/tmp/<category>/, citations surfaced forward into consuming docs, files deleted before commit.

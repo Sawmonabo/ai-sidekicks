@@ -30,13 +30,13 @@ Read every doc in `docs/architecture/`. For each, check whether the
 branch changes affect what it describes. Update any doc that no longer
 matches the code. Do not ask — these are factual corrections.
 
-| Doc | Covers |
-|-----|--------|
-| `system-overview.md` | Implemented slices, request flow, layer contracts |
+| Doc                                 | Covers                                               |
+| ----------------------------------- | ---------------------------------------------------- |
+| `system-overview.md`                | Implemented slices, request flow, layer contracts    |
 | `bounded-areas-and-dependencies.md` | Module paths, dependency direction, import contracts |
-| `data-topology-and-cdc.md` | Schemas, RLS model, CDC pipeline, projections |
-| `runtime-composition.md` | Store lifecycle, middleware, adapters |
-| `persistence-boundary.md` | Query module contracts, naming, import enforcement |
+| `data-topology-and-cdc.md`          | Schemas, RLS model, CDC pipeline, projections        |
+| `runtime-composition.md`            | Store lifecycle, middleware, adapters                |
+| `persistence-boundary.md`           | Query module contracts, naming, import enforcement   |
 
 ## 3. Update root files and templates
 

@@ -1,16 +1,16 @@
 # Plan-021: Rate Limiting Policy
 
-| Field | Value |
-| --- | --- |
-| **Status** | `approved` |
-| **NNN** | `021` |
-| **Slug** | `rate-limiting-policy` |
-| **Date** | `2026-04-17` |
-| **Author(s)** | `Claude Opus 4.7` |
-| **Spec** | [Spec-021: Rate Limiting Policy](../specs/021-rate-limiting-policy.md) |
-| **Required ADRs** | [ADR-014: tRPC Control-Plane API](../decisions/014-trpc-control-plane-api.md); [ADR-020: V1 Deployment Model And OSS License](../decisions/020-v1-deployment-model-and-oss-license.md); [ADR-015: V1 Feature Scope Definition](../decisions/015-v1-feature-scope-definition.md); [ADR-010: PASETO + WebAuthn + MLS Auth](../decisions/010-paseto-webauthn-mls-auth.md); [ADR-012: Cedar Approval Policy Engine](../decisions/012-cedar-approval-policy-engine.md) |
-| **Dependencies** | Plan-008 (relay + control-plane surface — this plan wires middleware into Plan-008's tRPC router and into the relay's per-frame receive hook); Plan-018 (PASETO v4.public token issuance and role-claim surface for admin endpoints); Plan-007 (local daemon IPC — scope **exclusion**, confirms the daemon path is not rate-limited) |
-| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
+| Field               | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Status**          | `approved`                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| **NNN**             | `021`                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| **Slug**            | `rate-limiting-policy`                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| **Date**            | `2026-04-17`                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| **Author(s)**       | `Claude Opus 4.7`                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| **Spec**            | [Spec-021: Rate Limiting Policy](../specs/021-rate-limiting-policy.md)                                                                                                                                                                                                                                                                                                                                                                                            |
+| **Required ADRs**   | [ADR-014: tRPC Control-Plane API](../decisions/014-trpc-control-plane-api.md); [ADR-020: V1 Deployment Model And OSS License](../decisions/020-v1-deployment-model-and-oss-license.md); [ADR-015: V1 Feature Scope Definition](../decisions/015-v1-feature-scope-definition.md); [ADR-010: PASETO + WebAuthn + MLS Auth](../decisions/010-paseto-webauthn-mls-auth.md); [ADR-012: Cedar Approval Policy Engine](../decisions/012-cedar-approval-policy-engine.md) |
+| **Dependencies**    | Plan-008 (relay + control-plane surface — this plan wires middleware into Plan-008's tRPC router and into the relay's per-frame receive hook); Plan-018 (PASETO v4.public token issuance and role-claim surface for admin endpoints); Plan-007 (local daemon IPC — scope **exclusion**, confirms the daemon path is not rate-limited)                                                                                                                             |
+| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md)                                                                                                                                                                                                                                                                                                                                                                                         |
 
 ## Goal
 
@@ -137,11 +137,11 @@ There is a pre-existing drift in the contracts docs: [api-payload-contracts.md �
 
 ```ts
 interface RateLimitResponse {
-  code: 'rate_limited'
-  retryAfter: number          // seconds until retry is allowed
-  limit: number               // total allowed requests in the window
-  remaining: number           // requests remaining in the current window
-  resetAt: string             // ISO 8601 timestamp when the limit resets
+  code: "rate_limited";
+  retryAfter: number; // seconds until retry is allowed
+  limit: number; // total allowed requests in the window
+  remaining: number; // requests remaining in the current window
+  resetAt: string; // ISO 8601 timestamp when the limit resets
 }
 ```
 
@@ -153,25 +153,25 @@ Edit to api-payload-contracts.md:79-84 lands in Step 13 (see §Implementation St
 
 ```ts
 // packages/contracts/src/rate-limiter.ts
-export type RateLimitIdentityType = 'participant' | 'ip' | 'token_hash'
+export type RateLimitIdentityType = "participant" | "ip" | "token_hash";
 
 export interface RateLimitCheckRequest {
-  identity: string
-  identityType: RateLimitIdentityType
-  endpoint: string                    // endpoint group key from Spec-021 §Rate Limit Values
-  tier?: 'anonymous' | 'authenticated' | 'elevated'
-  context?: Record<string, unknown>
+  identity: string;
+  identityType: RateLimitIdentityType;
+  endpoint: string; // endpoint group key from Spec-021 §Rate Limit Values
+  tier?: "anonymous" | "authenticated" | "elevated";
+  context?: Record<string, unknown>;
 }
 
 export interface RateLimitCheckResponse {
-  allowed: boolean
-  remaining: number
-  resetAt: string                     // ISO 8601
-  limit: number                       // total threshold for this window
+  allowed: boolean;
+  remaining: number;
+  resetAt: string; // ISO 8601
+  limit: number; // total threshold for this window
 }
 
 export interface RateLimiter {
-  check(req: RateLimitCheckRequest): Promise<RateLimitCheckResponse>
+  check(req: RateLimitCheckRequest): Promise<RateLimitCheckResponse>;
   // RateLimiterCompatibleAbstract (rate-limiter-flexible v11) alignment:
   // consume/reward/block/delete semantics are internal to the backend;
   // the public surface is just check().
@@ -185,28 +185,28 @@ export interface RateLimiter {
 ```ts
 // POST /admin/bans
 interface AdminBanCreateRequest {
-  identity: string
-  identityType: RateLimitIdentityType
-  reason?: string
-  expiresAt?: string               // ISO 8601; omit for permanent
+  identity: string;
+  identityType: RateLimitIdentityType;
+  reason?: string;
+  expiresAt?: string; // ISO 8601; omit for permanent
 }
 interface AdminBanCreateResponse {
-  banId: string                     // UUID
-  issuedAt: string
-  expiresAt: string | null
+  banId: string; // UUID
+  issuedAt: string;
+  expiresAt: string | null;
 }
 
 // GET /admin/bans
 interface AdminBanListResponse {
   bans: Array<{
-    banId: string
-    identity: string
-    identityType: RateLimitIdentityType
-    issuedBy: string
-    issuedAt: string
-    expiresAt: string | null
-    reason: string | null
-  }>
+    banId: string;
+    identity: string;
+    identityType: RateLimitIdentityType;
+    issuedBy: string;
+    issuedAt: string;
+    expiresAt: string | null;
+    reason: string | null;
+  }>;
 }
 
 // DELETE /admin/bans/:id
@@ -222,17 +222,28 @@ interface AdminBanListResponse {
 // packages/control-plane/src/middleware/rate-limit.ts
 export const rateLimitProcedure = (opts: { endpoint: string; identityKeyFn?: (ctx) => string }) =>
   t.middleware(async ({ ctx, next }) => {
-    const identity = opts.identityKeyFn?.(ctx) ?? ctx.participantId ?? ctx.clientIp
-    const limiter = ctx.rateLimiterFactory.forEndpoint(opts.endpoint)
-    const res = await limiter.check({ identity, identityType, endpoint: opts.endpoint, tier: ctx.tier })
+    const identity = opts.identityKeyFn?.(ctx) ?? ctx.participantId ?? ctx.clientIp;
+    const limiter = ctx.rateLimiterFactory.forEndpoint(opts.endpoint);
+    const res = await limiter.check({
+      identity,
+      identityType,
+      endpoint: opts.endpoint,
+      tier: ctx.tier,
+    });
     if (!res.allowed) {
       throw new TRPCError({
-        code: 'TOO_MANY_REQUESTS',
-        cause: { code: 'rate_limited', retryAfter: secondsUntil(res.resetAt), limit: res.limit, remaining: 0, resetAt: res.resetAt }
-      })
+        code: "TOO_MANY_REQUESTS",
+        cause: {
+          code: "rate_limited",
+          retryAfter: secondsUntil(res.resetAt),
+          limit: res.limit,
+          remaining: 0,
+          resetAt: res.resetAt,
+        },
+      });
     }
-    return next({ ctx: { ...ctx, rateLimitHeaders: headersFrom(res) } })
-  })
+    return next({ ctx: { ...ctx, rateLimitHeaders: headersFrom(res) } });
+  });
 ```
 
 - Usage on a procedure: `t.procedure.use(rateLimitProcedure({ endpoint: 'session.create' }))`. The tRPC v11 middleware chaining model is documented in [tRPC v11 middlewares](https://trpc.io/docs/server/middlewares) (uses `.use()` with opts `{ ctx, path, type, input, getRawInput, next }`; v11 adds `.concat()` and `.unstable_pipe()`; the deprecated `experimental_standaloneMiddleware` is not used).
@@ -241,20 +252,24 @@ export const rateLimitProcedure = (opts: { endpoint: string; identityKeyFn?: (ct
 
 ```ts
 // packages/control-plane/src/middleware/ws-rate-limit.ts
-export const wsRateLimit = (limiter: RateLimiter, identityExtractor: (conn) => string) =>
-  async (conn: WsConnection, frame: WsFrame): Promise<{ proceed: true } | { proceed: false; closeCode: number }> => {
+export const wsRateLimit =
+  (limiter: RateLimiter, identityExtractor: (conn) => string) =>
+  async (
+    conn: WsConnection,
+    frame: WsFrame,
+  ): Promise<{ proceed: true } | { proceed: false; closeCode: number }> => {
     const res = await limiter.check({
       identity: identityExtractor(conn),
-      identityType: 'participant',
-      endpoint: 'ws.message',
-      tier: conn.tier
-    })
+      identityType: "participant",
+      endpoint: "ws.message",
+      tier: conn.tier,
+    });
     if (!res.allowed) {
-      conn.send(rateLimitCloseFrame({ retryAfter: secondsUntil(res.resetAt) }))
-      return { proceed: false, closeCode: 4029 }   // custom close code signalling rate limit
+      conn.send(rateLimitCloseFrame({ retryAfter: secondsUntil(res.resetAt) }));
+      return { proceed: false, closeCode: 4029 }; // custom close code signalling rate limit
     }
-    return { proceed: true }
-  }
+    return { proceed: true };
+  };
 ```
 
 - Plan-008's relay frame handler calls `wsRateLimit(limiter, extractor)(conn, frame)` before dispatching. The `4029` custom close code (in the WebSocket private range `4000-4999`) signals "rate limit" to cooperating clients; clients back off using the accompanying `retryAfter` hint.
@@ -262,6 +277,7 @@ export const wsRateLimit = (limiter: RateLimiter, identityExtractor: (conn) => s
 ### Standard headers on 429 responses
 
 All rate-limited responses must set:
+
 - `X-RateLimit-Limit: <limit>`
 - `X-RateLimit-Remaining: 0`
 - `X-RateLimit-Reset: <unix-timestamp-seconds>`
@@ -285,7 +301,7 @@ All rate-limited responses must set:
     - **(a) `RateLimitResponse` (§Error Responses, lines ~79-84):** extend the 4-field shape to 5 fields (add `resetAt: string`) so it matches error-contracts.md §Rate Limiting.
     - **(b) `RateLimitCheckRequest` (§GDPR And Rate Limiting, lines ~1415-1419):** extend the 3-field shape to 5 fields — add `identityType: RateLimitIdentityType` (import the new type from `packages/contracts/src/rate-limiter.ts`) and `tier?: 'anonymous' | 'authenticated' | 'elevated'`, so the doc matches the `RateLimiter` contract authored in Step 1.
     - **(c) `RateLimitCheckResponse` (§GDPR And Rate Limiting, lines ~1420-1424):** extend the 3-field shape to 4 fields — add `limit: number`.
-    Plus: add `AdminBanCreateRequest`/`AdminBanCreateResponse`/`AdminBanListResponse` under a new §Admin APIs section. In `docs/architecture/contracts/error-contracts.md`, add error codes `admin.forbidden` (403), `admin.ban_not_found` (404), `admin.ban_already_exists` (409 — returned when two admins race-issue a ban for the same `(identity, identity_type)`; see §Risks And Blockers), `ratelimit.backend_unavailable` (503).
+      Plus: add `AdminBanCreateRequest`/`AdminBanCreateResponse`/`AdminBanListResponse` under a new §Admin APIs section. In `docs/architecture/contracts/error-contracts.md`, add error codes `admin.forbidden` (403), `admin.ban_not_found` (404), `admin.ban_already_exists` (409 — returned when two admins race-issue a ban for the same `(identity, identity_type)`; see §Risks And Blockers), `ratelimit.backend_unavailable` (503).
 14. **Author Postgres migration.** `packages/control-plane/src/migrations/XXXX-rate-limit-tables.sql` creates `admin_bans` and `rate_limit_escalations` with the schemas from §Data And Storage Changes. Use the numeric prefix that follows Plan-008's last migration (exact NNNN assigned in Session 4's BL-054 propagation pass).
 15. **Emit Prometheus metrics.** Counters `ratelimit_trip_total{endpoint,tier}`, `ratelimit_block_total{window_size ∈ {5m,1h}}`, `admin_ban_total{action ∈ {issue,revoke}}`, `ratelimit_backend_error_total{backend}`. Expose via the `/metrics` endpoint owned by BL-060 / self-host secure-defaults.
 16. **Ops alert integration.** The 10-in-1-hour escalation trigger emits a `ratelimit.escalated` domain event (via Plan-006 event taxonomy) with severity `warn`. Alert routing is owned by Plan-020 (observability). This plan only emits the event.
@@ -375,6 +391,7 @@ All rate-limited responses must set:
 ## Tier Placement
 
 Tier 6 per [cross-plan-dependencies.md §5 Canonical Build Order](../architecture/cross-plan-dependencies.md#5-canonical-build-order). Strictly **downstream of Plan-008** (this plan consumes Plan-008's tRPC router and WS frame hook) and **upstream of Plan-025** (Plan-025 is the self-hostable Node relay that instantiates `PostgresRateLimiter` inside its compose-deployed process).
+
 ## References
 
 - [Spec-021: Rate Limiting Policy](../specs/021-rate-limiting-policy.md)

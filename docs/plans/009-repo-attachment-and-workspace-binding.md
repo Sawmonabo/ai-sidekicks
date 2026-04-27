@@ -1,16 +1,16 @@
 # Plan-009: Repo Attachment And Workspace Binding
 
-| Field | Value |
-| --- | --- |
-| **Status** | `approved` |
-| **NNN** | `009` |
-| **Slug** | `repo-attachment-and-workspace-binding` |
-| **Date** | `2026-04-14` |
-| **Author(s)** | `Codex` |
-| **Spec** | [Spec-009: Repo Attachment And Workspace Binding](../specs/009-repo-attachment-and-workspace-binding.md) |
-| **Required ADRs** | [ADR-006](../decisions/006-worktree-first-execution-mode.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md) |
-| **Dependencies** | None |
-| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
+| Field               | Value                                                                                                                    |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| **Status**          | `approved`                                                                                                               |
+| **NNN**             | `009`                                                                                                                    |
+| **Slug**            | `repo-attachment-and-workspace-binding`                                                                                  |
+| **Date**            | `2026-04-14`                                                                                                             |
+| **Author(s)**       | `Codex`                                                                                                                  |
+| **Spec**            | [Spec-009: Repo Attachment And Workspace Binding](../specs/009-repo-attachment-and-workspace-binding.md)                 |
+| **Required ADRs**   | [ADR-006](../decisions/006-worktree-first-execution-mode.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md) |
+| **Dependencies**    | None                                                                                                                     |
+| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md)                                                |
 
 ## Goal
 

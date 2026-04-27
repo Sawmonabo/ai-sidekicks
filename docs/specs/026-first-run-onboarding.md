@@ -1,36 +1,38 @@
 # Spec-026: First-Run Three-Way-Choice Onboarding
 
-| Field | Value |
-| --- | --- |
-| **Status** | `approved` |
-| **NNN** | `026` |
-| **Slug** | `first-run-onboarding` |
-| **Date** | `2026-04-17` |
-| **Author(s)** | `Claude (AI-assisted)` |
-| **Depends On** | [ADR-020: V1 Deployment Model (OSS Self-Host + Hosted SaaS) and OSS License](../decisions/020-v1-deployment-model-and-oss-license.md), [Spec-007: Local IPC And Daemon Control](./007-local-ipc-and-daemon-control.md), [Spec-008: Control-Plane Relay And Session Join](./008-control-plane-relay-and-session-join.md), [Spec-023: Desktop Shell And Renderer](./023-desktop-shell-and-renderer.md), [Spec-025: Self-Hostable Node Relay](./025-self-hostable-node-relay.md), [Spec-006: Session Event Taxonomy And Audit Log](./006-session-event-taxonomy-and-audit-log.md) |
-| **Implementation Plan** | [Plan-026: First-Run Onboarding](../plans/026-first-run-onboarding.md) |
+| Field                   | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Status**              | `approved`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| **NNN**                 | `026`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| **Slug**                | `first-run-onboarding`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| **Date**                | `2026-04-17`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| **Author(s)**           | `Claude (AI-assisted)`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| **Depends On**          | [ADR-020: V1 Deployment Model (OSS Self-Host + Hosted SaaS) and OSS License](../decisions/020-v1-deployment-model-and-oss-license.md), [Spec-007: Local IPC And Daemon Control](./007-local-ipc-and-daemon-control.md), [Spec-008: Control-Plane Relay And Session Join](./008-control-plane-relay-and-session-join.md), [Spec-023: Desktop Shell And Renderer](./023-desktop-shell-and-renderer.md), [Spec-025: Self-Hostable Node Relay](./025-self-hostable-node-relay.md), [Spec-006: Session Event Taxonomy And Audit Log](./006-session-event-taxonomy-and-audit-log.md) |
+| **Implementation Plan** | [Plan-026: First-Run Onboarding](../plans/026-first-run-onboarding.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 
 ## Purpose
 
 Define the one-time, client-daemon first-run onboarding flow that presents the three-way deployment choice committed in [ADR-020 §First-Run UX](../decisions/020-v1-deployment-model-and-oss-license.md): (1) Free public relay (default), (2) Self-host your own relay, (3) Sign up for hosted SaaS.
 
-This spec covers the **client-daemon** first-run experience across both V1 clients (CLI and desktop). It does not define the self-hosted *operator* first-run — that is `docker-compose up` using the package defined in [Spec-025](./025-self-hostable-node-relay.md) and is not subject to the three-way choice. [Spec-023](./023-desktop-shell-and-renderer.md) remains authoritative for keystore access, WebAuthn orchestration, and the preload bridge; this spec composes those surfaces, it does not restate them.
+This spec covers the **client-daemon** first-run experience across both V1 clients (CLI and desktop). It does not define the self-hosted _operator_ first-run — that is `docker-compose up` using the package defined in [Spec-025](./025-self-hostable-node-relay.md) and is not subject to the three-way choice. [Spec-023](./023-desktop-shell-and-renderer.md) remains authoritative for keystore access, WebAuthn orchestration, and the preload bridge; this spec composes those surfaces, it does not restate them.
 
 ## Scope
 
 In scope:
+
 - The trigger conditions that activate the onboarding flow (first outbound invite or explicit `sidekicks onboarding start`).
 - The CLI interaction flow: prompts, validation, confirmations, copy intent per choice, help text.
 - The desktop interaction flow: modal or step-through placement, preload-bridge capability additions, accessibility baseline.
 - Persistence of the resolved choice in daemon config at a specified path.
 - Reset semantics: the CLI reset command, the daemon-side state transition, and the next-onboarding trigger shape.
-- Telemetry opt-in flow: presented as a *separate* step after the three-way choice resolves.
+- Telemetry opt-in flow: presented as a _separate_ step after the three-way choice resolves.
 - Fallback handling for the structural branches: keystore unavailable, self-host TLS trust-on-first-use (TOFU) mismatch, no-network, conflicting daemon already configured, headless-no-TTY environments, resume of a partially-completed first-run.
 - Event taxonomy additions (`onboarding.choice_made`, `onboarding.choice_reset`) registered in [Spec-006](./006-session-event-taxonomy-and-audit-log.md) under the `onboarding_lifecycle` category (BL-086, completed 2026-04-18).
 
 Out of scope (see Non-Goals):
+
 - Installer or package-manager bootstrap (brew, apt, npm, release binary).
-- Self-hosted *operator* first-run — that is `docker-compose up` per Spec-025.
+- Self-hosted _operator_ first-run — that is `docker-compose up` per Spec-025.
 - Hosted SaaS sign-up page UX, pricing surface, billing, or account dashboard (hosted product concerns).
 - Relay protocol design or endpoint validation contract beyond calling the Spec-008 / Spec-025 endpoints that already exist.
 - Enterprise SSO onboarding (OIDC / SAML) — deferred to V1.1+ alongside the rest of the enterprise track in [BL-060](../archive/backlog-archive.md).
@@ -45,7 +47,7 @@ Out of scope (see Non-Goals):
 
 ## Domain Dependencies
 
-- [Session Model](../domain/session-model.md) — onboarding resolves before the first outbound *invite* is issued on a session; session creation itself is not gated.
+- [Session Model](../domain/session-model.md) — onboarding resolves before the first outbound _invite_ is issued on a session; session creation itself is not gated.
 - [Participant And Membership Model](../domain/participant-and-membership-model.md) — `onboarding.choice_made` is attributed to a `ParticipantId`.
 
 ## Architectural Dependencies
@@ -65,10 +67,11 @@ Out of scope (see Non-Goals):
 
 The daemon must present the three-way choice on exactly one of the following conditions, whichever happens first:
 
-1. The first outbound *invite* is attempted on any session (via CLI `sidekicks invite create` or desktop invite action).
-2. An operator or user explicitly runs `sidekicks onboarding start` (CLI) or selects *Set up collaboration* (desktop menu) to pre-stage the choice.
+1. The first outbound _invite_ is attempted on any session (via CLI `sidekicks invite create` or desktop invite action).
+2. An operator or user explicitly runs `sidekicks onboarding start` (CLI) or selects _Set up collaboration_ (desktop menu) to pre-stage the choice.
 
 The flow must not trigger on:
+
 - Daemon install, first launch, or health check.
 - First session creation, first local run, first local artifact write, or any other purely single-user interaction.
 - Incoming invite acceptance (the inviter's relay carries the join; the invitee's choice is deferred to their own first outbound invite).
@@ -79,11 +82,11 @@ Once the choice is persisted (see §State And Data Implications), the daemon mus
 
 The flow must present three and only three options. Their identifiers, copy intent, and required prompts follow.
 
-| # | Choice ID (config) | Display name | One-line framing the UI must convey |
-| - | ------------------ | ----------------------------- | ------------------------------------------------------------------------------------- |
-| 1 | `free-public-relay` | Free public relay (default) | *Use the project-operated relay — zero config, fastest path to inviting a collaborator. Session payloads are end-to-end encrypted; the relay never sees plaintext.* |
-| 2 | `self-host`        | Self-host your own relay      | *Point at a relay you operate (Spec-025). You own the infrastructure and the audit surface. Requires a relay URL, an admin-issued join token, and a first-connection fingerprint trust decision.* |
-| 3 | `hosted-saas`      | Sign up for hosted SaaS       | *Open a browser to sign up for the hosted managed service. Same feature set as the free option with vendor support on the paid tier. Returns a scoped token to this daemon via deep-link or loopback callback.* |
+| #   | Choice ID (config)  | Display name                | One-line framing the UI must convey                                                                                                                                                                             |
+| --- | ------------------- | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `free-public-relay` | Free public relay (default) | _Use the project-operated relay — zero config, fastest path to inviting a collaborator. Session payloads are end-to-end encrypted; the relay never sees plaintext._                                             |
+| 2   | `self-host`         | Self-host your own relay    | _Point at a relay you operate (Spec-025). You own the infrastructure and the audit surface. Requires a relay URL, an admin-issued join token, and a first-connection fingerprint trust decision._               |
+| 3   | `hosted-saas`       | Sign up for hosted SaaS     | _Open a browser to sign up for the hosted managed service. Same feature set as the free option with vendor support on the paid tier. Returns a scoped token to this daemon via deep-link or loopback callback._ |
 
 Copy may be tightened or localized; the framing (zero-config vs. own-it vs. managed; what the user has to provide; where tokens live) must not be lost.
 
@@ -107,6 +110,7 @@ telemetry_opt_in  = true | false
 ```
 
 Config file path:
+
 - Linux / macOS: `$XDG_CONFIG_HOME/ai-sidekicks/config.toml` (or `$HOME/.config/ai-sidekicks/config.toml` if `XDG_CONFIG_HOME` is unset, per [XDG Base Directory Specification v0.8](https://specifications.freedesktop.org/basedir-spec/latest/)).
 - Windows: `%APPDATA%\ai-sidekicks\config.toml`.
 
@@ -124,7 +128,7 @@ Secrets (`self-host` admin token; `hosted-saas` scoped token) are never written 
 
 ### Telemetry Opt-In
 
-Telemetry opt-in must be presented as a *separate step* after the three-way choice resolves, in the same session. Default must be **off**. Copy must state: what is collected (error-class counts, version strings, choice-ID without relay URL), what is *not* collected (session payloads, file contents, participant identifiers, relay traffic), the retention window, and how to change the setting later (`sidekicks telemetry set {on,off}`). The flow must not proceed past telemetry opt-in without an explicit choice; no silent default.
+Telemetry opt-in must be presented as a _separate step_ after the three-way choice resolves, in the same session. Default must be **off**. Copy must state: what is collected (error-class counts, version strings, choice-ID without relay URL), what is _not_ collected (session payloads, file contents, participant identifiers, relay traffic), the retention window, and how to change the setting later (`sidekicks telemetry set {on,off}`). The flow must not proceed past telemetry opt-in without an explicit choice; no silent default.
 
 [EU ePrivacy Directive Article 5(3)](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:02002L0058-20091219) requires explicit consent for non-essential client-side storage; legitimate-interest is not an accepted basis. This flow's default-off posture is global (not EU-only) for uniform behavior.
 
@@ -182,10 +186,10 @@ Request/response schemas belong in [api-payload-contracts.md](../architecture/co
 
 This spec's two onboarding events are registered in [Spec-006](./006-session-event-taxonomy-and-audit-log.md) under the `onboarding_lifecycle` category (BL-086, completed 2026-04-18):
 
-| Event (dotted form) | Payload |
-| --------------------------- | --------------------------------------------------------------------------------------------------------- |
-| `onboarding.choice_made`    | `{participantId, choiceId, relayUrl, migrated: boolean, deferredValidation: boolean, keystoreAvailable: boolean, timestamp}` |
-| `onboarding.choice_reset`   | `{participantId, previousChoiceId, reason: 'cli-reset' \| 'operator-reset', timestamp}` |
+| Event (dotted form)       | Payload                                                                                                                      |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `onboarding.choice_made`  | `{participantId, choiceId, relayUrl, migrated: boolean, deferredValidation: boolean, keystoreAvailable: boolean, timestamp}` |
+| `onboarding.choice_reset` | `{participantId, previousChoiceId, reason: 'cli-reset' \| 'operator-reset', timestamp}`                                      |
 
 Payloads must not contain secret material (no tokens, no SPKI pin raw bytes — the pin is stored in config, not events).
 
@@ -211,10 +215,10 @@ Payloads must not contain secret material (no tokens, no SPKI pin raw bytes — 
 
 ### Example: Desktop first-invite, Option 2 (self-host)
 
-1. Bob clicks *Invite collaborator* in the desktop UI.
+1. Bob clicks _Invite collaborator_ in the desktop UI.
 2. Main process checks daemon `OnboardingRead()`; returns `unresolved`.
 3. Main process opens a modal through the `onboarding.presentChoice` preload bridge (renderer never sees the token).
-4. Bob selects *Self-host your own*; main process prompts for relay URL and admin token (native dialog, not renderer DOM).
+4. Bob selects _Self-host your own_; main process prompts for relay URL and admin token (native dialog, not renderer DOM).
 5. Main process probes `GET <relay_url>/readyz`; captures the certificate SPKI; shows Bob the fingerprint.
 6. Bob confirms the fingerprint (out-of-band verification against what his relay operator posted).
 7. Main process writes the admin token to the OS keystore via Spec-023's `safeStorage`; writes `[onboarding]` with the pinned SPKI; emits `onboarding.choice_made` with `keystoreAvailable: true`.
@@ -244,7 +248,7 @@ Payloads must not contain secret material (no tokens, no SPKI pin raw bytes — 
 - **TOFU pin format (Option 2).** Pin the SPKI SHA-256 (not the leaf cert fingerprint) so operators can rotate certificates without re-prompting. SPKI pinning is the [OWASP Certificate and Public Key Pinning](https://owasp.org/www-community/controls/Certificate_and_Public_Key_Pinning) recommendation.
 - **Keystore probing.** Per Spec-023's keystore surface, Desktop uses Electron `safeStorage.isEncryptionAvailable()` + `safeStorage.getSelectedStorageBackend()` ([docs](https://www.electronjs.org/docs/latest/api/safe-storage)). CLI (Node-only) uses [`@napi-rs/keyring`](https://github.com/Brooooooklyn/keyring-node) v1.2.0, which lacks an existence-check API — wrap reads in try/catch and treat `not-found` as the unresolved-partial-state signal.
 - **Config schema version.** Bump the `config.toml` top-level `schema_version` when adding `[onboarding]` so older daemon binaries do not misread it; follows the Spec-007 version-negotiation posture.
-- **Copy work with a writer.** The three choice one-liners are load-bearing; get copy review before V1 launch. Spec names the *framing* required, not the final strings.
+- **Copy work with a writer.** The three choice one-liners are load-bearing; get copy review before V1 launch. Spec names the _framing_ required, not the final strings.
 
 ## Pitfalls To Avoid
 
@@ -282,36 +286,36 @@ Payloads must not contain secret material (no tokens, no SPKI pin raw bytes — 
 
 - Linux-specific keystore degradation UX: `basic_text` fallback is known plaintext. This spec currently requires refusal of plaintext for hosted / self-host tokens, but the practical effect is that users on a barebones Linux with no Secret Service running cannot use Options 2 or 3. Do we offer a "degrade to encrypted-file-at-rest" fallback (out-of-tree keyring library), or keep the current refuse-and-surface posture and document the requirement to install `gnome-keyring` / `kwallet*`? Tentative: document, keep refusing; re-evaluate on field feedback.
 - Hosted-SaaS sign-up redirect URL: hard-coded constant in daemon config, or fetched dynamically via well-known discovery at `<hosted-saas-base>/.well-known/onboarding`? Tentative: hard-coded for V1 (build-time constant); discovery when we have multiple regions.
-- Telemetry opt-in copy: exact wording needs product + legal review. Current spec names *framing* required (what is / isn't collected, retention, change-later path); final strings are a follow-up.
+- Telemetry opt-in copy: exact wording needs product + legal review. Current spec names _framing_ required (what is / isn't collected, retention, change-later path); final strings are a follow-up.
 - Should `onboarding.choice_made` carry a hashed `machine_id` to support deployment-shape analytics? Potential useful signal, but adds a correlation axis that the default telemetry posture would otherwise not expose. Tentative: no, unless opt-in telemetry is `on`.
 
 ## References
 
 ### Primary sources
 
-| Source | Relevance |
-| --- | --- |
-| [ADR-020: V1 Deployment Model (OSS Self-Host + Hosted SaaS) and OSS License](../decisions/020-v1-deployment-model-and-oss-license.md) | Authoritative three-way-choice semantics (§First-Run UX); choice ID naming. |
-| [Spec-023: Desktop Shell And Renderer](./023-desktop-shell-and-renderer.md) | Keystore surface, `safeStorage` usage, WebAuthn orchestration, preload-bridge pattern, deep-link handler registration. This spec composes those mechanisms; it does not re-specify them. |
-| [Spec-025: Self-Hostable Node Relay](./025-self-hostable-node-relay.md) | Option 2 validation target (`GET /readyz`, SPKI probe); admin-token issuance flow. |
-| [Spec-008: Control-Plane Relay And Session Join](./008-control-plane-relay-and-session-join.md) | v2 relay protocol every chosen relay URL must satisfy. |
-| [Spec-007: Local IPC And Daemon Control](./007-local-ipc-and-daemon-control.md) | Typed control surface the onboarding RPCs extend; `DaemonStatusRead` semantics. |
-| [Spec-006: Session Event Taxonomy And Audit Log](./006-session-event-taxonomy-and-audit-log.md) | Destination for the two new `onboarding.*` events. |
+| Source                                                                                                                                | Relevance                                                                                                                                                                                |
+| ------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [ADR-020: V1 Deployment Model (OSS Self-Host + Hosted SaaS) and OSS License](../decisions/020-v1-deployment-model-and-oss-license.md) | Authoritative three-way-choice semantics (§First-Run UX); choice ID naming.                                                                                                              |
+| [Spec-023: Desktop Shell And Renderer](./023-desktop-shell-and-renderer.md)                                                           | Keystore surface, `safeStorage` usage, WebAuthn orchestration, preload-bridge pattern, deep-link handler registration. This spec composes those mechanisms; it does not re-specify them. |
+| [Spec-025: Self-Hostable Node Relay](./025-self-hostable-node-relay.md)                                                               | Option 2 validation target (`GET /readyz`, SPKI probe); admin-token issuance flow.                                                                                                       |
+| [Spec-008: Control-Plane Relay And Session Join](./008-control-plane-relay-and-session-join.md)                                       | v2 relay protocol every chosen relay URL must satisfy.                                                                                                                                   |
+| [Spec-007: Local IPC And Daemon Control](./007-local-ipc-and-daemon-control.md)                                                       | Typed control surface the onboarding RPCs extend; `DaemonStatusRead` semantics.                                                                                                          |
+| [Spec-006: Session Event Taxonomy And Audit Log](./006-session-event-taxonomy-and-audit-log.md)                                       | Destination for the two new `onboarding.*` events.                                                                                                                                       |
 
 ### External references (cited inline above)
 
-| Source | URL | Accessed |
-| --- | --- | --- |
-| XDG Base Directory Specification v0.8 | <https://specifications.freedesktop.org/basedir-spec/latest/> | 2026-04-17 |
-| EU ePrivacy Directive (Directive 2002/58/EC, Art. 5(3), consolidated) | <https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:02002L0058-20091219> | 2026-04-17 |
-| Electron `safeStorage` API | <https://www.electronjs.org/docs/latest/api/safe-storage> | 2026-04-17 |
-| GHSA-3c8v-cfp5-9885 — CVE-2026-34776 `requestSingleInstanceLock()` second-instance IPC parser | <https://github.com/electron/electron/security/advisories/GHSA-3c8v-cfp5-9885> | 2026-04-17 |
-| RFC 8252 — OAuth 2.0 for Native Apps (§7.1 private-use URI scheme / §7.3 loopback interface / §8.8 malicious external user-agents) | <https://datatracker.ietf.org/doc/html/rfc8252> | 2026-04-17 |
-| `@inquirer/prompts` (v8.x, 2026 CLI prompt standard) | <https://github.com/SBoudrias/Inquirer.js> | 2026-04-17 |
-| VS Code walkthroughs UX guideline | <https://code.visualstudio.com/api/ux-guidelines/walkthroughs> | 2026-04-17 |
-| RFC 7636 — Proof Key for Code Exchange (PKCE) | <https://datatracker.ietf.org/doc/html/rfc7636> | 2026-04-17 |
-| OWASP Certificate and Public Key Pinning | <https://owasp.org/www-community/controls/Certificate_and_Public_Key_Pinning> | 2026-04-17 |
-| `@napi-rs/keyring` (v1.2.0, Node-native OS keystore) | <https://github.com/Brooooooklyn/keyring-node> | 2026-04-17 |
+| Source                                                                                                                             | URL                                                                             | Accessed   |
+| ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- | ---------- |
+| XDG Base Directory Specification v0.8                                                                                              | <https://specifications.freedesktop.org/basedir-spec/latest/>                   | 2026-04-17 |
+| EU ePrivacy Directive (Directive 2002/58/EC, Art. 5(3), consolidated)                                                              | <https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:02002L0058-20091219> | 2026-04-17 |
+| Electron `safeStorage` API                                                                                                         | <https://www.electronjs.org/docs/latest/api/safe-storage>                       | 2026-04-17 |
+| GHSA-3c8v-cfp5-9885 — CVE-2026-34776 `requestSingleInstanceLock()` second-instance IPC parser                                      | <https://github.com/electron/electron/security/advisories/GHSA-3c8v-cfp5-9885>  | 2026-04-17 |
+| RFC 8252 — OAuth 2.0 for Native Apps (§7.1 private-use URI scheme / §7.3 loopback interface / §8.8 malicious external user-agents) | <https://datatracker.ietf.org/doc/html/rfc8252>                                 | 2026-04-17 |
+| `@inquirer/prompts` (v8.x, 2026 CLI prompt standard)                                                                               | <https://github.com/SBoudrias/Inquirer.js>                                      | 2026-04-17 |
+| VS Code walkthroughs UX guideline                                                                                                  | <https://code.visualstudio.com/api/ux-guidelines/walkthroughs>                  | 2026-04-17 |
+| RFC 7636 — Proof Key for Code Exchange (PKCE)                                                                                      | <https://datatracker.ietf.org/doc/html/rfc7636>                                 | 2026-04-17 |
+| OWASP Certificate and Public Key Pinning                                                                                           | <https://owasp.org/www-community/controls/Certificate_and_Public_Key_Pinning>   | 2026-04-17 |
+| `@napi-rs/keyring` (v1.2.0, Node-native OS keystore)                                                                               | <https://github.com/Brooooooklyn/keyring-node>                                  | 2026-04-17 |
 
 ### Related BLs (completed)
 

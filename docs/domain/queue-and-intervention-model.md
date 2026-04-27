@@ -43,35 +43,35 @@ This model defines how the system stores follow-up work, prioritizes it, and rec
 
 Queue item states:
 
-| State | Meaning |
-| --- | --- |
-| `queued` | Waiting for admission. |
-| `admitted` | Accepted by the run engine and being converted into a run. |
-| `superseded` | No longer eligible because newer work replaced it. |
-| `canceled` | Intentionally removed before admission. |
-| `expired` | No longer valid because its context or timing window lapsed. |
+| State        | Meaning                                                      |
+| ------------ | ------------------------------------------------------------ |
+| `queued`     | Waiting for admission.                                       |
+| `admitted`   | Accepted by the run engine and being converted into a run.   |
+| `superseded` | No longer eligible because newer work replaced it.           |
+| `canceled`   | Intentionally removed before admission.                      |
+| `expired`    | No longer valid because its context or timing window lapsed. |
 
 Intervention states (6 canonical states):
 
-| State | Meaning |
-| --- | --- |
-| `requested` | Recorded and awaiting evaluation. |
-| `accepted` | Determined to be valid for the target. |
-| `applied` | Successfully changed runtime or scheduling state. |
-| `rejected` | Determined to be invalid or unauthorized. Authorization failure produces `rejected`. |
-| `degraded` | The driver does not support the intervention type and the orchestration layer fell back (e.g., steer degrades to queue + interrupt for providers without native steer). |
-| `expired` | No longer meaningful because the target state changed first. Version guard mismatch produces `expired`. |
+| State       | Meaning                                                                                                                                                                 |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `requested` | Recorded and awaiting evaluation.                                                                                                                                       |
+| `accepted`  | Determined to be valid for the target.                                                                                                                                  |
+| `applied`   | Successfully changed runtime or scheduling state.                                                                                                                       |
+| `rejected`  | Determined to be invalid or unauthorized. Authorization failure produces `rejected`.                                                                                    |
+| `degraded`  | The driver does not support the intervention type and the orchestration layer fell back (e.g., steer degrades to queue + interrupt for providers without native steer). |
+| `expired`   | No longer meaningful because the target state changed first. Version guard mismatch produces `expired`.                                                                 |
 
 ### Intervention State Transition Table
 
-| From | To | Trigger | Condition |
-| --- | --- | --- | --- |
-| `requested` | `accepted` | Valid target, authorized | Target run is in a state that accepts this intervention type |
-| `requested` | `rejected` | Invalid target or unauthorized | Target run state incompatible, or participant lacks permission |
-| `requested` | `expired` | Version guard mismatch | `expectedRunVersion` does not match current run version |
-| `accepted` | `applied` | Driver successfully executed | Provider confirmed the intervention took effect |
-| `accepted` | `degraded` | Driver fallback used | Driver does not support this type natively; orchestration layer fell back |
-| `accepted` | `expired` | Target state changed | Run transitioned between accept and apply (e.g., run completed before steer could be applied) |
+| From        | To         | Trigger                        | Condition                                                                                     |
+| ----------- | ---------- | ------------------------------ | --------------------------------------------------------------------------------------------- |
+| `requested` | `accepted` | Valid target, authorized       | Target run is in a state that accepts this intervention type                                  |
+| `requested` | `rejected` | Invalid target or unauthorized | Target run state incompatible, or participant lacks permission                                |
+| `requested` | `expired`  | Version guard mismatch         | `expectedRunVersion` does not match current run version                                       |
+| `accepted`  | `applied`  | Driver successfully executed   | Provider confirmed the intervention took effect                                               |
+| `accepted`  | `degraded` | Driver fallback used           | Driver does not support this type natively; orchestration layer fell back                     |
+| `accepted`  | `expired`  | Target state changed           | Run transitioned between accept and apply (e.g., run completed before steer could be applied) |
 
 ## Intervention Entity Relationship
 
@@ -101,29 +101,29 @@ The following field inventory maps each intervention payload to the canonical so
 
 **`steer` payload:**
 
-| Field | Required | Source: API Contracts | Source: Spec-005 `ApplyInterventionParams` |
-| --- | --- | --- | --- |
-| `targetRunId` | yes | `InterventionRequestPayload` | `ApplyInterventionParams.targetRunId` |
-| `expectedRunVersion` | no | `InterventionRequestPayload` (optional) | `ApplyInterventionParams.expectedRunVersion` (optional) |
-| `content` | yes | `InterventionRequestPayload` | `SteerPayload.content` |
-| `attachments` | no | `InterventionRequestPayload` (optional) | `SteerPayload.attachments` (optional) |
-| `expectedTurnId` | no | `InterventionRequestPayload` (optional) | `SteerPayload.expectedTurnId` (optional) |
+| Field                | Required | Source: API Contracts                   | Source: Spec-005 `ApplyInterventionParams`              |
+| -------------------- | -------- | --------------------------------------- | ------------------------------------------------------- |
+| `targetRunId`        | yes      | `InterventionRequestPayload`            | `ApplyInterventionParams.targetRunId`                   |
+| `expectedRunVersion` | no       | `InterventionRequestPayload` (optional) | `ApplyInterventionParams.expectedRunVersion` (optional) |
+| `content`            | yes      | `InterventionRequestPayload`            | `SteerPayload.content`                                  |
+| `attachments`        | no       | `InterventionRequestPayload` (optional) | `SteerPayload.attachments` (optional)                   |
+| `expectedTurnId`     | no       | `InterventionRequestPayload` (optional) | `SteerPayload.expectedTurnId` (optional)                |
 
 **`interrupt` payload:**
 
-| Field | Required | Source: API Contracts | Source: Spec-005 `ApplyInterventionParams` |
-| --- | --- | --- | --- |
-| `targetRunId` | yes | `InterventionRequestPayload` | `ApplyInterventionParams.targetRunId` |
-| `expectedRunVersion` | no | `InterventionRequestPayload` (optional) | `ApplyInterventionParams.expectedRunVersion` (optional) |
-| `reason` | no | `InterventionRequestPayload` (optional) | `InterruptPayload.reason` (optional) |
+| Field                | Required | Source: API Contracts                   | Source: Spec-005 `ApplyInterventionParams`              |
+| -------------------- | -------- | --------------------------------------- | ------------------------------------------------------- |
+| `targetRunId`        | yes      | `InterventionRequestPayload`            | `ApplyInterventionParams.targetRunId`                   |
+| `expectedRunVersion` | no       | `InterventionRequestPayload` (optional) | `ApplyInterventionParams.expectedRunVersion` (optional) |
+| `reason`             | no       | `InterventionRequestPayload` (optional) | `InterruptPayload.reason` (optional)                    |
 
 **`cancel` payload:**
 
-| Field | Required | Source: API Contracts | Source: Spec-005 `ApplyInterventionParams` |
-| --- | --- | --- | --- |
-| `targetRunId` | yes | `InterventionRequestPayload` | `ApplyInterventionParams.targetRunId` |
-| `expectedRunVersion` | no | `InterventionRequestPayload` (optional) | `ApplyInterventionParams.expectedRunVersion` (optional) |
-| `reason` | no | `InterventionRequestPayload` (optional) | `CancelPayload.reason` (optional) |
+| Field                | Required | Source: API Contracts                   | Source: Spec-005 `ApplyInterventionParams`              |
+| -------------------- | -------- | --------------------------------------- | ------------------------------------------------------- |
+| `targetRunId`        | yes      | `InterventionRequestPayload`            | `ApplyInterventionParams.targetRunId`                   |
+| `expectedRunVersion` | no       | `InterventionRequestPayload` (optional) | `ApplyInterventionParams.expectedRunVersion` (optional) |
+| `reason`             | no       | `InterventionRequestPayload` (optional) | `CancelPayload.reason` (optional)                       |
 
 Note: The `ApplyInterventionParams` interface in Spec-005 splits the payload into `targetRunId` and `expectedRunVersion` at the top level and routes the remaining type-specific fields through `SteerPayload`, `InterruptPayload`, or `CancelPayload`. The `InterventionRequestPayload` in the API contracts flattens all fields into a single discriminated union. Both representations carry the same field set per intervention type. The `InterventionDriverResult` returned by the driver uses `status: 'applied' | 'degraded'` — the orchestration layer maps this to the full 6-state lifecycle.
 

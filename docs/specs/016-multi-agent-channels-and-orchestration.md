@@ -1,15 +1,15 @@
 # Spec-016: Multi-Agent Channels And Orchestration
 
-| Field | Value |
-| --- | --- |
-| **Status** | `approved` |
-| **NNN** | `016` |
-| **Slug** | `multi-agent-channels-and-orchestration` |
-| **Date** | `2026-04-14` |
-| **Author(s)** | `Codex` |
-| **Depends On** | [Agent Channel And Run Model](../domain/agent-channel-and-run-model.md), [Session Model](../domain/session-model.md), [Shared Session Core](../specs/001-shared-session-core.md), [Queue Steer Pause Resume](../specs/004-queue-steer-pause-resume.md), [Runtime Node Attach](../specs/003-runtime-node-attach.md), [Persistence Recovery And Replay](../specs/015-persistence-recovery-and-replay.md) |
-| **V1 Quality Bar** | Declared per [ADR-015](../decisions/015-v1-feature-scope-definition.md); V1-readiness review 2026-04-17 (BL-042) |
-| **Implementation Plan** | [Plan-016: Multi-Agent Channels And Orchestration](../plans/016-multi-agent-channels-and-orchestration.md) |
+| Field                   | Value                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Status**              | `approved`                                                                                                                                                                                                                                                                                                                                                                                             |
+| **NNN**                 | `016`                                                                                                                                                                                                                                                                                                                                                                                                  |
+| **Slug**                | `multi-agent-channels-and-orchestration`                                                                                                                                                                                                                                                                                                                                                               |
+| **Date**                | `2026-04-14`                                                                                                                                                                                                                                                                                                                                                                                           |
+| **Author(s)**           | `Codex`                                                                                                                                                                                                                                                                                                                                                                                                |
+| **Depends On**          | [Agent Channel And Run Model](../domain/agent-channel-and-run-model.md), [Session Model](../domain/session-model.md), [Shared Session Core](../specs/001-shared-session-core.md), [Queue Steer Pause Resume](../specs/004-queue-steer-pause-resume.md), [Runtime Node Attach](../specs/003-runtime-node-attach.md), [Persistence Recovery And Replay](../specs/015-persistence-recovery-and-replay.md) |
+| **V1 Quality Bar**      | Declared per [ADR-015](../decisions/015-v1-feature-scope-definition.md); V1-readiness review 2026-04-17 (BL-042)                                                                                                                                                                                                                                                                                       |
+| **Implementation Plan** | [Plan-016: Multi-Agent Channels And Orchestration](../plans/016-multi-agent-channels-and-orchestration.md)                                                                                                                                                                                                                                                                                             |
 
 ## Purpose
 
@@ -87,30 +87,30 @@ This spec covers channel creation, parent-child run linkage, cross-agent collabo
 
 ## Turn Policies
 
-| Policy | Behavior | Default |
-|--------|----------|---------|
-| `free-form` | Any participant or agent can send at any time | Yes (default) |
-| `round-robin` | Agents take turns in a fixed order | No |
-| `request-based` | Agents speak only when explicitly addressed | No |
+| Policy          | Behavior                                      | Default       |
+| --------------- | --------------------------------------------- | ------------- |
+| `free-form`     | Any participant or agent can send at any time | Yes (default) |
+| `round-robin`   | Agents take turns in a fixed order            | No            |
+| `request-based` | Agents speak only when explicitly addressed   | No            |
 
 ## Budget Policies
 
-| Budget Type | Description | Default Limit |
-|-------------|-------------|---------------|
-| Token limit per run | Max input+output tokens for a single run | 100,000 |
-| Cost limit per session | Max estimated cost across all runs | $10.00 |
-| Turn limit per agent | Max consecutive turns an agent can take | 50 |
+| Budget Type            | Description                              | Default Limit |
+| ---------------------- | ---------------------------------------- | ------------- |
+| Token limit per run    | Max input+output tokens for a single run | 100,000       |
+| Cost limit per session | Max estimated cost across all runs       | $10.00        |
+| Turn limit per agent   | Max consecutive turns an agent can take  | 50            |
 
 V1 budget enforcement is a hard ceiling, tightened from advisory during the 2026-04-17 V1-readiness review (Spec-016 was authored 2026-04-14, predating ADR-015's V1 quality bar declaration by three days, so the original advisory posture no longer matches the V1 gate). The daemon emits `usage_warning` events at 80% of any budget limit and issues an `interrupt` intervention via the generic dispatcher ([ADR-011](../decisions/011-generic-intervention-dispatch.md)) at 100%. Per-run and per-agent ceilings interrupt the specific offending run with `reason: budget_exhausted`. Session-level cost ceilings interrupt all active runs in the session and block further queue admission until a session admin raises the limit. Conclusion detection (agent determines task is complete) remains V2.
 
 ## Stop Conditions
 
-| Condition | Trigger | Behavior |
-|-----------|---------|----------|
-| Turn limit reached | Agent exceeds turn limit | Run completes with `turn_limit` metadata |
-| Budget exhausted | Token or cost limit exceeded | Run interrupted with `budget_exhausted` reason |
-| Explicit stop | User sends stop command | Run interrupted via cancel intervention |
-| Idle timeout | No activity for configurable duration (default: 5 min) | Run interrupted with `idle_timeout` reason |
+| Condition          | Trigger                                                | Behavior                                       |
+| ------------------ | ------------------------------------------------------ | ---------------------------------------------- |
+| Turn limit reached | Agent exceeds turn limit                               | Run completes with `turn_limit` metadata       |
+| Budget exhausted   | Token or cost limit exceeded                           | Run interrupted with `budget_exhausted` reason |
+| Explicit stop      | User sends stop command                                | Run interrupted via cancel intervention        |
+| Idle timeout       | No activity for configurable duration (default: 5 min) | Run interrupted with `idle_timeout` reason     |
 
 Conclusion detection (agent determines task is complete) is V2.
 
@@ -133,11 +133,11 @@ Interventions use the generic dispatcher defined by [Spec-004](../specs/004-queu
 
 ## Scheduler Limits
 
-| Limit | Default |
-|-------|---------|
-| Max concurrent channels executing | 5 per session |
-| Max queue depth per channel | 25 items (subject to Spec-001 per-session queue depth of 100) |
-| Max pending orchestration runs | 10 per session |
+| Limit                             | Default                                                       |
+| --------------------------------- | ------------------------------------------------------------- |
+| Max concurrent channels executing | 5 per session                                                 |
+| Max queue depth per channel       | 25 items (subject to Spec-001 per-session queue depth of 100) |
+| Max pending orchestration runs    | 10 per session                                                |
 
 ## Partition And Reconnect Behavior
 

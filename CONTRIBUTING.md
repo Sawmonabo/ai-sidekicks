@@ -34,14 +34,14 @@ Package scope lives in the commit subject (`feat(daemon): ...`), not the branch 
 
 Based on [Conventional Branch](https://conventional-branch.github.io/) with a local `docs/` extension to mirror the Conventional Commits `docs:` type:
 
-| Type | Use for | Example |
-|---|---|---|
-| `feat/` | New features | `feat/plan-001-monorepo-scaffold` |
-| `fix/` | Bug fixes | `fix/plan-023-renderer-leak` |
-| `hotfix/` | Urgent post-release fixes | `hotfix/cve-2026-1234-relay-token-leak` |
-| `release/` | Release preparation | `release/v0.1.0` |
-| `chore/` | Build / tooling / dependencies | `chore/bump-pnpm` |
-| `docs/` | Documentation-only | `docs/add-observability-adr` |
+| Type       | Use for                        | Example                                 |
+| ---------- | ------------------------------ | --------------------------------------- |
+| `feat/`    | New features                   | `feat/plan-001-monorepo-scaffold`       |
+| `fix/`     | Bug fixes                      | `fix/plan-023-renderer-leak`            |
+| `hotfix/`  | Urgent post-release fixes      | `hotfix/cve-2026-1234-relay-token-leak` |
+| `release/` | Release preparation            | `release/v0.1.0`                        |
+| `chore/`   | Build / tooling / dependencies | `chore/bump-pnpm`                       |
+| `docs/`    | Documentation-only             | `docs/add-observability-adr`            |
 
 `docs/` is a local extension. Conventional Branch defines five types; we add `docs/` for legibility — `docs/audit-realignment` reads correctly while `chore/audit-realignment` undersells doc work.
 
@@ -76,7 +76,7 @@ Use [Conventional Commits 1.0](https://www.conventionalcommits.org/en/v1.0.0/) e
 
 - Optional. Include when the change benefits from explanation.
 - Wrap at 72 characters.
-- Explain *why*, not *what* — the diff already shows what.
+- Explain _why_, not _what_ — the diff already shows what.
 
 ### Footer trailers
 
@@ -176,9 +176,10 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 - **Long-lived feature branches** — branches that outlive their PR by days create merge debt.
 - **Force-push to a shared branch** — never; always create a new commit and let squash-merge collapse history.
 - **Skipping pre-commit hooks** (`--no-verify`) — CI re-runs the same checks per ADR-023 §Axis 2 (D-1 cross-axis), so the hook bypass costs you a CI round-trip without saving time.
-- **Branch topics that name the file instead of the change** (`docs/contributing-md` ✗, `docs/add-git-workflow-conventions` ✓) — the topic should describe what the diff *does*, not which file it touches. Filename + extension in the topic is a code smell.
+- **Branch topics that name the file instead of the change** (`docs/contributing-md` ✗, `docs/add-git-workflow-conventions` ✓) — the topic should describe what the diff _does_, not which file it touches. Filename + extension in the topic is a code smell.
 - **`style:` commits** — excluded from the type-enum; use `chore(format): ...` if you genuinely need a formatting-only commit.
 - **Citing `.agents/tmp/...` paths in committed docs** — those are transient drafts; per AGENTS.md, surface citations forward into the consuming doc and let `.agents/tmp/` be deleted.
+- **Adding a package without `tsconfig.test.json`** — every workspace package ships a sibling `tsconfig.test.json` so test files (`src/**/__tests__/**`, excluded from production `tsconfig.json`) can be type-validated via `tsc -p tsconfig.test.json` without emitting. The package's `typecheck` script MUST be `tsc -b && tsc -p tsconfig.test.json` (uniform invariant across every workspace package — see existing packages for reference). Model new `tsconfig.test.json` files on `packages/contracts/tsconfig.test.json` — same `composite: false` + `noEmit: true` + `declaration: true` shape; pick `tsconfig.node22.json` or `tsconfig.node24.json` as the `extends` base to match the package's runtime tier.
 
 ## References
 

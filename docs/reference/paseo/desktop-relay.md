@@ -11,16 +11,16 @@ Date: 2026-04-14
 
 npm workspace monorepo at version `0.1.56`. Root `package.json` defines 8 workspaces:
 
-| Package | npm name | Role |
-|---------|----------|------|
-| `packages/server` | `@getpaseo/server` | Daemon: agent lifecycle, WebSocket API, MCP server, speech |
-| `packages/app` | `@getpaseo/app` | Cross-platform Expo client (iOS, Android, web) |
-| `packages/cli` | `@getpaseo/cli` | Commander.js CLI (`paseo run/ls/logs/wait/send/attach/...`) |
-| `packages/relay` | `@getpaseo/relay` | E2E encrypted relay (Cloudflare Durable Objects) |
-| `packages/desktop` | `@getpaseo/desktop` | Electron desktop wrapper |
-| `packages/website` | `@getpaseo/website` | Marketing site (paseo.sh) via TanStack Router + Cloudflare Workers |
-| `packages/highlight` | `@getpaseo/highlight` | Syntax highlighting (Lezer parsers) |
-| `packages/expo-two-way-audio` | `@getpaseo/expo-two-way-audio` | Native Expo module for bidirectional audio streaming |
+| Package                       | npm name                       | Role                                                               |
+| ----------------------------- | ------------------------------ | ------------------------------------------------------------------ |
+| `packages/server`             | `@getpaseo/server`             | Daemon: agent lifecycle, WebSocket API, MCP server, speech         |
+| `packages/app`                | `@getpaseo/app`                | Cross-platform Expo client (iOS, Android, web)                     |
+| `packages/cli`                | `@getpaseo/cli`                | Commander.js CLI (`paseo run/ls/logs/wait/send/attach/...`)        |
+| `packages/relay`              | `@getpaseo/relay`              | E2E encrypted relay (Cloudflare Durable Objects)                   |
+| `packages/desktop`            | `@getpaseo/desktop`            | Electron desktop wrapper                                           |
+| `packages/website`            | `@getpaseo/website`            | Marketing site (paseo.sh) via TanStack Router + Cloudflare Workers |
+| `packages/highlight`          | `@getpaseo/highlight`          | Syntax highlighting (Lezer parsers)                                |
+| `packages/expo-two-way-audio` | `@getpaseo/expo-two-way-audio` | Native Expo module for bidirectional audio streaming               |
 
 ### Internal Dependency Graph
 
@@ -136,6 +136,7 @@ The daemon is a detached child process managed by the desktop shell.
 **Lifecycle states:** `starting`, `running`, `stopped`, `errored`
 
 **Start daemon:**
+
 1. Check if already running via `paseo daemon status --json`
 2. If running but version mismatches desktop app version, stop and restart
 3. Resolve daemon runner entrypoint (from `@getpaseo/server` dist or source)
@@ -146,6 +147,7 @@ The daemon is a detached child process managed by the desktop shell.
 8. Poll `daemon status` up to 150 times at 200ms intervals for PID + listen address
 
 **Stop daemon:**
+
 1. Send `SIGTERM`
 2. Wait up to 15s for PID to exit
 3. If still running, `SIGKILL` process group, wait 3s more
@@ -156,30 +158,30 @@ The daemon is a detached child process managed by the desktop shell.
 
 All commands dispatched through a single `paseo:invoke` IPC handler:
 
-| Command | Action |
-|---------|--------|
-| `desktop_daemon_status` | Get daemon status |
-| `start_desktop_daemon` | Start daemon |
-| `stop_desktop_daemon` | Stop daemon |
-| `restart_desktop_daemon` | Restart daemon |
-| `desktop_daemon_logs` | Tail last 100 lines of daemon.log |
-| `desktop_daemon_pairing` | Get QR code/URL for mobile pairing |
-| `cli_daemon_status` | Get CLI-formatted daemon status |
-| `write_attachment_base64` | Write attachment to managed storage |
-| `copy_attachment_file` | Copy file to managed attachment storage |
-| `read_file_base64` | Read managed file as base64 |
-| `delete_attachment_file` | Delete managed attachment |
-| `garbage_collect_attachment_files` | GC unreferenced attachments |
-| `open_local_daemon_transport` | Open WebSocket to local daemon |
-| `send_local_daemon_transport_message` | Send message on transport |
-| `close_local_daemon_transport` | Close transport session |
-| `check_app_update` | Check for desktop app update |
-| `install_app_update` | Download and install update (stops daemon first) |
-| `get_local_daemon_version` | Get running daemon version |
-| `install_cli` | Install CLI symlink to `~/.local/bin/paseo` |
-| `get_cli_install_status` | Check if CLI is installed |
-| `install_skills` | Install orchestration skills |
-| `get_skills_install_status` | Check skills installation |
+| Command                               | Action                                           |
+| ------------------------------------- | ------------------------------------------------ |
+| `desktop_daemon_status`               | Get daemon status                                |
+| `start_desktop_daemon`                | Start daemon                                     |
+| `stop_desktop_daemon`                 | Stop daemon                                      |
+| `restart_desktop_daemon`              | Restart daemon                                   |
+| `desktop_daemon_logs`                 | Tail last 100 lines of daemon.log                |
+| `desktop_daemon_pairing`              | Get QR code/URL for mobile pairing               |
+| `cli_daemon_status`                   | Get CLI-formatted daemon status                  |
+| `write_attachment_base64`             | Write attachment to managed storage              |
+| `copy_attachment_file`                | Copy file to managed attachment storage          |
+| `read_file_base64`                    | Read managed file as base64                      |
+| `delete_attachment_file`              | Delete managed attachment                        |
+| `garbage_collect_attachment_files`    | GC unreferenced attachments                      |
+| `open_local_daemon_transport`         | Open WebSocket to local daemon                   |
+| `send_local_daemon_transport_message` | Send message on transport                        |
+| `close_local_daemon_transport`        | Close transport session                          |
+| `check_app_update`                    | Check for desktop app update                     |
+| `install_app_update`                  | Download and install update (stops daemon first) |
+| `get_local_daemon_version`            | Get running daemon version                       |
+| `install_cli`                         | Install CLI symlink to `~/.local/bin/paseo`      |
+| `get_cli_install_status`              | Check if CLI is installed                        |
+| `install_skills`                      | Install orchestration skills                     |
+| `get_skills_install_status`           | Check skills installation                        |
 
 ### Local Transport (local-transport.ts)
 
@@ -196,12 +198,14 @@ WebSocket connection to the local daemon via Unix domain socket or Windows named
 Resolves paths for both packaged and development modes:
 
 **Packaged mode:**
+
 - Daemon runner: `app.asar/node_modules/@getpaseo/server/dist/scripts/supervisor-entrypoint.js`
 - CLI: `app.asar/node_modules/@getpaseo/cli/dist/index.js`
 - Node entrypoint runner: `app.asar.unpacked/dist/daemon/node-entrypoint-runner.js`
 - Uses Electron Helper on macOS for `ELECTRON_RUN_AS_NODE` processes
 
 **Development mode:**
+
 - Resolves from workspace `node_modules` via `createRequire`
 - Falls back to source (`.ts`) with `--import tsx` if dist not built
 
@@ -230,6 +234,7 @@ Uses `electron-updater`:
 ### Open Project Routing
 
 Supports two patterns:
+
 1. Positional: `paseo /path/to/project` (must be absolute directory that exists)
 2. Flag: `paseo --open-project /path/to/project`
 3. Filters out macOS process serial number (`-psn_`) and `--no-sandbox` args
@@ -237,12 +242,14 @@ Supports two patterns:
 ### CLI and Skills Installation (integrations-manager.ts)
 
 **CLI Installation:**
+
 - Target: `~/.local/bin/paseo` (or `paseo.cmd` on Windows)
 - On macOS/Linux: creates symlink to bundled shim or AppImage/executable
 - On Windows: generates `.cmd` trampoline that delegates to bundled shim
 - Updates shell rc file (`~/.zshrc`, `~/.bashrc`, `~/.config/fish/config.fish`) with PATH if needed
 
 **Skills Installation:**
+
 - 6 skills: `paseo`, `paseo-loop`, `paseo-handoff`, `paseo-orchestrator`, `paseo-chat`, `paseo-committee`
 - Copies `SKILL.md` files to `~/.agents/skills/<name>/`
 - Creates symlinks in `~/.claude/skills/<name>/`
@@ -264,15 +271,18 @@ Adapted from VS Code's `shellEnv.ts`:
 ### Other Features
 
 **Attachments (attachments.ts):**
+
 - Managed storage at `$PASEO_HOME/desktop-attachments/`
 - Write from base64, copy from file, read as base64, delete, garbage collect
 - Path traversal protection (must stay within attachments dir)
 
 **Notifications (notifications.ts):**
+
 - macOS registration probe on startup (silent notification to appear in System Preferences)
 - Click handler: focuses window, sends click event with data payload to renderer
 
 **React DevTools (react-devtools.ts):**
+
 - Dev mode only
 - Downloads CRX from Chrome Web Store
 - Extracts and loads extension
@@ -299,15 +309,18 @@ packages/relay/src/
 **Library:** TweetNaCl (`tweetnacl` npm package)
 
 **Key exchange:** Curve25519 ECDH (`nacl.box.keyPair()`, `nacl.box.before()`)
+
 - Public keys: 32 bytes
 - Secret keys: 32 bytes
 - Shared key: 32 bytes (precomputed from `nacl.box.before`)
 
 **Encryption:** XSalsa20-Poly1305 (`nacl.box.after()` / `nacl.box.open.after()`)
+
 - Random nonce: 24 bytes per message
 - Authenticated encryption (tamper detection)
 
 **Wire format:**
+
 ```
 [nonce (24 bytes)] [ciphertext...]
 ```
@@ -321,6 +334,7 @@ packages/relay/src/
 Two factory functions for creating channels:
 
 **`createClientChannel(transport, daemonPublicKeyB64, events)`:**
+
 1. Generate fresh keypair
 2. Import daemon's public key (received via QR code)
 3. Derive shared key via ECDH
@@ -330,6 +344,7 @@ Two factory functions for creating channels:
 7. Max 200 pending sends buffered during handshake
 
 **`createDaemonChannel(transport, daemonKeyPair, events)`:**
+
 1. Wait for client's `e2ee_hello` with their public key
 2. Import client public key, derive shared key
 3. Send `{type: "e2ee_ready"}` as plaintext
@@ -339,12 +354,14 @@ Two factory functions for creating channels:
 **Channel states:** `connecting` -> `handshaking` -> `open` -> `closed`
 
 **Post-handshake handling:**
+
 - If daemon receives a repeat `e2ee_hello` with same key: re-sends `e2ee_ready` (idempotent retry)
 - If daemon receives `e2ee_hello` with different key: re-keys (new client session), drops pending sends
 - Plaintext frames on encrypted channel cause fatal error (closes transport with 1011)
 - Decryption failures are fatal (close transport)
 
 **Message flow (open state):**
+
 - `send(data)`: encrypt with shared key, send as base64 text
 - `handleMessage(data)`: decode base64, decrypt with shared key, deliver plaintext
 
@@ -355,22 +372,26 @@ Two factory functions for creating channels:
 **Two protocol versions:**
 
 **v1 (legacy):** Single server/client socket pair
+
 - One `server` WebSocket (daemon)
 - One `client` WebSocket (app)
 - Messages forwarded bidirectionally without modification
 
 **v2 (current):** Control + per-client data sockets
+
 - `server-control`: One daemon control socket per serverId (receives `connected`/`disconnected`/`sync` events)
 - `server:${connectionId}`: One daemon data socket per connectionId
 - `client:${connectionId}`: Many client sockets per connectionId
 
 **v2 Connection flow:**
+
 1. Client connects to relay with `role=client` (assigned a `connectionId` if none provided)
 2. Relay notifies daemon control socket: `{type: "connected", connectionId: "..."}`
 3. Daemon opens per-connection data socket with `role=server&connectionId=...`
 4. Messages routed by `connectionId` tag
 
 **Connection health:**
+
 - If daemon's control socket appears stuck (client connected but no server data socket after 10s):
   - First nudge: sends `sync` message with all connected connectionIds
   - Second nudge (5s later): force-closes control sockets
@@ -380,6 +401,7 @@ Two factory functions for creating channels:
 **Frame buffering:** Up to 200 frames buffered per connectionId when daemon data socket not yet connected. Flushed when daemon connects.
 
 **Worker entry point:**
+
 - `/health` -- health check endpoint
 - `/ws?serverId=...&role=...&v=...` -- WebSocket relay endpoint
 - Routes to version-isolated Durable Object: `relay-v${version}:${serverId}`
@@ -389,6 +411,7 @@ Two factory functions for creating channels:
 The relay is designed to be **untrusted** (zero-knowledge):
 
 **What the relay sees:**
+
 - IP addresses
 - Timing
 - Message sizes
@@ -396,6 +419,7 @@ The relay is designed to be **untrusted** (zero-knowledge):
 - Connection metadata (role, connectionId)
 
 **What the relay cannot do:**
+
 - Read message contents (all encrypted with XSalsa20-Poly1305)
 - Forge messages (authenticated encryption)
 - Send commands (cannot complete ECDH handshake without private key)
@@ -428,6 +452,7 @@ Lezer-based syntax highlighting library supporting 14 languages:
 **Languages (from dependencies):** C++, CSS, Go, HTML, Java, JavaScript/TypeScript, JSON, Markdown, PHP, Python, Rust, XML, YAML, Elixir
 
 **Source structure:**
+
 - `highlighter.ts` -- Main highlight engine
 - `parsers.ts` -- Language parser registry
 - `colors.ts` -- Color scheme definitions
@@ -442,17 +467,20 @@ Expo native module for bidirectional audio streaming:
 **Platforms:** iOS (Swift), Android (Kotlin)
 
 **iOS files:**
+
 - `AudioEngine.swift` -- Core audio engine
 - `ExpoTwoWayAudioModule.swift` -- Expo module bridge
 - `MicrophonePermissionRequester.swift` -- Permission handling
 
 **Android files:**
+
 - `AudioEngine.kt` -- Core audio engine
 - `ExpoTwoWayAudioModule.kt` -- Expo module bridge
 - `ExpoTwoWayAudioLifeCycleListener.kt` -- Android lifecycle
 - `ExpoTwoWayAudioPackage.kt` -- Package registration
 
 **TypeScript API:**
+
 - `core.ts` -- Core functions
 - `events.ts` -- Event types
 - `hooks.ts` -- React hooks
@@ -485,6 +513,7 @@ Dependencies: Commander, Chalk, YAML, ws, @clack/prompts, mime-types
 The heart of Paseo. Key dependencies reveal capabilities:
 
 **Agent providers:**
+
 - `@anthropic-ai/claude-agent-sdk` -- Claude Code
 - Codex (via CodexAppServer)
 - `@opencode-ai/sdk` -- OpenCode
@@ -492,6 +521,7 @@ The heart of Paseo. Key dependencies reveal capabilities:
 - `pi-acp` -- Pi agent
 
 **Infrastructure:**
+
 - Express HTTP server with WebSocket
 - `node-pty` -- PTY/terminal emulation
 - `pino` -- Structured logging
@@ -500,6 +530,7 @@ The heart of Paseo. Key dependencies reveal capabilities:
 - `zod` -- Runtime schema validation
 
 **Speech/Voice:**
+
 - `sherpa-onnx` + `sherpa-onnx-node` -- Local STT/TTS
 - `onnxruntime-node` -- ONNX inference
 - `@deepgram/sdk` -- Cloud STT
@@ -510,6 +541,7 @@ The heart of Paseo. Key dependencies reveal capabilities:
 ### packages/app -- Mobile/Web Client
 
 Cross-platform Expo app (not deeply explored per task scope, but noted):
+
 - React Native + Expo Router
 - iOS, Android, web (browser), web (Electron desktop)
 - Voice features: dictation (STT) and voice agent (realtime)
@@ -522,26 +554,27 @@ Cross-platform Expo app (not deeply explored per task scope, but noted):
 
 ### Scripts (scripts/)
 
-| Script | Purpose |
-|--------|---------|
-| `dev.sh` | Start daemon + Expo app with `concurrently`, uses `portless` for URL management |
-| `dev.ps1` | Windows equivalent, builds highlight+relay first, uses fixed `localhost:6767` |
-| `emit-release-env.mjs` | Compute release environment variables from a git tag |
-| `fix-lockfile.mjs` | Fix lockfile issues |
-| `measure-relay-latency.ts` | Benchmark direct vs relay latency (ping times) |
-| `metro-config-windows-loader-patch.cjs` | Windows Metro compatibility |
-| `postinstall-patches.mjs` | Apply patches after install |
-| `prove-relay-prod.mjs` | Verify production relay |
-| `push-current-release-tag.mjs` | Push release tag to git |
-| `release-version-utils.mjs` | Version parsing and manipulation |
-| `set-release-version.mjs` | Bump all workspace versions |
-| `sync-release-notes-from-changelog.mjs` | Sync changelog to GitHub releases |
-| `sync-workspace-versions.mjs` | Keep all workspace versions in sync |
-| `update-nix.sh` | Update Nix flake lock |
+| Script                                  | Purpose                                                                         |
+| --------------------------------------- | ------------------------------------------------------------------------------- |
+| `dev.sh`                                | Start daemon + Expo app with `concurrently`, uses `portless` for URL management |
+| `dev.ps1`                               | Windows equivalent, builds highlight+relay first, uses fixed `localhost:6767`   |
+| `emit-release-env.mjs`                  | Compute release environment variables from a git tag                            |
+| `fix-lockfile.mjs`                      | Fix lockfile issues                                                             |
+| `measure-relay-latency.ts`              | Benchmark direct vs relay latency (ping times)                                  |
+| `metro-config-windows-loader-patch.cjs` | Windows Metro compatibility                                                     |
+| `postinstall-patches.mjs`               | Apply patches after install                                                     |
+| `prove-relay-prod.mjs`                  | Verify production relay                                                         |
+| `push-current-release-tag.mjs`          | Push release tag to git                                                         |
+| `release-version-utils.mjs`             | Version parsing and manipulation                                                |
+| `set-release-version.mjs`               | Bump all workspace versions                                                     |
+| `sync-release-notes-from-changelog.mjs` | Sync changelog to GitHub releases                                               |
+| `sync-workspace-versions.mjs`           | Keep all workspace versions in sync                                             |
+| `update-nix.sh`                         | Update Nix flake lock                                                           |
 
 ### Development Workflow
 
 **`npm run dev`** (Unix):
+
 1. Derive `PASEO_HOME` -- stable for worktrees, temp dir otherwise
 2. Share speech models with main install
 3. Get app/daemon URLs from `portless`
@@ -549,6 +582,7 @@ Cross-platform Expo app (not deeply explored per task scope, but noted):
 5. Run daemon and Metro in parallel via `concurrently`
 
 **`npm run dev:win`** (Windows):
+
 1. Similar but builds highlight+relay first
 2. Uses fixed `localhost:6767`
 3. No `portless` (not needed)
@@ -556,6 +590,7 @@ Cross-platform Expo app (not deeply explored per task scope, but noted):
 ### Build Pipeline
 
 **`npm run build:daemon`**: Builds in dependency order:
+
 1. `@getpaseo/highlight`
 2. `@getpaseo/relay`
 3. `@getpaseo/server`
@@ -566,6 +601,7 @@ Cross-platform Expo app (not deeply explored per task scope, but noted):
 ### Release System
 
 Versioning:
+
 - `npm run version:all:patch/minor/major` -- bump all workspaces
 - `npm run release:rc:*` -- release candidate flow
 - `npm run release:promote` -- promote RC to stable
@@ -576,18 +612,18 @@ Versioning:
 
 12 workflow files:
 
-| Workflow | Purpose |
-|---------|---------|
-| `ci.yml` | Main CI |
-| `.github/workflows/server-ci.yml` | Server-specific CI |
+| Workflow                                | Purpose                                           |
+| --------------------------------------- | ------------------------------------------------- |
+| `ci.yml`                                | Main CI                                           |
+| `.github/workflows/server-ci.yml`       | Server-specific CI                                |
 | `.github/workflows/desktop-release.yml` | Desktop app build + release (macOS/Windows/Linux) |
-| `android-apk-release.yml` | Android APK build |
-| `deploy-app.yml` | Deploy mobile app |
-| `deploy-relay.yml` | Deploy relay to Cloudflare |
-| `deploy-website.yml` | Deploy website to Cloudflare |
-| `nix-build.yml` | Nix package build |
-| `fix-nix-hash.yml` | Auto-fix Nix hash when lockfile changes |
-| `release-notes-sync.yml` | Sync changelog to GitHub releases |
+| `android-apk-release.yml`               | Android APK build                                 |
+| `deploy-app.yml`                        | Deploy mobile app                                 |
+| `deploy-relay.yml`                      | Deploy relay to Cloudflare                        |
+| `deploy-website.yml`                    | Deploy website to Cloudflare                      |
+| `nix-build.yml`                         | Nix package build                                 |
+| `fix-nix-hash.yml`                      | Auto-fix Nix hash when lockfile changes           |
+| `release-notes-sync.yml`                | Sync changelog to GitHub releases                 |
 
 ---
 
@@ -596,6 +632,7 @@ Versioning:
 ### TypeScript
 
 **`tsconfig.base.json`:**
+
 - Target: ES2020
 - Module: ESNext with bundler resolution
 - Strict mode enabled
@@ -609,6 +646,7 @@ Each package has its own `tsconfig.json`. Desktop uses `packages/desktop/tsconfi
 ### Linting and Formatting
 
 **Biome** (`biome.json`):
+
 - Formatter: 2-space indent, 100 char line width
 - JavaScript: double quotes, trailing commas, semicolons
 - CSS: modules and Tailwind directives enabled
@@ -618,6 +656,7 @@ Each package has its own `tsconfig.json`. Desktop uses `packages/desktop/tsconfi
 ### Testing
 
 **Vitest** (`vitest.config.ts`):
+
 - Excludes `.claude/` directories
 - Server has extensive test scripts:
   - `test:unit` -- excludes e2e tests
@@ -646,14 +685,14 @@ Skills are markdown instruction files (`SKILL.md`) that teach AI coding agents h
 
 ### Skills Inventory
 
-| Skill | Trigger | Purpose |
-|-------|---------|---------|
-| `paseo` | Always loaded as prerequisite | Complete CLI reference for all agent, loop, schedule, chat, terminal commands. Includes model list, permissions guidance, waiting guidelines, bash composition patterns. |
-| `paseo-loop` | "loop", "babysit", "keep trying until" | Iterative worker/verifier cycle. Worker does work, verifier checks, repeats until done or limits hit. Cross-provider (e.g., Codex worker + Claude verifier). |
-| `paseo-handoff` | "handoff", "hand off", "hand this to" | Transfer current task to a fresh agent with comprehensive context briefing. Supports worktree isolation. Default: Codex gpt-5.4. |
-| `paseo-orchestrate` | "orchestrate", "implement end to end" | Full implementation orchestrator: Triage -> Grill -> Research -> Plan -> Approve -> Implement -> Verify -> Cleanup -> Final QA -> Deliver. Uses MCP tools, not CLI. Deploys researcher, planner, impl, auditor, refactorer, QA agents. |
-| `paseo-chat` | "chat room", "coordinate through chat" | Asynchronous agent coordination via persistent chat rooms with @mentions. |
-| `paseo-committee` | Stuck, looping, tunnel-visioning | Forms committee of two high-reasoning agents (Opus 4.6 + GPT 5.4) for root cause analysis. Three phases: Plan -> Implement -> Review. |
+| Skill               | Trigger                                | Purpose                                                                                                                                                                                                                                |
+| ------------------- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `paseo`             | Always loaded as prerequisite          | Complete CLI reference for all agent, loop, schedule, chat, terminal commands. Includes model list, permissions guidance, waiting guidelines, bash composition patterns.                                                               |
+| `paseo-loop`        | "loop", "babysit", "keep trying until" | Iterative worker/verifier cycle. Worker does work, verifier checks, repeats until done or limits hit. Cross-provider (e.g., Codex worker + Claude verifier).                                                                           |
+| `paseo-handoff`     | "handoff", "hand off", "hand this to"  | Transfer current task to a fresh agent with comprehensive context briefing. Supports worktree isolation. Default: Codex gpt-5.4.                                                                                                       |
+| `paseo-orchestrate` | "orchestrate", "implement end to end"  | Full implementation orchestrator: Triage -> Grill -> Research -> Plan -> Approve -> Implement -> Verify -> Cleanup -> Final QA -> Deliver. Uses MCP tools, not CLI. Deploys researcher, planner, impl, auditor, refactorer, QA agents. |
+| `paseo-chat`        | "chat room", "coordinate through chat" | Asynchronous agent coordination via persistent chat rooms with @mentions.                                                                                                                                                              |
+| `paseo-committee`   | Stuck, looping, tunnel-visioning       | Forms committee of two high-reasoning agents (Opus 4.6 + GPT 5.4) for root cause analysis. Three phases: Plan -> Implement -> Review.                                                                                                  |
 
 ### Orchestrate Skill Detail
 
@@ -662,6 +701,7 @@ The most complex skill. Key features:
 **Complexity orders:** 1 (single file) to 4 (architectural, system-wide). Determines agent count per phase.
 
 **Phase flow:**
+
 1. Triage -- orchestrator assesses complexity
 2. Grill (interactive) -- Socratic questioning of user
 3. Research -- parallel researcher agents
@@ -675,6 +715,7 @@ The most complex skill. Key features:
 11. Deliver -- commit/PR creation with CI monitoring
 
 **Key principles:**
+
 - Orchestrator never writes code
 - Always TDD (failing test first)
 - Always archive agents when done
@@ -686,13 +727,13 @@ The most complex skill. Key features:
 
 Stored in `~/.paseo/orchestrate.json`:
 
-| Category | Roles | Default |
-|----------|-------|---------|
-| `impl` | impl, tester, refactorer | `codex/gpt-5.4` |
-| `ui` | UI/styling agents | `claude/opus` |
-| `research` | researcher | `codex/gpt-5.4` |
-| `planning` | planner, plan-reviewer | `codex/gpt-5.4` |
-| `audit` | auditor, qa | `codex/gpt-5.4` |
+| Category   | Roles                    | Default         |
+| ---------- | ------------------------ | --------------- |
+| `impl`     | impl, tester, refactorer | `codex/gpt-5.4` |
+| `ui`       | UI/styling agents        | `claude/opus`   |
+| `research` | researcher               | `codex/gpt-5.4` |
+| `planning` | planner, plan-reviewer   | `codex/gpt-5.4` |
+| `audit`    | auditor, qa              | `codex/gpt-5.4` |
 
 ---
 
@@ -701,6 +742,7 @@ Stored in `~/.paseo/orchestrate.json`:
 ### Trust Boundaries
 
 **Local daemon (default: `127.0.0.1:6767`):**
+
 - Trusted by network reachability (same as Docker daemon model)
 - No additional authentication token
 - Host header validation for DNS rebinding protection
@@ -708,12 +750,14 @@ Stored in `~/.paseo/orchestrate.json`:
 - Exposing beyond loopback is user's responsibility
 
 **Relay connection (E2E encrypted):**
+
 - Relay server is untrusted/zero-knowledge
 - All traffic encrypted with XSalsa20-Poly1305
 - ECDH key exchange (Curve25519) for shared secret derivation
 - QR code is the trust anchor (contains daemon's public key)
 
 **Agent authentication:**
+
 - Paseo does not manage provider API keys
 - Each provider (Claude, Codex, OpenCode) handles own auth
 - Agents run in user context with existing credentials
@@ -782,6 +826,7 @@ $PASEO_HOME/                          (default: ~/.paseo)
 ### Daemon Configuration
 
 Single `config.json` with sections for:
+
 - `daemon`: listen address, allowed hosts, MCP, CORS, relay settings
 - `providers`: OpenAI API key, local models dir
 - `agents.providers`: per-provider command override and env
@@ -813,10 +858,12 @@ Mobile App (Expo) / CLI (Commander) / Desktop App (Electron)
 Binary-multiplexed WebSocket protocol shared by all clients:
 
 **Handshake:**
+
 - Client -> Server: `WSHelloMessage { id, clientId, version, timestamp }`
 - Server -> Client: `WSWelcomeMessage { clientId, daemonVersion, sessionId, capabilities }`
 
 **Binary multiplexing (BinaryMuxFrame):**
+
 - Channel 0: control messages
 - Channel 1: terminal data
 - 1-byte channel ID + 1-byte flags + variable payload
@@ -835,11 +882,11 @@ AgentManager tracks up to 200 timeline items per agent. Timeline is append-only 
 
 ### Agent Providers
 
-| Provider | Wraps | Session format |
-|----------|-------|----------------|
-| Claude | Anthropic Agent SDK | `~/.claude/projects/{cwd}/{session-id}.jsonl` |
-| Codex | CodexAppServer | `~/.codex/sessions/{date}/rollout-{ts}-{id}.jsonl` |
-| OpenCode | OpenCode CLI | Provider-managed |
+| Provider | Wraps               | Session format                                     |
+| -------- | ------------------- | -------------------------------------------------- |
+| Claude   | Anthropic Agent SDK | `~/.claude/projects/{cwd}/{session-id}.jsonl`      |
+| Codex    | CodexAppServer      | `~/.codex/sessions/{date}/rollout-{ts}-{id}.jsonl` |
+| OpenCode | OpenCode CLI        | Provider-managed                                   |
 
 Common `AgentClient` interface. Normalized `ToolCallDetail` type for tool calls.
 
@@ -858,6 +905,7 @@ Common `AgentClient` interface. Normalized `ToolCallDetail` type for tool calls.
 Supports 4 systems: `x86_64-linux`, `aarch64-linux`, `x86_64-darwin`, `aarch64-darwin`
 
 Provides:
+
 - `packages.default` / `packages.paseo` -- built with `buildNpmPackage`
 - `nixosModules.paseo` -- NixOS systemd service module
 - `devShells.default` -- Node.js 22 + Python 3
@@ -865,6 +913,7 @@ Provides:
 ### nix/package.nix
 
 `buildNpmPackage` derivation:
+
 - Excludes non-daemon workspace contents (app src, website src, desktop src)
 - Excludes test files
 - Only rebuilds `node-pty` (speech native modules intentionally skipped)
@@ -875,6 +924,7 @@ Provides:
 ### nix/module.nix
 
 NixOS service module with options:
+
 - `enable`, `package`, `user`, `group`
 - `dataDir` (defaults to `/var/lib/paseo` for system user, `~/.paseo` for real user)
 - `port` (default 6767), `listenAddress` (default 127.0.0.1)

@@ -45,12 +45,12 @@ This model explains how a session gains code context, how execution roots are ch
 
 ## Execution Mode Model
 
-| Mode | Meaning |
-| --- | --- |
-| `read-only` | The run may inspect the bound workspace but must not mutate tracked or untracked repo content. |
-| `branch` | The run may mutate an explicitly chosen branch context in an existing checkout or workspace. This mode is writable but not isolated by a dedicated worktree. |
-| `worktree` | The run may mutate code in a dedicated git worktree with an explicit branch context. This is the default writable coding mode. |
-| `ephemeral clone` | The run may mutate code in a disposable clone prepared for isolated execution when worktree use is unsuitable or unavailable. |
+| Mode              | Meaning                                                                                                                                                      |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `read-only`       | The run may inspect the bound workspace but must not mutate tracked or untracked repo content.                                                               |
+| `branch`          | The run may mutate an explicitly chosen branch context in an existing checkout or workspace. This mode is writable but not isolated by a dedicated worktree. |
+| `worktree`        | The run may mutate code in a dedicated git worktree with an explicit branch context. This is the default writable coding mode.                               |
+| `ephemeral clone` | The run may mutate code in a disposable clone prepared for isolated execution when worktree use is unsuitable or unavailable.                                |
 
 - `read-only` is the default initial posture for a newly attached repo workspace before a run chooses a writable mode.
 - `branch`, `worktree`, and `ephemeral clone` are writable modes and therefore require explicit branch context for git-backed runs.
@@ -60,32 +60,32 @@ This model explains how a session gains code context, how execution roots are ch
 
 Repo mount lifecycle:
 
-| State | Meaning |
-| --- | --- |
-| `attached` | The repository is available to the session. |
-| `detached` | The repository is no longer mounted for active work. |
+| State      | Meaning                                                           |
+| ---------- | ----------------------------------------------------------------- |
+| `attached` | The repository is available to the session.                       |
+| `detached` | The repository is no longer mounted for active work.              |
 | `archived` | The repository remains referenced historically but is not active. |
 
 Workspace lifecycle:
 
-| State | Meaning |
-| --- | --- |
-| `provisioning` | The execution root is being prepared. |
-| `ready` | The workspace is valid for execution. |
-| `busy` | The workspace is currently bound to active work. |
-| `stale` | The workspace exists but needs refresh or repair before safe execution. |
-| `archived` | The workspace is historical only. |
+| State          | Meaning                                                                 |
+| -------------- | ----------------------------------------------------------------------- |
+| `provisioning` | The execution root is being prepared.                                   |
+| `ready`        | The workspace is valid for execution.                                   |
+| `busy`         | The workspace is currently bound to active work.                        |
+| `stale`        | The workspace exists but needs refresh or repair before safe execution. |
+| `archived`     | The workspace is historical only.                                       |
 
 Worktree lifecycle:
 
-| State | Meaning |
-| --- | --- |
-| `creating` | The worktree is being created or rebound. |
-| `ready` | The worktree is available for execution. |
-| `dirty` | The worktree contains uncommitted changes. |
-| `merged` | The worktree's branch has been integrated and can be retired. |
-| `retired` | The worktree is intentionally preserved but no longer active. |
-| `failed` | Creation or maintenance of the worktree failed. |
+| State      | Meaning                                                       |
+| ---------- | ------------------------------------------------------------- |
+| `creating` | The worktree is being created or rebound.                     |
+| `ready`    | The worktree is available for execution.                      |
+| `dirty`    | The worktree contains uncommitted changes.                    |
+| `merged`   | The worktree's branch has been integrated and can be retired. |
+| `retired`  | The worktree is intentionally preserved but no longer active. |
+| `failed`   | Creation or maintenance of the worktree failed.               |
 
 ## Example Flows
 

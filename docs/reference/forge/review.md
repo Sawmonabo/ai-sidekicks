@@ -10,22 +10,22 @@ Scope: Deep architectural review of the full monorepo, covering orchestration en
 
 ## 1. Technology Stack
 
-| Layer | Technology | Version/Details |
-|---|---|---|
-| Language | TypeScript | `^5.7.3` |
-| Runtime | Node.js / Bun | `node ^24.13.1`, `bun ^1.3.9` |
-| Framework (effect system) | Effect | `4.0.0-beta.43` (pervasive: DI, streams, schema, SQL, HTTP, RPC) |
-| Web framework | Vite + React | React SPA via TanStack Router |
-| HTTP/WS server | `effect/unstable/http` | Built-in HTTP server with `HttpRouter`, `HttpServer` |
-| RPC | `effect/unstable/rpc` | `RpcServer` + `RpcSerialization` over WebSocket |
-| Database | SQLite | WAL mode, `@effect/sql-sqlite-bun` or Node fallback |
-| Desktop shell | Electron | With preload bridge, tray, auto-updater |
-| Build system | Turbo (monorepo) + tsdown | Workspaces: `apps/*`, `packages/*` |
-| Linter/formatter | oxlint / oxfmt | Rust-based tooling |
-| Testing | Vitest + `@effect/vitest` | |
-| Observability | OTLP (traces/metrics) + local NDJSON traces | |
-| Marketing | Astro | Static site at `apps/marketing` |
-| Package manager | Bun | `bun@1.3.9` |
+| Layer                     | Technology                                  | Version/Details                                                  |
+| ------------------------- | ------------------------------------------- | ---------------------------------------------------------------- |
+| Language                  | TypeScript                                  | `^5.7.3`                                                         |
+| Runtime                   | Node.js / Bun                               | `node ^24.13.1`, `bun ^1.3.9`                                    |
+| Framework (effect system) | Effect                                      | `4.0.0-beta.43` (pervasive: DI, streams, schema, SQL, HTTP, RPC) |
+| Web framework             | Vite + React                                | React SPA via TanStack Router                                    |
+| HTTP/WS server            | `effect/unstable/http`                      | Built-in HTTP server with `HttpRouter`, `HttpServer`             |
+| RPC                       | `effect/unstable/rpc`                       | `RpcServer` + `RpcSerialization` over WebSocket                  |
+| Database                  | SQLite                                      | WAL mode, `@effect/sql-sqlite-bun` or Node fallback              |
+| Desktop shell             | Electron                                    | With preload bridge, tray, auto-updater                          |
+| Build system              | Turbo (monorepo) + tsdown                   | Workspaces: `apps/*`, `packages/*`                               |
+| Linter/formatter          | oxlint / oxfmt                              | Rust-based tooling                                               |
+| Testing                   | Vitest + `@effect/vitest`                   |                                                                  |
+| Observability             | OTLP (traces/metrics) + local NDJSON traces |                                                                  |
+| Marketing                 | Astro                                       | Static site at `apps/marketing`                                  |
+| Package manager           | Bun                                         | `bun@1.3.9`                                                      |
 
 Key dependency: The codebase uses **Effect** as a universal runtime -- not just for error handling, but for dependency injection (Layer/Service), schema validation, SQL queries, HTTP routing, RPC transport, streaming, PubSub, queues, metrics, and tracing. This is the most architecturally distinctive choice in the stack.
 
@@ -204,12 +204,14 @@ Evidence: `apps/server/src/orchestration/Layers/OrchestrationEngine.ts`, `apps/s
 ### 4.1 Mid-Session Invites and Shared Runtime Contribution
 
 **What Forge implements:**
+
 - Discussions spawn child threads per participant, each running independently with their own provider session. Parent thread aggregates contributions via `post_to_chat` MCP tool. | `orchestration/Layers/DiscussionReactor.ts`
 - Child threads can use different models/providers (per-role model overrides). | `composerDraftStore.ts`, `DiscussionRolesPicker.tsx`
 - Messages relayed between parent and all children, with attribution. | `DiscussionReactor.ts:168-287`
 - Workflow phases can spawn multiple child sessions (multi-agent deliberation). | `workflow/Layers/WorkflowEngine.ts`
 
 **What Forge does NOT implement:**
+
 - No mid-session invites. All participants must be defined upfront in the discussion definition. Once a discussion starts, the participant roster is fixed.
 - No concept of external users "joining" a live session. The system is single-user. There is no authentication model for multiple users, no user identity beyond a single anonymous telemetry ID.
 - No "bring your own agent" -- agents are limited to the two built-in providers (Codex, Claude). External agent protocols are not supported.
@@ -220,6 +222,7 @@ Evidence: `apps/server/src/orchestration/Layers/OrchestrationEngine.ts`, `apps/s
 ### 4.2 Multi-User and Multi-Agent Chat
 
 **What Forge implements:**
+
 - **Channels** with types (`guidance`, `deliberation`, `review`, `system`), participant types (`human`, `agent`, `system`), sequenced messages, read tracking. | `packages/contracts/src/channel.ts`
 - **Deliberation engine**: Ping-pong turn strategy, configurable max turns, stall detection with nudge delivery, conclusion proposals (PROPOSE_CONCLUSION protocol), auto-conclusion. | `channel/Layers/DeliberationEngine.ts`, `channel.ts:44-93`
 - **Discussions**: Named multi-participant flows with roles, per-role system prompts, per-role model selection. | `packages/contracts/src/discussion.ts`
@@ -227,6 +230,7 @@ Evidence: `apps/server/src/orchestration/Layers/OrchestrationEngine.ts`, `apps/s
 - **Max turns as a stop condition**: Configurable per discussion and per workflow deliberation. | `discussion.ts:6`, `workflow.ts:17`
 
 **What Forge does NOT implement:**
+
 - No multi-human-user support. Channels support `human`, `agent`, `system` participant types, but there is only one human (the local user). There is no authentication, authorization, or multi-user identity model.
 - No budget policy (token/cost limits per agent or session). Rate limits are shown but not enforceable as budget caps.
 - No turn policy beyond simple ping-pong and max turns. No configurable turn ordering, priority, or arbitration.
@@ -238,6 +242,7 @@ Evidence: `apps/server/src/orchestration/Layers/OrchestrationEngine.ts`, `apps/s
 ### 4.3 Queue, Steer, Pause, Resume
 
 **What Forge implements:**
+
 - **Pause/Resume**: First-class commands (`thread.pause`, `thread.resume`) with corresponding session statuses (`paused`). CLI supports `forge session pause/resume`. | `commands.ts:171-185`, `readModels.ts:33`
 - **Cancel**: `thread.cancel` command with optional reason. | `commands.ts:195-202`
 - **Restart**: `thread.restart` command, optionally from a specific phase. | `commands.ts:204-210`
@@ -248,12 +253,14 @@ Evidence: `apps/server/src/orchestration/Layers/OrchestrationEngine.ts`, `apps/s
 - **Checkpoint/revert**: `thread.checkpoint.revert` can roll back to a previous turn count. | `commands.ts:297-303`
 
 **What Forge does NOT implement:**
+
 - No real task queue. The orchestration engine processes commands serially via an unbounded in-process queue, but this is not a distributed or persistent job queue. There is no priority, ordering guarantees across sessions, or worker pool.
 - No configurable queueing policy (FIFO, priority, fairness).
 - Steer is implemented as a correction injection (`thread.correct`), not as a full runtime intervention that can redirect workflow execution, change phase order, or modify in-progress plans.
 - Pause/resume appear to be session-level states, but the actual provider-side pause behavior depends on the provider adapter implementation.
 
 **Additional primitives relevant to queuing:**
+
 - **Thread dependencies**: `thread.add-dependency` and `thread.remove-dependency` commands, with corresponding `thread.dependency-added`, `thread.dependency-removed`, and `thread.dependencies-satisfied` events. This provides a primitive ordering mechanism between threads. | `commands.ts:526-542`, `events.ts:646-648`
 - **Thread promotion**: `thread.promote` command can promote a thread into a different workflow context. | `commands.ts:514-524`
 - **Daemon CLI as headless queue surface**: The daemon socket and CLI expose `forge session create`, `forge session send-turn`, `forge session pause`, `forge session resume`, etc. This is the closest Forge has to a programmatic queue management interface. | `apps/server/src/daemon/cliClient.ts`, `apps/server/src/cli.ts`
@@ -263,6 +270,7 @@ Evidence: `apps/server/src/orchestration/Layers/OrchestrationEngine.ts`, `apps/s
 ### 4.4 Repo Attach and Git Flow
 
 **What Forge implements:**
+
 - **Project-level repo binding**: Each project has a `workspaceRoot` path. Multiple projects can be open simultaneously. | `types.ts:109-119`
 - **Worktree support**: Threads can spawn in isolated git worktrees (`local` or `worktree` spawn modes). Configurable branch prefix. Bootstrap scripts run on worktree creation. Worktree create/remove via WS API. | `types.ts:38-39`, `git/Layers/GitManager.ts`
 - **Branch management**: Full branch listing with pagination/virtualization, local/remote checkout, create-branch, PR checkout from `#123`/URL/`gh pr checkout`. | `BranchToolbarBranchSelector.tsx`
@@ -274,6 +282,7 @@ Evidence: `apps/server/src/orchestration/Layers/OrchestrationEngine.ts`, `apps/s
 - **Diff viewer**: Agent-attributed diffs vs full-workspace diffs, stacked vs split rendering, word wrap, per-turn or all-turns, file tree with stats. | `DiffPanel.tsx`, `DiffPanelBody.tsx`
 
 **What Forge does NOT implement:**
+
 - No multi-repo attach. Each project maps to exactly one workspace root. Cross-repo operations require separate projects.
 - No branch strategy configuration (trunk-based, gitflow, etc.). Branch management is manual.
 - No automatic diff attribution across multiple agent turns in a merged view. Each turn's diff is separate.
@@ -284,6 +293,7 @@ Evidence: `apps/server/src/orchestration/Layers/OrchestrationEngine.ts`, `apps/s
 ### 4.5 Visibility
 
 **What Forge implements:**
+
 - **Live timeline**: Thread history projected into messages, tool activity, summaries, plans, inline diffs, command outputs, and subagent groups with virtualization for large histories. | `MessagesTimeline.tsx`, `MessagesTimeline.logic.ts`, `session-logic/index.ts`
 - **Thread activities**: Structured activity records with tone (`info`, `tool`, `approval`, `error`), kind, summary, payload, and turn association. | `types.ts:257-275`
 - **Session state tracking**: Real-time session status (`idle`, `starting`, `running`, `ready`, `interrupted`, `stopped`, `error`). Turn state (`running`, `interrupted`, `completed`, `error`). | `types.ts:166-175`, `types.ts:277-283`
@@ -297,6 +307,7 @@ Evidence: `apps/server/src/orchestration/Layers/OrchestrationEngine.ts`, `apps/s
 - **Changed-files tree**: Message-level diff summaries with directory/file trees and diff stats. | `ChangedFilesTree.tsx`
 
 **What Forge does NOT implement:**
+
 - No unified timeline view across multiple sessions/threads. Each thread has its own timeline.
 - No approval audit trail UI (approvals are tracked in `projection_pending_approvals` but not surfaced as a timeline).
 - No handoff tracking between sessions (e.g., when a workflow spawns child sessions, the parent does not show a detailed handoff timeline).
@@ -322,6 +333,7 @@ ProviderService (unified API)
 ### ProviderService API
 
 Unified operations across providers:
+
 - `startSession(input: ProviderSessionStartInput)`
 - `sendTurn(input: ProviderSendTurnInput)`
 - `interruptTurn(input: ProviderInterruptTurnInput)`
@@ -358,6 +370,7 @@ Evidence: `provider/Layers/ClaudeAdapter.ts`, `provider/Layers/claude/sessionLif
 ### Runtime Event Normalization
 
 Provider-specific events are normalized into a common `ProviderRuntimeEvent` stream with types:
+
 - `session_state_changed`, `thread_state_changed`, `turn_state_changed`
 - `content_stream_started`, `content_stream_delta`, `content_stream_ended`
 - `item_status_changed`, `approval_requested`, `permission_requested`
@@ -398,6 +411,7 @@ Indexed by `(aggregate_kind, stream_id, stream_version)` for stream-level orderi
 ### Projection Model
 
 Events are projected into normalized relational tables:
+
 - `projection_projects` -- Project metadata
 - `projection_threads` -- Thread state including latest turn, branch, worktree, workflow, discussion, role
 - `projection_thread_messages` -- Messages with role, text, streaming flag, turn association
@@ -458,6 +472,7 @@ The WS server pushes multiple event streams:
 ### Timeline Projection (Client-Side)
 
 The client projects orchestration events into a renderable timeline:
+
 - Messages (user, assistant, system) with streaming state
 - Tool activities with tone and summary
 - Inline diffs with file change details
@@ -491,7 +506,6 @@ Forge's "collaboration" is exclusively **multi-agent collaboration orchestrated 
   - No user-to-user messaging
   - No shared workspace with concurrent human access
   - No access control or permissions model for humans
-  
 - **No mid-session invites.** Participant rosters are fixed at discussion/workflow creation time.
 
 - **No external agent integration.** Only Codex and Claude are supported as provider kinds. There is no agent protocol, plugin system, or adapter interface for third-party agents.
@@ -573,6 +587,7 @@ Evidence: Absence of any authentication, user identity, or multi-user constructs
 Original scope: repo-wide static audit of `apps/web`, `apps/server`, `apps/desktop`, `apps/marketing`, `packages/contracts`, and `packages/shared`.
 
 Conventions:
+
 - `user`: directly visible end-user product behavior.
 - `operator`: setup/admin/debug/maintainer capability.
 - `internal`: implemented platform capability or latent surface not always exposed in the primary UI.
@@ -891,6 +906,7 @@ Forge is a desktop/web workspace for doing software work with coding agents. It 
 ### A.10 Bottom Line
 
 Forge is already much broader than a basic chat wrapper. The current product surface spans:
+
 - Multi-provider coding-agent sessions with live streaming, approvals, permission negotiation, MCP elicitation, summaries, and subagent/background-task visibility.
 - Full workflow and discussion authoring plus runtime workflow timelines and human approval gates.
 - Git/worktree orchestration, route-addressable diff review, design-mode artifact preview/export, and project script automation.

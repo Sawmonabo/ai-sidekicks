@@ -1,13 +1,13 @@
 # ADR-018: Cross-Version Compatibility
 
-| Field | Value |
-| -------------- | ------------------------------------------------------------------------ |
-| **Status** | `accepted` |
-| **Type** | `Type 2 (one-way door)` |
-| **Domain** | `Persistence / Wire Format / Multi-Node Coordination` |
-| **Date** | `2026-04-18` |
-| **Author(s)** | `Claude (AI-assisted)` |
-| **Reviewers** | `Accepted 2026-04-18` |
+| Field         | Value                                                 |
+| ------------- | ----------------------------------------------------- |
+| **Status**    | `accepted`                                            |
+| **Type**      | `Type 2 (one-way door)`                               |
+| **Domain**    | `Persistence / Wire Format / Multi-Node Coordination` |
+| **Date**      | `2026-04-18`                                          |
+| **Author(s)** | `Claude (AI-assisted)`                                |
+| **Reviewers** | `Accepted 2026-04-18`                                 |
 
 ## Context
 
@@ -59,7 +59,7 @@ How do we evolve `EventEnvelope` and event-type semantics across a bidirectional
 The pre-decided approach composes three proven 2024–2026 industry patterns against the specific constraints of a peer-to-peer multi-node product:
 
 - **Kubernetes version-skew policy** (v1.35) establishes the asymmetric read-tolerance principle — old components may read newer peers' output but may not write newer-format messages. AI Sidekicks borrows the asymmetry and the "no-skip-minors" discipline. ([Kubernetes Version Skew Policy](https://kubernetes.io/releases/version-skew-policy/), accessed 2026-04-18.)
-- **Confluent Schema Registry's FORWARD_TRANSITIVE** compatibility class establishes the additive-only-minor-bump discipline checked against *all* historical versions, not just the immediately-prior one. AI Sidekicks borrows the transitivity (our event log is immutable, so every historical envelope must remain parseable by every future client). ([Schema Evolution and Compatibility](https://docs.confluent.io/platform/current/schema-registry/fundamentals/schema-evolution.html), accessed 2026-04-18.)
+- **Confluent Schema Registry's FORWARD_TRANSITIVE** compatibility class establishes the additive-only-minor-bump discipline checked against _all_ historical versions, not just the immediately-prior one. AI Sidekicks borrows the transitivity (our event log is immutable, so every historical envelope must remain parseable by every future client). ([Schema Evolution and Compatibility](https://docs.confluent.io/platform/current/schema-registry/fundamentals/schema-evolution.html), accessed 2026-04-18.)
 - **Protobuf unknown-field preservation** (Editions / proto3) establishes the ignore-and-preserve round-trip discipline that makes stubs work. AI Sidekicks lifts this to the event-type granularity — whole unknown events are persisted verbatim for later re-interpretation. ([Proto Best Practices](https://protobuf.dev/best-practices/dos-donts/), accessed 2026-04-18.)
 
 Together, these give us a scheme that handles bidirectional multi-node skew without requiring a central schema-registration gate (which we cannot justify for V1 scope) and without sacrificing audit immutability (which Spec-006's integrity protocol requires). The peer-side enforcement model is the right fit for an OSS self-hostable distribution where no single operator owns all participants.
@@ -106,25 +106,25 @@ Pin-at-session is a single-tenant assumption being pushed into a multi-tenant pr
 
 ## Assumptions Audit
 
-| # | Assumption | Evidence | What Breaks If Wrong |
-|---|-----------|----------|----------------------|
-| 1 | Mixed-version participation is common in V1. | V1 ships as OSS + self-hostable ([ADR-020](./020-v1-deployment-model-and-oss-license.md)); participants are on independently-managed machines; guest joins cross self-hosted-instance boundaries. | Pin-at-session (Option B) becomes the better choice; most of this ADR collapses to "version must match exactly." |
-| 2 | Event-log durability guarantees stubs remain parseable for the full audit-retention lifetime. | Event-sourcing immutability rule; SQLite forward-only migrations; Postgres migration tool with required-up migrations per [data-architecture.md](../architecture/data-architecture.md) §Migration Strategy. | Stubs become unparseable on storage-format evolution; upcaster chain loses its input. |
-| 3 | Semver is sufficient to distinguish additive vs. breaking changes when paired with reviewer discipline. | Schema Registry FORWARD_TRANSITIVE uses exactly this split; Protobuf Editions relies on author discipline for semantic-equivalence. | Authors ship semantic breaks inside MINOR bumps; receivers crash or silently misinterpret. |
-| 4 | Receivers can safely persist unknown-type payloads without schema validation, because envelope-level Ed25519 signature still covers the payload bytes. | Spec-006 §Canonical Serialization Rules lists `payload` as a signed field regardless of type-registry state; signature verification is independent of type-handler registration. | Stubs persist unverified payloads; attack surface opens via unsigned-content replay. |
-| 5 | The upcaster chain can be authored and maintained safely enough to run on every replay without introducing non-determinism. | `event-driven.io` versioning guidance establishes the pattern; upcasters are pure functions over typed inputs, versioned and tested independently. | Upcaster bugs cause replay drift; audit-log-derived projections diverge across clients. |
+| #   | Assumption                                                                                                                                             | Evidence                                                                                                                                                                                                    | What Breaks If Wrong                                                                                             |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| 1   | Mixed-version participation is common in V1.                                                                                                           | V1 ships as OSS + self-hostable ([ADR-020](./020-v1-deployment-model-and-oss-license.md)); participants are on independently-managed machines; guest joins cross self-hosted-instance boundaries.           | Pin-at-session (Option B) becomes the better choice; most of this ADR collapses to "version must match exactly." |
+| 2   | Event-log durability guarantees stubs remain parseable for the full audit-retention lifetime.                                                          | Event-sourcing immutability rule; SQLite forward-only migrations; Postgres migration tool with required-up migrations per [data-architecture.md](../architecture/data-architecture.md) §Migration Strategy. | Stubs become unparseable on storage-format evolution; upcaster chain loses its input.                            |
+| 3   | Semver is sufficient to distinguish additive vs. breaking changes when paired with reviewer discipline.                                                | Schema Registry FORWARD_TRANSITIVE uses exactly this split; Protobuf Editions relies on author discipline for semantic-equivalence.                                                                         | Authors ship semantic breaks inside MINOR bumps; receivers crash or silently misinterpret.                       |
+| 4   | Receivers can safely persist unknown-type payloads without schema validation, because envelope-level Ed25519 signature still covers the payload bytes. | Spec-006 §Canonical Serialization Rules lists `payload` as a signed field regardless of type-registry state; signature verification is independent of type-handler registration.                            | Stubs persist unverified payloads; attack surface opens via unsigned-content replay.                             |
+| 5   | The upcaster chain can be authored and maintained safely enough to run on every replay without introducing non-determinism.                            | `event-driven.io` versioning guidance establishes the pattern; upcasters are pure functions over typed inputs, versioned and tested independently.                                                          | Upcaster bugs cause replay drift; audit-log-derived projections diverge across clients.                          |
 
 ## Failure Mode Analysis
 
-| Scenario | Likelihood | Impact | Detection | Mitigation |
-|----------|-----------|--------|-----------|------------|
-| Below-floor client write rejected with typed error | High (expected) | Low | `VERSION_FLOOR_EXCEEDED` error telemetry | UX prompt displays upgrade path; client remains joined read-only |
-| MINOR bump ships a semantic invariant change (author mistake) | Low | High | Reviewer checklist miss; CI compat-test suite; bug report from below-floor client | Patch-release as MAJOR bump; issue advisory; invalidate the MINOR and re-release as MAJOR |
-| Version stub storage grows unbounded because MAJOR bumps are rare | Low | Med | Storage metrics on `session_events.version_stub_metadata` column | Version stubs excluded from compaction until re-interpreted once; expected acceptable overhead at expected MAJOR cadence (1–2 per year) |
-| Upcaster chain bug corrupts replay | Low | High | Replay-vs-canonical diff in CI; per-upcaster unit tests | Upcasters versioned and rollback-able; halt replay and surface `audit_integrity_failed` event |
-| Two peers cannot agree on `min_client_version` at join | Med | Low | `VERSION_FLOOR_EXCEEDED` / `VERSION_CEILING_EXCEEDED` typed errors | UX displays mutual upgrade path; session metadata shows which participant is below/above |
-| `min_client_version` raise mid-session disconnects in-flight writers | Med | Med | Disconnect telemetry with `VERSION_FLOOR_EXCEEDED` reason | Clients surface re-join prompt; in-flight writes lost per session's at-most-once delivery contract |
-| Session-metadata floor field desync across nodes | Low | Med | Control-plane is authoritative for session metadata ([ADR-004](./004-sqlite-local-state-and-postgres-control-plane.md)); reconciliation via Spec-003 runtime-node-attach | Peer reads floor from control plane at join; never trusts peer-reported floor |
+| Scenario                                                             | Likelihood      | Impact | Detection                                                                                                                                                                | Mitigation                                                                                                                              |
+| -------------------------------------------------------------------- | --------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Below-floor client write rejected with typed error                   | High (expected) | Low    | `VERSION_FLOOR_EXCEEDED` error telemetry                                                                                                                                 | UX prompt displays upgrade path; client remains joined read-only                                                                        |
+| MINOR bump ships a semantic invariant change (author mistake)        | Low             | High   | Reviewer checklist miss; CI compat-test suite; bug report from below-floor client                                                                                        | Patch-release as MAJOR bump; issue advisory; invalidate the MINOR and re-release as MAJOR                                               |
+| Version stub storage grows unbounded because MAJOR bumps are rare    | Low             | Med    | Storage metrics on `session_events.version_stub_metadata` column                                                                                                         | Version stubs excluded from compaction until re-interpreted once; expected acceptable overhead at expected MAJOR cadence (1–2 per year) |
+| Upcaster chain bug corrupts replay                                   | Low             | High   | Replay-vs-canonical diff in CI; per-upcaster unit tests                                                                                                                  | Upcasters versioned and rollback-able; halt replay and surface `audit_integrity_failed` event                                           |
+| Two peers cannot agree on `min_client_version` at join               | Med             | Low    | `VERSION_FLOOR_EXCEEDED` / `VERSION_CEILING_EXCEEDED` typed errors                                                                                                       | UX displays mutual upgrade path; session metadata shows which participant is below/above                                                |
+| `min_client_version` raise mid-session disconnects in-flight writers | Med             | Med    | Disconnect telemetry with `VERSION_FLOOR_EXCEEDED` reason                                                                                                                | Clients surface re-join prompt; in-flight writes lost per session's at-most-once delivery contract                                      |
+| Session-metadata floor field desync across nodes                     | Low             | Med    | Control-plane is authoritative for session metadata ([ADR-004](./004-sqlite-local-state-and-postgres-control-plane.md)); reconciliation via Spec-003 runtime-node-attach | Peer reads floor from control plane at join; never trusts peer-reported floor                                                           |
 
 ## Reversibility Assessment
 
@@ -182,12 +182,12 @@ Every proposed MINOR bump MUST be reviewed against this checklist before landing
 
 ### Success Criteria
 
-| Metric | Target | Measurement Method | Check Date |
-|--------|--------|--------------------|------------|
-| MINOR bump (e.g., `1.0` → `1.1`) preserves all existing replay output | 100% of replay test suite passes across all historical MINOR versions within the same MAJOR | CI replay-diff suite | First MINOR bump post-V1 |
-| Below-floor client write attempt yields typed `VERSION_FLOOR_EXCEEDED`, never crash | 100% of below-floor write attempts in contract-test matrix | CI contract tests | Plan-015 landing |
-| Version stub re-interpretation replay output equals native replay | Byte-identical diff = 0 across reserved event-type test fixtures | CI upcaster-chain tests | First MAJOR bump |
-| Unknown-type events persist as version stubs with verifiable Ed25519 signatures | 100% of version stubs pass Spec-006 §Integrity Protocol verification | CI integrity test | First MINOR bump |
+| Metric                                                                              | Target                                                                                      | Measurement Method      | Check Date               |
+| ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- | ----------------------- | ------------------------ |
+| MINOR bump (e.g., `1.0` → `1.1`) preserves all existing replay output               | 100% of replay test suite passes across all historical MINOR versions within the same MAJOR | CI replay-diff suite    | First MINOR bump post-V1 |
+| Below-floor client write attempt yields typed `VERSION_FLOOR_EXCEEDED`, never crash | 100% of below-floor write attempts in contract-test matrix                                  | CI contract tests       | Plan-015 landing         |
+| Version stub re-interpretation replay output equals native replay                   | Byte-identical diff = 0 across reserved event-type test fixtures                            | CI upcaster-chain tests | First MAJOR bump         |
+| Unknown-type events persist as version stubs with verifiable Ed25519 signatures     | 100% of version stubs pass Spec-006 §Integrity Protocol verification                        | CI integrity test       | First MINOR bump         |
 
 ### Tripwires (Revisit Triggers)
 
@@ -200,14 +200,14 @@ Every proposed MINOR bump MUST be reviewed against this checklist before landing
 
 ### Research Conducted
 
-| Source | Type | Key Finding | URL/Location |
-|--------|------|-------------|--------------|
-| Kubernetes Version Skew Policy (v1.35) | Upstream policy | Asymmetric read-tolerance (old reads new OK; old writes new NOT OK); no-skip-minors; anchor-at-apiserver model | <https://kubernetes.io/releases/version-skew-policy/> (accessed 2026-04-18) |
-| Confluent Schema Registry — Schema Evolution and Compatibility | Platform documentation | FORWARD_TRANSITIVE compatibility class matches additive-only minor-bump pattern, checked against all historical versions | <https://docs.confluent.io/platform/current/schema-registry/fundamentals/schema-evolution.html> (accessed 2026-04-18) |
-| Protobuf — Proto Best Practices | Language guide | Unknown-field preservation discipline; reserved-tag rule; "changing a field number is equivalent to deletion and re-addition" | <https://protobuf.dev/best-practices/dos-donts/> (accessed 2026-04-18) |
-| Protobuf — Language Guide (Editions) | Language guide | Editions-based evolution; forward-compat discipline for wire-format changes | <https://protobuf.dev/programming-guides/editions/> (accessed 2026-04-18) |
-| CloudEvents v1.0.2 Specification | Specification | `specversion` attribute; silent-ignore discipline for unknown content (weaker precedent; spec has never bumped from 1.0, so no field-tested MAJOR-bump precedent) | <https://github.com/cloudevents/spec/blob/v1.0.2/cloudevents/spec.md> (accessed 2026-04-18) |
-| How to (not) do the events versioning? | Industry commentary (event sourcing) | Upcaster-chain on read; never rewrite log; events immutable | <https://event-driven.io/en/how_to_do_event_versioning/> (accessed 2026-04-18) |
+| Source                                                         | Type                                 | Key Finding                                                                                                                                                       | URL/Location                                                                                                          |
+| -------------------------------------------------------------- | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Kubernetes Version Skew Policy (v1.35)                         | Upstream policy                      | Asymmetric read-tolerance (old reads new OK; old writes new NOT OK); no-skip-minors; anchor-at-apiserver model                                                    | <https://kubernetes.io/releases/version-skew-policy/> (accessed 2026-04-18)                                           |
+| Confluent Schema Registry — Schema Evolution and Compatibility | Platform documentation               | FORWARD_TRANSITIVE compatibility class matches additive-only minor-bump pattern, checked against all historical versions                                          | <https://docs.confluent.io/platform/current/schema-registry/fundamentals/schema-evolution.html> (accessed 2026-04-18) |
+| Protobuf — Proto Best Practices                                | Language guide                       | Unknown-field preservation discipline; reserved-tag rule; "changing a field number is equivalent to deletion and re-addition"                                     | <https://protobuf.dev/best-practices/dos-donts/> (accessed 2026-04-18)                                                |
+| Protobuf — Language Guide (Editions)                           | Language guide                       | Editions-based evolution; forward-compat discipline for wire-format changes                                                                                       | <https://protobuf.dev/programming-guides/editions/> (accessed 2026-04-18)                                             |
+| CloudEvents v1.0.2 Specification                               | Specification                        | `specversion` attribute; silent-ignore discipline for unknown content (weaker precedent; spec has never bumped from 1.0, so no field-tested MAJOR-bump precedent) | <https://github.com/cloudevents/spec/blob/v1.0.2/cloudevents/spec.md> (accessed 2026-04-18)                           |
+| How to (not) do the events versioning?                         | Industry commentary (event sourcing) | Upcaster-chain on read; never rewrite log; events immutable                                                                                                       | <https://event-driven.io/en/how_to_do_event_versioning/> (accessed 2026-04-18)                                        |
 
 ### Related ADRs
 
@@ -232,8 +232,8 @@ Every proposed MINOR bump MUST be reviewed against this checklist before landing
 
 ## Decision Log
 
-| Date | Event | Notes |
-|------|-------|-------|
+| Date       | Event              | Notes                                                                                                                                                                                                                                             |
+| ---------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 2026-04-18 | Research conducted | Opus 4.7 subagent validated pre-decided approach against Kubernetes Version Skew Policy, Confluent Schema Registry FORWARD_TRANSITIVE, Protobuf unknown-field preservation, and CloudEvents v1.0.2; 7 gotchas surfaced and addressed in §Decision |
-| 2026-04-18 | Proposed | Drafted against BL-065 exit criteria |
-| 2026-04-18 | Accepted | ADR accepted as cross-version compatibility contract for `EventEnvelope` evolution |
+| 2026-04-18 | Proposed           | Drafted against BL-065 exit criteria                                                                                                                                                                                                              |
+| 2026-04-18 | Accepted           | ADR accepted as cross-version compatibility contract for `EventEnvelope` evolution                                                                                                                                                                |

@@ -14,15 +14,15 @@
   - Use examples to clarify behavior, not to weaken requirements
 -->
 
-| Field | Value |
-| --- | --- |
-| **Status** | `draft` · `review` · `approved` · `superseded` |
-| **NNN** | `{NNN}` |
-| **Slug** | `{kebab-case-slug}` |
-| **Date** | `YYYY-MM-DD` |
-| **Author(s)** | `{name(s)}` |
-| **Depends On** | `{domain docs, architecture docs, ADRs}` |
-| **Implementation Plan** | `{link to plans/NNN-... once created}` |
+| Field                   | Value                                          |
+| ----------------------- | ---------------------------------------------- |
+| **Status**              | `draft` · `review` · `approved` · `superseded` |
+| **NNN**                 | `{NNN}`                                        |
+| **Slug**                | `{kebab-case-slug}`                            |
+| **Date**                | `YYYY-MM-DD`                                   |
+| **Author(s)**           | `{name(s)}`                                    |
+| **Depends On**          | `{domain docs, architecture docs, ADRs}`       |
+| **Implementation Plan** | `{link to plans/NNN-... once created}`         |
 
 ## Purpose
 

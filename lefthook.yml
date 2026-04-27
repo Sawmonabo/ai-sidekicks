@@ -1,0 +1,40 @@
+# lefthook 2.1.6 configuration per ADR-023 §Axis 2.
+#
+# Run hooks in parallel (Husky lacks this primitive — load-bearing for AI-implementer
+# feedback latency per ADR-023 §Axis 2 Synthesis item 1).
+#
+# CI parity for the `git commit --no-verify` bypass closure (ADR-023 §Axis 2 D-1) is
+# enforced via explicit `eslint .` + `prettier --check .` invocations in
+# `.github/workflows/ci.yml`. lint-staged reads the git staging index, which is empty
+# in a fresh CI checkout — running `lefthook run pre-commit --all-files` from CI
+# would be an empirical no-op.
+
+min_version: "2.1.6"
+
+pre-commit:
+  parallel: true
+  jobs:
+    - name: lint-staged
+      run: pnpm exec lint-staged --concurrent false
+      stage_fixed: true
+
+    - name: gitleaks
+      # `gitleaks protect --staged` was hidden in v8.19+ help and replaced by
+      # `gitleaks git --pre-commit --staged`. ADR-023 mandates v8.30+, so use the
+      # supported invocation. Sustains identical detection semantics on staged files.
+      # Local install is required per CONTRIBUTING.md "Toolchain Setup" — emit
+      # the install hint to stderr with a `WARNING:` prefix so missing-tool drift is
+      # visible in pre-commit output without blocking the commit (CI gitleaks job is
+      # the authoritative gate).
+      run: |
+        if command -v gitleaks >/dev/null 2>&1; then
+          gitleaks git --pre-commit --staged --no-banner --redact
+        else
+          echo "WARNING: gitleaks not installed locally; CI gitleaks job is the authoritative gate." >&2
+          echo "WARNING: Install per CONTRIBUTING.md or https://github.com/gitleaks/gitleaks" >&2
+        fi
+
+commit-msg:
+  jobs:
+    - name: commitlint
+      run: pnpm exec commitlint --edit {1}

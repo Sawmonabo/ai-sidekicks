@@ -1,13 +1,13 @@
 # ADR-013: Reserved Numbering Slot (Skipped, No Decision)
 
-| Field | Value |
-| -------------- | ------------------------------------------------------------------------ |
-| **Status** | `reserved-skipped` |
-| **Type** | `N/A (no decision recorded)` |
-| **Domain** | `N/A` |
-| **Date** | `2026-04-15` |
-| **Author(s)** | `Claude` |
-| **Reviewers** | `Formalized 2026-04-19` |
+| Field         | Value                        |
+| ------------- | ---------------------------- |
+| **Status**    | `reserved-skipped`           |
+| **Type**      | `N/A (no decision recorded)` |
+| **Domain**    | `N/A`                        |
+| **Date**      | `2026-04-15`                 |
+| **Author(s)** | `Claude`                     |
+| **Reviewers** | `Formalized 2026-04-19`      |
 
 ## Status Explanation
 
@@ -31,7 +31,7 @@ ADR numbering continues at [ADR-014: tRPC Control Plane API](./014-trpc-control-
 
 ## Decision Log
 
-| Date | Event | Notes |
-|------|-------|-------|
-| 2026-04-15 | Created | Placeholder file added in adversarial-review cleanup commit `d186470` (co-authored by Claude Opus 4.6). |
+| Date       | Event      | Notes                                                                                                                                         |
+| ---------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-04-15 | Created    | Placeholder file added in adversarial-review cleanup commit `d186470` (co-authored by Claude Opus 4.6).                                       |
 | 2026-04-19 | Formalized | BL-074 resolution: slot kept as formally-skipped, not filled and not removed. Renumbering downstream ADRs rejected as cost-ineffective churn. |

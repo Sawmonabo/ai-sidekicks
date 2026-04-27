@@ -55,12 +55,12 @@ sidekicks run retry <run-id>
 
 ## SLOs and Thresholds
 
-| Metric | Target |
-|---|---|
-| Stuck detection threshold | No progress for 60s |
-| Auto-escalation | After 5min stuck, emit health signal |
-| Interrupt delivery latency | < 5s |
-| Stuck-to-terminal resolution | < 10min |
+| Metric                       | Target                               |
+| ---------------------------- | ------------------------------------ |
+| Stuck detection threshold    | No progress for 60s                  |
+| Auto-escalation              | After 5min stuck, emit health signal |
+| Interrupt delivery latency   | < 5s                                 |
+| Stuck-to-terminal resolution | < 10min                              |
 
 ## On-Call Routing
 

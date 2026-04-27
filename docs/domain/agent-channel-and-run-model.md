@@ -45,20 +45,20 @@ This model explains how agents exist between runs, how communication surfaces ar
 
 Agent lifecycle:
 
-| State | Meaning |
-| --- | --- |
+| State        | Meaning                                                      |
+| ------------ | ------------------------------------------------------------ |
 | `configured` | The agent definition exists but is not yet active on a node. |
-| `ready` | The agent is attached to a runtime node and can start runs. |
-| `disabled` | The agent exists but cannot currently run. |
-| `archived` | The agent remains in history but is not used for new runs. |
+| `ready`      | The agent is attached to a runtime node and can start runs.  |
+| `disabled`   | The agent exists but cannot currently run.                   |
+| `archived`   | The agent remains in history but is not used for new runs.   |
 
 Channel lifecycle:
 
-| State | Meaning |
-| --- | --- |
-| `active` | The channel accepts new communication and run output. |
-| `muted` | The channel remains valid but is intentionally suppressed from normal attention surfaces. |
-| `archived` | The channel remains historical only. |
+| State      | Meaning                                                                                   |
+| ---------- | ----------------------------------------------------------------------------------------- |
+| `active`   | The channel accepts new communication and run output.                                     |
+| `muted`    | The channel remains valid but is intentionally suppressed from normal attention surfaces. |
+| `archived` | The channel remains historical only.                                                      |
 
 Run lifecycle is defined in `run-state-machine.md`.
 

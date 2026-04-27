@@ -23,15 +23,15 @@ The Collaboration Control Plane exists to share session coordination state acros
 
 ## Component Boundaries
 
-| Component | Responsibility |
-| --- | --- |
-| `Identity Service` | Authenticates users and issues identity claims used by session membership. |
-| `Session Directory` | Stores session metadata needed for discovery, join, and coordination. |
-| `Invite And Membership Service` | Creates invites, accepts joins, changes roles, and revokes membership. |
-| `Presence Service` | Tracks participant and node presence heartbeats and disconnect grace windows. |
-| `Relay Broker` | Helps clients and nodes establish shared-session connectivity without taking over execution. |
-| `Notification Service` | Delivers attention, invite, and session-level notifications. |
-| `Shared Metadata Store` | Persists collaboration state used across participants and nodes. |
+| Component                       | Responsibility                                                                               |
+| ------------------------------- | -------------------------------------------------------------------------------------------- |
+| `Identity Service`              | Authenticates users and issues identity claims used by session membership.                   |
+| `Session Directory`             | Stores session metadata needed for discovery, join, and coordination.                        |
+| `Invite And Membership Service` | Creates invites, accepts joins, changes roles, and revokes membership.                       |
+| `Presence Service`              | Tracks participant and node presence heartbeats and disconnect grace windows.                |
+| `Relay Broker`                  | Helps clients and nodes establish shared-session connectivity without taking over execution. |
+| `Notification Service`          | Delivers attention, invite, and session-level notifications.                                 |
+| `Shared Metadata Store`         | Persists collaboration state used across participants and nodes.                             |
 
 ## Implementation Home
 

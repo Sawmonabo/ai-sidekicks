@@ -1,14 +1,14 @@
 # Spec-015: Persistence Recovery And Replay
 
-| Field | Value |
-| --- | --- |
-| **Status** | `approved` |
-| **NNN** | `015` |
-| **Slug** | `persistence-recovery-and-replay` |
-| **Date** | `2026-04-14` |
-| **Author(s)** | `Codex` |
-| **Depends On** | [Data Architecture](../architecture/data-architecture.md), [Run State Machine](../domain/run-state-machine.md), [Session Event Taxonomy And Audit Log](../specs/006-session-event-taxonomy-and-audit-log.md) |
-| **Implementation Plan** | [Plan-015: Persistence Recovery And Replay](../plans/015-persistence-recovery-and-replay.md) |
+| Field                   | Value                                                                                                                                                                                                        |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Status**              | `approved`                                                                                                                                                                                                   |
+| **NNN**                 | `015`                                                                                                                                                                                                        |
+| **Slug**                | `persistence-recovery-and-replay`                                                                                                                                                                            |
+| **Date**                | `2026-04-14`                                                                                                                                                                                                 |
+| **Author(s)**           | `Codex`                                                                                                                                                                                                      |
+| **Depends On**          | [Data Architecture](../architecture/data-architecture.md), [Run State Machine](../domain/run-state-machine.md), [Session Event Taxonomy And Audit Log](../specs/006-session-event-taxonomy-and-audit-log.md) |
+| **Implementation Plan** | [Plan-015: Persistence Recovery And Replay](../plans/015-persistence-recovery-and-replay.md)                                                                                                                 |
 
 ## Purpose
 
@@ -113,11 +113,11 @@ The in-flight-receipt sweep runs **only at daemon startup**, per [§Default Beha
 
 Recovery dispatches on `idempotency_class`:
 
-| Class | Recovery Behavior |
-| --- | --- |
-| `idempotent` | Re-execute the tool. External deduplication (if any) is the tool's responsibility. Emit `tool.replayed`. |
-| `compensable` | Re-execute the tool with the receipt's `dedupe_key` attached so the remote side can reject duplicates. Pattern follows [Stripe idempotency keys](https://docs.stripe.com/api/idempotent_requests). On confirmed duplicate response, emit `tool.skipped_during_recovery`. |
-| `manual_reconcile_only` | Do **not** re-execute. Halt the affected run with a `recovery-needed` condition per [Spec-005 § Fallback Behavior](005-provider-driver-contract-and-capabilities.md#fallback-behavior). Emit `tool.skipped_during_recovery` and surface an operator escalation. |
+| Class                   | Recovery Behavior                                                                                                                                                                                                                                                        |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `idempotent`            | Re-execute the tool. External deduplication (if any) is the tool's responsibility. Emit `tool.replayed`.                                                                                                                                                                 |
+| `compensable`           | Re-execute the tool with the receipt's `dedupe_key` attached so the remote side can reject duplicates. Pattern follows [Stripe idempotency keys](https://docs.stripe.com/api/idempotent_requests). On confirmed duplicate response, emit `tool.skipped_during_recovery`. |
+| `manual_reconcile_only` | Do **not** re-execute. Halt the affected run with a `recovery-needed` condition per [Spec-005 § Fallback Behavior](005-provider-driver-contract-and-capabilities.md#fallback-behavior). Emit `tool.skipped_during_recovery` and surface an operator escalation.          |
 
 Examples: `idempotent` covers pure reads (`file.read`, `shell.stat`) and server-side-idempotent writes (for example `S3 PutObject` with `If-Match`). `compensable` covers Stripe charges, payment authorizations, and any remote side that honors a client-supplied idempotency key. `manual_reconcile_only` covers one-shot external actions where the remote side offers no deduplication — for example a webhook to a legacy system or a PR merge on a remote repo — and where executing twice would produce a user-visible incident.
 
@@ -125,9 +125,9 @@ Examples: `idempotent` covers pure reads (`file.read`, `shell.stat`) and server-
 
 Two event types are reserved for tool-recovery outcomes, both with category `tool_activity`. They are registered here and in [Spec-006](006-session-event-taxonomy-and-audit-log.md), with full taxonomy-table enumeration tracked by [BL-064](../archive/backlog-archive.md):
 
-| Type | Description |
-| --- | --- |
-| `tool.replayed` | A tool with `idempotency_class ∈ {idempotent, compensable}` was re-executed during recovery. Payload: `{sessionId, runId, commandId, idempotencyClass, dedupeKey?}`. |
+| Type                           | Description                                                                                                                                                                     |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tool.replayed`                | A tool with `idempotency_class ∈ {idempotent, compensable}` was re-executed during recovery. Payload: `{sessionId, runId, commandId, idempotencyClass, dedupeKey?}`.            |
 | `tool.skipped_during_recovery` | A tool with `idempotency_class = 'manual_reconcile_only'` was detected in-flight during recovery and was **not** re-executed. Payload: `{sessionId, runId, commandId, reason}`. |
 
 ### References
@@ -158,7 +158,7 @@ PRAGMA foreign_keys = ON;
 PRAGMA busy_timeout = 5000;
 ```
 
-The `synchronous = FULL` override is load-bearing. The `better-sqlite3` bundled distribution compiles with `SQLITE_DEFAULT_SYNCHRONOUS=1` (NORMAL), which the maintainers note trades *"a slight loss of durability"* for WAL throughput ([better-sqlite3 `docs/performance.md`](https://github.com/WiseLibs/better-sqlite3/blob/master/docs/performance.md), fetched 2026-04-19). That trade-off is unacceptable for `session_events` because each row is part of a cryptographic hash chain (see [Spec-006 §Integrity Protocol](006-session-event-taxonomy-and-audit-log.md#integrity-protocol)) — a lost write breaks verifiability irrecoverably.
+The `synchronous = FULL` override is load-bearing. The `better-sqlite3` bundled distribution compiles with `SQLITE_DEFAULT_SYNCHRONOUS=1` (NORMAL), which the maintainers note trades _"a slight loss of durability"_ for WAL throughput ([better-sqlite3 `docs/performance.md`](https://github.com/WiseLibs/better-sqlite3/blob/master/docs/performance.md), fetched 2026-04-19). That trade-off is unacceptable for `session_events` because each row is part of a cryptographic hash chain (see [Spec-006 §Integrity Protocol](006-session-event-taxonomy-and-audit-log.md#integrity-protocol)) — a lost write breaks verifiability irrecoverably.
 
 ### Bounded Queue and Batched Transactions
 
@@ -195,7 +195,7 @@ Session events carry two timestamps: `occurred_at` (RFC 3339 wall-clock UTC) for
 
 ### Monotonic Source
 
-`monotonic_ns` is produced by `process.hrtime.bigint()`. Per the Node.js documentation: *"The `bigint` version of the `process.hrtime()` method returning the current high-resolution real time in nanoseconds as a `bigint`"* ([nodejs.org/api/process.html#processhrtimebigint](https://nodejs.org/api/process.html#processhrtimebigint), fetched 2026-04-19). The underlying `process.hrtime()` docs add the load-bearing guarantee: *"These times are relative to an arbitrary time in the past, and not related to the time of day and therefore not subject to clock drift."*
+`monotonic_ns` is produced by `process.hrtime.bigint()`. Per the Node.js documentation: _"The `bigint` version of the `process.hrtime()` method returning the current high-resolution real time in nanoseconds as a `bigint`"_ ([nodejs.org/api/process.html#processhrtimebigint](https://nodejs.org/api/process.html#processhrtimebigint), fetched 2026-04-19). The underlying `process.hrtime()` docs add the load-bearing guarantee: _"These times are relative to an arbitrary time in the past, and not related to the time of day and therefore not subject to clock drift."_
 
 **Semantics.** `monotonic_ns` is not a UNIX timestamp. Its zero point is unspecified and changes on every daemon restart. It serves exactly two purposes: (a) stable within-daemon event ordering when the wall clock jumps (NTP step, VM resume, manual operator edit); (b) precise duration measurements between events produced by the same daemon process.
 
@@ -209,13 +209,13 @@ Session events carry two timestamps: `occurred_at` (RFC 3339 wall-clock UTC) for
 
 Daemon startup runs a platform-appropriate NTP-sync probe before accepting mutable writes. The platform matrix:
 
-| Platform | Command | Pass Condition |
-|---|---|---|
-| Linux (systemd) | `timedatectl show --property=NTPSynchronized --value` | stdout is `yes` |
-| Linux (chrony, no systemd) | `chronyc tracking` | `Leap status` is `Normal` (not `Not synchronised`) |
-| Windows | `w32tm /query /status /verbose` | `Last Sync Error == 0` AND `Stratum < 16` AND `Source != "Local CMOS Clock"` |
-| macOS | `systemsetup -getusingnetworktime` + `sntp -sS time.apple.com` | `getusingnetworktime` returns `On` AND `sntp` offset within ±500 ms |
-| Container | Probe the host, not the container | via `--ntp-sync-status-override=<env|file>` or host D-Bus socket mount |
+| Platform                   | Command                                                        | Pass Condition                                                               |
+| -------------------------- | -------------------------------------------------------------- | ---------------------------------------------------------------------------- | --------------------------------- |
+| Linux (systemd)            | `timedatectl show --property=NTPSynchronized --value`          | stdout is `yes`                                                              |
+| Linux (chrony, no systemd) | `chronyc tracking`                                             | `Leap status` is `Normal` (not `Not synchronised`)                           |
+| Windows                    | `w32tm /query /status /verbose`                                | `Last Sync Error == 0` AND `Stratum < 16` AND `Source != "Local CMOS Clock"` |
+| macOS                      | `systemsetup -getusingnetworktime` + `sntp -sS time.apple.com` | `getusingnetworktime` returns `On` AND `sntp` offset within ±500 ms          |
+| Container                  | Probe the host, not the container                              | via `--ntp-sync-status-override=<env                                         | file>` or host D-Bus socket mount |
 
 The Linux `NTPSynchronized` property reads the kernel `adjtimex(2)` flag via the `org.freedesktop.timedate1` D-Bus interface and is authoritative regardless of which daemon (timesyncd, chrony, ntpd) maintains sync ([man.archlinux.org/man/core/systemd/org.freedesktop.timedate1.5.en](https://man.archlinux.org/man/core/systemd/org.freedesktop.timedate1.5.en), fetched 2026-04-19). Windows parses multiple fields because no single boolean exists ([learn.microsoft.com/en-us/windows-server/networking/windows-time-service/windows-time-service-tools-and-settings](https://learn.microsoft.com/en-us/windows-server/networking/windows-time-service/windows-time-service-tools-and-settings), page dated 2025-09-18, fetched 2026-04-19). macOS has no single-boolean equivalent; its probe is explicitly best-effort and may false-negative on recently-restarted hosts before `timed` syncs. Containers inherit the host kernel clock but typically lack a `timedate1` D-Bus service, so detection must be hoisted out of the container — the override env var/path is the sanctioned escape hatch.
 
@@ -255,21 +255,21 @@ The daemon guarantees the local SQLite store can be restored within 24 hours of 
 
 The daemon runs WAL checkpoints under two triggers, both **PASSIVE mode**:
 
-- **Page-driven (auto)** — SQLite's built-in autocheckpoint fires when the WAL reaches `1000` pages (the default for `PRAGMA wal_autocheckpoint` confirmed at [sqlite.org/pragma.html#pragma_wal_autocheckpoint](https://sqlite.org/pragma.html#pragma_wal_autocheckpoint), last-updated 2025-11-13, fetched 2026-04-22). Per the same page — *"All automatic checkpoints are PASSIVE."*
-- **Time-driven (explicit)** — the daemon runs `PRAGMA wal_checkpoint(PASSIVE)` every 5 minutes via the writer worker. PASSIVE is the only mode that, per [sqlite.org/wal.html](https://sqlite.org/wal.html) §3.2, *"does as much work as it can without interfering with other database connections"* — it never invokes the busy-handler callback and does not block readers or writers. FULL, RESTART, and TRUNCATE each either block writers or contend with readers.
+- **Page-driven (auto)** — SQLite's built-in autocheckpoint fires when the WAL reaches `1000` pages (the default for `PRAGMA wal_autocheckpoint` confirmed at [sqlite.org/pragma.html#pragma_wal_autocheckpoint](https://sqlite.org/pragma.html#pragma_wal_autocheckpoint), last-updated 2025-11-13, fetched 2026-04-22). Per the same page — _"All automatic checkpoints are PASSIVE."_
+- **Time-driven (explicit)** — the daemon runs `PRAGMA wal_checkpoint(PASSIVE)` every 5 minutes via the writer worker. PASSIVE is the only mode that, per [sqlite.org/wal.html](https://sqlite.org/wal.html) §3.2, _"does as much work as it can without interfering with other database connections"_ — it never invokes the busy-handler callback and does not block readers or writers. FULL, RESTART, and TRUNCATE each either block writers or contend with readers.
 
 On backup completion the daemon runs a one-shot `PRAGMA wal_checkpoint(TRUNCATE)` to reclaim the WAL file's on-disk footprint. TRUNCATE is the only mode that truncates the log file to zero bytes (wal_checkpoint_v2.html). Running TRUNCATE opportunistically (tied to backup) keeps the steady-state cadence strictly PASSIVE and avoids stalling the writer under normal load.
 
 ### Daily Full Backup
 
-A daily full backup runs via the CLI `sidekicks db backup` and uses `better-sqlite3.backup(destination)` — a Promise-returning method that wraps the SQLite Online Backup API ([better-sqlite3 `docs/api.md`](https://github.com/WiseLibs/better-sqlite3/blob/master/docs/api.md), fetched 2026-04-19). Per WiseLibs' docs: *"You can continue to use the database normally while a backup is in progress. If the same database connection mutates the database while performing a backup, those mutations will be reflected in the backup automatically."* This matches the single-writer-worker model; multi-connection concurrent writes are not permitted in V1 so the alternate *"backup forcefully restarted"* path does not apply.
+A daily full backup runs via the CLI `sidekicks db backup` and uses `better-sqlite3.backup(destination)` — a Promise-returning method that wraps the SQLite Online Backup API ([better-sqlite3 `docs/api.md`](https://github.com/WiseLibs/better-sqlite3/blob/master/docs/api.md), fetched 2026-04-19). Per WiseLibs' docs: _"You can continue to use the database normally while a backup is in progress. If the same database connection mutates the database while performing a backup, those mutations will be reflected in the backup automatically."_ This matches the single-writer-worker model; multi-connection concurrent writes are not permitted in V1 so the alternate _"backup forcefully restarted"_ path does not apply.
 
-**Atomicity.** The SQLite Online Backup API holds a shared lock on the source database during each step and an *"exclusive lock on the destination file"* for the full duration ([sqlite.org/c3ref/backup_finish.html](https://sqlite.org/c3ref/backup_finish.html), fetched 2026-04-19). WiseLibs' documentation does not specify whether `.backup()` fsyncs the destination or the parent directory. The daemon MUST therefore mandate the following publish sequence at the implementation layer:
+**Atomicity.** The SQLite Online Backup API holds a shared lock on the source database during each step and an _"exclusive lock on the destination file"_ for the full duration ([sqlite.org/c3ref/backup_finish.html](https://sqlite.org/c3ref/backup_finish.html), fetched 2026-04-19). WiseLibs' documentation does not specify whether `.backup()` fsyncs the destination or the parent directory. The daemon MUST therefore mandate the following publish sequence at the implementation layer:
 
 1. Write to a same-filesystem staging path `<target>.tmp`.
 2. `fsync()` the staging file descriptor.
 3. `rename(<target>.tmp, <target>)` — atomic on a single filesystem per [`rename(2)`](https://man7.org/linux/man-pages/man2/rename.2.html).
-4. `fsync()` the parent directory file descriptor — required for directory-entry durability per [`fsync(2)`](https://man7.org/linux/man-pages/man2/fsync.2.html): *"Calling `fsync()` does not necessarily ensure that the entry in the directory containing the file has also reached disk. For that an explicit `fsync()` on a file descriptor for the directory is also needed."*
+4. `fsync()` the parent directory file descriptor — required for directory-entry durability per [`fsync(2)`](https://man7.org/linux/man-pages/man2/fsync.2.html): _"Calling `fsync()` does not necessarily ensure that the entry in the directory containing the file has also reached disk. For that an explicit `fsync()` on a file descriptor for the directory is also needed."_
 
 A single-runner lock (`<backups-dir>/backup.lock` opened with `O_EXCL|O_CREAT`) prevents concurrent backup invocations from racing on the destination's exclusive lock.
 
@@ -287,7 +287,7 @@ Mainstream ORM/migration tools surveyed — Django 5.1 migrations, Rails 8.1 Act
 
 ### Filesystem Layout
 
-**Host install (daemon running directly on host).** Backups live at `$XDG_STATE_HOME/ai-sidekicks/backups/` (default `$HOME/.local/state/ai-sidekicks/backups/`). Per the [XDG Base Directory Specification v0.8](https://specifications.freedesktop.org/basedir-spec/latest/) (8 May 2021, current as of 2026-04-19), `$XDG_STATE_HOME` *"defines the base directory relative to which user-specific state files should be stored"* and is intended to hold *"actions history (logs, history, recently used files, …); current state of the application that can be reused on a restart"* — backups fall squarely within this definition (vs `$XDG_DATA_HOME`, which is for user-portable data).
+**Host install (daemon running directly on host).** Backups live at `$XDG_STATE_HOME/ai-sidekicks/backups/` (default `$HOME/.local/state/ai-sidekicks/backups/`). Per the [XDG Base Directory Specification v0.8](https://specifications.freedesktop.org/basedir-spec/latest/) (8 May 2021, current as of 2026-04-19), `$XDG_STATE_HOME` _"defines the base directory relative to which user-specific state files should be stored"_ and is intended to hold _"actions history (logs, history, recently used files, …); current state of the application that can be reused on a restart"_ — backups fall squarely within this definition (vs `$XDG_DATA_HOME`, which is for user-portable data).
 
 **Container install (daemon running inside Docker).** XDG variables inside a container are not meaningful (`$HOME` is typically ephemeral). The container writes to absolute path `/var/lib/ai-sidekicks/backups/`; the operator bind-mounts host `$XDG_STATE_HOME/ai-sidekicks/backups/` to that container path ([docs.docker.com/engine/storage/volumes/](https://docs.docker.com/engine/storage/volumes/), fetched 2026-04-19). Named volumes are acceptable but sacrifice direct host-side access for off-box replication. This reconciles the container-relative `./data/backups/` path declared in [Spec-027 §Row 6](027-self-host-secure-defaults.md) — that path is the operator-facing default in the bundled `docker-compose.yml` (a bind mount from host `./data/` to container `/var/lib/ai-sidekicks/`), while this spec owns the daemon-side absolute path and the atomicity contract above.
 

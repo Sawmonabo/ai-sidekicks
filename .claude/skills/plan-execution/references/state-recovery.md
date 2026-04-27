@@ -29,6 +29,7 @@ gh pr view --json number,title,isDraft,statusCheckRollup,reviews
 ```
 
 Confirm:
+
 - PR exists and matches the branch.
 - Draft vs ready (ready means CI is the next gate; draft means we're still implementing or reviewing).
 - CI status (green / pending / failed).
@@ -40,7 +41,7 @@ Confirm:
 TaskList()
 ```
 
-Find any in_progress tasks tagged for this plan / PR. They tell you the *intent* of where you paused. If TaskList is empty (new session), that's fine — the branch and PR tell you the state.
+Find any in*progress tasks tagged for this plan / PR. They tell you the \_intent* of where you paused. If TaskList is empty (new session), that's fine — the branch and PR tell you the state.
 
 ### 4. Re-read the plan task
 
@@ -50,20 +51,20 @@ Read the plan section for this PR (`docs/plans/NNN-*.md` PR #M). Compare the pla
 
 Match the branch state to a workflow step:
 
-| Branch state | Resume from |
-|--------------|-------------|
-| Only the scaffold commit (chore: scaffold ...) | Step 4 — dispatch implementer |
-| Implementation commits but no review evidence | Step 5 — dispatch reviewers |
-| Review-fix commits after reviewer feedback | Step 4 — dispatch implementer with the feedback |
-| PR is `ready`, CI pending | Step 6 — wait for CI |
-| PR is `ready`, CI green, not merged | Step 7 — squash-merge |
-| Branch deleted, PR merged | Step 8 — next PR or done |
+| Branch state                                   | Resume from                                     |
+| ---------------------------------------------- | ----------------------------------------------- |
+| Only the scaffold commit (chore: scaffold ...) | Step 4 — dispatch implementer                   |
+| Implementation commits but no review evidence  | Step 5 — dispatch reviewers                     |
+| Review-fix commits after reviewer feedback     | Step 4 — dispatch implementer with the feedback |
+| PR is `ready`, CI pending                      | Step 6 — wait for CI                            |
+| PR is `ready`, CI green, not merged            | Step 7 — squash-merge                           |
+| Branch deleted, PR merged                      | Step 8 — next PR or done                        |
 
 If the branch state doesn't match any row (e.g., merge conflicts, broken history), surface to the user. Do not auto-resolve.
 
 ### 6. Confirm the resume to the user
 
-Report in one sentence: *"Resuming Plan-NNN PR #M at <step name> — branch is at <commit SHA short>, CI is <status>, next action is <action>."* Then proceed unless the user redirects.
+Report in one sentence: _"Resuming Plan-NNN PR #M at <step name> — branch is at <commit SHA short>, CI is <status>, next action is <action>."_ Then proceed unless the user redirects.
 
 ## Edge cases
 
@@ -92,12 +93,14 @@ E.g., TaskList says "implementer DONE" but the branch has only the scaffold comm
 ## What durable state means
 
 **Durable across sessions:**
+
 - Git commits on the branch (origin and local in sync).
 - Files in the working tree that have been committed.
 - The PR (number, title, body, draft/ready status, reviews, comments).
 - This skill file and ADR-024.
 
 **Not durable across sessions:**
+
 - TaskCreate task list.
 - Conversation context.
 - In-flight subagent dispatches.

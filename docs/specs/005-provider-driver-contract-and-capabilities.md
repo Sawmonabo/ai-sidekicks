@@ -1,14 +1,14 @@
 # Spec-005: Provider Driver Contract And Capabilities
 
-| Field | Value |
-| --- | --- |
-| **Status** | `approved` |
-| **NNN** | `005` |
-| **Slug** | `provider-driver-contract-and-capabilities` |
-| **Date** | `2026-04-14` |
-| **Author(s)** | `Codex` |
-| **Depends On** | [Runtime Node Model](../domain/runtime-node-model.md), [Agent Channel And Run Model](../domain/agent-channel-and-run-model.md), [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md), [Data Architecture](../architecture/data-architecture.md) |
-| **Implementation Plan** | [Plan-005: Provider Driver Contract And Capabilities](../plans/005-provider-driver-contract-and-capabilities.md) |
+| Field                   | Value                                                                                                                                                                                                                                                                                    |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Status**              | `approved`                                                                                                                                                                                                                                                                               |
+| **NNN**                 | `005`                                                                                                                                                                                                                                                                                    |
+| **Slug**                | `provider-driver-contract-and-capabilities`                                                                                                                                                                                                                                              |
+| **Date**                | `2026-04-14`                                                                                                                                                                                                                                                                             |
+| **Author(s)**           | `Codex`                                                                                                                                                                                                                                                                                  |
+| **Depends On**          | [Runtime Node Model](../domain/runtime-node-model.md), [Agent Channel And Run Model](../domain/agent-channel-and-run-model.md), [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md), [Data Architecture](../architecture/data-architecture.md) |
+| **Implementation Plan** | [Plan-005: Provider Driver Contract And Capabilities](../plans/005-provider-driver-contract-and-capabilities.md)                                                                                                                                                                         |
 
 ## Purpose
 
@@ -93,15 +93,15 @@ This spec covers required driver operations, capability advertisement, normalize
 
 ## Per-Driver Capability Matrix
 
-| Flag | Codex | Claude | Description |
-| --- | --- | --- | --- |
-| `resume` | true | true | Can resume a paused run from a saved handle |
-| `steer` | true | false | Supports native mid-run content injection |
-| `interactive_requests` | true | true | Can issue tool confirmations and clarification questions |
-| `mcp` | true | true | Supports MCP server tool calls |
-| `tool_calls` | true | true | Supports structured tool/function calling |
-| `reasoning_stream` | false | true | Exposes reasoning/thinking tokens in output |
-| `model_mutation` | false | true | Supports switching models mid-session |
+| Flag                   | Codex | Claude | Description                                              |
+| ---------------------- | ----- | ------ | -------------------------------------------------------- |
+| `resume`               | true  | true   | Can resume a paused run from a saved handle              |
+| `steer`                | true  | false  | Supports native mid-run content injection                |
+| `interactive_requests` | true  | true   | Can issue tool confirmations and clarification questions |
+| `mcp`                  | true  | true   | Supports MCP server tool calls                           |
+| `tool_calls`           | true  | true   | Supports structured tool/function calling                |
+| `reasoning_stream`     | false | true   | Exposes reasoning/thinking tokens in output              |
+| `model_mutation`       | false | true   | Supports switching models mid-session                    |
 
 ### Fallback Behavior
 
@@ -119,11 +119,11 @@ Driver capabilities describe what the driver supports as a whole (e.g., `resume`
 
 ### `idempotency_class`
 
-| Value | Meaning |
-| --- | --- |
-| `idempotent` | Safe to re-execute on recovery. Either a pure read (`file.read`, `shell.stat`) or a write whose external target is server-side idempotent (for example `S3 PutObject` with `If-Match`). |
-| `compensable` | Re-executable only when paired with a caller-supplied `dedupe_key` that the remote side honors (for example [Stripe idempotency keys](https://docs.stripe.com/api/idempotent_requests)). The driver is responsible for propagating `dedupe_key` to the remote invocation so that a duplicate request is rejected or treated as a no-op. |
-| `manual_reconcile_only` | **Not** safe to re-execute automatically. Recovery halts the run with a `recovery-needed` condition (see §Fallback Behavior) and requires operator reconciliation. |
+| Value                   | Meaning                                                                                                                                                                                                                                                                                                                                 |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `idempotent`            | Safe to re-execute on recovery. Either a pure read (`file.read`, `shell.stat`) or a write whose external target is server-side idempotent (for example `S3 PutObject` with `If-Match`).                                                                                                                                                 |
+| `compensable`           | Re-executable only when paired with a caller-supplied `dedupe_key` that the remote side honors (for example [Stripe idempotency keys](https://docs.stripe.com/api/idempotent_requests)). The driver is responsible for propagating `dedupe_key` to the remote invocation so that a duplicate request is rejected or treated as a no-op. |
+| `manual_reconcile_only` | **Not** safe to re-execute automatically. Recovery halts the run with a `recovery-needed` condition (see §Fallback Behavior) and requires operator reconciliation.                                                                                                                                                                      |
 
 If a driver does not declare `idempotency_class` for a tool, the runtime MUST treat it as `manual_reconcile_only`. This is the conservative default and matches the existing rule that the runtime treats undeclared capabilities as unsupported.
 

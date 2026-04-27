@@ -63,12 +63,12 @@ sidekicks daemon start
 
 ## SLOs and Thresholds
 
-| Metric | Target |
-|---|---|
-| Startup time | < 3s |
-| Event append latency | < 10ms |
-| SQLite WAL checkpoint | < 5s |
-| IPC round-trip latency (p99) | < 50ms |
+| Metric                         | Target    |
+| ------------------------------ | --------- |
+| Startup time                   | < 3s      |
+| Event append latency           | < 10ms    |
+| SQLite WAL checkpoint          | < 5s      |
+| IPC round-trip latency (p99)   | < 50ms    |
 | Daemon liveness probe interval | every 10s |
 
 ## On-Call Routing

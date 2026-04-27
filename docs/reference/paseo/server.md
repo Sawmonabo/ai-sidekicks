@@ -277,28 +277,28 @@ Both shutdown and restart intents can be triggered via WebSocket RPC. In supervi
 
 `createPaseoDaemon()` constructs the full service graph:
 
-| Service | Type | Description |
-|---------|------|-------------|
-| `DaemonConfigStore` | Mutable config | Live config with change events, persisted to `config.json` |
-| `serverId` | String | Persistent server identifier (stored in `PASEO_HOME`) |
-| `daemonKeyPair` | E2EE KeyPair | X25519 keypair for relay E2EE (stored in `daemon-keypair.json`) |
-| `DownloadTokenStore` | Token store | Time-limited tokens for file downloads (default 60s TTL) |
-| `AgentStorage` | Persistence | File-backed agent record storage (`PASEO_HOME/agents/`) |
-| `FileBackedProjectRegistry` | Registry | Project records (`PASEO_HOME/projects/projects.json`) |
-| `FileBackedWorkspaceRegistry` | Registry | Workspace records (`PASEO_HOME/projects/workspaces.json`) |
-| `FileBackedChatService` | Chat | Chat rooms and messages (`PASEO_HOME/chat/rooms.json`) |
-| `AgentManager` | Core | Agent lifecycle management, provider client registry |
-| `providerRegistry` | Registry | Provider definitions with model/mode fetching |
-| `TerminalManager` | Terminal | PTY terminal session management |
-| `WorkspaceGitServiceImpl` | Git | Live git status watching with FS watchers and periodic fetch |
-| `CheckoutDiffManager` | Git | File-watching diff subscriptions for checkout views |
-| `LoopService` | Automation | Iterative prompt loops with verification |
-| `ScheduleService` | Automation | Cron-like schedule execution |
-| `SpeechService` | Voice | STT/TTS/VAD with local (Sherpa-ONNX) and OpenAI providers |
-| Express `app` | HTTP | REST endpoints + static file serving |
-| `VoiceAssistantWebSocketServer` | WebSocket | Primary client gateway |
-| `RelayTransport` | Networking | E2EE tunneling through relay.paseo.sh |
-| `PushTokenStore` + `PushService` | Push | Expo push notification management |
+| Service                          | Type           | Description                                                     |
+| -------------------------------- | -------------- | --------------------------------------------------------------- |
+| `DaemonConfigStore`              | Mutable config | Live config with change events, persisted to `config.json`      |
+| `serverId`                       | String         | Persistent server identifier (stored in `PASEO_HOME`)           |
+| `daemonKeyPair`                  | E2EE KeyPair   | X25519 keypair for relay E2EE (stored in `daemon-keypair.json`) |
+| `DownloadTokenStore`             | Token store    | Time-limited tokens for file downloads (default 60s TTL)        |
+| `AgentStorage`                   | Persistence    | File-backed agent record storage (`PASEO_HOME/agents/`)         |
+| `FileBackedProjectRegistry`      | Registry       | Project records (`PASEO_HOME/projects/projects.json`)           |
+| `FileBackedWorkspaceRegistry`    | Registry       | Workspace records (`PASEO_HOME/projects/workspaces.json`)       |
+| `FileBackedChatService`          | Chat           | Chat rooms and messages (`PASEO_HOME/chat/rooms.json`)          |
+| `AgentManager`                   | Core           | Agent lifecycle management, provider client registry            |
+| `providerRegistry`               | Registry       | Provider definitions with model/mode fetching                   |
+| `TerminalManager`                | Terminal       | PTY terminal session management                                 |
+| `WorkspaceGitServiceImpl`        | Git            | Live git status watching with FS watchers and periodic fetch    |
+| `CheckoutDiffManager`            | Git            | File-watching diff subscriptions for checkout views             |
+| `LoopService`                    | Automation     | Iterative prompt loops with verification                        |
+| `ScheduleService`                | Automation     | Cron-like schedule execution                                    |
+| `SpeechService`                  | Voice          | STT/TTS/VAD with local (Sherpa-ONNX) and OpenAI providers       |
+| Express `app`                    | HTTP           | REST endpoints + static file serving                            |
+| `VoiceAssistantWebSocketServer`  | WebSocket      | Primary client gateway                                          |
+| `RelayTransport`                 | Networking     | E2EE tunneling through relay.paseo.sh                           |
+| `PushTokenStore` + `PushService` | Push           | Expo push notification management                               |
 
 ### Wiring Highlights
 
@@ -325,15 +325,16 @@ Both shutdown and restart intents can be triggered via WebSocket RPC. In supervi
 
 ### Close Codes
 
-| Code | Meaning |
-|------|---------|
+| Code | Meaning                             |
+| ---- | ----------------------------------- |
 | 4001 | Hello timeout (no hello within 15s) |
-| 4002 | Invalid hello |
-| 4003 | Incompatible protocol version |
+| 4002 | Invalid hello                       |
+| 4003 | Incompatible protocol version       |
 
 ### Session Messages (Complete RPC Surface)
 
 #### Agent CRUD
+
 - `create_agent_request` -> creates agent with provider, cwd, mode, model, features, MCP servers, system prompt
 - `resume_agent_request` -> resumes agent from persistence handle
 - `refresh_agent_request` -> refreshes agent state
@@ -344,6 +345,7 @@ Both shutdown and restart intents can be triggered via WebSocket RPC. In supervi
 - `close_items_request` -> bulk close agents/terminals
 
 #### Agent Interaction
+
 - `send_agent_message_request` -> sends user message (text or content blocks including images)
 - `wait_for_finish_request` -> waits for agent to reach idle/permission/error state
 - `cancel_agent_request` -> interrupts running agent
@@ -355,9 +357,11 @@ Both shutdown and restart intents can be triggered via WebSocket RPC. In supervi
 - `set_agent_feature_request` -> toggles feature flags
 
 #### Agent Timeline
+
 - `fetch_agent_timeline_request` -> fetches timeline window with cursor-based pagination (tail/before/after)
 
 #### Voice / Audio
+
 - `set_voice_mode` -> enables/disables voice mode on an agent
 - `voice_audio_chunk` -> binary audio data for STT
 - `abort_request` -> aborts voice transcription
@@ -365,6 +369,7 @@ Both shutdown and restart intents can be triggered via WebSocket RPC. In supervi
 - `dictation_stream_start/chunk/finish/cancel` -> streaming dictation lifecycle
 
 #### Terminal Management
+
 - `list_terminals_request`
 - `subscribe_terminals_request` / `unsubscribe_terminals_request`
 - `create_terminal_request`
@@ -374,6 +379,7 @@ Both shutdown and restart intents can be triggered via WebSocket RPC. In supervi
 - `capture_terminal_request`
 
 #### Git / Checkout Operations
+
 - `checkout_status_request` -> full git status snapshot
 - `validate_branch_request` -> validate branch name
 - `branch_suggestions_request` -> autocomplete branch names
@@ -388,17 +394,20 @@ Both shutdown and restart intents can be triggered via WebSocket RPC. In supervi
 - `paseo_worktree_list_request` / `create_paseo_worktree_request` / `paseo_worktree_archive_request`
 
 #### Workspace Management
+
 - `fetch_workspaces_request` -> paginated workspace query
 - `open_project_request` -> open/upsert project and workspace
 - `archive_workspace_request`
 - `directory_suggestions_request` -> directory autocomplete
 
 #### File Explorer
+
 - `file_explorer_request` -> list directory or read file
 - `project_icon_request` -> resolve project icon
 - `file_download_token_request` -> generate download token
 
 #### Provider Discovery
+
 - `list_available_providers_request` -> all registered providers
 - `list_provider_models_request` -> models for a provider
 - `list_provider_modes_request` -> modes for a provider
@@ -408,6 +417,7 @@ Both shutdown and restart intents can be triggered via WebSocket RPC. In supervi
 - `provider_diagnostic_request` -> diagnostic info (binary path, version, availability)
 
 #### Chat Service
+
 - `chat/create` -> create chat room
 - `chat/list` -> list rooms
 - `chat/inspect` -> room details
@@ -417,20 +427,24 @@ Both shutdown and restart intents can be triggered via WebSocket RPC. In supervi
 - `chat/wait` -> long-poll for new messages
 
 #### Schedule Service
+
 - `schedule/create` -> create recurring schedule
 - `schedule/list` / `schedule/inspect` / `schedule/logs`
 - `schedule/pause` / `schedule/resume` / `schedule/delete`
 
 #### Loop Service
+
 - `loop/run` -> start iterative loop
 - `loop/list` / `loop/inspect` / `loop/logs`
 - `loop/stop`
 
 #### IDE Integration
+
 - `list_available_editors_request` -> list IDE targets (VS Code, Cursor, etc.)
 - `open_in_editor_request` -> open file/directory in editor
 
 #### Daemon Management
+
 - `get_daemon_config_request` / `set_daemon_config_request`
 - `restart_server_request` / `shutdown_server_request`
 - `list_commands_request` -> list available slash commands for an agent
@@ -465,7 +479,7 @@ Every provider implements the `AgentClient` interface:
 
 ```typescript
 interface AgentClient {
-  provider: AgentProvider;                           // string identifier
+  provider: AgentProvider; // string identifier
   capabilities: AgentCapabilityFlags;
   createSession(config, launchContext): Promise<AgentSession>;
   resumeSession(handle, overrides, launchContext): Promise<AgentSession>;
@@ -486,8 +500,8 @@ interface AgentSession {
   capabilities: AgentCapabilityFlags;
   features?: AgentFeature[];
   run(prompt, options?): Promise<AgentRunResult>;
-  startTurn(prompt, options?): Promise<string>;   // non-blocking turn start
-  subscribe(callback): () => void;                 // stream events
+  startTurn(prompt, options?): Promise<string>; // non-blocking turn start
+  subscribe(callback): () => void; // stream events
   streamHistory(): AsyncIterable<AgentStreamEvent>; // replay history
   getRuntimeInfo(): Promise<AgentRuntimeInfo>;
   getAvailableModes(): AgentMode[];
@@ -520,14 +534,14 @@ type AgentCapabilityFlags = {
 
 ### Registered Providers
 
-| Provider | ID | Transport | SDK | Capabilities |
-|----------|-----|-----------|-----|-------------|
-| **Claude** | `claude` | Subprocess (`claude` CLI via `@anthropic-ai/claude-agent-sdk`) | `query()` API | All capabilities |
-| **Codex** | `codex` | Subprocess (`codex` CLI, app-server JSON-RPC over stdio) | Custom JSON-RPC | All capabilities |
-| **Copilot** | `copilot` | Subprocess via ACP (`@agentclientprotocol/sdk`) | ACP ndJSON stream | All capabilities |
-| **OpenCode** | `opencode` | Subprocess (`opencode` server) + TCP client (`@opencode-ai/sdk`) | HTTP/SSE client | All capabilities |
-| **Pi** | `pi` | Subprocess via ACP (bundled `pi-acp`) | ACP ndJSON stream | All capabilities |
-| **Generic ACP** | custom ID | Subprocess via ACP (user-configured command) | ACP ndJSON stream | Varies |
+| Provider        | ID         | Transport                                                        | SDK               | Capabilities     |
+| --------------- | ---------- | ---------------------------------------------------------------- | ----------------- | ---------------- |
+| **Claude**      | `claude`   | Subprocess (`claude` CLI via `@anthropic-ai/claude-agent-sdk`)   | `query()` API     | All capabilities |
+| **Codex**       | `codex`    | Subprocess (`codex` CLI, app-server JSON-RPC over stdio)         | Custom JSON-RPC   | All capabilities |
+| **Copilot**     | `copilot`  | Subprocess via ACP (`@agentclientprotocol/sdk`)                  | ACP ndJSON stream | All capabilities |
+| **OpenCode**    | `opencode` | Subprocess (`opencode` server) + TCP client (`@opencode-ai/sdk`) | HTTP/SSE client   | All capabilities |
+| **Pi**          | `pi`       | Subprocess via ACP (bundled `pi-acp`)                            | ACP ndJSON stream | All capabilities |
+| **Generic ACP** | custom ID  | Subprocess via ACP (user-configured command)                     | ACP ndJSON stream | Varies           |
 
 ### Provider Registry
 
@@ -541,6 +555,7 @@ type AgentCapabilityFlags = {
 ### Transport Details
 
 **Claude**: Spawns `claude` CLI via `@anthropic-ai/claude-agent-sdk`'s `query()` function. Supports:
+
 - Permission modes: default, acceptEdits, plan, bypassPermissions
 - MCP server injection (stdio, HTTP, SSE configs)
 - Session persistence via resume tokens
@@ -548,6 +563,7 @@ type AgentCapabilityFlags = {
 - Model catalog: fetched from `claude --list-models`
 
 **Codex**: Spawns `codex --app-server` with JSON-RPC over stdin/stdout:
+
 - Rollout events parsed from stream
 - Thread-based persistence (thread IDs)
 - Modes: auto, full-access
@@ -555,12 +571,14 @@ type AgentCapabilityFlags = {
 - Image attachment support via temp directories
 
 **OpenCode**: Manages a singleton `opencode` server process per daemon:
+
 - `OpenCodeServerManager` spawns server, discovers TCP port
 - Client connects via `@opencode-ai/sdk` HTTP client
 - Dynamic modes fetched from server
 - Model list with timeout protection
 
 **ACP (Copilot, Pi, Generic)**: Subprocess spawned per session:
+
 - ndJSON stream protocol (`@agentclientprotocol/sdk`)
 - Initialize handshake with capabilities negotiation
 - Session modes, config options, permission requests
@@ -569,6 +587,7 @@ type AgentCapabilityFlags = {
 ### Normalization
 
 Each provider has dedicated tool-call mappers that normalize provider-specific tool calls into canonical `ToolCallDetail` types:
+
 - `shell` (command execution)
 - `read` (file reading)
 - `edit` (file editing with diffs)
@@ -594,6 +613,7 @@ initializing ---> idle  |   +--> error
 ```
 
 States:
+
 - **initializing**: session created, not yet ready
 - **idle**: session active, awaiting user input
 - **running**: actively processing a turn (foreground or autonomous)
@@ -603,6 +623,7 @@ States:
 ### ManagedAgent
 
 Key properties per agent:
+
 - `id`, `provider`, `cwd`, `config`, `capabilities`
 - `session: AgentSession | null` (null when closed)
 - `lifecycle` / `activeForegroundTurnId`
@@ -631,6 +652,7 @@ Key properties per agent:
 ### Stream Event Processing
 
 The agent manager subscribes to each session and processes events:
+
 - `turn_started` -> lifecycle transitions to `running`
 - `turn_completed` -> lifecycle transitions to `idle`, fires attention callback
 - `turn_failed` -> lifecycle transitions to `error`
@@ -643,6 +665,7 @@ The agent manager subscribes to each session and processes events:
 ### Attention System
 
 When an agent finishes, errors, or requests permission, the attention callback fires. The `agent-attention-policy.ts` computes:
+
 - `shouldNotifyClient`: based on client heartbeat recency
 - `shouldSendPush`: based on push token availability and attention state
 
@@ -651,12 +674,14 @@ This drives both WebSocket notifications and Expo push notifications.
 ### Timeline
 
 Each agent maintains a timeline of `AgentTimelineItem` entries:
+
 - `user_message`, `assistant_message`, `reasoning`
 - `tool_call` (with typed `ToolCallDetail`)
 - `todo` (checklist items)
 - `error`, `compaction`
 
 Timeline supports:
+
 - Cursor-based pagination (epoch + seq)
 - Windowed fetch (tail, before, after)
 - Projection modes for display
@@ -676,15 +701,15 @@ Timeline supports:
 
 ### RPC Methods
 
-| Method | Description |
-|--------|-------------|
-| `chat/create` | Create named room with optional purpose |
-| `chat/list` | List all rooms (sorted by updatedAt) |
-| `chat/inspect` | Room details including message count |
-| `chat/delete` | Delete room and all messages |
-| `chat/post` | Post message with author, optional replyTo |
-| `chat/read` | Read messages with limit, since, author filter |
-| `chat/wait` | Long-poll for new messages after a given message ID |
+| Method         | Description                                         |
+| -------------- | --------------------------------------------------- |
+| `chat/create`  | Create named room with optional purpose             |
+| `chat/list`    | List all rooms (sorted by updatedAt)                |
+| `chat/inspect` | Room details including message count                |
+| `chat/delete`  | Delete room and all messages                        |
+| `chat/post`    | Post message with author, optional replyTo          |
+| `chat/read`    | Read messages with limit, since, author filter      |
+| `chat/wait`    | Long-poll for new messages after a given message ID |
 
 ---
 
@@ -697,6 +722,7 @@ Timeline supports:
 **Lifecycle**: running -> succeeded | failed | stopped
 
 **Configuration**:
+
 - `prompt`: the task to execute each iteration
 - `cwd`, `provider`, `model`: agent configuration
 - `workerProvider/workerModel`: separate provider for worker agents
@@ -708,6 +734,7 @@ Timeline supports:
 - `archive`: whether to archive worker agents after iteration
 
 **Iteration Flow**:
+
 1. Create worker agent with the prompt
 2. Wait for worker to complete
 3. Run verify checks (shell commands, capture stdout/stderr, check exit code)
@@ -722,16 +749,19 @@ Timeline supports:
 `ScheduleService` implements cron-like recurring agent execution:
 
 **Cadence Types**:
+
 - `every`: fixed interval in milliseconds
 - `cron`: standard 5-field cron expression (minute, hour, dayOfMonth, month, dayOfWeek)
 
 **Target Types**:
+
 - `agent`: send prompt to existing agent
 - `new-agent`: create new agent with full config (provider, cwd, mode, model, etc.)
 
 **Lifecycle**: active -> paused / completed
 
 **Features**:
+
 - `maxRuns`: auto-complete after N runs
 - `expiresAt`: auto-complete at timestamp
 - Pause/resume with nextRunAt recalculation
@@ -752,38 +782,38 @@ Mounted as HTTP endpoint using `StreamableHTTPServerTransport`. Each session get
 
 **30 Registered Tools**:
 
-| Tool | Description |
-|------|-------------|
-| `speak` | Voice TTS output (agent-scoped only) |
-| `create_agent` | Create and optionally run a new agent |
-| `wait_for_agent` | Wait for agent completion/permission |
-| `send_agent_prompt` | Send message to existing agent |
-| `get_agent_status` | Get agent snapshot |
-| `list_agents` | List all agents |
-| `cancel_agent` | Interrupt running agent |
-| `archive_agent` | Soft-delete agent |
-| `kill_agent` | Force close agent |
-| `update_agent` | Update agent title/labels |
-| `list_terminals` | List terminal sessions |
-| `create_terminal` | Create new PTY terminal |
-| `kill_terminal` | Kill terminal session |
-| `capture_terminal` | Capture terminal output lines |
-| `send_terminal_keys` | Send keystrokes to terminal |
-| `create_schedule` | Create recurring schedule |
-| `list_schedules` | List all schedules |
-| `inspect_schedule` | Get schedule details |
-| `pause_schedule` | Pause schedule |
-| `resume_schedule` | Resume schedule |
-| `delete_schedule` | Delete schedule |
-| `list_providers` | List available providers |
-| `list_models` | List models for a provider |
-| `list_worktrees` | List Paseo-managed worktrees |
-| `create_worktree` | Create git worktree |
-| `archive_worktree` | Delete git worktree |
-| `get_agent_activity` | Curated timeline summary |
-| `set_agent_mode` | Switch agent mode |
+| Tool                       | Description                           |
+| -------------------------- | ------------------------------------- |
+| `speak`                    | Voice TTS output (agent-scoped only)  |
+| `create_agent`             | Create and optionally run a new agent |
+| `wait_for_agent`           | Wait for agent completion/permission  |
+| `send_agent_prompt`        | Send message to existing agent        |
+| `get_agent_status`         | Get agent snapshot                    |
+| `list_agents`              | List all agents                       |
+| `cancel_agent`             | Interrupt running agent               |
+| `archive_agent`            | Soft-delete agent                     |
+| `kill_agent`               | Force close agent                     |
+| `update_agent`             | Update agent title/labels             |
+| `list_terminals`           | List terminal sessions                |
+| `create_terminal`          | Create new PTY terminal               |
+| `kill_terminal`            | Kill terminal session                 |
+| `capture_terminal`         | Capture terminal output lines         |
+| `send_terminal_keys`       | Send keystrokes to terminal           |
+| `create_schedule`          | Create recurring schedule             |
+| `list_schedules`           | List all schedules                    |
+| `inspect_schedule`         | Get schedule details                  |
+| `pause_schedule`           | Pause schedule                        |
+| `resume_schedule`          | Resume schedule                       |
+| `delete_schedule`          | Delete schedule                       |
+| `list_providers`           | List available providers              |
+| `list_models`              | List models for a provider            |
+| `list_worktrees`           | List Paseo-managed worktrees          |
+| `create_worktree`          | Create git worktree                   |
+| `archive_worktree`         | Delete git worktree                   |
+| `get_agent_activity`       | Curated timeline summary              |
+| `set_agent_mode`           | Switch agent mode                     |
 | `list_pending_permissions` | All pending permissions across agents |
-| `respond_to_permission` | Approve/deny a permission |
+| `respond_to_permission`    | Approve/deny a permission             |
 
 ### Agent Management MCP (`agent-management-mcp.ts`)
 
@@ -796,6 +826,7 @@ When `mcp.injectIntoAgents` is enabled (runtime-configurable), agents receive th
 ### Cross-Provider Mode Mapping
 
 When a child agent is spawned with a different provider than its parent, modes are mapped:
+
 - Claude `plan` <-> Codex `read-only`
 - Claude `default`/`acceptEdits` <-> Codex `auto`
 - Claude `bypassPermissions` <-> Codex `full-access`
@@ -825,6 +856,7 @@ When a child agent is spawned with a different provider than its parent, modes a
 ### Binary Stream Protocol
 
 Terminal data is transmitted as binary frames (not JSON) for efficiency:
+
 - Opcodes: `snapshot`, `data`, `resize`, `exit`
 - Each frame prefixed with opcode + slot number
 - Up to 256 concurrent terminal stream slots per session
@@ -838,6 +870,7 @@ Terminal data is transmitted as binary frames (not JSON) for efficiency:
 Provides live git status watching per workspace:
 
 **Snapshot Data**:
+
 ```typescript
 {
   cwd: string;
@@ -862,6 +895,7 @@ Provides live git status watching per workspace:
 ```
 
 **Mechanisms**:
+
 - FS watchers on `.git` directories for change detection
 - Debounced refresh (500ms)
 - Background git fetch every 3 minutes per repo
@@ -872,12 +906,14 @@ Provides live git status watching per workspace:
 
 **Projects**: identified by root path, kind (git/non_git), display name
 **Workspaces**: identified by cwd, linked to project, kind (local_checkout/worktree/directory)
+
 - Bootstrap populates registries from existing agent storage records
 - Stale workspace detection and cleanup
 
 ### CheckoutDiffManager
 
 Subscribable diff watching:
+
 - Compares current working tree against a base (branch, commit, or HEAD)
 - Uses FS watchers with 150ms debounce
 - Computes unified diffs on change
@@ -886,6 +922,7 @@ Subscribable diff watching:
 ### Git Operations (via `checkout-git.ts`)
 
 Full git operation suite:
+
 - `getCheckoutStatus` / `getCheckoutDiff`
 - `listBranchSuggestions`
 - `commitChanges` / `mergeToBase` / `mergeFromBase`
@@ -1016,27 +1053,28 @@ PASEO_HOME/
 ### Mutable Runtime Config
 
 `DaemonConfigStore` manages runtime-configurable settings:
+
 - Currently: `mcp.injectIntoAgents` (boolean)
 - Change events propagated to all WebSocket sessions
 - Persisted immediately to `config.json`
 
 ### Environment Variables
 
-| Variable | Purpose |
-|----------|---------|
-| `PASEO_LISTEN` | Listen address (host:port, unix socket path) |
-| `PASEO_CORS_ORIGINS` | Comma-separated CORS origins |
-| `PASEO_ALLOWED_HOSTS` | Host allowlist |
-| `PASEO_RELAY_ENABLED` | Enable relay transport |
-| `PASEO_RELAY_ENDPOINT` | Relay server address |
-| `PASEO_RELAY_PUBLIC_ENDPOINT` | Public relay address |
-| `PASEO_APP_BASE_URL` | App base URL |
-| `PASEO_VOICE_LLM_PROVIDER` | Voice LLM provider override |
-| `PASEO_PRIMARY_LAN_IP` | Override LAN IP detection |
-| `PASEO_SUPERVISED` | Supervised mode (IPC with parent) |
-| `PASEO_DESKTOP_MANAGED` | Desktop app managed mode |
-| `PORT` | Fallback port |
-| `MCP_DEBUG` | Enable MCP request logging |
+| Variable                      | Purpose                                      |
+| ----------------------------- | -------------------------------------------- |
+| `PASEO_LISTEN`                | Listen address (host:port, unix socket path) |
+| `PASEO_CORS_ORIGINS`          | Comma-separated CORS origins                 |
+| `PASEO_ALLOWED_HOSTS`         | Host allowlist                               |
+| `PASEO_RELAY_ENABLED`         | Enable relay transport                       |
+| `PASEO_RELAY_ENDPOINT`        | Relay server address                         |
+| `PASEO_RELAY_PUBLIC_ENDPOINT` | Public relay address                         |
+| `PASEO_APP_BASE_URL`          | App base URL                                 |
+| `PASEO_VOICE_LLM_PROVIDER`    | Voice LLM provider override                  |
+| `PASEO_PRIMARY_LAN_IP`        | Override LAN IP detection                    |
+| `PASEO_SUPERVISED`            | Supervised mode (IPC with parent)            |
+| `PASEO_DESKTOP_MANAGED`       | Desktop app managed mode                     |
+| `PORT`                        | Fallback port                                |
+| `MCP_DEBUG`                   | Enable MCP request logging                   |
 
 ---
 
@@ -1045,6 +1083,7 @@ PASEO_HOME/
 ### Host Validation
 
 Vite-style allowlist for DNS rebinding protection:
+
 - Default allowed: `localhost`, `*.localhost`, all IP addresses
 - Configurable via `daemon.allowedHosts` in config or `PASEO_ALLOWED_HOSTS` env
 - `true` means accept all hosts
@@ -1084,10 +1123,12 @@ Vite-style allowlist for DNS rebinding protection:
 `SpeechService` orchestrates multiple speech providers:
 
 **Provider Types**:
+
 - **Local** (Sherpa-ONNX): On-device STT (Parakeet), TTS (Sherpa/Pocket), VAD (Silero)
 - **OpenAI**: Cloud STT (Whisper), TTS (OpenAI TTS API), Realtime transcription
 
 **Speech Roles**:
+
 - `dictationStt`: Speech-to-text for dictation (text input mode)
 - `voiceStt`: Speech-to-text for voice conversations
 - `voiceTts`: Text-to-speech for voice responses
@@ -1124,6 +1165,7 @@ Vite-style allowlist for DNS rebinding protection:
 ### Dictation
 
 Separate from voice mode -- provides real-time transcription for text input:
+
 - `DictationStreamManager` handles streaming audio chunks
 - Partial transcriptions emitted during speech
 - Final transcription on silence timeout

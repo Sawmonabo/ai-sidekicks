@@ -62,6 +62,7 @@ The `recovering` state is well-motivated but underspecified regarding entry cond
 Evidence drawn from the archived feature audits (`forge-feature-audit-report.md`, `codexmonitor-feature-audit-report.md`, and `paseo-repo-exploration/`).
 
 **CodexMonitor** (Tauri app wrapping Codex `app-server`):
+
 - Run lifecycle is a client-side projection of Codex thread state, not a daemon-owned state machine. There is no equivalent of `queued`, `starting`, `recovering`, or `paused` as canonical daemon states.
 - "Pause" is queue-drain suspension only -- it pauses flushing queued follow-ups when Codex needs user input, not a true runtime pause of execution (Section 2.2 of the audit: "there is no true active-turn pause or unpause operation").
 - "Resume" means re-read/reattach thread state from Codex, not continue a suspended turn (Section 2.3: "/resume and thread/resume do not mean resume a paused turn").
@@ -70,6 +71,7 @@ Evidence drawn from the archived feature audits (`forge-feature-audit-report.md`
 - No `recovering` state; no daemon-startup recovery. Session persistence relies on Codex upstream.
 
 **Forge** (Electron/web app with its own server daemon):
+
 - Has a real server runtime with daemon mode, event sourcing, projections, provider recovery, and SQLite persistence (Section 6: "Event store and command receipts", "Recovery and reconciliation").
 - Provider session orchestration supports start/send/interrupt/respond/stop/list/fork/rollback (Section 5: "Provider session orchestration").
 - Has a CLI with explicit pause/resume/cancel commands (Section 5: "CLI can ... pause/resume/cancel").
@@ -80,6 +82,7 @@ Evidence drawn from the archived feature audits (`forge-feature-audit-report.md`
 - No evidence of a canonical `recovering` state as defined in the ai-sidekicks run state machine; recovery appears to happen at the provider-session level during startup reconciliation.
 
 **Paseo** (multi-provider daemon with AgentManager + Session architecture):
+
 - Has the most mature normalized driver contract among the three. `AgentClient` and `AgentSession` interfaces define create/resume, start turn, stream history, list models/modes, manage permissions, persist handle, interrupt, close (Paseo exploration 09, "Common Contract").
 - Provider adapters exist for Claude (SDK over spawned process), Codex (app-server over JSON-RPC), OpenCode (SDK over local server), and ACP family (stdio protocol). Custom providers plug in through `extends: "acp"` (Paseo exploration 06).
 - Capability flags are normalized: streaming, session persistence, dynamic modes, MCP, reasoning streams, tool calls (Paseo exploration 09, "Capabilities Features And Functionality").
@@ -89,6 +92,7 @@ Evidence drawn from the archived feature audits (`forge-feature-audit-report.md`
 - Identity wrapping for derived providers (`wrapSessionProvider`, `wrapClientProvider`) is more sophisticated than what the ai-sidekicks driver contract specifies (Paseo exploration 06, "Identity Wrapping And Compatibility").
 
 **Implications for the ai-sidekicks state machine:**
+
 1. The `paused` state and true pause/resume semantics are novel relative to all three implementations. None of the reference apps implement real runtime pause. This makes it critical to specify how `pauseRun` works at the driver level -- the spec is introducing behavior that does not exist upstream.
 2. The `recovering` state is partially covered by Forge's startup reconciliation but is not formalized as a run state in any reference implementation. The ai-sidekicks formalization is more rigorous but must define entry transitions.
 3. Daemon-backed queue persistence is partially implemented in Forge (event store, command receipts) but not as a first-class queue model. CodexMonitor and Paseo use client-side or session-level queueing. The ai-sidekicks queue model is more ambitious than any reference.
@@ -102,9 +106,11 @@ Evidence drawn from the archived feature audits (`forge-feature-audit-report.md`
 ### Interface Specification
 
 Spec 005 defines 9 required driver operations:
+
 - `createSession`, `resumeSession`, `startRun`, `interruptRun`, `respondToRequest`, `closeSession`, `listModels`, `listModes`, `getCapabilities`
 
 And 8 required capability flags:
+
 - `resume`, `steer`, `pause`, `interactive_requests`, `mcp`, `tool_calls`, `reasoning_stream`, `model_mutation`
 
 ### Critical Gap: Missing Operations for Declared Capabilities
@@ -114,6 +120,7 @@ The contract declares capability flags for `pause` and `steer` but defines no co
 Similarly, `mcp`, `tool_calls`, and `reasoning_stream` are capability flags but have no explicit driver operations. The `respondToRequest` operation may cover `interactive_requests` but this mapping is not documented.
 
 The contract needs either:
+
 - Additional operations (`pauseRun`, `steerRun`, etc.), or
 - Explicit documentation that existing operations subsume these (e.g., "steer is delivered through `respondToRequest` with intervention payload"), or
 - A generic operation like `applyIntervention` that handles capability-specific control actions
@@ -121,6 +128,7 @@ The contract needs either:
 ### Codex vs Claude Differences
 
 Spec 005 calls out key differences through examples:
+
 - Codex driver: "starts a session through its native transport, exposes resume and steer capability"
 - Claude driver: "calls a remote provider API from the participant's runtime node"
 
@@ -129,6 +137,7 @@ The spec correctly identifies that Claude's driver calls remote APIs while Codex
 ### Capability Negotiation and Fallbacks
 
 Well specified. Undeclared capabilities are treated as unsupported (Spec 005 "Required Behavior"). Fallback behavior is explicit:
+
 - Unsupported pause: offer queue and interrupt only (Spec 004 "Default Behavior")
 - Unsupported steer: reject or downgrade to queue item (Spec 004 "Fallback Behavior")
 - Failed resume: surface `provider failure` and `recovery-needed`, do not silently replace (Spec 005 "Fallback Behavior")
@@ -147,6 +156,7 @@ Well specified. Resume handles are stored separately from canonical session/run 
 ### Daemon-Backed Queue
 
 Fully specified at the semantic level. ADR-003 decides the daemon owns queue truth. Spec 004 requires:
+
 - `QueueItemCreate`, `QueueItemList`, `QueueItemCancel` against runtime-owned durable state
 - Default follow-up while active run is `queue`
 - FIFO ordering within scheduling scope
@@ -156,6 +166,7 @@ Fully specified at the semantic level. ADR-003 decides the daemon owns queue tru
 ### How Steer Differs From a New Message
 
 Steer is defined as an intervention that injects content or direction into an already-running execution, as opposed to queuing a new work item. Key distinctions from domain/queue-and-intervention-model.md:
+
 - An Intervention targets a Run or QueueItem; a new message would create a QueueItem
 - Steer requires the target run to advertise steer capability
 - If steer capability is absent, the intervention is rejected or explicitly degraded to a new queue item (Spec 004 "Fallback Behavior")
@@ -179,21 +190,27 @@ The distinction between "resume from paused" and "recovery after restart" is wel
 ## 5. Spec Completeness
 
 ### Spec 003 (Runtime Node Attach)
+
 **Sufficient for implementation.** Node identity, capabilities, health, attach/detach/reconnect are all specified. Interfaces are named. Fallback for degraded and offline states is clear. V1 limits (one session per node) are stated.
 
 ### Spec 004 (Queue Steer Pause Resume)
+
 **Mostly sufficient, with gaps.** Queue semantics, pause/resume contract, and intervention outcomes are well specified. Gaps: (1) steer injection mechanics are not specified at the driver operation level, (2) the intervention request payload shape is underspecified (target id, type, initiator, scope -- but no concrete payload schemas), (3) queue priority overrides are deferred but FIFO-only may be insufficient for steer-then-queue workflows.
 
 ### Spec 005 (Provider Driver Contract)
+
 **Mostly sufficient, with a critical gap.** The 9 driver operations and 8 capability flags are listed. Normalized event families are named. Resume handle persistence is specified. Critical gap: no driver operations for pause and steer despite declaring them as capabilities (see Section 3).
 
 ### Spec 010 (Worktree Lifecycle)
+
 **Sufficient for implementation.** Four execution modes are well specified. Lifecycle states, fallback behavior, and branch naming are clear. V1 limits (no auto-setup scripts) are stated.
 
 ### Spec 015 (Persistence Recovery and Replay)
+
 **Sufficient for implementation.** SQLite with WAL, recovery ordering, replay contracts, and fallback to degraded read-only mode are specified. Snapshot compaction is explicitly deferred.
 
 ### Spec 020 (Observability and Failure Recovery)
+
 **Sufficient for implementation.** Health categories, failure categories, stuck-run detection, degraded modes, and bounded diagnostic retention are specified. Automated retry policy is deferred to a "bounded policy across providers."
 
 ---
@@ -206,21 +223,27 @@ The distinction between "resume from paused" and "recovery after restart" is wel
 - **Cross-plan dependencies are not declared.** Plan 004 depends on Plan 005 (driver capabilities) for capability-aware controls, but this is unstated. Plan 020 depends on Plan 015 (persistence) for canonical event truth, but this is also unstated. Plan 003 (runtime node attach) is a prerequisite for Plans 004 and 005 but is not declared.
 
 ### Plan 003 (Runtime Node Attach)
+
 **Concrete.** 4 implementation steps, 6 target areas, parallel work identified (local registry and control-plane services). Rollout order is sequential and reasonable. Missing: estimated scope or sizing.
 
 ### Plan 004 (Queue Steer Pause Resume)
+
 **Concrete.** 4 implementation steps, 6 target areas. Rollout phases wisely start with read-only queue visibility. Risk of "provider capability mismatch" is identified. Missing: explicit dependency on Plan 005 for capability checks; no mention of the missing steer/pause driver operations.
 
 ### Plan 005 (Provider Driver Contract)
+
 **Concrete.** 4 implementation steps. Two initial drivers (Codex, Claude) built in parallel. Recovery tests are called out. Risk of "contract churn while both drivers are under construction" is honestly flagged. Missing: capability matrix for each driver; no driver operation gap acknowledgment for pause/steer.
 
 ### Plan 010 (Worktree Lifecycle)
+
 **Concrete.** 4 implementation steps. Ephemeral clone cleanup risk is flagged. Failure-path tests explicitly include "no silent main-checkout mutation." Missing: no sizing or scope estimate.
 
 ### Plan 015 (Persistence Recovery and Replay)
+
 **Concrete.** 4 implementation steps. Snapshot compaction risk is flagged ("may affect rebuild performance"). Rollout wisely gates mutable work admission on successful recovery. Missing: no sizing; no explicit dependency on Plan 005 for runtime binding schema.
 
 ### Plan 020 (Observability and Failure Recovery)
+
 **Concrete.** 5 implementation steps (the most of any plan). Bounded-retention handling is an explicit step. Stuck-run detection tests include false-positive suppression. Missing: no sizing; cross-plan dependency on Plan 015 is unstated.
 
 ---
@@ -244,6 +267,7 @@ The distinction between "resume from paused" and "recovery after restart" is wel
 ### Entity Alignment
 
 The entity graph is consistent across documents:
+
 - Participant -> RuntimeNode -> Agent -> Run (domain/runtime-node-model.md)
 - QueueItem -> Run (domain/queue-and-intervention-model.md)
 - Intervention -> Run or QueueItem (domain/queue-and-intervention-model.md)

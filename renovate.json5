@@ -1,0 +1,94 @@
+// Renovate config per ADR-023 §Axis 4 (sub-axis 3).
+//
+// minimumReleaseAge: 14 days matches Renovate's documented automerge floor and is
+// the controlling defense against Shai-Hulud-class transitive compromise (post-
+// publish-malicious-version detection windows commonly < 7 days).
+//
+// security:minimumReleaseAgeNpm preset injects a 3-day floor for npm packages.
+// We override it back to 14 days via an explicit packageRule below (placed AFTER
+// the extends chain — Renovate packageRules are last-write-wins).
+//
+// helpers:pinGitHubActionDigests pairs with the SHA-pinned third-party actions in
+// .github/workflows/*.yml — Renovate keeps the SHAs current automatically.
+// A few of the current pins (e.g. pnpm/action-setup, googleapis/release-please-action)
+// resolve to annotated-tag-object SHAs from `git ls-remote refs/tags/<tag>`, not
+// commit SHAs. GitHub Actions accepts both (resolves through the tag object),
+// so the immutable-pin security property is identical; helpers:pinGitHubActionDigests
+// will normalize these to commit SHAs on the next bump.
+//
+// Dependabot deferred per ADR-023 §Axis 4 antithesis (no first-class minimum-release-age).
+
+{
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  extends: [
+    "config:recommended",
+    "security:minimumReleaseAgeNpm",
+    "helpers:pinGitHubActionDigests",
+    ":semanticCommits",
+    // Force every Renovate PR's commit scope to `deps` (matches commitlint
+    // scope-enum). Type defaults to `chore` from :semanticCommits, which is
+    // valid in our type-enum. Use :semanticCommitScope (singular) — Renovate
+    // emits one scope per PR; the deprecated `:semanticCommitScopeAll` preset
+    // does not exist in renovatebot/renovate (would abort the extends chain
+    // with "Cannot find preset's package").
+    // Never use :semanticCommitTypeAll(deps) — `deps` is not a valid commitlint
+    // type and would block every Renovate PR.
+    ":semanticCommitScope(deps)",
+  ],
+  minimumReleaseAge: "14 days",
+  prConcurrentLimit: 5,
+  prHourlyLimit: 4,
+  // Hold major bumps for human review; minor/patch can group + automerge after CI green.
+  packageRules: [
+    // Override security:minimumReleaseAgeNpm's 3-day npm floor back to the
+    // canonical 14-day uniform floor (last-write-wins on packageRules).
+    {
+      matchManagers: ["npm"],
+      minimumReleaseAge: "14 days",
+    },
+    {
+      matchUpdateTypes: ["patch"],
+      automerge: true,
+      automergeType: "pr",
+      // Squash on automerge so Renovate PRs collapse to one commit on develop
+      // (`automergeStrategy` applies on automerge; replaces the invalid
+      // top-level `squash: true` setting which `renovate-config-validator
+      // --strict` rejects).
+      automergeStrategy: "squash",
+    },
+    {
+      matchUpdateTypes: ["minor"],
+      automerge: false,
+    },
+    {
+      matchUpdateTypes: ["major"],
+      automerge: false,
+      labels: ["dependencies", "major"],
+    },
+    // Release-tooling actions: never automerge majors (per ADR-023 §F-9 mitigation).
+    {
+      matchPackageNames: [
+        "googleapis/release-please-action",
+        "actions/attest",
+        "actions/checkout",
+        "actions/setup-node",
+        "pnpm/action-setup",
+        "gitleaks/gitleaks-action",
+        "anchore/sbom-action",
+      ],
+      matchUpdateTypes: ["major"],
+      automerge: false,
+      labels: ["release-tooling", "review-required"],
+    },
+  ],
+  // Lockfile maintenance keeps pnpm-lock.yaml fresh against transitive shifts.
+  lockFileMaintenance: {
+    enabled: true,
+    schedule: ["before 5am on monday"],
+  },
+  // Vulnerability alerts run independently of cooldown.
+  vulnerabilityAlerts: {
+    enabled: true,
+    minimumReleaseAge: "0 days",
+  },
+}

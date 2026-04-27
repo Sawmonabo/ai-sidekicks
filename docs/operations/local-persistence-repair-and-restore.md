@@ -90,12 +90,12 @@ sidekicks db vacuum
 
 ## SLOs and Thresholds
 
-| Metric | Target |
-|---|---|
-| SQLite integrity check | < 30s |
-| Backup restore | < 60s |
+| Metric                           | Target |
+| -------------------------------- | ------ |
+| SQLite integrity check           | < 30s  |
+| Backup restore                   | < 60s  |
 | Projection rebuild after restore | < 120s |
-| WAL checkpoint latency | < 5s |
+| WAL checkpoint latency           | < 5s   |
 
 ## On-Call Routing
 

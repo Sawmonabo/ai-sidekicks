@@ -1,16 +1,16 @@
 # Plan-024: Rust PTY Sidecar
 
-| Field | Value |
-| --- | --- |
-| **Status** | `approved` |
-| **NNN** | `024` |
-| **Slug** | `rust-pty-sidecar` |
-| **Date** | `2026-04-17` |
-| **Author(s)** | `Claude Opus 4.7` |
-| **Spec** | _(none; ADR-driven per ADR-019)_ |
-| **Required ADRs** | [ADR-019: Windows V1 Tier and Rust PTY Sidecar Strategy](../decisions/019-windows-v1-tier-and-pty-sidecar.md), [ADR-009: JSON-RPC IPC Wire Format](../decisions/009-json-rpc-ipc-wire-format.md), [ADR-015: V1 Feature Scope Definition](../decisions/015-v1-feature-scope-definition.md) |
-| **Dependencies** | `None` (upstream of Plan-005; sidecar binary and `PtyHost` contract must land before Plan-005 authors runtime-binding consumers) |
-| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
+| Field               | Value                                                                                                                                                                                                                                                                                     |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Status**          | `approved`                                                                                                                                                                                                                                                                                |
+| **NNN**             | `024`                                                                                                                                                                                                                                                                                     |
+| **Slug**            | `rust-pty-sidecar`                                                                                                                                                                                                                                                                        |
+| **Date**            | `2026-04-17`                                                                                                                                                                                                                                                                              |
+| **Author(s)**       | `Claude Opus 4.7`                                                                                                                                                                                                                                                                         |
+| **Spec**            | _(none; ADR-driven per ADR-019)_                                                                                                                                                                                                                                                          |
+| **Required ADRs**   | [ADR-019: Windows V1 Tier and Rust PTY Sidecar Strategy](../decisions/019-windows-v1-tier-and-pty-sidecar.md), [ADR-009: JSON-RPC IPC Wire Format](../decisions/009-json-rpc-ipc-wire-format.md), [ADR-015: V1 Feature Scope Definition](../decisions/015-v1-feature-scope-definition.md) |
+| **Dependencies**    | `None` (upstream of Plan-005; sidecar binary and `PtyHost` contract must land before Plan-005 authors runtime-binding consumers)                                                                                                                                                          |
+| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md)                                                                                                                                                                                                                 |
 
 ## Goal
 
@@ -226,15 +226,16 @@ This plan treats the two signing paths as **parallel tracks selected by the publ
 - [ ] `RustSidecarPtyHost` implements the full `PtyHost` contract and passes the shared integration-test suite
 - [ ] `NodePtyHost` implements the full `PtyHost` contract and passes the shared integration-test suite on `windows-latest`, `macos-14`, and `ubuntu-latest`
 - [ ] Apple Developer ID codesign + `xcrun notarytool` + `xcrun stapler` pipeline green for `darwin-arm64` and `darwin-x64`
-- [ ] Windows signing pipeline green per the selected track (Azure Artifact Signing *or* EV cert)
+- [ ] Windows signing pipeline green per the selected track (Azure Artifact Signing _or_ EV cert)
 - [ ] 5 platform packages + umbrella `@ai-sidekicks/pty-sidecar` publish to npm with correct `optionalDependencies` + `os` / `cpu` filters
 - [ ] `PtyHostSelector` picks `RustSidecarPtyHost` on Windows by default; falls back to `NodePtyHost` when sidecar unresolvable
 - [ ] ADR-019 Success Criteria met at check dates (≥ 99% Codex `/resume` over 50 runs by 2026-08-01; ≤ 50 ms p95 spawn latency; ≤ 0.01/1,000 sidecar-originated crash rate by 2026-10-01)
-- [ ] `Azure/artifact-signing-action` (Track A) *or* SignPath/`signtool.exe` (Track B) pipeline confirmed against a non-test release candidate
+- [ ] `Azure/artifact-signing-action` (Track A) _or_ SignPath/`signtool.exe` (Track B) pipeline confirmed against a non-test release candidate
 
 ## Tier Intent
 
 Tier 1 per [cross-plan-dependencies.md §5 Canonical Build Order](../architecture/cross-plan-dependencies.md#5-canonical-build-order) — daemon-foundational, co-tier with Plan-001. Upstream of Plan-005 (runtime bindings) which is the first consumer of the `PtyHost` contract; consumption begins at Tier 4 once Plan-005 lands.
+
 ## References
 
 - [ADR-019: Windows V1 Tier and Rust PTY Sidecar Strategy](../decisions/019-windows-v1-tier-and-pty-sidecar.md) — primary decision source

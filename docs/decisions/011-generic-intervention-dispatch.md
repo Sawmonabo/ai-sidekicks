@@ -1,13 +1,13 @@
 # ADR-011: Generic Intervention Dispatch
 
-| Field | Value |
-| -------------- | ------------------------------------------------------------------------ |
-| **Status** | `accepted` |
-| **Type** | `Type 1 (two-way door)` |
-| **Domain** | `Driver Contract / Orchestration` |
-| **Date** | `2026-04-15` |
-| **Author(s)** | `Claude` |
-| **Reviewers** | `Accepted 2026-04-15` |
+| Field         | Value                             |
+| ------------- | --------------------------------- |
+| **Status**    | `accepted`                        |
+| **Type**      | `Type 1 (two-way door)`           |
+| **Domain**    | `Driver Contract / Orchestration` |
+| **Date**      | `2026-04-15`                      |
+| **Author(s)** | `Claude`                          |
+| **Reviewers** | `Accepted 2026-04-15`             |
 
 ## Context
 
@@ -65,7 +65,7 @@ Add `applyIntervention(type, payload)` as a generic dispatcher in the driver con
 
 ## Decision Log
 
-| Date | Event | Notes |
-|------|-------|-------|
+| Date       | Event    | Notes         |
+| ---------- | -------- | ------------- |
 | 2026-04-15 | Proposed | Initial draft |
-| 2026-04-15 | Accepted | ADR accepted |
+| 2026-04-15 | Accepted | ADR accepted  |

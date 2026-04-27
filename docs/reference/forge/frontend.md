@@ -72,23 +72,23 @@ apps/web/src/
 
 Uses **TanStack Router** with file-based routing.
 
-| Route File | URL Pattern | Params | Component | Description |
-|---|---|---|---|---|
-| `__root.tsx` | `/` (root layout) | -- | `RootRouteView` | App shell: toast providers, connection setup, event router, sidebar layout. Shows `ConnectingView` or `DaemonVersionMismatchView` on error. |
-| `_chat.tsx` | `/_chat` (layout) | -- | `ChatRouteLayout` | Wraps chat routes. Registers global shortcuts (`chat.new`, `chat.newLocal`, Escape to clear selection). |
-| `_chat.index.tsx` | `/` | -- | `ChatIndexRouteView` | Empty state: "Select a thread or create a new one." |
-| `_chat.$threadId.tsx` | `/$threadId` | `threadId` | `ChatThreadRouteView` | Main chat view. Search params: `diff`, `diffMode` (agent/workspace), `diffTurnId`, `diffFilePath`, `designPanel`. Renders `ChatView` + diff/design side panel. |
-| `settings.tsx` | `/settings` | -- | `SettingsContentLayout` | Settings layout with restore-defaults button. Redirects `/settings` to `/settings/general`. |
-| `settings.general.tsx` | `/settings/general` | -- | `GeneralSettingsPanel` | General settings panel. |
-| `settings.archived.tsx` | `/settings/archived` | -- | `ArchivedThreadsPanel` | Archived threads management. |
-| `agent-modes.tsx` | `/agent-modes` | -- | Layout | Redirects to `/agent-modes/workflows`. |
-| `agent-modes.workflows.tsx` | `/agent-modes/workflows` | -- | Layout | Workflow sub-layout. |
-| `agent-modes.workflows.index.tsx` | `/agent-modes/workflows/` | -- | `WorkflowEditor` (null) | New workflow creation. |
-| `agent-modes.workflows.$workflowId.tsx` | `/agent-modes/workflows/$workflowId` | `workflowId` | `WorkflowEditor` | Edit existing workflow. |
-| `agent-modes.discussions.tsx` | `/agent-modes/discussions` | -- | Layout | Discussion sub-layout. |
-| `agent-modes.discussions.index.tsx` | `/agent-modes/discussions/` | -- | `DiscussionEditor` (null) | New discussion creation. |
-| `agent-modes.discussions.global.$discussionName.tsx` | `/agent-modes/discussions/global/$discussionName` | `discussionName` | `DiscussionEditor` (global) | Edit global discussion. |
-| `agent-modes.discussions.project.$projectId.$discussionName.tsx` | `/agent-modes/discussions/project/$projectId/$discussionName` | `projectId`, `discussionName` | `DiscussionEditor` (project) | Edit project-scoped discussion. |
+| Route File                                                       | URL Pattern                                                   | Params                        | Component                    | Description                                                                                                                                                    |
+| ---------------------------------------------------------------- | ------------------------------------------------------------- | ----------------------------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `__root.tsx`                                                     | `/` (root layout)                                             | --                            | `RootRouteView`              | App shell: toast providers, connection setup, event router, sidebar layout. Shows `ConnectingView` or `DaemonVersionMismatchView` on error.                    |
+| `_chat.tsx`                                                      | `/_chat` (layout)                                             | --                            | `ChatRouteLayout`            | Wraps chat routes. Registers global shortcuts (`chat.new`, `chat.newLocal`, Escape to clear selection).                                                        |
+| `_chat.index.tsx`                                                | `/`                                                           | --                            | `ChatIndexRouteView`         | Empty state: "Select a thread or create a new one."                                                                                                            |
+| `_chat.$threadId.tsx`                                            | `/$threadId`                                                  | `threadId`                    | `ChatThreadRouteView`        | Main chat view. Search params: `diff`, `diffMode` (agent/workspace), `diffTurnId`, `diffFilePath`, `designPanel`. Renders `ChatView` + diff/design side panel. |
+| `settings.tsx`                                                   | `/settings`                                                   | --                            | `SettingsContentLayout`      | Settings layout with restore-defaults button. Redirects `/settings` to `/settings/general`.                                                                    |
+| `settings.general.tsx`                                           | `/settings/general`                                           | --                            | `GeneralSettingsPanel`       | General settings panel.                                                                                                                                        |
+| `settings.archived.tsx`                                          | `/settings/archived`                                          | --                            | `ArchivedThreadsPanel`       | Archived threads management.                                                                                                                                   |
+| `agent-modes.tsx`                                                | `/agent-modes`                                                | --                            | Layout                       | Redirects to `/agent-modes/workflows`.                                                                                                                         |
+| `agent-modes.workflows.tsx`                                      | `/agent-modes/workflows`                                      | --                            | Layout                       | Workflow sub-layout.                                                                                                                                           |
+| `agent-modes.workflows.index.tsx`                                | `/agent-modes/workflows/`                                     | --                            | `WorkflowEditor` (null)      | New workflow creation.                                                                                                                                         |
+| `agent-modes.workflows.$workflowId.tsx`                          | `/agent-modes/workflows/$workflowId`                          | `workflowId`                  | `WorkflowEditor`             | Edit existing workflow.                                                                                                                                        |
+| `agent-modes.discussions.tsx`                                    | `/agent-modes/discussions`                                    | --                            | Layout                       | Discussion sub-layout.                                                                                                                                         |
+| `agent-modes.discussions.index.tsx`                              | `/agent-modes/discussions/`                                   | --                            | `DiscussionEditor` (null)    | New discussion creation.                                                                                                                                       |
+| `agent-modes.discussions.global.$discussionName.tsx`             | `/agent-modes/discussions/global/$discussionName`             | `discussionName`              | `DiscussionEditor` (global)  | Edit global discussion.                                                                                                                                        |
+| `agent-modes.discussions.project.$projectId.$discussionName.tsx` | `/agent-modes/discussions/project/$projectId/$discussionName` | `projectId`, `discussionName` | `DiscussionEditor` (project) | Edit project-scoped discussion.                                                                                                                                |
 
 ---
 
@@ -96,195 +96,196 @@ Uses **TanStack Router** with file-based routing.
 
 ### 3.1 Root / Layout Components
 
-| Component | File | Description |
-|---|---|---|
-| `RootRouteView` | `routes/__root.tsx` | Top-level: Electron connection check, toast providers, server state bootstrap, event router, app sidebar layout |
-| `ConnectingView` | `routes/__root.tsx` | "Connecting to Forge server..." placeholder |
-| `DaemonVersionMismatchView` | `routes/__root.tsx` | Version mismatch error with daemon version details |
-| `RootRouteErrorView` | `routes/__root.tsx` | Error boundary with expandable details |
-| `EventRouter` | `routes/__root.tsx` | Subscribes to orchestration domain events, terminal events, workflow/channel push events. Orchestrates recovery (replay, snapshot fallback). |
-| `ServerStateBootstrap` | `routes/__root.tsx` | Initiates server state sync on mount |
-| `AppSidebarLayout` | `components/AppSidebarLayout.tsx` | Two-column layout: main sidebar + content area |
-| `ConnectionSetup` | `components/ConnectionSetup.tsx` | Electron-only setup UI when no server URL configured |
+| Component                   | File                              | Description                                                                                                                                  |
+| --------------------------- | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `RootRouteView`             | `routes/__root.tsx`               | Top-level: Electron connection check, toast providers, server state bootstrap, event router, app sidebar layout                              |
+| `ConnectingView`            | `routes/__root.tsx`               | "Connecting to Forge server..." placeholder                                                                                                  |
+| `DaemonVersionMismatchView` | `routes/__root.tsx`               | Version mismatch error with daemon version details                                                                                           |
+| `RootRouteErrorView`        | `routes/__root.tsx`               | Error boundary with expandable details                                                                                                       |
+| `EventRouter`               | `routes/__root.tsx`               | Subscribes to orchestration domain events, terminal events, workflow/channel push events. Orchestrates recovery (replay, snapshot fallback). |
+| `ServerStateBootstrap`      | `routes/__root.tsx`               | Initiates server state sync on mount                                                                                                         |
+| `AppSidebarLayout`          | `components/AppSidebarLayout.tsx` | Two-column layout: main sidebar + content area                                                                                               |
+| `ConnectionSetup`           | `components/ConnectionSetup.tsx`  | Electron-only setup UI when no server URL configured                                                                                         |
 
 ### 3.2 Chat Components (Main View)
 
-| Component | File | Description |
-|---|---|---|
-| `ChatView` | `components/ChatView.tsx` (196KB) | **Massive** main chat component. Handles: message sending, model selection, runtime mode, interaction mode, composer state, thread lifecycle, approvals, pending inputs, terminal contexts, image attachments, summarization, worktree management, design mode, workflow execution, quality checks. |
-| `ChatView.logic.ts` | `components/ChatView.logic.ts` | Logic: draft thread building, inline turn diff summaries, terminal thread reconciliation, last-invoked script tracking |
-| `ChatMarkdown` | `components/ChatMarkdown.tsx` | Markdown renderer for chat messages with custom link handling, code blocks, copy buttons |
-| `ChatHeader` | `components/chat/ChatHeader.tsx` | Thread header bar with thread title, navigation |
+| Component           | File                              | Description                                                                                                                                                                                                                                                                                         |
+| ------------------- | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ChatView`          | `components/ChatView.tsx` (196KB) | **Massive** main chat component. Handles: message sending, model selection, runtime mode, interaction mode, composer state, thread lifecycle, approvals, pending inputs, terminal contexts, image attachments, summarization, worktree management, design mode, workflow execution, quality checks. |
+| `ChatView.logic.ts` | `components/ChatView.logic.ts`    | Logic: draft thread building, inline turn diff summaries, terminal thread reconciliation, last-invoked script tracking                                                                                                                                                                              |
+| `ChatMarkdown`      | `components/ChatMarkdown.tsx`     | Markdown renderer for chat messages with custom link handling, code blocks, copy buttons                                                                                                                                                                                                            |
+| `ChatHeader`        | `components/chat/ChatHeader.tsx`  | Thread header bar with thread title, navigation                                                                                                                                                                                                                                                     |
 
 ### 3.3 Chat Sub-Components
 
-| Component | File | Description |
-|---|---|---|
-| `MessagesTimeline` | `components/chat/MessagesTimeline.tsx` | Renders timeline of messages, work entries, proposed plans, and "working" indicators. Supports virtualization. |
-| `MessagesTimeline.logic.ts` | `components/chat/MessagesTimeline.logic.ts` | Row derivation: work-group, work-entry, message, proposed-plan, working rows. Duration computation. |
-| `ComposerCommandMenu` | `components/chat/ComposerCommandMenu.tsx` | Slash command menu (`/model`, `/plan`, `/default`, `/design`) |
-| `ComposerPendingApprovalPanel` | `components/chat/ComposerPendingApprovalPanel.tsx` | Panel shown when tool call needs approval (command, file-read, file-change) |
-| `ComposerPendingApprovalActions` | `components/chat/ComposerPendingApprovalActions.tsx` | Approve/reject action buttons for pending approvals |
-| `ComposerPendingPermissionPanel` | `components/chat/ComposerPendingPermissionPanel.tsx` | Permission request panel |
-| `ComposerPendingUserInputPanel` | `components/chat/ComposerPendingUserInputPanel.tsx` | Panel for pending user input questions |
-| `ComposerPendingMcpElicitationPanel` | `components/chat/ComposerPendingMcpElicitationPanel.tsx` | MCP elicitation request panel |
-| `ComposerPendingTerminalContexts` | `components/chat/ComposerPendingTerminalContexts.tsx` | Terminal context selection chips in composer |
-| `ComposerBackgroundTaskTray` | `components/chat/ComposerBackgroundTaskTray.tsx` | Tray showing background tasks (agent tasks, commands) with running/completed status |
-| `ComposerPlanFollowUpBanner` | `components/chat/ComposerPlanFollowUpBanner.tsx` | Banner for plan follow-up actions |
-| `ComposerPrimaryActions` | `components/chat/ComposerPrimaryActions.tsx` | Send/stop/interrupt buttons |
-| `CompactComposerControlsMenu` | `components/chat/CompactComposerControlsMenu.tsx` | Compact version of composer controls for narrow viewports |
-| `ComposerPromptEditor` | `components/ComposerPromptEditor.tsx` (35KB) | Rich text editor for composer with @-mention autocomplete, slash commands, terminal context chips, image paste |
-| `ContextWindowMeter` | `components/chat/ContextWindowMeter.tsx` | Visual meter showing context window usage |
-| `RateLimitsMeter` | `components/chat/RateLimitsMeter.tsx` | Rate limits display |
-| `DiffStatLabel` | `components/chat/DiffStatLabel.tsx` | Inline diff stat display (+N/-M) |
-| `DiscussionRolesPicker` | `components/chat/DiscussionRolesPicker.tsx` | Picker for discussion participant roles |
-| `ExpandedImagePreview` | `components/chat/ExpandedImagePreview.tsx` | Full-size image preview overlay |
-| `LazyCommandOutput` | `components/chat/LazyCommandOutput.tsx` | Lazy-loaded command output display |
-| `LazySubagentEntries` | `components/chat/LazySubagentEntries.tsx` | Lazy-loaded subagent activity feed |
-| `MessageCopyButton` | `components/chat/MessageCopyButton.tsx` | Copy-to-clipboard for messages |
-| `OpenInPicker` | `components/chat/OpenInPicker.tsx` | "Open in [editor]" picker |
-| `ProposedPlanCard` | `components/chat/ProposedPlanCard.tsx` | Card rendering a proposed plan with implement/dismiss actions |
-| `ProviderModelPicker` | `components/chat/ProviderModelPicker.tsx` | Provider (Codex/Claude) and model selector dropdown |
-| `ProviderStatusBanner` | `components/chat/ProviderStatusBanner.tsx` | Banner for provider status issues |
-| `SubagentHeading` | `components/chat/SubagentHeading.tsx` | Heading for subagent activity sections |
-| `SummarizeButton` | `components/chat/SummarizeButton.tsx` | Button to trigger conversation summarization |
-| `SummaryCard` | `components/chat/SummaryCard.tsx` | Card showing a conversation summary |
-| `TerminalContextInlineChip` | `components/chat/TerminalContextInlineChip.tsx` | Inline chip showing terminal context attachment |
-| `ThreadErrorBanner` | `components/chat/ThreadErrorBanner.tsx` | Error banner for thread-level errors |
-| `TraitsPicker` | `components/chat/TraitsPicker.tsx` | Picker for provider traits/options |
-| `UnifiedThreadPicker` | `components/chat/UnifiedThreadPicker.tsx` | Unified thread/workflow picker for new thread creation |
-| `VscodeEntryIcon` | `components/chat/VscodeEntryIcon.tsx` | VS Code-style file icon component |
-| `ChangedFilesTree` | `components/chat/ChangedFilesTree.tsx` | Tree view of files changed in a turn |
-| `CommandOutputPanel` | `components/chat/CommandOutputPanel.tsx` | Expandable panel for command output display |
+| Component                            | File                                                     | Description                                                                                                    |
+| ------------------------------------ | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `MessagesTimeline`                   | `components/chat/MessagesTimeline.tsx`                   | Renders timeline of messages, work entries, proposed plans, and "working" indicators. Supports virtualization. |
+| `MessagesTimeline.logic.ts`          | `components/chat/MessagesTimeline.logic.ts`              | Row derivation: work-group, work-entry, message, proposed-plan, working rows. Duration computation.            |
+| `ComposerCommandMenu`                | `components/chat/ComposerCommandMenu.tsx`                | Slash command menu (`/model`, `/plan`, `/default`, `/design`)                                                  |
+| `ComposerPendingApprovalPanel`       | `components/chat/ComposerPendingApprovalPanel.tsx`       | Panel shown when tool call needs approval (command, file-read, file-change)                                    |
+| `ComposerPendingApprovalActions`     | `components/chat/ComposerPendingApprovalActions.tsx`     | Approve/reject action buttons for pending approvals                                                            |
+| `ComposerPendingPermissionPanel`     | `components/chat/ComposerPendingPermissionPanel.tsx`     | Permission request panel                                                                                       |
+| `ComposerPendingUserInputPanel`      | `components/chat/ComposerPendingUserInputPanel.tsx`      | Panel for pending user input questions                                                                         |
+| `ComposerPendingMcpElicitationPanel` | `components/chat/ComposerPendingMcpElicitationPanel.tsx` | MCP elicitation request panel                                                                                  |
+| `ComposerPendingTerminalContexts`    | `components/chat/ComposerPendingTerminalContexts.tsx`    | Terminal context selection chips in composer                                                                   |
+| `ComposerBackgroundTaskTray`         | `components/chat/ComposerBackgroundTaskTray.tsx`         | Tray showing background tasks (agent tasks, commands) with running/completed status                            |
+| `ComposerPlanFollowUpBanner`         | `components/chat/ComposerPlanFollowUpBanner.tsx`         | Banner for plan follow-up actions                                                                              |
+| `ComposerPrimaryActions`             | `components/chat/ComposerPrimaryActions.tsx`             | Send/stop/interrupt buttons                                                                                    |
+| `CompactComposerControlsMenu`        | `components/chat/CompactComposerControlsMenu.tsx`        | Compact version of composer controls for narrow viewports                                                      |
+| `ComposerPromptEditor`               | `components/ComposerPromptEditor.tsx` (35KB)             | Rich text editor for composer with @-mention autocomplete, slash commands, terminal context chips, image paste |
+| `ContextWindowMeter`                 | `components/chat/ContextWindowMeter.tsx`                 | Visual meter showing context window usage                                                                      |
+| `RateLimitsMeter`                    | `components/chat/RateLimitsMeter.tsx`                    | Rate limits display                                                                                            |
+| `DiffStatLabel`                      | `components/chat/DiffStatLabel.tsx`                      | Inline diff stat display (+N/-M)                                                                               |
+| `DiscussionRolesPicker`              | `components/chat/DiscussionRolesPicker.tsx`              | Picker for discussion participant roles                                                                        |
+| `ExpandedImagePreview`               | `components/chat/ExpandedImagePreview.tsx`               | Full-size image preview overlay                                                                                |
+| `LazyCommandOutput`                  | `components/chat/LazyCommandOutput.tsx`                  | Lazy-loaded command output display                                                                             |
+| `LazySubagentEntries`                | `components/chat/LazySubagentEntries.tsx`                | Lazy-loaded subagent activity feed                                                                             |
+| `MessageCopyButton`                  | `components/chat/MessageCopyButton.tsx`                  | Copy-to-clipboard for messages                                                                                 |
+| `OpenInPicker`                       | `components/chat/OpenInPicker.tsx`                       | "Open in [editor]" picker                                                                                      |
+| `ProposedPlanCard`                   | `components/chat/ProposedPlanCard.tsx`                   | Card rendering a proposed plan with implement/dismiss actions                                                  |
+| `ProviderModelPicker`                | `components/chat/ProviderModelPicker.tsx`                | Provider (Codex/Claude) and model selector dropdown                                                            |
+| `ProviderStatusBanner`               | `components/chat/ProviderStatusBanner.tsx`               | Banner for provider status issues                                                                              |
+| `SubagentHeading`                    | `components/chat/SubagentHeading.tsx`                    | Heading for subagent activity sections                                                                         |
+| `SummarizeButton`                    | `components/chat/SummarizeButton.tsx`                    | Button to trigger conversation summarization                                                                   |
+| `SummaryCard`                        | `components/chat/SummaryCard.tsx`                        | Card showing a conversation summary                                                                            |
+| `TerminalContextInlineChip`          | `components/chat/TerminalContextInlineChip.tsx`          | Inline chip showing terminal context attachment                                                                |
+| `ThreadErrorBanner`                  | `components/chat/ThreadErrorBanner.tsx`                  | Error banner for thread-level errors                                                                           |
+| `TraitsPicker`                       | `components/chat/TraitsPicker.tsx`                       | Picker for provider traits/options                                                                             |
+| `UnifiedThreadPicker`                | `components/chat/UnifiedThreadPicker.tsx`                | Unified thread/workflow picker for new thread creation                                                         |
+| `VscodeEntryIcon`                    | `components/chat/VscodeEntryIcon.tsx`                    | VS Code-style file icon component                                                                              |
+| `ChangedFilesTree`                   | `components/chat/ChangedFilesTree.tsx`                   | Tree view of files changed in a turn                                                                           |
+| `CommandOutputPanel`                 | `components/chat/CommandOutputPanel.tsx`                 | Expandable panel for command output display                                                                    |
 
 ### 3.4 Composer Support Files
 
-| File | Description |
-|---|---|
-| `composerFooterLayout.ts` | Layout logic for composer footer (responsive column rules) |
-| `composerInlineChip.ts` | Inline chip styling/sizing |
-| `composerProviderRegistry.tsx` | Provider registry for composer (maps providers to their config) |
-| `backgroundStatusPresentation.ts` | Background task status formatting |
-| `subagentPresentation.ts` | Subagent display helpers |
-| `userMessageTerminalContexts.ts` | Terminal context extraction from user messages |
+| File                              | Description                                                     |
+| --------------------------------- | --------------------------------------------------------------- |
+| `composerFooterLayout.ts`         | Layout logic for composer footer (responsive column rules)      |
+| `composerInlineChip.ts`           | Inline chip styling/sizing                                      |
+| `composerProviderRegistry.tsx`    | Provider registry for composer (maps providers to their config) |
+| `backgroundStatusPresentation.ts` | Background task status formatting                               |
+| `subagentPresentation.ts`         | Subagent display helpers                                        |
+| `userMessageTerminalContexts.ts`  | Terminal context extraction from user messages                  |
 
 ### 3.5 Sidebar Components
 
-| Component | File | Description |
-|---|---|---|
-| `Sidebar` | `components/Sidebar.tsx` | Main sidebar: project tree, thread list, new-thread button, multi-select bulk actions (archive, delete), settings/agent-modes navigation |
-| `Sidebar.logic.ts` | `components/Sidebar.logic.ts` (20KB) | Thread status derivation (pending-approval, awaiting-input, discussing, designing, planning, working, connecting, plan-ready, paused, completed, failed), thread sorting (created, updated, last-message, last-activity, status), project sorting (custom, created, alpha, activity), thread traversal, fallback thread after delete |
-| `SidebarTree` | `components/SidebarTree.tsx` | Tree view rendering for hierarchical thread display |
-| `SidebarTree.logic.ts` | `components/SidebarTree.logic.ts` | Tree node construction (parent/child thread grouping), expand/collapse state |
-| `SidebarBrand` | `components/sidebar/SidebarBrand.tsx` | App logo/name in sidebar header |
-| `SidebarDesktopUpdateBanner` | `components/sidebar/SidebarDesktopUpdateBanner.tsx` | Desktop update notification banner |
-| `SidebarFooterNav` | `components/sidebar/SidebarFooterNav.tsx` | Footer navigation (settings, agent modes links) |
-| `SidebarProjectItem` | `components/sidebar/SidebarProjectItem.tsx` | Individual project item in sidebar (collapsible, drag-reorderable) |
-| `SidebarProjectsSection` | `components/sidebar/SidebarProjectsSection.tsx` | Projects section container |
-| `SidebarThreadRow` | `components/sidebar/SidebarThreadRow.tsx` | Individual thread row (title, status pill, actions menu, multi-select, jump hints) |
-| `SidebarThreadStatus` | `components/sidebar/SidebarThreadStatus.tsx` | Thread status pill (Working, Planning, Designing, Discussing, Connecting, Completed, Paused, Pending Approval, Awaiting Input, Plan Ready, Failed) |
-| `SidebarUpdatePill` | `components/sidebar/SidebarUpdatePill.tsx` | Update notification pill |
-| `useSidebarData.ts` | `components/sidebar/useSidebarData.ts` | Hook combining projects, threads, git status, and tree state into renderable sidebar data |
-| `useSidebarInteractions.ts` | `components/sidebar/useSidebarInteractions.ts` | Hook for sidebar interaction handlers (click, drag, context menu) |
+| Component                    | File                                                | Description                                                                                                                                                                                                                                                                                                                          |
+| ---------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Sidebar`                    | `components/Sidebar.tsx`                            | Main sidebar: project tree, thread list, new-thread button, multi-select bulk actions (archive, delete), settings/agent-modes navigation                                                                                                                                                                                             |
+| `Sidebar.logic.ts`           | `components/Sidebar.logic.ts` (20KB)                | Thread status derivation (pending-approval, awaiting-input, discussing, designing, planning, working, connecting, plan-ready, paused, completed, failed), thread sorting (created, updated, last-message, last-activity, status), project sorting (custom, created, alpha, activity), thread traversal, fallback thread after delete |
+| `SidebarTree`                | `components/SidebarTree.tsx`                        | Tree view rendering for hierarchical thread display                                                                                                                                                                                                                                                                                  |
+| `SidebarTree.logic.ts`       | `components/SidebarTree.logic.ts`                   | Tree node construction (parent/child thread grouping), expand/collapse state                                                                                                                                                                                                                                                         |
+| `SidebarBrand`               | `components/sidebar/SidebarBrand.tsx`               | App logo/name in sidebar header                                                                                                                                                                                                                                                                                                      |
+| `SidebarDesktopUpdateBanner` | `components/sidebar/SidebarDesktopUpdateBanner.tsx` | Desktop update notification banner                                                                                                                                                                                                                                                                                                   |
+| `SidebarFooterNav`           | `components/sidebar/SidebarFooterNav.tsx`           | Footer navigation (settings, agent modes links)                                                                                                                                                                                                                                                                                      |
+| `SidebarProjectItem`         | `components/sidebar/SidebarProjectItem.tsx`         | Individual project item in sidebar (collapsible, drag-reorderable)                                                                                                                                                                                                                                                                   |
+| `SidebarProjectsSection`     | `components/sidebar/SidebarProjectsSection.tsx`     | Projects section container                                                                                                                                                                                                                                                                                                           |
+| `SidebarThreadRow`           | `components/sidebar/SidebarThreadRow.tsx`           | Individual thread row (title, status pill, actions menu, multi-select, jump hints)                                                                                                                                                                                                                                                   |
+| `SidebarThreadStatus`        | `components/sidebar/SidebarThreadStatus.tsx`        | Thread status pill (Working, Planning, Designing, Discussing, Connecting, Completed, Paused, Pending Approval, Awaiting Input, Plan Ready, Failed)                                                                                                                                                                                   |
+| `SidebarUpdatePill`          | `components/sidebar/SidebarUpdatePill.tsx`          | Update notification pill                                                                                                                                                                                                                                                                                                             |
+| `useSidebarData.ts`          | `components/sidebar/useSidebarData.ts`              | Hook combining projects, threads, git status, and tree state into renderable sidebar data                                                                                                                                                                                                                                            |
+| `useSidebarInteractions.ts`  | `components/sidebar/useSidebarInteractions.ts`      | Hook for sidebar interaction handlers (click, drag, context menu)                                                                                                                                                                                                                                                                    |
 
 ### 3.6 Diff Components
 
-| Component | File | Description |
-|---|---|---|
-| `DiffPanel` | `components/DiffPanel.tsx` (26KB) | Full diff panel: turn-by-turn or full-thread diffs, agent vs workspace diff modes, file tree navigation, diff viewer |
-| `DiffPanel.logic.ts` | `components/DiffPanel.logic.ts` | Diff mode resolution logic |
-| `DiffPanelBody` | `components/DiffPanelBody.tsx` | Diff content body with file-level rendering |
-| `DiffPanelShell` | `components/DiffPanelShell.tsx` | Shell/chrome for diff panel (header skeleton, loading state) |
-| `DiffWorkerPoolProvider` | `components/DiffWorkerPoolProvider.tsx` | Web worker pool provider for diff computation |
-| `CollapsibleFileDiffList` | `components/CollapsibleFileDiffList.tsx` | Collapsible list of file diffs |
-| `CompactDiffCard` | `components/diff/CompactDiffCard.tsx` | Compact inline diff card |
-| `CompactDiffEntryRow` | `components/diff/CompactDiffEntryRow.tsx` | Individual entry row in compact diff |
-| `CompactDiffHeader` | `components/diff/CompactDiffHeader.tsx` | Header for compact diff |
-| `CompactDiffPreview` | `components/diff/CompactDiffPreview.tsx` | Compact diff preview with hunk rendering |
-| `CompactDiffSummaryFallback` | `components/diff/CompactDiffSummaryFallback.tsx` | Fallback when diff content unavailable |
+| Component                    | File                                             | Description                                                                                                          |
+| ---------------------------- | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| `DiffPanel`                  | `components/DiffPanel.tsx` (26KB)                | Full diff panel: turn-by-turn or full-thread diffs, agent vs workspace diff modes, file tree navigation, diff viewer |
+| `DiffPanel.logic.ts`         | `components/DiffPanel.logic.ts`                  | Diff mode resolution logic                                                                                           |
+| `DiffPanelBody`              | `components/DiffPanelBody.tsx`                   | Diff content body with file-level rendering                                                                          |
+| `DiffPanelShell`             | `components/DiffPanelShell.tsx`                  | Shell/chrome for diff panel (header skeleton, loading state)                                                         |
+| `DiffWorkerPoolProvider`     | `components/DiffWorkerPoolProvider.tsx`          | Web worker pool provider for diff computation                                                                        |
+| `CollapsibleFileDiffList`    | `components/CollapsibleFileDiffList.tsx`         | Collapsible list of file diffs                                                                                       |
+| `CompactDiffCard`            | `components/diff/CompactDiffCard.tsx`            | Compact inline diff card                                                                                             |
+| `CompactDiffEntryRow`        | `components/diff/CompactDiffEntryRow.tsx`        | Individual entry row in compact diff                                                                                 |
+| `CompactDiffHeader`          | `components/diff/CompactDiffHeader.tsx`          | Header for compact diff                                                                                              |
+| `CompactDiffPreview`         | `components/diff/CompactDiffPreview.tsx`         | Compact diff preview with hunk rendering                                                                             |
+| `CompactDiffSummaryFallback` | `components/diff/CompactDiffSummaryFallback.tsx` | Fallback when diff content unavailable                                                                               |
 
 ### 3.7 Design Preview
 
-| Component | File | Description |
-|---|---|---|
+| Component            | File                                       | Description                                                                                                                                                      |
+| -------------------- | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `DesignPreviewPanel` | `components/DesignPreviewPanel.tsx` (15KB) | Design artifact preview panel for design-mode threads. Shows rendered design artifacts, pending design options/choices. Supports inline sidebar and sheet modes. |
 
 ### 3.8 Workflow Components
 
-| Component | File | Description |
-|---|---|---|
-| `WorkflowEditor` | `components/WorkflowEditor.tsx` (22KB) | Full workflow authoring UI: phases, prompts, gates, quality checks, sandbox modes, discussion assignment, model selection per phase |
-| `WorkflowEditor.logic.ts` | `components/WorkflowEditor.logic.ts` (16KB) | Workflow editor logic: phase creation, default prompts (implement, review, finalize, advocate, etc.), gate options (auto-continue, quality-checks, human-approval, done), on-fail options (retry, go-back-to, stop), execution kinds (agent, automated, human), quality check references (test, lint, typecheck) |
-| `WorkflowEditor.parts.tsx` | `components/WorkflowEditor.parts.tsx` | Reusable sub-components for workflow editor (phase card fields, etc.) |
-| `WorkflowPicker.logic.ts` | `components/WorkflowPicker.logic.ts` | Workflow selection/picker logic |
-| `WorkflowTimeline` | `components/WorkflowTimeline.tsx` (17KB) | Runtime workflow timeline showing phase progression, bootstrap events, quality checks, gate approvals |
-| `WorkflowTimeline.logic.ts` | `components/WorkflowTimeline.logic.ts` (22KB) | Timeline rendering logic: phase status derivation, output rendering (schema, conversation, channel, none), quality check results, bootstrap state |
-| `WorkflowTimeline.parts.tsx` | `components/WorkflowTimeline.parts.tsx` | Timeline sub-components (phase cards, status indicators) |
+| Component                    | File                                          | Description                                                                                                                                                                                                                                                                                                      |
+| ---------------------------- | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `WorkflowEditor`             | `components/WorkflowEditor.tsx` (22KB)        | Full workflow authoring UI: phases, prompts, gates, quality checks, sandbox modes, discussion assignment, model selection per phase                                                                                                                                                                              |
+| `WorkflowEditor.logic.ts`    | `components/WorkflowEditor.logic.ts` (16KB)   | Workflow editor logic: phase creation, default prompts (implement, review, finalize, advocate, etc.), gate options (auto-continue, quality-checks, human-approval, done), on-fail options (retry, go-back-to, stop), execution kinds (agent, automated, human), quality check references (test, lint, typecheck) |
+| `WorkflowEditor.parts.tsx`   | `components/WorkflowEditor.parts.tsx`         | Reusable sub-components for workflow editor (phase card fields, etc.)                                                                                                                                                                                                                                            |
+| `WorkflowPicker.logic.ts`    | `components/WorkflowPicker.logic.ts`          | Workflow selection/picker logic                                                                                                                                                                                                                                                                                  |
+| `WorkflowTimeline`           | `components/WorkflowTimeline.tsx` (17KB)      | Runtime workflow timeline showing phase progression, bootstrap events, quality checks, gate approvals                                                                                                                                                                                                            |
+| `WorkflowTimeline.logic.ts`  | `components/WorkflowTimeline.logic.ts` (22KB) | Timeline rendering logic: phase status derivation, output rendering (schema, conversation, channel, none), quality check results, bootstrap state                                                                                                                                                                |
+| `WorkflowTimeline.parts.tsx` | `components/WorkflowTimeline.parts.tsx`       | Timeline sub-components (phase cards, status indicators)                                                                                                                                                                                                                                                         |
 
 ### 3.9 Discussion Components
 
-| Component | File | Description |
-|---|---|---|
-| `DiscussionEditor` | `components/DiscussionEditor.tsx` (47KB) | Multi-agent discussion authoring: participant roles, system prompts, model selection per participant, max turns, discussion scope (global/project), managed discussion list, create/update/delete |
-| `DiscussionEditor.logic.ts` | `components/DiscussionEditor.logic.ts` | Discussion validation, empty draft creation (default: advocate + critic), participant model resolution, managed discussion sorting |
+| Component                   | File                                     | Description                                                                                                                                                                                       |
+| --------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DiscussionEditor`          | `components/DiscussionEditor.tsx` (47KB) | Multi-agent discussion authoring: participant roles, system prompts, model selection per participant, max turns, discussion scope (global/project), managed discussion list, create/update/delete |
+| `DiscussionEditor.logic.ts` | `components/DiscussionEditor.logic.ts`   | Discussion validation, empty draft creation (default: advocate + critic), participant model resolution, managed discussion sorting                                                                |
 
 ### 3.10 Phase and Gate Components
 
-| Component | File | Description |
-|---|---|---|
-| `PhaseCard` | `components/PhaseCard.tsx` | Workflow phase card container |
-| `PhaseCard.fields.tsx` | `components/PhaseCard.fields.tsx` | Phase card form fields (prompt, execution kind, model, etc.) |
-| `PhaseCard.gate.tsx` | `components/PhaseCard.gate.tsx` | Gate configuration sub-card (after action, quality checks, on-fail behavior) |
-| `PhaseCard.parts.tsx` | `components/PhaseCard.parts.tsx` (15KB) | Reusable phase card parts |
-| `GateApproval` | `components/GateApproval.tsx` (9KB) | Gate approval UI: approve (A key), correct (C key), reject (R key) with correction text, quality check display |
-| `GateApproval.logic.ts` | `components/GateApproval.logic.ts` | Gate approval logic, keyboard shortcuts, summary derivation from structured output |
-| `QualityCheckResults` | `components/QualityCheckResults.tsx` | Quality check results display (pass/fail with details) |
-| `PlanSidebar` | `components/PlanSidebar.tsx` (10KB) | Sidebar showing active plan steps with status indicators (pending/in-progress/completed) |
+| Component               | File                                    | Description                                                                                                    |
+| ----------------------- | --------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `PhaseCard`             | `components/PhaseCard.tsx`              | Workflow phase card container                                                                                  |
+| `PhaseCard.fields.tsx`  | `components/PhaseCard.fields.tsx`       | Phase card form fields (prompt, execution kind, model, etc.)                                                   |
+| `PhaseCard.gate.tsx`    | `components/PhaseCard.gate.tsx`         | Gate configuration sub-card (after action, quality checks, on-fail behavior)                                   |
+| `PhaseCard.parts.tsx`   | `components/PhaseCard.parts.tsx` (15KB) | Reusable phase card parts                                                                                      |
+| `GateApproval`          | `components/GateApproval.tsx` (9KB)     | Gate approval UI: approve (A key), correct (C key), reject (R key) with correction text, quality check display |
+| `GateApproval.logic.ts` | `components/GateApproval.logic.ts`      | Gate approval logic, keyboard shortcuts, summary derivation from structured output                             |
+| `QualityCheckResults`   | `components/QualityCheckResults.tsx`    | Quality check results display (pass/fail with details)                                                         |
+| `PlanSidebar`           | `components/PlanSidebar.tsx` (10KB)     | Sidebar showing active plan steps with status indicators (pending/in-progress/completed)                       |
 
 ### 3.11 Git Integration Components
 
-| Component | File | Description |
-|---|---|---|
-| `GitActionsControl` | `components/GitActionsControl.tsx` (38KB) | Git action dialog: commit, push, create PR. Supports stacked actions (commit+push, commit+push+PR). Custom commit messages, progress stages, default branch protection confirmation. |
-| `GitActionsControl.logic.ts` | `components/GitActionsControl.logic.ts` (9KB) | Menu item building, quick action resolution, progress stage computation, default branch action dialog copy |
-| `BranchToolbar` | `components/BranchToolbar.tsx` (6KB) | Branch display toolbar showing current branch, worktree status |
-| `BranchToolbar.logic.ts` | `components/BranchToolbar.logic.ts` | Branch resolution, env mode derivation after branch change, worktree selection target |
-| `BranchToolbarBranchSelector` | `components/BranchToolbarBranchSelector.tsx` (17KB) | Branch picker dropdown with local/remote branches, create branch, checkout PR |
-| `PullRequestThreadDialog` | `components/PullRequestThreadDialog.tsx` (9KB) | Dialog for creating a thread from a pull request |
+| Component                     | File                                                | Description                                                                                                                                                                          |
+| ----------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GitActionsControl`           | `components/GitActionsControl.tsx` (38KB)           | Git action dialog: commit, push, create PR. Supports stacked actions (commit+push, commit+push+PR). Custom commit messages, progress stages, default branch protection confirmation. |
+| `GitActionsControl.logic.ts`  | `components/GitActionsControl.logic.ts` (9KB)       | Menu item building, quick action resolution, progress stage computation, default branch action dialog copy                                                                           |
+| `BranchToolbar`               | `components/BranchToolbar.tsx` (6KB)                | Branch display toolbar showing current branch, worktree status                                                                                                                       |
+| `BranchToolbar.logic.ts`      | `components/BranchToolbar.logic.ts`                 | Branch resolution, env mode derivation after branch change, worktree selection target                                                                                                |
+| `BranchToolbarBranchSelector` | `components/BranchToolbarBranchSelector.tsx` (17KB) | Branch picker dropdown with local/remote branches, create branch, checkout PR                                                                                                        |
+| `PullRequestThreadDialog`     | `components/PullRequestThreadDialog.tsx` (9KB)      | Dialog for creating a thread from a pull request                                                                                                                                     |
 
 ### 3.12 Terminal Integration
 
-| Component | File | Description |
-|---|---|---|
+| Component              | File                                         | Description                                                                                                                                                                                                    |
+| ---------------------- | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ThreadTerminalDrawer` | `components/ThreadTerminalDrawer.tsx` (46KB) | Full terminal integration: resizable drawer, multiple terminals per thread, terminal groups, split/new terminal, close terminal, running subprocess indicators, xterm.js integration, terminal event streaming |
 
 ### 3.13 Settings Components
 
-| Component | File | Description |
-|---|---|---|
-| `SettingsPanels` | `components/settings/SettingsPanels.tsx` | General settings: theme (system/light/dark), timestamp format (system/12h/24h), streaming toggle, default thread env mode, provider configuration (Codex/Claude binary paths, home paths, custom models, auth status), model selection, default model per provider, desktop update, confirm archive/delete toggles, diff word wrap, sidebar sort orders, project scripts control, keybindings path display |
-| `SettingsSidebarNav` | `components/settings/SettingsSidebarNav.tsx` | Settings sidebar navigation (General, Archive sections) with back button |
-| `ArchivedThreadsPanel` | `components/settings/SettingsPanels.tsx` | Archived threads listing with unarchive/delete actions, relative timestamps |
+| Component              | File                                         | Description                                                                                                                                                                                                                                                                                                                                                                                                |
+| ---------------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SettingsPanels`       | `components/settings/SettingsPanels.tsx`     | General settings: theme (system/light/dark), timestamp format (system/12h/24h), streaming toggle, default thread env mode, provider configuration (Codex/Claude binary paths, home paths, custom models, auth status), model selection, default model per provider, desktop update, confirm archive/delete toggles, diff word wrap, sidebar sort orders, project scripts control, keybindings path display |
+| `SettingsSidebarNav`   | `components/settings/SettingsSidebarNav.tsx` | Settings sidebar navigation (General, Archive sections) with back button                                                                                                                                                                                                                                                                                                                                   |
+| `ArchivedThreadsPanel` | `components/settings/SettingsPanels.tsx`     | Archived threads listing with unarchive/delete actions, relative timestamps                                                                                                                                                                                                                                                                                                                                |
 
 ### 3.14 Agent Modes
 
-| Component | File | Description |
-|---|---|---|
+| Component        | File                            | Description                                                         |
+| ---------------- | ------------------------------- | ------------------------------------------------------------------- |
 | `AgentModesPage` | `components/AgentModesPage.tsx` | Agent modes page layout (workflows tab, discussions tab navigation) |
 
 ### 3.15 Miscellaneous Components
 
-| Component | File | Description |
-|---|---|---|
-| `Icons` | `components/Icons.tsx` (33KB) | SVG icon library (Codex, Claude, provider icons, tool icons, etc.) |
-| `ProjectFavicon` | `components/ProjectFavicon.tsx` | Project favicon display |
-| `ProjectScriptsControl` | `components/ProjectScriptsControl.tsx` (16KB) | Project-level script management and execution |
-| `ProjectScriptsControl.logic.ts` | `components/ProjectScriptsControl.logic.ts` | Script control logic |
-| `KeybindingsToast` | `components/KeybindingsToast.browser.tsx` | Toast notifications for keybinding changes |
+| Component                        | File                                          | Description                                                        |
+| -------------------------------- | --------------------------------------------- | ------------------------------------------------------------------ |
+| `Icons`                          | `components/Icons.tsx` (33KB)                 | SVG icon library (Codex, Claude, provider icons, tool icons, etc.) |
+| `ProjectFavicon`                 | `components/ProjectFavicon.tsx`               | Project favicon display                                            |
+| `ProjectScriptsControl`          | `components/ProjectScriptsControl.tsx` (16KB) | Project-level script management and execution                      |
+| `ProjectScriptsControl.logic.ts` | `components/ProjectScriptsControl.logic.ts`   | Script control logic                                               |
+| `KeybindingsToast`               | `components/KeybindingsToast.browser.tsx`     | Toast notifications for keybinding changes                         |
 
 ### 3.16 UI Primitives (`components/ui/`)
 
 Full shadcn/radix-based design system:
+
 - `alert-dialog.tsx`, `alert.tsx`, `autocomplete.tsx`, `badge.tsx`, `button.tsx`
 - `card.tsx`, `checkbox.tsx`, `collapsible.tsx`, `combobox.tsx`, `command.tsx`
 - `dialog.tsx`, `empty.tsx`, `field.tsx`, `fieldset.tsx`, `form.tsx`, `group.tsx`
@@ -372,6 +373,7 @@ Actions: `toggleThread` (Cmd/Ctrl+Click), `rangeSelectTo` (Shift+Click), `clearS
 ### 4.6 Feature Stores (`stores/`)
 
 **Workflow Store** (`stores/workflowStore.ts`):
+
 - `availableWorkflows: WorkflowSummary[]`
 - `workflowsById: Record<WorkflowId, WorkflowDefinition>`
 - `runtimeByThreadId: Record<ThreadId, WorkflowThreadRuntimeState>` (phase events, quality checks, gate events, bootstrap events, phase outputs)
@@ -379,6 +381,7 @@ Actions: `toggleThread` (Cmd/Ctrl+Click), `rangeSelectTo` (Shift+Click), `clearS
 - Query integration via TanStack Query (`workflowQueryOptions`, `workflowListQueryOptions`)
 
 **Channel Store** (`stores/channelStore.ts`):
+
 - `channelsById: Record<ChannelId, Channel>`
 - `messagesByChannelId: Record<ChannelId, ChannelMessage[]>`
 - `messagePaginationByChannelId` (cursor-based pagination)
@@ -386,6 +389,7 @@ Actions: `toggleThread` (Cmd/Ctrl+Click), `rangeSelectTo` (Shift+Click), `clearS
 - Channel message pagination, push event handling, intervention mutation
 
 **Discussion Store** (`stores/discussionStore.ts`):
+
 - `availableDiscussions: DiscussionSummary[]`
 - `availableManagedDiscussions: DiscussionManagedSummary[]`
 - `managedProjectFilter: ProjectId | "__all_projects__"`
@@ -398,6 +402,7 @@ Actions: `toggleThread` (Cmd/Ctrl+Click), `rangeSelectTo` (Shift+Click), `clearS
 ### 5.1 WebSocket Transport (`wsTransport.ts`)
 
 Built on **Effect** runtime with `ManagedRuntime`:
+
 - `request<T>()` -- single request/response
 - `requestStream<T>()` -- streaming response consumed to completion
 - `subscribe<T>()` -- persistent subscription with auto-retry (250ms default delay), returns unsubscribe function
@@ -411,6 +416,7 @@ Built on **Effect** runtime with `ManagedRuntime`:
 ### 5.3 WS RPC Client (`wsRpcClient.ts`)
 
 Typed facade over `WsTransport` exposing:
+
 - **thread**: `correct` (edit message)
 - **terminal**: `open`, `write`, `resize`, `clear`, `restart`, `close`, `onEvent` (subscription)
 - **projects**: `searchEntries`, `writeFile`
@@ -446,6 +452,7 @@ Typed facade over `WsTransport` exposing:
 ### 6.1 Slash Commands (`composer-logic.ts`)
 
 Four slash commands: `/model`, `/plan`, `/default`, `/design`
+
 - `/model [query]` -- triggers model picker inline
 - `/plan` -- switches to plan interaction mode
 - `/default` -- switches back to default interaction mode
@@ -460,6 +467,7 @@ Four slash commands: `/model`, `/plan`, `/default`, `/design`
 ### 6.3 Trigger Detection
 
 `detectComposerTrigger(text, cursor)` returns:
+
 - `kind: "path"` -- @-mention trigger with query
 - `kind: "slash-command"` -- partial command match
 - `kind: "slash-model"` -- `/model` with optional query
@@ -467,6 +475,7 @@ Four slash commands: `/model`, `/plan`, `/default`, `/design`
 ### 6.4 Composer Draft Store
 
 Per-thread drafts with:
+
 - Prompt text with terminal context placeholders
 - Image attachments (persisted as data URLs, restored as File objects)
 - Terminal context drafts (thread, terminal, line range)
@@ -479,6 +488,7 @@ Per-thread drafts with:
 ### 6.5 Composer Editor (`ComposerPromptEditor.tsx`)
 
 35KB rich text editor:
+
 - Inline @-mention chips (rendered as non-editable spans)
 - Terminal context inline chips
 - Image paste/drop support
@@ -494,6 +504,7 @@ Per-thread drafts with:
 ### 7.1 Session Logic Pipeline (`session-logic/`)
 
 **Timeline Entry Types**:
+
 - `message` -- user/assistant/system chat messages
 - `proposed-plan` -- proposed implementation plans
 - `work` -- tool invocations, commands, file operations
@@ -505,12 +516,14 @@ Rich entry type with 40+ fields including: `label`, `command`, `changedFiles`, `
 Extracts tool name, exit code, duration, output, background status, MCP server/tool, search info, file path, agent metadata from raw orchestration activities.
 
 **Subagent Grouping** (`session-logic/subagentGrouping.ts`):
+
 - Identifies Codex collab control tools
 - Synthesizes Claude task output lifecycle activities
 - Groups parent entries with subagent child thread metadata
 - Fallback entry display before lazy RPC feed loads
 
 **Background Signals** (`session-logic/backgroundSignals.ts`):
+
 - Background command detection and status tracking
 - Streamed command output collection
 - Background task retention (5 seconds after completion)
@@ -525,6 +538,7 @@ Incremental projection state that tracks: active lifecycle entries, command laun
 ### 7.2 Timeline Rendering
 
 **`MessagesTimeline.tsx`**: Renders rows as:
+
 - **work-group** -- collapsed group of work log entries (max 6 visible)
 - **work-entry** -- individual tool/command activity
 - **message** -- chat message with markdown rendering, completion dividers, inline diff summaries
@@ -544,6 +558,7 @@ Pre-computes row heights for virtualized scrolling.
 ### 8.1 Workflow Editor
 
 Full CRUD for workflow definitions:
+
 - **Phases**: ordered list of phases, each with:
   - Prompt (text or reference to predefined: implement, review, finalize, etc.)
   - Execution kind (agent, automated, human)
@@ -560,6 +575,7 @@ Full CRUD for workflow definitions:
 ### 8.2 Workflow Runtime Timeline
 
 Renders live workflow execution:
+
 - **Bootstrap events**: started, data, error
 - **Phase events**: started, completed, failed with outputs
 - **Quality check events**: per-check pass/fail with details
@@ -569,6 +585,7 @@ Renders live workflow execution:
 ### 8.3 Discussion Editor
 
 Full CRUD for multi-agent discussions:
+
 - **Participants**: role, description, system prompt, model selection per participant
 - **Settings**: max turns
 - **Scope**: global or project-scoped
@@ -590,10 +607,12 @@ Full CRUD for multi-agent discussions:
 ### 9.1 Diff Panel (`DiffPanel.tsx`)
 
 Two modes:
+
 - **Agent diff** -- diffs from agent turns (`getTurnAgentDiff`, `getFullThreadAgentDiff`)
 - **Workspace diff** -- working tree diffs (`getWorkingTreeDiff`)
 
 Features:
+
 - Turn-by-turn navigation with diff stat labels
 - Full thread cumulative diff
 - File tree with change indicators
@@ -605,6 +624,7 @@ Features:
 ### 9.2 Compact Diff Components
 
 Inline diff previews in the timeline:
+
 - `CompactDiffCard` -- card with collapsed/expanded diff
 - `CompactDiffPreview` -- parsed hunk rendering with context/addition/deletion segments
 - `CompactDiffEntryRow` -- individual file entry in compact diff
@@ -620,6 +640,7 @@ Inline diff previews in the timeline:
 ### 9.4 Design Preview (`DesignPreviewPanel.tsx`)
 
 For threads in `design` interaction mode:
+
 - Renders design artifacts (HTML/image preview via artifact path)
 - Shows pending design options/choices
 - Auto-opens when first artifacts arrive
@@ -632,6 +653,7 @@ For threads in `design` interaction mode:
 ### 10.1 Server-Authoritative Settings
 
 Stored in `settings.json` on server, synced via RPC:
+
 - `enableAssistantStreaming` -- toggle streaming responses
 - `defaultThreadEnvMode` -- local or worktree
 - `textGenerationModelSelection` -- default model
@@ -641,6 +663,7 @@ Stored in `settings.json` on server, synced via RPC:
 ### 10.2 Client-Only Settings
 
 Stored in `localStorage` under `forge:client-settings:v1`:
+
 - `confirmThreadArchive` -- confirmation dialog toggle
 - `confirmThreadDelete` -- confirmation dialog toggle
 - `diffWordWrap` -- word wrap in diff viewer
@@ -675,6 +698,7 @@ Stored in `localStorage` under `forge:client-settings:v1`:
 ### 11.1 Terminal State
 
 Per-thread terminal state tracked in `terminalStateStore`:
+
 - Open/closed, height (resizable, default 280px)
 - Multiple terminals per thread (default "default" terminal)
 - Terminal groups with max 4 terminals per group
@@ -684,6 +708,7 @@ Per-thread terminal state tracked in `terminalStateStore`:
 ### 11.2 Terminal Drawer (`ThreadTerminalDrawer.tsx`, 46KB)
 
 Features:
+
 - Resizable drawer at bottom of chat view
 - Multi-terminal tabs with add (split/new) and close
 - Terminal group management
@@ -722,6 +747,7 @@ Features:
 ### 12.2 Git Actions
 
 Stacked action system supporting combined operations:
+
 - **Commit** -- auto-generated or custom commit message, feature branch creation
 - **Push** -- push to remote with target display
 - **Create PR** -- generates PR content, creates GitHub PR
@@ -749,6 +775,7 @@ Progress stages shown during execution. Default branch protection with confirmat
 ### 13.1 Keybinding System (`keybindings.ts`)
 
 Full keybinding system with:
+
 - Server-configurable keybindings via `ResolvedKeybindingsConfig`
 - Context-aware matching (`terminalFocus`, `terminalOpen` contexts)
 - `when` clause evaluation (identifier, not, and, or AST nodes)
@@ -757,19 +784,19 @@ Full keybinding system with:
 
 ### 13.2 Registered Commands
 
-| Command | Description |
-|---|---|
-| `chat.new` | New thread (inherits branch/worktree from active thread) |
-| `chat.newLocal` | New local thread |
-| `terminal.toggle` | Toggle terminal drawer |
-| `terminal.split` | Split terminal in current group |
-| `terminal.new` | New terminal in new group |
-| `terminal.close` | Close active terminal |
-| `diff.toggle` | Toggle diff panel |
-| `editor.openFavorite` | Open in preferred editor |
-| `thread.previous` | Navigate to previous thread |
-| `thread.next` | Navigate to next thread |
-| `thread.jump.0` through `thread.jump.9` | Jump to thread by index (with visual hint overlay) |
+| Command                                 | Description                                              |
+| --------------------------------------- | -------------------------------------------------------- |
+| `chat.new`                              | New thread (inherits branch/worktree from active thread) |
+| `chat.newLocal`                         | New local thread                                         |
+| `terminal.toggle`                       | Toggle terminal drawer                                   |
+| `terminal.split`                        | Split terminal in current group                          |
+| `terminal.new`                          | New terminal in new group                                |
+| `terminal.close`                        | Close active terminal                                    |
+| `diff.toggle`                           | Toggle diff panel                                        |
+| `editor.openFavorite`                   | Open in preferred editor                                 |
+| `thread.previous`                       | Navigate to previous thread                              |
+| `thread.next`                           | Navigate to next thread                                  |
+| `thread.jump.0` through `thread.jump.9` | Jump to thread by index (with visual hint overlay)       |
 
 ### 13.3 Gate Approval Shortcuts
 
@@ -793,43 +820,43 @@ Full keybinding system with:
 
 ## 14. Hooks
 
-| Hook | File | Description |
-|---|---|---|
-| `useAppearance` | `hooks/useAppearance.ts` | Appearance/theme management |
-| `useCopyToClipboard` | `hooks/useCopyToClipboard.ts` | Clipboard copy with feedback |
-| `useHandleNewThread` | `hooks/useHandleNewThread.ts` | New thread creation with project resolution, draft reuse, navigation |
-| `useLocalStorage` | `hooks/useLocalStorage.ts` | Typed localStorage hook with schema validation |
-| `useMediaQuery` | `hooks/useMediaQuery.ts` | CSS media query matching |
-| `useSettings` | `hooks/useSettings.ts` | Unified settings (server + client merged) with selector support |
-| `useTheme` | `hooks/useTheme.ts` | Theme toggle (system/light/dark) |
-| `useThreadActions` | `hooks/useThreadActions.ts` | Thread lifecycle: archive, unarchive, pin, unpin, delete (with worktree cleanup), fork, confirm-and-delete |
-| `useTurnDiffSummaries` | `hooks/useTurnDiffSummaries.ts` | Turn diff summary derivation |
+| Hook                   | File                            | Description                                                                                                |
+| ---------------------- | ------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `useAppearance`        | `hooks/useAppearance.ts`        | Appearance/theme management                                                                                |
+| `useCopyToClipboard`   | `hooks/useCopyToClipboard.ts`   | Clipboard copy with feedback                                                                               |
+| `useHandleNewThread`   | `hooks/useHandleNewThread.ts`   | New thread creation with project resolution, draft reuse, navigation                                       |
+| `useLocalStorage`      | `hooks/useLocalStorage.ts`      | Typed localStorage hook with schema validation                                                             |
+| `useMediaQuery`        | `hooks/useMediaQuery.ts`        | CSS media query matching                                                                                   |
+| `useSettings`          | `hooks/useSettings.ts`          | Unified settings (server + client merged) with selector support                                            |
+| `useTheme`             | `hooks/useTheme.ts`             | Theme toggle (system/light/dark)                                                                           |
+| `useThreadActions`     | `hooks/useThreadActions.ts`     | Thread lifecycle: archive, unarchive, pin, unpin, delete (with worktree cleanup), fork, confirm-and-delete |
+| `useTurnDiffSummaries` | `hooks/useTurnDiffSummaries.ts` | Turn diff summary derivation                                                                               |
 
 ---
 
 ## 15. Lib Utilities
 
-| Module | File | Description |
-|---|---|---|
-| `appearance` | `lib/appearance.ts` | Theme detection and application |
-| `clipboard` | `lib/clipboard.ts` | Clipboard API wrapper |
-| `contextWindow` | `lib/contextWindow.ts` | Context window size calculation |
-| `desktopUpdateReactQuery` | `lib/desktopUpdateReactQuery.ts` | Desktop update state via TanStack Query |
-| `diffRendering` | `lib/diffRendering.ts` | Diff theme names, complexity classification, compact preview models |
-| `gitReactQuery` | `lib/gitReactQuery.ts` | Git operations as TanStack Query options |
-| `keyboardTargets` | `lib/keyboardTargets.ts` | Editable element detection for keyboard shortcut filtering |
-| `lruCache` | `lib/lruCache.ts` | LRU cache implementation |
-| `projectReactQuery` | `lib/projectReactQuery.ts` | Project query keys |
-| `projectScriptKeybindings` | `lib/projectScriptKeybindings.ts` | Project script keyboard shortcut management |
-| `providerReactQuery` | `lib/providerReactQuery.ts` | Provider query keys and options |
-| `rateLimits` | `lib/rateLimits.ts` | Rate limit calculation and display |
-| `roleColors` | `lib/roleColors.ts` | Discussion role color assignment |
-| `storage` | `lib/storage.ts` | Storage utilities: key migration, debounced storage, memory storage |
-| `terminalContext` | `lib/terminalContext.ts` | Terminal context placeholder management |
-| `terminalFocus` | `lib/terminalFocus.ts` | Terminal focus detection |
-| `terminalStateCleanup` | `lib/terminalStateCleanup.ts` | Orphaned terminal state cleanup |
-| `turnDiffTree` | `lib/turnDiffTree.ts` | Turn diff file tree construction |
-| `utils` | `lib/utils.ts` | General utilities: UUID generation, cn() class merging, URL resolution, platform detection |
+| Module                     | File                              | Description                                                                                |
+| -------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------ |
+| `appearance`               | `lib/appearance.ts`               | Theme detection and application                                                            |
+| `clipboard`                | `lib/clipboard.ts`                | Clipboard API wrapper                                                                      |
+| `contextWindow`            | `lib/contextWindow.ts`            | Context window size calculation                                                            |
+| `desktopUpdateReactQuery`  | `lib/desktopUpdateReactQuery.ts`  | Desktop update state via TanStack Query                                                    |
+| `diffRendering`            | `lib/diffRendering.ts`            | Diff theme names, complexity classification, compact preview models                        |
+| `gitReactQuery`            | `lib/gitReactQuery.ts`            | Git operations as TanStack Query options                                                   |
+| `keyboardTargets`          | `lib/keyboardTargets.ts`          | Editable element detection for keyboard shortcut filtering                                 |
+| `lruCache`                 | `lib/lruCache.ts`                 | LRU cache implementation                                                                   |
+| `projectReactQuery`        | `lib/projectReactQuery.ts`        | Project query keys                                                                         |
+| `projectScriptKeybindings` | `lib/projectScriptKeybindings.ts` | Project script keyboard shortcut management                                                |
+| `providerReactQuery`       | `lib/providerReactQuery.ts`       | Provider query keys and options                                                            |
+| `rateLimits`               | `lib/rateLimits.ts`               | Rate limit calculation and display                                                         |
+| `roleColors`               | `lib/roleColors.ts`               | Discussion role color assignment                                                           |
+| `storage`                  | `lib/storage.ts`                  | Storage utilities: key migration, debounced storage, memory storage                        |
+| `terminalContext`          | `lib/terminalContext.ts`          | Terminal context placeholder management                                                    |
+| `terminalFocus`            | `lib/terminalFocus.ts`            | Terminal focus detection                                                                   |
+| `terminalStateCleanup`     | `lib/terminalStateCleanup.ts`     | Orphaned terminal state cleanup                                                            |
+| `turnDiffTree`             | `lib/turnDiffTree.ts`             | Turn diff file tree construction                                                           |
+| `utils`                    | `lib/utils.ts`                    | General utilities: UUID generation, cn() class merging, URL resolution, platform detection |
 
 ---
 
@@ -838,11 +865,13 @@ Full keybinding system with:
 The frontend handles the following event types in `storeEventHandlers.ts`:
 
 **Project Events**:
+
 - `project.created` -- new project registered
 - `project.meta-updated` -- title, workspace root, default model, scripts changed
 - `project.deleted` -- project removed
 
 **Thread Lifecycle Events**:
+
 - `thread.created` -- new thread (with parent, phase run, workflow, discussion, role, child threads, spawn mode/branch/worktree)
 - `thread.deleted` -- thread removed
 - `thread.archived` / `thread.unarchived` -- archive toggle
@@ -854,6 +883,7 @@ The frontend handles the following event types in `storeEventHandlers.ts`:
 - `thread.bootstrap-started/completed/failed/skipped` -- bootstrap lifecycle (no-op in frontend)
 
 **Session Events**:
+
 - `thread.status-changed` -- session status update
 - `thread.completed` -- session finished successfully
 - `thread.failed` -- session error with error message
@@ -862,9 +892,11 @@ The frontend handles the following event types in `storeEventHandlers.ts`:
 - `thread.session-stop-requested` -- stop request acknowledged
 
 **Message Events**:
+
 - `thread.message-sent` -- user/assistant/system message (supports streaming with text append, attachments, attribution)
 
 **Turn Events**:
+
 - `thread.turn-start-requested` -- turn requested with model/runtime/interaction mode
 - `thread.turn-interrupt-requested` -- turn interruption
 - `thread.turn-started` -- turn execution began
@@ -872,14 +904,17 @@ The frontend handles the following event types in `storeEventHandlers.ts`:
 - `thread.turn-restarted` -- turn reverted/interrupted
 
 **Diff Events**:
+
 - `thread.turn-diff-completed` -- workspace diff checkpoint for a turn
 - `thread.agent-diff-upserted` -- agent-specific diff summary
 - `thread.proposed-plan-upserted` -- proposed implementation plan
 
 **Activity Events**:
+
 - `thread.activity-appended` -- tool/command activity (feeds work log projector)
 
 **Design Events**:
+
 - `request.opened` (type: design-option) -- design option request
 - `request.resolved` -- design request resolved
 - `request.stale` -- design request expired
@@ -888,9 +923,11 @@ The frontend handles the following event types in `storeEventHandlers.ts`:
 - `thread.design.option-chosen` -- user chose a design option
 
 **Revert Events**:
+
 - `thread.reverted` -- thread reverted to earlier turn (trims messages, diffs, activities, plans)
 
 **No-op Events**:
+
 - `thread.interactive-request-response-requested` -- acknowledged but no state change
 
 ---
@@ -900,6 +937,7 @@ The frontend handles the following event types in `storeEventHandlers.ts`:
 The ChatView component is the largest single file and contains features not present in sub-components:
 
 **Message Send Flow**:
+
 - Prompt text with @-mentions expanded to file paths
 - Terminal context attachment (appended to prompt or inline)
 - Image attachments (up to `PROVIDER_SEND_TURN_MAX_ATTACHMENTS`, max `PROVIDER_SEND_TURN_MAX_IMAGE_BYTES` per image)
@@ -913,36 +951,43 @@ The ChatView component is the largest single file and contains features not pres
 - Wait for server thread acknowledgment before navigating
 
 **Interactive Requests**:
+
 - Approval requests (command, file-read, file-change) with approve/reject/always-allow
 - Permission requests (tool permission grants)
 - User input requests (multi-question forms with pre-filled answers)
 - MCP elicitation requests (MCP tool parameter collection)
 
 **Plan Follow-Up**:
+
 - Proposed plan cards with implement/dismiss
 - Plan implementation: creates new thread, dispatches plan as source
 - Plan follow-up banner for continued iteration
 
 **Worktree Management (inline)**:
+
 - Create worktree mutation
 - Remove worktree mutation
 - Branch checkout
 - PR-based thread creation
 
 **Terminal Management**:
+
 - Mounted terminal threads reconciliation (max 10 hidden)
 - Terminal open/close/split/new from within chat
 - Script execution in terminal
 
 **Project Scripts**:
+
 - Script invocation from chat
 - Last-invoked script tracking per project
 - Script keybinding decoding
 
 **Summarization**:
+
 - Conversation summarization trigger
 
 **Composer State**:
+
 - @-mention autocomplete with file search (debounced 120ms)
 - Cursor management for inline tokens
 - Compact/full composer footer layout switching

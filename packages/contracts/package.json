@@ -1,0 +1,30 @@
+{
+  "name": "@ai-sidekicks/contracts",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Shared protocol contracts, schema definitions, and cross-container types.",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b && tsc -p tsconfig.test.json",
+    "lint": "eslint src",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "catalog:testing"
+  }
+}

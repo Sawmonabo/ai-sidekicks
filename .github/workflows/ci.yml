@@ -1,0 +1,165 @@
+# Engineering CI surface per ADR-023 §Axis 1.
+#
+# This is the V1 PR #1 skeleton: one test job on linux/macOS/windows + one ci-gate
+# aggregator. The 5-platform Rust PTY sidecar matrix and the explicit two-ABI rebuild
+# step land in later PRs (no sidecar source yet; no Electron installed yet).
+#
+# Default workflow permissions are read-only; per-job permissions opt up to write
+# only where required. Event-split concurrency: PR runs cancel-in-progress, integration
+# branch (develop, main) runs do not.
+#
+# Branch protection on develop and main MUST require the `ci-gate` job (only). Matrix
+# leg names embed strategy values and are not stable required-check targets per
+# https://github.com/orgs/community/discussions/26822.
+#
+# `--no-verify` bypass closure (ADR-023 §Axis 2 D-1): explicit `eslint .` and
+# `prettier --check .` over the entire repo. Earlier iterations used
+# `lefthook run pre-commit --all-files` for parity, but lint-staged reads the git
+# staging index (empty in CI), making that invocation an empirical no-op.
+
+name: CI
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  TURBO_TELEMETRY_DISABLED: 1
+  DO_NOT_TRACK: 1
+
+jobs:
+  # Tier-1 (Node 22.12 — daemon + Electron renderer + shared packages per ADR-022
+  # §Decision row 8). Runs the full repo-wide lint + format check + build +
+  # typecheck + lint + test against the daemon-tier Node version.
+  test-node22:
+    name: test (${{ matrix.os }} / node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Per ADR-023 §Axis 1 drift correction: macos-13 fully deprecated 2025-12-04.
+        # macos-15-intel is the last x86_64 macOS runner (supported through Aug 2027).
+        # PR #1 keeps the matrix small (one OS, one node tier) until later PRs widen it.
+        os: [ubuntu-latest]
+        node: ["22.12"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        # SHA-pinned per ADR-023 §Axis 4 supply-chain hygiene; Renovate's
+        # helpers:pinGitHubActionDigests preset (renovate.json5) keeps this current.
+        uses: pnpm/action-setup@8b2eead6074fefa43a68bf4c9e0f03ea4126b5ba # v6.0.3
+        with:
+          version: 10.33.2
+          run_install: false
+
+      - name: Setup Node.js ${{ matrix.node }}
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node }}
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # ADR-023 §Axis 2 D-1: closure for `git commit --no-verify` bypass. Explicit
+      # full-repo invocations (NOT `lefthook run pre-commit --all-files` — lint-staged
+      # reads the git staging index, which is empty in the CI checkout, so that
+      # invocation is an empirical no-op). Gitleaks runs in .github/workflows/gitleaks.yml.
+      - name: Lint (full repo)
+        run: pnpm -w exec eslint .
+
+      - name: Format check (full repo)
+        run: pnpm -w exec prettier --check .
+
+      - name: Build (Node 22 tier — excluding control-plane)
+        run: pnpm turbo run build --filter='!@ai-sidekicks/control-plane'
+
+      - name: Typecheck (Node 22 tier — excluding control-plane)
+        run: pnpm turbo run typecheck --filter='!@ai-sidekicks/control-plane'
+
+      - name: Lint per-package (Node 22 tier — excluding control-plane)
+        run: pnpm turbo run lint --filter='!@ai-sidekicks/control-plane'
+
+      - name: Test (Node 22 tier — excluding control-plane)
+        run: pnpm turbo run test --filter='!@ai-sidekicks/control-plane'
+
+  # Tier-2 (Node 24 — control-plane + CLI per ADR-022 §Decision row 8). The
+  # control-plane package declares `engines.node: ">=24.0.0"`, so its build /
+  # typecheck / test must run against Node 24 to validate the floor. Other
+  # packages stay on Node 22 in `test-node22` above.
+  test-node24:
+    name: test (${{ matrix.os }} / node ${{ matrix.node }} / control-plane)
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        node: ["24"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        # SHA-pinned per ADR-023 §Axis 4 supply-chain hygiene; Renovate's
+        # helpers:pinGitHubActionDigests preset (renovate.json5) keeps this current.
+        uses: pnpm/action-setup@8b2eead6074fefa43a68bf4c9e0f03ea4126b5ba # v6.0.3
+        with:
+          version: 10.33.2
+          run_install: false
+
+      - name: Setup Node.js ${{ matrix.node }}
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node }}
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build (control-plane only)
+        run: pnpm turbo run build --filter='@ai-sidekicks/control-plane...'
+
+      - name: Typecheck (control-plane only)
+        run: pnpm turbo run typecheck --filter='@ai-sidekicks/control-plane...'
+
+      - name: Lint (control-plane only)
+        run: pnpm turbo run lint --filter='@ai-sidekicks/control-plane...'
+
+      - name: Test (control-plane only)
+        run: pnpm turbo run test --filter='@ai-sidekicks/control-plane...'
+
+  ci-gate:
+    name: ci-gate
+    runs-on: ubuntu-latest
+    needs: [test-node22, test-node24]
+    if: always()
+    steps:
+      - name: Aggregate required-checks status
+        # Aggregator-job pattern per ADR-023 §Axis 1 (and the canonical GitHub
+        # Community Discussion #26822 recipe). Branch protection requires this
+        # single job; renaming or adding matrix legs cannot silently bypass.
+        run: |
+          fail=0
+          if [[ "${{ needs.test-node22.result }}" != "success" ]]; then
+            echo "ci-gate: required job 'test-node22' did not succeed (result=${{ needs.test-node22.result }})"
+            fail=1
+          fi
+          if [[ "${{ needs.test-node24.result }}" != "success" ]]; then
+            echo "ci-gate: required job 'test-node24' did not succeed (result=${{ needs.test-node24.result }})"
+            fail=1
+          fi
+          if [[ $fail -ne 0 ]]; then
+            exit 1
+          fi
+          echo "ci-gate: all required jobs succeeded"

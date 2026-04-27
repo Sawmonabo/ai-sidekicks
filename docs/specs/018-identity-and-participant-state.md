@@ -1,14 +1,14 @@
 # Spec-018: Identity And Participant State
 
-| Field | Value |
-| --- | --- |
-| **Status** | `approved` |
-| **NNN** | `018` |
-| **Slug** | `identity-and-participant-state` |
-| **Date** | `2026-04-14` |
-| **Author(s)** | `Codex` |
-| **Depends On** | [Invite Membership And Presence](../specs/002-invite-membership-and-presence.md), [Participant And Membership Model](../domain/participant-and-membership-model.md), [Component Architecture Control Plane](../architecture/component-architecture-control-plane.md) |
-| **Implementation Plan** | [Plan-018: Identity And Participant State](../plans/018-identity-and-participant-state.md) |
+| Field                   | Value                                                                                                                                                                                                                                                                |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Status**              | `approved`                                                                                                                                                                                                                                                           |
+| **NNN**                 | `018`                                                                                                                                                                                                                                                                |
+| **Slug**                | `identity-and-participant-state`                                                                                                                                                                                                                                     |
+| **Date**                | `2026-04-14`                                                                                                                                                                                                                                                         |
+| **Author(s)**           | `Codex`                                                                                                                                                                                                                                                              |
+| **Depends On**          | [Invite Membership And Presence](../specs/002-invite-membership-and-presence.md), [Participant And Membership Model](../domain/participant-and-membership-model.md), [Component Architecture Control Plane](../architecture/component-architecture-control-plane.md) |
+| **Implementation Plan** | [Plan-018: Identity And Participant State](../plans/018-identity-and-participant-state.md)                                                                                                                                                                           |
 
 ## Purpose
 

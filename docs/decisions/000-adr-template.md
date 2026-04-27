@@ -9,19 +9,19 @@
   All other sections are required for both types.
 -->
 
-| Field          | Value                                                                    |
-| -------------- | ------------------------------------------------------------------------ |
-| **Status**     | `proposed` · `accepted` · `deprecated` · `superseded by [ADR-NNN]`      |
-| **Type**       | `Type 1 (two-way door)` · `Type 2 (one-way door)`                       |
-| **Domain**     | e.g., State Management, Routing, Auth, Styling, Data Fetching            |
-| **Date**       | YYYY-MM-DD                                                               |
-| **Author(s)**  | Name(s) or `Claude (AI-assisted)`                                        |
-| **Reviewers**  | Name(s)                                                                  |
+| Field         | Value                                                              |
+| ------------- | ------------------------------------------------------------------ |
+| **Status**    | `proposed` · `accepted` · `deprecated` · `superseded by [ADR-NNN]` |
+| **Type**      | `Type 1 (two-way door)` · `Type 2 (one-way door)`                  |
+| **Domain**    | e.g., State Management, Routing, Auth, Styling, Data Fetching      |
+| **Date**      | YYYY-MM-DD                                                         |
+| **Author(s)** | Name(s) or `Claude (AI-assisted)`                                  |
+| **Reviewers** | Name(s)                                                            |
 
 > **Type guidance:**
 >
-> - **Type 1 (two-way door):** Easily reversible. Low switching cost. Can be changed in < 1 sprint. *Skip sections marked [T2].*
-> - **Type 2 (one-way door):** Hard to reverse. High switching cost. Affects multiple features or teams. Requires migration to undo. *Complete all sections.*
+> - **Type 1 (two-way door):** Easily reversible. Low switching cost. Can be changed in < 1 sprint. _Skip sections marked [T2]._
+> - **Type 2 (one-way door):** Hard to reverse. High switching cost. Affects multiple features or teams. Requires migration to undo. _Complete all sections._
 
 ---
 
@@ -100,11 +100,11 @@ If the antithesis changed your decision, document how your thinking evolved.}
   assumptions — not from picking the wrong option.
 -->
 
-| # | Assumption | Evidence | What Breaks If Wrong |
-|---|-----------|----------|----------------------|
-| 1 | {What must be true for this decision to work?} | {How do you know this is true? Link to source.} | {Consequence if assumption is false} |
-| 2 | | | |
-| 3 | | | |
+| #   | Assumption                                     | Evidence                                        | What Breaks If Wrong                 |
+| --- | ---------------------------------------------- | ----------------------------------------------- | ------------------------------------ |
+| 1   | {What must be true for this decision to work?} | {How do you know this is true? Link to source.} | {Consequence if assumption is false} |
+| 2   |                                                |                                                 |                                      |
+| 3   |                                                |                                                 |                                      |
 
 {If you cannot provide evidence for an assumption, flag it as **unvalidated** and describe
 how you plan to validate it before or shortly after implementation.}
@@ -113,11 +113,11 @@ how you plan to validate it before or shortly after implementation.}
 
 ## Failure Mode Analysis [T2]
 
-| Scenario | Likelihood | Impact | Detection | Mitigation |
-|----------|-----------|--------|-----------|------------|
-| {What if this decision turns out wrong?} | Low/Med/High | Low/Med/High | {How would we know? What signal reveals the failure?} | {What would we do?} |
-| {What if a key assumption breaks?} | | | | |
-| {What if the ecosystem shifts? (e.g., library abandoned, breaking change)} | | | | |
+| Scenario                                                                   | Likelihood   | Impact       | Detection                                             | Mitigation          |
+| -------------------------------------------------------------------------- | ------------ | ------------ | ----------------------------------------------------- | ------------------- |
+| {What if this decision turns out wrong?}                                   | Low/Med/High | Low/Med/High | {How would we know? What signal reveals the failure?} | {What would we do?} |
+| {What if a key assumption breaks?}                                         |              |              |                                                       |                     |
+| {What if the ecosystem shifts? (e.g., library abandoned, breaking change)} |              |              |                                                       |                     |
 
 <!--
   The Detection column is critical. A failure you cannot detect is far more
@@ -161,9 +161,9 @@ how you plan to validate it before or shortly after implementation.}
 
 ### Success Criteria
 
-| Metric | Target | Measurement Method | Check Date |
-|--------|--------|--------------------|------------|
-| {How will you know this decision was right?} | {Quantitative if possible} | {How to measure} | {When to check — creates a built-in trigger to revisit} |
+| Metric                                       | Target                     | Measurement Method | Check Date                                              |
+| -------------------------------------------- | -------------------------- | ------------------ | ------------------------------------------------------- |
+| {How will you know this decision was right?} | {Quantitative if possible} | {How to measure}   | {When to check — creates a built-in trigger to revisit} |
 
 ---
 
@@ -171,12 +171,12 @@ how you plan to validate it before or shortly after implementation.}
 
 ### Research Conducted
 
-| Source | Type | Key Finding | URL/Location |
-|--------|------|-------------|--------------|
-| {e.g., "Next.js App Router docs"} | Documentation | {What you learned — extract the insight, don't just link} | {URL} |
-| {e.g., "Bundle size comparison spike"} | Primary research | {Result} | {Link to branch/gist} |
-| {e.g., "Reddit thread on X migration"} | Community discussion | {Relevant insight} | {URL} |
-| {e.g., "Claude analysis of trade-offs"} | AI-assisted research | {What was explored} | {Conversation link if available} |
+| Source                                  | Type                 | Key Finding                                               | URL/Location                     |
+| --------------------------------------- | -------------------- | --------------------------------------------------------- | -------------------------------- |
+| {e.g., "Next.js App Router docs"}       | Documentation        | {What you learned — extract the insight, don't just link} | {URL}                            |
+| {e.g., "Bundle size comparison spike"}  | Primary research     | {Result}                                                  | {Link to branch/gist}            |
+| {e.g., "Reddit thread on X migration"}  | Community discussion | {Relevant insight}                                        | {URL}                            |
+| {e.g., "Claude analysis of trade-offs"} | AI-assisted research | {What was explored}                                       | {Conversation link if available} |
 
 ### Related ADRs
 
@@ -184,9 +184,9 @@ how you plan to validate it before or shortly after implementation.}
 
 ## Decision Log
 
-| Date | Event | Notes |
-|------|-------|-------|
-| YYYY-MM-DD | Proposed | Initial draft |
-| | Accepted/Rejected | {Rationale if rejected} |
-| | Revisited | {What triggered re-evaluation} |
-| | Superseded | {Link to new ADR} |
+| Date       | Event             | Notes                          |
+| ---------- | ----------------- | ------------------------------ |
+| YYYY-MM-DD | Proposed          | Initial draft                  |
+|            | Accepted/Rejected | {Rationale if rejected}        |
+|            | Revisited         | {What triggered re-evaluation} |
+|            | Superseded        | {Link to new ADR}              |

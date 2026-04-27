@@ -1,14 +1,14 @@
 # Spec-022: Data Retention And GDPR Compliance
 
-| Field | Value |
-| --- | --- |
-| **Status** | `approved` |
-| **NNN** | `022` |
-| **Slug** | `data-retention-and-gdpr` |
-| **Date** | `2026-04-15` |
-| **Author(s)** | `Codex` |
-| **Depends On** | [Data Architecture](../architecture/data-architecture.md), [Session Model](../domain/session-model.md) |
-| **Implementation Plan** | [Plan-022: Data Retention And GDPR Compliance](../plans/022-data-retention-and-gdpr.md) |
+| Field                   | Value                                                                                                  |
+| ----------------------- | ------------------------------------------------------------------------------------------------------ |
+| **Status**              | `approved`                                                                                             |
+| **NNN**                 | `022`                                                                                                  |
+| **Slug**                | `data-retention-and-gdpr`                                                                              |
+| **Date**                | `2026-04-15`                                                                                           |
+| **Author(s)**           | `Codex`                                                                                                |
+| **Depends On**          | [Data Architecture](../architecture/data-architecture.md), [Session Model](../domain/session-model.md) |
+| **Implementation Plan** | [Plan-022: Data Retention And GDPR Compliance](../plans/022-data-retention-and-gdpr.md)                |
 
 ## Purpose
 
@@ -193,7 +193,6 @@ Total: 50-byte header + 48-byte AEAD body = 98 bytes per envelope (matches [ADR-
   **Atomicity and crash recovery**:
 
   SQLite and the OS keystore are distinct durability domains. SQLite cannot roll back a keystore write, so steps 2-4 cannot be wrapped in a single ACID transaction. The daemon instead uses a write-ahead sentinel in SQLite as the recovery anchor for the non-transactional keystore/file work:
-
   - Step 2 executes inside a single SQLite `BEGIN EXCLUSIVE` transaction that also inserts a `rotation_in_progress` sentinel row containing the new wrapped-master envelope (wrapped under the current credential's KEK). Partial row re-wraps are not observable: either every row is under `M'` after commit or every row remains under `M`.
   - Step 3 (tier 1 + tier 2 overwrite) runs after the SQLite commit. Keystore and file writes are not inside the SQLite transaction.
   - Step 4 (zero `M` in memory) runs after step 3 reports success on both tiers. A follow-up SQLite write then clears the `rotation_in_progress` sentinel.
@@ -236,31 +235,31 @@ The data map enumerates **every** PII-carrying path reachable from `DELETE /part
 
 **Durable tier (canonical audit log + control plane):**
 
-| Table | Column | PII Type | Retention | Shredding |
-|-------|--------|----------|-----------|-----------|
-| `session_events` (SQLite) | `pii_payload` | User messages, file paths, code snippets | 90 days (full) / indefinite (audit stub) | Crypto-shred via participant key deletion |
-| `participants` (PG) | `display_name` | Name | Account lifetime | DELETE row on account deletion |
-| `participants` (PG) | `identity_ref` | Email/OAuth ID | Account lifetime | DELETE row on account deletion |
-| `identity_mappings` (PG) | `external_id` | Provider-specific ID | Account lifetime | DELETE row on account deletion |
-| `session_invites` (PG) | `token_hash` | Invite token hash | Invite lifetime | DELETE row on invite expiry/revocation |
-| `notification_preferences` (PG) | `preference_value` | Notification settings | Account lifetime | DELETE row on account deletion |
+| Table                           | Column             | PII Type                                 | Retention                                | Shredding                                 |
+| ------------------------------- | ------------------ | ---------------------------------------- | ---------------------------------------- | ----------------------------------------- |
+| `session_events` (SQLite)       | `pii_payload`      | User messages, file paths, code snippets | 90 days (full) / indefinite (audit stub) | Crypto-shred via participant key deletion |
+| `participants` (PG)             | `display_name`     | Name                                     | Account lifetime                         | DELETE row on account deletion            |
+| `participants` (PG)             | `identity_ref`     | Email/OAuth ID                           | Account lifetime                         | DELETE row on account deletion            |
+| `identity_mappings` (PG)        | `external_id`      | Provider-specific ID                     | Account lifetime                         | DELETE row on account deletion            |
+| `session_invites` (PG)          | `token_hash`       | Invite token hash                        | Invite lifetime                          | DELETE row on invite expiry/revocation    |
+| `notification_preferences` (PG) | `preference_value` | Notification settings                    | Account lifetime                         | DELETE row on account deletion            |
 
 **Bounded-retention diagnostic tier (daemon-local, non-canonical per [Spec-020 §Required Behavior](020-observability-and-failure-recovery.md#required-behavior)):**
 
-| Table | Column | PII Type | Retention | Shredding |
-|-------|--------|----------|-----------|-----------|
-| `driver_raw_events` (SQLite, daemon-local) | `raw_payload` | Provider-native prompts, completions, tool-call bodies | ≤ 7 days (bounded) | TTL bucket purge; participant-scoped rows purged on shred |
-| `command_output` (SQLite, daemon-local) | `stdout`, `stderr` | Shell command output bytes | ≤ 7 days (bounded) | TTL bucket purge; participant-scoped rows purged on shred |
-| `tool_traces` (SQLite, daemon-local) | `args`, `result_body` | Tool call arguments and result bodies | ≤ 7 days (bounded) | TTL bucket purge; participant-scoped rows purged on shred |
-| `reasoning_detail` (SQLite, daemon-local) | `detailed_payload` | Full reasoning/thinking payloads (if policy-enabled) | ≤ 7 days detailed / indefinite summary-only | TTL bucket purge on detailed; summary retained (non-PII stub per [Spec-006 §Event Compaction Policy](006-session-event-taxonomy-and-audit-log.md#event-compaction-policy)) |
+| Table                                      | Column                | PII Type                                               | Retention                                   | Shredding                                                                                                                                                                  |
+| ------------------------------------------ | --------------------- | ------------------------------------------------------ | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `driver_raw_events` (SQLite, daemon-local) | `raw_payload`         | Provider-native prompts, completions, tool-call bodies | ≤ 7 days (bounded)                          | TTL bucket purge; participant-scoped rows purged on shred                                                                                                                  |
+| `command_output` (SQLite, daemon-local)    | `stdout`, `stderr`    | Shell command output bytes                             | ≤ 7 days (bounded)                          | TTL bucket purge; participant-scoped rows purged on shred                                                                                                                  |
+| `tool_traces` (SQLite, daemon-local)       | `args`, `result_body` | Tool call arguments and result bodies                  | ≤ 7 days (bounded)                          | TTL bucket purge; participant-scoped rows purged on shred                                                                                                                  |
+| `reasoning_detail` (SQLite, daemon-local)  | `detailed_payload`    | Full reasoning/thinking payloads (if policy-enabled)   | ≤ 7 days detailed / indefinite summary-only | TTL bucket purge on detailed; summary retained (non-PII stub per [Spec-006 §Event Compaction Policy](006-session-event-taxonomy-and-audit-log.md#event-compaction-policy)) |
 
 **Telemetry export tier (OTel/Datadog/Sentry sinks — optional, opt-in):**
 
-| Sink | Attribute | PII Type | Retention | Shredding |
-|-------|--------|----------|-----------|-----------|
-| OTel span attributes (outbound) | `gen_ai.prompt`, `gen_ai.completion` | Model prompts/completions if opt-in | Per remote sink | Redacted by default (see [Spec-020 §PII in Diagnostics](020-observability-and-failure-recovery.md#pii-in-diagnostics)); opt-in required |
-| OTel log body (outbound) | log `body` | Free-text log lines that may contain PII | Per remote sink | Redacted by default; operator scrubbing policy required |
-| Error-tracker sink (outbound) | `request`, `extra` | Exception context that may reference PII | Per remote sink | Server-side scrubbing required (default-deny keyname list) |
+| Sink                            | Attribute                            | PII Type                                 | Retention       | Shredding                                                                                                                               |
+| ------------------------------- | ------------------------------------ | ---------------------------------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| OTel span attributes (outbound) | `gen_ai.prompt`, `gen_ai.completion` | Model prompts/completions if opt-in      | Per remote sink | Redacted by default (see [Spec-020 §PII in Diagnostics](020-observability-and-failure-recovery.md#pii-in-diagnostics)); opt-in required |
+| OTel log body (outbound)        | log `body`                           | Free-text log lines that may contain PII | Per remote sink | Redacted by default; operator scrubbing policy required                                                                                 |
+| Error-tracker sink (outbound)   | `request`, `extra`                   | Exception context that may reference PII | Per remote sink | Server-side scrubbing required (default-deny keyname list)                                                                              |
 
 Signed canonical-event bytes (`session_events.signature_payload`) are **not** a shred path — they are analyzed under [§Signature Safety Under Shred](#signature-safety-under-shred) below. The canonical form deliberately excludes `pii_payload` and embeds `pii_ciphertext_digest` (BLAKE3 over ciphertext) so the signature survives crypto-shred intact while committing to no plaintext PII.
 

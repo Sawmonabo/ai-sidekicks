@@ -1,16 +1,16 @@
 # Plan-013: Live Timeline Visibility And Reasoning Surfaces
 
-| Field | Value |
-| --- | --- |
-| **Status** | `approved` |
-| **NNN** | `013` |
-| **Slug** | `live-timeline-visibility-and-reasoning-surfaces` |
-| **Date** | `2026-04-14` |
-| **Author(s)** | `Codex` |
-| **Spec** | [Spec-013: Live Timeline Visibility And Reasoning Surfaces](../specs/013-live-timeline-visibility-and-reasoning-surfaces.md) |
-| **Required ADRs** | [ADR-001](../decisions/001-session-is-the-primary-domain-object.md), [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md), [ADR-018](../decisions/018-cross-version-compatibility.md) |
-| **Dependencies** | [Plan-006](./006-session-event-taxonomy-and-audit-log.md) (event taxonomy) |
-| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
+| Field               | Value                                                                                                                                                                                                                                                                     |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Status**          | `approved`                                                                                                                                                                                                                                                                |
+| **NNN**             | `013`                                                                                                                                                                                                                                                                     |
+| **Slug**            | `live-timeline-visibility-and-reasoning-surfaces`                                                                                                                                                                                                                         |
+| **Date**            | `2026-04-14`                                                                                                                                                                                                                                                              |
+| **Author(s)**       | `Codex`                                                                                                                                                                                                                                                                   |
+| **Spec**            | [Spec-013: Live Timeline Visibility And Reasoning Surfaces](../specs/013-live-timeline-visibility-and-reasoning-surfaces.md)                                                                                                                                              |
+| **Required ADRs**   | [ADR-001](../decisions/001-session-is-the-primary-domain-object.md), [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md), [ADR-018](../decisions/018-cross-version-compatibility.md) |
+| **Dependencies**    | [Plan-006](./006-session-event-taxonomy-and-audit-log.md) (event taxonomy)                                                                                                                                                                                                |
+| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md)                                                                                                                                                                                                 |
 
 ## Goal
 

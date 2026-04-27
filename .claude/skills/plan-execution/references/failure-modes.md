@@ -12,9 +12,9 @@ The subagent completed the task as briefed. All deliverables are committed (impl
 
 The subagent completed but flagged concerns. Routing depends on which role surfaced the concerns:
 
-| Role | What it means | Routing |
-|---|---|---|
-| **Implementer** | "I shipped, but I want to flag X" — implementer's own caveats about their own work | Continue to reviewers; carry implementer concerns into the PR body under "Review notes" so they're visible at merge time |
+| Role                        | What it means                                                                             | Routing                                                                                                                       |
+| --------------------------- | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| **Implementer**             | "I shipped, but I want to flag X" — implementer's own caveats about their own work        | Continue to reviewers; carry implementer concerns into the PR body under "Review notes" so they're visible at merge time      |
 | **Reviewer** (any of the 3) | "The diff has issues that should be addressed" — reviewer findings on someone else's code | Round-trip to implementer with the findings; implementer addresses every item; reviewers re-run after each implementer commit |
 
 This is the project's **all-findings-round-trip rule**: any reviewer finding — regardless of severity, regardless of whether the reviewer called it blocking — must be addressed by the implementer before merge. There is no "informational nit" pass-through. The trade-off is more iteration loops per PR, accepted in exchange for higher merge quality.
@@ -77,7 +77,7 @@ Note: rule (6) and rule (4) both result in implementer rework. The difference: B
 
 ## Reading subagent responses
 
-The `RESULT:` tag is at the **end** of the response. Everything before it is the report — read it first to understand the *why* behind the tag.
+The `RESULT:` tag is at the **end** of the response. Everything before it is the report — read it first to understand the _why_ behind the tag.
 
 **Tag missing.** Treat as `NEEDS_CONTEXT` — they didn't follow the contract. Re-prompt with the contract restated.
 
@@ -87,4 +87,4 @@ The `RESULT:` tag is at the **end** of the response. Everything before it is the
 
 ## When to amend this file
 
-If a fifth exit state appears (e.g., `INCONCLUSIVE` — subagent genuinely can't tell whether they succeeded), or if the all-findings-round-trip rule produces unproductive iteration spirals on real PRs, edit this file and ADR-024 in the *same* PR. Don't let new modes accumulate as ad-hoc handling — name them, document them, route them explicitly.
+If a fifth exit state appears (e.g., `INCONCLUSIVE` — subagent genuinely can't tell whether they succeeded), or if the all-findings-round-trip rule produces unproductive iteration spirals on real PRs, edit this file and ADR-024 in the _same_ PR. Don't let new modes accumulate as ad-hoc handling — name them, document them, route them explicitly.

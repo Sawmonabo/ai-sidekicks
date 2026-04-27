@@ -1,13 +1,13 @@
 # AGENTS.md
 
-Cross-tool conventions for AI coding agents working in this repository (Claude Code, Codex CLI, Cursor, Aider, etc.). Tool-specific behavior lives in per-tool instruction files; conventions that must hold *across* tools live here.
+Cross-tool conventions for AI coding agents working in this repository (Claude Code, Codex CLI, Cursor, Aider, etc.). Tool-specific behavior lives in per-tool instruction files; conventions that must hold _across_ tools live here.
 
 ## Per-Tool Instruction Files
 
 - `CLAUDE.md` (Claude Code) — checked into git at the project root; team-shared instructions for the Claude Code CLI
 - Per-tool instruction files for other agents follow the file's home convention (e.g. `.codex/`, `.cursor/`)
 
-When tool-specific guidance conflicts with this file, this file wins for *cross-tool conventions* (the items below). Per-tool files own everything else.
+When tool-specific guidance conflicts with this file, this file wins for _cross-tool conventions_ (the items below). Per-tool files own everything else.
 
 ## Research-Artifact Convention
 

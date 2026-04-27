@@ -1,16 +1,16 @@
 # Plan-010: Worktree Lifecycle And Execution Modes
 
-| Field | Value |
-| --- | --- |
-| **Status** | `approved` |
-| **NNN** | `010` |
-| **Slug** | `worktree-lifecycle-and-execution-modes` |
-| **Date** | `2026-04-14` |
-| **Author(s)** | `Codex` |
-| **Spec** | [Spec-010: Worktree Lifecycle And Execution Modes](../specs/010-worktree-lifecycle-and-execution-modes.md) |
-| **Required ADRs** | [ADR-006](../decisions/006-worktree-first-execution-mode.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md) |
-| **Dependencies** | [Plan-009](./009-repo-attachment-and-workspace-binding.md) (workspace infrastructure) |
-| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
+| Field               | Value                                                                                                                    |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| **Status**          | `approved`                                                                                                               |
+| **NNN**             | `010`                                                                                                                    |
+| **Slug**            | `worktree-lifecycle-and-execution-modes`                                                                                 |
+| **Date**            | `2026-04-14`                                                                                                             |
+| **Author(s)**       | `Codex`                                                                                                                  |
+| **Spec**            | [Spec-010: Worktree Lifecycle And Execution Modes](../specs/010-worktree-lifecycle-and-execution-modes.md)               |
+| **Required ADRs**   | [ADR-006](../decisions/006-worktree-first-execution-mode.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md) |
+| **Dependencies**    | [Plan-009](./009-repo-attachment-and-workspace-binding.md) (workspace infrastructure)                                    |
+| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md)                                                |
 
 ## Goal
 

@@ -1,17 +1,17 @@
 # Plan-012: Approvals Permissions And Trust Boundaries
 
-| Field | Value |
-| --- | --- |
-| **Status** | `approved` |
-| **NNN** | `012` |
-| **Slug** | `approvals-permissions-and-trust-boundaries` |
-| **Date** | `2026-04-14` |
-| **Author(s)** | `Codex` |
-| **Spec** | [Spec-012: Approvals Permissions And Trust Boundaries](../specs/012-approvals-permissions-and-trust-boundaries.md) |
-| **Required ADRs** | [ADR-002](../decisions/002-local-execution-shared-control-plane.md), [ADR-007](../decisions/007-collaboration-trust-and-permission-model.md), [ADR-012](../decisions/012-cedar-approval-policy-engine.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md) |
-| **Dependencies** | [Spec-024](../specs/024-cross-node-dispatch-and-approval.md) (implicit cross-node dispatch surface per [cross-plan-dependencies.md §Spec-024 Implementation Plan](../architecture/cross-plan-dependencies.md#spec-024-implementation-plan)) |
-| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
-| **References** | [Updated Spec-012](../specs/012-approvals-permissions-and-trust-boundaries.md) (9 approval categories) |
+| Field               | Value                                                                                                                                                                                                                                                                 |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Status**          | `approved`                                                                                                                                                                                                                                                            |
+| **NNN**             | `012`                                                                                                                                                                                                                                                                 |
+| **Slug**            | `approvals-permissions-and-trust-boundaries`                                                                                                                                                                                                                          |
+| **Date**            | `2026-04-14`                                                                                                                                                                                                                                                          |
+| **Author(s)**       | `Codex`                                                                                                                                                                                                                                                               |
+| **Spec**            | [Spec-012: Approvals Permissions And Trust Boundaries](../specs/012-approvals-permissions-and-trust-boundaries.md)                                                                                                                                                    |
+| **Required ADRs**   | [ADR-002](../decisions/002-local-execution-shared-control-plane.md), [ADR-007](../decisions/007-collaboration-trust-and-permission-model.md), [ADR-012](../decisions/012-cedar-approval-policy-engine.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md) |
+| **Dependencies**    | [Spec-024](../specs/024-cross-node-dispatch-and-approval.md) (implicit cross-node dispatch surface per [cross-plan-dependencies.md §Spec-024 Implementation Plan](../architecture/cross-plan-dependencies.md#spec-024-implementation-plan))                           |
+| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md)                                                                                                                                                                                             |
+| **References**      | [Updated Spec-012](../specs/012-approvals-permissions-and-trust-boundaries.md) (9 approval categories)                                                                                                                                                                |
 
 ## Goal
 

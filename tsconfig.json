@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "files": [],
+  "references": [
+    { "path": "./packages/contracts" },
+    { "path": "./packages/client-sdk" },
+    { "path": "./packages/runtime-daemon" },
+    { "path": "./packages/control-plane" },
+    { "path": "./apps/desktop" }
+  ]
+}
