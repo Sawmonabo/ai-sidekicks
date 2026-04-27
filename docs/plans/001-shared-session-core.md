@@ -204,7 +204,7 @@ Plan-001 implementation lands as a sequence of small PRs. Each PR exercises one 
 
 **Precondition:** PR #5 cannot start until both upstream substrates are merged:
 
-- [Plan-007 Tier 1 Partial PRs #1–#3](./007-local-ipc-and-daemon-control.md#tier-1-partial-pr-sequence) — Wire Substrate, SecureDefaults Bootstrap, `session.*` Handlers + SDK Layer.
+- [Plan-007 Tier 1 Partial PRs #1–#3](./007-local-ipc-and-daemon-control.md#tier-1-partial-pr-sequence) — SecureDefaults Bootstrap, Wire Substrate, `session.*` Handlers + SDK Layer.
 - [Plan-008 Tier 1 Bootstrap PR #1](./008-control-plane-relay-and-session-join.md#tier-1-bootstrap-pr-sequence) — tRPC v11 server + `sessionRouter` + SSE substrate.
 
 See [cross-plan-dependencies.md §5 Tier 1 carve-outs](../architecture/cross-plan-dependencies.md#plan-007-substrate-vs-namespace-carve-out-tier-1--tier-4) for the canonical tier graph. PR #1–PR #4 may proceed independently; the substrate dependency only binds at PR #5.

@@ -139,26 +139,26 @@ Plan-007 owns the daemon-side enforcement of [Spec-027 §Required Behavior](../s
 
 The Tier 1 partial slice (per §Execution Windows above) lands as **3 small PRs** following the substrate-vs-namespace decomposition rule. Each PR is reviewable in isolation. The Tier 4 remainder PR breakdown is deferred to plan-execution time when Tier 4 begins.
 
-### PR #1: Wire Substrate
-
-**Goal:** Spec-007 §Wire Format substrate ships behind passing handshake + transport tests. No `session.*` handlers yet — this PR delivers the JSON-RPC + framing layer only.
-
-**Precondition:** None at the plan level. Tier 1 entry point.
-
-- `packages/runtime-daemon/src/ipc/local-ipc-gateway.ts` — JSON-RPC 2.0 dispatcher with LSP-style Content-Length framing (`Content-Length: <byte-count>\r\n\r\n`), 1MB max-message-size enforcement, typed error model (`packages/contracts/src/error.ts` shapes), supervision hooks, and OS-local socket / Windows named-pipe transport (default) with gated loopback fallback per [Spec-007 §Wire Format](../specs/007-local-ipc-and-daemon-control.md#wire-format) and [Spec-007 §Fallback Behavior](../specs/007-local-ipc-and-daemon-control.md#fallback-behavior).
-- `packages/runtime-daemon/src/ipc/protocol-negotiation.ts` — `DaemonHello` / `DaemonHelloAck` exchange, protocol-version pinning, mutating-operation gate when versions are incompatible per [Spec-007 §Required Behavior](../specs/007-local-ipc-and-daemon-control.md#required-behavior).
-- Tests: handshake + version-negotiation compatibility tests; transport tests for Unix socket, named pipe, and gated loopback fallback (per §Test And Verification Plan above).
-
-### PR #2: SecureDefaults Bootstrap (loopback-bind validation only)
+### PR #1: SecureDefaults Bootstrap (loopback-bind validation only)
 
 **Goal:** Spec-027 daemon-side bind-time substrate ships at the validation surface Tier 1 actually exposes. `SecureDefaults.load` runs before any listener binds; fail-closed enforcement is active; Tier-4-scope settings keys (TLS, non-loopback, first-run-keys) are refused with `unknown_setting`.
 
-**Precondition:** PR #1 merged (the wire substrate consumes `SecureDefaults.effectiveSettings` for the loopback OS-local bind path).
+**Precondition:** None at the plan level. Tier 1 entry point.
 
 - `packages/runtime-daemon/src/bootstrap/secure-defaults.ts` — `SecureDefaults.load(config)` + `effectiveSettings()` API, validation scope limited to the loopback OS-local socket bind path Tier 1 exposes (rows 4 + 10 of the §Secure Defaults table above).
 - `packages/runtime-daemon/src/bootstrap/secure-defaults-events.ts` — `security.default.override=*` audit event emitter (single emit per startup, not per request).
 - Wire `SecureDefaults.load` as the first step of daemon bootstrap, before `local-ipc-gateway` opens its listener (per §Invariants above).
 - Tests: `SecureDefaults.load` invariant tests (load-before-bind enforcement throws on out-of-order; fail-closed on invalid config; `effectiveSettings` never exposes secrets); negative-path test that Tier-4-scope settings keys are refused with `unknown_setting` error.
+
+### PR #2: Wire Substrate
+
+**Goal:** Spec-007 §Wire Format substrate ships behind passing handshake + transport tests. No `session.*` handlers yet — this PR delivers the JSON-RPC + framing layer only.
+
+**Precondition:** PR #1 merged (the wire substrate consumes `SecureDefaults.effectiveSettings` for the loopback OS-local bind path).
+
+- `packages/runtime-daemon/src/ipc/local-ipc-gateway.ts` — JSON-RPC 2.0 dispatcher with LSP-style Content-Length framing (`Content-Length: <byte-count>\r\n\r\n`), 1MB max-message-size enforcement, typed error model (`packages/contracts/src/error.ts` shapes), supervision hooks, and OS-local socket / Windows named-pipe transport (default) with gated loopback fallback per [Spec-007 §Wire Format](../specs/007-local-ipc-and-daemon-control.md#wire-format) and [Spec-007 §Fallback Behavior](../specs/007-local-ipc-and-daemon-control.md#fallback-behavior).
+- `packages/runtime-daemon/src/ipc/protocol-negotiation.ts` — `DaemonHello` / `DaemonHelloAck` exchange, protocol-version pinning, mutating-operation gate when versions are incompatible per [Spec-007 §Required Behavior](../specs/007-local-ipc-and-daemon-control.md#required-behavior).
+- Tests: handshake + version-negotiation compatibility tests; transport tests for Unix socket, named pipe, and gated loopback fallback (per §Test And Verification Plan above).
 
 ### PR #3: `session.*` Handlers + SDK Zod Layer
 
