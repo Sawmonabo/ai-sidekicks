@@ -59,10 +59,6 @@ When claims depend on recent data (post-knowledge-cutoff or fast-moving librarie
 
 When dispatching parallel research subagents, ensure file targets are disjoint to avoid Read-modify-write race conditions on shared files (e.g., `docs/backlog.md`). When multiple tasks must touch the same file, dispatch serially.
 
-## Plan Execution
-
-Implementation plans (`docs/plans/NNN-*.md`) are executed PR-by-PR per [ADR-024](docs/decisions/024-agentic-plan-execution-methodology.md). The methodology principles transfer across tools; the executor is per-tool. The Claude Code executable form is [`.claude/skills/plan-execution/`](.claude/skills/plan-execution/SKILL.md); other agents (Codex, Cursor, Aider) implement the same loop with their own tooling.
-
 ## Doc-First Discipline
 
 Code execution is gated on the governing doc surface (specs, ADRs, plans, backlog items) being complete. Before a code-execution plan ships its first PR, every cross-referenced spec/ADR/plan must be `approved` and every blocking backlog item must be `completed` (or explicitly deferred with a named gate).

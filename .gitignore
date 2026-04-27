@@ -87,3 +87,6 @@ tmp/
 # Cross-tool agent transient artifacts (provider-neutral; convention documented in AGENTS.md)
 # Subagent findings + other transient agent scratch drafted under .agents/tmp/<category>/, citations surfaced forward into consuming docs, files deleted before commit.
 .agents/tmp/
+
+# Local git worktrees (per-session isolated workspaces; never shared via origin)
+.worktrees/
