@@ -142,7 +142,12 @@ interface MembershipRow {
  * UNIQUE-shape gap — an explicit caller passing a mismatched
  * `ownerParticipantId` on retry — is closed by the owner-mismatch
  * guard inside `createSession`'s transaction; see that method for the
- * full trace.)
+ * full trace. R4 closed the final residual — concurrent createSession
+ * callers racing the owner-mismatch probe under READ COMMITTED — by
+ * adding an explicit `SELECT ... FOR UPDATE` row lock between the
+ * session upsert and the probe so T1 and T2 serialize on the lock
+ * instead of both observing an empty owner set in their respective
+ * snapshots.)
  *
  * Forward-declared columns (not in this input shape):
  *   * `min_client_version` — Plan-003 owns attach-flow enforcement per
@@ -211,17 +216,36 @@ export class SessionDirectoryService {
    * "Owner-mismatch guard" comment for the full failure trace; Plan-002
    * owns ownership transfer / co-owner promotion flows separately.
    *
-   * Atomicity: the session upsert and owner-membership upsert run inside
-   * a single `Querier.transaction(...)` block. Without this, a failure on
-   * the membership upsert (FK violation on a stale `ownerParticipantId`,
-   * connection drop, process crash between statements) would leave a
-   * committed `sessions` row with no owner-membership — orphaned, visible
-   * to `readSession` and admin queries, and undetectable from a retry
-   * (which would re-run the same upsert pair as a no-op on the now-
-   * committed session row, then succeed on the membership and present
-   * the orphan as if it were the canonical state). The transaction
-   * collapses both writes to one commit boundary so a partial failure
-   * leaves the directory unchanged.
+   * Atomicity: the session upsert, the explicit `SELECT ... FOR UPDATE`
+   * row lock, the owner-mismatch probe, and the owner-membership upsert
+   * all run inside a single `Querier.transaction(...)` block. Without the
+   * transaction wrapper, a failure on the membership upsert (FK violation
+   * on a stale `ownerParticipantId`, connection drop, process crash
+   * between statements) would leave a committed `sessions` row with no
+   * owner-membership — orphaned, visible to `readSession` and admin
+   * queries, and undetectable from a retry (which would re-run the same
+   * upsert pair as a no-op on the now-committed session row, then succeed
+   * on the membership and present the orphan as if it were the canonical
+   * state). The transaction collapses all four statements to one commit
+   * boundary so a partial failure leaves the directory unchanged.
+   *
+   * Concurrent createSession callers: two transactions T1(sessionId=S,
+   * owner=P1) and T2(sessionId=S, owner=P2) racing on the same `S` are
+   * serialized at the explicit `SELECT id FROM sessions WHERE id = $1 FOR
+   * UPDATE` issued between the session upsert and the owner-mismatch
+   * probe. Under Postgres `READ COMMITTED` (the default), without a
+   * holder-side row lock the owner-mismatch probe in T2 can read its
+   * snapshot before T1 commits its `(S, P1, 'owner')` membership row,
+   * see no existing owners, and proceed to INSERT `(S, P2, 'owner')` —
+   * UNIQUE(session_id, participant_id) does not collide on different
+   * participants. The implicit row lock acquired by the `INSERT ... ON
+   * CONFLICT DO UPDATE` session upsert *should* serialize T2 against T1
+   * in the same way; the explicit FOR UPDATE here makes the serialization
+   * intent visible to reviewers, inoculates against future schema changes
+   * (DEFAULTs, triggers, INSTEAD OF rules) that could alter the implicit
+   * lock semantics, and closes the gap regardless of which driver
+   * (pglite, pg.Pool) backs the `Querier`. The lock is released at the
+   * transaction's COMMIT/ROLLBACK.
    *
    * Why no error-handler around `transaction(...)`: PGlite's
    * `pg.transaction(fn)` (and the `pg`-side equivalent that PR #5 will
@@ -263,6 +287,31 @@ export class SessionDirectoryService {
           `SessionDirectoryService.createSession: session upsert returned no row for id=${String(input.sessionId)}`,
         );
       }
+
+      // Take an explicit row-level lock on the sessions row to serialize
+      // concurrent createSession calls on the same sessionId. Without this,
+      // two transactions T1(P1) and T2(P2) under READ COMMITTED can both
+      // see "no owners" in the probe below before either commits an owner-
+      // membership row — UNIQUE(session_id, participant_id) does not collide
+      // on different participants, so both inserts succeed and the session
+      // ends up with two `owner` rows.
+      //
+      // The session UPSERT above takes an implicit row-level lock on the
+      // conflicting row when it falls into DO UPDATE; that *should* serialize
+      // the next probe's snapshot. But making the lock explicit:
+      //   1. Encodes the serialization intent in the code so reviewers and
+      //      maintainers don't have to re-derive it from UPSERT semantics.
+      //   2. Defends against future schema changes (DEFAULTs, triggers, or
+      //      INSTEAD OF rules) that could alter the implicit lock behavior.
+      //   3. Closes the gap regardless of whether the underlying driver is
+      //      pglite (test) or pg.Pool (production wired in PR #5) — both
+      //      honor `SELECT ... FOR UPDATE` row-level locking.
+      //
+      // The lock is released at COMMIT/ROLLBACK at the end of the
+      // transaction callback. Plan-002's ownership-transfer / co-owner
+      // promotion flows can choose their own locking discipline (this
+      // service does NOT impose a session-wide lock for non-create paths).
+      await tx.query("SELECT id FROM sessions WHERE id = $1 FOR UPDATE", [input.sessionId]);
 
       // Owner-mismatch guard (Codex P1, residual of B1).
       //

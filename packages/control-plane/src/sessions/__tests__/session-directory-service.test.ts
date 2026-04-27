@@ -126,6 +126,45 @@ function isPGlite(handle: PGlite | Transaction): handle is PGlite {
 }
 
 // ----------------------------------------------------------------------------
+// Logging-proxy adapter (Codex R4)
+// ----------------------------------------------------------------------------
+//
+// `wrapWithLog` returns a `Querier` that captures every SQL statement issued
+// — including queries inside `transaction(...)` callbacks. The recursive
+// composition (the `tx` passed to the user callback is itself a logging
+// proxy) is load-bearing: without it the captured array would only see
+// outer-Querier queries and miss every in-transaction query, including the
+// `SELECT ... FOR UPDATE` whose position we want to assert.
+//
+// `exec` is forwarded through the underlying querier without capture
+// because no test currently asserts on the exec stream and the migration
+// runner is the only `exec()` caller in PR #4. If a future test needs to
+// assert on multi-statement batches, extend the proxy to push `exec`
+// payloads as a sentinel entry.
+function wrapWithLog(inner: Querier, captured: string[]): Querier {
+  return {
+    query: async <T>(
+      sql: string,
+      params?: ReadonlyArray<unknown>,
+    ): Promise<{ rows: ReadonlyArray<T> }> => {
+      captured.push(sql);
+      return inner.query<T>(sql, params);
+    },
+    exec: async (sql: string): Promise<void> => {
+      // Not captured — see helper docstring. Forwarded unchanged.
+      await inner.exec(sql);
+    },
+    transaction: async <T>(fn: (tx: Querier) => Promise<T>): Promise<T> => {
+      // Re-wrap the inner `tx` with the same logging proxy so in-tx
+      // queries land in the same `captured` array. Without this the
+      // FOR UPDATE inside `createSession`'s transaction callback would
+      // never appear in the capture stream.
+      return inner.transaction((tx) => fn(wrapWithLog(tx, captured)));
+    },
+  };
+}
+
+// ----------------------------------------------------------------------------
 // Per-test database lifecycle
 // ----------------------------------------------------------------------------
 
@@ -485,6 +524,123 @@ describe("SessionDirectoryService — P2 (idempotent re-create does not fork)", 
     expect(probeAfterRetryRow).toBeDefined();
     if (probeAfterRetryRow === undefined) return;
     expect(Number.parseInt(probeAfterRetryRow.count, 10)).toBe(1);
+  });
+
+  // --------------------------------------------------------------------------
+  // Codex R4 — explicit row lock between session upsert and owner probe
+  // --------------------------------------------------------------------------
+  //
+  // Test strategy choice (documented per orchestrator's instructions):
+  //
+  //   We pin the lock-acquisition behavior with a logging proxy that
+  //   captures the SQL stream issued during `createSession` and asserts
+  //   that a `SELECT ... FOR UPDATE` appears in the right position
+  //   relative to the session upsert, the owner-mismatch probe, and the
+  //   owner-membership upsert. Removing the explicit lock from the
+  //   service body makes this test fail; reordering the lock to a
+  //   semantically wrong position (before the upsert, after the probe)
+  //   also fails.
+  //
+  // Why we do NOT add a true concurrency test:
+  //
+  //   PGlite is in-process, single-connection-per-instance, and
+  //   serializes statements at the driver boundary. There is no way to
+  //   simulate two genuinely concurrent transactions on the same
+  //   sessionId without a multi-connection harness. Production wiring
+  //   (Plan-001 PR #5) composes a `Querier` from `pg.Pool` against a
+  //   real Postgres instance — that PR can host a true concurrency
+  //   test if the team decides one is needed beyond the lock-presence
+  //   regression check pinned here.
+  //
+  // Why we do NOT add a defensive direct-tx "manually lock then probe"
+  // test (orchestrator's option #3):
+  //
+  //   That path is already covered by the existing R3 test
+  //   "createSession with an existing sessionId but a different owner is
+  //   rejected (Codex P1)" — it exercises the application-layer probe
+  //   via two sequential service calls. A second probe-test does not
+  //   pin the FOR UPDATE; only the logging proxy does.
+  it("createSession acquires SELECT FOR UPDATE on the sessions row before the owner probe (Codex R4)", async () => {
+    // BL-069 §4 + the R3 owner-mismatch guard close the create-time TOFU
+    // invariant for sequential callers; R4 closes the residual where two
+    // concurrent createSession calls under READ COMMITTED can both read
+    // an empty owner set in their respective snapshots and both INSERT
+    // an `(S, *, 'owner')` row (UNIQUE(session_id, participant_id) does
+    // not collide on different participants). The fix: an explicit
+    // `SELECT id FROM sessions WHERE id = $1 FOR UPDATE` between the
+    // session upsert and the owner-mismatch probe. This test pins the
+    // lock-acquisition position so a future refactor that removes or
+    // misplaces the lock surfaces here.
+    await ctx.querier.query("INSERT INTO participants (id) VALUES ($1)", [OWNER_PARTICIPANT_ID]);
+
+    // Wrap the test querier in a logging proxy that captures every SQL
+    // statement issued — including queries inside `transaction(...)`
+    // (the recursive wrapping mirrors `wrap()` above so in-tx queries are
+    // captured, not just outer-Querier queries).
+    const captured: string[] = [];
+    const loggingQuerier: Querier = wrapWithLog(ctx.querier, captured);
+    const service = new SessionDirectoryService(loggingQuerier);
+
+    await service.createSession({
+      sessionId: SESSION_ID,
+      ownerParticipantId: OWNER_PARTICIPANT_ID,
+    });
+
+    // The four load-bearing statements inside `createSession`'s
+    // transaction, identified by stable SQL fragments:
+    //   1. session upsert        — `INSERT INTO sessions ... ON CONFLICT (id)`
+    //   2. row lock              — `FROM sessions WHERE id = $1 FOR UPDATE`
+    //   3. owner-mismatch probe  — `FROM session_memberships ... role = 'owner'`
+    //   4. owner-membership ups. — `INSERT INTO session_memberships`
+    //
+    // Whitespace-tolerant patterns (vitest's `toMatch` accepts RegExp).
+    const sessionUpsertIdx = captured.findIndex((sql) =>
+      /INSERT\s+INTO\s+sessions[\s\S]*ON\s+CONFLICT\s*\(\s*id\s*\)/i.test(sql),
+    );
+    const forUpdateIdx = captured.findIndex((sql) =>
+      /FROM\s+sessions\s+WHERE\s+id\s*=\s*\$1\s+FOR\s+UPDATE/i.test(sql),
+    );
+    const ownerProbeIdx = captured.findIndex((sql) =>
+      /FROM\s+session_memberships[\s\S]*role\s*=\s*'owner'/i.test(sql),
+    );
+    const membershipUpsertIdx = captured.findIndex((sql) =>
+      /INSERT\s+INTO\s+session_memberships/i.test(sql),
+    );
+
+    // All four statements MUST be present.
+    expect(sessionUpsertIdx).toBeGreaterThanOrEqual(0);
+    expect(forUpdateIdx).toBeGreaterThanOrEqual(0);
+    expect(ownerProbeIdx).toBeGreaterThanOrEqual(0);
+    expect(membershipUpsertIdx).toBeGreaterThanOrEqual(0);
+
+    // Ordering: upsert -> FOR UPDATE -> owner probe -> membership upsert.
+    // The lock MUST come AFTER the upsert so the row exists for
+    // FOR UPDATE to grip; it MUST come BEFORE the owner-mismatch probe
+    // so the probe runs under the lock; the membership upsert is the
+    // tail of the transaction.
+    expect(sessionUpsertIdx).toBeLessThan(forUpdateIdx);
+    expect(forUpdateIdx).toBeLessThan(ownerProbeIdx);
+    expect(ownerProbeIdx).toBeLessThan(membershipUpsertIdx);
+
+    // Also assert that exactly one FOR UPDATE was issued — guards
+    // against a future regression that lifts the lock to the outer
+    // Querier (where it would lock the wrong connection / no connection
+    // at all under pg.Pool semantics) or that issues it twice.
+    const forUpdateCount = captured.filter((sql) =>
+      /FROM\s+sessions\s+WHERE\s+id\s*=\s*\$1\s+FOR\s+UPDATE/i.test(sql),
+    ).length;
+    expect(forUpdateCount).toBe(1);
+
+    // Final correctness check: exactly one owner-membership row exists
+    // (the lock did not perturb the canonical write path).
+    const probe = await ctx.querier.query<{ count: string }>(
+      "SELECT COUNT(*)::text AS count FROM session_memberships WHERE session_id = $1",
+      [SESSION_ID],
+    );
+    const probeRow = probe.rows[0];
+    expect(probeRow).toBeDefined();
+    if (probeRow === undefined) return;
+    expect(Number.parseInt(probeRow.count, 10)).toBe(1);
   });
 });
 
