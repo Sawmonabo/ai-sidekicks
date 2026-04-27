@@ -137,7 +137,12 @@ interface MembershipRow {
  * the schema-doc invariant AND opened a concurrency window where two
  * concurrent retries with the same `sessionId` minted two participant
  * rows and inserted two `owner` membership rows — UNIQUE(session_id,
- * participant_id) does not collide on different participant ids.)
+ * participant_id) does not collide on different participant ids. R1
+ * dropped the auto-mint, closing the most-likely path; the residual
+ * UNIQUE-shape gap — an explicit caller passing a mismatched
+ * `ownerParticipantId` on retry — is closed by the owner-mismatch
+ * guard inside `createSession`'s transaction; see that method for the
+ * full trace.)
  *
  * Forward-declared columns (not in this input shape):
  *   * `min_client_version` — Plan-003 owns attach-flow enforcement per
@@ -187,7 +192,7 @@ export class SessionDirectoryService {
    * attempt, letting the caller distinguish retry-after-crash from silent
    * write loss. `DO NOTHING` would skip RETURNING on conflict.
    *
-   * On second create with the same `sessionId`:
+   * On second create with the same `sessionId` and SAME `ownerParticipantId`:
    *   * The existing row's `created_at` and id are preserved.
    *   * The `updated_at` value is preserved (the no-op assignment).
    *   * The owner-membership row is also `ON CONFLICT (session_id,
@@ -195,6 +200,16 @@ export class SessionDirectoryService {
    *     duplicate membership.
    *   * The response shape mirrors a first-create call so the caller's
    *     state machine doesn't need a retry-detect branch.
+   *
+   * On second create with the same `sessionId` but a DIFFERENT
+   * `ownerParticipantId`: throws (BL-069 invariant #4 — owner identity is
+   * bound at the first create via TOFU). Without this guard the membership
+   * upsert's UNIQUE(session_id, participant_id) conflict target — which
+   * keys on the (session, participant) PAIR, not on the role — would
+   * silently INSERT a second `(S, P2, 'owner')` row, granting P2 owner
+   * privileges without invitation/elevation. See the in-method
+   * "Owner-mismatch guard" comment for the full failure trace; Plan-002
+   * owns ownership transfer / co-owner promotion flows separately.
    *
    * Atomicity: the session upsert and owner-membership upsert run inside
    * a single `Querier.transaction(...)` block. Without this, a failure on
@@ -247,6 +262,62 @@ export class SessionDirectoryService {
         throw new Error(
           `SessionDirectoryService.createSession: session upsert returned no row for id=${String(input.sessionId)}`,
         );
+      }
+
+      // Owner-mismatch guard (Codex P1, residual of B1).
+      //
+      // BL-069 invariant #4: "owner identity is bound at the first
+      // authenticated RPC via PASETO v4 trust-on-first-use." The session
+      // upsert above is idempotent on `sessions.id`, but the owner-
+      // membership upsert below collides on UNIQUE(session_id,
+      // participant_id) — a conflict target that cares about the
+      // (session, participant) PAIR, not the role. Without this probe a
+      // second `createSession({sessionId: S, ownerParticipantId: P2})`
+      // for an existing session S already owned by P1 would INSERT a
+      // SECOND `(S, P2, 'owner')` row instead of conflicting; P2 would
+      // silently obtain owner privileges without going through any
+      // promotion / elevation flow. R1 dropped the auto-mint participant
+      // (B1) which closed the most-likely path to that bug, but the
+      // residual UNIQUE-shape gap survived: an explicit caller passing a
+      // mismatched ownerParticipantId would still escalate.
+      //
+      // The probe is INSIDE the same `tx` so it sees the same snapshot
+      // the membership upsert below will write into — a concurrent
+      // racer cannot slip a contradicting owner row in between probe
+      // and insert. We probe `session_memberships` (not `sessions`)
+      // because the question is about owner identity, not session
+      // existence; the session row was just upserted moments ago in the
+      // same tx, so a `sessions`-side probe wouldn't tell us anything
+      // useful about the owner.
+      //
+      // Same-owner re-create stays idempotent — when the probe returns
+      // rows that include this `ownerParticipantId`, we proceed and let
+      // the upsert below DO UPDATE the existing row. Only a true
+      // mismatch (existing owners do NOT include this participantId)
+      // throws.
+      //
+      // Plan-002 owns ownership transfer / co-owner flows. Those flows
+      // will go through their own promotion / elevation paths; this
+      // create-time guard does NOT impose a "single owner forever"
+      // invariant — it only enforces the create-time TOFU rule per
+      // BL-069 §4 + Spec-001 §Default Behavior ("A newly created
+      // session defaults to one `owner` membership for the creator").
+      const existingOwners = await tx.query<{ participant_id: string }>(
+        `SELECT participant_id FROM session_memberships
+          WHERE session_id = $1 AND role = 'owner'`,
+        [input.sessionId],
+      );
+      if (existingOwners.rows.length > 0) {
+        const matchedExisting = existingOwners.rows.some(
+          (row) => row.participant_id === input.ownerParticipantId,
+        );
+        if (!matchedExisting) {
+          throw new Error(
+            `SessionDirectoryService.createSession: session ${String(input.sessionId)} already exists with a different owner; createSession is idempotent only when called with the same ownerParticipantId. Owner promotion/transfer is owned by Plan-002.`,
+          );
+        }
+        // Same owner re-creating — fall through to the idempotent
+        // membership upsert (DO UPDATE no-op on conflict).
       }
 
       // Owner-membership upsert. Same DO UPDATE pattern so RETURNING *

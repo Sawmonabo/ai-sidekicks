@@ -402,6 +402,90 @@ describe("SessionDirectoryService — P2 (idempotent re-create does not fork)", 
     if (sessionsRow === undefined) return;
     expect(Number.parseInt(sessionsRow.count, 10)).toBe(2);
   });
+
+  it("createSession with an existing sessionId but a different owner is rejected (Codex P1)", async () => {
+    // Codex P1 / R2: the owner-mismatch guard inside `createSession`'s
+    // transaction. BL-069 invariant #4 — "owner identity is bound at the
+    // first authenticated RPC via PASETO v4 trust-on-first-use" — means a
+    // second create with the same `sessionId` but a DIFFERENT
+    // `ownerParticipantId` is NOT a retry; it is an attempt to bind a
+    // second owner. Without the guard, the membership upsert's
+    // UNIQUE(session_id, participant_id) target — which keys on the
+    // (session, participant) PAIR, not on the role — silently inserts a
+    // second `(S, P2, 'owner')` row, granting P2 owner privileges
+    // without invitation/elevation. R1 dropped the auto-mint participant
+    // (B1) which closed the most-likely path; the residual gap (an
+    // explicit caller passing a mismatched ownerParticipantId) survived
+    // until Codex caught it. This test pins the residual.
+    //
+    // Plan-002 owns ownership-transfer / co-owner promotion flows; that
+    // is NOT a regression target for this test — the guard fires at
+    // create time only.
+    await ctx.querier.query("INSERT INTO participants (id) VALUES ($1), ($2)", [
+      OWNER_PARTICIPANT_ID,
+      SECOND_PARTICIPANT_ID,
+    ]);
+
+    // First create: P1 binds owner.
+    const first = await ctx.service.createSession({
+      sessionId: SESSION_ID,
+      ownerParticipantId: OWNER_PARTICIPANT_ID,
+    });
+    const firstOwnerMembership = first.memberships[0];
+    expect(firstOwnerMembership).toBeDefined();
+    if (firstOwnerMembership === undefined) return;
+    expect(firstOwnerMembership.participantId).toBe(OWNER_PARTICIPANT_ID);
+
+    // Second create: same sessionId, DIFFERENT participant. MUST throw.
+    // The error message includes the sessionId so an operator reading
+    // the log can correlate the rejection to the offending request.
+    await expect(
+      ctx.service.createSession({
+        sessionId: SESSION_ID,
+        ownerParticipantId: SECOND_PARTICIPANT_ID,
+      }),
+    ).rejects.toThrow(SESSION_ID);
+
+    // Direct row probe: the failed second create MUST NOT have inserted
+    // a second owner-membership row, AND the original P1 owner row
+    // MUST be intact. A regression that loses the guard would surface
+    // here as count = 2 with (P1, P2) participants. The transaction
+    // wrapper guarantees the failed call leaves no residue regardless
+    // of when in the body the throw fires.
+    const probe = await ctx.querier.query<{ participant_id: string; role: string }>(
+      `SELECT participant_id, role FROM session_memberships
+        WHERE session_id = $1 ORDER BY participant_id`,
+      [SESSION_ID],
+    );
+    expect(probe.rows).toHaveLength(1);
+    const persistedOwner = probe.rows[0];
+    expect(persistedOwner).toBeDefined();
+    if (persistedOwner === undefined) return;
+    expect(persistedOwner.participant_id).toBe(OWNER_PARTICIPANT_ID);
+    expect(persistedOwner.role).toBe("owner");
+
+    // Same-owner retry must still be idempotent — the guard does NOT
+    // turn into a "first-create-only" gate. A third call with the
+    // ORIGINAL owner returns the same response shape and leaves the
+    // row count unchanged.
+    const retry = await ctx.service.createSession({
+      sessionId: SESSION_ID,
+      ownerParticipantId: OWNER_PARTICIPANT_ID,
+    });
+    const retryOwnerMembership = retry.memberships[0];
+    expect(retryOwnerMembership).toBeDefined();
+    if (retryOwnerMembership === undefined) return;
+    expect(retryOwnerMembership.id).toBe(firstOwnerMembership.id);
+
+    const probeAfterRetry = await ctx.querier.query<{ count: string }>(
+      "SELECT COUNT(*)::text AS count FROM session_memberships WHERE session_id = $1",
+      [SESSION_ID],
+    );
+    const probeAfterRetryRow = probeAfterRetry.rows[0];
+    expect(probeAfterRetryRow).toBeDefined();
+    if (probeAfterRetryRow === undefined) return;
+    expect(Number.parseInt(probeAfterRetryRow.count, 10)).toBe(1);
+  });
 });
 
 // ----------------------------------------------------------------------------
