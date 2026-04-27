@@ -1,4 +1,4 @@
-// ESLint 9 flat-config per ADR-022 §Decision row 5.
+// ESLint 10 flat-config per ADR-022 §Decision row 5.
 // Type-aware rules are CI-only per typescript-eslint perf guide; the local config
 // runs the non-type-aware rule subset for sub-second feedback in lint-staged.
 import js from "@eslint/js";
