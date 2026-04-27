@@ -40,7 +40,7 @@ import type { Database, RunResult, Statement } from "better-sqlite3";
 import type { AppendableEvent, DaemonSessionSnapshot, StoredEvent } from "./types.js";
 import { replay as projectReplay } from "./session-projector.js";
 
-// Hash-chain placeholder bytes — see migrations/0001-initial.sql header
+// Hash-chain placeholder bytes — see migrations/0001-initial.ts header
 // for the full forward-declaration rationale.
 const HASH_PLACEHOLDER_LEN: number = 32;
 const SIG_PLACEHOLDER_LEN: number = 64;
@@ -50,12 +50,23 @@ const ZERO_SIGNATURE: Buffer = Buffer.alloc(SIG_PLACEHOLDER_LEN);
 // Internal row shape returned by better-sqlite3's `.all()` on the read
 // query. Kept private — callers receive `StoredEvent` (with parsed JSON
 // payload + bigint monotonic_ns).
+//
+// `safeIntegers(true)` on the read statement applies to ALL integer
+// columns (it is a per-statement, not per-column, switch). Both
+// `sequence` and `monotonic_ns` are returned as `bigint` — the union
+// `number | bigint` Round 1 used was a type-only fiction that masked the
+// uniform behavior. Round 2 declares both as `bigint` and converts
+// `sequence` back to `number` at hydration (safe because `sequence` is a
+// per-session counter — the worst-case overflow of `Number.MAX_SAFE_INTEGER`
+// would require ~9×10^15 events in one session, decades at any plausible
+// emit rate — and the `StoredEvent.sequence: number` field type is the
+// canonical projector input shape).
 interface SessionEventRow {
   readonly id: string;
   readonly session_id: string;
-  readonly sequence: number | bigint;
+  readonly sequence: bigint;
   readonly occurred_at: string;
-  readonly monotonic_ns: bigint; // safeIntegers=true on read statement
+  readonly monotonic_ns: bigint;
   readonly category: string;
   readonly type: string;
   readonly actor: string | null;
@@ -154,11 +165,13 @@ export class SessionService {
 // --------------------------------------------------------------------------
 
 function hydrateRow(row: SessionEventRow): StoredEvent {
-  // safeIntegers=true returns bigints for ALL integer columns; sequence
-  // is always small enough to fit in a Number, but monotonic_ns is not.
-  // Convert sequence back to Number for type compatibility with the
-  // `StoredEvent.sequence: number` field; preserve monotonic_ns as bigint.
-  const sequence: number = typeof row.sequence === "bigint" ? Number(row.sequence) : row.sequence;
+  // `safeIntegers=true` returns bigints for ALL integer columns. Convert
+  // `sequence` back to Number — safe because it's a per-session counter
+  // (worst-case decades to overflow Number.MAX_SAFE_INTEGER, see the
+  // `SessionEventRow` block above). `monotonic_ns` stays as bigint
+  // because `process.hrtime.bigint()` legitimately exceeds 2^53 even on
+  // recently-booted hosts.
+  const sequence: number = Number(row.sequence);
   const payload: Record<string, unknown> = JSON.parse(row.payload) as Record<string, unknown>;
   return {
     id: row.id,
