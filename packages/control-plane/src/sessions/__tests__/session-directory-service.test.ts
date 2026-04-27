@@ -26,7 +26,7 @@
 // production wiring (Plan-001 PR #5) composes a `Querier` from `pg.Pool`
 // where the per-call connection checkout is automatic.
 
-import { PGlite } from "@electric-sql/pglite";
+import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { MembershipId, ParticipantId, SessionId } from "@ai-sidekicks/contracts";
@@ -73,6 +73,19 @@ const SECOND_PARTICIPANT_ID: ParticipantId =
 // (the migration runner doesn't read rows from the batch — its idempotency
 // barrier is the `hasMigrationApplied` probe via `query()` instead).
 function adaptPGlite(pg: PGlite): Querier {
+  return wrap(pg);
+}
+
+// PGlite's `PGlite` and `Transaction` types share a structurally compatible
+// `query` + `exec` surface. The test `Querier.transaction` adapter wraps
+// `pg.transaction(fn)` and re-wraps the inner `tx` as a `Querier` so the
+// in-transaction code path uses the same interface as the outside code path.
+//
+// Nested `tx.transaction(...)` is intentionally not allowed (Postgres does
+// not support nested transactions without SAVEPOINTs and we have no such
+// requirement in PR #4); calling it throws at runtime — see the Querier
+// docstring in migration-runner.ts.
+function wrap(handle: PGlite | Transaction): Querier {
   return {
     query: async <T>(
       sql: string,
@@ -82,13 +95,34 @@ function adaptPGlite(pg: PGlite): Querier {
       // not `ReadonlyArray<unknown>`. The spread copy decouples the
       // mutability claim without copying parameter values themselves.
       const mutableParams: unknown[] = params === undefined ? [] : [...params];
-      const result = await pg.query<T>(sql, mutableParams);
+      const result = await handle.query<T>(sql, mutableParams);
       return { rows: result.rows };
     },
     exec: async (sql: string): Promise<void> => {
-      await pg.exec(sql);
+      await handle.exec(sql);
+    },
+    transaction: async <T>(fn: (tx: Querier) => Promise<T>): Promise<T> => {
+      if (!isPGlite(handle)) {
+        // Already inside a `pg.transaction(fn)` callback. PGlite's
+        // `Transaction` does not expose `transaction(...)` (no nested
+        // transactions). Throwing here matches what production `pg.Pool`
+        // adapters will do — Postgres semantics, not a test substrate
+        // limitation.
+        throw new Error(
+          "Querier.transaction(): nested transactions are not supported on this substrate.",
+        );
+      }
+      return handle.transaction(async (tx) => {
+        return fn(wrap(tx));
+      });
     },
   };
+}
+
+function isPGlite(handle: PGlite | Transaction): handle is PGlite {
+  // PGlite exposes `transaction(fn)`; PGlite's `Transaction` does not.
+  // Structural check via the property that distinguishes the two types.
+  return typeof (handle as { transaction?: unknown }).transaction === "function";
 }
 
 // ----------------------------------------------------------------------------
@@ -187,10 +221,16 @@ describe("SessionDirectoryService — P1 (create persists with stable id)", () =
     // persistence. P1 covers the write side; the round-trip here is the
     // smallest assertion that the persistence is queryable through the
     // service surface (not just by the test's direct SQL probe).
+    //
+    // Both `config` and `metadata` are exercised so a future regression
+    // that swaps the JSONB hydration order (config <-> metadata) surfaces
+    // here as well as in P2 — the read-side proof should mirror the
+    // read surface across both fields.
     await ctx.querier.query("INSERT INTO participants (id) VALUES ($1)", [OWNER_PARTICIPANT_ID]);
     await ctx.service.createSession({
       sessionId: SESSION_ID,
       ownerParticipantId: OWNER_PARTICIPANT_ID,
+      config: { greeting: "hello" },
       metadata: { tag: "round-trip" },
     });
 
@@ -199,6 +239,7 @@ describe("SessionDirectoryService — P1 (create persists with stable id)", () =
     if (read === null) return;
     expect(read.session.id).toBe(SESSION_ID);
     expect(read.session.state).toBe("provisioning");
+    expect(read.session.config).toEqual({ greeting: "hello" });
     expect(read.session.metadata).toEqual({ tag: "round-trip" });
     // ISO 8601 with offset per `SessionSnapshotSchema.createdAt` —
     // `.toISOString()` always emits a `Z`-suffixed UTC timestamp.
@@ -215,29 +256,43 @@ describe("SessionDirectoryService — P1 (create persists with stable id)", () =
     expect(read).toBeNull();
   });
 
-  it("createSession mints a fresh participant when ownerParticipantId is omitted", async () => {
-    // Plan-018 (registration) hasn't landed; PR #4 mints a participant
-    // anchor row inline so the owner-membership FK resolves. This test
-    // pins that V1 path explicitly so a future regression that drops
-    // the inline mint surfaces immediately.
+  it("createSession is atomic — a missing-participant FK violation leaves no orphan session row", async () => {
+    // B2 atomicity guard: the session upsert and owner-membership upsert
+    // run inside a single `Querier.transaction(...)` block, so a failure
+    // on the membership upsert (FK violation against a participant id
+    // that does not exist, or any transient error) MUST roll back the
+    // session row.
+    //
+    // Without the transaction wrapper, the session row would commit
+    // before the membership upsert ran, leaving an orphan visible to
+    // `readSession` and admin queries. A retry would treat the orphan
+    // as canonical state via the idempotent upsert and re-fail on the
+    // membership step — cementing the corruption.
     const before = await ctx.querier.query<{ count: string }>(
-      "SELECT COUNT(*)::text AS count FROM participants",
+      "SELECT COUNT(*)::text AS count FROM sessions",
     );
     const beforeRow = before.rows[0];
     expect(beforeRow).toBeDefined();
     if (beforeRow === undefined) return;
     expect(Number.parseInt(beforeRow.count, 10)).toBe(0);
 
-    const response = await ctx.service.createSession({ sessionId: SESSION_ID });
-    expect(response.memberships).toHaveLength(1);
+    // Note: OWNER_PARTICIPANT_ID is intentionally NOT inserted — the
+    // membership upsert's FK against `participants(id)` will throw.
+    await expect(
+      ctx.service.createSession({
+        sessionId: SESSION_ID,
+        ownerParticipantId: OWNER_PARTICIPANT_ID,
+      }),
+    ).rejects.toThrow();
 
     const after = await ctx.querier.query<{ count: string }>(
-      "SELECT COUNT(*)::text AS count FROM participants",
+      "SELECT COUNT(*)::text AS count FROM sessions WHERE id = $1",
+      [SESSION_ID],
     );
     const afterRow = after.rows[0];
     expect(afterRow).toBeDefined();
     if (afterRow === undefined) return;
-    expect(Number.parseInt(afterRow.count, 10)).toBe(1);
+    expect(Number.parseInt(afterRow.count, 10)).toBe(0);
   });
 });
 
@@ -419,6 +474,69 @@ describe("SessionDirectoryService — P3 (join is idempotent on canonical member
       participantId: SECOND_PARTICIPANT_ID,
     });
     expect(result).toBeNull();
+  });
+
+  it("joinSession preserves an existing suspended membership row on rejoin", async () => {
+    // joinSession is NOT a reactivation primitive — see service docstring.
+    // The upsert preserves both `role` and `state` on conflict so a
+    // future Plan-002 reviewer reading the call site cannot mistake it
+    // for a safe re-activation path. This test pins the preserve-on-
+    // conflict behavior explicitly so a regression that swaps the upsert
+    // to `DO UPDATE SET role = EXCLUDED.role, state = 'active'` surfaces
+    // immediately as a failed assertion.
+    await ctx.querier.query("INSERT INTO participants (id) VALUES ($1), ($2)", [
+      OWNER_PARTICIPANT_ID,
+      SECOND_PARTICIPANT_ID,
+    ]);
+    await ctx.service.createSession({
+      sessionId: SESSION_ID,
+      ownerParticipantId: OWNER_PARTICIPANT_ID,
+    });
+
+    // Step 1: first join as `collaborator` — the upsert inserts a fresh
+    // row in state `active`.
+    const firstJoin = await ctx.service.joinSession({
+      sessionId: SESSION_ID,
+      participantId: SECOND_PARTICIPANT_ID,
+      role: "collaborator",
+    });
+    expect(firstJoin).not.toBeNull();
+    if (firstJoin === null) return;
+    const firstMembershipId: MembershipId = firstJoin.membershipId;
+
+    // Step 2: out-of-band lifecycle transition (Plan-002's territory in
+    // the real system; we simulate it here with a direct UPDATE so the
+    // test does not depend on Plan-002 having landed). Move the row to
+    // `suspended`.
+    await ctx.querier.query("UPDATE session_memberships SET state = 'suspended' WHERE id = $1", [
+      firstMembershipId,
+    ]);
+
+    // Step 3: re-join with a different role (`viewer`). The upsert
+    // collides on UNIQUE(session_id, participant_id) and the conflict
+    // clause touches only `updated_at` — the role argument is ignored,
+    // and the suspended state is preserved.
+    const secondJoin = await ctx.service.joinSession({
+      sessionId: SESSION_ID,
+      participantId: SECOND_PARTICIPANT_ID,
+      role: "viewer",
+    });
+    expect(secondJoin).not.toBeNull();
+    if (secondJoin === null) return;
+    expect(secondJoin.membershipId).toBe(firstMembershipId);
+
+    // Direct probe: row state is unchanged. A regression that
+    // reactivated on join would surface as `state = 'active'` and/or
+    // `role = 'viewer'` here.
+    const probe = await ctx.querier.query<{ role: string; state: string }>(
+      "SELECT role, state FROM session_memberships WHERE id = $1",
+      [firstMembershipId],
+    );
+    const probeRow = probe.rows[0];
+    expect(probeRow).toBeDefined();
+    if (probeRow === undefined) return;
+    expect(probeRow.role).toBe("collaborator");
+    expect(probeRow.state).toBe("suspended");
   });
 });
 
