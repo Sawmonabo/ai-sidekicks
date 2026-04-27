@@ -96,8 +96,8 @@ jobs:
 
   # Tier-2 (Node 24 — control-plane + CLI per ADR-022 §Decision row 8). The
   # control-plane package declares `engines.node: ">=24.0.0"`, so its build /
-  # typecheck / test must run against Node 24 to validate the floor (NB-14 from
-  # PR-001 review). Other packages stay on Node 22 in `test-node22` above.
+  # typecheck / test must run against Node 24 to validate the floor. Other
+  # packages stay on Node 22 in `test-node22` above.
   test-node24:
     name: test (${{ matrix.os }} / node ${{ matrix.node }} / control-plane)
     runs-on: ${{ matrix.os }}

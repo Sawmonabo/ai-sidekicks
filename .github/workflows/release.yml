@@ -68,8 +68,7 @@ jobs:
         with:
           # release-please observes `develop` per the 2026-04-26 branch-model amendment.
           # Without `target-branch`, the action queries the repo's default branch from
-          # GitHub (currently `main`), which would skip every commit on `develop`
-          # (NB-11 from PR-001 review).
+          # GitHub (currently `main`), which would skip every commit on `develop`.
           target-branch: develop
           # Manifest mode — config + manifest files are committed in the repo root.
           config-file: release-please-config.json
@@ -123,8 +122,7 @@ jobs:
         # Provenance auto-emitted under Trusted Publishing — no --provenance flag needed.
         # paths_released is a JSON array (e.g. `["packages/contracts","packages/client-sdk"]`);
         # `for path in ${...}` would expand it as one shell token. Parse with jq so each
-        # path is iterated individually (NB-8 from PR-001 review). The `if: false` gate
-        # above masks this today, but the loop wouldn't work once the gate flips.
+        # path is iterated individually.
         run: |
           echo '${{ needs.release-please.outputs.paths_released }}' | jq -r '.[]' | while IFS= read -r path; do
             echo "Publishing $path"

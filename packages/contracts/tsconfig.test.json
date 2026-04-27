@@ -1,8 +1,8 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  // Type-validates test files without emitting (NB-15 from PR-001 review). The
-  // production `tsconfig.json` excludes `src/**/__tests__/**` so test files don't
-  // ship in `dist/`; this config covers them via a `noEmit` typecheck pass.
+  // Type-validates test files without emitting. The production `tsconfig.json`
+  // excludes `src/**/__tests__/**` so test files don't ship in `dist/`; this
+  // config covers them via a `noEmit` typecheck pass.
   "extends": "../../tsconfig.node22.json",
   "compilerOptions": {
     "noEmit": true,
