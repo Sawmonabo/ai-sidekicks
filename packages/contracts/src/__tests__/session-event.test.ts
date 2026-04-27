@@ -14,12 +14,18 @@
 //   • Unknown `type` discriminator value is rejected
 //   • Known type with a payload from a sibling variant is rejected (the
 //     `.strict()` modifier prevents cross-variant payload smuggling)
+//   • Each variant carries the canonical `category` literal per
+//     `SESSION_EVENT_CATEGORY_BY_TYPE`, AND a category/type mismatch is
+//     rejected at parse time (Spec-006 §Canonical Serialization Rules
+//     §523 — `category` participates in the BLAKE3-hashed canonical bytes)
 //   • EventEnvelopeVersion accepts canonical "MAJOR.MINOR" forms and rejects
 //     numeric / three-segment / leading-zero variants per ADR-018 §Decision #1
 import { describe, expect, it } from "vitest";
 
 import {
   EVENT_ENVELOPE_VERSION_PATTERN,
+  EventCategorySchema,
+  SESSION_EVENT_CATEGORY_BY_TYPE,
   SESSION_EVENT_TYPES,
   SessionEventSchema,
   type SessionEvent,
@@ -36,6 +42,7 @@ const buildSessionCreated = () => ({
   sessionId: SESSION_ID,
   sequence: 0,
   occurredAt: "2026-01-22T19:14:35.000Z",
+  category: "session_lifecycle" as const,
   type: "session.created" as const,
   actor: PARTICIPANT_ID,
   version: VERSION,
@@ -51,6 +58,7 @@ const buildMembershipJoined = () => ({
   sessionId: SESSION_ID,
   sequence: 1,
   occurredAt: "2026-01-22T19:14:36.000Z",
+  category: "membership_change" as const,
   type: "membership.joined" as const,
   actor: PARTICIPANT_ID,
   correlationId: "req-001",
@@ -68,6 +76,7 @@ const buildChannelCreated = () => ({
   sessionId: SESSION_ID,
   sequence: 2,
   occurredAt: "2026-01-22T19:14:37.000Z",
+  category: "session_lifecycle" as const,
   type: "channel.created" as const,
   actor: null,
   version: VERSION,
@@ -157,5 +166,66 @@ describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
     ["", false], // empty
   ])("EventEnvelopeVersion regex accepts %s -> %s", (candidate, shouldPass) => {
     expect(EVENT_ENVELOPE_VERSION_PATTERN.test(candidate)).toBe(shouldPass);
+  });
+
+  it.each([
+    ["session.created", buildSessionCreated, "session_lifecycle"],
+    ["membership.joined", buildMembershipJoined, "membership_change"],
+    ["channel.created", buildChannelCreated, "session_lifecycle"],
+  ] as const)("emits the canonical category %s -> %s", (label, build, expected) => {
+    // Round-trip parse pin: each variant carries its declared canonical
+    // category. This is wire-load-bearing because Spec-006 §523 puts
+    // `category` inside the canonical bytes that back the BLAKE3 hash chain
+    // and Ed25519 signature; the parsed value must equal the per-type
+    // category defined in `SESSION_EVENT_CATEGORY_BY_TYPE`.
+    const parsed = SessionEventSchema.parse(build());
+    expect(parsed.category).toBe(expected);
+    expect(SESSION_EVENT_CATEGORY_BY_TYPE[label]).toBe(expected);
+  });
+
+  it("rejects a category/type mismatch (membership_change on session.created)", () => {
+    // Wire-integrity check: the per-variant `category: z.literal(...)`
+    // forbids cross-namespace smuggling. If this ever silently accepted,
+    // the integrity protocol would hash the event under the wrong
+    // category byte and replay would diverge.
+    const broken = { ...buildSessionCreated(), category: "membership_change" as const };
+    const result = SessionEventSchema.safeParse(broken);
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects an envelope missing required field `category`", () => {
+    const valid = buildSessionCreated();
+    const broken = { ...valid } as Record<string, unknown>;
+    delete broken["category"];
+    const result = SessionEventSchema.safeParse(broken);
+    expect(result.success).toBe(false);
+  });
+
+  it("EventCategorySchema accepts every taxonomy member from api-payload-contracts.md", () => {
+    // Pinning the enum values prevents accidental drift from the canonical
+    // EventCategory definition. If api-payload-contracts.md adds a category
+    // (e.g. cross_node_dispatch via Spec-024), the spec edit must land
+    // before this list; the test will fail until both sides agree.
+    const expected = [
+      "run_lifecycle",
+      "assistant_output",
+      "tool_activity",
+      "interactive_request",
+      "artifact_publication",
+      "membership_change",
+      "session_lifecycle",
+      "approval_flow",
+      "usage_telemetry",
+      "runtime_node_lifecycle",
+      "recovery_events",
+      "participant_lifecycle",
+      "audit_integrity",
+      "event_maintenance",
+      "policy_events",
+    ];
+    for (const cat of expected) {
+      expect(EventCategorySchema.safeParse(cat).success).toBe(true);
+    }
+    expect(EventCategorySchema.safeParse("not_a_category").success).toBe(false);
   });
 });

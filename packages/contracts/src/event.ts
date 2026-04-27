@@ -25,8 +25,9 @@
 // reader parses MAJOR/MINOR as integers). The format check below enforces
 // the regex from api-payload-contracts.md line 468.
 //
-// Refs: Spec-001 §Interfaces, Spec-006 §Event Type Enumeration, ADR-017
-// (event sourcing), ADR-018 (cross-version compatibility).
+// Refs: Spec-001 §Interfaces, Spec-006 §Event Type Enumeration + §Canonical
+// Serialization Rules, ADR-017 (event sourcing), ADR-018 (cross-version
+// compatibility).
 import { z } from "zod";
 
 import {
@@ -41,6 +42,54 @@ import {
   type ParticipantId,
   type SessionId,
 } from "./session.js";
+
+// --------------------------------------------------------------------------
+// EventCategory — canonical taxonomy enum.
+// --------------------------------------------------------------------------
+//
+// Mirrors api-payload-contracts.md lines 485–502 verbatim (15 categories).
+// Spec-006 §523 specifies that `category` participates in the canonical-bytes
+// computation that backs the integrity protocol's BLAKE3 hash chain and
+// Ed25519 signature; producers MUST emit the category that matches the type's
+// namespace, and consumers MUST NOT silently coerce mismatches. The literal
+// `category` per variant in the discriminatedUnion below enforces this on
+// the wire — a `{type: "session.created", category: "membership_change"}`
+// payload is rejected at parse time, BEFORE it can be hashed under the
+// wrong category byte and break replay.
+
+export type EventCategory =
+  | "run_lifecycle"
+  | "assistant_output"
+  | "tool_activity"
+  | "interactive_request"
+  | "artifact_publication"
+  | "membership_change"
+  | "session_lifecycle"
+  | "approval_flow"
+  | "usage_telemetry"
+  | "runtime_node_lifecycle"
+  | "recovery_events"
+  | "participant_lifecycle"
+  | "audit_integrity"
+  | "event_maintenance"
+  | "policy_events";
+export const EventCategorySchema: z.ZodType<EventCategory> = z.enum([
+  "run_lifecycle",
+  "assistant_output",
+  "tool_activity",
+  "interactive_request",
+  "artifact_publication",
+  "membership_change",
+  "session_lifecycle",
+  "approval_flow",
+  "usage_telemetry",
+  "runtime_node_lifecycle",
+  "recovery_events",
+  "participant_lifecycle",
+  "audit_integrity",
+  "event_maintenance",
+  "policy_events",
+]);
 
 // --------------------------------------------------------------------------
 // EventEnvelopeVersion — branded "MAJOR.MINOR" semver string.
@@ -69,10 +118,14 @@ export const EventEnvelopeVersionSchema: z.ZodType<EventEnvelopeVersion> = z
 // --------------------------------------------------------------------------
 //
 // Defined as a shape factory (not a schema) so each variant can spread
-// it while supplying its own `type` literal + `payload`. Per Spec-001
-// § Data And Storage Changes the `id` field is the persisted event id
-// (UUID v7 daemon-assigned); `sequence` is the canonical replay key per
+// it while supplying its own `type` literal, its own literal `category`,
+// and its own `payload`. Per Spec-001 § Data And Storage Changes the daemon
+// assigns the persisted event id; `sequence` is the canonical replay key per
 // ADR-017.
+//
+// Note that `category` is NOT in `buildCommonShape()` — it must be a
+// literal-typed field per variant so the parser rejects category/type
+// mismatches (see Spec-006 §Canonical Serialization Rules).
 //
 // The factory pattern is for stylistic consistency: the per-variant schema
 // declarations also need to be reproduced in the `discriminatedUnion` block
@@ -124,6 +177,7 @@ const buildCommonShape = () => ({
 
 export interface SessionCreatedEvent extends SessionEventCommonFields {
   type: "session.created";
+  category: "session_lifecycle";
   payload: {
     sessionId: SessionId;
     config: Record<string, unknown>;
@@ -134,6 +188,7 @@ export const SessionCreatedEventSchema: z.ZodType<SessionCreatedEvent> = z
   .object({
     ...buildCommonShape(),
     type: z.literal("session.created"),
+    category: z.literal("session_lifecycle"),
     payload: z
       .object({
         sessionId: SessionIdSchema,
@@ -150,6 +205,7 @@ export const SessionCreatedEventSchema: z.ZodType<SessionCreatedEvent> = z
 
 export interface MembershipJoinedEvent extends SessionEventCommonFields {
   type: "membership.joined";
+  category: "membership_change";
   payload: {
     membershipId: MembershipId;
     participantId: ParticipantId;
@@ -161,6 +217,7 @@ export const MembershipJoinedEventSchema: z.ZodType<MembershipJoinedEvent> = z
   .object({
     ...buildCommonShape(),
     type: z.literal("membership.joined"),
+    category: z.literal("membership_change"),
     payload: z
       .object({
         membershipId: MembershipIdSchema,
@@ -178,6 +235,7 @@ export const MembershipJoinedEventSchema: z.ZodType<MembershipJoinedEvent> = z
 
 export interface ChannelCreatedEvent extends SessionEventCommonFields {
   type: "channel.created";
+  category: "session_lifecycle";
   payload: {
     channelId: ChannelId;
     name?: string | undefined;
@@ -187,6 +245,7 @@ export const ChannelCreatedEventSchema: z.ZodType<ChannelCreatedEvent> = z
   .object({
     ...buildCommonShape(),
     type: z.literal("channel.created"),
+    category: z.literal("session_lifecycle"),
     payload: z
       .object({
         channelId: ChannelIdSchema,
@@ -219,6 +278,7 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
     .object({
       ...buildCommonShape(),
       type: z.literal("session.created"),
+      category: z.literal("session_lifecycle"),
       payload: z
         .object({
           sessionId: SessionIdSchema,
@@ -232,6 +292,7 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
     .object({
       ...buildCommonShape(),
       type: z.literal("membership.joined"),
+      category: z.literal("membership_change"),
       payload: z
         .object({
           membershipId: MembershipIdSchema,
@@ -246,6 +307,7 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
     .object({
       ...buildCommonShape(),
       type: z.literal("channel.created"),
+      category: z.literal("session_lifecycle"),
       payload: z
         .object({
           channelId: ChannelIdSchema,
@@ -265,6 +327,16 @@ export const SESSION_EVENT_TYPES: readonly SessionEventType[] = [
   "membership.joined",
   "channel.created",
 ] as const;
+
+// Map from each registered V1 wire type to its canonical category. Exposed
+// so consumers (projectors, replay machinery, integrity verifiers in
+// Plan-006) can assert category/type consistency without re-parsing the
+// schema.
+export const SESSION_EVENT_CATEGORY_BY_TYPE: Readonly<Record<SessionEventType, EventCategory>> = {
+  "session.created": "session_lifecycle",
+  "membership.joined": "membership_change",
+  "channel.created": "session_lifecycle",
+} as const;
 
 // Note: cross-file ID types (`SessionId`, `MembershipId`, …) are not re-
 // exported here — they are surfaced from `session.ts` and reach the public
