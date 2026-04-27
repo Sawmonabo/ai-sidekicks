@@ -179,6 +179,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 - **Branch topics that name the file instead of the change** (`docs/contributing-md` ✗, `docs/add-git-workflow-conventions` ✓) — the topic should describe what the diff _does_, not which file it touches. Filename + extension in the topic is a code smell.
 - **`style:` commits** — excluded from the type-enum; use `chore(format): ...` if you genuinely need a formatting-only commit.
 - **Citing `.agents/tmp/...` paths in committed docs** — those are transient drafts; per AGENTS.md, surface citations forward into the consuming doc and let `.agents/tmp/` be deleted.
+- **Adding a package without `tsconfig.test.json`** — every workspace package ships a sibling `tsconfig.test.json` so test files (`src/**/__tests__/**`, excluded from production `tsconfig.json`) can be type-validated via `tsc -p tsconfig.test.json` without emitting. When tests are added to a package, its `typecheck` script extends to `tsc -b && tsc -p tsconfig.test.json` (mirroring `packages/contracts/package.json`). Model new files on `packages/contracts/tsconfig.test.json` — same `composite: false` + `noEmit: true` + `declaration: true` shape; pick `tsconfig.node22.json` or `tsconfig.node24.json` as the `extends` base to match the package's runtime tier.
 
 ## References
 
