@@ -55,6 +55,7 @@ import type {
   MembershipRole,
   MembershipState,
   MembershipSummary,
+  NonOwnerMembershipRole,
   ParticipantId,
   SessionCreateResponse,
   SessionId,
@@ -172,11 +173,20 @@ export interface CreateSessionInput {
  * the eventual tRPC router) is where identityHandle gets resolved.
  *
  * `role` defaults to "viewer" — the schema column DEFAULT — when omitted.
+ *
+ * `role` is typed as `NonOwnerMembershipRole` (i.e. `MembershipRole` minus
+ * `"owner"`) per the Codex P1 finding (round 5 review of PR #4): admitting
+ * `"owner"` here would let any caller mint a second owner-membership row
+ * without going through the BL-069 §4 TOFU bootstrap or Plan-002's
+ * promotion / elevation flow. The narrower type is the FIRST defense
+ * (compile-time rejection for TypeScript callers); `joinSession`'s body
+ * runs a runtime guard as the SECOND defense for dynamic callers that cast
+ * around the type system.
  */
 export interface JoinSessionInput {
   readonly sessionId: SessionId;
   readonly participantId: ParticipantId;
-  readonly role?: MembershipRole | undefined;
+  readonly role?: NonOwnerMembershipRole | undefined;
 }
 
 export class SessionDirectoryService {
@@ -349,8 +359,24 @@ export class SessionDirectoryService {
         [input.sessionId],
       );
       if (existingOwners.rows.length > 0) {
+        // UUID-casing normalization (Codex P2, round 5).
+        //
+        // RFC 9562 §4 specifies UUIDs are case-insensitive, but Postgres
+        // stores them in canonical lowercase form and returns them as
+        // lowercase strings (the `uuid` type's text-output convention).
+        // A caller passing `ParticipantId` with uppercase hex digits —
+        // valid per the brand's `z.uuid()` parser, which accepts both
+        // cases — would fail strict string equality against the
+        // lowercase row value, falsely tripping the owner-mismatch
+        // throw on a same-owner re-create. Normalizing both sides to
+        // lowercase before equality preserves idempotency for the
+        // logical UUID. We chose the in-TypeScript approach (vs an
+        // SQL-side `participant_id <> $2::uuid`) so the rejection-path
+        // test can drive the comparison through plain TypeScript and
+        // doesn't need to rely on the substrate's UUID-cast semantics.
+        const inputLower = input.ownerParticipantId.toLowerCase();
         const matchedExisting = existingOwners.rows.some(
-          (row) => row.participant_id === input.ownerParticipantId,
+          (row) => row.participant_id.toLowerCase() === inputLower,
         );
         if (!matchedExisting) {
           throw new Error(
@@ -452,6 +478,28 @@ export class SessionDirectoryService {
    *   * Returns `null` if the session does not exist (the caller should
    *     surface a typed not-found error to the wire layer).
    *
+   * Owner-role rejection (Codex P1, round 5 review of PR #4): `input.role`
+   * is typed `NonOwnerMembershipRole`, which excludes `"owner"` at compile
+   * time for TypeScript callers. The runtime guard at the very top of this
+   * method is the SECOND defense, catching dynamic callers (e.g. JS
+   * consumers, tests that cast around the type) that bypass the type
+   * system. The check fires BEFORE the session-existence probe so a
+   * pathological caller cannot use the response shape (`null` vs throw)
+   * to fingerprint which session ids exist; the privilege-escalation
+   * rejection takes precedence over the not-found path.
+   *
+   * Why owner is rejected here: BL-069 §4 binds owner identity at
+   * `createSession` time via TOFU. The membership upsert below collides
+   * on UNIQUE(session_id, participant_id), which keys on the (session,
+   * participant) PAIR — not on the role — so a `joinSession` call with
+   * `role: "owner"` from a NEW participant would silently INSERT a second
+   * `(S, P_new, 'owner')` row, granting P_new owner privileges without
+   * invitation, elevation, or promotion. (Existing-participant rejoin is
+   * idempotent — the conflict clause touches only `updated_at` — but
+   * that path is not the surface we are guarding against here.) Plan-002
+   * owns ownership-transfer / co-owner promotion flows; those flows go
+   * through their own promotion paths, not through `joinSession`.
+   *
    * NOT a reactivation primitive: on rejoin, an existing `pending` /
    * `suspended` / `revoked` membership row is preserved verbatim — the
    * caller's `role` argument is IGNORED on conflict (the upsert touches
@@ -476,6 +524,24 @@ export class SessionDirectoryService {
    * here when the metadata payload widens.
    */
   async joinSession(input: JoinSessionInput): Promise<SessionJoinResponse | null> {
+    // Owner-role rejection (Codex P1, round 5).
+    //
+    // Fail fast: the check runs BEFORE the session-existence probe so a
+    // privilege-escalation attempt against a non-existent sessionId
+    // surfaces as the same throw a caller against an existing session
+    // would see, rather than as `null` (which would leak existence
+    // information AND let the caller distinguish "session doesn't exist"
+    // from "you're not allowed to do that"). The cast in the test
+    // intentionally bypasses the compile-time `NonOwnerMembershipRole`
+    // narrowing to exercise this runtime guard — both defenses are
+    // needed, see the type-level rationale in `JoinSessionInput`'s
+    // docstring.
+    if ((input.role as MembershipRole | undefined) === "owner") {
+      throw new Error(
+        "SessionDirectoryService.joinSession: 'owner' role cannot be assigned via joinSession; ownership is bound at createSession time per BL-069 §4 (TOFU). Plan-002 owns ownership-transfer / co-owner promotion.",
+      );
+    }
+
     const sessionProbe = await this.#querier.query<SessionRow>(
       "SELECT id, state, config, metadata, min_client_version, created_at, updated_at FROM sessions WHERE id = $1",
       [input.sessionId],

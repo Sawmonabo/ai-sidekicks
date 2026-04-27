@@ -29,7 +29,12 @@
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import type { MembershipId, ParticipantId, SessionId } from "@ai-sidekicks/contracts";
+import type {
+  MembershipId,
+  MembershipRole,
+  ParticipantId,
+  SessionId,
+} from "@ai-sidekicks/contracts";
 
 import { applyMigrations, type Querier } from "../migration-runner.js";
 import {
@@ -662,6 +667,62 @@ describe("SessionDirectoryService — P2 (idempotent re-create does not fork)", 
     if (probeRow === undefined) return;
     expect(Number.parseInt(probeRow.count, 10)).toBe(1);
   });
+
+  it("createSession with same logical owner but UPPERCASE UUID is idempotent (Codex P2 — UUID casing)", async () => {
+    // Codex P2 / R5: the owner-mismatch guard added in R3 compared
+    // `participant_id` against `input.ownerParticipantId` via strict
+    // string equality. Postgres canonicalizes UUIDs to lowercase on
+    // storage/return (RFC 9562 admits both cases as valid input), so a
+    // caller that passes the same logical owner UUID with uppercase hex
+    // digits on retry would falsely trip the "different owner" throw —
+    // breaking BL-069's idempotent-upsert invariant for any caller whose
+    // ParticipantId source happens to use uppercase. The fix normalizes
+    // both sides via `.toLowerCase()` before equality. This test pins
+    // the idempotency for the uppercase-retry path; a regression that
+    // dropped the normalization would surface here as a thrown error
+    // and a duplicate owner-membership row count > 1.
+    await ctx.querier.query("INSERT INTO participants (id) VALUES ($1)", [OWNER_PARTICIPANT_ID]);
+
+    // First create: owner UUID in canonical lowercase form (the
+    // `OWNER_PARTICIPANT_ID` fixture is already lowercase).
+    const first = await ctx.service.createSession({
+      sessionId: SESSION_ID,
+      ownerParticipantId: OWNER_PARTICIPANT_ID,
+    });
+    const firstOwnerMembership = first.memberships[0];
+    expect(firstOwnerMembership).toBeDefined();
+    if (firstOwnerMembership === undefined) return;
+    const firstMembershipId: MembershipId = firstOwnerMembership.id;
+
+    // Second create: same sessionId + same logical owner UUID, but
+    // UPPERCASED. RFC 9562 admits both cases; the brand has no runtime
+    // case-validator. Without the .toLowerCase() normalization in the
+    // owner-mismatch guard, this call throws.
+    const uppercaseOwner: ParticipantId = OWNER_PARTICIPANT_ID.toUpperCase() as ParticipantId;
+    await expect(
+      ctx.service.createSession({
+        sessionId: SESSION_ID,
+        ownerParticipantId: uppercaseOwner,
+      }),
+    ).resolves.not.toThrow();
+
+    // Direct row probe: exactly ONE owner-membership row, exactly ONE
+    // sessions row, and the original membership id is preserved.
+    const membershipsProbe = await ctx.querier.query<{ id: string; participant_id: string }>(
+      `SELECT id, participant_id FROM session_memberships
+        WHERE session_id = $1 AND role = 'owner'`,
+      [SESSION_ID],
+    );
+    expect(membershipsProbe.rows).toHaveLength(1);
+    const persistedMembership = membershipsProbe.rows[0];
+    expect(persistedMembership).toBeDefined();
+    if (persistedMembership === undefined) return;
+    expect(persistedMembership.id).toBe(firstMembershipId);
+    // The persisted participant_id is canonical lowercase regardless of
+    // which casing the caller used on either create call (Postgres
+    // returns the storage form).
+    expect(persistedMembership.participant_id).toBe(OWNER_PARTICIPANT_ID);
+  });
 });
 
 // ----------------------------------------------------------------------------
@@ -797,6 +858,114 @@ describe("SessionDirectoryService — P3 (join is idempotent on canonical member
     if (probeRow === undefined) return;
     expect(probeRow.role).toBe("collaborator");
     expect(probeRow.state).toBe("suspended");
+  });
+
+  it("joinSession rejects role: 'owner' (Codex P1 — privilege escalation)", async () => {
+    // Codex P1 / R5: `joinSession` previously took
+    // `role?: MembershipRole | undefined`, which includes `"owner"`.
+    // BL-069 §4 binds owner identity at `createSession` time via TOFU,
+    // and the membership upsert collides on UNIQUE(session_id,
+    // participant_id) — keying on the (session, participant) PAIR, not
+    // on the role. A new participant calling
+    // `joinSession({ sessionId: S, participantId: P_new, role: "owner" })`
+    // would silently INSERT a second `(S, P_new, 'owner')` row,
+    // granting P_new owner privileges without invitation, elevation,
+    // or promotion.
+    //
+    // The fix has two layers:
+    //   1. Compile-time: `JoinSessionInput.role` narrows to
+    //      `NonOwnerMembershipRole` (i.e. `MembershipRole` minus
+    //      `"owner"`), rejecting TypeScript callers at type-check time.
+    //   2. Runtime: a guard at the very top of `joinSession` throws
+    //      with a typed error message that names BL-069 §4 and points
+    //      to Plan-002 for the legitimate ownership-transfer path.
+    //
+    // This test exercises the runtime guard (layer 2). The cast through
+    // `MembershipRole` bypasses the compile-time narrowing — that's
+    // intentional, since the runtime guard is the SECOND defense and
+    // must be exercised to verify it fires for dynamic / cross-language
+    // callers that don't see the TypeScript types.
+    //
+    // Plan-002 owns ownership-transfer / co-owner promotion flows; this
+    // test does not exercise those (they have their own promotion path,
+    // not `joinSession`).
+    await ctx.querier.query("INSERT INTO participants (id) VALUES ($1), ($2)", [
+      OWNER_PARTICIPANT_ID,
+      SECOND_PARTICIPANT_ID,
+    ]);
+    await ctx.service.createSession({
+      sessionId: SESSION_ID,
+      ownerParticipantId: OWNER_PARTICIPANT_ID,
+    });
+
+    // The cast is the load-bearing piece: `JoinSessionInput.role` is
+    // `NonOwnerMembershipRole | undefined` at compile time, so we need
+    // to widen back to `MembershipRole` to construct the privilege-
+    // escalation payload. The runtime guard is what we're testing.
+    const escalation = {
+      sessionId: SESSION_ID,
+      participantId: SECOND_PARTICIPANT_ID,
+      role: "owner" as MembershipRole,
+    } as JoinSessionInput;
+
+    // Error message MUST name BL-069 §4 (so an operator reading the log
+    // can correlate the rejection to the governing invariant) and MUST
+    // point to Plan-002 (so the legitimate ownership-transfer path is
+    // discoverable from the error). We assert on substrings rather than
+    // the full message so future doc-link adjustments don't break the
+    // test.
+    await expect(ctx.service.joinSession(escalation)).rejects.toThrow(/BL-069/);
+    await expect(ctx.service.joinSession(escalation)).rejects.toThrow(/Plan-002/);
+
+    // Direct row probe: zero new owner-membership rows for the
+    // attacking participant. The original P1 owner row stays intact
+    // (count = 1 across all owners; participant_id = OWNER_PARTICIPANT_ID).
+    // A regression that lost the runtime guard would surface here as
+    // count = 2 with (P1, P2) participants both holding 'owner'.
+    const ownerRows = await ctx.querier.query<{ participant_id: string }>(
+      `SELECT participant_id FROM session_memberships
+        WHERE session_id = $1 AND role = 'owner'
+        ORDER BY participant_id`,
+      [SESSION_ID],
+    );
+    expect(ownerRows.rows).toHaveLength(1);
+    const ownerRow = ownerRows.rows[0];
+    expect(ownerRow).toBeDefined();
+    if (ownerRow === undefined) return;
+    expect(ownerRow.participant_id).toBe(OWNER_PARTICIPANT_ID);
+
+    // Defense in depth: SECOND_PARTICIPANT_ID has no membership row of
+    // ANY role for this session — the guard fires before any row write.
+    const escalatorRows = await ctx.querier.query<{ count: string }>(
+      "SELECT COUNT(*)::text AS count FROM session_memberships WHERE session_id = $1 AND participant_id = $2",
+      [SESSION_ID, SECOND_PARTICIPANT_ID],
+    );
+    const escalatorRow = escalatorRows.rows[0];
+    expect(escalatorRow).toBeDefined();
+    if (escalatorRow === undefined) return;
+    expect(Number.parseInt(escalatorRow.count, 10)).toBe(0);
+  });
+
+  it("joinSession rejects role: 'owner' BEFORE the session-existence probe (Codex P1 — fail fast)", async () => {
+    // The owner-rejection runtime guard fires BEFORE the
+    // session-existence probe so a privilege-escalation attempt against
+    // a NON-EXISTENT sessionId surfaces as the same throw a caller
+    // against an existing session would see, rather than as `null`.
+    // Otherwise a probe-then-throw ordering would leak existence
+    // information AND let the attacker distinguish "session doesn't
+    // exist" from "you're not allowed to do that". This test pins the
+    // ordering — a regression that swapped the two would surface here
+    // as a `null` return instead of a thrown error.
+    //
+    // No participant rows are seeded; the session also doesn't exist.
+    // The throw must still fire on the role check first.
+    const escalation = {
+      sessionId: SESSION_ID, // never created
+      participantId: SECOND_PARTICIPANT_ID,
+      role: "owner" as MembershipRole,
+    } as JoinSessionInput;
+
+    await expect(ctx.service.joinSession(escalation)).rejects.toThrow(/BL-069/);
   });
 });
 

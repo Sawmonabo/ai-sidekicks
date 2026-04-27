@@ -153,6 +153,26 @@ export const MembershipRoleSchema: z.ZodType<MembershipRole> = z.enum([
   "runtime contributor",
 ]);
 
+// `NonOwnerMembershipRole` is `MembershipRole` with `"owner"` excluded. Used
+// at internal service boundaries (e.g. `JoinSessionInput.role` in
+// `@ai-sidekicks/control-plane`) where a caller-supplied `owner` would
+// represent a privilege-escalation path: BL-069 §4 binds owner identity at
+// `createSession` time via TOFU, so any subsequent `joinSession` that admits
+// `owner` would let any caller mint a second owner-membership row without
+// going through Plan-002's promotion / elevation flow (UNIQUE(session_id,
+// participant_id) keys on the (session, participant) PAIR, not on the role,
+// so two distinct participants can both hold `owner` rows).
+//
+// No accompanying Zod schema: the wire surface (`SessionJoinRequest`) carries
+// only `identityHandle: string` — there is no `role` field on the wire today,
+// so there is no consumer for a `NonOwnerMembershipRoleSchema`. The type
+// alias narrows the internal TypeScript surface (compile-time first defense);
+// the service body's runtime guard (second defense) catches dynamic callers
+// that bypass the type system. If a future wire contract gains a role field
+// (e.g. invite-driven join in Plan-002), add the schema then alongside the
+// new wire shape.
+export type NonOwnerMembershipRole = Exclude<MembershipRole, "owner">;
+
 export type MembershipState = "pending" | "active" | "suspended" | "revoked";
 export const MembershipStateSchema: z.ZodType<MembershipState> = z.enum([
   "pending",
