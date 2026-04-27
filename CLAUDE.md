@@ -22,7 +22,7 @@ V1 ships 17 features ([ADR-015](docs/decisions/015-v1-feature-scope-definition.m
 
 `package.json` is a placeholder. There is no `src/`, no test runner, no lint config, no build system. **Do not run `npm install`, `npm test`, `pytest`, `tsc`, or similar — they will fail with no useful signal.** The unit of work is a `.md` file under `docs/`.
 
-The first code-execution PR is gated by [BL-100](docs/backlog.md) — acceptance of ADR-023 (V1 CI/CD, pre-commit hooks, release automation). Until that gate clears, code execution stays paused — work the docs.
+[ADR-023](docs/decisions/023-v1-ci-cd-and-release-automation.md) (V1 CI/CD, pre-commit hooks, release automation) was accepted 2026-04-26, clearing the [BL-100](docs/archive/backlog-archive.md) gate. The next milestone is [Plan-001](docs/plans/001-shared-session-core.md) PR #1, the first code-execution PR. Until that PR opens, the doc-first phase continues — work the docs.
 
 ## Cross-Tool Conventions
 
