@@ -90,6 +90,23 @@ Target paths below assume the canonical implementation topology defined in [Cont
 3. Implement relay broker flows and reconnect association logic without coupling them to execution authority. V1 relay encryption uses pairwise X25519 ECDH + XChaCha20-Poly1305 (via `@noble/curves` and `@noble/ciphers`) with Ed25519 signature verification over each participant's ephemeral X25519 key bundle per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md). Relay sharding targets 25 connections per data DO using WebSocket Hibernation for Durable Objects. Relay authentication uses PASETO v4 tokens (per ADR-010).
 4. Add desktop and CLI shared-session join surfaces plus typed client SDK integration.
 
+## Tier 1 Bootstrap PR Sequence
+
+The Tier 1 bootstrap-deliverable (per §Execution Windows above) lands as **1 small PR**. The Tier 5 remainder PR breakdown is deferred to plan-execution time when Tier 5 begins.
+
+### PR #1: Bootstrap (tRPC v11 server + `sessionRouter` + SSE substrate)
+
+**Goal:** Plan-008-bootstrap ships end-to-end behind passing tRPC + SSE integration tests. `sessionRouter` exposes Plan-001 PR #4's `session-directory-service.ts` over HTTP; `SessionSubscribe` SSE substrate is functional. Plan-001 PR #5 unblocks on this PR's merge (in conjunction with Plan-007 partial PR #3).
+
+**Precondition:** [Plan-001](./001-shared-session-core.md) PR #4 merged (the bootstrap wraps that PR's `packages/control-plane/src/sessions/session-directory-service.ts` — already shipped 2026-04-27 per [PR #10](https://github.com/Sawmonabo/ai-sidekicks/pull/10)).
+
+- `packages/control-plane/src/server/` — Fastify host + tRPC v11 router registration scaffolding per [ADR-014](../decisions/014-trpc-control-plane-api.md). Skeleton only — relay broker / presence register / invite handlers ship in Plan-008-remainder at Tier 5.
+- `packages/control-plane/src/sessions/session-router.ts` — typed tRPC procedures for `SessionCreate`, `SessionRead`, `SessionJoin` wrapping the existing `session-directory-service.ts` (Plan-001 PR #4). The router does not re-implement directory logic.
+- `packages/control-plane/src/sessions/session-subscribe-sse.ts` — SSE transport plumbing for `SessionSubscribe`. The contract is request-only on the wire; the response is an `AsyncIterable<EventEnvelope>` SSE stream per `packages/contracts/src/session.ts:388`. Bootstrap supplies only the transport — event sourcing into the stream remains Plan-006's domain.
+- Tests: tRPC integration tests for `sessionRouter` create/read/join end-to-end against a `pg.Pool`-backed `Querier`; SSE substrate test verifying connection lifecycle (open, send, close on disconnect).
+
+After PR #1 merges (and Plan-007 partial PR #3 also merges), [Plan-001 PR #5](./001-shared-session-core.md#pr-5--client-sdk-and-desktop-bootstrap) can begin.
+
 ## Parallelization Notes
 
 - Join-service work and relay-broker work can proceed in parallel once shared identity and presence contracts are stable.

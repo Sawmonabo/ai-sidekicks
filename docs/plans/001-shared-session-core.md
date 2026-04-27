@@ -202,7 +202,12 @@ Plan-001 implementation lands as a sequence of small PRs. Each PR exercises one 
 
 **Goal:** Tests I1–I4 go green; manual two-client smoke test passes.
 
-**Precondition:** PR #5 cannot start until both [Plan-007](./007-local-ipc-and-daemon-control.md) partial-deliverable and [Plan-008](./008-control-plane-relay-and-session-join.md) bootstrap-deliverable are merged (per [cross-plan-dependencies.md §5 Tier 1 carve-outs](../architecture/cross-plan-dependencies.md#plan-007-substrate-vs-namespace-carve-out-tier-1--tier-4)). PR #1–PR #4 may proceed independently; the substrate dependency only binds at PR #5.
+**Precondition:** PR #5 cannot start until both upstream substrates are merged:
+
+- [Plan-007 Tier 1 Partial PRs #1–#3](./007-local-ipc-and-daemon-control.md#tier-1-partial-pr-sequence) — Wire Substrate, SecureDefaults Bootstrap, `session.*` Handlers + SDK Layer.
+- [Plan-008 Tier 1 Bootstrap PR #1](./008-control-plane-relay-and-session-join.md#tier-1-bootstrap-pr-sequence) — tRPC v11 server + `sessionRouter` + SSE substrate.
+
+See [cross-plan-dependencies.md §5 Tier 1 carve-outs](../architecture/cross-plan-dependencies.md#plan-007-substrate-vs-namespace-carve-out-tier-1--tier-4) for the canonical tier graph. PR #1–PR #4 may proceed independently; the substrate dependency only binds at PR #5.
 
 - `packages/client-sdk/src/sessionClient.ts` — `create`, `read`, `join`, `subscribe` methods over the daemon and control-plane transports.
   - **Daemon transport** (`create` / `read` / `join` / `subscribe` over local IPC): consumes the Plan-007 partial-deliverable substrate — JSON-RPC 2.0 + LSP-style Content-Length framing, the `session.*` JSON-RPC method namespace, and the SDK Zod layer (~500–1000 LOC per [Spec-007 §Wire Format](../specs/007-local-ipc-and-daemon-control.md#wire-format)). `subscribe` rides the JSON-RPC 2.0 streaming primitive (Plan-007 partial substrate's `LocalSubscription` shape).
