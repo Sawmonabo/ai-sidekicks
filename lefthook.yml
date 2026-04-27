@@ -1,0 +1,29 @@
+# lefthook 2.1.6 configuration per ADR-023 §Axis 2.
+#
+# Run hooks in parallel (Husky lacks this primitive — load-bearing for AI-implementer
+# feedback latency per ADR-023 §Axis 2 Synthesis item 1).
+#
+# CI parity: `.github/workflows/ci.yml` runs `lefthook run pre-commit --all-files` to
+# close the `git commit --no-verify` bypass per ADR-023 §Axis 2 D-1 cross-axis.
+
+min_version: "2.1.6"
+
+pre-commit:
+  parallel: true
+  jobs:
+    - name: lint-staged
+      run: pnpm exec lint-staged --concurrent false
+      stage_fixed: true
+
+    - name: gitleaks
+      run: |
+        if command -v gitleaks >/dev/null 2>&1; then
+          gitleaks protect --staged --no-banner --redact
+        else
+          echo "gitleaks not installed locally; CI will run the same scan. Install: https://github.com/gitleaks/gitleaks"
+        fi
+
+commit-msg:
+  jobs:
+    - name: commitlint
+      run: pnpm exec commitlint --edit {1}

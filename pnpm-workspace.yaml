@@ -1,0 +1,10 @@
+packages:
+  - "packages/*"
+  - "apps/*"
+
+# pnpm 10 hardening per ADR-023 §Axis 4 (sub-axis 5):
+# - minimumReleaseAge: blocks installs of brand-new package versions for the floor below
+# - blockExoticSubdeps: refuses transitive deps that switch to git-tarball/registry-exotic URLs
+# Defaults flip on in pnpm 11; opt in early per ADR-023.
+minimumReleaseAge: 1440
+blockExoticSubdeps: true

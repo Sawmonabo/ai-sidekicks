@@ -63,6 +63,7 @@ venv/
 
 # Misc tool caches
 .cache/
+.eslintcache
 
 # Playwright MCP
 .playwright-mcp/

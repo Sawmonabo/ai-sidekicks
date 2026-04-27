@@ -1,0 +1,8 @@
+**/dist/**
+**/node_modules/**
+**/coverage/**
+**/.turbo/**
+**/*.tsbuildinfo
+pnpm-lock.yaml
+.release-please-manifest.json
+LICENSE
