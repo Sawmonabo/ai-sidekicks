@@ -148,6 +148,20 @@ export function replay(events: ReadonlyArray<StoredEvent>): DaemonSessionSnapsho
 export function projectEvent(snapshot: DaemonSessionSnapshot, event: StoredEvent): DaemonSessionSnapshot {
   switch (event.type) {
     case "session.created":
+      // N2 (daemon-internal authorial choice — not contract guarantee):
+      // the projector treats `session.created` as a sequence-0 anchor and
+      // rejects any later occurrence. The wire schema doc (per
+      // `docs/architecture/schemas/local-sqlite-schema.md`) only references
+      // `sequence = 0` in the prev_hash zero-fill rule; it does not
+      // explicitly prohibit `session.created` at sequence > 0. Plan-001
+      // anchors the bootstrap at sequence=0 because (a) `replay()` uses
+      // the first event for bootstrap and the service layer reads in
+      // `sequence ASC`, so any non-zero `session.created` would either
+      // re-bootstrap mid-stream (silent state replacement, dangerous) or
+      // be a duplicate of the bootstrap event (caller bug). If a future
+      // plan needs a session-restate event, it should land as a distinct
+      // event variant (e.g. `session.snapshot_restored`) rather than
+      // re-using `session.created`.
       throw new Error(
         `projectEvent: 'session.created' may only appear at sequence=0 (got sequence=${String(event.sequence)})`,
       );
@@ -170,18 +184,42 @@ export function projectEvent(snapshot: DaemonSessionSnapshot, event: StoredEvent
 // --------------------------------------------------------------------------
 
 function bootstrapFromCreated(event: StoredEvent): DaemonSessionSnapshot {
+  // Owner-membership synthesis policy (N1 — wire-contract reconciliation):
+  //
+  // The wire `SessionEventSchema` accepts `actor: null` for every variant
+  // (per `packages/contracts/src/event.ts:239`), and the canonical
+  // `session.created` payload comment at
+  // `packages/contracts/src/event.ts:289-301` is explicit:
+  //   "The owner participant is conveyed via the membership.joined event
+  //    that follows."
+  // i.e. on the wire, `session.created.actor` may legitimately be null
+  // (system-emitted) and the owner's identity arrives in the `membership.
+  // joined` event.
+  //
+  // Plan-001 plan-line-129 D1 says "Single SessionCreated event yields
+  // snapshot with owner membership and main channel" — but the only way
+  // to honor that within Plan-001 PR #3's pre-IPC, in-process callers is
+  // to let the caller stuff the owner participant id into `actor` as a
+  // shortcut. PR #5 will introduce the wire seam at which point the
+  // `actor: null` branch is the steady state.
+  //
+  // So: when `actor` is a non-empty string, synthesize the owner row (the
+  // Plan-001 pre-IPC shortcut). When `actor` is null or empty, return
+  // memberships=[] — the subsequent `membership.joined` event populates
+  // owner identity. This keeps the projector correct against the wire
+  // contract today AND keeps the D1 fixture path (which sets `actor:
+  // OWNER_ID`) working as Plan-001 intends.
   const ownerActor: string | null = event.actor;
-  if (ownerActor === null || ownerActor.length === 0) {
-    throw new Error(
-      `bootstrapFromCreated: session.created event must carry an actor (the owner participant id) at sequence=${String(event.sequence)}`,
-    );
-  }
-
-  const ownerMembership: MembershipProjection = {
-    participantId: ownerActor,
-    role: "owner",
-    joinedAt: event.occurredAt,
-  };
+  const memberships: ReadonlyArray<MembershipProjection> =
+    ownerActor !== null && ownerActor.length > 0
+      ? [
+          {
+            participantId: ownerActor,
+            role: "owner",
+            joinedAt: event.occurredAt,
+          },
+        ]
+      : [];
 
   const mainChannel: ChannelProjection = {
     channelId: deriveMainChannelId(event.sessionId),
@@ -194,12 +232,16 @@ function bootstrapFromCreated(event: StoredEvent): DaemonSessionSnapshot {
     // Spec-001 line 53: a newly created session starts in `provisioning`
     // and transitions to `active` once initial membership, storage, and
     // control-plane metadata are ready. Spec-006 line 103 enumerates a
-    // distinct `session.activated` event for that transition.
+    // distinct `session.activated` event for that transition. The full
+    // canonical lifecycle (provisioning → active → archived/closed →
+    // purge_requested → purged) lives in
+    // `docs/domain/session-model.md:61-77`; the wire enum is
+    // `SessionState` in `packages/contracts/src/session.ts:129-135`.
     // TODO(Plan-006): handle `session.activated` and transition to `active`.
     state: "provisioning",
     createdAt: event.occurredAt,
     asOfSequence: event.sequence,
-    memberships: [ownerMembership],
+    memberships,
     channels: [mainChannel],
   };
 }

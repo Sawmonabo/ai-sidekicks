@@ -172,6 +172,22 @@ function hydrateRow(row: SessionEventRow): StoredEvent {
   // because `process.hrtime.bigint()` legitimately exceeds 2^53 even on
   // recently-booted hosts.
   const sequence: number = Number(row.sequence);
+  // Payload-shape assumption (N6): the `JSON.parse(...) as Record<string,
+  // unknown>` cast is sound *only* because the single writer in this
+  // package — `SessionService.append` above — JSON-stringifies an
+  // `AppendableEvent.payload: Record<string, unknown>` before insert. If
+  // a future writer ever bypasses `append()` and stores a non-object JSON
+  // value (e.g. a JSON array, primitive, or `null`) into `payload`, the
+  // cast lies and downstream projector code reads `event.payload[key]`
+  // off a non-object. The wire-layer `SessionEventSchema` (in
+  // `packages/contracts/src/event.ts`) constrains every V1 variant's
+  // payload to an object schema, so the in-process invariant matches
+  // the wire contract; the cast is preserved here without a defensive
+  // try/catch to surface defective writers loudly rather than swallow
+  // them. Plan-006 (event-taxonomy + integrity protocol) will land a
+  // payload-canonicalization step that re-validates against the
+  // discriminated-union schema on read; until then this comment is the
+  // contract.
   const payload: Record<string, unknown> = JSON.parse(row.payload) as Record<string, unknown>;
   return {
     id: row.id,

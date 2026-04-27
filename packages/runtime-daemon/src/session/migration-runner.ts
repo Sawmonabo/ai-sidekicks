@@ -13,7 +13,8 @@
 //
 // This module also owns:
 //   * the canonical pragma list applied at every handle open per
-//     local-sqlite-schema.md §Pragmas (`applyPragmas`),
+//     `docs/architecture/schemas/local-sqlite-schema.md` §Pragmas
+//     (`applyPragmas`),
 //   * the canonical handle factory (`openDatabase`) — opens the file,
 //     applies pragmas, runs migrations in the right order. Use this in
 //     production code paths AND in tests so the order can never drift.
@@ -27,7 +28,7 @@ import { INITIAL_MIGRATION_SQL } from "../migrations/0001-initial.js";
  * Apply pragmas to an open Database handle. MUST be called on every
  * handle open (including reopens) — pragmas are connection-local.
  *
- * Per local-sqlite-schema.md §Pragmas:
+ * Per `docs/architecture/schemas/local-sqlite-schema.md` §Pragmas:
  *   - WAL journal mode: concurrent readers during writes.
  *   - synchronous=FULL: overrides better-sqlite3 default (NORMAL) for
  *     chain-of-custody durability per Spec-006 §Integrity Protocol.
@@ -48,30 +49,51 @@ export function applyPragmas(db: DatabaseType): void {
  * Idempotent: each migration is checked against `schema_version` before
  * exec, so calling this on an already-migrated database is a no-op.
  *
- * Concurrency: each migration is wrapped in `db.transaction(...)`, which
- * better-sqlite3 implements as `BEGIN ... COMMIT`. Two daemons racing on
- * the same file resolve via SQLite's busy-handler: the loser sees
- * SQLITE_BUSY (or, more typically, the loser's `hasMigrationApplied`
- * returns `true` after the winner commits and the loser's transaction
- * becomes a no-op idempotent reapply).
+ * Concurrency: each migration is wrapped in `db.transaction(...)`
+ * invoked via `.immediate()`, which begins the transaction with `BEGIN
+ * IMMEDIATE` (taking the RESERVED writer-intent lock at BEGIN time
+ * rather than at first write). Two daemons racing on the same file
+ * resolve via SQLite's busy-handler at BEGIN: the loser blocks until
+ * `busy_timeout=5000` ms elapses (set in `applyPragmas`); when the loser
+ * acquires the lock the inner `hasMigrationApplied` re-check sees the
+ * winner's committed `schema_version` row and short-circuits, so the
+ * transaction commits as a no-op. Either way: exactly one
+ * `INITIAL_MIGRATION_SQL.exec()` ever lands.
+ *
+ * Why NOT the default (`db.transaction(...)()`): better-sqlite3's
+ * default transaction wrapper begins with `BEGIN`, which SQLite
+ * dispatches as DEFERRED. Both racers start as readers; the inner
+ * `hasMigrationApplied()` SELECT succeeds without a lock upgrade; the
+ * subsequent `db.exec(SQL)` requires a write lock; in WAL mode, two
+ * DEFERRED transactions both attempting to upgrade hit
+ * `SQLITE_BUSY_SNAPSHOT`, which `busy_timeout` cannot resolve (the
+ * busy-handler only retries while no transaction is held). Round 2's
+ * R2 commit shipped this defective pattern; the
+ * `concurrent applyMigrations across worker_threads` test in
+ * `__tests__/session-service.test.ts` empirically reproduces the
+ * regression with the default wrapper and proves the fix with
+ * `.immediate()`.
  */
 export function applyMigrations(db: DatabaseType): void {
   if (!hasMigrationApplied(db, 1)) {
     // The migration SQL itself contains the INSERT into schema_version
     // (the version=1 anchor row), so a single .exec() call is the unit
-    // of work. Wrapping in db.transaction(...) ensures the schema_version
-    // row commits atomically with the table CREATEs — a torn write
-    // (e.g. process crash mid-migration) leaves the database fully
-    // unmigrated, never half-migrated.
+    // of work. Wrapping in db.transaction(...).immediate() ensures the
+    // schema_version row commits atomically with the table CREATEs — a
+    // torn write (e.g. process crash mid-migration) leaves the database
+    // fully unmigrated, never half-migrated — AND that the BEGIN takes
+    // the RESERVED writer-intent lock immediately so concurrent racers
+    // serialize at BEGIN rather than colliding at write-upgrade time.
     db.transaction(() => {
       // Re-check inside the transaction to close the
-      // `hasMigrationApplied → exec` window: if a concurrent writer beat
-      // us in between, the inner check returns true and we skip the
-      // exec rather than re-applying the CREATE TABLEs.
+      // `hasMigrationApplied → exec` window: when a concurrent writer
+      // wins the BEGIN-IMMEDIATE race and commits before we acquire the
+      // lock, the inner check returns true and we skip the exec rather
+      // than re-applying the CREATE TABLEs.
       if (!hasMigrationApplied(db, 1)) {
         db.exec(INITIAL_MIGRATION_SQL);
       }
-    })();
+    }).immediate();
   }
 }
 

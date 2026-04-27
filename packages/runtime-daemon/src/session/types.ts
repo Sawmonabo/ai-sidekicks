@@ -1,17 +1,32 @@
 // Daemon-internal session types.
 //
-// These types intentionally do NOT import from `@ai-sidekicks/contracts`.
-// The wire-facing `SessionSnapshot` in contracts is the *projection
-// returned over IPC* — small, intentionally narrow. The daemon's internal
-// projection carries memberships and channels because those are what the
-// projector needs to fold over events. The two surfaces will be reconciled
-// in Plan-001 PR #5 (client SDK + IPC mapping); for PR #3 the daemon's
-// projection is purely internal.
+// `DaemonSessionSnapshot` is intentionally distinct from the wire-facing
+// `SessionSnapshot` in `@ai-sidekicks/contracts`: the wire shape is the
+// projection returned over IPC (small, intentionally narrow), while the
+// daemon's internal projection carries memberships and channels because
+// those are what the projector folds over events. The two surfaces will
+// be reconciled in Plan-001 PR #5 (client SDK + IPC mapping); for PR #3
+// the daemon's projection is purely internal.
+//
+// However, the *vocabulary* of states this snapshot can represent must
+// track the canonical wire enum by construction. Round 2 declared
+// `state: "provisioning" | "active" | "ended"` — `"ended"` is not a
+// member of `SessionState` in any spec, ADR, contract, or domain doc
+// (canonical: `provisioning | active | archived | closed | purge_requested
+// | purged` per `packages/contracts/src/session.ts:129-135` and
+// `docs/architecture/contracts/api-payload-contracts.md` §Shared Enums and
+// `docs/domain/session-model.md:61-77`). Round 3 imports `SessionState`
+// from contracts so daemon code cannot drift from the wire vocabulary
+// (analogous fix to the R1 `MembershipRole` narrowing). The contracts
+// dependency was already present in this package's `package.json`; this
+// import doesn't add a new edge to the workspace dep graph.
 //
 // Hash-chain placeholder rationale: see migrations/0001-initial.ts header.
 // Plan-006 owns real hash-chain semantics; Plan-001 writes zero-fill bytes
 // and real `monotonic_ns` so NOT NULL constraints hold without claiming
 // Plan-006 invariants.
+
+import type { SessionState } from "@ai-sidekicks/contracts";
 
 // --------------------------------------------------------------------------
 // Internal envelope (write-side input to SessionService.append)
@@ -94,21 +109,24 @@ export interface ChannelProjection {
   readonly createdAt: string; // RFC 3339 UTC
 }
 
-// `state: "provisioning"` matches Spec-001 line 53: a newly created session
-// starts in `provisioning` and only transitions to `active` once initial
-// membership, storage, and control-plane metadata are ready. Spec-006 line
-// 103 enumerates a distinct `session.activated` event for that transition;
-// Plan-001 PR #3 ships the placeholder state and a TODO marker — Plan-006
-// will land the activation event handler.
-//
-// "ended" remains in the union as a forward-compatible placeholder for
-// `session.archived` / `session.closed` (Spec-006 lines 104-106) — Plan-001
-// does not emit either, but later plans will, and keeping the union
-// forward-compatible avoids a contract-only churn PR later.
+// `state` reuses the canonical `SessionState` from `@ai-sidekicks/contracts`
+// (`provisioning | active | archived | closed | purge_requested | purged`).
+// Plan-001 PR #3 only emits `provisioning` (Spec-001 line 53: a newly
+// created session starts in `provisioning` and transitions to `active`
+// once initial membership, storage, and control-plane metadata are
+// ready). Spec-006 line 103 enumerates a distinct `session.activated`
+// event for the `provisioning -> active` transition; Plan-022 owns
+// `purge_requested` / `purged`; Plan-006 / future plans own `archived` /
+// `closed`. The wider union here is deliberate — by tracking the
+// canonical wire vocabulary at the daemon-internal layer, future plans
+// that add archived/closed/purge handlers can fold directly into this
+// snapshot type without a contract-vs-daemon vocabulary reconciliation
+// PR. Round 2's fabricated `"ended"` literal has been removed (it does
+// not appear in any spec/ADR/contract).
 
 export interface DaemonSessionSnapshot {
   readonly sessionId: string;
-  readonly state: "provisioning" | "active" | "ended";
+  readonly state: SessionState;
   readonly createdAt: string; // RFC 3339 UTC
   readonly asOfSequence: number;
   readonly memberships: ReadonlyArray<MembershipProjection>;
