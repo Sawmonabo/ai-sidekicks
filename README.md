@@ -278,6 +278,7 @@ Current documentation corpus:
 | Operations | [`docs/operations/`](docs/operations/) | Runbooks, SLOs, on-call routing |
 | V1 Scope | [`docs/architecture/v1-feature-scope.md`](docs/architecture/v1-feature-scope.md) | What ships in V1 vs V2 |
 | Build Order | [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md) | 9-tier implementation sequence |
+| Contributing | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Branch naming, commit format, PR workflow |
 
 ---
 
