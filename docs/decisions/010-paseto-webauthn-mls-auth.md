@@ -146,6 +146,10 @@ The long-term Ed25519 identity key used for `SessionKeyBundle` signing (item 3 i
 
 [ADR-021](./021-cli-identity-key-storage-custody.md) is the authoritative CLI at-rest custody spec. Any conflict between this summary and ADR-021 resolves in favor of ADR-021.
 
+## Related Domain Docs
+
+- [Trust And Identity](../domain/trust-and-identity.md) — canonical domain model for identity-material provisioning, fingerprint verification ceremony, and the trust-state lifecycle. The PASETO/WebAuthn/MLS primitives in this ADR are the implementation under that domain model.
+
 ## References
 
 - [ADR-007: Collaboration Trust And Permission Model](./007-collaboration-trust-and-permission-model.md)

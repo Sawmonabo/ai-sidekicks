@@ -405,6 +405,7 @@ The `audit_integrity_failed` event is itself a `session_events` row and is there
 
 ## Related Domain Docs
 
+- [Trust And Identity](../domain/trust-and-identity.md) — canonical domain model for identity-material provisioning, fingerprint verification, and the trust-state lifecycle that this architecture implements.
 - [Participant And Membership Model](../domain/participant-and-membership-model.md)
 - [Runtime Node Model](../domain/runtime-node-model.md)
 - [Artifact Diff And Approval Model](../domain/artifact-diff-and-approval-model.md)

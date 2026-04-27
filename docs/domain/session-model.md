@@ -101,6 +101,10 @@ State-machine precedent for the `provisioning -> active` split: Kubernetes Pod (
 - A session may be archived with unresolved historical approvals or failed runs; archival does not rewrite history.
 - A session may temporarily remain usable only in `local-only` continuity during control-plane outage; that does not imply a different lifecycle model.
 
+## Related Domain Docs
+
+- [Trust And Identity](./trust-and-identity.md) — session-end is the trigger for ephemeral X25519 zeroization (per [security-architecture.md §V1 Relay Encryption](../architecture/security-architecture.md)) and for the rotate-on-shred path of the daemon master key when participant crypto-shred fires. Session lifecycle and trust-state lifecycle interact at this boundary.
+
 ## Related Specs
 
 - [Shared Session Core](../specs/001-shared-session-core.md)
