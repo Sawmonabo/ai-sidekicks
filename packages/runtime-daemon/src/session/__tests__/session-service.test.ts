@@ -35,7 +35,7 @@ import { Worker } from "node:worker_threads";
 
 import Database from "better-sqlite3";
 import type { Database as DatabaseType } from "better-sqlite3";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { applyMigrations, applyPragmas, openDatabase } from "../migration-runner.js";
 import { deriveMainChannelId } from "../session-projector.js";
@@ -732,6 +732,112 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
         isBusyClass,
         `expected a SQLITE_BUSY-class failure as proof of writer-vs-writer contention; got ${JSON.stringify(f)}`,
       ).toBe(true);
+    }
+  });
+});
+
+// ----------------------------------------------------------------------------
+// P2 — openDatabase failure-mode cleanup
+// ----------------------------------------------------------------------------
+//
+// `openDatabase` is the canonical handle factory. Production callers
+// have NO reference to the half-initialized handle if either
+// `applyPragmas` or `applyMigrations` throws — without an explicit
+// cleanup branch, the OS-level lock + WAL file descriptor stay held
+// until V8 garbage-collects the wrapper, racing the next retry. The
+// fix wraps init in try/catch + db.close() before rethrowing.
+//
+// The test makes `applyMigrations` throw deterministically by pre-
+// creating a conflicting `session_events` table on the target file
+// (without a `schema_version` row), so `INITIAL_MIGRATION_SQL.exec()`
+// hits "table session_events already exists" inside `applyMigrations`.
+// We spy on `Database.prototype.close` to assert the cleanup branch
+// fires exactly once. Spy-based verification is the load-bearing
+// witness — a regression that removed the try/catch but happened to
+// not leak file descriptors on Linux (because GC eventually fires)
+// would still fail this assertion, which is the right discriminator.
+
+describe("openDatabase — failure-mode cleanup (closes handle if init throws)", () => {
+  let cleanupTmpDir: string;
+
+  beforeEach(() => {
+    cleanupTmpDir = mkdtempSync(join(tmpdir(), "ai-sidekicks-daemon-cleanup-"));
+  });
+
+  afterEach(() => {
+    rmSync(cleanupTmpDir, { recursive: true, force: true });
+  });
+
+  it("calls db.close() on the half-initialized handle before rethrowing if applyMigrations throws", () => {
+    const dbPath: string = join(cleanupTmpDir, "init-fail.db");
+
+    // Pre-stage the file with a conflicting `session_events` table so
+    // INITIAL_MIGRATION_SQL.exec() inside applyMigrations throws
+    // "table session_events already exists" — the cleanup branch's
+    // failure-mode trigger.
+    const seedHandle: DatabaseType = new Database(dbPath);
+    try {
+      seedHandle.exec("CREATE TABLE session_events (placeholder TEXT)");
+    } finally {
+      seedHandle.close();
+    }
+
+    // Spy on `Database.prototype.close` BEFORE openDatabase is called so
+    // every close invocation across this test (including the
+    // cleanup-branch close) is counted. The spy preserves the original
+    // implementation so the OS-level handle still releases.
+    const closeSpy = vi.spyOn(Database.prototype, "close");
+    try {
+      // Assert openDatabase rethrows the underlying init error verbatim.
+      // The exact phrasing comes from better-sqlite3's SQLite error
+      // surface — match the error class, not the literal text, so a
+      // future better-sqlite3 phrasing change does not break the test.
+      expect(() => openDatabase(dbPath)).toThrow(/already exists/i);
+
+      // Cleanup-branch witness: the failed `openDatabase` call MUST
+      // have invoked `db.close()` exactly once on the half-initialized
+      // handle before rethrowing. A regression that removed the
+      // try/catch wrapper would leave this call count at 0.
+      expect(closeSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      closeSpy.mockRestore();
+    }
+  });
+
+  it("rethrows the original init error when db.close() itself throws (close-error suppression preserves diagnostic)", () => {
+    // The cleanup branch must prefer the original init error over a
+    // teardown-time close error: a close failure on an already-broken
+    // handle is strictly less informative than the underlying init
+    // failure. Force `db.close()` to throw via the spy so we can
+    // verify the rethrow surface keeps the init context.
+    const dbPath: string = join(cleanupTmpDir, "init-fail-close-throws.db");
+
+    // Same pre-stage trick to force applyMigrations to throw.
+    const seedHandle: DatabaseType = new Database(dbPath);
+    try {
+      seedHandle.exec("CREATE TABLE session_events (placeholder TEXT)");
+    } finally {
+      seedHandle.close();
+    }
+
+    // Replace `Database.prototype.close` with a spy that always throws.
+    // The cleanup branch must swallow the close-error and rethrow the
+    // ORIGINAL init error.
+    const closeSpy = vi.spyOn(Database.prototype, "close").mockImplementation(function () {
+      throw new Error("simulated close failure");
+    });
+    try {
+      // The rethrown error must be the init error ("already exists"),
+      // NOT the simulated close error. This proves the cleanup branch
+      // suppresses close-time failures rather than masking the init
+      // diagnostic.
+      expect(() => openDatabase(dbPath)).toThrow(/already exists/i);
+      expect(() => openDatabase(dbPath)).not.toThrow(/simulated close failure/);
+    } finally {
+      // Restore the real close implementation BEFORE the seed-handle
+      // cleanup in afterEach reattempts close on any handles the test
+      // somehow leaked.
+      closeSpy.mockRestore();
     }
   });
 });

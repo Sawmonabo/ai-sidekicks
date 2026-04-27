@@ -106,11 +106,37 @@ export function applyMigrations(db: DatabaseType): void {
  * Idempotent on reopen: pragmas are reapplied (they are connection-local
  * per SQLite semantics), and the migration check sees `schema_version`
  * already populated and short-circuits.
+ *
+ * Failure-mode cleanup: if either `applyPragmas` or `applyMigrations`
+ * throws (SQLITE_BUSY after busy_timeout, disk error, schema-corruption
+ * detection, etc.), the half-initialized handle is closed before the
+ * error propagates. Without this, the underlying `better-sqlite3` handle
+ * would never be returned to the caller — nothing else holds a reference
+ * to close it — and OS-level locks plus the WAL file descriptor would
+ * stay held until V8 garbage-collected the wrapper, making caller-side
+ * retries flaky (next `openDatabase` would race the GC). The throw is
+ * re-raised verbatim so callers see the same diagnostic they would
+ * without the cleanup wrapper. `db.close()` is itself protected: if it
+ * throws (e.g. because the underlying handle is already in an
+ * unrecoverable state), the close-error is suppressed in favor of the
+ * original initialization error — losing init context to a teardown
+ * error would obscure the actual failure.
  */
 export function openDatabase(dbPath: string): DatabaseType {
   const db: DatabaseType = new Database(dbPath);
-  applyPragmas(db);
-  applyMigrations(db);
+  try {
+    applyPragmas(db);
+    applyMigrations(db);
+  } catch (err) {
+    try {
+      db.close();
+    } catch {
+      // Swallow close-time failures so the original init error reaches
+      // the caller. A close failure on an already-broken handle is
+      // strictly less informative than the underlying init throw.
+    }
+    throw err;
+  }
   return db;
 }
 
