@@ -254,10 +254,9 @@ export class SessionDirectoryService {
    * promotion paths in particular — MUST follow the same order
    * (`sessions` → `session_memberships`) to avoid a cross-flow deadlock
    * where T1 holds `sessions` waiting for `session_memberships` while
-   * T2 holds `session_memberships` waiting for `sessions`. This is a
-   * cross-plan constraint, not a soft suggestion: deviating from it
-   * requires a coordinated change to this service's lock order, not
-   * just to the deviating caller.
+   * T2 holds `session_memberships` waiting for `sessions`. Deviating
+   * from this order requires a coordinated change to this service's
+   * lock order, not just to the deviating caller.
    *
    * Why no error-handler around `transaction(...)`: PGlite's
    * `pg.transaction(fn)` (and the `pg`-side equivalent that PR #5 will

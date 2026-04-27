@@ -635,7 +635,7 @@ describe("SessionDirectoryService — P2 (idempotent re-create does not fork)", 
     // Querier (where it would lock the wrong connection / no connection
     // at all under pg.Pool semantics) or that issues it twice.
     //
-    // TODO(PR#5): once pg.Pool lands, strengthen this assertion to
+    // TODO(Plan-001 PR #5): once pg.Pool lands, strengthen this assertion to
     // discriminate WHICH Querier instance issued each statement (e.g.,
     // tag the proxy with an id and capture pairs of `(querier-id, sql)`).
     // The current proxy wraps both `this.#querier` and the in-tx `tx`, so
