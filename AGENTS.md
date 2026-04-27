@@ -63,7 +63,13 @@ When dispatching parallel research subagents, ensure file targets are disjoint t
 
 [ADR-024](docs/decisions/024-agentic-plan-execution-methodology.md) defines the cross-tool methodology for executing implementation plans (`docs/plans/NNN-*.md`) PR-by-PR. The principles are tool-neutral:
 
-- **Three roles per PR** — one implementer, one spec-reviewer (does the diff match plan + spec + cited ADRs?), one code-quality-reviewer (does the diff meet idiomatic / test / type / maintainability standards?). Reviewers run in parallel.
+- **Four roles per PR.** One principal-engineer implementer plus three adversarial staff-level reviewers, each catching a distinct failure class:
+  - **spec-reviewer** — does the diff match plan + spec + cited ADRs? (intent drift)
+  - **code-quality-reviewer** — is the code idiomatic, well-tested, maintainable? (style + maintainability)
+  - **code-reviewer** — is the code correct, regression-free, secure, at staff-level bar? (correctness + regressions)
+  Reviewers run in parallel; each subagent starts with a fresh context window and receives only branch + PR + plan task verbatim, so each role stays focused on its single failure class.
+- **All findings round-trip to the implementer** regardless of severity. No informational-nit pass-through; every reviewer concern is addressed before merge. Trade-off: more iteration loops per PR, accepted in exchange for higher merge quality.
+- **Staff-level mindset framing.** Subagent prompts embed Socratic interrogation + adversarial analysis (the user's principal-engineer mindset), not mechanical task instructions.
 - **State canonicality on the branch.** Branch commits are the durable cross-session truth. In-session task tracking and PR descriptions are bookkeeping, not authority.
 - **Four observed exit states** — `DONE`, `DONE_WITH_CONCERNS`, `NEEDS_CONTEXT`, `BLOCKED` — drive deterministic routing rather than ad-hoc handling.
 - **Branch off `develop`, squash-merge to `develop`** per [ADR-023](docs/decisions/023-v1-ci-cd-and-release-automation.md) and [CONTRIBUTING.md](CONTRIBUTING.md).

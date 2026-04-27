@@ -33,7 +33,7 @@ How should Claude execute a multi-PR implementation plan such that (a) the workf
 
 ## Decision
 
-**We will execute each implementation plan PR-by-PR using the `plan-execution` skill, which dispatches three subagent roles (implementer, spec-reviewer, code-quality-reviewer) on a feature branch off `develop`, with state preserved on the branch and in TaskCreate before the draft PR description.**
+**We will execute each implementation plan PR-by-PR using the `plan-execution` skill, dispatching four subagent roles — one principal-engineer implementer plus three adversarial staff-level reviewers (spec-reviewer, code-quality-reviewer, code-reviewer) — on a feature branch off `develop`, with state preserved on the branch ahead of the draft PR description. Each subagent starts with a fresh context window and receives only branch + PR + plan task verbatim, so each role stays focused on its single failure class. All reviewer findings round-trip to the implementer for resolution regardless of severity; there is no informational-nit pass-through.**
 
 Triggers:
 
@@ -42,23 +42,26 @@ Triggers:
 
 ### Thesis — Why This Option
 
-1. **Subagent fan-out catches different failure classes.** A single reviewer collapses two distinct concerns: *did the implementation match the plan / spec?* (spec drift) and *is the code idiomatic, tested, and maintainable?* (code quality). Empirically these surface different defects — spec drift manifests as missing fields, wrong return shapes, or unimplemented branches; code-quality issues manifest as missing tests, weak typing, or unclear control flow. Splitting the role forces each reviewer to focus, and reduces the chance that one concern eclipses the other in a single review pass.
-2. **State canonicality on the branch + TaskCreate enables crash recovery.** The PR description is a UI surface that can be edited, lost, or out of sync. The branch (commits) and TaskCreate (in-session task durability) are the canonical state. On resume, the skill reads the active branch tip and TaskList to infer where work paused, then re-dispatches from that point.
-3. **Auto-detection keeps the trigger phrase short.** `execute Plan-NNN` is the default; the skill walks the merged-PR history for that plan and infers PR `M`. The explicit `PR #M` override exists for retry / out-of-order cases. This matters across 50–60 invocations — a 4-word trigger compounds into hours saved versus a 12-word "execute Plan-NNN PR #M from develop with state X" formula.
-4. **The skill / ADR split versions the methodology correctly.** The decision (this ADR) is stable and rarely changes. The skill (executable form) evolves with each plan's lessons. Splitting them lets us keep the ADR small and let the skill body grow without re-opening the decision.
+1. **Subagent fan-out catches different failure classes.** A single reviewer collapses three distinct concerns: *did the implementation match the plan / spec?* (intent drift), *is the code idiomatic, tested, and maintainable?* (style + maintainability), and *is the code correct and free of regressions?* (bugs / edge cases / security). Empirically these surface different defects — intent drift manifests as missing fields and wrong return shapes; style issues manifest as weak typing and unclear control flow; correctness issues manifest as off-by-ones, race conditions, and broken consumers of touched files. Splitting the role across three adversarial reviewers forces each one to focus, and reduces the chance that one concern eclipses the others in a single review pass.
+
+2. **Staff-level mindset framing produces deeper review.** Each subagent prompt embeds the user's principal-engineer mindset (Socratic interrogation + adversarial analysis + decision presentation) rather than mechanical "do task, follow rules" instructions. The implementer interrogates assumptions before writing code; the reviewers read the diff like hostile staff engineers trying to block the PR. Empirically, prompts that frame *who* the subagent is produce more rigorous output than prompts that only specify *what* to do.
+3. **All-findings-round-trip ensures merge quality.** Reviewer findings — regardless of severity — route back to the implementer for resolution. No "non-blocking nit" pass-through. The trade-off is more iteration loops per PR, accepted in exchange for higher merge quality on `develop`. Once a finding is surfaced, it gets attention; the alternative (severity-gated routing where minor findings ride along into `develop`) compounds tech debt across 50–60 PRs.
+4. **State canonicality on the branch + TaskCreate enables crash recovery.** The PR description is a UI surface that can be edited, lost, or out of sync. The branch (commits) and TaskCreate (in-session task durability) are the canonical state. On resume, the skill reads the active branch tip and TaskList to infer where work paused, then re-dispatches from that point.
+5. **Auto-detection keeps the trigger phrase short.** `execute Plan-NNN` is the default; the skill walks the merged-PR history for that plan and infers PR `M`. The explicit `PR #M` override exists for retry / out-of-order cases. This matters across 50–60 invocations — a 4-word trigger compounds into hours saved versus a 12-word "execute Plan-NNN PR #M from develop with state X" formula.
+6. **The skill / ADR split versions the methodology correctly.** The decision (this ADR) is stable and rarely changes. The skill (executable form) evolves with each plan's lessons. Splitting them lets us keep the ADR small and let the skill body grow without re-opening the decision.
 
 ### Antithesis — The Strongest Case Against
 
 A skeptical staff engineer would argue:
 
-1. **Three subagents per PR is overkill for the doc-first repo's first code PRs.** PR-sized work is small (Plan-001 PR #1 is `pnpm` workspace scaffold + Vitest config). One implementer + one merge-time review pass is enough; two reviewers triple token burn for marginal additional signal.
+1. **Four subagents per PR (one implementer + three reviewers) is overkill for the doc-first repo's first code PRs.** PR-sized work is small (Plan-001 PR #1 is `pnpm` workspace scaffold + Vitest config). One implementer + one merge-time review pass is enough; three reviewers quadruple token burn for marginal additional signal. The all-findings-round-trip rule compounds the cost — every nit forces another full reviewer round.
 2. **Skill files are Claude-Code-specific tooling.** [`AGENTS.md`](../../AGENTS.md) explicitly defines this repo as multi-tool (Claude, Codex, Cursor, Aider). Encoding the workflow in `.claude/skills/...` privileges Claude Code and creates a divergence risk: if Codex executes a plan with a different loop, the methodology fragments.
 3. **Failure-mode taxonomy is premature optimization.** Naming `BLOCKED`, `NEEDS_CONTEXT`, `DONE_WITH_CONCERNS`, `DONE` before observing real failures encodes guesses as policy. Just retry on failure and let the actual failure modes inform a future taxonomy.
 4. **TaskCreate is also Claude-Code-specific durability.** A multi-agent world needs a tool-neutral state layer (e.g., a `.agents/state/<plan>.md` file). Pinning state to TaskCreate makes resumption Claude-only.
 
 ### Synthesis — Why It Still Holds
 
-1. **Subagent overhead is the cheapest insurance against rework.** Token cost of two reviewer subagents per PR is small relative to the cost of squash-merging a defect into `develop` and unwinding it. The user is the principal-engineer reviewer at the *PR* level; subagents are the line-of-defense *inside* the PR before human review. For very small PRs, the skill MAY collapse to implementer + single reviewer — see the [`plan-execution` skill](../../.claude/skills/plan-execution/SKILL.md) for the size-tier rule. The default is fan-out; the small-PR collapse is an explicit, documented variation.
+1. **Subagent overhead is the cheapest insurance against rework.** Token cost of three reviewer subagents per PR — even with all-findings round-trip iteration — is small relative to the cost of squash-merging a defect into `develop` and unwinding it across cross-plan dependencies. The user is the principal-engineer reviewer at the *PR* level; subagents are the line-of-defense *inside* the PR before human review. For very small PRs, the skill defines two narrow collapse paths (docs-only PRs run spec-reviewer alone; tiny code PRs may skip spec-reviewer) — see the [`plan-execution` skill](../../.claude/skills/plan-execution/SKILL.md). The default is full fan-out; collapses are documented exceptions, never silent.
 2. **The methodology generalizes; only the execution mechanism is Claude-Code-specific.** The principles — branch off integration, fan out implementation/review, preserve state durably, gate squash on green CI — transfer directly to Codex (`/run` sequences), Cursor (`@-mention review` agents), and Aider (`/architect` flow). The Claude skill is the *current* implementation; AGENTS.md gets a pointer to the methodology so other agents can implement the same loop with their own tooling. Cross-tool divergence is contained to the executor, not the policy.
 3. **The four failure modes are observed, not theoretical.** They surfaced in prior agentic sessions on this repo (BL-097/BL-098 doc work, ADR-022/023 drafting). Naming them lets the dispatch loop *route* them — e.g., `BLOCKED` halts, `NEEDS_CONTEXT` re-prompts, `DONE_WITH_CONCERNS` annotates the PR, `DONE` advances. Without names, every failure becomes a one-off improvisation. The taxonomy is small (4 cases), explicit, and revisable — adding a fifth mode is an edit, not a rewrite.
 4. **Branch commits are the durable layer; TaskCreate is in-session bookkeeping.** State canonicality order is **branch commits > TaskCreate > draft PR description**. The branch is durable across sessions, machines, and tools — Codex resuming a Claude branch reads commits the same way. TaskCreate is the *current Claude session's* working memory, not the cross-session truth. The skill's resumption protocol reads the branch tip first; TaskList is consulted only to recover the *intent* of the next task within the current session.
@@ -67,11 +70,11 @@ A skeptical staff engineer would argue:
 
 ## Alternatives Considered
 
-### Option A: Three-Subagent Fan-out with Skill + ADR (Chosen)
+### Option A: Four-Role Fan-out (Implementer + 3 Reviewers) with Skill + ADR (Chosen)
 
-- **What:** Skill triggers on `execute Plan-NNN[ PR #M]`; dispatches implementer subagent, then spec-reviewer + code-quality-reviewer in parallel; gates squash-merge on both reviewer DONEs + green CI. ADR captures the decision; skill captures the executable form.
-- **Steel man:** Repeatable across 50–60 PRs with sub-linear cognitive load on the user. Subagent fan-out catches both spec drift and code-quality issues. State on branch + TaskCreate survives crashes. Auto-detection keeps the trigger short. ADR / skill split lets the decision stay stable while the executor evolves.
-- **Weaknesses:** Three subagents per PR cost more tokens than a single-shot. Skill is Claude-Code-specific (mitigated by AGENTS.md cross-link + tool-neutral methodology principles). The four-mode failure taxonomy may need refinement after PR #1.
+- **What:** Skill triggers on `execute Plan-NNN[ PR #M]`; dispatches a principal-engineer implementer, then three adversarial reviewers (spec / quality / code) in parallel; gates squash-merge on all three reviewer DONEs + green CI. All reviewer findings round-trip to implementer regardless of severity. ADR captures the decision; skill captures the executable form.
+- **Steel man:** Repeatable across 50–60 PRs with sub-linear cognitive load on the user. Three-role review covers intent / style / correctness as orthogonal failure classes. Staff-level mindset framing produces deeper review than mechanical prompts. All-findings-round-trip prevents tech debt accumulation across V1. State on branch + TaskCreate survives crashes. Auto-detection keeps the trigger short. ADR / skill split lets the decision stay stable while the executor evolves.
+- **Weaknesses:** Four subagents per PR cost more tokens than a single-shot, especially under all-findings-round-trip iteration. Skill is Claude-Code-specific (mitigated by AGENTS.md cross-link + tool-neutral methodology principles). The four-mode failure taxonomy and the round-trip rule may need refinement after Plan-001 PR #1.
 
 ### Option B: Single-shot Implementation, Human-only Review (Rejected)
 
@@ -97,7 +100,7 @@ A skeptical staff engineer would argue:
 
 - **Reversal cost:** Hours. Edit the skill file (or delete it) and supersede this ADR. No code migration; the methodology only governs *future* PRs.
 - **Blast radius:** Future PRs only. Already-merged PRs are unaffected.
-- **Migration path:** If the methodology proves wrong (e.g., three-subagent fan-out is consistently overkill), update the skill body, mark this ADR `superseded by ADR-NNN`, and continue.
+- **Migration path:** If the methodology proves wrong (e.g., four-role fan-out is consistently overkill, or all-findings-round-trip produces unproductive iteration spirals), update the skill body, mark this ADR `superseded by ADR-NNN`, and continue.
 - **Point of no return:** None. The methodology can be revised between any two PRs.
 
 ## Consequences
@@ -106,20 +109,22 @@ A skeptical staff engineer would argue:
 
 - **Repeatable workflow across 50–60 PRs.** The user does not re-explain the loop on each invocation.
 - **Crash and compaction recovery built in.** State on branch + TaskCreate lets the skill resume at the next subagent boundary.
-- **Both spec-drift and code-quality defects caught pre-merge.** Subagent fan-out gives each concern a dedicated reviewer.
+- **Spec-drift, style, and correctness defects all caught pre-merge.** Three-reviewer fan-out gives each failure class a dedicated adversarial reviewer; the all-findings-round-trip rule ensures none ride along into `develop`.
 - **Auto-detection keeps the trigger short.** `execute Plan-NNN` (4 words) versus `execute Plan-NNN PR #M from develop with state X` (12 words) — compounds across V1.
 - **Decision and execution versioned independently.** ADR captures policy; skill captures executor; each evolves on its own cadence.
 
 ### Negative (accepted trade-offs)
 
-- **Three subagents per PR consume more tokens than single-shot.** Accepted because the cost of an undetected defect on `develop` is higher than the marginal token cost of two reviewer passes. Small-PR collapse rule is documented in the skill for cases where fan-out is genuinely overkill.
+- **Four subagents per PR (with iteration loops) consume more tokens than single-shot.** Accepted because the cost of an undetected defect on `develop` — particularly correctness or regression defects that propagate across cross-plan dependencies — is higher than the marginal token cost of three reviewer passes plus their round-trip iterations. Docs-only and small-code-PR collapse rules are documented in the skill for cases where full fan-out is genuinely overkill.
+- **All-findings-round-trip may produce iteration spirals on contentious style.** Accepted as the deliberate trade for higher merge quality; revisit if Plan-001 PR #1 shows unproductive back-and-forth on trivial findings.
 - **Skill file is Claude-Code-specific.** Accepted because: (a) the methodology principles are tool-neutral and documented in this ADR + AGENTS.md cross-link, (b) other agents can implement the same loop with their own tooling, (c) the V1 implementer is Claude Opus 4.7 per the user's stated implementer model.
 - **Methodology may need refinement after Plan-001 PR #1.** Accepted because Type 1 reversibility means the cost of refinement is hours, not weeks.
 
 ### Unknowns
 
-- **Optimal subagent fan-out for very small PRs.** The skill defaults to three-subagent fan-out; the small-PR collapse rule is a heuristic that needs validation against Plan-001 PR #1 (small) and Plan-001 PR #5 (medium-large). Will be revisited after Plan-001 completes.
+- **Optimal reviewer fan-out for very small PRs.** The skill defaults to three-reviewer fan-out; the docs-only and small-code-PR collapse rules are heuristics that need validation against Plan-001 PR #1 (small code) and Plan-001 PR #5 (medium-large code). Will be revisited after Plan-001 completes.
 - **Whether the four-mode failure taxonomy is complete.** The four modes (`BLOCKED`, `NEEDS_CONTEXT`, `DONE_WITH_CONCERNS`, `DONE`) are observed in prior sessions but may not cover all cases that emerge during code-execution PRs. Will be revisited after Plan-001 PR #1.
+- **Whether all-findings-round-trip produces productive iteration.** The rule trades iteration time for merge quality; if reviewers surface trivial findings that the implementer addresses in seconds (no productive deliberation), the rule may need a soft severity threshold. Validation point on Plan-001 PR #1.
 
 ---
 
@@ -154,3 +159,4 @@ No external (web/library/community) research was conducted — the methodology i
 | Date | Event | Notes |
 |------|-------|-------|
 | 2026-04-26 | Proposed | Drafted alongside the [`plan-execution` skill](../../.claude/skills/plan-execution/SKILL.md) in PR #5. Captures the methodology agreed in conversation during Session N immediately after BL-100/ADR-023 acceptance, in preparation for Plan-001 PR #1. Awaiting PR #5 review (final-review task gate) before promotion to `accepted`. |
+| 2026-04-26 | Revised in PR #5 review | User feedback during PR #5 review: (a) skill body should be self-contained — strip excess ADR cross-references; (b) subagent prompts should embed staff-level engineering mindset (Socratic interrogation + adversarial analysis), not mechanical task instructions; (c) add a fourth role — `code-reviewer` — for general staff-level correctness and regression review distinct from the existing code-quality reviewer; (d) all reviewer findings round-trip to the implementer regardless of severity (no informational-nit pass-through). ADR Decision, Thesis, Antithesis, Synthesis, Option A, Reversibility, Consequences, and Unknowns sections updated to reflect the four-role + all-findings-round-trip methodology. Type 1 reversibility unchanged. |

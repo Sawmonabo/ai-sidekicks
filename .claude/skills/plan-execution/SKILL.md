@@ -1,11 +1,11 @@
 ---
 name: plan-execution
-description: Execute implementation plans (docs/plans/NNN-*.md) PR-by-PR using a three-subagent fan-out (implementer, spec-reviewer, code-quality-reviewer) on feature branches off develop. Use whenever the user says "execute Plan-NNN", "execute Plan-NNN PR #M", "kick off Plan-NNN", "work on Plan-NNN", "start Plan-NNN PR", "continue Plan-NNN", or any equivalent that names a plan. Also use when the user says "resume the plan" or "pick up where we left off" on a feat/plan-NNN-* branch. The skill auto-detects the next PR from branch state and merged-PR history; an explicit "PR #M" overrides the inference. Operationalizes ADR-024.
+description: Execute implementation plans (docs/plans/NNN-*.md) PR-by-PR using a staff-level subagent fan-out (one principal-engineer implementer, three adversarial reviewers — spec-reviewer, code-quality-reviewer, code-reviewer) on feature branches off develop. Use whenever the user says "execute Plan-NNN", "execute Plan-NNN PR #M", "kick off Plan-NNN", "work on Plan-NNN", "start Plan-NNN PR", "continue Plan-NNN", or any equivalent that names a plan. Also use when the user says "resume the plan" or "pick up where we left off" on a feat/plan-NNN-* branch. The skill auto-detects the next PR from branch state and merged-PR history; an explicit "PR #M" overrides the inference.
 ---
 
 # Plan Execution
 
-Execute one PR of one plan, end-to-end, off `develop`. Implements [ADR-024](../../../docs/decisions/024-agentic-plan-execution-methodology.md).
+Execute one PR of one plan, end-to-end, off `develop`.
 
 ## When This Skill Triggers
 
@@ -18,9 +18,25 @@ The user says any of:
 
 If the user names a plan but the trigger phrase is ambiguous, use this skill anyway and confirm the inferred PR before dispatching subagents.
 
-## Why This Methodology
+## Your Role: Orchestrator
 
-[ADR-024](../../../docs/decisions/024-agentic-plan-execution-methodology.md) is the decision document. Read it once when you first invoke this skill so the trade-offs (three-subagent overhead, four-mode failure taxonomy, state-canonicality order) are in context. The skill body is the executable form; the ADR is the *why*.
+You are the orchestrator. You don't implement code; you dispatch subagents who do, then route their outputs and gate the merge. The four roles defined in [`references/subagent-roles.md`](references/subagent-roles.md) (one implementer + three reviewers) are *your* subagents — you brief them, parse their `RESULT:` tags, and decide what happens next.
+
+### Mindset
+
+Reason like a principal-engineer project lead:
+
+- **Socratic about state.** Before dispatching, interrogate the branch state (Step 1). What's already committed? What's the next step? Don't dispatch on stale assumptions.
+- **Adversarial about subagent outputs.** Trust but verify. A subagent's `DONE` tag is a *claim*, not a guarantee — read the diff (implementer) or finding list (reviewer) before advancing.
+- **Ruthless about state hygiene.** Branch commits are the durable truth. TaskCreate is in-session bookkeeping. Don't let either drift.
+
+### Hard rules
+
+- **You orchestrate, you don't implement.** Code edits happen inside implementer dispatches. Do not write code yourself in this skill — exception: the initial scaffold commit before opening the draft PR (Step 3).
+- **All reviewer findings round-trip to the implementer**, regardless of severity. No "non-blocking nit" pass-through.
+- **Halt on `BLOCKED`** — surface to the user with the subagent's exact blocker; do not dispatch the next subagent.
+- **Never push to `develop` or `main` directly.** Always squash-merge through PR.
+- **Manage TaskCreate at workflow-step granularity per PR** (see [TaskCreate Hygiene](#taskcreate-hygiene) below).
 
 ## Workflow
 
@@ -34,8 +50,8 @@ digraph plan_execution {
     "Resume from checkpoint" [shape=box];
     "Dispatch implementer" [shape=box];
     "Implementer outcome?" [shape=diamond];
-    "Dispatch spec-reviewer\n+ code-quality-reviewer\n(parallel)" [shape=box];
-    "Reviewer outcome?" [shape=diamond];
+    "Dispatch 3 reviewers\n(spec / quality / code)\nin parallel" [shape=box];
+    "All reviewers DONE?" [shape=diamond];
     "Mark PR ready\n+ wait for CI" [shape=box];
     "CI green?" [shape=diamond];
     "Squash-merge --delete-branch\n+ pull develop" [shape=box];
@@ -51,14 +67,14 @@ digraph plan_execution {
     "Resume from checkpoint" -> "Dispatch implementer";
     "Branch off develop\n+ initial scaffold commit\n+ open draft PR" -> "Dispatch implementer";
     "Dispatch implementer" -> "Implementer outcome?";
-    "Implementer outcome?" -> "Dispatch spec-reviewer\n+ code-quality-reviewer\n(parallel)" [label="DONE / DONE_WITH_CONCERNS"];
+    "Implementer outcome?" -> "Dispatch 3 reviewers\n(spec / quality / code)\nin parallel" [label="DONE / DONE_WITH_CONCERNS"];
     "Implementer outcome?" -> "Re-prompt subagent" [label="NEEDS_CONTEXT"];
     "Implementer outcome?" -> "Halt + surface to user" [label="BLOCKED"];
     "Re-prompt subagent" -> "Dispatch implementer";
-    "Dispatch spec-reviewer\n+ code-quality-reviewer\n(parallel)" -> "Reviewer outcome?";
-    "Reviewer outcome?" -> "Mark PR ready\n+ wait for CI" [label="both DONE"];
-    "Reviewer outcome?" -> "Dispatch implementer" [label="critical issue"];
-    "Reviewer outcome?" -> "Halt + surface to user" [label="BLOCKED"];
+    "Dispatch 3 reviewers\n(spec / quality / code)\nin parallel" -> "All reviewers DONE?";
+    "All reviewers DONE?" -> "Mark PR ready\n+ wait for CI" [label="yes"];
+    "All reviewers DONE?" -> "Dispatch implementer" [label="any finding —\nimplementer resolves all"];
+    "All reviewers DONE?" -> "Halt + surface to user" [label="BLOCKED"];
     "Mark PR ready\n+ wait for CI" -> "CI green?";
     "CI green?" -> "Squash-merge --delete-branch\n+ pull develop" [label="yes"];
     "CI green?" -> "Dispatch implementer" [label="no — diagnose + fix"];
@@ -155,16 +171,23 @@ Wait for the implementer to return. Route per `references/failure-modes.md`.
 
 ### 5. Dispatch reviewers (parallel)
 
-After implementer returns `DONE` or `DONE_WITH_CONCERNS`, dispatch **both** reviewers in the same message (single multi-Agent block) so they run concurrently:
+After implementer returns `DONE` or `DONE_WITH_CONCERNS`, dispatch **all three** reviewers in the same message (single multi-Agent block) so they run concurrently. Each is an adversarial staff-level reviewer; each catches a distinct failure class:
 
-- **Spec-reviewer** — checks the diff against the plan task, the governing spec, and any cited ADRs. Looks for spec drift, missing fields, wrong return shapes, unimplemented branches. Prompt template: `references/subagent-roles.md` "Spec Reviewer".
-- **Code-quality-reviewer** — checks idiomatic style, test coverage, type safety, and maintainability against [`.claude/rules/coding-standards.md`](../../rules/coding-standards.md). Prompt template: `references/subagent-roles.md` "Code Quality Reviewer".
+- **Spec-reviewer** — *intent match*. Diff against plan task, governing spec, cited ADRs. Spec drift, missing fields, wrong shapes, unimplemented branches. Prompt template: `references/subagent-roles.md` "Spec Reviewer".
+- **Code-quality-reviewer** — *style and maintainability*. Idiom, test depth, type safety, naming, dead code, comment drift, against [`.claude/rules/coding-standards.md`](../../rules/coding-standards.md). Prompt template: `references/subagent-roles.md` "Code Quality Reviewer".
+- **Code-reviewer** — *correctness and regressions*. Bugs, off-by-ones, null derefs, race conditions, security boundaries, broken consumers of touched files, edge cases, staff-level bar. Prompt template: `references/subagent-roles.md` "Code Reviewer".
 
-Both reviewers must return `DONE` (or `DONE_WITH_CONCERNS` where concerns are non-blocking) before proceeding. If either returns critical findings, loop back to step 4 with the findings as additional context to the implementer.
+**All findings round-trip to the implementer** — regardless of severity. There is no "non-blocking nit" pass-through; if a reviewer surfaces a concern, the implementer addresses it and the reviewers re-run. The PR advances only when all three reviewers return `DONE`.
 
-#### Small-PR collapse rule
+If any reviewer returns `DONE_WITH_CONCERNS`, `BLOCKED`, or `NEEDS_CONTEXT`, route per `references/failure-modes.md` (typically: loop back to step 4 with the finding list).
 
-If the PR's diff is genuinely tiny (≤ 50 lines, single file, no new behavior — e.g., a typo fix, a config bump, a dependency upgrade), you MAY skip the spec-reviewer and dispatch only code-quality-reviewer. Document this collapse in the PR body under a "Review notes" section so it's auditable. Default is fan-out; collapse is the documented exception.
+#### Docs-only PRs
+
+For PRs whose diff is exclusively `.md` files under `docs/` (no code, no config), dispatch only the **spec-reviewer** — code-quality-reviewer and code-reviewer don't apply to prose. Note this in the PR body under "Review notes".
+
+#### Small code-PR collapse rule
+
+For genuinely tiny code PRs (≤ 50 lines, single file, no new behavior — e.g., a config bump, a dependency upgrade), you MAY skip the spec-reviewer (no spec drift possible at that size). **Never skip code-quality-reviewer or code-reviewer.** Document the collapse in the PR body under "Review notes". Default is full fan-out; collapse is the documented exception.
 
 ### 6. Mark PR ready and wait for CI
 
@@ -181,7 +204,7 @@ If CI fails, diagnose:
 
 ### 7. Squash-merge
 
-When CI is green and both reviewers signed off:
+When CI is green and all reviewers signed off `DONE`:
 
 ```bash
 gh pr merge --squash --delete-branch
@@ -200,7 +223,7 @@ If the plan has more PRs and the user requested multi-PR execution, return to st
 
 ## State Canonicality (Important)
 
-Per ADR-024, the canonicality order is:
+The canonicality order is:
 
 **branch commits > TaskCreate > PR description**
 
@@ -210,31 +233,49 @@ Per ADR-024, the canonicality order is:
 
 `references/state-recovery.md` covers the resumption protocol when a session ends mid-PR.
 
+## TaskCreate Hygiene
+
+The orchestrator owns the TaskCreate list; subagents do not. Three rules keep parent context clean across multi-PR runs:
+
+1. **Scope per-PR, not per-plan.** Active tasks reflect the *current* PR (5–10 workflow steps + iteration rounds), not all PRs of the plan. When PR #M merges, mark its tasks completed and clear before opening PR #M+1.
+2. **Workflow-step granularity.** One task per skill step (`state-inference`, `branch-off-develop`, `dispatch-implementer`, `dispatch-3-reviewers`, `address-findings-round-N`, `mark-ready`, `watch-CI`, `squash-merge`). The implementer subagent decomposes its own internal work; the orchestrator does not mirror that decomposition.
+3. **Never embed the TaskList in a subagent prompt.** Subagent briefs contain branch + PR + plan task verbatim — nothing else. Subagents start with a fresh context window by design; preserving that protects them from parent-state pollution and keeps each role focused on its single responsibility.
+
+Why this matters: parent context rot is the silent killer of long-running plan-execution sessions. A 50-task list across all of Plan-001 pollutes every dispatch decision the orchestrator makes; a 5-task list keeps the orchestrator focused on the current PR and lets a future session resume cleanly from `git log` rather than a noisy TaskList.
+
 ## Reference Files
 
 Read these only when the workflow step calls for them:
 
 - [`references/state-recovery.md`](references/state-recovery.md) — resumption protocol when a session compacts or crashes mid-PR.
-- [`references/subagent-roles.md`](references/subagent-roles.md) — prompt templates for implementer, spec-reviewer, code-quality-reviewer. Read before dispatching the first subagent.
-- [`references/failure-modes.md`](references/failure-modes.md) — taxonomy and routing for `BLOCKED`, `NEEDS_CONTEXT`, `DONE_WITH_CONCERNS`, `DONE`.
+- [`references/subagent-roles.md`](references/subagent-roles.md) — prompt templates with staff-level mindset framing for implementer, spec-reviewer, code-quality-reviewer, code-reviewer. Read before dispatching the first subagent of the PR.
+- [`references/failure-modes.md`](references/failure-modes.md) — exit-state taxonomy and routing rules for `BLOCKED`, `NEEDS_CONTEXT`, `DONE_WITH_CONCERNS`, `DONE`.
 
 ## Anti-Patterns
 
-- **Branching off `main`.** Always branch off `develop` per [ADR-023 §Decision Log 2026-04-26 amendment](../../../docs/decisions/023-v1-ci-cd-and-release-automation.md#decision-log).
-- **Skipping the state inference step.** Even on a fresh-looking session, run the four `git`/`gh` commands first. Surprises (uncommitted changes, an unexpected branch) must be resolved before dispatching.
-- **Single-shot reviewer (collapsing both reviewer roles into one).** Do not collapse spec-review and code-quality-review into a single subagent call without the small-PR collapse rule applying. The two roles catch different failure classes.
+- **Branching off `main`.** Always branch off `develop`.
+- **Skipping the state inference step.** Even on a fresh-looking session, run the `git`/`gh` commands in Step 1 first. Surprises (uncommitted changes, an unexpected branch) must be resolved before dispatching.
+- **Collapsing reviewer roles into one subagent.** Each role catches a distinct failure class (intent / style / correctness). Collapse only via the documented exceptions (docs-only or small-code-PR rules).
+- **Treating reviewer findings as "non-blocking nits."** Every finding round-trips to the implementer. There is no informational severity that bypasses resolution.
+- **Embedding the orchestrator's TaskList in a subagent prompt.** Subagents start with a fresh context window by design. Pass branch + PR + plan task verbatim — nothing else. Including parent state pollutes the subagent's reasoning and dilutes single-role focus. See [TaskCreate Hygiene](#taskcreate-hygiene).
+- **Letting TaskCreate accumulate across PRs.** When PR #M merges, clear its tasks before opening PR #M+1. Stale parent tasks compound into context rot across multi-PR runs.
 - **Editing the PR description as state.** It's a UI surface; the branch is the truth.
-- **Citing `.agents/tmp/` paths or scratch files in the PR body.** Per [AGENTS.md](../../../AGENTS.md), surface citations into the consuming doc — the PR body is a consuming doc.
-- **`--no-verify` to skip pre-commit hooks.** CI re-runs them per ADR-023 §Axis 2; bypassing the hook only delays the failure to CI.
-- **Force-push to a shared branch.** The PR branch is shared once it's pushed. Always create a new commit; squash-merge collapses history.
+- **Citing `.agents/tmp/` paths or scratch files in the PR body.** Surface citations into the consuming doc — the PR body is a consuming doc.
+- **`--no-verify` to skip pre-commit hooks.** CI re-runs them; bypassing the hook only delays the failure.
+- **Force-push to a shared branch.** The PR branch is shared once pushed. Always create a new commit; squash-merge collapses history.
 
 ## After PR #1: Refine the Skill
 
 This skill is designed to learn. After Plan-001 PR #1 completes, before starting PR #2, look at:
 
-- Were the four failure modes sufficient, or did a fifth case appear?
-- Did the small-PR collapse rule trigger correctly, or was the threshold wrong?
-- Did the parallel reviewer dispatch produce duplicate findings?
+- Were the four exit states (`DONE`, `DONE_WITH_CONCERNS`, `NEEDS_CONTEXT`, `BLOCKED`) sufficient, or did a fifth case appear?
+- Did the small-code-PR collapse threshold (≤ 50 LOC, single file, no new behavior) trigger correctly?
+- Did the three parallel reviewers surface meaningfully distinct findings, or did findings overlap (signal that role boundaries need adjustment)?
+- Did the all-findings-round-trip rule produce productive iteration, or did it spiral into trivial back-and-forth (signal that severity gates need re-introducing)?
 - Did state recovery work cleanly, or did the branch / TaskCreate / PR diverge?
 
-If the answer to any is "no," edit this SKILL.md (and supersede ADR-024 if the methodology decision itself changes). Treat the skill as living code; the ADR captures the policy.
+If the answer to any is "no," edit this SKILL.md and the relevant reference file. The methodology rationale is recorded in [ADR-024](../../../docs/decisions/024-agentic-plan-execution-methodology.md); supersede the ADR only if the *decision itself* changes (Type 1 reversibility — supersede is hours of work, not weeks).
+
+---
+
+*See [ADR-024 — Agentic Plan Execution Methodology](../../../docs/decisions/024-agentic-plan-execution-methodology.md) for the decision rationale, antithesis, and trade-offs behind this skill.*
