@@ -13,6 +13,31 @@
 | **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md)                                                                                                                                                                                                                                                                                                                        |
 | **References**      | [Spec-008](../specs/008-control-plane-relay-and-session-join.md) (V1 relay encryption: pairwise X25519 + XChaCha20-Poly1305 per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md); MLS deferred to V1.1)                                                                                                                                                                                   |
 
+## Execution Windows (V1 Carve-Out)
+
+Plan-008 ships in two windows — a **Tier 1 bootstrap-deliverable** (tRPC server skeleton + `sessionRouter` + SSE substrate) that unblocks [Plan-001](./001-shared-session-core.md) PR #5, and a **Tier 5 remainder** that completes the relay/presence/invite surface. The split is documented authoritatively in [cross-plan-dependencies.md §5 Plan-008 Bootstrap-vs-Remainder Carve-Out](../architecture/cross-plan-dependencies.md#plan-008-bootstrap-vs-remainder-carve-out-tier-1--tier-5); this section is the plan-side restatement so engineers reading Plan-008 in isolation see the split.
+
+The carve-out follows the **substrate-vs-namespace decomposition rule** documented authoritatively in [Plan-007 §Execution Windows](./007-local-ipc-and-daemon-control.md#execution-windows-v1-carve-out) — the _transport substrate_ (tRPC server + sessionRouter + SSE plumbing) is what Plan-001 PR #5 consumes; the _relay/presence behavior_ is what Plan-008 owns canonically. Substrate ships first.
+
+### Tier 1 — Plan-008-Bootstrap (tRPC server + `sessionRouter` + SSE substrate)
+
+Lands alongside Plan-001 to unblock Plan-001 PR #5 (`sessionClient` over the control-plane transport). Scope:
+
+- **tRPC v11 server skeleton** — Fastify host + tRPC v11 router registration scaffolding per [ADR-014](../decisions/014-trpc-control-plane-api.md). Bootstrap ships only the skeleton; relay broker / presence register / invite handlers are Tier 5.
+- **`sessionRouter` HTTP handlers** — typed tRPC procedures for `SessionCreate`, `SessionRead`, `SessionJoin` exposing the existing `packages/control-plane/src/sessions/session-directory-service.ts` (already shipped in Plan-001 PR #4). The router wraps the service; it does not re-implement directory logic.
+- **SSE substrate for `SessionSubscribe`** — `SessionSubscribe` is request-only on the wire — the response is an `AsyncIterable<EventEnvelope>` SSE stream per `packages/contracts/src/session.ts:388`. The Tier 1 bootstrap ships the SSE transport plumbing (tRPC `subscription` procedure + Server-Sent-Events HTTP framing) that `sessionClient.subscribe` consumes from the control-plane side. Event sourcing into the stream remains Plan-006's domain; Plan-008-bootstrap supplies only the transport.
+
+### Tier 5 — Plan-008-Remainder (relay + presence + invite acceptance)
+
+Lands at Plan-008's original Tier 5 slot once Plan-002 (invite/presence) is complete. Tier 5 placement is unchanged because relay coordination depends on Plan-002. Scope:
+
+- **Relay broker** (`relay-broker-service.ts`) — pairwise X25519 + XChaCha20-Poly1305 negotiation, relay sharding, WebSocket Hibernation per the original [§Implementation Steps](#implementation-steps) below.
+- **Presence register** (`presence-register-service.ts`) — adds the control-plane presence surface that extends Plan-002's `presence/` directory.
+- **Invite-acceptance handoff** — wires Plan-002 invite resolution into the Tier 1 `sessionRouter`.
+- **Reconnect association + relay negotiation** — `RelayNegotiation`, `SessionResumeAfterReconnect`, presence re-association.
+- **Postgres tables** — `session_directory` and `relay_connections` per [Shared Postgres Schema](../architecture/schemas/shared-postgres-schema.md).
+- **Client surfaces** — `apps/desktop/renderer/src/session-join/`, `apps/cli/src/session-join/`, and `packages/client-sdk/src/sessionJoinClient.ts`.
+
 ## Goal
 
 Implement authenticated shared-session join, presence registration, and relay negotiation without shifting execution authority into the control plane.
