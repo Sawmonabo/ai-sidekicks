@@ -1,0 +1,23 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "release-type": "node",
+  "include-component-in-tag": true,
+  "include-v-in-tag": true,
+  "separate-pull-requests": false,
+  "draft": false,
+  "prerelease": false,
+  "bump-minor-pre-major": true,
+  "bump-patch-for-minor-pre-major": true,
+  "packages": {
+    "packages/contracts": {
+      "release-type": "node",
+      "package-name": "@ai-sidekicks/contracts",
+      "changelog-path": "CHANGELOG.md"
+    },
+    "packages/client-sdk": {
+      "release-type": "node",
+      "package-name": "@ai-sidekicks/client-sdk",
+      "changelog-path": "CHANGELOG.md"
+    }
+  }
+}

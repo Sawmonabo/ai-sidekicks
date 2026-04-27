@@ -1,0 +1,110 @@
+# Release automation skeleton per ADR-023 §Axis 3.
+#
+# This is the V1 PR #1 SKELETON ONLY — release-please-action is wired but the
+# actual publish step is gated behind `if: false` until the per-package npm
+# Trusted Publisher entries are registered (per ADR-023 §F-6, bootstrap requires
+# one traditional NPM_TOKEN publish per package before Trusted Publisher works).
+# First real release is post-Plan-001 ship.
+#
+# Surface 1 (npm packages: @ai-sidekicks/contracts, @ai-sidekicks/client-sdk):
+#   release-please-action@v5 manifest mode (this file).
+# Surface 2 (desktop binary, Spec-027 §7b dual-trust): wired in a later PR.
+# Surface 3 (Rust sidecar, 5 platform packages): wired in a later PR (no sidecar yet).
+#
+# release-please observes `develop` (the integration branch) per the 2026-04-26
+# branch-model amendment to ADR-023; release tags ultimately land on `main`. The
+# release-PR opens against develop; merging it bumps versions; the publish-job
+# fast-forwards develop → main and tags on main. Exact tag-on-main mechanics are
+# finalized when the first real release runs.
+#
+# OIDC environment-gate per ADR-023 §Axis 1 / §Axis 5 — federated credentials
+# bind to repo:<org>/<repo>:environment:production, NOT to a tag ref. Without
+# the environment gate, a compromised contributor pushing a malicious tag still
+# mints a valid OIDC token. The gate is the dual-trust property's keystone.
+
+name: Release
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  TURBO_TELEMETRY_DISABLED: 1
+  DO_NOT_TRACK: 1
+
+jobs:
+  release-please:
+    name: release-please (open release PR)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # release-please needs to push the release branch
+      pull-requests: write # and open the release PR
+      issues: write # and label release PRs
+    outputs:
+      releases_created: ${{ steps.release.outputs.releases_created }}
+      paths_released: ${{ steps.release.outputs.paths_released }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Run release-please
+        id: release
+        uses: googleapis/release-please-action@v5
+        with:
+          # Manifest mode — config + manifest files are committed in the repo root.
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          # release-please-action@v5 reads the GH token from the env by default.
+
+  publish-npm:
+    name: publish-npm (Trusted Publisher / OIDC)
+    runs-on: ubuntu-latest
+    needs: [release-please]
+    # SKELETON GATE: keep publish step inert until npm Trusted Publishers are
+    # registered for each published package per ADR-023 §F-6. Flip to
+    # `if: ${{ needs.release-please.outputs.releases_created == 'true' }}` when
+    # bootstrap is complete.
+    if: false
+    environment: production # OIDC environment-gate per ADR-023 §Axis 1/3/5.
+    permissions:
+      contents: read
+      id-token: write # OIDC for npm Trusted Publishing.
+      attestations: write # actions/attest@v4 outputs.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.33.2
+          run_install: false
+
+      - name: Setup Node.js (24.x — Trusted Publishing requires npm CLI >= 11.5.1)
+        # Per ADR-023 §Axis 3 resolution: release CI runs on Node 24 (control-plane
+        # tier per ADR-022 §Decision row 8); the daemon's engines.node: 22.12+ is
+        # unchanged. The release-CI Node version is independent of engines.node for
+        # the published package.
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org/
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm turbo run build
+
+      - name: Publish via Trusted Publishing
+        # Provenance auto-emitted under Trusted Publishing — no --provenance flag needed.
+        run: |
+          for path in ${{ needs.release-please.outputs.paths_released }}; do
+            echo "Publishing $path"
+            (cd "$path" && pnpm publish --no-git-checks --access public)
+          done
