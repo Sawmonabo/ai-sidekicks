@@ -204,6 +204,7 @@ Plan-001 implementation lands as a sequence of small PRs. Each PR exercises one 
 
 - `packages/client-sdk/src/sessionClient.ts` — `create`, `read`, `join`, `subscribe` methods over the daemon and control-plane transports
 - `apps/desktop/renderer/src/session-bootstrap/` — minimal renderer wiring that calls `sessionClient.create` and renders the resulting session
+- Compose a `pg.Pool`-backed `Querier` for `SessionDirectoryService` (the PR #4 service is constructed against `Querier` and is driver-agnostic; PR #4 ships only a PGlite path because the integration tests run on the in-process driver). Strengthen the `createSession` lock-ordering test to discriminate which `Querier` instance issued each statement so a regression that routes `FOR UPDATE` through the outer pool checkout instead of the in-transaction checkout is caught — see the `TODO(Plan-001 PR #5)` in `packages/control-plane/src/sessions/__tests__/session-directory-service.test.ts`.
 
 After PR #5 lands green and the manual smoke passes, Plan-001 is complete. Plan-002 (Invite, Membership, Presence) can then begin.
 

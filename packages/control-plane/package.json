@@ -30,6 +30,8 @@
     "pg": "^8.20.0"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.4.4",
+    "@types/pg": "^8.15.6",
     "vitest": "catalog:testing"
   }
 }

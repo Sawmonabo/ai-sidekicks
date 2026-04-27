@@ -56,6 +56,14 @@ All other tables have a single owning plan. See `docs/plans/NNN-*.md` Data And S
 | Plan-026 | No owned tables (onboarding choice state is ephemeral/IPC-only per Spec-026).                                                                                                                                                                                                           |
 | Plan-027 | `cross_node_dispatch_approvals` (SQLite); `cross_node_dispatch_coordination` (Postgres)                                                                                                                                                                                                 |
 
+### Lock Ordering Across Shared Tables
+
+Plans that touch more than one of the §1 contested or co-extended tables in a single transaction MUST acquire row locks in the order documented below to avoid cross-plan deadlocks. Adding a new caller is not sufficient grounds to deviate; reordering requires a coordinated change to all callers under the affected order.
+
+| Tables Locked Together            | Order                              | Authority                                                                                                                                                                                                               | Affected Callers                                                                                                                                   |
+| --------------------------------- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sessions`, `session_memberships` | `sessions` → `session_memberships` | Plan-001 docstring at [`packages/control-plane/src/sessions/session-directory-service.ts`](../../packages/control-plane/src/sessions/session-directory-service.ts) (`createSession` "Lock-acquisition order" paragraph) | Plan-002 ownership-transfer, co-owner promotion, and invite-accept paths (any flow that mutates `session_memberships` while validating `sessions`) |
+
 ---
 
 ## 2. Package Path Ownership Map
