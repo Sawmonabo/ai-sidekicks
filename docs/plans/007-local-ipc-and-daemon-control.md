@@ -28,7 +28,7 @@ Lands alongside Plan-001 to unblock Plan-001 PR #5. Scope:
 
 ### Tier 4 — Plan-007-Remainder (other namespaces + supervision + Spec-027)
 
-Lands at Plan-007's original Tier 4 slot once Plan-005 (runtime bindings) and Plan-006 (event taxonomy) are in place. Scope:
+Lands at Plan-007's original Tier 4 slot, co-tier with Plan-005 (runtime bindings) and Plan-006 (event taxonomy) — all three are gated only on Tier 1 completion per [cross-plan-dependencies.md §5 Canonical Build Order](../architecture/cross-plan-dependencies.md#5-canonical-build-order). Scope:
 
 - The four other JSON-RPC method namespaces — `run.*`, `repo.*`, `artifact.*`, `settings.*`, `daemon.*` — extending the substrate's namespace registry without re-implementing the wire layer.
 - The Spec-027 secure-defaults bootstrap surface owned by Plan-007 widens at Tier 4 alongside the additional bind paths — `tls-surface.ts` (row 8 — only load-bearing once a non-loopback / TLS bind enters), `first-run-keys.ts` (row 3 — daemon master key generation; key custody is Plan-022's at Tier 5), `update-notify.ts` (row 7a — periodic poller, not a bind-time gate), and the CLI `self-update` dual-verification command (row 7b — out-of-process). The Tier 1 partial already ships the bind-time `SecureDefaults` validation surface (`secure-defaults.ts` + `secure-defaults-events.ts`) scoped to the loopback OS-local socket bind path it exposes, so the §Secure Defaults > Invariants block (load-before-bind + fail-closed) holds at every execution window.
