@@ -19,33 +19,34 @@
 //       - inner `memberships[].state` enum violation rejects (composability)
 import { describe, expect, it } from "vitest";
 
-import {
-  SessionCreateRequestSchema,
-  SessionCreateResponseSchema,
-  type SessionCreateResponse,
-} from "../session.js";
+import { SessionCreateRequestSchema, SessionCreateResponseSchema } from "../session.js";
 
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
 const PARTICIPANT_ID = "660e8400-e29b-41d4-a716-446655440001";
 const MEMBERSHIP_ID = "770e8400-e29b-41d4-a716-446655440002";
 const CHANNEL_ID = "880e8400-e29b-41d4-a716-446655440003";
 
-const buildValidResponse = (): SessionCreateResponse => ({
-  sessionId: SESSION_ID as SessionCreateResponse["sessionId"],
-  state: "active",
+// Fixture returns a wire-shaped object with no per-field brand casts —
+// `safeParse` accepts plain UUID strings and brands them on the way out.
+// The schema (not the type system) is the unit under test, so feeding raw
+// wire data is the natural test surface; the inferred return shape is the
+// plain object literal which is structurally compatible with each test's
+// spread/delete operations.
+const buildValidResponse = () => ({
+  sessionId: SESSION_ID,
+  state: "active" as const,
   memberships: [
     {
-      id: MEMBERSHIP_ID as SessionCreateResponse["memberships"][number]["id"],
-      participantId:
-        PARTICIPANT_ID as SessionCreateResponse["memberships"][number]["participantId"],
-      role: "owner",
-      state: "active",
+      id: MEMBERSHIP_ID,
+      participantId: PARTICIPANT_ID,
+      role: "owner" as const,
+      state: "active" as const,
     },
   ],
   channels: [
     {
-      id: CHANNEL_ID as SessionCreateResponse["channels"][number]["id"],
-      state: "active",
+      id: CHANNEL_ID,
+      state: "active" as const,
     },
   ],
 });

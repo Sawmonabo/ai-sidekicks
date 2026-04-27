@@ -69,10 +69,19 @@ export const ChannelIdSchema: z.ZodType<ChannelId> = z
 // (sequence + monotonic_ns) is owned by Plan-006. Plan-001 only needs to
 // pass it through unchanged on `SessionRead.timelineCursors` and
 // `SessionSubscribe.afterCursor`.
+//
+// We deliberately use `.min(1)` only — Plan-006 owns the cursor's internal
+// format. The `.max(EVENT_CURSOR_MAX_LEN)` cap below is defense-in-depth
+// against pathological lengths (mirrors the framework body-size cap pattern
+// used elsewhere in this package). If Plan-006 later publishes a structural
+// cursor format (e.g. `<sequence>_<monotonic_ns>`), tighten this regex; until
+// then, any non-empty bounded string is accepted.
+export const EVENT_CURSOR_MAX_LEN = 256;
 export type EventCursor = string & { readonly __brand: "EventCursor" };
 export const EventCursorSchema: z.ZodType<EventCursor> = z
   .string()
   .min(1)
+  .max(EVENT_CURSOR_MAX_LEN)
   .brand<"EventCursor">() as unknown as z.ZodType<EventCursor>;
 
 // --------------------------------------------------------------------------
@@ -142,9 +151,14 @@ export const SessionSnapshotSchema: z.ZodType<SessionSnapshot> = z
     state: SessionStateSchema,
     config: RecordOfUnknownSchema,
     metadata: RecordOfUnknownSchema,
-    // ISO 8601 timestamps. Validated as RFC 3339 by `z.iso.datetime()`.
-    createdAt: z.iso.datetime(),
-    updatedAt: z.iso.datetime(),
+    // ISO 8601 per api-payload-contracts.md §SessionSnapshot. Default
+    // `z.iso.datetime()` accepts only Z-suffixed UTC; `{ offset: true }`
+    // widens to the full RFC 3339 §5.6 spec (numeric offsets like
+    // "+00:00", "-05:00") which the wire contract permits. The narrower
+    // canonical form (Z + ms) for hashing is owned by Plan-006's
+    // normalization step, NOT by the wire schema here.
+    createdAt: z.iso.datetime({ offset: true }),
+    updatedAt: z.iso.datetime({ offset: true }),
   })
   .strict();
 
@@ -261,10 +275,28 @@ export interface SessionJoinRequest {
   sessionId: SessionId;
   identityHandle: string;
 }
+// `identityHandle` wire-layer guards: `.min(1)` + `.max(IDENTITY_HANDLE_MAX_LEN)`
+// for length bounds, `.regex(/\S/)` to reject pure-whitespace handles (any
+// non-whitespace char anywhere counts; `"   "` rejects, `" alice"` accepts —
+// trimming is a Plan-018 concern), `.refine((s) => !s.includes("\0"))` to
+// reject NUL bytes (filesystem / log-injection vectors). The canonical
+// handle grammar is owned by Plan-018 (identity-and-participant-state); these
+// guards exist to catch obvious garbage at the wire boundary before it
+// reaches Plan-018's validator.
+export const IDENTITY_HANDLE_MAX_LEN = 64;
 export const SessionJoinRequestSchema: z.ZodType<SessionJoinRequest> = z
   .object({
     sessionId: SessionIdSchema,
-    identityHandle: z.string().min(1),
+    identityHandle: z
+      .string()
+      .min(1)
+      .max(IDENTITY_HANDLE_MAX_LEN)
+      .regex(/\S/, {
+        message: "identityHandle must contain at least one non-whitespace character.",
+      })
+      .refine((s) => !s.includes("\0"), {
+        message: "identityHandle MUST NOT contain a NUL byte.",
+      }),
   })
   .strict();
 

@@ -22,7 +22,12 @@
 //       - negative `limit` / `current`
 import { describe, expect, it } from "vitest";
 
-import { RESOURCE_LIMIT_EXCEEDED_CODE, ResourceLimitExceededErrorSchema } from "../error.js";
+import {
+  ERROR_MESSAGE_MAX_LEN,
+  RESOURCE_LABEL_MAX_LEN,
+  RESOURCE_LIMIT_EXCEEDED_CODE,
+  ResourceLimitExceededErrorSchema,
+} from "../error.js";
 
 const buildValidError = () => ({
   code: RESOURCE_LIMIT_EXCEEDED_CODE,
@@ -124,6 +129,28 @@ describe("ResourceLimitExceededErrorSchema (C4: resource.limit_exceeded shape)",
 
   it("rejects empty `message`", () => {
     const broken = { ...buildValidError(), message: "" };
+    const result = ResourceLimitExceededErrorSchema.safeParse(broken);
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects oversized `message` (defense-in-depth length cap)", () => {
+    const broken = { ...buildValidError(), message: "x".repeat(ERROR_MESSAGE_MAX_LEN + 1) };
+    const result = ResourceLimitExceededErrorSchema.safeParse(broken);
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts `message` at exactly the length cap (boundary)", () => {
+    const valid = { ...buildValidError(), message: "x".repeat(ERROR_MESSAGE_MAX_LEN) };
+    const result = ResourceLimitExceededErrorSchema.safeParse(valid);
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects oversized `details.resource` (defense-in-depth length cap)", () => {
+    const valid = buildValidError();
+    const broken = {
+      ...valid,
+      details: { ...valid.details, resource: "x".repeat(RESOURCE_LABEL_MAX_LEN + 1) },
+    };
     const result = ResourceLimitExceededErrorSchema.safeParse(broken);
     expect(result.success).toBe(false);
   });

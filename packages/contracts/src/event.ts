@@ -32,6 +32,7 @@ import { z } from "zod";
 
 import {
   ChannelIdSchema,
+  IDENTITY_HANDLE_MAX_LEN,
   MembershipIdSchema,
   MembershipRoleSchema,
   ParticipantIdSchema,
@@ -114,14 +115,43 @@ export const EventEnvelopeVersionSchema: z.ZodType<EventEnvelopeVersion> = z
   .brand<"EventEnvelopeVersion">() as unknown as z.ZodType<EventEnvelopeVersion>;
 
 // --------------------------------------------------------------------------
+// Per-field length caps — defense-in-depth bounds on free-form strings.
+// --------------------------------------------------------------------------
+//
+// The HTTP/tRPC framework layer (owned by Plan-004/005) is authoritative on
+// total request-body size. These per-field caps live in the contracts package
+// as a SECOND line of defense so a future non-HTTP caller (daemon-internal
+// IPC, replay machinery, fixtures) can't smuggle a single pathological field
+// past the parser. Values are conservative defaults; raising them is a
+// contract bump per ADR-018 §Decision #1 (MINOR widening is acceptable —
+// shrinking is MAJOR).
+//
+// Rationale per cap:
+//   • EVENT_FIELD_MAX_LEN (256)        — id / correlationId / causationId.
+//     UUIDs are 36 chars; 256 leaves plenty of headroom for any composite
+//     identifier scheme without enabling DoS.
+//   • EVENT_MESSAGE_MAX_LEN (8192)     — error / status messages. 8 KiB is
+//     well above any human-readable error string but still bounded.
+//   • IDENTITY_HANDLE_MAX_LEN (64)     — display handles (Plan-018 owns the
+//     canonical grammar; this is a wire-layer ceiling). Defined in session.ts
+//     so it can be co-located with `SessionJoinRequestSchema`; re-imported
+//     here for the membership.joined payload.
+//   • RESOURCE_LABEL_MAX_LEN (128)     — Spec-001 §Resource Limits resource
+//     labels (e.g. "concurrent runs per session"). Defined in error.ts.
+
+export const EVENT_FIELD_MAX_LEN = 256;
+
+// --------------------------------------------------------------------------
 // Common envelope fields shared by every SessionEvent variant.
 // --------------------------------------------------------------------------
 //
-// Defined as a shape factory (not a schema) so each variant can spread
-// it while supplying its own `type` literal, its own literal `category`,
-// and its own `payload`. Per Spec-001 § Data And Storage Changes the daemon
-// assigns the persisted event id; `sequence` is the canonical replay key per
-// ADR-017.
+// Defined as a shape factory (not a schema) so each variant can spread it
+// while supplying its own `type` literal, its own literal `category`, and
+// its own `payload`. Per Spec-001 § Data And Storage Changes the daemon
+// assigns the persisted event id (UUID v7 in current daemon code, but the
+// wire contract per api-payload-contracts.md line 472 is opaque `id: string`
+// — no UUID-format invariant is asserted at the wire layer); `sequence` is
+// the canonical replay key per ADR-017.
 //
 // Note that `category` is NOT in `buildCommonShape()` — it must be a
 // literal-typed field per variant so the parser rejects category/type
@@ -145,6 +175,8 @@ interface SessionEventCommonFields {
   // `actor` is `string | null` per api-payload-contracts.md §EventEnvelope
   // (line 478); the zod schema also makes it optional (key may be absent),
   // so we match the inferred output: `actor?: string | null | undefined`.
+  // Empty string is rejected — a present-but-empty actor is a producer bug
+  // (a system event should send `null` or omit the key, not an empty string).
   actor?: string | null | undefined;
   correlationId?: string | undefined;
   causationId?: string | undefined;
@@ -152,19 +184,80 @@ interface SessionEventCommonFields {
 }
 
 const buildCommonShape = () => ({
-  id: z.string().min(1),
+  // `id`: opaque on the wire (`z.string().min(1).max(EVENT_FIELD_MAX_LEN)`).
+  // The daemon assigns UUID v7 internally per Spec-006 (sortable timestamp
+  // ordering), but the wire contract per api-payload-contracts.md line 472
+  // is `id: string` with no UUID format constraint. A future spec edit may
+  // tighten this to `z.uuid()`; until then, accepting any non-empty string
+  // matches the documented contract.
+  id: z.string().min(1).max(EVENT_FIELD_MAX_LEN),
   sessionId: SessionIdSchema,
   // `sequence` is a non-negative integer. The daemon assigns a strictly
   // monotonic per-session sequence on append; gaps are an integrity bug.
   sequence: z.number().int().nonnegative(),
-  occurredAt: z.iso.datetime(),
+  // `occurredAt` is ISO 8601 per api-payload-contracts.md line 475.
+  // `{ offset: true }` widens default Z-only acceptance to include numeric
+  // RFC 3339 §5.6 offsets ("+00:00", "-05:00"). The narrower CANONICAL form
+  // for the integrity protocol (Spec-006 §523-525 — Z-suffixed UTC, ms
+  // precision) is enforced at hashing time by Plan-006's normalization
+  // step, NOT at the wire layer here.
+  occurredAt: z.iso.datetime({ offset: true }),
   // `actor` is a participant_id, agent_id, or null/absent for system-emitted
   // events (api-payload-contracts.md line 478 — "or null for system").
-  actor: z.string().nullable().optional(),
-  correlationId: z.string().optional(),
-  causationId: z.string().optional(),
+  // `.min(1)` rejects the empty string explicitly — a system event must use
+  // `null` or omit the key, NOT send an empty string.
+  actor: z.string().min(1).max(EVENT_FIELD_MAX_LEN).nullable().optional(),
+  correlationId: z.string().min(1).max(EVENT_FIELD_MAX_LEN).optional(),
+  causationId: z.string().min(1).max(EVENT_FIELD_MAX_LEN).optional(),
   version: EventEnvelopeVersionSchema,
 });
+
+// --------------------------------------------------------------------------
+// Per-variant payload schemas — extracted as named consts to deduplicate
+// between the standalone `*EventSchema` exports and the discriminated-union
+// branch schemas. Same principle as `buildCommonShape()`.
+// --------------------------------------------------------------------------
+
+const sessionCreatedPayloadSchema = z
+  .object({
+    sessionId: SessionIdSchema,
+    config: z.record(z.string(), z.unknown()),
+    metadata: z.record(z.string(), z.unknown()),
+  })
+  .strict();
+
+const membershipJoinedPayloadSchema = z
+  .object({
+    membershipId: MembershipIdSchema,
+    participantId: ParticipantIdSchema,
+    role: MembershipRoleSchema,
+    // identityHandle: defense-in-depth bounds. `.regex(/\S/)` rejects
+    // pure-whitespace handles (any non-whitespace char anywhere counts);
+    // `.refine((s) => !s.includes("\0"))` rejects null bytes (filesystem /
+    // log-injection). The canonical handle grammar is owned by Plan-018
+    // (identity-and-participant-state); these wire-layer guards exist to
+    // catch obvious garbage before it reaches Plan-018's validator.
+    identityHandle: z
+      .string()
+      .min(1)
+      .max(IDENTITY_HANDLE_MAX_LEN)
+      .regex(/\S/, {
+        message: "identityHandle must contain at least one non-whitespace character.",
+      })
+      .refine((s) => !s.includes("\0"), {
+        message: "identityHandle MUST NOT contain a NUL byte.",
+      }),
+  })
+  .strict();
+
+const channelCreatedPayloadSchema = z
+  .object({
+    channelId: ChannelIdSchema,
+    // `name` is optional; the implicit `main` channel is unnamed on the
+    // wire (matches ChannelSummary.name optionality in session.ts).
+    name: z.string().optional(),
+  })
+  .strict();
 
 // --------------------------------------------------------------------------
 // session.created — emitted on session admit.
@@ -189,13 +282,7 @@ export const SessionCreatedEventSchema: z.ZodType<SessionCreatedEvent> = z
     ...buildCommonShape(),
     type: z.literal("session.created"),
     category: z.literal("session_lifecycle"),
-    payload: z
-      .object({
-        sessionId: SessionIdSchema,
-        config: z.record(z.string(), z.unknown()),
-        metadata: z.record(z.string(), z.unknown()),
-      })
-      .strict(),
+    payload: sessionCreatedPayloadSchema,
   })
   .strict();
 
@@ -218,14 +305,7 @@ export const MembershipJoinedEventSchema: z.ZodType<MembershipJoinedEvent> = z
     ...buildCommonShape(),
     type: z.literal("membership.joined"),
     category: z.literal("membership_change"),
-    payload: z
-      .object({
-        membershipId: MembershipIdSchema,
-        participantId: ParticipantIdSchema,
-        role: MembershipRoleSchema,
-        identityHandle: z.string().min(1),
-      })
-      .strict(),
+    payload: membershipJoinedPayloadSchema,
   })
   .strict();
 
@@ -246,14 +326,7 @@ export const ChannelCreatedEventSchema: z.ZodType<ChannelCreatedEvent> = z
     ...buildCommonShape(),
     type: z.literal("channel.created"),
     category: z.literal("session_lifecycle"),
-    payload: z
-      .object({
-        channelId: ChannelIdSchema,
-        // `name` is optional; the implicit `main` channel is unnamed on the
-        // wire (matches ChannelSummary.name optionality in session.ts).
-        name: z.string().optional(),
-      })
-      .strict(),
+    payload: channelCreatedPayloadSchema,
   })
   .strict();
 
@@ -271,6 +344,8 @@ export const ChannelCreatedEventSchema: z.ZodType<ChannelCreatedEvent> = z
 // that `discriminatedUnion` needs to discriminate. This duplication is
 // load-bearing: it lets the public API surface stay `isolatedDeclarations`-
 // friendly while preserving Zod's discriminator dispatch internally.
+// Payloads are shared via the named `*PayloadSchema` consts above so
+// payload shapes can't drift between the two surfaces.
 
 export type SessionEvent = SessionCreatedEvent | MembershipJoinedEvent | ChannelCreatedEvent;
 export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion("type", [
@@ -279,13 +354,7 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
       ...buildCommonShape(),
       type: z.literal("session.created"),
       category: z.literal("session_lifecycle"),
-      payload: z
-        .object({
-          sessionId: SessionIdSchema,
-          config: z.record(z.string(), z.unknown()),
-          metadata: z.record(z.string(), z.unknown()),
-        })
-        .strict(),
+      payload: sessionCreatedPayloadSchema,
     })
     .strict(),
   z
@@ -293,14 +362,7 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
       ...buildCommonShape(),
       type: z.literal("membership.joined"),
       category: z.literal("membership_change"),
-      payload: z
-        .object({
-          membershipId: MembershipIdSchema,
-          participantId: ParticipantIdSchema,
-          role: MembershipRoleSchema,
-          identityHandle: z.string().min(1),
-        })
-        .strict(),
+      payload: membershipJoinedPayloadSchema,
     })
     .strict(),
   z
@@ -308,12 +370,7 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
       ...buildCommonShape(),
       type: z.literal("channel.created"),
       category: z.literal("session_lifecycle"),
-      payload: z
-        .object({
-          channelId: ChannelIdSchema,
-          name: z.string().optional(),
-        })
-        .strict(),
+      payload: channelCreatedPayloadSchema,
     })
     .strict(),
 ]);

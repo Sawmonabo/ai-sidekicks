@@ -20,10 +20,13 @@
 //     §523 — `category` participates in the BLAKE3-hashed canonical bytes)
 //   • EventEnvelopeVersion accepts canonical "MAJOR.MINOR" forms and rejects
 //     numeric / three-segment / leading-zero variants per ADR-018 §Decision #1
+//   • `occurredAt` accepts numeric RFC 3339 §5.6 offsets (Z + +HH:MM)
+//   • Empty-string `actor` and oversized fields are rejected (defense-in-depth)
 import { describe, expect, it } from "vitest";
 
 import {
   EVENT_ENVELOPE_VERSION_PATTERN,
+  EVENT_FIELD_MAX_LEN,
   EventCategorySchema,
   SESSION_EVENT_CATEGORY_BY_TYPE,
   SESSION_EVENT_TYPES,
@@ -227,5 +230,45 @@ describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
       expect(EventCategorySchema.safeParse(cat).success).toBe(true);
     }
     expect(EventCategorySchema.safeParse("not_a_category").success).toBe(false);
+  });
+
+  it.each([
+    ["Z-suffixed UTC", "2026-01-22T19:14:35.000Z", true],
+    ["positive numeric offset", "2026-01-22T19:14:35.000+05:00", true],
+    ["negative numeric offset", "2026-01-22T19:14:35.000-08:00", true],
+    ["zero numeric offset", "2026-01-22T19:14:35.000+00:00", true],
+    ["bare local datetime (no Z, no offset)", "2026-01-22T19:14:35.000", false],
+    ["plain date", "2026-01-22", false],
+  ])(
+    "occurredAt: %s parses -> %s (RFC 3339 §5.6 offsets honored, local rejected)",
+    (_label, candidate, shouldPass) => {
+      const fixture = { ...buildSessionCreated(), occurredAt: candidate };
+      const result = SessionEventSchema.safeParse(fixture);
+      expect(result.success).toBe(shouldPass);
+    },
+  );
+
+  it("rejects empty-string `actor` (system events MUST send `null` or omit the key)", () => {
+    const broken = { ...buildSessionCreated(), actor: "" };
+    const result = SessionEventSchema.safeParse(broken);
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts `actor: null` (system-emitted event)", () => {
+    const valid = { ...buildSessionCreated(), actor: null };
+    const result = SessionEventSchema.safeParse(valid);
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects oversized `id` (defense-in-depth length cap)", () => {
+    const broken = { ...buildSessionCreated(), id: "x".repeat(EVENT_FIELD_MAX_LEN + 1) };
+    const result = SessionEventSchema.safeParse(broken);
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts `id` at exactly the length cap (boundary)", () => {
+    const valid = { ...buildSessionCreated(), id: "x".repeat(EVENT_FIELD_MAX_LEN) };
+    const result = SessionEventSchema.safeParse(valid);
+    expect(result.success).toBe(true);
   });
 });
