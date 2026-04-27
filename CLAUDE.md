@@ -22,13 +22,13 @@ V1 ships 17 features ([ADR-015](docs/decisions/015-v1-feature-scope-definition.m
 
 `package.json` is a placeholder. There is no `src/`, no test runner, no lint config, no build system. **Do not run `npm install`, `npm test`, `pytest`, `tsc`, or similar — they will fail with no useful signal.** The unit of work is a `.md` file under `docs/`.
 
-[ADR-023](docs/decisions/023-v1-ci-cd-and-release-automation.md) (V1 CI/CD, pre-commit hooks, release automation) was accepted 2026-04-26, clearing the [BL-100](docs/archive/backlog-archive.md) gate. The next milestone is [Plan-001](docs/plans/001-shared-session-core.md) PR #1, the first code-execution PR. Until that PR opens, the doc-first phase continues — work the docs.
+[ADR-023](docs/decisions/023-v1-ci-cd-and-release-automation.md) (V1 CI/CD, pre-commit hooks, release automation) was accepted 2026-04-26, clearing the [BL-100](docs/archive/backlog-archive.md) gate. The next milestone is [Plan-001](docs/plans/001-shared-session-core.md) PR #1, the first code-execution PR — it branches off `develop` per the [GitFlow-lite branch-model amendment](docs/decisions/023-v1-ci-cd-and-release-automation.md#decision-log) (also 2026-04-26). Until that PR opens, the doc-first phase continues — work the docs.
 
 ## Cross-Tool Conventions
 
 Cross-tool conventions for AI agents in this repo (Claude, Codex, Cursor, Aider) live in [`AGENTS.md`](AGENTS.md). It owns the citation standard, the transient research-artifact pattern under `.agents/tmp/research/<topic>/<axis>.md`, parallel-subagent dispatch rules, and doc-first ordering.
 
-Branch naming, commit format, and PR workflow conventions live in [`CONTRIBUTING.md`](CONTRIBUTING.md). It owns the [Conventional Branch](https://conventional-branch.github.io/) 2-segment shape (`<type>/<topic>`), [Conventional Commits 1.0](https://www.conventionalcommits.org/en/v1.0.0/) message format with package-noun scope, footer-trailer conventions (`Refs: ADR-NNN, BL-NNN, Plan-NNN` and `Co-Authored-By:`), and squash-merge workflow per [ADR-023](docs/decisions/023-v1-ci-cd-and-release-automation.md).
+Branch naming, commit format, and PR workflow conventions live in [`CONTRIBUTING.md`](CONTRIBUTING.md). It owns the GitFlow-lite branch model (feature branches off `develop`; squash-merge into `develop`; `develop` → `main` only at release), [Conventional Branch](https://conventional-branch.github.io/) 2-segment shape (`<type>/<topic>`), [Conventional Commits 1.0](https://www.conventionalcommits.org/en/v1.0.0/) message format with package-noun scope, footer-trailer conventions (`Refs: ADR-NNN, BL-NNN, Plan-NNN` and `Co-Authored-By:`), and squash-merge workflow per [ADR-023](docs/decisions/023-v1-ci-cd-and-release-automation.md).
 
 Read `AGENTS.md` on demand before:
 
