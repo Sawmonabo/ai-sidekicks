@@ -1,7 +1,6 @@
 {
   "name": "@ai-sidekicks/client-sdk",
   "version": "0.0.0",
-  "private": true,
   "type": "module",
   "description": "Typed client SDK used by desktop renderer and CLI.",
   "license": "Apache-2.0",

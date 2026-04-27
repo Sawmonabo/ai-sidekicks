@@ -7,5 +7,8 @@
     "tsBuildInfoFile": "./.tsbuildinfo"
   },
   "include": ["src/**/*"],
+  // Test files are excluded from `tsc -b` so they don't ship in `dist/` (the
+  // package's `files` array is `["dist"]`). Test type-validation runs separately
+  // via `tsconfig.test.json` (NB-15) which includes tests with `noEmit: true`.
   "exclude": ["dist", "node_modules", "src/**/__tests__/**"]
 }

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  // Type-validates test files without emitting (NB-15 from PR-001 review). The
+  // production `tsconfig.json` excludes `src/**/__tests__/**` so test files don't
+  // ship in `dist/`; this config covers them via a `noEmit` typecheck pass.
+  "extends": "../../tsconfig.node22.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "./src",
+    // `isolatedDeclarations` (inherited from base) requires either `declaration`
+    // or `composite`; we keep `declaration: true` paired with `noEmit: true` so
+    // the typechecker honors `isolatedDeclarations` constraints without writing
+    // files (see TS5069). `composite: false` and a null buildinfo prevent this
+    // config from polluting the project-references graph.
+    "composite": false,
+    "declaration": true,
+    "declarationMap": false,
+    "sourceMap": false
+  },
+  "include": ["src/**/*"],
+  "exclude": ["dist", "node_modules"]
+}
