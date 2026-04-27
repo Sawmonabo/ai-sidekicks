@@ -89,6 +89,44 @@ describe("session-projector — D1 (bootstrap projection)", () => {
     };
     expect(() => replay([stranded])).toThrow(/expected first event type 'session.created'/);
   });
+
+  // -----------------------------------------------------------------------
+  // P3 — replay() must reject a session.created at sequence > 0
+  // -----------------------------------------------------------------------
+  //
+  // The bootstrap path's sequence-0 invariant must match `projectEvent`'s
+  // in-stream `case "session.created"` guard — without the bootstrap-
+  // path check, a log opening with `session.created` at sequence > 0
+  // would be accepted as a valid bootstrap, masking lost/corrupted
+  // earlier events. SessionService.append accepts arbitrary sequence
+  // values today (the per-session strict-monotonicity is a producer
+  // contract, not a service-layer enforcement), so this projector-side
+  // assertion is the only line of defense that catches the case.
+
+  it("rejects a bootstrap session.created event at sequence > 0", () => {
+    const nonZeroBootstrap: StoredEvent = {
+      ...makeCreatedEvent(),
+      sequence: 1,
+    };
+    expect(() => replay([nonZeroBootstrap])).toThrow(
+      /bootstrap 'session\.created' must have sequence=0 \(got sequence=1\)/,
+    );
+  });
+
+  it("rejects a bootstrap session.created event at a far-future sequence (>0 covers the whole non-zero domain)", () => {
+    // Belt-and-braces: pin a non-adjacent sequence so a regression that
+    // accidentally compared `sequence < 1` (instead of `!== 0`) would
+    // also surface. Picks a value that sits in the realistic per-
+    // session range (well below Number.MAX_SAFE_INTEGER) so the test
+    // exercises the same code path as production.
+    const farFutureBootstrap: StoredEvent = {
+      ...makeCreatedEvent(),
+      sequence: 12345,
+    };
+    expect(() => replay([farFutureBootstrap])).toThrow(
+      /bootstrap 'session\.created' must have sequence=0 \(got sequence=12345\)/,
+    );
+  });
 });
 
 // --------------------------------------------------------------------------

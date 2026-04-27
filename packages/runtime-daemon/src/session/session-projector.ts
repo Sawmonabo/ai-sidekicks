@@ -113,8 +113,19 @@ function formatUuid(bytes: Buffer): string {
  * Replay a sequence of events into a snapshot. Returns `null` if no
  * events are provided — there is no such thing as an empty session.
  *
- * The first event MUST be a `session.created`. Subsequent events fold
- * into the snapshot via `projectEvent`.
+ * The first event MUST be a `session.created` AT sequence=0. The
+ * sequence-0 anchor is the same invariant `projectEvent` enforces for a
+ * second `session.created` (see the `case "session.created"` block
+ * below): if the first event in the log carries a non-zero sequence,
+ * either an earlier event was lost / corrupted (most dangerous case —
+ * silent partial replay would project incomplete state as canonical) or
+ * the producer violated the bootstrap contract (also a bug, but a
+ * recoverable one once surfaced). Either way, throwing here keeps
+ * `replay()`'s bootstrap path consistent with `projectEvent`'s in-stream
+ * guard and prevents a `session.created` at sequence > 0 from being
+ * silently treated as a valid bootstrap.
+ *
+ * Subsequent events fold into the snapshot via `projectEvent`.
  */
 export function replay(events: ReadonlyArray<StoredEvent>): DaemonSessionSnapshot | null {
   if (events.length === 0) {
@@ -124,6 +135,11 @@ export function replay(events: ReadonlyArray<StoredEvent>): DaemonSessionSnapsho
   if (first.type !== "session.created") {
     throw new Error(
       `replay: expected first event type 'session.created', got '${first.type}' (sequence=${String(first.sequence)})`,
+    );
+  }
+  if (first.sequence !== 0) {
+    throw new Error(
+      `replay: bootstrap 'session.created' must have sequence=0 (got sequence=${String(first.sequence)}); a non-zero bootstrap sequence indicates lost/corrupted earlier events or a producer-side bootstrap-contract violation`,
     );
   }
   let snapshot: DaemonSessionSnapshot = bootstrapFromCreated(first);
