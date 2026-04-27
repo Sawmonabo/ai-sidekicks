@@ -1,0 +1,33 @@
+# Gitleaks v8.30+ secret scan per ADR-023 §Axis 4 (sub-axis 4).
+#
+# MIT-licensed (compatible with Apache-2.0 OSS posture per ADR-020), used as the
+# CI-side complement to the local lefthook gitleaks step. GitHub native secret
+# scanning + push protection (free in public repos) is the primary defense; this
+# workflow is the paranoid-belt-and-suspenders second pass.
+
+name: Secret Scan
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+
+permissions:
+  contents: read
+
+jobs:
+  gitleaks:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history for delta scan)
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # GITLEAKS_LICENSE not required for OSS / public repos.

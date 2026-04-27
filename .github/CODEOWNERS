@@ -1,0 +1,43 @@
+# Code Owners — per ADR-023 §Axis 1.
+# Canonical search order: .github/, root, docs/. We use .github/CODEOWNERS to keep
+# the file out of the doc tree.
+#
+# Pattern matches glob/gitignore-style; later patterns override earlier ones.
+
+# Global default — every change requires maintainer review until per-area owners are
+# defined.
+*       @Sawmonabo
+
+# Engineering CI surface and supply-chain hygiene — security-sensitive area; tighter
+# review per ADR-023 §Axis 5 (CODEOWNERS-scoped release-manifest-config.yml,
+# signing-keys-pubkey-pinned.txt, .github/workflows/release-*.yml). Owner team will
+# split out as @ai-sidekicks/security once GitHub team exists; until then, the
+# project maintainer is the named owner.
+/.github/                @Sawmonabo
+/.github/workflows/      @Sawmonabo
+/lefthook.yml            @Sawmonabo
+/commitlint.config.mjs   @Sawmonabo
+/lint-staged.config.mjs  @Sawmonabo
+/renovate.json5          @Sawmonabo
+/release-please-config.json       @Sawmonabo
+/.release-please-manifest.json    @Sawmonabo
+
+# Toolchain and workspace topology — load-bearing per ADR-022.
+/package.json            @Sawmonabo
+/pnpm-workspace.yaml     @Sawmonabo
+/.npmrc                  @Sawmonabo
+/.nvmrc                  @Sawmonabo
+/turbo.json              @Sawmonabo
+/tsconfig*.json          @Sawmonabo
+/eslint.config.mjs       @Sawmonabo
+/prettier.config.js      @Sawmonabo
+
+# Governance docs — every change needs maintainer review (already covered by global
+# default, restated here for clarity).
+/docs/decisions/         @Sawmonabo
+/docs/specs/             @Sawmonabo
+/docs/plans/             @Sawmonabo
+/docs/architecture/      @Sawmonabo
+/CLAUDE.md               @Sawmonabo
+/AGENTS.md               @Sawmonabo
+/CONTRIBUTING.md         @Sawmonabo

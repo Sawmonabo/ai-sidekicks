@@ -1,0 +1,66 @@
+// Renovate config per ADR-023 §Axis 4 (sub-axis 3).
+//
+// minimumReleaseAge: 14 days matches Renovate's documented automerge floor and is
+// the controlling defense against Shai-Hulud-class transitive compromise (post-
+// publish-malicious-version detection windows commonly < 7 days).
+//
+// security:minimumReleaseAgeNpm preset adds a 3-day floor for npm packages even when
+// other ecosystems use a different floor.
+//
+// Dependabot deferred per ADR-023 §Axis 4 antithesis (no first-class minimum-release-age).
+
+{
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  extends: [
+    "config:recommended",
+    "security:minimumReleaseAgeNpm",
+    ":semanticCommits",
+    ":semanticCommitTypeAll(deps)",
+    ":semanticCommitScopeAll(deps)",
+  ],
+  minimumReleaseAge: "14 days",
+  prConcurrentLimit: 5,
+  prHourlyLimit: 4,
+  // Squash on merge so Renovate PRs collapse to one commit on develop.
+  squash: true,
+  // Hold major bumps for human review; minor/patch can group + automerge after CI green.
+  packageRules: [
+    {
+      matchUpdateTypes: ["patch"],
+      automerge: true,
+      automergeType: "pr",
+    },
+    {
+      matchUpdateTypes: ["minor"],
+      automerge: false,
+    },
+    {
+      matchUpdateTypes: ["major"],
+      automerge: false,
+      labels: ["dependencies", "major"],
+    },
+    // Release-tooling actions: never automerge majors (per ADR-023 §F-9 mitigation).
+    {
+      matchPackageNames: [
+        "googleapis/release-please-action",
+        "actions/attest",
+        "actions/checkout",
+        "actions/setup-node",
+        "pnpm/action-setup",
+      ],
+      matchUpdateTypes: ["major"],
+      automerge: false,
+      labels: ["release-tooling", "review-required"],
+    },
+  ],
+  // Lockfile maintenance keeps pnpm-lock.yaml fresh against transitive shifts.
+  lockFileMaintenance: {
+    enabled: true,
+    schedule: ["before 5am on monday"],
+  },
+  // Vulnerability alerts run independently of cooldown.
+  vulnerabilityAlerts: {
+    enabled: true,
+    minimumReleaseAge: "0 days",
+  },
+}
