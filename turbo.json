@@ -19,7 +19,7 @@
     "test": {
       "dependsOn": ["^build"],
       "inputs": ["src/**", "vitest.config.*", "tsconfig.json", "package.json"],
-      "outputs": ["coverage/**"]
+      "outputs": []
     },
     "dev": {
       "cache": false,
