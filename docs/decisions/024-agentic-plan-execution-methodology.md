@@ -2,7 +2,7 @@
 
 | Field          | Value                                                                    |
 | -------------- | ------------------------------------------------------------------------ |
-| **Status**     | `proposed`                                                               |
+| **Status**     | `accepted`                                                               |
 | **Type**       | `Type 1 (two-way door)`                                                  |
 | **Domain**     | Engineering Process / AI Agent Workflow                                  |
 | **Date**       | 2026-04-26                                                               |
@@ -160,3 +160,4 @@ No external (web/library/community) research was conducted — the methodology i
 |------|-------|-------|
 | 2026-04-26 | Proposed | Drafted alongside the [`plan-execution` skill](../../.claude/skills/plan-execution/SKILL.md) in PR #5. Captures the methodology agreed in conversation during Session N immediately after BL-100/ADR-023 acceptance, in preparation for Plan-001 PR #1. Awaiting PR #5 review (final-review task gate) before promotion to `accepted`. |
 | 2026-04-26 | Revised in PR #5 review | User feedback during PR #5 review: (a) skill body should be self-contained — strip excess ADR cross-references; (b) subagent prompts should embed staff-level engineering mindset (Socratic interrogation + adversarial analysis), not mechanical task instructions; (c) add a fourth role — `code-reviewer` — for general staff-level correctness and regression review distinct from the existing code-quality reviewer; (d) all reviewer findings round-trip to the implementer regardless of severity (no informational-nit pass-through). ADR Decision, Thesis, Antithesis, Synthesis, Option A, Reversibility, Consequences, and Unknowns sections updated to reflect the four-role + all-findings-round-trip methodology. Type 1 reversibility unchanged. |
+| 2026-04-26 | Accepted | Promoted from `proposed` to `accepted` at PR #5 squash-merge per the doc-corpus convention (ADRs land on `develop` accepted). Methodology unchanged from the post-revision state. Type 1 reversibility unchanged — refinements after Plan-001 PR #1 expected. |
