@@ -37,14 +37,31 @@
 // and only then runs the migration SQL. Concurrent racers BLOCK on the
 // lock acquisition, then re-probe to a populated `schema_migrations` and
 // short-circuit. See `applyMigrations` for the full trace; the lock id
-// is `MIGRATION_LOCK_ID` at the bottom of this file.
+// is `MIGRATION_LOCK_ID` declared at the top of this file (right below
+// the imports).
 //
 // Cross-process production migrations are still expected to run via the
-// release pipeline (Plan-023 owns release automation), but concurrent
+// release pipeline (ADR-023 owns release automation), but concurrent
 // daemon-boot calls into `applyMigrations` are no longer required to
 // avoid the race externally — the runner now closes it at the source.
 
 import { INITIAL_MIGRATION_SQL } from "../migrations/0001-initial.js";
+
+// Stable advisory-lock ID for ai-sidekicks control-plane migrations.
+// `pg_advisory_xact_lock` takes a bigint; the value must be unique
+// relative to ALL OTHER advisory-lock callers in the same Postgres
+// database. We own the database today (Plan-001), so collision is
+// impossible — but a future plan that adds an additional advisory-lock
+// caller (e.g. for cross-replica coordination of a recurring job) MUST
+// pick a distinct constant. `9_000_000_001` was chosen as a memorable
+// value well outside the typical application id-space (most apps key on
+// values < 2^32 or on hashed strings); changing this constant requires
+// a coordinated rollout because two daemons disagreeing on the lock id
+// would silently permit the race the lock is meant to prevent. See the
+// "Advisory Lock ID Registry" subsection in
+// `docs/architecture/schemas/shared-postgres-schema.md` for the
+// cross-plan ID-space allocation.
+const MIGRATION_LOCK_ID = 9_000_000_001n;
 
 /**
  * Minimal SQL surface this module needs from a database client.
@@ -131,6 +148,15 @@ export interface Querier {
  * database fully unmigrated, never half-migrated, AND releases the
  * advisory lock at ROLLBACK so the next runner can retry cleanly.
  *
+ * Multi-version expansion: when Plan-NNN adds version N+1, replace the
+ * hardcoded `version: 1` outer/inner probes with a per-version loop
+ * (iterate the migration list, probe each version, run the body for any
+ * that miss). The single advisory lock still serializes correctly because
+ * all migration runners contend for the same lock ID — they just check
+ * more versions inside the locked region. The lock-and-re-probe pattern
+ * is extensible; the current single-version branch is the minimal V1
+ * shape, not a forever template.
+ *
  * Wire-protocol choice: the multi-statement migration body goes through
  * `tx.exec()` (simple query protocol). The extended-query path (`query()`
  * with or without parameters) is hard-limited to ONE statement per call —
@@ -193,19 +219,6 @@ export async function applyMigrations(querier: Querier): Promise<void> {
     await tx.exec(INITIAL_MIGRATION_SQL);
   });
 }
-
-// Stable advisory-lock ID for ai-sidekicks control-plane migrations.
-// `pg_advisory_xact_lock` takes a bigint; the value must be unique
-// relative to ALL OTHER advisory-lock callers in the same Postgres
-// database. We own the database today (Plan-001), so collision is
-// impossible — but a future plan that adds an additional advisory-lock
-// caller (e.g. for cross-replica coordination of a recurring job) MUST
-// pick a distinct constant. `9_000_000_001` was chosen as a memorable
-// value well outside the typical application id-space (most apps key on
-// values < 2^32 or on hashed strings); changing this constant requires
-// a coordinated rollout because two daemons disagreeing on the lock id
-// would silently permit the race the lock is meant to prevent.
-const MIGRATION_LOCK_ID = 9_000_000_001n;
 
 // --------------------------------------------------------------------------
 // Internal helpers

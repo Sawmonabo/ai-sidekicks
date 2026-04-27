@@ -1024,32 +1024,49 @@ describe("applyMigrations — idempotency", () => {
     // re-probe still misses. See `applyMigrations` docstring and file
     // header in `migration-runner.ts` for the full mechanism.
     //
-    // Test substrate caveat: PGlite is single-connection-per-instance,
-    // so two `Promise.all` calls do not race in the wire-protocol sense
-    // — the second call's outer probe naturally queues until the first
-    // commits, then short-circuits without entering its transaction.
-    // Production `pg.Pool` against shared Postgres is the substrate
-    // where the race is genuinely concurrent. We pin two assertions
-    // against PGlite that hold across both substrates:
+    // Test substrate — what PGlite CAN and CANNOT model:
+    //
+    // PGlite IS genuinely concurrent at the JS event-queue level under
+    // `Promise.all([apply, apply])`: the two outer probes interleave and
+    // BOTH return `false` BEFORE either runner enters its transaction
+    // (verified empirically by tracing — A's outer probe returns false,
+    // B's outer probe returns false, THEN A enters the transaction). So
+    // the outer-probe race that the lock-and-re-probe pattern defends
+    // against IS exercised here, just like `pg.Pool` against shared
+    // Postgres would exercise it.
+    //
+    // The only thing PGlite CANNOT model is multi-connection lock
+    // contention at the database level: a real `pg.Pool` would have T2's
+    // `pg_advisory_xact_lock` SQL BLOCK on T1's still-held lock at the
+    // Postgres server. PGlite's single-connection-per-instance model
+    // serializes the second transaction at the JS event-queue layer
+    // (B's `tx.query("SELECT pg_advisory_xact_lock(...)")` queues
+    // behind A's transaction completing) rather than at the lock level
+    // — but the IN-TRANSACTION re-probe still sees A's committed
+    // `schema_migrations` row and short-circuits, so the observable
+    // outcome (no `42P07`, single migration row, lock SQL emitted) is
+    // identical to the `pg.Pool` substrate.
+    //
+    // We pin two assertions against PGlite, both load-bearing here:
     //
     //   (a) End-state correctness — `Promise.all([apply, apply])` on a
-    //       fresh DB resolves with no throw, the migration lands exactly
-    //       once (`schema_migrations` row count = 1, `participants` table
-    //       exists). A regression that drops the lock and re-introduces
-    //       the race would surface here as a `42P07` rejection from one
-    //       of the parallel calls — at least on `pg.Pool`. PGlite would
-    //       still pass because of single-connection serialization, so
-    //       this assertion is necessary but not load-bearing on its own.
+    //       fresh DB resolves with no throw; the migration lands
+    //       exactly once (`schema_migrations` row count = 1,
+    //       `participants` table exists). This IS load-bearing on
+    //       PGlite: empirically, the pre-R8 broken shape (no advisory
+    //       lock around the transaction) DOES throw `relation
+    //       "participants" already exists` on PGlite under
+    //       `Promise.all`, because both outer probes race to false and
+    //       both transactions execute the unguarded `CREATE TABLE`.
+    //       Removing the lock would crash this assertion.
     //
-    //   (b) Lock-query presence — the captured SQL stream of the runner
-    //       that DOES enter the transaction MUST contain
-    //       `pg_advisory_xact_lock(...)` exactly once. A regression that
-    //       drops the lock surfaces here as a missing lock query, even on
-    //       PGlite (which does not need the lock for its own correctness
-    //       but still emits the SQL because the runner issues it
-    //       unconditionally inside the transaction). Production
-    //       `pg.Pool` shares the same source code, so the same emission
-    //       pattern holds.
+    //   (b) Lock-query presence — the captured SQL stream MUST contain
+    //       `pg_advisory_xact_lock(...)`. This is the explicit-emission
+    //       guarantee — it would catch a regression that kept end-state
+    //       correctness via some other mechanism (e.g., wrapping the
+    //       DDL in `IF NOT EXISTS`) but silently dropped the
+    //       cross-connection serialization that `pg.Pool` substrates
+    //       require.
     //
     // Note on `wrapWithLog`: only `query()` is captured (see helper
     // docstring above); the migration DDL goes through `exec()` and is
@@ -1086,10 +1103,11 @@ describe("applyMigrations — idempotency", () => {
 
       // (b) Lock-query presence: the runner that entered the transaction
       // issued the advisory lock. Assert "at least one" rather than
-      // "exactly one" — PGlite's serialization could in principle let
-      // the SECOND call's outer probe also miss in some future version
-      // (PGlite is under active development); the load-bearing claim
-      // is that the lock IS issued, not how many times.
+      // "exactly one" — empirically both outer probes race to false on
+      // PGlite (see docstring), so both runners reach the in-transaction
+      // lock SQL and the captured count is typically 2; but this is a
+      // scheduler-timing detail. The load-bearing claim is that the lock
+      // IS issued at least once, not how many times.
       const lockCount = captured.filter((sql) => /pg_advisory_xact_lock/i.test(sql)).length;
       expect(lockCount).toBeGreaterThanOrEqual(1);
     } finally {
