@@ -31,12 +31,14 @@
 import { z } from "zod";
 
 import {
+  CHANNEL_NAME_MAX_LEN,
   ChannelIdSchema,
-  IDENTITY_HANDLE_MAX_LEN,
+  IdentityHandleSchema,
   MembershipIdSchema,
   MembershipRoleSchema,
   ParticipantIdSchema,
   SessionIdSchema,
+  wireFreeFormString,
   type ChannelId,
   type MembershipId,
   type MembershipRole,
@@ -56,7 +58,16 @@ import {
 // `category` per variant in the discriminatedUnion below enforces this on
 // the wire — a `{type: "session.created", category: "membership_change"}`
 // payload is rejected at parse time, BEFORE it can be hashed under the
-// wrong category byte and break replay.
+// wrong category string and break replay.
+//
+// ORDER IS NOT LOAD-BEARING — Spec-006 §520 specifies RFC 8785 JCS
+// canonicalization, which serializes the LITERAL wire string ("session_
+// lifecycle", "membership_change", etc.) into the canonical bytes that back
+// the BLAKE3 hash chain and Ed25519 signature. The TypeScript enum's
+// declaration order does not affect canonical bytes; reordering, inserting,
+// or appending categories is byte-equivalent at the integrity layer (it IS
+// still a contract bump per ADR-018 §Decision #1: removals are MAJOR,
+// additions are MINOR).
 
 export type EventCategory =
   | "run_lifecycle"
@@ -127,17 +138,33 @@ export const EventEnvelopeVersionSchema: z.ZodType<EventEnvelopeVersion> = z
 // shrinking is MAJOR).
 //
 // Rationale per cap:
-//   • EVENT_FIELD_MAX_LEN (256)        — id / correlationId / causationId.
-//     UUIDs are 36 chars; 256 leaves plenty of headroom for any composite
-//     identifier scheme without enabling DoS.
-//   • EVENT_MESSAGE_MAX_LEN (8192)     — error / status messages. 8 KiB is
-//     well above any human-readable error string but still bounded.
+//   • EVENT_FIELD_MAX_LEN (256)        — id / actor / correlationId /
+//     causationId. UUIDs are 36 chars; 256 leaves plenty of headroom for any
+//     composite identifier scheme without enabling DoS. Defined in this file.
+//   • ERROR_MESSAGE_MAX_LEN (8192)     — top-level `message` field on error
+//     envelopes. 8 KiB is well above any human-readable error string but
+//     still bounded. Defined in error.ts (co-located with the error
+//     envelope schema that consumes it).
 //   • IDENTITY_HANDLE_MAX_LEN (64)     — display handles (Plan-018 owns the
 //     canonical grammar; this is a wire-layer ceiling). Defined in session.ts
-//     so it can be co-located with `SessionJoinRequestSchema`; re-imported
-//     here for the membership.joined payload.
+//     so it can be co-located with `SessionJoinRequestSchema`; the underlying
+//     `IdentityHandleSchema` is re-imported here for the membership.joined
+//     payload so the validation chain stays single-sourced.
+//   • CHANNEL_NAME_MAX_LEN (128)       — channel display labels (UI-visible).
+//     Defined in session.ts (co-located with `ChannelSummarySchema`); re-
+//     imported here for the channel.created payload.
 //   • RESOURCE_LABEL_MAX_LEN (128)     — Spec-001 §Resource Limits resource
 //     labels (e.g. "concurrent runs per session"). Defined in error.ts.
+//
+// Free-form string fields (id / actor / correlationId / causationId / message
+// / details.resource / identityHandle / channel name) all consume the
+// `wireFreeFormString(maxLen, label)` helper from session.ts, which applies
+// the length bounds AND a whitespace-only rejection AND a NUL-byte rejection.
+// The trust boundary lives at the wire layer because the daemon accepts
+// input from external (cross-node, future RPC) callers — producer trust is
+// a weaker argument once a non-trusted process can synthesize a wire
+// envelope. NUL bytes also corrupt OpenTelemetry trace lines that the
+// observability layer emits from `correlationId` / `causationId`.
 
 export const EVENT_FIELD_MAX_LEN = 256;
 
@@ -184,13 +211,13 @@ interface SessionEventCommonFields {
 }
 
 const buildCommonShape = () => ({
-  // `id`: opaque on the wire (`z.string().min(1).max(EVENT_FIELD_MAX_LEN)`).
-  // The daemon assigns UUID v7 internally per Spec-006 (sortable timestamp
-  // ordering), but the wire contract per api-payload-contracts.md line 472
-  // is `id: string` with no UUID format constraint. A future spec edit may
-  // tighten this to `z.uuid()`; until then, accepting any non-empty string
+  // `id`: opaque on the wire (no UUID-format invariant). The daemon assigns
+  // UUID v7 internally per Spec-006 (sortable timestamp ordering), but the
+  // wire contract per api-payload-contracts.md line 472 is `id: string`. A
+  // future spec edit may tighten this to `z.uuid()`; until then, accepting
+  // any non-empty bounded string (length cap + whitespace + NUL guards)
   // matches the documented contract.
-  id: z.string().min(1).max(EVENT_FIELD_MAX_LEN),
+  id: wireFreeFormString(EVENT_FIELD_MAX_LEN, "EventEnvelope.id"),
   sessionId: SessionIdSchema,
   // `sequence` is a non-negative integer. The daemon assigns a strictly
   // monotonic per-session sequence on append; gaps are an integrity bug.
@@ -204,11 +231,16 @@ const buildCommonShape = () => ({
   occurredAt: z.iso.datetime({ offset: true }),
   // `actor` is a participant_id, agent_id, or null/absent for system-emitted
   // events (api-payload-contracts.md line 478 — "or null for system").
-  // `.min(1)` rejects the empty string explicitly — a system event must use
-  // `null` or omit the key, NOT send an empty string.
-  actor: z.string().min(1).max(EVENT_FIELD_MAX_LEN).nullable().optional(),
-  correlationId: z.string().min(1).max(EVENT_FIELD_MAX_LEN).optional(),
-  causationId: z.string().min(1).max(EVENT_FIELD_MAX_LEN).optional(),
+  // The helper rejects empty/whitespace-only/NUL strings — a system event
+  // must use `null` or omit the key, NOT send an empty string. `.nullable()`
+  // is composed AFTER the helper so the inner string checks only run on
+  // string values (Zod evaluates the wrapped schema only when the value is
+  // a string; `null` short-circuits past the chain).
+  actor: wireFreeFormString(EVENT_FIELD_MAX_LEN, "EventEnvelope.actor")
+    .nullable()
+    .optional(),
+  correlationId: wireFreeFormString(EVENT_FIELD_MAX_LEN, "EventEnvelope.correlationId").optional(),
+  causationId: wireFreeFormString(EVENT_FIELD_MAX_LEN, "EventEnvelope.causationId").optional(),
   version: EventEnvelopeVersionSchema,
 });
 
@@ -231,22 +263,12 @@ const membershipJoinedPayloadSchema = z
     membershipId: MembershipIdSchema,
     participantId: ParticipantIdSchema,
     role: MembershipRoleSchema,
-    // identityHandle: defense-in-depth bounds. `.regex(/\S/)` rejects
-    // pure-whitespace handles (any non-whitespace char anywhere counts);
-    // `.refine((s) => !s.includes("\0"))` rejects null bytes (filesystem /
-    // log-injection). The canonical handle grammar is owned by Plan-018
-    // (identity-and-participant-state); these wire-layer guards exist to
-    // catch obvious garbage before it reaches Plan-018's validator.
-    identityHandle: z
-      .string()
-      .min(1)
-      .max(IDENTITY_HANDLE_MAX_LEN)
-      .regex(/\S/, {
-        message: "identityHandle must contain at least one non-whitespace character.",
-      })
-      .refine((s) => !s.includes("\0"), {
-        message: "identityHandle MUST NOT contain a NUL byte.",
-      }),
+    // `identityHandle` validation is single-sourced via session.ts's
+    // `IdentityHandleSchema` so future tightening at one site applies
+    // consistently here AND in `SessionJoinRequestSchema`. See session.ts
+    // for the rationale (length cap + whitespace + NUL guards; Plan-018
+    // owns the canonical handle grammar).
+    identityHandle: IdentityHandleSchema,
   })
   .strict();
 
@@ -254,8 +276,11 @@ const channelCreatedPayloadSchema = z
   .object({
     channelId: ChannelIdSchema,
     // `name` is optional; the implicit `main` channel is unnamed on the
-    // wire (matches ChannelSummary.name optionality in session.ts).
-    name: z.string().optional(),
+    // wire (matches ChannelSummary.name optionality in session.ts). When
+    // present, the same `wireFreeFormString` guards apply (length cap +
+    // whitespace + NUL rejection) — channel names are user-visible UI
+    // labels, same trust-boundary stance as `identityHandle`.
+    name: wireFreeFormString(CHANNEL_NAME_MAX_LEN, "channel.created.name").optional(),
   })
   .strict();
 
@@ -389,11 +414,25 @@ export const SESSION_EVENT_TYPES: readonly SessionEventType[] = [
 // so consumers (projectors, replay machinery, integrity verifiers in
 // Plan-006) can assert category/type consistency without re-parsing the
 // schema.
-export const SESSION_EVENT_CATEGORY_BY_TYPE: Readonly<Record<SessionEventType, EventCategory>> = {
-  "session.created": "session_lifecycle",
-  "membership.joined": "membership_change",
-  "channel.created": "session_lifecycle",
-} as const;
+//
+// `ReadonlyMap` (NOT a plain object literal) so that a downstream caller
+// who passes an untrusted string into `.get(evt.type)` cannot accidentally
+// resolve a prototype-chain walk:
+//   • Object literal: `lookup['__proto__']` returns `[Object: null prototype] {}`
+//     and `lookup['constructor']` returns `[Function: Object]` — both
+//     truthy, both non-EventCategory values that break downstream string
+//     operations.
+//   • Map: `lookup.get('__proto__')` and `lookup.get('constructor')` both
+//     return `undefined` — the only truthy results are the explicit entries.
+// Plan-006 integrity verifiers walk this lookup BEFORE re-parsing through
+// `SessionEventSchema`, so the prototype-chain immunity is load-bearing.
+export const SESSION_EVENT_CATEGORY_BY_TYPE: ReadonlyMap<SessionEventType, EventCategory> = new Map(
+  [
+    ["session.created", "session_lifecycle"],
+    ["membership.joined", "membership_change"],
+    ["channel.created", "session_lifecycle"],
+  ],
+);
 
 // Note: cross-file ID types (`SessionId`, `MembershipId`, …) are not re-
 // exported here — they are surfaced from `session.ts` and reach the public

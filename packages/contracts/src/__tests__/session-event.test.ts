@@ -18,10 +18,19 @@
 //     `SESSION_EVENT_CATEGORY_BY_TYPE`, AND a category/type mismatch is
 //     rejected at parse time (Spec-006 §Canonical Serialization Rules
 //     §523 — `category` participates in the BLAKE3-hashed canonical bytes)
+//   • `SESSION_EVENT_CATEGORY_BY_TYPE` is a `ReadonlyMap`, so prototype-
+//     chain walks (`__proto__`, `constructor`, etc.) resolve to `undefined`
+//     instead of returning truthy non-EventCategory values (Round 3 R2-2)
 //   • EventEnvelopeVersion accepts canonical "MAJOR.MINOR" forms and rejects
 //     numeric / three-segment / leading-zero variants per ADR-018 §Decision #1
 //   • `occurredAt` accepts numeric RFC 3339 §5.6 offsets (Z + +HH:MM)
 //   • Empty-string `actor` and oversized fields are rejected (defense-in-depth)
+//   • Round 3 R2-1 staff-bar consistency: `wireFreeFormString` helper
+//     applied to every free-form string in the EventEnvelope (`id`,
+//     `actor`, `correlationId`, `causationId`) — whitespace-only and
+//     NUL-byte rejection now uniform across all wire fields
+//   • Round 3 R2-5: channel.created.name length cap + whitespace + NUL
+//     guards (defense in depth, mirrors `IDENTITY_HANDLE_MAX_LEN`)
 import { describe, expect, it } from "vitest";
 
 import {
@@ -33,6 +42,7 @@ import {
   SessionEventSchema,
   type SessionEvent,
 } from "../event.js";
+import { CHANNEL_NAME_MAX_LEN } from "../session.js";
 
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
 const PARTICIPANT_ID = "660e8400-e29b-41d4-a716-446655440001";
@@ -183,8 +193,27 @@ describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
     // category defined in `SESSION_EVENT_CATEGORY_BY_TYPE`.
     const parsed = SessionEventSchema.parse(build());
     expect(parsed.category).toBe(expected);
-    expect(SESSION_EVENT_CATEGORY_BY_TYPE[label]).toBe(expected);
+    expect(SESSION_EVENT_CATEGORY_BY_TYPE.get(label)).toBe(expected);
   });
+
+  it.each([
+    ["__proto__"],
+    ["constructor"],
+    ["toString"],
+    ["hasOwnProperty"],
+    ["unknown.event"],
+  ])(
+    "SESSION_EVENT_CATEGORY_BY_TYPE.get rejects prototype-chain walks: %s",
+    (untrusted) => {
+      // Map (NOT object-literal) lookup is load-bearing: a Plan-006
+      // integrity verifier that calls `.get(evt.type)` on a not-yet-parsed
+      // string MUST resolve to `undefined` for every key that isn't in
+      // the explicit table, including built-in object prototype keys. With
+      // an object literal `lookup['__proto__']` resolves to a truthy
+      // `[Object: null prototype] {}` value.
+      expect(SESSION_EVENT_CATEGORY_BY_TYPE.get(untrusted as never)).toBeUndefined();
+    },
+  );
 
   it("rejects a category/type mismatch (membership_change on session.created)", () => {
     // Wire-integrity check: the per-variant `category: z.literal(...)`
@@ -270,5 +299,122 @@ describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
     const valid = { ...buildSessionCreated(), id: "x".repeat(EVENT_FIELD_MAX_LEN) };
     const result = SessionEventSchema.safeParse(valid);
     expect(result.success).toBe(true);
+  });
+
+  // --------------------------------------------------------------------
+  // Round 3: wireFreeFormString helper applied to all free-form fields.
+  // --------------------------------------------------------------------
+  // R2-1 (medium, staff-bar consistency): the same wire-layer guards
+  // (whitespace-only rejection + NUL-byte rejection) that protect
+  // `identityHandle` are now applied to every free-form string in the
+  // EventEnvelope: `id`, `actor`, `correlationId`, `causationId`. Plus
+  // R2-5 (LOW, consistency): channel.created `name` gets the same.
+  // The trust boundary is the wire layer, not producer trust.
+
+  it.each([
+    ["id", "   "],
+    ["id", "\t\t\t"],
+    ["actor", "   "],
+    ["actor", "\t \n"],
+    ["correlationId", "   "],
+    ["correlationId", "\t\n\t"],
+    ["causationId", "   "],
+    ["causationId", "\n\n"],
+  ])("rejects whitespace-only %s value: %j", (field, value) => {
+    const broken = { ...buildSessionCreated(), [field]: value };
+    expect(SessionEventSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it.each([
+    ["id", "evt-\u0000-001"],
+    ["actor", "alice\u0000bob"],
+    ["correlationId", "req\u0000001"],
+    ["causationId", "cause\u0000id"],
+  ])("rejects NUL-byte %s value: %j", (field, value) => {
+    const broken = { ...buildSessionCreated(), [field]: value };
+    expect(SessionEventSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("accepts `actor: null` (system-emitted event) — helper composes after .nullable()", () => {
+    // Regression pin: composing the helper with `.nullable().optional()`
+    // must NOT cause `null` to fall into the inner `.regex(/\S/)` /
+    // `.refine(NUL)` checks. Zod evaluates the wrapped schema only on
+    // string values; `null` short-circuits past the chain.
+    const valid = { ...buildSessionCreated(), actor: null };
+    expect(SessionEventSchema.safeParse(valid).success).toBe(true);
+  });
+
+  it("accepts `actor` omitted entirely (helper composes after .optional())", () => {
+    const valid = { ...buildSessionCreated() } as Record<string, unknown>;
+    delete valid["actor"];
+    expect(SessionEventSchema.safeParse(valid).success).toBe(true);
+  });
+
+  it.each([
+    ["correlationId"],
+    ["causationId"],
+  ])("accepts %s omitted entirely", (field) => {
+    const valid = { ...buildSessionCreated() } as Record<string, unknown>;
+    delete valid[field];
+    expect(SessionEventSchema.safeParse(valid).success).toBe(true);
+  });
+
+  // R2-5: channel.created.name boundary tests
+  it("accepts a normal channel name", () => {
+    const valid = buildChannelCreated();
+    expect(SessionEventSchema.safeParse(valid).success).toBe(true);
+  });
+
+  it("accepts an absent channel name (the implicit `main` channel)", () => {
+    const valid = { ...buildChannelCreated() };
+    const payload = { ...valid.payload } as Record<string, unknown>;
+    delete payload["name"];
+    expect(SessionEventSchema.safeParse({ ...valid, payload }).success).toBe(true);
+  });
+
+  it("rejects an empty-string channel name", () => {
+    const broken = {
+      ...buildChannelCreated(),
+      payload: { ...buildChannelCreated().payload, name: "" },
+    };
+    expect(SessionEventSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("rejects a whitespace-only channel name", () => {
+    const broken = {
+      ...buildChannelCreated(),
+      payload: { ...buildChannelCreated().payload, name: "   " },
+    };
+    expect(SessionEventSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("rejects a NUL-byte channel name", () => {
+    const broken = {
+      ...buildChannelCreated(),
+      payload: { ...buildChannelCreated().payload, name: "main\u0000extra" },
+    };
+    expect(SessionEventSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("rejects an oversized channel name (defense-in-depth length cap)", () => {
+    const broken = {
+      ...buildChannelCreated(),
+      payload: {
+        ...buildChannelCreated().payload,
+        name: "x".repeat(CHANNEL_NAME_MAX_LEN + 1),
+      },
+    };
+    expect(SessionEventSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("accepts a channel name at exactly the length cap (boundary)", () => {
+    const valid = {
+      ...buildChannelCreated(),
+      payload: {
+        ...buildChannelCreated().payload,
+        name: "x".repeat(CHANNEL_NAME_MAX_LEN),
+      },
+    };
+    expect(SessionEventSchema.safeParse(valid).success).toBe(true);
   });
 });

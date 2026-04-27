@@ -21,6 +21,8 @@
 // § Resource (HTTP 429), § Rate Limiting.
 import { z } from "zod";
 
+import { wireFreeFormString } from "./session.js";
+
 // --------------------------------------------------------------------------
 // Error code constants
 // --------------------------------------------------------------------------
@@ -62,9 +64,11 @@ export const ResourceLimitExceededDetailsSchema: z.ZodType<ResourceLimitExceeded
     // Free-form resource label (e.g. "participants per session", "agents per
     // session"). The Spec-001 §Resource Limits table is the canonical source
     // of valid values, but the wire format is unconstrained — new resources
-    // get added without a contract bump. Length cap (128) is defense in
-    // depth (see header).
-    resource: z.string().min(1).max(RESOURCE_LABEL_MAX_LEN),
+    // get added without a contract bump. The `wireFreeFormString` helper
+    // applies the length cap (128) AND the whitespace-only / NUL-byte
+    // rejection — same trust-boundary rationale as `EventEnvelope.id` and
+    // `identityHandle` (see session.ts for full rationale).
+    resource: wireFreeFormString(RESOURCE_LABEL_MAX_LEN, "details.resource"),
     // Both `limit` and `current` are non-negative integers. `current` is
     // typically `>= limit` at the moment of rejection; we do not encode that
     // as a zod refinement here because the constraint is a daemon-side
@@ -84,8 +88,11 @@ export const ResourceLimitExceededErrorSchema: z.ZodType<ResourceLimitExceededEr
   .object({
     code: z.literal(RESOURCE_LIMIT_EXCEEDED_CODE),
     // Length cap (8 KiB) is defense in depth; the framework layer is the
-    // authoritative body-size enforcer.
-    message: z.string().min(1).max(ERROR_MESSAGE_MAX_LEN),
+    // authoritative body-size enforcer. `wireFreeFormString` also rejects
+    // whitespace-only / NUL-byte messages — a NUL byte in `message` would
+    // truncate downstream observability log lines that quote the error
+    // string verbatim.
+    message: wireFreeFormString(ERROR_MESSAGE_MAX_LEN, "ResourceLimitExceededError.message"),
     details: ResourceLimitExceededDetailsSchema,
   })
   .strict();

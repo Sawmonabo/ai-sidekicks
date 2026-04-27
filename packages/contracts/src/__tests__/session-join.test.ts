@@ -6,6 +6,13 @@
 // The canonical handle grammar is owned by Plan-018; these tests assert that
 // obvious garbage is rejected at the wire boundary BEFORE Plan-018's
 // validator runs.
+//
+// Round 3 (R2-1, F11) extracted the validation chain into the
+// `wireFreeFormString` helper exposed via session.ts's `IdentityHandleSchema`.
+// These tests intentionally still drive `SessionJoinRequestSchema` directly
+// to pin the consumer-side behavior (the helper is also covered indirectly
+// by the wide free-form-field coverage in `session-event.test.ts` and
+// `error.test.ts`).
 import { describe, expect, it } from "vitest";
 
 import {

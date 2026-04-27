@@ -85,6 +85,44 @@ export const EventCursorSchema: z.ZodType<EventCursor> = z
   .brand<"EventCursor">() as unknown as z.ZodType<EventCursor>;
 
 // --------------------------------------------------------------------------
+// wireFreeFormString — defense-in-depth helper for free-form string fields.
+// --------------------------------------------------------------------------
+//
+// Centralizes the trust-boundary checks applied to user/producer-supplied
+// free-form strings on the wire. Three guards in one helper:
+//
+//   1. Length bounds: `.min(1)` rejects empty, `.max(maxLen)` caps the
+//      pathological case (defense in depth — the HTTP/tRPC framework layer
+//      owned by Plan-004/005 is the authoritative body-size enforcer).
+//   2. Whitespace-only rejection: `.regex(/\S/)` requires at least one
+//      non-whitespace character anywhere in the string. ASCII-whitespace
+//      only — Unicode zero-width characters (U+200B/200C/200D/2060/FEFF)
+//      bypass this regex by design. Plan-018 owns identity canonical form
+//      including zero-width-character handling (see `R2-4 deferral` note in
+//      PR #2 review thread); preempting Plan-018's grammar choices at the
+//      wire layer would be wrong.
+//   3. NUL-byte rejection: `\0` corrupts log lines / observability traces
+//      (OpenTelemetry sees NUL as a string terminator) and creates
+//      filesystem / log-injection vectors. The wire layer is exactly where
+//      this trust boundary lives — we accept input from external (cross-
+//      node, future RPC) callers and cannot rely on producer trust alone.
+//
+// Used by every wire-layer free-form string in this package. Not branded
+// because the caller composes branding (e.g. `IdentityHandleSchema`) on
+// top of it where applicable.
+export const wireFreeFormString = (maxLen: number, fieldLabel: string): z.ZodString =>
+  z
+    .string()
+    .min(1)
+    .max(maxLen)
+    .regex(/\S/, {
+      message: `${fieldLabel} must contain at least one non-whitespace character.`,
+    })
+    .refine((s) => !s.includes("\0"), {
+      message: `${fieldLabel} MUST NOT contain a NUL byte.`,
+    });
+
+// --------------------------------------------------------------------------
 // Shared enums (api-payload-contracts.md § Shared Enums)
 // --------------------------------------------------------------------------
 
@@ -187,6 +225,13 @@ export const MembershipSummarySchema: z.ZodType<MembershipSummary> = z
 // `name?: string | undefined` so the schema's inferred output matches
 // our exported interface; consumers who care about the absent-vs-undefined
 // distinction can still test `"name" in obj`.
+//
+// `name` length cap (`CHANNEL_NAME_MAX_LEN`, 128 chars) is defense in depth
+// (mirrors `IDENTITY_HANDLE_MAX_LEN` co-location with its schema). The
+// `wireFreeFormString` helper also rejects whitespace-only and NUL-byte
+// values, matching the trust-boundary stance applied to `identityHandle`
+// (channel names are user-visible UI labels — same reasoning).
+export const CHANNEL_NAME_MAX_LEN = 128;
 export interface ChannelSummary {
   id: ChannelId;
   name?: string | undefined;
@@ -195,7 +240,7 @@ export interface ChannelSummary {
 export const ChannelSummarySchema: z.ZodType<ChannelSummary> = z
   .object({
     id: ChannelIdSchema,
-    name: z.string().optional(),
+    name: wireFreeFormString(CHANNEL_NAME_MAX_LEN, "ChannelSummary.name").optional(),
     state: ChannelStateSchema,
   })
   .strict();
@@ -275,28 +320,29 @@ export interface SessionJoinRequest {
   sessionId: SessionId;
   identityHandle: string;
 }
-// `identityHandle` wire-layer guards: `.min(1)` + `.max(IDENTITY_HANDLE_MAX_LEN)`
-// for length bounds, `.regex(/\S/)` to reject pure-whitespace handles (any
-// non-whitespace char anywhere counts; `"   "` rejects, `" alice"` accepts —
-// trimming is a Plan-018 concern), `.refine((s) => !s.includes("\0"))` to
-// reject NUL bytes (filesystem / log-injection vectors). The canonical
-// handle grammar is owned by Plan-018 (identity-and-participant-state); these
-// guards exist to catch obvious garbage at the wire boundary before it
+// `identityHandle` wire-layer guards (length bounds + whitespace-only +
+// NUL-byte rejection) are centralized in the `wireFreeFormString` helper
+// above; `IdentityHandleSchema` wraps the helper at `IDENTITY_HANDLE_MAX_LEN`.
+// The canonical handle grammar is owned by Plan-018 (identity-and-participant-
+// state); these wire-layer guards exist to catch obvious garbage before it
 // reaches Plan-018's validator.
+//
+// Plan-018 also owns Unicode normalization including zero-width-character
+// handling (U+200B/200C/200D/2060/FEFF). Wire-layer rejection is intentionally
+// limited to ASCII whitespace + NUL byte — preempting Plan-018's grammar
+// choices at the wire layer would be wrong (see `wireFreeFormString` rationale).
+//
+// Re-used by `event.ts`'s `membership.joined` payload schema, so future
+// tightening at this single site applies consistently to both surfaces.
 export const IDENTITY_HANDLE_MAX_LEN = 64;
+export const IdentityHandleSchema: z.ZodString = wireFreeFormString(
+  IDENTITY_HANDLE_MAX_LEN,
+  "identityHandle",
+);
 export const SessionJoinRequestSchema: z.ZodType<SessionJoinRequest> = z
   .object({
     sessionId: SessionIdSchema,
-    identityHandle: z
-      .string()
-      .min(1)
-      .max(IDENTITY_HANDLE_MAX_LEN)
-      .regex(/\S/, {
-        message: "identityHandle must contain at least one non-whitespace character.",
-      })
-      .refine((s) => !s.includes("\0"), {
-        message: "identityHandle MUST NOT contain a NUL byte.",
-      }),
+    identityHandle: IdentityHandleSchema,
   })
   .strict();
 

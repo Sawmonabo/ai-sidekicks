@@ -154,4 +154,50 @@ describe("ResourceLimitExceededErrorSchema (C4: resource.limit_exceeded shape)",
     const result = ResourceLimitExceededErrorSchema.safeParse(broken);
     expect(result.success).toBe(false);
   });
+
+  // --------------------------------------------------------------------
+  // Round 3: wireFreeFormString helper applied to free-form fields.
+  // --------------------------------------------------------------------
+  // R2-1: `message` and `details.resource` are now hardened with the same
+  // wire-layer guards (whitespace-only + NUL-byte rejection) used on
+  // identity and event fields. NUL bytes in `message` would corrupt
+  // observability log lines that quote the error verbatim.
+
+  it.each([
+    ["single space", " "],
+    ["multiple spaces", "   "],
+    ["tabs only", "\t\t"],
+    ["mixed whitespace", " \t\n "],
+  ])("rejects whitespace-only `message`: %s", (_label, value) => {
+    const broken = { ...buildValidError(), message: value };
+    expect(ResourceLimitExceededErrorSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("rejects NUL-byte `message`", () => {
+    const broken = { ...buildValidError(), message: "Limit exceeded\u0000extra" };
+    expect(ResourceLimitExceededErrorSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it.each([
+    ["single space", " "],
+    ["multiple spaces", "   "],
+    ["tabs only", "\t\t"],
+    ["mixed whitespace", " \t\n "],
+  ])("rejects whitespace-only `details.resource`: %s", (_label, value) => {
+    const valid = buildValidError();
+    const broken = {
+      ...valid,
+      details: { ...valid.details, resource: value },
+    };
+    expect(ResourceLimitExceededErrorSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("rejects NUL-byte `details.resource`", () => {
+    const valid = buildValidError();
+    const broken = {
+      ...valid,
+      details: { ...valid.details, resource: "concurrent\u0000runs" },
+    };
+    expect(ResourceLimitExceededErrorSchema.safeParse(broken).success).toBe(false);
+  });
 });

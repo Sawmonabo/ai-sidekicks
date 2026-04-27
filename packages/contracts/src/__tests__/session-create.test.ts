@@ -19,7 +19,11 @@
 //       - inner `memberships[].state` enum violation rejects (composability)
 import { describe, expect, it } from "vitest";
 
-import { SessionCreateRequestSchema, SessionCreateResponseSchema } from "../session.js";
+import {
+  CHANNEL_NAME_MAX_LEN,
+  SessionCreateRequestSchema,
+  SessionCreateResponseSchema,
+} from "../session.js";
 
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
 const PARTICIPANT_ID = "660e8400-e29b-41d4-a716-446655440001";
@@ -149,5 +153,68 @@ describe("SessionCreateResponseSchema (C2: response shape)", () => {
     const broken = { ...buildValidResponse(), sessionId: "not-a-uuid" };
     const result = SessionCreateResponseSchema.safeParse(broken);
     expect(result.success).toBe(false);
+  });
+
+  // --------------------------------------------------------------------
+  // Round 3 R2-5: ChannelSummary.name length cap + whitespace + NUL guards
+  // --------------------------------------------------------------------
+  // The `name` field is optional on the wire (the implicit `main` channel
+  // is unnamed); when present, the same `wireFreeFormString` guards that
+  // protect `identityHandle` apply (channel names are user-visible UI
+  // labels — same trust-boundary stance).
+
+  it("accepts a channel with no `name` (the implicit main channel)", () => {
+    const valid = buildValidResponse();
+    expect(SessionCreateResponseSchema.safeParse(valid).success).toBe(true);
+  });
+
+  it("accepts a channel with a normal `name`", () => {
+    const valid = buildValidResponse();
+    const withName = {
+      ...valid,
+      channels: [{ ...valid.channels[0]!, name: "general" }],
+    };
+    expect(SessionCreateResponseSchema.safeParse(withName).success).toBe(true);
+  });
+
+  it.each([
+    ["empty string", ""],
+    ["single space", " "],
+    ["multiple spaces", "   "],
+    ["mixed whitespace", " \t\n "],
+  ])("rejects a whitespace-only channel name: %s", (_label, value) => {
+    const valid = buildValidResponse();
+    const broken = {
+      ...valid,
+      channels: [{ ...valid.channels[0]!, name: value }],
+    };
+    expect(SessionCreateResponseSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("rejects a NUL-byte channel name", () => {
+    const valid = buildValidResponse();
+    const broken = {
+      ...valid,
+      channels: [{ ...valid.channels[0]!, name: "general\u0000extra" }],
+    };
+    expect(SessionCreateResponseSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("rejects an oversized channel name (defense-in-depth length cap)", () => {
+    const valid = buildValidResponse();
+    const broken = {
+      ...valid,
+      channels: [{ ...valid.channels[0]!, name: "x".repeat(CHANNEL_NAME_MAX_LEN + 1) }],
+    };
+    expect(SessionCreateResponseSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("accepts a channel name at exactly the length cap (boundary)", () => {
+    const valid = buildValidResponse();
+    const ok = {
+      ...valid,
+      channels: [{ ...valid.channels[0]!, name: "x".repeat(CHANNEL_NAME_MAX_LEN) }],
+    };
+    expect(SessionCreateResponseSchema.safeParse(ok).success).toBe(true);
   });
 });
