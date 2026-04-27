@@ -19,13 +19,15 @@ The repository is in the V1 doc-first phase. There is no source code yet — `pa
 
 ### Shape
 
-Engineering-side branches use a 3-segment shape per [ADR-023 §Axis 2](docs/decisions/023-v1-ci-cd-and-release-automation.md#axis-2--pre-commit-hook-framework):
+Engineering-side branches follow the 2-segment [Conventional Branch](https://conventional-branch.github.io/) spec per [ADR-023 §Axis 2 (amended 2026-04-26)](docs/decisions/023-v1-ci-cd-and-release-automation.md#axis-2--pre-commit-hook-framework):
 
 ```text
-<type>/<scope>/<topic>
+<type>/<topic>
 ```
 
-This is disjoint from [Spec-011](docs/specs/011-gitflow-pr-and-diff-attribution.md)'s product-side `run/<run-id>/<topic>` namespace; both coexist without collision.
+This namespace is disjoint from [Spec-011](docs/specs/011-gitflow-pr-and-diff-attribution.md)'s product-side `run/<run-id>/<topic>` via the type-prefix (`feat/...` vs `run/...`), so both shapes coexist without collision.
+
+Package scope lives in the commit subject (`feat(daemon): ...`), not the branch path. A branch identifies what kind of change is in flight; the commit identifies which package the diff lands in. Duplicating the package noun in both places adds noise without adding information.
 
 ### Type segment
 
@@ -33,25 +35,16 @@ Based on [Conventional Branch](https://conventional-branch.github.io/) with a lo
 
 | Type | Use for | Example |
 |---|---|---|
-| `feat/` | New features | `feat/daemon/plan-001-monorepo-scaffold` |
-| `fix/` | Bug fixes | `fix/desktop/plan-023-renderer-leak` |
-| `hotfix/` | Urgent post-release fixes | `hotfix/relay/cve-2026-1234-token-leak` |
+| `feat/` | New features | `feat/plan-001-monorepo-scaffold` |
+| `fix/` | Bug fixes | `fix/plan-023-renderer-leak` |
+| `hotfix/` | Urgent post-release fixes | `hotfix/cve-2026-1234-relay-token-leak` |
 | `release/` | Release preparation | `release/v0.1.0` |
-| `chore/` | Build / tooling / dependencies | `chore/ci/bump-pnpm` |
-| `docs/` | Documentation-only | `docs/decisions/adr-024-observability` |
+| `chore/` | Build / tooling / dependencies | `chore/bump-pnpm` |
+| `docs/` | Documentation-only | `docs/add-observability-adr` |
 
 `docs/` is a local extension. Conventional Branch defines five types; we add `docs/` for legibility — `docs/audit-realignment` reads correctly while `chore/audit-realignment` undersells doc work.
 
 Short-form types are pinned (`feat/`, `fix/`) — do not use the long forms (`feature/`, `bugfix/`) so the branch type matches the [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) commit type 1:1.
-
-### Scope segment
-
-The branch scope identifies the section of the codebase being changed. Use the package directory name (when one package dominates the change) or a top-level area name.
-
-- **Packages:** `daemon`, `desktop`, `cli`, `contracts`, `client-sdk`, `cedar-policy`, `pty-host`, `relay` (the actual scope-enum is enforced by `commitlint.config.mjs` once it lands per ADR-023 §Axis 2).
-- **Areas:** `ci`, `docs`, `infra`, `scripts`.
-
-When a change spans many packages, use the most central package as the scope, or use `repo` for monorepo-wide changes.
 
 ### Topic segment
 
@@ -59,7 +52,8 @@ Free-form description with required structure:
 
 - Lowercase letters (a-z), digits (0-9), hyphens. No underscores, dots, or spaces.
 - Embed the plan reference when the work is plan-scoped: `plan-NNN-<short-desc>` (e.g., `plan-001-monorepo-scaffold`).
-- For non-plan work, use a description that names the change concisely.
+- For non-plan work, use a description that names the **change**, not the **file** — `add-git-workflow-conventions` ✓, `contributing-md` ✗ (filename + extension is a code smell; describe what was added or modified).
+- Use action verbs for descriptive topics: `add-`, `fix-`, `rewrite-`, `migrate-`, `remove-`. The verb makes the branch name read like a sentence ("docs / add git workflow conventions").
 - No leading or trailing hyphens. No consecutive hyphens.
 - Dots are permitted only in `release/` topic segments (e.g., `release/v0.1.0`).
 
@@ -110,7 +104,7 @@ Either form drives a major-version bump in [`release-please-action`](https://git
 
 ## PR Workflow
 
-1. **Branch off `main`.** `git switch -c feat/daemon/plan-001-monorepo-scaffold`
+1. **Branch off `main`.** `git switch -c feat/plan-001-monorepo-scaffold`
 2. **Commit using Conventional Commits format.** Pre-commit hooks (lefthook + lint-staged + commitlint) catch format errors locally; CI re-runs them as enforcement per ADR-023 §Axis 2.
 3. **Open the PR.** PR title MUST match conventional-commit subject format — it becomes the squash-commit subject on `main`. PR body explains the change; code PRs include a Test Plan section.
 4. **Address review.** Push additional commits to the same branch; squash-merge collapses them.
@@ -125,7 +119,7 @@ A hypothetical Plan-001 PR #1 lifecycle:
 ```bash
 # 1. Branch off main
 git switch main && git pull
-git switch -c feat/daemon/plan-001-monorepo-scaffold
+git switch -c feat/plan-001-monorepo-scaffold
 
 # 2. Make commits
 git commit -m "feat(daemon): scaffold pnpm workspace + Turbo pipeline"
@@ -173,7 +167,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 - **Long-lived feature branches** — branches that outlive their PR by days create merge debt.
 - **Force-push to a shared branch** — never; always create a new commit and let squash-merge collapse history.
 - **Skipping pre-commit hooks** (`--no-verify`) — CI re-runs the same checks per ADR-023 §Axis 2 (D-1 cross-axis), so the hook bypass costs you a CI round-trip without saving time.
-- **Branches lacking the scope segment** (e.g., `feat/scaffold`) — required by the 3-segment ADR-023 shape.
+- **Branch topics that name the file instead of the change** (`docs/contributing-md` ✗, `docs/add-git-workflow-conventions` ✓) — the topic should describe what the diff *does*, not which file it touches. Filename + extension in the topic is a code smell.
 - **`style:` commits** — excluded from the type-enum; use `chore(format): ...` if you genuinely need a formatting-only commit.
 - **Citing `.agents/tmp/...` paths in committed docs** — those are transient drafts; per AGENTS.md, surface citations forward into the consuming doc and let `.agents/tmp/` be deleted.
 
