@@ -970,15 +970,17 @@ describe("SessionDirectoryService — P3 (join is idempotent on canonical member
 });
 
 // ----------------------------------------------------------------------------
-// Migration-runner idempotency
+// Migration-runner idempotency + concurrency safety
 // ----------------------------------------------------------------------------
 //
 // Parity coverage with `packages/runtime-daemon/src/session/__tests__/
 // session-service.test.ts` (the `applyMigrations is idempotent ...` block).
-// Postgres has a different concurrency model (no analogue to SQLite's
-// writer-vs-writer SQLITE_BUSY race) so this section is intentionally
-// narrower than the runtime-daemon coverage; see the migration-runner
-// header for the cross-process race-test rationale.
+// Postgres has a different concurrency primitive than SQLite (advisory
+// locks vs `BEGIN IMMEDIATE`) but the test surface mirrors the same two
+// invariants: (a) re-running on a migrated DB is a no-op; (b) concurrent
+// runners on a fresh DB serialize cleanly without `42P07 relation already
+// exists`. The Codex-R8 concurrency test below covers (b); the existing
+// "no-op" test covers (a).
 
 describe("applyMigrations — idempotency", () => {
   it("re-running applyMigrations on a migrated database is a no-op", async () => {
@@ -992,6 +994,95 @@ describe("applyMigrations — idempotency", () => {
       "SELECT version FROM schema_migrations ORDER BY version",
     );
     expect(probe.rows).toEqual([{ version: 1 }]);
+  });
+
+  it("applyMigrations is concurrency-safe — concurrent calls on the same fresh database serialize via advisory lock (Codex R8)", async () => {
+    // Codex R8 (P2): the prior runner observed "not applied" at the outer
+    // probe, opened the transaction, and ran `CREATE TABLE participants`
+    // unconditionally. Two concurrent racers under shared Postgres (rolling
+    // deploys, multi-replica daemons) could both pass the unguarded outer
+    // probe and both proceed into the transaction; the second would then
+    // crash with `42P07 relation already exists`, surfacing the concurrent
+    // boot as a startup failure rather than the idempotent no-op the API
+    // contract promises.
+    //
+    // The fix is the canonical Postgres "lock-and-re-probe" pattern:
+    // acquire `pg_advisory_xact_lock(MIGRATION_LOCK_ID)` inside the
+    // transaction, re-probe under the lock, and only run the DDL if the
+    // re-probe still misses. See `applyMigrations` docstring and file
+    // header in `migration-runner.ts` for the full mechanism.
+    //
+    // Test substrate caveat: PGlite is single-connection-per-instance,
+    // so two `Promise.all` calls do not race in the wire-protocol sense
+    // — the second call's outer probe naturally queues until the first
+    // commits, then short-circuits without entering its transaction.
+    // Production `pg.Pool` against shared Postgres is the substrate
+    // where the race is genuinely concurrent. We pin two assertions
+    // against PGlite that hold across both substrates:
+    //
+    //   (a) End-state correctness — `Promise.all([apply, apply])` on a
+    //       fresh DB resolves with no throw, the migration lands exactly
+    //       once (`schema_migrations` row count = 1, `participants` table
+    //       exists). A regression that drops the lock and re-introduces
+    //       the race would surface here as a `42P07` rejection from one
+    //       of the parallel calls — at least on `pg.Pool`. PGlite would
+    //       still pass because of single-connection serialization, so
+    //       this assertion is necessary but not load-bearing on its own.
+    //
+    //   (b) Lock-query presence — the captured SQL stream of the runner
+    //       that DOES enter the transaction MUST contain
+    //       `pg_advisory_xact_lock(...)` exactly once. A regression that
+    //       drops the lock surfaces here as a missing lock query, even on
+    //       PGlite (which does not need the lock for its own correctness
+    //       but still emits the SQL because the runner issues it
+    //       unconditionally inside the transaction). Production
+    //       `pg.Pool` shares the same source code, so the same emission
+    //       pattern holds.
+    //
+    // Note on `wrapWithLog`: only `query()` is captured (see helper
+    // docstring above); the migration DDL goes through `exec()` and is
+    // NOT in the stream. The advisory lock goes through `query()` so it
+    // IS in the stream — sufficient for assertion (b).
+    //
+    // We construct a fresh PGlite inside the test (rather than reusing
+    // `ctx.pg`) because `beforeEach` already migrated `ctx.pg`; the
+    // outer probe would short-circuit and the lock would never be
+    // exercised.
+    const pg = new PGlite();
+    try {
+      const captured: string[] = [];
+      const querier = wrapWithLog(adaptPGlite(pg), captured);
+
+      // Two concurrent calls. Both MUST resolve; neither MUST throw.
+      await expect(
+        Promise.all([applyMigrations(querier), applyMigrations(querier)]),
+      ).resolves.toEqual([undefined, undefined]);
+
+      // (a) End-state correctness: migration landed exactly once.
+      const migrationsProbe = await pg.query<{ version: number }>(
+        "SELECT version FROM schema_migrations ORDER BY version",
+      );
+      expect(migrationsProbe.rows).toEqual([{ version: 1 }]);
+
+      const participantsProbe = await pg.query<{ exists: boolean }>(
+        `SELECT EXISTS (
+           SELECT 1 FROM information_schema.tables
+            WHERE table_schema = 'public' AND table_name = 'participants'
+         ) AS exists`,
+      );
+      expect(participantsProbe.rows[0]?.exists).toBe(true);
+
+      // (b) Lock-query presence: the runner that entered the transaction
+      // issued the advisory lock. Assert "at least one" rather than
+      // "exactly one" — PGlite's serialization could in principle let
+      // the SECOND call's outer probe also miss in some future version
+      // (PGlite is under active development); the load-bearing claim
+      // is that the lock IS issued, not how many times.
+      const lockCount = captured.filter((sql) => /pg_advisory_xact_lock/i.test(sql)).length;
+      expect(lockCount).toBeGreaterThanOrEqual(1);
+    } finally {
+      await pg.close();
+    }
   });
 
   it("CHECK constraint rejects an unknown session state at INSERT time", async () => {
