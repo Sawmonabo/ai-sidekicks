@@ -7,11 +7,12 @@
 
 export { SessionService } from "./session-service.js";
 export { applyMigrations, applyPragmas, openDatabase } from "./migration-runner.js";
-export { projectEvent, replay } from "./session-projector.js";
+export { deriveMainChannelId, projectEvent, replay } from "./session-projector.js";
 export type {
   AppendableEvent,
   ChannelProjection,
   DaemonSessionSnapshot,
   MembershipProjection,
+  MembershipRole,
   StoredEvent,
 } from "./types.js";

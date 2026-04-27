@@ -4,7 +4,8 @@
 //   * SessionService — append + replay over Local SQLite
 //   * session projector — pure-functional fold from event stream to
 //     `DaemonSessionSnapshot`
-//   * 0001-initial.sql migration + runner
+//   * 0001-initial migration (inlined SQL) + runner + canonical
+//     `openDatabase` factory
 //   * pragma application helper
 //
 // Plan-001 PR #5 will add a contracts-to-internal mapping layer that
