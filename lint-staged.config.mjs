@@ -20,5 +20,5 @@ export default {
     () => "tsc -b",
   ],
   "*.{js,mjs,cjs,jsx}": ["eslint --fix --cache"],
-  "*.{json,md,yml,yaml,css,scss}": ["prettier --write"],
+  "*.{json,json5,md,yml,yaml,css,scss}": ["prettier --write"],
 };
