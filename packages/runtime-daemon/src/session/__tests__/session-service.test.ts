@@ -7,20 +7,21 @@
 // D4: Snapshot survives daemon restart and yields identical projection
 //     on rehydrate (durability across restart; Spec-001 AC2 + AC6).
 //
-// Plus Round 2 additions:
-//   * `openDatabase` factory: idempotent reopen test (code-reviewer F5).
-//   * `applyMigrations` migration sequential idempotency (code-reviewer F2).
-//   * Integrity-column CHECK constraint rejection (code-reviewer F3).
+// Migration runner coverage:
+//   * `openDatabase` factory: idempotent reopen test.
+//   * `applyMigrations` sequential idempotency on a second handle.
+//   * Integrity-column CHECK constraint rejection at INSERT time.
 //
-// Plus Round 3 additions:
+// Concurrency coverage (see "Concurrent-boot migration race" block below):
 //   * Concurrent-boot via `worker_threads` proves `BEGIN IMMEDIATE`
-//     serializes the migration without loss or duplicate (R2 BLOCKING #2).
+//     serializes the migration without loss or duplicate.
 //   * Negative-control on the same workers using the default
-//     `db.transaction(...)()` (BEGIN DEFERRED) reproduces the R2 bug —
-//     evidence that `.immediate()` is the load-bearing seam.
-//   * D3 fixture extended with a `monotonic_ns > 2^53` round-trip to
-//     prove the bigint annotations on `SessionEventRow.monotonic_ns`
-//     hold under boundary input (R2 N7).
+//     `db.transaction(...)()` (BEGIN DEFERRED) reproduces the
+//     writer-vs-writer SQLITE_BUSY contention — empirical proof
+//     `.immediate()` is the load-bearing seam.
+//   * D3 includes a `monotonic_ns > 2^53` round-trip to prove the
+//     bigint annotations on `SessionEventRow.monotonic_ns` hold under
+//     boundary input.
 //
 // Database lifecycle: each test gets a unique file under os.tmpdir().
 // `afterEach` closes any open handle and unlinks the file (the WAL/SHM
@@ -77,8 +78,8 @@ function makeMembershipJoinedEvent(sequence: number, monotonicNs: bigint): Appen
     type: "membership.joined",
     actor: OWNER_ID,
     // `role` is required by `MembershipRoleSchema` per the contracts —
-    // Round 2 widens the projection from "owner" | "member" to the full
-    // wire union, so fixtures must specify a real role.
+    // the projection mirrors the full wire union (`MembershipRole` in
+    // `@ai-sidekicks/contracts`), so fixtures must specify a real role.
     payload: { participantId: SECOND_PARTICIPANT_ID, role: "collaborator" },
     correlationId: null,
     causationId: null,
@@ -125,7 +126,8 @@ beforeEach(() => {
   const tmpDir: string = mkdtempSync(join(tmpdir(), "ai-sidekicks-daemon-test-"));
   const dbPath: string = join(tmpDir, "test.db");
   // Use the canonical factory — same code path daemon production code
-  // takes. Round 1's test-only helper has been removed in favor of this.
+  // takes — so the test exercise stays in lockstep with production
+  // open semantics (pragmas + migrations, in that order).
   const db: DatabaseType = openDatabase(dbPath);
   ctx = {
     db,
@@ -154,7 +156,12 @@ describe("SessionService — D2 (replay reads events by sequence ASC)", () => {
     // ORDER BY sequence ASC.
     const created: AppendableEvent = makeCreatedEvent();
     const joined: AppendableEvent = makeMembershipJoinedEvent(1, 2_000_000_000n);
-    const channel: AppendableEvent = makeChannelCreatedEvent(2, 3_000_000_000n, "01970000-0000-7000-8000-000000000001", "Design Review");
+    const channel: AppendableEvent = makeChannelCreatedEvent(
+      2,
+      3_000_000_000n,
+      "01970000-0000-7000-8000-000000000001",
+      "Design Review",
+    );
 
     // Append sequence=2 first, then 0, then 1.
     ctx.service.append(channel);
@@ -198,7 +205,12 @@ describe("SessionService — D3 (replay uses sequence not monotonic_ns)", () => 
     // sequence=[0, 1, 2] regardless of monotonic_ns clock skew.
     const e0: AppendableEvent = { ...makeCreatedEvent(), monotonicNs: 5_000_000_000n };
     const e1: AppendableEvent = makeMembershipJoinedEvent(1, 1_000_000_000n);
-    const e2: AppendableEvent = makeChannelCreatedEvent(2, 3_000_000_000n, "01970000-0000-7000-8000-000000000002", "Side Channel");
+    const e2: AppendableEvent = makeChannelCreatedEvent(
+      2,
+      3_000_000_000n,
+      "01970000-0000-7000-8000-000000000002",
+      "Side Channel",
+    );
 
     ctx.service.append(e0);
     ctx.service.append(e1);
@@ -226,14 +238,14 @@ describe("SessionService — D3 (replay uses sequence not monotonic_ns)", () => 
     expect(snapshot.asOfSequence).toBe(2);
   });
 
-  it("round-trips a monotonic_ns value above Number.MAX_SAFE_INTEGER as bigint without precision loss (N7)", () => {
-    // R2 N7: D3's original fixtures (1e9, 3e9, 5e9) all sit below
+  it("round-trips a monotonic_ns value above Number.MAX_SAFE_INTEGER as bigint without precision loss", () => {
+    // D3's other fixtures (1e9, 3e9, 5e9) all sit below
     // Number.MAX_SAFE_INTEGER ≈ 9.007e15, so a regression that did
-    // `Number(row.monotonic_ns)` in `hydrateRow` would not surface.
-    // `process.hrtime.bigint()` legitimately exceeds 2^53 even on hosts
-    // booted well over a year — the relevant boundary is exactly
-    // 2^53 + 1 = 9_007_199_254_740_993n, where double-precision floats
-    // start losing the LSB.
+    // `Number(row.monotonic_ns)` in `hydrateRow` would not surface from
+    // them alone. `process.hrtime.bigint()` legitimately exceeds 2^53
+    // even on hosts booted well over a year — the relevant boundary is
+    // exactly 2^53 + 1 = 9_007_199_254_740_993n, where double-precision
+    // floats start losing the LSB. This test pins the boundary.
     const BIGINT_BOUNDARY: bigint = 9_007_199_254_740_993n; // 2^53 + 1
     const created: AppendableEvent = {
       ...makeCreatedEvent(),
@@ -277,7 +289,12 @@ describe("SessionService — D4 (snapshot survives daemon restart)", () => {
     // First "process": create session, add a member and a channel.
     const created: AppendableEvent = makeCreatedEvent();
     const joined: AppendableEvent = makeMembershipJoinedEvent(1, 2_000_000_000n);
-    const channel: AppendableEvent = makeChannelCreatedEvent(2, 3_000_000_000n, "01970000-0000-7000-8000-000000000003", "Design Review");
+    const channel: AppendableEvent = makeChannelCreatedEvent(
+      2,
+      3_000_000_000n,
+      "01970000-0000-7000-8000-000000000003",
+      "Design Review",
+    );
 
     ctx.service.append(created);
     ctx.service.append(joined);
@@ -321,9 +338,9 @@ describe("SessionService — D4 (snapshot survives daemon restart)", () => {
   it("openDatabase is idempotent on reopen (does not re-run version=1)", () => {
     // Reopening the SAME file via the factory must not throw, must not
     // duplicate the schema_version row. The factory internally calls
-    // applyMigrations, so this also covers code-reviewer F2's
-    // read-after-write idempotency: the second open sees the first's
-    // committed schema_version row and short-circuits.
+    // applyMigrations, so this also covers read-after-write
+    // idempotency: the second open sees the first's committed
+    // schema_version row and short-circuits.
     ctx.db.close();
     const reopened: DatabaseType = openDatabase(ctx.dbPath);
     ctx.db = reopened;
@@ -376,24 +393,23 @@ describe("SessionService — D4 (snapshot survives daemon restart)", () => {
 });
 
 // ----------------------------------------------------------------------------
-// Concurrent-boot migration race (R2 BLOCKING #2)
+// Concurrent-boot migration race
 // ----------------------------------------------------------------------------
 //
-// The R2 review reproduced this empirically: 2 procs hammering
-// `openDatabase(sharedPath)` simultaneously hit SQLITE_BUSY in 4/10
-// trials; 4 procs hit SQLITE_BUSY in 19/20 trials. The R2 commit wrapped
-// the migration in `db.transaction(...)` and called it as `tx()`, which
-// `better-sqlite3` dispatches as `BEGIN` (DEFERRED in SQLite). Both
+// Production must serialize concurrent `openDatabase(sharedPath)` calls
+// without losing any migration. The bug class this block defends
+// against is writer-vs-writer SQLITE_BUSY: when two daemons race to
+// migrate the same file under `db.transaction(...)` invoked WITHOUT
+// `.immediate()`, better-sqlite3 dispatches `BEGIN` (DEFERRED). Both
 // racers begin as readers; the inside-tx `hasMigrationApplied` SELECT
-// succeeds without lock upgrade; the subsequent `db.exec(SQL)` requires
-// a writer lock; in WAL mode two DEFERRED transactions both attempting
-// to upgrade hit `SQLITE_BUSY_SNAPSHOT`. `busy_timeout` cannot resolve
-// writer-vs-writer snapshot conflicts — it only retries while no
-// transaction is held. R3 swaps the call to `.immediate()` (BEGIN
-// IMMEDIATE) which takes the RESERVED writer-intent lock at BEGIN time,
-// so racers serialize at BEGIN (which `busy_timeout` CAN absorb) and
-// the loser's inside-tx re-check sees the winner's committed
-// schema_version row.
+// succeeds without a lock upgrade; the subsequent `db.exec(SQL)`
+// requires a writer lock; in WAL mode two DEFERRED transactions
+// attempting to upgrade hit `SQLITE_BUSY_SNAPSHOT`, which
+// `busy_timeout` cannot resolve (the busy-handler only retries while
+// no transaction is held). The fix is `.immediate()` — BEGIN IMMEDIATE
+// takes the RESERVED writer-intent lock at BEGIN time, so racers
+// serialize at BEGIN (which `busy_timeout` CAN absorb) and the loser's
+// inside-tx re-check sees the winner's committed schema_version row.
 //
 // Concurrency note: better-sqlite3 is fully synchronous. A single
 // process cannot exercise this contention from one event loop. The
@@ -404,15 +420,15 @@ describe("SessionService — D4 (snapshot survives daemon restart)", () => {
 //
 // Both tests in this section use a multi-trial threshold structure
 // (4-8 workers × 5 trials), NOT single-trial deterministic assertions.
-// The bug-class (writer-vs-writer SQLITE_BUSY) is statistically
+// The bug class (writer-vs-writer SQLITE_BUSY) is statistically
 // distributed under contention — single-trial assertions cannot
 // distinguish a host-environmental flake from a real `.immediate()`
 // regression because the error class is identical. The wide gap in
 // per-attempt failure rate between working production (~10-25 % on
-// WSL2, ~0 % on Linux bare-metal) and broken production (~95 %, R2
-// reviewer baseline) makes the population-level threshold reliable
-// even in the presence of host noise. See per-test docstrings for
-// the binomial-tail math.
+// WSL2, ~0 % on Linux bare-metal) and broken production (~95 % on
+// Linux bare-metal) makes the population-level threshold reliable even
+// in the presence of host noise. See per-test docstrings for the
+// binomial-tail math.
 //
 // Worker fixture rationale lives in
 // `./migration-race-worker.mjs` header — TL;DR `.mjs` is required
@@ -438,25 +454,58 @@ async function runMigrationRace(
   // chance the workers reach `BEGIN ...` simultaneously. SQLite's
   // file-locking will then serialize them; the assertion is on the
   // exit shape (all OK + single schema_version row), not on the order.
+  //
+  // The outer `workers` array tracks every spawned Worker so the
+  // `finally` block can terminate any sibling that's still alive when
+  // one rejects. Without this fleet-wide terminate, a worker that
+  // rejected before its peers post-message would leave them holding
+  // file handles on the test DB path, racing the `afterEach` cleanup
+  // (EBUSY-prone on Windows). The `exit` handler complements the
+  // `error` handler: a fatal V8 crash, OOM, or pre-try-block error
+  // can exit the worker without emitting a JS `error` event, which
+  // would otherwise hang the promise until vitest's test timeout. The
+  // `exit` listener also clears `settled` so the late-arriving paths
+  // do not double-resolve.
+  const workers: Worker[] = [];
   const promises: Array<Promise<RaceWorkerResult>> = [];
   for (let i = 0; i < workerCount; i++) {
+    const w: Worker = new Worker(workerUrl, {
+      workerData: { dbPath, useDeferred },
+    });
+    workers.push(w);
     promises.push(
       new Promise<RaceWorkerResult>((resolve, reject) => {
-        const w: Worker = new Worker(workerUrl, {
-          workerData: { dbPath, useDeferred },
-        });
+        let settled: boolean = false;
+        const settle = (fn: () => void): void => {
+          if (settled) return;
+          settled = true;
+          fn();
+        };
         w.once("message", (msg: RaceWorkerResult) => {
-          resolve(msg);
-          void w.terminate();
+          settle(() => resolve(msg));
         });
         w.once("error", (err: Error) => {
-          reject(err);
-          void w.terminate();
+          settle(() => reject(err));
+        });
+        w.once("exit", (code: number) => {
+          if (code !== 0) {
+            settle(() =>
+              reject(
+                new Error(
+                  `migration-race-worker exited with code ${code.toString()} without postMessage`,
+                ),
+              ),
+            );
+          }
         });
       }),
     );
   }
-  return Promise.all(promises);
+  try {
+    return await Promise.all(promises);
+  } finally {
+    await Promise.all(workers.map((w) => w.terminate()));
+  }
 }
 
 describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)", () => {
@@ -494,7 +543,7 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
     //
     // The discriminator IS available — but at the population level,
     // not the per-attempt level. Empirical per-attempt failure rates
-    // (WORKER_COUNT=4, the contention level the R2 reviewer used):
+    // at WORKER_COUNT=4:
     //
     //   * Working production (`.immediate()`), Linux bare-metal CI:
     //     ~0 % failure rate (writer-intent lock + busy_timeout fully
@@ -505,27 +554,40 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
     //     lock-error code isn't in SQLite's "retryable" set on this
     //     fs). Multi-trial expected total: 2-5 / 20.
     //   * Broken production (`tx()` → DEFERRED), Linux bare-metal
-    //     baseline: ~95 % per attempt (R2 reviewer: "4 procs hit BUSY
-    //     in 19/20 trials"). Multi-trial expected total: ~19 / 20.
+    //     baseline: ~95 % per attempt (multi-trial expected total
+    //     ~19 / 20).
     //   * Broken production, WSL2 dev: 0-60 % per attempt due to
     //     fcntl-on-9p reducing contention saturation (some trials
     //     happen to fully serialize cleanly even with DEFERRED).
     //     Multi-trial expected total: 0-12 / 20 — overlaps with
     //     working-production WSL2 distribution.
     //
-    // Threshold = 10 (50 % of attempts) is calibrated for the Linux
-    // CI rate (the reviewer's environment). On Linux CI the gap is
-    // ~0 vs ~19, so the threshold discriminates with binomial-tail
+    // Threshold = 10 (50 % of attempts) is calibrated against the
+    // Linux bare-metal CI gap (~0 % working vs ~95 % broken). On
+    // Linux CI the threshold discriminates with binomial-tail
     // probability ≈ 0 of false alarm. On WSL2 dev the distributions
     // overlap heavily — bug-detection sensitivity is reduced (~35 %
-    // detection rate observed locally for the broken pattern), but
-    // false-positive risk against WORKING production stays low
-    // because the working-production WSL2 distribution sits well
-    // under threshold (E[failures] ≈ 5, threshold = 10). The CI run
-    // is the load-bearing assertion; WSL2 dev runs are correctness
-    // smoke-tests that ALSO run the deterministic negative control
-    // below (which is environment-independent because it uses the
-    // inline replica, not the dynamically-imported production).
+    // detection rate observed locally for the broken DEFERRED
+    // pattern), but false-positive risk against WORKING production
+    // stays low because the working-production WSL2 distribution
+    // sits well under threshold (E[failures] ≈ 5, threshold = 10).
+    // The CI run is the load-bearing assertion; WSL2 dev runs are
+    // correctness smoke-tests that ALSO run the deterministic
+    // negative control below (which is environment-independent
+    // because it pins the existence of contention, not its absence).
+    //
+    // TODO(Plan-006): the threshold is calibrated to the
+    // ".immediate()-dropped" regression class (~95 % per-attempt
+    // saturation on Linux). A future regression that produced a
+    // smaller per-attempt failure rate (say 30 %) would not cross
+    // 10/20 and would pass silently — the negative control below
+    // catches "DEFERRED-shaped contention exists" but not
+    // intermediate failure rates. When Plan-006 adds further
+    // migration-related concurrency invariants (per-event
+    // hash-chain commit, snapshot-write coupling), revisit this
+    // threshold and add bug-class-specific assertions for any
+    // regression class that wouldn't surface here at the existing
+    // 50 % threshold.
     //
     // The `runMigrationRace` helper, the worker fixture
     // (`./migration-race-worker.mjs`), and the multi-trial loop
@@ -537,8 +599,8 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
     // class from regression-class failures (both surface as
     // SQLITE_BUSY); only the population-level threshold can.
     //
-    // Verification before commit:
-    //   * Restore `.immediate()` in migration-runner.ts.
+    // Verification recipe (manual, ad-hoc):
+    //   * Confirm `.immediate()` is in migration-runner.ts.
     //   * Run this test 30× → 30/30 pass on WSL2 (observed locally).
     //   * Temporarily revert `.immediate()` → `()`; run 10× → at
     //     least 3-4 trials cross threshold on WSL2 (~35 % WSL2-only
@@ -567,7 +629,7 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
 
     expect(
       totalFailures,
-      `expected ≤${FAILURE_THRESHOLD.toString()} failures across ${TRIAL_COUNT.toString()} trials × ${WORKER_COUNT.toString()} workers (=${(TRIAL_COUNT * WORKER_COUNT).toString()} attempts); a regression that drops .immediate() from migration-runner.ts produces ~19 failures on Linux bare-metal (R2 reviewer baseline: "4 procs hit BUSY in 19/20 trials"; WSL2 detection ~35 % due to fcntl-on-9p reducing contention saturation, see test docstring). Got ${totalFailures.toString()}. Detail: ${JSON.stringify(allResults)}`,
+      `expected ≤${FAILURE_THRESHOLD.toString()} failures across ${TRIAL_COUNT.toString()} trials × ${WORKER_COUNT.toString()} workers (=${(TRIAL_COUNT * WORKER_COUNT).toString()} attempts); a broken DEFERRED pattern produces ~19 BUSY failures across 20 attempts on Linux bare-metal (threshold set well below this; WSL2 detection ~35 % due to fcntl-on-9p reducing contention saturation, see test docstring). Got ${totalFailures.toString()}. Detail: ${JSON.stringify(allResults)}`,
     ).toBeLessThanOrEqual(FAILURE_THRESHOLD);
 
     // Belt-and-braces verification: every trial's database file must
@@ -595,7 +657,7 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
     }
   });
 
-  it("the SAME race pattern using BEGIN DEFERRED across multiple trials reproduces the R2 bug at least once — empirical proof .immediate() is load-bearing", async () => {
+  it("the SAME race pattern using BEGIN DEFERRED across multiple trials reproduces writer-vs-writer contention at least once — empirical proof .immediate() is load-bearing", async () => {
     // Negative control: this test intentionally exercises the broken
     // pattern (`tx()` → BEGIN DEFERRED) to prove (a) the workers are
     // genuinely contending and (b) `.immediate()` is the load-bearing
@@ -632,9 +694,7 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
       allTrialResults.push([...trialResults]);
     }
 
-    const allFailures: RaceWorkerResult[] = allTrialResults
-      .flat()
-      .filter((r) => !r.ok);
+    const allFailures: RaceWorkerResult[] = allTrialResults.flat().filter((r) => !r.ok);
     expect(
       allFailures.length,
       `expected at least one DEFERRED failure across ${TRIAL_COUNT.toString()} trials of ${WORKER_COUNT.toString()} workers as evidence of contention; got ${JSON.stringify(allTrialResults)}`,
@@ -650,7 +710,8 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
         f.code === "SQLITE_BUSY_SNAPSHOT" ||
         // better-sqlite3 surfaces "table … already exists" as a generic
         // SQLITE_ERROR when the racer DID upgrade past BEGIN but lost
-        // at the CREATE TABLE step — also valid R2-bug evidence.
+        // at the CREATE TABLE step — also valid evidence of the same
+        // writer-vs-writer race.
         /already exists/i.test(f.message) ||
         /SQLITE_BUSY/i.test(f.message);
       expect(
@@ -662,14 +723,14 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
 });
 
 // ----------------------------------------------------------------------------
-// Integrity-column CHECK constraints (code-reviewer F3)
+// Integrity-column CHECK constraints
 // ----------------------------------------------------------------------------
 //
 // The Plan-001 migration declares CHECK(length(prev_hash) = 32 AND
 // length(row_hash) = 32 AND length(daemon_signature) = 64 AND
 // (participant_signature IS NULL OR length(participant_signature) = 64))
-// on session_events. Round 1 had no constraint — wrong-length placeholder
-// bytes (e.g. Buffer.alloc(0)) silently succeeded and surfaced as a
+// on session_events. Without these CHECKs, wrong-length placeholder
+// bytes (e.g. Buffer.alloc(0)) would silently succeed and surface as a
 // chain-recompute failure later, in Plan-006 verification territory.
 // These tests pin the constraints at INSERT time.
 
@@ -767,5 +828,79 @@ describe("session_events integrity-column CHECK constraints", () => {
     // This is already covered by D2/D3/D4 but pinning it here makes the
     // CHECK-constraint test block read as a self-contained proof.
     expect(() => ctx.service.append(makeCreatedEvent())).not.toThrow();
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Read-side payload trust boundary (parsePayload)
+// ----------------------------------------------------------------------------
+//
+// `SessionService.readEvents` parses each row's `payload` blob as JSON and
+// asserts the result is a plain object (not null, not an array, not a
+// primitive). The wire-layer `SessionEventSchema` constrains every V1
+// variant's payload to an object schema, so this read-side guard mirrors
+// the wire contract at the storage seam. A defective writer that bypasses
+// `SessionService.append()` and stores a non-object JSON value (or
+// malformed JSON) would otherwise surface as a misleading downstream
+// `TypeError` from the projector — these tests pin the actual diagnostic.
+//
+// The tests bypass `SessionService.append` by writing through a raw
+// prepared statement; the table's `payload` column is `TEXT NOT NULL`,
+// so SQLite accepts arbitrary strings and the validation must happen at
+// hydration.
+
+describe("SessionService — read-side payload validation", () => {
+  function appendRaw(payloadText: string, sequence: number, id: string): void {
+    ctx.db
+      .prepare(
+        `INSERT INTO session_events (
+           id, session_id, sequence, occurred_at, monotonic_ns,
+           category, type, payload,
+           prev_hash, row_hash, daemon_signature
+         ) VALUES (
+           @id, @session_id, @sequence, @occurred_at, @monotonic_ns,
+           @category, @type, @payload,
+           @prev_hash, @row_hash, @daemon_signature
+         )`,
+      )
+      .run({
+        id,
+        session_id: SESSION_ID,
+        sequence,
+        occurred_at: "2026-04-27T12:00:00.000Z",
+        monotonic_ns: 1n,
+        category: "session_lifecycle",
+        type: "session.created",
+        payload: payloadText,
+        prev_hash: Buffer.alloc(32),
+        row_hash: Buffer.alloc(32),
+        daemon_signature: Buffer.alloc(64),
+      });
+  }
+
+  it("throws a structured error when payload deserializes to null", () => {
+    appendRaw("null", 0, "01J0EV8881NN5J5J5J5J5J5J5J");
+    expect(() => ctx.service.readEvents(SESSION_ID)).toThrow(
+      /payload must be a JSON object .* \(got null\)/,
+    );
+  });
+
+  it("throws a structured error when payload deserializes to a JSON array", () => {
+    appendRaw('["a","b"]', 0, "01J0EV8882NN5J5J5J5J5J5J5J");
+    expect(() => ctx.service.readEvents(SESSION_ID)).toThrow(
+      /payload must be a JSON object .* \(got array\)/,
+    );
+  });
+
+  it("throws a structured error when payload deserializes to a JSON primitive", () => {
+    appendRaw('"plain string"', 0, "01J0EV8883NN5J5J5J5J5J5J5J");
+    expect(() => ctx.service.readEvents(SESSION_ID)).toThrow(
+      /payload must be a JSON object .* \(got string\)/,
+    );
+  });
+
+  it("throws a structured error when payload is not valid JSON at all", () => {
+    appendRaw("{not valid json", 0, "01J0EV8884NN5J5J5J5J5J5J5J");
+    expect(() => ctx.service.readEvents(SESSION_ID)).toThrow(/payload is not valid JSON/);
   });
 });

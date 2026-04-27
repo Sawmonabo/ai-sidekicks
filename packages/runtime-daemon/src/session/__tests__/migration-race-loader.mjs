@@ -1,3 +1,4 @@
+// @ts-check
 // Node module-resolver hook that rewrites `.js` → `.ts` extensions when
 // the corresponding `.ts` source file exists. Required for the
 // concurrent-boot worker (`migration-race-worker.mjs`) to dynamically
@@ -24,6 +25,11 @@
 import { existsSync } from "node:fs";
 import { fileURLToPath, URL } from "node:url";
 
+/**
+ * @param {string} specifier
+ * @param {{ parentURL?: string }} context
+ * @param {(s: string, c: { parentURL?: string }) => unknown} nextResolve
+ */
 export async function resolve(specifier, context, nextResolve) {
   if (
     specifier.endsWith(".js") &&
