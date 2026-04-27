@@ -16,6 +16,10 @@
 
 Ship a Rust PTY sidecar binary implementing the `PtyHost` contract, distributed per-platform via npm `optionalDependencies`, signed for Windows and macOS per each platform's trust-chain requirements, and wired as the **Windows-primary** PTY backend with `node-pty` as the macOS/Linux primary and the Windows fallback. This closes the structural fix named by ADR-019 against the `node-pty` ConPTY bug cluster ([openai/codex#13973](https://github.com/openai/codex/issues/13973), [microsoft/node-pty#904](https://github.com/microsoft/node-pty/issues/904), [microsoft/node-pty#887](https://github.com/microsoft/node-pty/issues/887), [microsoft/node-pty#894](https://github.com/microsoft/node-pty/issues/894)) before Plan-005 (runtime bindings) consumes `PtyHost`.
 
+## Tier Intent
+
+Tier 1 per [cross-plan-dependencies.md §5 Canonical Build Order](../architecture/cross-plan-dependencies.md#5-canonical-build-order) — daemon-foundational, co-tier with Plan-001. Standalone (no upstream plan dependencies). Upstream of Plan-005 (runtime bindings) which is the first consumer of the `PtyHost` contract; consumption begins at Tier 4 once Plan-005 lands.
+
 ## Scope
 
 - Rust `sidecar-rust-pty/` crate built on `portable-pty ≥ 0.9.0` (WezTerm), pinned via `Cargo.toml` + `Cargo.lock` committed to the repo
@@ -35,6 +39,30 @@ Ship a Rust PTY sidecar binary implementing the `PtyHost` contract, distributed 
 - Upgrading the `node-pty` fallback to `useConptyDll: true` — deferred per ADR-019 Tripwire 3 until [microsoft/node-pty#894](https://github.com/microsoft/node-pty/issues/894) closes
 - macOS or Linux sidecar as primary — those platforms use in-process `node-pty` by default per ADR-019; the sidecar is still published there as an env-var-selectable override and as insurance against future platform-specific `node-pty` regressions
 - Runtime signature verification of the sidecar binary by the daemon — deferred per esbuild / napi-rs precedent; distribution integrity rests on npm registry TUF + lockfile; OS-level trust chains (Gatekeeper, SmartScreen) enforce signature at spawn, which is the right layer for that check. V1.1 may add optional daemon-side pubkey verification as defense-in-depth hardening — especially on Linux where no OS-level spawn check exists (see §Risks And Blockers)
+
+## Invariants
+
+The five invariants below are promoted from §Windows Implementation Gotchas. Each MUST hold across the daemon ↔ sidecar boundary on Windows; the gotchas section below carries the rationale and primary-source citations.
+
+### I-024-1 — Windows kill semantics translate at `PtyHost.kill`, not `portable-pty` default
+
+`PtyHost.kill(sessionId, signal)` on Windows MUST translate POSIX signal semantics to the `GenerateConsoleCtrlEvent` API: `SIGINT` → `CTRL_C_EVENT`; hard-stop → `CTRL_BREAK_EVENT` followed by escalation per I-024-2 if the child does not exit within a bounded interval. Implementation lives in `pty_session.rs::kill()`; the sidecar MUST NOT delegate to `portable-pty`'s default kill behavior on Windows. Source: §Windows Implementation Gotchas Gotcha 1 (`microsoft/node-pty#167`).
+
+### I-024-2 — Hard-stop teardown uses `taskkill /T /F` for full process-tree termination
+
+A single-PID kill on Windows leaves descendants orphaned. The hard-stop path MUST invoke `taskkill /T /F /PID <root-pid>` so the entire descendant tree terminates. Reaping MUST be idempotent and MUST NOT block the sidecar's main loop — invoke `taskkill` with a timeout and emit `ExitCodeNotification` even if reaping is incomplete, so the daemon can mark the session terminated without hanging on a stuck OS-level operation. Source: §Windows Implementation Gotchas Gotcha 2 (`microsoft/node-pty#437`).
+
+### I-024-3 — Sidecar does NOT translate WSL2 paths; that translation is daemon-layer
+
+The sidecar MUST pass `SpawnRequest.cwd` and `SpawnRequest.env` paths to `portable-pty` verbatim and MUST NOT invoke `wslpath` or any Windows ↔ WSL2 path conversion. Any `wslpath`-style translation is a daemon-layer step that runs **before** the `SpawnRequest` reaches the sidecar. Negative invariant: scope-boundary declaration that prevents sidecar / daemon coupling. Source: §Windows Implementation Gotchas Gotcha 3.
+
+### I-024-4 — Daemon's sidecar-cleanup handler registers BEFORE Electron `will-quit`
+
+The daemon's sidecar-cleanup handler MUST register before Electron's `will-quit` handler — first-registered runs first under Electron's event-emitter semantics, and the cleanup handler MUST drain active sessions (emit `KillRequest`, await `ExitCodeNotification` per session with bounded timeout, close sidecar stdin, await sidecar exit, escalate to `taskkill /T /F /PID <sidecar-pid>` on timeout) so child PTY processes do not orphan when the renderer process terminates. **Cross-plan obligation:** Plan-001 (shared session core) owns the registration and drain orchestration; Plan-024 supplies only the `PtyHost.close(sessionId)` and sidecar `KillRequest` primitives. Source: §Windows Implementation Gotchas Gotcha 4 (`microsoft/node-pty#904`).
+
+### I-024-5 — `SpawnRequest.cwd` carries a stable path; daemon performs worktree translation
+
+The sidecar's protocol-level `SpawnRequest.cwd` MUST always carry a stable, unmovable parent directory (e.g., the daemon's own working dir or the user-home root). Worktree paths live in the command-string-or-env layer above (`cd <worktree-path> && ` shell prefix or `CWD=<worktree-path>` environment propagation). **Cross-plan obligation:** Plan-001 / Plan-005 own the daemon-layer `PtyHost.spawn(spec)` translation that converts a logical worktree-path `spec.cwd` into the (stable parent dir, prefixed command) tuple before forwarding to the sidecar; the sidecar MUST NOT know about worktree semantics. The constraint is OS-level; `NodePtyHost` fallback inherits the same constraint. Source: §Windows Implementation Gotchas Gotcha 5 (`microsoft/node-pty#647`).
 
 ## Preconditions
 
@@ -193,6 +221,60 @@ This plan treats the two signing paths as **parallel tracks selected by the publ
 - **Sidecar spawn latency** p95 ≤ 50 ms per ADR-019 Success Criteria (measured from selector call to `SpawnResponse` receipt).
 - **Signed-binary smoke test:** installer pipeline verifies Gatekeeper acceptance on macOS (`spctl --assess --type exec sidecar`) and SmartScreen / Smart App Control on Windows 11 (see Spec-023 §Windows for the reality-check on SmartScreen's reputation-accrual UX).
 
+## Implementation PR Sequence
+
+Plan-024 implementation lands as five PRs that map the §Implementation Steps onto the §Rollout Order. Each PR has an explicit `**Precondition:**` line and cites which §Invariants entries and §Windows Implementation Gotchas it satisfies, so reviewers can gate cross-plan obligations at merge time.
+
+### PR #1 — Rust Crate Scaffold + Protocol + Framing
+
+**Precondition:** None (Plan-024 is Tier 1 standalone; PR #1 starts as soon as repo bootstrap from Plan-001 PR #1 is merged so the workspace tree exists).
+
+**Goal:** Rust crate compiles green; protocol serde round-trip and Content-Length framer unit tests pass; sidecar binary spawns a local PTY and round-trips a smoke message in a developer-machine integration test.
+
+- §Implementation Steps 1–5 (scaffold crate, framing, protocol types, per-session PTY holder, exit-code capture)
+- Satisfies §Invariants nothing yet (the I-024-\* invariants live at the daemon ↔ sidecar boundary, which arrives in PR #3)
+- Cross-compile not exercised here — that lands in PR #4
+
+### PR #2 — TS `PtyHost` Contract + `NodePtyHost` + Selector Default-Node
+
+**Precondition:** PR #1 merged (the Rust crate's hand-authored `protocol.rs` types are the source of truth for the TS mirror in `pty-host-protocol.ts`).
+
+**Goal:** `PtyHost` contract exists in `packages/contracts/`; `NodePtyHost` implements it; `PtyHostSelector` defaults to `NodePtyHost` on all platforms (no behavioral change vs pre-Plan-024 daemon). Matches §Rollout Order step 1.
+
+- §Implementation Steps 6, 8, 9 (interface definition, `NodePtyHost` impl, selector with default-Node)
+- Selector wires the `AIS_PTY_BACKEND` env-var override but defaults to `node-pty` everywhere; the `RustSidecarPtyHost` branch is unimplemented and throws "not yet wired" if forced
+- Satisfies §Invariants I-024-1, I-024-2 inside `NodePtyHost` for the `node-pty` code path on Windows (the sidecar code path lands in PR #3)
+
+### PR #3 — `RustSidecarPtyHost` + Env-Var Opt-In
+
+**Precondition:** PR #2 merged (the `PtyHost` contract is the integration surface) AND the daemon-layer cwd-translation wrapper from Plan-001 §Cross-Plan Obligations CP-001-2 is in place (otherwise §Invariants I-024-5 cannot hold — sidecar `SpawnRequest.cwd` would carry worktree paths and Windows `ERROR_SHARING_VIOLATION` would surface in CI).
+
+**Goal:** `RustSidecarPtyHost` implements the contract end-to-end; sidecar spawn / Content-Length framing / crash-respawn supervision works on the developer's local platform; opt-in via `AIS_PTY_BACKEND=rust-sidecar`. Matches §Rollout Order step 2.
+
+- §Implementation Step 7 (`RustSidecarPtyHost` impl + supervision)
+- Satisfies §Invariants I-024-1 through I-024-5 for the sidecar code path
+- Cross-references §Windows Implementation Gotchas 1, 2, 4 (kill-translation, tree-kill escalation, will-quit handler ordering); Gotcha 4's daemon-side handler wiring is enforced by Plan-001 §Cross-Plan Obligations CP-001-1
+
+### PR #4 — CI Cross-Compile Matrix + Signing Stages
+
+**Precondition:** PR #3 merged (a working `RustSidecarPtyHost` is needed to validate the cross-compile artifacts); signing-track decision recorded in `## Preconditions`.
+
+**Goal:** All 5 platform targets build green in CI; macOS notarization pipeline green for `darwin-arm64` and `darwin-x64`; Windows signing pipeline green per the selected track (Track A or Track B). Matches §Rollout Order steps 3 and 4 (signing procurement + signed pre-release publish).
+
+- §Implementation Steps 10–13 (CI matrix, Windows signing, macOS signing, Linux strip + hash publication)
+- No new invariants — this PR exercises the binary distribution layer; runtime invariants are still owned by PR #3
+
+### PR #5 — Publish + Windows Default-Flip + Monitoring
+
+**Precondition:** PR #4 merged (signed binaries available on a pre-release npm tag); ADR-019 Success Criteria measurement plumbing in place (crash-rate telemetry, SmartScreen reputation tracking).
+
+**Goal:** 5 platform packages + umbrella `@ai-sidekicks/pty-sidecar` publish to npm with `optionalDependencies` + `os` / `cpu` filters; daemon resolves the umbrella; `PtyHostSelector` default on Windows flips to `RustSidecarPtyHost` (with `NodePtyHost` fallback when the sidecar binary is not resolvable). Matches §Rollout Order steps 5 and 6 (default-flip + monitor).
+
+- §Implementation Steps 14–15 (publish + daemon consumer wire-up)
+- Default-flip is gated on green ADR-019 Success Criteria readings (`≥ 99%` Codex `/resume` pass-rate; `≤ 50 ms` p95 spawn latency; `≤ 0.01/1,000` crash rate); if any criterion regresses, the flip reverts via env-var override per §Rollback Or Fallback
+
+After PR #5 lands green and the ADR-019 Success Criteria readings remain green for a 2-week monitoring window, Plan-024 is complete.
+
 ## Rollout Order
 
 1. Ship the Rust crate + `PtyHost` interface + `NodePtyHost` impl behind a `PtyHostSelector` whose default on all platforms is `NodePtyHost` (no behavioral change).
@@ -231,10 +313,6 @@ This plan treats the two signing paths as **parallel tracks selected by the publ
 - [ ] `PtyHostSelector` picks `RustSidecarPtyHost` on Windows by default; falls back to `NodePtyHost` when sidecar unresolvable
 - [ ] ADR-019 Success Criteria met at check dates (≥ 99% Codex `/resume` over 50 runs by 2026-08-01; ≤ 50 ms p95 spawn latency; ≤ 0.01/1,000 sidecar-originated crash rate by 2026-10-01)
 - [ ] `Azure/artifact-signing-action` (Track A) _or_ SignPath/`signtool.exe` (Track B) pipeline confirmed against a non-test release candidate
-
-## Tier Intent
-
-Tier 1 per [cross-plan-dependencies.md §5 Canonical Build Order](../architecture/cross-plan-dependencies.md#5-canonical-build-order) — daemon-foundational, co-tier with Plan-001. Upstream of Plan-005 (runtime bindings) which is the first consumer of the `PtyHost` contract; consumption begins at Tier 4 once Plan-005 lands.
 
 ## References
 
