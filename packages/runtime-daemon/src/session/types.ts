@@ -99,7 +99,21 @@ export interface MembershipProjection {
 
 export interface ChannelProjection {
   readonly channelId: string;
-  readonly name: string;
+  // `name` is OPTIONAL on the wire — `channelCreatedPayloadSchema` in
+  // `packages/contracts/src/event.ts` declares it as
+  // `wireFreeFormString(...).optional()` (i.e. the key may be absent /
+  // undefined; explicitly NOT nullable). The daemon-internal projection
+  // mirrors that shape so the wire-to-daemon coercion stays the identity
+  // function. The bootstrap-synthesized "main" channel ALWAYS sets a name
+  // (constant `MAIN_CHANNEL_NAME = "main"`), so the only producers of an
+  // omitted-name projection are explicit `channel.created` envelopes whose
+  // wire payload omitted the optional `name` field.
+  //
+  // UI fallback (e.g. label-by-channelId for the unnamed case) is the IPC
+  // mapping seam's responsibility (Plan-001 PR #5), NOT the projector's.
+  // Treating absent-as-absent here keeps the projector honest about the
+  // information actually present in the event log.
+  readonly name?: string;
   readonly createdAt: string; // RFC 3339 UTC
 }
 

@@ -310,25 +310,23 @@ function applyChannelCreated(
   snapshot: DaemonSessionSnapshot,
   event: StoredEvent,
 ): DaemonSessionSnapshot {
+  // Step 1: validate channelId. `channelId` is REQUIRED on the wire
+  // (`ChannelIdSchema` is non-optional in `channelCreatedPayloadSchema`),
+  // so a missing/empty value is a producer bug at any sequence.
   const channelId: unknown = event.payload["channelId"];
-  const name: unknown = event.payload["name"];
   if (typeof channelId !== "string" || channelId.length === 0) {
     throw new Error(
       `applyChannelCreated: payload.channelId must be a non-empty string at sequence=${String(event.sequence)}`,
     );
   }
-  if (typeof name !== "string" || name.length === 0) {
-    throw new Error(
-      `applyChannelCreated: payload.name must be a non-empty string at sequence=${String(event.sequence)}`,
-    );
-  }
-  // The `alreadyExists` no-op is LOAD-BEARING. It is the seam that lets
-  // the bootstrap-synthesized "main" channel coexist with any future
-  // explicit `channel.created` envelope carrying the same derived id —
-  // which Plan-006's event-driven session-creation flow may legitimately
-  // emit when consolidating bootstrap into real audit-log events.
-  // Without this guard, double-projection (synthesized + explicit) would
-  // produce duplicate channel rows.
+
+  // Step 2: idempotent no-op for already-known channels. This guard is
+  // LOAD-BEARING and runs BEFORE optional-field validation so that a
+  // duplicate-main-channel event (which Plan-006 may legitimately emit
+  // when consolidating bootstrap into real audit-log events) survives
+  // even if it omits the wire-optional `name`. Without the early return,
+  // a perfectly-valid duplicate envelope with the wire-permissible
+  // omitted `name` would crash projection in the next step.
   // TODO(Plan-006): when `channel.created` becomes the authoritative
   // source for the main channel, the bootstrap synthesis here should be
   // gated on whether the event log already contains an explicit
@@ -337,9 +335,37 @@ function applyChannelCreated(
   if (alreadyExists) {
     return { ...snapshot, asOfSequence: event.sequence };
   }
+
+  // Step 3: validate `name` IF PRESENT. The wire schema (per
+  // `channelCreatedPayloadSchema` in `packages/contracts/src/event.ts`)
+  // declares `name` as `wireFreeFormString(...).optional()` — the key
+  // may be absent/undefined. We mirror that on the daemon side: omitted
+  // is fine, but a present-but-non-string or present-but-empty value is
+  // a producer bug (mirrors `wireFreeFormString`'s whitespace-rejection
+  // stance). The check is intentionally typeof-guard + length, NOT a
+  // `==` against undefined, because `payload.name === undefined` is
+  // indistinguishable from a missing key on a JSON-derived object.
+  const rawName: unknown = event.payload["name"];
+  let name: string | undefined;
+  if (rawName === undefined) {
+    name = undefined;
+  } else if (typeof rawName === "string" && rawName.length > 0) {
+    name = rawName;
+  } else {
+    throw new Error(
+      `applyChannelCreated: payload.name must be a non-empty string when present at sequence=${String(event.sequence)} (got ${typeof rawName === "string" ? "''" : typeof rawName})`,
+    );
+  }
+
+  // Step 4: append. `name` is omitted from the projection literal when
+  // undefined (the `name?: string` shape on `ChannelProjection` matches
+  // the wire optionality semantics). `exactOptionalPropertyTypes` is on
+  // for the daemon, so we conditionally spread rather than assign
+  // `name: undefined` — assigning undefined to an optional field is a
+  // type error under that flag.
   const newChannel: ChannelProjection = {
     channelId,
-    name,
+    ...(name !== undefined ? { name } : {}),
     createdAt: event.occurredAt,
   };
   return {

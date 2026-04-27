@@ -141,6 +141,136 @@ describe("session-projector — main-channel projection invariants", () => {
     expect(snapshot.asOfSequence).toBe(1);
   });
 
+  // -----------------------------------------------------------------------
+  // P1 — applyChannelCreated must accept the wire-optional `name`
+  //
+  // The wire schema (`channelCreatedPayloadSchema` in
+  // `packages/contracts/src/event.ts`) declares
+  // `name: wireFreeFormString(...).optional()` — i.e. the key may be
+  // absent on a perfectly valid envelope. The daemon-side projection
+  // mirrors the optionality so wire-to-daemon coercion stays identity.
+  //
+  // The ordering of guards in `applyChannelCreated` is also load-bearing:
+  // the `alreadyExists` no-op MUST run BEFORE the optional-name validation
+  // so that a duplicate-main-channel event with omitted `name` is a
+  // clean idempotent no-op rather than a thrown crash on the
+  // optional-field check.
+  // -----------------------------------------------------------------------
+
+  it("accepts a channel.created envelope with an omitted name (wire-optional field)", () => {
+    const created: StoredEvent = makeCreatedEvent();
+    const initial: DaemonSessionSnapshot | null = replay([created]);
+    expect(initial).not.toBeNull();
+    if (initial === null) return;
+
+    const NEW_CHANNEL_ID: string = "01970000-0000-7000-8000-00000000ABCD";
+    const namelessChannel: StoredEvent = {
+      id: "01J0EV0010NN5J5J5J5J5J5J5J",
+      sessionId: SESSION_ID,
+      sequence: 1,
+      occurredAt: "2026-04-27T12:01:00.000Z",
+      monotonicNs: 2_000_000_000n,
+      category: "session_lifecycle",
+      type: "channel.created",
+      actor: null,
+      // `name` deliberately omitted — wire-valid per
+      // channelCreatedPayloadSchema.
+      payload: { channelId: NEW_CHANNEL_ID },
+      correlationId: null,
+      causationId: null,
+      version: "1.0",
+    };
+
+    const after: DaemonSessionSnapshot = projectEvent(initial, namelessChannel);
+
+    // Two channels: synthesized "main" + the newly-projected nameless one.
+    expect(after.channels).toHaveLength(2);
+    const projectedNew = after.channels.find((c) => c.channelId === NEW_CHANNEL_ID);
+    expect(projectedNew).toBeDefined();
+    if (projectedNew === undefined) return;
+    // `name` is OMITTED from the projection (mirrors the wire absence)
+    // — NOT coerced to null, NOT defaulted to a synthesized string.
+    // Treating absent-as-absent is the contract; PR #5's IPC mapping
+    // seam owns any UI-side fallback (e.g. label-by-channelId).
+    expect(projectedNew.name).toBeUndefined();
+    expect("name" in projectedNew).toBe(false);
+    expect(after.asOfSequence).toBe(1);
+
+    // The bootstrap-synthesized main channel's name is unaffected by the
+    // new channel's omitted-name semantics.
+    const main = after.channels.find((c) => c.channelId === deriveMainChannelId(SESSION_ID));
+    expect(main?.name).toBe("main");
+  });
+
+  it("treats a duplicate-main-channel event with omitted name as an idempotent no-op (alreadyExists check runs before optional-name validation)", () => {
+    // P1's failure mode in the original code: the validation throw at
+    // `payload.name must be a non-empty string` ran BEFORE the
+    // alreadyExists guard, so even a perfectly-valid duplicate
+    // envelope (matching id of the bootstrap-synthesized main channel)
+    // crashed projection if it omitted the wire-optional name. The
+    // post-fix ordering is alreadyExists → optional-name validation,
+    // which keeps duplicates a clean no-op.
+    const created: StoredEvent = makeCreatedEvent();
+    const expectedMainChannelId: string = deriveMainChannelId(SESSION_ID);
+    const duplicateMainOmittedName: StoredEvent = {
+      id: "01J0EV0011NN5J5J5J5J5J5J5J",
+      sessionId: SESSION_ID,
+      sequence: 1,
+      occurredAt: "2026-04-27T12:01:00.000Z",
+      monotonicNs: 2_500_000_000n,
+      category: "session_lifecycle",
+      type: "channel.created",
+      actor: null,
+      // SAME id as the bootstrap-synthesized main channel; `name` omitted.
+      payload: { channelId: expectedMainChannelId },
+      correlationId: null,
+      causationId: null,
+      version: "1.0",
+    };
+
+    const snapshot: DaemonSessionSnapshot | null = replay([created, duplicateMainOmittedName]);
+    expect(snapshot).not.toBeNull();
+    if (snapshot === null) return;
+
+    // Still exactly one channel — the duplicate was no-op'd.
+    expect(snapshot.channels).toHaveLength(1);
+    expect(snapshot.channels[0]?.channelId).toBe(expectedMainChannelId);
+    // The bootstrap-synthesized name survives — the duplicate envelope's
+    // omitted name does NOT clear or overwrite it.
+    expect(snapshot.channels[0]?.name).toBe("main");
+    expect(snapshot.asOfSequence).toBe(1);
+  });
+
+  it("still rejects a channel.created envelope with a present-but-empty name", () => {
+    // The optional-but-when-present-non-empty stance mirrors
+    // `wireFreeFormString`'s whitespace-rejection: a present empty string
+    // is a producer bug (the producer should OMIT the key, not send "").
+    const created: StoredEvent = makeCreatedEvent();
+    const initial: DaemonSessionSnapshot | null = replay([created]);
+    expect(initial).not.toBeNull();
+    if (initial === null) return;
+
+    const NEW_CHANNEL_ID: string = "01970000-0000-7000-8000-00000000DEAD";
+    const emptyNameChannel: StoredEvent = {
+      id: "01J0EV0012NN5J5J5J5J5J5J5J",
+      sessionId: SESSION_ID,
+      sequence: 1,
+      occurredAt: "2026-04-27T12:01:00.000Z",
+      monotonicNs: 2_000_000_000n,
+      category: "session_lifecycle",
+      type: "channel.created",
+      actor: null,
+      payload: { channelId: NEW_CHANNEL_ID, name: "" },
+      correlationId: null,
+      causationId: null,
+      version: "1.0",
+    };
+
+    expect(() => projectEvent(initial, emptyNameChannel)).toThrow(
+      /payload\.name must be a non-empty string when present/,
+    );
+  });
+
   it("derives the same main-channel id across calls (deterministic UUIDv5)", () => {
     const a: string = deriveMainChannelId(SESSION_ID);
     const b: string = deriveMainChannelId(SESSION_ID);
