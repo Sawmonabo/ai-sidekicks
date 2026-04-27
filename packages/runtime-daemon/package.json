@@ -26,6 +26,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@ai-sidekicks/contracts": "workspace:*"
+    "@ai-sidekicks/contracts": "workspace:*",
+    "better-sqlite3": "^12.9.0"
   }
 }

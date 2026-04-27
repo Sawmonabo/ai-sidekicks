@@ -26,6 +26,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@ai-sidekicks/contracts": "workspace:*"
+    "@ai-sidekicks/contracts": "workspace:*",
+    "pg": "^8.20.0"
   }
 }
