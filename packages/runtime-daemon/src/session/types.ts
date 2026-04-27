@@ -8,18 +8,14 @@
 // be reconciled in Plan-001 PR #5 (client SDK + IPC mapping); for PR #3
 // the daemon's projection is purely internal.
 //
-// However, the *vocabulary* of states this snapshot can represent must
-// track the canonical wire enum by construction. Round 2 declared
-// `state: "provisioning" | "active" | "ended"` — `"ended"` is not a
-// member of `SessionState` in any spec, ADR, contract, or domain doc
-// (canonical: `provisioning | active | archived | closed | purge_requested
-// | purged` per `packages/contracts/src/session.ts:129-135` and
-// `docs/architecture/contracts/api-payload-contracts.md` §Shared Enums and
-// `docs/domain/session-model.md:61-77`). Round 3 imports `SessionState`
-// from contracts so daemon code cannot drift from the wire vocabulary
-// (analogous fix to the R1 `MembershipRole` narrowing). The contracts
-// dependency was already present in this package's `package.json`; this
-// import doesn't add a new edge to the workspace dep graph.
+// `state` reuses `SessionState` from `@ai-sidekicks/contracts` so daemon
+// code cannot drift from the wire vocabulary. The canonical enum is
+// `provisioning | active | archived | closed | purge_requested | purged`
+// per `packages/contracts/src/session.ts:129-135`,
+// `docs/architecture/contracts/api-payload-contracts.md` §Shared Enums,
+// and `docs/domain/session-model.md:61-77`. The contracts dependency
+// was already present in this package's `package.json`; this import
+// doesn't add a new edge to the workspace dep graph.
 //
 // Hash-chain placeholder rationale: see migrations/0001-initial.ts header.
 // Plan-006 owns real hash-chain semantics; Plan-001 writes zero-fill bytes
@@ -89,11 +85,9 @@ export interface StoredEvent {
 // `MembershipRole` mirrors the canonical contracts enum verbatim
 // (`@ai-sidekicks/contracts` §MembershipRole; api-payload-contracts.md
 // line 99). The "runtime contributor" string includes the literal space
-// — preserved per the contracts source-of-truth. Round 1 narrowed this
-// to "owner" | "member" and the projector silently flattened
-// `MembershipJoinedEvent.payload.role` into "member"; PR #5's mapping seam
-// would have rejected the narrowing at the wire boundary. The projector
-// now reads `payload.role` directly.
+// — preserved per the contracts source-of-truth. The projector reads
+// `payload.role` directly so daemon-side narrowing cannot diverge from
+// the wire enum.
 
 export type MembershipRole = "owner" | "viewer" | "collaborator" | "runtime contributor";
 
@@ -117,12 +111,10 @@ export interface ChannelProjection {
 // ready). Spec-006 line 103 enumerates a distinct `session.activated`
 // event for the `provisioning -> active` transition; Plan-022 owns
 // `purge_requested` / `purged`; Plan-006 / future plans own `archived` /
-// `closed`. The wider union here is deliberate — by tracking the
-// canonical wire vocabulary at the daemon-internal layer, future plans
-// that add archived/closed/purge handlers can fold directly into this
-// snapshot type without a contract-vs-daemon vocabulary reconciliation
-// PR. Round 2's fabricated `"ended"` literal has been removed (it does
-// not appear in any spec/ADR/contract).
+// `closed`. Carrying the full canonical union at the daemon-internal
+// layer lets future plans fold archived/closed/purge handlers directly
+// into this snapshot type without a contract-vs-daemon vocabulary
+// reconciliation PR.
 
 export interface DaemonSessionSnapshot {
   readonly sessionId: string;

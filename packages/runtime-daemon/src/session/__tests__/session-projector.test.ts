@@ -55,9 +55,10 @@ describe("session-projector — D1 (bootstrap projection)", () => {
       joinedAt: OCCURRED_AT,
     });
 
-    // The main channel id is a deterministic UUIDv5 — the literal "main"
-    // string from Round 1 would fail the contracts `ChannelIdSchema =
-    // z.uuid().brand<"ChannelId">()` validation at PR #5's mapping seam.
+    // The main channel id is a deterministic UUIDv5 — the contracts
+    // `ChannelIdSchema = z.uuid().brand<"ChannelId">()` validates this
+    // shape at PR #5's mapping seam, so a non-UUID id would be rejected
+    // there.
     expect(snapshot.channels).toHaveLength(1);
     const expectedMainChannelId: string = deriveMainChannelId(SESSION_ID);
     expect(snapshot.channels[0]).toEqual({
@@ -159,10 +160,9 @@ describe("session-projector — main-channel projection invariants", () => {
 // projectEvent — membership.joined role propagation
 // --------------------------------------------------------------------------
 //
-// Round 1 silently flattened `payload.role` to "member" (a value the
-// contracts enum doesn't even include). The projector now reads the role
-// from the payload directly — every variant of the canonical
-// `MembershipRole` union must round-trip.
+// The projector reads `payload.role` directly so every variant of the
+// canonical `MembershipRole` union (`@ai-sidekicks/contracts`) round-
+// trips through projection without daemon-side narrowing.
 
 describe("projectEvent — membership.joined", () => {
   it("propagates payload.role into the projection (full MembershipRole union)", () => {

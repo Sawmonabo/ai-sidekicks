@@ -42,8 +42,8 @@ import type {
 //
 // Every newly-created session has an implicit "main" channel. The wire-
 // layer `ChannelIdSchema` from `@ai-sidekicks/contracts` brands a
-// `z.uuid()` — Round 1 used the literal string "main" which would be
-// rejected at the PR #5 mapping seam.
+// `z.uuid()`, so the channel id MUST be a valid UUID by the time it
+// crosses the IPC seam (Plan-001 PR #5).
 //
 // The id is derived deterministically as UUIDv5 over a daemon-local
 // namespace + the session id. This guarantees:
@@ -82,10 +82,7 @@ const MAIN_CHANNEL_NAME: string = "main";
 export function deriveMainChannelId(sessionId: string): string {
   const namespaceBytes: Buffer = uuidStringToBytes(MAIN_CHANNEL_NAMESPACE);
   const nameBytes: Buffer = Buffer.from(`${sessionId}:${MAIN_CHANNEL_NAME}`, "utf8");
-  const hash: Buffer = createHash("sha1")
-    .update(namespaceBytes)
-    .update(nameBytes)
-    .digest();
+  const hash: Buffer = createHash("sha1").update(namespaceBytes).update(nameBytes).digest();
   const bytes: Buffer = hash.subarray(0, 16);
   // Version 5: clear high 4 bits of byte 6, set them to 0101.
   bytes[6] = (bytes[6]! & 0x0f) | 0x50;
@@ -145,23 +142,26 @@ export function replay(events: ReadonlyArray<StoredEvent>): DaemonSessionSnapsho
  * forward-compatible replay (per ADR-018 §Decision #1, MINOR-version
  * additions are non-breaking).
  */
-export function projectEvent(snapshot: DaemonSessionSnapshot, event: StoredEvent): DaemonSessionSnapshot {
+export function projectEvent(
+  snapshot: DaemonSessionSnapshot,
+  event: StoredEvent,
+): DaemonSessionSnapshot {
   switch (event.type) {
     case "session.created":
-      // N2 (daemon-internal authorial choice — not contract guarantee):
-      // the projector treats `session.created` as a sequence-0 anchor and
+      // Daemon-internal authorial choice (not contract guarantee): the
+      // projector treats `session.created` as a sequence-0 anchor and
       // rejects any later occurrence. The wire schema doc (per
-      // `docs/architecture/schemas/local-sqlite-schema.md`) only references
-      // `sequence = 0` in the prev_hash zero-fill rule; it does not
-      // explicitly prohibit `session.created` at sequence > 0. Plan-001
-      // anchors the bootstrap at sequence=0 because (a) `replay()` uses
-      // the first event for bootstrap and the service layer reads in
-      // `sequence ASC`, so any non-zero `session.created` would either
-      // re-bootstrap mid-stream (silent state replacement, dangerous) or
-      // be a duplicate of the bootstrap event (caller bug). If a future
-      // plan needs a session-restate event, it should land as a distinct
-      // event variant (e.g. `session.snapshot_restored`) rather than
-      // re-using `session.created`.
+      // `docs/architecture/schemas/local-sqlite-schema.md`) only
+      // references `sequence = 0` in the prev_hash zero-fill rule and
+      // does not explicitly prohibit `session.created` at sequence > 0.
+      // Plan-001 anchors the bootstrap at sequence=0 because `replay()`
+      // uses the first event for bootstrap and the service layer reads
+      // in `sequence ASC`, so any non-zero `session.created` would
+      // either re-bootstrap mid-stream (silent state replacement) or
+      // be a duplicate of the bootstrap event (caller bug). A future
+      // session-restate event should land as a distinct variant (e.g.
+      // `session.snapshot_restored`) rather than re-using
+      // `session.created`.
       throw new Error(
         `projectEvent: 'session.created' may only appear at sequence=0 (got sequence=${String(event.sequence)})`,
       );
@@ -184,7 +184,7 @@ export function projectEvent(snapshot: DaemonSessionSnapshot, event: StoredEvent
 // --------------------------------------------------------------------------
 
 function bootstrapFromCreated(event: StoredEvent): DaemonSessionSnapshot {
-  // Owner-membership synthesis policy (N1 — wire-contract reconciliation):
+  // Owner-membership synthesis policy — wire-contract reconciliation.
   //
   // The wire `SessionEventSchema` accepts `actor: null` for every variant
   // (per `packages/contracts/src/event.ts:239`), and the canonical
@@ -197,10 +197,10 @@ function bootstrapFromCreated(event: StoredEvent): DaemonSessionSnapshot {
   // joined` event.
   //
   // Plan-001 plan-line-129 D1 says "Single SessionCreated event yields
-  // snapshot with owner membership and main channel" — but the only way
-  // to honor that within Plan-001 PR #3's pre-IPC, in-process callers is
-  // to let the caller stuff the owner participant id into `actor` as a
-  // shortcut. PR #5 will introduce the wire seam at which point the
+  // snapshot with owner membership and main channel". The only way to
+  // honor that within Plan-001 PR #3's pre-IPC, in-process callers is to
+  // let the caller stuff the owner participant id into `actor` as a
+  // shortcut. PR #5 introduces the wire seam at which point the
   // `actor: null` branch is the steady state.
   //
   // So: when `actor` is a non-empty string, synthesize the owner row (the

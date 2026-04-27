@@ -67,11 +67,10 @@ export function applyPragmas(db: DatabaseType): void {
  * subsequent `db.exec(SQL)` requires a write lock; in WAL mode, two
  * DEFERRED transactions both attempting to upgrade hit
  * `SQLITE_BUSY_SNAPSHOT`, which `busy_timeout` cannot resolve (the
- * busy-handler only retries while no transaction is held). Round 2's
- * R2 commit shipped this defective pattern; the
+ * busy-handler only retries while no transaction is held). The
  * `concurrent applyMigrations across worker_threads` test in
- * `__tests__/session-service.test.ts` empirically reproduces the
- * regression with the default wrapper and proves the fix with
+ * `__tests__/session-service.test.ts` reproduces the contention with
+ * the default wrapper as a negative control and pins the fix on
  * `.immediate()`.
  */
 export function applyMigrations(db: DatabaseType): void {
@@ -126,7 +125,9 @@ export function openDatabase(dbPath: string): DatabaseType {
 
 function hasMigrationApplied(db: DatabaseType, version: number): boolean {
   const tableExists: { count: number } = db
-    .prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table' AND name='schema_version'")
+    .prepare(
+      "SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table' AND name='schema_version'",
+    )
     .get() as { count: number };
   if (tableExists.count === 0) {
     return false;
