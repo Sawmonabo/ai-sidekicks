@@ -4,7 +4,7 @@
 
 **When dispatched:** Phase C (after each implementer/contract-author task) and Phase D (final PR-scope review).
 
-**Target dispatch prompt size:** ≤4,000 chars after placeholder substitution.
+**Target dispatch prompt size:** ≤4,500 chars after placeholder substitution.
 
 ---
 
@@ -69,6 +69,9 @@ unnecessary round-trips.
 - If the task has `contract_consumes`, does the diff consume those symbols
   correctly (right import paths, right shape)?
 - Do cited ADRs apply to this task? If yes, are they honored?
+- If `target_paths` overlap a §Invariants (I-NNN-N) or §Cross-Plan
+  Obligations (CP-NNN-N) entry, verify the diff preserves / implements it.
+  Cite the ID in any finding.
 
 [Phase D — integration coverage:]
 - Per-task reviewers cleared individual tasks. Your role: cross-task
@@ -76,6 +79,9 @@ unnecessary round-trips.
 - Missing PR-level acceptance criteria (a test plan item that's not
   covered by any task's AC even though every task individually passed
   its own AC).
+- For each §Cross-Plan Obligation in this plan, verify the consuming plan
+  cites it back. Asymmetric forward-deps are the Plan-007 cyclic-dep defect
+  class; raise as ACTIONABLE.
 - Findings already raised at task level should NOT appear here unless
   they reproduce at PR scope.
 

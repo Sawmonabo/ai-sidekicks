@@ -40,6 +40,58 @@
 
 - {What this plan intentionally excludes}
 
+<!--
+  Invariants section (required for plans with a listener-bind, process-spawn,
+  schema-migration, or cross-plan-dep surface; omit otherwise).
+
+  - Each invariant gets a stable I-NNN-N identifier (NNN = this plan's number)
+    so other plans and this plan's PRs can cite it by name.
+  - Each entry: short header sentence, why-load-bearing paragraph, and a
+    Verification line naming the test or PR that proves it.
+  - Invariants buried in narrative are review-invisible (the Plan-007 cyclic-dep
+    defect class). Promote MUSTs out of prose into this section.
+-->
+
+## Invariants
+
+The following invariants are **load-bearing** and MUST be preserved across all
+Plan-NNN PRs and downstream extensions. Any change that would weaken or remove
+an invariant requires a coordinated cross-plan amendment (see
+[cross-plan-dependencies.md](../architecture/cross-plan-dependencies.md)).
+
+### I-NNN-1 — {Short headline sentence}
+
+{Statement of the invariant.}
+
+**Why load-bearing.** {What breaks if this is violated, and which plans depend on it.}
+
+**Verification.** {Test, PR, or migration check that proves the invariant holds.}
+
+<!--
+  Cross-Plan Obligations section (required when this plan declares an obligation
+  on another plan, or inherits one from another plan; omit otherwise).
+
+  - Bidirectional citation: if Plan-A obliges Plan-B, both plans MUST surface
+    the obligation. Asymmetric forward-deps were the Plan-007 cyclic-dep
+    defect class.
+  - Each entry gets a stable CP-NNN-N identifier and follows the shape:
+    one-sentence header, obligation paragraph, **Resolution.** paragraph naming
+    where/when the consuming plan satisfies it. Optionally include a
+    **Why surfaced here.** paragraph for non-obvious cases.
+-->
+
+## Cross-Plan Obligations
+
+Plan-NNN declares the following obligations on adjacent plans (or inherits
+obligations declared by them). Implementation cannot proceed (or must defer
+specific surfaces) without these being satisfied or explicitly staged.
+
+### CP-NNN-1 — {Short headline sentence}
+
+{Statement of the obligation, citing the source plan + section anchor.}
+
+**Resolution.** {Where and when the consuming plan satisfies it; cite the PR or step.}
+
 ## Preconditions
 
 - [ ] Paired spec is approved
@@ -75,6 +127,33 @@
 - {Unit tests}
 - {Integration tests}
 - {Manual verification}
+
+<!--
+  Implementation PR Sequence section (recommended for plans of ≥3 PRs;
+  mandatory for any Tier 1 plan; omit only for single-PR plans).
+
+  - Each PR carries an explicit **Precondition:** line so the merge order
+    is reviewer-checkable and so cross-plan obligations have an enforceable
+    merge gate (the Plan-024 §Implementation PR Sequence shape).
+  - Each PR cites which §Invariants and §Cross-Plan Obligations entries it
+    satisfies. This is what turns a structural promotion into an enforceable
+    merge gate (per Plan-001 / Plan-007 / Plan-024 precedent).
+-->
+
+## Implementation PR Sequence
+
+Plan-NNN implementation lands as a sequence of small PRs. Each PR exercises one
+slice of the plan's vertical and carries a `**Precondition:**` line so the merge
+order is reviewer-checkable.
+
+### PR #1 — {Short PR title}
+
+**Precondition:** {What must be merged or accepted before this PR can start.}
+
+**Goal:** {What tests go green; what behavior is delivered.}
+
+- {Scope item}
+- {Scope item}
 
 ## Rollout Order
 
