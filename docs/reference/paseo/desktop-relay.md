@@ -1,6 +1,6 @@
 # Paseo Desktop Shell, Relay, Infrastructure, and Configuration Exploration
 
-Source: direct source-code reading of `/home/sabossedgh/dev/paseo/`
+Source: direct source-code reading of `/home/sabossedgh/dev/external/paseo/`
 Date: 2026-04-14
 
 ---
@@ -579,8 +579,8 @@ Versioning:
 | Workflow | Purpose |
 |---------|---------|
 | `ci.yml` | Main CI |
-| `server-ci.yml` | Server-specific CI |
-| `desktop-release.yml` | Desktop app build + release (macOS/Windows/Linux) |
+| `.github/workflows/server-ci.yml` | Server-specific CI |
+| `.github/workflows/desktop-release.yml` | Desktop app build + release (macOS/Windows/Linux) |
 | `android-apk-release.yml` | Android APK build |
 | `deploy-app.yml` | Deploy mobile app |
 | `deploy-relay.yml` | Deploy relay to Cloudflare |
@@ -604,7 +604,7 @@ Versioning:
 
 Root `tsconfig.json` just extends base.
 
-Each package has its own `tsconfig.json`. Desktop uses `tsconfig.json` targeting Node + Electron APIs. Server has separate configs: `tsconfig.server.json`, `tsconfig.server.typecheck.json`, `tsconfig.scripts.json`.
+Each package has its own `tsconfig.json`. Desktop uses `packages/desktop/tsconfig.json` targeting Node + Electron APIs. Server has separate configs: `packages/server/tsconfig.server.json`, `packages/server/tsconfig.server.typecheck.json`, `packages/server/tsconfig.scripts.json`.
 
 ### Linting and Formatting
 

@@ -2,7 +2,7 @@
 
 Date: 2026-04-14
 
-Project root: `/home/sabossedgh/dev/paseo`
+Project root: `/home/sabossedgh/dev/external/paseo`
 
 ## Table of Contents
 

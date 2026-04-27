@@ -15,7 +15,7 @@ The product ships a local-first collaborative agent runtime. Execution is always
 
 Two product postures have been considered during V1 planning:
 
-1. **Enterprise commercial-SaaS posture** — V1 ships as a hosted-only product, commercial support contracts, optional future self-host for paying enterprise customers. The companion research brief (`docs/research/bl-053-self-hosted-scope-research.md`) evaluated this posture and recommended **Option B (V1 hosted-only, defer self-host to V1.1)** on vendor-support-cost grounds.
+1. **Enterprise commercial-SaaS posture** — V1 ships as a hosted-only product, commercial support contracts, optional future self-host for paying enterprise customers. The pre-decision research evaluated this posture under an enterprise-commercial-SaaS cost model and recommended **Option B (V1 hosted-only, defer self-host to V1.1)** on vendor-support-cost grounds; the analytic content of that evaluation is preserved below in §Alternatives Option B (steel-man + rejection rationale) and the underlying primary sources are catalogued in §Research Conducted.
 
 2. **OSS developer-tool posture** — V1 ships as an open-source project that any developer can `git clone`, install, and use either alone or with invited collaborators. The project optionally operates a hosted SaaS for users who prefer a managed experience. The research brief's recommendation was superseded after product framing clarified that (1) this is a developer-category OSS product, not an enterprise commercial platform; (2) the vendor-support-cost framing in the brief assumed an enterprise model that does not apply; (3) the competitive and category-positioning arguments for OSS are strong — Supabase, PostHog, Sentry, tmate, Mattermost, and GitLab have all built successful developer-category products on the one-codebase-two-deployment-options pattern.
 
@@ -208,14 +208,45 @@ The QA-matrix cost is structurally limited by the decision to put both relay bac
 
 | Source | Type | Key Finding | URL/Location |
 |--------|------|-------------|--------------|
-| BL-053 research brief | Primary research | Evaluated deployment-scope options under an enterprise-commercial-SaaS cost model; Option B recommendation superseded by OSS-first product framing | [`docs/research/bl-053-self-hosted-scope-research.md`](../research/bl-053-self-hosted-scope-research.md) |
-| Supabase self-host | Precedent | OSS core + hosted SaaS on one codebase; Apache-2.0 license | https://supabase.com/docs/guides/self-hosting |
-| PostHog self-host | Precedent | OSS core + hosted SaaS; MIT with later re-license | https://posthog.com/docs/self-host |
-| Sentry OSS → BSL → FSL | Precedent | Source-available relicensing path when competitive re-hosting materializes | https://sentry.io/_/open-source/ |
-| tmate | Precedent | OSS terminal-sharing with free default relay + self-host option | https://tmate.io/ |
-| Mattermost | Precedent | OSS + paid-tier two-deployment model | https://mattermost.com/ |
-| Cloudflare Workers + Durable Objects | Documentation | Sharded relay architecture used for project-operated free relay | https://developers.cloudflare.com/durable-objects/ |
-| `rate-limiter-flexible` | Documentation | Postgres/Redis backends for self-host rate limiting | https://github.com/animir/node-rate-limiter-flexible |
+| Supabase self-host | Precedent | OSS core + hosted SaaS on one codebase; Apache-2.0 license | <https://supabase.com/docs/guides/self-hosting> |
+| PostHog self-host | Precedent | OSS core + hosted SaaS; MIT with later re-license | <https://posthog.com/docs/self-host> |
+| Sentry OSS → BSL → FSL | Precedent | Source-available relicensing path when competitive re-hosting materializes | <https://sentry.io/_/open-source/> |
+| tmate | Precedent | OSS terminal-sharing with free default relay + self-host option | <https://tmate.io/> |
+| Mattermost | Precedent | OSS + paid-tier two-deployment model | <https://mattermost.com/> |
+| Cloudflare Workers + Durable Objects | Documentation | Sharded relay architecture used for project-operated free relay | <https://developers.cloudflare.com/durable-objects/> |
+| `rate-limiter-flexible` | Documentation | Postgres/Redis backends for self-host rate limiting | <https://github.com/animir/node-rate-limiter-flexible> |
+| Cursor Enterprise page | Vendor announcement | Direct quote: "we don't offer on-premises deployment today." Anchors the Antithesis/Synthesis claim that the modal greenfield collaborative dev tool ships hosted-only at V1 | <https://cursor.com/enterprise> |
+| The Agency Journal — Cursor March 2026 self-hosted agents | Vendor announcement | Cursor March 2026: agent runtime moves to customer network; control plane stays in Cursor cloud — matches our ADR-002 trust-boundary shape (local execution, shared control plane) | <https://theagencyjournal.com/cursors-march-2026-glow-up-self-hosted-agents-jetbrains-love-and-smarter-composer/> |
+| Superblocks — Cursor Enterprise Review 2026 | Engineering blog | Cursor Enterprise tier offers air-gapped agent-runtime deployment, not control-plane self-host; supports the "control plane stays hosted" pattern | <https://www.superblocks.com/blog/cursor-enterprise> |
+| Windsurf Enterprise Security Report (2025) | Engineering blog | Windsurf ships SOC 2 Type II + FedRAMP High + cloud + hybrid + self-hosted (air-gap); Antithesis competitor signal in the regulated-enterprise-coding tier | <https://harini.blog/2025/07/02/windsurf-detailed-enterprise-security-readiness-report/> |
+| Sourcegraph Cloud blog post | Counter-data point | Sourcegraph: 8 years self-host-only (2013–2021); ~10% of revenue on Cloud at disclosure (90% remained self-host). Counter-evidence for the cannibalization-pattern argument | <https://sourcegraph.com/blog/enterprise-cloud> |
+| Deiser — Atlassian Data Center End of Life | Vendor announcement | Atlassian DC EOL timeline (2025-12-16 → 2029-03-28): even the largest dev-tool-enterprise vendor judges sustained self-host indefensible at maturity | <https://blog.deiser.com/en/atlassian-data-center-end-of-life-migrate-to-cloud> |
+| Plane.so vs Linear comparison | Engineering blog | Linear ships SaaS-only in 2026; self-host alternatives (Plane, OpenProject) exist but do not dominate. Anchors the Antithesis Linear-as-SaaS-only example | <https://plane.so/plane-vs-linear> |
+| Zed self-hosted collaboration discussion #13503 | GitHub Issue | Zed cloud-only collaboration first; community demand for self-host exists, no roadmap commitment. Directly the pattern Option B was modeled on | <https://github.com/zed-industries/zed/discussions/13503> |
+| Tabby ML GitHub repo | Precedent | Tabby ML self-hosted-first; Apache-2.0 + `ee/` LICENSE split (open-core pattern). Precedent for OSS developer-tool self-host with narrow operational scope | <https://github.com/TabbyML/tabby> |
+| Continue.dev GitHub repo | Precedent | Continue.dev: Apache 2.0 self-host instructions; cloud Teams plan as monetized wrapper. Permissive-OSS-with-hosted-tier precedent | <https://github.com/continuedev/continue> |
+| Warp Enterprise docs | Documentation | Warp documents cloud + self-hosted + hybrid models in enterprise tier; supports the multi-mode-deployment pattern for AI-terminal competitors | <https://docs.warp.dev/enterprise/enterprise-features/architecture-and-deployment> |
+| Pulumi — IaC comparisons (Business Critical plan) | Documentation | Pulumi self-host gated to top-tier "Business Critical" enterprise plan; precedent for monetization-via-tier rather than license-segmentation | <https://www.pulumi.com/docs/iac/comparisons/terraform/> |
+| Replit Enterprise | Vendor announcement | Replit: dedicated single-tenant GCP project model + EU data residency (no true on-prem) — alternative to self-host that some enterprise buyers accept | <https://replit.com/enterprise> |
+| Sirius Open Source — How much does GitLab cost? | Engineering blog | GitLab self-managed minimum annual TCO exceeds SaaS license cost by ~$82K from internal ops labor; supports the §Antithesis ongoing-cost framing | <https://www.siriusopensource.com/en-us/blog/how-much-does-gitlab-cost> |
+| GitLab Self-managed Scalability Working Group handbook | Primary source | GitLab's self-managed scalability work spans support, quality, development, product, and technical-writing roles; structural evidence for the "self-host is multi-team commitment" claim | <https://handbook.gitlab.com/handbook/company/working-groups/self-managed-scalability/> |
+| GitHub Enterprise Server 3.14 docs | Documentation | GitHub Enterprise Server requires dedicated IT, ≥30-min maintenance windows; higher TCO vs Cloud — supports the Antithesis ongoing-cost argument | <https://docs.github.com/en/enterprise-server@3.14/admin/overview/about-github-enterprise-server> |
+| Cotera — PostHog Self-Hosted: Worth the Ops Overhead? | Engineering blog | PostHog self-host retrospective: 6–8 hrs/month maintenance; weekend incident response; concrete ongoing-cost figure underlying the §Antithesis 20–30% capacity claim | <https://cotera.co/articles/posthog-self-hosted-guide> |
+| Vela/Simplyblock — Self-Hosting Supabase vs Managed Postgres | Engineering blog | Self-hosting Supabase: 5–10 hrs/month; 1–2 FTE for larger orgs; full ops surface beyond DB; supports §Antithesis ongoing-cost claim | <https://vela.simplyblock.io/articles/self-hosting-supabase/> |
+| Checkthat.ai — PostHog pricing analysis 2026 | Engineering blog | ~90% of PostHog users are on Cloud despite OSS self-host availability — quantitative anchor for the hosted-revenue-still-dominates pattern in §Synthesis | <https://checkthat.ai/brands/posthog/pricing> |
+| PostHog — Self-host open-source support | Documentation | PostHog OSS self-host is MIT-licensed and explicitly unsupported (community via GitHub Issues, not support tickets); supplements the generic PostHog precedent row with the explicit-unsupported posture URL | <https://posthog.com/docs/self-host/open-source/support> |
+| Vanta 2025 survey via CloudEagle — SOC 2 Audit Guide | Primary research | 83% of enterprise buyers require SOC 2 cert; 67% of certified startups report direct deal-closure impact — anchors the enterprise-buyer-baseline framing in §Antithesis | <https://www.cloudeagle.ai/blogs/soc-2-audit> |
+| Akave — 2026 Data Sovereignty Reckoning | Engineering blog | 73% of EU enterprises prioritize data sovereignty over convenience; CLOUD Act exposes US-HQ SaaS — anchors the EU-sovereignty driver behind self-host demand | <https://akave.com/blog/the-2026-data-sovereignty-reckoning> |
+| SSOjet — Enterprise Ready SSO Complete Requirements Guide | Documentation | OIDC + SAML are 2025–2026 enterprise SSO table-stakes; 90% of SaaS buyers prioritize standards-based SSO — anchors Option C OIDC/SAML rejection rationale | <https://ssojet.com/enterprise-ready/oidc-and-saml-integration-multi-tenant-architectures> |
+| Sentry — Introducing the Functional Source License | Vendor announcement | Sentry's FSL rationale: "freedom without free-riding"; 2-year change to Apache/MIT — anchors the Tripwire 1 BSL/FSL relicensing reversal path | <https://blog.sentry.io/introducing-the-functional-source-license-freedom-without-free-riding/> |
+| Sentry — Re-Licensing Sentry | Vendor announcement | Sentry BSL rationale: "competitive elements that threaten the future of Sentry"; relicensing preserves user freedom — anchors Sentry-precedent claim in §License + Tripwire 1 + Decision Log | <https://blog.sentry.io/relicensing-sentry/> |
+| Elastic blog — Elastic License v2 | OSS license analysis | ELv2 rationale; Elastic re-added AGPL v3 in Sept 2024 alongside ELv2 and SSPL — supports the source-available license option-space named in §Decision | <https://www.elastic.co/blog/elastic-license-v2> |
+| HashiCorp BSL 1.1 | OSS license analysis | HashiCorp BSL precedent; 4-year change date to GPL-compatible — supports BSL option named in §Reversibility + §License | <https://www.hashicorp.com/en/bsl> |
+| Cloudflare blog — Durable Objects: Easy, Fast, Correct | Documentation | DO single-writer semantics: "exactly one location, one single thread, at a time"; input/output gates — supplements the generic CF DO row with the semantic-properties URL | <https://blog.cloudflare.com/durable-objects-easy-fast-correct-choose-three/> |
+| Cloudflare miniflare / workerd | GitHub Issue | workerd DO storage caveat: not production-suitable in 2026; DOs always run on the same machine as requested — anchors why a CF-DO-as-self-host shortcut is not viable | <https://github.com/cloudflare/miniflare> |
+| Cloudflare PartyKit / PartyServer | GitHub Issue | PartyKit is open-source DO wrapper, NOT a DO replacement — anchors why a self-hostable PartyKit shortcut does not apply | <https://github.com/cloudflare/partykit> |
+| Ably — Scaling Pub/Sub with WebSockets and Redis | Engineering blog | Industry-standard Node.js + Redis pubsub + WebSocket hub pattern for self-hosted DO replacement — anchors the chosen Node-relay self-host implementation pattern | <https://ably.com/blog/scaling-pub-sub-with-websockets-and-redis> |
+| `rate-limiter-flexible` — PostgreSQL backend wiki | Documentation | RLF Postgres benchmark: ~995 req/sec average, p95 21.85ms — adequate for V1 500/sec write target; deepens the generic RLF row with the specific Postgres-backend benchmark URL | <https://github.com/animir/node-rate-limiter-flexible/wiki/PostgreSQL> |
 
 ### Related ADRs
 
@@ -230,17 +261,17 @@ The QA-matrix cost is structurally limited by the decision to put both relay bac
 - [Spec-008: Control Plane Relay and Session Join](../specs/008-control-plane-relay-and-session-join.md) — v2 relay protocol that both relay backends implement.
 - [Spec-021: Rate Limiting Policy](../specs/021-rate-limiting-policy.md) — deployment-aware rate-limiter abstraction.
 - [Spec-027: Self-Host Secure Defaults](../specs/027-self-host-secure-defaults.md) — normative secure-defaults posture for the `Collaborative Self-Hosted Control Plane` topology committed to by this ADR; operator-facing companion at [Operations › Self-Host Secure Defaults](../operations/self-host-secure-defaults.md) (Spec-027 Acceptance Criterion).
-- [BL-044](../backlog.md) — Plan-021 Rate Limiting (ships both backends in V1).
-- [BL-060](../backlog.md) — secure-by-default behaviors for self-host deployment.
-- [BL-079 / BL-080](../backlog.md) — Spec-025 + Plan-025 self-hostable Node relay (this ADR's self-host implementation).
-- [BL-081 / BL-082](../backlog.md) — Spec-026 + Plan-026 first-run three-way-choice onboarding (this ADR's UX implementation).
-- [BL-083](../backlog.md) — commit OSS `LICENSE` at repo root (this ADR's license deliverable).
+- [BL-044](../archive/backlog-archive.md) — Plan-021 Rate Limiting (ships both backends in V1).
+- [BL-060](../archive/backlog-archive.md) — secure-by-default behaviors for self-host deployment.
+- [BL-079 / BL-080](../archive/backlog-archive.md) — Spec-025 + Plan-025 self-hostable Node relay (this ADR's self-host implementation).
+- [BL-081 / BL-082](../archive/backlog-archive.md) — Spec-026 + Plan-026 first-run three-way-choice onboarding (this ADR's UX implementation).
+- [BL-083](../archive/backlog-archive.md) — commit OSS `LICENSE` at repo root (this ADR's license deliverable).
 
 ## Decision Log
 
 | Date | Event | Notes |
 |------|-------|-------|
-| 2026-04-16 | Research brief authored | `docs/research/bl-053-self-hosted-scope-research.md` recommended Option B (V1 hosted-only) under an enterprise-commercial-SaaS cost model |
+| 2026-04-16 | Research conducted | Comparable-product survey, ongoing-cost evidence, Cloudflare Durable Object portability analysis, license option-space evaluation, and timing analysis (V1 vs V1.1) recommended Option B (V1 hosted-only) under an enterprise-commercial-SaaS cost model. The analysis is preserved in [§Alternatives Option B](#option-b-v1-hosted-only-self-host-deferred-to-v11-rejected-was-the-research-briefs-recommendation) above (steel-man + rejection rationale) and the supporting primary sources are catalogued in [§Research Conducted](#research-conducted) above |
 | 2026-04-17 | Product framing clarified | OSS developer-tool posture; not enterprise-commercial-SaaS; research brief Option B recommendation superseded on this basis |
 | 2026-04-17 | Proposed | Drafted against BL-053 exit criteria |
 | 2026-04-17 | Accepted | ADR accepted as V1 deployment model + OSS license commitment |

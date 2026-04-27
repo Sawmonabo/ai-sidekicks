@@ -80,7 +80,7 @@ Allowed transitions:
 
 Sessions started in `local-only` continuity are domain-identical to shared sessions — only connectivity is partial. Reconciliation to the shared control plane MUST preserve session identity and history:
 
-1. **Session IDs are daemon-assigned UUID v7** per [RFC 9562](https://www.rfc-editor.org/rfc/rfc9562.html) (Proposed Standard, May 2024). UUID v7 is lexicographically sortable by creation timestamp, so sessions remain orderable even when reconciliation is delayed by minutes, hours, or days. Postgres 18 exposes native `uuidv7()` and `uuid_extract_timestamp()` that reverse-validate any daemon-generated ID.
+1. **Session IDs are daemon-assigned UUID v7** per [RFC 9562](https://www.rfc-editor.org/rfc/rfc9562.html) (Standards Track, May 2024). UUID v7 is lexicographically sortable by creation timestamp, so sessions remain orderable even when reconciliation is delayed by minutes, hours, or days. Postgres 18 exposes native `uuidv7()` and `uuid_extract_timestamp()` that reverse-validate any daemon-generated ID.
 2. **The daemon generates the session ID for daemon-originated sessions.** Such sessions are fully functional with zero control-plane contact; the ID is preserved unchanged across later reconciliation. The `sessions` schema's `gen_random_uuid()` default exists only for rare control-plane-originated rows (e.g., admin-provisioned sessions that have no daemon origin); it is not the normal production path.
 3. **First reconciliation executes the `provisioning -> active` transition** once the shared-Postgres row is written. The daemon presents the session ID and the control plane performs an idempotent upsert: `INSERT INTO sessions (id, ...) VALUES (...) ON CONFLICT (id) DO UPDATE SET updated_at = sessions.updated_at RETURNING *`. The `DO UPDATE` clause (not `DO NOTHING`) guarantees `RETURNING *` yields a row on every attempt so the daemon detects retries after a crash without silent data loss.
 4. **Owner identity is bound at the first authenticated RPC.** Until then, the session is attributable to the daemon machine but not to a global participant identity. The first PASETO v4 token received on any session RPC (token format and issuance flows defined in [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md)) seeds the `session_memberships` owner row in a trust-on-first-use binding; subsequent tokens MUST match the bound owner. The TOFU-seeding rule itself is established by this invariant — ADR-010 is cited for the underlying token material, not for the seeding rule.
@@ -100,6 +100,10 @@ State-machine precedent for the `provisioning -> active` split: Kubernetes Pod (
 - A session can have no repository mounts and still be valid for planning, discussion, or review-only activity.
 - A session may be archived with unresolved historical approvals or failed runs; archival does not rewrite history.
 - A session may temporarily remain usable only in `local-only` continuity during control-plane outage; that does not imply a different lifecycle model.
+
+## Related Domain Docs
+
+- [Trust And Identity](./trust-and-identity.md) — session-end is the trigger for ephemeral X25519 zeroization (per [security-architecture.md §V1 Relay Encryption](../architecture/security-architecture.md)) and for the rotate-on-shred path of the daemon master key when participant crypto-shred fires. Session lifecycle and trust-state lifecycle interact at this boundary.
 
 ## Related Specs
 

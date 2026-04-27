@@ -9,7 +9,7 @@
 | **Author(s)** | `Codex` |
 | **Spec** | [Spec-002: Invite Membership And Presence](../specs/002-invite-membership-and-presence.md) |
 | **Required ADRs** | [ADR-001](../decisions/001-session-is-the-primary-domain-object.md), [ADR-002](../decisions/002-local-execution-shared-control-plane.md), [ADR-007](../decisions/007-collaboration-trust-and-permission-model.md), [ADR-008](../decisions/008-default-transports-and-relay-boundaries.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md), [ADR-018](../decisions/018-cross-version-compatibility.md) |
-| **Dependencies** | [Plan-001](./001-shared-session-core.md) (session tables); [Spec-024](../specs/024-cross-node-dispatch-and-approval.md) (implicit cross-node dispatch surface per [cross-plan-dependencies.md §Spec-024 V1 Gap](../architecture/cross-plan-dependencies.md#spec-024-v1-gap--implementation-plan-pending)) |
+| **Dependencies** | [Plan-001](./001-shared-session-core.md) (session tables); [Spec-024](../specs/024-cross-node-dispatch-and-approval.md) (implicit cross-node dispatch surface per [cross-plan-dependencies.md §Spec-024 Implementation Plan](../architecture/cross-plan-dependencies.md#spec-024-implementation-plan)) |
 | **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
 | **References** | [Spec-002 presence amendments](../specs/002-invite-membership-and-presence.md) (Yjs Awareness, Postgres LISTEN/NOTIFY), [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md) (auth model) |
 
@@ -46,7 +46,9 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 ## Data And Storage Changes
 
-- Add shared `session_invites` and `session_memberships` tables. Presence data is ephemeral (Yjs Awareness CRDT, in-memory only) and must NOT be persisted to a durable table.
+- Add shared `session_invites` table (CREATE).
+- Extend `session_memberships` (owner: Plan-001 per [cross-plan-dependencies.md §1 Contested](../architecture/cross-plan-dependencies.md#1-table-ownership-map) row for `session_memberships` — Plan-002 ALTER/USE adds invite-driven membership flows).
+- Presence data is ephemeral (Yjs Awareness CRDT, in-memory only) and must NOT be persisted to a durable table.
 - See [Shared Postgres Schema](../architecture/schemas/shared-postgres-schema.md) for column definitions.
 
 ## API And Transport Changes
@@ -85,7 +87,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 ## Risks And Blockers
 
-- Guest identity policy remains unresolved
+- Guest identity policy remains unresolved (deferral tracked in parent [Spec-002](../specs/002-invite-membership-and-presence.md))
 - Presence churn can create noisy state unless heartbeat thresholds are tuned carefully
 
 ## Done Checklist

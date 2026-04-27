@@ -1,6 +1,6 @@
 # CodexMonitor Comprehensive Architecture and Feature Review
 
-Repo path: `/home/sabossedgh/dev/CodexMonitor`
+Repo path: `/home/sabossedgh/dev/external/CodexMonitor`
 Date: 2026-04-14
 Version: 0.7.68
 Method: deep source-level audit of Tauri backend (Rust), frontend (React/TypeScript), daemon binary, remote backend, and all shared cores.

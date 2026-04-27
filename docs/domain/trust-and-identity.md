@@ -1,0 +1,195 @@
+# Trust And Identity
+
+## Purpose
+
+Define how cryptographic trust and identity are established, verified, and maintained across the session boundary in V1. This domain doc canonicalizes the trust-ceremony semantics that are otherwise scattered across [security-architecture.md](../architecture/security-architecture.md), [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md), [ADR-021](../decisions/021-cli-identity-key-storage-custody.md), and [Spec-027](../specs/027-self-host-secure-defaults.md) — first-run secret generation, fingerprint display and verification, identity-key provisioning, and the lifecycle states an identity moves through.
+
+## Scope
+
+This document covers `IdentityMaterial`, `Fingerprint`, and `TrustState` at the participant and self-host-deployment level, plus the first-run ceremony that brings a fresh identity into use.
+
+## Definitions
+
+- `IdentityMaterial`: the long-term cryptographic material that authenticates a participant or a deployment. Concretely: a long-term Ed25519 identity key per participant ([ADR-010 §Decision item 3](../decisions/010-paseto-webauthn-mls-auth.md)), short-lived PASETO v4 access and refresh tokens ([ADR-010 §Decision item 2](../decisions/010-paseto-webauthn-mls-auth.md)), an ephemeral DPoP key per session ([security-architecture.md §Control-Plane Authentication](../architecture/security-architecture.md)), and — on a self-host deployment — the daemon master key, session-signing key, and relay admin token generated on first run ([Spec-027 §Required Behavior row 3](../specs/027-self-host-secure-defaults.md)).
+- `Fingerprint`: a stable, human-displayable digest of a public-key or certificate object used to verify out-of-band that two parties hold matching cryptographic state. Two fingerprint forms are normative in V1: an [RFC 7469](https://datatracker.ietf.org/doc/html/rfc7469) SPKI-SHA256 base64 pin (survives keypair-preserving certificate rotation) and an SSH-style `SHA256:<hex>` whole-certificate hash (rotates on every re-issue). Both are surfaced together so operator UX cannot conflate them ([Spec-027 §Required Behavior row 1, §Pitfalls](../specs/027-self-host-secure-defaults.md)).
+- `TrustState`: the lifecycle position of a piece of identity material — `unprovisioned`, `provisioned`, `verified`, `bound`, `rotating`, `revoked`, or `compromised`. The state machine is enumerated in [§Trust-State Lifecycle](#trust-state-lifecycle).
+- `FirstRunCeremony`: the deterministic state transition from "no on-disk identity material" to "all required secrets generated, fingerprints emitted, sentinel written" on a fresh self-host deployment ([Spec-027 §State And Data Implications](../specs/027-self-host-secure-defaults.md)).
+- `CustodyTier`: where identity material lives at rest. For desktop participants, the long-term Ed25519 identity key is derived from a [WebAuthn](https://www.w3.org/TR/webauthn-3/) PRF ceremony and reconstructed per session, never hitting disk in plaintext ([ADR-010 §CLI Identity Key Storage](../decisions/010-paseto-webauthn-mls-auth.md)). For CLI participants, the key lives in one of three tiers — OS-native keystore, libsodium XChaCha20-Poly1305 + Argon2id file, or refusal ([ADR-021 §Custody Tiers](../decisions/021-cli-identity-key-storage-custody.md)).
+
+## What This Is
+
+This model defines the cryptographic anchors that make every other trust property in the system possible: which key authenticates a participant, which fingerprint an operator visually verifies, what state an identity is in at any moment, and what transitions are allowed between those states.
+
+## What This Is Not
+
+- This is not membership. Whether a participant is in a session and what role they hold is owned by [Participant And Membership Model](./participant-and-membership-model.md). Identity is the cryptographic precondition; membership is the session-scoped authorization.
+- This is not policy. What actions an authenticated participant may take is owned by [ADR-007: Collaboration Trust And Permission Model](../decisions/007-collaboration-trust-and-permission-model.md) and the Cedar policy engine ([ADR-012](../decisions/012-cedar-approval-policy-engine.md)).
+- This is not transport security. How traffic is protected on the wire is owned by [security-architecture.md §Transport Security Requirements](../architecture/security-architecture.md). The transport layer consumes the identity material defined here; it does not redefine it.
+- This is not runtime-node trust. Whether a runtime node is allowed to expose capabilities and at what trust envelope is owned by [Runtime Node Model](./runtime-node-model.md) and security-architecture.md §Inter-Node Trust Boundaries.
+- This is not approvals. Per-action approval policy is owned by [Artifact Diff And Approval Model](./artifact-diff-and-approval-model.md) and [Spec-012](../specs/012-approvals-permissions-and-trust-boundaries.md).
+- This is not the implementation specification. Storage formats, OS keystore APIs, and probe sequences are owned by [ADR-021](../decisions/021-cli-identity-key-storage-custody.md), [security-architecture.md §Authentication Implementation Specification](../architecture/security-architecture.md), and [Spec-027 §Interfaces And Contracts](../specs/027-self-host-secure-defaults.md).
+
+## Invariants
+
+The following invariants hold across all identity material in V1.
+
+- **First-run secret generation is sentinel-driven.** On a fresh self-host deployment, the daemon generates every required symmetric key (daemon master key, session-signing key, relay admin token) via `crypto.randomBytes(N ≥ 32)` and writes a `./data/trust/first-run.complete` sentinel ([Spec-027 §Required Behavior row 3](../specs/027-self-host-secure-defaults.md)). Secrets cannot be pre-seeded via env vars or `.env.example`. Deleting the sentinel does NOT silently regenerate — the daemon refuses to start if the sentinel is absent and secrets are present ([Spec-027 §State And Data Implications](../specs/027-self-host-secure-defaults.md)).
+- **Public material surfaces with private material.** Public fingerprints, public keys, and bind-address disclosures are printed to stdout AND embedded as a header comment in the on-disk file at first run, mirroring the [`age-keygen`](https://github.com/FiloSottile/age) UX pattern. Private material lives only in the file body ([Spec-027 §Required Behavior row 3](../specs/027-self-host-secure-defaults.md)).
+- **Both fingerprint forms are surfaced together.** When a self-signed or internal-CA certificate is in use, the operator sees both the [RFC 7469](https://datatracker.ietf.org/doc/html/rfc7469) SPKI-SHA256 base64 pin AND the SSH-style `SHA256:<hex>` whole-cert hash, on stdout and persisted at `./data/trust/fingerprint.txt` ([Spec-027 §Interfaces And Contracts](../specs/027-self-host-secure-defaults.md)). The SPKI pin survives keypair-preserving cert rotation; the whole-cert hash matches what browsers display. Conflating the two in operator UX is a [§Pitfalls](#pitfalls-to-avoid) violation.
+- **Identity-key custody is tier-laddered, never silently substituted.** Desktop derives the long-term Ed25519 identity key from a WebAuthn PRF ceremony; the key is reconstructed per session and never hits disk in plaintext ([ADR-010 §CLI Identity Key Storage](../decisions/010-paseto-webauthn-mls-auth.md)). CLI uses the three-tier ladder in [ADR-021 §Custody Tiers](../decisions/021-cli-identity-key-storage-custody.md): OS-native keystore (preferred), libsodium XChaCha20-Poly1305 + Argon2id file (fallback), or refuse to participate in shared-session E2EE (loud refusal). Silent backend substitution — Linux kernel `keyutils`, locked macOS `login.keychain-db`, enterprise-policy-blocked Windows `CRED_TYPE_GENERIC` writes — is explicitly prohibited ([ADR-021 §Cross-Platform Invariants](../decisions/021-cli-identity-key-storage-custody.md)). The tier-1 acceptance gate is a write-probe-read-delete cycle that catches all three silent-fallback modes within a single synchronous round-trip.
+- **Identity-key rotation is never silent.** A long-term Ed25519 identity key is generated exactly once per workstation. Any subsequent path that would return "no identity key found" MUST refuse rather than generate a replacement, unless the operator passed `cli identity rotate` ([ADR-021 §Refuse-On-Rotation Invariant](../decisions/021-cli-identity-key-storage-custody.md)). Silent rotation would invalidate every prior `SessionKeyBundle` signature the participant published and drop the participant from all active shared sessions without a recoverable path ([security-architecture.md §V1 Relay Encryption](../architecture/security-architecture.md)).
+- **Daemon master-key rotation is event-driven and atomic.** The daemon master key is rotated only on participant crypto-shred, participant credential change, or explicit administrative rotation — never on a calendar schedule ([security-architecture.md §Daemon Master Key Rotation](../architecture/security-architecture.md)). Rotate-on-shred re-wraps every remaining participant key under a fresh master and destroys the old master, which is the mechanism that prevents crypto-shred circumvention via backup restore. Rotation completes inside a single `BEGIN EXCLUSIVE` SQLite transaction or rolls back; partial rotations are not retained. Rotation cannot be disabled by configuration.
+- **Plaintext private-key material lives only in daemon memory.** The decrypted Ed25519 identity-key private key resides only in the daemon process's memory. The CLI binary itself never holds it; CLI invocations request signing operations from the daemon over the [Spec-007 local IPC](../specs/007-local-ipc-and-daemon-control.md) contract ([ADR-021 §Plaintext-In-Daemon-Memory Only](../decisions/021-cli-identity-key-storage-custody.md)). The daemon zeroes the buffer on process exit and on idle-timeout eviction.
+- **No hardware-rooted protection is claimed where the primitives do not provide it.** Ed25519 is not a Secure Enclave key type — Apple's Secure Enclave exposes only NIST P-256 in its published CryptoKit API surface. Credential Guard protects only `CRED_TYPE_DOMAIN_PASSWORD`, not the `CRED_TYPE_GENERIC` value the CLI uses. TPM-bound storage and Data Protection Keychain migration are V1.x forward declarations, not V1 properties ([ADR-021 §Explicitly NOT Claimed](../decisions/021-cli-identity-key-storage-custody.md)).
+
+## Identity Material Provisioning
+
+Provisioning is the act of bringing identity material into existence and into a state where it can be used. Each material type has a distinct provisioning path; the paths share the invariants above but differ in primitive, authority, and storage tier.
+
+### Long-term Ed25519 identity key (per participant)
+
+The long-term Ed25519 identity key per [RFC 8032 §5.1](https://datatracker.ietf.org/doc/html/rfc8032#section-5.1) is the cryptographic anchor for a participant's relay E2EE participation. It signs each session's ephemeral X25519 public key inside `SessionKeyBundle`, binding the per-session key exchange to the participant's control-plane-registered identity ([security-architecture.md §V1 Relay Encryption](../architecture/security-architecture.md), [ADR-010 §Decision item 3](../decisions/010-paseto-webauthn-mls-auth.md)).
+
+| Client | Provisioning path |
+| --- | --- |
+| Desktop | Derived from a [WebAuthn](https://www.w3.org/TR/webauthn-3/) PRF ceremony at session start. The passkey's resident material stays in the authenticator; the derived key is reconstructed per session and never hits disk in plaintext. |
+| CLI | The three-tier custody ladder per [ADR-021](../decisions/021-cli-identity-key-storage-custody.md). Tier 1 is OS-native keystore (D-Bus Secret Service / legacy macOS `login.keychain-db` / Wincred DPAPI) gated by the write-probe-read-delete invariant; Tier 2 is a libsodium XChaCha20-Poly1305 + Argon2id file with [OWASP Password Storage Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html) 2026 parameters; Tier 3 is loud refusal to participate in shared-session E2EE. The CLI never holds the decrypted key — signing operations are brokered through the local daemon over [Spec-007](../specs/007-local-ipc-and-daemon-control.md). |
+
+### PASETO v4 access and refresh tokens (per participant per session)
+
+The control plane issues PASETO v4 tokens per [paseto.io](https://paseto.io/): `v4.public` access tokens (15-minute TTL, signed with the control plane's Ed25519 key) and `v4.local` refresh tokens (7-day TTL, encrypted with XChaCha20-Poly1305 under the control plane's symmetric key) ([security-architecture.md §Control-Plane Authentication](../architecture/security-architecture.md)). Access tokens carry a `cnf.jkt` confirmation claim binding them to the client's DPoP key thumbprint per [draft-ietf-oauth-dpop](https://datatracker.ietf.org/doc/html/rfc9449); refresh tokens carry a `family` claim that detects rotation-chain reuse — presenting a previously-rotated refresh token revokes the entire family. PASETO v4 conformance is provided by the in-house `packages/crypto-paseto/` library on top of audited `@noble/curves` and `@noble/ciphers` primitives, owned by [Plan-025](../plans/025-self-hostable-node-relay.md) ([ADR-010 §PASETO v4 Implementation Library](../decisions/010-paseto-webauthn-mls-auth.md)).
+
+The CLI completes initial token acquisition via [RFC 8628 OAuth 2.0 Device Authorization Grant](https://www.rfc-editor.org/rfc/rfc8628) (the CLI displays a code and URL; the operator authenticates in a browser; the CLI polls until the grant is approved). Desktop adds Authorization Code + PKCE per [OAuth 2.1](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1) once a UI is present.
+
+### DPoP key (per session)
+
+The DPoP key per [RFC 9449](https://datatracker.ietf.org/doc/html/rfc9449) is an ephemeral Ed25519 key pair generated at session start. Each API request includes a signed `DPoP` header proving possession of the private key; the control plane verifies the DPoP signature against the `cnf.jkt` thumbprint embedded in the access token, sender-constraining the token to the client that minted the proof ([security-architecture.md §Control-Plane Authentication](../architecture/security-architecture.md)). The DPoP key never leaves the client process and is discarded at session end.
+
+### Self-host deployment secrets (per deployment)
+
+On a fresh self-host deployment, the first-run ceremony generates the daemon master key (per Spec-022 §Daemon Master Key envelope), the session-signing Ed25519 key, and the relay admin token. All are emitted via `crypto.randomBytes(N ≥ 32)` and persisted with mode `0600` on Unix-like platforms or the equivalent ACL on Windows. Public material — fingerprints, public keys, the admin-token's display digest — is printed to stdout and to a header comment in the file; private material lives only in the file body ([Spec-027 §Required Behavior row 3](../specs/027-self-host-secure-defaults.md)). The `./data/trust/first-run.complete` sentinel records that the ceremony finished; absence forces a re-run, presence with missing secrets refuses startup ([Spec-027 §State And Data Implications](../specs/027-self-host-secure-defaults.md)).
+
+### Daemon session token (per daemon process)
+
+A 256-bit session token is generated at daemon start via `crypto.randomBytes(32)`, written to `$XDG_RUNTIME_DIR/ai-sidekicks/daemon.token` with mode `0600`, and rotated on every daemon restart. Both the Desktop Shell and the CLI present it in the `Authorization: Bearer` header on every IPC request and the daemon verifies it with `crypto.timingSafeEqual` to prevent timing attacks ([security-architecture.md §Local Daemon Authentication](../architecture/security-architecture.md)). The token is the transport-layer peer of the at-rest custody model defined in ADR-021.
+
+## Fingerprint Verification Ceremony
+
+A fingerprint is what an operator looks at when they need to verify, out of band, that the cryptographic state on their workstation matches the cryptographic state on a peer or service. V1 surfaces two fingerprint forms together because their semantics differ and conflating them is a known footgun.
+
+### The two forms and why both are needed
+
+- **SPKI-SHA256 ([RFC 7469](https://datatracker.ietf.org/doc/html/rfc7469), base64).** A digest of the certificate's `SubjectPublicKeyInfo` field. It survives any certificate rotation that re-issues against the same public key and therefore identifies the **keypair**, not the certificate document. This is the right form to display when the operator is establishing a trust pin they expect to outlive certificate expiry / re-issuance.
+- **SSH-style whole-cert hash (`SHA256:<uppercase-hex-with-colons>`).** A digest of the entire DER-encoded certificate. It rotates on every re-issue and matches the form most browsers and command-line tools display. This is the right form when the operator is comparing what their CLI shows against what their browser shows for the same connection.
+
+Operator UX MUST distinguish the two ([Spec-027 §Pitfalls — Whole-cert fingerprint mislabeled as "public-key fingerprint"](../specs/027-self-host-secure-defaults.md)). Misframing the SPKI pin as "the certificate fingerprint" leads operators to think their pin invalidates on cert renewal; misframing the whole-cert hash as "the public-key fingerprint" leads operators to think the hash should be stable across rotation.
+
+### When the ceremony runs
+
+The fingerprint ceremony runs on `DEPLOY_MODE=lan` self-host deployments, where Caddy uses `tls internal` (an internal CA the operator's clients do not yet trust) and the operator has to verify out-of-band that the certificate they see in their browser matches the one the relay is serving ([Spec-027 §Required Behavior row 1](../specs/027-self-host-secure-defaults.md)). Both fingerprint forms are printed to stdout during the first-run banner AND persisted at `./data/trust/fingerprint.txt`, so the operator can compare what the CLI emitted, what the file contains, and what their browser displays — three independent surfaces that should agree.
+
+In `DEPLOY_MODE=public`, public-CA-issued certificates are trusted by clients out of the box and the fingerprint ceremony is not necessary; the SPKI pin is still computed and persisted for operators who want to set up additional defense-in-depth pinning, but no banner ceremony is run.
+
+### Identifier ≠ fingerprint
+
+[Syncthing](https://docs.syncthing.net/dev/device-ids.html) derives its `device-id` from the SHA-256 of the DER-encoded certificate, making the identifier and the fingerprint the same artifact. V1 does not adopt this — PASETO `kid` claims per ADR-010 are the participant identifier surface ([Spec-027 §Implementation Notes](../specs/027-self-host-secure-defaults.md)). The display convention (show fingerprints where operators expect to look up identity) is copied from Syncthing; the identifier conflation is not.
+
+### Fingerprint rotation
+
+Rotating the underlying keypair MUST rewrite `./data/trust/fingerprint.txt` AND emit a banner warning on the next startup that pins have changed ([Spec-027 §State And Data Implications](../specs/027-self-host-secure-defaults.md)). The SPKI pin changes only on keypair change; the whole-cert hash changes on every re-issue. Operators see both deltas in the banner.
+
+## Trust-State Lifecycle
+
+Identity material moves through a finite set of trust states. The state machine below is synthesized from three source contracts — [Spec-027 §State And Data Implications](../specs/027-self-host-secure-defaults.md) (first-run state transition), [security-architecture.md §Daemon Master Key Rotation](../architecture/security-architecture.md) (rotation semantics), [ADR-021 §Refuse-On-Rotation Invariant](../decisions/021-cli-identity-key-storage-custody.md) (silent-rotation prohibition), and [ADR-010 §V1.1 MLS Promotion Gates](../decisions/010-paseto-webauthn-mls-auth.md) (relay-cipher promotion). Every state and every transition below traces back to one of those source-doc facts; this section synthesizes their interaction, it does not introduce new claims.
+
+### States
+
+| State | Meaning | Source |
+| --- | --- | --- |
+| `unprovisioned` | No identity material exists for this scope. For a self-host deployment: the `./data/trust/first-run.complete` sentinel is absent and no secrets are on disk. For a CLI participant: no Ed25519 identity key is in any custody tier. | [Spec-027 §State And Data Implications](../specs/027-self-host-secure-defaults.md); [ADR-021 §Custody Tiers](../decisions/021-cli-identity-key-storage-custody.md) |
+| `provisioned` | Identity material has been generated and persisted. Sentinels and headers are in place. The material is usable but has not yet been verified out-of-band by an operator. | [Spec-027 §Required Behavior row 3](../specs/027-self-host-secure-defaults.md) |
+| `verified` | An operator has compared the displayed fingerprint against an out-of-band source (browser, paired device, peer-shared value) and accepted the match. Verification is operator-driven, not automatic. | [Spec-027 §Required Behavior row 1, row 10](../specs/027-self-host-secure-defaults.md) |
+| `bound` | The verified material has been registered with the control plane and is being used to sign live `SessionKeyBundle`s in active sessions. Rotation from this state has cascading effects on every prior signature. | [security-architecture.md §V1 Relay Encryption](../architecture/security-architecture.md); [ADR-021 §Refuse-On-Rotation Invariant](../decisions/021-cli-identity-key-storage-custody.md) |
+| `rotating` | The material is mid-rotation. For the daemon master key: a `BEGIN EXCLUSIVE` SQLite transaction is open, re-wrapping participant keys under the fresh master. For an Ed25519 identity key: an explicit `cli identity rotate` flow is in progress, generating a new key and signaling the control plane to revoke the old one. Atomic — completes or rolls back. | [security-architecture.md §Daemon Master Key Rotation](../architecture/security-architecture.md); [ADR-021 §Refuse-On-Rotation Invariant](../decisions/021-cli-identity-key-storage-custody.md) |
+| `revoked` | The material has been replaced or invalidated. Old wrapped blobs from before rotation cannot be unwrapped after the fact (this is the mechanism that prevents crypto-shred circumvention via backup restore). For tokens: `jti` or `family` is on the revocation list. | [security-architecture.md §Daemon Master Key Rotation, §Token Revocation](../architecture/security-architecture.md) |
+| `compromised` | The material is known to be exposed (CVE in the implementing primitive, exfiltrated file, stolen-key reuse signal). Treated as `revoked` for use, but `compromised` is preserved as a distinct state so audit and incident-response paths can act on it. | [ADR-021 §Failure Mode Analysis](../decisions/021-cli-identity-key-storage-custody.md) (stolen-key reuse detection in V1.x) |
+
+### Transitions
+
+```text
+unprovisioned ──first-run ceremony──> provisioned
+provisioned ──operator out-of-band match──> verified
+verified ──control-plane registration──> bound
+bound ──explicit rotation event──> rotating
+rotating ──atomic completion──> bound  (new material)
+rotating ──atomic rollback──> bound  (old material; partial rotation refused)
+bound ──crypto-shred / credential change / admin rotation──> rotating
+bound ──CVE / exfiltration signal──> compromised
+verified ──fingerprint mismatch on re-display──> compromised
+compromised ──out-of-band remediation + new ceremony──> unprovisioned
+```
+
+A few transitions deserve explicit notes because the source docs make them load-bearing:
+
+- **`unprovisioned → provisioned`** runs only when the `./data/trust/first-run.complete` sentinel is absent. The sentinel's presence with missing secrets blocks daemon startup with a "run `ai-sidekicks init` first" message rather than silently regenerating ([Spec-027 §State And Data Implications](../specs/027-self-host-secure-defaults.md)).
+- **`provisioned → verified`** is operator-gated by design. The first-run banner (Spec-027 row 10) lists the fingerprints; the operator chooses when to mark them verified (typically by comparing the CLI-emitted fingerprint with the browser-displayed cert).
+- **`verified → bound`** is the moment after which any silent rotation becomes catastrophic. From `bound`, the only safe rotation path is explicit (`cli identity rotate` for participant keys; an event trigger naming the cause for the daemon master key). [ADR-021's Refuse-On-Rotation Invariant](../decisions/021-cli-identity-key-storage-custody.md) is what prevents accidental re-entry to `unprovisioned` from `bound`.
+- **`rotating → bound` is atomic.** A partial rotation that re-wraps some `participant_keys` rows but not others must roll back. The daemon uses SQLite's WAL with a single `BEGIN EXCLUSIVE` transaction; failure aborts and retains the old master ([security-architecture.md §Daemon Master Key Rotation](../architecture/security-architecture.md)).
+- **`bound → compromised`** can fire on a fingerprint mismatch detected at re-display (the `./data/trust/fingerprint.txt` value no longer matches what the running cert emits) or on an external signal (CVE in `@noble/curves`/`@noble/ciphers`/libsodium; stolen-key reuse detection in V1.x). The mismatch path is documented in Spec-027 §State And Data Implications via the rotation-warning-banner contract.
+- **`compromised → unprovisioned`** is not automatic — out-of-band remediation must complete (revoking the old material at the control plane, retiring affected sessions) before a new ceremony begins.
+
+### V1.1 relay-cipher promotion is orthogonal to identity state
+
+The transition from V1's pairwise X25519 + XChaCha20-Poly1305 relay layer to V1.1's MLS layer ([ADR-010 §V1.1 MLS Promotion Gates](../decisions/010-paseto-webauthn-mls-auth.md)) is a relay-cipher-suite negotiation, not a participant-identity transition. The long-term Ed25519 identity key remains in `bound` state across the upgrade; only the per-session ephemeral key-exchange primitive changes. This is intentional — the V1.1 promotion is feature-flag-gated and per-session, so identity-state churn during the soak window is not desirable.
+
+## Relationships To Adjacent Concepts
+
+- [Participant And Membership Model](./participant-and-membership-model.md) — consumes this model. A participant's `Membership` becomes meaningful only after their identity is at least `provisioned` and (for shared sessions) `bound`. The membership lifecycle (`pending` → `active` → `suspended` → `revoked`) is independent of the trust-state lifecycle but interacts at session-membership-revocation time, when scoped token revocation per Spec-018 fires.
+- [Runtime Node Model](./runtime-node-model.md) — runtime-node trust is a separate layer from participant identity. A node's capability declaration is authenticated by the participant who attaches it (whose identity must be at least `bound`), but the node's trust envelope is governed by the approval policy engine, not by identity state.
+- [Artifact Diff And Approval Model](./artifact-diff-and-approval-model.md) — approvals are signed by participant identities. A `bound` identity can sign approvals; a `revoked` or `compromised` identity cannot. The dual-signed `ApprovalRecord` envelope per [Spec-024](../specs/024-cross-node-dispatch-and-approval.md) is the cross-node cousin of this same property.
+- [Session Model](./session-model.md) — session lifecycle defines the session-end event that triggers the daemon master key's rotate-on-shred path. Session-end is also the trigger for ephemeral X25519 zeroization per security-architecture.md §V1 Relay Encryption.
+
+## Example Flows
+
+- **Example 1: Self-host first-run ceremony (deployment trust).** Operator runs `git clone && DEPLOY_MODE=lan HOSTNAME=ai-sidekicks.localhost docker compose up`. Sentinel `./data/trust/first-run.complete` is absent, so the daemon enters `unprovisioned`. It generates the daemon master key, session-signing key, and relay admin token; writes them with mode `0600`; emits the first-run banner listing both fingerprint forms; and writes the sentinel. Identity moves to `provisioned`. The operator opens a browser, confirms the cert fingerprint matches what the banner printed, and accepts the trust prompt — identity moves to `verified`. The daemon starts accepting Desktop Shell and CLI clients; identity transitions to `bound` once the first session signs a `SessionKeyBundle`.
+- **Example 2: CLI first identity setup (participant trust).** Fresh CLI install on a Linux workstation. Operator runs `ai-sidekicks login`. CLI checks tier-1 preconditions: `DBUS_SESSION_BUS_ADDRESS` is set; live `org.freedesktop.DBus.GetNameOwner("org.freedesktop.secrets")` returns `org.gnome.keyring`; write-probe-read-delete cycle succeeds. Tier 1 accepted. CLI generates the long-term Ed25519 identity key inside the daemon, persists it via `@napi-rs/keyring` to GNOME Keyring, and registers the public key with the control plane. Identity moves `unprovisioned → provisioned → verified` (the operator's interactive WebAuthn-equivalent device-grant flow accepted the registration) `→ bound`. Subsequent CLI invocations see the existing key; the §Refuse-On-Rotation Invariant blocks any code path that would silently regenerate it.
+- **Example 3: Daemon master key rotation on participant crypto-shred.** A `DELETE /participants/{id}/data` request fires per [Spec-022](../specs/022-data-retention-and-gdpr.md). The daemon transitions the master key to `rotating`. Inside a `BEGIN EXCLUSIVE` transaction, it generates a fresh master `M'`, decrypts each remaining `participant_keys.encrypted_key_blob` with the old `M`, re-encrypts with `M'`, and destroys `M`. Transaction commits; the master key returns to `bound` with new material. A pre-rotation backup containing the old wrapped master cannot be restored after rotation because no remaining credential can unwrap it — this is the crypto-shred circumvention defense.
+- **Example 4: Tier-3 refuse on a CI runner.** CLI runs in a Docker-for-CI context with no `DBUS_SESSION_BUS_ADDRESS` and no writable `$XDG_DATA_HOME`. Tier 1 fails the env-gate; tier 2 fails the writable-data-directory check. CLI enters tier 3 — refuses to participate in shared-session E2EE with an actionable diagnostic that names the failed preconditions and the concrete remediation hint. No ephemeral key is generated; identity remains `unprovisioned` for shared-session scope. Local-only sessions remain usable.
+- **Example 5: Fingerprint mismatch detected at re-display.** Daemon restarts after a manual cert change that did not go through the rotation flow. The new cert's whole-cert hash differs from `./data/trust/fingerprint.txt`. The daemon emits the rotation-warning banner ([Spec-027 §State And Data Implications](../specs/027-self-host-secure-defaults.md)) marking the deployment identity as `compromised` from the operator's perspective. The operator either accepts the new fingerprint (back to `verified`) or initiates an investigation; the system does not auto-trust the change.
+
+## Edge Cases
+
+- **Identity state lags membership state.** A participant's membership can be `active` while their identity material is `provisioned` but not yet `verified` — they cannot yet sign `SessionKeyBundle`s but they may exist in the control plane's roster. Cross-machine dispatch per [Spec-024](../specs/024-cross-node-dispatch-and-approval.md) requires `bound` state for both sides before the dual-signed approval flow can complete.
+- **Fingerprint rotation without keypair change.** A cert re-issue that preserves the SPKI keypair changes the whole-cert hash but not the SPKI-SHA256 pin. The banner warns about the whole-cert delta but identity remains `bound`; the SPKI pin is what survives.
+- **DPoP key loss mid-session.** If the client loses its ephemeral DPoP key (process restart without state recovery), the access token becomes unusable — `cnf.jkt` no longer matches. The client must re-authenticate to mint a new access token; identity state is unaffected because the long-term Ed25519 key is the load-bearing material, not the DPoP key.
+- **Daemon restart with token rotation.** The 256-bit daemon session token rotates on every daemon restart per security-architecture.md §Local Daemon Authentication. Both the Desktop Shell and CLI re-read the token from `$XDG_RUNTIME_DIR/ai-sidekicks/daemon.token` on the next IPC connect. Identity material is unaffected — the daemon session token is a transport-layer artifact, not identity material.
+- **Sentinel file deleted by operator.** Deleting `./data/trust/first-run.complete` while secrets are still on disk does not silently regenerate. The daemon refuses to start and surfaces a clear remediation message — preventing accidental loss of the original first-run trust state.
+- **Multiple workstations under the same participant.** Each workstation independently runs the CLI custody ladder; each holds its own long-term Ed25519 identity key. The participant has multiple `bound` identities (one per workstation), each registered separately with the control plane. Stolen-key reuse detection in V1.x is what surfaces an attacker's third workstation appearing where only two are expected.
+
+## Pitfalls To Avoid
+
+- **Conflating identity with membership.** A participant who is `bound` cryptographically but `revoked` from a session cannot act in that session. Identity is a precondition, not a guarantee.
+- **Treating SPKI pin and whole-cert hash as interchangeable.** They are not. See [§Fingerprint Verification Ceremony](#fingerprint-verification-ceremony).
+- **Generating an ephemeral identity key when "no key found".** This is the silent-rotation footgun [ADR-021's Refuse-On-Rotation Invariant](../decisions/021-cli-identity-key-storage-custody.md) is designed to prevent.
+- **Claiming hardware-rooted protection that the primitives do not provide.** Ed25519 in macOS keychain is software-protected by the login-password-derived KEK, not Secure Enclave. `CRED_TYPE_GENERIC` on Windows is DPAPI-wrapped, not Credential Guard-protected. The ADR-021 §Explicitly NOT Claimed disclaimers exist precisely so this domain doc does not get cited as evidence of properties that do not hold.
+- **Pre-seeding self-host secrets via env vars or `.env.example`.** Spec-027's first-run model rejects this pattern as the dominant cause of placeholder-secret leaks in production self-host deployments.
+
+## Related Specs
+
+- [Identity And Participant State (Spec-018)](../specs/018-identity-and-participant-state.md) — control-plane data model for participant identities and key registration.
+- [Self-Host Secure Defaults (Spec-027)](../specs/027-self-host-secure-defaults.md) — first-run ceremony, fingerprint contract, secure-default override surface.
+- [Cross-Node Dispatch And Approval (Spec-024)](../specs/024-cross-node-dispatch-and-approval.md) — dual-signed approval envelope consumes `bound` identity.
+- [Local IPC And Daemon Control (Spec-007)](../specs/007-local-ipc-and-daemon-control.md) — session-token transport that complements at-rest custody.
+- [Approvals Permissions And Trust Boundaries (Spec-012)](../specs/012-approvals-permissions-and-trust-boundaries.md) — policy layer downstream of identity.
+
+## Related ADRs
+
+- [ADR-007: Collaboration Trust And Permission Model](../decisions/007-collaboration-trust-and-permission-model.md) — policy authority on top of identity.
+- [ADR-010: PASETO / WebAuthn / MLS Authentication Stack](../decisions/010-paseto-webauthn-mls-auth.md) — primitive choice for tokens, identity-key derivation, and relay E2EE.
+- [ADR-012: Cedar Approval Policy Engine](../decisions/012-cedar-approval-policy-engine.md) — Cedar-deny telemetry on top of identity-authenticated requests.
+- [ADR-021: CLI Identity Key Storage Custody](../decisions/021-cli-identity-key-storage-custody.md) — three-tier custody ladder, write-probe-read-delete invariant, refuse-on-rotation invariant.
+
+## Related Architecture
+
+- [security-architecture.md](../architecture/security-architecture.md) — implementation specification for daemon authentication, control-plane PASETO flow, relay E2EE construction, daemon master-key rotation, audit-log integrity.
+- [container-architecture.md](../architecture/container-architecture.md) — renderer-untrusted trust stance that pairs with the daemon-session-token model.

@@ -145,7 +145,7 @@ Encrypted with: XChaCha20-Poly1305 (control plane's symmetric key)
 - The control plane verifies the DPoP proof's signature matches the `cnf.jkt` thumbprint in the access token
 - Prevents stolen access tokens from being used by a different client
 
-**Token revocation:**
+#### Token revocation
 
 - **Single-token revocation** via `POST /auth/revoke` per [RFC 7009](https://www.rfc-editor.org/rfc/rfc7009) (the token to revoke is supplied in the request body).
 - **Bulk-per-participant revocation** via `POST /auth/revoke-all-for-participant` for account-compromise recovery (see §Bulk Revoke All For Participant (BL-070) below).
@@ -154,7 +154,7 @@ Encrypted with: XChaCha20-Poly1305 (control plane's symmetric key)
 
 #### Bulk Revoke All For Participant (BL-070)
 
-For account-compromise recovery, credential-reset flows, and admin termination-of-session per [OWASP ASVS 5.0 V7.4.5](https://owasp.org/ASVS), the control plane exposes an endpoint that invalidates **every** refresh-token family for a participant in a single atomic operation.
+For account-compromise recovery, credential-reset flows, and admin termination-of-session per [OWASP ASVS 5.0 V7.4.5](https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x16-V7-Session-Management.md), the control plane exposes an endpoint that invalidates **every** refresh-token family for a participant in a single atomic operation.
 
 **Endpoint:** `POST /auth/revoke-all-for-participant`
 
@@ -187,7 +187,7 @@ For account-compromise recovery, credential-reset flows, and admin termination-o
 
 | Control | Source |
 | --- | --- |
-| Admin ability to terminate all active sessions for a user | [OWASP ASVS 5.0 V7.4.5](https://owasp.org/ASVS) |
+| Admin ability to terminate all active sessions for a user | [OWASP ASVS 5.0 V7.4.5](https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x16-V7-Session-Management.md) |
 | AAL2 reauthentication cadence baseline (12-hour cadence / 30-min inactivity); 5-minute step-up for bulk revocation is a BL-070 tightening above this baseline | [NIST SP 800-63B §4.2.3](https://pages.nist.gov/800-63-3/sp800-63b.html#aal2) |
 | Ability to restore availability and access to personal data in a timely manner after an incident | [GDPR Article 32(1)(c)](https://gdpr-info.eu/art-32-gdpr/) |
 
@@ -267,7 +267,7 @@ V1.1 introduces MLS (RFC 9420) via an audited implementation to provide per-mess
 - Interoperability tests against at least one other MLS implementation at a pinned commit
 - ≥ 4 weeks of production soak behind the feature flag with < 1% MLS-code-path session error rate
 
-Candidate implementations under evaluation include OpenMLS (Rust, MIT) and mls-rs (Rust, Apache-2.0, AWS Labs). The V1.1 cipher suite target is `MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519`. Full KeyPackage distribution, group-add/remove, and welcome-message flows will be specified in the V1.1 relay spec once implementation selection lands.
+Candidate implementations under evaluation include OpenMLS (Rust, MIT) and mls-rs (Rust, Apache-2.0 or MIT, AWS Labs). The V1.1 cipher suite target is `MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519`. Full KeyPackage distribution, group-add/remove, and welcome-message flows will be specified in the V1.1 relay spec once implementation selection lands.
 
 ### Daemon Master Key Rotation
 
@@ -405,6 +405,7 @@ The `audit_integrity_failed` event is itself a `session_events` row and is there
 
 ## Related Domain Docs
 
+- [Trust And Identity](../domain/trust-and-identity.md) — canonical domain model for identity-material provisioning, fingerprint verification, and the trust-state lifecycle that this architecture implements.
 - [Participant And Membership Model](../domain/participant-and-membership-model.md)
 - [Runtime Node Model](../domain/runtime-node-model.md)
 - [Artifact Diff And Approval Model](../domain/artifact-diff-and-approval-model.md)

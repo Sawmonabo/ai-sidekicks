@@ -599,7 +599,7 @@ packages/app/src/
 - `useFaviconStatus()`: updates browser favicon to indicate agent attention state.
 
 **Desktop badge state:**
-- `desktop-badge-state.ts`: computes badge state from agent attention across all hosts.
+- `packages/app/src/utils/desktop-badge-state.ts`: computes badge state from agent attention across all hosts.
 
 ---
 
@@ -771,7 +771,7 @@ packages/app/src/
 
 ### 14. Output Formatting
 
-**Output system (`src/output/`):**
+**Output system (`packages/cli/src/output/`):**
 
 | Module | Purpose |
 |--------|---------|

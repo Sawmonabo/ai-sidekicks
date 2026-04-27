@@ -2,7 +2,7 @@
 
 Date: 2026-04-14
 
-Project root: `/home/sabossedgh/dev/forge`
+Project root: `/home/sabossedgh/dev/external/forge`
 
 Scope: Deep architectural review of the full monorepo, covering orchestration engine, persistence/event-sourcing, provider driver model, collaboration model, real-time events, and visibility system. Appendix A contains the full user-facing feature audit with per-feature evidence trails.
 
@@ -171,7 +171,7 @@ Evidence: `apps/server/src/orchestration/Layers/OrchestrationEngine.ts`, `apps/s
 
 - **Daemon singleton**: PID-file based single-instance enforcement with stale-state cleanup. | `daemon/Layers/DaemonService.ts`
 - **JSON-RPC socket**: Protocol-versioned Unix socket with `daemon.ping`, `daemon.stop`, session/thread/workflow/discussion/channel CRUD RPCs. | `daemon/protocol.ts`, `daemon/Layers/SocketTransport.ts`
-- **CLI client**: `forge daemon start|stop|restart|status|clean`. Session commands: create, list, status, send-turn, correct, approve/reject gates, pause/resume/cancel, tail transcripts, subscribe events. | `daemon/cliClient.ts`, `apps/server/src/cli.ts`
+- **CLI client**: `forge daemon start|stop|restart|status|clean`. Session commands: create, list, status, send-turn, correct, approve/reject gates, pause/resume/cancel, tail transcripts, subscribe events. | `apps/server/src/daemon/cliClient.ts`, `apps/server/src/cli.ts`
 - **Notification reactor**: Desktop notifications for sessions needing attention, completion, deliberation completion with deep links. | `daemon/Layers/NotificationReactor.ts`
 
 ### 3.11 Persistence
@@ -256,7 +256,7 @@ Evidence: `apps/server/src/orchestration/Layers/OrchestrationEngine.ts`, `apps/s
 **Additional primitives relevant to queuing:**
 - **Thread dependencies**: `thread.add-dependency` and `thread.remove-dependency` commands, with corresponding `thread.dependency-added`, `thread.dependency-removed`, and `thread.dependencies-satisfied` events. This provides a primitive ordering mechanism between threads. | `commands.ts:526-542`, `events.ts:646-648`
 - **Thread promotion**: `thread.promote` command can promote a thread into a different workflow context. | `commands.ts:514-524`
-- **Daemon CLI as headless queue surface**: The daemon socket and CLI expose `forge session create`, `forge session send-turn`, `forge session pause`, `forge session resume`, etc. This is the closest Forge has to a programmatic queue management interface. | `daemon/cliClient.ts`, `cli.ts`
+- **Daemon CLI as headless queue surface**: The daemon socket and CLI expose `forge session create`, `forge session send-turn`, `forge session pause`, `forge session resume`, etc. This is the closest Forge has to a programmatic queue management interface. | `apps/server/src/daemon/cliClient.ts`, `apps/server/src/cli.ts`
 
 **Rating: Partial** -- Pause, resume, cancel, interrupt, basic correction/steer, thread dependencies, and headless daemon CLI exist. Real queuing with priority, fairness, and deep steering (redirect workflows, change priorities) are absent.
 
@@ -611,7 +611,7 @@ Forge is a desktop/web workspace for doing software work with coding agents. It 
 - Saved draft state: If you leave a thread and come back later, your unfinished prompt and settings are still there.
   Example: start writing a long request, switch threads, then return without losing it.
 - Path mentions and smart input: The composer understands things like file/path mentions and command-style inputs.
-  Example: mention a specific file so the agent focuses on `apps/server/src/wsServer.ts`.
+  Example: mention a specific file so the agent focuses on `apps/server/src/ws.ts`.
 
 #### Different Working Modes
 
@@ -787,7 +787,7 @@ Forge is a desktop/web workspace for doing software work with coding agents. It 
 - Diff modes | user | Diff UI supports agent-attributed diffs vs full-workspace diffs, stacked vs split rendering, word wrap, and manual refresh of non-live workspace diffs. | evidence: `apps/web/src/components/DiffPanel.tsx`
 - Diff browsing | user | Diffs can auto-scroll to selected files, show turn-selection chips including `All turns`, virtualize large file lists, and open changed files in the preferred editor. | evidence: `apps/web/src/components/DiffPanel.tsx`, `apps/web/src/components/DiffPanelBody.tsx`
 - Diff fallbacks | user | Agent diffs can fall back to workspace snapshots when attribution coverage is unavailable, and huge patches can defer rendering behind a user-triggered action. | evidence: `apps/web/src/components/DiffPanel.logic.ts`, `apps/web/src/components/DiffPanelBody.tsx`
-- Compact diff rendering | user | Inline/compact diff cards support stacked and split previews, overflow clamping, summary headers, and raw fallback notices. | evidence: `apps/web/src/components/diff/*.tsx`
+- Compact diff rendering | user | Inline/compact diff cards support stacked and split previews, overflow clamping, summary headers, and raw fallback notices. | evidence: `apps/web/src/components/diff/`
 - Design preview | user | Design threads can render HTML artifacts in a sandboxed iframe, switch among multiple artifacts, and preview mobile/tablet/desktop viewport widths. | evidence: `apps/web/src/components/DesignPreviewPanel.tsx`
 - Design option resolution | user | When design mode returns multiple options, user can choose an option in-panel and the panel auto-opens when artifacts/options first arrive. | evidence: `apps/web/src/components/DesignPreviewPanel.tsx`, `apps/web/src/routes/_chat.$threadId.tsx`
 - Design export to thread | user | Selected design artifacts can be exported into a new thread with artifact and screenshot references. | evidence: `apps/web/src/components/DesignPreviewPanel.tsx`
@@ -825,7 +825,7 @@ Forge is a desktop/web workspace for doing software work with coding agents. It 
 - Observability pipeline | operator | Local trace files are always written and OTLP traces/metrics can be exported when configured. | evidence: `apps/server/src/observability/Layers/Observability.ts`, `apps/server/src/observability/LocalFileTracer.ts`, `apps/server/src/observability/TraceSink.ts`
 - RPC instrumentation | operator | RPC calls record span metadata plus per-method duration/outcome metrics. | evidence: `apps/server/src/observability/RpcInstrumentation.ts`
 - Analytics hooks | operator | Anonymous analytics identify users from hashed provider identity or persisted anonymous id and attach platform/version metadata. | evidence: `apps/server/src/telemetry/Identify.ts`, `apps/server/src/telemetry/Layers/AnalyticsService.ts`
-- SQLite + migrations | internal | Runtime selects Bun or Node SQLite backends, enables WAL/foreign keys, and auto-runs migrations. | evidence: `apps/server/src/persistence/Layers/Sqlite.ts`, `apps/server/src/persistence/Migrations.ts`, `apps/server/src/NodeSqliteClient.ts`
+- SQLite + migrations | internal | Runtime selects Bun or Node SQLite backends, enables WAL/foreign keys, and auto-runs migrations. | evidence: `apps/server/src/persistence/Layers/Sqlite.ts`, `apps/server/src/persistence/Migrations.ts`, `apps/server/src/persistence/NodeSqliteClient.ts`
 - Event store and command receipts | internal | Ordered orchestration events and command receipts are persisted for replay, dedupe, and recovery. | evidence: `apps/server/src/persistence/Layers/OrchestrationEventStore.ts`, `apps/server/src/persistence/Layers/OrchestrationCommandReceipts.ts`
 - Projection model | internal | Server persists projects, threads, messages, activities, turns, checkpoints, workflows, phase runs, phase outputs, channels, pending approvals, pending requests, and agent diffs. | evidence: `apps/server/src/persistence/Services/*`, `apps/server/src/persistence/Migrations/*`
 - Recovery and reconciliation | internal | Stored provider runtime bindings, projector cursors, and pending-turn/request state support startup reconciliation after restarts. | evidence: `apps/server/src/persistence/Layers/ProviderSessionRuntime.ts`, `apps/server/src/orchestration/Layers/StartupReconciliation.ts`

@@ -84,13 +84,13 @@ Cross-cutting V1 specs that multiple V1 features depend on. These are required b
 
 ## Spec Coverage Assessment
 
-- **V1 features:** all 17 have a governing spec — Spec-023 (Desktop Shell + Renderer) landed per BL-041, Spec-016 (Multi-Agent Channels) completed its V1-readiness review per BL-042, and Spec-017 (Workflow authoring and execution) carries 31 amendments SA-1…SA-31 from BL-097 Wave 1+2 research.
+- **V1 features:** all 17 have a governing spec — Spec-023 (Desktop Shell + Renderer) landed per BL-041, Spec-016 (Multi-Agent Channels) completed its V1-readiness review per BL-042, and Spec-017 (Workflow authoring and execution) carries 27 of 31 amendments from BL-097 Wave 1+2 research in its body (SA-1…SA-23, SA-25, SA-26, SA-27, SA-28); SA-24/29/30/31 land in Plan-017 per implementation-detail separation.
 - **V1.1 features:** all 3 have a governing spec referenced above. The MLS spec surface (Spec-008) is being rewritten to declare pairwise-first for V1 and MLS as the V1.1 upgrade per BL-048.
 - **V2 features:** intentionally uncovered. V2 scope decisions are made post-V1 and add specs as needed.
 
 ## Backlog Coverage Assessment
 
-All V1 features have corresponding implementation plans (Plans 001–020 for existing V1 features, including Plan-016 for Multi-Agent Channels and Plan-017 for Workflow authoring and execution promoted to V1 per BL-097; Plan-021 per BL-044, Plan-022 per BL-045, Plan-023 per BL-043, Plan-024 per BL-078, Plan-025 per BL-080, Plan-026 per BL-082 for V1 items introduced by ADR-015 / ADR-019 / ADR-020). Tier assignments in `cross-plan-dependencies.md` align against ADR-015 per BL-054.
+All V1 features and supporting V1 specs have corresponding implementation plans (Plans 001–020 for existing V1 features, including Plan-016 for Multi-Agent Channels and Plan-017 for Workflow authoring and execution promoted to V1 per BL-097; Plan-021 per BL-044, Plan-022 per BL-045, Plan-023 per BL-043, Plan-024 per BL-078, Plan-025 per BL-080, Plan-026 per BL-082, and Plan-027 for Spec-024 cross-node dispatch and approval). Tier assignments in `cross-plan-dependencies.md` align against ADR-015 per BL-054.
 
 ## References
 

@@ -73,7 +73,7 @@ Ship the Spec-021 rate-limiting enforcement layer across the control-plane tRPC 
 - `packages/control-plane/src/admin/bans-routes.ts` — admin-API router.
 - `packages/control-plane/src/admin/bans-store.ts` — Postgres-backed `AdminBansStore` implementation.
 - `packages/control-plane/src/migrations/XXXX-rate-limit-tables.sql` — **extended from Plan-008's migration series.** Two new tables: `admin_bans`, `rate_limit_escalations`.
-- `docs/architecture/schemas/control-plane-postgres-schema.md` — **extended by this plan** with the two new tables.
+- `docs/architecture/schemas/shared-postgres-schema.md` — **extended by this plan** with the two new tables.
 - `docs/architecture/contracts/api-payload-contracts.md` — **extended by this plan.** Add admin bans request/response payloads. Confirm the canonical `RateLimitResponse` shape (reconciliation note below in §Data And Storage).
 - `docs/architecture/contracts/error-contracts.md` — **extended by this plan.** Add error codes `admin.ban_not_found`, `admin.forbidden`, `ratelimit.backend_unavailable`.
 - `docs/architecture/deployment-topology.md` §Rate Limiting By Deployment — **already declares the deployment matrix**; this plan is the implementation consumer. No edit needed.
@@ -357,7 +357,7 @@ All rate-limited responses must set:
 - [ ] `RateLimiter` interface lives in `packages/contracts/src/rate-limiter.ts` with the shape defined in §API And Transport Changes.
 - [ ] `CloudflareWorkersRateLimiter` + `PostgresRateLimiter` both pass the shared contract test suite covering every endpoint from Spec-021 §Rate Limit Values.
 - [ ] `RateLimiterFactory` selects backend from `AIS_RATELIMIT_BACKEND` env var; throws on unknown value at startup.
-- [ ] Postgres `admin_bans` + `rate_limit_escalations` tables ship via migration and are documented in `docs/architecture/schemas/control-plane-postgres-schema.md`.
+- [ ] Postgres `admin_bans` + `rate_limit_escalations` tables ship via migration and are documented in `docs/architecture/schemas/shared-postgres-schema.md`.
 - [ ] `DurableObjectEscalationStore` class is declared in the CF worker's DO registry and handles 5-min / 1-hr windows via `alarm()`-driven trim.
 - [ ] tRPC middleware `rateLimitProcedure` is wired on every approved endpoint per Spec-021 §Rate Limit Values.
 - [ ] WS per-frame rate check `wsRateLimit` is wired in Plan-008 relay's frame receive hook (gated on Plan-008's hook existing).
@@ -374,8 +374,7 @@ All rate-limited responses must set:
 
 ## Tier Placement
 
-Tier 5-6, per `docs/architecture/cross-plan-dependencies.md` §5 Canonical Build Order. Strictly **downstream of Plan-008** (this plan consumes Plan-008's tRPC router and WS frame hook) and **upstream of Plan-025** (Plan-025 is the self-hostable Node relay that instantiates `PostgresRateLimiter` inside its compose-deployed process). Placement update to `cross-plan-dependencies.md` §5 is BL-054's scope (Session 4); Plan-021's body states the tier intent only.
-
+Tier 6 per [cross-plan-dependencies.md §5 Canonical Build Order](../architecture/cross-plan-dependencies.md#5-canonical-build-order). Strictly **downstream of Plan-008** (this plan consumes Plan-008's tRPC router and WS frame hook) and **upstream of Plan-025** (Plan-025 is the self-hostable Node relay that instantiates `PostgresRateLimiter` inside its compose-deployed process).
 ## References
 
 - [Spec-021: Rate Limiting Policy](../specs/021-rate-limiting-policy.md)

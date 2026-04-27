@@ -8,7 +8,7 @@
 - [Sources](#sources)
 
 ## Relay
-`packages/relay` is intentionally narrow. Its core abstraction is the encrypted channel in `src/encrypted-channel.ts`, which wraps a WebSocket-like transport and makes the initiator and responder behave symmetrically after an initial key exchange.[S1]
+`packages/relay` is intentionally narrow. Its core abstraction is the encrypted channel in `packages/relay/src/encrypted-channel.ts`, which wraps a WebSocket-like transport and makes the initiator and responder behave symmetrically after an initial key exchange.[S1]
 
 The client-side path generates a keypair, imports the daemon public key obtained during pairing, derives a shared key, sends `e2ee_hello`, and retries the plaintext hello until the channel opens. The daemon-side path waits for that hello, derives the shared key from its long-lived keypair, sends `e2ee_ready`, and then promotes the transport into the encrypted channel state.[S1]
 

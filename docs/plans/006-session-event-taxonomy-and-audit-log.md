@@ -88,7 +88,7 @@ Plan-006 owns the **120-event type registry across 18 categories** per [Spec-006
 | `artifact_publication` | 6 | [Plan-014](./014-artifacts-files-and-attachments.md) |
 | `assistant_output` | 2 | [Plan-005](./005-provider-driver-contract-and-capabilities.md) |
 | `tool_activity` | 5 | [Plan-005](./005-provider-driver-contract-and-capabilities.md) + [Plan-015](./015-persistence-recovery-and-replay.md) (idempotency-class `tool.replayed` / `tool.skipped_during_recovery`) |
-| `cross_node_dispatch` | 13 | [Spec-024](../specs/024-cross-node-dispatch-and-approval.md) implementation (no V1 plan — implicit per [Cross-Plan Dependency Graph §Spec-024 V1 Gap](../architecture/cross-plan-dependencies.md)) |
+| `cross_node_dispatch` | 13 | [Plan-027](./027-cross-node-dispatch-and-approval.md) implements [Spec-024](../specs/024-cross-node-dispatch-and-approval.md); see [Cross-Plan Dependency Graph §Spec-024 Implementation Plan](../architecture/cross-plan-dependencies.md#spec-024-implementation-plan) |
 | `usage_telemetry` | 3 | [Plan-005](./005-provider-driver-contract-and-capabilities.md) |
 | `onboarding_lifecycle` | 2 | [Plan-026](./026-first-run-onboarding.md) |
 | `runtime_node_lifecycle` | 9 | [Plan-003](./003-runtime-node-attach.md) (7 `runtime_node.*`) + [Plan-015](./015-persistence-recovery-and-replay.md) (2 `session.clock_*`) |

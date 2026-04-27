@@ -94,11 +94,63 @@ None. The sidecar is stateless across restarts — per-session PTY handles live 
     1. `codesign --timestamp --options runtime --sign "Developer ID Application: <org name> (<team id>)" sidecar` — the hardened-runtime `--options runtime` flag is mandatory for notarization acceptance.
     2. Zip and submit to notarization: `ditto -c -k --keepParent sidecar sidecar.zip && xcrun notarytool submit sidecar.zip --apple-id <id> --team-id <team> --password <app-specific-pwd> --wait`. Use `xcrun notarytool` — `altool` has been deprecated since 2023-11-01 per Spec-023 §macOS and MUST NOT be used.
     3. Staple: `xcrun stapler staple sidecar` so the notarization ticket rides with the binary (required for offline first-launch).
-    4. **Queue-delay mitigation.** Apple's notarization queue has shown 16+ hour delays in February 2026 and later per [Apple Developer Forums thread 813441](https://developer.apple.com/forums/thread/813441) (also cited by Spec-023 §macOS Operational risk). The release pipeline MUST implement timeout + retry rather than synchronously blocking on `notarytool --wait`. Recommended shape: submit async, poll every 5 minutes for up to 24 hours, fail the release job (not the build) on hard timeout so the binary can be re-submitted without rebuilding.
+    4. **Queue-delay mitigation.** Apple's notarization queue has shown 24–120+ hour delays in January 2026 and later per [Apple Developer Forums thread 813441](https://developer.apple.com/forums/thread/813441) (also cited by Spec-023 §macOS Operational risk). The release pipeline MUST implement timeout + retry rather than synchronously blocking on `notarytool --wait`. Recommended shape: submit async, poll every 5 minutes for up to 24 hours, fail the release job (not the build) on hard timeout so the binary can be re-submitted without rebuilding.
     5. **Identity inheritance note.** This uses the **same Apple Developer ID Application certificate** as the Electron shell (Spec-023 §macOS). The identity inherits; the codesign + notarize operation is net-new per this plan because npm-delivered Mach-O binaries ship outside of the shell's `.app` bundle — Gatekeeper enforces `codesign --options runtime` + notarization on first spawn of any standalone Mach-O distributed outside a signed/notarized bundle. The shell's notarization ticket does NOT cover the npm-installed sidecar.
 13. **Linux packaging.** `strip` the ELF, publish unsigned. No Gatekeeper / SmartScreen-equivalent exists for an npm-distributed Linux binary; trust rests on npm registry integrity + lockfile pinning. Record the SHA-256 of each published artifact in the package's `README.md` as an out-of-band integrity check.
 14. **Publish script.** `tools/publish-sidecar.mjs` publishes the five `@ai-sidekicks/pty-sidecar-<platform>-<arch>` packages (each containing one `bin/sidecar` binary + `package.json` with `os` / `cpu` / `bin` fields) plus the umbrella `@ai-sidekicks/pty-sidecar` package, which declares the five as `optionalDependencies`. Exactly one optional dep installs per user machine per the `os` / `cpu` gates — identical shape to esbuild 0.28.0's 26-package fan-out and to napi-rs v3's pattern (which additionally offers a WASM fallback; out of scope for V1 sidecar).
 15. **Daemon consumer wire-up.** Import the umbrella package from `packages/runtime-daemon/package.json`. Resolution in `RustSidecarPtyHost` via `require.resolve('@ai-sidekicks/pty-sidecar-<platform>-<arch>/bin/sidecar')` matches the esbuild lookup pattern.
+
+## Windows Implementation Gotchas
+
+Five Windows-specific implementation concerns are load-bearing for the sidecar's correctness and lifecycle behavior on Windows. These do **not** change the architecture (the `PtyHost` contract still abstracts the backend choice) but they DO change the daemon-layer responsibilities the sidecar must satisfy. Each item below names the daemon-layer obligation, the implementation guidance, and the primary-source citation in `## References`.
+
+### 1. Ctrl+C signal propagation on Windows
+
+Windows does not have POSIX-style SIGINT delivered to a process group. The console subsystem uses `CTRL_C_EVENT` and `CTRL_BREAK_EVENT` events delivered through `GenerateConsoleCtrlEvent`, with semantics that are not equivalent to Unix `SIGINT`:
+
+- `CTRL_C_EVENT` (`0`) is the closest analog to `SIGINT` but can be ignored or handled distinctly by the child process via `SetConsoleCtrlHandler`.
+- `CTRL_BREAK_EVENT` (`1`) is generally non-ignorable and is the more reliable interrupt for misbehaving children.
+- `GenerateConsoleCtrlEvent` requires the child process to be attached to the **same console** as the caller; if the child was spawned with `CREATE_NEW_CONSOLE` or detached, the event will not reach it. The sidecar must spawn children attached to the ConPTY's pseudo-console so that `GenerateConsoleCtrlEvent` propagates.
+- A process-group ID of `0` broadcasts the event to all processes attached to the console. Where a single child process is the target, pass that child's PID and verify the child is in the ConPTY's process group at spawn time.
+
+Daemon-layer obligation: `PtyHost.kill(sessionId, signal)` on Windows must translate signal semantics — `SIGINT` → `CTRL_C_EVENT`, hard-stop → `CTRL_BREAK_EVENT` followed by `taskkill /T` if the child does not exit within a bounded interval. `node-pty`'s `pty.kill()` only signals a single process and does not handle the console-group attachment correctly per [microsoft/node-pty#167](https://github.com/microsoft/node-pty/issues/167) (see `## References`); the Rust sidecar must implement this translation in `pty_session.rs::kill()` rather than relying on `portable-pty`'s default kill behavior.
+
+### 2. `taskkill /T` tree-kill behavior
+
+Killing a single PID on Windows does not kill its descendants. Children spawned by the immediate child process (shells, build tools, language servers, language-runtime workers) survive a single-PID kill and become orphans tied to the console session. This affects the daemon's session-teardown semantics: a "session ended" notification cannot assume the entire process tree has terminated.
+
+- Use `taskkill /T /F /PID <root-pid>` (the `/T` flag instructs `taskkill` to kill the entire tree) for hard termination paths.
+- For graceful shutdown, send `CTRL_BREAK_EVENT` first (per Gotcha 1), wait a bounded interval, then escalate to `taskkill /T /F`.
+- Reaping must be idempotent and must not block the sidecar's main loop — invoke `taskkill` with a timeout and emit an `ExitCodeNotification` even if reaping is incomplete, so the daemon can mark the session terminated without hanging on a stuck OS-level operation.
+- This is a daemon-layer responsibility (the sidecar emits exit-code on root-PID exit; the daemon coordinates tree-kill on session end). Behavior matches the unreliability documented in [microsoft/node-pty#437](https://github.com/microsoft/node-pty/issues/437) — see `## References`.
+
+### 3. WSL2 path translation scope
+
+Windows GA scope (per ADR-019) means **Windows-native**, not WSL2-inside-launch. The sidecar's responsibility boundary for WSL2 is:
+
+- **Scope decision (operative):** Windows GA covers users who launch the desktop shell from a Windows-native context (Win32 shell, Start menu, taskbar). Users who launch the application from inside a WSL2 distro (e.g., via an X-server or `\\wsl.localhost\<distro>\` UNC paths into the Windows binary) are **user-supported, not first-class** in V1. This matches the documented Electron-on-WSL multi-year pain point (no native GUI surface inside WSL2 distros); declaring "Windows GA = Windows native" is the defensible scope.
+- **Implementation guidance (operative):** The sidecar does **not** translate paths between Windows-native (`C:\Users\...`) and WSL2 (`/mnt/c/Users/...` or `\\wsl.localhost\<distro>\home\...`) namespaces. Path arguments handed to `SpawnRequest.cwd` and `SpawnRequest.env` are passed through to `portable-pty` verbatim. If the daemon needs to invoke `wslpath` for translation in some integration path, that is a daemon-layer translation step **before** the `SpawnRequest` reaches the sidecar.
+- `wslpath` availability: the `wslpath` command exists inside a WSL2 distro and converts between Windows and POSIX path forms (e.g., `wslpath -w /home/foo` → `\\wsl.localhost\Ubuntu\home\foo`). It is NOT available in a Windows-native context. The sidecar runs Windows-native (per V1 scope) and therefore does not invoke `wslpath`.
+
+### 4. Electron `will-quit` ordering vs sidecar shutdown
+
+Electron's `will-quit` event fires after `before-quit` and after `window-all-closed`, marking the last opportunity to do synchronous cleanup before the renderer process terminates. If the daemon shuts the sidecar **after** `will-quit` fires, the sidecar's child PTY processes can be orphaned by the OS-level renderer-process termination — they outlive the Electron main process, attach to the global console, and become zombies.
+
+- The daemon's sidecar-cleanup handler MUST register **before** Electron's `will-quit` handler — register order is preserve order under Electron's event-emitter semantics, so the daemon's first-registered handler runs first.
+- The cleanup handler must (a) emit `KillRequest` for every active session to the sidecar, (b) wait for `ExitCodeNotification` for each (with a bounded timeout, e.g., 2 s), (c) close the sidecar's stdin (which signals the sidecar to exit cleanly), (d) wait for the sidecar process exit (with a second bounded timeout), and (e) escalate to `taskkill /T /F /PID <sidecar-pid>` if the sidecar does not exit within the timeout — same hard-stop pattern as Gotcha 2.
+- The race-window between renderer-process termination and sidecar drain is the SIGABRT-on-exit class documented in [microsoft/node-pty#904](https://github.com/microsoft/node-pty/issues/904) (see `## References`); this is the failure mode the sidecar architecture is explicitly designed to avoid, but the daemon-side wiring of the cleanup handler is what makes it work — a missing or late-registered handler reproduces the same race in the sidecar layer.
+- **Cross-reference:** ADR-019 §Failure Mode Analysis row 4 (cross-compile CI regression) is unrelated; the `will-quit` ordering responsibility is owned by Plan-001 (shared session core) which manages session lifecycle, with Plan-024 (this plan) supplying the `PtyHost.close(sessionId)` and sidecar `KillRequest` primitives.
+
+### 5. Spawn locks cwd on Windows
+
+Windows holds a directory lock on the cwd passed at PTY spawn for the lifetime of the spawned process. As long as the child process is running, that working-directory cannot be deleted, moved, or unmounted — any attempt fails with `ERROR_SHARING_VIOLATION`. This breaks worktree-swap workflows (`git worktree remove`, `gitflow` cleanup) when the sidecar spawned a session with `cwd` set to the worktree path: the worktree cannot be removed until every session rooted under it has exited, even if the user has switched contexts and considers the worktree abandoned.
+
+- **Implementation guidance** (per [microsoft/node-pty#647](https://github.com/microsoft/node-pty/issues/647)): the sidecar must **not** invoke `portable_pty::PtySize::spawn_command` with `SpawnRequest.cwd` set directly to the worktree path. Two equivalent mitigations:
+  - **(a) Stable parent dir + `cd &&` shell prefix:** spawn the child from a stable, unmovable parent directory (e.g., the daemon's own working dir or the user-home root), then prepend a `cd <worktree-path> && ` clause to the command string. The shell's `cd` does not lock the parent dir at the OS level; only the spawn-call cwd is locked.
+  - **(b) Stable parent dir + `env.CWD` propagation:** same stable-parent spawn, but pass the worktree path via an environment variable (`CWD=<worktree-path>`) that the agent CLI consumes internally. Choice between (a) and (b) depends on whether the spawned program respects `cd` semantics or expects an env-var (most agentic CLIs accept `cd`; some workflow runners use `CWD`).
+- **Daemon-layer obligation:** the daemon-layer `PtyHost.spawn(spec)` wrapper translates `spec.cwd` (logical worktree path) into the (stable parent dir, prefixed command) tuple before forwarding to `RustSidecarPtyHost`. The sidecar's protocol-level `SpawnRequest.cwd` field always carries a stable path; the worktree path lives in the command-string-or-env layer above. This translation step is a **daemon-layer** responsibility (Plan-001 / Plan-005) rather than a sidecar-layer one, because the sidecar deliberately does not know about worktree semantics.
+- **NodePtyHost fallback** has the same constraint — `node-pty.spawn({ cwd })` exhibits the identical Windows behavior. The daemon-layer translation MUST run regardless of which `PtyHost` implementation is selected; the constraint is OS-level, not backend-specific.
+- **Cross-reference:** ADR-019 §Research Conducted row [`microsoft/node-pty#647`](https://github.com/microsoft/node-pty/issues/647) ("blocks worktree workflows") classifies the failure mode; this section provides the implementation-grade mitigation. Plan-001 (shared session core) owns the daemon-layer translation step in its session-spawn entry point; Plan-024 (this plan) supplies only the sidecar-layer protocol primitive (`SpawnRequest.cwd` carries whatever the daemon hands down).
 
 ## Windows Signing — Two Parallel Tracks
 
@@ -109,7 +161,7 @@ This plan treats the two signing paths as **parallel tracks selected by the publ
 ### Track A — Azure Artifact Signing (eligible geographies)
 
 - Applicable to organizations in USA / Canada / EU / UK and individuals in USA / Canada.
-- **Product identity:** Renamed from "Azure Trusted Signing" to **"Azure Artifact Signing"**; [GA on 2026-01-12](https://techcommunity.microsoft.com/blog/microsoft-security-blog/simplifying-code-signing-for-windows-apps-artifact-signing-ga/4482789).
+- **Product identity:** Microsoft renamed "Trusted Signing" to **"Artifact Signing"** (commonly prefixed "Azure" in Microsoft Learn docs); [GA on 2026-01-12](https://techcommunity.microsoft.com/blog/microsoft-security-blog/simplifying-code-signing-for-windows-apps-artifact-signing-ga/4482789).
 - **SKU:** Basic — $9.99/month, 5,000 signatures, 1 certificate profile, FIPS 140-2 Level 3 HSM-backed, zero-touch cert lifecycle. No hardware token. Chains to a CA in the Microsoft Trusted Root Program (SmartScreen-friendly).
 - **Does NOT issue EV certificates.** If publishing requires EV chain (e.g., for instant SmartScreen reputation), Track A is insufficient and Track B applies instead or in addition.
 - **Integration:** [`Azure/artifact-signing-action`](https://github.com/Azure/artifact-signing-action) GitHub Action, pinned to `@v1.2.0` (published 2026-03-23). The repository was renamed from `Azure/trusted-signing-action` alongside the product rename; GitHub auto-redirects the old path, but new workflow references should use the new name. Works end-to-end in a GitHub-hosted runner; no self-hosted secure enclave needed.
@@ -163,7 +215,7 @@ This plan treats the two signing paths as **parallel tracks selected by the publ
 - **[cargo-zigbuild#316](https://github.com/rust-cross/cargo-zigbuild/issues/316)** — aarch64-apple-darwin iconv linker regression under Rust ≥ 1.82 with `zstd-sys` transitive deps. Mitigated by using native `macos-14` / `macos-15` arm64 runners (Apple Silicon runners are GA on GitHub Actions as of 2026), avoiding the cross-compile path for that target entirely.
 - **`portable-pty` 0.8.x → 0.9.0 breaking migration** — the crate swapped its serial-port dep from `serial` to `serial2` in the 0.9.0 bump (repo move to `wezterm/wezterm` org on 2025-02-07). Mitigation: start at 0.9.0, never back-port to 0.8.x.
 - **`portable-pty` maintainer continuity** — no formal maintainer-handoff statement after the wezterm org repo move; 0.9.0 (2025-02-11) is the current release. Bounded by the fallback path: `PtyHost` selector can pick `NodePtyHost` on any platform if `portable-pty` becomes unmaintained (ADR-019 Assumption 1's "What Breaks If Wrong" path).
-- **Apple notarization queue 16+ hour delays** (Spec-023 §macOS, [Apple Developer Forums 813441](https://developer.apple.com/forums/thread/813441)). Mitigated by async submit + poll release-pipeline pattern (step 12.4 above).
+- **Apple notarization queue 24–120+ hour delays** (Spec-023 §macOS, [Apple Developer Forums 813441](https://developer.apple.com/forums/thread/813441)). Mitigated by async submit + poll release-pipeline pattern (step 12.4 above).
 - **Linux supply-chain gap — no OS-level signature check at sidecar spawn on Linux.** No Gatekeeper / SmartScreen equivalent exists for npm-distributed ELF binaries. A compromised `@ai-sidekicks/pty-sidecar-linux-*` npm package would execute unchecked. Accepted trade-off matching the esbuild / napi-rs security posture; mitigation rests on npm registry TUF + lockfile pinning + (post-V1) Sigstore provenance attestations at publish. V1.1 may add optional daemon-side pubkey verification per §Non-Goals as defense-in-depth.
 - **Azure Artifact Signing business-history threshold uncertainty** — no specific threshold is enumerated in the primary-source [Azure Artifact Signing FAQ](https://learn.microsoft.com/en-us/azure/artifact-signing/faq) as of 2026-04-17 research; confirm exact criteria with Microsoft at procurement time.
 
@@ -182,22 +234,22 @@ This plan treats the two signing paths as **parallel tracks selected by the publ
 
 ## Tier Intent
 
-Tier 2 per BL-078 exit criteria — daemon-foundational; pairs with Plan-001 (shared session core) and Plan-007 (local IPC host). Upstream of Plan-005 (runtime bindings) which is the first consumer of the `PtyHost` contract. Placement update to `docs/architecture/cross-plan-dependencies.md` §5 Canonical Build Order is out of scope for this plan and belongs to BL-054's propagation pass.
-
+Tier 1 per [cross-plan-dependencies.md §5 Canonical Build Order](../architecture/cross-plan-dependencies.md#5-canonical-build-order) — daemon-foundational, co-tier with Plan-001. Upstream of Plan-005 (runtime bindings) which is the first consumer of the `PtyHost` contract; consumption begins at Tier 4 once Plan-005 lands.
 ## References
 
 - [ADR-019: Windows V1 Tier and Rust PTY Sidecar Strategy](../decisions/019-windows-v1-tier-and-pty-sidecar.md) — primary decision source
 - [ADR-009: JSON-RPC IPC Wire Format](../decisions/009-json-rpc-ipc-wire-format.md) — Content-Length framing parity
 - [ADR-016: Electron Desktop Shell](../decisions/016-electron-desktop-shell.md) — shared signing-identity policy
 - [Spec-023: Desktop Shell And Renderer](../specs/023-desktop-shell-and-renderer.md) — Apple Developer ID + Azure Artifact Signing precedent; macOS notarization queue mitigation
-- [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) — Tier 2 placement target for BL-054
+- [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) — Tier 1 canonical placement (co-tier with Plan-001; upstream of Plan-005 at Tier 4)
 - [portable-pty crate](https://github.com/wezterm/wezterm/tree/main/pty) — PTY backend, ≥ 0.9.0, WezTerm org
 - [openai/codex#13973](https://github.com/openai/codex/issues/13973) — first-party ConPTY trigger (V1 driver)
-- [microsoft/node-pty#904](https://github.com/microsoft/node-pty/issues/904) — SIGABRT on Electron exit
+- [microsoft/node-pty#904](https://github.com/microsoft/node-pty/issues/904) — SIGABRT on Electron exit (cited by Gotcha 4: Electron `will-quit` ordering vs sidecar shutdown)
 - [microsoft/node-pty#887](https://github.com/microsoft/node-pty/issues/887) — ConoutConnection worker strand
 - [microsoft/node-pty#894](https://github.com/microsoft/node-pty/issues/894) — PowerShell 7 delay under `useConptyDll`
-- [microsoft/node-pty#437](https://github.com/microsoft/node-pty/issues/437) — process-tree kill unreliable on Windows
-- [microsoft/node-pty#647](https://github.com/microsoft/node-pty/issues/647) — spawn locks cwd on Windows
+- [microsoft/node-pty#437](https://github.com/microsoft/node-pty/issues/437) — `ptyProcess.kill()` hangs on Windows; process-tree kill not reliable (cited by Gotcha 2: `taskkill /T` tree-kill behavior)
+- [microsoft/node-pty#647](https://github.com/microsoft/node-pty/issues/647) — spawn locks cwd on Windows (cited by Gotcha 5: Spawn locks cwd on Windows; blocks worktree workflows)
+- [microsoft/node-pty#167](https://github.com/microsoft/node-pty/issues/167) — sending a signal to all processes in the process group of the pts; Ctrl+C / SIGINT propagation does not reach process group on Windows (cited by Gotcha 1: Ctrl+C signal propagation on Windows)
 - [Eugeny/tabby#10134](https://github.com/Eugeny/tabby/issues/10134) — Tabby GA-on-node-pty rollback precedent
 - [esbuild optionalDependencies pattern](https://www.npmjs.com/package/esbuild) — distribution precedent (26 platform packages as of 0.28.0 / 2026-04-02)
 - [napi-rs v3 release notes](https://github.com/napi-rs/napi-rs) — platform-package + WASM fallback extension of the pattern
@@ -206,6 +258,6 @@ Tier 2 per BL-078 exit criteria — daemon-foundational; pairs with Plan-001 (sh
 - [CA/Browser Forum Ballot CSC-31](https://cabforum.org/working-groups/code-signing/requirements/) — 460-day cert-validity cap effective 2026-03-01
 - [Apple Developer ID program](https://developer.apple.com/developer-id/) — Developer ID Application certificate
 - [`xcrun notarytool` notarization workflow (Apple developer docs)](https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution/customizing_the_notarization_workflow) — `notarytool` + `stapler`; `altool` deprecated 2023-11-01
-- [Apple Developer Forums thread 813441](https://developer.apple.com/forums/thread/813441) — 16+ hour notarization queue delays (Feb 2026+)
+- [Apple Developer Forums thread 813441](https://developer.apple.com/forums/thread/813441) — 24–120+ hour notarization queue delays (Jan 2026+)
 - [cargo-zigbuild](https://github.com/rust-cross/cargo-zigbuild) — v0.22.2 (2026-04-16); healthier than the stale `cross-rs/cross` v0.2.5 (2024-02-04)
 - [cargo-zigbuild#316](https://github.com/rust-cross/cargo-zigbuild/issues/316) — aarch64-apple-darwin iconv linker regression under Rust ≥ 1.82 with `zstd-sys`

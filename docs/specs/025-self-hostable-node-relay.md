@@ -23,7 +23,7 @@ In scope:
 - Postgres as the single persistence dependency for shared state (membership, invites, presence, relay sequencing).
 - Rate-limiter backend: `rate-limiter-flexible` on Postgres, behind the deployment-aware abstraction from [Spec-021](./021-rate-limiting-policy.md).
 - PASETO v4.public verification of access tokens at the relay boundary.
-- `docker-compose.yml`-based single-command deployment for operators (the file itself ships in [BL-080](../backlog.md) Plan-025).
+- `docker-compose.yml`-based single-command deployment for operators (the file itself ships in [BL-080](../archive/backlog-archive.md) Plan-025).
 - Reverse-proxy baseline (Caddy) for TLS termination, HTTP/2, and automatic certificate acquisition.
 - Observability endpoints (`/healthz`, `/readyz`, `/metrics`) and OTLP export posture.
 - Supply-chain hardening baseline (npm provenance verification, `--ignore-scripts` in CI, signed release artifacts).
@@ -31,7 +31,7 @@ In scope:
 
 Out of scope (see Non-Goals for full list):
 - The v2 relay protocol itself (Spec-008 is authoritative).
-- Enterprise operator features (OIDC/SAML, HSM-backed signing keys, SOC 2 artifacts, offline-root infrastructure) — [BL-060](../backlog.md) tracks secure-by-default V1 posture; enterprise compliance is V1.1+.
+- Enterprise operator features (OIDC/SAML, HSM-backed signing keys, SOC 2 artifacts, offline-root infrastructure) — [BL-060](../archive/backlog-archive.md) tracks secure-by-default V1 posture; enterprise compliance is V1.1+.
 - Kubernetes Helm charts and multi-node scale-out topologies.
 - End-user account management UX — that is the hosted SaaS concern.
 
@@ -41,7 +41,7 @@ Out of scope (see Non-Goals for full list):
 - Shipping a Cloudflare Workers + Durable Objects backend. The hosted deployment uses Cloudflare per [Deployment Topology](../architecture/deployment-topology.md) §Relay Scaling Strategy; this spec is the **self-host** track that runs on commodity infrastructure.
 - Operating or distributing the project-operated free public relay. ADR-020's free public relay runs on Cloudflare; this spec's output is the software operators deploy on their own infrastructure.
 - Kubernetes Helm charts, Nomad jobs, Terraform modules, or any orchestrator other than the `docker-compose.yml` reference deployment.
-- OIDC/SAML SSO, HSM-backed operator keys, SOC 2 compliance artifacts, offline-root signing infrastructure (see [BL-060](../backlog.md) for V1 secure-by-default; enterprise features are V1.1+).
+- OIDC/SAML SSO, HSM-backed operator keys, SOC 2 compliance artifacts, offline-root signing infrastructure (see [BL-060](../archive/backlog-archive.md) for V1 secure-by-default; enterprise features are V1.1+).
 - End-user or operator UI. Relay is headless; operators use CLI, config files, and log/metrics endpoints.
 
 ## Domain Dependencies
@@ -76,7 +76,7 @@ Out of scope (see Non-Goals for full list):
 
 ## Default Behavior
 
-- **Runtime:** Node.js LTS ≥ 22. Node.js 20 (Iron) is end-of-life 2026-04-30 and is not supported. The container base image must be Node.js 22 LTS or newer.
+- **Runtime:** Node.js LTS ≥ 22. Node.js 20 (Iron) is end-of-life 2026-03-24 and is not supported. The container base image must be Node.js 22 LTS or newer.
 - **Database:** Postgres ≥ 17. Older versions are not supported in V1 (no PostgreSQL 15/16 back-compat shim ships).
 - **HTTP + WebSocket server:** [Fastify v5](https://fastify.dev/) with [`@fastify/websocket`](https://github.com/fastify/fastify-websocket) (which wraps the `ws` package). The choice follows the 2026 Node.js server ecosystem; Fastify is the mainstream framework with continuous 2025–2026 development, and `@fastify/websocket` delegates to `ws` (also actively maintained 2025–2026).
 - **Rate limiter:** [`rate-limiter-flexible`](https://github.com/animir/node-rate-limiter-flexible) with its Postgres backend. Limits follow the deployment-aware abstraction in [Spec-021](./021-rate-limiting-policy.md).
@@ -110,7 +110,7 @@ Out of scope (see Non-Goals for full list):
   - `OTEL_EXPORTER_OTLP_ENDPOINT` — optional OTLP endpoint for opt-in distributed tracing.
   - `LOG_LEVEL` — `info` by default; `debug` available but must not leak token material.
   - `SHUTDOWN_DRAIN_TIMEOUT_MS` — default `30000`.
-- **Reference `docker-compose.yml`** — ships in [BL-080](../backlog.md) Plan-025. Must use Compose Specification (no top-level `version:` field — [Compose Spec 2025](https://docs.docker.com/reference/compose-file/legacy-versions/) deprecated it) and must use `depends_on` with `condition: service_healthy` and `restart: true` so the relay waits for Postgres and restarts on its recovery.
+- **Reference `docker-compose.yml`** — ships in [BL-080](../archive/backlog-archive.md) Plan-025. Must use Compose Specification (no top-level `version:` field — [Compose Spec 2025](https://docs.docker.com/reference/compose-file/legacy-versions/) deprecated it) and must use `depends_on` with `condition: service_healthy` and `restart: true` so the relay waits for Postgres and restarts on its recovery.
 
 ## State And Data Implications
 
@@ -145,7 +145,7 @@ Out of scope (see Non-Goals for full list):
 - **PASETO library choice.** The three options evaluated for PASETO v4.public verification are: (1) [`panva/paseto`](https://github.com/panva/paseto) — archived by the maintainer on 2025-03-29; no longer accepting PRs or CVE fixes; unacceptable for a V1 security dependency; (2) [`paseto-ts`](https://github.com/auth70/paseto-ts) — actively maintained but single-maintainer with ~1.5k weekly downloads; concentration risk in a security-critical path; (3) **in-house implementation on `@noble/curves` (Ed25519) and `@noble/ciphers`** — the noble libraries are Paul Miller's audited crypto primitives with multiple production deployments. PASETO v4.public is structurally simple (Ed25519 signature over a canonical payload with a fixed header); the V1 implementation is approximately 150 LOC of composable noble primitives plus a conformance test vector suite from the PASETO RFC. This is the chosen path. A PASETO conformance test suite must be part of Plan-025's acceptance criteria.
 - **Rate limiter Postgres ceiling.** [`rate-limiter-flexible`](https://github.com/animir/node-rate-limiter-flexible) Postgres backend uses `INSERT...ON CONFLICT` for atomicity, which has a practical ceiling of ~500 req/s per namespace under contention before Postgres CPU becomes the limit. This ceiling is adequate for V1 self-host scale (small-team collaboration). Operators running higher-throughput deployments can either namespace-shard or add a Redis backend; both are V1.1+ concerns. Document the ceiling in the operator guide.
 - **WebSocket library transitive dependency on `ws`.** `@fastify/websocket` wraps the `ws` package. `ws` had a HeadersTimeout-related DoS CVE addressed in 8.17.1 (June 2024); no new CVEs affect 2025–2026 releases. Pin `@fastify/websocket` to a version tree that resolves `ws` ≥ 8.18 to inherit the fix.
-- **Cloudflare DO sharding envelope.** The hosted deployment uses Cloudflare Durable Objects with the Hibernation API (DOs hibernate between WebSocket messages for cost efficiency; SQLite-backed DO storage reached GA 2025-04-07). Cloudflare publishes **no specific concurrent-WebSocket cap per DO** — only the statement that DOs "can act as WebSocket servers that connect thousands of clients per instance" ([DO WebSockets best practices](https://developers.cloudflare.com/durable-objects/best-practices/websockets/)) — together with a **1,000 requests/sec per-DO soft cap** ([DO limits](https://developers.cloudflare.com/durable-objects/platform/limits/)). The 25-WebSocket-connections-per-data-DO target is a *design choice* defined in [Deployment Topology](../architecture/deployment-topology.md) §Relay Scaling Strategy to stay inside the 200–500 rps "complex op" guidance with ~2.5× headroom vs the soft cap (envelope: `25 conns × 100 events/sec ÷ ~6:1 batching ratio ≈ 400 rps/DO`). None of this sizing is relevant to this spec; the self-host Node.js relay uses a different scaling model (sticky routing + multiple processes per §4.4 of [BL-053 research brief](../research/bl-053-self-hosted-scope-research.md)).
+- **Cloudflare DO sharding envelope.** The hosted deployment uses Cloudflare Durable Objects with the Hibernation API (DOs hibernate between WebSocket messages for cost efficiency; SQLite-backed DO storage reached GA 2025-04-07). Cloudflare publishes **no specific concurrent-WebSocket cap per DO** — only the statement that DOs "can act as WebSocket servers that connect thousands of clients per instance" ([DO WebSockets best practices](https://developers.cloudflare.com/durable-objects/best-practices/websockets/)) — together with a **1,000 requests/sec per-DO soft cap** ([DO limits](https://developers.cloudflare.com/durable-objects/platform/limits/)). The 25-WebSocket-connections-per-data-DO target is a *design choice* defined in [Deployment Topology](../architecture/deployment-topology.md) §Relay Scaling Strategy to stay inside the 200–500 rps "complex op" guidance with ~2.5× headroom vs the soft cap (envelope: `25 conns × 100 events/sec ÷ ~6:1 batching ratio ≈ 400 rps/DO`). None of this sizing is relevant to this spec; the self-host Node.js relay uses a different scaling model — *"single-writer can be achieved either by sticky load balancing (session → process) or by an external lock (Postgres advisory lock, Redis RedLock)... Redis pub/sub typically adds ~1–3 ms to fan-out. This is the industry-standard replacement pattern for DO-style WebSocket coordination when a team leaves the Cloudflare Workers platform"* ([Ably — Scaling Pub/Sub with WebSockets and Redis](https://ably.com/blog/scaling-pub-sub-with-websockets-and-redis), fetched 2026-04-25). The V1 self-host deployment baselines the simpler sticky-routing single-process variant (no Redis) — adequate for the small-team self-host throughput envelope; operators with multi-process scale-out needs adopt the Redis fan-out pattern from the same reference.
 - **Docker Compose specification.** The reference `docker-compose.yml` must use Compose Spec (post-v3) with no top-level `version:` field (deprecated by Compose Spec 2025) and use `depends_on: { condition: service_healthy, restart: true }` so the relay waits on Postgres health and restarts if Postgres is restarted.
 - **Caddy as default reverse proxy.** Caddy is chosen over nginx for V1 because (1) automatic Let's Encrypt certificate issuance with zero config; (2) HTTP/2 + HTTP/3 default-on; (3) the `Caddyfile` for this deployment is ~10 lines. Nginx is acceptable for operators who already run it, but is not the default.
 - **Supply-chain hardening.** The Shai-Hulud 1/2 npm worms (September–November 2025) and the Axios compromise (March 2026) establish npm provenance + Sigstore as the 2026 operational baseline. V1 posture: publish with provenance attestations; `npm ci --ignore-scripts` in CI; `npm audit signatures` on every CI run; pin all dependencies with exact versions in `package-lock.json`; no transitive postinstall scripts in the production bundle.
@@ -161,7 +161,7 @@ Out of scope (see Non-Goals for full list):
 - **Assuming Postgres 15/16 compatibility.** V1 baselines Postgres 17. Operators running older Postgres must upgrade before deploying the relay.
 - **Binding the relay directly to `0.0.0.0:443` without a reverse proxy.** Caddy is the default for TLS termination; operators who bypass it must handle certificate renewal, HTTP/2 negotiation, and forward-proxy headers themselves. Direct-TLS mode exists for advanced operators and is not the documented default.
 - **Logging PASETO token bodies or encrypted payload plaintext.** Logs are operator-visible; tokens and plaintext must never appear. Mask at the log-emit boundary, not at the viewer.
-- **Assuming Node.js 20 (Iron) is supported.** Iron goes EOL 2026-04-30; V1 baselines Node.js 22 LTS from day one.
+- **Assuming Node.js 20 (Iron) is supported.** Iron goes EOL 2026-03-24; V1 baselines Node.js 22 LTS from day one.
 
 ## Acceptance Criteria
 
@@ -196,7 +196,7 @@ Out of scope (see Non-Goals for full list):
 
 | Source | Type | Key Finding | URL/Location |
 |---|---|---|---|
-| Node.js release schedule | Documentation | Node 20 (Iron) EOL 2026-04-30; Node 22 LTS is the 2026 baseline | https://nodejs.org/en/about/previous-releases |
+| Node.js release schedule | Documentation | Node 20 (Iron) EOL 2026-03-24; Node 22 LTS is the 2026 baseline | https://nodejs.org/en/about/previous-releases |
 | Fastify v5 | Documentation | Mainstream 2026 Node.js HTTP framework; active 2025–2026 release cadence | https://fastify.dev/ |
 | `@fastify/websocket` | Documentation | Fastify-official WebSocket plugin wrapping `ws` | https://github.com/fastify/fastify-websocket |
 | `ws` package CVE history | Documentation | HeadersTimeout DoS fixed in 8.17.1 (June 2024); no new 2025–2026 CVEs at time of writing | https://github.com/websockets/ws/security/advisories |
@@ -211,7 +211,7 @@ Out of scope (see Non-Goals for full list):
 | Compose Specification | Documentation | Post-v3 Compose spec; `version:` field deprecated | https://docs.docker.com/reference/compose-file/ |
 | Docker Compose `depends_on` with `service_healthy` + `restart: true` | Documentation | Cascading restart behavior for health-dependent services | https://docs.docker.com/reference/compose-file/services/#depends_on |
 | npm provenance + Sigstore | Documentation | 2026 operational baseline for npm supply-chain integrity | https://docs.npmjs.com/generating-provenance-statements |
-| Shai-Hulud 1/2 npm worms | Incident report | September–November 2025 supply-chain incidents establishing provenance as baseline | https://blog.npmjs.org/post/shai-hulud-incident-postmortem (placeholder — see operator guide for canonical link) |
+| Shai-Hulud npm ecosystem compromise | Incident analysis | September 2025 npm supply-chain compromise establishing provenance as baseline | https://unit42.paloaltonetworks.com/npm-supply-chain-attack/ |
 | Cloudflare Durable Objects Hibernation API | Documentation | Hibernation API (`state.acceptWebSocket()`) lets DOs hibernate between WS messages for cost efficiency; SQLite-backed DO storage GA 2025-04-07. CF publishes no specific concurrent-WS cap per DO (stated as "thousands of clients per instance"); per-DO capacity is bounded by the 1,000 rps soft cap — see [deployment-topology.md §Relay Scaling Strategy](../architecture/deployment-topology.md) for the 25-connection design envelope. | https://developers.cloudflare.com/durable-objects/api/websockets/#websocket-hibernation-api |
 | Prometheus exposition format | Documentation | `/metrics` text format used by default | https://prometheus.io/docs/instrumenting/exposition_formats/ |
 | OpenTelemetry OTLP | Documentation | Opt-in push export via `OTEL_EXPORTER_OTLP_ENDPOINT` | https://opentelemetry.io/docs/specs/otlp/ |
@@ -225,5 +225,5 @@ Out of scope (see Non-Goals for full list):
 - [Spec-021: Rate Limiting Policy](./021-rate-limiting-policy.md) — deployment-aware rate-limiter contract
 - [Spec-026: First-Run Onboarding](./026-first-run-onboarding.md) — daemon selects this relay via the three-way-choice flow
 - [Deployment Topology](../architecture/deployment-topology.md)
-- [BL-080](../backlog.md) — Plan-025 (implementation plan, including `docker-compose.yml`)
-- [BL-060](../backlog.md) — secure-by-default self-host behaviors (V1 posture; enterprise features V1.1+)
+- [BL-080](../archive/backlog-archive.md) — Plan-025 (implementation plan, including `docker-compose.yml`)
+- [BL-060](../archive/backlog-archive.md) — secure-by-default self-host behaviors (V1 posture; enterprise features V1.1+)

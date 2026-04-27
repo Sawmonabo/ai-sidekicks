@@ -116,6 +116,10 @@ When a participant's membership is revoked while activity is in progress, the sy
 - One person can appear through multiple presences at once if they connect from multiple devices.
 - Historical session events remain attributed to a participant after membership is revoked.
 
+## Related Domain Docs
+
+- [Trust And Identity](./trust-and-identity.md) — cryptographic identity is the precondition for membership. The trust-state lifecycle (`unprovisioned` → `provisioned` → `verified` → `bound`) runs alongside this doc's membership lifecycle (`pending` → `active` → `suspended` → `revoked`); a participant must be at least `provisioned` to hold any membership and must be `bound` to sign `SessionKeyBundle`s in shared sessions.
+
 ## Related Specs
 
 - [Invite Membership And Presence](../specs/002-invite-membership-and-presence.md)

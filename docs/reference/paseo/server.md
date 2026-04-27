@@ -1,6 +1,7 @@
 # Paseo Server/Daemon -- Exhaustive Source Code Exploration
 
-> Generated from direct source reading of `/home/sabossedgh/dev/paseo/packages/server/src/`
+> Generated from direct source reading of `/home/sabossedgh/dev/external/paseo/packages/server/src/`.
+> Paths shown in the source tree below are relative to `packages/server/src/` in the Paseo checkout.
 
 ---
 

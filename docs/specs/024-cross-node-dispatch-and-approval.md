@@ -8,7 +8,7 @@
 | **Date** | `2026-04-17` |
 | **Author(s)** | `Claude (AI-assisted)` |
 | **Depends On** | [Runtime Node Model](../domain/runtime-node-model.md), [Session Model](../domain/session-model.md), [Participant And Membership Model](../domain/participant-and-membership-model.md), [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md), [Security Architecture](../architecture/security-architecture.md), [Runtime Node Attach](./003-runtime-node-attach.md), [Approvals, Permissions, and Trust Boundaries](./012-approvals-permissions-and-trust-boundaries.md) |
-| **Implementation Plan** | _(none yet — BL-047 produced this spec; implementation-plan authoring is not yet filed as a dedicated backlog item; see [cross-plan-dependencies.md §Spec-024 V1 Gap](../architecture/cross-plan-dependencies.md#spec-024-v1-gap--implementation-plan-pending) for open-gap tracking and the interim Dependency-header citations on Plans 002/003/008/012 landed in the Session H-interim audit)_ |
+| **Implementation Plan** | [Plan-027: Cross-Node Dispatch And Approval](../plans/027-cross-node-dispatch-and-approval.md) |
 
 ## Purpose
 
@@ -170,7 +170,7 @@ See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) 
 ## State And Data Implications
 
 - Per [ADR-017](../decisions/017-shared-event-sourcing-scope.md), all dispatch events are appended to per-daemon local `session_events` logs. There is no shared dispatch event log in V1.
-- The ApprovalRecord envelope is stored durably on both the caller's and the target's Local SQLite in a `cross_node_dispatch_approvals` table owned by the Plan that implements Spec-024 (not Plan-001, which does not know about cross-node dispatch; allocation will be determined at plan-authoring time per BL-055).
+- The ApprovalRecord envelope is stored durably on both the caller's and the target's Local SQLite in a `cross_node_dispatch_approvals` table owned by [Plan-027](../plans/027-cross-node-dispatch-and-approval.md) (not Plan-001, which does not know about cross-node dispatch).
 - Shared Postgres stores a `cross_node_dispatch_coordination` row per dispatch-id for routing and presence-aware retry, containing only: `dispatch_id`, `session_id`, `caller_participant_id`, `target_participant_id`, `status` (requested | approved | denied | executed | expired), `created_at`, `resolved_at`. No dispatch payload, no approval-record content, no action payload. The coordination row is a routing aid, not a truth source.
 - Replay-guard cache is local-to-target and ephemeral (≤ 10 minutes retention).
 

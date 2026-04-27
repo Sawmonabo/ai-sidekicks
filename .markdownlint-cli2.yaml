@@ -1,0 +1,7 @@
+# markdownlint-cli2 configuration
+# https://github.com/DavidAnson/markdownlint-cli2
+ignores:
+- '**/CLAUDE.md'
+- .claude/**
+config:
+  table-column-style: false  # MD060 — disable pipe-spacing enforcement for "compact" style

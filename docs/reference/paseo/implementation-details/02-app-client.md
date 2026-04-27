@@ -20,7 +20,7 @@ The root route in `index.tsx` does one simple but important thing: once storage 
 That split mirrors the product model. The app does not assume a single daemon and does not assume local-only operation; host selection is a first-class concern at the route layer.[S1][S2]
 
 ## Host Runtime Orchestration
-`src/runtime/host-runtime.ts` is the client-side control plane. It defines the `HostRuntimeSnapshot`, which tracks active connection, `DaemonClient`, online status, probe state, last error, agent-directory sync state, and client generation.[S3]
+`packages/app/src/runtime/host-runtime.ts` is the client-side control plane. It defines the `HostRuntimeSnapshot`, which tracks active connection, `DaemonClient`, online status, probe state, last error, agent-directory sync state, and client generation.[S3]
 
 The `HostRuntimeController` maintains a connection state machine and an adaptive probing loop. It probes candidate direct and relay connections, tracks latency, activates the first reachable one, and can later switch to a faster connection only after repeated probes cross a switching threshold.[S4]
 

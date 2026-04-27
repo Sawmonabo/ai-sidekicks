@@ -62,6 +62,10 @@ A runtime node is the bridge between shared collaboration state and local execut
 - A runtime node can be `online` even when it is currently hosting no agents.
 - A node can be revoked for one session without implying revocation of the participant's entire account identity.
 
+## Related Domain Docs
+
+- [Trust And Identity](./trust-and-identity.md) — node attachment is authenticated by the participant's identity (which must be at least `bound`), but the node's trust envelope is governed by approval policy, not by identity state. Identity is the cryptographic precondition; node trust is a separate layer.
+
 ## Related Specs
 
 - [Runtime Node Attach](../specs/003-runtime-node-attach.md)

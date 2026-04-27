@@ -1,6 +1,7 @@
 # Forge Server — Exhaustive Feature and Implementation Inventory
 
-> Source-code exploration of `/home/sabossedgh/dev/forge/apps/server/src/`
+> Source-code exploration of `/home/sabossedgh/dev/external/forge/apps/server/src/`.
+> Paths shown in the source tree below are relative to `apps/server/src/` in the Forge checkout.
 > Generated: 2026-04-14
 
 ---
@@ -250,7 +251,7 @@ Defined in `config.ts` as `Schema.Literals(["web", "desktop", "daemon"])`.
 | `desktop` | `127.0.0.1` | No | From config | Electron/desktop integration |
 | `daemon` | `127.0.0.1` | No | Auto-generated (random 32-byte hex) | Background singleton process |
 
-### 2.2 CLI Commands (`cli.ts`)
+### 2.2 CLI Commands (`apps/server/src/cli.ts`)
 
 **Root command**: `forge [flags]` -- starts the server.
 
@@ -286,7 +287,7 @@ Defined in `config.ts` as `Schema.Literals(["web", "desktop", "daemon"])`.
 
 Reads one-time secrets from a file descriptor (`--bootstrap-fd` or `FORGE_BOOTSTRAP_FD`). Schema includes: `mode`, `port`, `host`, `forgeHome`, `devUrl`, `noBrowser`, `authToken`, `autoBootstrapProjectFromCwd`, `logWebSocketEvents`, `otlpTracesUrl`, `otlpMetricsUrl`.
 
-### 2.4 Server Composition (`server.ts`)
+### 2.4 Server Composition (`apps/server/src/server.ts`)
 
 Built with Effect layers. Startup sequence:
 
@@ -1465,7 +1466,7 @@ Detects image MIME types for attachment serving.
 
 ## 17. Configuration Services
 
-### 17.1 Server Settings (`serverSettings.ts`)
+### 17.1 Server Settings (`apps/server/src/serverSettings.ts`)
 
 Settings service with file watching:
 - Settings file at `{stateDir}/settings.json`

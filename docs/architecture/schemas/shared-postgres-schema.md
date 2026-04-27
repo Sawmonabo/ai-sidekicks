@@ -239,6 +239,76 @@ CREATE INDEX idx_relay_connections_session ON relay_connections(session_id);
 
 ---
 
+## Rate Limiting Tables (Plan-021)
+
+Admin bans (`admin_bans`) are shared by both deployments. Escalation state (`rate_limit_escalations`) is self-host only; hosted deployments use Cloudflare Durable Objects (`RateLimitEscalationDO`) for in-memory escalation counters and persist nothing in Postgres for that path.
+
+```sql
+-- Owner: Plan-021
+CREATE TABLE admin_bans (
+  ban_id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  identity        TEXT NOT NULL,
+  identity_type   TEXT NOT NULL
+                  CHECK(identity_type IN ('participant', 'ip', 'token_hash')),
+  issued_by       TEXT NOT NULL,                  -- ParticipantId of issuing admin (operator-scope, stored as text)
+  issued_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  reason          TEXT,
+  expires_at      TIMESTAMPTZ,                    -- NULL = permanent
+  revoked_at      TIMESTAMPTZ,
+  revoked_by      TEXT                            -- ParticipantId of revoking admin
+);
+
+-- One-active-ban enforcement: partial UNIQUE applies only to non-revoked rows.
+CREATE UNIQUE INDEX idx_admin_bans_one_active
+  ON admin_bans (identity, identity_type)
+  WHERE revoked_at IS NULL;
+
+-- Hot read path: covers ban-check query (active, non-expired).
+CREATE INDEX idx_admin_bans_lookup
+  ON admin_bans (identity, identity_type)
+  WHERE revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now());
+
+-- Owner: Plan-021 (self-host only; hosted uses RateLimitEscalationDO)
+CREATE TABLE rate_limit_escalations (
+  identity             TEXT NOT NULL,
+  identity_type        TEXT NOT NULL,
+  violation_count      INTEGER NOT NULL DEFAULT 0,
+  first_violation_at   TIMESTAMPTZ,
+  last_violation_at    TIMESTAMPTZ,
+  active_block_until   TIMESTAMPTZ,
+  PRIMARY KEY (identity, identity_type)
+);
+```
+
+---
+
+## Cross-Node Dispatch Coordination (Plan-027)
+
+Routing metadata only. The control plane never stores dispatch payloads, ApprovalRecord envelopes, PASETO tokens, action payloads, or result payloads; those remain daemon-local per ADR-017 and Spec-024.
+
+```sql
+-- Owner: Plan-027
+CREATE TABLE cross_node_dispatch_coordination (
+  dispatch_id           UUID PRIMARY KEY,
+  session_id            UUID NOT NULL REFERENCES sessions(id),
+  caller_participant_id UUID NOT NULL REFERENCES participants(id),
+  target_participant_id UUID NOT NULL REFERENCES participants(id),
+  target_node_id        TEXT NOT NULL,
+  status                TEXT NOT NULL DEFAULT 'requested'
+                        CHECK(status IN ('requested', 'approved', 'denied', 'executed', 'expired')),
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+  resolved_at           TIMESTAMPTZ
+);
+
+CREATE INDEX idx_cross_node_dispatch_coordination_session
+  ON cross_node_dispatch_coordination(session_id, status);
+
+CREATE INDEX idx_cross_node_dispatch_coordination_target
+  ON cross_node_dispatch_coordination(target_node_id, status);
+```
+
+---
+
 ## Notification Preferences (Plan-019)
 
 ```sql

@@ -7,7 +7,8 @@ Canonical schema for the local daemon's SQLite database. Each runtime node maint
 ## Pragmas
 
 ```sql
-PRAGMA journal_mode = WAL;
+PRAGMA journal_mode = WAL;      -- concurrent readers during writes
+PRAGMA synchronous = FULL;      -- override better-sqlite3 default (NORMAL) for chain-of-custody durability (see Spec-015 §Pragmas + Spec-006 §Integrity Protocol)
 PRAGMA foreign_keys = ON;
 PRAGMA busy_timeout = 5000;
 ```
@@ -326,7 +327,7 @@ CREATE INDEX idx_artifact_payload_refs_manifest ON artifact_payload_refs(manifes
 
 ## Approval Tables (Plan-012)
 
-The 8 canonical approval categories: `tool_execution`, `file_write`, `network_access`, `destructive_git`, `user_input`, `plan_approval`, `mcp_elicitation`, `gate`.
+The 9 canonical approval categories: `tool_execution`, `file_write`, `network_access`, `destructive_git`, `user_input`, `plan_approval`, `mcp_elicitation`, `gate`, `human_phase_contribution`.
 
 ```sql
 -- Owner: Plan-012
@@ -336,7 +337,8 @@ CREATE TABLE approval_requests (
   category              TEXT NOT NULL
                         CHECK(category IN (
                           'tool_execution', 'file_write', 'network_access', 'destructive_git',
-                          'user_input', 'plan_approval', 'mcp_elicitation', 'gate'
+                          'user_input', 'plan_approval', 'mcp_elicitation', 'gate',
+                          'human_phase_contribution'                              -- SA-12 addition; mirrors Spec-012 canonical enum
                         )),
   scope                 TEXT NOT NULL,        -- requested scope descriptor
   resource_descriptor   TEXT,                 -- target resource details (JSON)
@@ -370,7 +372,8 @@ CREATE TABLE remembered_approval_rules (
   category              TEXT NOT NULL
                         CHECK(category IN (
                           'tool_execution', 'file_write', 'network_access', 'destructive_git',
-                          'user_input', 'plan_approval', 'mcp_elicitation', 'gate'
+                          'user_input', 'plan_approval', 'mcp_elicitation', 'gate',
+                          'human_phase_contribution'                              -- SA-12 addition; mirrors Spec-012 canonical enum
                         )),
   scope_pattern         TEXT NOT NULL,        -- pattern for matching future requests
   granted_at            TEXT NOT NULL,
@@ -383,9 +386,57 @@ CREATE INDEX idx_remembered_rules_participant ON remembered_approval_rules(parti
 
 ---
 
+## Cross-Node Dispatch Tables (Plan-027)
+
+Stores per-daemon ApprovalRecord envelopes for Spec-024. The same logical dispatch may produce one caller-local row and one target-local row, distinguished by `local_role`. Dispatch payloads, action payloads, and result payloads are not stored here; the durable audit artifact is the dual-signed ApprovalRecord envelope plus lifecycle metadata.
+
+```sql
+-- Owner: Plan-027
+CREATE TABLE cross_node_dispatch_approvals (
+  id                    TEXT PRIMARY KEY,
+  dispatch_id           TEXT NOT NULL,
+  session_id            TEXT NOT NULL,
+  local_role            TEXT NOT NULL
+                        CHECK(local_role IN ('caller', 'target')),
+  caller_participant_id TEXT NOT NULL,
+  target_participant_id TEXT NOT NULL,
+  target_node_id        TEXT NOT NULL,
+  capability            TEXT NOT NULL,
+  request_body_hash     TEXT NOT NULL CHECK(request_body_hash GLOB 'b3:*'),
+  approval_record_json  TEXT,                 -- JSON: Spec-024 dual-token ApprovalRecord envelope; NULL until decision
+  caller_token_jti      TEXT NOT NULL,
+  approver_token_jti    TEXT,                 -- NULL until target-owner decision exists
+  decision              TEXT
+                        CHECK(decision IS NULL OR decision IN ('allow', 'deny')),
+  state                 TEXT NOT NULL DEFAULT 'requested'
+                        CHECK(state IN (
+                          'requested', 'approved', 'denied', 'executed',
+                          'completed', 'failed', 'expired', 'rejected'
+                        )),
+  created_at            TEXT NOT NULL,
+  resolved_at           TEXT,
+  expires_at            TEXT NOT NULL,
+  UNIQUE(dispatch_id, local_role)
+);
+
+CREATE INDEX idx_cross_node_dispatch_approvals_session_state
+  ON cross_node_dispatch_approvals(session_id, state);
+
+CREATE INDEX idx_cross_node_dispatch_approvals_target
+  ON cross_node_dispatch_approvals(target_node_id, state);
+
+CREATE INDEX idx_cross_node_dispatch_approvals_expiry
+  ON cross_node_dispatch_approvals(expires_at)
+  WHERE state IN ('requested', 'approved', 'executed');
+```
+
+---
+
 ## Workflow Tables (Plan-017)
 
-Full workflow-engine V1 schema per [BL-097 Wave 2 Pass G](../../research/bl-097-workflow-scope/pass-g-persistence-model.md). Nine tables implement the 10-state phase machine, append-only hash-chained gate history (C-13/I7), parallel-join bookkeeping, and OWN-only channel linkage. `session_events` remains canonical truth; tables 3/4/7/8/9 are rebuildable projections, and 1/2/5/6 are immutable truth (6 additionally carries a per-run BLAKE3 chain).
+Full workflow-engine V1 schema. Nine tables implement the 10-state phase machine, append-only hash-chained gate history (C-13/I7), parallel-join bookkeeping, and OWN-only channel linkage. `session_events` remains canonical truth; tables 3/4/7/8/9 are rebuildable projections, and 1/2/5/6 are immutable truth (6 additionally carries a per-run BLAKE3 chain anchored to [Spec-006 § Integrity Protocol](../../specs/006-session-event-taxonomy-and-audit-log.md#integrity-protocol)).
+
+The normalized-table-over-blob shape, the per-run hash-chained gate-resolution audit trail, and the rebuildable-projection split align with industry persistence precedents: durable-execution engines persist normalized state per run rather than monolithic blobs ([Restate — What is Durable Execution](https://restate.dev/what-is-durable-execution), fetched 2026-04-26); large-engine persistence tiers separate hot live state from cold archive ([Argo Workflows — Workflow Archive](https://argo-workflows.readthedocs.io/en/latest/workflow-archive/), fetched 2026-04-25); and append-only hash-chained audit trails are the canonical academic precedent for tamper-evident logging (*"a tamper-evident log... uses a hash chain to detect tampering with high probability"* — [Crosby & Wallach, Efficient Data Structures for Tamper-Evident Logging, USENIX Security 2009](https://static.usenix.org/event/sec09/tech/full_papers/crosby.pdf), fetched 2026-04-25). Spec-017 §References > Persistence + hash-chain enumerates the full primary-source corpus.
 
 ```sql
 -- ========================================================================
@@ -601,7 +652,7 @@ CREATE INDEX idx_gate_resolutions_approval ON workflow_gate_resolutions(approval
   WHERE approval_request_id IS NOT NULL;
 
 -- No UPDATE or DELETE triggers — append-only enforced at application layer (writer worker only inserts).
--- Verification procedure: Pass G §5 (BLAKE3 chain recompute + dual-anchor cross-check vs session_events payload).
+-- Verification procedure: BLAKE3 chain recompute per Spec-006 §Integrity Protocol + dual-anchor cross-check vs session_events payload (see "Hash-chain verification" note below this block).
 
 -- ========================================================================
 -- 7. parallel_join_state — sibling set + cancellation bookkeeping
@@ -677,9 +728,9 @@ CREATE INDEX idx_human_phase_form_state_phase ON human_phase_form_state(phase_ru
   WHERE submitted = 0;
 ```
 
-**Index rationale + write-amplification estimate:** [Pass G §3](../../research/bl-097-workflow-scope/pass-g-persistence-model.md) documents per-index query justifications and a ~42 KB / 110-write projection for a 10-phase workflow under Spec-015's 50-event batch.
+**Index rationale + write-amplification estimate:** Per-index query justifications above are sized against SQLite's standard query-planner cost model — partial indexes with `WHERE` clauses are evaluated only over the matching subset, yielding the smallest workable index for the live-set queries ([SQLite — Partial Indexes](https://www.sqlite.org/partialindex.html), fetched 2026-04-25). The ~42 KB / 110-write projection for a 10-phase workflow assumes Spec-015's 50-event batch flushed under one `db.transaction(fn)` call — `better-sqlite3` commits each batch atomically and rolls back on throw (*"Calling [.transaction()] returns a new function that, when called, runs the given function inside an SQLite transaction"* — [better-sqlite3 API docs](https://github.com/WiseLibs/better-sqlite3/blob/master/docs/api.md), fetched 2026-04-25). Two to three batch flushes therefore absorb the full workflow lifecycle without triggering write-amplification regressions under `synchronous = FULL` WAL ([SQLite — Write-Ahead Logging](https://www.sqlite.org/wal.html), fetched 2026-04-25).
 
-**Hash-chain verification:** [Pass G §5](../../research/bl-097-workflow-scope/pass-g-persistence-model.md) specifies the per-run BLAKE3 chain recompute + the dual-anchor check against `session_events` (category `workflow_gate_resolution`, payload fields `gate_resolution_id` + `row_hash`). Verification is exposed as a CLI subcommand (Plan-017).
+**Hash-chain verification:** Per-run BLAKE3 chain recompute follows the exact algorithm specified in [Spec-006 § Integrity Protocol](../../specs/006-session-event-taxonomy-and-audit-log.md#integrity-protocol) — recompute `BLAKE3(prev_hash || canonical_bytes(row))` for each entry and compare to the stored `row_hash`, then verify `daemon_signature` against the canonical bytes. The hash function is the BLAKE3 reference specification ([BLAKE3 specification](https://github.com/BLAKE3-team/BLAKE3-specs/blob/master/blake3.pdf), fetched 2026-04-25). The dual-anchor check additionally cross-checks `session_events` (category `workflow_gate_resolution`, payload fields `gate_resolution_id` + `row_hash`) so a tampered `workflow_gate_resolutions` row is detected even if its local chain is internally consistent — the same tamper-evidence pattern Crosby & Wallach formalized ([Efficient Data Structures for Tamper-Evident Logging, USENIX Security 2009](https://static.usenix.org/event/sec09/tech/full_papers/crosby.pdf), fetched 2026-04-25). Verification is exposed as a CLI subcommand (Plan-017).
 
 ---
 
@@ -747,6 +798,106 @@ CREATE TABLE recovery_checkpoints (
 );
 
 CREATE INDEX idx_recovery_checkpoints_session ON recovery_checkpoints(session_id);
+```
+
+---
+
+## Diagnostic Bucket Tables (Plan-020)
+
+Runtime-local bounded-retention buckets for raw diagnostic material. These tables may contain PII-bearing content, command output, tool traces, or reasoning detail, so they stay in Local SQLite only, default-deny outbound telemetry, and support both TTL expiry and participant-scoped purge per Spec-022 shred fan-out Path 3.
+
+```sql
+-- Owner: Plan-020
+CREATE TABLE driver_raw_events (
+  id                  TEXT PRIMARY KEY,
+  session_id          TEXT NOT NULL,
+  run_id              TEXT,
+  participant_id      TEXT,
+  source_ref          TEXT,
+  content_kind        TEXT NOT NULL DEFAULT 'driver_raw_event',
+  bucket_payload      BLOB NOT NULL,
+  payload_digest      BLOB NOT NULL,
+  raw_capture_opt_in  INTEGER NOT NULL DEFAULT 0 CHECK(raw_capture_opt_in IN (0, 1)),
+  metadata            TEXT NOT NULL DEFAULT '{}',
+  created_at          TEXT NOT NULL,
+  expires_at          TEXT NOT NULL,
+  purged_at           TEXT
+);
+
+CREATE INDEX idx_driver_raw_events_session ON driver_raw_events(session_id, created_at);
+CREATE INDEX idx_driver_raw_events_participant ON driver_raw_events(participant_id)
+  WHERE participant_id IS NOT NULL AND purged_at IS NULL;
+CREATE INDEX idx_driver_raw_events_expiry ON driver_raw_events(expires_at)
+  WHERE purged_at IS NULL;
+
+-- Owner: Plan-020
+CREATE TABLE command_output (
+  id                  TEXT PRIMARY KEY,
+  session_id          TEXT NOT NULL,
+  run_id              TEXT,
+  participant_id      TEXT,
+  source_ref          TEXT,
+  content_kind        TEXT NOT NULL DEFAULT 'command_output',
+  bucket_payload      BLOB NOT NULL,
+  payload_digest      BLOB NOT NULL,
+  raw_capture_opt_in  INTEGER NOT NULL DEFAULT 0 CHECK(raw_capture_opt_in IN (0, 1)),
+  metadata            TEXT NOT NULL DEFAULT '{}',
+  created_at          TEXT NOT NULL,
+  expires_at          TEXT NOT NULL,
+  purged_at           TEXT
+);
+
+CREATE INDEX idx_command_output_session ON command_output(session_id, created_at);
+CREATE INDEX idx_command_output_participant ON command_output(participant_id)
+  WHERE participant_id IS NOT NULL AND purged_at IS NULL;
+CREATE INDEX idx_command_output_expiry ON command_output(expires_at)
+  WHERE purged_at IS NULL;
+
+-- Owner: Plan-020
+CREATE TABLE tool_traces (
+  id                  TEXT PRIMARY KEY,
+  session_id          TEXT NOT NULL,
+  run_id              TEXT,
+  participant_id      TEXT,
+  source_ref          TEXT,
+  content_kind        TEXT NOT NULL DEFAULT 'tool_trace',
+  bucket_payload      BLOB NOT NULL,
+  payload_digest      BLOB NOT NULL,
+  raw_capture_opt_in  INTEGER NOT NULL DEFAULT 0 CHECK(raw_capture_opt_in IN (0, 1)),
+  metadata            TEXT NOT NULL DEFAULT '{}',
+  created_at          TEXT NOT NULL,
+  expires_at          TEXT NOT NULL,
+  purged_at           TEXT
+);
+
+CREATE INDEX idx_tool_traces_session ON tool_traces(session_id, created_at);
+CREATE INDEX idx_tool_traces_participant ON tool_traces(participant_id)
+  WHERE participant_id IS NOT NULL AND purged_at IS NULL;
+CREATE INDEX idx_tool_traces_expiry ON tool_traces(expires_at)
+  WHERE purged_at IS NULL;
+
+-- Owner: Plan-020
+CREATE TABLE reasoning_detail (
+  id                  TEXT PRIMARY KEY,
+  session_id          TEXT NOT NULL,
+  run_id              TEXT,
+  participant_id      TEXT,
+  source_ref          TEXT,
+  content_kind        TEXT NOT NULL DEFAULT 'reasoning_detail',
+  bucket_payload      BLOB NOT NULL,
+  payload_digest      BLOB NOT NULL,
+  raw_capture_opt_in  INTEGER NOT NULL DEFAULT 0 CHECK(raw_capture_opt_in IN (0, 1)),
+  metadata            TEXT NOT NULL DEFAULT '{}',
+  created_at          TEXT NOT NULL,
+  expires_at          TEXT NOT NULL,
+  purged_at           TEXT
+);
+
+CREATE INDEX idx_reasoning_detail_session ON reasoning_detail(session_id, created_at);
+CREATE INDEX idx_reasoning_detail_participant ON reasoning_detail(participant_id)
+  WHERE participant_id IS NOT NULL AND purged_at IS NULL;
+CREATE INDEX idx_reasoning_detail_expiry ON reasoning_detail(expires_at)
+  WHERE purged_at IS NULL;
 ```
 
 ---

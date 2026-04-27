@@ -129,7 +129,7 @@ If a driver does not declare `idempotency_class` for a tool, the runtime MUST tr
 
 ### Recovery Consequences
 
-Recovery behavior for a receipt that was in-flight at daemon restart (Phase 2 started, Phase 3 not reached) is dispatched on `idempotency_class`. The runtime emits `tool.replayed` for an `idempotent` or `compensable` re-execution and `tool.skipped_during_recovery` for a halt; full semantics live in [Spec-015 § Idempotency Protocol](015-persistence-recovery-and-replay.md#idempotency-protocol), and event-type registration lives in [Spec-006](006-session-event-taxonomy-and-audit-log.md) (full taxonomy-row integration tracked in [BL-064](../backlog.md)).
+Recovery behavior for a receipt that was in-flight at daemon restart (Phase 2 started, Phase 3 not reached) is dispatched on `idempotency_class`. The runtime emits `tool.replayed` for an `idempotent` or `compensable` re-execution and `tool.skipped_during_recovery` for a halt; full semantics live in [Spec-015 § Idempotency Protocol](015-persistence-recovery-and-replay.md#idempotency-protocol), and event-type registration lives in [Spec-006](006-session-event-taxonomy-and-audit-log.md) (full taxonomy-row integration tracked in [BL-064](../archive/backlog-archive.md)).
 
 ## Example Flows
 

@@ -71,6 +71,10 @@ Approval lifecycle:
 - An approval can expire because the target run already ended or the workspace context changed before resolution.
 - One approval decision can cover a bounded repeated action only when the granted scope explicitly says so.
 
+## Related Domain Docs
+
+- [Trust And Identity](./trust-and-identity.md) — approvals are signed by participant identities. A `bound` identity can sign approvals; a `revoked` or `compromised` identity cannot. The dual-signed `ApprovalRecord` envelope per [Spec-024](../specs/024-cross-node-dispatch-and-approval.md) is the cross-node cousin of the same property.
+
 ## Related Specs
 
 - [Session Event Taxonomy And Audit Log](../specs/006-session-event-taxonomy-and-audit-log.md)

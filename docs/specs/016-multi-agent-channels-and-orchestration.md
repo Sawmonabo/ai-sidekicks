@@ -5,7 +5,7 @@
 | **Status** | `approved` |
 | **NNN** | `016` |
 | **Slug** | `multi-agent-channels-and-orchestration` |
-| **Date** | `2026-04-14` (V1-readiness review 2026-04-17) |
+| **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
 | **Depends On** | [Agent Channel And Run Model](../domain/agent-channel-and-run-model.md), [Session Model](../domain/session-model.md), [Shared Session Core](../specs/001-shared-session-core.md), [Queue Steer Pause Resume](../specs/004-queue-steer-pause-resume.md), [Runtime Node Attach](../specs/003-runtime-node-attach.md), [Persistence Recovery And Replay](../specs/015-persistence-recovery-and-replay.md) |
 | **V1 Quality Bar** | Declared per [ADR-015](../decisions/015-v1-feature-scope-definition.md); V1-readiness review 2026-04-17 (BL-042) |

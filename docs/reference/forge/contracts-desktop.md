@@ -1,6 +1,6 @@
 # Forge Contracts, Desktop Shell, and Infrastructure Exploration
 
-**Source:** `/home/sabossedgh/dev/forge/` -- exhaustive source-code read of `packages/contracts/src/`, `packages/shared/src/`, `apps/desktop/src/`, and root configuration.
+**Source:** `/home/sabossedgh/dev/external/forge/` -- exhaustive source-code read of `packages/contracts/src/`, `packages/shared/src/`, `apps/desktop/src/`, and root configuration.
 
 ---
 
@@ -454,7 +454,7 @@ Every event carries: `sequence`, `eventId`, `aggregateKind`, `aggregateId`, `occ
 
 ---
 
-## 8. Settings and Configuration Types (`settings.ts`, `server.ts`)
+## 8. Settings and Configuration Types (`packages/contracts/src/settings.ts`, `packages/contracts/src/server.ts`)
 
 ### Client Settings (local-only)
 
@@ -489,7 +489,7 @@ Deeply nested theme configuration:
 - `AppearanceTerminalSettings` -- background, foreground, cursor, selectionBackground, scrollbar colors, ansi (16 ANSI colors)
 - `AppearanceFeatureSettings` -- providerClaude, discussion colors, phase type colors, phase status colors, rolePalette
 
-### Server Configuration (`server.ts`)
+### Server Configuration (`packages/contracts/src/server.ts`)
 
 - `ServerConfigIssue` -- union of keybindings/appearance malformed/invalid issues
 - `ServerProviderState` -- `"ready" | "warning" | "error" | "disabled"`
@@ -783,7 +783,7 @@ All 22 IPC channels are wired to `ipcRenderer.invoke` or `ipcRenderer.sendSync`.
 - `readPathFromLoginShell` / `readEnvironmentFromLoginShell` -- captures env vars from login shell via marker-delimited output
 - `extractPathFromShellOutput` -- parses captured PATH from shell output
 
-### Server Settings (`serverSettings.ts`)
+### Server Settings (`packages/shared/src/serverSettings.ts`)
 
 - `normalizePersistedServerSettingString` -- trims to undefined for empty
 - `extractPersistedServerObservabilitySettings` -- extracts OTLP URLs
@@ -832,7 +832,7 @@ All 22 IPC channels are wired to `ipcRenderer.invoke` or `ipcRenderer.sendSync`.
 - Codex-first architecture
 - `codex app-server` per provider session (JSON-RPC over stdio)
 - Events streamed to browser via WebSocket push on `orchestration.domainEvent`
-- Key files: codexAppServerManager.ts, providerManager.ts, wsServer.ts
+- Key files: `apps/server/src/codexAppServerManager.ts`, `apps/server/src/provider/makeManagedServerProvider.ts`, `apps/server/src/ws.ts`
 
 **Task completion requirements:** `bun fmt`, `bun lint`, `bun typecheck` must all pass. Use `bun run test` (never bare `bun test`).
 
