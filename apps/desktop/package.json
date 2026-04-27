@@ -28,5 +28,8 @@
   "dependencies": {
     "@ai-sidekicks/client-sdk": "workspace:*",
     "@ai-sidekicks/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "catalog:testing"
   }
 }

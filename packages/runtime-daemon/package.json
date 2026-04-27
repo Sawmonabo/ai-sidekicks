@@ -28,5 +28,8 @@
   "dependencies": {
     "@ai-sidekicks/contracts": "workspace:*",
     "better-sqlite3": "^12.9.0"
+  },
+  "devDependencies": {
+    "vitest": "catalog:testing"
   }
 }

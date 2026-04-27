@@ -28,5 +28,8 @@
   "dependencies": {
     "@ai-sidekicks/contracts": "workspace:*",
     "pg": "^8.20.0"
+  },
+  "devDependencies": {
+    "vitest": "catalog:testing"
   }
 }

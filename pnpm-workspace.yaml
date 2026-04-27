@@ -8,3 +8,19 @@ packages:
 # Defaults flip on in pnpm 11; opt in early per ADR-023.
 minimumReleaseAge: 1440
 blockExoticSubdeps: true
+
+# Strict build-script allowlist per ADR-022 §Decision row 1 + ADR-023 §Axis 4 sub-axis 5.
+# `allowBuilds` (pnpm 10.26+) replaces deprecated `pnpm.onlyBuiltDependencies` /
+# `ignoredBuiltDependencies` and is configured in pnpm-workspace.yaml per pnpm.io/settings.
+# Only allowlisted packages may run install-time scripts (paired with
+# `strict-dep-builds=true` in .npmrc).
+allowBuilds:
+  better-sqlite3: true
+  lefthook: true
+
+# Workspace-wide dependency unification per ADR-022 §Decision row 1 (pnpm catalogs).
+# Catalogs eliminate per-package version drift for cross-cutting devDependencies (testing
+# runner first; expand on demand). Consumers reference via `"vitest": "catalog:testing"`.
+catalogs:
+  testing:
+    vitest: ^4.1.5

@@ -24,5 +24,8 @@
     "typecheck": "tsc -b",
     "lint": "eslint src",
     "test": "vitest run --passWithNoTests"
+  },
+  "devDependencies": {
+    "vitest": "catalog:testing"
   }
 }
