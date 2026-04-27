@@ -135,6 +135,43 @@ Plan-007 owns the daemon-side enforcement of [Spec-027 §Required Behavior](../s
 6. **[Tier 4]** Implement the CLI on top of the same client SDK and daemon contract rather than embedding daemon logic directly.
 7. **[Tier 4]** Implement desktop-shell daemon supervision and actionable startup or reconnect status surfaces on the same stabilized contract.
 
+## Tier 1 Partial PR Sequence
+
+The Tier 1 partial slice (per §Execution Windows above) lands as **3 small PRs** following the substrate-vs-namespace decomposition rule. Each PR is reviewable in isolation. The Tier 4 remainder PR breakdown is deferred to plan-execution time when Tier 4 begins.
+
+### PR #1: SecureDefaults Bootstrap (loopback-bind validation only)
+
+**Goal:** Spec-027 daemon-side bind-time substrate ships at the validation surface Tier 1 actually exposes. `SecureDefaults.load` runs before any listener binds; fail-closed enforcement is active; Tier-4-scope settings keys (TLS, non-loopback, first-run-keys) are refused with `unknown_setting`.
+
+**Precondition:** None at the plan level. Tier 1 entry point.
+
+- `packages/runtime-daemon/src/bootstrap/secure-defaults.ts` — `SecureDefaults.load(config)` + `effectiveSettings()` API, validation scope limited to the loopback OS-local socket bind path Tier 1 exposes (rows 4 + 10 of the §Secure Defaults table above).
+- `packages/runtime-daemon/src/bootstrap/secure-defaults-events.ts` — `security.default.override=*` audit event emitter (single emit per startup, not per request).
+- Wire `SecureDefaults.load` as the first step of daemon bootstrap, before `local-ipc-gateway` opens its listener (per §Invariants above).
+- Tests: `SecureDefaults.load` invariant tests (load-before-bind enforcement throws on out-of-order; fail-closed on invalid config; `effectiveSettings` never exposes secrets); negative-path test that Tier-4-scope settings keys are refused with `unknown_setting` error.
+
+### PR #2: Wire Substrate
+
+**Goal:** Spec-007 §Wire Format substrate ships behind passing handshake + transport tests. No `session.*` handlers yet — this PR delivers the JSON-RPC + framing layer only.
+
+**Precondition:** PR #1 merged (the wire substrate consumes `SecureDefaults.effectiveSettings` for the loopback OS-local bind path).
+
+- `packages/runtime-daemon/src/ipc/local-ipc-gateway.ts` — JSON-RPC 2.0 dispatcher with LSP-style Content-Length framing (`Content-Length: <byte-count>\r\n\r\n`), 1MB max-message-size enforcement, typed error model (`packages/contracts/src/error.ts` shapes), supervision hooks, and OS-local socket / Windows named-pipe transport (default) with gated loopback fallback per [Spec-007 §Wire Format](../specs/007-local-ipc-and-daemon-control.md#wire-format) and [Spec-007 §Fallback Behavior](../specs/007-local-ipc-and-daemon-control.md#fallback-behavior).
+- `packages/runtime-daemon/src/ipc/protocol-negotiation.ts` — `DaemonHello` / `DaemonHelloAck` exchange, protocol-version pinning, mutating-operation gate when versions are incompatible per [Spec-007 §Required Behavior](../specs/007-local-ipc-and-daemon-control.md#required-behavior).
+- Tests: handshake + version-negotiation compatibility tests; transport tests for Unix socket, named pipe, and gated loopback fallback (per §Test And Verification Plan above).
+
+### PR #3: `session.*` Handlers + SDK Zod Layer
+
+**Goal:** `session.*` JSON-RPC namespace ships end-to-end behind passing handler tests; client SDK Zod wrapper exposes the daemon transport with typed schemas. Plan-001 PR #5 unblocks on this PR's merge (in conjunction with Plan-008 bootstrap PR #1).
+
+**Precondition:** PR #1 + PR #2 merged.
+
+- `session.*` namespace handlers in the daemon — typed JSON-RPC handlers for `SessionCreate`, `SessionRead`, `SessionJoin`, `SessionSubscribe` (the Plan-001 vertical-slice contracts already in `packages/contracts/src/session.ts`). No `run.*` / `repo.*` / `artifact.*` / `settings.*` / `daemon.*` handlers — those ship in Plan-007-remainder at Tier 4.
+- `packages/client-sdk/` — Zod-wrapped typed SDK (~500–1000 LOC per [Spec-007 §Wire Format](../specs/007-local-ipc-and-daemon-control.md#wire-format)) following the MCP TypeScript SDK pattern. Exposes `session.*` methods over the daemon transport.
+- Tests: `session.*` handler integration tests (create / read / join / subscribe round-trip through the wire substrate); SDK Zod-validation tests covering malformed-payload rejection.
+
+After PR #3 merges (and Plan-008 bootstrap PR #1 also merges), [Plan-001 PR #5](./001-shared-session-core.md#pr-5--client-sdk-and-desktop-bootstrap) consumer can begin.
+
 ## Parallelization Notes
 
 - IPC contract work and shell supervision scaffolding can proceed in parallel once handshake semantics are fixed.
