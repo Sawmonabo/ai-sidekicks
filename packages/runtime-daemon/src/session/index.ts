@@ -6,7 +6,7 @@
 // contract translation layer.
 
 export { SessionService } from "./session-service.js";
-export { applyMigrations, applyPragmas } from "./migration-runner.js";
+export { applyMigrations, applyPragmas, openDatabase } from "./migration-runner.js";
 export { projectEvent, replay } from "./session-projector.js";
 export type {
   AppendableEvent,
