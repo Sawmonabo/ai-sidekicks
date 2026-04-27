@@ -29,11 +29,7 @@
 import { PGlite } from "@electric-sql/pglite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import type {
-  MembershipId,
-  ParticipantId,
-  SessionId,
-} from "@ai-sidekicks/contracts";
+import type { MembershipId, ParticipantId, SessionId } from "@ai-sidekicks/contracts";
 
 import { applyMigrations, type Querier } from "../migration-runner.js";
 import {
@@ -52,8 +48,7 @@ import {
 // service treats the id as opaque.
 const SESSION_ID: SessionId = "01970000-0000-7000-8000-00000000a001" as SessionId;
 const SECOND_SESSION_ID: SessionId = "01970000-0000-7000-8000-00000000a002" as SessionId;
-const OWNER_PARTICIPANT_ID: ParticipantId =
-  "01970000-0000-7000-8000-00000000b001" as ParticipantId;
+const OWNER_PARTICIPANT_ID: ParticipantId = "01970000-0000-7000-8000-00000000b001" as ParticipantId;
 const SECOND_PARTICIPANT_ID: ParticipantId =
   "01970000-0000-7000-8000-00000000b002" as ParticipantId;
 
@@ -461,10 +456,10 @@ describe("applyMigrations — idempotency", () => {
     // A regression to a substrate that DROPS CHECKs (e.g. a hypothetical
     // pg-mem swap) would surface here.
     await expect(
-      ctx.querier.query(
-        "INSERT INTO sessions (id, state) VALUES ($1, $2)",
-        [SESSION_ID, "not_a_real_state"],
-      ),
+      ctx.querier.query("INSERT INTO sessions (id, state) VALUES ($1, $2)", [
+        SESSION_ID,
+        "not_a_real_state",
+      ]),
     ).rejects.toThrow();
   });
 });
