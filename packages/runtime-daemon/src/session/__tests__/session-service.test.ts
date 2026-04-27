@@ -471,6 +471,20 @@ async function runMigrationRace(
   for (let i = 0; i < workerCount; i++) {
     const w: Worker = new Worker(workerUrl, {
       workerData: { dbPath, useDeferred },
+      // Force Node's native TypeScript-stripping in the worker child. This
+      // flag was added in Node 22.6.0 (within our `engines.node: >=22.12.0`
+      // floor) and promoted to default-on in Node 22.18.0 — see
+      // https://nodejs.org/docs/latest-v22.x/api/typescript.html. The
+      // worker's loader hook (`migration-race-loader.mjs`) rewrites
+      // `.js` import specifiers to `.ts` so production source can be
+      // imported directly, but Node 22.12-22.17 will not strip the
+      // resulting `.ts` files unless this flag is present, and vitest's
+      // loader is not inherited by `worker_threads.Worker` children
+      // (the loader is registered programmatically by vite-node, not
+      // via process.execArgv). Suppress the ExperimentalWarning so the
+      // pre-22.18 leg of the matrix has clean stderr; the flag becomes
+      // a no-op once the daemon's floor moves to >=22.18.0.
+      execArgv: ["--experimental-strip-types", "--no-warnings=ExperimentalWarning"],
     });
     workers.push(w);
     promises.push(
