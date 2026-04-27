@@ -706,8 +706,14 @@ describe("SessionDirectoryService — P2 (idempotent re-create does not fork)", 
       }),
     ).resolves.not.toThrow();
 
-    // Direct row probe: exactly ONE owner-membership row, exactly ONE
-    // sessions row, and the original membership id is preserved.
+    // Direct row probe: exactly ONE owner-membership row, and the
+    // original membership id is preserved. The `sessions` table is not
+    // re-probed here for cardinality — the existing first P2 test
+    // ("a second createSession with the same sessionId returns the same
+    // row, not a new one") already pins `COUNT(*) FROM sessions = 1`
+    // for the same-sessionId-retry path; UNIQUE PK on `sessions.id`
+    // makes a duplicate row a structural impossibility, so re-asserting
+    // it here would be noise.
     const membershipsProbe = await ctx.querier.query<{ id: string; participant_id: string }>(
       `SELECT id, participant_id FROM session_memberships
         WHERE session_id = $1 AND role = 'owner'`,
@@ -965,7 +971,13 @@ describe("SessionDirectoryService — P3 (join is idempotent on canonical member
       role: "owner" as MembershipRole,
     } as JoinSessionInput;
 
+    // Both error-message substrings (`/BL-069/` and `/Plan-002/`) are
+    // asserted here for parallelism with the first owner-rejection test
+    // above — they share the same throw path, so a regression that
+    // dropped either substring would surface here as well as in that
+    // test.
     await expect(ctx.service.joinSession(escalation)).rejects.toThrow(/BL-069/);
+    await expect(ctx.service.joinSession(escalation)).rejects.toThrow(/Plan-002/);
   });
 });
 

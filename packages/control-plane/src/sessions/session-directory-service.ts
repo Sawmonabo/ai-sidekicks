@@ -374,6 +374,10 @@ export class SessionDirectoryService {
         // SQL-side `participant_id <> $2::uuid`) so the rejection-path
         // test can drive the comparison through plain TypeScript and
         // doesn't need to rely on the substrate's UUID-cast semantics.
+        // Both sides are normalized symmetrically as defense against
+        // substrate drift — Postgres returns canonical lowercase today,
+        // but a future driver/substrate that does not could falsely
+        // trip this guard from the row side.
         const inputLower = input.ownerParticipantId.toLowerCase();
         const matchedExisting = existingOwners.rows.some(
           (row) => row.participant_id.toLowerCase() === inputLower,
@@ -531,10 +535,10 @@ export class SessionDirectoryService {
     // surfaces as the same throw a caller against an existing session
     // would see, rather than as `null` (which would leak existence
     // information AND let the caller distinguish "session doesn't exist"
-    // from "you're not allowed to do that"). The cast in the test
-    // intentionally bypasses the compile-time `NonOwnerMembershipRole`
-    // narrowing to exercise this runtime guard — both defenses are
-    // needed, see the type-level rationale in `JoinSessionInput`'s
+    // from "you're not allowed to do that"). Dynamic callers (JS
+    // consumers, FFI, cross-language clients) that bypass the type
+    // system are caught here — both compile-time and runtime defenses
+    // are needed; see the type-level rationale in `JoinSessionInput`'s
     // docstring.
     if ((input.role as MembershipRole | undefined) === "owner") {
       throw new Error(
