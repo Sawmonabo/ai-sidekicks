@@ -3,8 +3,11 @@
 # Run hooks in parallel (Husky lacks this primitive — load-bearing for AI-implementer
 # feedback latency per ADR-023 §Axis 2 Synthesis item 1).
 #
-# CI parity: `.github/workflows/ci.yml` runs `lefthook run pre-commit --all-files` to
-# close the `git commit --no-verify` bypass per ADR-023 §Axis 2 D-1 cross-axis.
+# CI parity for the `git commit --no-verify` bypass closure (ADR-023 §Axis 2 D-1) is
+# enforced via explicit `eslint .` + `prettier --check .` invocations in
+# `.github/workflows/ci.yml`. lint-staged reads the git staging index, which is empty
+# in a fresh CI checkout — running `lefthook run pre-commit --all-files` from CI
+# would be an empirical no-op.
 
 min_version: "2.1.6"
 

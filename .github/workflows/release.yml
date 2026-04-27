@@ -53,7 +53,11 @@ jobs:
 
       - name: Run release-please
         id: release
-        uses: googleapis/release-please-action@v5
+        # SHA-pinned per ADR-023 §Axis 4 supply-chain hygiene; Renovate's
+        # helpers:pinGitHubActionDigests preset (renovate.json5) keeps this current.
+        # The v5 moving tag is the canonical entry point — pinning the SHA it
+        # currently resolves to preserves the same upstream contract.
+        uses: googleapis/release-please-action@0dfd8538845b8e92600d271a895a5372865d4062 # v5
         with:
           # Manifest mode — config + manifest files are committed in the repo root.
           config-file: release-please-config.json
@@ -79,7 +83,9 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v6
+        # SHA-pinned per ADR-023 §Axis 4 supply-chain hygiene; Renovate's
+        # helpers:pinGitHubActionDigests preset (renovate.json5) keeps this current.
+        uses: pnpm/action-setup@8b2eead6074fefa43a68bf4c9e0f03ea4126b5ba # v6.0.3
         with:
           version: 10.33.2
           run_install: false
@@ -137,7 +143,9 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v6
+        # SHA-pinned per ADR-023 §Axis 4 supply-chain hygiene; Renovate's
+        # helpers:pinGitHubActionDigests preset (renovate.json5) keeps this current.
+        uses: pnpm/action-setup@8b2eead6074fefa43a68bf4c9e0f03ea4126b5ba # v6.0.3
         with:
           version: 10.33.2
           run_install: false
@@ -156,7 +164,9 @@ jobs:
 
       - name: Generate SBOM (Anchore Syft, full surface)
         # Syft v1.43+ catalogs pnpm-lockfile natively (PR #4765, GA in v1.43).
-        uses: anchore/sbom-action@v0
+        # SHA-pinned per ADR-023 §Axis 4 supply-chain hygiene; Renovate's
+        # helpers:pinGitHubActionDigests preset (renovate.json5) keeps this current.
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
         with:
           path: .
           format: cyclonedx-json

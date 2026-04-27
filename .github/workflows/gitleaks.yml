@@ -27,7 +27,9 @@ jobs:
           fetch-depth: 0
 
       - name: Run gitleaks
-        uses: gitleaks/gitleaks-action@v2
+        # SHA-pinned per ADR-023 §Axis 4 supply-chain hygiene; Renovate's
+        # helpers:pinGitHubActionDigests preset (renovate.json5) keeps this current.
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # GITLEAKS_LICENSE not required for OSS / public repos.
