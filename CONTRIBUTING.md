@@ -10,10 +10,11 @@ The repository is in the V1 doc-first phase. There is no source code yet — `pa
 
 ## Branch Model
 
-- **Trunk-based.** `main` is the only long-lived branch.
-- **Branch protection** on `main` forbids direct pushes; every change goes through a PR. Required CI checks per [ADR-023 §Axis 1](docs/decisions/023-v1-ci-cd-and-release-automation.md#axis-1--ci-workflow-architecture) must pass before merge.
-- **Short-lived feature branches.** A branch should live hours-to-days, not weeks. Long-lived branches are an anti-pattern.
-- **Squash-merge.** The PR title becomes the conventional-commit subject on `main`; the PR body becomes the commit body.
+- **GitFlow-lite.** Two long-lived branches: `develop` (integration — feature PRs land here) and `main` (release — only release-tagged commits land here). Per [ADR-023 §Decision Log 2026-04-26 amendment](docs/decisions/023-v1-ci-cd-and-release-automation.md#decision-log).
+- **Branch protection** on both `develop` and `main` forbids direct pushes; every change goes through a PR. Required CI checks per [ADR-023 §Axis 1](docs/decisions/023-v1-ci-cd-and-release-automation.md#axis-1--ci-workflow-architecture) must pass before merge.
+- **Short-lived feature branches off `develop`.** A branch should live hours-to-days, not weeks. Long-lived feature branches are an anti-pattern.
+- **Squash-merge into `develop`.** The PR title becomes the conventional-commit subject on `develop`; the PR body becomes the commit body.
+- **`develop` → `main` only at release.** `release-please-action` observes `develop` and orchestrates a `develop` → `main` integration that ultimately tags the release on `main`. See [ADR-023 §Axis 3](docs/decisions/023-v1-ci-cd-and-release-automation.md#axis-3--release-automation).
 
 ## Branch Naming
 
@@ -104,21 +105,21 @@ Either form drives a major-version bump in [`release-please-action`](https://git
 
 ## PR Workflow
 
-1. **Branch off `main`.** `git switch -c feat/plan-001-monorepo-scaffold`
+1. **Branch off `develop`.** `git switch develop && git pull && git switch -c feat/plan-001-monorepo-scaffold`
 2. **Commit using Conventional Commits format.** Pre-commit hooks (lefthook + lint-staged + commitlint) catch format errors locally; CI re-runs them as enforcement per ADR-023 §Axis 2.
-3. **Open the PR.** PR title MUST match conventional-commit subject format — it becomes the squash-commit subject on `main`. PR body explains the change; code PRs include a Test Plan section.
+3. **Open the PR (base `develop`).** PR title MUST match conventional-commit subject format — it becomes the squash-commit subject on `develop`. PR body explains the change; code PRs include a Test Plan section.
 4. **Address review.** Push additional commits to the same branch; squash-merge collapses them.
-5. **Merge.** `gh pr merge --squash --delete-branch` — squashes the branch, deletes both local and remote, fast-forwards local `main`.
+5. **Merge.** `gh pr merge --squash --delete-branch` — squashes the branch, deletes both local and remote, fast-forwards local `develop`.
 
-Branch protection ensures no direct pushes to `main`. The squash-merge produces one clean conventional-commit per PR; `release-please-action` reads these to drive per-package version bumps.
+Branch protection ensures no direct pushes to `develop` or `main`. The squash-merge produces one clean conventional-commit per PR on `develop`; `release-please-action` observes `develop` to drive per-package version bumps and orchestrates `develop` → `main` integration at release time.
 
 ## Worked Example
 
 A hypothetical Plan-001 PR #1 lifecycle:
 
 ```bash
-# 1. Branch off main
-git switch main && git pull
+# 1. Branch off develop
+git switch develop && git pull
 git switch -c feat/plan-001-monorepo-scaffold
 
 # 2. Make commits
@@ -149,7 +150,7 @@ EOF
 gh pr merge --squash --delete-branch
 ```
 
-The squash-commit on `main` reads:
+The squash-commit on `develop` reads:
 
 ```text
 feat(daemon): scaffold monorepo with pnpm + Turbo (#2)
@@ -163,7 +164,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 
 ## Anti-Patterns
 
-- **Direct push to `main`** — blocked by branch protection.
+- **Direct push to `develop` or `main`** — blocked by branch protection on both.
 - **Long-lived feature branches** — branches that outlive their PR by days create merge debt.
 - **Force-push to a shared branch** — never; always create a new commit and let squash-merge collapse history.
 - **Skipping pre-commit hooks** (`--no-verify`) — CI re-runs the same checks per ADR-023 §Axis 2 (D-1 cross-axis), so the hook bypass costs you a CI round-trip without saving time.
