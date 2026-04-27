@@ -236,9 +236,7 @@ const buildCommonShape = () => ({
   // is composed AFTER the helper so the inner string checks only run on
   // string values (Zod evaluates the wrapped schema only when the value is
   // a string; `null` short-circuits past the chain).
-  actor: wireFreeFormString(EVENT_FIELD_MAX_LEN, "EventEnvelope.actor")
-    .nullable()
-    .optional(),
+  actor: wireFreeFormString(EVENT_FIELD_MAX_LEN, "EventEnvelope.actor").nullable().optional(),
   correlationId: wireFreeFormString(EVENT_FIELD_MAX_LEN, "EventEnvelope.correlationId").optional(),
   causationId: wireFreeFormString(EVENT_FIELD_MAX_LEN, "EventEnvelope.causationId").optional(),
   version: EventEnvelopeVersionSchema,

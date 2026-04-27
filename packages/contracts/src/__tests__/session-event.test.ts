@@ -196,13 +196,7 @@ describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
     expect(SESSION_EVENT_CATEGORY_BY_TYPE.get(label)).toBe(expected);
   });
 
-  it.each([
-    ["__proto__"],
-    ["constructor"],
-    ["toString"],
-    ["hasOwnProperty"],
-    ["unknown.event"],
-  ])(
+  it.each([["__proto__"], ["constructor"], ["toString"], ["hasOwnProperty"], ["unknown.event"]])(
     "SESSION_EVENT_CATEGORY_BY_TYPE.get rejects prototype-chain walks: %s",
     (untrusted) => {
       // Map (NOT object-literal) lookup is load-bearing: a Plan-006
@@ -350,10 +344,7 @@ describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
     expect(SessionEventSchema.safeParse(valid).success).toBe(true);
   });
 
-  it.each([
-    ["correlationId"],
-    ["causationId"],
-  ])("accepts %s omitted entirely", (field) => {
+  it.each([["correlationId"], ["causationId"]])("accepts %s omitted entirely", (field) => {
     const valid = { ...buildSessionCreated() } as Record<string, unknown>;
     delete valid[field];
     expect(SessionEventSchema.safeParse(valid).success).toBe(true);
