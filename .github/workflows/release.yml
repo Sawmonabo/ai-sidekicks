@@ -108,3 +108,64 @@ jobs:
             echo "Publishing $path"
             (cd "$path" && pnpm publish --no-git-checks --access public)
           done
+
+  sbom:
+    name: sbom (Anchore Syft + actions/attest@v4)
+    runs-on: ubuntu-latest
+    needs: [release-please]
+    # SKELETON GATE: keep SBOM emission inert until first real release per ADR-023
+    # §F-6 bootstrap. Flip to `if: ${{ needs.release-please.outputs.releases_created
+    # == 'true' }}` together with publish-npm.
+    #
+    # Per ADR-023 §Axis 4 sub-axis 2: full-surface SBOM via Anchore Syft v1.43+
+    # (catalogs pnpm-lockfile; CycloneDX + SPDX), signed via actions/attest@v4
+    # with --predicate-type sbom. Avoid actions/attest-sbom (deprecated wrapper)
+    # and `npm sbom` (CycloneDX 1.5 only, no pnpm-lockfile parsing).
+    #
+    # actions/attest@v4 is also the unified primitive for Surface 2 (desktop
+    # binary, Spec-027 §7b dual-trust) and Surface 3 (Rust sidecar) — wired in
+    # later PRs. This job pins the action+permission shape now so later PRs
+    # extend rather than re-discover.
+    if: false
+    environment: production # OIDC environment-gate per ADR-023 §Axis 1/3/5.
+    permissions:
+      contents: read
+      id-token: write # OIDC for Sigstore keyless signing (actions/attest@v4).
+      attestations: write # actions/attest@v4 outputs.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.33.2
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm turbo run build
+
+      - name: Generate SBOM (Anchore Syft, full surface)
+        # Syft v1.43+ catalogs pnpm-lockfile natively (PR #4765, GA in v1.43).
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: sbom.cdx.json
+
+      - name: Attest SBOM via actions/attest@v4
+        # Unified attestation primitive per ADR-023 §Cross-axis attestation surface.
+        uses: actions/attest@v4
+        with:
+          subject-path: sbom.cdx.json
+          predicate-type: https://cyclonedx.org/bom/v1.5
+          predicate-path: sbom.cdx.json

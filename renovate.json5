@@ -15,7 +15,10 @@
     "config:recommended",
     "security:minimumReleaseAgeNpm",
     ":semanticCommits",
-    ":semanticCommitTypeAll(deps)",
+    // Force every Renovate PR's commit scope to `deps` (matches commitlint
+    // scope-enum). Type defaults to `chore` from :semanticCommits, which is
+    // valid in our type-enum. Never use :semanticCommitTypeAll(deps) — `deps`
+    // is not a valid commitlint type and would block every Renovate PR.
     ":semanticCommitScopeAll(deps)",
   ],
   minimumReleaseAge: "14 days",
