@@ -25,11 +25,11 @@
 //   * DDL statements (CREATE TABLE/INDEX) take row-level catalog locks
 //     automatically; concurrent racers serialize on those locks at the
 //     statement boundary, not at the BEGIN boundary.
-//   * The two-phase pattern below (probe -> exec) is therefore not the
-//     load-bearing seam that `BEGIN IMMEDIATE` is on SQLite — even if two
-//     racers both pass the probe, the second's `CREATE TABLE participants`
-//     will fail with `42P07` (relation already exists), surfacing the loss
-//     loudly rather than silently corrupting state.
+//   * The two-phase pattern below (probe -> transaction(exec)) is therefore
+//     not the load-bearing seam that `BEGIN IMMEDIATE` is on SQLite — even
+//     if two racers both pass the probe, the second's `CREATE TABLE
+//     participants` will fail with `42P07` (relation already exists),
+//     surfacing the loss loudly rather than silently corrupting state.
 //   * Cross-process production migrations run via the release pipeline
 //     (Plan-023 owns release automation), not via concurrent daemon boot;
 //     there is no analogue to the SQLite "two daemons race on the same
@@ -37,7 +37,7 @@
 //
 // Consequence: this runner does NOT attempt the inside-transaction re-check
 // pattern that `runtime-daemon/src/session/migration-runner.ts` uses. The
-// outer probe is the idempotency barrier; the transactional batch protects
+// outer probe is the idempotency barrier; the transaction wrapper protects
 // against torn writes mid-migration only.
 
 import { INITIAL_MIGRATION_SQL } from "../migrations/0001-initial.js";
@@ -45,7 +45,7 @@ import { INITIAL_MIGRATION_SQL } from "../migrations/0001-initial.js";
 /**
  * Minimal SQL surface this module needs from a database client.
  *
- * Two methods, two Postgres wire protocols:
+ * Three methods, three Postgres wire-protocol uses:
  *
  *   * `query()` issues a single statement over the **extended query
  *     protocol** (Parse + Bind + Execute on a prepared statement). This is
@@ -58,9 +58,21 @@ import { INITIAL_MIGRATION_SQL } from "../migrations/0001-initial.js";
  *   * `exec()` issues a multi-statement batch over the **simple query
  *     protocol** (no Parse step, no parameters, statements separated by
  *     `;`). This is what migration SQL fundamentally needs — a single
- *     `BEGIN; CREATE TABLE ...; INSERT ...; COMMIT;` round trip. Both
- *     `pg.Client#query(sqlString)` (without a params array) and PGlite's
- *     `pg.exec(sql)` map to this protocol. Returns no rows by contract.
+ *     batch of `CREATE TABLE ...; INSERT ...;` statements in one round
+ *     trip. Both `pg.Client#query(sqlString)` (without a params array)
+ *     and PGlite's `pg.exec(sql)` map to this protocol. Returns no rows
+ *     by contract.
+ *
+ *   * `transaction(fn)` runs `fn` against a connection-bound `Querier`
+ *     wrapped in `BEGIN`/`COMMIT` (auto-`ROLLBACK` on throw). Required
+ *     for atomicity across multiple statements when the underlying
+ *     driver checks out a different connection per `query()`/`exec()`
+ *     call (the `pg.Pool` shape that Plan-001 PR #5 will compose). The
+ *     callback receives a `Querier` rather than a narrower transaction
+ *     type so that helper code shared between in-transaction and
+ *     out-of-transaction paths sees the same surface; nested-transaction
+ *     calls inside `fn` will throw at runtime per Postgres semantics, an
+ *     acceptable runtime check rather than a type-system constraint.
  *
  * Typing against this minimal interface (rather than `pg.Pool` or
  * `pg.Client` directly) is what makes the production wiring (Plan-001 PR #5
@@ -77,6 +89,7 @@ import { INITIAL_MIGRATION_SQL } from "../migrations/0001-initial.js";
 export interface Querier {
   query<T>(sql: string, params?: ReadonlyArray<unknown>): Promise<{ rows: ReadonlyArray<T> }>;
   exec(sql: string): Promise<void>;
+  transaction<T>(fn: (tx: Querier) => Promise<T>): Promise<T>;
 }
 
 /**
@@ -87,52 +100,46 @@ export interface Querier {
  * target version, the call short-circuits.
  *
  * Atomicity: the migration SQL itself contains the INSERT into
- * `schema_migrations`. Wrapping the entire SQL in an explicit `BEGIN; ...
- * COMMIT;` ensures a torn write (process crash mid-migration) leaves the
- * database fully unmigrated, never half-migrated. On any error inside the
- * batch, an explicit `ROLLBACK` undoes the partial work.
+ * `schema_migrations`. The whole batch runs inside `Querier.transaction(...)`
+ * so a torn write (process crash mid-migration) leaves the database fully
+ * unmigrated, never half-migrated. The transaction wrapper auto-`ROLLBACK`s
+ * on throw and re-raises the underlying error.
  *
- * Wire-protocol choice: the multi-statement batch goes through `exec()`
- * (simple query protocol). The extended-query path (`query()` with or
- * without parameters) is hard-limited to ONE statement per call — both
- * `pg`'s parameterized `query()` and PGlite's `query()` reject the
- * `BEGIN; ...; COMMIT;` shape with `cannot insert multiple commands into a
- * prepared statement`. The Querier interface exposes both methods so the
- * service surface stays consistent across migration SQL (simple) and
- * runtime CRUD (extended, parameterized).
+ * Wire-protocol choice: the multi-statement migration body goes through
+ * `tx.exec()` (simple query protocol). The extended-query path (`query()`
+ * with or without parameters) is hard-limited to ONE statement per call —
+ * both `pg`'s parameterized `query()` and PGlite's `query()` reject the
+ * multi-statement shape with `cannot insert multiple commands into a
+ * prepared statement`. The Querier interface exposes both methods (plus
+ * `transaction`) so the service surface stays consistent across migration
+ * SQL (simple) and runtime CRUD (extended, parameterized).
  *
- * Pool semantics: `pg.Pool#query` (and the `Querier#exec` adapter that
- * wraps it) checks out a connection per call, so a multi-statement
- * `BEGIN ... COMMIT` is guaranteed to land on the same connection.
+ * Why `transaction()` and not three separate `exec("BEGIN")` /
+ * `exec(SQL)` / `exec("COMMIT")` calls: the three-call shape works on
+ * PGlite (single connection per instance) but BREAKS the future `pg.Pool`
+ * wiring (Plan-001 PR #5 composes `Querier` from `pg.Pool`, where each
+ * `pool.query()` call checks out a fresh connection — three separate
+ * exec calls would land on three different connections, dissolving the
+ * transaction). `Querier.transaction(fn)` collapses both substrates onto
+ * the same atomicity primitive — PGlite's `pg.transaction(fn)` and the
+ * `pg.Pool` adapter's `pool.connect()` + `BEGIN`/`COMMIT`/release pattern
+ * both implement the contract. Error surfacing is preserved: PGlite
+ * returns the FIRST error from a multi-statement `exec()` batch (verified
+ * empirically — a `CREATE TABLE x` failure surfaces as `42P07 relation
+ * already exists`, not as `25P02 current transaction is aborted`).
  */
 export async function applyMigrations(querier: Querier): Promise<void> {
   if (await hasMigrationApplied(querier, 1)) {
     return;
   }
-  // Wrap in an explicit BEGIN/COMMIT so a torn write leaves the database
-  // fully unmigrated. Postgres DDL is transactional, so all CREATE TABLEs
-  // + INSERT into schema_migrations land atomically. Routed through
-  // `exec()` (simple query protocol) because `query()` is one-statement-
-  // per-call by Postgres protocol contract — see the Querier docstring.
-  const batched: string = `BEGIN;\n${INITIAL_MIGRATION_SQL}\nCOMMIT;`;
-  try {
-    await querier.exec(batched);
-  } catch (err) {
-    // Make a best-effort ROLLBACK so a half-applied transaction does not
-    // leak into the next call. If the connection has already aborted (the
-    // common case for a CREATE failure) the ROLLBACK is a no-op. Routed
-    // through `exec()` for protocol symmetry with the BEGIN/COMMIT batch
-    // — both go through the simple query protocol.
-    try {
-      await querier.exec("ROLLBACK");
-    } catch {
-      // Suppress rollback-time failures so the original migration error
-      // reaches the caller. A rollback failure on an already-broken
-      // connection is strictly less informative than the underlying
-      // migration throw.
-    }
-    throw err;
-  }
+  await querier.transaction(async (tx) => {
+    // The migration SQL includes the INSERT into schema_migrations as its
+    // last statement, so the version anchor row is committed atomically
+    // with the table CREATEs. Routed through `exec()` (simple query
+    // protocol) because the extended-query path is one-statement-per-call
+    // by Postgres protocol contract — see the Querier docstring.
+    await tx.exec(INITIAL_MIGRATION_SQL);
+  });
 }
 
 // --------------------------------------------------------------------------
