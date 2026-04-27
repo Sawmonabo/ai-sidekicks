@@ -10,6 +10,11 @@
 //
 // helpers:pinGitHubActionDigests pairs with the SHA-pinned third-party actions in
 // .github/workflows/*.yml — Renovate keeps the SHAs current automatically.
+// A few of the current pins (e.g. pnpm/action-setup, googleapis/release-please-action)
+// resolve to annotated-tag-object SHAs from `git ls-remote refs/tags/<tag>`, not
+// commit SHAs. GitHub Actions accepts both (resolves through the tag object),
+// so the immutable-pin security property is identical; helpers:pinGitHubActionDigests
+// will normalize these to commit SHAs on the next bump.
 //
 // Dependabot deferred per ADR-023 §Axis 4 antithesis (no first-class minimum-release-age).
 
