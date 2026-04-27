@@ -247,6 +247,18 @@ export class SessionDirectoryService {
    * (pglite, pg.Pool) backs the `Querier`. The lock is released at the
    * transaction's COMMIT/ROLLBACK.
    *
+   * Lock-acquisition order: this service acquires `sessions` (via the
+   * explicit `SELECT ... FOR UPDATE`) BEFORE writing to
+   * `session_memberships`. Downstream flows that touch both tables in
+   * one transaction — Plan-002's ownership-transfer and co-owner
+   * promotion paths in particular — MUST follow the same order
+   * (`sessions` → `session_memberships`) to avoid a cross-flow deadlock
+   * where T1 holds `sessions` waiting for `session_memberships` while
+   * T2 holds `session_memberships` waiting for `sessions`. This is a
+   * cross-plan constraint, not a soft suggestion: deviating from it
+   * requires a coordinated change to this service's lock order, not
+   * just to the deviating caller.
+   *
    * Why no error-handler around `transaction(...)`: PGlite's
    * `pg.transaction(fn)` (and the `pg`-side equivalent that PR #5 will
    * compose for `pg.Pool`) auto-rolls-back on throw and re-raises the
@@ -288,29 +300,10 @@ export class SessionDirectoryService {
         );
       }
 
-      // Take an explicit row-level lock on the sessions row to serialize
-      // concurrent createSession calls on the same sessionId. Without this,
-      // two transactions T1(P1) and T2(P2) under READ COMMITTED can both
-      // see "no owners" in the probe below before either commits an owner-
-      // membership row — UNIQUE(session_id, participant_id) does not collide
-      // on different participants, so both inserts succeed and the session
-      // ends up with two `owner` rows.
-      //
-      // The session UPSERT above takes an implicit row-level lock on the
-      // conflicting row when it falls into DO UPDATE; that *should* serialize
-      // the next probe's snapshot. But making the lock explicit:
-      //   1. Encodes the serialization intent in the code so reviewers and
-      //      maintainers don't have to re-derive it from UPSERT semantics.
-      //   2. Defends against future schema changes (DEFAULTs, triggers, or
-      //      INSTEAD OF rules) that could alter the implicit lock behavior.
-      //   3. Closes the gap regardless of whether the underlying driver is
-      //      pglite (test) or pg.Pool (production wired in PR #5) — both
-      //      honor `SELECT ... FOR UPDATE` row-level locking.
-      //
-      // The lock is released at COMMIT/ROLLBACK at the end of the
-      // transaction callback. Plan-002's ownership-transfer / co-owner
-      // promotion flows can choose their own locking discipline (this
-      // service does NOT impose a session-wide lock for non-create paths).
+      // Explicit row lock — see method docstring §"Concurrent
+      // createSession callers" for the READ COMMITTED race rationale and
+      // §"Lock-acquisition order" for the cross-plan order constraint
+      // Plan-002 must honor.
       await tx.query("SELECT id FROM sessions WHERE id = $1 FOR UPDATE", [input.sessionId]);
 
       // Owner-mismatch guard (Codex P1, residual of B1).

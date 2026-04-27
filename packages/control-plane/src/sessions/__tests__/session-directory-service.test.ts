@@ -594,17 +594,25 @@ describe("SessionDirectoryService — P2 (idempotent re-create does not fork)", 
     //   4. owner-membership ups. — `INSERT INTO session_memberships`
     //
     // Whitespace-tolerant patterns (vitest's `toMatch` accepts RegExp).
+    // `\b` after a table name is defensive: without it, regex 1 would
+    // substring-match `INSERT INTO sessions_archive ... ON CONFLICT (id)`
+    // (the `[\s\S]*` between table name and conflict target swallows the
+    // suffix). Same gap applies to regexes 3 and 4 — `session_memberships`
+    // is a prefix of a hypothetical `session_memberships_history`. Regexes
+    // requiring `\s+` immediately after the table name (the FOR UPDATE
+    // probe and its count-check at the bottom) are already safe because
+    // an underscore-suffix would not satisfy the whitespace assertion.
     const sessionUpsertIdx = captured.findIndex((sql) =>
-      /INSERT\s+INTO\s+sessions[\s\S]*ON\s+CONFLICT\s*\(\s*id\s*\)/i.test(sql),
+      /INSERT\s+INTO\s+sessions\b[\s\S]*ON\s+CONFLICT\s*\(\s*id\s*\)/i.test(sql),
     );
     const forUpdateIdx = captured.findIndex((sql) =>
       /FROM\s+sessions\s+WHERE\s+id\s*=\s*\$1\s+FOR\s+UPDATE/i.test(sql),
     );
     const ownerProbeIdx = captured.findIndex((sql) =>
-      /FROM\s+session_memberships[\s\S]*role\s*=\s*'owner'/i.test(sql),
+      /FROM\s+session_memberships\b[\s\S]*role\s*=\s*'owner'/i.test(sql),
     );
     const membershipUpsertIdx = captured.findIndex((sql) =>
-      /INSERT\s+INTO\s+session_memberships/i.test(sql),
+      /INSERT\s+INTO\s+session_memberships\b/i.test(sql),
     );
 
     // All four statements MUST be present.
@@ -626,6 +634,18 @@ describe("SessionDirectoryService — P2 (idempotent re-create does not fork)", 
     // against a future regression that lifts the lock to the outer
     // Querier (where it would lock the wrong connection / no connection
     // at all under pg.Pool semantics) or that issues it twice.
+    //
+    // TODO(PR#5): once pg.Pool lands, strengthen this assertion to
+    // discriminate WHICH Querier instance issued each statement (e.g.,
+    // tag the proxy with an id and capture pairs of `(querier-id, sql)`).
+    // The current proxy wraps both `this.#querier` and the in-tx `tx`, so
+    // a regression that routes FOR UPDATE through `this.#querier` instead
+    // of `tx` inside the transaction body would still land in `captured[]`
+    // and pass this assertion — but pg.Pool would lock on the wrong
+    // connection (a different pool checkout, not the transaction's
+    // checkout) and fail to serialize concurrent createSession calls. The
+    // assertion below catches the count regression but cannot catch the
+    // wrong-Querier regression. Code-reviewer R4 finding CR#2.
     const forUpdateCount = captured.filter((sql) =>
       /FROM\s+sessions\s+WHERE\s+id\s*=\s*\$1\s+FOR\s+UPDATE/i.test(sql),
     ).length;
