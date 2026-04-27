@@ -32,6 +32,15 @@
 /eslint.config.mjs       @Sawmonabo
 /prettier.config.js      @Sawmonabo
 
+# Per-package owners — scaffolded against single maintainer. As contributors join,
+# replace `@Sawmonabo` with the relevant subject-matter team handle (e.g.
+# `@ai-sidekicks/contracts-owners`). Order matters: later patterns override earlier.
+/packages/contracts/        @Sawmonabo
+/packages/client-sdk/       @Sawmonabo
+/packages/runtime-daemon/   @Sawmonabo
+/packages/control-plane/    @Sawmonabo
+/apps/desktop/              @Sawmonabo
+
 # Governance docs — every change needs maintainer review (already covered by global
 # default, restated here for clarity).
 /docs/decisions/         @Sawmonabo

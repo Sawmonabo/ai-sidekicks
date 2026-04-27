@@ -37,7 +37,10 @@ env:
   DO_NOT_TRACK: 1
 
 jobs:
-  test:
+  # Tier-1 (Node 22.12 — daemon + Electron renderer + shared packages per ADR-022
+  # §Decision row 8). Runs the full repo-wide lint + format check + build +
+  # typecheck + lint + test against the daemon-tier Node version.
+  test-node22:
     name: test (${{ matrix.os }} / node ${{ matrix.node }})
     runs-on: ${{ matrix.os }}
     strategy:
@@ -79,22 +82,67 @@ jobs:
       - name: Format check (full repo)
         run: pnpm -w exec prettier --check .
 
-      - name: Build
-        run: pnpm turbo run build
+      - name: Build (Node 22 tier — excluding control-plane)
+        run: pnpm turbo run build --filter='!@ai-sidekicks/control-plane'
 
-      - name: Typecheck
-        run: pnpm turbo run typecheck
+      - name: Typecheck (Node 22 tier — excluding control-plane)
+        run: pnpm turbo run typecheck --filter='!@ai-sidekicks/control-plane'
 
-      - name: Lint (per-package)
-        run: pnpm turbo run lint
+      - name: Lint per-package (Node 22 tier — excluding control-plane)
+        run: pnpm turbo run lint --filter='!@ai-sidekicks/control-plane'
 
-      - name: Test
-        run: pnpm turbo run test
+      - name: Test (Node 22 tier — excluding control-plane)
+        run: pnpm turbo run test --filter='!@ai-sidekicks/control-plane'
+
+  # Tier-2 (Node 24 — control-plane + CLI per ADR-022 §Decision row 8). The
+  # control-plane package declares `engines.node: ">=24.0.0"`, so its build /
+  # typecheck / test must run against Node 24 to validate the floor (NB-14 from
+  # PR-001 review). Other packages stay on Node 22 in `test-node22` above.
+  test-node24:
+    name: test (${{ matrix.os }} / node ${{ matrix.node }} / control-plane)
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        node: ["24"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        # SHA-pinned per ADR-023 §Axis 4 supply-chain hygiene; Renovate's
+        # helpers:pinGitHubActionDigests preset (renovate.json5) keeps this current.
+        uses: pnpm/action-setup@8b2eead6074fefa43a68bf4c9e0f03ea4126b5ba # v6.0.3
+        with:
+          version: 10.33.2
+          run_install: false
+
+      - name: Setup Node.js ${{ matrix.node }}
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node }}
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build (control-plane only)
+        run: pnpm turbo run build --filter='@ai-sidekicks/control-plane...'
+
+      - name: Typecheck (control-plane only)
+        run: pnpm turbo run typecheck --filter='@ai-sidekicks/control-plane...'
+
+      - name: Lint (control-plane only)
+        run: pnpm turbo run lint --filter='@ai-sidekicks/control-plane...'
+
+      - name: Test (control-plane only)
+        run: pnpm turbo run test --filter='@ai-sidekicks/control-plane...'
 
   ci-gate:
     name: ci-gate
     runs-on: ubuntu-latest
-    needs: [test]
+    needs: [test-node22, test-node24]
     if: always()
     steps:
       - name: Aggregate required-checks status
@@ -102,8 +150,16 @@ jobs:
         # Community Discussion #26822 recipe). Branch protection requires this
         # single job; renaming or adding matrix legs cannot silently bypass.
         run: |
-          if [[ "${{ needs.test.result }}" != "success" ]]; then
-            echo "ci-gate: required job 'test' did not succeed (result=${{ needs.test.result }})"
+          fail=0
+          if [[ "${{ needs.test-node22.result }}" != "success" ]]; then
+            echo "ci-gate: required job 'test-node22' did not succeed (result=${{ needs.test-node22.result }})"
+            fail=1
+          fi
+          if [[ "${{ needs.test-node24.result }}" != "success" ]]; then
+            echo "ci-gate: required job 'test-node24' did not succeed (result=${{ needs.test-node24.result }})"
+            fail=1
+          fi
+          if [[ $fail -ne 0 ]]; then
             exit 1
           fi
           echo "ci-gate: all required jobs succeeded"

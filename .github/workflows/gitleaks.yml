@@ -16,6 +16,12 @@ on:
 permissions:
   contents: read
 
+# Mirror ci.yml event-split concurrency: PR runs cancel-in-progress on superseding
+# pushes; integration branch (develop, main) runs queue serially.
+concurrency:
+  group: gitleaks-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   gitleaks:
     name: gitleaks
@@ -33,3 +39,5 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # GITLEAKS_LICENSE not required for OSS / public repos.
+          # WARNING: making this repo private requires registering a
+          # GITLEAKS_LICENSE secret first; this job will start failing without it.
