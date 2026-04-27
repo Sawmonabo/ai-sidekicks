@@ -53,14 +53,13 @@ const ZERO_SIGNATURE: Buffer = Buffer.alloc(SIG_PLACEHOLDER_LEN);
 //
 // `safeIntegers(true)` on the read statement applies to ALL integer
 // columns (it is a per-statement, not per-column, switch). Both
-// `sequence` and `monotonic_ns` are returned as `bigint` — the union
-// `number | bigint` Round 1 used was a type-only fiction that masked the
-// uniform behavior. Round 2 declares both as `bigint` and converts
-// `sequence` back to `number` at hydration (safe because `sequence` is a
-// per-session counter — the worst-case overflow of `Number.MAX_SAFE_INTEGER`
-// would require ~9×10^15 events in one session, decades at any plausible
-// emit rate — and the `StoredEvent.sequence: number` field type is the
-// canonical projector input shape).
+// `sequence` and `monotonic_ns` are returned as `bigint`; `sequence` is
+// converted back to `number` at hydration. That conversion is safe
+// because `sequence` is a per-session counter and overflowing
+// `Number.MAX_SAFE_INTEGER` (~9×10^15) would take decades at any
+// plausible emit rate. `monotonic_ns` stays `bigint` because
+// `process.hrtime.bigint()` legitimately exceeds 2^53 even on hosts
+// booted well over a year.
 interface SessionEventRow {
   readonly id: string;
   readonly session_id: string;
@@ -147,7 +146,9 @@ export class SessionService {
    * `[]` for unknown sessions.
    */
   readEvents(sessionId: string): ReadonlyArray<StoredEvent> {
-    const rows: ReadonlyArray<SessionEventRow> = this.#replayStmt.all(sessionId) as ReadonlyArray<SessionEventRow>;
+    const rows: ReadonlyArray<SessionEventRow> = this.#replayStmt.all(
+      sessionId,
+    ) as ReadonlyArray<SessionEventRow>;
     return rows.map((row) => hydrateRow(row));
   }
 
@@ -172,23 +173,6 @@ function hydrateRow(row: SessionEventRow): StoredEvent {
   // because `process.hrtime.bigint()` legitimately exceeds 2^53 even on
   // recently-booted hosts.
   const sequence: number = Number(row.sequence);
-  // Payload-shape assumption (N6): the `JSON.parse(...) as Record<string,
-  // unknown>` cast is sound *only* because the single writer in this
-  // package — `SessionService.append` above — JSON-stringifies an
-  // `AppendableEvent.payload: Record<string, unknown>` before insert. If
-  // a future writer ever bypasses `append()` and stores a non-object JSON
-  // value (e.g. a JSON array, primitive, or `null`) into `payload`, the
-  // cast lies and downstream projector code reads `event.payload[key]`
-  // off a non-object. The wire-layer `SessionEventSchema` (in
-  // `packages/contracts/src/event.ts`) constrains every V1 variant's
-  // payload to an object schema, so the in-process invariant matches
-  // the wire contract; the cast is preserved here without a defensive
-  // try/catch to surface defective writers loudly rather than swallow
-  // them. Plan-006 (event-taxonomy + integrity protocol) will land a
-  // payload-canonicalization step that re-validates against the
-  // discriminated-union schema on read; until then this comment is the
-  // contract.
-  const payload: Record<string, unknown> = JSON.parse(row.payload) as Record<string, unknown>;
   return {
     id: row.id,
     sessionId: row.session_id,
@@ -198,9 +182,43 @@ function hydrateRow(row: SessionEventRow): StoredEvent {
     category: row.category,
     type: row.type,
     actor: row.actor,
-    payload,
+    payload: parsePayload(row),
     correlationId: row.correlation_id,
     causationId: row.causation_id,
     version: row.version,
   };
+}
+
+// Payload parsing is the read-side trust boundary between the on-disk
+// JSON blob and the projector's `Record<string, unknown>` contract. A
+// defective writer that bypasses `SessionService.append()` and stores a
+// non-object JSON value (array, primitive, `null`) would otherwise
+// surface as a misleading downstream `TypeError` ("Cannot read
+// properties of null") or projector "payload.X must be a non-empty
+// string" error — both of which point to the consumer rather than the
+// writer. Catching it here yields a single error site identifying the
+// row and the actual shape returned, which is the right diagnostic.
+//
+// The wire-layer `SessionEventSchema` (packages/contracts/src/event.ts)
+// constrains every V1 variant's payload to an object schema; this
+// boundary mirrors that constraint at the storage seam. Plan-006
+// (event-taxonomy + integrity protocol) will land a payload-
+// canonicalization step that re-validates against the discriminated-
+// union schema on read; until then, structural shape is what we enforce.
+function parsePayload(row: SessionEventRow): Record<string, unknown> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(row.payload);
+  } catch (err) {
+    throw new Error(
+      `SessionService.hydrateRow: payload is not valid JSON for event id=${row.id} sequence=${String(row.sequence)} (${err instanceof Error ? err.message : String(err)})`,
+      { cause: err },
+    );
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(
+      `SessionService.hydrateRow: payload must be a JSON object for event id=${row.id} sequence=${String(row.sequence)} (got ${parsed === null ? "null" : Array.isArray(parsed) ? "array" : typeof parsed})`,
+    );
+  }
+  return parsed as Record<string, unknown>;
 }
