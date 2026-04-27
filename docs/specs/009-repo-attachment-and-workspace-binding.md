@@ -1,14 +1,14 @@
 # Spec-009: Repo Attachment And Workspace Binding
 
-| Field | Value |
-| --- | --- |
-| **Status** | `approved` |
-| **NNN** | `009` |
-| **Slug** | `repo-attachment-and-workspace-binding` |
-| **Date** | `2026-04-14` |
-| **Author(s)** | `Codex` |
-| **Depends On** | [Repo Workspace Worktree Model](../domain/repo-workspace-worktree-model.md), [Session Model](../domain/session-model.md), [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md) |
-| **Implementation Plan** | [Plan-009: Repo Attachment And Workspace Binding](../plans/009-repo-attachment-and-workspace-binding.md) |
+| Field                   | Value                                                                                                                                                                                                                   |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Status**              | `approved`                                                                                                                                                                                                              |
+| **NNN**                 | `009`                                                                                                                                                                                                                   |
+| **Slug**                | `repo-attachment-and-workspace-binding`                                                                                                                                                                                 |
+| **Date**                | `2026-04-14`                                                                                                                                                                                                            |
+| **Author(s)**           | `Codex`                                                                                                                                                                                                                 |
+| **Depends On**          | [Repo Workspace Worktree Model](../domain/repo-workspace-worktree-model.md), [Session Model](../domain/session-model.md), [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md) |
+| **Implementation Plan** | [Plan-009: Repo Attachment And Workspace Binding](../plans/009-repo-attachment-and-workspace-binding.md)                                                                                                                |
 
 ## Purpose
 
@@ -102,6 +102,7 @@ States: `creating -> ready -> retired -> (deleted from disk)`.
 - `failed`: Handles creation failures. The owning workspace transitions to `stale`.
 
 Cleanup triggers (any one is sufficient):
+
 - Run completion (default, per `cleanup_policy = 'on_run_complete'`).
 - Session archive.
 - Explicit disposal by participant or daemon.

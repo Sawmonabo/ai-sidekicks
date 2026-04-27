@@ -2,7 +2,7 @@
 
 Four roles, each with a staff-level mindset. The mindset matters as much as the mechanics — a generic "do task X" prompt produces generic output. Framing the subagent as a principal-engineer implementer or an adversarial-staff reviewer changes what they look for and how deep they go.
 
-Each template is a *starting* prompt. Fill in bracketed placeholders with the current PR's specifics before dispatching. Per project CLAUDE.md guidance: brief the subagent like a colleague who just walked into the room — self-contained, with file paths, the plan section verbatim, and an exit-state contract.
+Each template is a _starting_ prompt. Fill in bracketed placeholders with the current PR's specifics before dispatching. Per project CLAUDE.md guidance: brief the subagent like a colleague who just walked into the room — self-contained, with file paths, the plan section verbatim, and an exit-state contract.
 
 ## 1. Implementer (Principal Engineer)
 

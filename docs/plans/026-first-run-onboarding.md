@@ -1,16 +1,16 @@
 # Plan-026: First-Run Onboarding
 
-| Field | Value |
-| --- | --- |
-| **Status** | `approved` |
-| **NNN** | `026` |
-| **Slug** | `first-run-onboarding` |
-| **Date** | `2026-04-17` |
-| **Author(s)** | `Claude Opus 4.7` |
-| **Spec** | [Spec-026: First-Run Three-Way-Choice Onboarding](../specs/026-first-run-onboarding.md) |
-| **Required ADRs** | [ADR-020: V1 Deployment Model And OSS License](../decisions/020-v1-deployment-model-and-oss-license.md); [ADR-009: JSON-RPC IPC Wire Format](../decisions/009-json-rpc-ipc-wire-format.md); [ADR-010: PASETO + WebAuthn + MLS Auth](../decisions/010-paseto-webauthn-mls-auth.md); [ADR-015: V1 Feature Scope Definition](../decisions/015-v1-feature-scope-definition.md); [ADR-016: Electron Desktop Shell](../decisions/016-electron-desktop-shell.md) |
-| **Dependencies** | Plan-007 (local daemon JSON-RPC transport and typed config surface — this plan adds five new `Onboarding*` methods to it); Plan-023 (desktop shell — this plan extends the preload bridge with an `onboarding.*` namespace, consumes the Spec-023 keystore surface and the `safeStorage` backend probe, and runs inside the main-process modal orchestration pattern); Plan-025 (self-hostable relay — Option 2's TOFU reachability probe targets its `GET /readyz` endpoint); Plan-008 (control-plane surface — Option 3's hosted-SaaS redirect URL is served by the project-operated deployment of this relay); Plan-006 (session event taxonomy — `onboarding.choice_made` / `onboarding.choice_reset` are registered here under BL-086, completed 2026-04-18; this plan consumes that registration) |
-| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
+| Field               | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Status**          | `approved`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| **NNN**             | `026`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| **Slug**            | `first-run-onboarding`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| **Date**            | `2026-04-17`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| **Author(s)**       | `Claude Opus 4.7`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| **Spec**            | [Spec-026: First-Run Three-Way-Choice Onboarding](../specs/026-first-run-onboarding.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| **Required ADRs**   | [ADR-020: V1 Deployment Model And OSS License](../decisions/020-v1-deployment-model-and-oss-license.md); [ADR-009: JSON-RPC IPC Wire Format](../decisions/009-json-rpc-ipc-wire-format.md); [ADR-010: PASETO + WebAuthn + MLS Auth](../decisions/010-paseto-webauthn-mls-auth.md); [ADR-015: V1 Feature Scope Definition](../decisions/015-v1-feature-scope-definition.md); [ADR-016: Electron Desktop Shell](../decisions/016-electron-desktop-shell.md)                                                                                                                                                                                                                                                                                                                                               |
+| **Dependencies**    | Plan-007 (local daemon JSON-RPC transport and typed config surface — this plan adds five new `Onboarding*` methods to it); Plan-023 (desktop shell — this plan extends the preload bridge with an `onboarding.*` namespace, consumes the Spec-023 keystore surface and the `safeStorage` backend probe, and runs inside the main-process modal orchestration pattern); Plan-025 (self-hostable relay — Option 2's TOFU reachability probe targets its `GET /readyz` endpoint); Plan-008 (control-plane surface — Option 3's hosted-SaaS redirect URL is served by the project-operated deployment of this relay); Plan-006 (session event taxonomy — `onboarding.choice_made` / `onboarding.choice_reset` are registered here under BL-086, completed 2026-04-18; this plan consumes that registration) |
+| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 
 ## Goal
 
@@ -37,7 +37,7 @@ Ship the Spec-026 three-way first-run-choice onboarding flow across both V1 clie
 
 - **Re-specifying Spec-023 mechanisms.** Keystore access, `safeStorage` backend-probe, WebAuthn orchestration, preload-bridge invariants, deep-link protocol registration — all owned by Spec-023 / Plan-023. This plan consumes them. An edit to `safeStorage.ts` or to `preload/bridge.ts` main surface is a review rejection unless it is strictly additive (exposing a new `onboarding.*` method).
 - **Installer / package-manager bootstrap.** This plan does not ship brew / apt / npm post-install hooks or a `setup.exe` wizard. Spec-026 §Scope excludes this; first-run onboarding starts when the daemon does, not when the installer runs.
-- **Self-hosted operator first-run.** `docker-compose up` for the Spec-025 relay is a separate operator-facing flow owned by Plan-025. This plan is the *client*-side onboarding.
+- **Self-hosted operator first-run.** `docker-compose up` for the Spec-025 relay is a separate operator-facing flow owned by Plan-025. This plan is the _client_-side onboarding.
 - **Hosted-SaaS sign-up web UX.** This plan authors only the daemon-side loopback callback contract; the sign-up page + pricing + billing UI lives in the hosted-product track. No new routes land here; the redirect URL is a build-time constant.
 - **Spec-006 event registration.** The two new `onboarding.*` events are emitted here but were registered under the Spec-006 §Event Taxonomy table by BL-086 (completed 2026-04-18), matching the post-land follow-up pattern BL-084 used for `arbitration.paused` / `arbitration.resumed`.
 - **Enterprise SSO onboarding (OIDC / SAML).** Deferred to V1.1+ per Spec-026 §Out Of Scope and BL-060.
@@ -127,6 +127,7 @@ Ship the Spec-026 three-way first-run-choice onboarding flow across both V1 clie
 ### `[onboarding]` TOML block (typed)
 
 Path:
+
 - Linux / macOS: `$XDG_CONFIG_HOME/ai-sidekicks/config.toml` (fallback `$HOME/.config/ai-sidekicks/config.toml` per [XDG Base Directory Specification v0.8](https://specifications.freedesktop.org/basedir-spec/latest/))
 - Windows: `%APPDATA%\ai-sidekicks\config.toml`
 
@@ -148,6 +149,7 @@ telemetry_opt_in  = true | false
 ### `onboarding.partial.json` partial-state file
 
 Path:
+
 - Linux / macOS: `$XDG_STATE_HOME/ai-sidekicks/onboarding.partial.json` (fallback `$HOME/.local/state/ai-sidekicks/onboarding.partial.json` per [XDG Base Directory Specification v0.8](https://specifications.freedesktop.org/basedir-spec/latest/))
 - Windows: `%LOCALAPPDATA%\ai-sidekicks\State\onboarding.partial.json` (Windows has no XDG_STATE_HOME; we use `LOCALAPPDATA\<app>\State\` by convention)
 
@@ -182,50 +184,50 @@ Shape:
 // OnboardingStart
 interface OnboardingStartRequest {}
 interface OnboardingStartResponse {
-  state: OnboardingState
-  partial?: OnboardingPartialState   // populated when state === 'partial'
-  config?: OnboardingConfig           // populated when state === 'resolved' (secret-stripped)
+  state: OnboardingState;
+  partial?: OnboardingPartialState; // populated when state === 'partial'
+  config?: OnboardingConfig; // populated when state === 'resolved' (secret-stripped)
 }
 
 // OnboardingSubmitChoice
 interface OnboardingSubmitChoiceRequest {
-  choice_id: OnboardingChoiceId
-  relay_url?: string                 // required for 'self-host'; published URL used for 'free-public-relay'
-  admin_token?: string               // required for 'self-host'; never logged; zeroed from memory post-persist
-  hosted_token?: string              // required for 'hosted-saas' (comes from callback, not the prompt)
-  spki_pin?: string                  // required for 'self-host' (from the TOFU probe)
-  deferred_validation?: boolean      // set true when offline at first-invite time per Spec-026 §Fallback
+  choice_id: OnboardingChoiceId;
+  relay_url?: string; // required for 'self-host'; published URL used for 'free-public-relay'
+  admin_token?: string; // required for 'self-host'; never logged; zeroed from memory post-persist
+  hosted_token?: string; // required for 'hosted-saas' (comes from callback, not the prompt)
+  spki_pin?: string; // required for 'self-host' (from the TOFU probe)
+  deferred_validation?: boolean; // set true when offline at first-invite time per Spec-026 §Fallback
 }
 interface OnboardingSubmitChoiceResponse {
-  state: 'resolved'
-  config: OnboardingConfig           // secret-stripped
+  state: "resolved";
+  config: OnboardingConfig; // secret-stripped
 }
 
 // OnboardingSubmitTelemetry
 interface OnboardingSubmitTelemetryRequest {
-  opt_in: boolean
+  opt_in: boolean;
 }
 interface OnboardingSubmitTelemetryResponse {
-  state: 'resolved'
-  config: OnboardingConfig
+  state: "resolved";
+  config: OnboardingConfig;
 }
 
 // OnboardingReset
 interface OnboardingResetRequest {
-  confirm: true                       // explicit — no ambient "any truthy value" pass
-  reason: 'cli-reset' | 'operator-reset'
+  confirm: true; // explicit — no ambient "any truthy value" pass
+  reason: "cli-reset" | "operator-reset";
 }
 interface OnboardingResetResponse {
-  previous_choice_id: OnboardingChoiceId | null
-  keystore_cleared: boolean           // false if keystore delete failed; stderr surface already logged
-  partial_cleared: boolean
+  previous_choice_id: OnboardingChoiceId | null;
+  keystore_cleared: boolean; // false if keystore delete failed; stderr surface already logged
+  partial_cleared: boolean;
 }
 
 // OnboardingRead
 interface OnboardingReadRequest {}
 interface OnboardingReadResponse {
-  state: OnboardingState
-  config: OnboardingConfig | null     // never plaintext tokens; SPKI pin is public
+  state: OnboardingState;
+  config: OnboardingConfig | null; // never plaintext tokens; SPKI pin is public
 }
 ```
 
@@ -258,21 +260,21 @@ export const onboarding = {
 ```ts
 // onboarding.choice_made
 interface OnboardingChoiceMadePayload {
-  participantId: string
-  choiceId: OnboardingChoiceId
-  relayUrl: string
-  migrated: boolean
-  deferredValidation: boolean
-  keystoreAvailable: boolean
-  timestamp: string                   // ISO 8601
+  participantId: string;
+  choiceId: OnboardingChoiceId;
+  relayUrl: string;
+  migrated: boolean;
+  deferredValidation: boolean;
+  keystoreAvailable: boolean;
+  timestamp: string; // ISO 8601
 }
 
 // onboarding.choice_reset
 interface OnboardingChoiceResetPayload {
-  participantId: string
-  previousChoiceId: OnboardingChoiceId
-  reason: 'cli-reset' | 'operator-reset'
-  timestamp: string
+  participantId: string;
+  previousChoiceId: OnboardingChoiceId;
+  reason: "cli-reset" | "operator-reset";
+  timestamp: string;
 }
 ```
 
@@ -286,57 +288,83 @@ interface OnboardingChoiceResetPayload {
 3. **Author partial-state store.** In `packages/runtime-daemon/src/onboarding/partial-state-store.ts`, write JSON with `{ mode: 0o600 }`. Read path: check `started_at`; if > 24h, delete the file and return `null` ("staleness enforcement"). Write path: atomic write via `write-to-tmp-then-rename` so the file is never observed half-written by a concurrent reader.
 4. **Author SPKI probe.** In `packages/runtime-daemon/src/onboarding/spki-probe.ts`:
    ```ts
-   import { connect } from 'tls'
-   import { createHash } from 'crypto'
+   import { connect } from "tls";
+   import { createHash } from "crypto";
    export async function probeSPKI(url: URL): Promise<string> {
      return new Promise((resolve, reject) => {
-       const socket = connect({ host: url.hostname, port: Number(url.port) || 443, servername: url.hostname }, () => {
-         const cert = socket.getPeerCertificate(true)
-         socket.destroy()
-         if (!cert || !cert.pubkey) return reject(new Error('no peer certificate'))
-         // cert.pubkey is empirically SubjectPublicKeyInfo DER (Node exposes it via OpenSSL's
-         // X509_PUBKEY_get0 path); integration test `spki-probe.int.test.ts` validates parity
-         // against `openssl x509 -pubkey | openssl pkey -pubin -outform DER | sha256sum`.
-         const pin = createHash('sha256').update(cert.pubkey).digest('base64')
-         resolve(pin)
-       })
-       socket.once('error', reject)
-       socket.setTimeout(10_000, () => { socket.destroy(); reject(new Error('probe timeout')) })
-     })
+       const socket = connect(
+         { host: url.hostname, port: Number(url.port) || 443, servername: url.hostname },
+         () => {
+           const cert = socket.getPeerCertificate(true);
+           socket.destroy();
+           if (!cert || !cert.pubkey) return reject(new Error("no peer certificate"));
+           // cert.pubkey is empirically SubjectPublicKeyInfo DER (Node exposes it via OpenSSL's
+           // X509_PUBKEY_get0 path); integration test `spki-probe.int.test.ts` validates parity
+           // against `openssl x509 -pubkey | openssl pkey -pubin -outform DER | sha256sum`.
+           const pin = createHash("sha256").update(cert.pubkey).digest("base64");
+           resolve(pin);
+         },
+       );
+       socket.once("error", reject);
+       socket.setTimeout(10_000, () => {
+         socket.destroy();
+         reject(new Error("probe timeout"));
+       });
+     });
    }
    ```
    The result feeds the §Option 2 TOFU flow's user-visible confirmation dialog. This is SPKI SHA-256 base64 — OWASP's recommended pinning format ([OWASP Certificate and Public Key Pinning](https://owasp.org/www-community/controls/Certificate_and_Public_Key_Pinning)).
 5. **Author PKCE state + challenge.** In `packages/runtime-daemon/src/onboarding/pkce-state.ts`:
    ```ts
-   import * as oauth from 'oauth4webapi'
+   import * as oauth from "oauth4webapi";
    export async function generatePKCE() {
-     const verifier = oauth.generateRandomCodeVerifier()          // 43-128 char URL-safe per RFC 7636 §4.1
-     const challenge = await oauth.calculatePKCECodeChallenge(verifier) // SHA-256 S256 only
-     const state = oauth.generateRandomState()                     // CSRF guard
-     return { verifier, challenge, state }
+     const verifier = oauth.generateRandomCodeVerifier(); // 43-128 char URL-safe per RFC 7636 §4.1
+     const challenge = await oauth.calculatePKCECodeChallenge(verifier); // SHA-256 S256 only
+     const state = oauth.generateRandomState(); // CSRF guard
+     return { verifier, challenge, state };
    }
    ```
    `oauth4webapi` v3.8.5 (panva) — minimal-surface-area OAuth primitives per [panva/oauth4webapi README](https://github.com/panva/oauth4webapi). Refuse `plain` by never exposing a code path that sets `code_challenge_method` to anything other than `S256`. S256-only is both RFC 7636's strong recommendation and our enforceable baseline.
 6. **Author PKCE callback server.** In `packages/runtime-daemon/src/onboarding/pkce-callback.ts`:
    ```ts
-   import { createServer } from 'node:http'
-   export async function awaitCallback(expectedState: string, verifier: string): Promise<{ code: string, verifier: string }> {
+   import { createServer } from "node:http";
+   export async function awaitCallback(
+     expectedState: string,
+     verifier: string,
+   ): Promise<{ code: string; verifier: string }> {
      return new Promise((resolve, reject) => {
        const server = createServer((req, res) => {
-         const url = new URL(req.url!, 'http://127.0.0.1')
-         if (url.pathname !== '/callback') { res.statusCode = 404; return res.end() }
-         const code = url.searchParams.get('code')
-         const state = url.searchParams.get('state')
-         if (state !== expectedState) { res.statusCode = 400; res.end('pkce_state_mismatch'); server.close(); return reject(new Error('pkce_state_mismatch')) }
-         if (!code) { res.statusCode = 400; res.end('missing_code'); server.close(); return reject(new Error('missing_code')) }
-         res.statusCode = 200; res.end('You may close this window.')
-         server.close()
-         resolve({ code, verifier })
-       })
-       server.listen(0, '127.0.0.1')                   // '127.0.0.1' literal, NOT 'localhost' — see §Risks And Blockers
-       const abortSignal = AbortSignal.timeout(300_000) // 5-min ceiling per Spec-026 §Fallback Behavior
-       abortSignal.addEventListener('abort', () => { server.close(); reject(new Error('callback_timeout')) })
-     })
+         const url = new URL(req.url!, "http://127.0.0.1");
+         if (url.pathname !== "/callback") {
+           res.statusCode = 404;
+           return res.end();
+         }
+         const code = url.searchParams.get("code");
+         const state = url.searchParams.get("state");
+         if (state !== expectedState) {
+           res.statusCode = 400;
+           res.end("pkce_state_mismatch");
+           server.close();
+           return reject(new Error("pkce_state_mismatch"));
+         }
+         if (!code) {
+           res.statusCode = 400;
+           res.end("missing_code");
+           server.close();
+           return reject(new Error("missing_code"));
+         }
+         res.statusCode = 200;
+         res.end("You may close this window.");
+         server.close();
+         resolve({ code, verifier });
+       });
+       server.listen(0, "127.0.0.1"); // '127.0.0.1' literal, NOT 'localhost' — see §Risks And Blockers
+       const abortSignal = AbortSignal.timeout(300_000); // 5-min ceiling per Spec-026 §Fallback Behavior
+       abortSignal.addEventListener("abort", () => {
+         server.close();
+         reject(new Error("callback_timeout"));
+       });
+     });
    }
    ```
    The ephemeral port is requested via `listen(0, ...)` and surfaced from `server.address()` for the sign-up-URL redirect_uri construction. Binding to `'127.0.0.1'` (IPv4 literal) avoids the `'localhost'` DNS-resolution ambiguity documented in `go-oauth2`'s issues and referenced by RFC 8252 §7.3 — `'localhost'` can resolve to `::1` or `127.0.0.1` depending on system configuration, which produces intermittent `ECONNREFUSED` when the browser and the listener resolve differently (see §Risks And Blockers).
@@ -347,11 +375,15 @@ interface OnboardingChoiceResetPayload {
 8. **Author service orchestrator.** In `packages/runtime-daemon/src/onboarding/service.ts`, expose `OnboardingService` with a pure state machine `unresolved → partial → resolved` and the inverse `resolved → reset → unresolved`. Methods:
    ```ts
    class OnboardingService {
-     async readState(): Promise<OnboardingState>
-     async startOrResume(): Promise<OnboardingStartResponse>
-     async submitChoice(req: OnboardingSubmitChoiceRequest): Promise<OnboardingSubmitChoiceResponse>
-     async submitTelemetry(req: OnboardingSubmitTelemetryRequest): Promise<OnboardingSubmitTelemetryResponse>
-     async reset(req: OnboardingResetRequest): Promise<OnboardingResetResponse>
+     async readState(): Promise<OnboardingState>;
+     async startOrResume(): Promise<OnboardingStartResponse>;
+     async submitChoice(
+       req: OnboardingSubmitChoiceRequest,
+     ): Promise<OnboardingSubmitChoiceResponse>;
+     async submitTelemetry(
+       req: OnboardingSubmitTelemetryRequest,
+     ): Promise<OnboardingSubmitTelemetryResponse>;
+     async reset(req: OnboardingResetRequest): Promise<OnboardingResetResponse>;
    }
    ```
    Each method persists the partial-state delta **before** any network or keystore side effect, so a crash mid-operation resumes cleanly on next call. Ordering: (a) write partial state, (b) run side effect (network / keystore), (c) update partial state / promote to `[onboarding]`, (d) delete partial state on full resolution.
@@ -389,21 +421,21 @@ interface OnboardingChoiceResetPayload {
 19. **Wire partial-state resume.** On `OnboardingStart`, the service reads partial state (step 3); if non-null and fresh (< 24h), it returns `OnboardingStartResponse { state: 'partial', partial: ... }` and the CLI / desktop resumes at the indicated step. If stale, the partial-state file is deleted and the service returns `state: 'unresolved'`.
 20. **Wire config-schema-version migration.** When the daemon starts and reads `config.toml` with a `schema_version` older than the version shipped by this plan, it treats the `[onboarding]` block as absent (or as legacy `[onboarding-legacy]` if such a block is found on the explicit migration path) and emits `onboarding.choice_made` with `migrated: true` when the user next resolves. The legacy-block mapping is a no-op today because there is no legacy onboarding config; the infrastructure is wired so that future migrations have a hook.
 21. **Reconcile contracts docs.** Extend `docs/architecture/contracts/api-payload-contracts.md` with the five request / response shapes from §API And Transport Changes under a new §Onboarding APIs section (positioned before §GDPR And Rate Limiting to match the spec's rough alphabetic-by-domain ordering). Extend `docs/architecture/contracts/error-contracts.md` with the seven new error codes (see §Error Codes below).
-22. **Verify BL-086 registration landed.** Confirm Spec-006 §Event Taxonomy now carries the `onboarding.choice_made` / `onboarding.choice_reset` entries registered under BL-086 (completed 2026-04-18, `onboarding_lifecycle` category). Cross-check the registered payload shapes against this plan's `events.ts` emitter output — any drift between the Spec-006-registered payload and what this plan emits is a review-blocking mismatch and must be resolved by editing whichever side is wrong *before* merge.
+22. **Verify BL-086 registration landed.** Confirm Spec-006 §Event Taxonomy now carries the `onboarding.choice_made` / `onboarding.choice_reset` entries registered under BL-086 (completed 2026-04-18, `onboarding_lifecycle` category). Cross-check the registered payload shapes against this plan's `events.ts` emitter output — any drift between the Spec-006-registered payload and what this plan emits is a review-blocking mismatch and must be resolved by editing whichever side is wrong _before_ merge.
 
 ### Error Codes
 
 Added to `docs/architecture/contracts/error-contracts.md` in step 21.
 
-| Code | HTTP-equivalent | Meaning |
-| --- | --- | --- |
-| `onboarding.already_resolved` | 409 | `OnboardingSubmitChoice` called when state is already `resolved`. Client should call `OnboardingRead` or `OnboardingReset`. |
-| `onboarding.partial_stale` | 410 | Partial state older than 24h; caller should invoke `OnboardingStart` fresh. |
-| `onboarding.spki_mismatch` | 412 | Subsequent connection's SPKI differs from pinned value (not raised by this plan's service directly but registered for Spec-008 / Plan-008 consumption). |
-| `onboarding.keystore_unavailable` | 503 | Keystore probe failed; Option 2 / Option 3 cannot persist. |
-| `onboarding.callback_timeout` | 408 | 5-min loopback callback ceiling elapsed. |
-| `onboarding.pkce_state_mismatch` | 400 | Callback state parameter did not match the one generated at flow start. |
-| `onboarding.headless_required` | 428 | CLI detected `!process.stdin.isTTY` and no env-var override was provided; prompts for the override. |
+| Code                              | HTTP-equivalent | Meaning                                                                                                                                                 |
+| --------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `onboarding.already_resolved`     | 409             | `OnboardingSubmitChoice` called when state is already `resolved`. Client should call `OnboardingRead` or `OnboardingReset`.                             |
+| `onboarding.partial_stale`        | 410             | Partial state older than 24h; caller should invoke `OnboardingStart` fresh.                                                                             |
+| `onboarding.spki_mismatch`        | 412             | Subsequent connection's SPKI differs from pinned value (not raised by this plan's service directly but registered for Spec-008 / Plan-008 consumption). |
+| `onboarding.keystore_unavailable` | 503             | Keystore probe failed; Option 2 / Option 3 cannot persist.                                                                                              |
+| `onboarding.callback_timeout`     | 408             | 5-min loopback callback ceiling elapsed.                                                                                                                |
+| `onboarding.pkce_state_mismatch`  | 400             | Callback state parameter did not match the one generated at flow start.                                                                                 |
+| `onboarding.headless_required`    | 428             | CLI detected `!process.stdin.isTTY` and no env-var override was provided; prompts for the override.                                                     |
 
 ## Parallelization Notes
 
@@ -436,7 +468,7 @@ Added to `docs/architecture/contracts/error-contracts.md` in step 21.
 - CLI headless: run `sidekicks invite create` without a TTY → assert exit code 2 and instruction printout. Re-run with `SIDEKICKS_ONBOARDING_CHOICE=free-public-relay SIDEKICKS_TELEMETRY_OPT_IN=false` → assert `[onboarding]` block is byte-identical to the interactive-path result (this is the Spec-026 acceptance criterion "env-var path produces byte-identical persisted state").
 - CLI Option 2 against a test HTTPS self-host relay (testcontainer running Plan-025's Node relay): paste admin token → verify SPKI pin in `[onboarding]`; verify admin token in keystore (mock keyring backend for CI). Subsequent connect with cert rotation → assert `onboarding.spki_mismatch` error code surfaces.
 - CLI Option 3 against a mock hosted endpoint: start flow → browser opens (intercepted via `SIDEKICKS_BROWSER_OPEN=echo`) → simulated callback to `http://127.0.0.1:<port>/callback?code=...&state=...` → scoped token in keystore; `[onboarding]` block resolved.
-- Desktop E2E via Playwright `_electron` (per Plan-023's test harness): launch packaged app → click *Invite collaborator* → walkthrough appears → select Option 1 → verify the preload bridge's `presentChoice()` promise resolves → verify the daemon JSON-RPC `OnboardingSubmitChoice` was called.
+- Desktop E2E via Playwright `_electron` (per Plan-023's test harness): launch packaged app → click _Invite collaborator_ → walkthrough appears → select Option 1 → verify the preload bridge's `presentChoice()` promise resolves → verify the daemon JSON-RPC `OnboardingSubmitChoice` was called.
 - Desktop E2E: Option 2 path → password-dialog BrowserWindow opens → type admin token → window closes → SPKI-confirm dialog → click confirm → keystore write observed (via the main-process keystore-client spy).
 - Desktop E2E: Option 3 path → `shell.openExternal` intercepted → loopback server responds to simulated callback → keystore write observed.
 
@@ -477,7 +509,7 @@ Added to `docs/architecture/contracts/error-contracts.md` in step 21.
 
 - **`@inquirer/prompts` v8.x ESM-only.** v8 removed CommonJS output in favor of ESM per [Inquirer.js v8 release notes](https://github.com/SBoudrias/Inquirer.js/releases). The `packages/cli` package must be published ESM-only (or dual-publish via `tsup`). If the CLI stack is CommonJS-only, pin to `@inquirer/prompts` v7.x (last CJS-supporting line) and note the downgrade. Preference: ship ESM; Node 24 LTS is ESM-native and we target Node 24 per ADR-016.
 - **`smol-toml` recency.** `smol-toml` v1.6.1 is actively maintained (last published 2025-Q4 — see [squirrelchat/smol-toml releases](https://github.com/squirrelchat/smol-toml/releases)) but has a smaller user base than the historically-popular `@iarna/toml`. `@iarna/toml` is the traditional choice but has had no publish since 2021, does not claim TOML 1.0.0 conformance, and lacks TOML 1.1.0 support (which we will need for the `schema_version` integer-with-underscore-separator form per TOML 1.1.0). Accepted: `smol-toml` is correct choice despite smaller ecosystem. Mitigation: contract tests against the exact TOML-1.0.0 + 1.1.0 fixtures in the spec's §Persistence table.
-- **`smol-toml` comment preservation gap.** `smol-toml` is a *parser+stringifier* pair, not a format-preserving round-trip library. Writing back a parsed TOML file loses comments and whitespace. Mitigation: on write, read the existing `[onboarding]` block; if we are only updating fields within that block, use a regex-based in-place replacement that preserves the surrounding document (including comments). Cleaner mitigation in follow-up: adopt `toml-edit`-style format-preserving editor library when one becomes available in the JS ecosystem. For V1, regex-based in-place replacement is acceptable because `[onboarding]` lives in a stable-named block.
+- **`smol-toml` comment preservation gap.** `smol-toml` is a _parser+stringifier_ pair, not a format-preserving round-trip library. Writing back a parsed TOML file loses comments and whitespace. Mitigation: on write, read the existing `[onboarding]` block; if we are only updating fields within that block, use a regex-based in-place replacement that preserves the surrounding document (including comments). Cleaner mitigation in follow-up: adopt `toml-edit`-style format-preserving editor library when one becomes available in the JS ecosystem. For V1, regex-based in-place replacement is acceptable because `[onboarding]` lives in a stable-named block.
 - **`oauth4webapi` minimal surface.** `oauth4webapi` v3.8.5 (panva) exposes primitives, not a prebuilt flow. That's deliberate — we only need verifier+challenge+state generation, not token-endpoint negotiation — because the hosted token endpoint is our own. Alternative: `openid-client` v6.8.3 (same author) bundles full OIDC discovery + token exchange; rejected because OIDC semantics exceed our Option 3 needs and the bundle size penalty hits the CLI startup path (Node ESM cold-start sensitive to dep graph).
 - **`'127.0.0.1'` vs `'localhost'` binding.** RFC 8252 §7.3 ("Loopback Interface Redirection") says the client "MAY" use either — but there is a well-documented class of bug where the browser resolves `localhost` to `::1` (IPv6 loopback) while the Node listener bound via `listen(0, 'localhost')` only listens on `127.0.0.1` (or vice versa), producing intermittent `ECONNREFUSED` on the callback. See [Node.js dual-stack localhost issue](https://github.com/nodejs/node/issues/40702) for the long history. Mitigation: bind literally to `'127.0.0.1'` and emit the `redirect_uri` as `http://127.0.0.1:<port>/callback`. IPv6-only systems are out of scope for Option 3 in V1 (documented in Spec-026 §Open Questions).
 - **AbortSignal.timeout 5-min ceiling.** Available since Node 17.3 ([Node.js AbortSignal.timeout docs](https://nodejs.org/api/globals.html#abortsignaltimeoutdelay)). We target Node 24 LTS so this is safe. Confirm in the `engines` field of `packages/runtime-daemon/package.json` (add `"node": ">=24.0.0"` if not already present — this is a Plan-007 edit, noted here only for the precondition).
@@ -521,6 +553,7 @@ Tier 9 per [cross-plan-dependencies.md §5 Canonical Build Order](../architectur
 - Plan-008 (hosted relay / control-plane — Option 3's sign-up redirect endpoint, when deployed).
 
 And **strictly upstream** of nothing — it is a leaf-node plan. CLI-first-release shippability is gated on Plan-007 only; desktop shippability is additionally gated on Plan-023.
+
 ## References
 
 ### Primary project docs
@@ -541,18 +574,18 @@ And **strictly upstream** of nothing — it is a leaf-node plan. CLI-first-relea
 
 ### External primary sources
 
-| Source | URL | Accessed |
-| --- | --- | --- |
-| RFC 8252 — OAuth 2.0 for Native Apps (§7.1 private-use URI / §7.3 loopback interface / §8.8 malicious external user-agents) | <https://datatracker.ietf.org/doc/html/rfc8252> | 2026-04-17 |
-| RFC 7636 — Proof Key for Code Exchange (PKCE) by OAuth Public Clients | <https://datatracker.ietf.org/doc/html/rfc7636> | 2026-04-17 |
-| XDG Base Directory Specification v0.8 | <https://specifications.freedesktop.org/basedir-spec/latest/> | 2026-04-17 |
-| EU ePrivacy Directive (Directive 2002/58/EC, Art. 5(3), consolidated) | <https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:02002L0058-20091219> | 2026-04-17 |
-| OWASP Certificate and Public Key Pinning | <https://owasp.org/www-community/controls/Certificate_and_Public_Key_Pinning> | 2026-04-17 |
-| Electron `safeStorage` API | <https://www.electronjs.org/docs/latest/api/safe-storage> | 2026-04-17 |
-| `@inquirer/prompts` (v8.x) — ESM-native TTY prompt library | <https://github.com/SBoudrias/Inquirer.js> | 2026-04-17 |
-| `oauth4webapi` (v3.8.5, panva) — minimal OAuth + PKCE primitives | <https://github.com/panva/oauth4webapi> | 2026-04-17 |
-| `smol-toml` (v1.6.1) — TOML 1.1.0 / 1.0.0 parser + stringifier | <https://github.com/squirrelchat/smol-toml> | 2026-04-17 |
-| `@napi-rs/keyring` (v1.2.0) — Node-native OS keystore | <https://github.com/Brooooooklyn/keyring-node> | 2026-04-17 |
-| VS Code walkthroughs UX guideline | <https://code.visualstudio.com/api/ux-guidelines/walkthroughs> | 2026-04-17 |
-| Node.js `AbortSignal.timeout()` API | <https://nodejs.org/api/globals.html#abortsignaltimeoutdelay> | 2026-04-17 |
-| Node.js dual-stack `localhost` resolution caveat (issue #40702) | <https://github.com/nodejs/node/issues/40702> | 2026-04-17 |
+| Source                                                                                                                      | URL                                                                             | Accessed   |
+| --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- | ---------- |
+| RFC 8252 — OAuth 2.0 for Native Apps (§7.1 private-use URI / §7.3 loopback interface / §8.8 malicious external user-agents) | <https://datatracker.ietf.org/doc/html/rfc8252>                                 | 2026-04-17 |
+| RFC 7636 — Proof Key for Code Exchange (PKCE) by OAuth Public Clients                                                       | <https://datatracker.ietf.org/doc/html/rfc7636>                                 | 2026-04-17 |
+| XDG Base Directory Specification v0.8                                                                                       | <https://specifications.freedesktop.org/basedir-spec/latest/>                   | 2026-04-17 |
+| EU ePrivacy Directive (Directive 2002/58/EC, Art. 5(3), consolidated)                                                       | <https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:02002L0058-20091219> | 2026-04-17 |
+| OWASP Certificate and Public Key Pinning                                                                                    | <https://owasp.org/www-community/controls/Certificate_and_Public_Key_Pinning>   | 2026-04-17 |
+| Electron `safeStorage` API                                                                                                  | <https://www.electronjs.org/docs/latest/api/safe-storage>                       | 2026-04-17 |
+| `@inquirer/prompts` (v8.x) — ESM-native TTY prompt library                                                                  | <https://github.com/SBoudrias/Inquirer.js>                                      | 2026-04-17 |
+| `oauth4webapi` (v3.8.5, panva) — minimal OAuth + PKCE primitives                                                            | <https://github.com/panva/oauth4webapi>                                         | 2026-04-17 |
+| `smol-toml` (v1.6.1) — TOML 1.1.0 / 1.0.0 parser + stringifier                                                              | <https://github.com/squirrelchat/smol-toml>                                     | 2026-04-17 |
+| `@napi-rs/keyring` (v1.2.0) — Node-native OS keystore                                                                       | <https://github.com/Brooooooklyn/keyring-node>                                  | 2026-04-17 |
+| VS Code walkthroughs UX guideline                                                                                           | <https://code.visualstudio.com/api/ux-guidelines/walkthroughs>                  | 2026-04-17 |
+| Node.js `AbortSignal.timeout()` API                                                                                         | <https://nodejs.org/api/globals.html#abortsignaltimeoutdelay>                   | 2026-04-17 |
+| Node.js dual-stack `localhost` resolution caveat (issue #40702)                                                             | <https://github.com/nodejs/node/issues/40702>                                   | 2026-04-17 |

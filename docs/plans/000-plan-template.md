@@ -16,16 +16,16 @@
   - Do not restate the entire spec; reference it and translate it into execution
 -->
 
-| Field | Value |
-| --- | --- |
-| **Status** | `draft` · `review` · `approved` · `completed` |
-| **NNN** | `{NNN}` |
-| **Slug** | `{kebab-case-slug}` |
-| **Date** | `YYYY-MM-DD` |
-| **Author(s)** | `{name(s)}` |
-| **Spec** | `{link to specs/NNN-...}` |
-| **Required ADRs** | `{link(s)}` |
-| **Dependencies** | `{Plan-NNN (reason), or None}` |
+| Field               | Value                                                                     |
+| ------------------- | ------------------------------------------------------------------------- |
+| **Status**          | `draft` · `review` · `approved` · `completed`                             |
+| **NNN**             | `{NNN}`                                                                   |
+| **Slug**            | `{kebab-case-slug}`                                                       |
+| **Date**            | `YYYY-MM-DD`                                                              |
+| **Author(s)**       | `{name(s)}`                                                               |
+| **Spec**            | `{link to specs/NNN-...}`                                                 |
+| **Required ADRs**   | `{link(s)}`                                                               |
+| **Dependencies**    | `{Plan-NNN (reason), or None}`                                            |
 | **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
 
 ## Goal

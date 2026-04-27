@@ -1,14 +1,14 @@
 # Spec-020: Observability And Failure Recovery
 
-| Field | Value |
-| --- | --- |
-| **Status** | `approved` |
-| **NNN** | `020` |
-| **Slug** | `observability-and-failure-recovery` |
-| **Date** | `2026-04-14` |
-| **Author(s)** | `Codex` |
-| **Depends On** | [Persistence Recovery And Replay](../specs/015-persistence-recovery-and-replay.md), [Observability Architecture](../architecture/observability-architecture.md), [Data Architecture](../architecture/data-architecture.md) |
-| **Implementation Plan** | [Plan-020: Observability And Failure Recovery](../plans/020-observability-and-failure-recovery.md) |
+| Field                   | Value                                                                                                                                                                                                                      |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Status**              | `approved`                                                                                                                                                                                                                 |
+| **NNN**                 | `020`                                                                                                                                                                                                                      |
+| **Slug**                | `observability-and-failure-recovery`                                                                                                                                                                                       |
+| **Date**                | `2026-04-14`                                                                                                                                                                                                               |
+| **Author(s)**           | `Codex`                                                                                                                                                                                                                    |
+| **Depends On**          | [Persistence Recovery And Replay](../specs/015-persistence-recovery-and-replay.md), [Observability Architecture](../architecture/observability-architecture.md), [Data Architecture](../architecture/data-architecture.md) |
+| **Implementation Plan** | [Plan-020: Observability And Failure Recovery](../plans/020-observability-and-failure-recovery.md)                                                                                                                         |
 
 ## Purpose
 
@@ -84,7 +84,7 @@ This spec covers failure categories, health signals, stuck-run detection, replay
 
 ## PII in Diagnostics
 
-Diagnostic pipelines (driver raw events, raw command output, tool traces, detailed reasoning payloads, OpenTelemetry spans/logs, error-tracker events) carry PII-carrying content by default of their purpose — they capture the full model prompt, the full command arguments, the full tool-call result — so the baseline question is not *"does this carry PII"* but *"what is the redaction and retention discipline that keeps diagnostics from becoming an Article-17 escape hatch."* This section establishes that discipline as a required-behavior policy; Spec-022 owns the storage-and-shred side.
+Diagnostic pipelines (driver raw events, raw command output, tool traces, detailed reasoning payloads, OpenTelemetry spans/logs, error-tracker events) carry PII-carrying content by default of their purpose — they capture the full model prompt, the full command arguments, the full tool-call result — so the baseline question is not _"does this carry PII"_ but _"what is the redaction and retention discipline that keeps diagnostics from becoming an Article-17 escape hatch."_ This section establishes that discipline as a required-behavior policy; Spec-022 owns the storage-and-shred side.
 
 ### Required Behavior (policy)
 
@@ -96,7 +96,7 @@ Diagnostic pipelines (driver raw events, raw command output, tool traces, detail
 
 ### Industry Precedent
 
-**OpenTelemetry Generative AI semantic conventions.** [OTel GenAI semconv v1.36.0](https://opentelemetry.io/docs/specs/semconv/gen-ai/) (accessed 2026-04-19) defines attributes `gen_ai.prompt`, `gen_ai.completion`, `gen_ai.system`. The spec states verbatim regarding these attributes: *"Instrumentations SHOULD NOT capture them by default"* — a baseline opt-in posture this spec mirrors for outbound telemetry.
+**OpenTelemetry Generative AI semantic conventions.** [OTel GenAI semconv v1.36.0](https://opentelemetry.io/docs/specs/semconv/gen-ai/) (accessed 2026-04-19) defines attributes `gen_ai.prompt`, `gen_ai.completion`, `gen_ai.system`. The spec states verbatim regarding these attributes: _"Instrumentations SHOULD NOT capture them by default"_ — a baseline opt-in posture this spec mirrors for outbound telemetry.
 
 **Datadog Sensitive Data Scanner.** [Datadog Sensitive Data Scanner documentation](https://docs.datadoghq.com/sensitive_data_scanner/) (accessed 2026-04-19) publishes a managed-rule library of default scanners (email addresses, US/EU national IDs, credit cards, API tokens, private IPs) that redact matching substrings at ingest. Our default-deny-on-outbound policy is stricter than Datadog's default-allow-with-redaction posture because we redact the entire field when PII-risk is suspected rather than attempting substring identification — consistent with the "partial PII is still PII" invariant.
 

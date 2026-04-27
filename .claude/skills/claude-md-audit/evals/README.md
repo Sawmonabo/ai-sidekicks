@@ -17,22 +17,22 @@ python3 .claude/skills/claude-md-audit/evals/scripts/eval_harness.py full --test
 
 ## Commands
 
-| Command | Description |
-|---------|-------------|
-| `setup [--iteration N] [--test ID]` | Create workspace for next (or specified) iteration |
-| `run [iteration] [--model M] [--test ID]` | Setup + launch all `claude -p` runs in parallel + capture timing |
-| `grade [iteration] [--model M]` | Grade each run's report against assertions via `claude -p` |
-| `aggregate [iteration]` | Aggregate grading results into `benchmark.json` |
-| `full [iteration] [--model M] [--test ID]` | run + grade + aggregate in one command |
-| `status [iteration]` | Show pass rates for an iteration (or latest) |
+| Command                                    | Description                                                      |
+| ------------------------------------------ | ---------------------------------------------------------------- |
+| `setup [--iteration N] [--test ID]`        | Create workspace for next (or specified) iteration               |
+| `run [iteration] [--model M] [--test ID]`  | Setup + launch all `claude -p` runs in parallel + capture timing |
+| `grade [iteration] [--model M]`            | Grade each run's report against assertions via `claude -p`       |
+| `aggregate [iteration]`                    | Aggregate grading results into `benchmark.json`                  |
+| `full [iteration] [--model M] [--test ID]` | run + grade + aggregate in one command                           |
+| `status [iteration]`                       | Show pass rates for an iteration (or latest)                     |
 
 ## Options
 
-| Flag | Description | Example |
-|------|-------------|---------|
+| Flag            | Description                                | Example                          |
+| --------------- | ------------------------------------------ | -------------------------------- |
 | `--model MODEL` | Claude model passed to `claude -p --model` | `--model sonnet`, `--model opus` |
-| `--test ID` | Run only a specific test by ID | `--test m32rimm-real-world` |
-| `--iteration N` | Force a specific iteration number | `--iteration 10` |
+| `--test ID`     | Run only a specific test by ID             | `--test m32rimm-real-world`      |
+| `--iteration N` | Force a specific iteration number          | `--iteration 10`                 |
 
 ## Progress Output
 
@@ -51,11 +51,11 @@ The harness polls all running processes and reports completions as they happen:
 
 ## Test Suite
 
-| Test | Assertions | Target |
-|------|:-:|---|
-| `ai-foundations-regression` | 12 (R1-R12) | Current repo CLAUDE.md + rules |
-| `includes-fixture` | 7 (I1-I7) | Bundled test fixture with @AGENTS.md |
-| `m32rimm-real-world` | 16 (A1-A16) | External m32rimm repo |
+| Test                        | Assertions  | Target                               |
+| --------------------------- | :---------: | ------------------------------------ |
+| `ai-foundations-regression` | 12 (R1-R12) | Current repo CLAUDE.md + rules       |
+| `includes-fixture`          |  7 (I1-I7)  | Bundled test fixture with @AGENTS.md |
+| `m32rimm-real-world`        | 16 (A1-A16) | External m32rimm repo                |
 
 **Total: 35 assertions.** Target: with-skill >=90% per test.
 
@@ -63,12 +63,12 @@ The harness polls all running processes and reports completions as they happen:
 
 Each `{test}-{variant}/` directory contains:
 
-| File | Created By | Contents |
-|------|-----------|----------|
-| `eval_metadata.json` | `setup` | Prompt + assertions |
-| `outputs/report.md` | `run` | The audit report |
-| `claude-stdout.txt` | `run` | Raw `claude -p` output |
-| `timing.json` | `run` | Execution duration |
-| `grading.json` | `grade` | Pass/fail per assertion |
+| File                 | Created By | Contents                |
+| -------------------- | ---------- | ----------------------- |
+| `eval_metadata.json` | `setup`    | Prompt + assertions     |
+| `outputs/report.md`  | `run`      | The audit report        |
+| `claude-stdout.txt`  | `run`      | Raw `claude -p` output  |
+| `timing.json`        | `run`      | Execution duration      |
+| `grading.json`       | `grade`    | Pass/fail per assertion |
 
 Iteration-level `benchmark.json` is created by `aggregate`.

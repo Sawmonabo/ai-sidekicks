@@ -1,14 +1,14 @@
 # Spec-013: Live Timeline Visibility And Reasoning Surfaces
 
-| Field | Value |
-| --- | --- |
-| **Status** | `approved` |
-| **NNN** | `013` |
-| **Slug** | `live-timeline-visibility-and-reasoning-surfaces` |
-| **Date** | `2026-04-14` |
-| **Author(s)** | `Codex` |
-| **Depends On** | [Artifact Diff And Approval Model](../domain/artifact-diff-and-approval-model.md), [Observability Architecture](../architecture/observability-architecture.md), [Session Event Taxonomy And Audit Log](../specs/006-session-event-taxonomy-and-audit-log.md) |
-| **Implementation Plan** | [Plan-013: Live Timeline Visibility And Reasoning Surfaces](../plans/013-live-timeline-visibility-and-reasoning-surfaces.md) |
+| Field                   | Value                                                                                                                                                                                                                                                        |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Status**              | `approved`                                                                                                                                                                                                                                                   |
+| **NNN**                 | `013`                                                                                                                                                                                                                                                        |
+| **Slug**                | `live-timeline-visibility-and-reasoning-surfaces`                                                                                                                                                                                                            |
+| **Date**                | `2026-04-14`                                                                                                                                                                                                                                                 |
+| **Author(s)**           | `Codex`                                                                                                                                                                                                                                                      |
+| **Depends On**          | [Artifact Diff And Approval Model](../domain/artifact-diff-and-approval-model.md), [Observability Architecture](../architecture/observability-architecture.md), [Session Event Taxonomy And Audit Log](../specs/006-session-event-taxonomy-and-audit-log.md) |
+| **Implementation Plan** | [Plan-013: Live Timeline Visibility And Reasoning Surfaces](../plans/013-live-timeline-visibility-and-reasoning-surfaces.md)                                                                                                                                 |
 
 ## Purpose
 
@@ -77,12 +77,12 @@ Agent-to-agent and participant-to-agent handoffs rendered as discrete timeline r
 
 Run-state subtypes are rendering types that map from underlying run lifecycle events. They exist so the timeline can render distinct visual treatments without inspecting raw event payloads.
 
-| Entry Type | Rendered As | Source Condition |
-| --- | --- | --- |
-| `run.paused` | Status row with pause icon | Run transitions to `paused` state |
-| `run.resumed` | Status row with resume icon | Run transitions from `paused` to `running` |
-| `run.blocked` | Status row with block indicator | Run enters `waiting_for_approval` or `waiting_for_input` |
-| `run.unblocked` | Status row with unblock indicator | Approval or input resolves the block |
+| Entry Type      | Rendered As                       | Source Condition                                         |
+| --------------- | --------------------------------- | -------------------------------------------------------- |
+| `run.paused`    | Status row with pause icon        | Run transitions to `paused` state                        |
+| `run.resumed`   | Status row with resume icon       | Run transitions from `paused` to `running`               |
+| `run.blocked`   | Status row with block indicator   | Run enters `waiting_for_approval` or `waiting_for_input` |
+| `run.unblocked` | Status row with unblock indicator | Approval or input resolves the block                     |
 
 ## Context Window and Usage Meters
 

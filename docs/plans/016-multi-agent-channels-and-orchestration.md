@@ -1,16 +1,16 @@
 # Plan-016: Multi-Agent Channels And Orchestration
 
-| Field | Value |
-| --- | --- |
-| **Status** | `approved` |
-| **NNN** | `016` |
-| **Slug** | `multi-agent-channels-and-orchestration` |
-| **Date** | `2026-04-14` |
-| **Author(s)** | `Codex` |
-| **Spec** | [Spec-016: Multi-Agent Channels And Orchestration](../specs/016-multi-agent-channels-and-orchestration.md) |
-| **Required ADRs** | [ADR-001](../decisions/001-session-is-the-primary-domain-object.md), [ADR-005](../decisions/005-provider-drivers-use-a-normalized-interface.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md) |
-| **Dependencies** | [Plan-001](./001-shared-session-core.md) (session core), [Plan-004](./004-queue-steer-pause-resume.md) (queue/steer) |
-| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
+| Field               | Value                                                                                                                                                                                                       |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Status**          | `approved`                                                                                                                                                                                                  |
+| **NNN**             | `016`                                                                                                                                                                                                       |
+| **Slug**            | `multi-agent-channels-and-orchestration`                                                                                                                                                                    |
+| **Date**            | `2026-04-14`                                                                                                                                                                                                |
+| **Author(s)**       | `Codex`                                                                                                                                                                                                     |
+| **Spec**            | [Spec-016: Multi-Agent Channels And Orchestration](../specs/016-multi-agent-channels-and-orchestration.md)                                                                                                  |
+| **Required ADRs**   | [ADR-001](../decisions/001-session-is-the-primary-domain-object.md), [ADR-005](../decisions/005-provider-drivers-use-a-normalized-interface.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md) |
+| **Dependencies**    | [Plan-001](./001-shared-session-core.md) (session core), [Plan-004](./004-queue-steer-pause-resume.md) (queue/steer)                                                                                        |
+| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md)                                                                                                                                   |
 
 ## Goal
 

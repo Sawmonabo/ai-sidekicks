@@ -1,14 +1,14 @@
 # Spec-002: Invite Membership And Presence
 
-| Field | Value |
-| --- | --- |
-| **Status** | `approved` |
-| **NNN** | `002` |
-| **Slug** | `invite-membership-and-presence` |
-| **Date** | `2026-04-14` |
-| **Author(s)** | `Codex` |
-| **Depends On** | [Participant And Membership Model](../domain/participant-and-membership-model.md), [Session Model](../domain/session-model.md), [Component Architecture Control Plane](../architecture/component-architecture-control-plane.md), [Security Architecture](../architecture/security-architecture.md), [Shared Session Core](../specs/001-shared-session-core.md) |
-| **Implementation Plan** | [Plan-002: Invite Membership And Presence](../plans/002-invite-membership-and-presence.md) |
+| Field                   | Value                                                                                                                                                                                                                                                                                                                                                          |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Status**              | `approved`                                                                                                                                                                                                                                                                                                                                                     |
+| **NNN**                 | `002`                                                                                                                                                                                                                                                                                                                                                          |
+| **Slug**                | `invite-membership-and-presence`                                                                                                                                                                                                                                                                                                                               |
+| **Date**                | `2026-04-14`                                                                                                                                                                                                                                                                                                                                                   |
+| **Author(s)**           | `Codex`                                                                                                                                                                                                                                                                                                                                                        |
+| **Depends On**          | [Participant And Membership Model](../domain/participant-and-membership-model.md), [Session Model](../domain/session-model.md), [Component Architecture Control Plane](../architecture/component-architecture-control-plane.md), [Security Architecture](../architecture/security-architecture.md), [Shared Session Core](../specs/001-shared-session-core.md) |
+| **Implementation Plan** | [Plan-002: Invite Membership And Presence](../plans/002-invite-membership-and-presence.md)                                                                                                                                                                                                                                                                     |
 
 ## Purpose
 
@@ -98,6 +98,7 @@ https://<control-plane-host>/invite/<token>
 The `<token>` is a PASETO v4.local encrypted token (consistent with [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md) and the control-plane auth stack defined in [Security Architecture](../architecture/security-architecture.md)). The link is shared out-of-band by the inviter — copied to clipboard and pasted into Slack, email, or any other communication channel. No email delivery service is required for V1.
 
 When a recipient clicks the link, it resolves to a web page hosted by the control plane that:
+
 1. Validates the token (checks signature, expiry, and revocation status).
 2. Displays the session name and proposed join mode.
 3. Prompts the recipient to authenticate before acceptance. Guest (unauthenticated) invites are out of scope for V1.
@@ -114,11 +115,11 @@ When a recipient clicks the link, it resolves to a web page hosted by the contro
 
 Invite creation is rate-limited to prevent abuse:
 
-| Limit | Threshold |
-| --- | --- |
-| Max invites per session per hour | 20 |
-| Max invites per participant per hour (across all sessions) | 50 |
-| Max pending (non-accepted, non-expired) invites per session | 100 |
+| Limit                                                       | Threshold |
+| ----------------------------------------------------------- | --------- |
+| Max invites per session per hour                            | 20        |
+| Max invites per participant per hour (across all sessions)  | 50        |
+| Max pending (non-accepted, non-expired) invites per session | 100       |
 
 When a rate limit is exceeded, the API returns the standard `RateLimitResponse` contract (see [API Payload Contracts](../architecture/contracts/api-payload-contracts.md)):
 

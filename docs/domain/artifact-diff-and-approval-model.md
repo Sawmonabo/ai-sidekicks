@@ -43,21 +43,21 @@ This model defines how runs publish durable outputs and how gated decisions are 
 
 Artifact lifecycle:
 
-| State | Meaning |
-| --- | --- |
-| `pending` | The artifact has been announced but is not yet durably published. |
-| `published` | The artifact is durably available and referenceable. |
+| State        | Meaning                                                                                     |
+| ------------ | ------------------------------------------------------------------------------------------- |
+| `pending`    | The artifact has been announced but is not yet durably published.                           |
+| `published`  | The artifact is durably available and referenceable.                                        |
 | `superseded` | A newer artifact replaces it for default views, but the original remains immutable history. |
 
 Approval lifecycle:
 
-| State | Meaning |
-| --- | --- |
-| `pending` | The approval request is awaiting resolution. |
-| `approved` | The request was accepted within the granted scope. |
-| `rejected` | The request was denied. |
-| `expired` | The request was not resolved in time or became invalid. |
-| `canceled` | The request was withdrawn before resolution. |
+| State      | Meaning                                                 |
+| ---------- | ------------------------------------------------------- |
+| `pending`  | The approval request is awaiting resolution.            |
+| `approved` | The request was accepted within the granted scope.      |
+| `rejected` | The request was denied.                                 |
+| `expired`  | The request was not resolved in time or became invalid. |
+| `canceled` | The request was withdrawn before resolution.            |
 
 ## Example Flows
 

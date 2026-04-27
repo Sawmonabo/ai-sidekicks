@@ -42,15 +42,15 @@ Read `AGENTS.md` on demand before:
 
 ## Documentation Corpus
 
-| Tree | Purpose | Template | Status Lifecycle |
-|------|---------|----------|------------------|
-| `docs/specs/NNN-kebab.md` | Feature specifications (the design contract) | `docs/specs/000-spec-template.md` | `draft` → `review` → `approved` (or `superseded`) |
-| `docs/plans/NNN-kebab.md` | Implementation plans (executable build steps) | `docs/plans/000-plan-template.md` | `draft` → `review` → `approved` → `completed` |
-| `docs/decisions/NNN-kebab.md` | ADRs (decisions with antithesis + synthesis) | `docs/decisions/000-adr-template.md` | `proposed` → `accepted` (or `deprecated` / `superseded by ADR-NNN`) |
-| `docs/domain/` | Domain models, state machines, glossary | `docs/domain/template.md` | canonical when merged |
-| `docs/architecture/` | Schemas, contracts, system context, deployment, security | `docs/architecture/template.md` | canonical when merged |
-| `docs/operations/` | Runbooks, on-call routing, SLOs | `docs/operations/template.md` | canonical when merged |
-| `docs/backlog.md` | Active work items (`BL-NNN`) | inline template in file header | `todo` / `in_progress` / `blocked` / `completed` |
+| Tree                          | Purpose                                                  | Template                             | Status Lifecycle                                                    |
+| ----------------------------- | -------------------------------------------------------- | ------------------------------------ | ------------------------------------------------------------------- |
+| `docs/specs/NNN-kebab.md`     | Feature specifications (the design contract)             | `docs/specs/000-spec-template.md`    | `draft` → `review` → `approved` (or `superseded`)                   |
+| `docs/plans/NNN-kebab.md`     | Implementation plans (executable build steps)            | `docs/plans/000-plan-template.md`    | `draft` → `review` → `approved` → `completed`                       |
+| `docs/decisions/NNN-kebab.md` | ADRs (decisions with antithesis + synthesis)             | `docs/decisions/000-adr-template.md` | `proposed` → `accepted` (or `deprecated` / `superseded by ADR-NNN`) |
+| `docs/domain/`                | Domain models, state machines, glossary                  | `docs/domain/template.md`            | canonical when merged                                               |
+| `docs/architecture/`          | Schemas, contracts, system context, deployment, security | `docs/architecture/template.md`      | canonical when merged                                               |
+| `docs/operations/`            | Runbooks, on-call routing, SLOs                          | `docs/operations/template.md`        | canonical when merged                                               |
+| `docs/backlog.md`             | Active work items (`BL-NNN`)                             | inline template in file header       | `todo` / `in_progress` / `blocked` / `completed`                    |
 
 Non-governance docs sit alongside the corpus and are not subject to the status lifecycle above: [`docs/vision.md`](docs/vision.md) (long-form product vision) and [`docs/reference/`](docs/reference/) (excerpted upstream materials).
 

@@ -1,13 +1,13 @@
 # ADR-016: Electron Desktop Shell
 
-| Field | Value |
-| -------------- | ------------------------------------------------------------------------ |
-| **Status** | `accepted` |
-| **Type** | `Type 2 (one-way door)` |
-| **Domain** | `Desktop / Client Architecture` |
-| **Date** | `2026-04-17` |
-| **Author(s)** | `Claude (AI-assisted)` |
-| **Reviewers** | `Accepted 2026-04-17` |
+| Field         | Value                           |
+| ------------- | ------------------------------- |
+| **Status**    | `accepted`                      |
+| **Type**      | `Type 2 (one-way door)`         |
+| **Domain**    | `Desktop / Client Architecture` |
+| **Date**      | `2026-04-17`                    |
+| **Author(s)** | `Claude (AI-assisted)`          |
+| **Reviewers** | `Accepted 2026-04-17`           |
 
 ## Context
 
@@ -40,7 +40,7 @@ Modern desktop users expect lightweight apps, and Electron's ~100 MB baseline bu
 
 ### Synthesis — Why It Still Holds
 
-The antithesis wins on bundle size and baseline memory but loses on the one constraint that cannot be engineered around: WebKitGTK has no WebAuthn support as of 2026-04, and WebKitGTK is the renderer Tauri and Wails use on Linux. ADR-010 makes WebAuthn PRF the primary desktop credential path. A Linux desktop build with no passkey path breaks authentication on one of three target platforms — there is no renderer-side workaround and no upstream signal that WebKitGTK is about to land WebAuthn. Bundle size is addressed by asar packaging and by the fact that the target user already has VS Code or JetBrains installed (comparable footprint). Memory footprint is within the daemon-plus-shell budget named in `deployment-topology.md`. The QA-matrix concern the antithesis understates is exactly what has driven production teams to migrate *to* Electron from native-webview shells; behavioral drift across WKWebView / WebView2 / WebKitGTK scales test costs with platform count. Electron's uniform Chromium scales test costs with feature count only.
+The antithesis wins on bundle size and baseline memory but loses on the one constraint that cannot be engineered around: WebKitGTK has no WebAuthn support as of 2026-04, and WebKitGTK is the renderer Tauri and Wails use on Linux. ADR-010 makes WebAuthn PRF the primary desktop credential path. A Linux desktop build with no passkey path breaks authentication on one of three target platforms — there is no renderer-side workaround and no upstream signal that WebKitGTK is about to land WebAuthn. Bundle size is addressed by asar packaging and by the fact that the target user already has VS Code or JetBrains installed (comparable footprint). Memory footprint is within the daemon-plus-shell budget named in `deployment-topology.md`. The QA-matrix concern the antithesis understates is exactly what has driven production teams to migrate _to_ Electron from native-webview shells; behavioral drift across WKWebView / WebView2 / WebKitGTK scales test costs with platform count. Electron's uniform Chromium scales test costs with feature count only.
 
 ## Alternatives Considered
 
@@ -76,24 +76,24 @@ The antithesis wins on bundle size and baseline memory but loses on the one cons
 
 ## Assumptions Audit
 
-| # | Assumption | Evidence | What Breaks If Wrong |
-|---|-----------|----------|----------------------|
-| 1 | WebKitGTK's WebAuthn support remains absent through the V1 launch window. | WebKit2GTK as of 2026-04 has no WebAuthn implementation in any public branch; WebKitGTK is downstream of WebKit and typically lags; no upstream signal of WebAuthn landing. | The primary Tauri rejection reason weakens; Tripwire 1 fires for revisit. |
-| 2 | Electron tracks Chromium security patches within 1–2 weeks of Chromium stable releases. | Electron has consistently met this cadence in 2025–2026 release history; Electron maintains a documented patch SLA across its supported stable branches. | We would need to monitor Chromium CVE feeds ourselves, or move to Chromium-Embedded-Framework directly, or swap shells. |
-| 3 | Electron's supported stable branches continue to publish point releases at or above the §Decision floor (≥ 39.8.1 / 40.8.1 / 41.0.0 on branches 39 / 40 / 41, with branch 38 EOL 2026-03-10 and excluded as a V1 target). | Current stable heads as of 2026-04-17 are 41.2.1, 40.9.1, 39.8.8 — all above the floor per [releases.electronjs.org](https://releases.electronjs.org/). Electron supports the latest three stable branches per [electron/electron release timeline](https://www.electronjs.org/docs/latest/tutorial/electron-timelines). | A supported branch falls out of compliance (EOL before reaching the floor, or a regression ships below it) — that branch is ineligible for distribution and the build supervisor must select a different supported branch or fail closed. |
-| 4 | `electron-updater` delta-patch flow is reliable across Windows, macOS, Linux. | Proven at scale by VS Code, 1Password (pre-8), Slack, and others. | Larger update payloads; ongoing bandwidth cost; user-visible update-time regression. |
-| 5 | The ~100 MB baseline bundle is acceptable to our target developer audience. | VS Code (~100 MB) and JetBrains IDEs (500 MB+) receive no material user pushback on install size. Our target user already has similar-footprint tools installed. | Competitive pressure from a lightweight alternative with feature parity; Tripwire 4 fires. |
+| #   | Assumption                                                                                                                                                                                                                | Evidence                                                                                                                                                                                                                                                                                                                 | What Breaks If Wrong                                                                                                                                                                                                                      |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | WebKitGTK's WebAuthn support remains absent through the V1 launch window.                                                                                                                                                 | WebKit2GTK as of 2026-04 has no WebAuthn implementation in any public branch; WebKitGTK is downstream of WebKit and typically lags; no upstream signal of WebAuthn landing.                                                                                                                                              | The primary Tauri rejection reason weakens; Tripwire 1 fires for revisit.                                                                                                                                                                 |
+| 2   | Electron tracks Chromium security patches within 1–2 weeks of Chromium stable releases.                                                                                                                                   | Electron has consistently met this cadence in 2025–2026 release history; Electron maintains a documented patch SLA across its supported stable branches.                                                                                                                                                                 | We would need to monitor Chromium CVE feeds ourselves, or move to Chromium-Embedded-Framework directly, or swap shells.                                                                                                                   |
+| 3   | Electron's supported stable branches continue to publish point releases at or above the §Decision floor (≥ 39.8.1 / 40.8.1 / 41.0.0 on branches 39 / 40 / 41, with branch 38 EOL 2026-03-10 and excluded as a V1 target). | Current stable heads as of 2026-04-17 are 41.2.1, 40.9.1, 39.8.8 — all above the floor per [releases.electronjs.org](https://releases.electronjs.org/). Electron supports the latest three stable branches per [electron/electron release timeline](https://www.electronjs.org/docs/latest/tutorial/electron-timelines). | A supported branch falls out of compliance (EOL before reaching the floor, or a regression ships below it) — that branch is ineligible for distribution and the build supervisor must select a different supported branch or fail closed. |
+| 4   | `electron-updater` delta-patch flow is reliable across Windows, macOS, Linux.                                                                                                                                             | Proven at scale by VS Code, 1Password (pre-8), Slack, and others.                                                                                                                                                                                                                                                        | Larger update payloads; ongoing bandwidth cost; user-visible update-time regression.                                                                                                                                                      |
+| 5   | The ~100 MB baseline bundle is acceptable to our target developer audience.                                                                                                                                               | VS Code (~100 MB) and JetBrains IDEs (500 MB+) receive no material user pushback on install size. Our target user already has similar-footprint tools installed.                                                                                                                                                         | Competitive pressure from a lightweight alternative with feature parity; Tripwire 4 fires.                                                                                                                                                |
 
 ## Failure Mode Analysis
 
-| Scenario | Likelihood | Impact | Detection | Mitigation |
-|----------|-----------|--------|-----------|------------|
-| Electron security-patch cadence slips; Chromium CVE unpatched for weeks | Low | High | Automated release-tracking; Chromium CVE feed monitoring | Manual Chromium-patch integration on a maintenance branch; evaluate alternative shells |
-| Chromium memory-footprint regression under load | Med | Med | Runtime memory metrics via observability; daemon memory-budget alerts | Renderer-process isolation; lazy-load non-critical panels |
-| WebKitGTK adds WebAuthn support (reversal trigger) | Low | Low (positive signal) | WebKit release-note monitoring | Not a forcing failure; evaluate Tauri revisit window per Tripwire 1 |
-| Team gains Rust-comfortable engineer with bandwidth (reversal trigger) | Low | Low (positive signal) | Team-composition change | Not a forcing failure; evaluate Tauri revisit window per Tripwire 2 |
-| Electron removes or breaks the `contextBridge` preload model | Low | High | Electron release notes; contract conformance tests | Pin to previous Electron major; migrate to alternative shell |
-| electron-updater signing pipeline breaks on code-signing-cert rotation | Low | Med | CI signing tests; cert-expiry monitoring | Standby cert; documented rotation runbook |
+| Scenario                                                                | Likelihood | Impact                | Detection                                                             | Mitigation                                                                             |
+| ----------------------------------------------------------------------- | ---------- | --------------------- | --------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Electron security-patch cadence slips; Chromium CVE unpatched for weeks | Low        | High                  | Automated release-tracking; Chromium CVE feed monitoring              | Manual Chromium-patch integration on a maintenance branch; evaluate alternative shells |
+| Chromium memory-footprint regression under load                         | Med        | Med                   | Runtime memory metrics via observability; daemon memory-budget alerts | Renderer-process isolation; lazy-load non-critical panels                              |
+| WebKitGTK adds WebAuthn support (reversal trigger)                      | Low        | Low (positive signal) | WebKit release-note monitoring                                        | Not a forcing failure; evaluate Tauri revisit window per Tripwire 1                    |
+| Team gains Rust-comfortable engineer with bandwidth (reversal trigger)  | Low        | Low (positive signal) | Team-composition change                                               | Not a forcing failure; evaluate Tauri revisit window per Tripwire 2                    |
+| Electron removes or breaks the `contextBridge` preload model            | Low        | High                  | Electron release notes; contract conformance tests                    | Pin to previous Electron major; migrate to alternative shell                           |
+| electron-updater signing pipeline breaks on code-signing-cert rotation  | Low        | Med                   | CI signing tests; cert-expiry monitoring                              | Standby cert; documented rotation runbook                                              |
 
 ## Reversibility Assessment
 
@@ -134,12 +134,12 @@ The antithesis wins on bundle size and baseline memory but loses on the one cons
 
 ### Success Criteria
 
-| Metric | Target | Measurement Method | Check Date |
-|--------|--------|--------------------|------------|
-| WebAuthn passkey flow works on Windows, macOS, Linux | 100% of tested platforms | Plan-023 integration test suite | `2026-09-01` |
-| Desktop bundle size (post-asar, post-compression) | < 150 MB | CI artifact size check | `2026-08-01` |
-| Auto-update delta patches ship | Delta install < 30% of full bundle | `electron-updater` release test | `2026-09-01` |
-| Renderer-to-main IPC conformance with ADR-009 | 100% of IPC uses Content-Length JSON-RPC | Contract test suite | `2026-08-01` |
+| Metric                                               | Target                                   | Measurement Method              | Check Date   |
+| ---------------------------------------------------- | ---------------------------------------- | ------------------------------- | ------------ |
+| WebAuthn passkey flow works on Windows, macOS, Linux | 100% of tested platforms                 | Plan-023 integration test suite | `2026-09-01` |
+| Desktop bundle size (post-asar, post-compression)    | < 150 MB                                 | CI artifact size check          | `2026-08-01` |
+| Auto-update delta patches ship                       | Delta install < 30% of full bundle       | `electron-updater` release test | `2026-09-01` |
+| Renderer-to-main IPC conformance with ADR-009        | 100% of IPC uses Content-Length JSON-RPC | Contract test suite             | `2026-08-01` |
 
 ### Revisit Triggers
 
@@ -152,16 +152,16 @@ The antithesis wins on bundle size and baseline memory but loses on the one cons
 
 ### Research Conducted
 
-| Source | Type | Key Finding | URL/Location |
-|--------|------|-------------|--------------|
-| Electron releases | Documentation | Chromium security-patch SLA, preload bridge stability | <https://www.electronjs.org/releases> |
-| Electron release timeline | Documentation | "Latest three stable branches" support policy; current stable heads 41.2.1 / 40.9.1 / 39.8.8 as of 2026-04-17 | <https://www.electronjs.org/docs/latest/tutorial/electron-timelines> |
-| GHSA-3c8v-cfp5-9885 | Security advisory (primary) | Fixed-version floors 38.8.6 / 39.8.1 / 40.8.1 / 41.0.0 for the `requestSingleInstanceLock()` second-instance IPC parser out-of-bounds heap read on macOS and Linux (Windows unaffected) | <https://github.com/electron/electron/security/advisories/GHSA-3c8v-cfp5-9885> |
-| NVD CVE-2026-34776 | CVE record (primary) | CWE-125 out-of-bounds read; CVSS 3.1 base 5.3 (vector `AV:L/AC:H/PR:L/UI:N/S:U/C:H/I:N/A:L`) | <https://nvd.nist.gov/vuln/detail/CVE-2026-34776> |
-| WebKitGTK project site | Documentation | No WebAuthn implementation noted across project releases as of 2026-04 | <https://webkitgtk.org/> |
-| Tauri v2 documentation | Documentation | OS-native webview strategy; WebKitGTK on Linux | <https://v2.tauri.app/> |
-| Wails v3 status page | Documentation | v3 alpha status; no flagship production apps | <https://wails.io/> |
-| Pre-implementation audit | Primary research | Evaluated Electron, Tauri, Wails; recommended Electron | session `2026-04-16-arch-audit-163537` |
+| Source                    | Type                        | Key Finding                                                                                                                                                                             | URL/Location                                                                   |
+| ------------------------- | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Electron releases         | Documentation               | Chromium security-patch SLA, preload bridge stability                                                                                                                                   | <https://www.electronjs.org/releases>                                          |
+| Electron release timeline | Documentation               | "Latest three stable branches" support policy; current stable heads 41.2.1 / 40.9.1 / 39.8.8 as of 2026-04-17                                                                           | <https://www.electronjs.org/docs/latest/tutorial/electron-timelines>           |
+| GHSA-3c8v-cfp5-9885       | Security advisory (primary) | Fixed-version floors 38.8.6 / 39.8.1 / 40.8.1 / 41.0.0 for the `requestSingleInstanceLock()` second-instance IPC parser out-of-bounds heap read on macOS and Linux (Windows unaffected) | <https://github.com/electron/electron/security/advisories/GHSA-3c8v-cfp5-9885> |
+| NVD CVE-2026-34776        | CVE record (primary)        | CWE-125 out-of-bounds read; CVSS 3.1 base 5.3 (vector `AV:L/AC:H/PR:L/UI:N/S:U/C:H/I:N/A:L`)                                                                                            | <https://nvd.nist.gov/vuln/detail/CVE-2026-34776>                              |
+| WebKitGTK project site    | Documentation               | No WebAuthn implementation noted across project releases as of 2026-04                                                                                                                  | <https://webkitgtk.org/>                                                       |
+| Tauri v2 documentation    | Documentation               | OS-native webview strategy; WebKitGTK on Linux                                                                                                                                          | <https://v2.tauri.app/>                                                        |
+| Wails v3 status page      | Documentation               | v3 alpha status; no flagship production apps                                                                                                                                            | <https://wails.io/>                                                            |
+| Pre-implementation audit  | Primary research            | Evaluated Electron, Tauri, Wails; recommended Electron                                                                                                                                  | session `2026-04-16-arch-audit-163537`                                         |
 
 ### Related ADRs
 
@@ -177,7 +177,7 @@ The antithesis wins on bundle size and baseline memory but loses on the one cons
 
 ## Decision Log
 
-| Date | Event | Notes |
-|------|-------|-------|
-| 2026-04-17 | Proposed | Drafted against BL-040 exit criteria |
+| Date       | Event    | Notes                                         |
+| ---------- | -------- | --------------------------------------------- |
+| 2026-04-17 | Proposed | Drafted against BL-040 exit criteria          |
 | 2026-04-17 | Accepted | ADR accepted as the V1 desktop shell decision |

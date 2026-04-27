@@ -25,16 +25,16 @@ The Local Runtime Daemon is the local execution kernel. It must own the parts of
 
 ## Component Boundaries
 
-| Component | Responsibility |
-| --- | --- |
-| `Local Session Engine` | Applies commands, emits canonical events, owns run and queue semantics, and maintains session-scoped projections for the local node. |
-| `Provider Driver Manager` | Creates, resumes, interrupts, and closes provider-backed execution sessions through normalized driver contracts. |
-| `Git Engine` | Owns repo attach, worktree lifecycle, branch strategy, diff generation, and PR preparation. |
-| `Workspace Service` | Resolves execution roots, file access policy, attachments, and local filesystem context. |
-| `Tool And Terminal Service` | Runs shell commands, terminal sessions, and local tools under policy control. All PTY access flows through the `PtyHost` interface in `packages/contracts/` (see §PTY Backend Strategy). |
-| `Local Persistence Layer` | Stores canonical local event log, command receipts, runtime bindings, projections, and recovery metadata. All SQLite writes are isolated to a single writer worker thread per [Spec-015 §Writer Concurrency](../specs/015-persistence-recovery-and-replay.md#writer-concurrency); V1 driver pin is `better-sqlite3@^12.9.0`. |
-| `Local IPC Gateway` | Exposes stable local control APIs to renderer and CLI clients. |
-| `Control-Plane Adapter` | Produces SessionJoin, RelayNegotiation, PresenceRegister, and SessionResumeAfterReconnect payloads per Spec-008 and forwards canonical events over the control-plane transport. |
+| Component                   | Responsibility                                                                                                                                                                                                                                                                                                               |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Local Session Engine`      | Applies commands, emits canonical events, owns run and queue semantics, and maintains session-scoped projections for the local node.                                                                                                                                                                                         |
+| `Provider Driver Manager`   | Creates, resumes, interrupts, and closes provider-backed execution sessions through normalized driver contracts.                                                                                                                                                                                                             |
+| `Git Engine`                | Owns repo attach, worktree lifecycle, branch strategy, diff generation, and PR preparation.                                                                                                                                                                                                                                  |
+| `Workspace Service`         | Resolves execution roots, file access policy, attachments, and local filesystem context.                                                                                                                                                                                                                                     |
+| `Tool And Terminal Service` | Runs shell commands, terminal sessions, and local tools under policy control. All PTY access flows through the `PtyHost` interface in `packages/contracts/` (see §PTY Backend Strategy).                                                                                                                                     |
+| `Local Persistence Layer`   | Stores canonical local event log, command receipts, runtime bindings, projections, and recovery metadata. All SQLite writes are isolated to a single writer worker thread per [Spec-015 §Writer Concurrency](../specs/015-persistence-recovery-and-replay.md#writer-concurrency); V1 driver pin is `better-sqlite3@^12.9.0`. |
+| `Local IPC Gateway`         | Exposes stable local control APIs to renderer and CLI clients.                                                                                                                                                                                                                                                               |
+| `Control-Plane Adapter`     | Produces SessionJoin, RelayNegotiation, PresenceRegister, and SessionResumeAfterReconnect payloads per Spec-008 and forwards canonical events over the control-plane transport.                                                                                                                                              |
 
 ## Implementation Home
 

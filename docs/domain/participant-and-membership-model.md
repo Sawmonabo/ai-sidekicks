@@ -49,12 +49,12 @@ This model defines who is in a session, what rights they hold, and how their liv
 
 ## Role Model
 
-| Role | Meaning |
-| --- | --- |
-| `owner` | Session administrator role. Includes collaborator participation plus membership-management authority and the ability to attach owned runtime nodes subject to local trust policy. |
-| `viewer` | Read-focused participation role. Can observe the session according to visibility policy but does not chat or attach runtime nodes by default. |
-| `collaborator` | Human participation role. Can join the live session, chat, and collaborate as a human participant, but does not attach runtime nodes by default. |
-| `runtime contributor` | Collaborator role plus the ability to attach participant-owned runtime nodes subject to node trust and approval policy. |
+| Role                  | Meaning                                                                                                                                                                           |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `owner`               | Session administrator role. Includes collaborator participation plus membership-management authority and the ability to attach owned runtime nodes subject to local trust policy. |
+| `viewer`              | Read-focused participation role. Can observe the session according to visibility policy but does not chat or attach runtime nodes by default.                                     |
+| `collaborator`        | Human participation role. Can join the live session, chat, and collaborate as a human participant, but does not attach runtime nodes by default.                                  |
+| `runtime contributor` | Collaborator role plus the ability to attach participant-owned runtime nodes subject to node trust and approval policy.                                                           |
 
 - Invite join modes are the non-owner subset: `viewer`, `collaborator`, and `runtime contributor`.
 - The session creator bootstraps as `owner` by default unless a stricter product policy is later defined.
@@ -63,21 +63,21 @@ This model defines who is in a session, what rights they hold, and how their liv
 
 Membership states:
 
-| State | Meaning |
-| --- | --- |
-| `pending` | The participant has not completed the join path yet. |
-| `active` | The participant currently belongs to the session. |
+| State       | Meaning                                                                                   |
+| ----------- | ----------------------------------------------------------------------------------------- |
+| `pending`   | The participant has not completed the join path yet.                                      |
+| `active`    | The participant currently belongs to the session.                                         |
 | `suspended` | The participant still exists in session history but currently lacks normal active rights. |
-| `revoked` | The participant no longer has session membership. |
+| `revoked`   | The participant no longer has session membership.                                         |
 
 Presence states:
 
-| State | Meaning |
-| --- | --- |
-| `online` | The participant has an active live connection. |
-| `idle` | The participant is connected but inactive. |
+| State          | Meaning                                        |
+| -------------- | ---------------------------------------------- |
+| `online`       | The participant has an active live connection. |
+| `idle`         | The participant is connected but inactive.     |
 | `reconnecting` | The system is within a reconnect grace window. |
-| `offline` | No active presence is currently observed. |
+| `offline`      | No active presence is currently observed.      |
 
 ## Owner Elevation
 

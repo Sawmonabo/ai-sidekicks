@@ -181,10 +181,26 @@
           "text": "pytest --fis-config in 4+ files beyond root",
           "ground_truth": "In root plus fis_common, fix_tools, fortress_api, fptest_module, cijobs."
         },
-        {"id": "A13", "text": "'When in Doubt' identified as systemic pattern across 10+ files with cumulative overlap", "ground_truth": "At least 10 of 19 files have When in Doubt sections. 50+ lines of cumulative cross-file overlap restating root advice."},
-        {"id": "A14", "text": "data_importer insert/complete pattern in 4+ files", "ground_truth": "data_importer tracking pattern in root, fisio, imports, common, sync — 5 files."},
-        {"id": "A15", "text": "Root Testing Standards internal self-duplication between subsections", "ground_truth": "The 140-line Testing section has overlap between find-and-run-tests and test-execution subsections showing same pytest patterns."},
-        {"id": "A16", "text": "At least 5 of root's 13 gotchas restated in subsystem gotcha sections", "ground_truth": "Gotchas #1 (activities), #2 (flush), #4 (selectizer/grids), #5 (related), #8 (mark_for_agg) appear in fortress_api, fisio, imports, aggregations, fix_tools."}
+        {
+          "id": "A13",
+          "text": "'When in Doubt' identified as systemic pattern across 10+ files with cumulative overlap",
+          "ground_truth": "At least 10 of 19 files have When in Doubt sections. 50+ lines of cumulative cross-file overlap restating root advice."
+        },
+        {
+          "id": "A14",
+          "text": "data_importer insert/complete pattern in 4+ files",
+          "ground_truth": "data_importer tracking pattern in root, fisio, imports, common, sync — 5 files."
+        },
+        {
+          "id": "A15",
+          "text": "Root Testing Standards internal self-duplication between subsections",
+          "ground_truth": "The 140-line Testing section has overlap between find-and-run-tests and test-execution subsections showing same pytest patterns."
+        },
+        {
+          "id": "A16",
+          "text": "At least 5 of root's 13 gotchas restated in subsystem gotcha sections",
+          "ground_truth": "Gotchas #1 (activities), #2 (flush), #4 (selectizer/grids), #5 (related), #8 (mark_for_agg) appear in fortress_api, fisio, imports, aggregations, fix_tools."
+        }
       ]
     }
   ]

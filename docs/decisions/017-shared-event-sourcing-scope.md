@@ -1,13 +1,13 @@
 # ADR-017: Shared Event-Sourcing Scope
 
-| Field | Value |
-| -------------- | ------------------------------------------------------------------------ |
-| **Status** | `accepted` |
-| **Type** | `Type 1 (two-way door)` |
-| **Domain** | `Data Architecture / Event Sourcing / Relay Trust Model` |
-| **Date** | `2026-04-17` |
-| **Author(s)** | `Claude (AI-assisted)` |
-| **Reviewers** | `Accepted 2026-04-17` |
+| Field         | Value                                                    |
+| ------------- | -------------------------------------------------------- |
+| **Status**    | `accepted`                                               |
+| **Type**      | `Type 1 (two-way door)`                                  |
+| **Domain**    | `Data Architecture / Event Sourcing / Relay Trust Model` |
+| **Date**      | `2026-04-17`                                             |
+| **Author(s)** | `Claude (AI-assisted)`                                   |
+| **Reviewers** | `Accepted 2026-04-17`                                    |
 
 ## Context
 
@@ -112,14 +112,14 @@ The Linear pattern is retained as the reference architecture for Option A's V1.1
 
 ### Research Conducted
 
-| Source | Type | Key Finding | URL/Location |
-|--------|------|-------------|--------------|
-| Kleppmann, Wiggins, van Hardenberg, McGregor — "Local-First Software" (Ink & Switch / Onward! 2019) | Academic paper | Per-device copy is the primary authoritative copy; cloud copies are secondary | [inkandswitch.com/essay/local-first](https://www.inkandswitch.com/essay/local-first/), [martin.kleppmann.com/papers/local-first.pdf](https://martin.kleppmann.com/papers/local-first.pdf) |
-| Automerge documentation | Official documentation | Per-replica hash-DAG; merge by commutativity; no central sequencer | [automerge.org](https://automerge.org/), [automerge.org/docs/hello](https://automerge.org/docs/hello) |
-| Zed — "CRDTs for mutable trees" and "The full spectrum of collaboration" | Engineering blog (Zed Industries) | Per-replica CRDT logs with central routing server — closest topology match to V1 | [zed.dev/blog/crdts](https://zed.dev/blog/crdts), [zed.dev/blog/full-spectrum-of-collaboration](https://zed.dev/blog/full-spectrum-of-collaboration) |
-| Replicache — "How it works" | Official documentation (Rocicorp) | Split: per-client mutation log plus server-authoritative canonical state — legitimizes the per-participant-pending plus server-merge split | [doc.replicache.dev/concepts/how-it-works](https://doc.replicache.dev/concepts/how-it-works) |
-| Linear sync engine — scaling blog + CTO-endorsed reverse-engineering repo | Engineering blog + RE repo | Counterexample: shared server-authoritative log with global monotonic `lastSyncId`; viable because server sees plaintext | [linear.app/now/scaling-the-linear-sync-engine](https://linear.app/now/scaling-the-linear-sync-engine), [github.com/wzhudev/reverse-linear-sync-engine](https://github.com/wzhudev/reverse-linear-sync-engine) |
-| Oskar Dudycz — event-sourcing antipatterns (event-driven.io) | Community blog | Partial null result — Dudycz's named antipatterns (State Obsession, Property Sourcing, Clickbait Events, Passive Aggressive Events, CRUD Sourcing) do not include "shared event log across participants" — **cited as `unverified — cite needed`** for the "shared-log is an event-sourcing antipattern" claim; not load-bearing for this ADR | [event-driven.io/en/anti-patterns](https://event-driven.io/en/anti-patterns/) |
+| Source                                                                                              | Type                              | Key Finding                                                                                                                                                                                                                                                                                                                                   | URL/Location                                                                                                                                                                                                   |
+| --------------------------------------------------------------------------------------------------- | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Kleppmann, Wiggins, van Hardenberg, McGregor — "Local-First Software" (Ink & Switch / Onward! 2019) | Academic paper                    | Per-device copy is the primary authoritative copy; cloud copies are secondary                                                                                                                                                                                                                                                                 | [inkandswitch.com/essay/local-first](https://www.inkandswitch.com/essay/local-first/), [martin.kleppmann.com/papers/local-first.pdf](https://martin.kleppmann.com/papers/local-first.pdf)                      |
+| Automerge documentation                                                                             | Official documentation            | Per-replica hash-DAG; merge by commutativity; no central sequencer                                                                                                                                                                                                                                                                            | [automerge.org](https://automerge.org/), [automerge.org/docs/hello](https://automerge.org/docs/hello)                                                                                                          |
+| Zed — "CRDTs for mutable trees" and "The full spectrum of collaboration"                            | Engineering blog (Zed Industries) | Per-replica CRDT logs with central routing server — closest topology match to V1                                                                                                                                                                                                                                                              | [zed.dev/blog/crdts](https://zed.dev/blog/crdts), [zed.dev/blog/full-spectrum-of-collaboration](https://zed.dev/blog/full-spectrum-of-collaboration)                                                           |
+| Replicache — "How it works"                                                                         | Official documentation (Rocicorp) | Split: per-client mutation log plus server-authoritative canonical state — legitimizes the per-participant-pending plus server-merge split                                                                                                                                                                                                    | [doc.replicache.dev/concepts/how-it-works](https://doc.replicache.dev/concepts/how-it-works)                                                                                                                   |
+| Linear sync engine — scaling blog + CTO-endorsed reverse-engineering repo                           | Engineering blog + RE repo        | Counterexample: shared server-authoritative log with global monotonic `lastSyncId`; viable because server sees plaintext                                                                                                                                                                                                                      | [linear.app/now/scaling-the-linear-sync-engine](https://linear.app/now/scaling-the-linear-sync-engine), [github.com/wzhudev/reverse-linear-sync-engine](https://github.com/wzhudev/reverse-linear-sync-engine) |
+| Oskar Dudycz — event-sourcing antipatterns (event-driven.io)                                        | Community blog                    | Partial null result — Dudycz's named antipatterns (State Obsession, Property Sourcing, Clickbait Events, Passive Aggressive Events, CRUD Sourcing) do not include "shared event log across participants" — **cited as `unverified — cite needed`** for the "shared-log is an event-sourcing antipattern" claim; not load-bearing for this ADR | [event-driven.io/en/anti-patterns](https://event-driven.io/en/anti-patterns/)                                                                                                                                  |
 
 ### Related ADRs
 
@@ -136,6 +136,6 @@ The Linear pattern is retained as the reference architecture for Option A's V1.1
 
 ## Decision Log
 
-| Date | Event | Notes |
-|------|-------|-------|
+| Date       | Event    | Notes                                                                                                                                                   |
+| ---------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 2026-04-17 | Accepted | V1 ships Option B per-daemon local event logs; Option A retained as V1.1 candidate gated on ADR-010 MLS promotion gates; BL-046 exit criteria satisfied |

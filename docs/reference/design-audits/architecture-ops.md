@@ -28,12 +28,12 @@ Boundaries between the three are clean. The system-context doc explicitly define
 
 `data-architecture.md` defines four storage concerns:
 
-| Store | Technology | Ownership |
-|---|---|---|
-| Local SQLite Store | SQLite | Node-local event log, receipts, bindings, projections |
-| Shared Postgres Store | Postgres | Session directory, invites, memberships, presence |
-| Artifact Storage | Split local/shared | Payloads + manifests with visibility policy |
-| Projection Layer | Derived | Read-optimized materializations from events |
+| Store                 | Technology         | Ownership                                             |
+| --------------------- | ------------------ | ----------------------------------------------------- |
+| Local SQLite Store    | SQLite             | Node-local event log, receipts, bindings, projections |
+| Shared Postgres Store | Postgres           | Session directory, invites, memberships, presence     |
+| Artifact Storage      | Split local/shared | Payloads + manifests with visibility policy           |
+| Projection Layer      | Derived            | Read-optimized materializations from events           |
 
 Plan-006 mentions `session_events` and `session_snapshots` tables in passing (under "Data And Storage Changes") but never defines their columns, indexes, or constraints. Plan-019 mentions `notification_preferences` storage. No other plan or spec defines any table.
 
@@ -114,20 +114,20 @@ It also defines: reasoning surfaces (normalized, policy-aware, with redaction pl
 
 **Coverage against vision entry types:**
 
-| Vision Entry Type | Coverage |
-|---|---|
-| message | Explicit |
-| tool | Explicit ("tool activity") |
-| approval | Explicit |
-| diff | Covered under "artifacts" |
-| subtask / child-run | Explicit |
-| run state changes | Explicit |
-| interventions | Explicit |
-| handoff | Not explicitly listed as a timeline row type |
-| blocked | Covered via approval events and intervention rows (Spec-019 names `waiting_for_approval` explicitly), but not a named discrete row type |
-| paused | Implicit under run state changes |
-| resumed | Implicit under run state changes |
-| finished | Implicit under run state changes |
+| Vision Entry Type   | Coverage                                                                                                                                |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| message             | Explicit                                                                                                                                |
+| tool                | Explicit ("tool activity")                                                                                                              |
+| approval            | Explicit                                                                                                                                |
+| diff                | Covered under "artifacts"                                                                                                               |
+| subtask / child-run | Explicit                                                                                                                                |
+| run state changes   | Explicit                                                                                                                                |
+| interventions       | Explicit                                                                                                                                |
+| handoff             | Not explicitly listed as a timeline row type                                                                                            |
+| blocked             | Covered via approval events and intervention rows (Spec-019 names `waiting_for_approval` explicitly), but not a named discrete row type |
+| paused              | Implicit under run state changes                                                                                                        |
+| resumed             | Implicit under run state changes                                                                                                        |
+| finished            | Implicit under run state changes                                                                                                        |
 
 **Gap:** "Handoff" is not mentioned in Spec-013. If handoff between agents or participants is a first-class timeline event, it needs to be added to the required row types. Run-state subtypes (paused, resumed, finished, blocked) are covered implicitly under "run state changes" but are not individually enumerated, which could lead to inconsistent implementation.
 
@@ -169,16 +169,16 @@ Trust boundaries are clearly stated:
 
 Eight runbooks were reviewed:
 
-| Runbook | Scope |
-|---|---|
-| Control-Plane Runbook | Auth, DB, membership, presence, relay failures |
-| Local Daemon Runbook | IPC, SQLite, replay, provider resume failures |
-| Provider Failure Runbook | Driver startup, active-run, capability, resume failures |
-| Replay And Audit Runbook | Missing events, stale projections, rebuild failures |
-| Local Persistence Repair And Restore | SQLite corruption, WAL failures, backup restore |
-| Stuck Run Debugging | Runs stuck in `running` or `starting` |
-| Invite Session Desync Recovery | Invite/membership/presence projection mismatches |
-| Repo And Worktree Recovery | RepoMount, workspace, worktree failures |
+| Runbook                              | Scope                                                   |
+| ------------------------------------ | ------------------------------------------------------- |
+| Control-Plane Runbook                | Auth, DB, membership, presence, relay failures          |
+| Local Daemon Runbook                 | IPC, SQLite, replay, provider resume failures           |
+| Provider Failure Runbook             | Driver startup, active-run, capability, resume failures |
+| Replay And Audit Runbook             | Missing events, stale projections, rebuild failures     |
+| Local Persistence Repair And Restore | SQLite corruption, WAL failures, backup restore         |
+| Stuck Run Debugging                  | Runs stuck in `running` or `starting`                   |
+| Invite Session Desync Recovery       | Invite/membership/presence projection mismatches        |
+| Repo And Worktree Recovery           | RepoMount, workspace, worktree failures                 |
 
 Each runbook follows a consistent structure: Purpose, Symptoms, Detection, Preconditions, Recovery Steps, Validation, Escalation, and Related Docs. Recovery steps reference specific API surfaces (`DaemonStatusRead`, `RecoveryStatusRead`, `HealthStatusRead`, `ProjectionRebuild`, etc.).
 
@@ -229,10 +229,12 @@ Spec-019 ("Notifications And Attention Model") defines:
 **Attention triggers:** pending approval/input, run completion, run failure, invite receipt, mention/direct request.
 
 **Two attention categories:**
+
 - Actionable (blocking): pending approval, required input.
 - Informational: run completion, invite receipt.
 
 **Two projection scopes:**
+
 - Run-scoped: fine-grained source of truth for execution-related attention.
 - Session-scoped: aggregate of unresolved run, invite, and participant-request signals.
 
@@ -251,11 +253,13 @@ Spec-019 ("Notifications And Attention Model") defines:
 **Verdict:** Documents are generally consistent in terminology and boundary definitions. Two notable contradictions exist.
 
 **Contradiction 1 -- Event sequence assignment.**
+
 - Spec-006 "Open Questions" states: "No blocking open questions remain for v1. V1 decision: session sequence numbers are assigned by the authoritative session-visible append path at write time."
 - Plan-006 "Risks And Blockers" states: "Session-sequence assignment across local and shared producers remains unresolved."
 - These directly contradict each other. The spec claims the question is resolved; the plan claims it is not.
 
 **Contradiction 2 -- Plan preconditions vs. ADR status.**
+
 - All four reviewed plans (006, 007, 013, 019) list "Required ADRs are accepted" as a precondition, and all four show that precondition as unchecked (`[ ]`).
 - This means none of the reviewed plans can proceed to implementation under their own stated preconditions, despite their specs being approved.
 

@@ -20,29 +20,29 @@ The system is split so that collaboration can be shared while execution remains 
 
 ## Component Boundaries
 
-| Container | Responsibility |
-| --- | --- |
-| `Desktop Shell` | Windowing, native dialogs, updater flow, daemon supervision, preload bridge. |
-| `Desktop Renderer` | Session UI, orchestration UI, diff and artifact views, approvals, invite flows, and workflow authoring. |
-| `CLI Client` | Scriptable client surface over the same client SDK and daemon contract. |
-| `Local Runtime Daemon` | Session engine, provider drivers, git engine, terminal and tool execution, local persistence, replay, and local policy enforcement. |
-| `Collaboration Control Plane` | Identity, invite, membership, presence, relay, notifications, and shared session metadata. |
-| `Local Event Store And Projection Store` | Durable node-local record of run events, receipts, projections, and recovery state. |
-| `Shared Metadata Store` | Durable shared record of memberships, invites, presence history, session directory metadata, and cross-node coordination state. |
+| Container                                | Responsibility                                                                                                                      |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `Desktop Shell`                          | Windowing, native dialogs, updater flow, daemon supervision, preload bridge.                                                        |
+| `Desktop Renderer`                       | Session UI, orchestration UI, diff and artifact views, approvals, invite flows, and workflow authoring.                             |
+| `CLI Client`                             | Scriptable client surface over the same client SDK and daemon contract.                                                             |
+| `Local Runtime Daemon`                   | Session engine, provider drivers, git engine, terminal and tool execution, local persistence, replay, and local policy enforcement. |
+| `Collaboration Control Plane`            | Identity, invite, membership, presence, relay, notifications, and shared session metadata.                                          |
+| `Local Event Store And Projection Store` | Durable node-local record of run events, receipts, projections, and recovery state.                                                 |
+| `Shared Metadata Store`                  | Durable shared record of memberships, invites, presence history, session directory metadata, and cross-node coordination state.     |
 
 ## Canonical Implementation Topology
 
 The canonical monorepo layout for implementation is:
 
-| Repo Area | Ownership |
-| --- | --- |
-| `packages/contracts/` | Shared protocol contracts, schema definitions, and cross-container types. |
-| `packages/client-sdk/` | Typed client SDK used by desktop renderer and CLI. |
-| `packages/runtime-daemon/` | Local Runtime Daemon implementation and local execution services. |
-| `packages/control-plane/` | Collaboration Control Plane services and shared-session coordination logic. |
-| `apps/desktop/shell/` | Desktop shell or Electron main-process code. |
-| `apps/desktop/renderer/` | Desktop renderer UI and session-facing application surfaces. |
-| `apps/cli/` | CLI client implementation over the shared client SDK. |
+| Repo Area                  | Ownership                                                                   |
+| -------------------------- | --------------------------------------------------------------------------- |
+| `packages/contracts/`      | Shared protocol contracts, schema definitions, and cross-container types.   |
+| `packages/client-sdk/`     | Typed client SDK used by desktop renderer and CLI.                          |
+| `packages/runtime-daemon/` | Local Runtime Daemon implementation and local execution services.           |
+| `packages/control-plane/`  | Collaboration Control Plane services and shared-session coordination logic. |
+| `apps/desktop/shell/`      | Desktop shell or Electron main-process code.                                |
+| `apps/desktop/renderer/`   | Desktop renderer UI and session-facing application surfaces.                |
+| `apps/cli/`                | CLI client implementation over the shared client SDK.                       |
 
 - Implementation plans may target submodules beneath these roots.
 - If the repo shape changes materially, update this architecture doc before treating path-specific plans as canonical.

@@ -1,14 +1,14 @@
 # Spec-019: Notifications And Attention Model
 
-| Field | Value |
-| --- | --- |
-| **Status** | `approved` |
-| **NNN** | `019` |
-| **Slug** | `notifications-and-attention-model` |
-| **Date** | `2026-04-14` |
-| **Author(s)** | `Codex` |
-| **Depends On** | [Live Timeline Visibility And Reasoning Surfaces](../specs/013-live-timeline-visibility-and-reasoning-surfaces.md), [Component Architecture Desktop App](../architecture/component-architecture-desktop-app.md), [Observability Architecture](../architecture/observability-architecture.md) |
-| **Implementation Plan** | [Plan-019: Notifications And Attention Model](../plans/019-notifications-and-attention-model.md) |
+| Field                   | Value                                                                                                                                                                                                                                                                                        |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Status**              | `approved`                                                                                                                                                                                                                                                                                   |
+| **NNN**                 | `019`                                                                                                                                                                                                                                                                                        |
+| **Slug**                | `notifications-and-attention-model`                                                                                                                                                                                                                                                          |
+| **Date**                | `2026-04-14`                                                                                                                                                                                                                                                                                 |
+| **Author(s)**           | `Codex`                                                                                                                                                                                                                                                                                      |
+| **Depends On**          | [Live Timeline Visibility And Reasoning Surfaces](../specs/013-live-timeline-visibility-and-reasoning-surfaces.md), [Component Architecture Desktop App](../architecture/component-architecture-desktop-app.md), [Observability Architecture](../architecture/observability-architecture.md) |
+| **Implementation Plan** | [Plan-019: Notifications And Attention Model](../plans/019-notifications-and-attention-model.md)                                                                                                                                                                                             |
 
 ## Purpose
 

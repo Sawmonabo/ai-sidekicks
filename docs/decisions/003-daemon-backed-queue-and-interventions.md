@@ -1,13 +1,13 @@
 # ADR-003: Daemon Backed Queue And Interventions
 
-| Field | Value |
-| -------------- | ------------------------------------------------------------------------ |
-| **Status** | `accepted` |
-| **Type** | `Type 2 (one-way door)` |
-| **Domain** | `Runtime Control` |
-| **Date** | `2026-04-14` |
-| **Author(s)** | `Codex` |
-| **Reviewers** | `Accepted 2026-04-15` |
+| Field         | Value                   |
+| ------------- | ----------------------- |
+| **Status**    | `accepted`              |
+| **Type**      | `Type 2 (one-way door)` |
+| **Domain**    | `Runtime Control`       |
+| **Date**      | `2026-04-14`            |
+| **Author(s)** | `Codex`                 |
+| **Reviewers** | `Accepted 2026-04-15`   |
 
 ## Context
 
@@ -59,19 +59,19 @@ Client-side queueing fails the durability and shared-observation requirements ou
 
 ## Assumptions Audit
 
-| # | Assumption | Evidence | What Breaks If Wrong |
-|---|-----------|----------|----------------------|
-| 1 | Queue and intervention state must survive client restart. | Required by recovery and shared-session goals. | Client-local queue might be enough. |
-| 2 | Drivers will not provide one uniform queue or pause model. | The queue spec and run-state model require canonical runtime-owned semantics with explicit degraded outcomes when providers cannot match them. | Provider-native queue could be the main authority. |
-| 3 | The Local Runtime Daemon is the right enforcement point for run truth. | Existing architecture keeps execution local and authoritative there. | Another service would need to become the scheduler of record. |
+| #   | Assumption                                                             | Evidence                                                                                                                                       | What Breaks If Wrong                                          |
+| --- | ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| 1   | Queue and intervention state must survive client restart.              | Required by recovery and shared-session goals.                                                                                                 | Client-local queue might be enough.                           |
+| 2   | Drivers will not provide one uniform queue or pause model.             | The queue spec and run-state model require canonical runtime-owned semantics with explicit degraded outcomes when providers cannot match them. | Provider-native queue could be the main authority.            |
+| 3   | The Local Runtime Daemon is the right enforcement point for run truth. | Existing architecture keeps execution local and authoritative there.                                                                           | Another service would need to become the scheduler of record. |
 
 ## Failure Mode Analysis
 
-| Scenario | Likelihood | Impact | Detection | Mitigation |
-|----------|-----------|--------|-----------|------------|
-| Queue persistence is unavailable | Low | High | Queue creation fails and runtime health degrades | Block new queued work explicitly and expose repair state |
-| Concurrent clients race on the same queue | Med | Med | Duplicate or conflicting intervention outcomes appear | Use daemon-owned receipts and serialized queue mutation |
-| Intervention outcome is hidden from UI | Med | Med | Timeline and run state diverge from operator expectation | Make intervention results canonical events |
+| Scenario                                  | Likelihood | Impact | Detection                                                | Mitigation                                               |
+| ----------------------------------------- | ---------- | ------ | -------------------------------------------------------- | -------------------------------------------------------- |
+| Queue persistence is unavailable          | Low        | High   | Queue creation fails and runtime health degrades         | Block new queued work explicitly and expose repair state |
+| Concurrent clients race on the same queue | Med        | Med    | Duplicate or conflicting intervention outcomes appear    | Use daemon-owned receipts and serialized queue mutation  |
+| Intervention outcome is hidden from UI    | Med        | Med    | Timeline and run state diverge from operator expectation | Make intervention results canonical events               |
 
 ## Reversibility Assessment
 
@@ -108,20 +108,20 @@ Client-side queueing fails the durability and shared-observation requirements ou
 
 ### Success Criteria
 
-| Metric | Target | Measurement Method | Check Date |
-|--------|--------|--------------------|------------|
-| Queue state survives daemon restart | 100% of persisted queue items | Recovery test suite | `2026-04-14` |
-| Intervention outcomes are visible in canonical history | 100% of accepted or rejected interventions | Audit log review | `2026-04-14` |
+| Metric                                                 | Target                                     | Measurement Method  | Check Date   |
+| ------------------------------------------------------ | ------------------------------------------ | ------------------- | ------------ |
+| Queue state survives daemon restart                    | 100% of persisted queue items              | Recovery test suite | `2026-04-14` |
+| Intervention outcomes are visible in canonical history | 100% of accepted or rejected interventions | Audit log review    | `2026-04-14` |
 
 ## References
 
 ### Research Conducted
 
-| Source | Type | Key Finding | URL/Location |
-|--------|------|-------------|--------------|
-| `specs/004-queue-steer-pause-resume.md` | Canonical spec | Queue and intervention state belongs to runtime truth | [specs/004-queue-steer-pause-resume.md](../specs/004-queue-steer-pause-resume.md) |
-| `domain/queue-and-intervention-model.md` | Canonical domain doc | Queue items and interventions are durable runtime-controlled records rather than client-local state | [domain/queue-and-intervention-model.md](../domain/queue-and-intervention-model.md) |
-| `architecture/component-architecture-local-daemon.md` | Canonical architecture doc | Daemon is the local execution authority | [architecture/component-architecture-local-daemon.md](../architecture/component-architecture-local-daemon.md) |
+| Source                                                | Type                       | Key Finding                                                                                         | URL/Location                                                                                                  |
+| ----------------------------------------------------- | -------------------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `specs/004-queue-steer-pause-resume.md`               | Canonical spec             | Queue and intervention state belongs to runtime truth                                               | [specs/004-queue-steer-pause-resume.md](../specs/004-queue-steer-pause-resume.md)                             |
+| `domain/queue-and-intervention-model.md`              | Canonical domain doc       | Queue items and interventions are durable runtime-controlled records rather than client-local state | [domain/queue-and-intervention-model.md](../domain/queue-and-intervention-model.md)                           |
+| `architecture/component-architecture-local-daemon.md` | Canonical architecture doc | Daemon is the local execution authority                                                             | [architecture/component-architecture-local-daemon.md](../architecture/component-architecture-local-daemon.md) |
 
 ### Related Domain Docs
 
@@ -147,8 +147,8 @@ Client-side queueing fails the durability and shared-observation requirements ou
 
 ## Decision Log
 
-| Date | Event | Notes |
-|------|-------|-------|
-| 2026-04-14 | Proposed | Initial draft |
+| Date       | Event        | Notes                                                           |
+| ---------- | ------------ | --------------------------------------------------------------- |
+| 2026-04-14 | Proposed     | Initial draft                                                   |
 | 2026-04-14 | Re-baselined | Reviewer assignment and acceptance validation remain incomplete |
-| 2026-04-15 | Accepted | ADR accepted |
+| 2026-04-15 | Accepted     | ADR accepted                                                    |

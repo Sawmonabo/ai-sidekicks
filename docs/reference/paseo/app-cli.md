@@ -341,20 +341,21 @@ packages/app/src/
 
 **Route structure (Expo Router, file-system based):**
 
-| Route | Screen | Purpose |
-|-------|--------|---------|
-| `/` | `index.tsx` | Root redirect: if any host is online, redirect to that host's root; otherwise redirect to `/welcome` |
-| `/welcome` | `WelcomeScreen` | Onboarding: connect to a daemon via QR scan, direct connection, or paste pairing link |
-| `/settings` | Legacy redirect | Redirects to `/h/[serverId]/settings` for the first host |
-| `/pair-scan` | `PairScanScreen` | Camera-based QR code scanning (native only; web shows unsupported message) |
-| `/h/[serverId]` | `HostIndexRoute` | Host root: redirects to the most recent workspace or open-project screen |
-| `/h/[serverId]/agent/[agentId]` | `HostAgentReadyRoute` | Agent detail: resolves agent's cwd, redirects to workspace with agent tab |
-| `/h/[serverId]/open-project` | `OpenProjectScreen` | Directory picker to open a workspace |
-| `/h/[serverId]/sessions` | `SessionsScreen` | Lists all sessions (agents) for this host, sorted by creation date |
-| `/h/[serverId]/settings` | `SettingsScreen` | Full settings screen for this host |
-| `/h/[serverId]/workspace/[workspaceId]` | `WorkspaceScreen` | Main workspace view with tabs, panes, headers |
+| Route                                   | Screen                | Purpose                                                                                              |
+| --------------------------------------- | --------------------- | ---------------------------------------------------------------------------------------------------- |
+| `/`                                     | `index.tsx`           | Root redirect: if any host is online, redirect to that host's root; otherwise redirect to `/welcome` |
+| `/welcome`                              | `WelcomeScreen`       | Onboarding: connect to a daemon via QR scan, direct connection, or paste pairing link                |
+| `/settings`                             | Legacy redirect       | Redirects to `/h/[serverId]/settings` for the first host                                             |
+| `/pair-scan`                            | `PairScanScreen`      | Camera-based QR code scanning (native only; web shows unsupported message)                           |
+| `/h/[serverId]`                         | `HostIndexRoute`      | Host root: redirects to the most recent workspace or open-project screen                             |
+| `/h/[serverId]/agent/[agentId]`         | `HostAgentReadyRoute` | Agent detail: resolves agent's cwd, redirects to workspace with agent tab                            |
+| `/h/[serverId]/open-project`            | `OpenProjectScreen`   | Directory picker to open a workspace                                                                 |
+| `/h/[serverId]/sessions`                | `SessionsScreen`      | Lists all sessions (agents) for this host, sorted by creation date                                   |
+| `/h/[serverId]/settings`                | `SettingsScreen`      | Full settings screen for this host                                                                   |
+| `/h/[serverId]/workspace/[workspaceId]` | `WorkspaceScreen`     | Main workspace view with tabs, panes, headers                                                        |
 
 **Navigation patterns:**
+
 - All host routes are wrapped in `HostRouteBootstrapBoundary` which ensures the host runtime is connected before rendering.
 - Workspace routes accept `?open=agent:<id>`, `?open=terminal:<id>`, `?open=file:<path>`, `?open=draft:<id>` query params to deep-link into specific tabs.
 - The root `_layout.tsx` wraps everything in a deep provider hierarchy: `GestureHandlerRootView > PortalProvider > SafeAreaProvider > KeyboardProvider > QueryProvider > BottomSheetModalProvider > HostRuntimeBootstrapProvider > ProvidersWrapper > SidebarAnimationProvider > HorizontalScrollProvider > ToastProvider > AppWithSidebar > RootStack`.
@@ -362,6 +363,7 @@ packages/app/src/
 ### 3. Host/Session Model
 
 **Host profile (`HostProfile`):**
+
 - `serverId`: unique daemon identifier
 - Connections array, each of type `HostConnection`:
   - `directTcp`: hostname:port
@@ -370,6 +372,7 @@ packages/app/src/
   - `relay`: relay endpoint + daemon public key (base64)
 
 **Connection lifecycle:**
+
 1. On bootstrap, the `HostRuntimeStore` loads saved host profiles from AsyncStorage.
 2. For desktop (Electron), the store manages a local daemon: starts it, connects via local socket/pipe transport.
 3. For each host, the store creates a `DaemonClient` (WebSocket-based).
@@ -377,6 +380,7 @@ packages/app/src/
 5. Once connected, the store polls the agent directory and manages reconnection.
 
 **Session state (`SessionStore`):**
+
 - Per-serverId session state containing:
   - `agents`: Map of `Agent` objects (id, provider, status, cwd, model, modes, permissions, attention, labels, persistence, usage)
   - `workspaces`: Map of `WorkspaceDescriptor` (project path, project kind, workspace kind)
@@ -391,6 +395,7 @@ packages/app/src/
 **Agent lifecycle statuses:** initializing, idle, running, error, closed
 
 **Agent properties:**
+
 - `provider`: AgentProvider (claude, codex, copilot, opencode, pi)
 - `currentModeId` + `availableModes`: provider-specific operational modes
 - `capabilities`: AgentCapabilityFlags
@@ -404,6 +409,7 @@ packages/app/src/
 ### 4. Agent Views
 
 **Agent stream view (`AgentStreamView`):**
+
 - Renders a scrollable timeline of `StreamItem`s:
   - `user_message`: User messages with optional image attachments
   - `assistant_message`: Assistant text with Markdown rendering
@@ -422,14 +428,17 @@ packages/app/src/
 - Turn copy button: copies assistant message text.
 
 **Artifact drawer:**
+
 - Supports artifact types: markdown, diff, image, code.
 - Modal overlay for viewing artifacts.
 
 **Agent status bar:**
+
 - Shows provider, model name, thinking mode, status, model loading progress.
 - Context window meter: circular progress indicator showing token usage vs. max.
 
 **Agent list / sidebar:**
+
 - Groups agents by workspace/project.
 - Shows status dots (color-coded), agent title, time ago.
 - Supports archive/unarchive, drag-and-drop reordering.
@@ -437,6 +446,7 @@ packages/app/src/
 ### 5. Chat Interface
 
 **Message composer (`AgentInputArea` + `MessageInput`):**
+
 - Multi-line text input with dynamic height.
 - Placeholder text adapts: desktop shows "Message the agent, tag @files, or use /commands and /skills"; mobile shows "Message, @files, /commands".
 - Image attachment support: paste from clipboard, pick from gallery (native), drag-and-drop (web). Preview thumbnails with remove.
@@ -451,6 +461,7 @@ packages/app/src/
 - Message queue: messages queued while agent is running, sent in order after turn completes.
 
 **Message types rendered:**
+
 - `UserMessage`: right-aligned bubble with text and optional images.
 - `AssistantMessage`: left-aligned Markdown-rendered text.
 - `ActivityLog`: system messages with icons (info, success, error, warning).
@@ -465,20 +476,21 @@ packages/app/src/
 
 **Settings sections (per-host):**
 
-| Section | Platform | Contents |
-|---------|----------|----------|
-| **Hosts** | All | List of connected hosts, connection type (relay/TCP/socket/pipe), status, add/edit/remove hosts. Each host shows serverId, hostname, connections, active connection badge. |
-| **General** | All | Theme selector (dark, zinc, midnight, claude, ghostty, light, auto), send behavior (interrupt vs queue), manage built-in daemon toggle. |
-| **Permissions** | All | Desktop permission management for notifications and microphone. |
-| **Shortcuts** | Desktop | Keyboard shortcut customization. |
-| **Integrations** | Desktop | CLI installation status and install button, Skills installation status and install button. Links to docs. |
-| **Pair device** | Desktop | QR code and pairing link for connecting mobile devices to the daemon. |
-| **Daemon** | Desktop | Local daemon management, restart, logs. |
-| **Providers** | Desktop | Provider health status (claude, codex, copilot, opencode, pi), diagnostic sheets per provider. |
-| **Diagnostics** | All | Debug information. |
-| **About** | All | App version, links. |
+| Section          | Platform | Contents                                                                                                                                                                   |
+| ---------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Hosts**        | All      | List of connected hosts, connection type (relay/TCP/socket/pipe), status, add/edit/remove hosts. Each host shows serverId, hostname, connections, active connection badge. |
+| **General**      | All      | Theme selector (dark, zinc, midnight, claude, ghostty, light, auto), send behavior (interrupt vs queue), manage built-in daemon toggle.                                    |
+| **Permissions**  | All      | Desktop permission management for notifications and microphone.                                                                                                            |
+| **Shortcuts**    | Desktop  | Keyboard shortcut customization.                                                                                                                                           |
+| **Integrations** | Desktop  | CLI installation status and install button, Skills installation status and install button. Links to docs.                                                                  |
+| **Pair device**  | Desktop  | QR code and pairing link for connecting mobile devices to the daemon.                                                                                                      |
+| **Daemon**       | Desktop  | Local daemon management, restart, logs.                                                                                                                                    |
+| **Providers**    | Desktop  | Provider health status (claude, codex, copilot, opencode, pi), diagnostic sheets per provider.                                                                             |
+| **Diagnostics**  | All      | Debug information.                                                                                                                                                         |
+| **About**        | All      | App version, links.                                                                                                                                                        |
 
 **Theme system:**
+
 - 6 named themes + auto (system): dark, zinc, midnight, claude, ghostty, light.
 - Theme cycle via keyboard shortcut.
 - Desktop window controls overlay color synced with theme.
@@ -488,26 +500,27 @@ packages/app/src/
 
 **Store architecture (Zustand):**
 
-| Store | Purpose | Persistence |
-|-------|---------|-------------|
-| `session-store` | Agent state, workspaces, terminals, file explorers, server info, agent streams | In-memory (hydrated from daemon) |
-| `panel-store` | Sidebar visibility, explorer state, mobile/desktop panel state | AsyncStorage (persisted) |
-| `draft-store` | Draft message text and images per agent/draft | AsyncStorage (persisted, versioned) |
-| `workspace-layout-store` | Workspace tab layout, active tabs, split pane configuration | AsyncStorage (persisted) |
-| `workspace-tabs-store` | Tab definitions (agent, terminal, file, draft) | AsyncStorage (persisted) |
-| `create-flow-store` | Agent creation flow state | In-memory |
-| `download-store` | File download progress | In-memory |
-| `keyboard-shortcuts-store` | Custom shortcut overrides | AsyncStorage (persisted) |
-| `checkout-git-actions-store` | Git action execution state per checkout | In-memory |
-| `navigation-active-workspace-store` | Currently active workspace for navigation sync | In-memory |
-| `section-order-store` | Sidebar section ordering | AsyncStorage (persisted) |
-| `sidebar-collapsed-sections-store` | Collapsed sidebar sections | AsyncStorage (persisted) |
-| `sidebar-order-store` | Sidebar workspace ordering | AsyncStorage (persisted) |
-| `explorer-tab-memory` | Explorer tab (files/changes) per checkout | AsyncStorage (persisted) |
+| Store                               | Purpose                                                                        | Persistence                         |
+| ----------------------------------- | ------------------------------------------------------------------------------ | ----------------------------------- |
+| `session-store`                     | Agent state, workspaces, terminals, file explorers, server info, agent streams | In-memory (hydrated from daemon)    |
+| `panel-store`                       | Sidebar visibility, explorer state, mobile/desktop panel state                 | AsyncStorage (persisted)            |
+| `draft-store`                       | Draft message text and images per agent/draft                                  | AsyncStorage (persisted, versioned) |
+| `workspace-layout-store`            | Workspace tab layout, active tabs, split pane configuration                    | AsyncStorage (persisted)            |
+| `workspace-tabs-store`              | Tab definitions (agent, terminal, file, draft)                                 | AsyncStorage (persisted)            |
+| `create-flow-store`                 | Agent creation flow state                                                      | In-memory                           |
+| `download-store`                    | File download progress                                                         | In-memory                           |
+| `keyboard-shortcuts-store`          | Custom shortcut overrides                                                      | AsyncStorage (persisted)            |
+| `checkout-git-actions-store`        | Git action execution state per checkout                                        | In-memory                           |
+| `navigation-active-workspace-store` | Currently active workspace for navigation sync                                 | In-memory                           |
+| `section-order-store`               | Sidebar section ordering                                                       | AsyncStorage (persisted)            |
+| `sidebar-collapsed-sections-store`  | Collapsed sidebar sections                                                     | AsyncStorage (persisted)            |
+| `sidebar-order-store`               | Sidebar workspace ordering                                                     | AsyncStorage (persisted)            |
+| `explorer-tab-memory`               | Explorer tab (files/changes) per checkout                                      | AsyncStorage (persisted)            |
 
 **React Query:** Used for server-derived data (settings, providers, checkout status, diff data, branch list, terminals, project icons, agent commands).
 
 **Context providers:**
+
 - `SessionProvider`: per-host session lifecycle, stream event processing, voice audio routing, push token registration.
 - `VoiceProvider`: voice runtime lifecycle, mute state, active voice session.
 - `ToastProvider`: toast notification queue.
@@ -518,6 +531,7 @@ packages/app/src/
 ### 8. Service Layer
 
 **Daemon communication:**
+
 - `DaemonClient` from `@server/client/daemon-client`: WebSocket-based bidirectional communication.
 - Transport types:
   1. **Direct TCP**: `ws://host:port/ws`
@@ -544,6 +558,7 @@ packages/app/src/
 ### 9. Mobile/Desktop Behavior
 
 **Layout:**
+
 - `useIsCompactFormFactor()`: breakpoint-based detection (not just platform).
 - Compact (mobile): single-panel view with overlay sidebars. Only one panel visible at a time: agent view, agent list (left overlay), or file explorer (right overlay).
 - Desktop: persistent sidebars alongside main content. Both sidebars can be open simultaneously.
@@ -551,6 +566,7 @@ packages/app/src/
 - Focus mode: hides both sidebars for distraction-free view.
 
 **Mobile-specific:**
+
 - Gesture-based sidebar open (swipe right from left edge).
 - Gesture arbitration with horizontal scroll.
 - Mobile tab switcher: combobox dropdown instead of tab bar.
@@ -558,6 +574,7 @@ packages/app/src/
 - Camera-based QR scanning for pairing (native only).
 
 **Desktop-specific:**
+
 - Electron titlebar drag region.
 - Window controls overlay color sync with theme.
 - Resizable sidebars (draggable splitters, min/max widths).
@@ -570,6 +587,7 @@ packages/app/src/
 - Local daemon management (start, stop, restart).
 
 **Web-specific:**
+
 - Browser favicon badge showing attention state.
 - Web notification API integration.
 - IndexedDB attachment store.
@@ -580,25 +598,30 @@ packages/app/src/
 ### 10. Notifications and Attention
 
 **Attention model:**
+
 - Agents can `requireAttention` with reasons: `finished`, `error`, `permission`.
 - Attention is cleared on: focus entry, input focus, prompt send.
 - Permission-required attention is not auto-cleared.
 
 **Notification channels:**
+
 1. **Push notifications (native)**: `expo-notifications` for iOS/Android. Token registered with daemon. Suppressed when app is in foreground.
 2. **Desktop notifications (Electron)**: Electron notification API via host bridge.
 3. **Web notifications**: `Notification` API with permission request.
 4. **In-app**: Status dots on agent list, favicon badge, attention indicators in sidebar.
 
 **Notification routing:**
+
 - Tapping a notification navigates to the relevant agent within its workspace.
 - Payload contains `serverId`, `agentId`, `workspaceId`/`cwd`.
 - Routes built by `buildNotificationRoute()`: prioritizes workspace route with agent tab if cwd is known.
 
 **Favicon status sync:**
+
 - `useFaviconStatus()`: updates browser favicon to indicate agent attention state.
 
 **Desktop badge state:**
+
 - `packages/app/src/utils/desktop-badge-state.ts`: computes badge state from agent attention across all hosts.
 
 ---
@@ -608,6 +631,7 @@ packages/app/src/
 ### 11. Command Inventory
 
 **Global options (all commands):**
+
 - `-o, --format <format>`: output format: table, json, yaml (default: table)
 - `--json`: alias for `--format json`
 - `-q, --quiet`: minimal output (IDs only)
@@ -620,112 +644,112 @@ packages/app/src/
 
 **Top-level agent aliases (also available as `paseo agent <cmd>`):**
 
-| Command | Description | Key Flags |
-|---------|-------------|-----------|
-| `paseo ls` | List agents (excludes archived by default) | `-a/--all` (include archived), `--label <key=value>`, `--thinking <id>` |
-| `paseo run <prompt>` | Create and start an agent | `-d/--detach`, `--title`, `--provider` (default: claude), `--model`, `--thinking`, `--mode`, `--worktree <name>`, `--base <branch>`, `--image <path>` (repeatable), `--cwd`, `--label <key=value>` (repeatable), `--wait-timeout <duration>`, `--output-schema <file-or-json>` |
-| `paseo attach <id>` | Attach to running agent's output stream | |
-| `paseo logs <id>` | Stream agent logs | |
-| `paseo stop <id>` | Stop a running agent | |
-| `paseo delete <id>` | Delete an agent | |
-| `paseo send <id> <message>` | Send a message to an agent | |
-| `paseo inspect <id>` | Inspect agent details | |
-| `paseo wait <id>` | Wait for an agent to reach a terminal state | |
-| `paseo archive <id>` | Archive an agent | |
+| Command                     | Description                                 | Key Flags                                                                                                                                                                                                                                                                      |
+| --------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `paseo ls`                  | List agents (excludes archived by default)  | `-a/--all` (include archived), `--label <key=value>`, `--thinking <id>`                                                                                                                                                                                                        |
+| `paseo run <prompt>`        | Create and start an agent                   | `-d/--detach`, `--title`, `--provider` (default: claude), `--model`, `--thinking`, `--mode`, `--worktree <name>`, `--base <branch>`, `--image <path>` (repeatable), `--cwd`, `--label <key=value>` (repeatable), `--wait-timeout <duration>`, `--output-schema <file-or-json>` |
+| `paseo attach <id>`         | Attach to running agent's output stream     |                                                                                                                                                                                                                                                                                |
+| `paseo logs <id>`           | Stream agent logs                           |                                                                                                                                                                                                                                                                                |
+| `paseo stop <id>`           | Stop a running agent                        |                                                                                                                                                                                                                                                                                |
+| `paseo delete <id>`         | Delete an agent                             |                                                                                                                                                                                                                                                                                |
+| `paseo send <id> <message>` | Send a message to an agent                  |                                                                                                                                                                                                                                                                                |
+| `paseo inspect <id>`        | Inspect agent details                       |                                                                                                                                                                                                                                                                                |
+| `paseo wait <id>`           | Wait for an agent to reach a terminal state |                                                                                                                                                                                                                                                                                |
+| `paseo archive <id>`        | Archive an agent                            |                                                                                                                                                                                                                                                                                |
 
 **Top-level daemon aliases:**
 
-| Command | Description | Key Flags |
-|---------|-------------|-----------|
-| `paseo start` | Start the local daemon | `--listen`, `--port`, `--home`, `--no-relay`, `--no-mcp`, `--allowed-hosts` |
-| `paseo status` | Show local daemon status | `--home` |
-| `paseo restart` | Restart local daemon | `--home`, `--timeout`, `--force`, `--listen`, `--port`, `--no-relay`, `--no-mcp`, `--allowed-hosts` |
-| `paseo onboard` | First-time setup wizard | `--listen`, `--port`, `--home`, `--no-relay`, `--no-mcp`, `--allowed-hosts`, `--timeout`, `--voice <ask\|enable\|disable>` |
+| Command         | Description              | Key Flags                                                                                                                  |
+| --------------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| `paseo start`   | Start the local daemon   | `--listen`, `--port`, `--home`, `--no-relay`, `--no-mcp`, `--allowed-hosts`                                                |
+| `paseo status`  | Show local daemon status | `--home`                                                                                                                   |
+| `paseo restart` | Restart local daemon     | `--home`, `--timeout`, `--force`, `--listen`, `--port`, `--no-relay`, `--no-mcp`, `--allowed-hosts`                        |
+| `paseo onboard` | First-time setup wizard  | `--listen`, `--port`, `--home`, `--no-relay`, `--no-mcp`, `--allowed-hosts`, `--timeout`, `--voice <ask\|enable\|disable>` |
 
 **`paseo agent` subcommands (advanced):**
 
-| Command | Description | Key Flags |
-|---------|-------------|-----------|
-| `agent mode <id> [mode]` | Change agent's operational mode | `--list` (list available modes) |
-| `agent archive <id>` | Archive agent | |
-| `agent reload <id>` | Reload agent configuration | |
-| `agent update <id>` | Update agent metadata | `--name`, `--label` (repeatable) |
+| Command                  | Description                     | Key Flags                        |
+| ------------------------ | ------------------------------- | -------------------------------- |
+| `agent mode <id> [mode]` | Change agent's operational mode | `--list` (list available modes)  |
+| `agent archive <id>`     | Archive agent                   |                                  |
+| `agent reload <id>`      | Reload agent configuration      |                                  |
+| `agent update <id>`      | Update agent metadata           | `--name`, `--label` (repeatable) |
 
 **`paseo daemon` subcommands:**
 
-| Command | Description | Key Flags |
-|---------|-------------|-----------|
-| `daemon start` | Start the local daemon | `--listen`, `--port`, `--home`, `--no-relay`, `--no-mcp`, `--no-inject-mcp`, `--allowed-hosts` |
-| `daemon status` | Show daemon status | `--home` |
-| `daemon stop` | Stop the daemon | `--home`, `--timeout`, `--force` |
-| `daemon restart` | Restart the daemon | `--home`, `--timeout`, `--force`, `--listen`, `--port`, `--no-relay`, `--no-mcp`, `--no-inject-mcp`, `--allowed-hosts` |
-| `daemon pair` | Print pairing QR code and link | `--home`, `--json` |
+| Command          | Description                    | Key Flags                                                                                                              |
+| ---------------- | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| `daemon start`   | Start the local daemon         | `--listen`, `--port`, `--home`, `--no-relay`, `--no-mcp`, `--no-inject-mcp`, `--allowed-hosts`                         |
+| `daemon status`  | Show daemon status             | `--home`                                                                                                               |
+| `daemon stop`    | Stop the daemon                | `--home`, `--timeout`, `--force`                                                                                       |
+| `daemon restart` | Restart the daemon             | `--home`, `--timeout`, `--force`, `--listen`, `--port`, `--no-relay`, `--no-mcp`, `--no-inject-mcp`, `--allowed-hosts` |
+| `daemon pair`    | Print pairing QR code and link | `--home`, `--json`                                                                                                     |
 
 **`paseo chat` subcommands:**
 
-| Command | Description | Key Flags |
-|---------|-------------|-----------|
-| `chat create <name>` | Create a chat room | `--purpose` |
-| `chat ls` | List chat rooms | |
-| `chat inspect <name-or-id>` | Inspect a chat room | |
-| `chat delete <name-or-id>` | Delete a chat room | |
-| `chat post <name-or-id> <message>` | Post a message | `--reply-to <msg-id>` |
-| `chat read <name-or-id>` | Read messages | `--limit`, `--since`, `--agent` |
-| `chat wait <name-or-id>` | Wait for new messages | `--timeout` |
+| Command                            | Description           | Key Flags                       |
+| ---------------------------------- | --------------------- | ------------------------------- |
+| `chat create <name>`               | Create a chat room    | `--purpose`                     |
+| `chat ls`                          | List chat rooms       |                                 |
+| `chat inspect <name-or-id>`        | Inspect a chat room   |                                 |
+| `chat delete <name-or-id>`         | Delete a chat room    |                                 |
+| `chat post <name-or-id> <message>` | Post a message        | `--reply-to <msg-id>`           |
+| `chat read <name-or-id>`           | Read messages         | `--limit`, `--since`, `--agent` |
+| `chat wait <name-or-id>`           | Wait for new messages | `--timeout`                     |
 
 **`paseo terminal` subcommands:**
 
-| Command | Description | Key Flags |
-|---------|-------------|-----------|
-| `terminal ls` | List terminals | `--all`, `--cwd` |
-| `terminal create` | Create a terminal | `--cwd`, `--name` |
-| `terminal kill <id>` | Kill a terminal | |
-| `terminal capture <id>` | Capture terminal output | `--start`, `--end`, `-S/--scrollback`, `--ansi`, `--json` |
-| `terminal send-keys <id> <keys...>` | Send keys to terminal | `-l/--literal`, `--json` |
+| Command                             | Description             | Key Flags                                                 |
+| ----------------------------------- | ----------------------- | --------------------------------------------------------- |
+| `terminal ls`                       | List terminals          | `--all`, `--cwd`                                          |
+| `terminal create`                   | Create a terminal       | `--cwd`, `--name`                                         |
+| `terminal kill <id>`                | Kill a terminal         |                                                           |
+| `terminal capture <id>`             | Capture terminal output | `--start`, `--end`, `-S/--scrollback`, `--ansi`, `--json` |
+| `terminal send-keys <id> <keys...>` | Send keys to terminal   | `-l/--literal`, `--json`                                  |
 
 **`paseo loop` subcommands:**
 
-| Command | Description | Key Flags |
-|---------|-------------|-----------|
+| Command             | Description         | Key Flags                                                                                                                                                                                        |
+| ------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `loop run <prompt>` | Start a worker loop | `--provider`, `--model`, `--verify-provider`, `--verify-model`, `--verify <prompt>`, `--verify-check <command>` (repeatable), `--archive`, `--name`, `--sleep`, `--max-iterations`, `--max-time` |
-| `loop ls` | List running loops | |
-| `loop inspect <id>` | Inspect a loop | |
-| `loop logs <id>` | Show loop logs | |
-| `loop stop <id>` | Stop a loop | |
+| `loop ls`           | List running loops  |                                                                                                                                                                                                  |
+| `loop inspect <id>` | Inspect a loop      |                                                                                                                                                                                                  |
+| `loop logs <id>`    | Show loop logs      |                                                                                                                                                                                                  |
+| `loop stop <id>`    | Stop a loop         |                                                                                                                                                                                                  |
 
 **`paseo schedule` subcommands:**
 
-| Command | Description | Key Flags |
-|---------|-------------|-----------|
-| `schedule create <prompt>` | Create a schedule | `--every`, `--cron`, `--name`, `--target <self\|new-agent\|agent-id>`, `--provider`, `--max-runs`, `--expires-in` |
-| `schedule ls` | List schedules | |
-| `schedule inspect <id>` | Inspect a schedule | |
-| `schedule logs <id>` | Show schedule run logs | |
-| `schedule pause <id>` | Pause a schedule | |
-| `schedule resume <id>` | Resume a paused schedule | |
-| `schedule delete <id>` | Delete a schedule | |
+| Command                    | Description              | Key Flags                                                                                                         |
+| -------------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| `schedule create <prompt>` | Create a schedule        | `--every`, `--cron`, `--name`, `--target <self\|new-agent\|agent-id>`, `--provider`, `--max-runs`, `--expires-in` |
+| `schedule ls`              | List schedules           |                                                                                                                   |
+| `schedule inspect <id>`    | Inspect a schedule       |                                                                                                                   |
+| `schedule logs <id>`       | Show schedule run logs   |                                                                                                                   |
+| `schedule pause <id>`      | Pause a schedule         |                                                                                                                   |
+| `schedule resume <id>`     | Resume a paused schedule |                                                                                                                   |
+| `schedule delete <id>`     | Delete a schedule        |                                                                                                                   |
 
 **`paseo permit` subcommands:**
 
-| Command | Description | Key Flags |
-|---------|-------------|-----------|
-| `permit ls` | List pending permissions | |
-| `permit allow <agent> [req_id]` | Allow a permission | `--all`, `--input <json>` |
-| `permit deny <agent> [req_id]` | Deny a permission | `--all`, `--message`, `--interrupt` |
+| Command                         | Description              | Key Flags                           |
+| ------------------------------- | ------------------------ | ----------------------------------- |
+| `permit ls`                     | List pending permissions |                                     |
+| `permit allow <agent> [req_id]` | Allow a permission       | `--all`, `--input <json>`           |
+| `permit deny <agent> [req_id]`  | Deny a permission        | `--all`, `--message`, `--interrupt` |
 
 **`paseo provider` subcommands:**
 
-| Command | Description | Key Flags |
-|---------|-------------|-----------|
-| `provider ls` | List available providers and status | |
-| `provider models <provider>` | List models for a provider | `--thinking` |
+| Command                      | Description                         | Key Flags    |
+| ---------------------------- | ----------------------------------- | ------------ |
+| `provider ls`                | List available providers and status |              |
+| `provider models <provider>` | List models for a provider          | `--thinking` |
 
 **`paseo worktree` subcommands:**
 
-| Command | Description | Key Flags |
-|---------|-------------|-----------|
-| `worktree ls` | List Paseo-managed git worktrees | |
-| `worktree archive <name>` | Archive a worktree (removes worktree and branch) | |
+| Command                   | Description                                      | Key Flags |
+| ------------------------- | ------------------------------------------------ | --------- |
+| `worktree ls`             | List Paseo-managed git worktrees                 |           |
+| `worktree archive <name>` | Archive a worktree (removes worktree and branch) |           |
 
 **`paseo speech`:** Stub command group with no subcommands (placeholder).
 
@@ -736,6 +760,7 @@ packages/app/src/
 **Transport:** The CLI connects to the daemon via the same `DaemonClient` WebSocket protocol as the app.
 
 **Connection resolution order:**
+
 1. Explicit `--host` option or `PASEO_HOST` environment variable.
 2. IPC socket/pipe from `PASEO_LISTEN` env var or `paseo.pid` file.
 3. Config file (`~/.paseo/config.json`) listen address.
@@ -750,22 +775,26 @@ packages/app/src/
 ### 13. Interactive Features
 
 **`paseo onboard`:**
+
 - Full interactive wizard using `@clack/prompts`.
 - Steps: intro, resolve Paseo home, voice setup prompt (confirm dialog), start daemon, wait for readiness (spinner with download progress), generate pairing QR, print next steps.
 - Non-interactive fallback: skips prompts, defaults voice to disabled.
 
 **`paseo attach <id>`:**
+
 - Streams agent timeline in real-time.
 - Prints: assistant messages (raw text to stdout), reasoning blocks, tool call status, todo progress, errors, user messages, permission requests, status changes.
 - Runs until agent reaches a terminal state.
 
 **`paseo run <prompt>` (non-detached):**
+
 - Creates agent and attaches to its output stream.
 - Supports `--wait-timeout` for maximum wait time.
 - Supports `--output-schema` for structured JSON output extraction.
 - Structured response: extracts and validates JSON from agent's last message using schema.
 
 **`paseo daemon pair`:**
+
 - Generates and prints QR code and pairing link.
 - Supports `--json` output.
 
@@ -773,23 +802,25 @@ packages/app/src/
 
 **Output system (`packages/cli/src/output/`):**
 
-| Module | Purpose |
-|--------|---------|
-| `with-output.ts` | Command wrapper for automatic output rendering |
-| `render.ts` | Format dispatcher (table, json, yaml) |
-| `table.ts` | Terminal table rendering with column alignment, optional color |
-| `json.ts` | JSON output with pretty-printing |
-| `yaml.ts` | YAML output |
-| `quiet.ts` | Minimal output (IDs only) |
-| `types.ts` | Output schema types, result types (SingleResult, ListResult, StreamResult) |
+| Module           | Purpose                                                                    |
+| ---------------- | -------------------------------------------------------------------------- |
+| `with-output.ts` | Command wrapper for automatic output rendering                             |
+| `render.ts`      | Format dispatcher (table, json, yaml)                                      |
+| `table.ts`       | Terminal table rendering with column alignment, optional color             |
+| `json.ts`        | JSON output with pretty-printing                                           |
+| `yaml.ts`        | YAML output                                                                |
+| `quiet.ts`       | Minimal output (IDs only)                                                  |
+| `types.ts`       | Output schema types, result types (SingleResult, ListResult, StreamResult) |
 
 **Result types:**
+
 - `SingleResult<T>`: single item output with schema
 - `ListResult<T>`: list output with schema (used by ls commands)
 - `StreamResult`: streaming output
 - `CommandError`: structured error output (code, message, details)
 
 **Output options normalization:**
+
 - `--json` overrides format to json.
 - `--output-schema` forces json format and non-quiet mode.
 - Table format supports colored columns (e.g., agent status: green for running, yellow for idle, red for error).

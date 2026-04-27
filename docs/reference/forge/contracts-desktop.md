@@ -34,15 +34,15 @@ forge/
 
 ### Workspace Catalog (Pinned Dependencies)
 
-| Package                      | Version           |
-|------------------------------|-------------------|
-| effect                       | 4.0.0-beta.43     |
-| @effect/atom-react           | 4.0.0-beta.43     |
-| @effect/platform-bun         | 4.0.0-beta.43     |
-| @effect/platform-node        | 4.0.0-beta.43     |
-| @effect/sql-sqlite-bun       | 4.0.0-beta.43     |
-| typescript                   | ^5.7.3            |
-| vitest                       | ^4.0.0            |
+| Package                | Version       |
+| ---------------------- | ------------- |
+| effect                 | 4.0.0-beta.43 |
+| @effect/atom-react     | 4.0.0-beta.43 |
+| @effect/platform-bun   | 4.0.0-beta.43 |
+| @effect/platform-node  | 4.0.0-beta.43 |
+| @effect/sql-sqlite-bun | 4.0.0-beta.43 |
+| typescript             | ^5.7.3        |
+| vitest                 | ^4.0.0        |
 
 ### Turbo Tasks
 
@@ -58,6 +58,7 @@ forge/
 ### Base Schemas (`baseSchemas.ts`)
 
 **Primitive types:**
+
 - `TrimmedString` -- `Schema.Trim`
 - `TrimmedNonEmptyString` -- trimmed + non-empty check
 - `NonNegativeInt` -- integer >= 0
@@ -65,6 +66,7 @@ forge/
 - `IsoDateTime` -- string alias for ISO timestamps
 
 **Entity IDs (branded non-empty trimmed strings):**
+
 - `ThreadId`, `ProjectId`, `CommandId`, `EventId`, `MessageId`, `TurnId`
 - `WorkflowId`, `WorkflowPhaseId`, `PhaseRunId`
 - `ChannelId`, `ChannelMessageId`, `LinkId`, `InteractiveRequestId`
@@ -74,6 +76,7 @@ forge/
 ### Channel Types (`channel.ts`)
 
 **Enums:**
+
 - `ChannelType` -- `"guidance" | "deliberation" | "review" | "system"`
 - `ChannelStatus` -- `"open" | "concluded" | "closed"`
 - `ChannelParticipantType` -- `"human" | "agent" | "system"`
@@ -81,21 +84,25 @@ forge/
 - `InjectionStatus` -- `"injected" | "response-received" | "persisted"`
 
 **Structs:**
+
 - `ChannelMessage` -- id, channelId, sequence, fromType, fromId, fromRole, content, createdAt
 - `Channel` -- id, threadId, phaseRunId, type, status, createdAt, updatedAt
 - `InjectionState` -- sessionId, injectedAtSequence, turnCorrelationId, status
 - `DeliberationState` -- strategy, currentSpeaker, turnCount, maxTurns, conclusionProposals, concluded, lastPostTimestamp, nudgeCount, maxNudges, stallTimeoutMs, injectionState
 
 **Functions:**
+
 - `createInitialDeliberationState(maxTurns)` -- factory for ping-pong deliberation
 
 ### Model Types (`model.ts`)
 
 **Enums:**
+
 - `CODEX_REASONING_EFFORT_OPTIONS` -- `["xhigh", "high", "medium", "low"]`
 - `CLAUDE_CODE_EFFORT_OPTIONS` -- `["low", "medium", "high", "max", "ultrathink"]`
 
 **Structs:**
+
 - `CodexModelOptions` -- reasoningEffort, fastMode
 - `ClaudeModelOptions` -- thinking, effort, fastMode, contextWindow
 - `ProviderModelOptions` -- codex, claudeAgent (optional sub-structs)
@@ -104,6 +111,7 @@ forge/
 - `ModelCapabilities` -- reasoningEffortLevels, supportsFastMode, supportsThinkingToggle, contextWindowOptions, promptInjectedEffortLevels
 
 **Constants:**
+
 - `DEFAULT_MODEL_BY_PROVIDER` -- `{ codex: "gpt-5.4", claudeAgent: "claude-sonnet-4-6" }`
 - `DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER` -- `{ codex: "gpt-5.4-mini", claudeAgent: "claude-haiku-4-5" }`
 - `MODEL_SLUG_ALIASES_BY_PROVIDER` -- maps short names (e.g., `"5.4"`, `"opus"`, `"sonnet"`) to canonical slugs
@@ -122,6 +130,7 @@ forge/
 `"thread.status-changed"`, `"thread.completed"`, `"thread.failed"`, `"thread.cancelled"`, `"thread.phase-started"`, `"thread.phase-completed"`, `"thread.phase-failed"`, `"thread.phase-skipped"`, `"thread.phase-output-edited"`, `"thread.quality-check-started"`, `"thread.quality-check-completed"`, `"thread.correction-queued"`, `"thread.correction-delivered"`, `"thread.bootstrap-queued"`, `"thread.bootstrap-started"`, `"thread.bootstrap-completed"`, `"thread.bootstrap-failed"`, `"thread.bootstrap-skipped"`, `"thread.turn-requested"`, `"thread.turn-started"`, `"thread.turn-completed"`, `"thread.turn-restarted"`, `"thread.link-added"`, `"thread.link-removed"`, `"thread.restarted"`, `"thread.promoted"`, `"thread.dependency-added"`, `"thread.dependency-removed"`, `"thread.dependencies-satisfied"`, `"thread.synthesis-completed"`, `"thread.checkpoint-captured"`, `"thread.checkpoint-diff-completed"`, `"thread.checkpoint-reverted"`, `"channel.created"`, `"channel.message-posted"`, `"channel.messages-read"`, `"channel.conclusion-proposed"`, `"channel.concluded"`, `"channel.closed"`, `"request.opened"`, `"request.resolved"`, `"request.stale"`, `"thread.design.artifact-rendered"`, `"thread.design.options-presented"`, `"thread.design.option-chosen"`
 
 **Aggregate Kinds:**
+
 - `OrchestrationAggregateKind` -- `"project" | "thread"`
 - `ForgeAggregateKind` -- `"project" | "thread" | "channel" | "request"`
 - `OrchestrationActorKind` -- `"client" | "server" | "provider"`
@@ -163,6 +172,7 @@ Every event carries: `sequence`, `eventId`, `aggregateKind`, `aggregateId`, `occ
 ### Orchestration Core Types (`types.ts`)
 
 **Session/Runtime enums:**
+
 - `ForgeSessionType` -- `"agent" | "workflow" | "chat"`
 - `RuntimeMode` -- `"approval-required" | "full-access"` (default: `"full-access"`)
 - `ThreadSpawnMode` -- `"local" | "worktree"`
@@ -179,6 +189,7 @@ Every event carries: `sequence`, `eventId`, `aggregateKind`, `aggregateId`, `occ
 - `ProjectScriptIcon` -- `"play" | "test" | "lint" | "configure" | "build" | "debug"`
 
 **Core data structs:**
+
 - `OrchestrationProject` -- id, title, workspaceRoot, defaultModelSelection, scripts, timestamps
 - `OrchestrationThread` -- id, projectId, title, modelSelection, runtimeMode, interactionMode, branch, worktreePath, spawnMode, latestTurn, timestamps, messages, proposedPlans, activities, checkpoints, agentDiffs, session, childThreadIds, bootstrapStatus, and many more fields
 - `OrchestrationMessage` -- id, role, text, attachments, attribution, turnId, streaming, timestamps
@@ -195,12 +206,14 @@ Every event carries: `sequence`, `eventId`, `aggregateKind`, `aggregateId`, `occ
 - `ProjectScript` -- id, name, command, icon, runOnWorktreeCreate
 
 **Attachment types:**
+
 - `ChatImageAttachment` -- type "image", id, name, mimeType, sizeBytes
 - `UploadChatImageAttachment` -- adds dataUrl for upload
 - `ChatAttachment` -- union of attachment types
 - `UploadChatAttachment` -- union of upload attachment types
 
 **Constants:**
+
 - `PROVIDER_SEND_TURN_MAX_INPUT_CHARS` = 120,000
 - `PROVIDER_SEND_TURN_MAX_ATTACHMENTS` = 8
 - `PROVIDER_SEND_TURN_MAX_IMAGE_BYTES` = 10MB
@@ -208,9 +221,11 @@ Every event carries: `sequence`, `eventId`, `aggregateKind`, `aggregateId`, `occ
 ### Read Models (`readModels.ts`)
 
 **Enums:**
+
 - `SessionStatus` -- `"created" | "running" | "needs-attention" | "paused" | "completed" | "failed" | "cancelled"`
 
 **Structs:**
+
 - `OrchestrationReadModel` -- snapshotSequence, projects, threads, phaseRuns, channels, pendingRequests, workflows, updatedAt
 - `ForgeReadModel` -- snapshotSequence, projects, sessions, phaseRuns, channels, pendingRequests, workflows, updatedAt (flattened session view)
 - `ForgeClientSnapshot` -- same shape as ForgeReadModel but with lighter sub-structs
@@ -222,6 +237,7 @@ Every event carries: `sequence`, `eventId`, `aggregateKind`, `aggregateId`, `occ
 ### Commands (`commands.ts`)
 
 **Client-dispatchable commands (19 types):**
+
 - `ProjectCreateCommand`, `ProjectMetaUpdateCommand`, `ProjectDeleteCommand`
 - `ThreadCreateCommand`, `ThreadDeleteCommand`, `ThreadForkCommand`
 - `ThreadArchiveCommand`, `ThreadUnarchiveCommand`, `ThreadPinCommand`, `ThreadUnpinCommand`
@@ -231,38 +247,46 @@ Every event carries: `sequence`, `eventId`, `aggregateKind`, `aggregateId`, `occ
 - `ThreadCheckpointRevertCommand`, `ThreadSessionStopCommand`, `ThreadSummaryRequestCommand`
 
 **Forge session commands:**
+
 - `SessionCreateCommand`, `SessionPauseCommand`, `SessionResumeCommand`, `SessionRecoverCommand`, `SessionCancelCommand`, `SessionRestartCommand`, `SessionMetaUpdateCommand`
 - `SessionSendTurnCommand`, `SessionRestartTurnCommand`, `SessionSendMessageCommand`
 
 **Phase commands:**
+
 - `ThreadStartPhaseCommand`, `ThreadCompletePhaseCommand`, `ThreadFailPhaseCommand`, `ThreadSkipPhaseCommand`
 - `ThreadEditPhaseOutputCommand`, `ThreadQualityCheckStartCommand`, `ThreadQualityCheckCompleteCommand`
 - `ThreadBootstrapStartedCommand`, `ThreadBootstrapCompletedCommand`, `ThreadBootstrapFailedCommand`, `ThreadBootstrapSkippedCommand`
 - `ThreadCorrectCommand`
 
 **Link/Dependency commands:**
+
 - `ThreadAddLinkCommand`, `ThreadRemoveLinkCommand`, `ThreadPromoteCommand`
 - `ThreadAddDependencyCommand`, `ThreadRemoveDependencyCommand`
 - `LinkType` -- `"pr" | "issue" | "ci-run" | "promoted-from" | "promoted-to" | "related"`
 
 **Channel commands:**
+
 - `ChannelCreateCommand`, `ChannelPostMessageCommand`, `ChannelReadMessagesCommand`
 - `ChannelConcludeCommand`, `ChannelMarkConcludedCommand`, `ChannelCloseCommand`
 
 **Request commands:**
+
 - `RequestOpenCommand`, `RequestResolveCommand`, `RequestMarkStaleCommand`
 
 **Design commands:**
+
 - `ThreadDesignArtifactRenderedCommand`, `ThreadDesignOptionsPresentedCommand`, `ThreadDesignOptionChosenCommand`
 - `DesignOptionSchema` -- id, title, description, artifactId, artifactPath
 
 **Internal commands (streamed by server):**
+
 - `ThreadSessionSetCommand`, `ThreadMessageAssistantDeltaCommand`, `ThreadMessageAssistantCompleteCommand`
 - `ThreadMessageAppendCommand`, `ThreadProposedPlanUpsertCommand`, `ThreadTurnDiffCompleteCommand`
 - `ThreadAgentDiffUpsertCommand`, `ThreadActivityAppendCommand`, `ThreadActivityInlineDiffUpsertCommand`
 - `ThreadRevertCompleteCommand`
 
 **Command unions:**
+
 - `ClientOrchestrationCommand` -- all client-dispatchable commands
 - `OrchestrationCommand` -- client + internal commands
 - `ForgeCommand` -- full Forge command set including session/phase/channel/request/design commands
@@ -273,19 +297,20 @@ Every event carries: `sequence`, `eventId`, `aggregateKind`, `aggregateId`, `occ
 
 ### Orchestration RPC Schemas
 
-| Method                                | Input                                         | Output                                          |
-|---------------------------------------|-----------------------------------------------|--------------------------------------------------|
-| `orchestration.getSnapshot`           | `OrchestrationGetSnapshotInput`               | `OrchestrationReadModel`                         |
-| `orchestration.dispatchCommand`       | `ClientOrchestrationCommand`                  | `DispatchResult { sequence }`                    |
-| `orchestration.getTurnDiff`           | `OrchestrationGetTurnDiffInput`               | `ThreadTurnDiff`                                 |
-| `orchestration.getFullThreadDiff`     | `OrchestrationGetFullThreadDiffInput`         | `ThreadTurnDiff`                                 |
-| `orchestration.getCommandOutput`      | `OrchestrationGetCommandOutputInput`          | `OrchestrationGetCommandOutputResult`            |
-| `orchestration.getSubagentActivityFeed` | `OrchestrationGetSubagentActivityFeedInput` | `OrchestrationGetSubagentActivityFeedResult`     |
-| `orchestration.getTurnAgentDiff`      | `OrchestrationGetTurnAgentDiffInput`          | `OrchestrationGetTurnAgentDiffResult`            |
-| `orchestration.getFullThreadAgentDiff`| `OrchestrationGetFullThreadAgentDiffInput`    | `OrchestrationGetFullThreadAgentDiffResult`      |
-| `orchestration.replayEvents`          | `OrchestrationReplayEventsInput`              | `ForgeEvent[]`                                   |
+| Method                                  | Input                                       | Output                                       |
+| --------------------------------------- | ------------------------------------------- | -------------------------------------------- |
+| `orchestration.getSnapshot`             | `OrchestrationGetSnapshotInput`             | `OrchestrationReadModel`                     |
+| `orchestration.dispatchCommand`         | `ClientOrchestrationCommand`                | `DispatchResult { sequence }`                |
+| `orchestration.getTurnDiff`             | `OrchestrationGetTurnDiffInput`             | `ThreadTurnDiff`                             |
+| `orchestration.getFullThreadDiff`       | `OrchestrationGetFullThreadDiffInput`       | `ThreadTurnDiff`                             |
+| `orchestration.getCommandOutput`        | `OrchestrationGetCommandOutputInput`        | `OrchestrationGetCommandOutputResult`        |
+| `orchestration.getSubagentActivityFeed` | `OrchestrationGetSubagentActivityFeedInput` | `OrchestrationGetSubagentActivityFeedResult` |
+| `orchestration.getTurnAgentDiff`        | `OrchestrationGetTurnAgentDiffInput`        | `OrchestrationGetTurnAgentDiffResult`        |
+| `orchestration.getFullThreadAgentDiff`  | `OrchestrationGetFullThreadAgentDiffInput`  | `OrchestrationGetFullThreadAgentDiffResult`  |
+| `orchestration.replayEvents`            | `OrchestrationReplayEventsInput`            | `ForgeEvent[]`                               |
 
 **RPC-specific types:**
+
 - `TurnCountRange` -- fromTurnCount, toTurnCount (validated: from <= to)
 - `CommandOutputSource` -- `"final" | "stream"`
 - `ProviderSessionRuntimeStatus` -- `"starting" | "running" | "stopped" | "error"`
@@ -341,6 +366,7 @@ Every event carries: `sequence`, `eventId`, `aggregateKind`, `aggregateId`, `occ
 ### Provider Runtime (`providerRuntime.ts`)
 
 **Session management:**
+
 - `ProviderSession` -- provider, status, runtimeMode, cwd, model, threadId, resumeCursor, activeTurnId, timestamps, lastError
 - `ProviderSessionStartInput` -- threadId, provider, cwd, modelSelection, resumeCursor, approvalPolicy, sandboxMode, runtimeMode, systemPrompt
 - `ProviderSendTurnInput` -- threadId, input, attachments, modelSelection, interactionMode
@@ -350,6 +376,7 @@ Every event carries: `sequence`, `eventId`, `aggregateKind`, `aggregateId`, `occ
 - `ProviderRespondToInteractiveRequestInput` -- threadId, requestId, resolution
 
 **Provider events:**
+
 - `ProviderEvent` -- id, kind, provider, threadId, createdAt, method, message, turnId, itemId, requestId, requestKind, textDelta, payload
 - Provider event kind: `"session" | "notification" | "request" | "error"`
 - Session status: `"connecting" | "ready" | "running" | "error" | "closed"`
@@ -361,6 +388,7 @@ Every event carries: `sequence`, `eventId`, `aggregateKind`, `aggregateId`, `occ
 ### Workflow Types (`workflow.ts`)
 
 **Phase system:**
+
 - `PhaseType` -- `"single-agent" | "multi-agent" | "automated" | "human"`
 - `GateAfter` -- `"auto-continue" | "quality-checks" | "human-approval" | "done"`
 - `GateOnFail` -- `"retry" | "go-back-to" | "stop"`
@@ -369,6 +397,7 @@ Every event carries: `sequence`, `eventId`, `aggregateKind`, `aggregateId`, `occ
 - `AgentOutputMode` -- `"schema" | "channel" | "conversation"`
 
 **Core structs:**
+
 - `WorkflowPhase` -- id, name, type, agent, deliberation, sandboxMode, inputFrom, gate, qualityChecks, codexMode
 - `WorkflowDefinition` -- id, name, description, phases (min 1), builtIn, projectId, onCompletion, timestamps
 - `WorkflowCompletionConfig` -- autoCommit, autoPush, createPr
@@ -387,6 +416,7 @@ Every event carries: `sequence`, `eventId`, `aggregateKind`, `aggregateId`, `occ
 - `InputFromReference` -- simple string or key-value map
 
 **Functions:**
+
 - `workflowHasDeliberation(phases)` -- checks if any phase is multi-agent with deliberation
 - `defaultSandboxMode(phaseType)` -- single-agent/automated/human -> workspace-write, multi-agent -> read-only
 
@@ -480,6 +510,7 @@ Every event carries: `sequence`, `eventId`, `aggregateKind`, `aggregateId`, `occ
 ### Appearance Theming System
 
 Deeply nested theme configuration:
+
 - `AppearanceTypographySettings` -- uiFontFamily, monoFontFamily, font sizes (xs/sm/md/lg/xl), line heights, terminal font size/line height
 - `AppearanceThemeSettings` -- ui, workbench, sidebar, diff, terminal, feature (each theme has light + dark variants)
 - `AppearanceUiSettings` -- 24 CSS color tokens (background, foreground, card, primary, secondary, muted, accent, border, input, ring, info, success, warning, destructive, etc.)
@@ -501,12 +532,14 @@ Deeply nested theme configuration:
 - `ServerObservability` -- logsDirectoryPath, localTracingEnabled, otlp trace/metrics URLs and enabled flags
 
 **Server lifecycle:**
+
 - `ServerLifecycleWelcomePayload` -- cwd, projectName, daemonVersion, protocolVersion, bootstrapProjectId, bootstrapThreadId
 - `FORGE_DAEMON_LIFECYCLE_PROTOCOL_VERSION` = 1
 - `ServerLifecycleStreamEvent` -- union of welcome + ready events
 - `ServerConfigStreamEvent` -- union of snapshot, keybindingsUpdated, providerStatuses, settingsUpdated, rateLimitsUpdated
 
 **Rate limiting:**
+
 - `RateLimitWindow` -- usedPercent, windowDurationMins, resetsAt
 - `RateLimitEntry` -- limitId, limitName, primary window, secondary window
 - `RateLimitsSnapshot` -- provider, updatedAt, limits
@@ -548,17 +581,37 @@ interface DesktopBridge {
 
 ```typescript
 interface NativeApi {
-  dialogs: { pickFolder, confirm }
-  terminal: { open, write, resize, clear, restart, close, onEvent }
-  projects: { searchEntries, writeFile }
-  shell: { openInEditor, openExternal }
-  git: { listBranches, createWorktree, removeWorktree, createBranch, checkout, init,
-         resolvePullRequest, preparePullRequestThread, pull, status, getWorkingTreeDiff }
-  contextMenu: { show }
-  server: { getConfig, refreshProviders, upsertKeybinding, getSettings, updateSettings }
-  orchestration: { getSnapshot, dispatchCommand, getTurnDiff, getFullThreadDiff,
-                   getCommandOutput, getSubagentActivityFeed, getTurnAgentDiff,
-                   getFullThreadAgentDiff, replayEvents, onDomainEvent }
+  dialogs: { pickFolder; confirm };
+  terminal: { open; write; resize; clear; restart; close; onEvent };
+  projects: { searchEntries; writeFile };
+  shell: { openInEditor; openExternal };
+  git: {
+    listBranches;
+    createWorktree;
+    removeWorktree;
+    createBranch;
+    checkout;
+    init;
+    resolvePullRequest;
+    preparePullRequestThread;
+    pull;
+    status;
+    getWorkingTreeDiff;
+  };
+  contextMenu: { show };
+  server: { getConfig; refreshProviders; upsertKeybinding; getSettings; updateSettings };
+  orchestration: {
+    getSnapshot;
+    dispatchCommand;
+    getTurnDiff;
+    getFullThreadDiff;
+    getCommandOutput;
+    getSubagentActivityFeed;
+    getTurnAgentDiff;
+    getFullThreadAgentDiff;
+    replayEvents;
+    onDomainEvent;
+  };
 }
 ```
 
@@ -583,6 +636,7 @@ interface NativeApi {
 - `InteractiveRequestStatus` -- `"pending" | "resolved" | "stale"`
 
 **Request payloads (8 types):**
+
 - `ApprovalRequestPayload` -- requestType, detail, toolName, toolInput, suggestions
 - `UserInputRequestPayload` -- questions with options (single/multi select)
 - `PermissionRequestPayload` -- reason, permissions (network + filesystem)
@@ -593,6 +647,7 @@ interface NativeApi {
 - `DesignOptionRequestPayload` -- prompt, options with artifact references
 
 **Resolution payloads (8 types):**
+
 - `ApprovalRequestResolution` -- decision, updatedPermissions
 - `UserInputRequestResolution` -- answers map
 - `PermissionRequestResolution` -- scope (turn/session), permissions
@@ -603,6 +658,7 @@ interface NativeApi {
 - `DesignOptionRequestResolution` -- chosenOptionId
 
 **Permission types:**
+
 - `AdditionalFileSystemPermissions` -- read paths, write paths
 - `AdditionalNetworkPermissions` -- enabled flag
 - `RequestPermissionProfile` / `GrantedPermissionProfile` -- network + fileSystem
@@ -615,6 +671,7 @@ interface NativeApi {
 ### Main Process (`main.ts`)
 
 **Initialization:**
+
 - Sets up `RotatingFileSink` for packaged logging (max 10MB, 10 files)
 - Installs stdout/stderr capture for packaged builds
 - Registers custom `forge://` protocol scheme with standard/secure/fetch/CORS privileges
@@ -628,6 +685,7 @@ interface NativeApi {
 **Connection modes:** local daemon, WSL, external server
 
 **State management:**
+
 - `mainWindow` -- single BrowserWindow instance
 - `backendWsUrl` -- active WebSocket URL
 - `isQuitting` -- quit flag
@@ -636,6 +694,7 @@ interface NativeApi {
 - `updateState` -- DesktopUpdateState (reducer pattern)
 
 **Window URL resolution:**
+
 - Dev mode: Vite dev server URL
 - Production: `forge://app/index.html` via custom protocol handler
 - Serves static files from `apps/server/dist/client` or `apps/web/dist`
@@ -656,6 +715,7 @@ All 22 IPC channels are wired to `ipcRenderer.invoke` or `ipcRenderer.sendSync`.
 ### Daemon Lifecycle (`daemonLifecycle.ts`)
 
 **Core functions:**
+
 - `pingDaemon(socketPath, timeout)` -- JSON-RPC ping via Unix socket with trust verification
 - `stopDaemon(socketPath)` -- JSON-RPC stop command, polls until socket goes away
 - `stopDesktopDaemon(input)` -- graceful stop -> read manifest -> kill process
@@ -665,11 +725,13 @@ All 22 IPC channels are wired to `ipcRenderer.invoke` or `ipcRenderer.sendSync`.
 - `buildWslDaemonLaunchPlan` -- `wsl.exe -d <distro> -- forge --mode web --host 0.0.0.0 --no-browser --base-dir <dir> --port <port> --auth-token <token>`
 
 **Protocol URL handling:**
+
 - `extractProtocolUrlFromArgv` -- finds `forge://` URLs in process.argv
 - `parseSessionProtocolUrl` -- parses `forge://session/<threadId>`
 - `buildDesktopWindowUrl` -- builds app URL with optional thread hash fragment
 
 **Lifecycle helpers:**
+
 - `requestSingleInstanceOrQuit`, `registerProtocolClient`, `isDesktopUiReady`, `handleDesktopBeforeQuit`
 
 ### Daemon State (`daemonState.ts`)
@@ -691,12 +753,14 @@ All 22 IPC channels are wired to `ipcRenderer.invoke` or `ipcRenderer.sendSync`.
 ### Auto-Update System (`updateMachine.ts`, `updateState.ts`)
 
 **State machine reducers (pure functions):**
+
 - `createInitialDesktopUpdateState` -- disabled by default
 - `reduceDesktopUpdateStateOnCheckStart`, `...OnCheckFailure`, `...OnUpdateAvailable`, `...OnNoUpdate`
 - `reduceDesktopUpdateStateOnDownloadStart`, `...OnDownloadProgress`, `...OnDownloadFailure`, `...OnDownloadComplete`
 - `reduceDesktopUpdateStateOnInstallFailure`
 
 **Helpers:**
+
 - `shouldBroadcastDownloadProgress` -- throttles to 10% steps
 - `nextStatusAfterDownloadFailure` -- falls back to "available" if version known
 - `getAutoUpdateDisabledReason` -- checks dev/packaged/platform/env
@@ -775,7 +839,7 @@ All 22 IPC channels are wired to `ipcRenderer.invoke` or `ipcRenderer.sendSync`.
 - `sanitizeFeatureBranchName` -- ensures `feature/` prefix
 - `resolveAutoFeatureBranchName` -- finds unique feature branch name
 - `deriveLocalBranchNameFromRemoteRef` -- strips leading remote name
-- `dedupeRemoteBranchesWithLocalMatches` -- filters redundant origin/* refs
+- `dedupeRemoteBranchesWithLocalMatches` -- filters redundant origin/\* refs
 
 ### Shell Utilities (`shell.ts`)
 
@@ -823,12 +887,14 @@ All 22 IPC channels are wired to `ipcRenderer.invoke` or `ipcRenderer.sendSync`.
 **Core priorities:** Performance first, reliability first, predictable behavior under load/failures.
 
 **Package roles:**
+
 - `apps/server` -- Node.js WebSocket server, wraps Codex app-server (JSON-RPC over stdio)
 - `apps/web` -- React/Vite UI
 - `packages/contracts` -- schema-only, no runtime logic
 - `packages/shared` -- runtime utilities, explicit subpath exports
 
 **Codex integration:**
+
 - Codex-first architecture
 - `codex app-server` per provider session (JSON-RPC over stdio)
 - Events streamed to browser via WebSocket push on `orchestration.domainEvent`
@@ -848,6 +914,7 @@ All 22 IPC channels are wired to `ipcRenderer.invoke` or `ipcRenderer.sendSync`.
 ### REMOTE.md
 
 **CLI/env configuration:**
+
 - `--mode <web|desktop>` / `FORGE_MODE`
 - `--port` / `FORGE_PORT`
 - `--host` / `FORGE_HOST`
@@ -871,17 +938,17 @@ All 22 IPC channels are wired to `ipcRenderer.invoke` or `ipcRenderer.sendSync`.
 
 ## Editor Definitions (`editor.ts`)
 
-| ID               | Label              | Command          | Launch Style |
-|------------------|--------------------|------------------|--------------|
-| cursor           | Cursor             | cursor           | goto         |
-| trae             | Trae               | trae             | goto         |
-| vscode           | VS Code            | code             | goto         |
-| vscode-insiders  | VS Code Insiders   | code-insiders    | goto         |
-| vscodium         | VSCodium           | codium           | goto         |
-| zed              | Zed                | zed              | direct-path  |
-| antigravity      | Antigravity        | agy              | goto         |
-| idea             | IntelliJ IDEA      | idea             | line-column  |
-| file-manager     | File Manager       | (null)           | direct-path  |
+| ID              | Label            | Command       | Launch Style |
+| --------------- | ---------------- | ------------- | ------------ |
+| cursor          | Cursor           | cursor        | goto         |
+| trae            | Trae             | trae          | goto         |
+| vscode          | VS Code          | code          | goto         |
+| vscode-insiders | VS Code Insiders | code-insiders | goto         |
+| vscodium        | VSCodium         | codium        | goto         |
+| zed             | Zed              | zed           | direct-path  |
+| antigravity     | Antigravity      | agy           | goto         |
+| idea            | IntelliJ IDEA    | idea          | line-column  |
+| file-manager    | File Manager     | (null)        | direct-path  |
 
 - `EditorLaunchStyle` -- `"direct-path" | "goto" | "line-column"`
 - `OpenInEditorInput` -- cwd, editor

@@ -43,13 +43,13 @@ A runtime node is the bridge between shared collaboration state and local execut
 
 ## State Model
 
-| State | Meaning |
-| --- | --- |
-| `registering` | The node is completing join and capability declaration. |
-| `online` | The node is available for scheduling and execution. |
-| `degraded` | The node is reachable but some capabilities are unavailable or unhealthy. |
-| `offline` | The node is not currently reachable. |
-| `revoked` | The node is no longer trusted or allowed to participate in the session. |
+| State         | Meaning                                                                   |
+| ------------- | ------------------------------------------------------------------------- |
+| `registering` | The node is completing join and capability declaration.                   |
+| `online`      | The node is available for scheduling and execution.                       |
+| `degraded`    | The node is reachable but some capabilities are unavailable or unhealthy. |
+| `offline`     | The node is not currently reachable.                                      |
+| `revoked`     | The node is no longer trusted or allowed to participate in the session.   |
 
 ## Example Flows
 

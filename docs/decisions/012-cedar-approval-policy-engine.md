@@ -1,13 +1,13 @@
 # ADR-012: Cedar Approval Policy Engine
 
-| Field | Value |
-| -------------- | ------------------------------------------------------------------------ |
-| **Status** | `accepted` |
-| **Type** | `Type 2 (one-way door)` |
-| **Domain** | `Approval / Policy` |
-| **Date** | `2026-04-15` |
-| **Author(s)** | `Claude` |
-| **Reviewers** | `Accepted 2026-04-15` |
+| Field         | Value                   |
+| ------------- | ----------------------- |
+| **Status**    | `accepted`              |
+| **Type**      | `Type 2 (one-way door)` |
+| **Domain**    | `Approval / Policy`     |
+| **Date**      | `2026-04-15`            |
+| **Author(s)** | `Claude`                |
+| **Reviewers** | `Accepted 2026-04-15`   |
 
 ## Context
 
@@ -44,21 +44,21 @@ Use Cedar (CNCF sandbox) as the approval policy engine. V1 defines policies in Y
 
 ## Assumptions Audit
 
-| # | Assumption | Evidence | What Breaks If Wrong |
-|---|-----------|----------|----------------------|
-| 1 | Cedar's principal-action-resource-context model can express all 9 approval categories without contortion. | Cedar is purpose-built for authorization; Microsoft's Agent Governance Toolkit uses it for agent policy. | We would need a second policy language for categories that do not fit, fragmenting the engine. |
-| 2 | Cedar WASM is usable in-process from a TypeScript host without unacceptable startup or evaluation overhead. | Cedar publishes WASM artifacts; policy evaluation benchmarks are in the microsecond range for typical request counts. | We would need a sidecar policy service or a native Go/Rust binding, complicating deployment. |
-| 3 | YAML-to-Cedar compilation in V1 gives operators enough authoring ergonomics until runtime evaluation ships in V1.1. | YAML captures the structural aspects of policies; runtime Cedar arrives as soon as WASM integration is proven. | Operators demand live policy edits before V1.1, forcing an earlier WASM ship with more risk. |
-| 4 | Cedar remains an actively maintained CNCF project over the product lifetime. | Cedar is a CNCF sandbox project with AWS and Microsoft involvement and a published roadmap. | If Cedar stagnates, we would migrate to OPA/Rego or a bespoke engine — a multi-quarter effort. |
+| #   | Assumption                                                                                                          | Evidence                                                                                                              | What Breaks If Wrong                                                                           |
+| --- | ------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| 1   | Cedar's principal-action-resource-context model can express all 9 approval categories without contortion.           | Cedar is purpose-built for authorization; Microsoft's Agent Governance Toolkit uses it for agent policy.              | We would need a second policy language for categories that do not fit, fragmenting the engine. |
+| 2   | Cedar WASM is usable in-process from a TypeScript host without unacceptable startup or evaluation overhead.         | Cedar publishes WASM artifacts; policy evaluation benchmarks are in the microsecond range for typical request counts. | We would need a sidecar policy service or a native Go/Rust binding, complicating deployment.   |
+| 3   | YAML-to-Cedar compilation in V1 gives operators enough authoring ergonomics until runtime evaluation ships in V1.1. | YAML captures the structural aspects of policies; runtime Cedar arrives as soon as WASM integration is proven.        | Operators demand live policy edits before V1.1, forcing an earlier WASM ship with more risk.   |
+| 4   | Cedar remains an actively maintained CNCF project over the product lifetime.                                        | Cedar is a CNCF sandbox project with AWS and Microsoft involvement and a published roadmap.                           | If Cedar stagnates, we would migrate to OPA/Rego or a bespoke engine — a multi-quarter effort. |
 
 ## Failure Mode Analysis
 
-| Scenario | Likelihood | Impact | Detection | Mitigation |
-|----------|-----------|--------|-----------|------------|
-| A policy category cannot be expressed cleanly in Cedar | Med | Med | Policy review during spec implementation; unit tests against reference cases | Extend Cedar context attributes or fall back to an application-level pre-check for that category |
-| Cedar WASM has a correctness bug that allows or denies unintended actions | Low | High | Policy test suite plus canary evaluation comparing WASM vs reference interpreter | Pin Cedar versions, add dual-evaluation for sensitive categories, and ship rapid rollback for policy sets |
-| Policy authoring (YAML→Cedar) surprises operators with unexpected denials | Med | Med | Dry-run evaluation UI and deny-rate dashboards | Ship policy simulation tooling and staged rollout per category |
-| Cedar upstream introduces breaking changes that invalidate stored policies | Low | Med | Upstream release notes and pinned CI on new Cedar versions | Version-tag compiled policy sets; run migrations during upgrades |
+| Scenario                                                                   | Likelihood | Impact | Detection                                                                        | Mitigation                                                                                                |
+| -------------------------------------------------------------------------- | ---------- | ------ | -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| A policy category cannot be expressed cleanly in Cedar                     | Med        | Med    | Policy review during spec implementation; unit tests against reference cases     | Extend Cedar context attributes or fall back to an application-level pre-check for that category          |
+| Cedar WASM has a correctness bug that allows or denies unintended actions  | Low        | High   | Policy test suite plus canary evaluation comparing WASM vs reference interpreter | Pin Cedar versions, add dual-evaluation for sensitive categories, and ship rapid rollback for policy sets |
+| Policy authoring (YAML→Cedar) surprises operators with unexpected denials  | Med        | Med    | Dry-run evaluation UI and deny-rate dashboards                                   | Ship policy simulation tooling and staged rollout per category                                            |
+| Cedar upstream introduces breaking changes that invalidate stored policies | Low        | Med    | Upstream release notes and pinned CI on new Cedar versions                       | Version-tag compiled policy sets; run migrations during upgrades                                          |
 
 ## Reversibility Assessment
 
@@ -92,7 +92,7 @@ Cedar's security model assumes trustworthy policy input. A daemon that evaluates
 
 ### Signing Key Identity
 
-A single operator signing keypair (the *operator release key*) signs both daemon images and, from V1.1, policy bundles. The private half is held by the operator release infrastructure. The public half is pinned in the daemon at build time:
+A single operator signing keypair (the _operator release key_) signs both daemon images and, from V1.1, policy bundles. The private half is held by the operator release infrastructure. The public half is pinned in the daemon at build time:
 
 - **Hosted Sidekicks daemons:** pinned to the Sidekicks operator public key baked into the official daemon image at build.
 - **Self-hosted daemons:** the operator public key is injected at image build time via an `OPERATOR_PUBLIC_KEY` build argument. Self-hosters rebuild the daemon image with their organization's operator public key substituted in. Self-hosters who run unmodified hosted images implicitly trust the Sidekicks operator key; this is the same trust boundary any signed-container-image ecosystem imposes.
@@ -180,11 +180,11 @@ The operational procedures for signing a V1.1 policy bundle, diagnosing a daemon
 
 ### Success Criteria
 
-| Metric | Target | Measurement Method | Check Date |
-|--------|--------|--------------------|------------|
-| Approval categories expressible purely in Cedar (no app-side fallback) | 9 / 9 categories from the canonical `ApprovalCategory` enum | Policy spec review | `2026-07-01` |
-| Cedar policy evaluation latency per request | < 1 ms at p95 | Approval service metrics | `2026-10-01` |
-| Operator-initiated policy updates that ship without a code deploy (V1.1) | 100% of tuning changes post-V1.1 | Change log of policy sets vs code releases | `2026-12-01` |
+| Metric                                                                   | Target                                                      | Measurement Method                         | Check Date   |
+| ------------------------------------------------------------------------ | ----------------------------------------------------------- | ------------------------------------------ | ------------ |
+| Approval categories expressible purely in Cedar (no app-side fallback)   | 9 / 9 categories from the canonical `ApprovalCategory` enum | Policy spec review                         | `2026-07-01` |
+| Cedar policy evaluation latency per request                              | < 1 ms at p95                                               | Approval service metrics                   | `2026-10-01` |
+| Operator-initiated policy updates that ship without a code deploy (V1.1) | 100% of tuning changes post-V1.1                            | Change log of policy sets vs code releases | `2026-12-01` |
 
 ## References
 
@@ -195,7 +195,7 @@ The operational procedures for signing a V1.1 policy bundle, diagnosing a daemon
 
 ## Decision Log
 
-| Date | Event | Notes |
-|------|-------|-------|
+| Date       | Event    | Notes         |
+| ---------- | -------- | ------------- |
 | 2026-04-15 | Proposed | Initial draft |
-| 2026-04-15 | Accepted | ADR accepted |
+| 2026-04-15 | Accepted | ADR accepted  |

@@ -54,12 +54,12 @@ sidekicks invite reissue <invite-id>
 
 ## SLOs and Thresholds
 
-| Metric | Target |
-|---|---|
-| Projection refresh latency | < 5s after membership write |
-| Roster convergence across clients | within 10s |
-| Invite accept-to-visible | < 15s end-to-end |
-| Duplicate participant detection | < 5s |
+| Metric                            | Target                      |
+| --------------------------------- | --------------------------- |
+| Projection refresh latency        | < 5s after membership write |
+| Roster convergence across clients | within 10s                  |
+| Invite accept-to-visible          | < 15s end-to-end            |
+| Duplicate participant detection   | < 5s                        |
 
 ## On-Call Routing
 

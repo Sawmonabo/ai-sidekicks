@@ -56,13 +56,13 @@ sidekicks cp presence --session <id>
 
 ## SLOs and Thresholds
 
-| Metric | Target |
-|---|---|
-| API p99 latency | < 200ms |
-| Availability | 99.9% uptime |
-| Error rate | < 0.1% of requests |
-| Session join latency (p95) | < 500ms |
-| Presence staleness | < 30s from last heartbeat |
+| Metric                     | Target                    |
+| -------------------------- | ------------------------- |
+| API p99 latency            | < 200ms                   |
+| Availability               | 99.9% uptime              |
+| Error rate                 | < 0.1% of requests        |
+| Session join latency (p95) | < 500ms                   |
+| Presence staleness         | < 30s from last heartbeat |
 
 ## On-Call Routing
 

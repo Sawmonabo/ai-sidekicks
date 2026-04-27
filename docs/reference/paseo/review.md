@@ -7,12 +7,14 @@ Project root: `/home/sabossedgh/dev/external/paseo`
 Scope: Full monorepo audit across all 8 workspace packages, official documentation, and the skills directory.
 
 Method:
+
 - Direct code inspection of `packages/server`, `packages/app`, `packages/cli`, `packages/desktop`, `packages/relay`, `packages/website`, `packages/highlight`, `packages/expo-two-way-audio`.
 - Consolidation and normalization of 10 prior exploration files (`docs/reference/paseo/implementation-details/00` through `09`).
 - Reading of `docs/ARCHITECTURE.md`, `docs/DATA_MODEL.md`, `SECURITY.md`, `CLAUDE.md`.
 - Deep inspection of session controller, agent manager, provider adapters, services, and skills.
 
 Conventions:
+
 - `user`: directly visible end-user product behavior.
 - `daemon`: server-side capability consumed by all clients.
 - `cli-only`: feature exposed only through the CLI surface.
@@ -23,30 +25,30 @@ Conventions:
 
 ## 1. Technology Stack
 
-| Layer | Technology | Version/Notes |
-|---|---|---|
-| Runtime | Node.js | Daemon and CLI runtime |
-| Language | TypeScript | `^5.9.3`, strict throughout |
-| Monorepo | npm workspaces | 8 packages |
-| Server framework | Express | HTTP surface, health/status/download endpoints |
-| WebSocket | `ws` | Binary-multiplexed protocol for all client comms |
-| Mobile/Web client | Expo (React Native) | Cross-platform: iOS, Android, web, Electron webview |
-| Desktop shell | Electron | macOS, Linux, Windows; supervises local daemon |
-| CLI framework | Commander.js | Docker-style command surface |
-| State management (client) | Zustand | Per-session normalized stores |
-| Query layer (client) | React Query | Provider snapshot queries, async data |
-| Validation | Zod | All schemas, configs, messages |
-| Persistence | File-based JSON | Atomic temp+rename writes, no database |
-| Formatting | Biome | `^2.4.8` |
-| Testing | Vitest | Unit, integration, E2E tests |
-| Relay encryption | ECDH + XSalsa20-Poly1305 (NaCl box) | End-to-end encrypted channel |
-| MCP SDK | `@modelcontextprotocol/sdk` | Agent MCP server, Streamable HTTP transport |
-| Claude integration | `@anthropic-ai/claude-agent-sdk` | SDK wrapping spawned Claude Code process |
-| Codex integration | JSON-RPC over stdio | `codex app-server` child process |
-| OpenCode integration | `@opencode-ai/sdk/v2/client` | SDK against local `opencode serve` process |
-| ACP integration | `@agentclientprotocol/sdk` | NDJSON over stdio for Copilot, Pi, custom ACP |
-| Syntax highlighting | Lezer | `packages/highlight` |
-| Native audio | Expo modules | `packages/expo-two-way-audio` |
+| Layer                     | Technology                          | Version/Notes                                       |
+| ------------------------- | ----------------------------------- | --------------------------------------------------- |
+| Runtime                   | Node.js                             | Daemon and CLI runtime                              |
+| Language                  | TypeScript                          | `^5.9.3`, strict throughout                         |
+| Monorepo                  | npm workspaces                      | 8 packages                                          |
+| Server framework          | Express                             | HTTP surface, health/status/download endpoints      |
+| WebSocket                 | `ws`                                | Binary-multiplexed protocol for all client comms    |
+| Mobile/Web client         | Expo (React Native)                 | Cross-platform: iOS, Android, web, Electron webview |
+| Desktop shell             | Electron                            | macOS, Linux, Windows; supervises local daemon      |
+| CLI framework             | Commander.js                        | Docker-style command surface                        |
+| State management (client) | Zustand                             | Per-session normalized stores                       |
+| Query layer (client)      | React Query                         | Provider snapshot queries, async data               |
+| Validation                | Zod                                 | All schemas, configs, messages                      |
+| Persistence               | File-based JSON                     | Atomic temp+rename writes, no database              |
+| Formatting                | Biome                               | `^2.4.8`                                            |
+| Testing                   | Vitest                              | Unit, integration, E2E tests                        |
+| Relay encryption          | ECDH + XSalsa20-Poly1305 (NaCl box) | End-to-end encrypted channel                        |
+| MCP SDK                   | `@modelcontextprotocol/sdk`         | Agent MCP server, Streamable HTTP transport         |
+| Claude integration        | `@anthropic-ai/claude-agent-sdk`    | SDK wrapping spawned Claude Code process            |
+| Codex integration         | JSON-RPC over stdio                 | `codex app-server` child process                    |
+| OpenCode integration      | `@opencode-ai/sdk/v2/client`        | SDK against local `opencode serve` process          |
+| ACP integration           | `@agentclientprotocol/sdk`          | NDJSON over stdio for Copilot, Pi, custom ACP       |
+| Syntax highlighting       | Lezer                               | `packages/highlight`                                |
+| Native audio              | Expo modules                        | `packages/expo-two-way-audio`                       |
 
 ---
 
@@ -97,327 +99,327 @@ Evidence: `packages/server/src/server/bootstrap.ts`, `packages/server/src/server
 
 ### 3.1 Agent Lifecycle
 
-| Feature | Surface | Evidence |
-|---|---|---|
-| Create agent with provider, model, mode, cwd, prompt | user | `session.ts` case `create_agent_request` |
-| Resume agent from persistence handle | user | `session.ts` case `resume_agent_request` |
-| Refresh agent (reload without resending) | user | `session.ts` case `refresh_agent_request` |
-| Cancel/interrupt running agent | user | `session.ts` case `cancel_agent_request` |
-| Archive agent (soft-delete) | user | `session.ts` case `archive_agent_request` |
-| Delete agent (hard-delete) | user | `session.ts` case `delete_agent_request` |
-| Send follow-up message to running agent | user | `session.ts` case `send_agent_message_request` |
-| Wait for agent finish (permission/idle/error/timeout) | user | `session.ts` case `wait_for_finish_request` |
-| Agent attention tracking (finished/error/permission) | daemon | `agent-manager.ts` `emitState()` |
-| Clear agent attention | user | `session.ts` case `clear_agent_attention` |
-| Update agent title/labels | user | `session.ts` case `update_agent_request` |
-| Close items (bulk agent close) | user | `session.ts` case `close_items_request` |
-| Foreground run replacement (abort + restart) | daemon | `agent-manager.ts` `replaceAgentRun()` |
-| Structured output schema for agent responses | user | `agent-response-loop.ts` |
-| Agent metadata generation (auto-title) | daemon | `agent-metadata-generator.ts` |
-| Automatic provisional title from first prompt line | daemon | `session.ts` `deriveInitialAgentTitle()` |
-| Up to 200 timeline items per agent in memory | daemon | `docs/ARCHITECTURE.md` |
-| Epoch-based timeline with sequence cursors | daemon | `agent-manager.ts` `fetchTimeline()` |
+| Feature                                               | Surface | Evidence                                       |
+| ----------------------------------------------------- | ------- | ---------------------------------------------- |
+| Create agent with provider, model, mode, cwd, prompt  | user    | `session.ts` case `create_agent_request`       |
+| Resume agent from persistence handle                  | user    | `session.ts` case `resume_agent_request`       |
+| Refresh agent (reload without resending)              | user    | `session.ts` case `refresh_agent_request`      |
+| Cancel/interrupt running agent                        | user    | `session.ts` case `cancel_agent_request`       |
+| Archive agent (soft-delete)                           | user    | `session.ts` case `archive_agent_request`      |
+| Delete agent (hard-delete)                            | user    | `session.ts` case `delete_agent_request`       |
+| Send follow-up message to running agent               | user    | `session.ts` case `send_agent_message_request` |
+| Wait for agent finish (permission/idle/error/timeout) | user    | `session.ts` case `wait_for_finish_request`    |
+| Agent attention tracking (finished/error/permission)  | daemon  | `agent-manager.ts` `emitState()`               |
+| Clear agent attention                                 | user    | `session.ts` case `clear_agent_attention`      |
+| Update agent title/labels                             | user    | `session.ts` case `update_agent_request`       |
+| Close items (bulk agent close)                        | user    | `session.ts` case `close_items_request`        |
+| Foreground run replacement (abort + restart)          | daemon  | `agent-manager.ts` `replaceAgentRun()`         |
+| Structured output schema for agent responses          | user    | `agent-response-loop.ts`                       |
+| Agent metadata generation (auto-title)                | daemon  | `agent-metadata-generator.ts`                  |
+| Automatic provisional title from first prompt line    | daemon  | `session.ts` `deriveInitialAgentTitle()`       |
+| Up to 200 timeline items per agent in memory          | daemon  | `docs/ARCHITECTURE.md`                         |
+| Epoch-based timeline with sequence cursors            | daemon  | `agent-manager.ts` `fetchTimeline()`           |
 
 ### 3.2 Agent Directory and Fetch
 
-| Feature | Surface | Evidence |
-|---|---|---|
-| Fetch agents with label/status filter, pagination, sorting | user | `session.ts` `handleFetchAgents()` |
-| Live agent updates subscription | user | `session.ts` agent updates subscription bootstrap |
-| Fetch workspaces with status bucketing, pagination, filtering | user | `session.ts` `handleFetchWorkspacesRequest()` |
-| Live workspace updates subscription | user | `session.ts` workspace update subscription |
-| Timeline fetch with cursor, direction, projected mode | user | `session.ts` `handleFetchAgentTimelineRequest()` |
-| Timeline projection (assistant-chunk and tool-lifecycle collapsing) | daemon | `timeline-projection.ts` |
-| Activity curation (summary text from timeline items) | daemon | `activity-curator.ts` |
+| Feature                                                             | Surface | Evidence                                          |
+| ------------------------------------------------------------------- | ------- | ------------------------------------------------- |
+| Fetch agents with label/status filter, pagination, sorting          | user    | `session.ts` `handleFetchAgents()`                |
+| Live agent updates subscription                                     | user    | `session.ts` agent updates subscription bootstrap |
+| Fetch workspaces with status bucketing, pagination, filtering       | user    | `session.ts` `handleFetchWorkspacesRequest()`     |
+| Live workspace updates subscription                                 | user    | `session.ts` workspace update subscription        |
+| Timeline fetch with cursor, direction, projected mode               | user    | `session.ts` `handleFetchAgentTimelineRequest()`  |
+| Timeline projection (assistant-chunk and tool-lifecycle collapsing) | daemon  | `timeline-projection.ts`                          |
+| Activity curation (summary text from timeline items)                | daemon  | `activity-curator.ts`                             |
 
 ### 3.3 Provider System
 
-| Feature | Surface | Evidence |
-|---|---|---|
-| Claude provider via Anthropic Agent SDK | daemon | `providers/claude-agent.ts` |
-| Codex provider via app-server JSON-RPC subprocess | daemon | `providers/codex-app-server-agent.ts` |
-| OpenCode provider via SDK against local opencode serve | daemon | `providers/opencode-agent.ts` |
-| Copilot provider via ACP over stdio | daemon | `providers/copilot-acp-agent.ts` |
-| Pi provider via ACP over stdio | daemon | `providers/pi-acp-agent.ts` |
-| Generic ACP providers via custom command | daemon | `providers/generic-acp-agent.ts` |
-| Provider manifest (labels, descriptions, modes, voice defaults) | daemon | `provider-manifest.ts` |
-| Provider registry with runtime settings, derived providers, wrapping | daemon | `provider-registry.ts` |
-| Provider snapshot queries and live updates | user | `session.ts` `get_providers_snapshot_request` |
-| Provider diagnostic surface (command, version, model-fetch) | user | `session.ts` `provider_diagnostic_request` |
-| List provider models | user | `session.ts` `list_provider_models_request` |
-| List provider modes (including dynamic from ACP) | user | `session.ts` `list_provider_modes_request` |
-| List provider features (toggle/select) | user | `session.ts` `list_provider_features_request` |
-| Provider launch config overrides (command, env, profiles) | daemon | `provider-launch-config.ts` |
-| Mode mapping across providers (Claude <-> Codex) | daemon | `mcp-server.ts` `mapModeAcrossProviders()` |
-| Custom provider via `extends: "acp"` + command in config | daemon | `provider-registry.ts` derived providers |
+| Feature                                                              | Surface | Evidence                                      |
+| -------------------------------------------------------------------- | ------- | --------------------------------------------- |
+| Claude provider via Anthropic Agent SDK                              | daemon  | `providers/claude-agent.ts`                   |
+| Codex provider via app-server JSON-RPC subprocess                    | daemon  | `providers/codex-app-server-agent.ts`         |
+| OpenCode provider via SDK against local opencode serve               | daemon  | `providers/opencode-agent.ts`                 |
+| Copilot provider via ACP over stdio                                  | daemon  | `providers/copilot-acp-agent.ts`              |
+| Pi provider via ACP over stdio                                       | daemon  | `providers/pi-acp-agent.ts`                   |
+| Generic ACP providers via custom command                             | daemon  | `providers/generic-acp-agent.ts`              |
+| Provider manifest (labels, descriptions, modes, voice defaults)      | daemon  | `provider-manifest.ts`                        |
+| Provider registry with runtime settings, derived providers, wrapping | daemon  | `provider-registry.ts`                        |
+| Provider snapshot queries and live updates                           | user    | `session.ts` `get_providers_snapshot_request` |
+| Provider diagnostic surface (command, version, model-fetch)          | user    | `session.ts` `provider_diagnostic_request`    |
+| List provider models                                                 | user    | `session.ts` `list_provider_models_request`   |
+| List provider modes (including dynamic from ACP)                     | user    | `session.ts` `list_provider_modes_request`    |
+| List provider features (toggle/select)                               | user    | `session.ts` `list_provider_features_request` |
+| Provider launch config overrides (command, env, profiles)            | daemon  | `provider-launch-config.ts`                   |
+| Mode mapping across providers (Claude <-> Codex)                     | daemon  | `mcp-server.ts` `mapModeAcrossProviders()`    |
+| Custom provider via `extends: "acp"` + command in config             | daemon  | `provider-registry.ts` derived providers      |
 
 ### 3.4 Mode and Model Controls
 
-| Feature | Surface | Evidence |
-|---|---|---|
-| Set agent mode at runtime | user | `session.ts` case `set_agent_mode_request` |
-| Set agent model at runtime | user | `session.ts` case `set_agent_model_request` |
-| Set agent thinking/reasoning option at runtime | user | `session.ts` case `set_agent_thinking_request` |
-| Set agent feature toggle/select at runtime | user | `session.ts` case `set_agent_feature_request` |
-| Codex synthetic features (fast_mode, plan_mode) | daemon | `codex-feature-definitions.ts` |
-| Pi thinking-option remapping from ACP modes | daemon | `pi-acp-agent.ts` |
+| Feature                                         | Surface | Evidence                                       |
+| ----------------------------------------------- | ------- | ---------------------------------------------- |
+| Set agent mode at runtime                       | user    | `session.ts` case `set_agent_mode_request`     |
+| Set agent model at runtime                      | user    | `session.ts` case `set_agent_model_request`    |
+| Set agent thinking/reasoning option at runtime  | user    | `session.ts` case `set_agent_thinking_request` |
+| Set agent feature toggle/select at runtime      | user    | `session.ts` case `set_agent_feature_request`  |
+| Codex synthetic features (fast_mode, plan_mode) | daemon  | `codex-feature-definitions.ts`                 |
+| Pi thinking-option remapping from ACP modes     | daemon  | `pi-acp-agent.ts`                              |
 
 ### 3.5 Permissions
 
-| Feature | Surface | Evidence |
-|---|---|---|
-| Agent permission request forwarding to client | user | `agent-manager.ts` permission dispatch |
-| Agent permission response (allow/deny/allow-session) | user | `session.ts` case `agent_permission_response` |
-| Copilot autopilot auto-approval policy | daemon | `acp-agent.ts` |
-| CLI permit commands (ls/allow/deny) | cli-only | `commands/permit/` |
-| Voice permission policy (auto-allow for voice agents) | daemon | `voice-permission-policy.ts` |
+| Feature                                               | Surface  | Evidence                                      |
+| ----------------------------------------------------- | -------- | --------------------------------------------- |
+| Agent permission request forwarding to client         | user     | `agent-manager.ts` permission dispatch        |
+| Agent permission response (allow/deny/allow-session)  | user     | `session.ts` case `agent_permission_response` |
+| Copilot autopilot auto-approval policy                | daemon   | `acp-agent.ts`                                |
+| CLI permit commands (ls/allow/deny)                   | cli-only | `commands/permit/`                            |
+| Voice permission policy (auto-allow for voice agents) | daemon   | `voice-permission-policy.ts`                  |
 
 ### 3.6 Git and Workspace
 
-| Feature | Surface | Evidence |
-|---|---|---|
-| Workspace git snapshot (branch, dirty, ahead/behind, diff stat) | daemon | `workspace-git-service.ts` |
-| Git status subscription with filesystem watch + debounce | daemon | `workspace-git-service.ts` |
-| Background git fetch (180s interval) | daemon | `workspace-git-service.ts` |
-| GitHub PR status integration (url, title, state, merged) | daemon | `workspace-git-service.ts` `getPullRequestStatus()` |
-| Checkout status request | user | `session.ts` case `checkout_status_request` |
-| Branch validation | user | `session.ts` case `validate_branch_request` |
-| Branch suggestions | user | `session.ts` case `branch_suggestions_request` |
-| Checkout switch branch | user | `session.ts` case `checkout_switch_branch_request` |
-| Stash save/pop/list | user | `session.ts` cases `stash_save/pop/list_request` |
-| Commit changes | user | `session.ts` case `checkout_commit_request` |
-| Merge to base branch | user | `session.ts` case `checkout_merge_request` |
-| Merge from base branch | user | `session.ts` case `checkout_merge_from_base_request` |
-| Pull current branch | user | `session.ts` case `checkout_pull_request` |
-| Push current branch | user | `session.ts` case `checkout_push_request` |
-| Create pull request | user | `session.ts` case `checkout_pr_create_request` |
-| PR status check | user | `session.ts` case `checkout_pr_status_request` |
-| Checkout diff subscription (live diff updates) | user | `session.ts` case `subscribe_checkout_diff_request` |
-| Project and workspace registries (file-backed) | daemon | `workspace-registry.ts` |
-| Project kind detection (git/non_git) | daemon | `workspace-registry-model.ts` |
-| Project icon resolution | user | `session.ts` case `project_icon_request` |
-| Workspace archiving | user | `session.ts` case `archive_workspace_request` |
-| Stale workspace detection | daemon | `workspace-registry-model.ts` |
+| Feature                                                         | Surface | Evidence                                             |
+| --------------------------------------------------------------- | ------- | ---------------------------------------------------- |
+| Workspace git snapshot (branch, dirty, ahead/behind, diff stat) | daemon  | `workspace-git-service.ts`                           |
+| Git status subscription with filesystem watch + debounce        | daemon  | `workspace-git-service.ts`                           |
+| Background git fetch (180s interval)                            | daemon  | `workspace-git-service.ts`                           |
+| GitHub PR status integration (url, title, state, merged)        | daemon  | `workspace-git-service.ts` `getPullRequestStatus()`  |
+| Checkout status request                                         | user    | `session.ts` case `checkout_status_request`          |
+| Branch validation                                               | user    | `session.ts` case `validate_branch_request`          |
+| Branch suggestions                                              | user    | `session.ts` case `branch_suggestions_request`       |
+| Checkout switch branch                                          | user    | `session.ts` case `checkout_switch_branch_request`   |
+| Stash save/pop/list                                             | user    | `session.ts` cases `stash_save/pop/list_request`     |
+| Commit changes                                                  | user    | `session.ts` case `checkout_commit_request`          |
+| Merge to base branch                                            | user    | `session.ts` case `checkout_merge_request`           |
+| Merge from base branch                                          | user    | `session.ts` case `checkout_merge_from_base_request` |
+| Pull current branch                                             | user    | `session.ts` case `checkout_pull_request`            |
+| Push current branch                                             | user    | `session.ts` case `checkout_push_request`            |
+| Create pull request                                             | user    | `session.ts` case `checkout_pr_create_request`       |
+| PR status check                                                 | user    | `session.ts` case `checkout_pr_status_request`       |
+| Checkout diff subscription (live diff updates)                  | user    | `session.ts` case `subscribe_checkout_diff_request`  |
+| Project and workspace registries (file-backed)                  | daemon  | `workspace-registry.ts`                              |
+| Project kind detection (git/non_git)                            | daemon  | `workspace-registry-model.ts`                        |
+| Project icon resolution                                         | user    | `session.ts` case `project_icon_request`             |
+| Workspace archiving                                             | user    | `session.ts` case `archive_workspace_request`        |
+| Stale workspace detection                                       | daemon  | `workspace-registry-model.ts`                        |
 
 ### 3.7 Worktrees
 
-| Feature | Surface | Evidence |
-|---|---|---|
-| Create Paseo-managed worktree | user | `session.ts` case `create_paseo_worktree_request` |
-| List Paseo worktrees | user | `session.ts` case `paseo_worktree_list_request` |
-| Archive Paseo worktree (close agents, kill terminals, cleanup) | user | `session.ts` case `paseo_worktree_archive_request` |
-| Worktree setup commands (create, checkout, branch) | daemon | `worktree-bootstrap.ts`, `worktree-session.ts` |
-| Worktree path computation and slug validation | daemon | `utils/worktree.ts` |
-| Worktree runtime env resolution | daemon | `utils/worktree.ts` |
-| CLI worktree flag on `paseo run` | cli-only | `commands/agent/run.ts` |
-| Worktree detection for dev Electron isolation | desktop-only | `packages/desktop/src/main.ts` |
+| Feature                                                        | Surface      | Evidence                                           |
+| -------------------------------------------------------------- | ------------ | -------------------------------------------------- |
+| Create Paseo-managed worktree                                  | user         | `session.ts` case `create_paseo_worktree_request`  |
+| List Paseo worktrees                                           | user         | `session.ts` case `paseo_worktree_list_request`    |
+| Archive Paseo worktree (close agents, kill terminals, cleanup) | user         | `session.ts` case `paseo_worktree_archive_request` |
+| Worktree setup commands (create, checkout, branch)             | daemon       | `worktree-bootstrap.ts`, `worktree-session.ts`     |
+| Worktree path computation and slug validation                  | daemon       | `utils/worktree.ts`                                |
+| Worktree runtime env resolution                                | daemon       | `utils/worktree.ts`                                |
+| CLI worktree flag on `paseo run`                               | cli-only     | `commands/agent/run.ts`                            |
+| Worktree detection for dev Electron isolation                  | desktop-only | `packages/desktop/src/main.ts`                     |
 
 ### 3.8 Terminals
 
-| Feature | Surface | Evidence |
-|---|---|---|
-| Daemon-managed terminals (keyed by cwd) | daemon | `terminal/terminal-manager.ts` |
-| Create terminal | user | `session.ts` case `create_terminal_request` |
-| Subscribe/unsubscribe to terminal output | user | `session.ts` cases `subscribe/unsubscribe_terminal_request` |
-| Terminal input forwarding | user | `session.ts` case `terminal_input` |
-| Kill terminal | user | `session.ts` case `kill_terminal_request` |
-| Capture terminal lines (snapshot) | user | `session.ts` case `capture_terminal_request` |
-| List terminals | user | `session.ts` case `list_terminals_request` |
-| Terminal list subscription | user | `session.ts` case `subscribe_terminals_request` |
-| Binary-multiplexed terminal streaming over WebSocket | daemon | `shared/terminal-stream-protocol.ts` |
-| Inherited environment per root cwd | daemon | `terminal-manager.ts` |
-| MCP-exposed terminal operations (create, type, read) | daemon | `mcp-server.ts` |
+| Feature                                              | Surface | Evidence                                                    |
+| ---------------------------------------------------- | ------- | ----------------------------------------------------------- |
+| Daemon-managed terminals (keyed by cwd)              | daemon  | `terminal/terminal-manager.ts`                              |
+| Create terminal                                      | user    | `session.ts` case `create_terminal_request`                 |
+| Subscribe/unsubscribe to terminal output             | user    | `session.ts` cases `subscribe/unsubscribe_terminal_request` |
+| Terminal input forwarding                            | user    | `session.ts` case `terminal_input`                          |
+| Kill terminal                                        | user    | `session.ts` case `kill_terminal_request`                   |
+| Capture terminal lines (snapshot)                    | user    | `session.ts` case `capture_terminal_request`                |
+| List terminals                                       | user    | `session.ts` case `list_terminals_request`                  |
+| Terminal list subscription                           | user    | `session.ts` case `subscribe_terminals_request`             |
+| Binary-multiplexed terminal streaming over WebSocket | daemon  | `shared/terminal-stream-protocol.ts`                        |
+| Inherited environment per root cwd                   | daemon  | `terminal-manager.ts`                                       |
+| MCP-exposed terminal operations (create, type, read) | daemon  | `mcp-server.ts`                                             |
 
 ### 3.9 Chat (Agent-to-Agent Coordination)
 
-| Feature | Surface | Evidence |
-|---|---|---|
-| Create chat room | user | `session.ts` case `chat/create` |
-| List chat rooms | user | `session.ts` case `chat/list` |
-| Inspect chat room | user | `session.ts` case `chat/inspect` |
-| Delete chat room | user | `session.ts` case `chat/delete` |
-| Post message to room | user | `session.ts` case `chat/post` |
-| Read messages (with limit, since, author filter) | user | `session.ts` case `chat/read` |
-| Wait for new messages (blocking with timeout) | user | `session.ts` case `chat/wait` |
-| @agentId mention parsing and notification | daemon | `chat-service.ts`, `chat-mentions.ts` |
-| @everyone broadcast to all non-archived agents | daemon | `chat-mentions.ts` |
-| File-backed persistence (rooms.json) | daemon | `chat/chat-service.ts` |
+| Feature                                          | Surface | Evidence                              |
+| ------------------------------------------------ | ------- | ------------------------------------- |
+| Create chat room                                 | user    | `session.ts` case `chat/create`       |
+| List chat rooms                                  | user    | `session.ts` case `chat/list`         |
+| Inspect chat room                                | user    | `session.ts` case `chat/inspect`      |
+| Delete chat room                                 | user    | `session.ts` case `chat/delete`       |
+| Post message to room                             | user    | `session.ts` case `chat/post`         |
+| Read messages (with limit, since, author filter) | user    | `session.ts` case `chat/read`         |
+| Wait for new messages (blocking with timeout)    | user    | `session.ts` case `chat/wait`         |
+| @agentId mention parsing and notification        | daemon  | `chat-service.ts`, `chat-mentions.ts` |
+| @everyone broadcast to all non-archived agents   | daemon  | `chat-mentions.ts`                    |
+| File-backed persistence (rooms.json)             | daemon  | `chat/chat-service.ts`                |
 
 ### 3.10 Loops (Worker/Verifier Orchestration)
 
-| Feature | Surface | Evidence |
-|---|---|---|
-| Run loop (worker prompt + verification) | user | `session.ts` case `loop/run` |
-| List loops | user | `session.ts` case `loop/list` |
-| Inspect loop (details + iteration history) | user | `session.ts` case `loop/inspect` |
-| View loop logs | user | `session.ts` case `loop/logs` |
-| Stop running loop | user | `session.ts` case `loop/stop` |
-| Worker/verifier agent creation per iteration | daemon | `loop-service.ts` |
-| Shell-based verify checks (exit code validation) | daemon | `loop-service.ts` |
-| LLM-based verification prompt | daemon | `loop-service.ts` |
-| Configurable sleep between iterations | daemon | `loop-service.ts` |
-| Max iterations and max time limits | daemon | `loop-service.ts` |
-| Per-provider worker and verifier model selection | daemon | `loop-service.ts` |
-| Archive option for iteration agents | daemon | `loop-service.ts` |
-| Structured iteration logs (seq, timestamp, source, level) | daemon | `loop-service.ts` |
-| Recovery of interrupted loops on daemon restart | daemon | `loop-service.ts` |
-| File-backed persistence (loops.json) | daemon | `$PASEO_HOME/loops/loops.json` |
+| Feature                                                   | Surface | Evidence                         |
+| --------------------------------------------------------- | ------- | -------------------------------- |
+| Run loop (worker prompt + verification)                   | user    | `session.ts` case `loop/run`     |
+| List loops                                                | user    | `session.ts` case `loop/list`    |
+| Inspect loop (details + iteration history)                | user    | `session.ts` case `loop/inspect` |
+| View loop logs                                            | user    | `session.ts` case `loop/logs`    |
+| Stop running loop                                         | user    | `session.ts` case `loop/stop`    |
+| Worker/verifier agent creation per iteration              | daemon  | `loop-service.ts`                |
+| Shell-based verify checks (exit code validation)          | daemon  | `loop-service.ts`                |
+| LLM-based verification prompt                             | daemon  | `loop-service.ts`                |
+| Configurable sleep between iterations                     | daemon  | `loop-service.ts`                |
+| Max iterations and max time limits                        | daemon  | `loop-service.ts`                |
+| Per-provider worker and verifier model selection          | daemon  | `loop-service.ts`                |
+| Archive option for iteration agents                       | daemon  | `loop-service.ts`                |
+| Structured iteration logs (seq, timestamp, source, level) | daemon  | `loop-service.ts`                |
+| Recovery of interrupted loops on daemon restart           | daemon  | `loop-service.ts`                |
+| File-backed persistence (loops.json)                      | daemon  | `$PASEO_HOME/loops/loops.json`   |
 
 ### 3.11 Schedules (Cron/Interval Automation)
 
-| Feature | Surface | Evidence |
-|---|---|---|
-| Create schedule (cron or interval cadence) | user | `session.ts` case `schedule/create` |
-| List schedules | user | `session.ts` case `schedule/list` |
-| Inspect schedule | user | `session.ts` case `schedule/inspect` |
-| View schedule logs | user | `session.ts` case `schedule/logs` |
-| Pause schedule | user | `session.ts` case `schedule/pause` |
-| Resume schedule | user | `session.ts` case `schedule/resume` |
-| Delete schedule | user | `session.ts` case `schedule/delete` |
-| Target existing agent or create new agent per run | daemon | `schedule/service.ts` |
-| Max runs limit | daemon | `schedule/service.ts` |
-| Expiration time | daemon | `schedule/service.ts` |
-| Run history with output/error tracking | daemon | `schedule/types.ts` |
-| Recovery of interrupted runs on restart | daemon | `schedule/service.ts` |
-| 1-second tick loop for schedule checking | daemon | `schedule/service.ts` |
-| File-backed persistence (per-schedule JSON) | daemon | `$PASEO_HOME/schedules/` |
+| Feature                                           | Surface | Evidence                             |
+| ------------------------------------------------- | ------- | ------------------------------------ |
+| Create schedule (cron or interval cadence)        | user    | `session.ts` case `schedule/create`  |
+| List schedules                                    | user    | `session.ts` case `schedule/list`    |
+| Inspect schedule                                  | user    | `session.ts` case `schedule/inspect` |
+| View schedule logs                                | user    | `session.ts` case `schedule/logs`    |
+| Pause schedule                                    | user    | `session.ts` case `schedule/pause`   |
+| Resume schedule                                   | user    | `session.ts` case `schedule/resume`  |
+| Delete schedule                                   | user    | `session.ts` case `schedule/delete`  |
+| Target existing agent or create new agent per run | daemon  | `schedule/service.ts`                |
+| Max runs limit                                    | daemon  | `schedule/service.ts`                |
+| Expiration time                                   | daemon  | `schedule/service.ts`                |
+| Run history with output/error tracking            | daemon  | `schedule/types.ts`                  |
+| Recovery of interrupted runs on restart           | daemon  | `schedule/service.ts`                |
+| 1-second tick loop for schedule checking          | daemon  | `schedule/service.ts`                |
+| File-backed persistence (per-schedule JSON)       | daemon  | `$PASEO_HOME/schedules/`             |
 
 ### 3.12 MCP (Model Context Protocol)
 
-| Feature | Surface | Evidence |
-|---|---|---|
-| Agent MCP server (agent-to-agent control) | daemon | `agent/mcp-server.ts` |
-| Agent management MCP server (voice assistant LLM) | daemon | `agent/agent-management-mcp.ts` |
-| MCP tools: create_agent, wait_for_agent, send_agent_prompt | daemon | `mcp-server.ts` |
-| MCP tools: get_agent_status, list_agents, cancel_agent | daemon | `mcp-server.ts` |
-| MCP tools: get_agent_activity, set_agent_mode | daemon | `mcp-server.ts` |
-| MCP tools: list_pending_permissions, respond_to_permission | daemon | `mcp-server.ts` |
-| MCP tools: terminal operations (create, type, read, list) | daemon | `mcp-server.ts` |
-| MCP tools: schedule management (create, list, inspect, delete) | daemon | `mcp-server.ts` |
-| MCP tools: worktree management (create, list, archive) | daemon | `mcp-server.ts` |
-| MCP tools: provider listing and model queries | daemon | `mcp-server.ts` |
-| Caller agent context inheritance (cwd, mode, model) | daemon | `mcp-server.ts` `resolveCallerAgent()` |
-| Mode mapping across providers for child agents | daemon | `mcp-server.ts` `mapModeAcrossProviders()` |
-| Streamable HTTP transport for MCP | daemon | `bootstrap.ts` MCP routing |
-| MCP injection into agent sessions (configurable) | daemon | `daemon-config-store.ts` |
+| Feature                                                        | Surface | Evidence                                   |
+| -------------------------------------------------------------- | ------- | ------------------------------------------ |
+| Agent MCP server (agent-to-agent control)                      | daemon  | `agent/mcp-server.ts`                      |
+| Agent management MCP server (voice assistant LLM)              | daemon  | `agent/agent-management-mcp.ts`            |
+| MCP tools: create_agent, wait_for_agent, send_agent_prompt     | daemon  | `mcp-server.ts`                            |
+| MCP tools: get_agent_status, list_agents, cancel_agent         | daemon  | `mcp-server.ts`                            |
+| MCP tools: get_agent_activity, set_agent_mode                  | daemon  | `mcp-server.ts`                            |
+| MCP tools: list_pending_permissions, respond_to_permission     | daemon  | `mcp-server.ts`                            |
+| MCP tools: terminal operations (create, type, read, list)      | daemon  | `mcp-server.ts`                            |
+| MCP tools: schedule management (create, list, inspect, delete) | daemon  | `mcp-server.ts`                            |
+| MCP tools: worktree management (create, list, archive)         | daemon  | `mcp-server.ts`                            |
+| MCP tools: provider listing and model queries                  | daemon  | `mcp-server.ts`                            |
+| Caller agent context inheritance (cwd, mode, model)            | daemon  | `mcp-server.ts` `resolveCallerAgent()`     |
+| Mode mapping across providers for child agents                 | daemon  | `mcp-server.ts` `mapModeAcrossProviders()` |
+| Streamable HTTP transport for MCP                              | daemon  | `bootstrap.ts` MCP routing                 |
+| MCP injection into agent sessions (configurable)               | daemon  | `daemon-config-store.ts`                   |
 
 ### 3.13 Voice and Speech
 
-| Feature | Surface | Evidence |
-|---|---|---|
-| Text-to-speech (TTS) management | daemon | `agent/tts-manager.ts` |
-| Speech-to-text (STT) management | daemon | `agent/stt-manager.ts` |
-| Dictation stream (start/chunk/finish/cancel) | user | `session.ts` dictation_stream_* cases |
-| Voice mode toggle | user | `session.ts` case `set_voice_mode` |
-| Voice turn controller | daemon | `voice/voice-turn-controller.ts` |
-| Speech readiness snapshots (realtime, dictation, overall) | daemon | `speech/speech-runtime.ts` |
-| Local speech provider support | daemon | `speech/providers/local/` |
-| OpenAI speech provider support | daemon | `speech/providers/openai/` |
-| Provider reconciliation and model download | daemon | `speech/speech-runtime.ts` |
-| Audio playback confirmation | user | `session.ts` case `audio_played` |
-| Voice audio chunk streaming | user | `session.ts` case `voice_audio_chunk` |
-| PCM16 resampling | daemon | `agent/pcm16-resampler.ts` |
-| Per-provider voice defaults (Claude, Codex, OpenCode) | daemon | `provider-manifest.ts` voice config |
-| Voice permission auto-approval policy | daemon | `voice-permission-policy.ts` |
-| Two-way native audio bridge (Expo) | user | `packages/expo-two-way-audio` |
+| Feature                                                   | Surface | Evidence                               |
+| --------------------------------------------------------- | ------- | -------------------------------------- |
+| Text-to-speech (TTS) management                           | daemon  | `agent/tts-manager.ts`                 |
+| Speech-to-text (STT) management                           | daemon  | `agent/stt-manager.ts`                 |
+| Dictation stream (start/chunk/finish/cancel)              | user    | `session.ts` dictation*stream*\* cases |
+| Voice mode toggle                                         | user    | `session.ts` case `set_voice_mode`     |
+| Voice turn controller                                     | daemon  | `voice/voice-turn-controller.ts`       |
+| Speech readiness snapshots (realtime, dictation, overall) | daemon  | `speech/speech-runtime.ts`             |
+| Local speech provider support                             | daemon  | `speech/providers/local/`              |
+| OpenAI speech provider support                            | daemon  | `speech/providers/openai/`             |
+| Provider reconciliation and model download                | daemon  | `speech/speech-runtime.ts`             |
+| Audio playback confirmation                               | user    | `session.ts` case `audio_played`       |
+| Voice audio chunk streaming                               | user    | `session.ts` case `voice_audio_chunk`  |
+| PCM16 resampling                                          | daemon  | `agent/pcm16-resampler.ts`             |
+| Per-provider voice defaults (Claude, Codex, OpenCode)     | daemon  | `provider-manifest.ts` voice config    |
+| Voice permission auto-approval policy                     | daemon  | `voice-permission-policy.ts`           |
+| Two-way native audio bridge (Expo)                        | user    | `packages/expo-two-way-audio`          |
 
 ### 3.14 File Explorer and Editor Integration
 
-| Feature | Surface | Evidence |
-|---|---|---|
-| File explorer directory listing | user | `session.ts` case `file_explorer_request` |
-| File reading through explorer | daemon | `file-explorer/service.ts` |
-| File download via token-based endpoint | user | `session.ts` case `file_download_token_request` |
-| List available editors | user | `session.ts` case `list_available_editors_request` |
-| Open file/project in editor | user | `session.ts` case `open_in_editor_request` |
-| Open project request | user | `session.ts` case `open_project_request` |
-| Directory suggestions (home dirs, workspace entries) | user | `session.ts` case `directory_suggestions_request` |
+| Feature                                              | Surface | Evidence                                           |
+| ---------------------------------------------------- | ------- | -------------------------------------------------- |
+| File explorer directory listing                      | user    | `session.ts` case `file_explorer_request`          |
+| File reading through explorer                        | daemon  | `file-explorer/service.ts`                         |
+| File download via token-based endpoint               | user    | `session.ts` case `file_download_token_request`    |
+| List available editors                               | user    | `session.ts` case `list_available_editors_request` |
+| Open file/project in editor                          | user    | `session.ts` case `open_in_editor_request`         |
+| Open project request                                 | user    | `session.ts` case `open_project_request`           |
+| Directory suggestions (home dirs, workspace entries) | user    | `session.ts` case `directory_suggestions_request`  |
 
 ### 3.15 CLI Command Surface
 
-| Feature | Surface | Evidence |
-|---|---|---|
-| `paseo ls` (list agents, global/local, filter, sort) | cli-only | `commands/agent/ls.ts` |
-| `paseo run` (create + optional wait, detach, worktree, output-schema) | cli-only | `commands/agent/run.ts` |
-| `paseo attach` (stream agent output) | cli-only | `commands/agent/attach.ts` |
-| `paseo logs` (agent timeline, follow, tail, filter) | cli-only | `commands/agent/logs.ts` |
-| `paseo stop` (interrupt agent) | cli-only | `commands/agent/stop.ts` |
-| `paseo delete` (hard-delete agent) | cli-only | `commands/agent/delete.ts` |
-| `paseo send` (follow-up message, with image support) | cli-only | `commands/agent/send.ts` |
-| `paseo inspect` (agent detail) | cli-only | `commands/agent/inspect.ts` |
-| `paseo wait` (block for agent finish) | cli-only | `commands/agent/wait.ts` |
-| `paseo archive` (soft-delete, force option) | cli-only | `commands/agent/archive.ts` |
-| `paseo daemon start/stop/restart/status/pair` | cli-only | `commands/daemon/` |
-| `paseo chat create/ls/inspect/delete/post/read/wait` | cli-only | `commands/chat/` |
-| `paseo terminal ls/create/attach` | cli-only | `commands/terminal/` |
-| `paseo loop run/ls/inspect/logs/stop` | cli-only | `commands/loop/` |
-| `paseo schedule create/ls/inspect/logs/pause/resume/delete` | cli-only | `commands/schedule/` |
-| `paseo permit ls/allow/deny` | cli-only | `commands/permit/` |
-| `paseo provider ls/models` | cli-only | `commands/provider/` |
-| `paseo speech` commands | cli-only | `commands/speech/` |
-| `paseo worktree ls/archive` | cli-only | `commands/worktree/` |
-| `paseo onboard` | cli-only | `commands/onboard.ts` |
-| Output formats: table, json, yaml, quiet (IDs only) | cli-only | `output/` |
+| Feature                                                               | Surface  | Evidence                    |
+| --------------------------------------------------------------------- | -------- | --------------------------- |
+| `paseo ls` (list agents, global/local, filter, sort)                  | cli-only | `commands/agent/ls.ts`      |
+| `paseo run` (create + optional wait, detach, worktree, output-schema) | cli-only | `commands/agent/run.ts`     |
+| `paseo attach` (stream agent output)                                  | cli-only | `commands/agent/attach.ts`  |
+| `paseo logs` (agent timeline, follow, tail, filter)                   | cli-only | `commands/agent/logs.ts`    |
+| `paseo stop` (interrupt agent)                                        | cli-only | `commands/agent/stop.ts`    |
+| `paseo delete` (hard-delete agent)                                    | cli-only | `commands/agent/delete.ts`  |
+| `paseo send` (follow-up message, with image support)                  | cli-only | `commands/agent/send.ts`    |
+| `paseo inspect` (agent detail)                                        | cli-only | `commands/agent/inspect.ts` |
+| `paseo wait` (block for agent finish)                                 | cli-only | `commands/agent/wait.ts`    |
+| `paseo archive` (soft-delete, force option)                           | cli-only | `commands/agent/archive.ts` |
+| `paseo daemon start/stop/restart/status/pair`                         | cli-only | `commands/daemon/`          |
+| `paseo chat create/ls/inspect/delete/post/read/wait`                  | cli-only | `commands/chat/`            |
+| `paseo terminal ls/create/attach`                                     | cli-only | `commands/terminal/`        |
+| `paseo loop run/ls/inspect/logs/stop`                                 | cli-only | `commands/loop/`            |
+| `paseo schedule create/ls/inspect/logs/pause/resume/delete`           | cli-only | `commands/schedule/`        |
+| `paseo permit ls/allow/deny`                                          | cli-only | `commands/permit/`          |
+| `paseo provider ls/models`                                            | cli-only | `commands/provider/`        |
+| `paseo speech` commands                                               | cli-only | `commands/speech/`          |
+| `paseo worktree ls/archive`                                           | cli-only | `commands/worktree/`        |
+| `paseo onboard`                                                       | cli-only | `commands/onboard.ts`       |
+| Output formats: table, json, yaml, quiet (IDs only)                   | cli-only | `output/`                   |
 
 ### 3.16 Desktop (Electron)
 
-| Feature | Surface | Evidence |
-|---|---|---|
-| Local daemon supervision (start, restart, version mismatch) | desktop-only | `packages/desktop/src/daemon/daemon-manager.ts` |
-| Custom `paseo://` protocol registration | desktop-only | `packages/desktop/src/main.ts` |
-| Single-instance lock | desktop-only | `packages/desktop/src/main.ts` |
-| Dev worktree isolation (separate userData) | desktop-only | `packages/desktop/src/main.ts` |
-| Login shell environment inheritance | desktop-only | `packages/desktop/src/login-shell-env.ts` |
-| Local transport (in-process daemon communication) | desktop-only | `packages/desktop/src/daemon/local-transport.ts` |
-| Desktop IPC: file dialogs, notifications, openers, menu | desktop-only | `packages/desktop/src/features/` |
-| Pairing offer flow for relay setup | desktop-only | `packages/desktop/src/daemon/daemon-manager.ts` |
-| Open-project routing from deep links | desktop-only | `packages/desktop/src/open-project-routing.ts` |
+| Feature                                                     | Surface      | Evidence                                         |
+| ----------------------------------------------------------- | ------------ | ------------------------------------------------ |
+| Local daemon supervision (start, restart, version mismatch) | desktop-only | `packages/desktop/src/daemon/daemon-manager.ts`  |
+| Custom `paseo://` protocol registration                     | desktop-only | `packages/desktop/src/main.ts`                   |
+| Single-instance lock                                        | desktop-only | `packages/desktop/src/main.ts`                   |
+| Dev worktree isolation (separate userData)                  | desktop-only | `packages/desktop/src/main.ts`                   |
+| Login shell environment inheritance                         | desktop-only | `packages/desktop/src/login-shell-env.ts`        |
+| Local transport (in-process daemon communication)           | desktop-only | `packages/desktop/src/daemon/local-transport.ts` |
+| Desktop IPC: file dialogs, notifications, openers, menu     | desktop-only | `packages/desktop/src/features/`                 |
+| Pairing offer flow for relay setup                          | desktop-only | `packages/desktop/src/daemon/daemon-manager.ts`  |
+| Open-project routing from deep links                        | desktop-only | `packages/desktop/src/open-project-routing.ts`   |
 
 ### 3.17 Relay and Remote Access
 
-| Feature | Surface | Evidence |
-|---|---|---|
-| End-to-end encrypted relay channel | daemon | `packages/relay/src/encrypted-channel.ts` |
-| ECDH key exchange + XSalsa20-Poly1305 encryption | daemon | `packages/relay/src/crypto.ts` |
-| Daemon keypair persistence (mode 0600) | daemon | `packages/server/src/server/daemon-keypair.ts` |
-| Client-side and daemon-side channel creation | daemon | `packages/relay/src/encrypted-channel.ts` |
-| Relay transport with control ping/pong and stale detection | daemon | `packages/server/src/server/relay-transport.ts` |
-| QR code pairing (transfers daemon public key) | user | `packages/server/src/server/pairing-qr.ts`, `packages/server/src/server/pairing-offer.ts` |
-| Connection offer encoding | daemon | `packages/server/src/server/connection-offer.ts` |
-| Handshake retry logic | daemon | `packages/relay/src/encrypted-channel.ts` |
+| Feature                                                    | Surface | Evidence                                                                                  |
+| ---------------------------------------------------------- | ------- | ----------------------------------------------------------------------------------------- |
+| End-to-end encrypted relay channel                         | daemon  | `packages/relay/src/encrypted-channel.ts`                                                 |
+| ECDH key exchange + XSalsa20-Poly1305 encryption           | daemon  | `packages/relay/src/crypto.ts`                                                            |
+| Daemon keypair persistence (mode 0600)                     | daemon  | `packages/server/src/server/daemon-keypair.ts`                                            |
+| Client-side and daemon-side channel creation               | daemon  | `packages/relay/src/encrypted-channel.ts`                                                 |
+| Relay transport with control ping/pong and stale detection | daemon  | `packages/server/src/server/relay-transport.ts`                                           |
+| QR code pairing (transfers daemon public key)              | user    | `packages/server/src/server/pairing-qr.ts`, `packages/server/src/server/pairing-offer.ts` |
+| Connection offer encoding                                  | daemon  | `packages/server/src/server/connection-offer.ts`                                          |
+| Handshake retry logic                                      | daemon  | `packages/relay/src/encrypted-channel.ts`                                                 |
 
 ### 3.18 Skills (Claude Code Skills)
 
-| Feature | Surface | Evidence |
-|---|---|---|
-| `paseo` (CLI reference skill for managed agents) | skill | `skills/paseo/SKILL.md` |
-| `paseo-orchestrate` (end-to-end implementation orchestrator) | skill | `skills/paseo-orchestrate/SKILL.md` |
-| `paseo-handoff` (context-rich handoff to another agent) | skill | `skills/paseo-handoff/SKILL.md` |
-| `paseo-chat` (chat room coordination between agents) | skill | `skills/paseo-chat/SKILL.md` |
-| `paseo-loop` (iterative worker/verifier loop setup) | skill | `skills/paseo-loop/SKILL.md` |
-| `paseo-committee` (dual high-reasoning agent planning) | skill | `skills/paseo-committee/SKILL.md` |
+| Feature                                                      | Surface | Evidence                            |
+| ------------------------------------------------------------ | ------- | ----------------------------------- |
+| `paseo` (CLI reference skill for managed agents)             | skill   | `skills/paseo/SKILL.md`             |
+| `paseo-orchestrate` (end-to-end implementation orchestrator) | skill   | `skills/paseo-orchestrate/SKILL.md` |
+| `paseo-handoff` (context-rich handoff to another agent)      | skill   | `skills/paseo-handoff/SKILL.md`     |
+| `paseo-chat` (chat room coordination between agents)         | skill   | `skills/paseo-chat/SKILL.md`        |
+| `paseo-loop` (iterative worker/verifier loop setup)          | skill   | `skills/paseo-loop/SKILL.md`        |
+| `paseo-committee` (dual high-reasoning agent planning)       | skill   | `skills/paseo-committee/SKILL.md`   |
 
 ### 3.19 App Client Features
 
-| Feature | Surface | Evidence |
-|---|---|---|
-| Multi-host management with per-host sessions | user | `packages/app/src/runtime/host-runtime.ts` |
-| Adaptive connection probing (direct + relay, latency threshold) | user | `packages/app/src/runtime/host-runtime.ts` `ConnectionProbeState` |
-| Agent directory hydration with pagination | user | `packages/app/src/runtime/host-runtime.ts` `refreshAgentDirectory()` |
-| Host-aware routing (`/h/:serverId/...`) | user | `packages/app/src/utils/host-routes.ts` |
-| Draft agent creation screen with form state preservation | user | `packages/app/src/screens/agent/draft-agent-screen.tsx` |
-| Form state priority: explicit > stored prefs > provider defaults | user | `app/src/hooks/use-agent-form-state.ts` |
-| Provider snapshot query and live subscription | user | `app/src/hooks/use-providers-snapshot.ts` |
-| Session stream reducers (epoch/sequence gating, gap recovery) | user | `app/src/contexts/session-stream-reducers.ts` |
-| Normalized stream items (user_message, assistant_message, thought, tool_call, etc.) | user | `app/src/types/stream.ts` |
-| Cross-platform workspace screen (split panes, tabs, terminals) | user | `app/src/screens/workspace/workspace-screen.tsx` |
-| Agent stream view with platform-adaptive rendering | user | `app/src/components/agent-stream-view.tsx` |
-| Settings screen (hosts, providers, diagnostics, pairing, daemon) | user | `app/src/screens/settings-screen.tsx` |
-| Left sidebar with host picker and project list | user | `app/src/components/left-sidebar.tsx` |
-| Push notification registration and delivery | user | `session.ts` case `register_push_token` |
-| Keyboard shortcuts and command center | user | `app/src/app/_layout.tsx` |
-| Client-side draft persistence (AsyncStorage) | user | `app` draft store |
-| Attachment store (IndexedDB for web) | user | `docs/DATA_MODEL.md` |
+| Feature                                                                             | Surface | Evidence                                                             |
+| ----------------------------------------------------------------------------------- | ------- | -------------------------------------------------------------------- |
+| Multi-host management with per-host sessions                                        | user    | `packages/app/src/runtime/host-runtime.ts`                           |
+| Adaptive connection probing (direct + relay, latency threshold)                     | user    | `packages/app/src/runtime/host-runtime.ts` `ConnectionProbeState`    |
+| Agent directory hydration with pagination                                           | user    | `packages/app/src/runtime/host-runtime.ts` `refreshAgentDirectory()` |
+| Host-aware routing (`/h/:serverId/...`)                                             | user    | `packages/app/src/utils/host-routes.ts`                              |
+| Draft agent creation screen with form state preservation                            | user    | `packages/app/src/screens/agent/draft-agent-screen.tsx`              |
+| Form state priority: explicit > stored prefs > provider defaults                    | user    | `app/src/hooks/use-agent-form-state.ts`                              |
+| Provider snapshot query and live subscription                                       | user    | `app/src/hooks/use-providers-snapshot.ts`                            |
+| Session stream reducers (epoch/sequence gating, gap recovery)                       | user    | `app/src/contexts/session-stream-reducers.ts`                        |
+| Normalized stream items (user_message, assistant_message, thought, tool_call, etc.) | user    | `app/src/types/stream.ts`                                            |
+| Cross-platform workspace screen (split panes, tabs, terminals)                      | user    | `app/src/screens/workspace/workspace-screen.tsx`                     |
+| Agent stream view with platform-adaptive rendering                                  | user    | `app/src/components/agent-stream-view.tsx`                           |
+| Settings screen (hosts, providers, diagnostics, pairing, daemon)                    | user    | `app/src/screens/settings-screen.tsx`                                |
+| Left sidebar with host picker and project list                                      | user    | `app/src/components/left-sidebar.tsx`                                |
+| Push notification registration and delivery                                         | user    | `session.ts` case `register_push_token`                              |
+| Keyboard shortcuts and command center                                               | user    | `app/src/app/_layout.tsx`                                            |
+| Client-side draft persistence (AsyncStorage)                                        | user    | `app` draft store                                                    |
+| Attachment store (IndexedDB for web)                                                | user    | `docs/DATA_MODEL.md`                                                 |
 
 ---
 
@@ -570,18 +572,19 @@ The provider subsystem has three layers:
 
 ### Supported Providers
 
-| Provider | Transport | Key Characteristics |
-|---|---|---|
-| Claude | Anthropic Agent SDK spawning Claude Code process | Dynamic modes, MCP, reasoning, persistence, slash commands |
-| Codex | JSON-RPC to `codex app-server` subprocess | MCP, reasoning, persistence, synthetic features (fast_mode, plan_mode) |
-| OpenCode | SDK against shared local `opencode serve` process | Dynamic modes, MCP, model/thinking mutation, mode discovery |
-| Copilot | ACP over stdio (`copilot --acp`) | Dynamic modes, autopilot auto-approval, ACP plan/tool normalization |
-| Pi | ACP over stdio (`pi-acp`) | Thinking-option remapping, model-label cleanup, tool-kind normalization |
-| Custom ACP | ACP over stdio (user-specified command) | Generic ACP adapter; extends via `extends: "acp"` in config |
+| Provider   | Transport                                         | Key Characteristics                                                     |
+| ---------- | ------------------------------------------------- | ----------------------------------------------------------------------- |
+| Claude     | Anthropic Agent SDK spawning Claude Code process  | Dynamic modes, MCP, reasoning, persistence, slash commands              |
+| Codex      | JSON-RPC to `codex app-server` subprocess         | MCP, reasoning, persistence, synthetic features (fast_mode, plan_mode)  |
+| OpenCode   | SDK against shared local `opencode serve` process | Dynamic modes, MCP, model/thinking mutation, mode discovery             |
+| Copilot    | ACP over stdio (`copilot --acp`)                  | Dynamic modes, autopilot auto-approval, ACP plan/tool normalization     |
+| Pi         | ACP over stdio (`pi-acp`)                         | Thinking-option remapping, model-label cleanup, tool-kind normalization |
+| Custom ACP | ACP over stdio (user-specified command)           | Generic ACP adapter; extends via `extends: "acp"` in config             |
 
 ### Normalized capabilities
 
 Every provider advertises via `AgentCapabilityFlags`:
+
 - `supportsStreaming`
 - `supportsSessionPersistence`
 - `supportsDynamicModes`
@@ -718,6 +721,7 @@ Evidence: `SECURITY.md`, `packages/relay/src/encrypted-channel.ts`, `packages/se
 ### Loops
 
 The `LoopService` implements daemon-persisted worker/verifier orchestration:
+
 - Each iteration creates a worker agent, runs it to completion, then verifies via shell checks (exit code) and/or an LLM verifier agent.
 - Configurable sleep, max iterations, max time, per-provider model selection for worker vs verifier.
 - Structured iteration logs with monotonic sequence numbers.
@@ -729,6 +733,7 @@ Evidence: `packages/server/src/server/loop-service.ts`.
 ### Schedules
 
 The `ScheduleService` provides cron and interval scheduling:
+
 - `every` (interval in ms) and `cron` (expression) cadence types.
 - Targets: send prompt to existing agent or create new agent from embedded config.
 - Max runs limit and expiration time.
@@ -755,6 +760,7 @@ Evidence: `skills/paseo-orchestrate/SKILL.md`, `skills/paseo-committee/SKILL.md`
 ### MCP for agent-to-agent control
 
 The daemon MCP server enables agents to manage other agents:
+
 - Create child agents with caller context inheritance (cwd, mode, model).
 - Wait for agent completion with timeout.
 - Send follow-up prompts.

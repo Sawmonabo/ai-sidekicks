@@ -1,14 +1,14 @@
 # Spec-011: Gitflow PR And Diff Attribution
 
-| Field | Value |
-| --- | --- |
-| **Status** | `approved` |
-| **NNN** | `011` |
-| **Slug** | `gitflow-pr-and-diff-attribution` |
-| **Date** | `2026-04-14` |
-| **Author(s)** | `Codex` |
-| **Depends On** | [Repo Workspace Worktree Model](../domain/repo-workspace-worktree-model.md), [Artifact Diff And Approval Model](../domain/artifact-diff-and-approval-model.md), [Worktree Lifecycle And Execution Modes](../specs/010-worktree-lifecycle-and-execution-modes.md) |
-| **Implementation Plan** | [Plan-011: Gitflow PR And Diff Attribution](../plans/011-gitflow-pr-and-diff-attribution.md) |
+| Field                   | Value                                                                                                                                                                                                                                                            |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Status**              | `approved`                                                                                                                                                                                                                                                       |
+| **NNN**                 | `011`                                                                                                                                                                                                                                                            |
+| **Slug**                | `gitflow-pr-and-diff-attribution`                                                                                                                                                                                                                                |
+| **Date**                | `2026-04-14`                                                                                                                                                                                                                                                     |
+| **Author(s)**           | `Codex`                                                                                                                                                                                                                                                          |
+| **Depends On**          | [Repo Workspace Worktree Model](../domain/repo-workspace-worktree-model.md), [Artifact Diff And Approval Model](../domain/artifact-diff-and-approval-model.md), [Worktree Lifecycle And Execution Modes](../specs/010-worktree-lifecycle-and-execution-modes.md) |
+| **Implementation Plan** | [Plan-011: Gitflow PR And Diff Attribution](../plans/011-gitflow-pr-and-diff-attribution.md)                                                                                                                                                                     |
 
 ## Purpose
 
@@ -81,6 +81,7 @@ This spec covers branch strategy, PR preparation, diff artifacts, and attributio
 DiffArtifact is a SUBTYPE of the general artifact system defined in Spec-014. Every DiffArtifact IS an artifact -- it appears in artifact listings, has visibility control, content hashing, and all other artifact capabilities.
 
 Schema relationship:
+
 - The `diff_artifacts` table uses `artifact_manifests` (Plan-014) as its manifest, linked by a foreign key: `diff_artifacts.artifact_manifest_id -> artifact_manifests.id`.
 - The corresponding `artifact_manifests` row carries `artifact_type = 'diff'` and the OCI-inspired manifest envelope (id, sessionId, runId, digest, size, artifactType, annotations, subject, createdAt).
 - The `diff_artifacts` table adds extension columns specific to diff provenance: `attribution_mode`, `base_ref`, `head_ref`.
@@ -98,16 +99,19 @@ The foreign key constraint `diff_artifacts.artifact_manifest_id REFERENCES artif
 Artifact content is stored outside the SQLite database using content-addressed storage (CAS).
 
 **Local artifacts:**
+
 - Filesystem CAS keyed by SHA-256 hash of the artifact content.
 - Storage path: `<data_dir>/artifacts/<hash[0:2]>/<hash>` (first two hex characters as a directory prefix for fan-out).
 - The `artifact_payload_refs.storage_path` column records this CAS key.
 
 **Shared artifacts:**
+
 - Blob store with an OCI-inspired manifest envelope.
 - The `artifact_manifests` table stores the manifest metadata (including `content_hash` for deduplication).
 - The `artifact_payload_refs` table stores the storage path or blob reference.
 
 **Deduplication:**
+
 - Identical content (same SHA-256 hash) produces the same CAS key, avoiding duplicate storage.
 - The `artifact_manifests.content_hash` index enables fast lookup of existing content before writing.
 
@@ -116,6 +120,7 @@ Artifact content is stored outside the SQLite database using content-addressed s
 **V1 Decision:** The default git hosting tool is `gh` (GitHub CLI).
 
 **Rationale:**
+
 - All reference applications use GitHub as the git hosting provider.
 - `gh` is well-maintained by GitHub and covers the operations needed for V1: PR creation, status checks, diff retrieval, and commenting.
 - `gh` supports auth delegation via `gh auth`, avoiding the need for the daemon to manage OAuth tokens or personal access tokens directly.
@@ -125,13 +130,13 @@ Artifact content is stored outside the SQLite database using content-addressed s
 
 The adapter uses host-agnostic naming (`ChangeRequest` rather than `PullRequest`) so the interface can support future hosting providers without breaking callers.
 
-| Operation | Description | Wraps (`gh` V1) |
-| --- | --- | --- |
-| `createChangeRequest(params)` | Creates a PR. Params: `baseBranch`, `headBranch`, `title`, `description`, `reviewers?` | `gh pr create` |
-| `updateChangeRequest(params)` | Updates PR metadata (title, description, reviewers, labels). | `gh pr edit` |
-| `listChangeRequests(params)` | Lists PRs for a repo, with optional state and label filters. | `gh pr list` |
-| `getChangeRequestStatus(params)` | Returns PR status: open/merged/closed plus CI check results. | `gh pr view` |
-| `addComment(params)` | Adds a comment to an existing PR. | `gh pr comment` |
+| Operation                        | Description                                                                            | Wraps (`gh` V1) |
+| -------------------------------- | -------------------------------------------------------------------------------------- | --------------- |
+| `createChangeRequest(params)`    | Creates a PR. Params: `baseBranch`, `headBranch`, `title`, `description`, `reviewers?` | `gh pr create`  |
+| `updateChangeRequest(params)`    | Updates PR metadata (title, description, reviewers, labels).                           | `gh pr edit`    |
+| `listChangeRequests(params)`     | Lists PRs for a repo, with optional state and label filters.                           | `gh pr list`    |
+| `getChangeRequestStatus(params)` | Returns PR status: open/merged/closed plus CI check results.                           | `gh pr view`    |
+| `addComment(params)`             | Adds a comment to an existing PR.                                                      | `gh pr comment` |
 
 All operations accept a `repoMountId` to identify the target repository context and return structured results (not raw CLI output). The adapter parses `gh` JSON output (`--json` flag) into typed response objects.
 

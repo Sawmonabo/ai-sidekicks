@@ -56,12 +56,12 @@ sidekicks events count --session <id>
 
 ## SLOs and Thresholds
 
-| Metric | Target |
-|---|---|
-| Replay projection lag | < 30s behind canonical events |
-| Projection rebuild | < 60s per 10k events |
-| Audit query p99 latency | < 500ms |
-| Event export throughput | > 1k events/s |
+| Metric                  | Target                        |
+| ----------------------- | ----------------------------- |
+| Replay projection lag   | < 30s behind canonical events |
+| Projection rebuild      | < 60s per 10k events          |
+| Audit query p99 latency | < 500ms                       |
+| Event export throughput | > 1k events/s                 |
 
 ## On-Call Routing
 

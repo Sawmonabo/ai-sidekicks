@@ -1,13 +1,13 @@
 # ADR-009: JSON-RPC IPC Wire Format
 
-| Field | Value |
-| -------------- | ------------------------------------------------------------------------ |
-| **Status** | `accepted` |
-| **Type** | `Type 2 (one-way door)` |
-| **Domain** | `Transport / IPC` |
-| **Date** | `2026-04-15` |
-| **Author(s)** | `Claude` |
-| **Reviewers** | `Accepted 2026-04-15` |
+| Field         | Value                   |
+| ------------- | ----------------------- |
+| **Status**    | `accepted`              |
+| **Type**      | `Type 2 (one-way door)` |
+| **Domain**    | `Transport / IPC`       |
+| **Date**      | `2026-04-15`            |
+| **Author(s)** | `Claude`                |
+| **Reviewers** | `Accepted 2026-04-15`   |
 
 ## Context
 
@@ -54,21 +54,21 @@ Use JSON-RPC 2.0 with LSP-style `Content-Length` header framing over a Unix doma
 
 ## Assumptions Audit
 
-| # | Assumption | Evidence | What Breaks If Wrong |
-|---|-----------|----------|----------------------|
-| 1 | V8 native JSON parsing is fast enough for daemon message volume. | MCP, LSP, and reference apps (Claude Code, Cursor, Windsurf) ship on JSON/stdio at scale. | If tool-call payloads or streamed artifacts push per-message parse cost above the single-digit-ms budget, we would need a binary format. |
-| 2 | Local IPC consumers can open a Unix domain socket on macOS/Linux and a named pipe on Windows. | Node.js `net` module supports both APIs transparently via path-style addresses. | If a supported runtime cannot speak either, we would need a TCP loopback fallback with its own auth story. |
-| 3 | The same JSON-RPC payloads can be reused verbatim over a WebSocket adapter for browser and remote clients. | ADR-008 positions WebSocket as the browser/remote transport, and JSON-RPC 2.0 is transport-agnostic. | If browser clients need a different payload shape, we would carry two serialization schemas. |
-| 4 | Content-Length framing is robust against embedded newlines and partial reads. | LSP has used this framing for years without corruption issues across large tooling ecosystems. | If framing proves ambiguous (e.g., mismatched header parsers), we would have to add explicit length-prefixed binary framing. |
+| #   | Assumption                                                                                                 | Evidence                                                                                             | What Breaks If Wrong                                                                                                                     |
+| --- | ---------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | V8 native JSON parsing is fast enough for daemon message volume.                                           | MCP, LSP, and reference apps (Claude Code, Cursor, Windsurf) ship on JSON/stdio at scale.            | If tool-call payloads or streamed artifacts push per-message parse cost above the single-digit-ms budget, we would need a binary format. |
+| 2   | Local IPC consumers can open a Unix domain socket on macOS/Linux and a named pipe on Windows.              | Node.js `net` module supports both APIs transparently via path-style addresses.                      | If a supported runtime cannot speak either, we would need a TCP loopback fallback with its own auth story.                               |
+| 3   | The same JSON-RPC payloads can be reused verbatim over a WebSocket adapter for browser and remote clients. | ADR-008 positions WebSocket as the browser/remote transport, and JSON-RPC 2.0 is transport-agnostic. | If browser clients need a different payload shape, we would carry two serialization schemas.                                             |
+| 4   | Content-Length framing is robust against embedded newlines and partial reads.                              | LSP has used this framing for years without corruption issues across large tooling ecosystems.       | If framing proves ambiguous (e.g., mismatched header parsers), we would have to add explicit length-prefixed binary framing.             |
 
 ## Failure Mode Analysis
 
-| Scenario | Likelihood | Impact | Detection | Mitigation |
-|----------|-----------|--------|-----------|------------|
-| JSON payloads become too large (streamed artifacts, large tool results) and parse latency spikes | Med | Med | Daemon IPC latency metrics and parse-time histograms | Add chunked streaming for large artifacts outside the JSON-RPC envelope; keep control messages JSON |
-| A client mis-implements `Content-Length` framing and desyncs the stream | Med | High | Framing-error counters and dropped-connection logs | Publish a conformance test suite and reject malformed frames with a clear close code |
-| JSON-RPC 2.0 evolves or a competing successor emerges before WebSocket adapter lands | Low | Low | Spec tracker and upstream MCP/LSP release notes | JSON-RPC 2.0 is effectively frozen; transport layer can wrap a successor without rewriting clients |
-| Windows named pipe semantics diverge from Unix socket behavior (permissions, reconnection) | Med | Med | Platform-specific integration tests and daemon crash reports | Abstract transport in a thin adapter; document per-platform quirks |
+| Scenario                                                                                         | Likelihood | Impact | Detection                                                    | Mitigation                                                                                          |
+| ------------------------------------------------------------------------------------------------ | ---------- | ------ | ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| JSON payloads become too large (streamed artifacts, large tool results) and parse latency spikes | Med        | Med    | Daemon IPC latency metrics and parse-time histograms         | Add chunked streaming for large artifacts outside the JSON-RPC envelope; keep control messages JSON |
+| A client mis-implements `Content-Length` framing and desyncs the stream                          | Med        | High   | Framing-error counters and dropped-connection logs           | Publish a conformance test suite and reject malformed frames with a clear close code                |
+| JSON-RPC 2.0 evolves or a competing successor emerges before WebSocket adapter lands             | Low        | Low    | Spec tracker and upstream MCP/LSP release notes              | JSON-RPC 2.0 is effectively frozen; transport layer can wrap a successor without rewriting clients  |
+| Windows named pipe semantics diverge from Unix socket behavior (permissions, reconnection)       | Med        | Med    | Platform-specific integration tests and daemon crash reports | Abstract transport in a thin adapter; document per-platform quirks                                  |
 
 ## Reversibility Assessment
 
@@ -101,11 +101,11 @@ Use JSON-RPC 2.0 with LSP-style `Content-Length` header framing over a Unix doma
 
 ### Success Criteria
 
-| Metric | Target | Measurement Method | Check Date |
-|--------|--------|--------------------|------------|
-| Daemon IPC round-trip latency for control messages | < 5 ms at p95 on a local socket | Daemon metrics histogram | `2026-07-01` |
-| Third-party MCP/LSP clients can connect without custom framing code | 100% of tested clients | Client conformance suite | `2026-07-01` |
-| Framing desynchronization incidents in production logs | 0 per week | Framing-error counter dashboard | `2026-10-01` |
+| Metric                                                              | Target                          | Measurement Method              | Check Date   |
+| ------------------------------------------------------------------- | ------------------------------- | ------------------------------- | ------------ |
+| Daemon IPC round-trip latency for control messages                  | < 5 ms at p95 on a local socket | Daemon metrics histogram        | `2026-07-01` |
+| Third-party MCP/LSP clients can connect without custom framing code | 100% of tested clients          | Client conformance suite        | `2026-07-01` |
+| Framing desynchronization incidents in production logs              | 0 per week                      | Framing-error counter dashboard | `2026-10-01` |
 
 ## References
 
@@ -115,7 +115,7 @@ Use JSON-RPC 2.0 with LSP-style `Content-Length` header framing over a Unix doma
 
 ## Decision Log
 
-| Date | Event | Notes |
-|------|-------|-------|
+| Date       | Event    | Notes         |
+| ---------- | -------- | ------------- |
 | 2026-04-15 | Proposed | Initial draft |
-| 2026-04-15 | Accepted | ADR accepted |
+| 2026-04-15 | Accepted | ADR accepted  |

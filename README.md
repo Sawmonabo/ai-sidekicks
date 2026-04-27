@@ -164,22 +164,22 @@ The CLI (`sidekicks`) is the first client delivery track — it proves the typed
 
 ## Technology Stack
 
-| Layer | Technology |
-|-------|-----------|
-| Language | TypeScript (daemon, CLI, desktop, contracts) |
-| Desktop Shell | Electron |
-| Desktop UI | React + Vite |
-| Local Database | SQLite (WAL mode, 41 tables) |
-| Shared Database | Postgres (18 tables) |
-| Auth | PASETO v4 (access + refresh), WebAuthn, DPoP |
-| Relay Encryption | X25519 + XChaCha20-Poly1305 (V1), MLS RFC 9420 (V2) |
-| State Machines | XState v5 |
-| API Framework | tRPC v11 |
-| IPC | Unix socket (macOS/Linux), named pipe (Windows) |
-| Validation | Zod |
-| Authorization | Cedar (policy-based) per [ADR-012](docs/decisions/012-cedar-approval-policy-engine.md) |
-| Presence | Yjs Awareness protocol |
-| Observability | OpenTelemetry |
+| Layer            | Technology                                                                             |
+| ---------------- | -------------------------------------------------------------------------------------- |
+| Language         | TypeScript (daemon, CLI, desktop, contracts)                                           |
+| Desktop Shell    | Electron                                                                               |
+| Desktop UI       | React + Vite                                                                           |
+| Local Database   | SQLite (WAL mode, 41 tables)                                                           |
+| Shared Database  | Postgres (18 tables)                                                                   |
+| Auth             | PASETO v4 (access + refresh), WebAuthn, DPoP                                           |
+| Relay Encryption | X25519 + XChaCha20-Poly1305 (V1), MLS RFC 9420 (V2)                                    |
+| State Machines   | XState v5                                                                              |
+| API Framework    | tRPC v11                                                                               |
+| IPC              | Unix socket (macOS/Linux), named pipe (Windows)                                        |
+| Validation       | Zod                                                                                    |
+| Authorization    | Cedar (policy-based) per [ADR-012](docs/decisions/012-cedar-approval-policy-engine.md) |
+| Presence         | Yjs Awareness protocol                                                                 |
+| Observability    | OpenTelemetry                                                                          |
 
 ---
 
@@ -187,25 +187,25 @@ The CLI (`sidekicks`) is the first client delivery track — it proves the typed
 
 V1 ships 17 core features across CLI and Desktop GUI per [ADR-015: V1 Feature Scope Definition](docs/decisions/015-v1-feature-scope-definition.md).
 
-| # | Feature | Description |
-|---|---------|-------------|
-| 1 | Session creation and join | Foundational session primitive |
-| 2 | Mid-session invites | Shareable link with PASETO token |
-| 3 | Membership roles | Owner, admin, collaborator, viewer |
-| 4 | Runtime node attach | Participants contribute local compute |
-| 5 | Single-agent runs | Claude and Codex via provider drivers |
-| 6 | Queue, steer, pause, resume | Real runtime control and interventions |
-| 7 | Approval gates | 9 categories of human-in-the-loop safety |
-| 8 | Repo attach | Bind sessions to git repositories |
-| 9 | Worktree execution | Isolated branches per agent run |
-| 10 | Session timeline | Unified event stream with replay |
-| 11 | Local daemon + CLI | First client over the typed SDK |
-| 12 | Presence | Online / idle / offline awareness |
-| 13 | Event audit log | Event-sourced persistence backbone |
-| 14 | Local artifacts | Diffs, files, and attachments |
-| 15 | Desktop GUI | Electron shell + React/Vite renderer over the same typed SDK |
-| 16 | Multi-agent channels | Cross-agent coordination primitives per [Spec-016](docs/specs/016-multi-agent-channels-and-orchestration.md) |
-| 17 | Workflow authoring and execution | Full workflow engine per [Spec-017](docs/specs/017-workflow-authoring-and-execution.md) |
+| #   | Feature                          | Description                                                                                                  |
+| --- | -------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| 1   | Session creation and join        | Foundational session primitive                                                                               |
+| 2   | Mid-session invites              | Shareable link with PASETO token                                                                             |
+| 3   | Membership roles                 | Owner, admin, collaborator, viewer                                                                           |
+| 4   | Runtime node attach              | Participants contribute local compute                                                                        |
+| 5   | Single-agent runs                | Claude and Codex via provider drivers                                                                        |
+| 6   | Queue, steer, pause, resume      | Real runtime control and interventions                                                                       |
+| 7   | Approval gates                   | 9 categories of human-in-the-loop safety                                                                     |
+| 8   | Repo attach                      | Bind sessions to git repositories                                                                            |
+| 9   | Worktree execution               | Isolated branches per agent run                                                                              |
+| 10  | Session timeline                 | Unified event stream with replay                                                                             |
+| 11  | Local daemon + CLI               | First client over the typed SDK                                                                              |
+| 12  | Presence                         | Online / idle / offline awareness                                                                            |
+| 13  | Event audit log                  | Event-sourced persistence backbone                                                                           |
+| 14  | Local artifacts                  | Diffs, files, and attachments                                                                                |
+| 15  | Desktop GUI                      | Electron shell + React/Vite renderer over the same typed SDK                                                 |
+| 16  | Multi-agent channels             | Cross-agent coordination primitives per [Spec-016](docs/specs/016-multi-agent-channels-and-orchestration.md) |
+| 17  | Workflow authoring and execution | Full workflow engine per [Spec-017](docs/specs/017-workflow-authoring-and-execution.md)                      |
 
 **V1.1 additions:** MLS relay E2EE, email invite delivery, cross-node shared artifacts, plus the criterion-gated workflow subfeatures named in ADR-015.
 
@@ -267,18 +267,18 @@ Current documentation corpus:
 
 ## Documentation
 
-| Area | Path | Description |
-|------|------|-------------|
-| Vision | [`docs/vision.md`](docs/vision.md) | Product thesis and architectural position |
-| Specs | [`docs/specs/`](docs/specs/) | Feature specifications (001-027) |
-| Plans | [`docs/plans/`](docs/plans/) | Implementation plans (001-027) |
-| Architecture | [`docs/architecture/`](docs/architecture/) | Schemas, contracts, security, deployment |
-| Domain Models | [`docs/domain/`](docs/domain/) | State machines, glossary, entity models |
-| ADRs | [`docs/decisions/`](docs/decisions/) | Architectural decision records |
-| Operations | [`docs/operations/`](docs/operations/) | Runbooks, SLOs, on-call routing |
-| V1 Scope | [`docs/architecture/v1-feature-scope.md`](docs/architecture/v1-feature-scope.md) | What ships in V1 vs V2 |
-| Build Order | [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md) | 9-tier implementation sequence |
-| Contributing | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Branch naming, commit format, PR workflow |
+| Area          | Path                                                                                           | Description                               |
+| ------------- | ---------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| Vision        | [`docs/vision.md`](docs/vision.md)                                                             | Product thesis and architectural position |
+| Specs         | [`docs/specs/`](docs/specs/)                                                                   | Feature specifications (001-027)          |
+| Plans         | [`docs/plans/`](docs/plans/)                                                                   | Implementation plans (001-027)            |
+| Architecture  | [`docs/architecture/`](docs/architecture/)                                                     | Schemas, contracts, security, deployment  |
+| Domain Models | [`docs/domain/`](docs/domain/)                                                                 | State machines, glossary, entity models   |
+| ADRs          | [`docs/decisions/`](docs/decisions/)                                                           | Architectural decision records            |
+| Operations    | [`docs/operations/`](docs/operations/)                                                         | Runbooks, SLOs, on-call routing           |
+| V1 Scope      | [`docs/architecture/v1-feature-scope.md`](docs/architecture/v1-feature-scope.md)               | What ships in V1 vs V2                    |
+| Build Order   | [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md) | 9-tier implementation sequence            |
+| Contributing  | [`CONTRIBUTING.md`](CONTRIBUTING.md)                                                           | Branch naming, commit format, PR workflow |
 
 ---
 

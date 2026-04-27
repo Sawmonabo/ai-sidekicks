@@ -19,6 +19,7 @@ The documentation covers a full lifecycle from repository attachment through wor
 **Execution mode taxonomy.** Four canonical modes are defined in the domain model under "Execution Mode Model": `read-only`, `branch`, `worktree`, and `ephemeral clone`. Default writable coding mode is `worktree` (ADR-006).
 
 **State transitions.** Three separate lifecycle tables are specified in the domain model under "Lifecycle":
+
 - RepoMount: `attached` -> `detached` -> `archived`
 - Workspace: `provisioning` -> `ready` -> `busy` -> `stale` -> `archived`
 - Worktree: `creating` -> `ready` -> `dirty` -> `merged` -> `retired` -> `failed`
@@ -62,6 +63,7 @@ The documentation covers a full lifecycle from repository attachment through wor
 **PR preparation: specified at contract level.** `PRPrepare` must generate a reviewable proposal before remote mutation. Plan-011 adds `pr_preparations` table. Rollout order is incremental: branch context and diff artifacts first, then read-only review surfaces, then PR preparation and remote mutation handoff.
 
 **Comparison against Forge.** Forge already implements:
+
 - Branch/worktree toolbar with thread-bound worktree creation (Forge audit section 4: "Branch/worktree toolbar")
 - Agent-attributed diffs vs full-workspace diffs with fallback (Forge audit section 4: "Diff modes" and "Diff fallbacks" -- "Agent diffs can fall back to workspace snapshots when attribution coverage is unavailable")
 - Commit review dialog with file include/exclude and new-branch option (Forge audit section 4: "Commit review dialog")
@@ -71,6 +73,7 @@ The documentation covers a full lifecycle from repository attachment through wor
 - Configurable worktree branch prefix in settings (Forge audit section 1: "General client settings")
 
 **Gap vs Forge: the ai-sidekicks specs do not specify several behaviors Forge already ships.**
+
 - No mention of PR checkout parsing from URLs or `gh pr checkout` commands (Forge: "Branch selector" supports `#123`, GitHub URLs, or `gh pr checkout`)
 - No mention of worktree bootstrap scripts that run automatically on creation (Forge: "Worktree bootstrap scripts"). In fact, Spec-010 explicitly defers this: "v1 must surface them as explicit follow-on actions"
 - No mention of stacked git actions or composite push+PR flows (Forge: "Git quick action menu" exposes "composite stacked actions")
@@ -119,19 +122,19 @@ The documentation covers a full lifecycle from repository attachment through wor
 
 ## 6. Spec and Plan Completeness
 
-| Document | Implementable? | Assessment |
-|---|---|---|
-| Spec-009 (Repo Attach) | Yes | Clear required behavior, explicit interfaces, acceptance criteria. Enough to implement repo mount and workspace binding. |
-| Plan-009 | Yes | Target areas, tables, rollout order, and parallelization guidance are present. |
-| Spec-010 (Worktree Lifecycle) | Yes | Detailed execution-mode contracts, fallback behavior, branch naming. Strong. |
-| Spec-011 (Git Flow / PR / Diff) | Mostly | Attribution modes and PR preparation contracts are clear. Missing: PR template structure, commit message generation, hosting integration specifics. |
-| Plan-011 | Yes | Clear implementation steps and parallelization. Missing: no mention of git hosting adapter abstraction. |
-| Spec-012 (Approvals) | Mostly | Trust model is strong. Missing: canonical approval category enum and concrete scope definitions. |
-| Plan-012 | Yes | Clear steps. Defers enum definition to implementation, which is workable. |
-| Spec-014 (Artifacts) | Yes | Immutability, visibility, manifest-first semantics are clear. Content-addressed storage is preferred but not required. |
-| Plan-014 | Yes | Clear steps. Risk section correctly flags manifest-first vs synchronous small-payload tension. |
-| Spec-017 (Workflows) | Partially | Phase definition semantics, gate types, quality checks, and phase execution modes are all underspecified compared to what Forge already ships. |
-| Plan-017 | Partially | Follows spec faithfully but inherits its gaps. Would benefit from phase-type taxonomy before implementation. |
+| Document                        | Implementable? | Assessment                                                                                                                                          |
+| ------------------------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Spec-009 (Repo Attach)          | Yes            | Clear required behavior, explicit interfaces, acceptance criteria. Enough to implement repo mount and workspace binding.                            |
+| Plan-009                        | Yes            | Target areas, tables, rollout order, and parallelization guidance are present.                                                                      |
+| Spec-010 (Worktree Lifecycle)   | Yes            | Detailed execution-mode contracts, fallback behavior, branch naming. Strong.                                                                        |
+| Spec-011 (Git Flow / PR / Diff) | Mostly         | Attribution modes and PR preparation contracts are clear. Missing: PR template structure, commit message generation, hosting integration specifics. |
+| Plan-011                        | Yes            | Clear implementation steps and parallelization. Missing: no mention of git hosting adapter abstraction.                                             |
+| Spec-012 (Approvals)            | Mostly         | Trust model is strong. Missing: canonical approval category enum and concrete scope definitions.                                                    |
+| Plan-012                        | Yes            | Clear steps. Defers enum definition to implementation, which is workable.                                                                           |
+| Spec-014 (Artifacts)            | Yes            | Immutability, visibility, manifest-first semantics are clear. Content-addressed storage is preferred but not required.                              |
+| Plan-014                        | Yes            | Clear steps. Risk section correctly flags manifest-first vs synchronous small-payload tension.                                                      |
+| Spec-017 (Workflows)            | Partially      | Phase definition semantics, gate types, quality checks, and phase execution modes are all underspecified compared to what Forge already ships.      |
+| Plan-017                        | Partially      | Follows spec faithfully but inherits its gaps. Would benefit from phase-type taxonomy before implementation.                                        |
 
 ---
 

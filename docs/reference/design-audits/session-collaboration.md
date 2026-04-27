@@ -1,10 +1,10 @@
 # Doc Review: Session, Collaboration, and Multi-Agent
 
-| Field | Value |
-| --- | --- |
-| **Date** | 2026-04-14 |
-| **Scope** | Specs 001, 002, 008, 016, 018; Plans 001, 002, 008, 016, 018; Domain models session, participant-membership, agent-channel-run; ADRs 001, 007, 008; vision.md |
-| **Purpose** | Cross-reference gap analysis for implementation readiness |
+| Field       | Value                                                                                                                                                         |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Date**    | 2026-04-14                                                                                                                                                    |
+| **Scope**   | Specs 001, 002, 008, 016, 018; Plans 001, 002, 008, 016, 018; Domain models session, participant-membership, agent-channel-run; ADRs 001, 007, 008; vision.md |
+| **Purpose** | Cross-reference gap analysis for implementation readiness                                                                                                     |
 
 ---
 

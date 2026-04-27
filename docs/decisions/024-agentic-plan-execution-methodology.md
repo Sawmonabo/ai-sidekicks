@@ -1,15 +1,15 @@
 # ADR-024: Agentic Plan Execution Methodology
 
-| Field          | Value                                                                    |
-| -------------- | ------------------------------------------------------------------------ |
-| **Status**     | `accepted`                                                               |
-| **Type**       | `Type 1 (two-way door)`                                                  |
-| **Domain**     | Engineering Process / AI Agent Workflow                                  |
-| **Date**       | 2026-04-26                                                               |
-| **Author(s)**  | Claude (AI-assisted)                                                     |
-| **Reviewers**  | Sawmon                                                                   |
+| Field         | Value                                   |
+| ------------- | --------------------------------------- |
+| **Status**    | `accepted`                              |
+| **Type**      | `Type 1 (two-way door)`                 |
+| **Domain**    | Engineering Process / AI Agent Workflow |
+| **Date**      | 2026-04-26                              |
+| **Author(s)** | Claude (AI-assisted)                    |
+| **Reviewers** | Sawmon                                  |
 
-> Type 1: the methodology lives in a skill file and an ADR. Switching cost is hours (rewrite the skill, supersede the ADR). Affects only *future* PRs — already-merged work is untouched. Reversal does not require migration.
+> Type 1: the methodology lives in a skill file and an ADR. Switching cost is hours (rewrite the skill, supersede the ADR). Affects only _future_ PRs — already-merged work is untouched. Reversal does not require migration.
 
 ---
 
@@ -19,7 +19,7 @@ V1 ships 17 features across [27 implementation plans](../architecture/cross-plan
 
 The repository is in the doc-first phase: no source code exists yet; [Plan-001 PR #1](../plans/001-shared-session-core.md) is the first code-execution PR. [ADR-023](023-v1-ci-cd-and-release-automation.md) (V1 CI/CD and Release Automation) defines the CI workflow architecture, pre-commit hooks, and release-please orchestration. [CONTRIBUTING.md](../../CONTRIBUTING.md) defines branch naming (`<type>/<topic>` per Conventional Branch), commit format (Conventional Commits 1.0), and the GitFlow-lite branch model (`develop` integration, `main` release-only).
 
-What ADR-023 and CONTRIBUTING.md *do not* define is the **execution loop** — how Claude actually walks a plan from "branch off `develop`" to "squash-merge to `develop`" with appropriate state preservation, subagent dispatch, and failure-mode handling. Without a written, repeatable execution loop, every plan becomes a one-off: the user re-explains the workflow, the agent re-derives subagent boundaries, and crash recovery is ad-hoc.
+What ADR-023 and CONTRIBUTING.md _do not_ define is the **execution loop** — how Claude actually walks a plan from "branch off `develop`" to "squash-merge to `develop`" with appropriate state preservation, subagent dispatch, and failure-mode handling. Without a written, repeatable execution loop, every plan becomes a one-off: the user re-explains the workflow, the agent re-derives subagent boundaries, and crash recovery is ad-hoc.
 
 ## Problem Statement
 
@@ -42,9 +42,9 @@ Triggers:
 
 ### Thesis — Why This Option
 
-1. **Subagent fan-out catches different failure classes.** A single reviewer collapses three distinct concerns: *did the implementation match the plan / spec?* (intent drift), *is the code idiomatic, tested, and maintainable?* (style + maintainability), and *is the code correct and free of regressions?* (bugs / edge cases / security). Empirically these surface different defects — intent drift manifests as missing fields and wrong return shapes; style issues manifest as weak typing and unclear control flow; correctness issues manifest as off-by-ones, race conditions, and broken consumers of touched files. Splitting the role across three adversarial reviewers forces each one to focus, and reduces the chance that one concern eclipses the others in a single review pass.
+1. **Subagent fan-out catches different failure classes.** A single reviewer collapses three distinct concerns: _did the implementation match the plan / spec?_ (intent drift), _is the code idiomatic, tested, and maintainable?_ (style + maintainability), and _is the code correct and free of regressions?_ (bugs / edge cases / security). Empirically these surface different defects — intent drift manifests as missing fields and wrong return shapes; style issues manifest as weak typing and unclear control flow; correctness issues manifest as off-by-ones, race conditions, and broken consumers of touched files. Splitting the role across three adversarial reviewers forces each one to focus, and reduces the chance that one concern eclipses the others in a single review pass.
 
-2. **Staff-level mindset framing produces deeper review.** Each subagent prompt embeds the user's principal-engineer mindset (Socratic interrogation + adversarial analysis + decision presentation) rather than mechanical "do task, follow rules" instructions. The implementer interrogates assumptions before writing code; the reviewers read the diff like hostile staff engineers trying to block the PR. Empirically, prompts that frame *who* the subagent is produce more rigorous output than prompts that only specify *what* to do.
+2. **Staff-level mindset framing produces deeper review.** Each subagent prompt embeds the user's principal-engineer mindset (Socratic interrogation + adversarial analysis + decision presentation) rather than mechanical "do task, follow rules" instructions. The implementer interrogates assumptions before writing code; the reviewers read the diff like hostile staff engineers trying to block the PR. Empirically, prompts that frame _who_ the subagent is produce more rigorous output than prompts that only specify _what_ to do.
 3. **All-findings-round-trip ensures merge quality.** Reviewer findings — regardless of severity — route back to the implementer for resolution. No "non-blocking nit" pass-through. The trade-off is more iteration loops per PR, accepted in exchange for higher merge quality on `develop`. Once a finding is surfaced, it gets attention; the alternative (severity-gated routing where minor findings ride along into `develop`) compounds tech debt across 50–60 PRs.
 4. **State canonicality on the branch + TaskCreate enables crash recovery.** The PR description is a UI surface that can be edited, lost, or out of sync. The branch (commits) and TaskCreate (in-session task durability) are the canonical state. On resume, the skill reads the active branch tip and TaskList to infer where work paused, then re-dispatches from that point.
 5. **Auto-detection keeps the trigger phrase short.** `execute Plan-NNN` is the default; the skill walks the merged-PR history for that plan and infers PR `M`. The explicit `PR #M` override exists for retry / out-of-order cases. This matters across 50–60 invocations — a 4-word trigger compounds into hours saved versus a 12-word "execute Plan-NNN PR #M from develop with state X" formula.
@@ -61,10 +61,10 @@ A skeptical staff engineer would argue:
 
 ### Synthesis — Why It Still Holds
 
-1. **Subagent overhead is the cheapest insurance against rework.** Token cost of three reviewer subagents per PR — even with all-findings round-trip iteration — is small relative to the cost of squash-merging a defect into `develop` and unwinding it across cross-plan dependencies. The user is the principal-engineer reviewer at the *PR* level; subagents are the line-of-defense *inside* the PR before human review. For very small PRs, the skill defines two narrow collapse paths (docs-only PRs run spec-reviewer alone; tiny code PRs may skip spec-reviewer) — see the [`plan-execution` skill](../../.claude/skills/plan-execution/SKILL.md). The default is full fan-out; collapses are documented exceptions, never silent.
-2. **The methodology generalizes; only the execution mechanism is Claude-Code-specific.** The principles — branch off integration, fan out implementation/review, preserve state durably, gate squash on green CI — transfer directly to Codex (`/run` sequences), Cursor (`@-mention review` agents), and Aider (`/architect` flow). The Claude skill is the *current* implementation; AGENTS.md gets a pointer to the methodology so other agents can implement the same loop with their own tooling. Cross-tool divergence is contained to the executor, not the policy.
-3. **The four failure modes are observed, not theoretical.** They surfaced in prior agentic sessions on this repo (BL-097/BL-098 doc work, ADR-022/023 drafting). Naming them lets the dispatch loop *route* them — e.g., `BLOCKED` halts, `NEEDS_CONTEXT` re-prompts, `DONE_WITH_CONCERNS` annotates the PR, `DONE` advances. Without names, every failure becomes a one-off improvisation. The taxonomy is small (4 cases), explicit, and revisable — adding a fifth mode is an edit, not a rewrite.
-4. **Branch commits are the durable layer; TaskCreate is in-session bookkeeping.** State canonicality order is **branch commits > TaskCreate > draft PR description**. The branch is durable across sessions, machines, and tools — Codex resuming a Claude branch reads commits the same way. TaskCreate is the *current Claude session's* working memory, not the cross-session truth. The skill's resumption protocol reads the branch tip first; TaskList is consulted only to recover the *intent* of the next task within the current session.
+1. **Subagent overhead is the cheapest insurance against rework.** Token cost of three reviewer subagents per PR — even with all-findings round-trip iteration — is small relative to the cost of squash-merging a defect into `develop` and unwinding it across cross-plan dependencies. The user is the principal-engineer reviewer at the _PR_ level; subagents are the line-of-defense _inside_ the PR before human review. For very small PRs, the skill defines two narrow collapse paths (docs-only PRs run spec-reviewer alone; tiny code PRs may skip spec-reviewer) — see the [`plan-execution` skill](../../.claude/skills/plan-execution/SKILL.md). The default is full fan-out; collapses are documented exceptions, never silent.
+2. **The methodology generalizes; only the execution mechanism is Claude-Code-specific.** The principles — branch off integration, fan out implementation/review, preserve state durably, gate squash on green CI — transfer directly to Codex (`/run` sequences), Cursor (`@-mention review` agents), and Aider (`/architect` flow). The Claude skill is the _current_ implementation; AGENTS.md gets a pointer to the methodology so other agents can implement the same loop with their own tooling. Cross-tool divergence is contained to the executor, not the policy.
+3. **The four failure modes are observed, not theoretical.** They surfaced in prior agentic sessions on this repo (BL-097/BL-098 doc work, ADR-022/023 drafting). Naming them lets the dispatch loop _route_ them — e.g., `BLOCKED` halts, `NEEDS_CONTEXT` re-prompts, `DONE_WITH_CONCERNS` annotates the PR, `DONE` advances. Without names, every failure becomes a one-off improvisation. The taxonomy is small (4 cases), explicit, and revisable — adding a fifth mode is an edit, not a rewrite.
+4. **Branch commits are the durable layer; TaskCreate is in-session bookkeeping.** State canonicality order is **branch commits > TaskCreate > draft PR description**. The branch is durable across sessions, machines, and tools — Codex resuming a Claude branch reads commits the same way. TaskCreate is the _current Claude session's_ working memory, not the cross-session truth. The skill's resumption protocol reads the branch tip first; TaskList is consulted only to recover the _intent_ of the next task within the current session.
 
 ---
 
@@ -80,7 +80,7 @@ A skeptical staff engineer would argue:
 
 - **What:** Claude implements the full PR end-to-end in one pass; user reviews the PR before squash-merge. No subagent fan-out.
 - **Steel man:** Simplest possible loop. Lowest token cost per PR. Forces the human user to engage on every PR rather than rubber-stamping.
-- **Why rejected:** The user is principal-engineer reviewer at the *PR* level; expecting that role to also catch every spec-drift defect *and* every code-quality issue without an inner review loop is a recipe for either (a) defects landing on `develop` or (b) the user becoming a bottleneck. The inner subagent review is cheap insurance; the user's review focuses on "does this PR advance the plan" rather than "is this line of code idiomatic".
+- **Why rejected:** The user is principal-engineer reviewer at the _PR_ level; expecting that role to also catch every spec-drift defect _and_ every code-quality issue without an inner review loop is a recipe for either (a) defects landing on `develop` or (b) the user becoming a bottleneck. The inner subagent review is cheap insurance; the user's review focuses on "does this PR advance the plan" rather than "is this line of code idiomatic".
 
 ### Option C: Pair Programming — Claude Implements, Human Reviews Inline (Rejected)
 
@@ -92,13 +92,13 @@ A skeptical staff engineer would argue:
 
 - **What:** Document the workflow as prose in CONTRIBUTING.md; rely on Claude's instruction-following from the file rather than a skill.
 - **Steel man:** Tool-neutral. Visible in the GitHub UI. No `.claude/`-specific tooling.
-- **Why rejected:** CONTRIBUTING.md is *reference* — it's not loaded into Claude's context on every plan invocation. Claude would have to be told "read CONTRIBUTING.md first" each time, which defeats the short-trigger goal. The skill is the reliable trigger mechanism. CONTRIBUTING.md retains a *pointer* to the skill for visibility and cross-tool discoverability.
+- **Why rejected:** CONTRIBUTING.md is _reference_ — it's not loaded into Claude's context on every plan invocation. Claude would have to be told "read CONTRIBUTING.md first" each time, which defeats the short-trigger goal. The skill is the reliable trigger mechanism. CONTRIBUTING.md retains a _pointer_ to the skill for visibility and cross-tool discoverability.
 
 ---
 
 ## Reversibility Assessment
 
-- **Reversal cost:** Hours. Edit the skill file (or delete it) and supersede this ADR. No code migration; the methodology only governs *future* PRs.
+- **Reversal cost:** Hours. Edit the skill file (or delete it) and supersede this ADR. No code migration; the methodology only governs _future_ PRs.
 - **Blast radius:** Future PRs only. Already-merged PRs are unaffected.
 - **Migration path:** If the methodology proves wrong (e.g., four-role fan-out is consistently overkill, or all-findings-round-trip produces unproductive iteration spirals), update the skill body, mark this ADR `superseded by ADR-NNN`, and continue.
 - **Point of no return:** None. The methodology can be revised between any two PRs.
@@ -132,11 +132,11 @@ A skeptical staff engineer would argue:
 
 ### Research Conducted
 
-| Source | Type | Key Finding | URL/Location |
-|--------|------|-------------|--------------|
-| Prior agentic sessions on this repo (BL-097/BL-098 doc work, ADR-022/023 drafting) | In-repo session observation | The four failure modes (`BLOCKED`, `NEEDS_CONTEXT`, `DONE_WITH_CONCERNS`, `DONE`) were observed empirically, not invented — they recurred across multiple subagent dispatches before this ADR was drafted | `git log` Sessions A–N (2026-04-18 → 2026-04-26) |
-| `docs/decisions/023-v1-ci-cd-and-release-automation.md` | In-repo ADR | CI workflow (§Axis 1), pre-commit hooks (§Axis 2), and release automation (§Axis 3) define the boundary the execution loop integrates with — squash-merge gates on `ci-gate`, commit format on commitlint, releases on release-please | [ADR-023](023-v1-ci-cd-and-release-automation.md) |
-| `CONTRIBUTING.md` | In-repo policy | GitFlow-lite branch model + Conventional Branch + Conventional Commits define the *shape* of each PR; this ADR defines how Claude *executes* within that shape | [CONTRIBUTING.md](../../CONTRIBUTING.md) |
+| Source                                                                             | Type                        | Key Finding                                                                                                                                                                                                                           | URL/Location                                      |
+| ---------------------------------------------------------------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| Prior agentic sessions on this repo (BL-097/BL-098 doc work, ADR-022/023 drafting) | In-repo session observation | The four failure modes (`BLOCKED`, `NEEDS_CONTEXT`, `DONE_WITH_CONCERNS`, `DONE`) were observed empirically, not invented — they recurred across multiple subagent dispatches before this ADR was drafted                             | `git log` Sessions A–N (2026-04-18 → 2026-04-26)  |
+| `docs/decisions/023-v1-ci-cd-and-release-automation.md`                            | In-repo ADR                 | CI workflow (§Axis 1), pre-commit hooks (§Axis 2), and release automation (§Axis 3) define the boundary the execution loop integrates with — squash-merge gates on `ci-gate`, commit format on commitlint, releases on release-please | [ADR-023](023-v1-ci-cd-and-release-automation.md) |
+| `CONTRIBUTING.md`                                                                  | In-repo policy              | GitFlow-lite branch model + Conventional Branch + Conventional Commits define the _shape_ of each PR; this ADR defines how Claude _executes_ within that shape                                                                        | [CONTRIBUTING.md](../../CONTRIBUTING.md)          |
 
 No external (web/library/community) research was conducted — the methodology is a synthesis of in-repo session experience and existing project policy.
 
@@ -156,8 +156,8 @@ No external (web/library/community) research was conducted — the methodology i
 
 ## Decision Log
 
-| Date | Event | Notes |
-|------|-------|-------|
-| 2026-04-26 | Proposed | Drafted alongside the [`plan-execution` skill](../../.claude/skills/plan-execution/SKILL.md) in PR #5. Captures the methodology agreed in conversation during Session N immediately after BL-100/ADR-023 acceptance, in preparation for Plan-001 PR #1. Awaiting PR #5 review (final-review task gate) before promotion to `accepted`. |
+| Date       | Event                   | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ---------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-04-26 | Proposed                | Drafted alongside the [`plan-execution` skill](../../.claude/skills/plan-execution/SKILL.md) in PR #5. Captures the methodology agreed in conversation during Session N immediately after BL-100/ADR-023 acceptance, in preparation for Plan-001 PR #1. Awaiting PR #5 review (final-review task gate) before promotion to `accepted`.                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | 2026-04-26 | Revised in PR #5 review | User feedback during PR #5 review: (a) skill body should be self-contained — strip excess ADR cross-references; (b) subagent prompts should embed staff-level engineering mindset (Socratic interrogation + adversarial analysis), not mechanical task instructions; (c) add a fourth role — `code-reviewer` — for general staff-level correctness and regression review distinct from the existing code-quality reviewer; (d) all reviewer findings round-trip to the implementer regardless of severity (no informational-nit pass-through). ADR Decision, Thesis, Antithesis, Synthesis, Option A, Reversibility, Consequences, and Unknowns sections updated to reflect the four-role + all-findings-round-trip methodology. Type 1 reversibility unchanged. |
-| 2026-04-26 | Accepted | Promoted from `proposed` to `accepted` at PR #5 squash-merge per the doc-corpus convention (ADRs land on `develop` accepted). Methodology unchanged from the post-revision state. Type 1 reversibility unchanged — refinements after Plan-001 PR #1 expected. |
+| 2026-04-26 | Accepted                | Promoted from `proposed` to `accepted` at PR #5 squash-merge per the doc-corpus convention (ADRs land on `develop` accepted). Methodology unchanged from the post-revision state. Type 1 reversibility unchanged — refinements after Plan-001 PR #1 expected.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |

@@ -22,12 +22,12 @@ The product must support local execution by default while also supporting shared
 
 Supported topologies:
 
-| Topology | Boundary Summary |
-| --- | --- |
-| `Single-Participant Local` | Desktop or CLI plus one local daemon operating in `local-only` continuity. No shared control-plane dependency for basic single-user execution. |
-| `Collaborative Hosted Control Plane` | Multiple local daemons connect to one hosted control plane for invites, presence, relay, and shared metadata. Project-operated hosted offering per [ADR-020](../decisions/020-v1-deployment-model-and-oss-license.md). |
+| Topology                                  | Boundary Summary                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Single-Participant Local`                | Desktop or CLI plus one local daemon operating in `local-only` continuity. No shared control-plane dependency for basic single-user execution.                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `Collaborative Hosted Control Plane`      | Multiple local daemons connect to one hosted control plane for invites, presence, relay, and shared metadata. Project-operated hosted offering per [ADR-020](../decisions/020-v1-deployment-model-and-oss-license.md).                                                                                                                                                                                                                                                                                                                                     |
 | `Collaborative Self-Hosted Control Plane` | Same architecture as hosted, but the control plane is self-managed by the deploying organization. The free OSS deployment path per [ADR-020](../decisions/020-v1-deployment-model-and-oss-license.md); ships the same 17-feature V1 surface as hosted. Secure-defaults posture for this topology is normative per [Spec-027: Self-Host Secure Defaults](../specs/027-self-host-secure-defaults.md) with operator-facing companion at [Operations › Self-Host Secure Defaults](../operations/self-host-secure-defaults.md) (Spec-027 Acceptance Criterion). |
-| `Relay-Assisted Remote Access` | A client or node reaches the shared session through relay coordination without moving execution into the control plane. |
+| `Relay-Assisted Remote Access`            | A client or node reaches the shared session through relay coordination without moving execution into the control plane.                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 
 ## Data Flow
 
@@ -46,11 +46,11 @@ Supported topologies:
 
 Rate limiting uses a deployment-aware abstraction with identical limits across all topologies:
 
-| Deployment | Edge Layer | Application Layer |
-| --- | --- | --- |
-| `Collaborative Hosted Control Plane` (Cloudflare) | CF Workers native `rate_limit` binding (zero latency) | Sliding window counters in Durable Objects |
-| `Collaborative Self-Hosted Control Plane` | `rate-limiter-flexible` with Postgres backend | `rate-limiter-flexible` with Postgres backend |
-| `Single-Participant Local` | No rate limiting (trusted by socket reachability) | No rate limiting |
+| Deployment                                        | Edge Layer                                            | Application Layer                             |
+| ------------------------------------------------- | ----------------------------------------------------- | --------------------------------------------- |
+| `Collaborative Hosted Control Plane` (Cloudflare) | CF Workers native `rate_limit` binding (zero latency) | Sliding window counters in Durable Objects    |
+| `Collaborative Self-Hosted Control Plane`         | `rate-limiter-flexible` with Postgres backend         | `rate-limiter-flexible` with Postgres backend |
+| `Single-Participant Local`                        | No rate limiting (trusted by socket reachability)     | No rate limiting                              |
 
 The rate limiting interface is identical regardless of deployment. Implementation swaps via configuration. Self-hosted deployments use `rate-limiter-flexible` (Postgres/Redis/in-memory backends) to achieve the same semantics as the Cloudflare native binding.
 
@@ -65,13 +65,13 @@ The relay uses Cloudflare Durable Objects with a sharding strategy to handle hig
 - Each DO is single-threaded; horizontal scale is achieved by spawning more objects ([DO limits][do-limits]).
 - CF's own guidance pegs practical throughput at ~500–1,000 rps for simple operations and ~200–500 rps for complex operations that involve transformation plus storage writes ([Rules of Durable Objects][do-rules]).
 
-**Design choice: 25 WebSocket connections per data DO.** This is *our* target, not a platform cap. It derives from the per-DO throughput envelope we need to stay inside, not from any Cloudflare connection ceiling:
+**Design choice: 25 WebSocket connections per data DO.** This is _our_ target, not a platform cap. It derives from the per-DO throughput envelope we need to stay inside, not from any Cloudflare connection ceiling:
 
-| Input | Value | Source |
-| --- | --- | --- |
-| Events/sec/connection (p95, streaming agent output + MLS control frames) | ~100 | AI Sidekicks load-model assumption — **unverified in CF docs**; must be validated in pre-launch load test |
-| MLS encrypt + storage write cost per event | ~1 DO request | Spec-006 relay data-path |
-| Safety headroom vs. 1,000 rps soft cap | 2.5× | Intentional — CF guidance places complex ops in the 200–500 rps band ([Rules of DO][do-rules]) |
+| Input                                                                    | Value         | Source                                                                                                    |
+| ------------------------------------------------------------------------ | ------------- | --------------------------------------------------------------------------------------------------------- |
+| Events/sec/connection (p95, streaming agent output + MLS control frames) | ~100          | AI Sidekicks load-model assumption — **unverified in CF docs**; must be validated in pre-launch load test |
+| MLS encrypt + storage write cost per event                               | ~1 DO request | Spec-006 relay data-path                                                                                  |
+| Safety headroom vs. 1,000 rps soft cap                                   | 2.5×          | Intentional — CF guidance places complex ops in the 200–500 rps band ([Rules of DO][do-rules])            |
 
 Envelope (batching is a design baseline, not a future enhancement): **25 conns × 100 events/sec of raw client traffic ÷ ~6 events per batched DO request ≈ 400 rps/DO** of DO-request throughput per data DO. The 400 rps operating point sits inside CF's 200–500 rps "complex op" band and leaves ~2.5× headroom vs the 1,000 rps overloaded-error threshold. Without batching the same raw envelope would yield ~2,500 rps/DO, which would breach the 1,000 rps soft cap — so **batched WebSocket messages are assumed at design time**, enabled by the 2025-10-31 raise of WebSocket message size from 1 MiB to 32 MiB ([DO changelog][do-changelog]). The 100 events/sec/connection figure and the ~6:1 batching ratio are internal load-model assumptions — CF does not publish a per-connection event-rate model or a batching-ratio model.
 
@@ -123,24 +123,24 @@ Envelope (batching is a design baseline, not a future enhancement): **25 conns �
 
 ## Capacity Targets
 
-| Metric | V1 Target |
-| --- | --- |
-| Concurrent sessions | 1,000 |
-| Participants per session | 10 (configurable) |
-| Total participants | 5,000 |
-| Events per second (write) | 500 |
-| Events per second (read) | 2,000 |
-| Relay connections | 2,000 concurrent |
-| Session event log size | 100,000 events/session lifetime (50,000 active before compaction per Spec-006) |
+| Metric                    | V1 Target                                                                      |
+| ------------------------- | ------------------------------------------------------------------------------ |
+| Concurrent sessions       | 1,000                                                                          |
+| Participants per session  | 10 (configurable)                                                              |
+| Total participants        | 5,000                                                                          |
+| Events per second (write) | 500                                                                            |
+| Events per second (read)  | 2,000                                                                          |
+| Relay connections         | 2,000 concurrent                                                               |
+| Session event log size    | 100,000 events/session lifetime (50,000 active before compaction per Spec-006) |
 
 ## Infrastructure Requirements
 
-| Component | CPU | Memory | Disk |
-| --- | --- | --- | --- |
-| Control plane (per process) | 1 vCPU | 512 MB | — |
-| Postgres | 4 vCPU | 8 GB | 100 GB SSD |
-| Relay (per process) | 1 vCPU | 256 MB | — |
-| Local daemon (per machine) | 0.5 vCPU | 256 MB | 1 GB (SQLite + artifacts) |
+| Component                   | CPU      | Memory | Disk                      |
+| --------------------------- | -------- | ------ | ------------------------- |
+| Control plane (per process) | 1 vCPU   | 512 MB | —                         |
+| Postgres                    | 4 vCPU   | 8 GB   | 100 GB SSD                |
+| Relay (per process)         | 1 vCPU   | 256 MB | —                         |
+| Local daemon (per machine)  | 0.5 vCPU | 256 MB | 1 GB (SQLite + artifacts) |
 
 ### Local Daemon Memory Instrumentation And Budget Triggers
 

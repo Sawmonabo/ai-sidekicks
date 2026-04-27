@@ -50,13 +50,13 @@ The workflow model is the source of truth for how reusable, multi-phase executio
 
 ### Workflow Run States
 
-| State | Meaning |
-| --- | --- |
-| `pending` | The workflow run has been created but phase execution has not started. |
-| `running` | At least one phase is actively executing or the workflow is advancing between phases. |
-| `completed` | All phases have reached terminal states and the workflow finished successfully. |
-| `failed` | The workflow ended because a phase failed and the configured failure behavior resulted in a stop. |
-| `canceled` | The workflow was explicitly canceled by a participant or system action. |
+| State       | Meaning                                                                                           |
+| ----------- | ------------------------------------------------------------------------------------------------- |
+| `pending`   | The workflow run has been created but phase execution has not started.                            |
+| `running`   | At least one phase is actively executing or the workflow is advancing between phases.             |
+| `completed` | All phases have reached terminal states and the workflow finished successfully.                   |
+| `failed`    | The workflow ended because a phase failed and the configured failure behavior resulted in a stop. |
+| `canceled`  | The workflow was explicitly canceled by a participant or system action.                           |
 
 Allowed transitions:
 
