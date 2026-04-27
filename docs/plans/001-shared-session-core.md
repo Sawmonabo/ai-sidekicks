@@ -26,6 +26,34 @@ This plan covers session ids, default channel creation, owner membership bootstr
 - Runtime-node attach
 - Queue and intervention behavior
 
+## Invariants
+
+The following invariants are **load-bearing** and MUST be preserved across all Plan-001 PRs and downstream extensions. Any change that would weaken or remove an invariant requires a coordinated cross-plan amendment (see [cross-plan-dependencies.md](../architecture/cross-plan-dependencies.md)).
+
+### I-001-1 — Lock-ordering: `sessions` → `session_memberships`
+
+Any transaction that touches both `sessions` and `session_memberships` MUST acquire row locks in the order `sessions` → `session_memberships`. This is the canonical ordering enforced by `createSession` in `packages/control-plane/src/sessions/session-directory-service.ts` (see the "Lock-acquisition order" docstring paragraph).
+
+**Why load-bearing.** Plan-002 ownership-transfer, co-owner promotion, and invite-accept paths mutate `session_memberships` while validating `sessions`. Inconsistent lock acquisition across Plan-001 + Plan-002 callers would produce cross-plan deadlocks under concurrent membership churn. The invariant is also recorded in [cross-plan-dependencies.md §1 Lock Ordering Across Shared Tables](../architecture/cross-plan-dependencies.md#lock-ordering-across-shared-tables) so Plan-002 implementers see it before reaching the source docstring.
+
+**Verification.** Plan-001 PR #4 ships a lock-ordering test against the `Querier` abstraction; PR #5 strengthens that test to discriminate which `Querier` instance issued each statement (see `TODO(Plan-001 PR #5)` in `packages/control-plane/src/sessions/__tests__/session-directory-service.test.ts`). Plan-002 PRs that add new transactional callers MUST extend the same test with their caller name.
+
+### I-001-2 — Sequence is the canonical replay key
+
+Local Runtime Daemon SQLite replay MUST order `session_events` by `sequence ASC`, never by `monotonic_ns`. The `monotonic_ns` column is within-daemon debug data only (per [local-sqlite-schema §session_events](../architecture/schemas/local-sqlite-schema.md)); it can be non-monotonic across rows after clock adjustments and MUST NOT influence replay or projection.
+
+**Why load-bearing.** Replay determinism is the foundation for [ADR-017](../decisions/017-shared-event-sourcing-scope.md) event-sourcing semantics. Plan-006 (event taxonomy + integrity protocol) and Plan-015 (replay/recovery) build on this invariant.
+
+**Verification.** Test D3 in §Test And Verification Plan asserts `Replay uses sequence not monotonic_ns even when monotonic_ns is non-monotonic across rows`.
+
+### I-001-3 — Forward-declared columns are immutable in scope at Tier 1
+
+The forward-declared columns and tables enumerated in §Cross-Plan Forward-Declared Schema (Plan-001 emits the DDL, downstream plans own the semantics) MUST NOT be re-shaped by Plan-001 PRs. Plan-001 ships the column types and nullability authoritatively at the Tier 1 migration; the corresponding semantics owners (Plan-006 integrity, Plan-022 GDPR, Plan-018 identity, Plan-003 version-floor) author all read/write logic at their own tiers.
+
+**Why load-bearing.** Re-shaping a forward-declared column post-Tier-1 would force a breaking schema migration after V1 ships — the entire point of the forward-declaration pattern is that V1 ships immutable initial DDL.
+
+**Verification.** Migration-shape regression test asserts the column set in `0001-initial.sql` matches the canonical schema docs.
+
 ## Preconditions
 
 - [x] Paired spec is approved
@@ -155,11 +183,13 @@ The TDD test list below is enumerated and ordered by implementation dependency. 
 - All 15 enumerated tests above pass before Plan-001 is marked complete
 - Spec-001 AC7 (concurrent participants, channels, and runs without timeline corruption) receives full coverage at the integration boundary in [Plan-008](./008-control-plane-relay-and-session-join.md) when cross-daemon relay flows land. Plan-001 covers AC7 only partially via I3's reconnect-ordering invariant — single-daemon concurrent SQL writes serialize on SQLite's `UNIQUE(session_id, sequence)` constraint, leaving cross-daemon concurrency as the residual coverage gap.
 
-## First Commit Slice
+## Implementation PR Sequence
 
 Plan-001 implementation lands as a sequence of small PRs. Each PR exercises one slice of the contract → daemon → control-plane → SDK vertical. PR #1 is workspace scaffolding only; subsequent PRs add behavior.
 
 ### PR #1 — Workspace Bootstrap
+
+**Precondition:** [ADR-023](../decisions/023-v1-ci-cd-and-release-automation.md) accepted (per [BL-100](../backlog.md)) — gates PR #1 only.
 
 **Goal:** All packages compile; one passing tooling test verifies the workspace is healthy; the daemon's native-binding rebuild path is exercised at bootstrap; the engineering CI surface (per [ADR-023](../decisions/023-v1-ci-cd-and-release-automation.md)) is wired and gates subsequent PRs.
 
@@ -175,6 +205,8 @@ Plan-001 implementation lands as a sequence of small PRs. Each PR exercises one 
 
 ### PR #2 — Contracts Package
 
+**Precondition:** PR #1 merged (workspace + CI surface in place).
+
 **Goal:** Tests C1–C4 from § Test And Verification Plan go green.
 
 - `packages/contracts/src/session.ts` — `SessionId`, `SessionCreate`, `SessionRead`, `SessionJoin`, `SessionSubscribe` payload schemas
@@ -182,6 +214,8 @@ Plan-001 implementation lands as a sequence of small PRs. Each PR exercises one 
 - `packages/contracts/src/error.ts` — `resource.limit_exceeded` shape
 
 ### PR #3 — Daemon Migration And Projection
+
+**Precondition:** PR #2 merged (contract types — `SessionEvent` discriminated union — are imported by the projector).
 
 **Goal:** Tests D1–D4 go green.
 
@@ -191,6 +225,8 @@ Plan-001 implementation lands as a sequence of small PRs. Each PR exercises one 
 - Storage driver: `better-sqlite3` (already installed in PR #1)
 
 ### PR #4 — Control Plane Directory
+
+**Precondition:** PR #2 merged (control-plane imports `SessionCreate` / `SessionRead` / `SessionJoin` payload schemas from contracts). PR #3 is independent and may land in either order; the two are decoupled at the contract boundary.
 
 **Goal:** Tests P1–P3 go green.
 
@@ -238,3 +274,4 @@ After PR #5 lands green and the manual smoke passes, Plan-001 is complete. Plan-
 - [ ] Tests added or updated
 - [ ] Verification completed
 - [ ] Related docs updated
+- [ ] All `TODO(Plan-001 PR #N)` annotations in the source tree are discharged or migrated to a follow-up issue. Specifically: `TODO(Plan-001 PR #5)` in `packages/control-plane/src/sessions/__tests__/session-directory-service.test.ts` (lock-ordering test strengthening — see PR #5 §Implementation PR Sequence). Grep `TODO(Plan-001 ` to confirm zero residual annotations before marking the plan `completed`.
