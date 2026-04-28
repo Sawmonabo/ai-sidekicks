@@ -54,7 +54,7 @@ The seven items below were surfaced by the [plan-readiness-audit Tier 1](./opera
 - Status: `todo`
 - Priority: `P0`
 - Owner: `unassigned`
-- References: [Plan-001](./plans/001-shared-session-core.md) Phase 1 + Phase 5 (BLOCKED-ON-C3 tags), [Plan-024](./plans/024-rust-pty-sidecar.md) Phase 4 (BLOCKED-ON-C3), [Plan-023](./plans/023-desktop-electron-shell.md), [cross-plan-dependencies.md §3 + §5](./architecture/cross-plan-dependencies.md)
+- References: [Plan-001](./plans/001-shared-session-core.md) Phase 1 + Phase 5 (BLOCKED-ON-C3 tags), [Plan-024](./plans/024-rust-pty-sidecar.md) Phase 4 (BLOCKED-ON-C3), [Plan-023](./plans/023-desktop-shell-and-renderer.md), [cross-plan-dependencies.md §3 + §5](./architecture/cross-plan-dependencies.md)
 - Summary: Plan-001 Phase 5 imports `apps/desktop/main/src/sidecar-lifecycle.ts` (Plan-023 Tier-8 CREATE-domain). Same defect class as the canonical substrate-import bug fixed by commit `a230a50` (`docs(repo): re-tier Plan-007 partial + Plan-008 carve-out to Tier 1`). Pick one resolution: (1) Plan-023 carve-out into Tier 1 mirroring Plan-007-partial / Plan-008-bootstrap pattern; (2) defer Plan-001 Phase 5 sidecar-lifecycle work to a Phase 5b at Tier 8; (3) transfer CP-001-1 ownership to Plan-023.
 - Exit Criteria: Plan-001 / Plan-024 BLOCKED-ON-C3 tags resolved or replaced with carve-out citation; cross-plan-deps §3 / §5 / §2 coordinated; Plan-001 Phase 5 first-code-execution PR unblocked.
 
@@ -63,7 +63,7 @@ The seven items below were surfaced by the [plan-readiness-audit Tier 1](./opera
 - Status: `todo`
 - Priority: `P0`
 - Owner: `unassigned`
-- References: [Plan-001](./plans/001-shared-session-core.md) Phase 2 (BLOCKED-ON-C6 ×7), [Plan-007](./plans/007-local-ipc-and-daemon-control.md) Phase 2 + Phase 3 (BLOCKED-ON-C6 ×20), [Plan-008](./plans/008-control-plane-relay-and-session-join.md) Phase 1 (BLOCKED-ON-C6 ×14), [api-payload-contracts.md](./architecture/api-payload-contracts.md)
+- References: [Plan-001](./plans/001-shared-session-core.md) Phase 2 (BLOCKED-ON-C6 ×7), [Plan-007](./plans/007-local-ipc-and-daemon-control.md) Phase 2 + Phase 3 (BLOCKED-ON-C6 ×20), [Plan-008](./plans/008-control-plane-relay-and-session-join.md) Phase 1 (BLOCKED-ON-C6 ×14), [api-payload-contracts.md](./architecture/contracts/api-payload-contracts.md)
 - Summary: Multiple Tier 1 plan tasks block on `api-payload-contracts.md` stubs not yet authored: `SessionEvent` discriminated union, `protocolVersion` integer-vs-string typing, JSON-RPC method-name canonical-format registry (`session.create` vs `session/create`), `session.subscribe` daemon-transport SSE streaming shape, SSE wire frame (Content-Type, data: encoding, retry:, Last-Event-ID, heartbeat cadence). Author stubs OR sub-spec entries in `api-payload-contracts.md` Plan-007 / Plan-008 sections.
 - Exit Criteria: All BLOCKED-ON-C6 working-copy tags in Plan-001 / Plan-007 / Plan-008 resolved with `api-payload-contracts.md` citation; downstream test code asserts on canonical shapes from this file; F-001-2-02, F-007p-2-01 / 03 / 3-01 / 3-02, F-008b-1-01 closed.
 
@@ -72,7 +72,7 @@ The seven items below were surfaced by the [plan-readiness-audit Tier 1](./opera
 - Status: `todo`
 - Priority: `P1`
 - Owner: `unassigned`
-- References: [Plan-007](./plans/007-local-ipc-and-daemon-control.md) Phase 2 (BLOCKED-ON-C7 ×9), [error-contracts.md](./architecture/error-contracts.md)
+- References: [Plan-007](./plans/007-local-ipc-and-daemon-control.md) Phase 2 (BLOCKED-ON-C7 ×9), [error-contracts.md](./architecture/contracts/error-contracts.md)
 - Summary: Plan-007 Phase 2 JSON-RPC error model is unspecified. `error.ts` shapes are not mapped to JSON-RPC standard codes (-32700 parse error / -32600 invalid request / -32601 method not found / -32602 invalid params / -32603 internal error) plus custom domain codes (`unknown_setting`, `resource.limit_exceeded`, etc.). Register codes in `error-contracts.md`; map daemon-side error envelopes to canonical wire shapes.
 - Exit Criteria: All BLOCKED-ON-C7 tags resolved with `error-contracts.md` citation; F-007p-2-02 closed; T-007p-1-4 unknown_setting test asserts on full envelope shape (not just code string).
 
