@@ -56,8 +56,12 @@ plan-internal references, or backlog-item authoring.
   the latest `cross-plan-deps`-relevant ADR).
 - The plans in scope are all at `approved` status (unless this audit run is
   the gate for a `review → approved` promotion).
-- The auditor (main agent + subagents) runs as Opus 4.7 specifically; other
-  models lack the cross-doc reasoning depth this audit relies on.
+- The audit calibration band (B1–B6) was established against Opus 4.7 during
+  the Tier 1 pilot. Recent-data research subagents follow the project's
+  research-standards convention (Opus 4.7 only, per `AGENTS.md`). The
+  main-agent dep trace and per-Phase audit subagents MAY substitute an
+  equivalently-capable model when Opus 4.7 is unavailable; record the
+  substitution and any calibration drift in §Lessons Learned for that tier.
 - Pre-audit naming sweep (`PR #N` → `Phase N`) has been committed; otherwise
   findings cite stale GitHub-auto-link-colliding shapes.
 - `.agents/tmp/research/plan-readiness-audit/` working directory exists and is
@@ -122,8 +126,8 @@ After all plans in Tier:
   commits to `develop`).
 - Audit vs. code execution: **Tier 1 is the only blocker for Plan-001 Phase
   5**. Once Tier 1 commits, Plan-001 Phase 5 can begin even though Tiers 2-9
-  are unfinished. The plan-template Precondition gates *each plan on its own
-  tier's audit* — so Plan-NNN at Tier-K can begin once Tier-K is committed,
+  are unfinished. The plan-template Precondition gates _each plan on its own
+  tier's audit_ — so Plan-NNN at Tier-K can begin once Tier-K is committed,
   regardless of Tier-(K+1) status.
 
 ### Working-Copy + Swap Pattern
@@ -151,12 +155,12 @@ Audit edits never touch the corpus directly. The pattern:
 
 ### Status Flip Rule
 
-| Amendment Class | Plan Status After Swap |
-|-----------------|------------------------|
-| Citation fix, surface-forward, narrowing of ambiguity, typo, header rename | Stays `approved` |
-| Adding `#### Tasks` subsection (writing-plans format) | Stays `approved` (additive) |
-| New invariant promoted from narrative, new CP-NNN-M entry, new Phase added/renumbered, new Required ADR | Flip to `review` |
-| Behavior change in plan body | Flip to `review`; likely also requires spec amendment |
+| Amendment Class                                                                                         | Plan Status After Swap                                |
+| ------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| Citation fix, surface-forward, narrowing of ambiguity, typo, header rename                              | Stays `approved`                                      |
+| Adding `#### Tasks` subsection (writing-plans format)                                                   | Stays `approved` (additive)                           |
+| New invariant promoted from narrative, new CP-NNN-M entry, new Phase added/renumbered, new Required ADR | Flip to `review`                                      |
+| Behavior change in plan body                                                                            | Flip to `review`; likely also requires spec amendment |
 
 **Default rule (when in doubt):** stay `approved` and surface the ambiguous
 case to user review in REVIEW.md as an explicit question. The flip-to-`review`
@@ -177,7 +181,7 @@ plan in a previously-committed Tier-K (K < N):
    amendment to the Tier-K plan.
 3. Pause for user direction at the user-review step. The user picks:
    (a) amend Tier-K in this tier's commit (re-opens previously-`approved`
-       plan briefly); (b) escalate to a `BL-NNN` follow-up;
+   plan briefly); (b) escalate to a `BL-NNN` follow-up;
    (c) reject the finding.
 4. **Do not auto-amend a previously-committed tier.** The user-review
    checkpoint is the only authority that re-opens a sealed tier.
@@ -209,25 +213,25 @@ Plan-001 Phase 5 must produce findings that include:
 If the methodology cannot reproduce this finding on the pre-carve-out state,
 it is broken; fix before proceeding.
 
-| Criterion | Pass condition |
-|-----------|----------------|
+| Criterion                           | Pass condition                                                                                                                                        |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | A1 — Canonical-finding reproduction | Pre-PR-#11 audit produces F-001-5-XX critical findings citing both Plan-007 (JSON-RPC wire) and Plan-008 (tRPC v11 server skeleton) substrate imports |
-| A2 — Build-order corollary | Same audit flags Plan-001 Phase 5 tier-placement (D5) as critical under pre-PR-#11 dep map |
-| A3 — No false-finding bleed | ≤2 false-positive critical findings on Plan-001 Phases 1-4 (correctly merged) |
+| A2 — Build-order corollary          | Same audit flags Plan-001 Phase 5 tier-placement (D5) as critical under pre-PR-#11 dep map                                                            |
+| A3 — No false-finding bleed         | ≤2 false-positive critical findings on Plan-001 Phases 1-4 (correctly merged)                                                                         |
 
 **Part B — Calibration band (quantitative)**
 
 Run the audit on Tier 1 at current `develop` HEAD. Measure each metric;
 record actual values in §Lessons Learned.
 
-| Metric | Target band | Out-of-band signal |
-|--------|-------------|--------------------|
-| B1 — Critical findings per Phase | 0–2 average; 0–4 max for any single Phase | >2 average → methodology too strict |
-| B2 — Total findings per plan | 5–25 (across all Phases) | <5 → too lenient; >25 → over-amending |
-| B3 — Tasks-authored vs. blocking-finding ratio | ≥2:1 | <2:1 → spec/plan too thin to support Tasks authoring |
-| B4 — User-review walltime per plan | 30 min – 2 hours | >2 hours → REVIEW.md too dense; refactor schema |
-| B5 — advisor() signal-to-noise | ≥1 substantive critique per tier diff bundle, ≤5 cosmetic-only acknowledgments | All-cosmetic → advisor not adding value |
-| B6 — Status flip rate | 0–1 plan flips to `review` per tier | >1 → audit making contract changes that should have been spec amendments |
+| Metric                                         | Target band                                                                    | Out-of-band signal                                                       |
+| ---------------------------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------ |
+| B1 — Critical findings per Phase               | 0–2 average; 0–4 max for any single Phase                                      | >2 average → methodology too strict                                      |
+| B2 — Total findings per plan                   | 5–25 (across all Phases)                                                       | <5 → too lenient; >25 → over-amending                                    |
+| B3 — Tasks-authored vs. blocking-finding ratio | ≥2:1                                                                           | <2:1 → spec/plan too thin to support Tasks authoring                     |
+| B4 — User-review walltime per plan             | 30 min – 2 hours                                                               | >2 hours → REVIEW.md too dense; refactor schema                          |
+| B5 — advisor() signal-to-noise                 | ≥1 substantive critique per tier diff bundle, ≤5 cosmetic-only acknowledgments | All-cosmetic → advisor not adding value                                  |
+| B6 — Status flip rate                          | 0–1 plan flips to `review` per tier                                            | >1 → audit making contract changes that should have been spec amendments |
 
 **Disposition after Tier 1 commit:**
 
@@ -244,34 +248,34 @@ record actual values in §Lessons Learned.
 
 All six gates pass → swap commits. Any fail → block, surface to user.
 
-| Gate | Check |
-|------|-------|
-| G1 | Structural skeleton preserved (every anchor from baseline present in working copy) |
-| G2 | No critical findings unaddressed |
-| G3 | Per-plan diff line-count within reasonable bounds: amendments excluding `#### Tasks` blocks must be < 1.5× original plan length; `#### Tasks` blocks have a separate budget of < 50 step-entries per Phase |
-| G4 | No fabricated specs (every Tasks Step traces to a Spec-NNN AC or invariant) |
-| G5 | `rg "Plan-\d+ PR #\d+" docs/` returns 0 |
-| G6 | Tier-(K-1) commit on develop |
+| Gate | Check                                                                                                                                                                                                      |
+| ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| G1   | Structural skeleton preserved (every anchor from baseline present in working copy)                                                                                                                         |
+| G2   | No critical findings unaddressed                                                                                                                                                                           |
+| G3   | Per-plan diff line-count within reasonable bounds: amendments excluding `#### Tasks` blocks must be < 1.5× original plan length; `#### Tasks` blocks have a separate budget of < 50 step-entries per Phase |
+| G4   | No fabricated specs (every Tasks Step traces to a Spec-NNN AC or invariant)                                                                                                                                |
+| G5   | `rg "Plan-\d+ PR #\d+" docs/` returns 0 AND `rg "PR #\d+" docs/plans/` returns 0 (catches both qualified `Plan-NNN PR #N` and bare `PR #N` regressions); `pr_preparations` table name preserved            |
+| G6   | Tier-(K-1) commit on develop                                                                                                                                                                               |
 
 ### Final Synthesis Verification (after Tier 9 ships)
 
-| Check | Mechanism |
-|-------|-----------|
-| Every unstarted Phase has `#### Tasks` subsection | Mechanical grep |
-| No corpus regressions | `git diff plan-readiness-audit-tier-1-baseline HEAD` review |
-| Runbook §Lessons Learned populated | Visual check |
-| Backlog escalations resolved or scheduled | Every `BL-NNN` has owner + status |
-| Plan-template updated | Mechanical check |
-| Tags exist | `git tag --list "plan-readiness-audit-*"` |
+| Check                                             | Mechanism                                                   |
+| ------------------------------------------------- | ----------------------------------------------------------- |
+| Every unstarted Phase has `#### Tasks` subsection | Mechanical grep                                             |
+| No corpus regressions                             | `git diff plan-readiness-audit-tier-1-baseline HEAD` review |
+| Runbook §Lessons Learned populated                | Visual check                                                |
+| Backlog escalations resolved or scheduled         | Every `BL-NNN` has owner + status                           |
+| Plan-template updated                             | Mechanical check                                            |
+| Tags exist                                        | `git tag --list "plan-readiness-audit-*"`                   |
 
 ### Failure Mode Recovery
 
-| Signal | Cause | Recovery |
-|--------|-------|----------|
-| G1 fails after swap | Working-copy edit clobbered an anchor | `git revert` tier swap; re-run audit |
-| G4 fails post-amendment | Subagent invented behavior | `git revert`; spec needs amendment first |
-| Multiple tiers fail G3 | Methodology over-amending | Pause; revisit dimensions |
-| User rejects ≥3 tier swaps | User disagrees with methodology | Pause; reconcile |
+| Signal                     | Cause                                 | Recovery                                 |
+| -------------------------- | ------------------------------------- | ---------------------------------------- |
+| G1 fails after swap        | Working-copy edit clobbered an anchor | `git revert` tier swap; re-run audit     |
+| G4 fails post-amendment    | Subagent invented behavior            | `git revert`; spec needs amendment first |
+| Multiple tiers fail G3     | Methodology over-amending             | Pause; revisit dimensions                |
+| User rejects ≥3 tier swaps | User disagrees with methodology       | Pause; reconcile                         |
 
 ## Status Promotion Gate
 
@@ -324,7 +328,7 @@ Each per-Phase completeness subagent gets the following self-contained
 prompt. The main agent dispatches one subagent per Phase, in parallel, with
 disjoint output paths.
 
-```text
+````text
 ROLE: You are a per-Phase completeness auditor for an AI Sidekicks V1
 implementation plan. You audit ONE Phase of ONE plan, in isolation, and
 produce a findings file.
@@ -386,17 +390,21 @@ OUTPUT FORMAT:
 **Proposed amendment:**
 ```markdown
 {concrete diff or new text}
-```
+````
+
 **Escalation target:** plan-amendment | spec-amendment | dep-map-amendment | backlog-item
 
 ## Coverage Summary
+
 | Dimension | Findings | Notes |
-|-----------|----------|-------|
+| --------- | -------- | ----- |
 
 ## Out-of-Scope (escalated as findings, not amendments)
+
 - ...
 
 SEVERITY RUBRIC:
+
 - critical — Implementer cannot proceed without inventing missing behavior.
   Block tier swap; requires user review.
 - major — Implementer would likely guess wrong; ambiguous behavior. Inline
@@ -414,12 +422,14 @@ For unstarted Phases (no code merged for this Phase yet), author a `#### Tasks`
 subsection nested under the existing Phase header. Existing Phase prose
 (Precondition, Goal, scope bullets) is preserved verbatim. Each Task carries
 two extra fields beyond raw writing-plans format:
+
 - **Spec coverage:** Spec-NNN AC-X (closes Dimension 9 loop)
 - **Verifies invariant:** I-NNN-M (closes Dimension 7 loop, when applicable)
 
 If you cannot author a Task concretely from source materials, file a Finding
 instead (per the hard rule above).
-```
+
+````
 
 ## Main-Agent Dep-Trace Dimensions
 
@@ -481,7 +491,7 @@ Every tier swap presents a REVIEW.md to the user. Schema is non-negotiable
 - [ ] Approve subset: ...
 - [ ] Reject → adjust
 - [ ] Escalate item(s) to backlog: ...
-```
+````
 
 ## Lessons Learned
 
