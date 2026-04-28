@@ -97,6 +97,7 @@ specific surfaces) without these being satisfied or explicitly staged.
 - [ ] Paired spec is approved
 - [x] Required ADRs are accepted
 - [ ] Blocking open questions are resolved or explicitly deferred
+- [ ] **Plan-readiness audit complete per [`docs/operations/plan-implementation-readiness-audit-runbook.md`](../operations/plan-implementation-readiness-audit-runbook.md)**
 
 ## Target Areas
 
@@ -129,24 +130,24 @@ specific surfaces) without these being satisfied or explicitly staged.
 - {Manual verification}
 
 <!--
-  Implementation PR Sequence section (recommended for plans of ≥3 PRs;
+  Implementation Phase Sequence section (recommended for plans of ≥3 PRs;
   mandatory for any Tier 1 plan; omit only for single-PR plans).
 
   - Each PR carries an explicit **Precondition:** line so the merge order
     is reviewer-checkable and so cross-plan obligations have an enforceable
-    merge gate (the Plan-024 §Implementation PR Sequence shape).
+    merge gate (the Plan-024 §Implementation Phase Sequence shape).
   - Each PR cites which §Invariants and §Cross-Plan Obligations entries it
     satisfies. This is what turns a structural promotion into an enforceable
     merge gate (per Plan-001 / Plan-007 / Plan-024 precedent).
 -->
 
-## Implementation PR Sequence
+## Implementation Phase Sequence
 
 Plan-NNN implementation lands as a sequence of small PRs. Each PR exercises one
 slice of the plan's vertical and carries a `**Precondition:**` line so the merge
 order is reviewer-checkable.
 
-### PR #1 — {Short PR title}
+### Phase 1 — {Short PR title}
 
 **Precondition:** {What must be merged or accepted before this PR can start.}
 

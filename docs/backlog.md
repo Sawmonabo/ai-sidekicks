@@ -47,4 +47,4 @@ Use this shape for new backlog items:
 
 ## Active Items
 
-_No active backlog items — the V1 doc-first phase backlog is fully resolved as of Session N (2026-04-26). The first code-execution PR (Plan-001 PR #1) is the next gate; see [`CLAUDE.md`](../CLAUDE.md) and [`Plan-001 — Shared Session Core`](./plans/001-shared-session-core.md). New backlog items follow the [Item Template](#item-template) above; closed items live in [Backlog Archive](./archive/backlog-archive.md)._
+_No active backlog items — the V1 doc-first phase backlog is fully resolved as of Session N (2026-04-26). The first code-execution PR (Plan-001 Phase 1) is the next gate; see [`CLAUDE.md`](../CLAUDE.md) and [`Plan-001 — Shared Session Core`](./plans/001-shared-session-core.md). New backlog items follow the [Item Template](#item-template) above; closed items live in [Backlog Archive](./archive/backlog-archive.md)._

@@ -221,33 +221,33 @@ This plan treats the two signing paths as **parallel tracks selected by the publ
 - **Sidecar spawn latency** p95 ≤ 50 ms per ADR-019 Success Criteria (measured from selector call to `SpawnResponse` receipt).
 - **Signed-binary smoke test:** installer pipeline verifies Gatekeeper acceptance on macOS (`spctl --assess --type exec sidecar`) and SmartScreen / Smart App Control on Windows 11 (see Spec-023 §Windows for the reality-check on SmartScreen's reputation-accrual UX).
 
-## Implementation PR Sequence
+## Implementation Phase Sequence
 
 Plan-024 implementation lands as five PRs that map the §Implementation Steps onto the §Rollout Order. Each PR has an explicit `**Precondition:**` line and cites which §Invariants entries and §Windows Implementation Gotchas it satisfies, so reviewers can gate cross-plan obligations at merge time.
 
-### PR #1 — Rust Crate Scaffold + Protocol + Framing
+### Phase 1 — Rust Crate Scaffold + Protocol + Framing
 
-**Precondition:** None (Plan-024 is Tier 1 standalone; PR #1 starts as soon as repo bootstrap from Plan-001 PR #1 is merged so the workspace tree exists).
+**Precondition:** None (Plan-024 is Tier 1 standalone; Phase 1 starts as soon as repo bootstrap from Plan-001 Phase 1 is merged so the workspace tree exists).
 
 **Goal:** Rust crate compiles green; protocol serde round-trip and Content-Length framer unit tests pass; sidecar binary spawns a local PTY and round-trips a smoke message in a developer-machine integration test.
 
 - §Implementation Steps 1–5 (scaffold crate, framing, protocol types, per-session PTY holder, exit-code capture)
-- Satisfies §Invariants nothing yet (the I-024-\* invariants live at the daemon ↔ sidecar boundary, which arrives in PR #3)
-- Cross-compile not exercised here — that lands in PR #4
+- Satisfies §Invariants nothing yet (the I-024-\* invariants live at the daemon ↔ sidecar boundary, which arrives in Phase 3)
+- Cross-compile not exercised here — that lands in Phase 4
 
-### PR #2 — TS `PtyHost` Contract + `NodePtyHost` + Selector Default-Node
+### Phase 2 — TS `PtyHost` Contract + `NodePtyHost` + Selector Default-Node
 
-**Precondition:** PR #1 merged (the Rust crate's hand-authored `protocol.rs` types are the source of truth for the TS mirror in `pty-host-protocol.ts`).
+**Precondition:** Phase 1 merged (the Rust crate's hand-authored `protocol.rs` types are the source of truth for the TS mirror in `pty-host-protocol.ts`).
 
 **Goal:** `PtyHost` contract exists in `packages/contracts/`; `NodePtyHost` implements it; `PtyHostSelector` defaults to `NodePtyHost` on all platforms (no behavioral change vs pre-Plan-024 daemon). Matches §Rollout Order step 1.
 
 - §Implementation Steps 6, 8, 9 (interface definition, `NodePtyHost` impl, selector with default-Node)
 - Selector wires the `AIS_PTY_BACKEND` env-var override but defaults to `node-pty` everywhere; the `RustSidecarPtyHost` branch is unimplemented and throws "not yet wired" if forced
-- Satisfies §Invariants I-024-1, I-024-2 inside `NodePtyHost` for the `node-pty` code path on Windows (the sidecar code path lands in PR #3)
+- Satisfies §Invariants I-024-1, I-024-2 inside `NodePtyHost` for the `node-pty` code path on Windows (the sidecar code path lands in Phase 3)
 
-### PR #3 — `RustSidecarPtyHost` + Env-Var Opt-In
+### Phase 3 — `RustSidecarPtyHost` + Env-Var Opt-In
 
-**Precondition:** PR #2 merged (the `PtyHost` contract is the integration surface) AND the daemon-layer cwd-translation wrapper from Plan-001 §Cross-Plan Obligations CP-001-2 is in place (otherwise §Invariants I-024-5 cannot hold — sidecar `SpawnRequest.cwd` would carry worktree paths and Windows `ERROR_SHARING_VIOLATION` would surface in CI).
+**Precondition:** Phase 2 merged (the `PtyHost` contract is the integration surface) AND the daemon-layer cwd-translation wrapper from Plan-001 §Cross-Plan Obligations CP-001-2 is in place (otherwise §Invariants I-024-5 cannot hold — sidecar `SpawnRequest.cwd` would carry worktree paths and Windows `ERROR_SHARING_VIOLATION` would surface in CI).
 
 **Goal:** `RustSidecarPtyHost` implements the contract end-to-end; sidecar spawn / Content-Length framing / crash-respawn supervision works on the developer's local platform; opt-in via `AIS_PTY_BACKEND=rust-sidecar`. Matches §Rollout Order step 2.
 
@@ -255,25 +255,25 @@ Plan-024 implementation lands as five PRs that map the §Implementation Steps on
 - Satisfies §Invariants I-024-1 through I-024-5 for the sidecar code path
 - Cross-references §Windows Implementation Gotchas 1, 2, 4 (kill-translation, tree-kill escalation, will-quit handler ordering); Gotcha 4's daemon-side handler wiring is enforced by Plan-001 §Cross-Plan Obligations CP-001-1
 
-### PR #4 — CI Cross-Compile Matrix + Signing Stages
+### Phase 4 — CI Cross-Compile Matrix + Signing Stages
 
-**Precondition:** PR #3 merged (a working `RustSidecarPtyHost` is needed to validate the cross-compile artifacts); signing-track decision recorded in `## Preconditions`.
+**Precondition:** Phase 3 merged (a working `RustSidecarPtyHost` is needed to validate the cross-compile artifacts); signing-track decision recorded in `## Preconditions`.
 
 **Goal:** All 5 platform targets build green in CI; macOS notarization pipeline green for `darwin-arm64` and `darwin-x64`; Windows signing pipeline green per the selected track (Track A or Track B). Matches §Rollout Order steps 3 and 4 (signing procurement + signed pre-release publish).
 
 - §Implementation Steps 10–13 (CI matrix, Windows signing, macOS signing, Linux strip + hash publication)
-- No new invariants — this PR exercises the binary distribution layer; runtime invariants are still owned by PR #3
+- No new invariants — this PR exercises the binary distribution layer; runtime invariants are still owned by Phase 3
 
-### PR #5 — Publish + Windows Default-Flip + Monitoring
+### Phase 5 — Publish + Windows Default-Flip + Monitoring
 
-**Precondition:** PR #4 merged (signed binaries available on a pre-release npm tag); ADR-019 Success Criteria measurement plumbing in place (crash-rate telemetry, SmartScreen reputation tracking).
+**Precondition:** Phase 4 merged (signed binaries available on a pre-release npm tag); ADR-019 Success Criteria measurement plumbing in place (crash-rate telemetry, SmartScreen reputation tracking).
 
 **Goal:** 5 platform packages + umbrella `@ai-sidekicks/pty-sidecar` publish to npm with `optionalDependencies` + `os` / `cpu` filters; daemon resolves the umbrella; `PtyHostSelector` default on Windows flips to `RustSidecarPtyHost` (with `NodePtyHost` fallback when the sidecar binary is not resolvable). Matches §Rollout Order steps 5 and 6 (default-flip + monitor).
 
 - §Implementation Steps 14–15 (publish + daemon consumer wire-up)
 - Default-flip is gated on green ADR-019 Success Criteria readings (`≥ 99%` Codex `/resume` pass-rate; `≤ 50 ms` p95 spawn latency; `≤ 0.01/1,000` crash rate); if any criterion regresses, the flip reverts via env-var override per §Rollback Or Fallback
 
-After PR #5 lands green and the ADR-019 Success Criteria readings remain green for a 2-week monitoring window, Plan-024 is complete.
+After Phase 5 lands green and the ADR-019 Success Criteria readings remain green for a 2-week monitoring window, Plan-024 is complete.
 
 ## Rollout Order
 
