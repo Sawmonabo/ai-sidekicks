@@ -90,7 +90,7 @@ The seven items below were surfaced by the [plan-readiness-audit Tier 1](./opera
 - Status: `todo`
 - Priority: `P1`
 - Owner: `unassigned`
-- References: [Plan-001](./plans/001-shared-session-core.md) Phase 2 (BLOCKED-ON-C8 ×2), [Plan-007](./plans/007-local-ipc-and-daemon-control.md) Phase 3 (BLOCKED-ON-C9 ×5), [Spec-006](./specs/006-event-stream-and-projection.md)
+- References: [Plan-001](./plans/001-shared-session-core.md) Phase 2 (BLOCKED-ON-C8 ×2), [Plan-007](./plans/007-local-ipc-and-daemon-control.md) Phase 3 (BLOCKED-ON-C9 ×5), [Spec-006](./specs/006-session-event-taxonomy-and-audit-log.md)
 - Summary: Spec-006 event registry needs two amendments: (1) define `MemberJoined` event semantics OR rename to `MembershipRoleChanged` (Plan-001 Phase 2 references with no source-of-truth definition); (2) register `security.default.override` and `security.update.available` events (Plan-007 Phase 3 references).
 - Exit Criteria: Spec-006 §Event Registry contains canonical definitions for all three; Plan-001 / Plan-007 BLOCKED-ON-C8 / BLOCKED-ON-C9 tags resolved; F-001-2-01 closed.
 
