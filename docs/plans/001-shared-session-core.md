@@ -1,16 +1,16 @@
 # Plan-001: Shared Session Core
 
-| Field               | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Status**          | `approved`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| **NNN**             | `001`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| **Slug**            | `shared-session-core`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| **Date**            | `2026-04-14`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| **Author(s)**       | `Codex`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| **Spec**            | [Spec-001: Shared Session Core](../specs/001-shared-session-core.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| **Required ADRs**   | [ADR-001](../decisions/001-session-is-the-primary-domain-object.md), [ADR-002](../decisions/002-local-execution-shared-control-plane.md), [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md), [ADR-017](../decisions/017-shared-event-sourcing-scope.md), [ADR-018](../decisions/018-cross-version-compatibility.md), [ADR-022](../decisions/022-v1-toolchain-selection.md), [ADR-023](../decisions/023-v1-ci-cd-and-release-automation.md). **Phase 1 ship-gate**: [ADR-023](../decisions/023-v1-ci-cd-and-release-automation.md) governs the engineering CI surface that lands in Phase 1 (accepted 2026-04-26 per [BL-100](../backlog.md)).                                                                                                        |
-| **Dependencies**    | Phase 1–Phase 4: None (tier-entry plan; owns `0001-initial.sql` migration and forward-declares schema shape consumed by [Plan-003](./003-runtime-node-attach.md), [Plan-006](./006-session-event-taxonomy-and-audit-log.md), [Plan-022](./022-data-retention-and-gdpr.md)). Phase 5 only: [Plan-007](./007-local-ipc-and-daemon-control.md) partial-deliverable (Tier 1 IPC wire substrate + `session.*` namespace + SDK Zod layer per Spec-007 §Wire Format) and [Plan-008](./008-control-plane-relay-and-session-join.md) bootstrap-deliverable (Tier 1 tRPC v11 server skeleton + `sessionRouter` HTTP handlers + SSE substrate for `SessionSubscribe`). See [cross-plan-dependencies.md §5 Plan-007 + Plan-008 Tier 1 carve-outs](../architecture/cross-plan-dependencies.md#plan-007-substrate-vs-namespace-carve-out-tier-1--tier-4). |
-| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Field               | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Status**          | `approved`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| **NNN**             | `001`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| **Slug**            | `shared-session-core`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| **Date**            | `2026-04-14`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| **Author(s)**       | `Codex`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| **Spec**            | [Spec-001: Shared Session Core](../specs/001-shared-session-core.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| **Required ADRs**   | [ADR-001](../decisions/001-session-is-the-primary-domain-object.md), [ADR-002](../decisions/002-local-execution-shared-control-plane.md), [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md), [ADR-006](../decisions/006-worktree-first-execution-mode.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md), [ADR-017](../decisions/017-shared-event-sourcing-scope.md), [ADR-018](../decisions/018-cross-version-compatibility.md), [ADR-019](../decisions/019-windows-v1-tier-and-pty-sidecar.md), [ADR-022](../decisions/022-v1-toolchain-selection.md), [ADR-023](../decisions/023-v1-ci-cd-and-release-automation.md). **Phase 1 ship-gate**: [ADR-023](../decisions/023-v1-ci-cd-and-release-automation.md) governs the engineering CI surface that lands in Phase 1 (accepted 2026-04-26 per [BL-100](../backlog.md)). **Phase 5 ship-gate (governance)**: [ADR-019](../decisions/019-windows-v1-tier-and-pty-sidecar.md) governs CP-001-1 / CP-001-2; [ADR-006](../decisions/006-worktree-first-execution-mode.md) bakes worktree paths into the daemon's session-spawn entry point per CP-001-2. |
+| **Dependencies**    | Phase 1–Phase 4: None (tier-entry plan; owns `0001-initial.sql` migration and forward-declares schema shape consumed by [Plan-003](./003-runtime-node-attach.md), [Plan-006](./006-session-event-taxonomy-and-audit-log.md), [Plan-022](./022-data-retention-and-gdpr.md)). Phase 5 only: [Plan-007](./007-local-ipc-and-daemon-control.md) partial-deliverable (Tier 1 IPC wire substrate + `session.*` namespace + SDK Zod layer per Spec-007 §Wire Format) and [Plan-008](./008-control-plane-relay-and-session-join.md) bootstrap-deliverable (Tier 1 tRPC v11 server skeleton + `sessionRouter` HTTP handlers + SSE substrate for `SessionSubscribe`). See [cross-plan-dependencies.md §5 Plan-007 + Plan-008 Tier 1 carve-outs](../architecture/cross-plan-dependencies.md#plan-007-substrate-vs-namespace-carve-out-tier-1--tier-4).                                                                                                                                                                                                                                                                                                    |
+| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 
 ## Goal
 
@@ -36,7 +36,7 @@ Any transaction that touches both `sessions` and `session_memberships` MUST acqu
 
 **Why load-bearing.** Plan-002 ownership-transfer, co-owner promotion, and invite-accept paths mutate `session_memberships` while validating `sessions`. Inconsistent lock acquisition across Plan-001 + Plan-002 callers would produce cross-plan deadlocks under concurrent membership churn. The invariant is also recorded in [cross-plan-dependencies.md §1 Lock Ordering Across Shared Tables](../architecture/cross-plan-dependencies.md#lock-ordering-across-shared-tables) so Plan-002 implementers see it before reaching the source docstring.
 
-**Verification.** Plan-001 Phase 4 ships a lock-ordering test against the `Querier` abstraction; Phase 5 strengthens that test to discriminate which `Querier` instance issued each statement (see `TODO(Plan-001 Phase 5)` in `packages/control-plane/src/sessions/__tests__/session-directory-service.test.ts`). Plan-002 PRs that add new transactional callers MUST extend the same test with their caller name.
+**Verification.** Plan-001 Phase 4 ships P4 (lock-ordering test against the `Querier` abstraction); Phase 5 strengthens that test via I7 to discriminate which `Querier` instance issued each statement (see `TODO(Plan-001 Phase 5)` in `packages/control-plane/src/sessions/__tests__/session-directory-service.test.ts`). Plan-002 PRs that add new transactional callers MUST extend the same test with their caller name.
 
 ### I-001-2 — Sequence is the canonical replay key
 
@@ -52,7 +52,7 @@ The forward-declared columns and tables enumerated in §Cross-Plan Forward-Decla
 
 **Why load-bearing.** Re-shaping a forward-declared column post-Tier-1 would force a breaking schema migration after V1 ships — the entire point of the forward-declaration pattern is that V1 ships immutable initial DDL.
 
-**Verification.** Migration-shape regression test asserts the column set in `0001-initial.sql` matches the canonical schema docs.
+**Verification.** Test D5 (migration-shape regression) reads `0001-initial.sql` via `PRAGMA table_info()` for `session_events`, `session_snapshots`, `participant_keys`, and `schema_version`, asserts the column set matches the canonical schema docs.
 
 ## Cross-Plan Obligations
 
@@ -114,9 +114,11 @@ Every `packages/*` and `apps/*` member receives a `package.json` (with `"type": 
 
 Electron-bound packages (`apps/desktop/*`, `packages/runtime-daemon/*`) use the lower-tier Node target. Control-plane packages (`packages/control-plane/*`) use the upper-tier target. Shared packages consumed by both sides (`packages/contracts/*`, `packages/client-sdk/*`) target the lower tier as the lowest common denominator.
 
+Vitest test file convention (project-wide): `packages/<name>/test/*.test.ts`. Per-package `vitest.config.ts` extends a workspace `vitest.workspace.ts` declaring all `packages/*` and `apps/*` projects. The Phase 1 sanity test lives at `packages/contracts/test/sanity.test.ts`.
+
 ## Data And Storage Changes
 
-Plan-001 owns the initial migration (`0001-initial.sql`) and declares the schema shape downstream plans depend on. The column-level definitions are canonical in the schema docs below; this plan body enumerates which elements are forward-declared for cross-plan consumers.
+Plan-001 owns two initial migrations — `packages/runtime-daemon/src/migrations/0001-initial.sql` (SQLite local-runtime) and `packages/control-plane/src/migrations/0001-initial.sql` (Postgres shared control-plane) — and declares the schema shape downstream plans depend on. The two engines are distinct per [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md) and ship under separate migration trees. The column-level definitions are canonical in the schema docs below; this plan body enumerates which elements are forward-declared for cross-plan consumers.
 
 - Add the minimal `participants` identity-anchor table (`id UUID PK`, `created_at TIMESTAMPTZ`) to Collaboration Control Plane storage **before** any FK-bearing shared table. This anchor is required at Plan-001 migration time because `session_memberships.participant_id`, `session_invites.inviter_id`, and `runtime_node_attachments.participant_id` all `REFERENCES participants(id)`, and Plan-001/002/003 execute before Plan-018 per [cross-plan-dependencies.md](../architecture/cross-plan-dependencies.md). Plan-001 owns the physical CREATE of the minimal shape only; identity/profile columns (`display_name`, `identity_ref`, `metadata`) and the `identity_mappings` side table are added by Plan-018 via additive ALTER migrations. See [Shared Postgres Schema §Participants Identity Anchor](../architecture/schemas/shared-postgres-schema.md#participants-identity-anchor-plan-001).
 - Add shared `sessions` and `session_memberships` tables to Collaboration Control Plane storage. The `sessions` table carries `min_client_version TEXT` — NULL = no floor — forward-declared here per [ADR-018](../decisions/018-cross-version-compatibility.md) §Decision #1 (semver `"MAJOR.MINOR"` format) and §Decision #3 (monotonic session-floor enforcement); the control plane is authoritative for this field ([ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md)).
@@ -163,44 +165,51 @@ The TDD test list below is enumerated and ordered by implementation dependency. 
 
 ### Contract Layer (`packages/contracts/`)
 
-| ID  | Test                                                         | Asserts             | Spec-001 AC                  |
-| --- | ------------------------------------------------------------ | ------------------- | ---------------------------- |
-| C1  | `SessionId.parse rejects malformed UUIDs`                    | id format invariant | Foundation for AC1, AC3, AC4 |
-| C2  | `SessionCreate payload validates required fields`            | request schema      | AC1                          |
-| C3  | `SessionEvent discriminated union round-trips through JSON`  | event serialization | AC1, AC6                     |
-| C4  | `Resource limit error matches resource.limit_exceeded shape` | error contract      | AC8                          |
+| ID  | Test                                                         | Asserts                   | Spec-001 AC                                                     |
+| --- | ------------------------------------------------------------ | ------------------------- | --------------------------------------------------------------- |
+| C1  | `SessionId.parse rejects malformed UUIDs`                    | id format invariant       | (no direct AC; format invariant — precondition for AC1/AC3/AC4) |
+| C2  | `SessionCreate payload rejects unknown fields`               | request schema strictness | AC1                                                             |
+| C3  | `SessionEvent discriminated union round-trips through JSON`  | event serialization       | AC1, AC6                                                        |
+| C4  | `Resource limit error matches resource.limit_exceeded shape` | error contract            | AC8 (wire shape)                                                |
 
 ### Daemon Projection Layer (`packages/runtime-daemon/src/session/`)
 
-| ID  | Test                                                                                        | Asserts                                                                                                                                                                          | Spec-001 AC |
-| --- | ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
-| D1  | `Single SessionCreated event yields snapshot with owner membership and main channel`        | bootstrap projection                                                                                                                                                             | AC1         |
-| D2  | `Replay reads events by sequence ASC and reproduces snapshot deterministically`             | replay correctness; `sequence` is the canonical ordering key per [ADR-017](../decisions/017-shared-event-sourcing-scope.md)                                                      | AC6         |
-| D3  | `Replay uses sequence not monotonic_ns even when monotonic_ns is non-monotonic across rows` | clock-skew defense; `monotonic_ns` is within-daemon debug data, never the replay key (per [local-sqlite-schema §session_events](../architecture/schemas/local-sqlite-schema.md)) | AC6         |
-| D4  | `Snapshot survives daemon restart and yields identical projection on rehydrate`             | durability across restart                                                                                                                                                        | AC2, AC6    |
+| ID  | Test                                                                                        | Asserts                                                                                                                                                                          | Spec-001 AC               |
+| --- | ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| D1  | `Single SessionCreated event yields snapshot with owner membership and main channel`        | bootstrap projection                                                                                                                                                             | AC1                       |
+| D2  | `Replay reads events by sequence ASC and reproduces snapshot deterministically`             | replay correctness; `sequence` is the canonical ordering key per [ADR-017](../decisions/017-shared-event-sourcing-scope.md)                                                      | AC6                       |
+| D3  | `Replay uses sequence not monotonic_ns even when monotonic_ns is non-monotonic across rows` | clock-skew defense; `monotonic_ns` is within-daemon debug data, never the replay key (per [local-sqlite-schema §session_events](../architecture/schemas/local-sqlite-schema.md)) | AC6                       |
+| D4  | `Snapshot survives daemon restart and yields identical projection on rehydrate`             | durability across restart                                                                                                                                                        | AC2, AC6                  |
+| D5  | `Migration-shape regression: column set in 0001-initial.sql matches canonical schema docs`  | invariant verification — `PRAGMA table_info()` for `session_events`, `session_snapshots`, `participant_keys`, `schema_version` matches canonical-schema-doc snapshot fixture     | (no AC; verifies I-001-3) |
 
 ### Control Plane Layer (`packages/control-plane/`)
 
-| ID  | Test                                                                   | Asserts            | Spec-001 AC |
-| --- | ---------------------------------------------------------------------- | ------------------ | ----------- |
-| P1  | `SessionCreate returns stable session id and persists to directory`    | shared write       | AC1, AC2    |
-| P2  | `Second SessionCreate by same client does not silently fork`           | no shadow sessions | AC5         |
-| P3  | `SessionJoin verifies membership and returns existing timeline cursor` | join contract      | AC4, AC5    |
+| ID  | Test                                                                                                                                                              | Asserts                                                                                                                    | Spec-001 AC               |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| P1  | `SessionCreate returns stable session id and persists to directory`                                                                                               | shared write                                                                                                               | AC1, AC2                  |
+| P2  | `Second SessionCreate by same client does not silently fork`                                                                                                      | no shadow sessions                                                                                                         | AC5                       |
+| P3  | `SessionJoin verifies membership and returns existing timeline cursor`                                                                                            | join contract                                                                                                              | AC4, AC5                  |
+| P4  | `createSession lock-ordering test asserts FOR UPDATE on sessions row precedes any session_memberships statement under the same transaction (Querier abstraction)` | invariant verification (I-001-1) — file: `packages/control-plane/src/sessions/__tests__/session-directory-service.test.ts` | (no AC; verifies I-001-1) |
+| P5  | `SessionJoin returns resource.limit_exceeded when session has 10 active memberships and participant limit is the default`                                         | AC8 enforcement at control plane (Spec-001 §Resource Limits, default 10 participants)                                      | AC8 (enforcement)         |
 
 ### SDK And Integration Layer (`packages/client-sdk/`, integration)
 
-| ID  | Test                                                                   | Asserts                             | Spec-001 AC |
-| --- | ---------------------------------------------------------------------- | ----------------------------------- | ----------- |
-| I1  | `SessionCreate then SessionRead returns identical session id`          | round-trip                          | AC1, AC3    |
-| I2  | `Second client SessionJoin sees existing event history`                | no fork on join                     | AC4         |
-| I3  | `SessionSubscribe yields events in sequence ASC across reconnect`      | reconnect ordering by canonical key | AC3, AC7    |
-| I4  | `Reconnect after lost stream restores from snapshot, not client cache` | snapshot authority                  | AC6         |
+| ID  | Test                                                                                                                                                      | Asserts                                                                                                                                                              | Spec-001 AC                |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
+| I1  | `SessionCreate then SessionRead returns identical session id`                                                                                             | round-trip                                                                                                                                                           | AC1, AC3                   |
+| I2  | `Second client SessionJoin sees existing event history`                                                                                                   | no fork on join                                                                                                                                                      | AC4                        |
+| I3  | `SessionSubscribe yields events in sequence ASC across reconnect`                                                                                         | reconnect ordering by canonical key                                                                                                                                  | AC3, AC7                   |
+| I4  | `Reconnect after lost stream restores from snapshot, not client cache`                                                                                    | snapshot authority                                                                                                                                                   | AC6                        |
+| I5  | `Sidecar drain on app.on('will-quit') completes within 2 s; escalation to taskkill on hard timeout`                                                       | verifies obligation CP-001-1 (also verifies inherited Plan-024 I-024-4) — file: `apps/desktop/main/src/__tests__/sidecar-lifecycle.integration.test.ts`              | (no AC; verifies CP-001-1) |
+| I6  | `PtyHost.spawn rewrites worktree-path cwd to stable parent dir + cd-prefix or CWD-env; round-trip on Windows CI does not surface ERROR_SHARING_VIOLATION` | verifies obligation CP-001-2 (also verifies inherited Plan-024 I-024-5) — file: `packages/runtime-daemon/src/session/__tests__/spawn-cwd-translator.windows.test.ts` | (no AC; verifies CP-001-2) |
+| I7  | `Strengthened createSession lock-ordering: FOR UPDATE routed through in-transaction Querier checkout, NOT outer pool checkout`                            | regression discriminator on I-001-1 — file: `packages/control-plane/src/sessions/__tests__/session-directory-service.test.ts` (discharge `TODO(Plan-001 Phase 5)`)   | (no AC; verifies I-001-1)  |
 
 ### Verification
 
 - `pnpm turbo test` at workspace root green across all packages
 - Manual smoke: create session in one desktop client, join from second client, verify timeline parity
-- All 15 enumerated tests above pass before Plan-001 is marked complete
+- All 19 enumerated tests above pass before Plan-001 is marked complete (4 C-tier + 5 D-tier + 5 P-tier + 4 I-tier + 1 W-tier tooling — see Phase 1 §Tests; CP-001-1/CP-001-2 coverage via I5/I6 may be deferred per BLOCKED-ON-C3 governance).
+- Test ID prefixes map to Phases as follows: W → Phase 1, C → Phase 2, D → Phase 3, P → Phase 4, I → Phase 5. Each Phase's Goal line names the ID range it owns.
 - Spec-001 AC7 (concurrent participants, channels, and runs without timeline corruption) receives full coverage at the integration boundary in [Plan-008](./008-control-plane-relay-and-session-join.md) when cross-daemon relay flows land. Plan-001 covers AC7 only partially via I3's reconnect-ordering invariant — single-daemon concurrent SQL writes serialize on SQLite's `UNIQUE(session_id, sequence)` constraint, leaving cross-daemon concurrency as the residual coverage gap.
 
 ## Implementation Phase Sequence
@@ -216,12 +225,57 @@ Plan-001 implementation lands as a sequence of small PRs. Each PR exercises one 
 **Ship-gate:** [ADR-023](../decisions/023-v1-ci-cd-and-release-automation.md) — V1 CI/CD, Pre-Commit Hooks, and Release Automation — accepted 2026-04-26 per [BL-100](../backlog.md). The CI workflow files, lefthook + commitlint pre-commit framework, Renovate dependency-update config, Gitleaks secret scanner, `CODEOWNERS`, and code-signing custody scaffolding authored by ADR-023 land in this PR.
 
 - Create root scaffolding (per § Repo Layout And Bootstrap above)
-- Create empty `packages/contracts/`, `packages/client-sdk/`, `packages/runtime-daemon/`, `packages/control-plane/`, `apps/desktop/` skeletons with `package.json` + `tsconfig.json` + `src/index.ts` (no exports)
+- Create empty `packages/contracts/`, `packages/client-sdk/`, `packages/runtime-daemon/`, `packages/control-plane/` skeletons with `package.json` + `tsconfig.json` + `src/index.ts` (no exports). **`apps/desktop/` is NOT created at Phase 1** — it is created at Tier 8 by [Plan-023](./023-desktop-shell-and-renderer.md) per [cross-plan-dependencies.md §5](../architecture/cross-plan-dependencies.md). The `apps/desktop/renderer/src/session-bootstrap/` extension at Phase 5 lands when `apps/desktop/` exists. **BLOCKED-ON-C3** — see [BL-101](../backlog.md#bl-101-c-3--plan-023-tier-8-substrate-carve-out-from-tier-1) for the three governance options (Plan-023 carve-out / Phase 5b deferral / CP-001-1 ownership transfer); resolution at Task 1.10 user-review pause.
 - Install `better-sqlite3` 12.9+ as a workspace dep on `packages/runtime-daemon/` per [ADR-022](../decisions/022-v1-toolchain-selection.md). Even without imports, this exercises the postinstall native-binding rebuild path for the daemon target under `node-linker=isolated` at bootstrap time, surfacing native-rebuild integration risk before behavior PRs land.
 - Install `pg` 8.20+ as a workspace dep on `packages/control-plane/` per [ADR-022](../decisions/022-v1-toolchain-selection.md)
-- Wire engineering CI surface per [ADR-023](../decisions/023-v1-ci-cd-and-release-automation.md): `.github/workflows/{ci,release}.yml`, lefthook 2.1.6 + `lefthook.yml`, `lint-staged.config.mjs`, commitlint 20.5.2 config, Renovate config, Gitleaks workflow, `CODEOWNERS`, release-please-action@v5 + actions/attest@v4 release-automation skeleton (no actual release runs yet — first release is post-Plan-001 ship)
+- Wire engineering CI surface per [ADR-023](../decisions/023-v1-ci-cd-and-release-automation.md): `.github/workflows/{ci,release}.yml`, lefthook 2.1.6 + `lefthook.yml`, `lint-staged.config.mjs`, commitlint 20.5.2 config, Renovate config, Gitleaks workflow, `CODEOWNERS`, release-please-action@v5 + actions/attest@v4 release-automation skeleton (no actual release runs yet — first release is post-Plan-001 ship). The literal-file content for `lefthook.yml`, `CODEOWNERS`, `renovate.json5`, `eslint.config.mjs`, `prettier.config.js`, `commitlint.config.mjs`, and the three workflow files is the Phase 1 PR's authoring scope; ADR-023 §Decision pins versions and policy choices, the implementer of this Phase materializes the literal artifact contents.
 - Verify: `pnpm install`, `pnpm turbo build`, `pnpm turbo typecheck`, and `pnpm turbo lint` all green; CI runs green on this PR; pre-commit hooks active locally; required-checks gate is enforced on subsequent PRs
-- Single passing test (in `packages/contracts/`): trivial sanity check that Vitest is wired
+- Single passing test (in `packages/contracts/test/sanity.test.ts`): trivial sanity check that Vitest is wired (test ID **W1** per § Test And Verification Plan)
+
+#### Tasks
+
+##### T1.1 — Workspace root scaffolding
+
+**Files:** `package.json`, `pnpm-workspace.yaml`, `turbo.json`, `tsconfig.base.json`, `.npmrc`, `.nvmrc`
+**Reference:** [§Repo Layout And Bootstrap →§Root Scaffolding](#root-scaffolding); [ADR-022](../decisions/022-v1-toolchain-selection.md)
+**Acceptance:** `pnpm install` succeeds; `pnpm-workspace.yaml` declares `packages/*` and `apps/*`; `tsconfig.base.json` has `"strict": true` + `"isolatedDeclarations": true` + ESM-only; `.npmrc` has `node-linker=isolated`; `.nvmrc` pins lower-tier Node target.
+**Verifies invariant:** none (workspace bootstrap)
+
+##### T1.2 — Per-package skeletons (excludes `apps/desktop/`)
+
+**Files:** `packages/{contracts,client-sdk,runtime-daemon,control-plane}/{package.json,tsconfig.json,src/index.ts}`
+**Acceptance:** each `package.json` has `"type": "module"`, `engines.node` per ADR-022 two-tier rule (lower for `contracts`/`client-sdk`/`runtime-daemon`, upper for `control-plane`); each `tsconfig.json` extends `../../tsconfig.base.json`; each `src/index.ts` is empty (no exports).
+**Note:** `apps/desktop/` excluded — Plan-023 owns at Tier 8. **BLOCKED-ON-C3.**
+**Verifies invariant:** none
+
+##### T1.3 — Native-binding installation surface
+
+**Acceptance:** `better-sqlite3@^12.9` declared in `packages/runtime-daemon/package.json`; `pg@^8.20` declared in `packages/control-plane/package.json`; `pnpm install` triggers `better-sqlite3` postinstall native rebuild against the lower-tier Node ABI under `node-linker=isolated` without error.
+**Verifies invariant:** none
+
+##### T1.4 — Lint, format, type-check config
+
+**Files:** `eslint.config.mjs`, `prettier.config.js`
+**Acceptance:** ESLint flat-config preset assembled per ADR-023; Prettier rules per repo convention; `pnpm turbo lint` and `pnpm turbo format:check` pass at workspace root.
+**Verifies invariant:** none
+
+##### T1.5 — Engineering CI surface (per ADR-023)
+
+**Files:** `.github/workflows/ci.yml`, `.github/workflows/release.yml`, `.github/workflows/gitleaks.yml`, `lefthook.yml`, `lint-staged.config.mjs`, `commitlint.config.mjs`, `renovate.json5`, `CODEOWNERS`
+**Acceptance:** `pnpm turbo build`, `pnpm turbo typecheck`, `pnpm turbo lint`, `pnpm turbo test` all green; CI workflow runs green on this PR; pre-commit hooks active locally; required-checks gate enforced on subsequent PRs.
+**Verifies invariant:** none
+
+##### T1.6 — Vitest sanity test
+
+**File:** `packages/contracts/test/sanity.test.ts`
+**Acceptance:** `vitest run` returns exit 0; W1 (per § Tests below) green.
+**Verifies invariant:** none (tooling readiness)
+
+#### Tests
+
+| ID  | Test                                                            | Asserts                                                | Spec-001 AC   |
+| --- | --------------------------------------------------------------- | ------------------------------------------------------ | ------------- |
+| W1  | `vitest sanity: trivial assertion in packages/contracts passes` | Vitest 4.x project graph resolves; CI test job exits 0 | n/a (tooling) |
 
 ### Phase 2 — Contracts Package
 
@@ -229,30 +283,108 @@ Plan-001 implementation lands as a sequence of small PRs. Each PR exercises one 
 
 **Goal:** Tests C1–C4 from § Test And Verification Plan go green.
 
-- `packages/contracts/src/session.ts` — `SessionId`, `SessionCreate`, `SessionRead`, `SessionJoin`, `SessionSubscribe` payload schemas
-- `packages/contracts/src/event.ts` — `SessionEvent` discriminated union (V1 subset: `SessionCreated`, `MemberJoined`, `ChannelCreated`)
-- `packages/contracts/src/error.ts` — `resource.limit_exceeded` shape
+- `packages/contracts/src/session.ts` — `SessionId`, `SessionCreate`, `SessionRead`, `SessionJoin`, `SessionSubscribe` payload schemas. Plan-001 also exports `SessionSubscribeStream = AsyncIterable<EventEnvelope>` typed against an opaque `EventEnvelope` placeholder per **C-6** (forward-stub for Plan-006); the stub is narrowed when Plan-006 ships at Tier 4.
+- `packages/contracts/src/event.ts` — `SessionEvent` discriminated union (V1 subset: `SessionCreated`, `MemberJoined`, `ChannelCreated`). **BLOCKED-ON-C8** — `MemberJoined` is referenced here but not registered in [Spec-006 §Event Type Summary](../specs/006-session-event-taxonomy-and-audit-log.md); the C-6 / C-8 governance options at [BL-105](../backlog.md#bl-105-c-8--c-9--spec-006-event-registry-amendments) (register `member.joined` in Spec-006, OR rename Plan-001 Phase 2 deliverable to use `MembershipRoleChanged`) resolve at Task 1.10. The discriminator surface in `api-payload-contracts.md` (per C-6) lands the same Phase as this file.
+- `packages/contracts/src/error.ts` — `resource.limit_exceeded` shape; also `version.floor_exceeded` and `version.ceiling_exceeded` shapes per [ADR-018 §Decision #4](../decisions/018-cross-version-compatibility.md). The runtime guards land in later Phases / Plans; Phase 2 ships the wire-shape contracts only.
+
+#### Tasks
+
+##### T2.1 — `SessionId`, `SessionCreate`, `SessionRead`, `SessionJoin`, `SessionSubscribe` payload schemas
+
+**Files:** `packages/contracts/src/session.ts`, `packages/contracts/test/session.test.ts`
+**Spec coverage:** Spec-001 AC1, AC3, AC4
+**Verifies invariant:** none (contract layer)
+
+##### T2.2 — `SessionEvent` discriminated union (BLOCKED-ON-C8)
+
+**Files:** `packages/contracts/src/event.ts`, `packages/contracts/test/event.test.ts`
+**Spec coverage:** Spec-001 AC1, AC6
+**Verifies invariant:** none
+**Note:** depends on resolution of C-8 (Spec-006 `member.joined` registration vs `MembershipRoleChanged` rename).
+
+##### T2.3 — Error contracts: `resource.limit_exceeded`, `version.floor_exceeded`, `version.ceiling_exceeded`
+
+**Files:** `packages/contracts/src/error.ts`, `packages/contracts/test/error.test.ts`
+**Spec coverage:** Spec-001 AC8 (wire shape); ADR-018 §Decision #4 version-error shapes
+**Verifies invariant:** none
 
 ### Phase 3 — Daemon Migration And Projection
 
 **Precondition:** Phase 2 merged (contract types — `SessionEvent` discriminated union — are imported by the projector).
 
-**Goal:** Tests D1–D4 go green.
+**Goal:** Tests D1–D5 go green.
 
-- `0001-initial.sql` migration creates `session_events`, `session_snapshots`, `participant_keys` (per § Data And Storage Changes; columns forward-declared but only `session_events` core columns are populated by Plan-001)
-- `packages/runtime-daemon/src/session/session-projector.ts` — single-event-to-snapshot projection
-- `packages/runtime-daemon/src/session/session-service.ts` — append + replay paths
-- Storage driver: `better-sqlite3` (already installed in Phase 1)
+- `packages/runtime-daemon/src/migrations/0001-initial.sql` migration creates `session_events`, `session_snapshots`, `participant_keys`, `schema_version` (per § Data And Storage Changes; columns forward-declared but only `session_events` core columns are populated by Plan-001). The migration also INSERTs `(version=1, applied_at=now())` into `schema_version` so downstream plans (`0002-*.sql` from Plan-002 onward) have a row to upsert against.
+- **Pragmas.** Daemon bootstrap (or migration runner) MUST set `journal_mode=WAL`, `synchronous=FULL`, `foreign_keys=ON`, `busy_timeout=5000` per [Local SQLite Schema §Pragmas](../architecture/schemas/local-sqlite-schema.md) before the first projector apply().
+- **Integrity-column placeholder convention.** Plan-001's projector writes `Buffer.alloc(32)` (32-byte zero buffer) into `prev_hash`, `row_hash`, and `daemon_signature` to satisfy NOT NULL during the Tier 1 → Tier 4 gap. Plan-006 ships a backfill+migration that overwrites these placeholders with computed values and adds the integrity-protocol invariant test. See [§Cross-Plan Forward-Declared Schema](#cross-plan-forward-declared-schema).
+- `packages/runtime-daemon/src/session/session-projector.ts` — single-event-to-snapshot projection. Projector signatures: `apply(snapshot: Snapshot, event: SessionEvent): Snapshot`; `replay(events: ReadonlyArray<EventRow>): Snapshot` ordered by `sequence ASC` per I-001-2. `Snapshot` shape per [api-payload-contracts.md](../architecture/contracts/api-payload-contracts.md) (Tier 1 Plan-001 block, `SessionSnapshot`).
+- `packages/runtime-daemon/src/session/session-service.ts` — append + replay paths. Service signatures: `SessionService.create(req: SessionCreateRequest): Promise<SessionCreateResponse>`; `read(req: SessionReadRequest): Promise<SessionReadResponse>`; `join(req: SessionJoinRequest): Promise<SessionJoinResponse>`; `subscribe(req: SessionSubscribeRequest): SessionSubscribeStream` (LocalSubscription per Plan-007 partial substrate's IPC shape).
+- Storage driver: `better-sqlite3` 12.9+ per [ADR-022](../decisions/022-v1-toolchain-selection.md) (already installed in Phase 1). Replay key: `sequence` per [ADR-017](../decisions/017-shared-event-sourcing-scope.md).
+
+#### Tasks
+
+##### T3.1 — `0001-initial.sql` migration + pragmas
+
+**Files:** `packages/runtime-daemon/src/migrations/0001-initial.sql`, daemon bootstrap shim that applies pragmas
+**Spec coverage:** Spec-001 AC2 (durability)
+**Verifies invariant:** I-001-3 (forward-declared shape stable, verified by D5)
+
+##### T3.2 — Projector reducer + replay
+
+**Files:** `packages/runtime-daemon/src/session/session-projector.ts`, `packages/runtime-daemon/src/session/test/session-projector.test.ts`
+**Spec coverage:** Spec-001 AC1, AC6
+**Verifies invariant:** I-001-2 (sequence ASC replay)
+
+##### T3.3 — Service surface (create/read/join/subscribe)
+
+**Files:** `packages/runtime-daemon/src/session/session-service.ts`, `packages/runtime-daemon/src/session/test/session-service.test.ts`
+**Spec coverage:** Spec-001 AC1, AC2, AC4, AC6
+**Verifies invariant:** none (driver-agnostic; D1-D4 verify behavior)
+
+##### T3.4 — Migration-shape regression test
+
+**Files:** `packages/runtime-daemon/src/migrations/test/migration-shape.test.ts`
+**Spec coverage:** none (invariant-only)
+**Verifies invariant:** I-001-3 (D5)
 
 ### Phase 4 — Control Plane Directory
 
 **Precondition:** Phase 2 merged (control-plane imports `SessionCreate` / `SessionRead` / `SessionJoin` payload schemas from contracts). Phase 3 is independent and may land in either order; the two are decoupled at the contract boundary.
 
-**Goal:** Tests P1–P3 go green.
+**Goal:** Tests P1–P5 go green.
 
-- Migration creates `participants` (minimal anchor: `id`, `created_at`), `sessions` (with `min_client_version`), `session_memberships` (per § Data And Storage Changes)
-- `packages/control-plane/src/sessions/session-directory-service.ts` — create, read, join paths
-- Storage driver: `pg` (already installed in Phase 1)
+- `packages/control-plane/src/migrations/0001-initial.sql` migration creates `participants` (minimal anchor: `id`, `created_at`), `sessions` (with `min_client_version`), `session_memberships` (per § Data And Storage Changes), plus the canonical indexes per [Shared Postgres Schema §Sessions and Membership](../architecture/schemas/shared-postgres-schema.md#sessions-and-membership-plan-001-plan-002) (`idx_sessions_state`, `idx_session_memberships_session`, `idx_session_memberships_participant`).
+- **Migration-order invariant.** `CREATE TABLE participants` MUST precede `CREATE TABLE sessions` and `CREATE TABLE session_memberships` per [Shared Postgres Schema §Migration-order invariant](../architecture/schemas/shared-postgres-schema.md#participants-identity-anchor-plan-001) — both `session_memberships.participant_id` and any future Plan-002/003 FK-bearing tables resolve against the anchor.
+- **`min_client_version` boundary.** The column ships forward-declared (NULL default) only; Plan-001 ships the column shape but does NOT author read/write logic per [§Cross-Plan Forward-Declared Schema](#cross-plan-forward-declared-schema) and [I-001-3](#i-001-3--forward-declared-columns-are-immutable-in-scope-at-tier-1). Attach-time floor enforcement is owned by [Plan-003](./003-runtime-node-attach.md) per [Spec-003 §Required Behavior](../specs/003-runtime-node-attach.md#required-behavior).
+- `packages/control-plane/src/sessions/session-directory-service.ts` — create, read, join paths. `createSession` accepts a daemon-assigned `id` (UUID v7 per RFC 9562; see [Shared Postgres Schema §BL-069 invariant](../architecture/schemas/shared-postgres-schema.md#sessions-and-membership-plan-001-plan-002)) and uses idempotent upsert (`ON CONFLICT (id) DO UPDATE` returning the row) for retry-after-crash safety per [domain/session-model.md §Local-Only Reconciliation](../domain/session-model.md). Join path enforces participants-per-session limit (default 10 per [Spec-001 §Resource Limits](../specs/001-shared-session-core.md#resource-limits)); over-limit returns `resource.limit_exceeded` per [§Limit Enforcement](../specs/001-shared-session-core.md#limit-enforcement).
+- **Lock-ordering test (P4).** `packages/control-plane/src/sessions/__tests__/session-directory-service.test.ts` asserts `FOR UPDATE` on `sessions` row precedes any `session_memberships` statement under the same transaction (Querier abstraction). Verifies I-001-1; Phase 5 strengthens via I7.
+- Storage driver: `pg` 8.20+ per [ADR-022](../decisions/022-v1-toolchain-selection.md) (already installed in Phase 1).
+
+#### Tasks
+
+##### T4.1 — `0001-initial.sql` Postgres migration
+
+**Files:** `packages/control-plane/src/migrations/0001-initial.sql`
+**Spec coverage:** Spec-001 AC2 (durability)
+**Verifies invariant:** none (migration only; I-001-3 verified by D5 schema-shape)
+
+##### T4.2 — `SessionDirectoryService` create/read/join paths
+
+**Files:** `packages/control-plane/src/sessions/session-directory-service.ts`
+**Spec coverage:** Spec-001 AC1, AC2, AC4, AC5, AC8
+**Verifies invariant:** I-001-1 (lock-ordering, verified by P4)
+
+##### T4.3 — Lock-ordering test (P4)
+
+**Files:** `packages/control-plane/src/sessions/__tests__/session-directory-service.test.ts`
+**Spec coverage:** none (invariant-only)
+**Verifies invariant:** I-001-1 (P4)
+
+##### T4.4 — Resource-limit-exceeded enforcement test (P5)
+
+**Files:** `packages/control-plane/src/sessions/__tests__/session-directory-service.test.ts` (extends)
+**Spec coverage:** Spec-001 AC8 (enforcement)
+**Verifies invariant:** none
 
 ### Phase 5 — Client SDK And Desktop Bootstrap
 
@@ -268,10 +400,44 @@ See [cross-plan-dependencies.md §5 Tier 1 carve-outs](../architecture/cross-pla
 - `packages/client-sdk/src/sessionClient.ts` — `create`, `read`, `join`, `subscribe` methods over the daemon and control-plane transports.
   - **Daemon transport** (`create` / `read` / `join` / `subscribe` over local IPC): consumes the Plan-007 partial-deliverable substrate — JSON-RPC 2.0 + LSP-style Content-Length framing, the `session.*` JSON-RPC method namespace, and the SDK Zod layer (~500–1000 LOC per [Spec-007 §Wire Format](../specs/007-local-ipc-and-daemon-control.md#wire-format)). `subscribe` rides the JSON-RPC 2.0 streaming primitive (Plan-007 partial substrate's `LocalSubscription` shape).
   - **Control-plane transport** (`create` / `read` / `join` / `subscribe` over HTTP/SSE): consumes the Plan-008 bootstrap-deliverable substrate — tRPC v11 server skeleton + `sessionRouter` HTTP handlers wrapping the existing `packages/control-plane/src/sessions/session-directory-service.ts` (shipped in Phase 4). `subscribe` is request-only on the wire — the response is an `AsyncIterable<EventEnvelope>` SSE stream per `packages/contracts/src/session.ts:388`.
-- `apps/desktop/renderer/src/session-bootstrap/` — minimal renderer wiring that calls `sessionClient.create` and renders the resulting session
-- `apps/desktop/main/src/sidecar-lifecycle.ts` — sidecar-cleanup handler registered **before** Electron `app.on('will-quit', ...)` per §Cross-Plan Obligations CP-001-1; drains active PTY sessions via `PtyHost.close(sessionId)` with a 2 s per-session bounded timeout, closes sidecar stdin, awaits sidecar exit, escalates to `taskkill /T /F /PID <sidecar-pid>` on hard timeout
-- `packages/runtime-daemon/src/session/spawn-cwd-translator.ts` — daemon-layer `PtyHost.spawn(spec)` wrapper per §Cross-Plan Obligations CP-001-2; substitutes a stable parent dir for `SpawnRequest.cwd` and prepends a `cd <worktree-path> && ` shell prefix (or sets `CWD=<worktree-path>` env per agent CLI conventions). Wraps both `RustSidecarPtyHost` and `NodePtyHost` because the constraint is OS-level
-- Compose a `pg.Pool`-backed `Querier` for `SessionDirectoryService` (the Phase 4 service is constructed against `Querier` and is driver-agnostic; Phase 4 ships only a PGlite path because the integration tests run on the in-process driver). Strengthen the `createSession` lock-ordering test to discriminate which `Querier` instance issued each statement so a regression that routes `FOR UPDATE` through the outer pool checkout instead of the in-transaction checkout is caught — see the `TODO(Plan-001 Phase 5)` in `packages/control-plane/src/sessions/__tests__/session-directory-service.test.ts`.
+- `apps/desktop/renderer/src/session-bootstrap/` — minimal renderer wiring that calls `sessionClient.create` and renders the resulting session. **BLOCKED-ON-C3.**
+- `apps/desktop/main/src/sidecar-lifecycle.ts` — sidecar-cleanup handler registered **before** Electron `app.on('will-quit', ...)` per §Cross-Plan Obligations CP-001-1; drains active PTY sessions via `PtyHost.close(sessionId)` with a 2 s per-session bounded timeout, closes sidecar stdin, awaits sidecar process exit (second bounded timeout: **2 s**), escalates to `taskkill /T /F /PID <sidecar-pid>` on hard timeout. **BLOCKED-ON-C3** — the `apps/desktop/main/` substrate is Plan-023 Tier 8; see [BL-101](../backlog.md#bl-101-c-3--plan-023-tier-8-substrate-carve-out-from-tier-1).
+- `packages/runtime-daemon/src/session/spawn-cwd-translator.ts` — daemon-layer `PtyHost.spawn(spec)` wrapper per §Cross-Plan Obligations CP-001-2; substitutes a stable parent dir for `SpawnRequest.cwd` and prepends a `cd <worktree-path> && ` shell prefix (or sets `CWD=<worktree-path>` env per agent CLI conventions). Wraps both `RustSidecarPtyHost` and `NodePtyHost` because the constraint is OS-level. **AMBIGUOUS** — the per-driver dispatch (cd-prefix for shell sessions; CWD-env for `claude-driver` / `codex-driver` agent CLIs that consume `CWD` env) is named per-target in the implementer's PR; if the dispatch table is non-trivial, a Plan-001 amendment lands the explicit driver→strategy mapping (currently the working assumption: shell sessions use cd-prefix; agent CLIs use CWD env). The cd-prefix strategy mutates the command string (visible to Plan-006 audit-log canonical hash); CWD-env mutates process environment (invisible to canonical bytes) — pick is consequential to integrity protocol but Plan-006 owns the integrity test that catches inconsistency.
+- Compose a `pg.Pool`-backed `Querier` for `SessionDirectoryService` (the Phase 4 service is constructed against `Querier` and is driver-agnostic; Phase 4 ships only a PGlite path because the integration tests run on the in-process driver). Strengthen the `createSession` lock-ordering test (I7) to discriminate which `Querier` instance issued each statement so a regression that routes `FOR UPDATE` through the outer pool checkout instead of the in-transaction checkout is caught — see the `TODO(Plan-001 Phase 5)` in `packages/control-plane/src/sessions/__tests__/session-directory-service.test.ts`.
+
+#### Tasks
+
+##### T5.1 — `sessionClient.ts` daemon + control-plane transport
+
+**Files:** `packages/client-sdk/src/sessionClient.ts`, `packages/client-sdk/test/sessionClient.integration.test.ts`
+**Spec coverage:** Spec-001 AC1, AC3, AC4, AC6
+**Verifies invariant:** none (integration-layer wrapper)
+
+##### T5.2 — `apps/desktop/renderer/src/session-bootstrap/` (BLOCKED-ON-C3)
+
+**Note:** Tier 8 substrate (Plan-023). No Tasks authored — awaits C-3 resolution at Task 1.10.
+
+##### T5.3 — `apps/desktop/main/src/sidecar-lifecycle.ts` (BLOCKED-ON-C3)
+
+**Note:** Tier 8 substrate (Plan-023). No Tasks authored — awaits C-3 resolution at Task 1.10. Sidecar-exit-await timeout is 2 s (specified inline above).
+
+##### T5.4 — `spawn-cwd-translator.ts` daemon-layer cwd-translator
+
+**Files:** `packages/runtime-daemon/src/session/spawn-cwd-translator.ts`, `packages/runtime-daemon/src/session/test/spawn-cwd-translator.test.ts` (Linux/Mac unit-only) + `packages/runtime-daemon/src/session/__tests__/spawn-cwd-translator.windows.test.ts` (Windows CI integration — verifies I6 / CP-001-2)
+**Spec coverage:** none (daemon-internal wrapper)
+**Verifies invariant:** none (verifies obligation CP-001-2; verifies inherited Plan-024 I-024-5)
+
+##### T5.5 — `pg.Pool`-backed `Querier` composition
+
+**Files:** `packages/control-plane/src/sessions/session-directory-service.ts` (constructor wiring), `packages/control-plane/src/sessions/__tests__/session-directory-service.test.ts` (extends with pool-checkout-and-release path)
+**Spec coverage:** Spec-001 AC1, AC2, AC4
+**Verifies invariant:** none (driver-agnostic Querier composition)
+
+##### T5.6 — Strengthen `createSession` lock-ordering test (I7)
+
+**Files:** `packages/control-plane/src/sessions/__tests__/session-directory-service.test.ts` (discharge `TODO(Plan-001 Phase 5)`)
+**Spec coverage:** Spec-001 AC2 (deterministic create), AC4 (deterministic join)
+**Verifies invariant:** I-001-1 (regression discriminator)
 
 After Phase 5 lands green and the manual smoke passes, Plan-001 is complete. Plan-002 (Invite, Membership, Presence) can then begin.
 

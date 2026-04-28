@@ -1,17 +1,17 @@
 # Plan-007: Local IPC And Daemon Control
 
-| Field                   | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Status**              | `approved`                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| **NNN**                 | `007`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| **Slug**                | `local-ipc-and-daemon-control`                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| **Date**                | `2026-04-14`                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| **Author(s)**           | `Codex`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| **Spec**                | [Spec-007: Local IPC And Daemon Control](../specs/007-local-ipc-and-daemon-control.md)                                                                                                                                                                                                                                                                                                                                                                                                 |
-| **Required ADRs**       | [ADR-002](../decisions/002-local-execution-shared-control-plane.md), [ADR-008](../decisions/008-default-transports-and-relay-boundaries.md), [ADR-009](../decisions/009-json-rpc-ipc-wire-format.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md)                                                                                                                                                                                                                       |
-| **Dependencies**        | None upstream. **Tier 1 / Tier 4 split** per [cross-plan-dependencies.md §5 Plan-007 Substrate-vs-Namespace Carve-Out](../architecture/cross-plan-dependencies.md#plan-007-substrate-vs-namespace-carve-out-tier-1--tier-4) — Plan-007-partial (Spec-007 §Wire Format substrate + `session.*` namespace + SDK Zod layer) ships at Tier 1 to unblock [Plan-001](./001-shared-session-core.md) Phase 5; Plan-007-remainder ships at Tier 4. See §Execution Windows (V1 Carve-Out) below. |
-| **Cross-Plan Deps**     | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md)                                                                                                                                                                                                                                                                                                                                                                                                              |
-| **Owned Spec-027 Rows** | 2, 3, 4, 7a, 7b, 8, 10 (daemon-side secure-default enforcement — see [Spec-027 §Required Behavior](../specs/027-self-host-secure-defaults.md#required-behavior))                                                                                                                                                                                                                                                                                                                       |
+| Field                   | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Status**              | `approved`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| **NNN**                 | `007`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| **Slug**                | `local-ipc-and-daemon-control`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| **Date**                | `2026-04-14`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| **Author(s)**           | `Codex`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| **Spec**                | [Spec-007: Local IPC And Daemon Control](../specs/007-local-ipc-and-daemon-control.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| **Required ADRs**       | [ADR-002](../decisions/002-local-execution-shared-control-plane.md), [ADR-008](../decisions/008-default-transports-and-relay-boundaries.md), [ADR-009](../decisions/009-json-rpc-ipc-wire-format.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| **Dependencies**        | **Tier 1 / Tier 4 split** per [cross-plan-dependencies.md §5 Plan-007 Substrate-vs-Namespace Carve-Out](../architecture/cross-plan-dependencies.md#plan-007-substrate-vs-namespace-carve-out-tier-1--tier-4) — Plan-007-partial (Spec-007 §Wire Format substrate + `session.*` namespace + SDK Zod layer) ships at Tier 1 to unblock [Plan-001](./001-shared-session-core.md) Phase 5; Plan-007-remainder ships at Tier 4. See §Execution Windows (V1 Carve-Out) below. **Tier 1 phase-level imports.** Phase 3 imports [Plan-001](./001-shared-session-core.md) Phase 2 (`packages/contracts/src/session.ts` + `packages/contracts/src/event.ts` Zod schemas) — Plan-007 Phase 3 PR cannot open until Plan-001 Phase 2 has merged. Phase 1 emits `security.default.override` + `security.update.available` events whose taxonomy registration belongs to [Plan-006](./006-session-event-taxonomy-and-audit-log.md) / [Spec-006](../specs/006-session-event-taxonomy-and-audit-log.md) (Tier 4) — see §Cross-Plan Obligations CP-007-5 (BLOCKED-ON-C9). |
+| **Cross-Plan Deps**     | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| **Owned Spec-027 Rows** | 2, 3, 4, 7a, 7b, 8, 10 (daemon-side secure-default enforcement — see [Spec-027 §Required Behavior](../specs/027-self-host-secure-defaults.md#required-behavior))                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 
 ## Execution Windows (V1 Carve-Out)
 
@@ -92,13 +92,80 @@ These invariants apply to whatever bind paths the daemon exposes at the current 
 
 **Why load-bearing.** A static validation surface would either over-validate at Tier 1 (refusing Tier-4-scope keys silently) or under-validate at Tier 4 (allowing settings outside the bind paths). Per-window scoping is the only way to keep the invariants honest.
 
+### I-007-6 — Namespace registry rejects duplicate method-name registration
+
+The method-namespace registry MUST reject any second `register(method, ...)` call with an already-registered method name at registration time (not at dispatch time). The error is a programmer error and surfaces synchronously during daemon bootstrap.
+
+**Why load-bearing.** A registry that silently accepts duplicates exposes a non-deterministic dispatch surface — the second handler may shadow the first, the first may shadow the second, or both may run. Every consumer of the registry (Phase 3 `session.*`, Plan-002 `presence.*`, Plan-026 onboarding handlers, Tier 4 `run.*` / `repo.*` / `artifact.*` / `settings.*` / `daemon.*`) depends on this for boot-time correctness.
+
+### I-007-7 — Schema validation runs before handler dispatch
+
+Every JSON-RPC request MUST Zod-parse against the registered schema before the handler body executes. Validation failures map to JSON-RPC `-32602 Invalid Params` (per [F-007p-2-02 BLOCKED-ON-C7] error-mapping decision) and the handler is NEVER invoked.
+
+**Why load-bearing.** Handlers must trust their typed input. A handler that runs on a malformed payload either crashes (degrades to internal-error responses) or produces garbage downstream (corrupts SQLite state, emits invalid events). Schema-validates-before-dispatch is the only invariant that pushes the validation responsibility off the handler author.
+
+### I-007-8 — Handler-thrown errors map to JSON-RPC error codes with sanitized payloads
+
+Errors thrown from handler bodies MUST map to JSON-RPC error codes per the [error-contracts.md JSON-RPC mapping] (BLOCKED-ON-C7) — registered domain codes (e.g. `session.not_found`, `auth.token_expired`) carry through to the client envelope; unregistered errors collapse to JSON-RPC `-32603 Internal Error` with sanitized message. Stack traces and secrets MUST never leak through the response.
+
+**Why load-bearing.** Handler-thrown errors are the primary observability + security surface. Stack-trace leakage is a one-way information regression; collapsing all errors to `-32603` without preserving registered domain codes destroys the typed error envelope downstream consumers depend on.
+
+### I-007-9 — Method names conform to the canonical format declared in api-payload-contracts.md
+
+The registry MUST mechanically validate method-name format at `register(method, ...)` call time, refusing names that don't match the canonical convention. **BLOCKED-ON-C6** — the canonical format (dotted lowercase per F-007p-3-01 leaning, vs. slashed / PascalCase / camelCase) is undeclared in the corpus. Once declared in `api-payload-contracts.md` §Plan-007, a regex check at registration time is sufficient.
+
+**Why load-bearing.** Without format enforcement, downstream plans may register `session.create`, `session/create`, `Session.create`, and `sessionCreate` simultaneously. The registry would treat these as distinct methods (correctly per the literal string) but the SDK consumer would have no way to choose. Format enforcement at registration time is the only mechanical guarantee.
+
 ## Preconditions
 
 - [x] Paired spec is approved
 - [x] Required ADRs are accepted
 - [x] Blocking open questions are resolved or explicitly deferred
+- [ ] [api-payload-contracts.md](../architecture/contracts/api-payload-contracts.md) §Plan-007 declares `protocolVersion` field type (integer vs string), method-namespace registry typed surface (`registerNamespace`, `MethodRegistry`), JSON-RPC method-name format convention (e.g. `<namespace>.<verb>` dotted lowercase), and the `LocalSubscription<T>` streaming primitive shape — currently undeclared / contradicted across Spec-007:54 + api-payload-contracts.md:541-548 (BLOCKED-ON-C6 governance pickup)
+- [ ] [error-contracts.md](../architecture/contracts/error-contracts.md) declares JSON-RPC numeric-error-space (`-32700` / `-32600` / `-32601` / `-32602` / `-32603`) ↔ project dotted-namespace ErrorResponse mapping; declares `unknown_setting` validation error envelope; declares the `resource.limit_exceeded` (or alternative) error code returned for oversized-body rejection (BLOCKED-ON-C7 governance pickup)
+- [ ] [Spec-006](../specs/006-session-event-taxonomy-and-audit-log.md) §Event Type Summary registers `security.default.override` and `security.update.available` as canonical event types, and [Plan-006](./006-session-event-taxonomy-and-audit-log.md) emitter table lists Plan-007 as the emitter — currently absent on both sides (BLOCKED-ON-C9 governance pickup; same governance route as Spec-006 `member.joined` registration)
+- [ ] `session.subscribe` streaming-primitive shape reconciled across `packages/contracts/src/session.ts:388` (currently SSE comment), [Plan-001](./001-shared-session-core.md) Phase 5:269 (currently `LocalSubscription`), and [api-payload-contracts.md §Plan-007](../architecture/contracts/api-payload-contracts.md):535-577 (currently `LocalSubscriptionParams` undefined-binding); ADR-009 amendment if substrate-level decision required (BLOCKED-ON-C6 governance pickup)
+- [ ] [Plan-001](./001-shared-session-core.md) Phase 2 schemas merged (`packages/contracts/src/session.ts` + `packages/contracts/src/event.ts`) — Phase 3 PR cannot open until Plan-001 Phase 2 is at HEAD
 
 Target paths below assume the canonical implementation topology defined in [Container Architecture](../architecture/container-architecture.md).
+
+## Cross-Plan Obligations
+
+The Tier 1 substrate Plan-007-partial ships at Phase 1-3 carries reciprocal obligations to downstream plans. This section makes those obligations visible to a Plan-007 reviewer without requiring them to read every consuming plan first. Mirrors the bidirectional-citation pattern established by [Plan-001 §Cross-Plan Obligations](./001-shared-session-core.md#cross-plan-obligations) (CP-001-1 / CP-001-2).
+
+### CP-007-1 — `session.*` namespace contract owed to [Plan-001](./001-shared-session-core.md) Phase 5
+
+Plan-007-partial Phase 3 owns the typed handlers + SDK Zod wrapper for `SessionCreate` / `SessionRead` / `SessionJoin` / `SessionSubscribe`. The contract surface includes (a) the canonical method-name strings (per [F-007p-3-01 BLOCKED-ON-C6] table in api-payload-contracts.md §Plan-007), (b) the request/response Zod schemas re-exported from `packages/contracts/src/session.ts` (Plan-001 Phase 2 ownership; imported transitively), and (c) the `LocalSubscription<EventEnvelope>` shape returned by `session.subscribe` (per [F-007p-3-02 BLOCKED-ON-C6] reconciliation across session.ts:388 / Plan-001:269 / api-payload-contracts.md:535-577).
+
+**Why bidirectional.** Plan-001 Phase 5 (line 268-269) names `packages/client-sdk/src/sessionClient.ts` as Phase-5-owned and cites Plan-007-partial as the substrate Phase 5 imports. Without CP-007-1 on the Plan-007 side, the obligation is one-directional — Plan-001 reviewers see the dep but Plan-007 reviewers must reverse-search to find it.
+
+### CP-007-2 — `presence.*` namespace contract owed to [Plan-002](./002-invite-membership-and-presence.md)
+
+Plan-007-remainder (Tier 4) owns the substrate's namespace registry; Plan-002 (line 94) registers `presence.*` against that surface. The Tier 1 PR sequence does NOT ship the registry's typed surface — F-007p-2-03 (BLOCKED-ON-C6) escalates registry-shape definition to api-payload-contracts.md.
+
+**Why bidirectional.** Plan-002 reviewers see the dependency on Plan-007's registry; Plan-007 reviewers (especially Tier 4 PR authors) must know that the registry's typed surface is contractually required to support Plan-002's registration before Plan-007-remainder lands.
+
+### CP-007-3 — `router.add(method, handler)` registry surface owed to [Plan-026](./026-first-run-onboarding.md) and Tier 4 namespace plans
+
+Plan-026 (line 236) imports the substrate's registry surface (`router.add(method, handler)`) for first-run-onboarding handlers. Tier 4 namespace plans (`run.*` / `repo.*` / `artifact.*` / `settings.*` / `daemon.*` per Plan-007-remainder) similarly register against the same surface. The typed shape is currently undeclared (BLOCKED-ON-C6).
+
+**Why bidirectional.** Multiple downstream plans cite the surface informally (Plan-026:236, Plan-002:94, Tier 4 namespace remainders); the surface itself must be authoritatively typed once and re-cited.
+
+### CP-007-4 — Typed JSON-RPC client transport (`packages/client-sdk/src/transport/`) owed to all client-SDK consumers
+
+Plan-007-partial Phase 3 owns the transport-layer + Zod-wrapping primitive that every typed-JSON-RPC client surface (`sessionClient`, future `runClient` / `presenceClient` / etc.) consumes. Per [F-007p-3-03] resolution, the Tier 1 file split is:
+
+- `packages/client-sdk/src/transport/jsonRpcClient.ts` — Plan-007 CREATE (transport-layer + Zod wrapping)
+- `packages/client-sdk/src/transport/types.ts` — Plan-007 CREATE (`LocalSubscription<T>` type + `Handler<Req, Res>` shape)
+- `packages/client-sdk/src/sessionClient.ts` — Plan-001 Phase 5 CREATE (session-specific client, imports the transport)
+
+**Why bidirectional.** Plan-001 Phase 5 (line 268) and Plan-007-partial Phase 3 both name `packages/client-sdk/` as their delivery surface. Without CP-007-4, the file boundary between them is undefined and the two plans risk landing the same files.
+
+### CP-007-5 — `security.default.*` event-type taxonomy registration owed to [Plan-006](./006-session-event-taxonomy-and-audit-log.md) / [Spec-006](../specs/006-session-event-taxonomy-and-audit-log.md)
+
+Plan-007-partial Phase 1 emits `security.default.override` (Spec-027:81+138+146 load-bearing) and Plan-007-remainder Tier 4 emits `security.update.available` (Spec-027 row 7a). Neither event is registered in Spec-006 §Event Type Summary (lines 486-510, 120 known event types) nor in Plan-006 emitter table (lines 80-100). **BLOCKED-ON-C9** — the governance route is the same as Spec-006 `member.joined` registration; once the registration mechanism is decided, both events register against it together with Plan-007 listed as the emitter plan.
+
+**Why bidirectional.** Spec-027 line 146 makes the load-bearing claim ("visible to Spec-006 event taxonomy"); Plan-006 / Spec-006 are the consumers. Without CP-007-5, the bootstrap emitter would write its first event before the taxonomy knows about it.
 
 ## Target Areas
 
@@ -178,6 +245,13 @@ The Tier 1 partial slice (per §Execution Windows above) lands as **3 small PRs*
 - Wire `SecureDefaults.load` as the first step of daemon bootstrap, before `local-ipc-gateway` opens its listener (per §Invariants above).
 - Tests: `SecureDefaults.load` invariant tests (load-before-bind enforcement throws on out-of-order; fail-closed on invalid config; `effectiveSettings` never exposes secrets); negative-path test that Tier-4-scope settings keys are refused with `unknown_setting` error.
 
+#### Tasks
+
+- **T-007p-1-1** (Files: `packages/runtime-daemon/src/bootstrap/secure-defaults.ts`; Verifies invariant: I-007-1 + I-007-2 + I-007-3 + I-007-5; Spec coverage: Spec-027 rows 4 + 10) — Implement `SecureDefaults.load(config)` and `effectiveSettings()` with conservative inline contract types (config = `{ bindAddress: string; bindPort?: number; localIpcPath: string; bannerFormat: 'text' | 'json' }`; effectiveSettings return = same shape minus any future secret-bearing fields). **BLOCKED-ON-C6** — when api-payload-contracts.md §Plan-007 lands the authoritative `SecureDefaults` config schema, replace the inline shape with the imported types and update I-007-3's "non-secret typed values" assertion against the canonical schema. Validation scope: refuse unknown keys (Tier-4-scope: `tlsMode`, `firstRunKeysPolicy`, `nonLoopbackHost`) with `unknown_setting` validation error per I-007-5. Fail closed on invalid loopback bind (e.g. unreachable interface, port already bound, malformed path). Tests: W-007p-1-T1 load-before-bind throws (I-007-1); W-007p-1-T2 fail-closed on invalid config (I-007-2); W-007p-1-T3 effectiveSettings exposes no secrets (I-007-3); W-007p-1-T4 Tier-4-scope keys refused with `unknown_setting` (I-007-5).
+- **T-007p-1-2** (Files: `packages/runtime-daemon/src/bootstrap/secure-defaults-events.ts`; Verifies invariant: I-007-4; Spec coverage: Spec-027 row 10 + line 81+138+146) — Implement single-emit-per-startup `security.default.override=<behavior>` audit event emitter with payload `{ behavior, row, effective_value, banner_printed_at }` per Spec-027:138. Emit at most once per override per process startup (NOT per request, NOT per event batch). The event MUST be marked-but-unregistered at Tier 1 (taxonomy registration is BLOCKED-ON-C9 governance pickup per CP-007-5); the emitter's contract is "fire to whatever event sink the daemon bootstrap exposes". Tests: W-007p-1-T5 single-emit-per-startup (I-007-4) — multiple override paths with different behaviors emit independently but each only once.
+- **T-007p-1-3** (Files: `packages/runtime-daemon/src/bootstrap/index.ts` + `secure-defaults.ts` consumer wiring; Verifies invariant: I-007-1) — Wire `SecureDefaults.load(config)` as the FIRST step of daemon bootstrap, before any listener `bind()` call. Bootstrap orchestrator MUST throw on attempted bind without prior `SecureDefaults.load` completion. Cite [ADR-006](../decisions/006-worktree-first-execution-mode.md) for daemon-as-execution-authority context inline at the bootstrap step.
+- **T-007p-1-4** (Files: `packages/runtime-daemon/test/bootstrap/secure-defaults.test.ts`; Verifies all I-007-1..5 at Tier 1 scope) — Author the W-007p-1-T1..T5 test suite. The `unknown_setting` error envelope shape is BLOCKED-ON-C7 — until error-contracts.md JSON-RPC mapping lands, T-007p-1-4 asserts on the error code STRING (`"unknown_setting"`) only; full envelope-shape assertion is added in a follow-up amendment when C-7 resolves.
+
 ### Phase 2: Wire Substrate
 
 **Goal:** Spec-007 §Wire Format substrate ships behind passing handshake + transport tests. No `session.*` handlers yet — this PR delivers the JSON-RPC + framing layer only.
@@ -188,6 +262,15 @@ The Tier 1 partial slice (per §Execution Windows above) lands as **3 small PRs*
 - `packages/runtime-daemon/src/ipc/protocol-negotiation.ts` — `DaemonHello` / `DaemonHelloAck` exchange, protocol-version pinning, mutating-operation gate when versions are incompatible per [Spec-007 §Required Behavior](../specs/007-local-ipc-and-daemon-control.md#required-behavior).
 - Tests: handshake + version-negotiation compatibility tests; transport tests for Unix socket, named pipe, and gated loopback fallback (per §Test And Verification Plan above).
 
+#### Tasks
+
+- **T-007p-2-1** (Files: `packages/runtime-daemon/src/ipc/local-ipc-gateway.ts` + `packages/contracts/src/jsonrpc.ts` (CREATE if not present); Verifies invariant: I-007-7 + I-007-8; Spec coverage: Spec-007 §Wire Format + ADR-009) — Implement JSON-RPC 2.0 dispatcher with LSP-style Content-Length framing (`Content-Length: <byte-count>\r\n\r\n`) per [ADR-009](../decisions/009-json-rpc-ipc-wire-format.md). The `protocolVersion` field type contradiction (Spec-007:54 integer vs api-payload-contracts.md:541-548 string) is **BLOCKED-ON-C6** — until reconciled, T-007p-2-1 ships the framing parser parameterized over `protocolVersion: number | string` and Phase 3 handlers narrow once the canonical type is declared. The 1MB max-message-size limit is **hard-coded in the substrate** (per F-007p-2-11 conservative resolution) — changes require a Phase 2 amendment + Spec-007 update. Per F-007p-2-12, the supervision-hook surface is `{ onConnect(transport): void; onDisconnect(transport, reason): void; onError(transport, err): void }` exported from the gateway for the Tier 4 desktop-shell supervision surface to consume (Plan-007-remainder picks up the consumer side).
+- **T-007p-2-2** (Files: `packages/runtime-daemon/src/ipc/jsonrpc-error-mapping.ts` (CREATE) + `packages/runtime-daemon/src/ipc/local-ipc-gateway.ts` consumer wiring; Verifies invariant: I-007-7 + I-007-8) — **BLOCKED-ON-C7**. Implement the JSON-RPC numeric-error-space (`-32700` parse error / `-32600` invalid request / `-32601` method not found / `-32602` invalid params / `-32603` internal error) ↔ project dotted-namespace ErrorResponse mapping. Until error-contracts.md authoritative mapping lands, ship a conservative inline mapping table in this file: parse failure → `-32700`; missing/malformed JSON-RPC envelope → `-32600`; unregistered method → `-32601`; Zod validation failure → `-32602` with the project dotted code carried in `error.data`; handler-thrown registered domain error → preserves dotted code in `error.data`, JSON-RPC `code` selected per error-contracts mapping; unhandled exception → `-32603` with sanitized message. Oversized-body rejection (per F-007p-2-05): close the connection with a JSON-RPC error frame matching `-32600` invalid-request and emit a `resource.limit_exceeded` event in `error.data` — once C-7 lands, replace with the canonical envelope.
+- **T-007p-2-3** (Files: `packages/runtime-daemon/src/ipc/registry.ts` (CREATE) + `packages/contracts/src/jsonrpc-registry.ts` (CREATE if not present); Verifies invariant: I-007-6 + I-007-7 + I-007-9; Spec coverage: §Cross-Plan Obligations CP-007-3) — **BLOCKED-ON-C6**. Implement the method-namespace registry typed surface. Conservative inline shape: `interface MethodRegistry { register<P, R>(method: string, paramsSchema: ZodSchema<P>, resultSchema: ZodSchema<R>, handler: (params: P, ctx: HandlerContext) => Promise<R>, opts?: { mutating?: boolean }): void; dispatch(method: string, params: unknown, ctx: HandlerContext): Promise<unknown>; has(method: string): boolean; }`. Per F-007p-2-06, the read-vs-mutating classification is the optional `mutating: boolean` flag at registration time; the substrate uses this flag for the version-mismatch gate (refuse mutating ops when `DaemonHelloAck.compatible === false`; allow read-only methods through). When C-6 resolves the canonical method-name format, add the regex check at register-time per I-007-9. Tests: T-007p-2-T1 duplicate registration rejected (I-007-6); T-007p-2-T2 schema-validates-before-dispatch (I-007-7); T-007p-2-T3 method-name regex validation (I-007-9, post-C-6).
+- **T-007p-2-4** (Files: `packages/runtime-daemon/src/ipc/protocol-negotiation.ts`; Verifies invariant: I-007-7; Spec coverage: Spec-007 §Required Behavior line 47 + §Fallback Behavior line 67-68) — Implement `DaemonHello` / `DaemonHelloAck` exchange. Negotiation algorithm (per F-007p-2-10 resolution): daemon selects `max(client.supportedProtocols ∩ daemon.supported)` by semver; if intersection is empty, return `version.floor_exceeded` (client too old) or `version.ceiling_exceeded` (client too new) error per error-contracts.md (BLOCKED-ON-C7 envelope shape) and refuse all subsequent mutating ops via the registry's `mutating: boolean` flag check. The per-request `protocolVersion` integer field (per Spec-007:54, BLOCKED-ON-C6) is the major version derived from `negotiatedProtocol`. Loopback-fallback gate (per F-007p-2-09): the gate is the SecureDefaults validation surface — Tier 1 only allows loopback OS-local transport; loopback-fallback transport requires explicit operator opt-in via a config key NOT YET DEFINED at Tier 1 (deferred to Tier 4 with non-loopback bind). At Tier 1, attempting loopback-fallback fails with `transport.unavailable` (BLOCKED-ON-C7 for envelope).
+- **T-007p-2-5** (Files: `packages/runtime-daemon/src/ipc/streaming-primitive.ts` (CREATE) + `packages/contracts/src/jsonrpc-streaming.ts` (CREATE); Verifies invariant: I-007-7) — **BLOCKED-ON-C6**. Implement the `LocalSubscription<T>` JSON-RPC streaming primitive at Phase 2 (per F-007p-2-14 — primitive ships with substrate, handler binding ships at Phase 3). Conservative inline shape: initial response `{ subscriptionId: string }`; notification frame `{ jsonrpc: "2.0", method: "$/subscription/notify", params: { subscriptionId: string, value: T } }` (LSP `$/cancelRequest` pattern); cancel via `$/subscription/cancel` method (params: `{ subscriptionId }`). Server-side cleanup on transport disconnect. Tests: T-007p-2-T4 subscribe round-trip (initial response + N notifications + cancel + cleanup verified). Once C-6 reconciles session.ts:388 / Plan-001:269 / api-payload-contracts.md:535-577, this file becomes the authoritative streaming primitive Plan-001 Phase 5 imports.
+- **T-007p-2-6** (Files: `packages/runtime-daemon/test/ipc/local-ipc-gateway.test.ts` + `protocol-negotiation.test.ts` + `registry.test.ts` + `streaming-primitive.test.ts`) — Author Phase 2 test suite: W-007p-2-T1 handshake + version-negotiation compatibility (Spec-007 line 47); W-007p-2-T2 transport for Unix domain socket; W-007p-2-T3 transport for Windows named pipe; W-007p-2-T4 transport: gated loopback fallback fails at Tier 1 with `transport.unavailable` (per F-007p-2-09 Tier 1 conservative gate); W-007p-2-T5 1MB max-message-size enforcement → connection close + `-32600` error frame (per F-007p-2-05); W-007p-2-T6 Content-Length framing parser correctness (single message, multi-message buffer, malformed framing → connection close); W-007p-2-T7 method-not-found → `-32601` (per F-007p-2-04 + I-007-9 namespace-isolation); W-007p-2-T8 mutating-op gate when `DaemonHelloAck.compatible === false` (per Spec-007:67-68); W-007p-2-T9 schema-validates-before-dispatch → handler not invoked on malformed payload, `-32602` returned (I-007-7); W-007p-2-T10 handler-thrown error → `-32603` (no stack/secret leak, I-007-8); W-007p-2-T11 streaming primitive round-trip + cancel cleanup (I-007-7 streaming variant). Cite [ADR-009](../decisions/009-json-rpc-ipc-wire-format.md) inline in the gateway test file's header comment per F-007p-2-08.
+
 ### Phase 3: `session.*` Handlers + SDK Zod Layer
 
 **Goal:** `session.*` JSON-RPC namespace ships end-to-end behind passing handler tests; client SDK Zod wrapper exposes the daemon transport with typed schemas. Plan-001 Phase 5 unblocks on this PR's merge (in conjunction with Plan-008 bootstrap Phase 1).
@@ -197,6 +280,65 @@ The Tier 1 partial slice (per §Execution Windows above) lands as **3 small PRs*
 - `session.*` namespace handlers in the daemon — typed JSON-RPC handlers for `SessionCreate`, `SessionRead`, `SessionJoin`, `SessionSubscribe` (the Plan-001 vertical-slice contracts already in `packages/contracts/src/session.ts`). No `run.*` / `repo.*` / `artifact.*` / `settings.*` / `daemon.*` handlers — those ship in Plan-007-remainder at Tier 4.
 - `packages/client-sdk/` — Zod-wrapped typed SDK (~500–1000 LOC per [Spec-007 §Wire Format](../specs/007-local-ipc-and-daemon-control.md#wire-format)) following the MCP TypeScript SDK pattern. Exposes `session.*` methods over the daemon transport.
 - Tests: `session.*` handler integration tests (create / read / join / subscribe round-trip through the wire substrate); SDK Zod-validation tests covering malformed-payload rejection.
+
+#### Tasks
+
+- **T-007p-3-1** (Files: `packages/runtime-daemon/src/ipc/handlers/session-create.ts` + `session-read.ts` + `session-join.ts` + `session-subscribe.ts`; Verifies invariant: I-007-7 + I-007-8; Spec coverage: §Cross-Plan Obligations CP-007-1) — **BLOCKED-ON-C6** (method-name strings) + **BLOCKED-ON-C6** (subscribe streaming-primitive shape). Implement the four `session.*` handlers binding into the registry from T-007p-2-3. Each handler imports the request/response Zod schemas from `packages/contracts/src/session.ts` (Plan-001 Phase 2 ownership; precondition per §Dependencies). Conservative method-name strings: `session.create` / `session.read` / `session.join` / `session.subscribe` (dotted-lowercase per F-007p-3-01 leaning); replace with the canonical strings once C-6's `api-payload-contracts.md §Plan-007` method-name table lands. Handler signatures per F-007p-3-08 code-surface example:
+
+  ```typescript
+  // Daemon side
+  type Handler<Req, Res> = (params: Req, ctx: HandlerContext) => Promise<Res>;
+  router.register<SessionCreateRequest, SessionCreateResponse>(
+    "session.create", // BLOCKED-ON-C6: pin canonical string
+    SessionCreateRequestSchema,
+    SessionCreateResponseSchema,
+    sessionCreateHandler,
+    { mutating: true },
+  );
+  router.register<SessionSubscribeRequest, SessionSubscribeResponse>(
+    "session.subscribe",
+    SessionSubscribeRequestSchema,
+    SessionSubscribeResponseSchema,
+    sessionSubscribeHandler,
+    { mutating: false },
+  );
+  ```
+
+  Subscribe handler returns `LocalSubscription<EventEnvelope>` per the streaming primitive from T-007p-2-5; the EventEnvelope shape comes from Plan-001 Phase 2 (`packages/contracts/src/event.ts`). Per F-007p-3-06, Spec-007 §Acceptance Criteria amendment is required to add per-method ACs (AC-N1..N4) — this is OUT-OF-PLAN-BODY work tracked at the spec level.
+
+- **T-007p-3-2** (Files: `packages/client-sdk/src/transport/jsonRpcClient.ts` (CREATE) + `packages/client-sdk/src/transport/types.ts` (CREATE); Verifies invariant: §Cross-Plan Obligations CP-007-4; Spec coverage: Spec-007:56 ~500-1000 LOC ballpark) — Implement the typed JSON-RPC transport-layer + Zod-wrapping primitive following the [MCP TypeScript SDK pattern](https://github.com/modelcontextprotocol/typescript-sdk) (per F-007p-3-10 — link the primary source in Spec-007:56 amendment). The transport file owns:
+
+  ```typescript
+  // packages/client-sdk/src/transport/jsonRpcClient.ts
+  export class JsonRpcClient {
+    constructor(transport: ClientTransport, opts?: { protocolVersion?: number | string });
+    call<P, R>(
+      method: string,
+      params: P,
+      paramsSchema: ZodSchema<P>,
+      resultSchema: ZodSchema<R>,
+    ): Promise<R>;
+    subscribe<T>(method: string, params: unknown, valueSchema: ZodSchema<T>): LocalSubscription<T>;
+  }
+  // packages/client-sdk/src/transport/types.ts
+  export interface LocalSubscription<T> {
+    subscriptionId: string;
+    next(): Promise<T | undefined>;
+    cancel(): Promise<void>;
+    [Symbol.asyncIterator](): AsyncIterator<T>;
+  }
+  export type Handler<Req, Res> = (params: Req, ctx: HandlerContext) => Promise<Res>;
+  ```
+
+  Per F-007p-3-03 SDK file boundary resolution: this file is **Plan-007 CREATE**. Plan-001 Phase 5 EXTENDs by creating `packages/client-sdk/src/sessionClient.ts` (Plan-001 OWN per Plan-001:268) which imports `JsonRpcClient` from this file. Cross-plan-deps amendment required to encode the CREATE/EXTEND split.
+
+- **T-007p-3-3** (Files: `packages/client-sdk/src/sessionClient.ts` reference verification + Plan-001 Phase 5 coordination handoff) — **NOTE**: this task does NOT create `sessionClient.ts` — that file is Plan-001 Phase 5 owned (per F-007p-3-03 resolution + CP-007-4). T-007p-3-3 verifies that the transport surface from T-007p-3-2 satisfies Plan-001 Phase 5's `sessionClient` import requirements: methods `transport.call("session.create", ...)`, `transport.call("session.read", ...)`, `transport.call("session.join", ...)`, `transport.subscribe("session.subscribe", ...)` are all callable from `sessionClient.ts`. If any signature divergence is discovered, surface as a C-6 escalation (method-name canonical-format reconciliation may require updating the transport API). **Spec coverage:** Spec-007 §Acceptance Criteria — daemon subscribability via local IPC (transport.call / transport.subscribe invocability for `session.create`, `session.read`, `session.join`, `session.subscribe`).
+- **T-007p-3-4** (Files: `packages/runtime-daemon/test/ipc/handlers/session-handlers.test.ts` + `packages/client-sdk/test/transport/jsonRpcClient.test.ts`) — Author Phase 3 test suite per F-007p-3-09 Test ID format:
+  - **I-007-3-T1** round-trip `session.create` over JSON-RPC; assert response matches SessionCreateResponseSchema; SQLite session row created; creation event emitted.
+  - **I-007-3-T2** malformed `session.create` payload rejected with JSON-RPC `-32602`; handler not invoked (I-007-7).
+  - **I-007-3-T3** `session.subscribe` initial response carries `subscriptionId`; subsequent notifications correlate; cancellation cleans up server resources (I-007-7 streaming variant + T-007p-2-5 primitive). **BLOCKED-ON-C6** — the streaming-primitive frame shape may shift when reconciliation lands; test currently asserts on the conservative inline shape from T-007p-2-5.
+  - **I-007-3-T4** SDK Zod wrapper validates response payloads; corrupted server response surfaces as typed SDK error (not silent partial); the SDK does NOT swallow validation errors.
+  - **I-007-3-T5** duplicate `router.register("session.create", ...)` rejected at registration time (I-007-6 verification path).
 
 After Phase 3 merges (and Plan-008 bootstrap Phase 1 also merges), [Plan-001 Phase 5](./001-shared-session-core.md#phase-5--client-sdk-and-desktop-bootstrap) consumer can begin.
 
@@ -211,24 +353,42 @@ Tests are scoped per execution window. Tier 1 tests gate Tier 1 PRs (#1–#3 abo
 
 ### [Tier 1] Plan-007-Partial Tests
 
-Validation surface scoped to the loopback OS-local socket bind path Tier 1 exposes.
+Validation surface scoped to the loopback OS-local socket bind path Tier 1 exposes. Test IDs prefix mapping: **W** = wire/bootstrap (Phase 1-2 substrate), **I** = integration (Phase 3 handler round-trip), **T-007p-N-M** = task-level test reference.
 
-- `SecureDefaults.load` invariant tests (per §Invariants I-007-1 / I-007-2 / I-007-3 / I-007-4):
-  - Load-before-bind: attempting to bind the local-IPC gateway before `SecureDefaults.load` completes throws (I-007-1).
-  - Fail-closed: invalid config produces typed error with actionable message; no "best-effort partial start" path exists (I-007-2).
-  - `effectiveSettings` exposes only non-secret typed values; never raw keys or secrets (I-007-3).
-  - Single override-event emission: each override emits its `security.default.override=*` event exactly once per startup (I-007-4).
-  - Tier-4-scope-key refusal (I-007-5): TLS configuration keys, non-loopback host keys, first-run-keys policy keys are refused with `unknown_setting` validation error at Tier 1.
-- Spec-027 row coverage at Tier 1 (rows 4 + 10 only — these are the bind-path-relevant rows the loopback OS-local surface exposes):
-  - Row 4: daemon defaults to `127.0.0.1`; the loopback OS-local socket binds to the local namespace only.
-  - Row 10: first-run banner content contract — `effectiveSettings` view supplies the row-10 fields the Plan-026-owned banner consumer renders. Tier 1 verifies the content contract; banner format itself ships with Plan-026.
-- Wire substrate tests:
-  - Handshake and version-negotiation compatibility tests (`DaemonHello` / `DaemonHelloAck` exchange; mutating-operation gate when versions are incompatible).
-  - Transport tests for Unix domain socket, Windows named pipe, and gated loopback fallback behavior per [Spec-007 §Wire Format](../specs/007-local-ipc-and-daemon-control.md#wire-format).
-  - 1MB max-message-size enforcement; LSP-style Content-Length framing parser correctness.
-- `session.*` namespace handler integration tests:
-  - `SessionCreate`, `SessionRead`, `SessionJoin`, `SessionSubscribe` round-trip through the wire substrate.
-  - SDK Zod-validation tests covering malformed-payload rejection.
+#### Phase 1 — SecureDefaults Bootstrap (W-007p-1-T1..T5)
+
+- **W-007p-1-T1** (Verifies I-007-1) `packages/runtime-daemon/test/bootstrap/secure-defaults.test.ts`: Load-before-bind. Attempting to bind the local-IPC gateway before `SecureDefaults.load` completes throws synchronously.
+- **W-007p-1-T2** (Verifies I-007-2) Fail-closed. Invalid config produces typed error with actionable message; no "best-effort partial start" path exists.
+- **W-007p-1-T3** (Verifies I-007-3) `effectiveSettings` exposes only non-secret typed values; never raw keys or secrets. Property test over the conservative config schema verifies no field tagged `secret: true` (post-C-6 type-level marker) leaks through.
+- **W-007p-1-T4** (Verifies I-007-5) Tier-4-scope-key refusal. TLS configuration keys (`tlsMode`, `tlsCertPath`), non-loopback host keys (`nonLoopbackHost`), first-run-keys policy keys (`firstRunKeysPolicy`) are refused with `unknown_setting` validation error at Tier 1. Until C-7 lands, asserts on error code STRING only; envelope-shape assertion deferred.
+- **W-007p-1-T5** (Verifies I-007-4) Single override-event emission. Each override emits its `security.default.override=<behavior>` event exactly once per startup. Multi-override scenario: two distinct overrides each emit their own event exactly once.
+
+Spec-027 row coverage at Tier 1 (rows 4 + 10 only — bind-path-relevant rows the loopback OS-local surface exposes):
+
+- Row 4 verification: daemon defaults to `127.0.0.1`; the loopback OS-local socket binds to the local namespace only.
+- Row 10 verification: first-run banner content contract — `effectiveSettings` view supplies the row-10 fields the Plan-026-owned banner consumer renders. Tier 1 verifies the content contract; banner format itself ships with Plan-026.
+
+#### Phase 2 — Wire Substrate (W-007p-2-T1..T11)
+
+- **W-007p-2-T1** (Spec-007 line 47) Handshake + version-negotiation compatibility. `DaemonHello` / `DaemonHelloAck` exchange; mutating-operation gate when `compatible === false`.
+- **W-007p-2-T2** Transport: Unix domain socket round-trip.
+- **W-007p-2-T3** Transport: Windows named pipe round-trip.
+- **W-007p-2-T4** (per F-007p-2-09 Tier 1 conservative gate) Transport: gated loopback fallback. At Tier 1, attempting loopback-fallback fails with `transport.unavailable` error code (BLOCKED-ON-C7 envelope). Tier 4 widens the test to verify the explicit-auth gate.
+- **W-007p-2-T5** (per F-007p-2-05) 1MB max-message-size enforcement. Body > 1MB → connection close + `-32600` error frame; subsequent reconnect succeeds.
+- **W-007p-2-T6** Content-Length framing parser correctness. Single message; multi-message buffer; partial read; malformed framing → connection close.
+- **W-007p-2-T7** (per F-007p-2-04 + I-007-9) Method-not-found namespace-isolation. Invoking an unregistered method (e.g. `not.registered`) returns JSON-RPC `-32601` per F-007p-2-02 mapping; never falls through to a generic dispatch path.
+- **W-007p-2-T8** (per Spec-007:67-68) Mutating-op gate when version-mismatch. Read methods pass through; mutating methods refused per the registry's `mutating: boolean` flag.
+- **W-007p-2-T9** (Verifies I-007-7) Schema-validates-before-dispatch. Malformed payload returns JSON-RPC `-32602`; handler is NEVER invoked.
+- **W-007p-2-T10** (Verifies I-007-8) Handler-thrown error mapping. Thrown unhandled exception → JSON-RPC `-32603` with sanitized message; no stack/secret leak.
+- **W-007p-2-T11** (Verifies I-007-7 streaming + T-007p-2-5 primitive) `LocalSubscription<T>` round-trip. Initial response carries `subscriptionId`; N notifications correlate; cancel cleans up server resources; transport disconnect triggers server-side cleanup. **BLOCKED-ON-C6** — frame shape may shift when reconciliation lands.
+
+#### Phase 3 — `session.*` Handlers + SDK Zod Layer (I-007-3-T1..T5)
+
+- **I-007-3-T1** Round-trip `session.create` over JSON-RPC. Asserts response matches `SessionCreateResponseSchema`; SQLite session row created (verified via Plan-001 Phase 4 directory service); creation event emitted.
+- **I-007-3-T2** (Verifies I-007-7) Malformed `session.create` payload rejected with JSON-RPC `-32602`; handler NEVER invoked.
+- **I-007-3-T3** (Verifies I-007-7 streaming + CP-007-1 + BLOCKED-ON-C6) `session.subscribe` initial response carries `subscriptionId`; subsequent notifications correlate to the originating subscribe; cancellation cleans up server resources.
+- **I-007-3-T4** (Verifies CP-007-4) SDK Zod wrapper validates response payloads. Corrupted server response surfaces as typed SDK error; the SDK does NOT swallow validation errors.
+- **I-007-3-T5** (Verifies I-007-6) Duplicate `router.register("session.create", ...)` rejected at registration time (programmer error surfaced synchronously during daemon bootstrap).
 
 ### [Tier 4] Plan-007-Remainder Tests
 
@@ -261,6 +421,19 @@ Validation surface widens at Tier 4 alongside the additional bind paths (HTTP, n
 - CLI coverage can become nominal instead of canonical if new daemon features are allowed to ship renderer-first
 
 ## Done Checklist
+
+### Tier 1 (Plan-007-Partial)
+
+- [ ] All Tier 1 W-007p-1-T1..T5 + W-007p-2-T1..T11 + I-007-3-T1..T5 tests pass
+- [ ] Invariants I-007-1 through I-007-9 enforced and individually tested at Tier 1 scope
+- [ ] §Cross-Plan Obligations CP-007-1..5 surface ships verified (CP-007-1 `session.*` handlers + SDK; CP-007-3 `router.register` registry; CP-007-4 `transport/jsonRpcClient.ts` + `transport/types.ts`)
+- [ ] BLOCKED-ON-C6 governance pickup tracked: api-payload-contracts.md §Plan-007 declares `protocolVersion` type, `MethodRegistry` shape, method-name format convention, `LocalSubscription<T>` shape; conservative inline shapes replaced with imported types
+- [ ] BLOCKED-ON-C7 governance pickup tracked: error-contracts.md JSON-RPC numeric ↔ dotted-namespace mapping landed; `unknown_setting` error envelope authoritative; `transport.unavailable` + `resource.limit_exceeded` envelopes authoritative
+- [ ] BLOCKED-ON-C9 governance pickup tracked: Spec-006 §Event Type Summary registers `security.default.override` + `security.update.available`; Plan-006 emitter table lists Plan-007
+- [ ] BLOCKED-ON-C6 governance pickup tracked: subscribe streaming-primitive shape reconciled across session.ts:388 / Plan-001:269 / api-payload-contracts.md:535-577; ADR-009 amendment recorded if substrate-level decision required
+- [ ] Plan-001 Phase 5's `sessionClient.ts` consumes the transport surface from CP-007-4 without modification (verified via T-007p-3-3)
+
+### Tier 4 (Plan-007-Remainder)
 
 - [ ] Code changes implemented
 - [ ] Tests added or updated

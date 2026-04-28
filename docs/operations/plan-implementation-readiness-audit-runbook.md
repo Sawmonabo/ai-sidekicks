@@ -227,7 +227,7 @@ record actual values in §Lessons Learned.
 | Metric                                         | Target band                                                                    | Out-of-band signal                                                       |
 | ---------------------------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------ |
 | B1 — Critical findings per Phase               | 0–2 average; 0–4 max for any single Phase                                      | >2 average → methodology too strict                                      |
-| B2 — Total findings per plan                   | 5–25 (across all Phases)                                                       | <5 → too lenient; >25 → over-amending                                    |
+| B2 — Total findings per plan                   | 5–50 (across all Phases)                                                       | <5 → too lenient; >50 → over-amending                                    |
 | B3 — Tasks-authored vs. blocking-finding ratio | ≥2:1                                                                           | <2:1 → spec/plan too thin to support Tasks authoring                     |
 | B4 — User-review walltime per plan             | 30 min – 2 hours                                                               | >2 hours → REVIEW.md too dense; refactor schema                          |
 | B5 — advisor() signal-to-noise                 | ≥1 substantive critique per tier diff bundle, ≤5 cosmetic-only acknowledgments | All-cosmetic → advisor not adding value                                  |
