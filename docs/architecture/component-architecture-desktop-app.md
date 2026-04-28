@@ -21,13 +21,13 @@ The desktop app is the primary interactive client, but it must remain a client. 
 
 ## Component Boundaries
 
-| Component        | Responsibility                                                                                   |
-| ---------------- | ------------------------------------------------------------------------------------------------ |
-| `Electron Main`  | Window lifecycle, updater, daemon supervision, native OS integration, and secure preload wiring. |
-| `Preload Bridge` | Narrow, typed native bridge between renderer and main process.                                   |
-| `Renderer`       | Session UI, diff UI, workflow authoring, approvals, invites, settings, and live projections.     |
-| `Client SDK`     | Typed protocol layer used by renderer and CLI to talk to local daemon and control plane.         |
-| `Local Cache`    | Optional client-side cache for drafts, view state, and offline-friendly presentation metadata.   |
+| Component | Responsibility |
+| --- | --- |
+| `Electron Main` | Window lifecycle, updater, daemon supervision, native OS integration, and secure preload wiring. |
+| `Preload Bridge` | Narrow, typed native bridge between renderer and main process. |
+| `Renderer` | Session UI, diff UI, workflow authoring, approvals, invites, settings, and live projections. |
+| `Client SDK` | Typed protocol layer used by renderer and CLI to talk to local daemon and control plane. |
+| `Local Cache` | Optional client-side cache for drafts, view state, and offline-friendly presentation metadata. |
 
 ## Implementation Home
 

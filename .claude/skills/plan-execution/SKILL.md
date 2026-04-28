@@ -100,11 +100,11 @@ digraph plan_execution_v2 {
 
 State lives in three artifacts with strict separation of role:
 
-| Artifact                            | Role                                                                                                               | Durability                      | Source of truth for       |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------- | ------------------------- |
-| **PR description (YAML DAG block)** | Static decomposition: tasks, levels, dispatch modes, acceptance criteria                                           | Cross-session (lives on origin) | "What we said we'd build" |
-| **TaskCreate**                      | Live in-session dispatch state — one task per dispatched subagent + workflow-step tasks for orchestrator-only work | In-session only                 | "Where we are right now"  |
-| **Branch commits**                  | Built code. Each task contributes one commit (sequential mode) or one merged task-branch (worktree mode)           | Cross-session (lives on origin) | "What's actually built"   |
+| Artifact | Role | Durability | Source of truth for |
+| --- | --- | --- | --- |
+| **PR description (YAML DAG block)** | Static decomposition: tasks, levels, dispatch modes, acceptance criteria | Cross-session (lives on origin) | "What we said we'd build" |
+| **TaskCreate** | Live in-session dispatch state — one task per dispatched subagent + workflow-step tasks for orchestrator-only work | In-session only | "Where we are right now" |
+| **Branch commits** | Built code. Each task contributes one commit (sequential mode) or one merged task-branch (worktree mode) | Cross-session (lives on origin) | "What's actually built" |
 
 Canonicality precedence: **branch commits > YAML DAG > TaskCreate > PR description prose**. On resume, branch commits are read first; the DAG tells you what the orchestrator intended; TaskCreate state is reconstructed from branch + DAG.
 
@@ -400,10 +400,10 @@ If the plan has more PRs and the user requested multi-PR execution, return to Ph
 
 The plan-analyst tags each task `dispatch_mode: sequential | worktree`. The orchestrator MUST respect the analyst's choice unless it's wrong (then re-dispatch the analyst with the specific objection).
 
-| Mode           | When                                                                                                                                                                                          | Mechanics                                                                                                                | Cost                                                               | Risk                                                                                |
-| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
-| **sequential** | Default. File-disjoint or file-overlapping tasks where wall-clock parallelism isn't worth setup cost                                                                                          | One implementer at a time on the PR branch. Subagent edits files, returns; orchestrator commits.                         | Zero infrastructure                                                | None — by construction no race                                                      |
-| **worktree**   | Opt-in. File-disjoint tasks at the same level where wall-clock parallelism justifies the per-worktree setup overhead. Example: a cross-cutting refactor where each task owns a different file | Each task gets a task-branch + worktree; implementers run concurrent; orchestrator merges in DAG order at level boundary | `pnpm install` per worktree (30s-2min); branch + worktree teardown | Merge conflicts at level boundary if analyst mis-categorized files; surface to user |
+| Mode | When | Mechanics | Cost | Risk |
+| --- | --- | --- | --- | --- |
+| **sequential** | Default. File-disjoint or file-overlapping tasks where wall-clock parallelism isn't worth setup cost | One implementer at a time on the PR branch. Subagent edits files, returns; orchestrator commits. | Zero infrastructure | None — by construction no race |
+| **worktree** | Opt-in. File-disjoint tasks at the same level where wall-clock parallelism justifies the per-worktree setup overhead. Example: a cross-cutting refactor where each task owns a different file | Each task gets a task-branch + worktree; implementers run concurrent; orchestrator merges in DAG order at level boundary | `pnpm install` per worktree (30s-2min); branch + worktree teardown | Merge conflicts at level boundary if analyst mis-categorized files; surface to user |
 
 **Worktree tipping point.** Worktree mode wins on wall-clock only when each task's implementer time exceeds the per-worktree setup overhead. Heuristic: choose worktree only if (a) the level has ≥ 2 file-disjoint tasks, AND (b) each task's expected implementer time is ≥ ~3 minutes. Below those thresholds, sequential is faster end-to-end — `pnpm install` (30s-2min per worktree) plus branch/worktree teardown exceeds the parallel win. The plan-analyst tags the mode in the DAG; the orchestrator overrides only if the math clearly disagrees with the analyst's `notes` justification.
 

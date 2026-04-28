@@ -56,14 +56,14 @@ A session is the durable container that holds:
 
 ## State Model
 
-| State             | Meaning                                                                                                                                                              |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `provisioning`    | The session exists but its initial membership, storage, or control-plane metadata is not yet ready.                                                                  |
-| `active`          | The session is usable for membership, communication, and execution.                                                                                                  |
-| `archived`        | The session is retained for history and replay but no longer accepts normal active work.                                                                             |
-| `closed`          | The session has been intentionally terminated and is not resumable without explicit restoration.                                                                     |
-| `purge_requested` | A participant or admin has requested data purge. The session is locked against further modification while purge processing is pending.                               |
-| `purged`          | Event payloads containing PII have been destroyed via crypto-shredding. Audit stubs (timestamps, event types, non-PII metadata) are retained. Purge is irreversible. |
+| State | Meaning |
+| --- | --- |
+| `provisioning` | The session exists but its initial membership, storage, or control-plane metadata is not yet ready. |
+| `active` | The session is usable for membership, communication, and execution. |
+| `archived` | The session is retained for history and replay but no longer accepts normal active work. |
+| `closed` | The session has been intentionally terminated and is not resumable without explicit restoration. |
+| `purge_requested` | A participant or admin has requested data purge. The session is locked against further modification while purge processing is pending. |
+| `purged` | Event payloads containing PII have been destroyed via crypto-shredding. Audit stubs (timestamps, event types, non-PII metadata) are retained. Purge is irreversible. |
 
 Allowed transitions:
 

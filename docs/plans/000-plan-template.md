@@ -54,10 +54,7 @@
 
 ## Invariants
 
-The following invariants are **load-bearing** and MUST be preserved across all
-Plan-NNN PRs and downstream extensions. Any change that would weaken or remove
-an invariant requires a coordinated cross-plan amendment (see
-[cross-plan-dependencies.md](../architecture/cross-plan-dependencies.md)).
+The following invariants are **load-bearing** and MUST be preserved across all Plan-NNN PRs and downstream extensions. Any change that would weaken or remove an invariant requires a coordinated cross-plan amendment (see [cross-plan-dependencies.md](../architecture/cross-plan-dependencies.md)).
 
 ### I-NNN-1 — {Short headline sentence}
 
@@ -82,9 +79,7 @@ an invariant requires a coordinated cross-plan amendment (see
 
 ## Cross-Plan Obligations
 
-Plan-NNN declares the following obligations on adjacent plans (or inherits
-obligations declared by them). Implementation cannot proceed (or must defer
-specific surfaces) without these being satisfied or explicitly staged.
+Plan-NNN declares the following obligations on adjacent plans (or inherits obligations declared by them). Implementation cannot proceed (or must defer specific surfaces) without these being satisfied or explicitly staged.
 
 ### CP-NNN-1 — {Short headline sentence}
 
@@ -143,9 +138,7 @@ specific surfaces) without these being satisfied or explicitly staged.
 
 ## Implementation Phase Sequence
 
-Plan-NNN implementation lands as a sequence of small PRs. Each PR exercises one
-slice of the plan's vertical and carries a `**Precondition:**` line so the merge
-order is reviewer-checkable.
+Plan-NNN implementation lands as a sequence of small PRs. Each PR exercises one slice of the plan's vertical and carries a `**Precondition:**` line so the merge order is reviewer-checkable.
 
 ### Phase 1 — {Short PR title}
 

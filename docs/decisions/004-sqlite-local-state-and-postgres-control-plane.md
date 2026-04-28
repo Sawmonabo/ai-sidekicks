@@ -59,19 +59,19 @@ JSON files are too weak for replay-heavy, event-oriented runtime truth. A single
 
 ## Assumptions Audit
 
-| #   | Assumption                                                         | Evidence                                                                                           | What Breaks If Wrong                                  |
-| --- | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| 1   | Local daemon workloads fit SQLite well.                            | The persistence spec requires SQLite with WAL for node-local execution truth and restart recovery. | SQLite could become a bottleneck or operational pain. |
-| 2   | Shared collaboration data needs multi-actor relational guarantees. | Invite, membership, presence, and session directory data are cross-user.                           | A lighter shared store might suffice.                 |
-| 3   | The system can keep local and shared data boundaries explicit.     | Data architecture and security docs already separate them.                                         | Replication or visibility bugs could blur the model.  |
+| # | Assumption | Evidence | What Breaks If Wrong |
+| --- | --- | --- | --- |
+| 1 | Local daemon workloads fit SQLite well. | The persistence spec requires SQLite with WAL for node-local execution truth and restart recovery. | SQLite could become a bottleneck or operational pain. |
+| 2 | Shared collaboration data needs multi-actor relational guarantees. | Invite, membership, presence, and session directory data are cross-user. | A lighter shared store might suffice. |
+| 3 | The system can keep local and shared data boundaries explicit. | Data architecture and security docs already separate them. | Replication or visibility bugs could blur the model. |
 
 ## Failure Mode Analysis
 
-| Scenario                                              | Likelihood | Impact | Detection                                       | Mitigation                                                  |
-| ----------------------------------------------------- | ---------- | ------ | ----------------------------------------------- | ----------------------------------------------------------- |
-| Local SQLite store is corrupted or unavailable        | Low        | High   | Daemon recovery fails or enters degraded mode   | Block mutable work, expose repair path, and support restore |
-| Shared Postgres is unavailable                        | Med        | High   | Invite, membership, or presence operations fail | Preserve explicit `local-only` degraded mode                |
-| Artifact or metadata is written to the wrong boundary | Med        | High   | Visibility or audit anomalies appear            | Enforce policy-aware manifest classification and tests      |
+| Scenario | Likelihood | Impact | Detection | Mitigation |
+| --- | --- | --- | --- | --- |
+| Local SQLite store is corrupted or unavailable | Low | High | Daemon recovery fails or enters degraded mode | Block mutable work, expose repair path, and support restore |
+| Shared Postgres is unavailable | Med | High | Invite, membership, or presence operations fail | Preserve explicit `local-only` degraded mode |
+| Artifact or metadata is written to the wrong boundary | Med | High | Visibility or audit anomalies appear | Enforce policy-aware manifest classification and tests |
 
 ## Reversibility Assessment
 
@@ -108,20 +108,20 @@ JSON files are too weak for replay-heavy, event-oriented runtime truth. A single
 
 ### Success Criteria
 
-| Metric                                                                      | Target                                   | Measurement Method              | Check Date   |
-| --------------------------------------------------------------------------- | ---------------------------------------- | ------------------------------- | ------------ |
-| Local restart recovery succeeds from embedded storage                       | 100% of recovery test fixtures           | Recovery integration suite      | `2026-04-14` |
+| Metric | Target | Measurement Method | Check Date |
+| --- | --- | --- | --- |
+| Local restart recovery succeeds from embedded storage | 100% of recovery test fixtures | Recovery integration suite | `2026-04-14` |
 | Shared collaboration data remains queryable and durable across participants | 100% of core membership and invite paths | Control-plane integration suite | `2026-04-14` |
 
 ## References
 
 ### Research Conducted
 
-| Source                                               | Type                       | Key Finding                                                                            | URL/Location                                                                                                |
-| ---------------------------------------------------- | -------------------------- | -------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `architecture/data-architecture.md`                  | Canonical architecture doc | Local and shared state belong to different trust and workload domains                  | [architecture/data-architecture.md](../architecture/data-architecture.md)                                   |
-| `specs/015-persistence-recovery-and-replay.md`       | Canonical spec             | SQLite and Postgres split is part of the correctness contract                          | [specs/015-persistence-recovery-and-replay.md](../specs/015-persistence-recovery-and-replay.md)             |
-| `operations/local-persistence-repair-and-restore.md` | Canonical operations doc   | Local persistence integrity and restore behavior are explicit operational requirements | [operations/local-persistence-repair-and-restore.md](../operations/local-persistence-repair-and-restore.md) |
+| Source | Type | Key Finding | URL/Location |
+| --- | --- | --- | --- |
+| `architecture/data-architecture.md` | Canonical architecture doc | Local and shared state belong to different trust and workload domains | [architecture/data-architecture.md](../architecture/data-architecture.md) |
+| `specs/015-persistence-recovery-and-replay.md` | Canonical spec | SQLite and Postgres split is part of the correctness contract | [specs/015-persistence-recovery-and-replay.md](../specs/015-persistence-recovery-and-replay.md) |
+| `operations/local-persistence-repair-and-restore.md` | Canonical operations doc | Local persistence integrity and restore behavior are explicit operational requirements | [operations/local-persistence-repair-and-restore.md](../operations/local-persistence-repair-and-restore.md) |
 
 ### Related Domain Docs
 

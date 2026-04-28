@@ -11,4 +11,5 @@ export default {
   bracketSpacing: true,
   arrowParens: "always",
   endOfLine: "lf",
+  proseWrap: "never",
 };

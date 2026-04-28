@@ -1,14 +1,14 @@
 # Spec-002: Invite Membership And Presence
 
-| Field                   | Value                                                                                                                                                                                                                                                                                                                                                          |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Status**              | `approved`                                                                                                                                                                                                                                                                                                                                                     |
-| **NNN**                 | `002`                                                                                                                                                                                                                                                                                                                                                          |
-| **Slug**                | `invite-membership-and-presence`                                                                                                                                                                                                                                                                                                                               |
-| **Date**                | `2026-04-14`                                                                                                                                                                                                                                                                                                                                                   |
-| **Author(s)**           | `Codex`                                                                                                                                                                                                                                                                                                                                                        |
-| **Depends On**          | [Participant And Membership Model](../domain/participant-and-membership-model.md), [Session Model](../domain/session-model.md), [Component Architecture Control Plane](../architecture/component-architecture-control-plane.md), [Security Architecture](../architecture/security-architecture.md), [Shared Session Core](../specs/001-shared-session-core.md) |
-| **Implementation Plan** | [Plan-002: Invite Membership And Presence](../plans/002-invite-membership-and-presence.md)                                                                                                                                                                                                                                                                     |
+| Field | Value |
+| --- | --- |
+| **Status** | `approved` |
+| **NNN** | `002` |
+| **Slug** | `invite-membership-and-presence` |
+| **Date** | `2026-04-14` |
+| **Author(s)** | `Codex` |
+| **Depends On** | [Participant And Membership Model](../domain/participant-and-membership-model.md), [Session Model](../domain/session-model.md), [Component Architecture Control Plane](../architecture/component-architecture-control-plane.md), [Security Architecture](../architecture/security-architecture.md), [Shared Session Core](../specs/001-shared-session-core.md) |
+| **Implementation Plan** | [Plan-002: Invite Membership And Presence](../plans/002-invite-membership-and-presence.md) |
 
 ## Purpose
 

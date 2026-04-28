@@ -21,13 +21,13 @@ A collaborative agent runtime is only operable if humans and agents can understa
 
 ## Component Boundaries
 
-| Component             | Responsibility                                                                         |
-| --------------------- | -------------------------------------------------------------------------------------- |
-| `Canonical Event Log` | Durable ordered history of session and run events.                                     |
-| `Metrics Layer`       | Runtime health, queue depth, run latency, failure-rate, and projection-lag metrics.    |
-| `Tracing Layer`       | Cross-component request and execution traces for local daemon and control-plane flows. |
-| `Audit Projection`    | Human-readable history of approvals, interventions, artifacts, and membership changes. |
-| `Replay Service`      | Rebuilds or rehydrates projections from canonical events.                              |
+| Component | Responsibility |
+| --- | --- |
+| `Canonical Event Log` | Durable ordered history of session and run events. |
+| `Metrics Layer` | Runtime health, queue depth, run latency, failure-rate, and projection-lag metrics. |
+| `Tracing Layer` | Cross-component request and execution traces for local daemon and control-plane flows. |
+| `Audit Projection` | Human-readable history of approvals, interventions, artifacts, and membership changes. |
+| `Replay Service` | Rebuilds or rehydrates projections from canonical events. |
 
 ## Data Flow
 

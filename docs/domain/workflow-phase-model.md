@@ -33,27 +33,27 @@ The workflow phase model is the source of truth for how individual steps within 
 
 V1 phase types:
 
-| Type           | Description                                                                          |
-| -------------- | ------------------------------------------------------------------------------------ |
+| Type | Description |
+| --- | --- |
 | `single-agent` | One agent executes the phase autonomously. The phase creates one run in one channel. |
-| `automated`    | No agent. Executes a script or validation check.                                     |
+| `automated` | No agent. Executes a script or validation check. |
 
 Deferred to V1.1:
 
-| Type          | Description                                                                        |
-| ------------- | ---------------------------------------------------------------------------------- |
+| Type | Description |
+| --- | --- |
 | `multi-agent` | A phase spawns a multi-agent channel where agents discuss before producing output. |
-| `human`       | A phase requires direct human contribution rather than agent execution.            |
+| `human` | A phase requires direct human contribution rather than agent execution. |
 
 ## Phase States
 
-| State       | Meaning                                                                                                              |
-| ----------- | -------------------------------------------------------------------------------------------------------------------- |
-| `pending`   | The phase has not started. It is waiting for prior phases to complete and their gates to open.                       |
-| `running`   | The phase is actively executing. An underlying run has been created and is in progress.                              |
-| `completed` | The phase finished successfully and produced its outputs.                                                            |
-| `failed`    | The phase ended in failure after exhausting configured recovery behavior.                                            |
-| `skipped`   | The phase was bypassed. This occurs when a gate is configured with `skip` failure behavior on quality-check failure. |
+| State | Meaning |
+| --- | --- |
+| `pending` | The phase has not started. It is waiting for prior phases to complete and their gates to open. |
+| `running` | The phase is actively executing. An underlying run has been created and is in progress. |
+| `completed` | The phase finished successfully and produced its outputs. |
+| `failed` | The phase ended in failure after exhausting configured recovery behavior. |
+| `skipped` | The phase was bypassed. This occurs when a gate is configured with `skip` failure behavior on quality-check failure. |
 
 Allowed transitions:
 
@@ -66,19 +66,19 @@ Allowed transitions:
 
 ## Gate Types
 
-| Gate Type        | Behavior                                                                                                                                            | Failure Behavior                                                                                                                   |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `auto-continue`  | Phase completes, next phase starts automatically. No gate check.                                                                                    | N/A                                                                                                                                |
+| Gate Type | Behavior | Failure Behavior |
+| --- | --- | --- |
+| `auto-continue` | Phase completes, next phase starts automatically. No gate check. | N/A |
 | `quality-checks` | Automated quality check runs on phase output. Evaluated by a dedicated agent or automated script -- not by the same agent that produced the output. | Configurable: `block` (halt workflow), `warn` (continue with flag), `skip` (bypass gate). Retry: re-run phase up to `max_retries`. |
-| `human-approval` | Human must approve phase output before continuing. Uses approval primitives from Plan-012 with `category: 'gate'`.                                  | Block until approved. Reject: `retry` or `stop` (configurable).                                                                    |
-| `done`           | Terminal gate. Marks the workflow as complete.                                                                                                      | N/A                                                                                                                                |
+| `human-approval` | Human must approve phase output before continuing. Uses approval primitives from Plan-012 with `category: 'gate'`. | Block until approved. Reject: `retry` or `stop` (configurable). |
+| `done` | Terminal gate. Marks the workflow as complete. | N/A |
 
 ## Gate States
 
-| State      | Meaning                                                                                                            |
-| ---------- | ------------------------------------------------------------------------------------------------------------------ |
-| `closed`   | The gate has not yet been evaluated or resolved. This is the default state. Gates start closed.                    |
-| `open`     | The gate has been resolved and the next phase may proceed.                                                         |
+| State | Meaning |
+| --- | --- |
+| `closed` | The gate has not yet been evaluated or resolved. This is the default state. Gates start closed. |
+| `open` | The gate has been resolved and the next phase may proceed. |
 | `bypassed` | The gate was skipped due to configured `skip` failure behavior on quality-check failure, or workflow cancellation. |
 
 Gate resolution results (event-level, not persisted as gate state):

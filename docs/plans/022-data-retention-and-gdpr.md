@@ -1,16 +1,16 @@
 # Plan-022: Data Retention And GDPR Compliance
 
-| Field               | Value                                                                                                                                                                                                                        |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Status**          | `approved`                                                                                                                                                                                                                   |
-| **NNN**             | `022`                                                                                                                                                                                                                        |
-| **Slug**            | `data-retention-and-gdpr`                                                                                                                                                                                                    |
-| **Date**            | `2026-04-17`                                                                                                                                                                                                                 |
-| **Author(s)**       | `Claude Opus 4.7`                                                                                                                                                                                                            |
-| **Spec**            | [Spec-022: Data Retention And GDPR Compliance](../specs/022-data-retention-and-gdpr.md)                                                                                                                                      |
-| **Required ADRs**   | [ADR-015: V1 Feature Scope Definition](../decisions/015-v1-feature-scope-definition.md)                                                                                                                                      |
-| **Dependencies**    | Plan-001 (this plan forward-declares a column on Plan-001's `session_events` table and contributes `participant_keys` to Plan-001's initial SQLite migration); Plan-007 (local daemon IPC host for the 501 GDPR stub routes) |
-| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md)                                                                                                                                                    |
+| Field | Value |
+| --- | --- |
+| **Status** | `approved` |
+| **NNN** | `022` |
+| **Slug** | `data-retention-and-gdpr` |
+| **Date** | `2026-04-17` |
+| **Author(s)** | `Claude Opus 4.7` |
+| **Spec** | [Spec-022: Data Retention And GDPR Compliance](../specs/022-data-retention-and-gdpr.md) |
+| **Required ADRs** | [ADR-015: V1 Feature Scope Definition](../decisions/015-v1-feature-scope-definition.md) |
+| **Dependencies** | Plan-001 (this plan forward-declares a column on Plan-001's `session_events` table and contributes `participant_keys` to Plan-001's initial SQLite migration); Plan-007 (local daemon IPC host for the 501 GDPR stub routes) |
+| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
 
 ## Goal
 
@@ -62,31 +62,31 @@ Per [Spec-022 §PII Data Map](../specs/022-data-retention-and-gdpr.md#pii-data-m
 
 **Durable tier** (V1 schema in scope for Plan-022's SQLite side; Postgres side referenced for V1.1 orchestration):
 
-| Table                           | Column                         | Owner Plan                                                  | Shred Path                                                   |
-| ------------------------------- | ------------------------------ | ----------------------------------------------------------- | ------------------------------------------------------------ |
-| `session_events` (SQLite)       | `pii_payload`                  | Plan-022 write-path; Plan-001 migration forward-declaration | Path 1 — crypto-shred via `participant_keys` row DELETE      |
-| `participant_keys` (SQLite)     | `encrypted_key_blob`           | Plan-022                                                    | Path 1 — row DELETE destroys per-participant AES-256-GCM key |
-| `participants` (PG)             | `display_name`, `identity_ref` | Plan-018 (identity model)                                   | Path 2 — hard DELETE row                                     |
-| `identity_mappings` (PG)        | `external_id`                  | Plan-018                                                    | Path 2 — hard DELETE row                                     |
-| `session_invites` (PG)          | `token_hash`                   | Plan-018                                                    | Path 2 — anonymize participant reference                     |
-| `notification_preferences` (PG) | `preference_value`             | Plan-018                                                    | Path 2 — hard DELETE row                                     |
+| Table | Column | Owner Plan | Shred Path |
+| --- | --- | --- | --- |
+| `session_events` (SQLite) | `pii_payload` | Plan-022 write-path; Plan-001 migration forward-declaration | Path 1 — crypto-shred via `participant_keys` row DELETE |
+| `participant_keys` (SQLite) | `encrypted_key_blob` | Plan-022 | Path 1 — row DELETE destroys per-participant AES-256-GCM key |
+| `participants` (PG) | `display_name`, `identity_ref` | Plan-018 (identity model) | Path 2 — hard DELETE row |
+| `identity_mappings` (PG) | `external_id` | Plan-018 | Path 2 — hard DELETE row |
+| `session_invites` (PG) | `token_hash` | Plan-018 | Path 2 — anonymize participant reference |
+| `notification_preferences` (PG) | `preference_value` | Plan-018 | Path 2 — hard DELETE row |
 
 **Bounded-retention diagnostic tier** (daemon-local SQLite, non-canonical per [Spec-020 §Required Behavior](../specs/020-observability-and-failure-recovery.md#required-behavior); ≤ 7-day TTL; Plan-020 ownership):
 
-| Table                                      | Column                | Owner Plan | Shred Path                                                                   |
-| ------------------------------------------ | --------------------- | ---------- | ---------------------------------------------------------------------------- |
-| `driver_raw_events` (SQLite, daemon-local) | `raw_payload`         | Plan-020   | Path 3 — scoped flush before TTL                                             |
-| `command_output` (SQLite, daemon-local)    | `stdout`, `stderr`    | Plan-020   | Path 3 — scoped flush before TTL                                             |
-| `tool_traces` (SQLite, daemon-local)       | `args`, `result_body` | Plan-020   | Path 3 — scoped flush before TTL                                             |
-| `reasoning_detail` (SQLite, daemon-local)  | `detailed_payload`    | Plan-020   | Path 3 — scoped flush before TTL; summary retained (non-PII by construction) |
+| Table | Column | Owner Plan | Shred Path |
+| --- | --- | --- | --- |
+| `driver_raw_events` (SQLite, daemon-local) | `raw_payload` | Plan-020 | Path 3 — scoped flush before TTL |
+| `command_output` (SQLite, daemon-local) | `stdout`, `stderr` | Plan-020 | Path 3 — scoped flush before TTL |
+| `tool_traces` (SQLite, daemon-local) | `args`, `result_body` | Plan-020 | Path 3 — scoped flush before TTL |
+| `reasoning_detail` (SQLite, daemon-local) | `detailed_payload` | Plan-020 | Path 3 — scoped flush before TTL; summary retained (non-PII by construction) |
 
 **Telemetry export tier** (outbound OTel / error-tracker sinks; default-deny, opt-in; Plan-020 redaction-policy ownership):
 
-| Sink                            | Attribute                            | Owner Plan | Shred Coverage                                                                                                                                 |
-| ------------------------------- | ------------------------------------ | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| OTel span attributes (outbound) | `gen_ai.prompt`, `gen_ai.completion` | Plan-020   | Redacted by default per [Spec-020 §PII in Diagnostics](../specs/020-observability-and-failure-recovery.md#pii-in-diagnostics); opt-in required |
-| OTel log body (outbound)        | log `body`                           | Plan-020   | Redacted by default; operator scrubbing policy                                                                                                 |
-| Error-tracker sink (outbound)   | `request`, `extra`                   | Plan-020   | Server-side scrubbing (default-deny keyname list)                                                                                              |
+| Sink | Attribute | Owner Plan | Shred Coverage |
+| --- | --- | --- | --- |
+| OTel span attributes (outbound) | `gen_ai.prompt`, `gen_ai.completion` | Plan-020 | Redacted by default per [Spec-020 §PII in Diagnostics](../specs/020-observability-and-failure-recovery.md#pii-in-diagnostics); opt-in required |
+| OTel log body (outbound) | log `body` | Plan-020 | Redacted by default; operator scrubbing policy |
+| Error-tracker sink (outbound) | `request`, `extra` | Plan-020 | Server-side scrubbing (default-deny keyname list) |
 
 Plan-022 does not operate against remote sinks directly. Telemetry-tier shred coverage is achieved by Plan-020's default-deny outbound posture (no PII content leaves the daemon unless opt-in per bucket, per [Spec-020 §PII in Diagnostics](../specs/020-observability-and-failure-recovery.md#pii-in-diagnostics)).
 

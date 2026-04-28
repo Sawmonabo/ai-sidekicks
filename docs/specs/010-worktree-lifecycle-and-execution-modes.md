@@ -1,14 +1,14 @@
 # Spec-010: Worktree Lifecycle And Execution Modes
 
-| Field                   | Value                                                                                                                                                                                                                                                                      |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Status**              | `approved`                                                                                                                                                                                                                                                                 |
-| **NNN**                 | `010`                                                                                                                                                                                                                                                                      |
-| **Slug**                | `worktree-lifecycle-and-execution-modes`                                                                                                                                                                                                                                   |
-| **Date**                | `2026-04-14`                                                                                                                                                                                                                                                               |
-| **Author(s)**           | `Codex`                                                                                                                                                                                                                                                                    |
-| **Depends On**          | [Repo Workspace Worktree Model](../domain/repo-workspace-worktree-model.md), [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md), [Repo Attachment And Workspace Binding](../specs/009-repo-attachment-and-workspace-binding.md) |
-| **Implementation Plan** | [Plan-010: Worktree Lifecycle And Execution Modes](../plans/010-worktree-lifecycle-and-execution-modes.md)                                                                                                                                                                 |
+| Field | Value |
+| --- | --- |
+| **Status** | `approved` |
+| **NNN** | `010` |
+| **Slug** | `worktree-lifecycle-and-execution-modes` |
+| **Date** | `2026-04-14` |
+| **Author(s)** | `Codex` |
+| **Depends On** | [Repo Workspace Worktree Model](../domain/repo-workspace-worktree-model.md), [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md), [Repo Attachment And Workspace Binding](../specs/009-repo-attachment-and-workspace-binding.md) |
+| **Implementation Plan** | [Plan-010: Worktree Lifecycle And Execution Modes](../plans/010-worktree-lifecycle-and-execution-modes.md) |
 
 ## Purpose
 

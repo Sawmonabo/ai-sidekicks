@@ -17,14 +17,14 @@ python3 .claude/skills/claude-md-audit/evals/scripts/eval_harness.py full --test
 
 ## Commands
 
-| Command                                    | Description                                                      |
-| ------------------------------------------ | ---------------------------------------------------------------- |
-| `setup [--iteration N] [--test ID]`        | Create workspace for next (or specified) iteration               |
-| `run [iteration] [--model M] [--test ID]`  | Setup + launch all `claude -p` runs in parallel + capture timing |
-| `grade [iteration] [--model M]`            | Grade each run's report against assertions via `claude -p`       |
-| `aggregate [iteration]`                    | Aggregate grading results into `benchmark.json`                  |
-| `full [iteration] [--model M] [--test ID]` | run + grade + aggregate in one command                           |
-| `status [iteration]`                       | Show pass rates for an iteration (or latest)                     |
+| Command | Description |
+| --- | --- |
+| `setup [--iteration N] [--test ID]` | Create workspace for next (or specified) iteration |
+| `run [iteration] [--model M] [--test ID]` | Setup + launch all `claude -p` runs in parallel + capture timing |
+| `grade [iteration] [--model M]` | Grade each run's report against assertions via `claude -p` |
+| `aggregate [iteration]` | Aggregate grading results into `benchmark.json` |
+| `full [iteration] [--model M] [--test ID]` | run + grade + aggregate in one command |
+| `status [iteration]` | Show pass rates for an iteration (or latest) |
 
 ## Options
 

@@ -35,14 +35,10 @@ Sign, distribute, verify, and rotate the operator-signed artifacts that underpin
 
 ### Scenario A — Sign and publish a new policy bundle (V1.1+)
 
-1. Build the policy bundle tarball:
-   `sidekicks policy bundle build --out policy-bundle-v{N}.cedar.tar.gz`
-   where `{N}` is `last_published_version + 1`.
+1. Build the policy bundle tarball: `sidekicks policy bundle build --out policy-bundle-v{N}.cedar.tar.gz` where `{N}` is `last_published_version + 1`.
 2. Inspect the manifest in the built tarball to confirm version, algorithm, and Cedar target version are as expected.
-3. Sign the bundle with the operator release key:
-   `sidekicks policy bundle sign --bundle policy-bundle-v{N}.cedar.tar.gz --key <operator-release-key-ref>`
-4. Verify the signature locally before publishing:
-   `sidekicks policy bundle verify --bundle policy-bundle-v{N}.cedar.tar.gz --sig policy-bundle-v{N}.cedar.tar.gz.sig --pubkey <operator-public-key>`
+3. Sign the bundle with the operator release key: `sidekicks policy bundle sign --bundle policy-bundle-v{N}.cedar.tar.gz --key <operator-release-key-ref>`
+4. Verify the signature locally before publishing: `sidekicks policy bundle verify --bundle policy-bundle-v{N}.cedar.tar.gz --sig policy-bundle-v{N}.cedar.tar.gz.sig --pubkey <operator-public-key>`
 5. Publish bundle and signature to the operator distribution endpoint.
 6. Monitor daemon fleet telemetry for bundle pickup and successful verification counts.
 
@@ -50,14 +46,14 @@ Sign, distribute, verify, and rotate the operator-signed artifacts that underpin
 
 ### Scenario B — Daemon refuses to enforce approvals (bundle verification failed)
 
-| Error code                         | Meaning                                                                   | Action                                                                                                                                                                                                  |
-| ---------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `policy-bundle-signature-invalid`  | Signature does not verify against pinned key.                             | Confirm correct bundle/signature pair; confirm daemon's pinned key matches the key that signed this bundle; if mismatch, daemon was built against a different operator key and needs rebuild/reinstall. |
-| `policy-bundle-hash-mismatch`      | Tarball hash does not match manifest hash.                                | Bundle is truncated or altered; re-fetch from distribution endpoint.                                                                                                                                    |
-| `policy-bundle-version-rollback`   | Candidate `N` is not greater than `last_verified_bundle_version`.         | Expected when replaying an older bundle; publish `N > last_verified_bundle_version` or, if the daemon's persisted version is itself wrong, escalate.                                                    |
-| `policy-bundle-timestamp-expired`  | Manifest timestamp is outside the freshness window.                       | Publish a newer bundle with a current timestamp.                                                                                                                                                        |
-| `policy-bundle-algorithm-mismatch` | Bundle signed with an algorithm other than the daemon's pinned algorithm. | Re-sign the bundle with the daemon's expected algorithm or rebuild the daemon with the desired algorithm pinned.                                                                                        |
-| `policy-bundle-pinned-key-unknown` | Daemon has no pinned operator public key.                                 | Daemon image is built incorrectly; rebuild with `OPERATOR_PUBLIC_KEY` build arg set.                                                                                                                    |
+| Error code | Meaning | Action |
+| --- | --- | --- |
+| `policy-bundle-signature-invalid` | Signature does not verify against pinned key. | Confirm correct bundle/signature pair; confirm daemon's pinned key matches the key that signed this bundle; if mismatch, daemon was built against a different operator key and needs rebuild/reinstall. |
+| `policy-bundle-hash-mismatch` | Tarball hash does not match manifest hash. | Bundle is truncated or altered; re-fetch from distribution endpoint. |
+| `policy-bundle-version-rollback` | Candidate `N` is not greater than `last_verified_bundle_version`. | Expected when replaying an older bundle; publish `N > last_verified_bundle_version` or, if the daemon's persisted version is itself wrong, escalate. |
+| `policy-bundle-timestamp-expired` | Manifest timestamp is outside the freshness window. | Publish a newer bundle with a current timestamp. |
+| `policy-bundle-algorithm-mismatch` | Bundle signed with an algorithm other than the daemon's pinned algorithm. | Re-sign the bundle with the daemon's expected algorithm or rebuild the daemon with the desired algorithm pinned. |
+| `policy-bundle-pinned-key-unknown` | Daemon has no pinned operator public key. | Daemon image is built incorrectly; rebuild with `OPERATOR_PUBLIC_KEY` build arg set. |
 
 After correcting the underlying cause, restart the daemon and confirm `RecoveryStatusRead` moves out of `ApprovalPolicyEngineUnavailable`.
 

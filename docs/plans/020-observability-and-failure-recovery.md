@@ -1,16 +1,16 @@
 # Plan-020: Observability And Failure Recovery
 
-| Field                   | Value                                                                                                                                                                                                                                                   |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Status**              | `approved`                                                                                                                                                                                                                                              |
-| **NNN**                 | `020`                                                                                                                                                                                                                                                   |
-| **Slug**                | `observability-and-failure-recovery`                                                                                                                                                                                                                    |
-| **Date**                | `2026-04-14`                                                                                                                                                                                                                                            |
-| **Author(s)**           | `Codex`                                                                                                                                                                                                                                                 |
-| **Spec**                | [Spec-020: Observability And Failure Recovery](../specs/020-observability-and-failure-recovery.md)                                                                                                                                                      |
-| **Required ADRs**       | [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md), [ADR-005](../decisions/005-provider-drivers-use-a-normalized-interface.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md)                                    |
-| **Dependencies**        | [Plan-015](./015-persistence-recovery-and-replay.md) (persistence layer)                                                                                                                                                                                |
-| **Cross-Plan Deps**     | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md)                                                                                                                                                                               |
+| Field | Value |
+| --- | --- |
+| **Status** | `approved` |
+| **NNN** | `020` |
+| **Slug** | `observability-and-failure-recovery` |
+| **Date** | `2026-04-14` |
+| **Author(s)** | `Codex` |
+| **Spec** | [Spec-020: Observability And Failure Recovery](../specs/020-observability-and-failure-recovery.md) |
+| **Required ADRs** | [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md), [ADR-005](../decisions/005-provider-drivers-use-a-normalized-interface.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md) |
+| **Dependencies** | [Plan-015](./015-persistence-recovery-and-replay.md) (persistence layer) |
+| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
 | **Owned Spec-027 Rows** | 9 — Prometheus `/metrics` exposition (daemon endpoint + six metric families + bind/auth secure-default contract); see [Spec-027 row 9](../specs/027-self-host-secure-defaults.md#required-behavior). Plan-025 mounts the equivalent relay-side surface. |
 
 ## Goal
@@ -72,14 +72,14 @@ Plan-020 owns the daemon-side `/metrics` endpoint required by [Spec-027 row 9](.
 
 **Metric families (daemon scope — Plan-025 mounts the equivalent relay-side set).** Only the six Spec-027 row 9 families are exposed; any additional metric family requires a Plan-020 amendment.
 
-| Family                         | Type    | Labels (bounded)                                                                                          | Source                                                                               |
-| ------------------------------ | ------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `token_auth_failure_total`     | counter | `reason: "expired"\|"invalid"\|"dpop_mismatch"\|"principal_mismatch"\|"scope_denied"` (5 bounded values)  | Auth middleware                                                                      |
-| `rate_limit_trip_total`        | counter | `bucket: "session"\|"run"\|"invite"\|"relay_group"\|"resource"` (5 bounded values)                        | Rate-limit enforcer                                                                  |
-| `cedar_deny_total`             | counter | `policy_family: "session"\|"membership"\|"runtime_node"\|"artifact"\|"admin"` (bounded; owned by ADR-012) | Cedar authorization layer                                                            |
-| `relay_connection_churn_total` | counter | `phase: "connect"\|"disconnect"\|"reconnect"\|"rejected"` (4 bounded values)                              | Relay client (mount via Plan-025 relay-side equivalent)                              |
-| `backup_success_total`         | counter | `kind: "event_end"\|"nightly"\|"manual"` (3 bounded values)                                               | Backup job (Plan-001/BL-063)                                                         |
-| `auto_update_check_status`     | gauge   | none                                                                                                      | Update-notify poller (Plan-007 row 7a) — values: `0=ok`, `1=behind`, `2=poll_failed` |
+| Family | Type | Labels (bounded) | Source |
+| --- | --- | --- | --- |
+| `token_auth_failure_total` | counter | `reason: "expired"\|"invalid"\|"dpop_mismatch"\|"principal_mismatch"\|"scope_denied"` (5 bounded values) | Auth middleware |
+| `rate_limit_trip_total` | counter | `bucket: "session"\|"run"\|"invite"\|"relay_group"\|"resource"` (5 bounded values) | Rate-limit enforcer |
+| `cedar_deny_total` | counter | `policy_family: "session"\|"membership"\|"runtime_node"\|"artifact"\|"admin"` (bounded; owned by ADR-012) | Cedar authorization layer |
+| `relay_connection_churn_total` | counter | `phase: "connect"\|"disconnect"\|"reconnect"\|"rejected"` (4 bounded values) | Relay client (mount via Plan-025 relay-side equivalent) |
+| `backup_success_total` | counter | `kind: "event_end"\|"nightly"\|"manual"` (3 bounded values) | Backup job (Plan-001/BL-063) |
+| `auto_update_check_status` | gauge | none | Update-notify poller (Plan-007 row 7a) — values: `0=ok`, `1=behind`, `2=poll_failed` |
 
 **PII-free-by-construction invariants.**
 

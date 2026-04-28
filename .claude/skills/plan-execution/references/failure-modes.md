@@ -16,11 +16,11 @@ The subagent completed the task as briefed.
 
 The subagent completed but flagged concerns. Routing depends on which role surfaced the concerns:
 
-| Role                              | What it means                                                 | Routing                                                                  |
-| --------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| **Plan-analyst**                  | DAG validates but analyst flagged ambiguities resolved in-DAG | Read concerns; proceed with DAG; carry concerns to PR body Review Notes  |
+| Role | What it means | Routing |
+| --- | --- | --- |
+| **Plan-analyst** | DAG validates but analyst flagged ambiguities resolved in-DAG | Read concerns; proceed with DAG; carry concerns to PR body Review Notes |
 | **Contract-author / Implementer** | "I shipped, but I want to flag X" — implementer's own caveats | Continue to per-task reviewers; carry concerns into PR body Review Notes |
-| **Reviewer (any of the 3)**       | Findings exist with severity labels                           | Route per the Findings Discipline section in SKILL.md                    |
+| **Reviewer (any of the 3)** | Findings exist with severity labels | Route per the Findings Discipline section in SKILL.md |
 
 ## NEEDS_CONTEXT
 

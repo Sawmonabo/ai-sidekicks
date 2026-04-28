@@ -49,22 +49,22 @@ Use tRPC v11 for control plane request-response operations and SSE subscriptions
 
 ## Assumptions Audit
 
-| #   | Assumption                                                                                                                     | Evidence                                                                                                                           | What Breaks If Wrong                                                                                                                 |
-| --- | ------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| 1   | tRPC v11 end-to-end TypeScript inference works well on Cloudflare Workers with no codegen.                                     | tRPC v11 documents Workers as a supported adapter target; published examples run on Workers without codegen steps.                 | We would need a REST+OpenAPI layer, losing inference and adding schema maintenance.                                                  |
-| 2   | SSE is adequate for one-directional streaming (notifications, run events) in browser and CLI contexts.                         | SSE is a W3C standard, widely deployed, and supported by modern browsers and HTTP clients.                                         | If intermediaries strip or buffer SSE, we would have to route streaming traffic through WebSocket too.                               |
-| 3   | A separate WebSocket channel using JSON-RPC 2.0 (per ADR-009) is the right transport for bidirectional collaboration features. | ADR-009 commits to JSON-RPC 2.0 for daemon IPC, so reusing the same payload shape avoids a second serialization contract.          | If collaboration needs a different protocol (e.g., CRDT-native), we would run a third transport on the control plane.                |
-| 4   | Non-TypeScript clients are a minority use case and can be served by a narrow REST facade.                                      | First-party clients (CLI, desktop, browser) are all TypeScript; relay and integrations can target the WebSocket/JSON-RPC boundary. | If enterprise customers demand OpenAPI-first contracts, we would need to publish and maintain a generated REST surface from day one. |
+| # | Assumption | Evidence | What Breaks If Wrong |
+| --- | --- | --- | --- |
+| 1 | tRPC v11 end-to-end TypeScript inference works well on Cloudflare Workers with no codegen. | tRPC v11 documents Workers as a supported adapter target; published examples run on Workers without codegen steps. | We would need a REST+OpenAPI layer, losing inference and adding schema maintenance. |
+| 2 | SSE is adequate for one-directional streaming (notifications, run events) in browser and CLI contexts. | SSE is a W3C standard, widely deployed, and supported by modern browsers and HTTP clients. | If intermediaries strip or buffer SSE, we would have to route streaming traffic through WebSocket too. |
+| 3 | A separate WebSocket channel using JSON-RPC 2.0 (per ADR-009) is the right transport for bidirectional collaboration features. | ADR-009 commits to JSON-RPC 2.0 for daemon IPC, so reusing the same payload shape avoids a second serialization contract. | If collaboration needs a different protocol (e.g., CRDT-native), we would run a third transport on the control plane. |
+| 4 | Non-TypeScript clients are a minority use case and can be served by a narrow REST facade. | First-party clients (CLI, desktop, browser) are all TypeScript; relay and integrations can target the WebSocket/JSON-RPC boundary. | If enterprise customers demand OpenAPI-first contracts, we would need to publish and maintain a generated REST surface from day one. |
 
 ## Failure Mode Analysis
 
-| Scenario                                                                         | Likelihood | Impact | Detection                                                       | Mitigation                                                                                 |
-| -------------------------------------------------------------------------------- | ---------- | ------ | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| tRPC type inference degrades at large router scales (build time, IDE lag)        | Med        | Med    | Build-time metrics, developer experience feedback               | Split routers by domain; lazy-load procedure modules                                       |
-| SSE connections drop through corporate proxies or Cloudflare edge intermediaries | Med        | Med    | Connection drop rate metrics and user support tickets           | Fall back to WebSocket streaming for affected clients; provide a transport-preference flag |
-| WebSocket transport drifts from JSON-RPC 2.0 framing used for daemon IPC         | Med        | Med    | Conformance tests that share fixtures with ADR-009 daemon tests | Share the JSON-RPC adapter codebase between daemon and control-plane WebSocket             |
-| tRPC upstream breaking change forces a v12 migration mid-lifecycle               | Low        | Med    | tRPC release tracker                                            | Pin major versions, follow tRPC migration guides, schedule upgrade windows                 |
-| A non-TypeScript integration partner cannot consume tRPC                         | Med        | Low    | Partner feedback and integration requirements                   | Publish a narrow REST facade generated from the tRPC router for external consumers         |
+| Scenario | Likelihood | Impact | Detection | Mitigation |
+| --- | --- | --- | --- | --- |
+| tRPC type inference degrades at large router scales (build time, IDE lag) | Med | Med | Build-time metrics, developer experience feedback | Split routers by domain; lazy-load procedure modules |
+| SSE connections drop through corporate proxies or Cloudflare edge intermediaries | Med | Med | Connection drop rate metrics and user support tickets | Fall back to WebSocket streaming for affected clients; provide a transport-preference flag |
+| WebSocket transport drifts from JSON-RPC 2.0 framing used for daemon IPC | Med | Med | Conformance tests that share fixtures with ADR-009 daemon tests | Share the JSON-RPC adapter codebase between daemon and control-plane WebSocket |
+| tRPC upstream breaking change forces a v12 migration mid-lifecycle | Low | Med | tRPC release tracker | Pin major versions, follow tRPC migration guides, schedule upgrade windows |
+| A non-TypeScript integration partner cannot consume tRPC | Med | Low | Partner feedback and integration requirements | Publish a narrow REST facade generated from the tRPC router for external consumers |
 
 ## Reversibility Assessment
 
@@ -98,11 +98,11 @@ Use tRPC v11 for control plane request-response operations and SSE subscriptions
 
 ### Success Criteria
 
-| Metric                                                                                     | Target                             | Measurement Method                    | Check Date   |
-| ------------------------------------------------------------------------------------------ | ---------------------------------- | ------------------------------------- | ------------ |
-| End-to-end type safety across CLI/desktop/browser without codegen                          | 100% of first-party client calls   | TypeScript build checks and client CI | `2026-07-01` |
-| Control plane round-trip latency (query/mutation) on Cloudflare Workers                    | < 150 ms at p95 globally           | Control plane metrics                 | `2026-10-01` |
-| Collaboration features (presence, typing) working over WebSocket/JSON-RPC with no fallback | 100% of sessions at desktop launch | Session telemetry                     | `2026-12-01` |
+| Metric | Target | Measurement Method | Check Date |
+| --- | --- | --- | --- |
+| End-to-end type safety across CLI/desktop/browser without codegen | 100% of first-party client calls | TypeScript build checks and client CI | `2026-07-01` |
+| Control plane round-trip latency (query/mutation) on Cloudflare Workers | < 150 ms at p95 globally | Control plane metrics | `2026-10-01` |
+| Collaboration features (presence, typing) working over WebSocket/JSON-RPC with no fallback | 100% of sessions at desktop launch | Session telemetry | `2026-12-01` |
 
 ## References
 

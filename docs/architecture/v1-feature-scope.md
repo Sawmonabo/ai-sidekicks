@@ -8,35 +8,35 @@ This document records the V1 / V1.1 / V2 scope triage for the product. It is gov
 
 Every V1 feature has a governing spec. Cross-cutting V1 specs (identity, observability, rate limiting, data retention, relay) are listed separately in §Supporting V1 Specs below.
 
-| #   | Feature                                        | Governing Spec(s)                                                                                                                        |
-| --- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Session creation and join                      | [Spec-001](../specs/001-shared-session-core.md)                                                                                          |
-| 2   | Mid-session invites via shareable link         | [Spec-002](../specs/002-invite-membership-and-presence.md)                                                                               |
-| 3   | Membership roles and permissions               | [Spec-002](../specs/002-invite-membership-and-presence.md), [Spec-012](../specs/012-approvals-permissions-and-trust-boundaries.md)       |
-| 4   | Runtime node attach/detach                     | [Spec-003](../specs/003-runtime-node-attach.md)                                                                                          |
-| 5   | Single-agent runs (Codex, Claude)              | [Spec-005](../specs/005-provider-driver-contract-and-capabilities.md)                                                                    |
-| 6   | Queue, steer, pause, resume, interrupt         | [Spec-004](../specs/004-queue-steer-pause-resume.md)                                                                                     |
-| 7   | Approval gates                                 | [Spec-012](../specs/012-approvals-permissions-and-trust-boundaries.md)                                                                   |
-| 8   | Repo attach and workspace binding              | [Spec-009](../specs/009-repo-attachment-and-workspace-binding.md)                                                                        |
-| 9   | Worktree-based execution                       | [Spec-010](../specs/010-worktree-lifecycle-and-execution-modes.md)                                                                       |
-| 10  | Session timeline with replay                   | [Spec-013](../specs/013-live-timeline-visibility-and-reasoning-surfaces.md), [Spec-015](../specs/015-persistence-recovery-and-replay.md) |
-| 11  | Local daemon with CLI                          | [Spec-007](../specs/007-local-ipc-and-daemon-control.md)                                                                                 |
-| 12  | Presence (online/idle/offline)                 | [Spec-002](../specs/002-invite-membership-and-presence.md)                                                                               |
-| 13  | Event audit log                                | [Spec-006](../specs/006-session-event-taxonomy-and-audit-log.md)                                                                         |
-| 14  | Artifact publication (local)                   | [Spec-014](../specs/014-artifacts-files-and-attachments.md)                                                                              |
-| 15  | Desktop GUI                                    | [Spec-023: Desktop Shell and Renderer](../specs/023-desktop-shell-and-renderer.md)                                                       |
-| 16  | Multi-Agent Channels                           | [Spec-016](../specs/016-multi-agent-channels-and-orchestration.md) (V1-readiness review per BL-042)                                      |
-| 17  | Workflow authoring and execution (full engine) | [Spec-017](../specs/017-workflow-authoring-and-execution.md) (promoted V1.1→V1 per BL-097)                                               |
+| # | Feature | Governing Spec(s) |
+| --- | --- | --- |
+| 1 | Session creation and join | [Spec-001](../specs/001-shared-session-core.md) |
+| 2 | Mid-session invites via shareable link | [Spec-002](../specs/002-invite-membership-and-presence.md) |
+| 3 | Membership roles and permissions | [Spec-002](../specs/002-invite-membership-and-presence.md), [Spec-012](../specs/012-approvals-permissions-and-trust-boundaries.md) |
+| 4 | Runtime node attach/detach | [Spec-003](../specs/003-runtime-node-attach.md) |
+| 5 | Single-agent runs (Codex, Claude) | [Spec-005](../specs/005-provider-driver-contract-and-capabilities.md) |
+| 6 | Queue, steer, pause, resume, interrupt | [Spec-004](../specs/004-queue-steer-pause-resume.md) |
+| 7 | Approval gates | [Spec-012](../specs/012-approvals-permissions-and-trust-boundaries.md) |
+| 8 | Repo attach and workspace binding | [Spec-009](../specs/009-repo-attachment-and-workspace-binding.md) |
+| 9 | Worktree-based execution | [Spec-010](../specs/010-worktree-lifecycle-and-execution-modes.md) |
+| 10 | Session timeline with replay | [Spec-013](../specs/013-live-timeline-visibility-and-reasoning-surfaces.md), [Spec-015](../specs/015-persistence-recovery-and-replay.md) |
+| 11 | Local daemon with CLI | [Spec-007](../specs/007-local-ipc-and-daemon-control.md) |
+| 12 | Presence (online/idle/offline) | [Spec-002](../specs/002-invite-membership-and-presence.md) |
+| 13 | Event audit log | [Spec-006](../specs/006-session-event-taxonomy-and-audit-log.md) |
+| 14 | Artifact publication (local) | [Spec-014](../specs/014-artifacts-files-and-attachments.md) |
+| 15 | Desktop GUI | [Spec-023: Desktop Shell and Renderer](../specs/023-desktop-shell-and-renderer.md) |
+| 16 | Multi-Agent Channels | [Spec-016](../specs/016-multi-agent-channels-and-orchestration.md) (V1-readiness review per BL-042) |
+| 17 | Workflow authoring and execution (full engine) | [Spec-017](../specs/017-workflow-authoring-and-execution.md) (promoted V1.1→V1 per BL-097) |
 
 ## V1.1 Features (3, Deferred)
 
 Features with a governing spec already written that defer implementation past V1 on well-named gates.
 
-| #   | Feature                     | Deferral Gate                                                                                                                                                                                                   | Governing Spec(s)                                                                                     |
-| --- | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| 1   | MLS relay E2EE              | Pending audit of an MLS implementation (OpenMLS, mls-rs, or a post-audit TypeScript implementation); V1 ships pairwise X25519 + XChaCha20-Poly1305 per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md). | [Spec-008](../specs/008-control-plane-relay-and-session-join.md)                                      |
-| 2   | Email invite delivery       | V1 uses shareable-link tokens; email delivery adds an external-service dependency with no category-positioning payoff for V1.                                                                                   | [Spec-002](../specs/002-invite-membership-and-presence.md)                                            |
-| 3   | Cross-node shared artifacts | Local artifact publication (feature 14) ships in V1; the shared-artifact relay layer is incremental scope on top of relay core.                                                                                 | [Spec-014](../specs/014-artifacts-files-and-attachments.md) (local portion is V1; cross-node is V1.1) |
+| # | Feature | Deferral Gate | Governing Spec(s) |
+| --- | --- | --- | --- |
+| 1 | MLS relay E2EE | Pending audit of an MLS implementation (OpenMLS, mls-rs, or a post-audit TypeScript implementation); V1 ships pairwise X25519 + XChaCha20-Poly1305 per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md). | [Spec-008](../specs/008-control-plane-relay-and-session-join.md) |
+| 2 | Email invite delivery | V1 uses shareable-link tokens; email delivery adds an external-service dependency with no category-positioning payoff for V1. | [Spec-002](../specs/002-invite-membership-and-presence.md) |
+| 3 | Cross-node shared artifacts | Local artifact publication (feature 14) ships in V1; the shared-artifact relay layer is incremental scope on top of relay core. | [Spec-014](../specs/014-artifacts-files-and-attachments.md) (local portion is V1; cross-node is V1.1) |
 
 Additionally, [ADR-015 §V1.1 Criterion-Gated Commitments](../decisions/015-v1-feature-scope-definition.md#v11-criterion-gated-commitments) carries 2 sub-feature commitments (BIND multi-phase channel reuse; `human` phase default-timeout behavior) with named promotion criteria tied to Spec-017 (Feature 17).
 
@@ -57,11 +57,11 @@ Both deployment options ship the 17-feature V1 surface identically. The rate-lim
 
 Per [ADR-019: Windows V1 Tier and PTY Sidecar Strategy](../decisions/019-windows-v1-tier-and-pty-sidecar.md), V1 ships Windows, macOS, and Linux as GA tiers on equal footing:
 
-| Platform            | V1 Tier | PTY Backend                                                                                         |
-| ------------------- | ------- | --------------------------------------------------------------------------------------------------- |
-| macOS (arm64, x64)  | GA      | `NodePtyHost` (in-process `node-pty`)                                                               |
-| Linux (x64, arm64)  | GA      | `NodePtyHost` (in-process `node-pty`)                                                               |
-| Windows 10/11 (x64) | GA      | `RustSidecarPtyHost` (child-process Rust sidecar on `portable-pty`) primary; `NodePtyHost` fallback |
+| Platform | V1 Tier | PTY Backend |
+| --- | --- | --- |
+| macOS (arm64, x64) | GA | `NodePtyHost` (in-process `node-pty`) |
+| Linux (x64, arm64) | GA | `NodePtyHost` (in-process `node-pty`) |
+| Windows 10/11 (x64) | GA | `RustSidecarPtyHost` (child-process Rust sidecar on `portable-pty`) primary; `NodePtyHost` fallback |
 
 Windows GA is contingent on the Rust PTY sidecar strategy in ADR-019, driven by the upstream `node-pty` ConPTY crash cluster (openai/codex#13973, microsoft/node-pty#904/#887/#894/#437/#647). Implementation detail lives in Plan-024 (per BL-078). The `PtyHost` interface is declared in `packages/contracts/` so consumers never see the backend choice — see [Component Architecture Local Daemon §PTY Backend Strategy](./component-architecture-local-daemon.md#pty-backend-strategy).
 
@@ -69,18 +69,18 @@ Windows GA is contingent on the Rust PTY sidecar strategy in ADR-019, driven by 
 
 Cross-cutting V1 specs that multiple V1 features depend on. These are required by V1 but do not correspond to a single row in the table above.
 
-| Spec                                                                                    | Coverage                                                                                         |
-| --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| [Spec-008](../specs/008-control-plane-relay-and-session-join.md)                        | Control plane relay and session join (V1 uses pairwise X25519 + XChaCha20-Poly1305; MLS is V1.1) |
-| [Spec-011](../specs/011-gitflow-pr-and-diff-attribution.md)                             | Gitflow, PR preparation, and diff attribution                                                    |
-| [Spec-018](../specs/018-identity-and-participant-state.md)                              | Identity and participant state                                                                   |
-| [Spec-019](../specs/019-notifications-and-attention-model.md)                           | Notifications and attention model                                                                |
-| [Spec-020](../specs/020-observability-and-failure-recovery.md)                          | Observability and failure recovery                                                               |
-| [Spec-021](../specs/021-rate-limiting-policy.md)                                        | Rate limiting policy (both backends ship in V1)                                                  |
-| [Spec-022](../specs/022-data-retention-and-gdpr.md)                                     | Data retention and GDPR compliance                                                               |
-| [Spec-024](../specs/024-cross-node-dispatch-and-approval.md)                            | Cross-node dispatch and approval                                                                 |
-| [Spec-025: Self-Hostable Node Relay](../specs/025-self-hostable-node-relay.md)          | Self-hostable Node relay (V1 self-host deployment)                                               |
-| [Spec-026: First-Run Three-Way-Choice Onboarding](../specs/026-first-run-onboarding.md) | First-run three-way-choice onboarding                                                            |
+| Spec | Coverage |
+| --- | --- |
+| [Spec-008](../specs/008-control-plane-relay-and-session-join.md) | Control plane relay and session join (V1 uses pairwise X25519 + XChaCha20-Poly1305; MLS is V1.1) |
+| [Spec-011](../specs/011-gitflow-pr-and-diff-attribution.md) | Gitflow, PR preparation, and diff attribution |
+| [Spec-018](../specs/018-identity-and-participant-state.md) | Identity and participant state |
+| [Spec-019](../specs/019-notifications-and-attention-model.md) | Notifications and attention model |
+| [Spec-020](../specs/020-observability-and-failure-recovery.md) | Observability and failure recovery |
+| [Spec-021](../specs/021-rate-limiting-policy.md) | Rate limiting policy (both backends ship in V1) |
+| [Spec-022](../specs/022-data-retention-and-gdpr.md) | Data retention and GDPR compliance |
+| [Spec-024](../specs/024-cross-node-dispatch-and-approval.md) | Cross-node dispatch and approval |
+| [Spec-025: Self-Hostable Node Relay](../specs/025-self-hostable-node-relay.md) | Self-hostable Node relay (V1 self-host deployment) |
+| [Spec-026: First-Run Three-Way-Choice Onboarding](../specs/026-first-run-onboarding.md) | First-run three-way-choice onboarding |
 
 ## Spec Coverage Assessment
 

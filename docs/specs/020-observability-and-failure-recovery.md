@@ -1,14 +1,14 @@
 # Spec-020: Observability And Failure Recovery
 
-| Field                   | Value                                                                                                                                                                                                                      |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Status**              | `approved`                                                                                                                                                                                                                 |
-| **NNN**                 | `020`                                                                                                                                                                                                                      |
-| **Slug**                | `observability-and-failure-recovery`                                                                                                                                                                                       |
-| **Date**                | `2026-04-14`                                                                                                                                                                                                               |
-| **Author(s)**           | `Codex`                                                                                                                                                                                                                    |
-| **Depends On**          | [Persistence Recovery And Replay](../specs/015-persistence-recovery-and-replay.md), [Observability Architecture](../architecture/observability-architecture.md), [Data Architecture](../architecture/data-architecture.md) |
-| **Implementation Plan** | [Plan-020: Observability And Failure Recovery](../plans/020-observability-and-failure-recovery.md)                                                                                                                         |
+| Field | Value |
+| --- | --- |
+| **Status** | `approved` |
+| **NNN** | `020` |
+| **Slug** | `observability-and-failure-recovery` |
+| **Date** | `2026-04-14` |
+| **Author(s)** | `Codex` |
+| **Depends On** | [Persistence Recovery And Replay](../specs/015-persistence-recovery-and-replay.md), [Observability Architecture](../architecture/observability-architecture.md), [Data Architecture](../architecture/data-architecture.md) |
+| **Implementation Plan** | [Plan-020: Observability And Failure Recovery](../plans/020-observability-and-failure-recovery.md) |
 
 ## Purpose
 

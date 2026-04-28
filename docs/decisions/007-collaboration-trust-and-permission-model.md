@@ -59,19 +59,19 @@ The simpler flat model is unacceptable because it collapses human collaboration 
 
 ## Assumptions Audit
 
-| #   | Assumption                                                             | Evidence                                                                         | What Breaks If Wrong                          |
-| --- | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------- | --------------------------------------------- |
-| 1   | Membership and machine trust are not the same thing.                   | Vision and security docs explicitly separate collaboration from local execution. | A flatter model could be enough.              |
-| 2   | Users need bounded remembered grants for practical workflows.          | Approval and queue semantics assume repeated interactions over long sessions.    | Per-action-only approval might be acceptable. |
-| 3   | The Local Runtime Daemon can reliably enforce local permission checks. | Local Runtime Daemon is the execution authority in the architecture.             | Enforcement would need to move elsewhere.     |
+| # | Assumption | Evidence | What Breaks If Wrong |
+| --- | --- | --- | --- |
+| 1 | Membership and machine trust are not the same thing. | Vision and security docs explicitly separate collaboration from local execution. | A flatter model could be enough. |
+| 2 | Users need bounded remembered grants for practical workflows. | Approval and queue semantics assume repeated interactions over long sessions. | Per-action-only approval might be acceptable. |
+| 3 | The Local Runtime Daemon can reliably enforce local permission checks. | Local Runtime Daemon is the execution authority in the architecture. | Enforcement would need to move elsewhere. |
 
 ## Failure Mode Analysis
 
-| Scenario                                                          | Likelihood | Impact | Detection                                                    | Mitigation                                             |
-| ----------------------------------------------------------------- | ---------- | ------ | ------------------------------------------------------------ | ------------------------------------------------------ |
-| Users misunderstand which scope granted an action                 | Med        | Med    | Approval audit and UI mismatch reports                       | Keep approval surfaces explicit and auditable          |
-| Remembered grants drift beyond intended scope                     | Med        | High   | Actions succeed unexpectedly under old grants                | Require revocation paths and trust-change invalidation |
-| Membership and node trust accidentally collapse in implementation | Low        | High   | Cross-node execution becomes possible without explicit grant | Enforce daemon-side policy checks and security review  |
+| Scenario | Likelihood | Impact | Detection | Mitigation |
+| --- | --- | --- | --- | --- |
+| Users misunderstand which scope granted an action | Med | Med | Approval audit and UI mismatch reports | Keep approval surfaces explicit and auditable |
+| Remembered grants drift beyond intended scope | Med | High | Actions succeed unexpectedly under old grants | Require revocation paths and trust-change invalidation |
+| Membership and node trust accidentally collapse in implementation | Low | High | Cross-node execution becomes possible without explicit grant | Enforce daemon-side policy checks and security review |
 
 ## Reversibility Assessment
 
@@ -108,20 +108,20 @@ The simpler flat model is unacceptable because it collapses human collaboration 
 
 ### Success Criteria
 
-| Metric                                                       | Target                   | Measurement Method             | Check Date   |
-| ------------------------------------------------------------ | ------------------------ | ------------------------------ | ------------ |
+| Metric | Target | Measurement Method | Check Date |
+| --- | --- | --- | --- |
 | Membership alone never authorizes cross-node local execution | 100% of execution checks | Security and integration tests | `2026-04-14` |
-| Approval records clearly identify granted scope              | 100% of approval records | Audit review                   | `2026-04-14` |
+| Approval records clearly identify granted scope | 100% of approval records | Audit review | `2026-04-14` |
 
 ## References
 
 ### Research Conducted
 
-| Source                                                    | Type                       | Key Finding                                                                                                      | URL/Location                                                                                                          |
-| --------------------------------------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `specs/012-approvals-permissions-and-trust-boundaries.md` | Canonical spec             | Approval and permission scopes are part of the core product contract                                             | [specs/012-approvals-permissions-and-trust-boundaries.md](../specs/012-approvals-permissions-and-trust-boundaries.md) |
-| `architecture/security-architecture.md`                   | Canonical architecture doc | Security boundary follows membership, node trust, and transport separation                                       | [architecture/security-architecture.md](../architecture/security-architecture.md)                                     |
-| `domain/participant-and-membership-model.md`              | Canonical domain doc       | Membership, invite, presence, and runtime contribution stay distinct rather than collapsing into one trust layer | [domain/participant-and-membership-model.md](../domain/participant-and-membership-model.md)                           |
+| Source | Type | Key Finding | URL/Location |
+| --- | --- | --- | --- |
+| `specs/012-approvals-permissions-and-trust-boundaries.md` | Canonical spec | Approval and permission scopes are part of the core product contract | [specs/012-approvals-permissions-and-trust-boundaries.md](../specs/012-approvals-permissions-and-trust-boundaries.md) |
+| `architecture/security-architecture.md` | Canonical architecture doc | Security boundary follows membership, node trust, and transport separation | [architecture/security-architecture.md](../architecture/security-architecture.md) |
+| `domain/participant-and-membership-model.md` | Canonical domain doc | Membership, invite, presence, and runtime contribution stay distinct rather than collapsing into one trust layer | [domain/participant-and-membership-model.md](../domain/participant-and-membership-model.md) |
 
 ### Related Domain Docs
 

@@ -4,46 +4,46 @@ Completed backlog items from the implementation readiness phase. Retained for tr
 
 ## Completed: 2026-04-15
 
-| BL      | Title                                     | Deliverable                                                                                        | Phase     |
-| ------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------- | --------- |
-| BL-001  | Accept all 8 ADRs                         | ADR-001 through ADR-008 accepted                                                                   | Pre-phase |
-| BL-002  | Choose IPC wire format                    | ADR-009 (JSON-RPC 2.0)                                                                             | Pre-phase |
-| BL-007  | Add intervention driver operations        | ADR-011, Spec-005 (`applyIntervention`)                                                            | Pre-phase |
-| BL-013  | Resolve sequence-assignment contradiction | Spec-006 (single-authority model)                                                                  | Pre-phase |
-| BL-014a | Decide workflow V1 scope                  | Spec-017 (single-agent + automated phases, all 4 gates)                                            | Pre-phase |
-| BL-006  | Cross-plan dependency graph               | `docs/architecture/cross-plan-dependencies.md`                                                     | Phase 1   |
-| BL-003  | Database schemas                          | `docs/architecture/schemas/local-sqlite-schema.md`, `shared-postgres-schema.md`                    | Phase 1   |
-| BL-004  | API payload contracts                     | `docs/architecture/contracts/api-payload-contracts.md`                                             | Phase 1   |
-| BL-005  | Auth implementation spec                  | `docs/architecture/security-architecture.md` (5 sections added)                                    | Phase 1   |
-| BL-008  | Run state machine transition table        | `docs/domain/run-state-machine.md` (30-row table, child-run cascade)                               | Phase 2   |
-| BL-009  | Intervention model reconciliation         | `docs/domain/queue-and-intervention-model.md` (transition table, field consistency)                | Phase 2   |
-| BL-010  | Invite delivery mechanism                 | `docs/specs/002-invite-membership-and-presence.md` (shareable link, token security, rate limits)   | Phase 2   |
-| BL-012  | Enumerate event types                     | `docs/specs/006-session-event-taxonomy-and-audit-log.md` (76 types)                                | Phase 3   |
-| BL-026  | Error contracts                           | `docs/architecture/contracts/error-contracts.md` + 22 spec updates                                 | Phase 3   |
-| BL-022  | Runtime binding glossary                  | `docs/domain/glossary.md` (RuntimeBinding entry)                                                   | Phase 3   |
-| BL-024  | Steer injection mechanics                 | `docs/specs/004-queue-steer-pause-resume.md` (driver-level steer)                                  | Phase 3   |
-| BL-025  | Presence heartbeat + channel discovery    | `docs/specs/002-invite-membership-and-presence.md` (heartbeat transport, ChannelList)              | Phase 3   |
-| BL-015  | Per-driver capability matrix              | `docs/specs/005-provider-driver-contract-and-capabilities.md` (Codex/Claude matrix)                | Phase 3   |
-| BL-016  | Owner elevation + membership conflicts    | `docs/domain/participant-and-membership-model.md`, Spec-002                                        | Phase 3   |
-| BL-017  | Session/channel/participant limits        | `docs/specs/001-shared-session-core.md` (6 resource limits)                                        | Phase 3   |
-| BL-018  | Handoff timeline entry type               | `docs/specs/013-live-timeline-visibility-and-reasoning-surfaces.md`                                | Phase 3   |
-| BL-019  | Workspace-to-worktree transitions         | `docs/specs/009-repo-attachment-and-workspace-binding.md`                                          | Phase 3   |
-| BL-020  | DiffArtifact vs general artifact          | `docs/specs/011-gitflow-pr-and-diff-attribution.md` (subtype, CAS storage)                         | Phase 3   |
-| BL-021  | Approval category enum                    | `docs/specs/012-approvals-permissions-and-trust-boundaries.md` (9 categories verified after SA-12) | Phase 3   |
-| BL-023  | Relay protocol                            | `docs/specs/008-control-plane-relay-and-session-join.md` (MLS, connection lifecycle)               | Phase 3   |
-| BL-011  | Channel turn/budget/stop policies         | `docs/specs/016-multi-agent-channels-and-orchestration.md`                                         | Phase 3   |
-| BL-014b | Expand workflow spec                      | `docs/specs/017-workflow-authoring-and-execution.md` (phase/gate taxonomy)                         | Phase 3   |
-| BL-037  | Git hosting adapter                       | `docs/specs/011-gitflow-pr-and-diff-attribution.md` (gh CLI, GitHostingAdapter)                    | Phase 3   |
-| BL-027  | V1 feature scope                          | `docs/architecture/v1-feature-scope.md` (14 V1, 6 V2)                                              | Phase 4   |
-| BL-028  | Workflow domain models                    | `docs/domain/workflow-model.md`, `workflow-phase-model.md`                                         | Phase 4   |
-| BL-029  | Control-plane transport                   | `docs/specs/008-control-plane-relay-and-session-join.md` (tRPC + WebSocket)                        | Phase 4   |
-| BL-030  | Deployment scaling + HA                   | `docs/architecture/deployment-topology.md` (6 sections)                                            | Phase 4   |
-| BL-031  | Operations runbook commands               | 8 runbook files (CLI, SLOs, on-call routing)                                                       | Phase 4   |
-| BL-032  | Event compaction policy                   | `docs/specs/006-session-event-taxonomy-and-audit-log.md` (triggers, retention, audit stubs)        | Phase 4   |
-| BL-033  | Rate limit values                         | `docs/specs/021-rate-limiting-policy.md` (10 endpoints, 3 tiers)                                   | Phase 4   |
-| BL-034  | Context window + usage meters             | `docs/specs/013-live-timeline-visibility-and-reasoning-surfaces.md`                                | Phase 4   |
-| BL-035  | Notification delivery                     | `docs/specs/019-notifications-and-attention-model.md` (desktop SSE, cross-device)                  | Phase 4   |
-| BL-036  | GDPR schema                               | `docs/specs/022-data-retention-and-gdpr.md` (PII map, crypto-shredding)                            | Phase 4   |
+| BL | Title | Deliverable | Phase |
+| --- | --- | --- | --- |
+| BL-001 | Accept all 8 ADRs | ADR-001 through ADR-008 accepted | Pre-phase |
+| BL-002 | Choose IPC wire format | ADR-009 (JSON-RPC 2.0) | Pre-phase |
+| BL-007 | Add intervention driver operations | ADR-011, Spec-005 (`applyIntervention`) | Pre-phase |
+| BL-013 | Resolve sequence-assignment contradiction | Spec-006 (single-authority model) | Pre-phase |
+| BL-014a | Decide workflow V1 scope | Spec-017 (single-agent + automated phases, all 4 gates) | Pre-phase |
+| BL-006 | Cross-plan dependency graph | `docs/architecture/cross-plan-dependencies.md` | Phase 1 |
+| BL-003 | Database schemas | `docs/architecture/schemas/local-sqlite-schema.md`, `shared-postgres-schema.md` | Phase 1 |
+| BL-004 | API payload contracts | `docs/architecture/contracts/api-payload-contracts.md` | Phase 1 |
+| BL-005 | Auth implementation spec | `docs/architecture/security-architecture.md` (5 sections added) | Phase 1 |
+| BL-008 | Run state machine transition table | `docs/domain/run-state-machine.md` (30-row table, child-run cascade) | Phase 2 |
+| BL-009 | Intervention model reconciliation | `docs/domain/queue-and-intervention-model.md` (transition table, field consistency) | Phase 2 |
+| BL-010 | Invite delivery mechanism | `docs/specs/002-invite-membership-and-presence.md` (shareable link, token security, rate limits) | Phase 2 |
+| BL-012 | Enumerate event types | `docs/specs/006-session-event-taxonomy-and-audit-log.md` (76 types) | Phase 3 |
+| BL-026 | Error contracts | `docs/architecture/contracts/error-contracts.md` + 22 spec updates | Phase 3 |
+| BL-022 | Runtime binding glossary | `docs/domain/glossary.md` (RuntimeBinding entry) | Phase 3 |
+| BL-024 | Steer injection mechanics | `docs/specs/004-queue-steer-pause-resume.md` (driver-level steer) | Phase 3 |
+| BL-025 | Presence heartbeat + channel discovery | `docs/specs/002-invite-membership-and-presence.md` (heartbeat transport, ChannelList) | Phase 3 |
+| BL-015 | Per-driver capability matrix | `docs/specs/005-provider-driver-contract-and-capabilities.md` (Codex/Claude matrix) | Phase 3 |
+| BL-016 | Owner elevation + membership conflicts | `docs/domain/participant-and-membership-model.md`, Spec-002 | Phase 3 |
+| BL-017 | Session/channel/participant limits | `docs/specs/001-shared-session-core.md` (6 resource limits) | Phase 3 |
+| BL-018 | Handoff timeline entry type | `docs/specs/013-live-timeline-visibility-and-reasoning-surfaces.md` | Phase 3 |
+| BL-019 | Workspace-to-worktree transitions | `docs/specs/009-repo-attachment-and-workspace-binding.md` | Phase 3 |
+| BL-020 | DiffArtifact vs general artifact | `docs/specs/011-gitflow-pr-and-diff-attribution.md` (subtype, CAS storage) | Phase 3 |
+| BL-021 | Approval category enum | `docs/specs/012-approvals-permissions-and-trust-boundaries.md` (9 categories verified after SA-12) | Phase 3 |
+| BL-023 | Relay protocol | `docs/specs/008-control-plane-relay-and-session-join.md` (MLS, connection lifecycle) | Phase 3 |
+| BL-011 | Channel turn/budget/stop policies | `docs/specs/016-multi-agent-channels-and-orchestration.md` | Phase 3 |
+| BL-014b | Expand workflow spec | `docs/specs/017-workflow-authoring-and-execution.md` (phase/gate taxonomy) | Phase 3 |
+| BL-037 | Git hosting adapter | `docs/specs/011-gitflow-pr-and-diff-attribution.md` (gh CLI, GitHostingAdapter) | Phase 3 |
+| BL-027 | V1 feature scope | `docs/architecture/v1-feature-scope.md` (14 V1, 6 V2) | Phase 4 |
+| BL-028 | Workflow domain models | `docs/domain/workflow-model.md`, `workflow-phase-model.md` | Phase 4 |
+| BL-029 | Control-plane transport | `docs/specs/008-control-plane-relay-and-session-join.md` (tRPC + WebSocket) | Phase 4 |
+| BL-030 | Deployment scaling + HA | `docs/architecture/deployment-topology.md` (6 sections) | Phase 4 |
+| BL-031 | Operations runbook commands | 8 runbook files (CLI, SLOs, on-call routing) | Phase 4 |
+| BL-032 | Event compaction policy | `docs/specs/006-session-event-taxonomy-and-audit-log.md` (triggers, retention, audit stubs) | Phase 4 |
+| BL-033 | Rate limit values | `docs/specs/021-rate-limiting-policy.md` (10 endpoints, 3 tiers) | Phase 4 |
+| BL-034 | Context window + usage meters | `docs/specs/013-live-timeline-visibility-and-reasoning-surfaces.md` | Phase 4 |
+| BL-035 | Notification delivery | `docs/specs/019-notifications-and-attention-model.md` (desktop SSE, cross-device) | Phase 4 |
+| BL-036 | GDPR schema | `docs/specs/022-data-retention-and-gdpr.md` (PII map, crypto-shredding) | Phase 4 |
 
 ## Crosscheck Summary
 
@@ -453,8 +453,7 @@ Each surface below will be touched in the first implementation sprint.
   - **Behavior 5 strengthened**: `sslmode=require` → `sslmode=verify-full` (with `verify-ca` as a documented loud-banner fallback; `disable`/`allow`/`prefer`/`require` refused at config-parse). Libpq `require` does not defeat MITM attacks (docs: "I trust that the network will make sure I always connect to the server I want"); CVE-2024-10977 (2024-11-14, libpq error-message injection) is the exploitable path under that setting.
   - **Behavior 7 split into 7a + 7b**: 7a (notify-by-default, daemon — daemon never self-swaps while IPC is live) and 7b (opt-in CLI `self-update` with dual-path Ed25519-manifest + GitHub Artifact Attestation / Sigstore-bundle verification). Dual-path verification responds to 2025–2026 npm supply-chain incidents (Shai-Hulud 2025-09/11, 25k+ repos; Axios 2026-03-31) where single-trust-path distribution was shown insufficient. Anti-rollback / anti-freeze manifest fields close the attack paths that bare manifest-signing leaves open.
   - **Supabase framing corrected**: original BL-060 cited Supabase as a positive "auto-generates secrets on first run" exemplar. Primary-source verification (WebSearch 2026-04 + GitHub issues) confirms Supabase explicitly does NOT auto-generate — `generate-keys.sh` is experimental with bug #42562 (writes a non-existent env var). Supabase is now cited under Spec-027 §Pitfalls as the negative `.env.example`-placeholder anti-pattern that motivates behaviors 2 + 3's parse-time refuse-to-start enforcement.
-  - **Behavior 1 `DEPLOY_MODE` swap (post-Opus-review advisor discretionary)**: the post-authoring Opus 4.7 review caught a factually wrong claim that Caddy silently falls back from failed public-ACME to internal CA; the fix initially prescribed runtime daemon-mediated detect-and-reconfigure on Plan-025. Advisor flagged the runtime-reconfigure mechanic as expanding Plan-025's scope with Caddy-admin-API logic that was not there before, and flagged a separate `.home.arpa` / `.local` mDNS gap between "Caddy internal-CA default for `.localhost`/RFC1918" and "public ACME on public hostnames." Both resolved by switching to an operator-declared `DEPLOY_MODE=public|lan` config with parse-time mismatch refusal. Operator intent over runtime auto-detect keeps a security-critical branch auditable and testable; LAN-suffix refusal list (`.localhost` / `.local` / `.home.arpa` / `.internal` / RFC1918) closes the mDNS gap.
-    Spec-027 renders 11 rows (original 10 with behavior 7 split into 7a/7b) and assigns plan ownership per behavior (Plans 001, 007, 020, 025, 026). Code-level integration-test acceptance criteria from the original Exit Criteria are carved out to those plans via Spec-027 §Acceptance Criteria (20 testable criteria including CVE-2024-10977 MITM repro, manifest rollback/freeze rejection, `/metrics` Prometheus-format verification, SPKI-SHA256 vs SSH-style fingerprint format, `DEPLOY_MODE` mismatch refusal on both public and lan sides).
+  - **Behavior 1 `DEPLOY_MODE` swap (post-Opus-review advisor discretionary)**: the post-authoring Opus 4.7 review caught a factually wrong claim that Caddy silently falls back from failed public-ACME to internal CA; the fix initially prescribed runtime daemon-mediated detect-and-reconfigure on Plan-025. Advisor flagged the runtime-reconfigure mechanic as expanding Plan-025's scope with Caddy-admin-API logic that was not there before, and flagged a separate `.home.arpa` / `.local` mDNS gap between "Caddy internal-CA default for `.localhost`/RFC1918" and "public ACME on public hostnames." Both resolved by switching to an operator-declared `DEPLOY_MODE=public|lan` config with parse-time mismatch refusal. Operator intent over runtime auto-detect keeps a security-critical branch auditable and testable; LAN-suffix refusal list (`.localhost` / `.local` / `.home.arpa` / `.internal` / RFC1918) closes the mDNS gap. Spec-027 renders 11 rows (original 10 with behavior 7 split into 7a/7b) and assigns plan ownership per behavior (Plans 001, 007, 020, 025, 026). Code-level integration-test acceptance criteria from the original Exit Criteria are carved out to those plans via Spec-027 §Acceptance Criteria (20 testable criteria including CVE-2024-10977 MITM repro, manifest rollback/freeze rejection, `/metrics` Prometheus-format verification, SPKI-SHA256 vs SSH-style fingerprint format, `DEPLOY_MODE` mismatch refusal on both public and lan sides).
 - Exit Criteria: `docs/specs/027-self-host-secure-defaults.md` authored (Default / Override / Reason / Plan-Ownership table for 11 rows, §Bind-Address Reconciliation, §Authority Split with BL-063, 18 testable acceptance criteria, primary-source citations for TLS / ACME / Postgres / exemplars / auto-update) ✅; `docs/operations/self-host-secure-defaults.md` companion authored (operator-facing verify-command column per row + operational-events notes for LE 45-day pivot 2026-05-13 and PG 14 EOL 2026-11-12 + cross-refs to specs / plans / runbooks) ✅; code-level integration tests carved out to Plans 001 / 007 / 020 / 025 / 026 per Spec-027 §Acceptance Criteria (plan-level scope, not doc-level BL-060 scope).
 - Resolved: 2026-04-19 (Session D3).
 

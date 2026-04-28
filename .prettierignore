@@ -6,3 +6,4 @@
 pnpm-lock.yaml
 .release-please-manifest.json
 LICENSE
+docs/reference/**

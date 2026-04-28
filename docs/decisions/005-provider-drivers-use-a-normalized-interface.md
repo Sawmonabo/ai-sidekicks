@@ -59,19 +59,19 @@ Leaky abstraction is a manageable risk if the driver contract is intentionally s
 
 ## Assumptions Audit
 
-| #   | Assumption                                                                                                           | Evidence                                                                                                                | What Breaks If Wrong                                         |
-| --- | -------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| 1   | Providers differ materially enough that the product must not expose provider-native semantics as core runtime truth. | The provider-driver spec requires normalized driver contracts and capability-aware control exposure at the daemon edge. | A thinner abstraction might be enough.                       |
-| 2   | Session and run semantics must remain provider-agnostic.                                                             | Core domain and specs depend on stable shared vocabulary.                                                               | UI and runtime could become provider-specialized.            |
-| 3   | Capability flags can honestly model the differences users need to see.                                               | Spec `005` already frames feature exposure around capability checks.                                                    | The contract may need more provider-specific escape hatches. |
+| # | Assumption | Evidence | What Breaks If Wrong |
+| --- | --- | --- | --- |
+| 1 | Providers differ materially enough that the product must not expose provider-native semantics as core runtime truth. | The provider-driver spec requires normalized driver contracts and capability-aware control exposure at the daemon edge. | A thinner abstraction might be enough. |
+| 2 | Session and run semantics must remain provider-agnostic. | Core domain and specs depend on stable shared vocabulary. | UI and runtime could become provider-specialized. |
+| 3 | Capability flags can honestly model the differences users need to see. | Spec `005` already frames feature exposure around capability checks. | The contract may need more provider-specific escape hatches. |
 
 ## Failure Mode Analysis
 
-| Scenario                                                                   | Likelihood | Impact | Detection                                           | Mitigation                                                                             |
-| -------------------------------------------------------------------------- | ---------- | ------ | --------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| Driver abstraction becomes too generic and blocks useful provider features | Med        | Med    | Feature work repeatedly needs driver bypasses       | Add capability extensions and diagnostic side channels without breaking core semantics |
-| Provider-native behavior leaks into session engine anyway                  | Med        | High   | Provider-name branches appear in core code and docs | Enforce adapter-only normalization boundary in review                                  |
-| Capability declarations become stale or inaccurate                         | Med        | Med    | UI offers unsupported controls or hides valid ones  | Refresh capabilities on attach and capability-change events                            |
+| Scenario | Likelihood | Impact | Detection | Mitigation |
+| --- | --- | --- | --- | --- |
+| Driver abstraction becomes too generic and blocks useful provider features | Med | Med | Feature work repeatedly needs driver bypasses | Add capability extensions and diagnostic side channels without breaking core semantics |
+| Provider-native behavior leaks into session engine anyway | Med | High | Provider-name branches appear in core code and docs | Enforce adapter-only normalization boundary in review |
+| Capability declarations become stale or inaccurate | Med | Med | UI offers unsupported controls or hides valid ones | Refresh capabilities on attach and capability-change events |
 
 ## Reversibility Assessment
 
@@ -108,20 +108,20 @@ Leaky abstraction is a manageable risk if the driver contract is intentionally s
 
 ### Success Criteria
 
-| Metric                                                            | Target                              | Measurement Method        | Check Date   |
-| ----------------------------------------------------------------- | ----------------------------------- | ------------------------- | ------------ |
-| New providers integrate without changing session or run semantics | 100% of supported providers         | Driver integration review | `2026-04-14` |
-| Unsupported controls are hidden or degraded correctly             | 100% of capability-checked controls | Spec and UI test coverage | `2026-04-14` |
+| Metric | Target | Measurement Method | Check Date |
+| --- | --- | --- | --- |
+| New providers integrate without changing session or run semantics | 100% of supported providers | Driver integration review | `2026-04-14` |
+| Unsupported controls are hidden or degraded correctly | 100% of capability-checked controls | Spec and UI test coverage | `2026-04-14` |
 
 ## References
 
 ### Research Conducted
 
-| Source                                                   | Type                       | Key Finding                                                                                                             | URL/Location                                                                                                        |
-| -------------------------------------------------------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `specs/005-provider-driver-contract-and-capabilities.md` | Canonical spec             | Provider integrations use a normalized contract with explicit capability advertisement                                  | [specs/005-provider-driver-contract-and-capabilities.md](../specs/005-provider-driver-contract-and-capabilities.md) |
-| `architecture/component-architecture-local-daemon.md`    | Canonical architecture doc | Driver management belongs inside the local daemon edge                                                                  | [architecture/component-architecture-local-daemon.md](../architecture/component-architecture-local-daemon.md)       |
-| `specs/020-observability-and-failure-recovery.md`        | Canonical spec             | Provider failures are surfaced through canonical product failure categories rather than provider-specific runtime truth | [specs/020-observability-and-failure-recovery.md](../specs/020-observability-and-failure-recovery.md)               |
+| Source | Type | Key Finding | URL/Location |
+| --- | --- | --- | --- |
+| `specs/005-provider-driver-contract-and-capabilities.md` | Canonical spec | Provider integrations use a normalized contract with explicit capability advertisement | [specs/005-provider-driver-contract-and-capabilities.md](../specs/005-provider-driver-contract-and-capabilities.md) |
+| `architecture/component-architecture-local-daemon.md` | Canonical architecture doc | Driver management belongs inside the local daemon edge | [architecture/component-architecture-local-daemon.md](../architecture/component-architecture-local-daemon.md) |
+| `specs/020-observability-and-failure-recovery.md` | Canonical spec | Provider failures are surfaced through canonical product failure categories rather than provider-specific runtime truth | [specs/020-observability-and-failure-recovery.md](../specs/020-observability-and-failure-recovery.md) |
 
 ### Related Domain Docs
 

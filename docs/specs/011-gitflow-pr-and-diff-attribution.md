@@ -1,14 +1,14 @@
 # Spec-011: Gitflow PR And Diff Attribution
 
-| Field                   | Value                                                                                                                                                                                                                                                            |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Status**              | `approved`                                                                                                                                                                                                                                                       |
-| **NNN**                 | `011`                                                                                                                                                                                                                                                            |
-| **Slug**                | `gitflow-pr-and-diff-attribution`                                                                                                                                                                                                                                |
-| **Date**                | `2026-04-14`                                                                                                                                                                                                                                                     |
-| **Author(s)**           | `Codex`                                                                                                                                                                                                                                                          |
-| **Depends On**          | [Repo Workspace Worktree Model](../domain/repo-workspace-worktree-model.md), [Artifact Diff And Approval Model](../domain/artifact-diff-and-approval-model.md), [Worktree Lifecycle And Execution Modes](../specs/010-worktree-lifecycle-and-execution-modes.md) |
-| **Implementation Plan** | [Plan-011: Gitflow PR And Diff Attribution](../plans/011-gitflow-pr-and-diff-attribution.md)                                                                                                                                                                     |
+| Field | Value |
+| --- | --- |
+| **Status** | `approved` |
+| **NNN** | `011` |
+| **Slug** | `gitflow-pr-and-diff-attribution` |
+| **Date** | `2026-04-14` |
+| **Author(s)** | `Codex` |
+| **Depends On** | [Repo Workspace Worktree Model](../domain/repo-workspace-worktree-model.md), [Artifact Diff And Approval Model](../domain/artifact-diff-and-approval-model.md), [Worktree Lifecycle And Execution Modes](../specs/010-worktree-lifecycle-and-execution-modes.md) |
+| **Implementation Plan** | [Plan-011: Gitflow PR And Diff Attribution](../plans/011-gitflow-pr-and-diff-attribution.md) |
 
 ## Purpose
 
@@ -130,13 +130,13 @@ Artifact content is stored outside the SQLite database using content-addressed s
 
 The adapter uses host-agnostic naming (`ChangeRequest` rather than `PullRequest`) so the interface can support future hosting providers without breaking callers.
 
-| Operation                        | Description                                                                            | Wraps (`gh` V1) |
-| -------------------------------- | -------------------------------------------------------------------------------------- | --------------- |
-| `createChangeRequest(params)`    | Creates a PR. Params: `baseBranch`, `headBranch`, `title`, `description`, `reviewers?` | `gh pr create`  |
-| `updateChangeRequest(params)`    | Updates PR metadata (title, description, reviewers, labels).                           | `gh pr edit`    |
-| `listChangeRequests(params)`     | Lists PRs for a repo, with optional state and label filters.                           | `gh pr list`    |
-| `getChangeRequestStatus(params)` | Returns PR status: open/merged/closed plus CI check results.                           | `gh pr view`    |
-| `addComment(params)`             | Adds a comment to an existing PR.                                                      | `gh pr comment` |
+| Operation | Description | Wraps (`gh` V1) |
+| --- | --- | --- |
+| `createChangeRequest(params)` | Creates a PR. Params: `baseBranch`, `headBranch`, `title`, `description`, `reviewers?` | `gh pr create` |
+| `updateChangeRequest(params)` | Updates PR metadata (title, description, reviewers, labels). | `gh pr edit` |
+| `listChangeRequests(params)` | Lists PRs for a repo, with optional state and label filters. | `gh pr list` |
+| `getChangeRequestStatus(params)` | Returns PR status: open/merged/closed plus CI check results. | `gh pr view` |
+| `addComment(params)` | Adds a comment to an existing PR. | `gh pr comment` |
 
 All operations accept a `repoMountId` to identify the target repository context and return structured results (not raw CLI output). The adapter parses `gh` JSON output (`--json` flag) into typed response objects.
 

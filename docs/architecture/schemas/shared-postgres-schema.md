@@ -390,8 +390,8 @@ VALUES (1, 'Initial schema');
 
 Postgres `pg_advisory_xact_lock(bigint)` IDs share a single per-database namespace; two callers using the same ID silently serialize against each other. To prevent silent collisions across plans, every advisory-lock caller MUST allocate a distinct ID below before merging.
 
-| ID              | Owner                  | Purpose                                                                                               |
-| --------------- | ---------------------- | ----------------------------------------------------------------------------------------------------- |
+| ID | Owner | Purpose |
+| --- | --- | --- |
 | `9_000_000_001` | Plan-001 control-plane | `MIGRATION_LOCK_ID` — serializes the lock-and-re-probe block in `applyMigrations` (concurrent boots). |
 
 **Reserved bands.** `9_000_000_000`–`9_000_000_999` is reserved for control-plane schema-coordination locks (migration runners and similar boot-path serialization). Plans that need cross-replica coordination locks for runtime concerns (e.g. session-directory housekeeping, dispatch coordination) SHOULD allocate above `9_001_000_000` to keep the schema-coordination band contiguous and reviewable. Plan-016 / Plan-021 / Plan-027 do not currently allocate any advisory-lock IDs; if a future iteration adds one, append a row above before opening the PR.

@@ -1,17 +1,17 @@
 # Plan-011: Gitflow PR And Diff Attribution
 
-| Field               | Value                                                                                                                                                            |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Status**          | `approved`                                                                                                                                                       |
-| **NNN**             | `011`                                                                                                                                                            |
-| **Slug**            | `gitflow-pr-and-diff-attribution`                                                                                                                                |
-| **Date**            | `2026-04-14`                                                                                                                                                     |
-| **Author(s)**       | `Codex`                                                                                                                                                          |
-| **Spec**            | [Spec-011: Gitflow PR And Diff Attribution](../specs/011-gitflow-pr-and-diff-attribution.md)                                                                     |
-| **Required ADRs**   | [ADR-006](../decisions/006-worktree-first-execution-mode.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md)                                         |
-| **Dependencies**    | [Plan-010](./010-worktree-lifecycle-and-execution-modes.md) (worktree infrastructure), [Plan-014](./014-artifacts-files-and-attachments.md) (artifact manifests) |
-| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md)                                                                                        |
-| **References**      | [Updated Spec-011](../specs/011-gitflow-pr-and-diff-attribution.md) (Agent Trace attribution, GitHostingAdapter)                                                 |
+| Field | Value |
+| --- | --- |
+| **Status** | `approved` |
+| **NNN** | `011` |
+| **Slug** | `gitflow-pr-and-diff-attribution` |
+| **Date** | `2026-04-14` |
+| **Author(s)** | `Codex` |
+| **Spec** | [Spec-011: Gitflow PR And Diff Attribution](../specs/011-gitflow-pr-and-diff-attribution.md) |
+| **Required ADRs** | [ADR-006](../decisions/006-worktree-first-execution-mode.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md) |
+| **Dependencies** | [Plan-010](./010-worktree-lifecycle-and-execution-modes.md) (worktree infrastructure), [Plan-014](./014-artifacts-files-and-attachments.md) (artifact manifests) |
+| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
+| **References** | [Updated Spec-011](../specs/011-gitflow-pr-and-diff-attribution.md) (Agent Trace attribution, GitHostingAdapter) |
 
 ## Goal
 

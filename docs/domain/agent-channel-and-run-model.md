@@ -54,11 +54,11 @@ Agent lifecycle:
 
 Channel lifecycle:
 
-| State      | Meaning                                                                                   |
-| ---------- | ----------------------------------------------------------------------------------------- |
-| `active`   | The channel accepts new communication and run output.                                     |
-| `muted`    | The channel remains valid but is intentionally suppressed from normal attention surfaces. |
-| `archived` | The channel remains historical only.                                                      |
+| State | Meaning |
+| --- | --- |
+| `active` | The channel accepts new communication and run output. |
+| `muted` | The channel remains valid but is intentionally suppressed from normal attention surfaces. |
+| `archived` | The channel remains historical only. |
 
 Run lifecycle is defined in `run-state-machine.md`.
 

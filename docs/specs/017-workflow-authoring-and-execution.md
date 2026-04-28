@@ -1,15 +1,15 @@
 # Spec-017: Workflow Authoring And Execution
 
-| Field                   | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Status**              | `approved`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| **NNN**                 | `017`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| **Slug**                | `workflow-authoring-and-execution`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| **Date**                | `2026-04-14`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| **Amended**             | `2026-04-22` (full engine V1 per BL-097 / ADR-015 amendment — was V1.1-deferred-subset at original approval; see §Resolved Questions and V1 Scope Decisions)                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| **Author(s)**           | `Codex`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| **Depends On**          | [Multi Agent Channels And Orchestration](../specs/016-multi-agent-channels-and-orchestration.md), [Queue Steer Pause Resume](../specs/004-queue-steer-pause-resume.md), [Agent Channel And Run Model](../domain/agent-channel-and-run-model.md), [Session Event Taxonomy And Audit Log](../specs/006-session-event-taxonomy-and-audit-log.md), [Persistence Recovery And Replay](../specs/015-persistence-recovery-and-replay.md), [Approvals Permissions And Trust Boundaries](../specs/012-approvals-permissions-and-trust-boundaries.md), [Artifacts Files And Attachments](../specs/014-artifacts-files-and-attachments.md) |
-| **Implementation Plan** | [Plan-017: Workflow Authoring And Execution](../plans/017-workflow-authoring-and-execution.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Field | Value |
+| --- | --- |
+| **Status** | `approved` |
+| **NNN** | `017` |
+| **Slug** | `workflow-authoring-and-execution` |
+| **Date** | `2026-04-14` |
+| **Amended** | `2026-04-22` (full engine V1 per BL-097 / ADR-015 amendment — was V1.1-deferred-subset at original approval; see §Resolved Questions and V1 Scope Decisions) |
+| **Author(s)** | `Codex` |
+| **Depends On** | [Multi Agent Channels And Orchestration](../specs/016-multi-agent-channels-and-orchestration.md), [Queue Steer Pause Resume](../specs/004-queue-steer-pause-resume.md), [Agent Channel And Run Model](../domain/agent-channel-and-run-model.md), [Session Event Taxonomy And Audit Log](../specs/006-session-event-taxonomy-and-audit-log.md), [Persistence Recovery And Replay](../specs/015-persistence-recovery-and-replay.md), [Approvals Permissions And Trust Boundaries](../specs/012-approvals-permissions-and-trust-boundaries.md), [Artifacts Files And Attachments](../specs/014-artifacts-files-and-attachments.md) |
+| **Implementation Plan** | [Plan-017: Workflow Authoring And Execution](../plans/017-workflow-authoring-and-execution.md) |
 
 ## Purpose
 
@@ -297,21 +297,21 @@ Load-bearing event-sequence rules ([Temporal Events Reference](https://docs.temp
 
 Phase types (V1):
 
-| Type           | Description                                                                                          |
-| -------------- | ---------------------------------------------------------------------------------------------------- |
-| `single-agent` | One agent executes the phase autonomously in one channel                                             |
-| `multi-agent`  | Phase-owned channel (`ownership: OWN`) — multiple agents deliberate, conclusion becomes phase output |
-| `automated`    | No agent — executes a script or validation check                                                     |
-| `human`        | Human participant completes a form; submission becomes phase output                                  |
+| Type | Description |
+| --- | --- |
+| `single-agent` | One agent executes the phase autonomously in one channel |
+| `multi-agent` | Phase-owned channel (`ownership: OWN`) — multiple agents deliberate, conclusion becomes phase output |
+| `automated` | No agent — executes a script or validation check |
+| `human` | Human participant completes a form; submission becomes phase output |
 
 Gate types (V1):
 
-| Gate Type        | Behavior                                          | Failure Behavior                                                            |
-| ---------------- | ------------------------------------------------- | --------------------------------------------------------------------------- |
-| `auto-continue`  | Phase completes, next phase starts automatically  | N/A (no gate check)                                                         |
-| `quality-checks` | Automated quality check runs on phase output      | Configurable: block / warn / skip. Retry: re-run phase up to `max_retries`. |
-| `human-approval` | Human must approve phase output before continuing | Block until approved. Reject: retry or stop (configurable).                 |
-| `done`           | Terminal gate — marks workflow as complete        | N/A                                                                         |
+| Gate Type | Behavior | Failure Behavior |
+| --- | --- | --- |
+| `auto-continue` | Phase completes, next phase starts automatically | N/A (no gate check) |
+| `quality-checks` | Automated quality check runs on phase output | Configurable: block / warn / skip. Retry: re-run phase up to `max_retries`. |
+| `human-approval` | Human must approve phase output before continuing | Block until approved. Reject: retry or stop (configurable). |
+| `done` | Terminal gate — marks workflow as complete | N/A |
 
 Failure behaviors: `retry`, `go-back-to`, `stop`. Phase run statuses: `pending`, `running`, `completed`, `failed`, `skipped`. Gate result statuses: `passed`, `failed`, `waiting-human`.
 

@@ -1,14 +1,14 @@
 # Spec-007: Local IPC And Daemon Control
 
-| Field                   | Value                                                                                                                                                                                                                                             |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Status**              | `approved`                                                                                                                                                                                                                                        |
-| **NNN**                 | `007`                                                                                                                                                                                                                                             |
-| **Slug**                | `local-ipc-and-daemon-control`                                                                                                                                                                                                                    |
-| **Date**                | `2026-04-14`                                                                                                                                                                                                                                      |
-| **Author(s)**           | `Codex`                                                                                                                                                                                                                                           |
-| **Depends On**          | [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md), [Component Architecture Desktop App](../architecture/component-architecture-desktop-app.md), [Runtime Node Model](../domain/runtime-node-model.md) |
-| **Implementation Plan** | [Plan-007: Local IPC And Daemon Control](../plans/007-local-ipc-and-daemon-control.md)                                                                                                                                                            |
+| Field | Value |
+| --- | --- |
+| **Status** | `approved` |
+| **NNN** | `007` |
+| **Slug** | `local-ipc-and-daemon-control` |
+| **Date** | `2026-04-14` |
+| **Author(s)** | `Codex` |
+| **Depends On** | [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md), [Component Architecture Desktop App](../architecture/component-architecture-desktop-app.md), [Runtime Node Model](../domain/runtime-node-model.md) |
+| **Implementation Plan** | [Plan-007: Local IPC And Daemon Control](../plans/007-local-ipc-and-daemon-control.md) |
 
 ## Purpose
 

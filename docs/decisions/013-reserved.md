@@ -31,7 +31,7 @@ ADR numbering continues at [ADR-014: tRPC Control Plane API](./014-trpc-control-
 
 ## Decision Log
 
-| Date       | Event      | Notes                                                                                                                                         |
-| ---------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| 2026-04-15 | Created    | Placeholder file added in adversarial-review cleanup commit `d186470` (co-authored by Claude Opus 4.6).                                       |
+| Date | Event | Notes |
+| --- | --- | --- |
+| 2026-04-15 | Created | Placeholder file added in adversarial-review cleanup commit `d186470` (co-authored by Claude Opus 4.6). |
 | 2026-04-19 | Formalized | BL-074 resolution: slot kept as formally-skipped, not filled and not removed. Renumbering downstream ADRs rejected as cost-ineffective churn. |

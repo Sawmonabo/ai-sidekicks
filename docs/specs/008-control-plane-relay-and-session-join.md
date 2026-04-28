@@ -1,14 +1,14 @@
 # Spec-008: Control-Plane Relay And Session Join
 
-| Field                   | Value                                                                                                                                                                                                                                                                                                                                                                 |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Status**              | `approved`                                                                                                                                                                                                                                                                                                                                                            |
-| **NNN**                 | `008`                                                                                                                                                                                                                                                                                                                                                                 |
-| **Slug**                | `control-plane-relay-and-session-join`                                                                                                                                                                                                                                                                                                                                |
-| **Date**                | `2026-04-14`                                                                                                                                                                                                                                                                                                                                                          |
-| **Author(s)**           | `Codex`                                                                                                                                                                                                                                                                                                                                                               |
-| **Depends On**          | [System Context](../architecture/system-context.md), [Component Architecture Control Plane](../architecture/component-architecture-control-plane.md), [Security Architecture](../architecture/security-architecture.md), [Shared Session Core](../specs/001-shared-session-core.md), [Invite Membership And Presence](../specs/002-invite-membership-and-presence.md) |
-| **Implementation Plan** | [Plan-008: Control Plane Relay And Session Join](../plans/008-control-plane-relay-and-session-join.md)                                                                                                                                                                                                                                                                |
+| Field | Value |
+| --- | --- |
+| **Status** | `approved` |
+| **NNN** | `008` |
+| **Slug** | `control-plane-relay-and-session-join` |
+| **Date** | `2026-04-14` |
+| **Author(s)** | `Codex` |
+| **Depends On** | [System Context](../architecture/system-context.md), [Component Architecture Control Plane](../architecture/component-architecture-control-plane.md), [Security Architecture](../architecture/security-architecture.md), [Shared Session Core](../specs/001-shared-session-core.md), [Invite Membership And Presence](../specs/002-invite-membership-and-presence.md) |
+| **Implementation Plan** | [Plan-008: Control Plane Relay And Session Join](../plans/008-control-plane-relay-and-session-join.md) |
 
 ## Purpose
 
@@ -151,12 +151,12 @@ Once the MLS promotion gates in [ADR-010](../decisions/010-paseto-webauthn-mls-a
 
 The control plane provides the following via `RelayNegotiationResponse`:
 
-| Field                | Value                                                                                                               |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| Relay endpoint URL   | WSS URL for the relay Durable Object                                                                                |
-| Transport protocol   | `websocket`                                                                                                         |
-| Connection token     | Short-lived PASETO v4.public token (TTL: 300 seconds)                                                               |
-| Session ID           | The session's identifier, used as HKDF salt during session-key derivation                                           |
+| Field | Value |
+| --- | --- |
+| Relay endpoint URL | WSS URL for the relay Durable Object |
+| Transport protocol | `websocket` |
+| Connection token | Short-lived PASETO v4.public token (TTL: 300 seconds) |
+| Session ID | The session's identifier, used as HKDF salt during session-key derivation |
 | Cipher suite version | `v1/pairwise` for V1; a V1.1+ client may indicate MLS capability and the control plane returns the negotiated suite |
 
 **V1 SessionKeyBundle requirements:**

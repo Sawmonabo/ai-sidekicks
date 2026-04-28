@@ -1,14 +1,14 @@
 # Spec-012: Approvals Permissions And Trust Boundaries
 
-| Field                   | Value                                                                                                                                                                                                                                   |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Status**              | `approved`                                                                                                                                                                                                                              |
-| **NNN**                 | `012`                                                                                                                                                                                                                                   |
-| **Slug**                | `approvals-permissions-and-trust-boundaries`                                                                                                                                                                                            |
-| **Date**                | `2026-04-14`                                                                                                                                                                                                                            |
-| **Author(s)**           | `Codex`                                                                                                                                                                                                                                 |
-| **Depends On**          | [Artifact Diff And Approval Model](../domain/artifact-diff-and-approval-model.md), [Participant And Membership Model](../domain/participant-and-membership-model.md), [Security Architecture](../architecture/security-architecture.md) |
-| **Implementation Plan** | [Plan-012: Approvals Permissions And Trust Boundaries](../plans/012-approvals-permissions-and-trust-boundaries.md)                                                                                                                      |
+| Field | Value |
+| --- | --- |
+| **Status** | `approved` |
+| **NNN** | `012` |
+| **Slug** | `approvals-permissions-and-trust-boundaries` |
+| **Date** | `2026-04-14` |
+| **Author(s)** | `Codex` |
+| **Depends On** | [Artifact Diff And Approval Model](../domain/artifact-diff-and-approval-model.md), [Participant And Membership Model](../domain/participant-and-membership-model.md), [Security Architecture](../architecture/security-architecture.md) |
+| **Implementation Plan** | [Plan-012: Approvals Permissions And Trust Boundaries](../plans/012-approvals-permissions-and-trust-boundaries.md) |
 
 ## Purpose
 

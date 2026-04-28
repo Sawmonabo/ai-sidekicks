@@ -1,14 +1,14 @@
 # Spec-001: Shared Session Core
 
-| Field                   | Value                                                                                                                                                                                                                                                                                                                                                                |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Status**              | `approved`                                                                                                                                                                                                                                                                                                                                                           |
-| **NNN**                 | `001`                                                                                                                                                                                                                                                                                                                                                                |
-| **Slug**                | `shared-session-core`                                                                                                                                                                                                                                                                                                                                                |
-| **Date**                | `2026-04-14`                                                                                                                                                                                                                                                                                                                                                         |
-| **Author(s)**           | `Codex`                                                                                                                                                                                                                                                                                                                                                              |
-| **Depends On**          | [Glossary](../domain/glossary.md), [Session Model](../domain/session-model.md), [Participant And Membership Model](../domain/participant-and-membership-model.md), [Agent Channel And Run Model](../domain/agent-channel-and-run-model.md), [System Context](../architecture/system-context.md), [Container Architecture](../architecture/container-architecture.md) |
-| **Implementation Plan** | [Plan-001: Shared Session Core](../plans/001-shared-session-core.md)                                                                                                                                                                                                                                                                                                 |
+| Field | Value |
+| --- | --- |
+| **Status** | `approved` |
+| **NNN** | `001` |
+| **Slug** | `shared-session-core` |
+| **Date** | `2026-04-14` |
+| **Author(s)** | `Codex` |
+| **Depends On** | [Glossary](../domain/glossary.md), [Session Model](../domain/session-model.md), [Participant And Membership Model](../domain/participant-and-membership-model.md), [Agent Channel And Run Model](../domain/agent-channel-and-run-model.md), [System Context](../architecture/system-context.md), [Container Architecture](../architecture/container-architecture.md) |
+| **Implementation Plan** | [Plan-001: Shared Session Core](../plans/001-shared-session-core.md) |
 
 ## Purpose
 

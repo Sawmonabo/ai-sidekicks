@@ -43,10 +43,10 @@ This model defines how runs publish durable outputs and how gated decisions are 
 
 Artifact lifecycle:
 
-| State        | Meaning                                                                                     |
-| ------------ | ------------------------------------------------------------------------------------------- |
-| `pending`    | The artifact has been announced but is not yet durably published.                           |
-| `published`  | The artifact is durably available and referenceable.                                        |
+| State | Meaning |
+| --- | --- |
+| `pending` | The artifact has been announced but is not yet durably published. |
+| `published` | The artifact is durably available and referenceable. |
 | `superseded` | A newer artifact replaces it for default views, but the original remains immutable history. |
 
 Approval lifecycle:

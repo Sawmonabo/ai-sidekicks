@@ -27,18 +27,15 @@
 
 ## Context
 
-{Describe the current state of the world. What exists today? What forces are at play?
-Include relevant constraints: technical, business, timeline, team capability.}
+{Describe the current state of the world. What exists today? What forces are at play? Include relevant constraints: technical, business, timeline, team capability.}
 
 ## Problem Statement
 
-{One to three sentences. What specific problem or question does this decision address?
-Frame it as a question when possible: "How should we...?" or "What approach should we take for...?"}
+{One to three sentences. What specific problem or question does this decision address? Frame it as a question when possible: "How should we...?" or "What approach should we take for...?"}
 
 ### Trigger
 
-{What prompted this decision now? A new requirement, a pain point, tech debt, scaling issue, etc.
-If you cannot name the trigger, question whether this decision is needed yet.}
+{What prompted this decision now? A new requirement, a pain point, tech debt, scaling issue, etc. If you cannot name the trigger, question whether this decision is needed yet.}
 
 ---
 
@@ -48,22 +45,15 @@ If you cannot name the trigger, question whether this decision is needed yet.}
 
 ### Thesis — Why This Option
 
-{Present the affirmative case. What makes this the right choice?
-Include evidence: benchmarks, docs, community adoption, team experience, precedent.}
+{Present the affirmative case. What makes this the right choice? Include evidence: benchmarks, docs, community adoption, team experience, precedent.}
 
 ### Antithesis — The Strongest Case Against [T2]
 
-{Argue against your own decision as if you were an adversarial reviewer trying to block this PR.
-Do not use weak counterarguments. What would a skeptical staff engineer say?
-If you cannot construct a strong counterargument, question whether this decision is significant
-enough to warrant an ADR.}
+{Argue against your own decision as if you were an adversarial reviewer trying to block this PR. Do not use weak counterarguments. What would a skeptical staff engineer say? If you cannot construct a strong counterargument, question whether this decision is significant enough to warrant an ADR.}
 
 ### Synthesis — Why It Still Holds [T2]
 
-{Address every point raised in Antithesis directly. Do not hand-wave.
-If you cannot rebut a point, acknowledge it as an accepted risk and explain
-why the trade-off is still worth it.
-If the antithesis changed your decision, document how your thinking evolved.}
+{Address every point raised in Antithesis directly. Do not hand-wave. If you cannot rebut a point, acknowledge it as an accepted risk and explain why the trade-off is still worth it. If the antithesis changed your decision, document how your thinking evolved.}
 
 ---
 
@@ -100,24 +90,23 @@ If the antithesis changed your decision, document how your thinking evolved.}
   assumptions — not from picking the wrong option.
 -->
 
-| #   | Assumption                                     | Evidence                                        | What Breaks If Wrong                 |
-| --- | ---------------------------------------------- | ----------------------------------------------- | ------------------------------------ |
-| 1   | {What must be true for this decision to work?} | {How do you know this is true? Link to source.} | {Consequence if assumption is false} |
-| 2   |                                                |                                                 |                                      |
-| 3   |                                                |                                                 |                                      |
+| # | Assumption | Evidence | What Breaks If Wrong |
+| --- | --- | --- | --- |
+| 1 | {What must be true for this decision to work?} | {How do you know this is true? Link to source.} | {Consequence if assumption is false} |
+| 2 |  |  |  |
+| 3 |  |  |  |
 
-{If you cannot provide evidence for an assumption, flag it as **unvalidated** and describe
-how you plan to validate it before or shortly after implementation.}
+{If you cannot provide evidence for an assumption, flag it as **unvalidated** and describe how you plan to validate it before or shortly after implementation.}
 
 ---
 
 ## Failure Mode Analysis [T2]
 
-| Scenario                                                                   | Likelihood   | Impact       | Detection                                             | Mitigation          |
-| -------------------------------------------------------------------------- | ------------ | ------------ | ----------------------------------------------------- | ------------------- |
-| {What if this decision turns out wrong?}                                   | Low/Med/High | Low/Med/High | {How would we know? What signal reveals the failure?} | {What would we do?} |
-| {What if a key assumption breaks?}                                         |              |              |                                                       |                     |
-| {What if the ecosystem shifts? (e.g., library abandoned, breaking change)} |              |              |                                                       |                     |
+| Scenario | Likelihood | Impact | Detection | Mitigation |
+| --- | --- | --- | --- | --- |
+| {What if this decision turns out wrong?} | Low/Med/High | Low/Med/High | {How would we know? What signal reveals the failure?} | {What would we do?} |
+| {What if a key assumption breaks?} |  |  |  |  |
+| {What if the ecosystem shifts? (e.g., library abandoned, breaking change)} |  |  |  |  |
 
 <!--
   The Detection column is critical. A failure you cannot detect is far more
@@ -161,9 +150,9 @@ how you plan to validate it before or shortly after implementation.}
 
 ### Success Criteria
 
-| Metric                                       | Target                     | Measurement Method | Check Date                                              |
-| -------------------------------------------- | -------------------------- | ------------------ | ------------------------------------------------------- |
-| {How will you know this decision was right?} | {Quantitative if possible} | {How to measure}   | {When to check — creates a built-in trigger to revisit} |
+| Metric | Target | Measurement Method | Check Date |
+| --- | --- | --- | --- |
+| {How will you know this decision was right?} | {Quantitative if possible} | {How to measure} | {When to check — creates a built-in trigger to revisit} |
 
 ---
 
@@ -171,12 +160,12 @@ how you plan to validate it before or shortly after implementation.}
 
 ### Research Conducted
 
-| Source                                  | Type                 | Key Finding                                               | URL/Location                     |
-| --------------------------------------- | -------------------- | --------------------------------------------------------- | -------------------------------- |
-| {e.g., "Next.js App Router docs"}       | Documentation        | {What you learned — extract the insight, don't just link} | {URL}                            |
-| {e.g., "Bundle size comparison spike"}  | Primary research     | {Result}                                                  | {Link to branch/gist}            |
-| {e.g., "Reddit thread on X migration"}  | Community discussion | {Relevant insight}                                        | {URL}                            |
-| {e.g., "Claude analysis of trade-offs"} | AI-assisted research | {What was explored}                                       | {Conversation link if available} |
+| Source | Type | Key Finding | URL/Location |
+| --- | --- | --- | --- |
+| {e.g., "Next.js App Router docs"} | Documentation | {What you learned — extract the insight, don't just link} | {URL} |
+| {e.g., "Bundle size comparison spike"} | Primary research | {Result} | {Link to branch/gist} |
+| {e.g., "Reddit thread on X migration"} | Community discussion | {Relevant insight} | {URL} |
+| {e.g., "Claude analysis of trade-offs"} | AI-assisted research | {What was explored} | {Conversation link if available} |
 
 ### Related ADRs
 

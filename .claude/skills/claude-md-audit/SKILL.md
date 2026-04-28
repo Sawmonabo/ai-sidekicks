@@ -11,10 +11,10 @@ Perform an exhaustive redundancy analysis of all instruction files that Claude C
 
 Claude Code loads instruction files progressively — root CLAUDE.md first, then rules files, then subdirectory CLAUDE.md files as the agent enters directories. Every redundant restatement in a later file causes harm:
 
-| Impact        | Mechanism                                                                                                           |
-| ------------- | ------------------------------------------------------------------------------------------------------------------- |
-| Token waste   | The agent already knows this; repeating it shrinks the budget for actual work                                       |
-| Drift risk    | The "same" rule phrased differently in 3 files will eventually diverge when one gets updated and the others don't   |
+| Impact | Mechanism |
+| --- | --- |
+| Token waste | The agent already knows this; repeating it shrinks the budget for actual work |
+| Drift risk | The "same" rule phrased differently in 3 files will eventually diverge when one gets updated and the others don't |
 | Signal buried | When 40% of a subdirectory CLAUDE.md restates root content, the genuinely new layer-specific guidance gets obscured |
 
 ## Phase 1: Discovery and Loading Order
@@ -47,11 +47,11 @@ The discovery script also detects `@file.md` references in CLAUDE.md files (e.g.
 
 IF the manifest contains `includes` entries, THEN:
 
-| Include Status                                 | Meaning                            | Action                                  |
-| ---------------------------------------------- | ---------------------------------- | --------------------------------------- |
-| `resolved: true`                               | File exists, will be loaded        | Read it after its including CLAUDE.md   |
-| `resolved: false` (in `unresolved_references`) | Reference found but file missing   | Report as broken reference in Section 1 |
-| Entry in `circular_references`                 | File A includes B which includes A | Report in Section 1, do not re-read     |
+| Include Status | Meaning | Action |
+| --- | --- | --- |
+| `resolved: true` | File exists, will be loaded | Read it after its including CLAUDE.md |
+| `resolved: false` (in `unresolved_references`) | Reference found but file missing | Report as broken reference in Section 1 |
+| Entry in `circular_references` | File A includes B which includes A | Report in Section 1, do not re-read |
 
 IF the manifest has NO `includes` entries (all empty), THEN skip all include-related analysis. The audit proceeds identically to a repo with no @-references.
 
@@ -90,13 +90,13 @@ Maintain a running **concept registry** as you read files in loading order:
 
 ### Self-Duplication Patterns to Watch For
 
-| Pattern                                 | What It Looks Like                                                                                                                                                                                             | Why It's Easy to Miss                                                                      |
-| --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| Mirror tables                           | A "Safety Constraints" table and a "Never" table in the same file expressing the same rules from opposite angles (what to do vs what not to do)                                                                | Different table headers make them look like different content                              |
-| Priority lists under different headers  | The same N items ranked in similar order appearing twice — once as "loading order" and again as "trust hierarchy" or "source-of-truth hierarchy." Different column metadata does not make the core ranking new | Different section titles and column names disguise the shared item list                    |
-| Invariant restated as prose then table  | A CRITICAL/MUST statement at the top of a file, then the same constraint in a table body later in the same file                                                                                                | The prose version and table version feel like different "formats" but convey the same rule |
-| Conditional rules echoing table content | An IF/THEN rule in a "Conditional Rules" section that restates an action rule already present in a table row earlier in the same file                                                                          | The IF/THEN framing makes it look like new behavioral instruction                          |
-| Link indexes under different headers    | Two sections listing file paths or doc references. Extract the target paths from each and compare sets — if >50% overlap, flag as self-duplication regardless of format                                        | One may be a table, the other a categorized list — compare targets, not presentation       |
+| Pattern | What It Looks Like | Why It's Easy to Miss |
+| --- | --- | --- |
+| Mirror tables | A "Safety Constraints" table and a "Never" table in the same file expressing the same rules from opposite angles (what to do vs what not to do) | Different table headers make them look like different content |
+| Priority lists under different headers | The same N items ranked in similar order appearing twice — once as "loading order" and again as "trust hierarchy" or "source-of-truth hierarchy." Different column metadata does not make the core ranking new | Different section titles and column names disguise the shared item list |
+| Invariant restated as prose then table | A CRITICAL/MUST statement at the top of a file, then the same constraint in a table body later in the same file | The prose version and table version feel like different "formats" but convey the same rule |
+| Conditional rules echoing table content | An IF/THEN rule in a "Conditional Rules" section that restates an action rule already present in a table row earlier in the same file | The IF/THEN framing makes it look like new behavioral instruction |
+| Link indexes under different headers | Two sections listing file paths or doc references. Extract the target paths from each and compare sets — if >50% overlap, flag as self-duplication regardless of format | One may be a table, the other a categorized list — compare targets, not presentation |
 
 ### Peer-Level Comparison
 
@@ -106,12 +106,12 @@ After processing all files through the registry, compare files at the same direc
 
 IF a file was loaded via @include (manifest field `loading: "included"`), THEN:
 
-| Scenario                                                   | Ownership Rule                                                                                        |
-| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| Concept appears ONLY in included file (e.g., AGENTS.md)    | Owned by the included file, at the phase of its including CLAUDE.md                                   |
-| Concept in both including CLAUDE.md AND its @included file | CLAUDE.md owns it (read first). The included file's copy is redundant                                 |
-| Same file @included by two different CLAUDE.md files       | First inclusion (earlier phase) owns concepts. Second inclusion adds 100% redundancy for that content |
-| Concept in @included file AND in a rules file              | Whichever loads first per the loading order owns it                                                   |
+| Scenario | Ownership Rule |
+| --- | --- |
+| Concept appears ONLY in included file (e.g., AGENTS.md) | Owned by the included file, at the phase of its including CLAUDE.md |
+| Concept in both including CLAUDE.md AND its @included file | CLAUDE.md owns it (read first). The included file's copy is redundant |
+| Same file @included by two different CLAUDE.md files | First inclusion (earlier phase) owns concepts. Second inclusion adds 100% redundancy for that content |
+| Concept in @included file AND in a rules file | Whichever loads first per the loading order owns it |
 
 The included file gets its own row in the saturation tracker, its own per-file breakdown, and its own entry in the cumulative table. Do NOT merge its concepts with the including CLAUDE.md.
 
@@ -119,19 +119,19 @@ The included file gets its own row in the saturation tracker, its own per-file b
 
 When a concept in a later file matches one already in the registry, classify it:
 
-| Type               | Definition                                                                                                  |                          Is Redundant?                           |
-| ------------------ | ----------------------------------------------------------------------------------------------------------- | :--------------------------------------------------------------: |
-| **Exact**          | Same words, same meaning, same specificity                                                                  |                               Yes                                |
-| **Paraphrased**    | Different wording, same constraint or rule                                                                  |                               Yes                                |
-| **Subset**         | Later file states part of a broader rule from earlier file                                                  |                               Yes                                |
-| **Elaboration**    | Later file adds specificity, examples, or mechanisms to a general rule from an earlier file                 | Partially — the general rule is redundant, the new detail is not |
-| **Reference-only** | Later file names an earlier concept but adds NEW behavioral instruction (when/how to verify, what to check) |     No — the reference is a pointer, the instruction is new      |
+| Type | Definition | Is Redundant? |
+| --- | --- | :-: |
+| **Exact** | Same words, same meaning, same specificity | Yes |
+| **Paraphrased** | Different wording, same constraint or rule | Yes |
+| **Subset** | Later file states part of a broader rule from earlier file | Yes |
+| **Elaboration** | Later file adds specificity, examples, or mechanisms to a general rule from an earlier file | Partially — the general rule is redundant, the new detail is not |
+| **Reference-only** | Later file names an earlier concept but adds NEW behavioral instruction (when/how to verify, what to check) | No — the reference is a pointer, the instruction is new |
 
 The distinction between **paraphrased** and **reference-only** is critical:
 
-| Statement in later file                                                             | Classification                     | Reasoning                                                                                   |
-| ----------------------------------------------------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------- |
-| "All imports must be top-level" (in rules file)                                     | Paraphrased — **Redundant**        | Root already states this; no new behavioral guidance added                                  |
+| Statement in later file | Classification | Reasoning |
+| --- | --- | --- |
+| "All imports must be top-level" (in rules file) | Paraphrased — **Redundant** | Root already states this; no new behavioral guidance added |
 | "IF modifying session.py, THEN verify apply_tenant_context() still sets all 5 GUCs" | Reference-only — **Not redundant** | References RLS concept but adds a path-to-action verification trigger the agent didn't have |
 
 IF in doubt about a classification, THEN apply this test: "If I deleted this statement from the later file, would the agent lose any behavioral guidance it doesn't already have?" If no → redundant. If yes → not redundant.
@@ -200,7 +200,7 @@ Bottom line: "X of Y content lines are redundant (Z%). Unique value: [summary of
 Show how redundancy accumulates as the agent loads more files:
 
 | After loading... | Total lines in context | Redundant lines added | Cumulative redundant | % of total context |
-| ---------------- | :--------------------: | :-------------------: | :------------------: | :----------------: |
+| --- | :-: | :-: | :-: | :-: |
 
 ### Section 5: Structural Hotspots
 
@@ -225,12 +225,12 @@ For each file, after stripping all redundancy, what remains that NO other file p
 
 These principles separate a thorough audit from a superficial one:
 
-| #   | Principle                                         | Why It Matters                                                                                                                                                                                                                                                          | How to Apply                                                                                                                                                                                                                                                                                                |
-| --- | ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Paraphrasing detection matters most               | Exact-match duplication is obvious. The hard cases are when the same constraint is worded differently — "Services accept domain models only" vs "Never pass Pydantic schemas to services" vs "API schemas never enter the service layer." All three say the same thing. | IF two statements from different files constrain the same behavior, THEN they are redundant regardless of wording. Catch all phrasings.                                                                                                                                                                     |
-| 2   | Loading order determines ownership                | The first file to state a concept OWNS it. All later restatements are the redundant copies, regardless of which file states it "better."                                                                                                                                | Root CLAUDE.md is never redundant — it is always loaded first. Attribute redundancy to the LATER file, not the earlier one.                                                                                                                                                                                 |
-| 3   | Self-duplication counts                           | A file that states the same rule in its safety anchors AND its "Never" table AND its process rules is internally redundant — the agent absorbs 3 copies from a single file.                                                                                             | Check WITHIN each file, not just across files.                                                                                                                                                                                                                                                              |
-| 4   | Tables are dense                                  | A single table row is one concept. A 5-row table restated across 3 files is 10 redundant lines, not 1.                                                                                                                                                                  | Count table rows individually when computing redundancy, not whole tables as single units.                                                                                                                                                                                                                  |
-| 5   | Meta-files duplicate heavily                      | Files that describe "how to load context" often restate the same source priority list that root CLAUDE.md already provides.                                                                                                                                             | IF a file's purpose is to describe context loading, THEN check it against root's context loading section with extra scrutiny.                                                                                                                                                                               |
-| 6   | Same-file section duplication is hardest to catch | A file with a "Progressive Context Acquisition" table AND a "Source-of-Truth Hierarchy" table may list the same N items in similar order under two different headings. Different column metadata does not make the core ranking new.                                    | Compare the ITEMS in ordered lists/tables across sections within the same file, not just the section titles. IF two sections list the same ranked items with different column metadata, THEN that is self-duplication.                                                                                      |
-| 7   | Included files are separate entities              | An @included file (e.g., AGENTS.md) is NOT part of the including file's content. It is a separate file that happens to load at the same phase. Merging it with the including CLAUDE.md produces wrong redundancy percentages for both files.                            | IF AGENTS.md is included by CLAUDE.md via @AGENTS.md, THEN AGENTS.md gets its own row in the saturation tracker, its own per-file breakdown, and its own entry in the cumulative table. Do NOT merge its content with CLAUDE.md. IF no @includes exist in the manifest, THEN this principle does not apply. |
+| # | Principle | Why It Matters | How to Apply |
+| --- | --- | --- | --- |
+| 1 | Paraphrasing detection matters most | Exact-match duplication is obvious. The hard cases are when the same constraint is worded differently — "Services accept domain models only" vs "Never pass Pydantic schemas to services" vs "API schemas never enter the service layer." All three say the same thing. | IF two statements from different files constrain the same behavior, THEN they are redundant regardless of wording. Catch all phrasings. |
+| 2 | Loading order determines ownership | The first file to state a concept OWNS it. All later restatements are the redundant copies, regardless of which file states it "better." | Root CLAUDE.md is never redundant — it is always loaded first. Attribute redundancy to the LATER file, not the earlier one. |
+| 3 | Self-duplication counts | A file that states the same rule in its safety anchors AND its "Never" table AND its process rules is internally redundant — the agent absorbs 3 copies from a single file. | Check WITHIN each file, not just across files. |
+| 4 | Tables are dense | A single table row is one concept. A 5-row table restated across 3 files is 10 redundant lines, not 1. | Count table rows individually when computing redundancy, not whole tables as single units. |
+| 5 | Meta-files duplicate heavily | Files that describe "how to load context" often restate the same source priority list that root CLAUDE.md already provides. | IF a file's purpose is to describe context loading, THEN check it against root's context loading section with extra scrutiny. |
+| 6 | Same-file section duplication is hardest to catch | A file with a "Progressive Context Acquisition" table AND a "Source-of-Truth Hierarchy" table may list the same N items in similar order under two different headings. Different column metadata does not make the core ranking new. | Compare the ITEMS in ordered lists/tables across sections within the same file, not just the section titles. IF two sections list the same ranked items with different column metadata, THEN that is self-duplication. |
+| 7 | Included files are separate entities | An @included file (e.g., AGENTS.md) is NOT part of the including file's content. It is a separate file that happens to load at the same phase. Merging it with the including CLAUDE.md produces wrong redundancy percentages for both files. | IF AGENTS.md is included by CLAUDE.md via @AGENTS.md, THEN AGENTS.md gets its own row in the saturation tracker, its own per-file breakdown, and its own entry in the cumulative table. Do NOT merge its content with CLAUDE.md. IF no @includes exist in the manifest, THEN this principle does not apply. |

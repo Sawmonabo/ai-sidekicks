@@ -1,14 +1,14 @@
 # Spec-014: Artifacts Files And Attachments
 
-| Field                   | Value                                                                                                                                                                                                                     |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Status**              | `approved`                                                                                                                                                                                                                |
-| **NNN**                 | `014`                                                                                                                                                                                                                     |
-| **Slug**                | `artifacts-files-and-attachments`                                                                                                                                                                                         |
-| **Date**                | `2026-04-14`                                                                                                                                                                                                              |
-| **Author(s)**           | `Codex`                                                                                                                                                                                                                   |
-| **Depends On**          | [Artifact Diff And Approval Model](../domain/artifact-diff-and-approval-model.md), [Repo Workspace Worktree Model](../domain/repo-workspace-worktree-model.md), [Data Architecture](../architecture/data-architecture.md) |
-| **Implementation Plan** | [Plan-014: Artifacts Files And Attachments](../plans/014-artifacts-files-and-attachments.md)                                                                                                                              |
+| Field | Value |
+| --- | --- |
+| **Status** | `approved` |
+| **NNN** | `014` |
+| **Slug** | `artifacts-files-and-attachments` |
+| **Date** | `2026-04-14` |
+| **Author(s)** | `Codex` |
+| **Depends On** | [Artifact Diff And Approval Model](../domain/artifact-diff-and-approval-model.md), [Repo Workspace Worktree Model](../domain/repo-workspace-worktree-model.md), [Data Architecture](../architecture/data-architecture.md) |
+| **Implementation Plan** | [Plan-014: Artifacts Files And Attachments](../plans/014-artifacts-files-and-attachments.md) |
 
 ## Purpose
 

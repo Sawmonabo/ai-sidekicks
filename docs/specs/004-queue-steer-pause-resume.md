@@ -1,14 +1,14 @@
 # Spec-004: Queue Steer Pause Resume
 
-| Field                   | Value                                                                                                                                                                                                                                                                                     |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Status**              | `approved`                                                                                                                                                                                                                                                                                |
-| **NNN**                 | `004`                                                                                                                                                                                                                                                                                     |
-| **Slug**                | `queue-steer-pause-resume`                                                                                                                                                                                                                                                                |
-| **Date**                | `2026-04-14`                                                                                                                                                                                                                                                                              |
-| **Author(s)**           | `Codex`                                                                                                                                                                                                                                                                                   |
-| **Depends On**          | [Run State Machine](../domain/run-state-machine.md), [Queue And Intervention Model](../domain/queue-and-intervention-model.md), [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md), [Shared Session Core](../specs/001-shared-session-core.md) |
-| **Implementation Plan** | [Plan-004: Queue Steer Pause Resume](../plans/004-queue-steer-pause-resume.md)                                                                                                                                                                                                            |
+| Field | Value |
+| --- | --- |
+| **Status** | `approved` |
+| **NNN** | `004` |
+| **Slug** | `queue-steer-pause-resume` |
+| **Date** | `2026-04-14` |
+| **Author(s)** | `Codex` |
+| **Depends On** | [Run State Machine](../domain/run-state-machine.md), [Queue And Intervention Model](../domain/queue-and-intervention-model.md), [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md), [Shared Session Core](../specs/001-shared-session-core.md) |
+| **Implementation Plan** | [Plan-004: Queue Steer Pause Resume](../plans/004-queue-steer-pause-resume.md) |
 
 ## Purpose
 

@@ -45,17 +45,17 @@ The run state machine is the source of truth for execution lifecycle semantics.
 
 ## State Model
 
-| State                  | Meaning                                                                               |
-| ---------------------- | ------------------------------------------------------------------------------------- |
-| `queued`               | The run exists but has not yet been admitted to execution.                            |
-| `starting`             | The runtime is preparing provider, workspace, or execution state.                     |
-| `running`              | The run is actively executing.                                                        |
-| `waiting_for_approval` | The run is blocked on an approval request.                                            |
-| `waiting_for_input`    | The run is blocked on participant input or structured answers.                        |
-| `paused`               | The run has been intentionally suspended and can later continue with the same run id. |
-| `completed`            | The run finished successfully.                                                        |
-| `interrupted`          | The run ended because of an interrupt or cancel path.                                 |
-| `failed`               | The run ended because of an unrecovered error.                                        |
+| State | Meaning |
+| --- | --- |
+| `queued` | The run exists but has not yet been admitted to execution. |
+| `starting` | The runtime is preparing provider, workspace, or execution state. |
+| `running` | The run is actively executing. |
+| `waiting_for_approval` | The run is blocked on an approval request. |
+| `waiting_for_input` | The run is blocked on participant input or structured answers. |
+| `paused` | The run has been intentionally suspended and can later continue with the same run id. |
+| `completed` | The run finished successfully. |
+| `interrupted` | The run ended because of an interrupt or cancel path. |
+| `failed` | The run ended because of an unrecovered error. |
 
 Primary allowed transitions:
 
@@ -95,51 +95,51 @@ Decision rule — `interrupted` vs `failed` during recovery:
 
 The following table is the single authoritative reference for every allowed run state transition. It includes primary transitions, the failure paths added above, and recovery transitions.
 
-| From                   | To                     | Trigger                          | Condition                                               |
-| ---------------------- | ---------------------- | -------------------------------- | ------------------------------------------------------- |
-| `queued`               | `starting`             | Run admitted to execution        | Queue slot available                                    |
-| `starting`             | `running`              | Initialization complete          | Provider and workspace ready                            |
-| `starting`             | `failed`               | Initialization error             | Provider or workspace setup cannot complete             |
-| `running`              | `waiting_for_approval` | Approval requested               | Run requires explicit approval before continuing        |
-| `running`              | `waiting_for_input`    | Input requested                  | Run requires participant input or structured answers    |
-| `running`              | `paused`               | Pause intervention               | User or orchestration initiates pause                   |
-| `running`              | `interrupted`          | Interrupt or cancel intervention | User-initiated stop                                     |
-| `running`              | `completed`            | Execution finished               | Run reaches successful terminal condition               |
-| `running`              | `failed`               | Unrecovered error                | Provider, transport, or internal error during execution |
-| `waiting_for_approval` | `running`              | Approval granted                 | Valid approval received                                 |
-| `waiting_for_approval` | `interrupted`          | Interrupt or cancel intervention | User-initiated stop while waiting                       |
-| `waiting_for_approval` | `failed`               | Provider or transport failure    | Failure occurs while run is blocked on approval         |
-| `waiting_for_input`    | `running`              | Input received                   | Valid participant input received                        |
-| `waiting_for_input`    | `interrupted`          | Interrupt or cancel intervention | User-initiated stop while waiting                       |
-| `waiting_for_input`    | `failed`               | Provider or transport failure    | Failure occurs while run is blocked on input            |
-| `paused`               | `running`              | Resume intervention              | Resume handle valid and provider ready                  |
-| `paused`               | `interrupted`          | Interrupt or cancel intervention | User-initiated stop while paused                        |
-| `paused`               | `failed`               | Resume failure                   | Resume handle lost or recovery exhausted                |
-| `queued`               | `failed`               | Startup reconciliation           | Recovery fails with no prior user-initiated stop        |
-| `queued`               | `interrupted`          | Startup reconciliation           | Pending user-initiated stop recorded before crash       |
-| `starting`             | `failed`               | Startup reconciliation           | Recovery fails with no prior user-initiated stop        |
-| `starting`             | `interrupted`          | Startup reconciliation           | Pending user-initiated stop recorded before crash       |
-| `running`              | `failed`               | Startup reconciliation           | Recovery fails with no prior user-initiated stop        |
-| `running`              | `interrupted`          | Startup reconciliation           | Pending user-initiated stop recorded before crash       |
-| `waiting_for_approval` | `failed`               | Startup reconciliation           | Recovery fails with no prior user-initiated stop        |
-| `waiting_for_approval` | `interrupted`          | Startup reconciliation           | Pending user-initiated stop recorded before crash       |
-| `waiting_for_input`    | `failed`               | Startup reconciliation           | Recovery fails with no prior user-initiated stop        |
-| `waiting_for_input`    | `interrupted`          | Startup reconciliation           | Pending user-initiated stop recorded before crash       |
-| `paused`               | `failed`               | Startup reconciliation           | Resume impossible and no prior user-initiated stop      |
-| `paused`               | `interrupted`          | Startup reconciliation           | Pending user-initiated stop recorded before crash       |
+| From | To | Trigger | Condition |
+| --- | --- | --- | --- |
+| `queued` | `starting` | Run admitted to execution | Queue slot available |
+| `starting` | `running` | Initialization complete | Provider and workspace ready |
+| `starting` | `failed` | Initialization error | Provider or workspace setup cannot complete |
+| `running` | `waiting_for_approval` | Approval requested | Run requires explicit approval before continuing |
+| `running` | `waiting_for_input` | Input requested | Run requires participant input or structured answers |
+| `running` | `paused` | Pause intervention | User or orchestration initiates pause |
+| `running` | `interrupted` | Interrupt or cancel intervention | User-initiated stop |
+| `running` | `completed` | Execution finished | Run reaches successful terminal condition |
+| `running` | `failed` | Unrecovered error | Provider, transport, or internal error during execution |
+| `waiting_for_approval` | `running` | Approval granted | Valid approval received |
+| `waiting_for_approval` | `interrupted` | Interrupt or cancel intervention | User-initiated stop while waiting |
+| `waiting_for_approval` | `failed` | Provider or transport failure | Failure occurs while run is blocked on approval |
+| `waiting_for_input` | `running` | Input received | Valid participant input received |
+| `waiting_for_input` | `interrupted` | Interrupt or cancel intervention | User-initiated stop while waiting |
+| `waiting_for_input` | `failed` | Provider or transport failure | Failure occurs while run is blocked on input |
+| `paused` | `running` | Resume intervention | Resume handle valid and provider ready |
+| `paused` | `interrupted` | Interrupt or cancel intervention | User-initiated stop while paused |
+| `paused` | `failed` | Resume failure | Resume handle lost or recovery exhausted |
+| `queued` | `failed` | Startup reconciliation | Recovery fails with no prior user-initiated stop |
+| `queued` | `interrupted` | Startup reconciliation | Pending user-initiated stop recorded before crash |
+| `starting` | `failed` | Startup reconciliation | Recovery fails with no prior user-initiated stop |
+| `starting` | `interrupted` | Startup reconciliation | Pending user-initiated stop recorded before crash |
+| `running` | `failed` | Startup reconciliation | Recovery fails with no prior user-initiated stop |
+| `running` | `interrupted` | Startup reconciliation | Pending user-initiated stop recorded before crash |
+| `waiting_for_approval` | `failed` | Startup reconciliation | Recovery fails with no prior user-initiated stop |
+| `waiting_for_approval` | `interrupted` | Startup reconciliation | Pending user-initiated stop recorded before crash |
+| `waiting_for_input` | `failed` | Startup reconciliation | Recovery fails with no prior user-initiated stop |
+| `waiting_for_input` | `interrupted` | Startup reconciliation | Pending user-initiated stop recorded before crash |
+| `paused` | `failed` | Startup reconciliation | Resume impossible and no prior user-initiated stop |
+| `paused` | `interrupted` | Startup reconciliation | Pending user-initiated stop recorded before crash |
 
 ## Derived Failure And Recovery Signals
 
 The canonical run lifecycle has one failure terminal state: `failed`. Additional labels describe why a run failed or whether recovery still needs action; they do not create extra run states.
 
-| Signal Or Category          | Meaning                                                                                                           | Classification                            |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
-| `stuck-suspected`           | The run appears active but has exceeded progress thresholds without reaching a valid blocking or terminal state.  | Derived run-health signal, not `RunState` |
-| `recovery-needed`           | Automatic recovery did not return the run to safe progress and operator or participant action is required.        | Recovery condition, not `RunState`        |
-| `provider failure`          | The provider or driver could not safely start, continue, or resume the run.                                       | Failure category, not `RunState`          |
-| `transport failure`         | A required transport path failed independently of provider semantics.                                             | Failure category, not `RunState`          |
-| `local persistence failure` | Canonical local storage was unavailable or inconsistent enough that recovery or safe mutation could not continue. | Failure category, not `RunState`          |
-| `projection failure`        | Replay or projection rebuild could not produce trustworthy read state.                                            | Failure category, not `RunState`          |
+| Signal Or Category | Meaning | Classification |
+| --- | --- | --- |
+| `stuck-suspected` | The run appears active but has exceeded progress thresholds without reaching a valid blocking or terminal state. | Derived run-health signal, not `RunState` |
+| `recovery-needed` | Automatic recovery did not return the run to safe progress and operator or participant action is required. | Recovery condition, not `RunState` |
+| `provider failure` | The provider or driver could not safely start, continue, or resume the run. | Failure category, not `RunState` |
+| `transport failure` | A required transport path failed independently of provider semantics. | Failure category, not `RunState` |
+| `local persistence failure` | Canonical local storage was unavailable or inconsistent enough that recovery or safe mutation could not continue. | Failure category, not `RunState` |
+| `projection failure` | Replay or projection rebuild could not produce trustworthy read state. | Failure category, not `RunState` |
 
 - Recovery is handled by startup reconciliation: on boot the daemon detects stale runs and dispatches corrective commands. There is no visible `recovering` state.
 - If recovery cannot proceed safely, the run transitions to `failed`; failure detail may then carry one or more failure categories plus `recovery-needed` when intervention is still required.
@@ -155,14 +155,14 @@ The canonical run lifecycle has one failure terminal state: `failed`. Additional
 
 When a parent run changes state, child runs are affected as follows:
 
-| Parent State           | Child-Run Effect                                                                                                            |
-| ---------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `interrupted`          | All child runs are interrupted. Children did not fail; they end because the parent was stopped.                             |
-| `failed`               | All child runs are interrupted. Children are interrupted (not failed) because the parent died, not the children themselves. |
-| `paused`               | All child runs are paused. Children pause when the parent pauses and resume when the parent resumes.                        |
-| `completed`            | Child runs continue to completion. They were spawned for a reason and are allowed to finish.                                |
-| `waiting_for_approval` | Child runs continue running. The parent blocking on approval does not block children.                                       |
-| `waiting_for_input`    | Child runs continue running. The parent blocking on input does not block children.                                          |
+| Parent State | Child-Run Effect |
+| --- | --- |
+| `interrupted` | All child runs are interrupted. Children did not fail; they end because the parent was stopped. |
+| `failed` | All child runs are interrupted. Children are interrupted (not failed) because the parent died, not the children themselves. |
+| `paused` | All child runs are paused. Children pause when the parent pauses and resume when the parent resumes. |
+| `completed` | Child runs continue to completion. They were spawned for a reason and are allowed to finish. |
+| `waiting_for_approval` | Child runs continue running. The parent blocking on approval does not block children. |
+| `waiting_for_input` | Child runs continue running. The parent blocking on input does not block children. |
 
 ## Edge Cases
 

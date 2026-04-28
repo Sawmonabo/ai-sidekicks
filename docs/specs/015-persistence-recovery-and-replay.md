@@ -1,14 +1,14 @@
 # Spec-015: Persistence Recovery And Replay
 
-| Field                   | Value                                                                                                                                                                                                        |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Status**              | `approved`                                                                                                                                                                                                   |
-| **NNN**                 | `015`                                                                                                                                                                                                        |
-| **Slug**                | `persistence-recovery-and-replay`                                                                                                                                                                            |
-| **Date**                | `2026-04-14`                                                                                                                                                                                                 |
-| **Author(s)**           | `Codex`                                                                                                                                                                                                      |
-| **Depends On**          | [Data Architecture](../architecture/data-architecture.md), [Run State Machine](../domain/run-state-machine.md), [Session Event Taxonomy And Audit Log](../specs/006-session-event-taxonomy-and-audit-log.md) |
-| **Implementation Plan** | [Plan-015: Persistence Recovery And Replay](../plans/015-persistence-recovery-and-replay.md)                                                                                                                 |
+| Field | Value |
+| --- | --- |
+| **Status** | `approved` |
+| **NNN** | `015` |
+| **Slug** | `persistence-recovery-and-replay` |
+| **Date** | `2026-04-14` |
+| **Author(s)** | `Codex` |
+| **Depends On** | [Data Architecture](../architecture/data-architecture.md), [Run State Machine](../domain/run-state-machine.md), [Session Event Taxonomy And Audit Log](../specs/006-session-event-taxonomy-and-audit-log.md) |
+| **Implementation Plan** | [Plan-015: Persistence Recovery And Replay](../plans/015-persistence-recovery-and-replay.md) |
 
 ## Purpose
 
@@ -113,11 +113,11 @@ The in-flight-receipt sweep runs **only at daemon startup**, per [§Default Beha
 
 Recovery dispatches on `idempotency_class`:
 
-| Class                   | Recovery Behavior                                                                                                                                                                                                                                                        |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `idempotent`            | Re-execute the tool. External deduplication (if any) is the tool's responsibility. Emit `tool.replayed`.                                                                                                                                                                 |
-| `compensable`           | Re-execute the tool with the receipt's `dedupe_key` attached so the remote side can reject duplicates. Pattern follows [Stripe idempotency keys](https://docs.stripe.com/api/idempotent_requests). On confirmed duplicate response, emit `tool.skipped_during_recovery`. |
-| `manual_reconcile_only` | Do **not** re-execute. Halt the affected run with a `recovery-needed` condition per [Spec-005 § Fallback Behavior](005-provider-driver-contract-and-capabilities.md#fallback-behavior). Emit `tool.skipped_during_recovery` and surface an operator escalation.          |
+| Class | Recovery Behavior |
+| --- | --- |
+| `idempotent` | Re-execute the tool. External deduplication (if any) is the tool's responsibility. Emit `tool.replayed`. |
+| `compensable` | Re-execute the tool with the receipt's `dedupe_key` attached so the remote side can reject duplicates. Pattern follows [Stripe idempotency keys](https://docs.stripe.com/api/idempotent_requests). On confirmed duplicate response, emit `tool.skipped_during_recovery`. |
+| `manual_reconcile_only` | Do **not** re-execute. Halt the affected run with a `recovery-needed` condition per [Spec-005 § Fallback Behavior](005-provider-driver-contract-and-capabilities.md#fallback-behavior). Emit `tool.skipped_during_recovery` and surface an operator escalation. |
 
 Examples: `idempotent` covers pure reads (`file.read`, `shell.stat`) and server-side-idempotent writes (for example `S3 PutObject` with `If-Match`). `compensable` covers Stripe charges, payment authorizations, and any remote side that honors a client-supplied idempotency key. `manual_reconcile_only` covers one-shot external actions where the remote side offers no deduplication — for example a webhook to a legacy system or a PR merge on a remote repo — and where executing twice would produce a user-visible incident.
 
@@ -125,9 +125,9 @@ Examples: `idempotent` covers pure reads (`file.read`, `shell.stat`) and server-
 
 Two event types are reserved for tool-recovery outcomes, both with category `tool_activity`. They are registered here and in [Spec-006](006-session-event-taxonomy-and-audit-log.md), with full taxonomy-table enumeration tracked by [BL-064](../archive/backlog-archive.md):
 
-| Type                           | Description                                                                                                                                                                     |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tool.replayed`                | A tool with `idempotency_class ∈ {idempotent, compensable}` was re-executed during recovery. Payload: `{sessionId, runId, commandId, idempotencyClass, dedupeKey?}`.            |
+| Type | Description |
+| --- | --- |
+| `tool.replayed` | A tool with `idempotency_class ∈ {idempotent, compensable}` was re-executed during recovery. Payload: `{sessionId, runId, commandId, idempotencyClass, dedupeKey?}`. |
 | `tool.skipped_during_recovery` | A tool with `idempotency_class = 'manual_reconcile_only'` was detected in-flight during recovery and was **not** re-executed. Payload: `{sessionId, runId, commandId, reason}`. |
 
 ### References
@@ -209,13 +209,13 @@ Session events carry two timestamps: `occurred_at` (RFC 3339 wall-clock UTC) for
 
 Daemon startup runs a platform-appropriate NTP-sync probe before accepting mutable writes. The platform matrix:
 
-| Platform                   | Command                                                        | Pass Condition                                                               |
-| -------------------------- | -------------------------------------------------------------- | ---------------------------------------------------------------------------- | --------------------------------- |
-| Linux (systemd)            | `timedatectl show --property=NTPSynchronized --value`          | stdout is `yes`                                                              |
-| Linux (chrony, no systemd) | `chronyc tracking`                                             | `Leap status` is `Normal` (not `Not synchronised`)                           |
-| Windows                    | `w32tm /query /status /verbose`                                | `Last Sync Error == 0` AND `Stratum < 16` AND `Source != "Local CMOS Clock"` |
-| macOS                      | `systemsetup -getusingnetworktime` + `sntp -sS time.apple.com` | `getusingnetworktime` returns `On` AND `sntp` offset within ±500 ms          |
-| Container                  | Probe the host, not the container                              | via `--ntp-sync-status-override=<env                                         | file>` or host D-Bus socket mount |
+| Platform | Command | Pass Condition |
+| --- | --- | --- | --- |
+| Linux (systemd) | `timedatectl show --property=NTPSynchronized --value` | stdout is `yes` |
+| Linux (chrony, no systemd) | `chronyc tracking` | `Leap status` is `Normal` (not `Not synchronised`) |
+| Windows | `w32tm /query /status /verbose` | `Last Sync Error == 0` AND `Stratum < 16` AND `Source != "Local CMOS Clock"` |
+| macOS | `systemsetup -getusingnetworktime` + `sntp -sS time.apple.com` | `getusingnetworktime` returns `On` AND `sntp` offset within ±500 ms |
+| Container | Probe the host, not the container | via `--ntp-sync-status-override=<env | file>` or host D-Bus socket mount |
 
 The Linux `NTPSynchronized` property reads the kernel `adjtimex(2)` flag via the `org.freedesktop.timedate1` D-Bus interface and is authoritative regardless of which daemon (timesyncd, chrony, ntpd) maintains sync ([man.archlinux.org/man/core/systemd/org.freedesktop.timedate1.5.en](https://man.archlinux.org/man/core/systemd/org.freedesktop.timedate1.5.en), fetched 2026-04-19). Windows parses multiple fields because no single boolean exists ([learn.microsoft.com/en-us/windows-server/networking/windows-time-service/windows-time-service-tools-and-settings](https://learn.microsoft.com/en-us/windows-server/networking/windows-time-service/windows-time-service-tools-and-settings), page dated 2025-09-18, fetched 2026-04-19). macOS has no single-boolean equivalent; its probe is explicitly best-effort and may false-negative on recently-restarted hosts before `timed` syncs. Containers inherit the host kernel clock but typically lack a `timedate1` D-Bus service, so detection must be hoisted out of the container — the override env var/path is the sanctioned escape hatch.
 

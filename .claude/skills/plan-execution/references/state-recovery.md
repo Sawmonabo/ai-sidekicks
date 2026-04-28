@@ -6,11 +6,11 @@ Resumption protocol when a Claude session ends mid-PR (compaction, crash, or exp
 
 State lives in three artifacts with strict separation of role:
 
-| Artifact                            | Role                           | Durability                      |
-| ----------------------------------- | ------------------------------ | ------------------------------- |
+| Artifact | Role | Durability |
+| --- | --- | --- |
 | **PR description (YAML DAG block)** | Static decomposition of the PR | Cross-session (lives on origin) |
-| **TaskCreate**                      | Live in-session dispatch state | In-session only                 |
-| **Branch commits**                  | Built code                     | Cross-session (lives on origin) |
+| **TaskCreate** | Live in-session dispatch state | In-session only |
+| **Branch commits** | Built code | Cross-session (lives on origin) |
 
 Canonicality precedence: **branch commits > YAML DAG > TaskCreate > PR description prose**. On resume, branch commits are read first; the DAG tells you what was planned; TaskCreate state is reconstructed from branch + DAG.
 
@@ -93,19 +93,19 @@ Read the plan section for this PR (`docs/plans/NNN-*.md` PR #M). Confirm the DAG
 
 Match the combined state to a workflow phase:
 
-| State                                                                        | Resume from                                                                                                |
-| ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| Branch has only the scaffold commit; PR DAG is `pending-analysis`            | Phase A — dispatch plan-analyst                                                                            |
-| Branch has only the scaffold commit; PR DAG is populated                     | Phase B level 0 — dispatch first task's implementer (or contract-author)                                   |
-| Branch has commits matching all tasks in level N; level N+1 not started      | Phase B level N+1 — dispatch next-level tasks                                                              |
+| State | Resume from |
+| --- | --- |
+| Branch has only the scaffold commit; PR DAG is `pending-analysis` | Phase A — dispatch plan-analyst |
+| Branch has only the scaffold commit; PR DAG is populated | Phase B level 0 — dispatch first task's implementer (or contract-author) |
+| Branch has commits matching all tasks in level N; level N+1 not started | Phase B level N+1 — dispatch next-level tasks |
 | Branch has commits for some tasks at level N; other tasks at level N pending | Phase B level N — dispatch missing tasks (sequential: continue the level; worktree: check worktrees first) |
-| Worktrees exist for level N tasks with commits but no merges into PR branch  | Phase C — dispatch per-task reviewer pipelines for the worktree tasks; merge after they clear              |
-| Worktrees exist with uncommitted changes                                     | **Surface to user.** Implementer was mid-edit; don't auto-stash.                                           |
-| All DAG tasks committed; no Progress Log entry on the plan; PR draft         | Phase D — final review pipeline                                                                            |
-| Final review evidence in branch (review-fix commits after Phase D)           | Phase D — re-dispatch final reviewers (they round-tripped)                                                 |
-| Plan body has Progress Log entry for this PR; PR is `ready`, CI pending      | Phase E — wait for CI                                                                                      |
-| PR is `ready`, CI green, not merged                                          | Phase E — squash-merge                                                                                     |
-| Branch deleted, PR merged                                                    | Phase F — next PR or done                                                                                  |
+| Worktrees exist for level N tasks with commits but no merges into PR branch | Phase C — dispatch per-task reviewer pipelines for the worktree tasks; merge after they clear |
+| Worktrees exist with uncommitted changes | **Surface to user.** Implementer was mid-edit; don't auto-stash. |
+| All DAG tasks committed; no Progress Log entry on the plan; PR draft | Phase D — final review pipeline |
+| Final review evidence in branch (review-fix commits after Phase D) | Phase D — re-dispatch final reviewers (they round-tripped) |
+| Plan body has Progress Log entry for this PR; PR is `ready`, CI pending | Phase E — wait for CI |
+| PR is `ready`, CI green, not merged | Phase E — squash-merge |
+| Branch deleted, PR merged | Phase F — next PR or done |
 
 If the state doesn't match any row (e.g., merge conflicts, broken history, divergent DAG vs commits), surface to user. Do not auto-resolve.
 
