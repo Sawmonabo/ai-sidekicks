@@ -9,17 +9,17 @@
 | **Author(s)**           | `Codex`                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | **Spec**                | [Spec-007: Local IPC And Daemon Control](../specs/007-local-ipc-and-daemon-control.md)                                                                                                                                                                                                                                                                                                                                                                                               |
 | **Required ADRs**       | [ADR-002](../decisions/002-local-execution-shared-control-plane.md), [ADR-008](../decisions/008-default-transports-and-relay-boundaries.md), [ADR-009](../decisions/009-json-rpc-ipc-wire-format.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md)                                                                                                                                                                                                                     |
-| **Dependencies**        | None upstream. **Tier 1 / Tier 4 split** per [cross-plan-dependencies.md §5 Plan-007 Substrate-vs-Namespace Carve-Out](../architecture/cross-plan-dependencies.md#plan-007-substrate-vs-namespace-carve-out-tier-1--tier-4) — Plan-007-partial (Spec-007 §Wire Format substrate + `session.*` namespace + SDK Zod layer) ships at Tier 1 to unblock [Plan-001](./001-shared-session-core.md) PR #5; Plan-007-remainder ships at Tier 4. See §Execution Windows (V1 Carve-Out) below. |
+| **Dependencies**        | None upstream. **Tier 1 / Tier 4 split** per [cross-plan-dependencies.md §5 Plan-007 Substrate-vs-Namespace Carve-Out](../architecture/cross-plan-dependencies.md#plan-007-substrate-vs-namespace-carve-out-tier-1--tier-4) — Plan-007-partial (Spec-007 §Wire Format substrate + `session.*` namespace + SDK Zod layer) ships at Tier 1 to unblock [Plan-001](./001-shared-session-core.md) Phase 5; Plan-007-remainder ships at Tier 4. See §Execution Windows (V1 Carve-Out) below. |
 | **Cross-Plan Deps**     | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md)                                                                                                                                                                                                                                                                                                                                                                                                            |
 | **Owned Spec-027 Rows** | 2, 3, 4, 7a, 7b, 8, 10 (daemon-side secure-default enforcement — see [Spec-027 §Required Behavior](../specs/027-self-host-secure-defaults.md#required-behavior))                                                                                                                                                                                                                                                                                                                     |
 
 ## Execution Windows (V1 Carve-Out)
 
-Plan-007 ships in two windows — a **Tier 1 partial-deliverable** (substrate + `session.*` namespace) that unblocks [Plan-001](./001-shared-session-core.md) PR #5, and a **Tier 4 remainder** that completes the daemon control surface. The split is documented authoritatively in [cross-plan-dependencies.md §5 Plan-007 Substrate-vs-Namespace Carve-Out](../architecture/cross-plan-dependencies.md#plan-007-substrate-vs-namespace-carve-out-tier-1--tier-4); this section is the plan-side restatement so engineers reading Plan-007 in isolation see the split.
+Plan-007 ships in two windows — a **Tier 1 partial-deliverable** (substrate + `session.*` namespace) that unblocks [Plan-001](./001-shared-session-core.md) Phase 5, and a **Tier 4 remainder** that completes the daemon control surface. The split is documented authoritatively in [cross-plan-dependencies.md §5 Plan-007 Substrate-vs-Namespace Carve-Out](../architecture/cross-plan-dependencies.md#plan-007-substrate-vs-namespace-carve-out-tier-1--tier-4); this section is the plan-side restatement so engineers reading Plan-007 in isolation see the split.
 
 ### Tier 1 — Plan-007-Partial (substrate + `session.*` namespace)
 
-Lands alongside Plan-001 to unblock Plan-001 PR #5. Scope:
+Lands alongside Plan-001 to unblock Plan-001 Phase 5. Scope:
 
 - **Spec-007 §Wire Format substrate** — `packages/runtime-daemon/src/ipc/local-ipc-gateway.ts` and `packages/runtime-daemon/src/ipc/protocol-negotiation.ts` implementing JSON-RPC 2.0 with LSP-style Content-Length framing (`Content-Length: <byte-count>\r\n\r\n`), 1MB max-message-size, protocol-version negotiation, the typed error model, and supervision hooks. OS-local transport (Unix domain socket / Windows named pipe) is the default; loopback fallback is gated.
 - **Spec-027 daemon-side bind-time substrate** — `packages/runtime-daemon/src/bootstrap/secure-defaults.ts` and `packages/runtime-daemon/src/bootstrap/secure-defaults-events.ts` implementing `SecureDefaults.load()` + `effectiveSettings()` + fail-closed enforcement, with validation scope limited to the bind paths Tier 1 exposes (loopback OS-local socket only). Honors §Invariants I-007-1 (load-before-bind), I-007-2 (fail-closed), and I-007-5 (validation surface widens with bind surface) at the Tier 1 bind surface; Plan-007-remainder extends the validation surface at Tier 4 alongside the additional bind paths (HTTP, non-loopback, TLS).
@@ -38,7 +38,7 @@ Lands at Plan-007's original Tier 4 slot, co-tier with Plan-005 (runtime binding
 
 **Rule:** Cross-cutting infrastructure plans MAY be split into a Tier-N substrate-deliverable + a Tier-M namespace-deliverable when (a) the substrate is single-owned and load-bearing for an earlier-tier consumer, AND (b) the namespaces have natural cohesion with their owning plans. Substrate ships first; namespaces ship with their owning plans.
 
-**Rationale.** Spec-007 conflates two concerns — the cross-cutting _transport substrate_ (correctly single-owned by Plan-007: only one set of framing, version-negotiation, and error semantics may exist in the system) and the domain-specific _method namespaces_ (which cohere with their owning plans: `session.*` belongs with session core, `run.*` with run orchestration, etc.). Without a carve-out, Plan-001 PR #5 either (a) inherits an undeclared forward dependency on Plan-007 at Tier 4, breaking build-order discipline, or (b) duplicates the wire substrate in Plan-001, breaking single-ownership of the transport layer. The carve-out preserves both invariants by isolating the substrate at the consumer's tier while leaving namespace implementations at their natural plan boundaries.
+**Rationale.** Spec-007 conflates two concerns — the cross-cutting _transport substrate_ (correctly single-owned by Plan-007: only one set of framing, version-negotiation, and error semantics may exist in the system) and the domain-specific _method namespaces_ (which cohere with their owning plans: `session.*` belongs with session core, `run.*` with run orchestration, etc.). Without a carve-out, Plan-001 Phase 5 either (a) inherits an undeclared forward dependency on Plan-007 at Tier 4, breaking build-order discipline, or (b) duplicates the wire substrate in Plan-001, breaking single-ownership of the transport layer. The carve-out preserves both invariants by isolating the substrate at the consumer's tier while leaving namespace implementations at their natural plan boundaries.
 
 **Applicability.** Apply this pattern when the §3 Inter-Plan Dependency Graph would otherwise need an undeclared forward dependency from an earlier-tier plan to a later-tier infrastructure plan. The pattern is _not_ a license to fragment well-scoped plans for parallelism reasons — both criteria (a) and (b) must hold. **Precedent:** the [Plan-025 / Plan-018 Symmetric Co-Dep Carve-Out](../architecture/cross-plan-dependencies.md#plan-025--plan-018-symmetric-co-dep-carve-out-tier-5) is a sibling pattern (single substrate package extracted from a later-tier plan to satisfy an earlier-tier consumer), though Plan-025 split is by _steps_ rather than by namespace.
 
@@ -60,7 +60,7 @@ This plan covers OS-local IPC transport, version negotiation, daemon lifecycle c
 
 ## Invariants
 
-The following invariants are **load-bearing** and MUST be preserved across all Plan-007 PRs and downstream extensions. They are restated here at top level so that consumers of Plan-007's substrate (Plan-001 PR #5, Plan-002 `presence.*`, Plan-003 attach calls, Plan-007-remainder namespace handlers) can find them without reading the §Secure Defaults table first.
+The following invariants are **load-bearing** and MUST be preserved across all Plan-007 PRs and downstream extensions. They are restated here at top level so that consumers of Plan-007's substrate (Plan-001 Phase 5, Plan-002 `presence.*`, Plan-003 attach calls, Plan-007-remainder namespace handlers) can find them without reading the §Secure Defaults table first.
 
 ### I-007-1 — Load-before-bind
 
@@ -146,7 +146,7 @@ Plan-007 owns the daemon-side enforcement of [Spec-027 §Required Behavior](../s
 | 8 — TLS 1.3 minimum                                          | All daemon TLS surfaces (daemon HTTPS, WebSocket Secure) negotiate TLS 1.3 only via `{minVersion: 'TLSv1.3', maxVersion: 'TLSv1.3'}` on `tls.createServer` / `https.createServer`; TLS ≤ 1.1 rejected outright (RFC 8996); `--legacy-tls12` override permits 1.2 with loud banner + `security.default.override=legacy_tls12` log event                                                                                              | `tls-surface.ts`                                                                       |
 | 10 — Loud first-run banner (daemon content)                  | On every daemon process start, single-screen stdout banner enumerates: TLS mode + fingerprint (if self-signed/internal-CA), effective bind addresses, backup destination + cadence, admin-token file path, update channel + mode, any active `security.default.override=*` rows; format owned by Plan-026, content provided by `SecureDefaults.effectiveSettings` view; `BANNER_FORMAT=json` emits same payload as single JSON line | `secure-defaults.ts` exposes content contract; `first-run-banner` consumer in Plan-026 |
 
-**Invariants.** See top-level §Invariants — I-007-1 (load-before-bind), I-007-2 (fail-closed), I-007-3 (`effectiveSettings` non-secret only), I-007-4 (single override-event emission), I-007-5 (validation surface widens with bind surface). The invariants govern this entire §Secure Defaults table; the top-level placement makes them discoverable to consumers (Plan-001 PR #5, Plan-002 `presence.*`, Plan-003 attach calls) without requiring them to read this section first.
+**Invariants.** See top-level §Invariants — I-007-1 (load-before-bind), I-007-2 (fail-closed), I-007-3 (`effectiveSettings` non-secret only), I-007-4 (single override-event emission), I-007-5 (validation surface widens with bind surface). The invariants govern this entire §Secure Defaults table; the top-level placement makes them discoverable to consumers (Plan-001 Phase 5, Plan-002 `presence.*`, Plan-003 attach calls) without requiring them to read this section first.
 
 **Override coverage (audit-visible).** Every row with an override path listed in [Spec-027 §Fallback Behavior](../specs/027-self-host-secure-defaults.md#fallback-behavior) emits the override's `security.default.override=*` log event through `secure-defaults-events.ts`. Banner output (row 10) enumerates active overrides on every startup.
 
@@ -167,7 +167,7 @@ Plan-007 owns the daemon-side enforcement of [Spec-027 §Required Behavior](../s
 
 The Tier 1 partial slice (per §Execution Windows above) lands as **3 small PRs** following the substrate-vs-namespace decomposition rule. Each PR is reviewable in isolation. The Tier 4 remainder PR breakdown is deferred to plan-execution time when Tier 4 begins.
 
-### PR #1: SecureDefaults Bootstrap (loopback-bind validation only)
+### Phase 1: SecureDefaults Bootstrap (loopback-bind validation only)
 
 **Goal:** Spec-027 daemon-side bind-time substrate ships at the validation surface Tier 1 actually exposes. `SecureDefaults.load` runs before any listener binds; fail-closed enforcement is active; Tier-4-scope settings keys (TLS, non-loopback, first-run-keys) are refused with `unknown_setting`.
 
@@ -178,27 +178,27 @@ The Tier 1 partial slice (per §Execution Windows above) lands as **3 small PRs*
 - Wire `SecureDefaults.load` as the first step of daemon bootstrap, before `local-ipc-gateway` opens its listener (per §Invariants above).
 - Tests: `SecureDefaults.load` invariant tests (load-before-bind enforcement throws on out-of-order; fail-closed on invalid config; `effectiveSettings` never exposes secrets); negative-path test that Tier-4-scope settings keys are refused with `unknown_setting` error.
 
-### PR #2: Wire Substrate
+### Phase 2: Wire Substrate
 
 **Goal:** Spec-007 §Wire Format substrate ships behind passing handshake + transport tests. No `session.*` handlers yet — this PR delivers the JSON-RPC + framing layer only.
 
-**Precondition:** PR #1 merged (the wire substrate consumes `SecureDefaults.effectiveSettings` for the loopback OS-local bind path).
+**Precondition:** Phase 1 merged (the wire substrate consumes `SecureDefaults.effectiveSettings` for the loopback OS-local bind path).
 
 - `packages/runtime-daemon/src/ipc/local-ipc-gateway.ts` — JSON-RPC 2.0 dispatcher with LSP-style Content-Length framing (`Content-Length: <byte-count>\r\n\r\n`), 1MB max-message-size enforcement, typed error model (`packages/contracts/src/error.ts` shapes), supervision hooks, and OS-local socket / Windows named-pipe transport (default) with gated loopback fallback per [Spec-007 §Wire Format](../specs/007-local-ipc-and-daemon-control.md#wire-format) and [Spec-007 §Fallback Behavior](../specs/007-local-ipc-and-daemon-control.md#fallback-behavior).
 - `packages/runtime-daemon/src/ipc/protocol-negotiation.ts` — `DaemonHello` / `DaemonHelloAck` exchange, protocol-version pinning, mutating-operation gate when versions are incompatible per [Spec-007 §Required Behavior](../specs/007-local-ipc-and-daemon-control.md#required-behavior).
 - Tests: handshake + version-negotiation compatibility tests; transport tests for Unix socket, named pipe, and gated loopback fallback (per §Test And Verification Plan above).
 
-### PR #3: `session.*` Handlers + SDK Zod Layer
+### Phase 3: `session.*` Handlers + SDK Zod Layer
 
-**Goal:** `session.*` JSON-RPC namespace ships end-to-end behind passing handler tests; client SDK Zod wrapper exposes the daemon transport with typed schemas. Plan-001 PR #5 unblocks on this PR's merge (in conjunction with Plan-008 bootstrap PR #1).
+**Goal:** `session.*` JSON-RPC namespace ships end-to-end behind passing handler tests; client SDK Zod wrapper exposes the daemon transport with typed schemas. Plan-001 Phase 5 unblocks on this PR's merge (in conjunction with Plan-008 bootstrap Phase 1).
 
-**Precondition:** PR #1 + PR #2 merged.
+**Precondition:** Phase 1 + Phase 2 merged.
 
 - `session.*` namespace handlers in the daemon — typed JSON-RPC handlers for `SessionCreate`, `SessionRead`, `SessionJoin`, `SessionSubscribe` (the Plan-001 vertical-slice contracts already in `packages/contracts/src/session.ts`). No `run.*` / `repo.*` / `artifact.*` / `settings.*` / `daemon.*` handlers — those ship in Plan-007-remainder at Tier 4.
 - `packages/client-sdk/` — Zod-wrapped typed SDK (~500–1000 LOC per [Spec-007 §Wire Format](../specs/007-local-ipc-and-daemon-control.md#wire-format)) following the MCP TypeScript SDK pattern. Exposes `session.*` methods over the daemon transport.
 - Tests: `session.*` handler integration tests (create / read / join / subscribe round-trip through the wire substrate); SDK Zod-validation tests covering malformed-payload rejection.
 
-After PR #3 merges (and Plan-008 bootstrap PR #1 also merges), [Plan-001 PR #5](./001-shared-session-core.md#pr-5--client-sdk-and-desktop-bootstrap) consumer can begin.
+After Phase 3 merges (and Plan-008 bootstrap Phase 1 also merges), [Plan-001 Phase 5](./001-shared-session-core.md#phase-5--client-sdk-and-desktop-bootstrap) consumer can begin.
 
 ## Parallelization Notes
 

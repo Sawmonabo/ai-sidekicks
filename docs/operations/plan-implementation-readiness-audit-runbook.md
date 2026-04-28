@@ -15,7 +15,7 @@ execution begins. The four defect classes this audit hunts:
 
 1. **Phase-level dep-ordering gaps** — a Phase imports from a plan/Phase in a
    later tier than its own (the Plan-001 Phase 5 → Plan-007/008 substrate gap
-   PR #11 surfaced retroactively).
+   GitHub PR-#11 surfaced retroactively).
 2. **Tasks-block fabrication or omission** — `#### Tasks` blocks invented
    beyond what the spec/plan supports, or unstarted Phases lacking concrete
    step-by-step detail an implementer can execute.

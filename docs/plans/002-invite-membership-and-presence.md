@@ -107,7 +107,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 Plan-002's steps cross two execution tiers:
 
-- **Tier 2 window** (canonical Plan-002 tier): steps 1–3 ship as PR sequence below. Surfaces all invite/membership/presence behavior and the `ChannelList` projection over the Plan-007-partial + Plan-008-bootstrap Tier 1 substrate.
+- **Tier 2 window** (canonical Plan-002 tier): steps 1–3 ship as Phase sequence below. Surfaces all invite/membership/presence behavior and the `ChannelList` projection over the Plan-007-partial + Plan-008-bootstrap Tier 1 substrate.
 - **Tier 8 window** (renderer follow-up): step 4 ships as a single PR after Plan-023 creates `apps/desktop/renderer/` at Tier 8. The renderer subtree at `apps/desktop/renderer/src/session-members/` is the only deliverable in this window.
 
 Splitting prevents Plan-002 from being parked at Tier 2 waiting six tiers for the renderer to exist; the membership/presence semantics are the load-bearing surface and ship at Tier 2.
@@ -169,11 +169,11 @@ The TDD test list below is enumerated and ordered by implementation dependency. 
 - Manual smoke: invite from one desktop client, accept from second client, verify roster + presence updates (Tier 8 follow-up after step 4 ships)
 - All 22 enumerated tests above pass before Plan-002 Tier 2 PRs are marked complete; renderer-step tests (Tier 8 follow-up) gate the Tier 8 PR independently
 
-## Implementation PR Sequence
+## Implementation Phase Sequence
 
 Plan-002 implementation lands as a sequence of small PRs. Tier 2 PRs ship steps 1–3; the Tier 8 PR is a follow-up after Plan-023 ships the renderer tree.
 
-### PR #1 — Invite And Membership Contracts + Migration
+### Phase 1 — Invite And Membership Contracts + Migration
 
 **Precondition:** Plan-001 complete (Tier 1 substrate carve-outs + session-directory-service + control-plane scaffolding in place).
 
@@ -185,9 +185,9 @@ Plan-002 implementation lands as a sequence of small PRs. Tier 2 PRs ship steps 
 - `packages/contracts/src/channels.ts` — `ChannelList` request/response, `ChannelState` enum (channel creation contracts owned by Plan-016 are NOT shipped here)
 - Migration creates `session_invites` (Postgres); `session_memberships` is already created by Plan-001 (no ALTER needed at this PR)
 
-### PR #2 — Control-Plane Invite And Membership Services
+### Phase 2 — Control-Plane Invite And Membership Services
 
-**Precondition:** PR #1 merged.
+**Precondition:** Phase 1 merged.
 
 **Goal:** Tests P1–P10 go green.
 
@@ -196,9 +196,9 @@ Plan-002 implementation lands as a sequence of small PRs. Tier 2 PRs ship steps 
 - Lock-ordering inheritance from Plan-001 (I-002-4) — every transactional caller follows `sessions` → `session_memberships`
 - Audit emission: revocation events emit to session history per Spec-002 line 140
 
-### PR #3 — Presence Heartbeat + ChannelList Projection
+### Phase 3 — Presence Heartbeat + ChannelList Projection
 
-**Precondition:** PR #2 merged.
+**Precondition:** Phase 2 merged.
 
 **Goal:** Tests Pr1–Pr4 + I3 go green.
 
@@ -207,24 +207,24 @@ Plan-002 implementation lands as a sequence of small PRs. Tier 2 PRs ship steps 
 - `ChannelList` projection over the channels collection bootstrapped by Plan-001's `ChannelCreated`
 - Durable presence-state-change events emit via Plan-006 path (`presence.online`/`idle`/`reconnecting`/`offline`); presence rows themselves are never persisted
 
-### PR #4 — Rate Limiting Surface (Optional Slot)
+### Phase 4 — Rate Limiting Surface (Optional Slot)
 
-**Precondition:** PR #2 merged. PR #4 may slip to Plan-021's Tier 6 surface if the cross-plan rate-limiter contract isn't ready by Tier 2; in that case Plan-002 documents the deferral and Plan-021 adds the invite-rate-limit middleware when it ships.
+**Precondition:** Phase 2 merged. Phase 4 may slip to Plan-021's Tier 6 surface if the cross-plan rate-limiter contract isn't ready by Tier 2; in that case Plan-002 documents the deferral and Plan-021 adds the invite-rate-limit middleware when it ships.
 
 **Goal:** Invite rate limits per Spec-002 §Rate Limiting (20/session/hr, 50/participant/hr, 100 pending/session) are enforced; standard `RateLimitResponse` returned on threshold breach.
 
 - Add rate-limit middleware to invite endpoints; defer rate-limiter implementation to [Plan-021](./021-server-side-rate-limiting-and-admin-bans.md) if not yet shipped (cross-plan deferral note added here, contract stub in `packages/contracts/src/rate-limiter.ts` already owned by Plan-021)
 
-### PR #5 — Client SDK Membership Surface
+### Phase 5 — Client SDK Membership Surface
 
-**Precondition:** PR #1–PR #3 merged.
+**Precondition:** Phase 1–Phase 3 merged.
 
 **Goal:** Tests I1–I3 go green; cross-client invite/accept/presence flows work end-to-end.
 
 - `packages/client-sdk/src/membershipClient.ts` — wraps invite/membership/presence/`ChannelList` over both daemon and control-plane transports
 - Integration tests for live-join non-disruption + membership/presence separation
 
-### PR #6 — Renderer (Tier 8 Follow-Up)
+### Phase 6 — Renderer (Tier 8 Follow-Up)
 
 **Precondition:** Plan-023 complete (`apps/desktop/renderer/` exists). Sequenced at Tier 8 per §Execution Windows above.
 
@@ -232,15 +232,15 @@ Plan-002 implementation lands as a sequence of small PRs. Tier 2 PRs ship steps 
 
 - `apps/desktop/renderer/src/session-members/` — renderer views for invite acceptance, participant roster, presence indicators (thin projection over the Spec-023 preload-bridge `window.sidekicks` surface; MUST NOT bypass the bridge to reach daemon or control-plane state directly)
 
-After PR #5 lands green at Tier 2, Plan-002's load-bearing semantics are complete. PR #6 ships at Tier 8 as a renderer follow-up.
+After Phase 5 lands green at Tier 2, Plan-002's load-bearing semantics are complete. Phase 6 ships at Tier 8 as a renderer follow-up.
 
 ## Rollout Order
 
-1. Ship invite and membership APIs (PR #1 + PR #2)
-2. Add presence heartbeat, `ChannelList` projection, and participant roster (PR #3)
-3. Enable rate-limit enforcement (PR #4 — may slip to Plan-021's surface if deferred)
-4. Wire client SDK and integration paths (PR #5)
-5. Enable desktop invite acceptance UI (PR #6, Tier 8 follow-up)
+1. Ship invite and membership APIs (Phase 1 + Phase 2)
+2. Add presence heartbeat, `ChannelList` projection, and participant roster (Phase 3)
+3. Enable rate-limit enforcement (Phase 4 — may slip to Plan-021's surface if deferred)
+4. Wire client SDK and integration paths (Phase 5)
+5. Enable desktop invite acceptance UI (Phase 6, Tier 8 follow-up)
 
 ## Rollback Or Fallback
 
