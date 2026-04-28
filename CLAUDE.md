@@ -16,13 +16,25 @@ Stack: TypeScript across daemon/CLI/desktop/contracts; XState v5 state machines;
 
 V1 ships 17 features ([ADR-015](docs/decisions/015-v1-feature-scope-definition.md)) across 27 implementation plans in 9 dependency tiers. The feature list and tier graph live in [`README.md`](README.md); the build-order + shared-resource ownership map lives in [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md).
 
-## Current State: Documentation-Only
+## Current State: Tier 1 Code Execution Underway
 
-**There is no source code yet.** This repository is in the doc-first phase: governance documents are authored and approved before any implementation lands.
+Code execution started 2026-04-26 with the V1 monorepo scaffold (PR #6) — the doc-first gate cleared when [ADR-023](docs/decisions/023-v1-ci-cd-and-release-automation.md) (V1 CI/CD, pre-commit hooks, release automation) was accepted on the same date, closing [BL-100](docs/archive/backlog-archive.md). Feature branches cut off `develop` and squash-merge back per the [GitFlow-lite branch-model amendment](docs/decisions/023-v1-ci-cd-and-release-automation.md#decision-log).
 
-`package.json` is a placeholder. There is no `src/`, no test runner, no lint config, no build system. **Do not run `npm install`, `npm test`, `pytest`, `tsc`, or similar — they will fail with no useful signal.** The unit of work is a `.md` file under `docs/`.
+Four of five [Plan-001](docs/plans/001-shared-session-core.md) phases have shipped:
 
-[ADR-023](docs/decisions/023-v1-ci-cd-and-release-automation.md) (V1 CI/CD, pre-commit hooks, release automation) was accepted 2026-04-26, clearing the [BL-100](docs/archive/backlog-archive.md) gate. The next milestone is [Plan-001](docs/plans/001-shared-session-core.md) PR #1, the first code-execution PR — it branches off `develop` per the [GitFlow-lite branch-model amendment](docs/decisions/023-v1-ci-cd-and-release-automation.md#decision-log) (also 2026-04-26). Until that PR opens, the doc-first phase continues — work the docs.
+| GitHub PR | Phase | Package |
+| --- | --- | --- |
+| #6 | Phase 1 — Workspace Bootstrap | repo bootstrap (pnpm + Turbo + Vitest + ESLint per [ADR-022](docs/decisions/022-v1-toolchain-selection.md)) |
+| #8 | Phase 2 — Contracts | `packages/contracts` (session / event / error payload schemas) |
+| #9 | Phase 3 — Daemon Migration + Projection | `packages/runtime-daemon` (migration, projector, append/replay) |
+| #10 | Phase 4 — Control Plane Directory | `packages/control-plane` (session directory service: create/read/join) |
+
+`package.json` is real (`pnpm@10.33.2`, Node `>=22.12.0`). Use the wired scripts: `pnpm install`, `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm build` (Turbo-driven), `pnpm format` / `pnpm format:check`. **Do not invoke `npm`** — the engines field requires pnpm. Pre-commit hooks (lefthook + lint-staged + commitlint + gitleaks) install via `pnpm prepare`. The unit of work is now mixed: `.md` files under `docs/` for governance and TypeScript under `packages/` + `apps/` for code phases. Doc-first ordering still holds — every code PR cites the plan / spec / ADR(s) it implements per [CONTRIBUTING.md](CONTRIBUTING.md).
+
+**Active gates blocking the next code PRs:**
+
+- **Plan-001 Phase 5** (Client SDK + Desktop Bootstrap) is the only remaining Plan-001 phase. It depends on Plan-007-partial + Plan-008-bootstrap Tier 1 carve-outs (governance merged; code TBD).
+- **Plan-readiness audit** ([runbook](docs/operations/plan-implementation-readiness-audit-runbook.md), methodology PR #14, Tier 1 pilot PR #15) gates code from Tiers 2-9. The plan-template Precondition checkbox blocks `draft → review` for new plans; pre-audit `approved` plans need a retroactive audit pass before downstream code PRs land. **Tiers 2-9 audits are pending** — eight tier-PRs of audit work owed before broad Tier 2+ code execution can resume.
 
 ## Cross-Tool Conventions
 
@@ -40,15 +52,15 @@ Read `AGENTS.md` on demand before:
 
 ## Documentation Corpus
 
-| Tree                          | Purpose                                                  | Template                             | Status Lifecycle                                                    |
-| ----------------------------- | -------------------------------------------------------- | ------------------------------------ | ------------------------------------------------------------------- |
-| `docs/specs/NNN-kebab.md`     | Feature specifications (the design contract)             | `docs/specs/000-spec-template.md`    | `draft` → `review` → `approved` (or `superseded`)                   |
-| `docs/plans/NNN-kebab.md`     | Implementation plans (executable build steps)            | `docs/plans/000-plan-template.md`    | `draft` → `review` → `approved` → `completed`                       |
-| `docs/decisions/NNN-kebab.md` | ADRs (decisions with antithesis + synthesis)             | `docs/decisions/000-adr-template.md` | `proposed` → `accepted` (or `deprecated` / `superseded by ADR-NNN`) |
-| `docs/domain/`                | Domain models, state machines, glossary                  | `docs/domain/template.md`            | canonical when merged                                               |
-| `docs/architecture/`          | Schemas, contracts, system context, deployment, security | `docs/architecture/template.md`      | canonical when merged                                               |
-| `docs/operations/`            | Runbooks, on-call routing, SLOs                          | `docs/operations/template.md`        | canonical when merged                                               |
-| `docs/backlog.md`             | Active work items (`BL-NNN`)                             | inline template in file header       | `todo` / `in_progress` / `blocked` / `completed`                    |
+| Tree | Purpose | Template | Status Lifecycle |
+| --- | --- | --- | --- |
+| `docs/specs/NNN-kebab.md` | Feature specifications (the design contract) | `docs/specs/000-spec-template.md` | `draft` → `review` → `approved` (or `superseded`) |
+| `docs/plans/NNN-kebab.md` | Implementation plans (executable build steps) | `docs/plans/000-plan-template.md` | `draft` → `review` → `approved` → `completed` |
+| `docs/decisions/NNN-kebab.md` | ADRs (decisions with antithesis + synthesis) | `docs/decisions/000-adr-template.md` | `proposed` → `accepted` (or `deprecated` / `superseded by ADR-NNN`) |
+| `docs/domain/` | Domain models, state machines, glossary | `docs/domain/template.md` | canonical when merged |
+| `docs/architecture/` | Schemas, contracts, system context, deployment, security | `docs/architecture/template.md` | canonical when merged |
+| `docs/operations/` | Runbooks, on-call routing, SLOs | `docs/operations/template.md` | canonical when merged |
+| `docs/backlog.md` | Active work items (`BL-NNN`) | inline template in file header | `todo` / `in_progress` / `blocked` / `completed` |
 
 Non-governance docs sit alongside the corpus and are not subject to the status lifecycle above: [`docs/vision.md`](docs/vision.md) (long-form product vision) and [`docs/reference/`](docs/reference/) (excerpted upstream materials).
 
