@@ -22,7 +22,7 @@ Plan-007 ships in two windows — a **Tier 1 partial-deliverable** (substrate + 
 Lands alongside Plan-001 to unblock Plan-001 PR #5. Scope:
 
 - **Spec-007 §Wire Format substrate** — `packages/runtime-daemon/src/ipc/local-ipc-gateway.ts` and `packages/runtime-daemon/src/ipc/protocol-negotiation.ts` implementing JSON-RPC 2.0 with LSP-style Content-Length framing (`Content-Length: <byte-count>\r\n\r\n`), 1MB max-message-size, protocol-version negotiation, the typed error model, and supervision hooks. OS-local transport (Unix domain socket / Windows named pipe) is the default; loopback fallback is gated.
-- **Spec-027 daemon-side bind-time substrate** — `packages/runtime-daemon/src/bootstrap/secure-defaults.ts` and `packages/runtime-daemon/src/bootstrap/secure-defaults-events.ts` implementing `SecureDefaults.load()` + `effectiveSettings()` + fail-closed enforcement, with validation scope limited to the bind paths Tier 1 exposes (loopback OS-local socket only). Honors §Secure Defaults > Invariants (load-before-bind and fail-closed) at the Tier 1 bind surface; Plan-007-remainder extends the validation surface at Tier 4 alongside the additional bind paths (HTTP, non-loopback, TLS).
+- **Spec-027 daemon-side bind-time substrate** — `packages/runtime-daemon/src/bootstrap/secure-defaults.ts` and `packages/runtime-daemon/src/bootstrap/secure-defaults-events.ts` implementing `SecureDefaults.load()` + `effectiveSettings()` + fail-closed enforcement, with validation scope limited to the bind paths Tier 1 exposes (loopback OS-local socket only). Honors §Invariants I-007-1 (load-before-bind), I-007-2 (fail-closed), and I-007-5 (validation surface widens with bind surface) at the Tier 1 bind surface; Plan-007-remainder extends the validation surface at Tier 4 alongside the additional bind paths (HTTP, non-loopback, TLS).
 - **`session.*` JSON-RPC method namespace only** — typed handlers for `SessionCreate`, `SessionRead`, `SessionJoin`, `SessionSubscribe` (the Plan-001 vertical-slice contracts). No `run.*`, `repo.*`, `artifact.*`, `settings.*`, or `daemon.*` namespaces in this window.
 - **SDK Zod layer (~500–1000 LOC per [Spec-007 §Wire Format](../specs/007-local-ipc-and-daemon-control.md#wire-format))** — the typed wrapper in `packages/client-sdk/` exposing the daemon transport for `sessionClient`. Following the MCP TypeScript SDK pattern.
 
@@ -31,7 +31,7 @@ Lands alongside Plan-001 to unblock Plan-001 PR #5. Scope:
 Lands at Plan-007's original Tier 4 slot, co-tier with Plan-005 (runtime bindings) and Plan-006 (event taxonomy) — all three are gated only on Tier 1 completion per [cross-plan-dependencies.md §5 Canonical Build Order](../architecture/cross-plan-dependencies.md#5-canonical-build-order). Scope:
 
 - The four other JSON-RPC method namespaces — `run.*`, `repo.*`, `artifact.*`, `settings.*`, `daemon.*` — extending the substrate's namespace registry without re-implementing the wire layer.
-- The Spec-027 secure-defaults bootstrap surface owned by Plan-007 widens at Tier 4 alongside the additional bind paths — `tls-surface.ts` (row 8 — only load-bearing once a non-loopback / TLS bind enters), `first-run-keys.ts` (row 3 — daemon master key generation; key custody is Plan-022's at Tier 5), `update-notify.ts` (row 7a — periodic poller, not a bind-time gate), and the CLI `self-update` dual-verification command (row 7b — out-of-process). The Tier 1 partial already ships the bind-time `SecureDefaults` validation surface (`secure-defaults.ts` + `secure-defaults-events.ts`) scoped to the loopback OS-local socket bind path it exposes, so the §Secure Defaults > Invariants block (load-before-bind + fail-closed) holds at every execution window.
+- The Spec-027 secure-defaults bootstrap surface owned by Plan-007 widens at Tier 4 alongside the additional bind paths — `tls-surface.ts` (row 8 — only load-bearing once a non-loopback / TLS bind enters), `first-run-keys.ts` (row 3 — daemon master key generation; key custody is Plan-022's at Tier 5), `update-notify.ts` (row 7a — periodic poller, not a bind-time gate), and the CLI `self-update` dual-verification command (row 7b — out-of-process). The Tier 1 partial already ships the bind-time `SecureDefaults` validation surface (`secure-defaults.ts` + `secure-defaults-events.ts`) scoped to the loopback OS-local socket bind path it exposes; §Invariants I-007-1 / I-007-2 / I-007-5 hold at every execution window per the validation-surface-widens-with-bind-surface rule.
 - The CLI delivery track (`apps/cli/`) and desktop-shell daemon supervision (`apps/desktop/shell/src/daemon-supervision/`, `apps/desktop/renderer/src/daemon-status/`).
 
 ### Substrate-vs-Namespace Decomposition Rule (Methodology)
@@ -57,6 +57,40 @@ This plan covers OS-local IPC transport, version negotiation, daemon lifecycle c
 - Relay or remote transport
 - Provider-driver internal transports
 - Browser-only local client support
+
+## Invariants
+
+The following invariants are **load-bearing** and MUST be preserved across all Plan-007 PRs and downstream extensions. They are restated here at top level so that consumers of Plan-007's substrate (Plan-001 PR #5, Plan-002 `presence.*`, Plan-003 attach calls, Plan-007-remainder namespace handlers) can find them without reading the §Secure Defaults table first.
+
+### I-007-1 — Load-before-bind
+
+`SecureDefaults.load(config)` MUST run **before** any daemon listener binds. Attempting to bind a listener before `SecureDefaults.load` completes is a programmer error and MUST throw.
+
+**Why load-bearing.** This is the invariant whose violation produced the cyclic-dep caught post-hoc by Codex 2026-04-27 (fixed in commit `2d2066b`). Bootstrap-order inversion silently exposes a pre-validation listener to network input. Test must assert load-bearing throw on out-of-order bind attempts.
+
+### I-007-2 — Fail-closed on invalid security settings
+
+`SecureDefaults.load` MUST fail closed on invalid or downgraded security settings — there is no "best-effort partial start" path. At Tier 1, the daemon MUST also refuse settings keys outside the loopback-bind validation scope (e.g., TLS configuration, non-loopback host, first-run-keys policy) with an `unknown_setting` validation error — silent drop is forbidden.
+
+**Why load-bearing.** Best-effort starts mask configuration drift; the override surface is the only sanctioned path for downgrades. Verification: negative-path tests on Tier-4-scope settings keys at Tier 1.
+
+### I-007-3 — `effectiveSettings` exposes only non-secret typed values
+
+`SecureDefaults.effectiveSettings` exposes only non-secret typed values (bind addresses, TLS mode, override flags, fingerprint paths). Raw keys and secrets are NEVER exposed through this view.
+
+**Why load-bearing.** `effectiveSettings` is consumed by every downstream daemon module (gateway, banner, supervision); a secret leaking through this surface is a one-way security regression.
+
+### I-007-4 — Single override-event emission per startup
+
+Every override emits exactly one `security.default.override=<behavior>` log event per startup (not per request, not per event batch).
+
+**Why load-bearing.** Per-request emission would flood the audit log and obscure single-event audit semantics; missing emission would silently hide an active override. Banner content (Spec-027 row 10) enumerates active overrides on every startup as a parallel surface.
+
+### I-007-5 — Validation surface widens with bind surface
+
+These invariants apply to whatever bind paths the daemon exposes at the current execution window. Plan-007-partial (Tier 1) ships a minimal bind surface (loopback OS-local socket only) and a `SecureDefaults` validation surface scoped accordingly; Plan-007-remainder (Tier 4) extends both as additional bind paths (HTTP, non-loopback, TLS) are introduced. The invariants hold at every window — the validation surface widens as the bind surface widens.
+
+**Why load-bearing.** A static validation surface would either over-validate at Tier 1 (refusing Tier-4-scope keys silently) or under-validate at Tier 4 (allowing settings outside the bind paths). Per-window scoping is the only way to keep the invariants honest.
 
 ## Preconditions
 
@@ -112,13 +146,7 @@ Plan-007 owns the daemon-side enforcement of [Spec-027 §Required Behavior](../s
 | 8 — TLS 1.3 minimum                                          | All daemon TLS surfaces (daemon HTTPS, WebSocket Secure) negotiate TLS 1.3 only via `{minVersion: 'TLSv1.3', maxVersion: 'TLSv1.3'}` on `tls.createServer` / `https.createServer`; TLS ≤ 1.1 rejected outright (RFC 8996); `--legacy-tls12` override permits 1.2 with loud banner + `security.default.override=legacy_tls12` log event                                                                                              | `tls-surface.ts`                                                                       |
 | 10 — Loud first-run banner (daemon content)                  | On every daemon process start, single-screen stdout banner enumerates: TLS mode + fingerprint (if self-signed/internal-CA), effective bind addresses, backup destination + cadence, admin-token file path, update channel + mode, any active `security.default.override=*` rows; format owned by Plan-026, content provided by `SecureDefaults.effectiveSettings` view; `BANNER_FORMAT=json` emits same payload as single JSON line | `secure-defaults.ts` exposes content contract; `first-run-banner` consumer in Plan-026 |
 
-**Invariants.**
-
-- `SecureDefaults.load(config)` MUST run **before** any daemon listener binds. Attempting to bind a listener before `SecureDefaults.load` completes is a programmer error and MUST throw.
-- `SecureDefaults.load` MUST fail closed on invalid or downgraded security settings — there is no "best-effort partial start" path.
-- `SecureDefaults.effectiveSettings` exposes only non-secret typed values (bind addresses, TLS mode, override flags, fingerprint paths). Raw keys and secrets are NEVER exposed through this view.
-- Every override emits exactly one `security.default.override=<behavior>` log event per startup (not per request, not per event batch).
-- These invariants apply to whatever bind paths the daemon exposes at the current execution window. Plan-007-partial (Tier 1) ships a minimal bind surface (loopback OS-local socket only) and a `SecureDefaults` validation surface scoped accordingly; Plan-007-remainder (Tier 4) extends both as additional bind paths (HTTP, non-loopback, TLS) are introduced. The invariants hold at every window — the validation surface widens as the bind surface widens. At Tier 1, the daemon MUST refuse settings keys outside the loopback-bind validation scope (e.g., TLS configuration, non-loopback host, first-run-keys policy) with an `unknown_setting` validation error per the fail-closed invariant — silent drop is forbidden. The validation surface widens at Tier 4 to accept those keys; until then, their presence in operator config is a fail-closed condition.
+**Invariants.** See top-level §Invariants — I-007-1 (load-before-bind), I-007-2 (fail-closed), I-007-3 (`effectiveSettings` non-secret only), I-007-4 (single override-event emission), I-007-5 (validation surface widens with bind surface). The invariants govern this entire §Secure Defaults table; the top-level placement makes them discoverable to consumers (Plan-001 PR #5, Plan-002 `presence.*`, Plan-003 attach calls) without requiring them to read this section first.
 
 **Override coverage (audit-visible).** Every row with an override path listed in [Spec-027 §Fallback Behavior](../specs/027-self-host-secure-defaults.md#fallback-behavior) emits the override's `security.default.override=*` log event through `secure-defaults-events.ts`. Banner output (row 10) enumerates active overrides on every startup.
 
@@ -179,18 +207,42 @@ After PR #3 merges (and Plan-008 bootstrap PR #1 also merges), [Plan-001 PR #5](
 
 ## Test And Verification Plan
 
-- Handshake and version-negotiation compatibility tests
-- Transport tests for Unix socket, named pipe, and gated loopback fallback behavior
-- Manual verification that desktop renderer and CLI reach the same daemon semantics through the same typed SDK
-- **Secure-defaults negative-path tests (Spec-027 rows 2, 3, 4, 7a, 7b, 8, 10):**
+Tests are scoped per execution window. Tier 1 tests gate Tier 1 PRs (#1–#3 above); Tier 4 tests gate the Plan-007-remainder PRs.
+
+### [Tier 1] Plan-007-Partial Tests
+
+Validation surface scoped to the loopback OS-local socket bind path Tier 1 exposes.
+
+- `SecureDefaults.load` invariant tests (per §Invariants I-007-1 / I-007-2 / I-007-3 / I-007-4):
+  - Load-before-bind: attempting to bind the local-IPC gateway before `SecureDefaults.load` completes throws (I-007-1).
+  - Fail-closed: invalid config produces typed error with actionable message; no "best-effort partial start" path exists (I-007-2).
+  - `effectiveSettings` exposes only non-secret typed values; never raw keys or secrets (I-007-3).
+  - Single override-event emission: each override emits its `security.default.override=*` event exactly once per startup (I-007-4).
+  - Tier-4-scope-key refusal (I-007-5): TLS configuration keys, non-loopback host keys, first-run-keys policy keys are refused with `unknown_setting` validation error at Tier 1.
+- Spec-027 row coverage at Tier 1 (rows 4 + 10 only — these are the bind-path-relevant rows the loopback OS-local surface exposes):
+  - Row 4: daemon defaults to `127.0.0.1`; the loopback OS-local socket binds to the local namespace only.
+  - Row 10: first-run banner content contract — `effectiveSettings` view supplies the row-10 fields the Plan-026-owned banner consumer renders. Tier 1 verifies the content contract; banner format itself ships with Plan-026.
+- Wire substrate tests:
+  - Handshake and version-negotiation compatibility tests (`DaemonHello` / `DaemonHelloAck` exchange; mutating-operation gate when versions are incompatible).
+  - Transport tests for Unix domain socket, Windows named pipe, and gated loopback fallback behavior per [Spec-007 §Wire Format](../specs/007-local-ipc-and-daemon-control.md#wire-format).
+  - 1MB max-message-size enforcement; LSP-style Content-Length framing parser correctness.
+- `session.*` namespace handler integration tests:
+  - `SessionCreate`, `SessionRead`, `SessionJoin`, `SessionSubscribe` round-trip through the wire substrate.
+  - SDK Zod-validation tests covering malformed-payload rejection.
+
+### [Tier 4] Plan-007-Remainder Tests
+
+Validation surface widens at Tier 4 alongside the additional bind paths (HTTP, non-loopback, TLS) and the four other JSON-RPC namespaces. Per §Invariants I-007-5, the row coverage extends here.
+
+- Spec-027 row coverage at Tier 4 (rows 2, 3, 7a, 7b, 8 — the bind-path-widening rows):
   - Row 2: daemon refuses to start when `<non-loopback bind> + <no TLS>`; `--insecure` override boots with banner + `security.default.override=insecure_bind` event emitted exactly once.
   - Row 3: first-run ceremony generates keys with `N ≥ 32` bytes of entropy (test the entropy source); persisted-file permissions verified (`0600` Unix; ACL Windows); fingerprint appears in both stdout and on-disk file header; sentinel absence blocks subsequent starts with actionable error.
-  - Row 4: daemon defaults to `127.0.0.1`; `DAEMON_BIND=0.0.0.0` without TLS fails at config-parse time; `DAEMON_BIND=0.0.0.0` with TLS boots cleanly.
   - Row 7a: update poller emits `security.update.available` event when newer release detected; daemon refuses self-swap while IPC socket has active clients.
   - Row 7b: self-update CLI rejects manifest where only Ed25519 passes but Sigstore fails; rejects manifest where only Sigstore passes but Ed25519 fails; rejects manifest with `version <= last_seen_version`; rejects manifest with `now > expires_at`; atomic swap + re-exec verified on Linux, macOS, Windows.
   - Row 8: TLS surface negotiates 1.3 only — test rejects 1.2 handshake outright unless `LEGACY_TLS12=1` + banner emitted; test rejects 1.1 and 1.0 even with legacy flag (RFC 8996 floor).
-  - Row 10: banner output enumerates TLS mode, bind addresses, backup destination, admin-token file path, update mode, active overrides on every startup; `BANNER_FORMAT=json` produces single-JSON-line equivalent.
-- `SecureDefaults.load` invariant tests: attempting to bind a listener before `SecureDefaults.load` completes throws; invalid config produces typed error with actionable message; `effectiveSettings` never exposes secrets.
+- `run.*` / `repo.*` / `artifact.*` / `settings.*` / `daemon.*` namespace handler integration tests.
+- Tier-4-scope settings keys NOW accepted by `SecureDefaults` (the inverse of the I-007-5 negative-path test from Tier 1).
+- Manual verification that desktop renderer and CLI reach the same daemon semantics through the same typed SDK.
 
 ## Rollout Order
 
