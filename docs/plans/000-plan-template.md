@@ -97,6 +97,7 @@ specific surfaces) without these being satisfied or explicitly staged.
 - [ ] Paired spec is approved
 - [x] Required ADRs are accepted
 - [ ] Blocking open questions are resolved or explicitly deferred
+- [ ] **Plan-readiness audit complete per [`docs/operations/plan-implementation-readiness-audit-runbook.md`](../operations/plan-implementation-readiness-audit-runbook.md)**
 
 ## Target Areas
 
