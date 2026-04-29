@@ -937,10 +937,7 @@ describe("RT-codex-1 finding #3 — parseFrame caps header section even when del
     // comment) — the BYTE-COUNT of the header section is what triggers
     // the cap, not the parser's interpretation of the lines.
     const padding = "a".repeat(2000);
-    const buf = Buffer.from(
-      `Content-Length: 5\r\nX-Pad: ${padding}\r\n\r\n12345`,
-      "ascii",
-    );
+    const buf = Buffer.from(`Content-Length: 5\r\nX-Pad: ${padding}\r\n\r\n12345`, "ascii");
     let caught: unknown = null;
     try {
       parseFrame(buf);
