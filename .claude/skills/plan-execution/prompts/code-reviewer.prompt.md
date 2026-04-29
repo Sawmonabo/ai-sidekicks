@@ -4,7 +4,7 @@
 
 **When dispatched:** Phase C (after each implementer/contract-author task) and Phase D (final PR-scope review).
 
-**Target dispatch prompt size:** ≤4,000 chars after placeholder substitution.
+**Target dispatch prompt size:** ≤5,500 chars after placeholder substitution. Raised from 4,000 in the v2.1 audit-cite expansion: explicit task-definition fields plus blocked-on awareness. If you exceed it, prefer linking to adjacent files over pasting them.
 
 ---
 
@@ -94,9 +94,18 @@ integration coverage:
 ## Inputs
 
 [Phase C — task-scoped:]
-- Task definition: <from DAG>
+- Task definition: <id, title, target_paths, spec_coverage,
+  verifies_invariant, blocked_on, acceptance_criteria, contract_consumes,
+  contract_provides, notes>
 - Task-scoped diff
 - Adjacent files (consumers/callers of touched symbols, read on demand)
+
+Correctness review is intent-blind on cite *content* (spec-reviewer's
+lane). On `blocked_on` surfaces: do NOT raise ACTIONABLE findings asking
+to extract helpers / dedupe / abstract — the inline duplication is
+load-bearing for boundary stability. Correctness findings (bugs, races,
+null-handling, security) on blocked-on surfaces remain fully in your
+lane. See `references/cite-and-blocked-on-discipline.md` §2.
 
 [Phase D — PR-scoped:]
 - Full PR diff: `git diff develop...HEAD`

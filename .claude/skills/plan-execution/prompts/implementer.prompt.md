@@ -39,6 +39,13 @@ guessing.
 - Title: <task title from DAG>
 - Target paths (these are the ONLY files you may create or modify):
   <list from DAG>
+- Spec coverage (this task implements these Spec-NNN rows; tests MUST
+  exercise them, not just the plan ACs): <list from DAG `spec_coverage`>
+- Verifies invariant (this task preserves these I-NNN-M plan invariants;
+  tests MUST verify the invariant statement — read §Invariants below):
+  <list from DAG `verifies_invariant`>
+- Blocked on (cross-cutting concerns pending in other PRs — see hard rule
+  below): <list from DAG `blocked_on`>
 - Acceptance criteria (these test cases MUST pass before you return DONE):
   <list from DAG>
 - Contract consumes (these symbols already exist; import from upstream
@@ -75,8 +82,17 @@ guessing.
   in-flight tasks (worktree mode) or churn unrelated state (sequential mode).
 - Conventional Commits 1.0 format for the commit message you SUGGEST in
   your report (the orchestrator uses your suggested message verbatim).
-- Tests must actually exercise the acceptance criteria, not just snapshot
-  string output.
+- **Tests must exercise the audit-derived cites, not just the plan ACs.**
+  For each `spec_coverage` row, write a test exercising that Spec-NNN
+  row's behavior. For each `verifies_invariant` cite, write a test
+  asserting the invariant's load-bearing property (read the I-NNN-M
+  entry in §Invariants to know what's load-bearing). Cites are the
+  authoritative coverage contract; ACs are a subset. See
+  `references/cite-and-blocked-on-discipline.md` §1.
+- **Respect `blocked_on` markers.** When non-empty, use conservative
+  inline shapes — no new abstractions, no premature interfaces — for
+  any surface touching a cited C-N concern. See
+  `references/cite-and-blocked-on-discipline.md` §2.
 
 ## Decision presentation
 

@@ -4,7 +4,7 @@
 
 **When dispatched:** Phase C (after each implementer/contract-author task) and Phase D (final PR-scope review).
 
-**Target dispatch prompt size:** ≤4,000 chars after placeholder substitution.
+**Target dispatch prompt size:** ≤5,000 chars after placeholder substitution. Raised from 4,000 in the v2.1 audit-cite expansion: explicit task-definition fields plus blocked-on awareness. If you exceed it, prefer linking to neighboring code over pasting.
 
 ---
 
@@ -56,10 +56,18 @@ than unnecessary round-trips.
 ## Inputs
 
 [Phase C — task-scoped:]
-- Task definition: <from DAG>
+- Task definition: <id, title, target_paths, spec_coverage,
+  verifies_invariant, blocked_on, acceptance_criteria, contract_consumes,
+  contract_provides, notes>
 - Task-scoped diff
 - Coding standards: `.claude/rules/coding-standards.md`
 - Neighboring code (read on demand): adjacent files in target package
+
+Quality review is intent-blind on cite *content* (spec-reviewer's lane).
+On `blocked_on` surfaces: do NOT raise findings (even OBSERVATION)
+asking to extract / dedupe / rule-of-three — the inline duplication is
+load-bearing. Quality findings on non-blocked surfaces remain in your
+lane. See `references/cite-and-blocked-on-discipline.md` §2.
 
 [Phase D — PR-scoped:]
 - Full PR diff: `git diff develop...HEAD`

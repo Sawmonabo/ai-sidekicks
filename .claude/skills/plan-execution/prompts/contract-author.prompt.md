@@ -39,6 +39,14 @@ When the plan or spec is ambiguous on a contract detail, return
 - Title: <task title from DAG>
 - Target paths (these are the ONLY files you may create or modify):
   <list from DAG>
+- Spec coverage (this contract underwrites these Spec-NNN rows; any
+  tooling-sanity test MUST exercise them, not just the plan ACs): <list
+  from DAG `spec_coverage`>
+- Verifies invariant (this contract preserves these I-NNN-M plan
+  invariants; read §Invariants below to know what shape constraints are
+  load-bearing on the contract): <list from DAG `verifies_invariant`>
+- Blocked on (cross-cutting concerns pending in other PRs — see hard rule
+  below): <list from DAG `blocked_on`>
 - Acceptance criteria: <from DAG>
 - Contract provides (downstream tasks consume these symbols): <from DAG>
 - Notes from analyst: <from DAG>
@@ -59,6 +67,20 @@ When the plan or spec is ambiguous on a contract detail, return
   will be committed by the orchestrator using the message you suggest.
 - Per-package tests only: if the plan asks for a test, scope it to your
   target package; do not run workspace-wide tests.
+- **Tooling-sanity tests exercise shape-checkable cites only.**
+  Contracts encode shape (types, Zod, SQL DDL), not behavior. If the
+  plan calls for a tooling-sanity test, exercise the `spec_coverage`
+  and `verifies_invariant` cites whose load-bearing property is the
+  contract shape (field types, enum exhaustiveness, required-vs-
+  optional, type-narrowness). Behavioral cites (e.g., "X returns
+  stable id") are exercised by downstream consumer tasks — flag them
+  in your report but do NOT block on them. See
+  `references/cite-and-blocked-on-discipline.md` §1.
+- **Respect `blocked_on` markers.** Use conservative inline shapes —
+  no premature interfaces, no exported helper types — for contract
+  surfaces touching cited C-N concerns. Contracts are especially
+  exposed: a premature interface here pre-commits every downstream
+  importer. See `references/cite-and-blocked-on-discipline.md` §2.
 
 ## Decision presentation
 

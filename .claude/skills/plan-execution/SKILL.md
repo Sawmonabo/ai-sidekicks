@@ -1,6 +1,6 @@
 ---
 name: plan-execution
-description: Execute implementation plans (docs/plans/NNN-*.md) PR-by-PR by decomposing each PR into a task DAG, dispatching task-scoped implementer subagents (sequential by default, worktree-isolated when wall-clock parallelism is required), gating each task with a small-scope reviewer pipeline (spec / quality / correctness), and gating the merged PR with a final integration-coverage review pipeline. Use whenever the user says "execute Plan-NNN", "execute Plan-NNN PR #M", "kick off Plan-NNN", "work on Plan-NNN", "start Plan-NNN PR", "continue Plan-NNN", or any equivalent that names a plan. Also use when the user says "resume the plan" or "pick up where we left off" on a feat/plan-NNN-* branch. The skill auto-detects the next PR from branch state and merged-PR history; an explicit "PR #M" overrides the inference.
+description: Execute implementation plans (docs/plans/NNN-*.md) one Phase per PR by consuming the audit-derived `#### Tasks` block as the dispatch contract, expanding it into a task DAG, dispatching task-scoped implementer subagents (sequential by default, worktree-isolated when wall-clock parallelism is required), gating each task with a small-scope reviewer pipeline (spec / quality / correctness), and gating the merged PR with a final integration-coverage review pipeline. Use whenever the user says "execute Plan-NNN", "execute Plan-NNN Phase N", "execute Plan-NNN PR #M", "kick off Plan-NNN", "work on Plan-NNN", "start Plan-NNN", "continue Plan-NNN", or any equivalent that names a plan. Also use when the user says "resume the plan" or "pick up where we left off" on a feat/plan-NNN-* branch. The skill auto-detects the next eligible Phase by walking the plan's Implementation Phase Sequence and checking each Phase's `**Precondition:**` against branch + merged-PR + cross-plan state; an explicit "PR #M" or "Phase N" overrides the inference. The audit precondition gate (Status Promotion Gate from `docs/operations/plan-implementation-readiness-audit-runbook.md`) blocks dispatch on un-audited plans.
 ---
 
 # Plan Execution
@@ -112,7 +112,25 @@ Canonicality precedence: **branch commits > YAML DAG > TaskCreate > PR descripti
 
 ### Phase 0 — State inference and scaffold
 
-Run these in parallel:
+Phase 0 has four sequential checks: audit gate → repo state → phase selection → branch decision.
+
+#### 0.1 — Audit precondition gate (Status Promotion Gate)
+
+Read the plan's `## Preconditions` section. If the audit-complete checkbox is unchecked:
+
+```markdown
+- [ ] **Plan-readiness audit complete per [...]**
+```
+
+HALT immediately with `RESULT: NEEDS_CONTEXT` and surface to the user:
+
+> Plan-NNN has not passed the plan-readiness audit (runbook: `docs/operations/plan-implementation-readiness-audit-runbook.md`). The Status Promotion Gate blocks code-execution dispatch on un-audited plans. Run the audit first, or document an explicit waiver in the plan body before re-running.
+
+The check passes when the line is `- [x]`. **Why this gate exists:** running on an un-audited plan means the plan-analyst infers acceptance criteria from prose — exactly the drift the audit's G4 traceability gate was built to prevent. Skipping it reverts the skill to a spec-drift failure mode the runbook's Status Promotion Gate exists to prevent.
+
+#### 0.2 — Repo + PR state inference
+
+Run in parallel:
 
 ```bash
 git branch --show-current
@@ -121,15 +139,33 @@ gh pr list --state open --head "$(git branch --show-current)" --json number,titl
 gh pr list --state merged --search "Plan-NNN in:title" --json number,title --limit 20
 ```
 
-Decision tree:
+#### 0.3 — Phase selection (replaces title-count PR inference)
 
-- **Branch is `feat/plan-NNN-*` with open PR** → in-progress PR. Read [`references/state-recovery.md`](references/state-recovery.md). The PR body's YAML DAG block is your starting state.
-- **Branch is `develop` (or anything else) and no PR open** → fresh start. Determine `M` (next PR):
-  - If user said `PR #M` explicitly, use that.
-  - Else: count merged PRs whose title contains `Plan-NNN`; next-up `M` = count + 1.
-- **Mismatch** (e.g., on `feat/plan-001-*` but user said `PR #5` and the branch is for `PR #3`) → halt, ask the user to disambiguate.
+Read `## Implementation Phase Sequence` from the plan. Walk it top-down to pick the next eligible Phase:
 
-Confirm to the user in one sentence: _"Executing Plan-NNN PR #M (`<inferred-or-explicit>`) — branching off `develop`."_ Then proceed.
+1. For each `### Phase N — title`, skip the phase if it has already shipped — its title (or "Plan-NNN PR #N") appears in the merged-PR list from 0.2.
+2. For each remaining phase, evaluate the `**Precondition:**` line. Best-effort parse:
+   - "PR #X merged" → `gh pr view X` confirms merged
+   - "Plan-MMM Phase K approved/merged" → that plan's Progress Log entry exists
+   - "ADR-NNN accepted" → ADR's `Status` field is `accepted`
+   - Cross-plan dependencies → consult [`docs/architecture/cross-plan-dependencies.md`](../../../docs/architecture/cross-plan-dependencies.md) §5 for substrate/namespace + partial/remainder carve-outs.
+3. The next-up Phase is the **first** un-shipped phase whose Precondition resolves to satisfied.
+4. **Multiple eligible phases simultaneously** (e.g., Tier 1 substrate finished AND a Tier-N remainder unblocked at the same time, common under carve-outs) → halt with `NEEDS_CONTEXT`; ask the user which to execute.
+5. **Zero eligible phases** → halt; surface the unmet preconditions per phase.
+
+User overrides bypass steps 1-3: `PR #M` or `Phase N` in the trigger phrase short-circuits the walk. Override does NOT bypass 0.1 (audit gate runs unconditionally).
+
+**Why phase-walk, not title-count:** plans with substrate/namespace or partial/remainder carve-outs ship Phases non-contiguously across tiers. Plan-007 ships Phases 1-3 in Tier 1 (substrate partial) and Phases 4+ in Tier 4 (remainder). Counting "Plan-007 in:title" PRs after the third merge returns next M=4, which silently maps to Tier-4 work whose preconditions (Plan-001 + others) may not be met. Phase-walk gates each phase on its declared Precondition.
+
+#### 0.4 — Branch + scaffold decision
+
+After 0.1, 0.2, and 0.3 resolve cleanly, decide branch state:
+
+- **Branch is `feat/plan-NNN-*` with open PR matching the selected Phase** → in-progress PR. Read [`references/state-recovery.md`](references/state-recovery.md). The PR body's YAML DAG block is your starting state.
+- **Branch is `develop` (or anything else) and no PR open for the selected Phase** → fresh start; scaffold below.
+- **Mismatch** (e.g., on `feat/plan-001-phase-3-*` but the eligible Phase is 5) → halt, ask the user to disambiguate.
+
+Confirm to the user in one sentence: _"Executing Plan-NNN Phase N — `<phase title>` (PR #M) — branching off `develop`."_ Then proceed.
 
 For a fresh start, branch off `develop` and open the draft PR (the DAG goes in the PR body in Phase A). The example below uses `~~~bash` as the outer fence so the inline ` ```yaml ` block inside the PR body heredoc renders correctly. The shell heredoc itself uses `<<'EOF'` (single-quoted): backticks and `$` pass through as literal text, no escape processing required when this runs.
 
@@ -169,23 +205,31 @@ EOF
 
 Dispatch the **plan-analyst** subagent (template: [`prompts/plan-analyst.prompt.md`](prompts/plan-analyst.prompt.md)). Pass it:
 
-- The plan section verbatim for PR #M.
-- The governing spec and cited ADR file paths (analyst reads them).
+- **The audit-derived `#### Tasks` block for the selected Phase, verbatim.** This is the dispatch contract — Tasks rows map 1:1 to DAG tasks. The audit runbook's G4 traceability gate produced these rows with `Files`, `Spec coverage`, `Verifies invariant`, and optional `BLOCKED-ON-C*` markers. Do NOT have the analyst re-derive task structure from plan prose; re-deriving discards the cites that downstream review depends on.
+- The Phase section (Goal, Scope, Precondition) for orientation only — not the dispatch contract.
+- The plan's `## Invariants` section — the analyst must validate that every Tasks-row `Verifies invariant:` cite resolves to a real I-NNN-M entry.
+- The governing spec and cited ADR file paths (analyst reads them; spec is needed to validate `Spec coverage:` cites).
 - The cross-plan dependency map ([`docs/architecture/cross-plan-dependencies.md`](../../../docs/architecture/cross-plan-dependencies.md)).
+
+Tasks-block field shapes vary across plans (sub-header style in Plan-001 Phase 5; parenthesized inline in Plan-007 Phases 1-3); both carry the same fields. The analyst extracts them verbatim into DAG fields.
 
 The plan-analyst returns a YAML DAG with this schema:
 
 ```yaml
 plan: NNN
-pr: M
+phase: N # Phase number from the plan's Implementation Phase Sequence
+pr: M # GitHub PR number for the Phase
 tasks:
-  - id: T1 # short stable id (T1, T2, ...)
+  - id: T1 # short stable id matching the audit Tasks-row id (T5.1, T-007p-1-1, etc.)
     title: <one-line description>
-    target_paths: [path/to/file1.ts, ...] # files this task creates or modifies
+    target_paths: [path/to/file1.ts, ...] # from audit Tasks-row "Files:"
     depends_on: [] # task ids this depends on (empty for level 0)
     dispatch_mode: sequential # sequential (default) | worktree
     role: implementer # implementer | contract-author
-    acceptance_criteria: # subset of the PR's test plan items
+    spec_coverage: [Spec-NNN row 4, ...] # from audit Tasks-row "Spec coverage:" — load-bearing for spec-reviewer
+    verifies_invariant: [I-NNN-M, ...] # from audit Tasks-row "Verifies invariant:" — load-bearing for spec-reviewer
+    blocked_on: [] # from audit Tasks-row BLOCKED-ON-C* markers; empty if none
+    acceptance_criteria: # subset of the Phase's test plan items (orientation; spec_coverage is the audit-derived authority)
       - <plan AC reference, e.g., "P1: SessionCreate returns stable session id">
     contract_provides: [] # type/symbol names this task exports for consumers (contract-author only)
     contract_consumes: [] # type/symbol names this task imports from upstream tasks
@@ -199,13 +243,22 @@ status: ready # ready | needs-context | blocked
 
 **Validate the DAG before proceeding:**
 
-- Every task's `depends_on` ids exist in the DAG.
-- The `depends_on` graph is acyclic (no `T_a → T_b → ... → T_a` chains).
-- Every `contract_consumes` symbol has a `contract_provides` upstream.
-- Every plan AC appears in at least one task's `acceptance_criteria`.
-- Every plan target file appears in some task's `target_paths` (no orphan files; no spec drift).
-- `target_paths` do NOT overlap between sibling tasks at the same level. Two tasks in the same `levels[i]` editing the same file produce a race in worktree mode and serial-but-conflicting commits in sequential mode — if two tasks must touch the same file, the analyst must place them at different levels with explicit `depends_on`.
-- Tasks with `dispatch_mode: worktree` have a `notes` field justifying the choice (default is sequential).
+- **Audit Tasks-block coverage:**
+  - Every Tasks-block row appears as exactly one DAG task (1:1 — no merging or splitting; the audit's granularity is authoritative).
+  - Every Tasks-row `Spec coverage:` cite appears in the corresponding DAG task's `spec_coverage`.
+  - Every Tasks-row `Verifies invariant:` cite appears in the corresponding DAG task's `verifies_invariant`.
+  - Every Tasks-row `BLOCKED-ON-C*` marker appears in the corresponding DAG task's `blocked_on`.
+- **Topology + contracts:**
+  - Every task's `depends_on` ids exist in the DAG.
+  - The `depends_on` graph is acyclic (no `T_a → T_b → ... → T_a` chains).
+  - Every `contract_consumes` symbol has a `contract_provides` upstream.
+  - `levels[]` is a valid topological sort.
+- **File + AC coverage:**
+  - Every plan AC appears in at least one task's `acceptance_criteria`.
+  - Every plan target file appears in some task's `target_paths` (no orphan files; no spec drift).
+  - `target_paths` do NOT overlap between sibling tasks at the same level. Two tasks in the same `levels[i]` editing the same file produce a race in worktree mode and serial-but-conflicting commits in sequential mode — if two tasks must touch the same file, the analyst must place them at different levels with explicit `depends_on`.
+- **Dispatch mode:**
+  - Tasks with `dispatch_mode: worktree` have a `notes` field justifying the choice (default is sequential).
 
 If validation fails, re-dispatch the analyst with the specific failures. If the analyst's `RESULT:` is `NEEDS_CONTEXT` (plan is incomplete), halt and surface to user with the analyst's exact gaps — do not auto-fill.
 
@@ -242,9 +295,11 @@ For each remaining task at this level:
 
 Dispatch one implementer at a time on the PR branch. The implementer prompt (template: [`prompts/implementer.prompt.md`](prompts/implementer.prompt.md)) contains:
 
-- The task's `title`, `target_paths`, `acceptance_criteria`, `contract_consumes`, `notes`.
+- The task's `title`, `target_paths`, `spec_coverage`, `verifies_invariant`, `blocked_on`, `acceptance_criteria`, `contract_consumes`, `notes`.
 - The plan section verbatim (orientation; NOT the dispatch contract).
+- The plan's `## Invariants` section (the implementer must read I-NNN-M entries cited in `verifies_invariant` to know what's load-bearing).
 - Hard rule: do not run `git`. Stage edits by writing files. Run tests scoped to the task's target package(s).
+- Hard rule: when `blocked_on` is non-empty, prefer conservative inline shapes (no new abstractions, no premature interfaces) until the cited C-N concern resolves in a separate PR.
 
 When the implementer returns `DONE`, run the per-task review pipeline (Phase C). When reviewers clear, commit the task:
 
@@ -306,9 +361,9 @@ After all tasks at this level are committed (sequential) or merged (worktree), a
 
 After each task's implementer (or contract-author) returns `DONE`, BEFORE that task is committed/merged into the PR branch, dispatch the three reviewers IN PARALLEL (single message, three `Agent(...)` blocks). Each reviewer is briefed with:
 
-- The task's `title`, `target_paths`, `acceptance_criteria`, `contract_consumes`/`contract_provides`.
+- The task's `title`, `target_paths`, `spec_coverage`, `verifies_invariant`, `acceptance_criteria`, `contract_consumes`/`contract_provides`, `blocked_on`.
 - The task-scoped diff. Sequential mode: `git diff` against `HEAD` (staged + unstaged for `target_paths`). Worktree mode: `git diff <PR-branch>...<task-branch> -- <target_paths>`.
-- The plan section verbatim (orientation).
+- The plan section verbatim, including `## Invariants` (orientation; spec-reviewer reads I-NNN-M entries cited in `verifies_invariant`).
 
 The three roles (templates under [`prompts/`](prompts/) — `spec-reviewer.prompt.md`, `code-quality-reviewer.prompt.md`, `code-reviewer.prompt.md`):
 
@@ -440,7 +495,10 @@ Read these when the workflow step calls for them:
 
 - **Branching off `main`.** Always branch off `develop`.
 - **Skipping Phase 0 state inference.** Even on a fresh-looking session, run the `git`/`gh` commands first. Surprises (uncommitted changes, an unexpected branch, a divergent DAG) must be resolved before dispatching.
+- **Skipping the audit precondition gate (Phase 0.1).** Plan-readiness audit is not optional. Running on un-audited plans means the analyst infers ACs from prose, producing the drift the audit's G4 traceability gate was built to prevent. The Status Promotion Gate from the audit runbook is the authoritative source.
+- **Inferring next PR by counting merged "Plan-NNN" titles.** Plans with substrate/namespace or partial/remainder carve-outs ship phases non-contiguously across tiers (Plan-007 ships Phases 1-3 in Tier 1, Phases 4+ in Tier 4). Title-counting silently maps post-Tier-1 to Tier-4 work whose preconditions may not be met. Use phase-precondition-driven selection from Phase 0.3.
 - **Skipping Phase A.** Don't dispatch implementers without a validated DAG in the PR body. Pre-decomposition is the whole point of the v2 architecture.
+- **Re-deriving task structure from plan prose when the audit Tasks block exists.** The audit produced the granularity; the Tasks block is the dispatch contract. Re-deriving discards the `Spec coverage:` and `Verifies invariant:` cites that downstream spec-review depends on. If the audit's granularity is wrong, fix the audit (re-run); do not silently re-decompose in the analyst.
 - **Over-decomposing the DAG.** A 30-LOC change is one task, not three. If the analyst returns sub-50-LOC single-file tasks across the board, re-dispatch with the over-decompose objection — the small-task collapse rule is a band-aid, not a license. Over-decomposition multiplies dispatch cost without buying review-scope cleanness.
 - **Skipping Phase D.** Per-task reviews cleared individual tasks; integration coverage at PR scope is a separate gate that catches cross-task contract drift, missing PR-level test coverage, and full-branch lint/test breaks. Phase D is non-negotiable except for docs-only PRs (where Phase C's docs-only collapse already provides PR-scope spec review).
 - **In-codebase parallel implementers.** See the **Dispatch Modes** section above — this mode does not exist. Use sequential or worktree.
