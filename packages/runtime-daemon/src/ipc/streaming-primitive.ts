@@ -376,9 +376,8 @@ export class StreamingPrimitive {
         //
         // Future phases MAY introduce a `$/subscription/complete`
         // (server→client) notification; until then `complete()` and
-        // `cancel()` are server-side state-only markers. The advisor's
-        // #7 finding flags this; the JSDoc on the contracts-side
-        // interface documents the deferral.
+        // `cancel()` are server-side state-only markers. The JSDoc on
+        // the contracts-side interface documents the deferral.
         removeFromTransport(subscriptionId);
         subscriptions.delete(subscriptionId);
       },
@@ -493,10 +492,9 @@ export class StreamingPrimitive {
       // gated by ownership in a way that makes this safe in
       // adversarial environments. Defense-in-depth: the daemon
       // refuses cross-transport cancel by collapsing to the same
-      // observable as "subscription does not exist". (The advisor's
-      // #1 finding flags this as load-bearing security; without the
-      // check, a colluding-peer threat model breaks subscription
-      // confinement.)
+      // observable as "subscription does not exist". Load-bearing
+      // security: without the check, a colluding-peer threat model
+      // breaks subscription confinement.
       //
       // Note: `ctx.transportId === undefined` (e.g. unit-test direct
       // dispatch with no wire boundary) ALSO collapses to
