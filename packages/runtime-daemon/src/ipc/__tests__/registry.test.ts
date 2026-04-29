@@ -71,9 +71,7 @@ function passthroughSchema<T>(): ZodType<T> {
  */
 function rejectingSchema<T>(marker: string): ZodType<T> {
   return {
-    safeParse: (
-      _v: unknown,
-    ): { success: false; error: { issues: ReadonlyArray<unknown> } } => ({
+    safeParse: (_v: unknown): { success: false; error: { issues: ReadonlyArray<unknown> } } => ({
       success: false,
       error: {
         issues: [{ marker, message: "test-rejection" }],
@@ -97,9 +95,9 @@ const directCtx: HandlerContext = {};
 describe("W-007p-2-T9 — schema validates before dispatch (I-007-7)", () => {
   it("malformed params throw `invalid_params`; handler is NEVER invoked", async () => {
     const registry = new MethodRegistryImpl();
-    const handler = vi.fn<(p: unknown, c: HandlerContext) => Promise<unknown>>(
-      async () => ({ ok: true }),
-    );
+    const handler = vi.fn<(p: unknown, c: HandlerContext) => Promise<unknown>>(async () => ({
+      ok: true,
+    }));
     registry.register(
       "math.sum",
       rejectingSchema<unknown>("malformed-sum-params"),
@@ -126,11 +124,9 @@ describe("W-007p-2-T9 — schema validates before dispatch (I-007-7)", () => {
   });
 
   it("`invalid_params` registry code maps to JSON-RPC `-32602` on the wire", () => {
-    const err = new RegistryDispatchError(
-      "invalid_params",
-      "params validation failed",
-      [{ marker: "test" }],
-    );
+    const err = new RegistryDispatchError("invalid_params", "params validation failed", [
+      { marker: "test" },
+    ]);
     const envelope = mapJsonRpcError(err, 1);
     expect(envelope.error.code).toBe(JsonRpcErrorCode.InvalidParams);
     expect(envelope.id).toBe(1);
@@ -138,9 +134,7 @@ describe("W-007p-2-T9 — schema validates before dispatch (I-007-7)", () => {
 
   it("dispatches successfully when params pass validation, returning the handler's result", async () => {
     const registry = new MethodRegistryImpl();
-    const handler: Handler<{ a: number; b: number }, { sum: number }> = async (
-      params,
-    ) => {
+    const handler: Handler<{ a: number; b: number }, { sum: number }> = async (params) => {
       return { sum: params.a + params.b };
     };
     registry.register(
@@ -222,9 +216,7 @@ describe("W-007p-2-T7 — method-not-found namespace isolation", () => {
     // jsonrpc-error-mapping.ts:275-289.
     const data = envelope.error.data;
     if (data !== null && typeof data === "object") {
-      expect((data as Record<string, unknown>)["registryCode"]).toBe(
-        "method_not_found",
-      );
+      expect((data as Record<string, unknown>)["registryCode"]).toBe("method_not_found");
     }
   });
 

@@ -220,7 +220,4 @@ export type JsonRpcResponseEnvelope<R = unknown> = JsonRpcResponse<R> | JsonRpcE
  * shape coming back. Including it in the union now means T-2 doesn't have
  * to widen the type later.
  */
-export type JsonRpcMessage =
-  | JsonRpcRequest
-  | JsonRpcNotification
-  | JsonRpcResponseEnvelope;
+export type JsonRpcMessage = JsonRpcRequest | JsonRpcNotification | JsonRpcResponseEnvelope;

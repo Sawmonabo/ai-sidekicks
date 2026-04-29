@@ -140,11 +140,7 @@ export class StreamingValidationError extends Error {
   readonly subscriptionId: SubscriptionId;
   readonly issues: ReadonlyArray<unknown> | undefined;
 
-  constructor(
-    subscriptionId: SubscriptionId,
-    message: string,
-    issues?: ReadonlyArray<unknown>,
-  ) {
+  constructor(subscriptionId: SubscriptionId, message: string, issues?: ReadonlyArray<unknown>) {
     super(message);
     this.name = "StreamingValidationError";
     this.subscriptionId = subscriptionId;
@@ -280,10 +276,7 @@ export class StreamingPrimitive {
    *   `value` argument to `subscription.next(value)` (I-007-7 streaming
    *   analog).
    */
-  createSubscription<T>(
-    transportId: number,
-    valueSchema: ZodType<T>,
-  ): LocalSubscription<T> {
+  createSubscription<T>(transportId: number, valueSchema: ZodType<T>): LocalSubscription<T> {
     // Branding cast: `crypto.randomUUID()` returns `string`. The runtime
     // shape matches `SubscriptionIdSchema` (UUID); the cast asserts the
     // brand. Mirrors the assertion-cast pattern used at session-id

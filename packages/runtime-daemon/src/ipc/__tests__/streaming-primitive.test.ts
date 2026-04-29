@@ -63,9 +63,7 @@ function passthroughSchema<T>(): ZodType<T> {
 
 function rejectingSchema<T>(marker: string): ZodType<T> {
   return {
-    safeParse: (
-      _v: unknown,
-    ): { success: false; error: { issues: ReadonlyArray<unknown> } } => ({
+    safeParse: (_v: unknown): { success: false; error: { issues: ReadonlyArray<unknown> } } => ({
       success: false,
       error: { issues: [{ marker, message: "test-rejection" }] },
     }),
@@ -82,9 +80,7 @@ interface PrimitiveFixture {
 
 function makeFixture(): PrimitiveFixture {
   const registry = new MethodRegistryImpl();
-  const send = vi.fn<
-    (transportId: number, frame: JsonRpcNotification<unknown>) => void
-  >();
+  const send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>();
   const options: StreamingPrimitiveOptions = { registry, send };
   const primitive = new StreamingPrimitive(options);
   return { registry, primitive, send };
@@ -121,10 +117,7 @@ describe("W-007p-2-T11 — LocalSubscription round-trip + cancel cleanup", () =>
 
   it("emits N notifications correlating each to the same subscriptionId", () => {
     const { primitive, send } = makeFixture();
-    const sub = primitive.createSubscription<{ n: number }>(
-      7,
-      passthroughSchema<{ n: number }>(),
-    );
+    const sub = primitive.createSubscription<{ n: number }>(7, passthroughSchema<{ n: number }>());
     sub.next({ n: 0 });
     sub.next({ n: 1 });
     sub.next({ n: 2 });
@@ -143,10 +136,7 @@ describe("W-007p-2-T11 — LocalSubscription round-trip + cancel cleanup", () =>
 
   it("I-007-7 streaming analog — next(invalidValue) throws `StreamingValidationError`; no send", () => {
     const { primitive, send } = makeFixture();
-    const sub = primitive.createSubscription<unknown>(
-      9,
-      rejectingSchema<unknown>("invalid-value"),
-    );
+    const sub = primitive.createSubscription<unknown>(9, rejectingSchema<unknown>("invalid-value"));
     let caught: unknown = null;
     try {
       sub.next({ bogus: true });
@@ -163,10 +153,7 @@ describe("W-007p-2-T11 — LocalSubscription round-trip + cancel cleanup", () =>
 
   it("server-side cancel() removes the entry; subsequent next() is a silent no-op", () => {
     const { primitive, send } = makeFixture();
-    const sub = primitive.createSubscription<{ x: number }>(
-      11,
-      passthroughSchema<{ x: number }>(),
-    );
+    const sub = primitive.createSubscription<{ x: number }>(11, passthroughSchema<{ x: number }>());
     sub.next({ x: 1 });
     expect(send).toHaveBeenCalledTimes(1);
     sub.cancel();
@@ -178,10 +165,7 @@ describe("W-007p-2-T11 — LocalSubscription round-trip + cancel cleanup", () =>
 
   it("server-side complete() removes the entry; subsequent next() is a silent no-op", () => {
     const { primitive, send } = makeFixture();
-    const sub = primitive.createSubscription<{ y: number }>(
-      12,
-      passthroughSchema<{ y: number }>(),
-    );
+    const sub = primitive.createSubscription<{ y: number }>(12, passthroughSchema<{ y: number }>());
     sub.next({ y: 1 });
     sub.complete();
     sub.next({ y: 2 }); // silent no-op per the documented contract
@@ -198,9 +182,7 @@ describe("W-007p-2-T11 — LocalSubscription round-trip + cancel cleanup", () =>
 
   it("constructing a SECOND primitive against the SAME registry throws `RegistryRegistrationError(`duplicate_method`)` per I-007-6", () => {
     const registry = new MethodRegistryImpl();
-    const send = vi.fn<
-      (transportId: number, frame: JsonRpcNotification<unknown>) => void
-    >();
+    const send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>();
     new StreamingPrimitive({ registry, send });
     let caught: unknown = null;
     try {
@@ -216,10 +198,7 @@ describe("W-007p-2-T11 — LocalSubscription round-trip + cancel cleanup", () =>
 
   it("client-initiated `$/subscription/cancel` with matching transportId removes the subscription", async () => {
     const { primitive, registry, send } = makeFixture();
-    const sub = primitive.createSubscription<{ z: number }>(
-      33,
-      passthroughSchema<{ z: number }>(),
-    );
+    const sub = primitive.createSubscription<{ z: number }>(33, passthroughSchema<{ z: number }>());
     // The cancel handler runs through the registry's standard dispatch
     // path (with a transport-scoped ctx).
     const cancelParams: SubscriptionCancelParams = {
@@ -239,10 +218,7 @@ describe("W-007p-2-T11 — LocalSubscription round-trip + cancel cleanup", () =>
 
   it("client-initiated `$/subscription/cancel` with MISMATCHED transportId returns `{ canceled: false }` (cross-transport collapse, security)", async () => {
     const { primitive, registry, send } = makeFixture();
-    const sub = primitive.createSubscription<{ q: number }>(
-      55,
-      passthroughSchema<{ q: number }>(),
-    );
+    const sub = primitive.createSubscription<{ q: number }>(55, passthroughSchema<{ q: number }>());
     // Peer B (transport 56) attempts to cancel peer A's (transport 55) subscription.
     const cancelParams: SubscriptionCancelParams = {
       subscriptionId: sub.subscriptionId,
@@ -265,7 +241,8 @@ describe("W-007p-2-T11 — LocalSubscription round-trip + cancel cleanup", () =>
       // 36-char UUID-shaped string the schema accepts at the wire
       // boundary; the runtime check finds no entry and returns
       // canceled: false per the documented contract.
-      subscriptionId: "00000000-0000-4000-8000-000000000000" as SubscriptionCancelParams["subscriptionId"],
+      subscriptionId:
+        "00000000-0000-4000-8000-000000000000" as SubscriptionCancelParams["subscriptionId"],
     };
     const ctx: HandlerContext = { transportId: 99 };
     const result = (await registry.dispatch(
@@ -308,10 +285,7 @@ describe("W-007p-2-T11 — LocalSubscription round-trip + cancel cleanup", () =>
 
   it("`cancelSubscription(id)` (internal-trusted path) returns true for known + false for unknown id", () => {
     const { primitive } = makeFixture();
-    const sub = primitive.createSubscription<unknown>(
-      88,
-      passthroughSchema<unknown>(),
-    );
+    const sub = primitive.createSubscription<unknown>(88, passthroughSchema<unknown>());
     expect(primitive.cancelSubscription(sub.subscriptionId)).toBe(true);
     // Second call: already removed.
     expect(primitive.cancelSubscription(sub.subscriptionId)).toBe(false);

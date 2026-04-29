@@ -189,7 +189,9 @@ function makeClient(socketPath: string): Promise<ClientHelper> {
 function decodeOneFrame(acc: Buffer): unknown {
   const result = parseFrame(acc);
   if (result.frame === null) {
-    throw new Error(`decodeOneFrame: buffer did not contain a complete frame (length=${acc.byteLength})`);
+    throw new Error(
+      `decodeOneFrame: buffer did not contain a complete frame (length=${acc.byteLength})`,
+    );
   }
   const text = result.frame.toString("utf8");
   return JSON.parse(text);
@@ -276,10 +278,7 @@ describe("W-007p-2-T6 — Content-Length framing parser correctness", () => {
     // `X-Other: 1\nContent-Length: 5\r\n` followed by the CRLFCRLF
     // separator + body; after slicing, the header text contains `\n`
     // but no `\r\n` interior split — the LF-rejection fires.
-    const buf = Buffer.from(
-      "X-Other: 1\nContent-Length: 5\r\n\r\n12345",
-      "ascii",
-    );
+    const buf = Buffer.from("X-Other: 1\nContent-Length: 5\r\n\r\n12345", "ascii");
     let caught: unknown = null;
     try {
       parseFrame(buf);
@@ -365,9 +364,7 @@ describe("W-007p-2-T2 — Unix domain socket round-trip", () => {
     });
     const registry = new MethodRegistryImpl();
     // Register a deterministic echo handler to verify round-trip.
-    const handler: Handler<{ a: number; b: number }, { sum: number }> = async (
-      params,
-    ) => {
+    const handler: Handler<{ a: number; b: number }, { sum: number }> = async (params) => {
       return { sum: params.a + params.b };
     };
     registry.register(

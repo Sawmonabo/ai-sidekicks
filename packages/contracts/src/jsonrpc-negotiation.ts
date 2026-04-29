@@ -206,7 +206,8 @@ export interface DaemonHello {
  */
 export const NEGOTIATION_REASON_FLOOR_EXCEEDED = "version.floor_exceeded" as const;
 export const NEGOTIATION_REASON_CEILING_EXCEEDED = "version.ceiling_exceeded" as const;
-export const NEGOTIATION_REASON_HANDSHAKE_ALREADY_COMPLETED = "handshake_already_completed" as const;
+export const NEGOTIATION_REASON_HANDSHAKE_ALREADY_COMPLETED =
+  "handshake_already_completed" as const;
 
 export type NegotiationIncompatibleReason =
   | typeof NEGOTIATION_REASON_FLOOR_EXCEEDED

@@ -61,11 +61,7 @@
 // normally land carries a `// BLOCKED-ON-C7` comment marking the
 // mechanical replacement site.
 
-import type {
-  JsonRpcError,
-  JsonRpcErrorResponse,
-  JsonRpcId,
-} from "@ai-sidekicks/contracts";
+import type { JsonRpcError, JsonRpcErrorResponse, JsonRpcId } from "@ai-sidekicks/contracts";
 import { JSONRPC_VERSION } from "@ai-sidekicks/contracts";
 
 import { FramingError, sanitizeErrorMessage } from "./local-ipc-gateway.js";
@@ -123,8 +119,7 @@ export const JsonRpcErrorCode = {
  * numeric code without taking a runtime dependency on the named-constant
  * object.
  */
-export type JsonRpcErrorCodeValue =
-  (typeof JsonRpcErrorCode)[keyof typeof JsonRpcErrorCode];
+export type JsonRpcErrorCodeValue = (typeof JsonRpcErrorCode)[keyof typeof JsonRpcErrorCode];
 
 // --------------------------------------------------------------------------
 // FramingError code → JSON-RPC numeric mapping
@@ -330,10 +325,7 @@ function buildErrorData(thrown: unknown): unknown | undefined {
  * `JsonRpcRequest.id` for dispatch-time errors; pass `null` for
  * framing-layer / parse-error scenarios.
  */
-export function mapJsonRpcError(
-  thrown: unknown,
-  requestId: JsonRpcId,
-): JsonRpcErrorResponse {
+export function mapJsonRpcError(thrown: unknown, requestId: JsonRpcId): JsonRpcErrorResponse {
   // Step 1: select the JSON-RPC numeric code via discriminator. Order
   // matters — RegistryDispatchError before FramingError before generic
   // throw — because (a) the registry surface is the most specific and

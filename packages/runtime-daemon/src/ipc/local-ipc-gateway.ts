@@ -344,10 +344,7 @@ function extractContentLength(headerText: string): number {
       // Empty line in mid-header is a grammar violation. The CRLFCRLF
       // separator is the canonical "end of headers" marker; an empty
       // line before that is malformed.
-      throw new FramingError(
-        "malformed_header",
-        "parseFrame: empty line within header section",
-      );
+      throw new FramingError("malformed_header", "parseFrame: empty line within header section");
     }
     const colonIndex = line.indexOf(":");
     if (colonIndex === -1) {
@@ -511,10 +508,7 @@ export function sanitizeErrorMessage(value: unknown): string {
   // leading-`/` anchor cannot collide with UNC's leading `\\` or the
   // Windows-drive `[A-Za-z]:\` anchor, and the regex is the most
   // common-case match by far.
-  let sanitized = raw.replace(
-    /(?:\/[A-Za-z0-9_.-]+)+(?::\d+(?::\d+)?)?/g,
-    "<redacted-path>",
-  );
+  let sanitized = raw.replace(/(?:\/[A-Za-z0-9_.-]+)+(?::\d+(?::\d+)?)?/g, "<redacted-path>");
   // UNC paths: `\\host\share\path...`. Host segment is hostname-shape
   // (alphanumerics, `_`, `.`, `-` — no spaces in hostnames), but the
   // share + path segments after the first separator can contain spaces
@@ -574,7 +568,10 @@ function allocTransportId(): number {
   return nextTransportId++;
 }
 
-function detectFamily(socket: net.Socket, listenPath: string): SupervisionTransport["remoteFamily"] {
+function detectFamily(
+  socket: net.Socket,
+  listenPath: string,
+): SupervisionTransport["remoteFamily"] {
   // For Unix domain sockets and Windows named pipes, `socket.remoteFamily`
   // is empty/undefined; we discriminate via the listening path. Windows
   // named pipes use the `\\?\pipe\<name>` or `\\.\pipe\<name>` shape.
@@ -710,10 +707,7 @@ export class LocalIpcGateway {
       // handle (id 0, no per-connection context). The throw flow is
       // documented for the desktop-shell consumer.
       if (this.#hooks !== null) {
-        this.#hooks.onError(
-          { id: 0, remoteFamily: "unknown" },
-          err,
-        );
+        this.#hooks.onError({ id: 0, remoteFamily: "unknown" }, err);
       }
     });
 
@@ -925,11 +919,7 @@ export class LocalIpcGateway {
     // synthetic `"invalid_envelope"` code so they map to JSON-RPC
     // -32600 Invalid Request per spec §5.1 ("The JSON sent is not a
     // valid Request object").
-    if (
-      parsed === null ||
-      typeof parsed !== "object" ||
-      Array.isArray(parsed)
-    ) {
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
       const wrapped = new FramingError(
         "invalid_envelope",
         "invalid JSON-RPC envelope: not an object",
@@ -1051,10 +1041,7 @@ export class LocalIpcGateway {
    * are constructed inline at the dispatch resolution site. T-007p-2-5
    * will route streaming-notification envelopes through the same helper.
    */
-  #sendEnvelope(
-    state: ConnectionState,
-    envelope: JsonRpcResponse | JsonRpcErrorResponse,
-  ): void {
+  #sendEnvelope(state: ConnectionState, envelope: JsonRpcResponse | JsonRpcErrorResponse): void {
     if (state.disposed) {
       return;
     }
