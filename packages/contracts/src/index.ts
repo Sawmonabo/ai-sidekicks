@@ -16,4 +16,5 @@ export * from "./event.js";
 export * from "./jsonrpc.js";
 export * from "./jsonrpc-negotiation.js";
 export * from "./jsonrpc-registry.js";
+export * from "./jsonrpc-streaming.js";
 export * from "./session.js";
