@@ -30,21 +30,26 @@
 //     supervision consumer.
 //
 // What this module does NOT do (deferred to sibling tasks):
-//   * Method-namespace registry / dispatch table — T-007p-2-3 owns
-//     `packages/runtime-daemon/src/ipc/registry.ts`. The dispatch site
-//     in this file currently throws `BLOCKED-ON-T-007p-2-2: dispatch
-//     wiring deferred`; T-007p-2-2 replaces that throw with
-//     `MethodRegistry.dispatch(...)` from T-3's surface.
-//   * JSON-RPC numeric error code mapping (-32700/-32600/-32601/-32602/
-//     -32603) ↔ project dotted-namespace codes — T-007p-2-2 owns
-//     `jsonrpc-error-mapping.ts`. The error-emission path here ships the
-//     ABSTRACT error-object shape (code + sanitized message + optional
-//     data) plus a placeholder code (`-32603 Internal Error`); T-2 lands
-//     the canonical mapping table.
 //   * `DaemonHello` / `DaemonHelloAck` version negotiation — T-007p-2-4
 //     owns `protocol-negotiation.ts`.
 //   * `LocalSubscription<T>` streaming primitive — T-007p-2-5 owns
 //     `streaming-primitive.ts`.
+//
+// What this module CONSUMES from sibling tasks:
+//   * `MethodRegistry` (cross-package interface from
+//     `@ai-sidekicks/contracts/jsonrpc-registry.ts`; runtime
+//     implementation from T-007p-2-3 in `./registry.ts`) — the gateway
+//     accepts a `MethodRegistry` instance via constructor injection
+//     (mandatory dependency, fail-loud at construction time per the
+//     orchestrator pre-brief). The bootstrap orchestrator constructs
+//     the registry, registers Phase 3 handlers against it, and then
+//     constructs the gateway with the populated registry.
+//   * `mapJsonRpcError` (T-007p-2-2 in `./jsonrpc-error-mapping.ts`) —
+//     the gateway's single error-emission seam. Every throw that
+//     surfaces a JSON-RPC error response on the wire flows through
+//     this helper, which selects the JSON-RPC 2.0 numeric code and
+//     applies I-007-8 sanitization. The gateway DOES NOT reach into
+//     the discriminator branches itself — it only routes thrown values.
 //
 // BLOCKED-ON-C6 — `protocolVersion: number | string` parameterization is
 // inherited from `@ai-sidekicks/contracts`'s `JsonRpcRequest` shape; the
@@ -53,15 +58,18 @@
 import * as net from "node:net";
 
 import type {
+  HandlerContext,
   JsonRpcErrorResponse,
   JsonRpcId,
   JsonRpcMessage,
   JsonRpcResponse,
+  MethodRegistry,
 } from "@ai-sidekicks/contracts";
 import { JSONRPC_VERSION } from "@ai-sidekicks/contracts";
 
 import { assertLoadedForBind } from "../bootstrap/index.js";
 import { SecureDefaults } from "../bootstrap/secure-defaults.js";
+import { mapJsonRpcError } from "./jsonrpc-error-mapping.js";
 
 // --------------------------------------------------------------------------
 // Constants
@@ -454,6 +462,19 @@ function extractContentLength(headerText: string): number {
  * redacted as part of the path. This is consistent with I-007-8's
  * security posture: over-redaction is a cosmetic defect; under-
  * redaction is a security defect.
+ *
+ * Non-throwing contract: this function MUST NOT throw for any input.
+ * If string conversion of a non-Error / non-string thrown value fails
+ * (e.g. an object whose `toString` itself throws — `String(value)`
+ * invokes `ToPrimitive` which calls `toString`), the fallback returns
+ * a safe placeholder string `"<unprintable thrown value>"`. The
+ * I-007-8 enforcement seam is the boundary between arbitrary user-
+ * thrown values and the wire — a hostile or buggy handler that
+ * engineers a poisoned thrown object MUST NOT crash the daemon (a DoS
+ * surface otherwise: `--unhandled-rejections=throw` would terminate
+ * the process). The fallback string is itself path-shape-free and
+ * stack-shape-free so it cannot leak internals through the redaction
+ * regexes.
  */
 export function sanitizeErrorMessage(value: unknown): string {
   let raw: string;
@@ -468,7 +489,19 @@ export function sanitizeErrorMessage(value: unknown): string {
     // `String({})` => "[object Object]" — all printable, none leaking
     // structured internals. JSON.stringify would be richer but could
     // include user-supplied structured fields we don't want on the wire.
-    raw = String(value);
+    //
+    // `String(value)` invokes `ToPrimitive` which calls `value.toString()`
+    // for objects — a misbehaving handler can `throw { toString() { throw
+    // ... } }`, which would otherwise escape this function and become an
+    // unhandled rejection at the `mapJsonRpcError` call site. The
+    // I-007-8 enforcement seam MUST be non-throwing for arbitrary input
+    // (see JSDoc "Non-throwing contract" above); fall back to a safe
+    // placeholder if conversion throws.
+    try {
+      raw = String(value);
+    } catch {
+      raw = "<unprintable thrown value>";
+    }
   }
 
   // Unix absolute paths with optional `:line:col` suffix. The character
@@ -564,12 +597,24 @@ function detectFamily(socket: net.Socket, listenPath: string): SupervisionTransp
 /**
  * Configuration for `LocalIpcGateway`. Exact-optional discipline: omit
  * fields rather than assigning `undefined` (matches
- * `exactOptionalPropertyTypes: true`). The `hooks` field is the
- * supervision surface per F-007p-2-12 — Tier 4 desktop-shell consumer
- * passes them in; Tier 1 callers may omit if they don't need lifecycle
- * notifications.
+ * `exactOptionalPropertyTypes: true`).
+ *
+ * `registry` is the MANDATORY method-namespace registry (per the
+ * T-007p-2-2 orchestrator pre-brief: "the `MethodRegistry` instance is
+ * INJECTED, not constructed inside the gateway. Do NOT make the gateway
+ * own registry construction"). Constructor injection — the bootstrap
+ * orchestrator constructs the registry, registers Phase 3 / downstream
+ * handlers against it, and only THEN constructs the gateway with the
+ * populated registry. Failing-loud at construction time (rather than at
+ * first dispatch) makes a misconfigured bootstrap detectable before any
+ * listener binds.
+ *
+ * `hooks` is the OPTIONAL supervision surface per F-007p-2-12 — Tier 4
+ * desktop-shell consumer passes them in; Tier 1 callers may omit if they
+ * don't need lifecycle notifications.
  */
 export interface LocalIpcGatewayOptions {
+  readonly registry: MethodRegistry;
   readonly hooks?: SupervisionHooks;
 }
 
@@ -600,13 +645,20 @@ export interface LocalIpcGatewayOptions {
 export class LocalIpcGateway {
   // Per-instance state. The gateway encapsulates everything; nothing
   // leaks to module scope.
+  readonly #registry: MethodRegistry;
   readonly #hooks: SupervisionHooks | null;
   #server: net.Server | null;
   #connections: Map<number, ConnectionState>;
   #started: boolean;
 
-  constructor(options?: LocalIpcGatewayOptions) {
-    this.#hooks = options?.hooks ?? null;
+  constructor(options: LocalIpcGatewayOptions) {
+    // Constructor injection — the registry is MANDATORY. Per the
+    // T-007p-2-2 orchestrator pre-brief, "MANDATORY dependency, fail-
+    // loud at construction time". A `null`-valued / missing registry
+    // is a programmer error in the bootstrap orchestrator; we don't
+    // attempt graceful degradation.
+    this.#registry = options.registry;
+    this.#hooks = options.hooks ?? null;
     this.#server = null;
     this.#connections = new Map();
     this.#started = false;
@@ -792,17 +844,41 @@ export class LocalIpcGateway {
       } catch (err) {
         // Malformed framing per I-007-7 substrate-side enforcement: the
         // boundary REJECTS the frame; downstream dispatch never sees
-        // it. Per ADR-009 §Failure Mode Analysis row 2, close the
-        // connection with a clear close code.
-        if (this.#hooks !== null) {
-          this.#hooks.onError(state.transport, err);
-        }
+        // it. Per ADR-009 §Failure Mode Analysis row 2 + the
+        // T-007p-2-2 task contract, the gateway emits a JSON-RPC
+        // error response with id=null (per §5: id MUST be null when
+        // id detection failed) AND THEN closes the connection. The
+        // wire is structurally desynced — the peer cannot recover by
+        // reading more bytes — so we send the response best-effort
+        // and tear down the transport.
         const reason: SupervisionDisconnectReason =
           err instanceof FramingError && err.code === "oversized_body"
             ? "oversized_body"
             : "malformed_frame";
-        this.#emitDisconnect(state, reason);
-        state.socket.destroy();
+        try {
+          if (this.#hooks !== null) {
+            this.#hooks.onError(state.transport, err);
+          }
+        } finally {
+          // I/O tear-down MUST run regardless of supervision-hook
+          // behavior. Per F-007p-2-12, hook throws propagate (programmer
+          // error); the I/O guarantee that a desynced socket is torn
+          // down is INDEPENDENT of supervision health. Without this
+          // finally, a throwing onError would skip `#sendEnvelope` /
+          // `#emitDisconnect` / `socket.destroy()`, leaving the socket
+          // open with a corrupt accumulator — every subsequent `data`
+          // event would re-enter `#onSocketData` against the desynced
+          // buffer and re-throw on the same boundary.
+          //
+          // Best-effort emit: the `#sendEnvelope` may fail (e.g. socket
+          // already broken); we don't care because we're about to
+          // destroy the socket anyway. Use the id=null path per
+          // JSON-RPC §5. `mapJsonRpcError` is non-throwing (its
+          // sanitization seam is non-throwing per the I-007-8 contract).
+          this.#sendEnvelope(state, mapJsonRpcError(err, null));
+          this.#emitDisconnect(state, reason);
+          state.socket.destroy();
+        }
         return;
       }
       if (result.frame === null) {
@@ -816,113 +892,164 @@ export class LocalIpcGateway {
   }
 
   #dispatchFrame(state: ConnectionState, body: Buffer): void {
+    // Step 1: parse the JSON body. Failures wrap as a `FramingError`
+    // with the synthetic `"invalid_json"` code so the single
+    // `mapJsonRpcError` discriminator handles every parse-failure
+    // shape uniformly. This is the JSON-RPC §5.1 -32700 path.
+    //
+    // I-007-7 substrate-side: malformed JSON inside an otherwise-well-
+    // framed body is a parse error. Emit a parse-error response (id
+    // null per spec §5.1 when id detection failed) and CONTINUE
+    // serving the connection — JSON-level corruption of a single
+    // message does NOT require closing the transport (the framing
+    // layer succeeded; the next frame may parse cleanly).
     let parsed: unknown;
     try {
       parsed = JSON.parse(body.toString("utf8")) as unknown;
     } catch (err) {
-      // I-007-7 substrate-side: malformed JSON inside an otherwise-
-      // well-framed body is a parse error. Emit a parse-error response
-      // (id null per spec §5.1 when id detection failed) and continue
-      // serving the connection — JSON-level corruption of a single
-      // message does NOT require closing the transport.
-      this.#sendErrorResponse(state, null, sanitizeErrorMessage(err), {
-        // Placeholder code — T-007p-2-2 replaces with the canonical
-        // `-32700 Parse Error` once the mapping table lands.
-        code: -32603,
-      });
+      const wrapped = new FramingError(
+        "invalid_json",
+        err instanceof Error ? err.message : String(err),
+      );
+      this.#sendEnvelope(state, mapJsonRpcError(wrapped, null));
       return;
     }
 
-    // Discriminate the envelope shape. The substrate's only structural
-    // requirements at this layer are "is it a JSON-RPC envelope at all?"
-    // — full param-schema validation runs INSIDE the registry's
-    // dispatch (T-3) per I-007-7 (canonical text in plan §Invariants
-    // lines 101-105).
+    // Step 2: discriminate the envelope shape. The substrate's only
+    // structural requirements at this layer are "is it a JSON-RPC
+    // envelope at all?" — full param-schema validation runs INSIDE
+    // the registry's dispatch (T-3) per I-007-7 (canonical text in
+    // plan §Invariants lines 101-105).
+    //
+    // Envelope-shape failures wrap as a `FramingError` with the
+    // synthetic `"invalid_envelope"` code so they map to JSON-RPC
+    // -32600 Invalid Request per spec §5.1 ("The JSON sent is not a
+    // valid Request object").
     if (
       parsed === null ||
       typeof parsed !== "object" ||
       Array.isArray(parsed)
     ) {
-      this.#sendErrorResponse(state, null, "invalid JSON-RPC envelope: not an object", {
-        // Placeholder — T-007p-2-2 lands `-32600 Invalid Request`.
-        code: -32603,
-      });
+      const wrapped = new FramingError(
+        "invalid_envelope",
+        "invalid JSON-RPC envelope: not an object",
+      );
+      this.#sendEnvelope(state, mapJsonRpcError(wrapped, null));
       return;
     }
     const envelope = parsed as Record<string, unknown>;
     if (envelope["jsonrpc"] !== JSONRPC_VERSION) {
-      this.#sendErrorResponse(
-        state,
-        extractIdSafely(envelope),
+      const wrapped = new FramingError(
+        "invalid_envelope",
         `invalid JSON-RPC envelope: jsonrpc must equal ${JSONRPC_VERSION}`,
-        { code: -32603 },
       );
+      this.#sendEnvelope(state, mapJsonRpcError(wrapped, extractIdSafely(envelope)));
+      return;
+    }
+    // A request envelope per JSON-RPC §4 MUST carry a `method` field.
+    // Reject missing/non-string method as a -32600 Invalid Request.
+    const methodCandidate = envelope["method"];
+    if (typeof methodCandidate !== "string") {
+      const wrapped = new FramingError(
+        "invalid_envelope",
+        "invalid JSON-RPC envelope: method must be a string",
+      );
+      this.#sendEnvelope(state, mapJsonRpcError(wrapped, extractIdSafely(envelope)));
       return;
     }
 
-    // The substrate hands the parsed envelope off to the registry-aware
-    // dispatch. T-007p-2-2 replaces the throw below with
-    // `MethodRegistry.dispatch(...)` from T-3's registry surface; until
-    // that wiring lands, every well-framed request surfaces as a
-    // structured error response so the wire substrate is testable in
-    // isolation without depending on T-2 / T-3.
-    try {
-      // BLOCKED-ON-T-007p-2-2: dispatch wiring deferred. T-007p-2-2 will
-      // replace this throw with `MethodRegistry.dispatch(envelope, ctx)`
-      // — at that point the dispatch return value drives a
-      // `JsonRpcResponse` envelope or a `JsonRpcErrorResponse` envelope,
-      // and this throw goes away. The throw shape (an Error subclass
-      // carrying a stable code) is intentionally compatible with T-2's
-      // expected catch surface so the integration is mechanical.
-      throw new Error("BLOCKED-ON-T-007p-2-2: dispatch wiring deferred");
-    } catch (err) {
-      // I-007-8 enforcement: sanitize the message before it leaves the
-      // daemon. The placeholder code below collapses every
-      // not-yet-wired dispatch attempt to internal-error; T-007p-2-2
-      // replaces with the canonical mapping that preserves registered
-      // domain codes and selects the JSON-RPC numeric code per the
-      // canonical table.
-      this.#sendErrorResponse(
-        state,
-        extractIdSafely(envelope),
-        sanitizeErrorMessage(err),
-        { code: -32603 },
-      );
-    }
+    // Step 3: notification vs request discrimination. Per JSON-RPC
+    // §4.1, a notification is a request without an `id` field — the
+    // ABSENCE of the field (not its value) is what discriminates
+    // "no response expected" from "response expected". The server
+    // MUST NOT reply to a notification per spec.
+    //
+    // Note: `extractIdSafely` returns `null` for BOTH "id field
+    // missing" AND "id field present but invalid"; we cannot use it
+    // for this discrimination. The `"id" in envelope` check is the
+    // only correct test.
+    const isNotification = !("id" in envelope);
+    const requestId: JsonRpcId = isNotification ? null : extractIdSafely(envelope);
+    const params = envelope["params"];
+
+    // Step 4: dispatch through the registry. The registry's
+    // `dispatch()` returns a `Promise<unknown>` that resolves with
+    // the handler's result on success or rejects with a
+    // `RegistryDispatchError` on registry-detected failure (or
+    // arbitrary thrown value on handler failure). Both shapes flow
+    // through `mapJsonRpcError` for the wire envelope.
+    //
+    // Async handling: `#onSocketData`'s outer loop continues draining
+    // synchronously (each `#dispatchFrame` call kicks off a
+    // dispatch and returns immediately); the dispatch's resolution
+    // writes back later via `#sendEnvelope`. Multiple in-flight
+    // dispatches per connection are permitted — JSON-RPC carries no
+    // ordering guarantee beyond request-response id-correlation.
+    const ctx: HandlerContext = { transportId: state.transport.id };
+    this.#registry.dispatch(methodCandidate, params, ctx).then(
+      (result: unknown) => {
+        if (isNotification) {
+          // Per JSON-RPC §4.1: notifications MUST NOT receive a
+          // response. The handler ran (its side-effects took); we
+          // simply don't emit anything.
+          return;
+        }
+        const response: JsonRpcResponse = {
+          jsonrpc: JSONRPC_VERSION,
+          id: requestId,
+          result,
+        };
+        this.#sendEnvelope(state, response);
+      },
+      (err: unknown) => {
+        if (isNotification) {
+          // Per JSON-RPC §4.1: notifications are one-way. The
+          // handler threw, but we MUST NOT emit a response. Surface
+          // via supervision so the operator can correlate notification-
+          // handler bugs with their causes; the response wire stays
+          // silent.
+          //
+          // Disposed-flag gate mirrors the socket `error` listener
+          // pattern at lines 799-804: the supervision contract is
+          // "every onError(transport, ...) is followed by exactly one
+          // onDisconnect(transport, reason) for the same transport id".
+          // If the peer disconnected before the notification handler
+          // resolved, `state.disposed` is already set and `onDisconnect`
+          // already fired — surfacing onError now would leave a
+          // dangling onError supervision cannot correlate.
+          if (state.disposed) return;
+          if (this.#hooks !== null) {
+            this.#hooks.onError(state.transport, err);
+          }
+          return;
+        }
+        // I-007-8 enforcement happens INSIDE `mapJsonRpcError` —
+        // every error.message is sanitized before the envelope is
+        // built. We do not reach into the discriminator here.
+        // Note: the request-path resolution callbacks do NOT need
+        // explicit disposed gates — `#sendEnvelope` is disposed-aware
+        // (early-return at the top of the method), so an in-flight
+        // dispatch resolving after disconnect is dropped silently.
+        this.#sendEnvelope(state, mapJsonRpcError(err, requestId));
+      },
+    );
   }
 
   // ------------------------------------------------------------------------
   // Outbound emission
   // ------------------------------------------------------------------------
 
-  #sendErrorResponse(
-    state: ConnectionState,
-    id: JsonRpcId,
-    sanitizedMessage: string,
-    error: { readonly code: number; readonly data?: unknown },
-  ): void {
-    const envelope: JsonRpcErrorResponse =
-      error.data === undefined
-        ? {
-            jsonrpc: JSONRPC_VERSION,
-            id,
-            error: { code: error.code, message: sanitizedMessage },
-          }
-        : {
-            jsonrpc: JSONRPC_VERSION,
-            id,
-            error: { code: error.code, message: sanitizedMessage, data: error.data },
-          };
-    this.#sendEnvelope(state, envelope);
-  }
-
   /**
    * Internal hook for emitting any JSON-RPC envelope on the connection.
-   * Currently invoked only from the error-response path above; T-007p-2-2
-   * wires the success-response path (`JsonRpcResponse<R>`) and T-007p-2-5
-   * wires the streaming-notification path through the same helper. The
-   * helper is a single emission seam so future supervision/log hooks can
-   * intercept outbound traffic uniformly.
+   * Single emission seam — every outbound success response, error
+   * response, and (post-T-5) streaming notification flows through here
+   * so future supervision/log hooks can intercept outbound traffic
+   * uniformly.
+   *
+   * Error envelopes reach this helper via `mapJsonRpcError` (T-007p-2-2's
+   * single sanitization + numeric-code-mapping seam). Success envelopes
+   * are constructed inline at the dispatch resolution site. T-007p-2-5
+   * will route streaming-notification envelopes through the same helper.
    */
   #sendEnvelope(
     state: ConnectionState,
@@ -938,11 +1065,20 @@ export class LocalIpcGateway {
       // Outbound oversize / encode failure. We cannot send a response
       // (the response itself is what failed to encode); surface to
       // supervision and disconnect.
-      if (this.#hooks !== null) {
-        this.#hooks.onError(state.transport, err);
+      //
+      // try/finally mirrors the framing-error catch in `#onSocketData`:
+      // I/O tear-down MUST run regardless of supervision-hook behavior.
+      // A throwing onError would otherwise skip `#emitDisconnect` and
+      // `socket.destroy()`, leaving the socket open and the connection
+      // map entry leaked.
+      try {
+        if (this.#hooks !== null) {
+          this.#hooks.onError(state.transport, err);
+        }
+      } finally {
+        this.#emitDisconnect(state, "server_close");
+        state.socket.destroy();
       }
-      this.#emitDisconnect(state, "server_close");
-      state.socket.destroy();
       return;
     }
     state.socket.write(frame);
