@@ -19,6 +19,8 @@
 // (toolchain — Zod 4.x).
 import { z } from "zod";
 
+import { SubscriptionIdSchema, type SubscriptionId } from "./jsonrpc-streaming.js";
+
 // --------------------------------------------------------------------------
 // Branded ID schemas
 // --------------------------------------------------------------------------
@@ -385,9 +387,27 @@ export const SessionJoinResponseSchema: z.ZodType<SessionJoinResponse> = z
 // SessionSubscribe
 // --------------------------------------------------------------------------
 //
-// Subscribe is request-only on the wire — the response is an SSE stream of
-// EventEnvelope values (typed as `AsyncIterable<EventEnvelope>` in the
-// canonical spec). The envelope schema is owned by `event.ts`.
+// `session.subscribe` opens a server-side streaming subscription on the
+// Plan-007 Phase 2 streaming primitive. The wire request carries the
+// `sessionId` (and optional `afterCursor` for replay-from-cursor); the
+// wire response carries ONLY the opaque `subscriptionId` returned by
+// `StreamingPrimitive.createSubscription<SessionEvent>(...)`. Subsequent
+// per-event values flow as `$/subscription/notify` frames keyed by that
+// `subscriptionId` (envelope shape owned by `jsonrpc-streaming.ts`); the
+// `SessionEvent` value schema is owned by `event.ts`. Client-initiated
+// teardown is a `$/subscription/cancel` notification referencing the
+// same id.
+//
+// Why the response is a separate, minimal schema rather than embedding
+// `SessionEvent` directly: the handler's wire result MUST be JSON-
+// serializable AND Zod-parseable (per I-007-7); a `LocalSubscription<T>`
+// is an in-process producer handle with closure-captured methods that
+// satisfies neither. The shape below carries only what the wire client
+// actually needs — the `subscriptionId` it uses to route subsequent
+// inbound notifications. This also matches `streaming-primitive.ts`
+// line 267 which documents: "The handler typically returns the
+// `subscriptionId` to the wire client (e.g. as the `result` of a
+// `session.subscribe` request)".
 
 export interface SessionSubscribeRequest {
   sessionId: SessionId;
@@ -397,5 +417,22 @@ export const SessionSubscribeRequestSchema: z.ZodType<SessionSubscribeRequest> =
   .object({
     sessionId: SessionIdSchema,
     afterCursor: EventCursorSchema.optional(),
+  })
+  .strict();
+
+// BLOCKED-ON-C6 — the canonical `session.subscribe` response payload
+// shape will land in api-payload-contracts.md §Plan-007 alongside the
+// canonical method-name table. Today's conservative inline schema
+// carries only the `subscriptionId`; if the canonical shape adds
+// fields (e.g. an initial cursor echo, a server-replay-state marker)
+// it widens additively per ADR-018 §Decision #1 (MINOR widening), so
+// a response accepted today remains accepted under the canonical
+// taxonomy.
+export interface SessionSubscribeResponse {
+  subscriptionId: SubscriptionId;
+}
+export const SessionSubscribeResponseSchema: z.ZodType<SessionSubscribeResponse> = z
+  .object({
+    subscriptionId: SubscriptionIdSchema,
   })
   .strict();
