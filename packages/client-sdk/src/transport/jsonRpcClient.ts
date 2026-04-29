@@ -212,6 +212,29 @@ interface PendingRequest {
   readonly resolve: (result: unknown) => void;
   readonly reject: (error: Error) => void;
   readonly resultSchema: ZodType<unknown>;
+  /**
+   * When present, this pending entry is the subscribe-init request for the
+   * referenced subscription. `#handleResponse` reads this and installs the
+   * `#subscriptions` map entry SYNCHRONOUSLY (in the same frame as the
+   * inbound response dispatch) so a coalesced `response` + first
+   * `$/subscription/notify` pair — both frames parsed from one transport
+   * read — finds the subscription registered when `#handleNotification`
+   * runs against the second frame. Without this hook, registration would
+   * happen in the `subscribe().then` microtask, which only runs AFTER the
+   * current synchronous frame finishes (and the notify has already been
+   * dropped against the unknown-id silent-drop branch).
+   *
+   * The cancel-during-pending race is preserved: the synchronous handler
+   * skips registration if `state.status` has already left `"pending"`
+   * (because `#cancelSubscription` ran first), and `subscribe().then`
+   * still emits the best-effort wire cancel against the daemon-issued id.
+   *
+   * Declared as a required `| undefined` rather than an optional
+   * property so that `exactOptionalPropertyTypes: true` (tsconfig) can
+   * narrow correctly when the issuer passes `undefined` for a non-
+   * subscribe call.
+   */
+  readonly subscriptionInitState: SubscriptionState<unknown> | undefined;
 }
 
 // --------------------------------------------------------------------------
@@ -528,6 +551,24 @@ export class JsonRpcClient {
     paramsSchema: ZodType<P>,
     resultSchema: ZodType<R>,
   ): Promise<R> {
+    return this.#issueRequest(method, params, paramsSchema, resultSchema, undefined);
+  }
+
+  /**
+   * Internal: shared request-issuance pipeline used by both public `call`
+   * and `subscribe`. The `subscriptionInitState` parameter lets subscribe
+   * carry the per-subscription state object through to the pending entry
+   * so `#handleResponse` can install `#subscriptions` synchronously
+   * (see `PendingRequest.subscriptionInitState` JSDoc for the wire-
+   * coalescing race this prevents).
+   */
+  async #issueRequest<P, R>(
+    method: string,
+    params: P,
+    paramsSchema: ZodType<P>,
+    resultSchema: ZodType<R>,
+    subscriptionInitState: SubscriptionState<unknown> | undefined,
+  ): Promise<R> {
     // Step 1: caller-side params validation. Fail-fast before any wire
     // I/O — the daemon would also reject (I-007-7), but local validation
     // keeps the error provenance close to the caller.
@@ -579,6 +620,7 @@ export class JsonRpcClient {
         },
         reject,
         resultSchema: resultSchema as ZodType<unknown>,
+        subscriptionInitState,
       });
 
       // Send is the last action; if it throws synchronously, drop the
@@ -671,24 +713,33 @@ export class JsonRpcClient {
     }>;
     const passthroughParams: ZodType<unknown> = passthroughSchema;
 
-    void this.call(method, params, passthroughParams, initSchema).then(
+    // Cast through `unknown` because `SubscriptionState<T>` has `T` in
+    // contravariant position on the waiter resolve callbacks, breaking
+    // direct subtype assignment to `SubscriptionState<unknown>`. The
+    // dispatcher map's runtime contract is "route by subscriptionId
+    // string", so erasing the type at the map boundary is correct;
+    // `pushSubscriptionValue` casts back into the original `T` via the
+    // captured `valueSchema`.
+    const dispatcherState = state as unknown as SubscriptionState<unknown>;
+
+    // Issue via `#issueRequest` so the pending entry carries the
+    // `subscriptionInitState` metadata. This causes `#handleResponse`
+    // to install `#subscriptions` synchronously when the init response
+    // arrives, BEFORE the next inbound frame can be dispatched (see
+    // `PendingRequest.subscriptionInitState` JSDoc for the wire-
+    // coalescing race this prevents).
+    void this.#issueRequest(method, params, passthroughParams, initSchema, dispatcherState).then(
       (result) => {
         // Cancel-during-pending race reconciliation: if the consumer
         // invoked `handle.cancel()` while the subscribe init was still in
         // flight, `#cancelSubscription` already settled the state to
-        // `completed` (the cancel-before-init branch) but had no
-        // subscriptionId to emit a wire-level cancel against. The init
-        // response just arrived carrying the daemon-issued
-        // `subscriptionId` — we MUST emit a best-effort wire cancel now
-        // so the daemon cleans up its subscription registry (otherwise
-        // the daemon holds an orphaned subscription that only
-        // transport-close reaps). We DO NOT register this subscription
-        // in the dispatcher map because the local consumer is already
-        // gone; any straggling notifications targeting this id will
-        // fall through `#handleSubscriptionNotify`'s "unknown id"
-        // silently-drop branch, which is the correct posture per
-        // Plan-007:340 (notify-validation MUST NOT swallow on a known
-        // id, but unknown ids predate registration so we drop).
+        // `completed`. The synchronous registration in `#handleResponse`
+        // saw `state.status !== "pending"` and skipped registration, so
+        // the subscription is correctly detached on the dispatcher side.
+        // We MUST emit a best-effort wire cancel now so the daemon
+        // cleans up its subscription registry (otherwise the daemon
+        // holds an orphaned subscription that only transport-close
+        // reaps).
         if (state.status === "completed" || state.status === "errored") {
           void this.call(
             SUBSCRIPTION_CANCEL_METHOD,
@@ -704,32 +755,21 @@ export class JsonRpcClient {
           });
           return;
         }
-        // Subscription init succeeded and the consumer is still
-        // attached. Populate the handle's id and register the state
-        // against the dispatcher. Cast through unknown because the
-        // per-subscription `T` is type-erased in the dispatcher map
-        // (the dispatcher routes purely on subscriptionId string
-        // equality).
-        state.subscriptionId = result.subscriptionId;
-        state.status = "active";
-        // Cast through `unknown` because `SubscriptionState<T>` has `T` in
-        // contravariant position on the waiter resolve callbacks, breaking
-        // direct subtype assignment to `SubscriptionState<unknown>`. The
-        // dispatcher map's runtime contract is "route by subscriptionId
-        // string", so erasing the type at the map boundary is correct;
-        // pushSubscriptionValue casts back into the original `T` via the
-        // captured valueSchema.
-        this.#subscriptions.set(
-          result.subscriptionId,
-          state as unknown as SubscriptionState<unknown>,
-        );
+        // The success path is otherwise a no-op here — the synchronous
+        // `#handleResponse` block already populated `state.subscriptionId`,
+        // transitioned `state.status` to `"active"`, and registered the
+        // state against `#subscriptions` BEFORE this microtask ran.
       },
       (err: unknown) => {
         // Subscribe init failed. End the subscription with the error so
         // any pending iterator/await calls surface it. (If the consumer
         // already called cancel-before-init, the state is already
         // terminal; `completeSubscriptionWithError`'s status-guard
-        // makes the call a no-op.)
+        // makes the call a no-op.) The synchronous `#handleResponse`
+        // block also skipped registration (the result-shape check or
+        // the schema-parse failure means no `subscriptionId` was
+        // available), so there is no `#subscriptions` entry to clean
+        // up here.
         completeSubscriptionWithError(state, err instanceof Error ? err : new Error(String(err)));
       },
     );
@@ -802,6 +842,52 @@ export class JsonRpcClient {
       pending.reject(new JsonRpcRemoteError(env.error.code, env.error.message, env.error.data));
       return;
     }
+
+    // Subscribe-init synchronous registration. The daemon's wire-ordering
+    // invariant (I-007-10 — the daemon writes the subscribe response
+    // BEFORE the first `$/subscription/notify`) guarantees the response
+    // precedes notifies on the wire, but that is only sufficient if the
+    // SDK installs the subscription dispatcher entry SYNCHRONOUSLY in the
+    // same frame as the response. If the parser delivers the response
+    // and the first notify back-to-back from a single transport read
+    // (normal coalescing on a stream socket), `#handleNotification` runs
+    // immediately after this method returns — BEFORE `subscribe().then`
+    // has had a chance to fire as a microtask. Without sync registration
+    // here, that first notification would hit the unknown-id silent-drop
+    // branch and be lost.
+    //
+    // We use a defensive shape extraction (typeof check) rather than
+    // running `subscribeInitResultSchema.safeParse(env.result)`: the
+    // schema is `{ subscriptionId: string }` so the two are equivalent
+    // for any conforming response, and the per-pending result-schema
+    // validation happens inside `pending.resolve(...)` immediately
+    // below. If the daemon returned a malformed init response, the
+    // shape check fails, registration is skipped, and the failing
+    // result-schema validation surfaces via the Promise rejection on
+    // the consumer side as usual.
+    //
+    // Cancel-during-pending: if `handle.cancel()` ran while the init
+    // was in flight, `#cancelSubscription` already moved
+    // `state.status` out of `"pending"`. We skip registration in that
+    // case so the subscription stays detached; the
+    // `subscribe().then` success branch then emits the best-effort
+    // wire-level cancel against the daemon-issued id so the daemon's
+    // subscription registry doesn't hold an orphan.
+    if (pending.subscriptionInitState !== undefined) {
+      const result = env.result;
+      if (typeof result === "object" && result !== null) {
+        const sid = (result as { subscriptionId?: unknown }).subscriptionId;
+        if (typeof sid === "string" && sid.length > 0) {
+          const state = pending.subscriptionInitState;
+          if (state.status === "pending") {
+            state.subscriptionId = sid;
+            state.status = "active";
+            this.#subscriptions.set(sid, state);
+          }
+        }
+      }
+    }
+
     pending.resolve(env.result);
   }
 

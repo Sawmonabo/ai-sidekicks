@@ -338,3 +338,151 @@ describe("InMemoryTransport double — sanity", () => {
     expect(received).toHaveBeenCalledWith(env);
   });
 });
+
+// ----------------------------------------------------------------------------
+// Codex P1 regression — subscribe-init MUST register synchronously
+// ----------------------------------------------------------------------------
+//
+// External adversarial review (Codex GPT-5.5 xhigh, 2026-04-29) flagged a
+// race in `JsonRpcClient.subscribe()`: the subscription was registered into
+// `#subscriptions` inside the `subscribe().then` microtask callback, which
+// only runs AFTER the current synchronous frame finishes. When a transport
+// parser delivered the subscribe-init response and the first
+// `$/subscription/notify` frame back-to-back from the same socket read
+// (normal frame coalescing on a stream socket), the notify ran through
+// `#handleNotification` BEFORE the registration microtask fired, hitting the
+// unknown-id silent-drop branch and losing the first event.
+//
+// The daemon-side wire-ordering invariant (Plan-007 I-007-10 — daemon
+// writes the subscribe response BEFORE the first notify frame) was a
+// necessary precondition but not sufficient on its own; the SDK had to
+// install `#subscriptions` synchronously in the same frame as the response
+// dispatch. The fix moved registration into `#handleResponse` (between
+// `pending.delete` and `pending.resolve`) so the very next inbound
+// `#handleInbound` call — even if dispatched in the same synchronous parse
+// loop — finds the subscription registered.
+//
+// This test pins that synchronous-registration contract by driving exactly
+// the coalesced delivery scenario through the in-memory transport: it
+// invokes `transport.dispatchInbound(response)` immediately followed by
+// `transport.dispatchInbound(notify)` with NO awaits, microtask drains, or
+// timer ticks between the two calls. If the SDK regressed back to
+// microtask-deferred registration, the notify would land against an empty
+// `#subscriptions` map and `subscription.next()` would never resolve (or
+// would resolve `undefined` once the test transport closed).
+//
+// Spec coverage:
+//   * Plan-007 §Cross-Plan Obligations CP-007-4 — SDK-side wrapping
+//     primitive must respect the daemon's wire-ordering invariant.
+//   * Plan-007 I-007-10 — wire-ordering invariant (daemon side, paired
+//     contract).
+
+describe("subscribe-init registers #subscriptions synchronously (Codex P1 regression)", () => {
+  it("a coalesced response+notify pair (delivered in one synchronous frame) lands the first event", async () => {
+    // Arrange — a value schema for a trivial event payload.
+    const transport = new InMemoryTransport();
+    const client = new JsonRpcClient(transport, { protocolVersion: 1 });
+    const valueSchema = z.object({ kind: z.literal("event"), seq: z.number() });
+
+    // Act 1 — open the subscription. `subscribe()` returns a handle
+    // synchronously; the init request is on the wire immediately.
+    const subscription = client.subscribe<z.infer<typeof valueSchema>>(
+      "test.subscribe",
+      { topic: "x" },
+      valueSchema,
+    );
+
+    // Capture the subscribe-init request id from the captured envelope.
+    expect(transport.sentEnvelopes.length).toBe(1);
+    const sentEnvelope = transport.sentEnvelopes[0];
+    if (sentEnvelope === undefined) throw new Error("unreachable — length asserted above");
+    if (!("id" in sentEnvelope)) {
+      throw new Error("unreachable — subscribe init emits a request envelope");
+    }
+    const requestId = sentEnvelope.id;
+    expect(sentEnvelope.method).toBe("test.subscribe");
+
+    // Act 2 — drive response + notify BACK-TO-BACK in the same synchronous
+    // frame. NO awaits, NO `await Promise.resolve()`, NO timer ticks. This
+    // is the exact coalescing pattern Codex P1 identified: a single
+    // transport read parses both frames and emits both `onMessage` calls
+    // before any microtask drains.
+    // SubscriptionId schema is UUID-branded — the wrapper validation in
+    // `#handleNotification` runs `SubscriptionNotifyParamsSchema(value)`
+    // which rejects non-UUID ids with a value-phase schema error.
+    const subscriptionId = "11111111-1111-4111-8111-111111111111";
+    const response: JsonRpcResponseEnvelope = {
+      jsonrpc: JSONRPC_VERSION,
+      id: requestId,
+      result: { subscriptionId },
+    };
+    const notify: JsonRpcNotification = {
+      jsonrpc: JSONRPC_VERSION,
+      method: "$/subscription/notify",
+      params: {
+        subscriptionId,
+        value: { kind: "event", seq: 1 },
+      },
+    };
+    transport.dispatchInbound(response);
+    transport.dispatchInbound(notify);
+
+    // Assert — the queued event surfaces via `next()`. If the SDK had
+    // regressed to microtask-deferred registration, the notify would have
+    // hit the unknown-id silent-drop branch and `next()` would block
+    // forever (or, after we close the transport, resolve `undefined`).
+    const first = await subscription.next();
+    expect(first).toEqual({ kind: "event", seq: 1 });
+
+    // Sanity — the dispatcher map saw exactly one registration. The
+    // pending map is drained because the init response was correlated.
+    expect(client.subscriptionCount).toBe(1);
+    expect(client.pendingCount).toBe(0);
+  });
+
+  it("a second notify delivered in the same synchronous frame as the response also lands", async () => {
+    // Stronger variant — TWO notifies coalesced with the response. This
+    // pins the invariant that registration is observable to ALL inbound
+    // frames in the same synchronous parse loop, not just the first one
+    // after the response.
+    const transport = new InMemoryTransport();
+    const client = new JsonRpcClient(transport, { protocolVersion: 1 });
+    const valueSchema = z.object({ kind: z.literal("event"), seq: z.number() });
+
+    const subscription = client.subscribe<z.infer<typeof valueSchema>>(
+      "test.subscribe",
+      { topic: "x" },
+      valueSchema,
+    );
+
+    const sentEnvelope = transport.sentEnvelopes[0];
+    if (sentEnvelope === undefined || !("id" in sentEnvelope)) {
+      throw new Error("unreachable — subscribe init emits a request envelope");
+    }
+    const requestId = sentEnvelope.id;
+
+    const subscriptionId = "22222222-2222-4222-8222-222222222222";
+    const response: JsonRpcResponseEnvelope = {
+      jsonrpc: JSONRPC_VERSION,
+      id: requestId,
+      result: { subscriptionId },
+    };
+    const notify1: JsonRpcNotification = {
+      jsonrpc: JSONRPC_VERSION,
+      method: "$/subscription/notify",
+      params: { subscriptionId, value: { kind: "event", seq: 1 } },
+    };
+    const notify2: JsonRpcNotification = {
+      jsonrpc: JSONRPC_VERSION,
+      method: "$/subscription/notify",
+      params: { subscriptionId, value: { kind: "event", seq: 2 } },
+    };
+    transport.dispatchInbound(response);
+    transport.dispatchInbound(notify1);
+    transport.dispatchInbound(notify2);
+
+    expect(await subscription.next()).toEqual({ kind: "event", seq: 1 });
+    expect(await subscription.next()).toEqual({ kind: "event", seq: 2 });
+    expect(client.subscriptionCount).toBe(1);
+  });
+});
