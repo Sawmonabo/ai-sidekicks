@@ -7,6 +7,11 @@
 export default {
   "*.{ts,tsx,mts,cts}": [
     "eslint --fix --cache",
+    // `prettier --write` runs after `eslint --fix` because eslint autofix can
+    // emit code that diverges from prettier's canonical form; prettier last
+    // makes CI's `prettier --check` a redundancy gate rather than a discovery
+    // surface for TS format drift.
+    "prettier --write",
     // Function form is REQUIRED here to suppress lint-staged's filename-append
     // behavior (lint-staged appends matched files to string commands; that
     // would invoke `tsc -b file1.ts file2.ts ...` and defeat project-references

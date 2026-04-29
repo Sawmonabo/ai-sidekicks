@@ -57,7 +57,6 @@ import type {
   JsonRpcErrorResponse,
   JsonRpcId,
   JsonRpcResponse,
-  ZodType,
 } from "@ai-sidekicks/contracts";
 import { JSONRPC_VERSION } from "@ai-sidekicks/contracts";
 
@@ -76,29 +75,11 @@ import {
 import { JsonRpcErrorCode } from "../jsonrpc-error-mapping.js";
 import { MethodRegistryImpl } from "../registry.js";
 
+import { passthroughSchema } from "./__fixtures__/zod-schemas.js";
+
 // ----------------------------------------------------------------------------
 // Test fixtures
 // ----------------------------------------------------------------------------
-
-/**
- * Daemon's `package.json` deliberately does NOT depend on `zod` (every
- * runtime-daemon source file routes `ZodType` as a TYPE-ONLY import via
- * `@ai-sidekicks/contracts`). The test surface must follow the same
- * posture: build a duck-typed schema mock that satisfies `ZodType<T>` via
- * a `safeParse` shape-match. The mock returns `{ success: true, data }`
- * for any input — sufficient for the gateway-layer tests below, all of
- * which exercise framing/transport/dispatch wiring rather than schema
- * validation specifically. Tests that need a REJECTING schema construct
- * a tailored mock inline.
- */
-function passthroughSchema<T>(): ZodType<T> {
-  return {
-    safeParse: (v: unknown): { success: true; data: T } => ({
-      success: true,
-      data: v as T,
-    }),
-  } as unknown as ZodType<T>;
-}
 
 /**
  * Allocate a fresh ephemeral OS-local socket path under `os.tmpdir()`.

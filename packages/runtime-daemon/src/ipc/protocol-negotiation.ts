@@ -202,7 +202,7 @@ export class NegotiationError extends Error {
  *                                      LATCHED, not re-evaluated)
  *   done-incompatible  --hello (any)--> done-incompatible (latched)
  *
- * Fail-second on repeated handshake (orchestrator pre-brief decision):
+ * Fail-second on repeated handshake:
  *   A second `daemon.hello` on a connection that has already completed
  *   one (compatible or incompatible) returns an ack with
  *   `reason: handshake_already_completed`. The state DOES NOT change —
@@ -482,7 +482,7 @@ class WrappedRegistry implements MethodRegistry {
  *     `registerHandshakeMethod()`. It MUST be called by the bootstrap
  *     after `wrap()` returns and before the gateway starts listening.
  *
- * SupervisionHooks composition note (orchestrator pre-brief):
+ * SupervisionHooks composition note:
  *   The gateway's `SupervisionHooks` slot is single-consumer (Tier 4
  *   desktop-shell). The negotiator therefore EXPOSES `cleanupTransport`
  *   for the bootstrap to compose into a future combined hook (the
@@ -575,7 +575,7 @@ export class ProtocolNegotiator {
       }
       const transportId = ctx.transportId;
 
-      // Fail-second posture (orchestrator pre-brief): a second
+      // Fail-second posture: a second
       // `daemon.hello` on a connection with prior state returns an ack
       // with `reason: handshake_already_completed`. The state is NOT
       // re-evaluated — the first handshake's outcome is latched.

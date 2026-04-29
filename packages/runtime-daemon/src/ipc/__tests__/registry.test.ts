@@ -34,7 +34,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import type { Handler, HandlerContext, ZodType } from "@ai-sidekicks/contracts";
+import type { Handler, HandlerContext } from "@ai-sidekicks/contracts";
 
 import { mapJsonRpcError, JsonRpcErrorCode } from "../jsonrpc-error-mapping.js";
 import {
@@ -44,41 +44,11 @@ import {
   RegistryRegistrationError,
 } from "../registry.js";
 
+import { passthroughSchema, rejectingSchema } from "./__fixtures__/zod-schemas.js";
+
 // ----------------------------------------------------------------------------
 // Test fixtures
 // ----------------------------------------------------------------------------
-
-/**
- * Pass-through schema mock — returns `{ success: true, data }` for any
- * input. Daemon does not depend on zod; the tests follow the same
- * posture (every `ZodType` import is type-only). For tests that need a
- * REJECTING schema, `rejectingSchema()` builds one inline.
- */
-function passthroughSchema<T>(): ZodType<T> {
-  return {
-    safeParse: (v: unknown): { success: true; data: T } => ({
-      success: true,
-      data: v as T,
-    }),
-  } as unknown as ZodType<T>;
-}
-
-/**
- * Schema mock that rejects any input with a synthetic
- * `{ success: false, error: { issues: [...] } }` shape matching what
- * `MethodRegistryImpl.dispatch` reads. The `issues` array is a single
- * marker entry tests can assert on.
- */
-function rejectingSchema<T>(marker: string): ZodType<T> {
-  return {
-    safeParse: (_v: unknown): { success: false; error: { issues: ReadonlyArray<unknown> } } => ({
-      success: false,
-      error: {
-        issues: [{ marker, message: "test-rejection" }],
-      },
-    }),
-  } as unknown as ZodType<T>;
-}
 
 /**
  * The minimal `HandlerContext` for direct dispatch — no transportId so

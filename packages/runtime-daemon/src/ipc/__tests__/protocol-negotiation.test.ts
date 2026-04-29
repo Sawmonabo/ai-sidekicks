@@ -39,13 +39,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type {
-  DaemonHello,
-  DaemonHelloAck,
-  Handler,
-  HandlerContext,
-  ZodType,
-} from "@ai-sidekicks/contracts";
+import type { DaemonHello, DaemonHelloAck, Handler, HandlerContext } from "@ai-sidekicks/contracts";
 import {
   DAEMON_HELLO_METHOD,
   NEGOTIATION_REASON_CEILING_EXCEEDED,
@@ -60,18 +54,11 @@ import {
   ProtocolNegotiator,
 } from "../protocol-negotiation.js";
 
+import { passthroughSchema } from "./__fixtures__/zod-schemas.js";
+
 // ----------------------------------------------------------------------------
 // Test fixtures
 // ----------------------------------------------------------------------------
-
-function passthroughSchema<T>(): ZodType<T> {
-  return {
-    safeParse: (v: unknown): { success: true; data: T } => ({
-      success: true,
-      data: v as T,
-    }),
-  } as unknown as ZodType<T>;
-}
 
 /**
  * Build a fresh negotiator + raw + gated registry pair. The handshake

@@ -332,8 +332,7 @@ export class StreamingPrimitive {
         // Look up the entry. If `complete()` or `cancel()` already
         // dropped it, OR if `cleanupTransport(transportId)` removed it
         // due to disconnect, this lookup misses and we silent-no-op.
-        // Documented contract per `LocalSubscription.next` JSDoc and
-        // the advisor's #6 finding.
+        // Documented contract per `LocalSubscription.next` JSDoc.
         const e = subscriptions.get(subscriptionId);
         if (e === undefined) {
           return;
@@ -377,9 +376,8 @@ export class StreamingPrimitive {
         //
         // Future phases MAY introduce a `$/subscription/complete`
         // (server→client) notification; until then `complete()` and
-        // `cancel()` are server-side state-only markers. The advisor's
-        // #7 finding flags this; the JSDoc on the contracts-side
-        // interface documents the deferral.
+        // `cancel()` are server-side state-only markers. The JSDoc on
+        // the contracts-side interface documents the deferral.
         removeFromTransport(subscriptionId);
         subscriptions.delete(subscriptionId);
       },
@@ -427,10 +425,10 @@ export class StreamingPrimitive {
    * Exposed at the class boundary (rather than inlined in the cancel
    * handler) so future callers — Phase 3 unit tests, future-phase
    * server-initiated bulk cleanup — have a single canonical seam.
-   * The transport-ownership check belongs to the CALLER per the
-   * advisor's #1 finding (load-bearing security): bulk cleanup paths
-   * (`cleanupTransport`) bypass the auth check by design (the
-   * transport is gone — there's no peer to authorize against).
+   * The transport-ownership check belongs to the CALLER (load-bearing
+   * security): bulk cleanup paths (`cleanupTransport`) bypass the auth
+   * check by design (the transport is gone — there's no peer to
+   * authorize against).
    */
   cancelSubscription(subscriptionId: SubscriptionId): boolean {
     const entry = this.#subscriptions.get(subscriptionId);
@@ -465,7 +463,7 @@ export class StreamingPrimitive {
    *   `done-incompatible` state, leaking subscriptions until transport
    *   close.
    *
-   * Transport-scoped authorization (advisor's #1 finding):
+   * Transport-scoped authorization:
    *   The handler verifies `ctx.transportId === entry.transportId`
    *   BEFORE removing the entry. A cancel from peer A targeting peer
    *   B's subscription returns `{ canceled: false }` — same observable
@@ -494,10 +492,9 @@ export class StreamingPrimitive {
       // gated by ownership in a way that makes this safe in
       // adversarial environments. Defense-in-depth: the daemon
       // refuses cross-transport cancel by collapsing to the same
-      // observable as "subscription does not exist". (The advisor's
-      // #1 finding flags this as load-bearing security; without the
-      // check, a colluding-peer threat model breaks subscription
-      // confinement.)
+      // observable as "subscription does not exist". Load-bearing
+      // security: without the check, a colluding-peer threat model
+      // breaks subscription confinement.
       //
       // Note: `ctx.transportId === undefined` (e.g. unit-test direct
       // dispatch with no wire boundary) ALSO collapses to
