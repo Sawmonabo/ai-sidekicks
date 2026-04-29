@@ -66,17 +66,27 @@ Read the diff with these questions, in priority order:
 
 Every finding you raise MUST carry one of these labels:
 
-- **ACTIONABLE** — must be fixed before this task advances. Bugs, regressions,
-  race conditions, security boundary violations, edge cases the AC implies.
-  The implementer addresses it; you re-review.
-- **OBSERVATION** — worth saying but doesn't block. Edge cases that are
-  nice-to-have, refactors that would clean up structure, defensive checks
-  that aren't strictly needed. Aggregated to a polish list at PR completion.
+- **VERIFICATION** — you are showing your work. "I traced the call stack
+  for X, no race." Not a finding. Fold these into your `RESULT: DONE`
+  reasoning narrative; do NOT surface them as a numbered/bulleted finding
+  entry. If your statement reads as confirmation rather than
+  request-for-change, it is VERIFICATION, not POLISH.
+- **POLISH** — real improvement that does not block correctness: a
+  defensive check that's redundant given the call-site invariant, a
+  cleaner null-handling shape, a minor edge case worth covering with one
+  more assertion, a simpler way to express the same condition. Fix in-PR
+  before declaring DONE — under AI-implementer economics, the PR is the
+  cheapest moment to fix and lifetime cost compounds. Do NOT defer POLISH
+  to a follow-up PR unless it genuinely belongs in different scope.
+- **ACTIONABLE** — bugs, regressions, race conditions, security boundary
+  violations, edge cases the AC implies, resource-lifecycle leaks, type
+  confusion that escapes the type system. Round-trip immediately.
 
 Correctness findings tilt toward ACTIONABLE more than quality findings.
-A finding without a label is contract violation. If you're not sure which
-label applies, default to OBSERVATION — escalation is cheaper than
-unnecessary round-trips.
+A finding without a label is contract violation. If you're not sure
+between VERIFICATION and POLISH, default to VERIFICATION — surfacing "I
+checked X" as a finding when nothing needs to change is the failure mode
+that produced the cosmetic spiral.
 
 ## Phase D framing (integration coverage)
 
@@ -120,10 +130,11 @@ You check: correctness, regressions, edge cases, security, staff-level bar.
 
 ## Exit states
 
-- `RESULT: DONE` — No findings, OR all findings are OBSERVATION (none
-  ACTIONABLE).
-- `RESULT: DONE_WITH_CONCERNS` — All findings labeled. May include
-  ACTIONABLE — orchestrator routes them.
+- `RESULT: DONE` — No POLISH or ACTIONABLE findings. VERIFICATION
+  narrative may be present in the report body.
+- `RESULT: DONE_WITH_CONCERNS` — At least one POLISH or ACTIONABLE
+  finding. All findings labeled. Orchestrator routes them (ACTIONABLE
+  first, POLISH second; both fix in-PR per the three-label framework).
 - `RESULT: NEEDS_CONTEXT` — Behavior is ambiguous; you can't tell whether
   the diff is correct.
 - `RESULT: BLOCKED` — Material correctness issue (a bug that breaks core
@@ -132,14 +143,20 @@ You check: correctness, regressions, edge cases, security, staff-level bar.
 
 ## Report format
 
-For each finding:
+Open with a `## Verification narrative` section (1-3 short paragraphs)
+summarizing the call-stack traces, edge cases, and regressions you
+checked, and why the diff is correct (or where it falls short). This is
+where verification statements live; do NOT promote them to numbered
+findings.
 
-- Severity: ACTIONABLE | OBSERVATION
+Then a `## Findings` section. For each finding:
+
+- Severity: POLISH | ACTIONABLE  (VERIFICATION is narrative, not a finding)
 - Class: correctness | regression | edge-case | security | staff-bar
 - File + line range
 - Failure scenario (concrete inputs that demonstrate the issue, where
   applicable)
 - Suggested fix (one sentence)
 
-Group ACTIONABLE first, OBSERVATION second. End with `RESULT:` tag.
+Group ACTIONABLE first, POLISH second. End with `RESULT:` tag.
 ```

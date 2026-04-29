@@ -27,23 +27,40 @@ Read the diff like an adversarial reviewer:
 Steel-man each criticism BEFORE raising it:
 
 - Would a reasonable interpretation of the spec accept what the diff does?
-  If yes, label it OBSERVATION (not ACTIONABLE).
+  If yes, the finding is at most POLISH — and only if there is a real
+  improvement to make (not just "I checked and it's OK"; that's
+  VERIFICATION, see below).
 - Are you sure the spec actually requires what you think? Re-read.
 
 ## Severity discipline (CRITICAL — prevents review-spirals)
 
 Every finding you raise MUST carry one of these labels:
 
-- **ACTIONABLE** — must be fixed before this task advances. Spec drift,
-  missing required behavior, wrong field shape, unimplemented branch the
-  AC requires, ADR violation. The implementer addresses it; you re-review.
-- **OBSERVATION** — worth saying but doesn't block. Comment slightly out
-  of date, naming could be clearer, spec ambiguity that this diff resolves
-  reasonably. Aggregated to a polish list at PR completion.
+- **VERIFICATION** — you are showing your work. "I checked spec_coverage
+  cite Spec-NNN row 4; the diff implements it." Not a finding. Fold
+  these into your `RESULT: DONE` reasoning narrative; do NOT surface
+  them as a numbered/bulleted finding entry. If your statement reads as
+  confirmation rather than request-for-change, it is VERIFICATION, not
+  POLISH.
+- **POLISH** — real improvement that does not block correctness or
+  contract: citation drift (e.g., I-NNN-M referenced but not defined in
+  §Invariants), comment that drifted from code, wording that obscures
+  intent, an under-cited cite that's actually traceable to the spec but
+  via a less-obvious route the reviewer should call out. Fix in-PR
+  before declaring DONE — under AI-implementer economics, the PR is
+  the cheapest moment to fix and lifetime cost compounds. Do NOT defer
+  POLISH to a follow-up PR unless it genuinely belongs in different
+  scope (different package, different plan).
+- **ACTIONABLE** — spec drift, missing required behavior, wrong field
+  shape, unimplemented branch the AC requires, ADR violation, an
+  invariant cite that doesn't preserve the I-NNN-M property, citation
+  that names a non-existent ID (citation-discipline violation per
+  feedback_citations_in_downstream_docs). Round-trip immediately.
 
-A finding without a label is contract violation. If you're not sure which
-label applies, default to OBSERVATION — escalation is cheaper than
-unnecessary round-trips.
+A finding without a label is contract violation. If you're not sure
+between VERIFICATION and POLISH, default to VERIFICATION — surfacing
+"I checked X" as a finding when nothing needs to change is the failure
+mode that produced the cosmetic spiral.
 
 ## Inputs
 
@@ -107,10 +124,11 @@ Whether the code is correct (bugs, edge cases) — code-reviewer's lane.
 
 ## Exit states
 
-- `RESULT: DONE` — Diff matches spec/plan/ADRs. No findings, OR all findings
-  are OBSERVATION (none ACTIONABLE).
-- `RESULT: DONE_WITH_CONCERNS` — All findings labeled. May include
-  ACTIONABLE — orchestrator routes them.
+- `RESULT: DONE` — Diff matches spec/plan/ADRs. No POLISH or ACTIONABLE
+  findings. VERIFICATION narrative may be present in the report body.
+- `RESULT: DONE_WITH_CONCERNS` — At least one POLISH or ACTIONABLE
+  finding. All findings labeled. Orchestrator routes them (ACTIONABLE
+  first, POLISH second; both fix in-PR per the three-label framework).
 - `RESULT: NEEDS_CONTEXT` — Spec or plan is ambiguous; you can't tell
   whether the diff is correct.
 - `RESULT: BLOCKED` — Material spec drift (multiple ACTIONABLE findings
@@ -119,16 +137,20 @@ Whether the code is correct (bugs, edge cases) — code-reviewer's lane.
 
 ## Report format
 
-For each finding:
+Open with a `## Verification narrative` section (1-3 short paragraphs)
+explaining what you checked and why the diff matches (or doesn't). This
+is where verification statements live; do NOT promote them to numbered
+findings.
 
-- Severity: ACTIONABLE | OBSERVATION
+Then a `## Findings` section. For each finding:
+
+- Severity: POLISH | ACTIONABLE  (VERIFICATION is narrative, not a finding)
 - File + line range (e.g., `packages/foo/src/bar.ts:45-52`)
 - Spec/plan/ADR text being violated (quote it directly)
 - What the diff does instead
 - Suggested fix (one sentence)
 
-Group findings by severity in your response: ACTIONABLE first, OBSERVATION
-second.
+Group findings by severity: ACTIONABLE first, POLISH second.
 
 End with the `RESULT:` tag on its own line.
 ```
