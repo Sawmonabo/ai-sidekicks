@@ -142,8 +142,12 @@ export type JsonRpcErrorCodeValue =
  *     1 KB cap before CRLFCRLF. The wire is desynced; we cannot trust
  *     the body either. → `-32700 ParseError`.
  *   * `"oversized_body"` — declared `Content-Length` exceeded
- *     `MAX_MESSAGE_BYTES`. The frame body never decoded; treat as parse
- *     failure. → `-32700 ParseError`.
+ *     `MAX_MESSAGE_BYTES`. The framing parser successfully read the
+ *     header but refuses to read the body. Per Plan-007:268 + W-007p-2-T5,
+ *     this is structurally an "Invalid Request" (the request envelope
+ *     itself is malformed-by-being-too-large, not malformed-as-JSON).
+ *     → `-32600 InvalidRequest` per JSON-RPC §5.1 ("The JSON sent is not
+ *     a valid Request object").
  *   * `"malformed_header"` — header grammar violation (wrong line
  *     terminator, missing colon, empty header line). Body cannot be
  *     trusted. → `-32700 ParseError`.
@@ -174,9 +178,9 @@ function mapFramingErrorCode(code: string): JsonRpcErrorCodeValue {
   // synthesis at call sites collapses into the table-driven path.
   switch (code) {
     case "invalid_envelope":
+    case "oversized_body":
       return JsonRpcErrorCode.InvalidRequest;
     case "header_too_long":
-    case "oversized_body":
     case "malformed_header":
     case "malformed_content_length":
     case "missing_content_length":
