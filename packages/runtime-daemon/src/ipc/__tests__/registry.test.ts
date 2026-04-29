@@ -384,6 +384,7 @@ describe("I-007-9 — method-name format validation (BLOCKED-ON-C6 conservative)
     } catch (err) {
       caught = err;
     }
+    expect(caught).toBeInstanceOf(RegistryRegistrationError);
     if (caught instanceof RegistryRegistrationError) {
       expect(caught.registryCode).toBe("invalid_method_name");
     }

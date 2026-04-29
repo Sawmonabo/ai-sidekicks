@@ -27,12 +27,9 @@
 //                   audit trace remains complete.
 //   * W-007p-2-T5 — 1MB max-message-size enforcement (per F-007p-2-05).
 //                   Body > 1MB → connection close + `-32600` error
-//                   frame, per Plan-007 line 377. (See `## Concerns` in
-//                   the dispatch report — the current implementation
-//                   maps `oversized_body` to `-32700` per
-//                   `jsonrpc-error-mapping.ts` lines 178-184; this test
-//                   asserts the plan-specified `-32600` and is expected
-//                   to fail until the conflict is reconciled.)
+//                   frame, per Plan-007 line 377. The mapping is wired
+//                   at `jsonrpc-error-mapping.ts:175-199` (oversized_body
+//                   → -32600 InvalidRequest per Plan-007:268).
 //   * W-007p-2-T6 — Content-Length framing parser correctness:
 //                   single message, multi-message buffer,
 //                   partial-buffer wait, malformed framing.
@@ -283,7 +280,16 @@ describe("W-007p-2-T6 — Content-Length framing parser correctness", () => {
       "X-Other: 1\nContent-Length: 5\r\n\r\n12345",
       "ascii",
     );
-    expect(() => parseFrame(buf)).toThrow(FramingError);
+    let caught: unknown = null;
+    try {
+      parseFrame(buf);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(FramingError);
+    if (caught instanceof FramingError) {
+      expect(caught.code).toBe("malformed_header");
+    }
   });
 
   it("throws FramingError(`malformed_content_length`) for non-numeric Content-Length", () => {
@@ -497,13 +503,10 @@ describe("W-007p-2-T4 — gated loopback fallback (Tier 1)", () => {
 // ----------------------------------------------------------------------------
 //
 // Per Plan-007 line 377: "Body > 1MB → connection close + `-32600` error
-// frame; subsequent reconnect succeeds." The current implementation
-// (jsonrpc-error-mapping.ts:178-184) maps `oversized_body` to `-32700`
-// (ParseError) — the test asserts the plan-specified `-32600` and is
-// expected to fail until the conflict between Plan-007:377 (-32600) and
-// the implementation (-32700) is reconciled. The disconnect-then-
-// reconnect contract IS already in place; only the numeric code on the
-// pre-disconnect error frame conflicts.
+// frame; subsequent reconnect succeeds." The mapping (oversized_body →
+// -32600 InvalidRequest) lives at jsonrpc-error-mapping.ts:175-199; the
+// disconnect-then-reconnect contract is enforced by the gateway's
+// framing-error tear-down path at local-ipc-gateway.ts:858-882.
 
 describe("W-007p-2-T5 — 1MB max-message-size enforcement", () => {
   it("oversized body → connection close + `-32600` InvalidRequest error frame; reconnect succeeds", async () => {
@@ -564,12 +567,9 @@ describe("W-007p-2-T5 — 1MB max-message-size enforcement", () => {
           const response = decodeOneFrame(racer.acc) as JsonRpcErrorResponse;
           expect(response.jsonrpc).toBe(JSONRPC_VERSION);
           expect(response.id).toBeNull();
-          // Plan-specified error code per Plan-007:377 (-32600
-          // InvalidRequest). NOTE: the current implementation maps
-          // `oversized_body` to -32700 (ParseError) — see
-          // jsonrpc-error-mapping.ts:178-184. This expectation is the
-          // PLAN'S contract; the conflict is surfaced in the dispatch
-          // report.
+          // Plan-specified error code per Plan-007:268 + 377: -32600
+          // InvalidRequest (oversized_body framing path). Mapping wired
+          // at jsonrpc-error-mapping.ts:175-199.
           expect(response.error.code).toBe(JsonRpcErrorCode.InvalidRequest);
           // Wait for the eventual close so the next assertion runs
           // against a torn-down socket.
