@@ -13,4 +13,5 @@
 // Spec-006 / error-contracts.md) FIRST per AGENTS.md "doc-first ordering".
 export * from "./error.js";
 export * from "./event.js";
+export * from "./jsonrpc.js";
 export * from "./session.js";
