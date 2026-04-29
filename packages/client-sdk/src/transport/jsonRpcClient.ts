@@ -515,20 +515,9 @@ export class JsonRpcClient {
   /**
    * Issue a typed JSON-RPC request and await the typed response.
    *
-   * Order of operations:
-   *   1. `paramsSchema.parse(params)` — fail-fast on caller-side malformed
-   *      input (throws `JsonRpcSchemaError(phase: "params")`).
-   *   2. Generate the next request id (monotonic numeric counter; spec
-   *      §4 allows string/number/null — numeric is sufficient).
-   *   3. Park a `PendingRequest` keyed by id.
-   *   4. Send the framed envelope via `transport.send`.
-   *   5. The promise resolves when the inbound dispatcher correlates a
-   *      response by id and validates `result` against `resultSchema`
-   *      (rejects with `JsonRpcSchemaError(phase: "result")` on failure).
-   *      An error response rejects with `JsonRpcRemoteError`.
-   *
-   * The `protocolVersion` from constructor opts is attached to every
-   * outgoing envelope per Spec-007:54.
+   * Thin wrapper over `#issueRequest`. See `#issueRequest`'s JSDoc for
+   * the full order-of-operations and throws contract — they are identical
+   * for `call`, which simply omits the subscribe-init state.
    *
    * @param method - The dotted-namespace method name (e.g. `session.create`).
    * @param params - The method's request payload.
@@ -537,13 +526,6 @@ export class JsonRpcClient {
    * @param resultSchema - Zod schema for `R`. Validates the daemon's
    *   `result` AFTER the wire response.
    * @returns The validated `R` value.
-   * @throws JsonRpcSchemaError - When `params` fail caller-side validation
-   *   (phase: `"params"`) or `result` fails server-side validation
-   *   (phase: `"result"`).
-   * @throws JsonRpcRemoteError - When the daemon returns a JSON-RPC error
-   *   response.
-   * @throws JsonRpcTransportClosedError - When the transport disconnects
-   *   before the response arrives.
    */
   public async call<P, R>(
     method: string,
@@ -561,6 +543,32 @@ export class JsonRpcClient {
    * so `#handleResponse` can install `#subscriptions` synchronously
    * (see `PendingRequest.subscriptionInitState` JSDoc for the wire-
    * coalescing race this prevents).
+   *
+   * Order of operations:
+   *   1. `paramsSchema.parse(params)` — fail-fast on caller-side malformed
+   *      input (throws `JsonRpcSchemaError(phase: "params")`).
+   *   2. Generate the next request id (monotonic numeric counter; spec
+   *      §4 allows string/number/null — numeric is sufficient).
+   *   3. Park a `PendingRequest` keyed by id.
+   *   4. Send the framed envelope via `transport.send`.
+   *   5. The promise resolves when the inbound dispatcher correlates a
+   *      response by id and validates `result` against `resultSchema`
+   *      (rejects with `JsonRpcSchemaError(phase: "result")` on failure).
+   *      An error response rejects with `JsonRpcRemoteError`. For
+   *      subscribe inits, `#handleResponse` ALSO installs `#subscriptions`
+   *      synchronously before invoking `pending.resolve` so the next
+   *      coalesced inbound frame can be dispatched against the new id.
+   *
+   * The `protocolVersion` from constructor opts is attached to every
+   * outgoing envelope per Spec-007:54.
+   *
+   * @throws JsonRpcSchemaError - When `params` fail caller-side validation
+   *   (phase: `"params"`) or `result` fails server-side validation
+   *   (phase: `"result"`).
+   * @throws JsonRpcRemoteError - When the daemon returns a JSON-RPC error
+   *   response.
+   * @throws JsonRpcTransportClosedError - When the transport disconnects
+   *   before the response arrives.
    */
   async #issueRequest<P, R>(
     method: string,
@@ -759,6 +767,16 @@ export class JsonRpcClient {
         // `#handleResponse` block already populated `state.subscriptionId`,
         // transitioned `state.status` to `"active"`, and registered the
         // state against `#subscriptions` BEFORE this microtask ran.
+        //
+        // DO NOT re-add `this.#subscriptions.set(...)` here. Registration
+        // is intentionally synchronous in `#handleResponse` to defeat the
+        // wire-coalescing race where a subscribe response and its first
+        // `$/subscription/notify` arrive in the same transport read — a
+        // microtask-deferred registration drops that first notification.
+        // See `PendingRequest.subscriptionInitState` JSDoc for the full
+        // explainer and the regression test
+        // `__tests__/jsonRpcClient.test.ts > subscribe-init registers
+        //  #subscriptions synchronously (Codex P1 regression)`.
       },
       (err: unknown) => {
         // Subscribe init failed. End the subscription with the error so
