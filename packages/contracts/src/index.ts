@@ -14,4 +14,5 @@
 export * from "./error.js";
 export * from "./event.js";
 export * from "./jsonrpc.js";
+export * from "./jsonrpc-registry.js";
 export * from "./session.js";
