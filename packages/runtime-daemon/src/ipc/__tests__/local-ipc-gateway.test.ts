@@ -763,6 +763,213 @@ describe("I-007-1 enforcement (gateway side)", () => {
   });
 });
 
+// ----------------------------------------------------------------------------
+// RT-codex-1 finding #1 — start() rolls back state on listen failure
+// ----------------------------------------------------------------------------
+//
+// Codex P1: lines 714-715 previously set `#server` and `#started = true`
+// BEFORE `await server.listen(...)` resolved. A failed bind (e.g.
+// EADDRINUSE) left `#started = true` against a never-bound listener, so
+// every subsequent `start()` retry threw "gateway already started" — a
+// daemon-bootstrap-retry deadlock. The fix moves the state mutation
+// AFTER the await; a rejected `start()` MUST leave the instance in the
+// pre-call state so a retry is permitted.
+
+describe("RT-codex-1 finding #1 — start() rollback on listen failure", () => {
+  it("rejects on EADDRINUSE and permits a subsequent start() retry (no 'gateway already started' wedge)", async () => {
+    const socketPath = ephemeralSocketPath("rollback");
+    bootstrap({
+      bindAddress: "127.0.0.1",
+      localIpcPath: socketPath,
+      bannerFormat: "text",
+    });
+    const registry1 = new MethodRegistryImpl();
+    const registry2 = new MethodRegistryImpl();
+    const occupier = new LocalIpcGateway({ registry: registry1 });
+    const contender = new LocalIpcGateway({ registry: registry2 });
+    try {
+      // First instance binds the socket path successfully.
+      await occupier.start();
+      // Second instance attempts the SAME path; bind fails (EADDRINUSE
+      // on Unix domain sockets — the path is already a live listener).
+      let firstError: unknown = null;
+      try {
+        await contender.start();
+      } catch (err) {
+        firstError = err;
+      }
+      expect(firstError).not.toBeNull();
+      // The contract: the SECOND retry must NOT throw "gateway already
+      // started" — it must attempt the bind again. Stop the occupier
+      // first so the path is free, then assert retry SUCCEEDS rather
+      // than wedges on internal state.
+      await occupier.stop();
+      // Clean the orphaned socket file (Unix; SecureDefaults' bind path
+      // is `localIpcPath`). After successful close, Node leaves the
+      // path; retry would otherwise hit ENOTSOCK or stale-file error.
+      await fs.rm(socketPath, { force: true });
+      // The retry MUST proceed past the "already started" guard. We
+      // assert it does NOT reject with that specific message; if the
+      // bind itself fails for an unrelated reason, that's a test-env
+      // problem, not the contract violation we're guarding.
+      let retryError: unknown = null;
+      try {
+        await contender.start();
+      } catch (err) {
+        retryError = err;
+      }
+      if (retryError !== null) {
+        // Permitted failure shapes: bind-level errors. The contract
+        // violation we're guarding is "gateway already started" — that
+        // string MUST NOT appear.
+        const msg = retryError instanceof Error ? retryError.message : String(retryError);
+        expect(msg).not.toMatch(/already started/);
+      } else {
+        // Retry succeeded — the bind happened, the listener is live.
+        // Tear down so subsequent tests aren't holding the socket.
+        await contender.stop();
+      }
+    } finally {
+      // Best-effort cleanup; either gateway may already be stopped.
+      await occupier.stop().catch(() => undefined);
+      await contender.stop().catch(() => undefined);
+      await fs.rm(socketPath, { force: true });
+    }
+  });
+});
+
+// ----------------------------------------------------------------------------
+// RT-codex-1 finding #2 — Reject malformed request id BEFORE handler dispatch
+// ----------------------------------------------------------------------------
+//
+// Codex P1 / I-007-7: per JSON-RPC §4 + contracts/jsonrpc.ts:74, an `id`
+// field — when present — MUST be String, Number, or NULL. Anything else
+// (object, array, boolean) is an Invalid Request and MUST be rejected
+// at -32600 BEFORE the handler dispatches. The previous code treated
+// `{"id": {}}` as a valid request, ran the handler, and silently coerced
+// the bad id to `null` for the response — masking a wire-protocol
+// violation.
+
+describe("RT-codex-1 finding #2 — malformed request id rejected before dispatch", () => {
+  // Each malformed id value should produce a -32600 InvalidRequest with
+  // id=null and the registered handler MUST NOT be invoked.
+  const malformedIds: ReadonlyArray<{ readonly label: string; readonly idJson: string }> = [
+    { label: "object", idJson: "{}" },
+    { label: "array", idJson: "[]" },
+    { label: "boolean", idJson: "true" },
+  ];
+  for (const { label, idJson } of malformedIds) {
+    it(`rejects {"id": ${idJson}} as -32600 InvalidRequest without invoking the handler`, async () => {
+      const socketPath = ephemeralSocketPath(`bad-id-${label}`);
+      bootstrap({
+        bindAddress: "127.0.0.1",
+        localIpcPath: socketPath,
+        bannerFormat: "text",
+      });
+      const registry = new MethodRegistryImpl();
+      // vi.fn() spy: assert non-execution after the malformed-id reject.
+      const handlerSpy = vi.fn(async () => ({ ok: true }));
+      const handler: Handler<unknown, { ok: boolean }> = handlerSpy;
+      registry.register(
+        "x.y",
+        passthroughSchema<unknown>(),
+        passthroughSchema<{ ok: boolean }>(),
+        handler,
+      );
+      const gateway = new LocalIpcGateway({ registry });
+      try {
+        await gateway.start();
+        const client = await makeClient(socketPath);
+        try {
+          // Hand-build the wire frame so we can plant a malformed `id`.
+          // The encoder won't accept a non-JsonRpcId for `id`, so we
+          // bypass it via a literal JSON string and `encodeFrame`-shape
+          // header construction.
+          const bodyText = `{"jsonrpc":"${JSONRPC_VERSION}","id":${idJson},"method":"x.y","params":{}}`;
+          const bodyBytes = Buffer.from(bodyText, "utf8");
+          const header = `Content-Length: ${bodyBytes.byteLength}\r\n\r\n`;
+          client.socket.write(Buffer.concat([Buffer.from(header, "ascii"), bodyBytes]));
+          const acc = await client.waitForBytes((b) => {
+            try {
+              return parseFrame(b).frame !== null;
+            } catch {
+              return false;
+            }
+          });
+          const response = decodeOneFrame(acc) as JsonRpcErrorResponse;
+          expect(response.jsonrpc).toBe(JSONRPC_VERSION);
+          // Per JSON-RPC §5: when id detection fails / id is invalid,
+          // the error response id MUST be Null.
+          expect(response.id).toBeNull();
+          expect(response.error.code).toBe(JsonRpcErrorCode.InvalidRequest);
+          // The crucial assertion: the handler MUST NOT have run. The
+          // -32600 fires BEFORE dispatch per I-007-7.
+          expect(handlerSpy).not.toHaveBeenCalled();
+        } finally {
+          await client.close();
+        }
+      } finally {
+        await gateway.stop();
+        await fs.rm(socketPath, { force: true });
+      }
+    });
+  }
+});
+
+// ----------------------------------------------------------------------------
+// RT-codex-1 finding #3 — header section length cap fires WITH delimiter present
+// ----------------------------------------------------------------------------
+//
+// Codex P2: the 1024-byte header guard previously fired only inside the
+// `separatorIndex === -1` branch (delimiter not yet seen). A peer who
+// sent megabytes of header followed by CRLFCRLF bypassed the cap — the
+// parser proceeded to ASCII-decode and parse the oversized header
+// block. F-007p-2-11's MAX_MESSAGE_BYTES cap only governs the BODY per
+// the file's own comment. Fix: an unconditional `separatorIndex > 1024`
+// throw closes the symmetric DoS surface.
+
+describe("RT-codex-1 finding #3 — parseFrame caps header section even when delimiter is present", () => {
+  it("throws FramingError(`header_too_long`) when header section exceeds 1024 bytes despite a valid CRLFCRLF terminator", () => {
+    // Build a frame with a valid CRLFCRLF terminator but a header
+    // section >1 KB. We pad with a synthetic `X-Pad: <2000 a's>` line
+    // (the parser ignores unknown header names per the
+    // forward-compatibility hook at extractContentLength's tail
+    // comment) — the BYTE-COUNT of the header section is what triggers
+    // the cap, not the parser's interpretation of the lines.
+    const padding = "a".repeat(2000);
+    const buf = Buffer.from(
+      `Content-Length: 5\r\nX-Pad: ${padding}\r\n\r\n12345`,
+      "ascii",
+    );
+    let caught: unknown = null;
+    try {
+      parseFrame(buf);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(FramingError);
+    if (caught instanceof FramingError) {
+      expect(caught.code).toBe("header_too_long");
+    }
+  });
+
+  it("preserves the pre-delimiter header guard (separatorIndex === -1 branch still throws)", () => {
+    // Regression check for the existing in-flight desync case: a
+    // 2 KB stream with NO CRLFCRLF in sight should still throw.
+    const buf = Buffer.from("Z".repeat(2000), "ascii");
+    let caught: unknown = null;
+    try {
+      parseFrame(buf);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(FramingError);
+    if (caught instanceof FramingError) {
+      expect(caught.code).toBe("header_too_long");
+    }
+  });
+});
+
 // Helper-type guard to avoid `any` lint when introspecting unknown context.
 function _typeGuards(_ctx: HandlerContext, _id: JsonRpcId): void {
   // Type-only file fixture: ensures the imports aren't unused even when

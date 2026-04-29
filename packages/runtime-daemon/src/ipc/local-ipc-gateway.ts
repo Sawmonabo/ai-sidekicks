@@ -240,12 +240,26 @@ export class FramingError extends Error {
  */
 export function parseFrame(buffer: Buffer): ParseFrameResult {
   const separatorIndex = buffer.indexOf(HEADER_BODY_SEPARATOR);
+  // Header-section size cap (1 KB). Fires UNCONDITIONALLY whenever the
+  // header section size is determinable:
+  //
+  //   * `separatorIndex === -1` — delimiter not yet seen; the header
+  //     section so far is `buffer.byteLength` bytes. A peer streaming
+  //     megabytes of header without ever sending CRLFCRLF would
+  //     otherwise pin the accumulator indefinitely (in-flight desync).
+  //   * `separatorIndex > 1024` — delimiter present but the header
+  //     section itself exceeds 1 KB. Without this branch, a peer who
+  //     prepends 10 MB of header bytes followed by CRLFCRLF bypasses
+  //     the cap entirely — the parser would proceed to ASCII-decode
+  //     and parse the multi-MB header block. The body cap
+  //     (`MAX_MESSAGE_BYTES`) only governs the BODY per the file
+  //     header comment at lines 84-88; the header cap closes the
+  //     symmetric DoS surface implied by F-007p-2-11.
+  //
+  // The threshold is generous (1 KB) because legitimate Content-Length
+  // headers are tens of bytes; a 1 KB header section accommodates many
+  // future LSP-compatible headers without forcing a Phase 2 amendment.
   if (separatorIndex === -1) {
-    // Defense-in-depth: even before we have CRLFCRLF, refuse a
-    // pathologically large header section. A peer that streams 1 MB of
-    // header bytes without ever sending the separator would otherwise
-    // pin our buffer indefinitely. The threshold is generous (1 KB)
-    // because legitimate Content-Length headers are tens of bytes.
     if (buffer.byteLength > 1024) {
       throw new FramingError(
         "header_too_long",
@@ -253,6 +267,12 @@ export function parseFrame(buffer: Buffer): ParseFrameResult {
       );
     }
     return { frame: null, consumed: 0 };
+  }
+  if (separatorIndex > 1024) {
+    throw new FramingError(
+      "header_too_long",
+      `parseFrame: header section is ${separatorIndex} bytes (with delimiter present); exceeds 1024 byte cap`,
+    );
   }
 
   const headerBytes = buffer.subarray(0, separatorIndex);
@@ -711,13 +731,19 @@ export class LocalIpcGateway {
       }
     });
 
-    this.#server = server;
-    this.#started = true;
-
     // Promise wrap around `server.listen` so callers can `await start()`
     // and get either a successful listen or a structured failure. The
     // `listening` and `error` events are mutually exclusive on first
     // bind per Node's net docs.
+    //
+    // State-mutation ordering: `#server` and `#started` are assigned
+    // AFTER `await` resolves, NOT before. If `listen` rejects (EADDRINUSE,
+    // EACCES, etc.), the rejection propagates and the instance stays in
+    // the pre-call state — a subsequent `start()` retry is permitted
+    // (rather than throwing "gateway already started" against a
+    // never-bound listener). The persistent `server.on("error", ...)`
+    // listener above is unaffected; supervision still fires for the
+    // failed-bind error event.
     await new Promise<void>((resolve, reject) => {
       const onListening = (): void => {
         server.removeListener("error", onListenError);
@@ -731,6 +757,9 @@ export class LocalIpcGateway {
       server.once("error", onListenError);
       server.listen(listenPath);
     });
+
+    this.#server = server;
+    this.#started = true;
   }
 
   /**
@@ -959,6 +988,34 @@ export class LocalIpcGateway {
     // for this discrimination. The `"id" in envelope` check is the
     // only correct test.
     const isNotification = !("id" in envelope);
+    // I-007-7 substrate-side: when `id` IS present but its runtime
+    // type is not `string | number | null` (per JSON-RPC §4 +
+    // contracts/jsonrpc.ts:74 `JsonRpcId`), the envelope is a
+    // malformed Request and MUST be rejected as -32600 BEFORE
+    // handler dispatch. Without this gate, an envelope like
+    // `{"id": {}}` / `{"id": []}` / `{"id": true}` would slip
+    // through the `"id" in envelope` check (id present), the
+    // handler would run, and `extractIdSafely` would coerce the
+    // bad id to `null` for the response — silently swallowing a
+    // wire-protocol violation. Mirrors the method-validation
+    // precedent above (lines 941-948): same shape, different field.
+    // Per JSON-RPC §5: when id cannot be detected/recovered, the
+    // error response id MUST be Null.
+    if (!isNotification) {
+      const idCandidate = envelope["id"];
+      if (
+        typeof idCandidate !== "string" &&
+        typeof idCandidate !== "number" &&
+        idCandidate !== null
+      ) {
+        const wrapped = new FramingError(
+          "invalid_envelope",
+          "invalid JSON-RPC envelope: id must be string, number, or null",
+        );
+        this.#sendEnvelope(state, mapJsonRpcError(wrapped, null));
+        return;
+      }
+    }
     const requestId: JsonRpcId = isNotification ? null : extractIdSafely(envelope);
     const params = envelope["params"];
 
