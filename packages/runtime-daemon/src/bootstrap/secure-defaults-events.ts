@@ -105,9 +105,7 @@ export interface SecurityDefaultOverrideEvent {
  * I-007-4's invariant text "exactly one … per startup" — duplicate
  * suppression must be unconditional on sink success.
  */
-export type SecurityDefaultOverrideSink = (
-  event: SecurityDefaultOverrideEvent,
-) => void;
+export type SecurityDefaultOverrideSink = (event: SecurityDefaultOverrideEvent) => void;
 
 // --------------------------------------------------------------------------
 // SecureDefaultOverrideEmitter — module-singleton state machine
@@ -147,9 +145,7 @@ export class SecureDefaultOverrideEmitter {
   // stray `new SecureDefaultOverrideEmitter()` cannot bypass the
   // singleton state.
   private constructor() {
-    throw new Error(
-      "SecureDefaultOverrideEmitter: use static methods, not `new`",
-    );
+    throw new Error("SecureDefaultOverrideEmitter: use static methods, not `new`");
   }
 
   /**

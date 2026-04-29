@@ -374,7 +374,9 @@ function hasOwn(obj: SecureDefaultsConfig, key: string): boolean {
 }
 
 function listKeys(set: ReadonlySet<string>): string {
-  return `[${Array.from(set).map((k) => `"${k}"`).join(", ")}]`;
+  return `[${Array.from(set)
+    .map((k) => `"${k}"`)
+    .join(", ")}]`;
 }
 
 function describeNonObject(value: unknown): string {
