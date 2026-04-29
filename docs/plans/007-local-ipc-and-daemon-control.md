@@ -116,6 +116,12 @@ The registry MUST mechanically validate method-name format at `register(method, 
 
 **Why load-bearing.** Without format enforcement, downstream plans may register `session.create`, `session/create`, `Session.create`, and `sessionCreate` simultaneously. The registry would treat these as distinct methods (correctly per the literal string) but the SDK consumer would have no way to choose. Format enforcement at registration time is the only mechanical guarantee.
 
+### I-007-10 — Subscribe-init response precedes the first notification frame
+
+For any subscription-establishing method (e.g. `session.subscribe`), the daemon MUST emit the JSON-RPC response carrying the assigned `subscriptionId` BEFORE the first `$/subscription/notify` frame referencing that id. Daemon enforcement uses `setImmediate(...)` (or equivalent macrotask deferral) to defer initial-replay emission until after the response envelope is queued on the transport. The paired SDK enforcement is synchronous dispatcher-entry registration inside `#handleResponse` (`packages/client-sdk/src/transport/jsonRpcClient.ts`), installed BEFORE the in-flight request promise resolves so that subsequent coalesced inbound frames within the same transport read can route to a known `subscriptionId`. Both sides are load-bearing; the invariant covers both.
+
+**Why load-bearing.** Without daemon-side ordering enforcement, the SDK has no way to learn the `subscriptionId` before the first notify arrives — even synchronous SDK-side registration cannot install a dispatcher entry for an unknown id. Without SDK-side synchronous registration, the daemon's correct response-before-notify ordering is still insufficient under normal wire frame coalescing (a single transport read containing both the response and the first notify): the SDK's `.then`-deferred microtask would not run until after the next inbound frame is dispatched, dropping the first notification as an unknown-subscription. The pair is the contract; either side alone leaks first-notification reliability.
+
 ## Preconditions
 
 - [x] Paired spec is approved
