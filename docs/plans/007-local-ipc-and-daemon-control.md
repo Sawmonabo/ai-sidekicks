@@ -420,6 +420,10 @@ Validation surface widens at Tier 4 alongside the additional bind paths (HTTP, n
 - Version-skew handling must preserve safe read access without opening unsafe mutation paths
 - CLI coverage can become nominal instead of canonical if new daemon features are allowed to ship renderer-first
 
+## Progress Log
+
+- **PR #16** (squash-commit `<pending>` on `develop`, merged 2026-04-28): Phase 1 — SecureDefaults Bootstrap. Tasks `T-007p-1-1` (SecureDefaults.load + effectiveSettings), `T-007p-1-2` (security.default.override audit emitter), `T-007p-1-3` (bootstrap orchestrator + load-before-bind guard), `T-007p-1-4` (W-007p-1-T1..T5 invariant test suite) delivered. Acceptance criteria green: W-007p-1-T1..T5 (18 cases, 49/49 package tests pass). Plan-doc path amendment landed in same PR (T-007p-1-4 target_path corrected from `test/bootstrap/` to `src/bootstrap/__tests__/` to match repo's universal vitest include glob). BLOCKED-ON-C6 / -C7 / -C9 markers carried forward without premature shape pre-commit. Post-merge polish surfaced: ~30 OBSERVATIONs aggregated (see PR #16 Review Notes; key items: `localhost`/`bindPort`-negative coverage gaps, T-T4 regex-from-loop-var, citation-symmetry across bootstrap files).
+
 ## Done Checklist
 
 ### Tier 1 (Plan-007-Partial)
