@@ -33,7 +33,6 @@ import type {
   SubscriptionCancelParams,
   SubscriptionCancelResult,
   SubscriptionNotifyParams,
-  ZodType,
 } from "@ai-sidekicks/contracts";
 import {
   JSONRPC_VERSION,
@@ -48,27 +47,11 @@ import {
   type StreamingPrimitiveOptions,
 } from "../streaming-primitive.js";
 
+import { passthroughSchema, rejectingSchema } from "./__fixtures__/zod-schemas.js";
+
 // ----------------------------------------------------------------------------
 // Test fixtures
 // ----------------------------------------------------------------------------
-
-function passthroughSchema<T>(): ZodType<T> {
-  return {
-    safeParse: (v: unknown): { success: true; data: T } => ({
-      success: true,
-      data: v as T,
-    }),
-  } as unknown as ZodType<T>;
-}
-
-function rejectingSchema<T>(marker: string): ZodType<T> {
-  return {
-    safeParse: (_v: unknown): { success: false; error: { issues: ReadonlyArray<unknown> } } => ({
-      success: false,
-      error: { issues: [{ marker, message: "test-rejection" }] },
-    }),
-  } as unknown as ZodType<T>;
-}
 
 interface PrimitiveFixture {
   readonly registry: MethodRegistryImpl;
