@@ -216,11 +216,46 @@ export function registerSessionSubscribe(
     );
 
     // Wire upstream → producer. The deps' implementation calls `onEvent`
-    // for every event matching the request; we route each to
-    // `sub.next(event)` which:
+    // for every event matching the request; each routes to `sub.next(event)`
+    // which:
     //   * validates against `SessionEventSchema` per I-007-7 streaming
     //     analog (validation failure throws StreamingValidationError);
     //   * emits a `$/subscription/notify` frame on this transport.
+    //
+    // Wire-ordering invariant — `{ subscriptionId }` MUST land on the wire
+    // BEFORE any `$/subscription/notify` for that subscription. The SDK
+    // (`packages/client-sdk/src/transport/jsonRpcClient.ts`) registers the
+    // subscription in its inbound dispatcher map only AFTER the init
+    // response settles; any pre-response notify hits the unknown-id
+    // silent-drop branch. Plan-001 Phase 5's projector contract permits
+    // `subscribeToSession` to perform cursor replay SYNCHRONOUSLY (replay-
+    // then-live-tail), so `onEvent` MAY fire during the synchronous body
+    // below. Direct routing to `sub.next(event)` would emit those notify
+    // frames on the wire BEFORE the gateway's dispatch `.then` microtask
+    // resolves the response — the bug.
+    //
+    // Fix — buffer events fired synchronously during the replay window;
+    // flush after the response settles. Why `setImmediate` (not chained
+    // `queueMicrotask`): the gateway's `#sendEnvelope` writes the response
+    // synchronously inside the dispatch promise's `.then` microtask. Any
+    // microtask we queue from the handler's synchronous body drains in the
+    // SAME microtask checkpoint AHEAD of the dispatch resolution `.then`
+    // (FIFO within a checkpoint), so additional `queueMicrotask` layers
+    // cannot cross the response. `setImmediate` schedules into the check
+    // phase, which runs AFTER all microtasks drain — the smallest primitive
+    // that crosses into the next event-loop phase. `process.nextTick` is
+    // wrong (higher priority than promise microtasks); `setTimeout(fn, 0)`
+    // works but the timer-phase has minimum-1ms semantics and is a less-
+    // precise primitive for "after microtasks drain". One `setImmediate`
+    // boundary is sufficient.
+    //
+    // This fix's correctness depends on the dispatch path resolving the
+    // response within microtasks (no `setImmediate` / `process.nextTick`
+    // deferral between handler return and `#sendEnvelope`'s synchronous
+    // `socket.write`). A future refactor that introduces such deferral
+    // would silently re-introduce the bug — the regression test in
+    // session-handlers.test.ts captures wire frame ordering under the
+    // current dispatch path.
     //
     // The unsubscribe handle is captured for forwards-compatibility per
     // the header comment — `LocalSubscription<T>` does not yet expose an
@@ -232,14 +267,27 @@ export function registerSessionSubscribe(
     // JSDoc contract (session not found, invalid afterCursor, permission
     // denied); without `sub.cancel()` on throw, the streaming-primitive
     // entry would orphan in both maps until `cleanupTransport`.
+    const replayBuffer: SessionEvent[] = [];
+    let replayDrained = false;
     try {
       void deps.subscribeToSession(params.sessionId, params.afterCursor, (event) => {
-        sub.next(event);
+        if (replayDrained) {
+          sub.next(event);
+        } else {
+          replayBuffer.push(event);
+        }
       });
     } catch (err) {
       sub.cancel();
       throw err;
     }
+    setImmediate(() => {
+      replayDrained = true;
+      for (const event of replayBuffer) {
+        sub.next(event);
+      }
+      replayBuffer.length = 0;
+    });
 
     return { subscriptionId: sub.subscriptionId };
   };

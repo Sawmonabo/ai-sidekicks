@@ -359,6 +359,14 @@ describe("I-007-3-T3 — session.subscribe happy path + cancel idempotency", () 
     // routed it to `sub.next(event)` which validates against
     // `SessionEventSchema` (I-007-7 streaming analog) and emits a
     // `$/subscription/notify` frame on the captured `send`.
+    //
+    // Wire-ordering invariant — the handler buffers events fired before the
+    // `setImmediate` boundary so the response lands first; we drain that
+    // boundary here so subsequent live-tail events route directly through
+    // `sub.next(event)` rather than via the replay buffer. See the
+    // `"session.subscribe response precedes synchronously-fired replay
+    // notifies"` test below for the buffering-during-replay arm.
+    await new Promise<void>((resolve) => setImmediate(resolve));
     expect(send).not.toHaveBeenCalled();
     const onEvent = onEventHolder.current;
     if (onEvent === null) throw new Error("unreachable — capturedOnEvent assertion above");
@@ -497,6 +505,9 @@ describe("I-007-3-T3 — session.subscribe happy path + cancel idempotency", () 
     const ctx: HandlerContext = { transportId: 7 };
     const subscribeReq: SessionSubscribeRequest = { sessionId: TEST_SESSION_ID };
     await registry.dispatch("session.subscribe", subscribeReq, ctx);
+    // Drain the wire-ordering replay-buffer flush boundary; see the first
+    // T3 `it()` block for the rationale.
+    await new Promise<void>((resolve) => setImmediate(resolve));
     const onEvent = onEventHolder.current;
     if (onEvent === null)
       throw new Error("unreachable — capturedOnEvent set in subscribeToSession spy");
@@ -521,6 +532,117 @@ describe("I-007-3-T3 — session.subscribe happy path + cancel idempotency", () 
     };
     registerSessionSubscribe(registry, deps);
     expect(registry.isMutating("session.subscribe")).toBe(false);
+  });
+
+  it("session.subscribe response precedes synchronously-fired replay notifies (wire-ordering invariant)", async () => {
+    // Wire-ordering invariant — `{ subscriptionId }` MUST land on the wire
+    // BEFORE any `$/subscription/notify` for that subscription. The SDK
+    // registers the subscription in its inbound dispatcher map AFTER the
+    // init response settles; any pre-response notify is silently dropped
+    // (unknown-id branch in `#handleSubscriptionNotify`).
+    //
+    // Plan-001 Phase 5's projector contract permits `subscribeToSession` to
+    // perform cursor replay SYNCHRONOUSLY (replay-then-live-tail). This
+    // test models that posture: the deps' `subscribeToSession` calls
+    // `onEvent` 3 times BEFORE returning the unsubscribe handle. The
+    // handler's fix buffers replay events fired during the synchronous
+    // window and flushes them after a `setImmediate` boundary, which runs
+    // in the check phase AFTER the dispatch promise's `.then` microtask
+    // (where `#sendEnvelope` writes the response).
+    //
+    // Harness shape: this test reuses the existing direct-dispatch + send-
+    // mock pattern (no gateway wired). To verify wire ordering, we capture
+    // both response and notify frames into ONE ordered array. The response
+    // push happens at the `await registry.dispatch(...)` resumption — that
+    // is the same microtask checkpoint where the gateway's `#sendEnvelope`
+    // would call `socket.write` synchronously. Then we drain `setImmediate`
+    // by awaiting a `new Promise` that resolves on a fresh check-phase
+    // tick; only after that drain is the buffered-replay flush observable.
+    const registry = new MethodRegistryImpl();
+
+    type CapturedFrame =
+      | { kind: "response"; subscriptionId: string }
+      | { kind: "notify"; value: SessionEvent };
+    const frames: CapturedFrame[] = [];
+
+    const send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>(
+      (_transportId, frame) => {
+        const params = frame.params as SubscriptionNotifyParams<SessionEvent>;
+        frames.push({ kind: "notify", value: params.value });
+      },
+    );
+    const primitive = new StreamingPrimitive({ registry, send });
+
+    // Build three production-ordered SessionEvents. `buildSessionCreatedEvent`
+    // synthesizes one canonical-shape event; we vary `id` + `sequence` per
+    // event so the assert-order step can distinguish them.
+    const baseEvent = buildSessionCreatedEvent();
+    const replayEvents: SessionEvent[] = [
+      { ...baseEvent, id: "evt-replay-0001", sequence: 0 },
+      { ...baseEvent, id: "evt-replay-0002", sequence: 1 },
+      { ...baseEvent, id: "evt-replay-0003", sequence: 2 },
+    ];
+
+    // Test double — `subscribeToSession` calls `onEvent` 3 times
+    // SYNCHRONOUSLY before returning the unsubscribe handle. This is
+    // exactly the cursor-replay-then-live-tail shape Plan-001 Phase 5's
+    // projector contract permits.
+    const subscribeToSession = vi.fn<SessionSubscribeDeps["subscribeToSession"]>(
+      (_sessionId, _afterCursor, onEvent) => {
+        for (const event of replayEvents) {
+          onEvent(event);
+        }
+        return () => undefined;
+      },
+    );
+    const deps: SessionSubscribeDeps = {
+      streamingPrimitive: primitive,
+      subscribeToSession,
+    };
+    registerSessionSubscribe(registry, deps);
+
+    // Act — dispatch and resume on the same microtask the gateway's
+    // dispatch `.then` would fire on. The captured `frames` array carries
+    // every `send`-routed notify frame in production order; the response
+    // is appended at the dispatch-await resumption to model the gateway's
+    // synchronous `socket.write` from the `.then` microtask.
+    const ctx: HandlerContext = { transportId: 7 };
+    const subscribeReq: SessionSubscribeRequest = { sessionId: TEST_SESSION_ID };
+    const result = (await registry.dispatch(
+      "session.subscribe",
+      subscribeReq,
+      ctx,
+    )) as SessionSubscribeResponse;
+    frames.push({ kind: "response", subscriptionId: result.subscriptionId });
+
+    // Drain the check phase so the buffered-replay flush observes. A bare
+    // `await Promise.resolve()` would only drain microtasks; we need a
+    // `setImmediate` boundary to cross into the check phase the handler's
+    // `setImmediate(...)` callback runs in.
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    // Assert — replay was synchronous (the deps call returned before the
+    // dispatch promise resolved); without buffering, the three notify
+    // frames would have been pushed to `frames` BEFORE the response push.
+    expect(subscribeToSession).toHaveBeenCalledTimes(1);
+    expect(frames).toHaveLength(4);
+    expect(frames[0]?.kind).toBe("response");
+    if (frames[0]?.kind === "response") {
+      expect(frames[0].subscriptionId).toBe(result.subscriptionId);
+    }
+    // Notify frames MUST follow in production order (replay 0..2).
+    expect(frames[1]?.kind).toBe("notify");
+    if (frames[1]?.kind === "notify") {
+      expect(frames[1].value.id).toBe("evt-replay-0001");
+    }
+    expect(frames[2]?.kind).toBe("notify");
+    if (frames[2]?.kind === "notify") {
+      expect(frames[2].value.id).toBe("evt-replay-0002");
+    }
+    expect(frames[3]?.kind).toBe("notify");
+    if (frames[3]?.kind === "notify") {
+      expect(frames[3].value.id).toBe("evt-replay-0003");
+    }
   });
 });
 
