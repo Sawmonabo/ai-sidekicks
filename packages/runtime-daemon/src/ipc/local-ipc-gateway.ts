@@ -40,8 +40,8 @@
 //     `@ai-sidekicks/contracts/jsonrpc-registry.ts`; runtime
 //     implementation from T-007p-2-3 in `./registry.ts`) — the gateway
 //     accepts a `MethodRegistry` instance via constructor injection
-//     (mandatory dependency, fail-loud at construction time per the
-//     orchestrator pre-brief). The bootstrap orchestrator constructs
+//     (mandatory dependency, fail-loud at construction time). The
+//     bootstrap orchestrator constructs
 //     the registry, registers Phase 3 handlers against it, and then
 //     constructs the gateway with the populated registry.
 //   * `mapJsonRpcError` (T-007p-2-2 in `./jsonrpc-error-mapping.ts`) —
@@ -616,10 +616,9 @@ function detectFamily(
  * fields rather than assigning `undefined` (matches
  * `exactOptionalPropertyTypes: true`).
  *
- * `registry` is the MANDATORY method-namespace registry (per the
- * T-007p-2-2 orchestrator pre-brief: "the `MethodRegistry` instance is
- * INJECTED, not constructed inside the gateway. Do NOT make the gateway
- * own registry construction"). Constructor injection — the bootstrap
+ * `registry` is the MANDATORY method-namespace registry (per T-007p-2-2:
+ * the `MethodRegistry` instance is INJECTED, not constructed inside the
+ * gateway. Do NOT make the gateway own registry construction). Constructor injection — the bootstrap
  * orchestrator constructs the registry, registers Phase 3 / downstream
  * handlers against it, and only THEN constructs the gateway with the
  * populated registry. Failing-loud at construction time (rather than at
@@ -669,11 +668,10 @@ export class LocalIpcGateway {
   #started: boolean;
 
   constructor(options: LocalIpcGatewayOptions) {
-    // Constructor injection — the registry is MANDATORY. Per the
-    // T-007p-2-2 orchestrator pre-brief, "MANDATORY dependency, fail-
-    // loud at construction time". A `null`-valued / missing registry
-    // is a programmer error in the bootstrap orchestrator; we don't
-    // attempt graceful degradation.
+    // Constructor injection — the registry is MANDATORY (T-007p-2-2:
+    // fail-loud at construction time). A `null`-valued / missing
+    // registry is a programmer error in the bootstrap orchestrator;
+    // we don't attempt graceful degradation.
     this.#registry = options.registry;
     this.#hooks = options.hooks ?? null;
     this.#server = null;

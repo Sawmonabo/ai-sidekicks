@@ -254,10 +254,9 @@ interface RegistryEntry {
 /**
  * Runtime realization of the `MethodRegistry` interface. Instantiable —
  * the bootstrap orchestrator constructs ONE registry instance and wires
- * it into `LocalIpcGateway`'s dispatch path. Per the orchestrator
- * pre-brief, multiple registries per process are plausible (test
- * isolation, future Tier-4 surfaces); the instantiable shape mirrors
- * `LocalIpcGateway`'s same decision.
+ * it into `LocalIpcGateway`'s dispatch path. Multiple registries per
+ * process are plausible (test isolation, future Tier-4 surfaces); the
+ * instantiable shape mirrors `LocalIpcGateway`'s same decision.
  *
  * Recommendation: instantiable class, internal `Map<string, RegistryEntry>`.
  * Alternative considered: module-singleton pattern matching `SecureDefaults`.

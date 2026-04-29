@@ -39,7 +39,7 @@
 // Schema-placement decision (T-007p-2-4 scope extension):
 //   The DAG task contract names ONLY
 //   `packages/runtime-daemon/src/ipc/protocol-negotiation.ts`. This file is
-//   a SCOPE EXTENSION, ratified-by-orchestrator-pre-brief — runtime-daemon's
+//   a SCOPE EXTENSION — runtime-daemon's
 //   `package.json` deliberately does NOT depend on `zod` (per
 //   jsonrpc-registry.ts JSDoc comment "Runtime-daemon's package.json
 //   deliberately does NOT list zod"). The negotiation Zod schemas
@@ -195,7 +195,7 @@ export interface DaemonHello {
  * distinguishes "client too old" (`version.floor_exceeded`) from "client too
  * new" (`version.ceiling_exceeded`). The reason ALSO surfaces if the
  * handshake fired twice on the same connection (`handshake_already_completed`)
- * — the conservative "fail-second" posture per the orchestrator pre-brief.
+ * — the conservative "fail-second" posture.
  *
  * BLOCKED-ON-C7 — these strings are a CONSERVATIVE INLINE form. When
  * error-contracts.md §Plan-007 lands the canonical project dotted-namespace
