@@ -14,9 +14,24 @@ blockExoticSubdeps: true
 # `ignoredBuiltDependencies` and is configured in pnpm-workspace.yaml per pnpm.io/settings.
 # Only allowlisted packages may run install-time scripts (paired with
 # `strict-dep-builds=true` in .npmrc).
+#
+# Listing a package — true OR false — marks it as "reviewed" for strictDepBuilds
+# per pnpm.io/settings: "Packages not listed in allowBuilds are disallowed by
+# default and a warning is printed. If strictDepBuilds is set to true, an error
+# will be printed instead." Both true and false are explicit decisions.
 allowBuilds:
   better-sqlite3: true
   lefthook: true
+  # Cloudflare Workers tooling (Plan-008 Tier 1 / BL-104 — wrangler@^4.86.0):
+  # - workerd: local Workers runtime invoked by `wrangler dev`. Approve: required.
+  # - esbuild: Worker-bundle compiler invoked by wrangler. Approve: required.
+  # - sharp: Cloudflare Images binding emulation pulled in via miniflare.
+  #   Plan-008 Tier 1 does not use the Images binding (tRPC + SSE substrate
+  #   only); deny postinstall to keep the build-script footprint minimal.
+  #   Flip to `true` if/when a future plan exercises Images locally.
+  workerd: true
+  esbuild: true
+  sharp: false
 
 # Workspace-wide dependency unification per ADR-022 §Decision row 1 (pnpm catalogs).
 # Catalogs eliminate per-package version drift for cross-cutting devDependencies (testing

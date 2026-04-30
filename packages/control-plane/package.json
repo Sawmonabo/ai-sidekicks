@@ -1,4 +1,5 @@
 {
+  "$schema": "https://json.schemastore.org/package.json",
   "name": "@ai-sidekicks/control-plane",
   "version": "0.0.0",
   "private": true,
@@ -27,11 +28,15 @@
   },
   "dependencies": {
     "@ai-sidekicks/contracts": "workspace:*",
-    "pg": "^8.20.0"
+    "@trpc/server": "^11.17.0",
+    "pg": "^8.20.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.4.4",
     "@types/pg": "^8.15.6",
-    "vitest": "catalog:testing"
+    "typescript": "^5.9.3",
+    "vitest": "catalog:testing",
+    "wrangler": "^4.86.0"
   }
 }
