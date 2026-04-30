@@ -124,7 +124,7 @@ Plan-008-bootstrap's SSE substrate consumes `EventEnvelope` from `packages/contr
 ## Target Areas
 
 - `packages/control-plane/src/server/` — Tier 1 bootstrap-deliverable: Cloudflare Workers host (entry point: `fetchRequestHandler` from `@trpc/server/adapters/fetch`) + tRPC v11 router registration scaffolding (per [ADR-014](../decisions/014-trpc-control-plane-api.md))
-- `packages/control-plane/wrangler.toml` — Tier 1 bootstrap-deliverable: workerd local-dev + Cloudflare Workers deployment configuration with `[env.dev]` / `[env.production]` separation enforcing I-008-1 gate #2
+- `packages/control-plane/wrangler.toml` — Tier 1 bootstrap-deliverable: workerd local-dev + Cloudflare Workers deployment configuration. Top-level `[vars]` holds development defaults (consumed by `wrangler dev` without an `--env` flag); `[env.production.vars]` overrides them for `wrangler deploy --env production`. This layout enforces I-008-1 gate #2 — see T-008b-1-1 for the full key/value matrix
 - `packages/control-plane/src/sessions/session-router.ts` — Tier 1 bootstrap-deliverable: typed tRPC procedures wrapping Plan-001's `session-directory-service.ts`
 - `packages/control-plane/src/sessions/session-subscribe-sse.ts` — Tier 1 bootstrap-deliverable: SSE transport plumbing for `SessionSubscribe`
 - `packages/contracts/src/session-join/` — Tier 5 remainder
