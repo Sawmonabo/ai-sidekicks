@@ -76,7 +76,7 @@ Plan-003 emits 7 `runtime_node.*` events at Tier 3 against the column shape Plan
 
 ### CP-003-2 — Plan-008 bootstrap surfaces the control-plane attach transport
 
-`RuntimeNodeAttach`, `RuntimeNodeHeartbeat`, `RuntimeNodeCapabilityUpdate`, and `RuntimeNodeDetach` cross the control-plane tRPC transport that Plan-008-bootstrap ships at Tier 1. Plan-003 cannot run without this substrate — the routes must register on the existing `sessionRouter` skeleton (or a sibling `runtimeNodeRouter` that hangs off the same Fastify host) per [cross-plan-dependencies.md §3 Plan-003 row](../architecture/cross-plan-dependencies.md#3-inter-plan-dependency-graph).
+`RuntimeNodeAttach`, `RuntimeNodeHeartbeat`, `RuntimeNodeCapabilityUpdate`, and `RuntimeNodeDetach` cross the control-plane tRPC transport that Plan-008-bootstrap ships at Tier 1. Plan-003 cannot run without this substrate — the routes must register on the existing `sessionRouter` skeleton (or a sibling `runtimeNodeRouter` that hangs off the same Cloudflare Workers host per [ADR-014](../decisions/014-trpc-control-plane-api.md) and Plan-008 BL-104 resolution 2026-04-30) per [cross-plan-dependencies.md §3 Plan-003 row](../architecture/cross-plan-dependencies.md#3-inter-plan-dependency-graph).
 
 **Resolution.** Plan-008-bootstrap at Tier 1 already shipped the tRPC v11 server skeleton; Plan-003 at Tier 3 adds its routes under that skeleton. No new infrastructure work; just route registration.
 
