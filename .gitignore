@@ -18,6 +18,13 @@ docs/tmp/
 *.cer
 *.mobileprovision
 
+# Cloudflare Workers local-development secrets — never commit live values
+# (per Cloudflare Workers Secrets docs: ".dev.vars and .env should not be committed to git")
+.dev.vars
+.dev.vars.*
+# Exempt the committed example template from the wildcard above
+!.dev.vars.example
+
 # OS and editor files
 .DS_Store
 Thumbs.db
