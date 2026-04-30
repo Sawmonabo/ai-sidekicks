@@ -68,6 +68,8 @@ import {
   JSONRPC_VERSION,
   SUBSCRIPTION_CANCEL_METHOD,
   SUBSCRIPTION_NOTIFY_METHOD,
+  SubscriptionIdSchema,
+  type SubscriptionId,
   SubscriptionNotifyParamsSchema,
 } from "@ai-sidekicks/contracts";
 import { z } from "zod";
@@ -712,13 +714,14 @@ export class JsonRpcClient {
     const handle = new LocalSubscriptionHandle<T>(state, () => this.#cancelSubscription(state));
 
     // Issue the subscribe request. Note: we pass an `unknown`-typed
-    // params/result schema pair to `call` — the wrappers (Plan-001 Phase 5
+    // params schema to `call` — the wrappers (Plan-001 Phase 5
     // sessionClient) construct the typed schemas. At this layer the
-    // contract is "the daemon returns at minimum `{ subscriptionId: string }`"
-    // per T-007p-2-5.
-    const initSchema: ZodType<{ subscriptionId: string }> = subscribeInitResultSchema as ZodType<{
-      subscriptionId: string;
-    }>;
+    // contract is "the daemon returns at minimum
+    // `{ subscriptionId: SubscriptionId }`" (UUID-branded — see
+    // `subscribeInitResultSchema` JSDoc / Codex F2 closure) per
+    // T-007p-2-5. We pass `subscribeInitResultSchema` directly to
+    // `#issueRequest` so the brand flows through to the resolved
+    // `result.subscriptionId` consumed below (no widen-down cast).
     const passthroughParams: ZodType<unknown> = passthroughSchema;
 
     // Cast through `unknown` because `SubscriptionState<T>` has `T` in
@@ -736,7 +739,13 @@ export class JsonRpcClient {
     // arrives, BEFORE the next inbound frame can be dispatched (see
     // `PendingRequest.subscriptionInitState` JSDoc for the wire-
     // coalescing race this prevents).
-    void this.#issueRequest(method, params, passthroughParams, initSchema, dispatcherState).then(
+    void this.#issueRequest(
+      method,
+      params,
+      passthroughParams,
+      subscribeInitResultSchema,
+      dispatcherState,
+    ).then(
       (result) => {
         // Cancel-during-pending race reconciliation: if the consumer
         // invoked `handle.cancel()` while the subscribe init was still in
@@ -783,11 +792,13 @@ export class JsonRpcClient {
         // any pending iterator/await calls surface it. (If the consumer
         // already called cancel-before-init, the state is already
         // terminal; `completeSubscriptionWithError`'s status-guard
-        // makes the call a no-op.) The synchronous `#handleResponse`
-        // block also skipped registration (the result-shape check or
-        // the schema-parse failure means no `subscriptionId` was
-        // available), so there is no `#subscriptions` entry to clean
-        // up here.
+        // makes the call a no-op.) The synchronous
+        // `subscribeInitResultSchema.safeParse(env.result)` gate in
+        // `#handleResponse` skipped registration on schema failure, so
+        // there is no `#subscriptions` entry to clean up here. (Post-F2
+        // the sync gate and the resolve-path schema parse use the
+        // SAME schema, so this invariant is enforced in lockstep —
+        // see the `#handleResponse` JSDoc above for the full rationale.)
         completeSubscriptionWithError(state, err instanceof Error ? err : new Error(String(err)));
       },
     );
@@ -874,15 +885,24 @@ export class JsonRpcClient {
     // here, that first notification would hit the unknown-id silent-drop
     // branch and be lost.
     //
-    // We use a defensive shape extraction (typeof check) rather than
-    // running `subscribeInitResultSchema.safeParse(env.result)`: the
-    // schema is `{ subscriptionId: string }` so the two are equivalent
-    // for any conforming response, and the per-pending result-schema
-    // validation happens inside `pending.resolve(...)` immediately
-    // below. If the daemon returned a malformed init response, the
-    // shape check fails, registration is skipped, and the failing
-    // result-schema validation surfaces via the Promise rejection on
-    // the consumer side as usual.
+    // We run `subscribeInitResultSchema.safeParse(env.result)` here
+    // (rather than a looser `typeof + length` shape probe) so the
+    // synchronous registration gate and the resolve-path Zod parse
+    // CANNOT diverge. Closes Codex F2 (Phase D Round 4): the prior
+    // shape probe accepted any non-empty string, so a malformed
+    // `subscriptionId` (e.g. `"not-a-uuid"`) registered synchronously
+    // into `#subscriptions` AHEAD of the schema's tighter UUID check
+    // running inside `pending.resolve(...)` — the rejected promise
+    // surfaced to the consumer as a `JsonRpcSchemaError`, but the
+    // orphan `#subscriptions` entry persisted until transport close
+    // (the `.then(err)` branch at lines 781-792 explicitly assumes
+    // "no `#subscriptions` entry to clean up here", which only holds
+    // if the sync gate is at LEAST as strict as the schema). Using
+    // the canonical schema here keeps both gates in lockstep: a
+    // malformed response NEVER registers, and the consumer-side
+    // promise still rejects via the same `pending.resolve(env.result)`
+    // path on the next line (the resolve-side parse runs against the
+    // pending's `resultSchema` and fails the same way it always did).
     //
     // Cancel-during-pending: if `handle.cancel()` ran while the init
     // was in flight, `#cancelSubscription` already moved
@@ -892,16 +912,14 @@ export class JsonRpcClient {
     // wire-level cancel against the daemon-issued id so the daemon's
     // subscription registry doesn't hold an orphan.
     if (pending.subscriptionInitState !== undefined) {
-      const result = env.result;
-      if (typeof result === "object" && result !== null) {
-        const sid = (result as { subscriptionId?: unknown }).subscriptionId;
-        if (typeof sid === "string" && sid.length > 0) {
-          const state = pending.subscriptionInitState;
-          if (state.status === "pending") {
-            state.subscriptionId = sid;
-            state.status = "active";
-            this.#subscriptions.set(sid, state);
-          }
+      const initParse = subscribeInitResultSchema.safeParse(env.result);
+      if (initParse.success) {
+        const state = pending.subscriptionInitState;
+        if (state.status === "pending") {
+          const sid = initParse.data.subscriptionId;
+          state.subscriptionId = sid;
+          state.status = "active";
+          this.#subscriptions.set(sid, state);
         }
       }
     }
@@ -1114,16 +1132,31 @@ const passthroughSchema: ZodType<unknown> = z.unknown();
 
 /**
  * Initial subscribe response shape per T-007p-2-5: at minimum
- * `{ subscriptionId: string }`. Phase 3 handlers may layer additional
+ * `{ subscriptionId: SubscriptionId }` (UUID-branded per
+ * `jsonrpc-streaming.ts:166`). Phase 3 handlers may layer additional
  * fields (e.g. `session.subscribe` could return `{ subscriptionId, cursor }`)
- * — the schema below uses `.passthrough()`-equivalent permissive parsing
- * to accept additional fields without rejecting. The SDK's subscribe
- * primitive only consumes `subscriptionId`; the typed wrapper at the
- * sessionClient layer is responsible for the full shape.
+ * — the schema below uses `.loose()` (passthrough-equivalent permissive
+ * parsing) to accept additional fields without rejecting. The SDK's
+ * subscribe primitive only consumes `subscriptionId`; the typed wrapper at
+ * the sessionClient layer is responsible for the full shape.
+ *
+ * The `subscriptionId` field uses the canonical `SubscriptionIdSchema`
+ * (RFC 9562 UUID, brand-narrowed to `SubscriptionId`) rather than the
+ * looser `z.string().min(1)` it carried at first landing. This closes the
+ * Codex F2 finding (Phase D Round 4): a daemon corruption / proxy
+ * injection that returns a non-UUID `subscriptionId` was previously
+ * registered into `#subscriptions` synchronously by `#handleResponse` and
+ * then surfaced via the consumer-side schema rejection — leaving an
+ * orphan in `#subscriptions` until transport close. Tightening here +
+ * tightening the synchronous shape extraction in `#handleResponse` (now
+ * uses `subscribeInitResultSchema.safeParse(env.result)` rather than a
+ * raw `typeof + length` check) keeps registration and validation in
+ * lockstep: a malformed init response NEVER registers, and the resolve-
+ * path schema parse becomes the single source of truth.
  */
-const subscribeInitResultSchema: ZodType<{ subscriptionId: string }> = z
+const subscribeInitResultSchema: ZodType<{ subscriptionId: SubscriptionId }> = z
   .object({
-    subscriptionId: z.string().min(1),
+    subscriptionId: SubscriptionIdSchema,
   })
   .loose();
 

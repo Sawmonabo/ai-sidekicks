@@ -486,3 +486,160 @@ describe("subscribe-init registers #subscriptions synchronously (Codex P1 regres
     expect(client.subscriptionCount).toBe(1);
   });
 });
+
+// ----------------------------------------------------------------------------
+// Phase D Round 4 F2 — malformed subscriptionId rejected at SDK boundary
+// ----------------------------------------------------------------------------
+//
+// Codex F2 (P2): `subscribeInitResultSchema` previously accepted any
+// non-empty string for `subscriptionId` (`z.string().min(1)`), looser than
+// the canonical `SubscriptionIdSchema` (RFC 9562 UUID, brand-narrowed to
+// `SubscriptionId`). A daemon-corruption / proxy-injection that returned a
+// non-UUID `subscriptionId` was therefore registered into `#subscriptions`
+// synchronously by `#handleResponse`'s defensive shape extraction
+// (`typeof + length > 0`) AHEAD of the per-pending result-schema parse,
+// leaving an orphan `#subscriptions` entry alive after the consumer-side
+// promise rejected.
+//
+// The fix tightens BOTH gates simultaneously:
+//   1. `subscribeInitResultSchema` now uses `SubscriptionIdSchema` directly
+//      (UUID brand-narrowed). The schema's `.loose()` posture is preserved
+//      so additional fields beyond `subscriptionId` (e.g. cursor) still
+//      pass.
+//   2. `#handleResponse`'s synchronous registration gate switched from a
+//      raw `typeof + length > 0` shape probe to
+//      `subscribeInitResultSchema.safeParse(env.result)`. This keeps the
+//      sync-registration validation IN LOCKSTEP with the resolve-path
+//      schema so a malformed init NEVER registers and the
+//      `subscribe().then(err)` cleanup path's documented assumption ("no
+//      `#subscriptions` entry to clean up here") stays true.
+//
+// This test pins the joint contract: a malformed `subscriptionId` (a) does
+// NOT register synchronously, (b) surfaces as `JsonRpcSchemaError(phase:
+// "result")` on the consumer-side iterator, (c) leaves no orphan entries
+// behind. A regression that loosens either gate (e.g. reverts to
+// `z.string().min(1)`, or restores the raw shape probe) fails one of the
+// three assertions.
+//
+// Spec coverage:
+//   * Plan-007 §Cross-Plan Obligations CP-007-4 — SDK-side wrapping
+//     primitive must enforce the canonical contracts schemas.
+//   * `jsonrpc-streaming.ts:166` — `SubscriptionIdSchema` is the canonical
+//     UUID-branded schema.
+
+describe("Phase D Round 4 F2 — malformed subscriptionId rejected at SDK boundary (Codex P2 regression)", () => {
+  it("non-UUID subscriptionId fails the init schema; no #subscriptions entry; iterator surfaces JsonRpcSchemaError", async () => {
+    // Arrange — open `subscribe()`, capture the init request id.
+    const transport = new InMemoryTransport();
+    const client = new JsonRpcClient(transport, { protocolVersion: 1 });
+    const valueSchema = z.object({ kind: z.literal("event"), seq: z.number() });
+
+    const subscription = client.subscribe<z.infer<typeof valueSchema>>(
+      "test.subscribe",
+      { topic: "x" },
+      valueSchema,
+    );
+
+    expect(transport.sentEnvelopes.length).toBe(1);
+    const sentEnvelope = transport.sentEnvelopes[0];
+    if (sentEnvelope === undefined || !("id" in sentEnvelope)) {
+      throw new Error("unreachable — subscribe init emits a request envelope");
+    }
+    const requestId = sentEnvelope.id;
+
+    // Act — drive a response with a NON-UUID `subscriptionId`. Per the F2
+    // fix, the synchronous gate's `subscribeInitResultSchema.safeParse(...)`
+    // rejects this AND the resolve-path schema parse rejects it (same
+    // schema). Registration must NOT land.
+    const malformedResponse: JsonRpcResponseEnvelope = {
+      jsonrpc: JSONRPC_VERSION,
+      id: requestId,
+      result: { subscriptionId: "not-a-uuid" },
+    };
+    transport.dispatchInbound(malformedResponse);
+
+    // Assert (b) — the consumer iterator surfaces the schema error on
+    // `next()`. The pending Promise rejected with `JsonRpcSchemaError(phase:
+    // "result")` because the resolve-path `resultSchema.safeParse(raw)`
+    // (line 617) failed, and `subscribe()`'s `.then(err)` handler called
+    // `completeSubscriptionWithError(state, err)` (line 792).
+    let caught: unknown = null;
+    try {
+      await subscription.next();
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(JsonRpcSchemaError);
+    if (caught instanceof JsonRpcSchemaError) {
+      // CRITICAL — the rejected error carries `phase: "result"` (server-
+      // corruption signal) and not `"params"` / `"value"`. The
+      // `JsonRpcSchemaError` class's `phase` discriminator is the SDK's
+      // documented contract for routing observability.
+      expect(caught.phase).toBe("result");
+      expect(caught.issues.length).toBeGreaterThan(0);
+    }
+
+    // Assert (a) — the synchronous registration gate REJECTED the malformed
+    // init. `client.subscriptionCount` is the introspection knob exposing
+    // `#subscriptions.size` (jsonRpcClient.ts:812-814 — test-surface
+    // accessor). A regression that reverts to the loose `typeof + length`
+    // probe would tick this to 1 (orphan entry); the F2 fix holds it at 0.
+    expect(client.subscriptionCount).toBe(0);
+
+    // Assert (c) — the pending request map is also drained. `#handleResponse`
+    // delegates to `pending.delete(env.id)` BEFORE running the schema
+    // checks (jsonRpcClient.ts:858), so the pending entry is removed
+    // regardless of the validation outcome. Verifying both maps are empty
+    // closes the orphan-entry surface that F2's advisor flag identified.
+    expect(client.pendingCount).toBe(0);
+  });
+
+  it("a CANONICAL UUID still passes the init schema (sanity — F2 must not over-reject)", async () => {
+    // Sanity guard — the F2 tightening MUST NOT break the canonical happy
+    // path. A response with a valid RFC 9562 UUID `subscriptionId` registers
+    // exactly once and the iterator surfaces subsequent notify values.
+    // This guards against an over-zealous regression that, e.g., picked
+    // a non-loose schema and dropped the additional-fields-allowed
+    // posture.
+    const transport = new InMemoryTransport();
+    const client = new JsonRpcClient(transport, { protocolVersion: 1 });
+    const valueSchema = z.object({ kind: z.literal("event"), seq: z.number() });
+
+    const subscription = client.subscribe<z.infer<typeof valueSchema>>(
+      "test.subscribe",
+      { topic: "x" },
+      valueSchema,
+    );
+
+    const sentEnvelope = transport.sentEnvelopes[0];
+    if (sentEnvelope === undefined || !("id" in sentEnvelope)) {
+      throw new Error("unreachable — subscribe init emits a request envelope");
+    }
+    const requestId = sentEnvelope.id;
+
+    // Canonical RFC 9562 UUIDv4 (the literal value here is the same shape
+    // `crypto.randomUUID()` produces; static literal for repeatability).
+    const subscriptionId = "33333333-3333-4333-8333-333333333333";
+    transport.dispatchInbound({
+      jsonrpc: JSONRPC_VERSION,
+      id: requestId,
+      // Include an additional field beyond `subscriptionId` to verify
+      // `.loose()` (passthrough) semantics survive the F2 tightening. The
+      // SDK's subscribe primitive only consumes `subscriptionId`; the
+      // typed wrapper layer (Plan-001 Phase 5 sessionClient) handles the
+      // full shape. Dropping `.loose()` would mean future subscribe
+      // handlers couldn't piggy-back additional fields on the init
+      // response — a contract regression.
+      result: { subscriptionId, cursor: "evt-0042" },
+    });
+    transport.dispatchInbound({
+      jsonrpc: JSONRPC_VERSION,
+      method: "$/subscription/notify",
+      params: { subscriptionId, value: { kind: "event", seq: 1 } },
+    });
+
+    expect(await subscription.next()).toEqual({ kind: "event", seq: 1 });
+    expect(client.subscriptionCount).toBe(1);
+    expect(client.pendingCount).toBe(0);
+  });
+});
