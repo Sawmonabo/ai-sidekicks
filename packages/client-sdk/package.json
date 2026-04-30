@@ -29,6 +29,8 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@ai-sidekicks/control-plane": "workspace:*",
+    "@trpc/server": "^11.17.0",
     "vitest": "catalog:testing"
   }
 }

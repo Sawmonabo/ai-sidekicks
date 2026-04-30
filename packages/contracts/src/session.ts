@@ -48,9 +48,14 @@ import { SubscriptionIdSchema, type SubscriptionId } from "./jsonrpc-streaming.j
 // whole-program inference).
 
 export type SessionId = string & { readonly __brand: "SessionId" };
-export const SessionIdSchema: z.ZodType<SessionId> = z
+// `z.ZodType<T, T>` (vs. `z.ZodType<T>` whose Input slot defaults to `unknown`)
+// preserves Standard-Schema-V1 input inference when this schema appears inside
+// request schemas consumed by tRPC v11. The cast already discards Zod's
+// internal branding details — extending the destination to carry both Output
+// and Input is the same nominal-shape coercion.
+export const SessionIdSchema: z.ZodType<SessionId, SessionId> = z
   .uuid()
-  .brand<"SessionId">() as unknown as z.ZodType<SessionId>;
+  .brand<"SessionId">() as unknown as z.ZodType<SessionId, SessionId>;
 
 export type ParticipantId = string & { readonly __brand: "ParticipantId" };
 export const ParticipantIdSchema: z.ZodType<ParticipantId> = z
@@ -80,11 +85,12 @@ export const ChannelIdSchema: z.ZodType<ChannelId> = z
 // then, any non-empty bounded string is accepted.
 export const EVENT_CURSOR_MAX_LEN = 256;
 export type EventCursor = string & { readonly __brand: "EventCursor" };
-export const EventCursorSchema: z.ZodType<EventCursor> = z
+// `z.ZodType<T, T>` — see SessionIdSchema for rationale.
+export const EventCursorSchema: z.ZodType<EventCursor, EventCursor> = z
   .string()
   .min(1)
   .max(EVENT_CURSOR_MAX_LEN)
-  .brand<"EventCursor">() as unknown as z.ZodType<EventCursor>;
+  .brand<"EventCursor">() as unknown as z.ZodType<EventCursor, EventCursor>;
 
 // --------------------------------------------------------------------------
 // wireFreeFormString — defense-in-depth helper for free-form string fields.
@@ -195,7 +201,12 @@ export const ChannelStateSchema: z.ZodType<ChannelState> = z.enum(["active", "mu
 // (the `.strict()` modifier rejects unknown keys at parse time, surfacing
 // schema drift early).
 
-const RecordOfUnknownSchema: z.ZodType<Record<string, unknown>> = z.record(z.string(), z.unknown());
+// `z.ZodType<T, T>` — see SessionIdSchema for rationale (preserves Input
+// inference when this helper composes into tRPC-consumed request schemas).
+const RecordOfUnknownSchema: z.ZodType<Record<string, unknown>, Record<string, unknown>> = z.record(
+  z.string(),
+  z.unknown(),
+);
 
 export interface SessionSnapshot {
   id: SessionId;
@@ -278,7 +289,13 @@ export interface SessionCreateRequest {
   config?: Record<string, unknown> | undefined;
   metadata?: Record<string, unknown> | undefined;
 }
-export const SessionCreateRequestSchema: z.ZodType<SessionCreateRequest> = z
+// `z.ZodType<T, T>` (instead of `z.ZodType<T>`, where the second slot defaults
+// to `unknown`) is required so tRPC v11's Standard-Schema-V1 input inference
+// resolves to T and not `unknown`. The schema is non-transforming (no
+// `.transform()` / `.coerce()` / `.preprocess()` anywhere in this module), so
+// pre-validation Input ≡ post-validation Output ≡ T. Explicit double-T
+// preserves that equivalence on the type surface.
+export const SessionCreateRequestSchema: z.ZodType<SessionCreateRequest, SessionCreateRequest> = z
   .object({
     config: RecordOfUnknownSchema.optional(),
     metadata: RecordOfUnknownSchema.optional(),
@@ -307,7 +324,9 @@ export const SessionCreateResponseSchema: z.ZodType<SessionCreateResponse> = z
 export interface SessionReadRequest {
   sessionId: SessionId;
 }
-export const SessionReadRequestSchema: z.ZodType<SessionReadRequest> = z
+// `z.ZodType<T, T>` — see SessionCreateRequestSchema for rationale (preserves
+// Standard-Schema-V1 input inference for tRPC v11 consumers).
+export const SessionReadRequestSchema: z.ZodType<SessionReadRequest, SessionReadRequest> = z
   .object({
     sessionId: SessionIdSchema,
   })
@@ -361,7 +380,9 @@ export const IdentityHandleSchema: z.ZodString = wireFreeFormString(
   IDENTITY_HANDLE_MAX_LEN,
   "identityHandle",
 );
-export const SessionJoinRequestSchema: z.ZodType<SessionJoinRequest> = z
+// `z.ZodType<T, T>` — see SessionCreateRequestSchema for rationale (preserves
+// Standard-Schema-V1 input inference for tRPC v11 consumers).
+export const SessionJoinRequestSchema: z.ZodType<SessionJoinRequest, SessionJoinRequest> = z
   .object({
     sessionId: SessionIdSchema,
     identityHandle: IdentityHandleSchema,
@@ -409,14 +430,43 @@ export const SessionJoinResponseSchema: z.ZodType<SessionJoinResponse> = z
 // `subscriptionId` to the wire client (e.g. as the `result` of a
 // `session.subscribe` request)".
 
+// SessionSubscribeRequest carries TWO replay-cursor fields because the
+// schema is shared across two transports with different injection
+// conventions:
+//
+//   * `afterCursor` — IPC/JSON-RPC clients (Plan-007 daemon transport)
+//     populate this field in the request body. See
+//     `runtime-daemon/src/ipc/handlers/session-subscribe.ts`.
+//
+//   * `lastEventId` — HTTP/SSE clients (Plan-008 control-plane transport)
+//     send a `Last-Event-ID` header, which tRPC v11's fetch-adapter
+//     substrate injects into the input object PRE-Zod-validation when the
+//     procedure type is `subscription`. See
+//     `@trpc/server` v11 `unstable-core-do-not-import/http/contentType.ts`
+//     lines 151-168. Without `lastEventId` declared in the schema,
+//     `.strict()` would throw on every reconnect that carries the
+//     `Last-Event-ID` resumption header — the very transport feature
+//     §T-008b-1-T8 verifies.
+//
+// Consumer precedence: `input.lastEventId ?? input.afterCursor`. Header
+// beats body so a reconnect's `Last-Event-ID` overrides any stale
+// `afterCursor` the client cached locally — matches the SSE EventSource
+// semantics the browser/runtime owns.
 export interface SessionSubscribeRequest {
   sessionId: SessionId;
   afterCursor?: EventCursor | undefined;
+  lastEventId?: EventCursor | undefined;
 }
-export const SessionSubscribeRequestSchema: z.ZodType<SessionSubscribeRequest> = z
+// `z.ZodType<T, T>` — see SessionCreateRequestSchema for rationale (preserves
+// Standard-Schema-V1 input inference for tRPC v11 consumers).
+export const SessionSubscribeRequestSchema: z.ZodType<
+  SessionSubscribeRequest,
+  SessionSubscribeRequest
+> = z
   .object({
     sessionId: SessionIdSchema,
     afterCursor: EventCursorSchema.optional(),
+    lastEventId: EventCursorSchema.optional(),
   })
   .strict();
 
