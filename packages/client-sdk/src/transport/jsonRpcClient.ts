@@ -651,11 +651,18 @@ export class JsonRpcClient {
       // pending entry and surface the error.
       try {
         const sendResult = this.#transport.send(envelope);
-        // `send` may return a Promise — if so, propagate rejection to the
-        // caller. Note: a fulfilled-send Promise is not the response; the
-        // response arrives via `onMessage`.
-        if (sendResult instanceof Promise) {
-          sendResult.catch((err: unknown) => {
+        // `ClientTransport.send` is declared `void | Promise<void>` (see
+        // `types.ts`). Use a duck-typed thenable check rather than
+        // `instanceof Promise`: implementations may return cross-realm
+        // Promises (workers, iframes) or non-native thenables that
+        // satisfy the contract but fail the prototype-chain identity
+        // check. Mirrors the absorption logic in `Promise.resolve`.
+        if (
+          sendResult !== undefined &&
+          sendResult !== null &&
+          typeof (sendResult as { then?: unknown }).then === "function"
+        ) {
+          (sendResult as Promise<void>).catch((err: unknown) => {
             this.#pending.delete(id);
             reject(err instanceof Error ? err : new Error(String(err)));
           });
