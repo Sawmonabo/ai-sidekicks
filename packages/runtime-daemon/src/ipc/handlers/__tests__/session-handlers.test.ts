@@ -75,7 +75,7 @@
 //   §Plan-007 lands the wire taxonomy) is a mechanical greedy-replace rather
 //   than a single-source edit that's easy to miss.
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type {
   Handler,
@@ -643,6 +643,243 @@ describe("I-007-3-T3 — session.subscribe happy path + cancel idempotency", () 
     if (frames[3]?.kind === "notify") {
       expect(frames[3].value.id).toBe("evt-replay-0003");
     }
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Phase D Round 4 F1 — daemon-crash hazard regression on `session.subscribe`
+// ----------------------------------------------------------------------------
+//
+// Codex F1 (P1): `session-subscribe.ts` had two unguarded `sub.next(event)`
+// call sites that throw `StreamingValidationError` (per
+// `streaming-primitive.ts:346-352`) when the producer hands the primitive a
+// malformed event. Both sites run on a LATER event-loop turn than the
+// registry's `dispatch()` error-mapping wrapper:
+//
+//   1. The replay-buffer flush body inside `setImmediate(() => { ... })`
+//      runs in the check phase, AFTER the dispatch promise's `.then`
+//      microtask resolved the response — escapes registry error mapping.
+//   2. The live-tail callback (the lambda passed to `subscribeToSession(...)`)
+//      runs on whatever turn the upstream event source triggers (DB tick,
+//      event bus, etc.) — also outside the registry's reach.
+//
+// An uncaught throw on either path becomes an uncaught exception capable of
+// terminating the daemon process. The fix wraps both call sites in a
+// try/catch that calls `sub.cancel()` and logs a tripwire diagnostic via
+// `console.error` (no structured logger exists in the daemon today;
+// TRIPWIRE replaces it when one lands).
+//
+// These tests verify the guards hold under direct injection of a malformed
+// event. They do NOT assert the structured logger path (no logger exists);
+// they DO assert the `console.error` tripwire fires so a regression that
+// drops the catch block surfaces the bare throw and FAILS this test as
+// "Promise rejected" / uncaught / silent (no log call).
+//
+// Test fixture posture: a malformed `SessionEvent` is constructed by
+// casting `{}` to `SessionEvent` — this is the simplest value that fails
+// `SessionEventSchema.safeParse` (the schema is a discriminated union
+// requiring `type`/`category`/`sessionId`/etc.). The cast is the standard
+// "test-only narrow" pattern; production code never sees this shape.
+
+describe("Phase D Round 4 F1 — replay-flush + live-tail crash guards (Codex P1 regression)", () => {
+  // Restore all `vi.spyOn(...)` instances after EACH test so a console.error
+  // spy that survives a mid-test assertion failure doesn't leak into the
+  // next test's stdout (which would silently swallow legitimate diagnostics).
+  // The runtime-daemon's `vitest.config.ts` does NOT set `restoreMocks: true`,
+  // so explicit per-block hygiene is the right call. Centralizing restore
+  // here is also why the per-test `consoleErrorSpy.mockRestore()` calls
+  // present in earlier drafts were removed — they only ran on the happy
+  // path; this hook runs unconditionally.
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("replay-flush: malformed event in replay buffer is caught; subscription canceled; daemon survives", async () => {
+    // Arrange — wire `subscribeToSession` to fire a malformed event
+    // SYNCHRONOUSLY (so it lands in the handler's `replayBuffer`, not the
+    // live-tail path). The setImmediate boundary then drains the buffer
+    // and the inner `sub.next(event)` throws `StreamingValidationError`.
+    // Without the F1 guard, that throw escapes `setImmediate` as uncaught
+    // and the test process would log "Unhandled error in setImmediate" —
+    // vitest catches that via its own uncaught-exception hook and FAILS
+    // the test. With the guard, the catch runs `sub.cancel()` and logs.
+    const registry = new MethodRegistryImpl();
+    const send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>();
+    const primitive = new StreamingPrimitive({ registry, send });
+
+    // Spy `console.error` so the F1 tripwire is observable in the test.
+    // The describe-level `afterEach(() => vi.restoreAllMocks())` resets
+    // this spy after EVERY test (including failing ones), so subsequent
+    // tests' console.error calls land on the real implementation.
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const subscribeToSession = vi.fn<SessionSubscribeDeps["subscribeToSession"]>(
+      (_sessionId, _afterCursor, onEvent) => {
+        // Fire SYNCHRONOUSLY — this is the replay window per Plan-001
+        // Phase 5's projector contract. Cast `{}` to `SessionEvent` because
+        // `SessionEventSchema.safeParse({})` fails (the schema is a
+        // discriminated union and `{}` carries no `type` discriminator).
+        onEvent({} as SessionEvent);
+        return () => undefined;
+      },
+    );
+    const deps: SessionSubscribeDeps = {
+      streamingPrimitive: primitive,
+      subscribeToSession,
+    };
+    registerSessionSubscribe(registry, deps);
+
+    // Act — dispatch and drain the `setImmediate` flush boundary.
+    const ctx: HandlerContext = { transportId: 7 };
+    const subscribeReq: SessionSubscribeRequest = { sessionId: TEST_SESSION_ID };
+    const result = (await registry.dispatch(
+      "session.subscribe",
+      subscribeReq,
+      ctx,
+    )) as SessionSubscribeResponse;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    // Assert — the daemon survived (we got here; no uncaught throw aborted
+    // the test). The primitive's `cancelSubscription(id)` returns `false`
+    // because `sub.cancel()` already ran inside the F1 catch block,
+    // draining BOTH `#subscriptions` AND `#subscriptionsByTransport`.
+    expect(primitive.cancelSubscription(result.subscriptionId)).toBe(false);
+
+    // Assert — the malformed event did NOT propagate to the wire as a
+    // `$/subscription/notify` frame. `send` is the gateway's per-transport
+    // write hook; if the F1 guard drained AFTER emitting (or didn't catch
+    // the throw at all and let some partial state leak), this would be 1.
+    expect(send).not.toHaveBeenCalled();
+
+    // Assert — the F1 tripwire fired. The first call's first arg is the
+    // tripwire prefix string, the second arg is the captured error.
+    // A regression that drops the catch block makes this expectation
+    // fail (zero calls), surfacing the missing guard.
+    expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
+    const errCall = consoleErrorSpy.mock.calls[0];
+    if (errCall === undefined) throw new Error("unreachable — tripwire log expected");
+    const [prefix, err] = errCall;
+    expect(typeof prefix).toBe("string");
+    expect(prefix).toContain("[session.subscribe] replay event validation/emission failed");
+    expect(prefix).toContain(result.subscriptionId);
+    expect(err).toBeInstanceOf(Error);
+    if (err instanceof Error) {
+      // The thrown error is `StreamingValidationError` (per
+      // `streaming-primitive.ts:346-352`); its `.name` is the discriminator.
+      expect(err.name).toBe("StreamingValidationError");
+    }
+  });
+
+  it("live-tail: malformed event after replay drain is caught; subscription canceled; daemon survives", async () => {
+    // Arrange — `subscribeToSession` captures `onEvent` and returns
+    // immediately (no synchronous replay). After we drain the
+    // `setImmediate` boundary, `replayDrained === true`, so any subsequent
+    // `onEvent(event)` call lands the live-tail branch of the handler's
+    // callback — the second F1 guard site.
+    const registry = new MethodRegistryImpl();
+    const send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>();
+    const primitive = new StreamingPrimitive({ registry, send });
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    // Holder-object pattern — same as T3 above (TS control-flow narrowing
+    // requires a holder for closure-mutated bindings to read back as
+    // non-null at the outer scope).
+    const onEventHolder: { current: ((event: SessionEvent) => void) | null } = {
+      current: null,
+    };
+    const subscribeToSession = vi.fn<SessionSubscribeDeps["subscribeToSession"]>(
+      (_sessionId, _afterCursor, onEvent) => {
+        onEventHolder.current = onEvent;
+        return () => undefined;
+      },
+    );
+    const deps: SessionSubscribeDeps = {
+      streamingPrimitive: primitive,
+      subscribeToSession,
+    };
+    registerSessionSubscribe(registry, deps);
+
+    // Act — dispatch, drain the replay boundary, then fire the malformed
+    // event through the captured live-tail callback. With the F1 guard,
+    // the throw is caught inside the lambda's `if (replayDrained)` branch.
+    // Without the guard, the throw escapes the lambda and surfaces as an
+    // uncaught exception on the turn the upstream event source triggered.
+    const ctx: HandlerContext = { transportId: 7 };
+    const subscribeReq: SessionSubscribeRequest = { sessionId: TEST_SESSION_ID };
+    const result = (await registry.dispatch(
+      "session.subscribe",
+      subscribeReq,
+      ctx,
+    )) as SessionSubscribeResponse;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const onEvent = onEventHolder.current;
+    if (onEvent === null) throw new Error("unreachable — capturedOnEvent assertion above");
+
+    // Fire the malformed event. The lambda is synchronous-call from this
+    // test stack; the F1 guard catches the throw and the call returns
+    // normally (cancel + log). Without the guard, this `onEvent({} ...)`
+    // call would itself throw — and we wrap it in expect().not.toThrow()
+    // to surface that regression as a clean test failure rather than an
+    // uncaught exception that aborts the suite.
+    expect(() => onEvent({} as SessionEvent)).not.toThrow();
+
+    // Assert — same shape as the replay-flush test: subscription canceled,
+    // no wire frame emitted, tripwire log captured.
+    expect(primitive.cancelSubscription(result.subscriptionId)).toBe(false);
+    expect(send).not.toHaveBeenCalled();
+    expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
+    const errCall = consoleErrorSpy.mock.calls[0];
+    if (errCall === undefined) throw new Error("unreachable — tripwire log expected");
+    const [prefix, err] = errCall;
+    expect(typeof prefix).toBe("string");
+    expect(prefix).toContain("[session.subscribe] live-tail event validation/emission failed");
+    expect(prefix).toContain(result.subscriptionId);
+    expect(err).toBeInstanceOf(Error);
+    if (err instanceof Error) {
+      expect(err.name).toBe("StreamingValidationError");
+    }
+  });
+
+  it("replay-flush: subsequent good events do NOT propagate after a malformed event aborts the loop", async () => {
+    // Arrange — fire a malformed event FIRST, then a good event. The F1
+    // guard cancels the subscription on the first throw and the loop
+    // breaks out of the catch, so the good event never reaches `send`.
+    // This codifies the silent-no-op-after-cancel contract documented in
+    // streaming-primitive.ts:333-339 against the F1-canceled state.
+    const registry = new MethodRegistryImpl();
+    const send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>();
+    const primitive = new StreamingPrimitive({ registry, send });
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const subscribeToSession = vi.fn<SessionSubscribeDeps["subscribeToSession"]>(
+      (_sessionId, _afterCursor, onEvent) => {
+        onEvent({} as SessionEvent); // malformed — throws inside flush
+        onEvent(buildSessionCreatedEvent()); // canonical — would emit if not canceled
+        return () => undefined;
+      },
+    );
+    const deps: SessionSubscribeDeps = {
+      streamingPrimitive: primitive,
+      subscribeToSession,
+    };
+    registerSessionSubscribe(registry, deps);
+
+    const ctx: HandlerContext = { transportId: 7 };
+    const subscribeReq: SessionSubscribeRequest = { sessionId: TEST_SESSION_ID };
+    const result = (await registry.dispatch(
+      "session.subscribe",
+      subscribeReq,
+      ctx,
+    )) as SessionSubscribeResponse;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    // Assert — the canonical event did NOT emit. The catch block fires
+    // `sub.cancel()` BEFORE the loop's next iteration would have called
+    // `sub.next(canonicalEvent)`; even if it did, `sub.next` post-cancel
+    // is a documented silent-no-op (streaming-primitive.ts:333-339).
+    expect(send).not.toHaveBeenCalled();
+    expect(primitive.cancelSubscription(result.subscriptionId)).toBe(false);
+    expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
   });
 });
 

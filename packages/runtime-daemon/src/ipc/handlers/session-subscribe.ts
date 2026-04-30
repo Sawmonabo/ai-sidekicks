@@ -272,7 +272,39 @@ export function registerSessionSubscribe(
     try {
       void deps.subscribeToSession(params.sessionId, params.afterCursor, (event) => {
         if (replayDrained) {
-          sub.next(event);
+          // Live-tail path — fires from whatever turn the upstream event-
+          // source triggers (DB tick, event bus, etc.). The outer try/catch
+          // above ONLY catches synchronous throws from
+          // `subscribeToSession(...)` setup; this lambda runs on a later
+          // turn outside that try/catch's reach. Without an inner guard,
+          // a `StreamingValidationError` thrown by `sub.next(event)`
+          // (per `streaming-primitive.ts:346` (throw site; class at :139)
+          // — programmer-error path when the producer returned a value
+          // not matching the registered `SessionEventSchema`) escapes as
+          // an uncaught exception and can terminate the daemon process.
+          //
+          // Posture on catch: cancel the subscription cleanly via
+          // `sub.cancel()` (drains both `#subscriptions` and
+          // `#subscriptionsByTransport`), then surface the error via
+          // `console.error` with a clear tripwire prefix. There is no
+          // structured logger in the daemon today (verified via repo
+          // grep); when one lands (BLOCKED-ON observability framework),
+          // this site flips to it. Swallowing the error keeps the daemon
+          // alive at the cost of dropping the rest of the live-tail —
+          // which is the right trade: a corrupted producer is a daemon-
+          // internal bug, but the wire-side client is innocent and other
+          // subscriptions on this transport must continue to function.
+          // TRIPWIRE: replace `console.error` once a structured logger
+          // surfaces in the runtime-daemon.
+          try {
+            sub.next(event);
+          } catch (err) {
+            sub.cancel();
+            console.error(
+              `[session.subscribe] live-tail event validation/emission failed for subscriptionId=${sub.subscriptionId}; subscription canceled`,
+              err,
+            );
+          }
         } else {
           replayBuffer.push(event);
         }
@@ -283,8 +315,39 @@ export function registerSessionSubscribe(
     }
     setImmediate(() => {
       replayDrained = true;
-      for (const event of replayBuffer) {
-        sub.next(event);
+      // Replay flush — `sub.next(event)` validates each event against the
+      // per-subscription `SessionEventSchema` and throws
+      // `StreamingValidationError` (`streaming-primitive.ts:346` (throw
+      // site; class at :139)) on validation failure. Because this body
+      // runs on a `setImmediate` boundary (the check phase, AFTER the
+      // dispatch promise's `.then` microtask has already resolved the
+      // response), an uncaught throw here ESCAPES the registry's
+      // `dispatch()` error-mapping wrapper and surfaces as an uncaught
+      // exception capable of terminating the daemon process.
+      //
+      // Posture on catch: cancel the subscription cleanly so both
+      // `#subscriptions` and `#subscriptionsByTransport` are drained,
+      // log a clear tripwire diagnostic, then return (we do NOT
+      // continue draining `replayBuffer` after a failure — once the
+      // subscription is canceled, subsequent `sub.next(...)` calls
+      // become silent no-ops anyway, but stopping the loop reduces
+      // duplicate log spam on a producer that's emitting many bad
+      // events). The bad event does NOT propagate to subsequent
+      // handlers — `sub.cancel()` removes the entry, and the silent-
+      // no-op contract on a drained subscription guarantees nothing
+      // routes downstream from this point.
+      // TRIPWIRE: replace `console.error` once a structured logger
+      // surfaces in the runtime-daemon.
+      try {
+        for (const event of replayBuffer) {
+          sub.next(event);
+        }
+      } catch (err) {
+        sub.cancel();
+        console.error(
+          `[session.subscribe] replay event validation/emission failed for subscriptionId=${sub.subscriptionId}; subscription canceled`,
+          err,
+        );
       }
       replayBuffer.length = 0;
     });
