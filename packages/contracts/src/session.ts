@@ -430,9 +430,32 @@ export const SessionJoinResponseSchema: z.ZodType<SessionJoinResponse> = z
 // `subscriptionId` to the wire client (e.g. as the `result` of a
 // `session.subscribe` request)".
 
+// SessionSubscribeRequest carries TWO replay-cursor fields because the
+// schema is shared across two transports with different injection
+// conventions:
+//
+//   * `afterCursor` — IPC/JSON-RPC clients (Plan-007 daemon transport)
+//     populate this field in the request body. See
+//     `runtime-daemon/src/ipc/handlers/session-subscribe.ts`.
+//
+//   * `lastEventId` — HTTP/SSE clients (Plan-008 control-plane transport)
+//     send a `Last-Event-ID` header, which tRPC v11's fetch-adapter
+//     substrate injects into the input object PRE-Zod-validation when the
+//     procedure type is `subscription`. See
+//     `@trpc/server` v11 `unstable-core-do-not-import/http/contentType.ts`
+//     lines 151-168. Without `lastEventId` declared in the schema,
+//     `.strict()` would throw on every reconnect that carries the
+//     `Last-Event-ID` resumption header — the very transport feature
+//     §T-008b-1-T8 verifies.
+//
+// Consumer precedence: `input.lastEventId ?? input.afterCursor`. Header
+// beats body so a reconnect's `Last-Event-ID` overrides any stale
+// `afterCursor` the client cached locally — matches the SSE EventSource
+// semantics the browser/runtime owns.
 export interface SessionSubscribeRequest {
   sessionId: SessionId;
   afterCursor?: EventCursor | undefined;
+  lastEventId?: EventCursor | undefined;
 }
 // `z.ZodType<T, T>` — see SessionCreateRequestSchema for rationale (preserves
 // Standard-Schema-V1 input inference for tRPC v11 consumers).
@@ -443,6 +466,7 @@ export const SessionSubscribeRequestSchema: z.ZodType<
   .object({
     sessionId: SessionIdSchema,
     afterCursor: EventCursorSchema.optional(),
+    lastEventId: EventCursorSchema.optional(),
   })
   .strict();
 
