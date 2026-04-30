@@ -228,6 +228,62 @@ interface ChannelSummary {
 
 ---
 
+## Tier 1 (cont.): Plan-008 — Plan-008-Bootstrap (control-plane tRPC + SSE substrate)
+
+Plan-008 Phase 1 (Plan-008-bootstrap, Tier 1 carve-out per [`docs/plans/008-control-plane-relay-and-session-join.md`](../../plans/008-control-plane-relay-and-session-join.md) §Execution Windows) wraps Plan-001's `session-directory-service.ts` (Tier 1 above) in a typed [tRPC v11](https://trpc.io/) router served from Cloudflare Workers via [`@trpc/server/adapters/fetch`](https://trpc.io/docs/server/adapters/fetch) per [ADR-014 tRPC Control-Plane API](../../decisions/014-trpc-control-plane-api.md). The Tier 5 Plan-008 surface (relay broker, presence register, invite handoff) lives in §Tier 5 below; this Tier 1 carve-out ratifies the procedure-type assignments, the canonical method-name registry, and the SSE wire-frame primitive that the bootstrap depends on. Closes the `BLOCKED-ON-C6` tags inside Plan-008 §Phase 1 task descriptions T-008b-1-2, T-008b-1-3, and T-008b-1-5.
+
+| tRPC procedure | Procedure type | Input schema (from `packages/contracts/src/session.ts`) | Output schema | Directory-service method called |
+| --- | --- | --- | --- | --- |
+| `session.create` | `mutation` | `SessionCreateRequestSchema` | `SessionCreateResponseSchema` | `directoryService.createSession(...)` |
+| `session.read` | `query` | `SessionReadRequestSchema` | `SessionReadResponseSchema` | `directoryService.readSession(...)` |
+| `session.join` | `mutation` | `SessionJoinRequestSchema` | `SessionJoinResponseSchema` | `directoryService.joinSession(...)` |
+
+The procedure-type assignments follow the tRPC convention: read-only operations use `query` (HTTP GET-like, idempotent); writes / state-changes use `mutation` (HTTP POST-like, non-idempotent). Method-name strings are dotted-lowercase (`session.create`, `session.read`, `session.join`) — **not** slash-style (`session/create`); slash-style is reserved for Plan-007's JSON-RPC method-name registry, which is a separate transport surface and out of scope for this BL-102 partial.
+
+```ts
+// session.create — tRPC mutation
+//   Input:  SessionCreateRequest (defined in Tier 1, Plan-001 above)
+//   Output: SessionCreateResponse (defined in Tier 1, Plan-001 above)
+//   Wraps:  directoryService.createSession(...)
+
+// session.read — tRPC query
+//   Input:  SessionReadRequest (defined in Tier 1, Plan-001 above)
+//   Output: SessionReadResponse (defined in Tier 1, Plan-001 above)
+//   Wraps:  directoryService.readSession(...)
+
+// session.join — tRPC mutation
+//   Input:  SessionJoinRequest (defined in Tier 1, Plan-001 above)
+//   Output: SessionJoinResponse (defined in Tier 1, Plan-001 above)
+//   Wraps:  directoryService.joinSession(...)
+//   Tier 1 stub: rejects non-self joins with `auth.not_authorized` until
+//   Tier 5 invite/presence land per Plan-008 §I-008-2.
+
+// session.subscribe — tRPC subscription (SSE-backed via @trpc/server/adapters/fetch)
+//   Input:  SessionSubscribeRequest (defined in Tier 1, Plan-001 above)
+//   Output: AsyncIterable<EventEnvelope> (EventEnvelope defined in Tier 4, Plan-006)
+//   tRPC substrate: resolveResponse.ts detects subscription procedures and wraps
+//   the async generator into a ReadableStream-backed Response per BL-104 (2026-04-30).
+```
+
+### SSE Wire Frame (Tier 1 Ratified)
+
+The wire frame below is the Tier 1 ratified shape, formerly carried inline as `BLOCKED-ON-C6` in Plan-008 §Phase 1 (per F-008b-1-08 SSE primitive scope and F-008b-1-04 Workers reformulation). SSE adapter selection is settled by [BL-104 resolution (2026-04-30)](../../backlog.md): tRPC v11's shared HTTP resolver (`@trpc/server/adapters/fetch` substrate at `packages/server/src/unstable-core-do-not-import/http/resolveResponse.ts` upstream) detects subscription procedures and produces the SSE-streaming `Response` natively when invoked through `fetchRequestHandler` on Cloudflare Workers — no separate SSE adapter is required.
+
+- `Content-Type: text/event-stream; charset=utf-8`
+- `Cache-Control: no-store`
+- `X-Accel-Buffering: no`
+- One `EventEnvelope` per SSE event, encoded as `data: <single-line JSON>` (`JSON.stringify` with no embedded newlines, per [WHATWG HTML §Server-sent events — `data` field](https://html.spec.whatwg.org/multipage/server-sent-events.html#dispatchMessage)).
+- `id:` carries the `EventCursor` value from Plan-006 (or a placeholder string at Tier 1 pending Plan-006 widening).
+- `retry: 5000` — advisory client retry interval in milliseconds.
+- On reconnect with the `Last-Event-ID` header, the server emits all events strictly after that cursor.
+- `event: heartbeat\ndata: {}\n\n` every 15 seconds in the absence of data.
+
+The `EventEnvelopeVersion` brand carried on every emitted envelope is already canonical at the Plan-006 definition below — `string & { readonly __brand: "EventEnvelopeVersion" }` per [ADR-018 §Decision #1](../../decisions/018-event-envelope-versioning.md). The BL-102 sub-item asking whether `protocolVersion` is integer-or-string typed is closed by reference to that brand: on the wire it is the semver `"MAJOR.MINOR"` string, never numeric. This section references the existing definition; it does not redefine it.
+
+Other BL-102 sub-items remain open as follow-up: the Plan-007 JSON-RPC method-name registry (a separate transport surface from the tRPC registry above), and any cross-tier `SessionEvent` discriminated-union surface forwarding (the canonical type already lives in `packages/contracts/src/event.ts` as a Zod-validated `z.discriminatedUnion("type", [...])`; whether it needs a wire-form mirror in this file is a separate decision).
+
+---
+
 ## Tier 2: Plan-002 — Invite Membership And Presence (Task 4.3)
 
 ```ts
