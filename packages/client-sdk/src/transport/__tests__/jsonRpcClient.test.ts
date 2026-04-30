@@ -61,9 +61,9 @@ import type {
   JsonRpcRequest,
   JsonRpcResponseEnvelope,
 } from "@ai-sidekicks/contracts";
-import { JSONRPC_VERSION } from "@ai-sidekicks/contracts";
+import { JSONRPC_VERSION, SUBSCRIPTION_CANCEL_METHOD } from "@ai-sidekicks/contracts";
 
-import { JsonRpcClient, JsonRpcSchemaError } from "../jsonRpcClient.js";
+import { JsonRpcClient, JsonRpcRemoteError, JsonRpcSchemaError } from "../jsonRpcClient.js";
 import type { ClientTransport } from "../types.js";
 
 // ----------------------------------------------------------------------------
@@ -641,5 +641,254 @@ describe("Phase D Round 4 F2 — malformed subscriptionId rejected at SDK bounda
     expect(await subscription.next()).toEqual({ kind: "event", seq: 1 });
     expect(client.subscriptionCount).toBe(1);
     expect(client.pendingCount).toBe(0);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Phase D Round 5 F3 — cancel() idempotency
+// ----------------------------------------------------------------------------
+//
+// Codex F3 (P2 ACTIONABLE): `LocalSubscription.cancel()` is documented as
+// idempotent (`types.ts:245-247` — "a second `cancel()` call resolves
+// immediately without re-emitting the wire frame"), but the prior
+// implementation only short-circuited after the state became
+// `"completed"` / `"errored"`. If a caller invoked `cancel()` twice before
+// the first `$/subscription/cancel` RPC resolved, both calls passed the
+// guard and each emitted its own cancel request — violating the public
+// contract and surfacing avoidable failures under concurrent cancellation
+// patterns.
+//
+// The fix adds an `cancelInFlight: Promise<void> | undefined` field to the
+// per-subscription state and splits `#cancelSubscription` into a public
+// guard (terminal-status / cancel-before-init / in-flight) and a private
+// `#emitCancelRpc` wire-emit half. The public guard registers the
+// in-flight promise SYNCHRONOUSLY (before any await) so a second
+// concurrent caller observes a non-undefined `cancelInFlight` and awaits
+// the same promise. The wire frame is emitted exactly once.
+//
+// Spec coverage:
+//   * `types.ts:245-247` — cancel idempotency contract.
+//   * Plan-007 §Cross-Plan Obligations CP-007-4 — SDK-side wrapping
+//     primitive must enforce its public surface contract.
+
+describe("Phase D Round 5 F3 — cancel() idempotency (Codex P2 regression)", () => {
+  it("concurrent cancel() emits exactly one wire frame; both promises resolve", async () => {
+    // Arrange — open a subscription, drive the init response so status
+    // reaches `"active"`, then issue concurrent `cancel()` calls.
+    const transport = new InMemoryTransport();
+    const client = new JsonRpcClient(transport, { protocolVersion: 1 });
+    const valueSchema = z.object({ kind: z.literal("event"), seq: z.number() });
+
+    const subscription = client.subscribe<z.infer<typeof valueSchema>>(
+      "test.subscribe",
+      { topic: "x" },
+      valueSchema,
+    );
+
+    // Capture the subscribe-init request id and ack the response. Status
+    // reaches `"active"` synchronously per the F2 fix's synchronous
+    // registration in `#handleResponse`.
+    const initEnvelope = transport.sentEnvelopes[0];
+    if (initEnvelope === undefined || !("id" in initEnvelope)) {
+      throw new Error("unreachable — subscribe init emits a request envelope");
+    }
+    const subscriptionId = "44444444-4444-4444-8444-444444444444";
+    transport.dispatchInbound({
+      jsonrpc: JSONRPC_VERSION,
+      id: initEnvelope.id,
+      result: { subscriptionId },
+    });
+
+    // Sanity — registration landed; pending map drained.
+    expect(client.subscriptionCount).toBe(1);
+    expect(client.pendingCount).toBe(0);
+
+    // Act — TWO concurrent `cancel()` calls in the same synchronous frame.
+    // The fix's contract: the second caller's third-guard check observes a
+    // non-undefined `state.cancelInFlight` registered by the first caller
+    // BEFORE its first await, awaits the same promise, and the wire emits
+    // exactly one cancel frame.
+    const cancelP1 = subscription.cancel();
+    const cancelP2 = subscription.cancel();
+
+    // CRITICAL — the wire frame count for cancel methods is 1, not 2.
+    // Filtering by method name is robust to envelope ordering and avoids
+    // brittle indexing assumptions. If a regression removed the in-flight
+    // guard, both callers would push their own envelope and this would
+    // tick to 2.
+    const cancelEnvelopes = transport.sentEnvelopes.filter(
+      (env) => "method" in env && env.method === SUBSCRIPTION_CANCEL_METHOD,
+    );
+    expect(cancelEnvelopes.length).toBe(1);
+
+    // Find the cancel request id and ack it so both promises can resolve.
+    const cancelEnvelope = cancelEnvelopes[0];
+    if (cancelEnvelope === undefined || !("id" in cancelEnvelope)) {
+      throw new Error("unreachable — cancel envelope is a request");
+    }
+    transport.dispatchInbound({
+      jsonrpc: JSONRPC_VERSION,
+      id: cancelEnvelope.id,
+      result: { canceled: true },
+    });
+
+    // Both promises resolve to undefined and observe the same outcome.
+    const [r1, r2] = await Promise.all([cancelP1, cancelP2]);
+    expect(r1).toBeUndefined();
+    expect(r2).toBeUndefined();
+
+    // After cancel resolution the subscription is in a terminal state. The
+    // `next()` call drains any queued values then resolves `undefined` per
+    // the documented `pullFromSubscription` contract — the cleanest probe
+    // for the `completed` status.
+    const tail = await subscription.next();
+    expect(tail).toBeUndefined();
+
+    // Sanity — `#subscriptions` cleaned up by `#emitCancelRpc` after a
+    // successful daemon ack.
+    expect(client.subscriptionCount).toBe(0);
+  });
+
+  it("post-resolve cancel() is a no-op (third call after settlement emits no new wire frame)", async () => {
+    // Arrange — same active-subscription setup; concurrent cancel followed
+    // by a third call AFTER the first two have settled. Verifies the
+    // terminal-status guard at the top of `#cancelSubscription` intercepts
+    // post-settlement calls before the in-flight guard is even consulted.
+    const transport = new InMemoryTransport();
+    const client = new JsonRpcClient(transport, { protocolVersion: 1 });
+    const valueSchema = z.object({ kind: z.literal("event"), seq: z.number() });
+
+    const subscription = client.subscribe<z.infer<typeof valueSchema>>(
+      "test.subscribe",
+      { topic: "x" },
+      valueSchema,
+    );
+
+    const initEnvelope = transport.sentEnvelopes[0];
+    if (initEnvelope === undefined || !("id" in initEnvelope)) {
+      throw new Error("unreachable — subscribe init emits a request envelope");
+    }
+    const subscriptionId = "55555555-5555-4555-8555-555555555555";
+    transport.dispatchInbound({
+      jsonrpc: JSONRPC_VERSION,
+      id: initEnvelope.id,
+      result: { subscriptionId },
+    });
+
+    // Concurrent cancel pair settles cleanly.
+    const cancelP1 = subscription.cancel();
+    const cancelP2 = subscription.cancel();
+
+    const cancelEnvelopesBefore = transport.sentEnvelopes.filter(
+      (env) => "method" in env && env.method === SUBSCRIPTION_CANCEL_METHOD,
+    );
+    expect(cancelEnvelopesBefore.length).toBe(1);
+
+    const cancelEnvelope = cancelEnvelopesBefore[0];
+    if (cancelEnvelope === undefined || !("id" in cancelEnvelope)) {
+      throw new Error("unreachable — cancel envelope is a request");
+    }
+    transport.dispatchInbound({
+      jsonrpc: JSONRPC_VERSION,
+      id: cancelEnvelope.id,
+      result: { canceled: true },
+    });
+    await Promise.all([cancelP1, cancelP2]);
+
+    // Act — third cancel call AFTER settlement. Status is `"completed"`,
+    // so the terminal-status guard returns immediately without emitting a
+    // wire frame.
+    const cancelP3 = subscription.cancel();
+
+    // Assert — still exactly one cancel envelope on the wire (no new
+    // frame emitted by the post-resolve call).
+    const cancelEnvelopesAfter = transport.sentEnvelopes.filter(
+      (env) => "method" in env && env.method === SUBSCRIPTION_CANCEL_METHOD,
+    );
+    expect(cancelEnvelopesAfter.length).toBe(1);
+
+    // The third promise resolves immediately (no wire round-trip needed).
+    await expect(cancelP3).resolves.toBeUndefined();
+  });
+
+  it("concurrent cancel() preserves error propagation when daemon nacks (one frame, both observe error path)", async () => {
+    // Arrange — same active-subscription setup; the daemon will respond to
+    // the cancel with a JSON-RPC error response. Both `cancelP1` and
+    // `cancelP2` should observe the same outcome: the catch in
+    // `#emitCancelRpc` swallows the error (so neither caller's
+    // `cancel()` rejects), but the subscription transitions to `"errored"`
+    // via `completeSubscriptionWithError`. A subsequent `subscription.next()`
+    // call should reject with the wire error (`JsonRpcRemoteError`).
+    const transport = new InMemoryTransport();
+    const client = new JsonRpcClient(transport, { protocolVersion: 1 });
+    const valueSchema = z.object({ kind: z.literal("event"), seq: z.number() });
+
+    const subscription = client.subscribe<z.infer<typeof valueSchema>>(
+      "test.subscribe",
+      { topic: "x" },
+      valueSchema,
+    );
+
+    const initEnvelope = transport.sentEnvelopes[0];
+    if (initEnvelope === undefined || !("id" in initEnvelope)) {
+      throw new Error("unreachable — subscribe init emits a request envelope");
+    }
+    const subscriptionId = "66666666-6666-4666-8666-666666666666";
+    transport.dispatchInbound({
+      jsonrpc: JSONRPC_VERSION,
+      id: initEnvelope.id,
+      result: { subscriptionId },
+    });
+
+    // Act — concurrent cancel; daemon responds with an error envelope.
+    const cancelP1 = subscription.cancel();
+    const cancelP2 = subscription.cancel();
+
+    // Exactly one cancel frame on the wire (in-flight guard held).
+    const cancelEnvelopes = transport.sentEnvelopes.filter(
+      (env) => "method" in env && env.method === SUBSCRIPTION_CANCEL_METHOD,
+    );
+    expect(cancelEnvelopes.length).toBe(1);
+
+    const cancelEnvelope = cancelEnvelopes[0];
+    if (cancelEnvelope === undefined || !("id" in cancelEnvelope)) {
+      throw new Error("unreachable — cancel envelope is a request");
+    }
+
+    // Daemon NACKs the cancel with a JSON-RPC error. The SDK's
+    // `#issueRequest` reject path surfaces this as `JsonRpcRemoteError`
+    // through `#emitCancelRpc`'s catch, which then runs
+    // `completeSubscriptionWithError` against the shared state.
+    transport.dispatchInbound({
+      jsonrpc: JSONRPC_VERSION,
+      id: cancelEnvelope.id,
+      error: { code: -32603, message: "internal daemon failure", data: undefined },
+    });
+
+    // Both `cancel()` promises resolve (the catch in `#emitCancelRpc` does
+    // NOT re-raise; it converts the wire error to local `errored` status).
+    // The public `cancel()` contract is "resolve once teardown is settled
+    // locally", regardless of whether the daemon ack was clean.
+    await expect(cancelP1).resolves.toBeUndefined();
+    await expect(cancelP2).resolves.toBeUndefined();
+
+    // The subscription's terminal status is `"errored"` — verified via
+    // the iterator surface (a pending `next()` call rejects with the
+    // wire error per the `pullFromSubscription` contract for
+    // `status === "errored"`).
+    let nextErr: unknown = null;
+    try {
+      await subscription.next();
+    } catch (err) {
+      nextErr = err;
+    }
+    expect(nextErr).toBeInstanceOf(JsonRpcRemoteError);
+    if (nextErr instanceof JsonRpcRemoteError) {
+      expect(nextErr.code).toBe(-32603);
+      expect(nextErr.message).toBe("internal daemon failure");
+    }
+
+    // `#subscriptions` cleaned up by the `#emitCancelRpc` catch path.
+    expect(client.subscriptionCount).toBe(0);
   });
 });

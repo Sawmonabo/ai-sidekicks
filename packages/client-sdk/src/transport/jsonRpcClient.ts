@@ -275,6 +275,20 @@ interface SubscriptionState<T> {
   }>;
   /** Set when status transitions to `errored`. */
   error: Error | undefined;
+  /**
+   * Set while a `$/subscription/cancel` RPC is in flight. Used by
+   * `#cancelSubscription` to make `cancel()` idempotent across the wire-RPC
+   * window: a second `cancel()` call landing AFTER the wire frame has been
+   * emitted but BEFORE the daemon ack has resolved awaits the same promise
+   * rather than emitting a duplicate cancel frame. Once the RPC settles,
+   * `state.status` transitions to `completed` / `errored` via
+   * `completeSubscription` / `completeSubscriptionWithError`, so the
+   * terminal-status guard at the top of `#cancelSubscription` intercepts
+   * subsequent calls before they reach this field — leaving
+   * `cancelInFlight` set after resolution is a safe no-op (closes Codex F3,
+   * Phase D Round 5).
+   */
+  cancelInFlight: Promise<void> | undefined;
 }
 
 // --------------------------------------------------------------------------
@@ -705,6 +719,7 @@ export class JsonRpcClient {
       queue: [],
       waiters: [],
       error: undefined,
+      cancelInFlight: undefined,
     };
 
     // Pre-build the cancel function so the handle has a stable reference
@@ -1040,48 +1055,88 @@ export class JsonRpcClient {
   }
 
   /**
-   * Internal: emit a `$/subscription/cancel` request for a subscription
-   * and complete the local state once the daemon acks. The cancel wire
-   * envelope is a JSON-RPC REQUEST (carries `id`) per
-   * `jsonrpc-streaming.ts:252-257` — the client awaits the
+   * Internal: cancel a subscription, idempotently across the entire cancel
+   * lifecycle. The cancel wire envelope is a JSON-RPC REQUEST (carries
+   * `id`) per `jsonrpc-streaming.ts:252-257` — the client awaits the
    * `SubscriptionCancelResult` to confirm teardown.
    *
-   * Cancel-before-init handling: if the subscribe initial response has
-   * not yet settled when the caller invokes `cancel()`, the
-   * `subscriptionId` is the empty-string sentinel and we cannot emit a
-   * meaningful cancel here. We settle the local state to `completed`
-   * (treating consumer-initiated cancel as a clean teardown — pending
-   * `next()` calls resolve `undefined`, mirroring the post-init clean
-   * cancel path). The race with the in-flight init response is
-   * reconciled in `subscribe().then`: when the init response lands and
-   * carries the daemon-issued `subscriptionId`, the success branch
-   * sees `state.status === "completed"` and emits a best-effort
-   * wire-level cancel against the just-issued id so the daemon
-   * cleans up its subscription registry. (Without that reconcile,
-   * the daemon would hold an orphaned subscription that only
-   * transport-close reaps.)
+   * Idempotency contract (per `LocalSubscription.cancel()` JSDoc in
+   * `types.ts:233-248` — "a second `cancel()` call resolves immediately
+   * without re-emitting the wire frame"). Three guards, in order:
+   *
+   *   1. Terminal-status guard. If `state.status` is `completed` or
+   *      `errored`, the subscription has already settled; return
+   *      immediately. This covers the post-resolution "third cancel" path.
+   *   2. Cancel-before-init guard. If the subscribe initial response has
+   *      not yet settled when the caller invokes `cancel()`, the
+   *      `subscriptionId` is the empty-string sentinel and we cannot emit a
+   *      meaningful cancel here. We settle the local state to `completed`
+   *      (treating consumer-initiated cancel as a clean teardown — pending
+   *      `next()` calls resolve `undefined`, mirroring the post-init clean
+   *      cancel path). The race with the in-flight init response is
+   *      reconciled in `subscribe().then`: when the init response lands and
+   *      carries the daemon-issued `subscriptionId`, the success branch
+   *      sees `state.status === "completed"` and emits a best-effort
+   *      wire-level cancel against the just-issued id so the daemon
+   *      cleans up its subscription registry. (Without that reconcile,
+   *      the daemon would hold an orphaned subscription that only
+   *      transport-close reaps.) The next `cancel()` call after this guard
+   *      hits the terminal-status guard above, so no duplicate frame is
+   *      emitted even if the consumer cancels twice during the pre-init
+   *      window.
+   *   3. In-flight-cancel guard. If a previous `cancel()` has already
+   *      emitted the wire frame and is still awaiting the daemon ack, the
+   *      second caller awaits the SAME promise rather than emitting a
+   *      duplicate `$/subscription/cancel` request (closes Codex F3, Phase
+   *      D Round 5). Both callers observe the same outcome — clean
+   *      teardown via `completeSubscription`, or local error via
+   *      `completeSubscriptionWithError` if the daemon nacks. The wire-
+   *      emit half is broken out into `#emitCancelRpc` so the public
+   *      entry point can register the in-flight promise into
+   *      `state.cancelInFlight` BEFORE the first `await`.
    */
   async #cancelSubscription<T>(state: SubscriptionState<T>): Promise<void> {
     if (state.status === "completed" || state.status === "errored") {
-      // Idempotent.
+      // Idempotent — terminal.
       return;
     }
     if (state.status === "pending" || state.subscriptionId === "") {
       // Cancel-before-init: end locally without a wire frame. The
-      // in-flight subscribe init response, when it lands, hits the
-      // race-reconciliation branch in `subscribe().then` and emits a
-      // best-effort wire cancel against the daemon-issued id so the
-      // daemon registry cleans up. We settle the local state to
-      // `completed` (consumer-initiated cancel is a clean teardown,
-      // not an error condition) so any pending `next()` calls
-      // resolve `undefined`.
+      // subsequent cancel call hits the terminal-status guard above so the
+      // pre-init window is itself idempotent.
       completeSubscription(state);
       return;
     }
-    // Active subscription — emit the cancel wire frame and await the ack.
-    // The cancel result schema is the canonical
-    // `SubscriptionCancelResultSchema` from contracts; we pass through
-    // the standard `call` machinery so result-schema validation runs.
+    if (state.cancelInFlight !== undefined) {
+      // Idempotent — wire frame already in flight; second caller awaits the
+      // same promise. Resolves to the same outcome (clean teardown via
+      // `completeSubscription`, or local error via
+      // `completeSubscriptionWithError` if the daemon ack failed).
+      return state.cancelInFlight;
+    }
+    // First caller in the active-subscription window — register the
+    // in-flight promise SYNCHRONOUSLY before the first await so any
+    // concurrent caller's third-guard check observes a non-undefined
+    // `cancelInFlight`.
+    state.cancelInFlight = this.#emitCancelRpc(state);
+    return state.cancelInFlight;
+  }
+
+  /**
+   * Internal: wire-emit half of `#cancelSubscription`. Broken out so the
+   * public entry can register the returned promise into
+   * `state.cancelInFlight` for cross-call idempotency BEFORE the first
+   * `await`. The dispatcher-map cleanup mirrors the original inline
+   * implementation — successful cancel completes the subscription and
+   * removes from `#subscriptions`; a failed cancel (wire error, schema
+   * corruption) errors the subscription locally and removes from
+   * `#subscriptions`.
+   *
+   * Active-subscription precondition: callers MUST have verified
+   * `state.status === "active"` and `state.subscriptionId !== ""` BEFORE
+   * invoking — `#cancelSubscription` is the only caller and enforces both.
+   */
+  async #emitCancelRpc<T>(state: SubscriptionState<T>): Promise<void> {
     try {
       await this.call(
         SUBSCRIPTION_CANCEL_METHOD,
