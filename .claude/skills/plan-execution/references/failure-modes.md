@@ -7,7 +7,7 @@ Subagent exit-state taxonomy and routing rules. Four observed exit states; each 
 The subagent completed the task as briefed.
 
 - Implementer / contract-author: all `target_paths` written; tests pass for the target package; no blocking concerns.
-- Reviewer: no findings, OR all findings labeled OBSERVATION (no ACTIONABLE).
+- Reviewer: no POLISH or ACTIONABLE findings (VERIFICATION narrative may be present, but VERIFICATION is reasoning, not a finding — see § Findings Discipline below).
 - Plan-analyst: DAG validates against all rules.
 
 **Verify before trusting.** A `DONE` tag without a corresponding diff (implementer) or finding-list assessment (reviewer) is a hallucination — re-dispatch with the contract restated.
@@ -76,48 +76,72 @@ Do **not** dispatch the next subagent. Do **not** advance to the next DAG level.
 
 ## Findings Discipline
 
-**ACTIONABLE vs OBSERVATION.** Reviewers (spec / quality / code) tag every finding with one of two labels. The orchestrator routes them differently.
+**Three labels: VERIFICATION / POLISH / ACTIONABLE.** Reviewers (spec / quality / code) tag every finding with exactly one label. The orchestrator routes them differently. The three-label scheme replaces the prior binary OBSERVATION/ACTIONABLE scheme — see § Why three labels (history) below.
 
-### ACTIONABLE — round-trip immediately
+### VERIFICATION — narrative, not a finding
 
-The finding must be addressed before this task (Phase C) or PR (Phase D) advances.
+The reviewer is showing their work: tracing the call stack and confirming no race; reading neighboring code and confirming idiom match; reading the cited Spec-NNN row and confirming the diff implements it; reading the I-NNN-M invariant and confirming the diff preserves it.
+
+This is reasoning, not a finding. Reviewers fold VERIFICATION into a `## Verification narrative` section at the top of their report. The orchestrator does NOT re-dispatch the implementer for VERIFICATION; there is nothing to fix.
+
+If a reviewer surfaces VERIFICATION as a numbered/bulleted finding entry (severity stamp + suggested fix), it is mislabeled — almost always a POLISH-or-VERIFICATION confusion. When in doubt, the orchestrator treats it as VERIFICATION and asks the user only if a substantive fix actually surfaces from re-reading.
+
+### POLISH — fix in-PR
+
+Real improvement that does not block correctness or contract: citation drift (an I-NNN-M / Spec-NNN row referenced but undefined / unresolvable), comment that drifted from code, tighter naming, missing JSDoc tag, redundant defensive check, idiom mismatch with neighboring file, a tripwire comment that would prevent a plausible future regression, an under-cited cite traceable via a less-obvious route, a missing one-line test assertion the AC implies but doesn't strictly require.
+
+Routing: re-dispatch the implementer with the consolidated ACTIONABLE+POLISH list (across all three reviewers); implementer addresses each entry; orchestrator re-runs the review pipeline. Loop until the next reviewer pass returns no POLISH or ACTIONABLE.
+
+The PR is the cheapest moment to fix POLISH — context is loaded, mental model is hot. Deferring POLISH to a follow-up PR pays a context-reload cost and risks the polish rotting in the backlog. Under AI-implementer economics (per `feedback_review_label_framework.md`), the round-trip cost is tokens, not human attention; fix-in-PR is the right default.
+
+### ACTIONABLE — round-trip immediately, must fix to merge
+
+The finding cannot ship as-is.
 
 Examples:
 
-- **Spec**: missing required behavior, ADR violation, wrong field shape, missing AC test.
-- **Quality**: silent failure, type unsoundness on exported API, test that doesn't exercise behavior, dead code that misleads readers.
-- **Code**: bug, regression, race condition, security boundary violation, edge case the AC implies.
+- **Spec**: missing required behavior, ADR violation, wrong field shape, missing AC test, citation that names a non-existent ID (citation-discipline violation per `feedback_citations_in_downstream_docs`), invariant cite that doesn't preserve the I-NNN-M property, premature abstraction on `blocked_on` surfaces.
+- **Quality**: silent failure, type unsoundness on exported API, test that doesn't exercise behavior, dead code that misleads readers, test fixture that passes-by-accident.
+- **Code**: bug, regression, race condition, security boundary violation, edge case the AC implies, resource-lifecycle leak.
 
-Routing: re-dispatch the implementer with the consolidated ACTIONABLE list (across all three reviewers if multiple have ACTIONABLE findings). Implementer addresses each one; orchestrator re-runs the review pipeline. Loop until the next reviewer pass returns no ACTIONABLE.
+Routing: same as POLISH (ACTIONABLE+POLISH consolidated list re-dispatched to the implementer). The distinction between ACTIONABLE and POLISH is signal for the user when the round-trip cap fires — see § Round-trip cap rationale below.
 
-### OBSERVATION — aggregate to polish list
+### ACTIONABLE deferral discipline
 
-Worth saying but doesn't block this PR.
+The default for ACTIONABLE is fix-in-PR. Deferring ACTIONABLE via Path A (file BL-NNN, ship as-is) is permitted only on these grounds — surface and verify each before presenting a defer recommendation to the user:
 
-Examples:
+1. **Scope creep across plan/PR boundary.** The fix requires changes in territory the current PR does not own (e.g., a Phase 3 PR cannot land Phase 5 contract changes). Phase-2-on-a-Phase-3-PR is borderline — surface the trade-off explicitly with file paths, do not silently absorb.
+2. **Genuinely tracked.** A BL-NNN with exit criteria, or a separate accepted plan/spec/ADR, already exists today. Cite it by id. An informal `BLOCKED-ON-CN` marker in a file header, a `TODO`/`FIXME` comment, or "future amendment will…" prose does NOT count as tracked — those markers ARE the discipline violation when ACTIONABLE is flagged on a surface guarded only by them.
 
-- "This file is getting large; consider splitting if pattern repeats."
-- "Naming could be tightened (`getX` → `loadX` would convey async)."
-- "Comment is slightly stale — code does Y now, comment says X."
-- "Spec ambiguity that this diff resolves reasonably."
+**Anti-pattern: mismatched-heuristic deferral.** Do not borrow heuristics from abstraction-extraction concerns to justify deferring ACTIONABLE leak/defect/lifecycle-gap fixes:
 
-Routing: append to the PR body's Review Notes section under "Post-merge polish". Do NOT round-trip. Do NOT block the task or PR. Surface the aggregated list to the user at PR completion (Phase E).
+- **Rule-of-three** governs _extracting helpers from concrete duplication_. It does NOT govern _closing a lifecycle gap on an existing interface_ (e.g., adding `onCancel` to a stream type that already has `next`/`complete`/`cancel` is API completion, not extraction). When a reviewer flags ACTIONABLE on a single-consumer surface, the right question is "is this a defect on an existing surface?" — not "do we have three consumers yet?"
+- **Premature-abstraction risk** applies to _new abstractions_. Completing the lifecycle of an interface that already exists does not introduce a new abstraction.
+- **Bounded-leak / "not catastrophic"** is a cost description, not a justification. Under AI-implementer economics (per `feedback_review_label_framework.md`), the PR is the cheapest moment to fix; "bounded by X" softens the framing without changing the rule.
 
-### Why two labels (history)
+When in doubt, present without a recommendation that softens ACTIONABLE. Lead with the concrete cost of fix-in-PR (file paths, scope creep into adjacent phase, test surface) and let the user choose. Recommendations biased toward defer-ACTIONABLE that fail audits 1 and 2 are framework violations.
 
-The earlier project rule was "all findings round-trip regardless of severity." Plan-001 PR #4 demonstrated the failure mode — R5/R6/R9 spiraled on cosmetic feedback (the `feedback_cosmetic_review_spiral` memory). The two-label discipline preserves the correctness gate (ACTIONABLE blocks merge) while giving cosmetic feedback a parking lot (OBSERVATION).
+History: this anti-pattern surfaced on Plan-007 PR #19 Round 6 F5 (2026-04-29). The orchestrator argued rule-of-three to defer an upstream-watcher leak whose fix was actually one optional method on an existing contract. User caught the framing error in one sentence; recant cost was a wasted A/B presentation cycle. See `feedback_actionable_deferral_discipline` memory.
 
-If a reviewer returns findings WITHOUT severity labels, that's a contract violation. Re-dispatch with the contract restated. Default ambiguous findings to OBSERVATION — escalation is cheaper than unnecessary round-trips.
+### Why three labels (history)
+
+The earlier project rule was "all findings round-trip regardless of severity." Plan-001 PR #4 demonstrated the failure mode — R5/R6/R9 spiraled on cosmetic feedback (the `feedback_cosmetic_review_spiral` memory). The first fix introduced binary OBSERVATION/ACTIONABLE: ACTIONABLE round-trips, OBSERVATION aggregates to a post-merge polish list.
+
+That binary scheme was copied from human-team review workflows where round-trip cost is human reviewer attention (expensive). Under AI-implementer economics, that calculus does not apply — round-trip cost is tokens, lifetime cost of unfixed cleanliness compounds, the PR is the cheapest moment to fix. Plan-007 PR #19 surfaced the failure mode of the binary scheme: 10 of 11 OBSERVATIONs in the Round-3 review were verification statements (reviewers showing their work, no fix needed), conflated with 1 real polish finding (citation drift) bucketed identically as "skip." See `feedback_review_label_framework.md`.
+
+The three-label scheme separates the two concerns: VERIFICATION is reasoning (no-op), POLISH is fix-in-PR (eliminates the binary's "skip-and-rot" failure mode), ACTIONABLE is unchanged.
+
+If a reviewer returns findings WITHOUT severity labels, that's a contract violation. Re-dispatch with the contract restated. Default ambiguous findings between VERIFICATION and POLISH to VERIFICATION — surfacing "I checked X" as a finding when nothing needs to change is the failure mode that produced the Plan-001 PR #4 cosmetic spiral.
 
 ### Round-trip cap rationale
 
 Both Phase C (per-task) and Phase D (PR scope) cap implementer→reviewer round-trips at 3. After the 3rd round, the orchestrator halts and surfaces the consolidated unresolved findings to the user. Why 3 specifically — and why not "until convergence":
 
 - 3 rounds is enough to fix surface bugs and absorb a clarification round on top. If the disagreement persists past round 3, fix-attempts aren't reducing the finding count toward zero — the disagreement is structural (reviewer and implementer have divergent specs) and another round is unlikely to converge it.
-- "Continue until convergence" is the v1 rule that produced the Plan-001 PR #4 cosmetic spiral (R1→R9). Surfacing forces the human decision the structural disagreement actually requires (ship as-is treating residual findings as OBSERVATION, manual intervention on the diff, or abort) instead of grinding through more rounds with the same priors.
-- The cap is the structural backstop the ACTIONABLE/OBSERVATION discipline was designed for. ACTIONABLE/OBSERVATION reduces the rate of cosmetic round-trips; the cap bounds the worst case when the discipline didn't suffice.
+- "Continue until convergence" is the v1 rule that produced the Plan-001 PR #4 cosmetic spiral (R1→R9). Surfacing forces the human decision the structural disagreement actually requires (ship the residual ACTIONABLE/POLISH as-is, manual intervention on the diff, or abort) instead of grinding through more rounds with the same priors.
+- The cap is the structural backstop the three-label discipline was designed for. The label scheme reduces the rate of cosmetic round-trips (VERIFICATION is no-op; POLISH is bounded fixable surface); the cap bounds the worst case when the discipline didn't suffice.
 
-User decision menu when the cap fires: ship as-is (treat residual findings as OBSERVATION), manual fix on the diff, or abort the task / PR. The orchestrator does not auto-pick — the choice is the user's.
+User decision menu when the cap fires: ship as-is (POLISH or ACTIONABLE residual lands as a follow-up PR), manual fix on the diff, or abort the task / PR. The orchestrator does not auto-pick — the choice is the user's. The ACTIONABLE-vs-POLISH distinction in the residual list is the signal for what's at stake: residual ACTIONABLE means a real merge-blocker the user must adjudicate; residual POLISH means cleanliness deferred (which is the binary scheme's failure mode the framework was meant to prevent — surface it as a known cost, not a new normal).
 
 ---
 
@@ -140,8 +164,8 @@ These rules apply in order. The first matching rule wins. Rule numbers are globa
 6. **Contract-author / Implementer `DONE` or `DONE_WITH_CONCERNS`** → dispatch all 3 reviewers in parallel for this task. Implementer's own concerns are carried forward into the PR body Review Notes, NOT back into the implementer.
 7. **Any reviewer `BLOCKED`** → halt; surface to user with the reviewer's findings + the diff. User decides: re-dispatch implementer with findings, abort the task, change approach.
 8. **Any reviewer `NEEDS_CONTEXT`** → resolve the question; re-dispatch only the asking reviewer.
-9. **Any reviewer `DONE_WITH_CONCERNS` with ACTIONABLE findings** → consolidate ACTIONABLE findings across all 3 reviewers; re-dispatch the implementer with the consolidated list; re-dispatch all 3 reviewers after the implementer's fix is staged. **Cap: 3 round-trips per task** ([rationale above](#round-trip-cap-rationale)). After the 3rd round, halt the task, surface the consolidated unresolved findings + the implementer's most recent diff to the user, and wait for direction (ship as-is treating residual findings as OBSERVATION, manual fix, or abort the task).
-10. **All 3 reviewers `DONE` or `DONE_WITH_CONCERNS` with only OBSERVATION findings** → append OBSERVATION findings to the PR body Review Notes; orchestrator commits the task to the PR branch (sequential mode) or marks the task done in DAG (worktree mode); advance to the next task at this level.
+9. **Any reviewer `DONE_WITH_CONCERNS` (POLISH and/or ACTIONABLE findings)** → consolidate POLISH+ACTIONABLE findings across all 3 reviewers; re-dispatch the implementer with the consolidated list; re-dispatch all 3 reviewers after the implementer's fix is staged. **Cap: 3 round-trips per task** ([rationale above](#round-trip-cap-rationale)). After the 3rd round, halt the task, surface the consolidated unresolved findings + the implementer's most recent diff to the user, and wait for direction (ship as-is — residual POLISH/ACTIONABLE lands in a follow-up PR, exception not norm; manual fix; or abort the task). The ACTIONABLE-vs-POLISH distinction in the residual list is the user signal for what's at stake.
+10. **All 3 reviewers `DONE`** (no POLISH or ACTIONABLE findings; VERIFICATION narrative may be present in their reports but is not a finding) → orchestrator commits the task to the PR branch (sequential mode) or marks the task done in DAG (worktree mode); advance to the next task at this level. VERIFICATION narrative stays in the reviewer's report; do NOT hoist it into the PR body Review Notes.
 
 ### Phase B level boundary
 
@@ -150,8 +174,8 @@ These rules apply in order. The first matching rule wins. Rule numbers are globa
 
 ### Phase D — Final review pipeline
 
-13. **All 3 final reviewers `DONE` or `DONE_WITH_CONCERNS` with only OBSERVATION findings** → advance to Phase E (Progress Log + CI + squash-merge).
-14. **Any final reviewer `DONE_WITH_CONCERNS` with ACTIONABLE findings** → re-dispatch the implementer of the last-touching task with consolidated ACTIONABLE findings; re-dispatch all 3 final reviewers after the fix is committed. **Cap: 3 round-trips at PR scope** ([rationale above](#round-trip-cap-rationale)). After the 3rd round, halt and surface to the user (ship as-is treating residual ACTIONABLE as OBSERVATION, manual intervention on the diff, or abort the PR).
+13. **All 3 final reviewers `DONE`** (no POLISH or ACTIONABLE findings; VERIFICATION narrative may be present but is not a finding) → advance to Phase E (Progress Log + CI + squash-merge).
+14. **Any final reviewer `DONE_WITH_CONCERNS` (POLISH and/or ACTIONABLE findings)** → re-dispatch the implementer of the last-touching task with the consolidated POLISH+ACTIONABLE list; re-dispatch all 3 final reviewers after the fix is committed. **Cap: 3 round-trips at PR scope** ([rationale above](#round-trip-cap-rationale)). After the 3rd round, halt and surface to the user (ship as-is — residual POLISH/ACTIONABLE lands in a follow-up PR, exception not norm; manual intervention on the diff; or abort the PR).
 15. **Any final reviewer `BLOCKED`** → halt; surface to user with findings.
 16. **Any final reviewer `NEEDS_CONTEXT`** → resolve; re-dispatch only the asking reviewer.
 
@@ -207,4 +231,4 @@ The `RESULT:` tag is at the **end** of the response. Everything before it is the
 
 ## When to amend this file
 
-If a fifth exit state appears (e.g., `INCONCLUSIVE` — subagent genuinely can't tell whether they succeeded), or if the ACTIONABLE/OBSERVATION discipline produces unproductive iteration spirals on real PRs, edit this file. Don't let new modes accumulate as ad-hoc handling — name them, document them, route them explicitly.
+If a fifth exit state appears (e.g., `INCONCLUSIVE` — subagent genuinely can't tell whether they succeeded), or if the VERIFICATION/POLISH/ACTIONABLE discipline produces unproductive iteration spirals on real PRs, edit this file. Don't let new modes accumulate as ad-hoc handling — name them, document them, route them explicitly.

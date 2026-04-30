@@ -61,7 +61,7 @@ Contracts are especially exposed: a premature interface published in a contract 
 
 - **Spec-reviewer:** premature abstraction on blocked-on surfaces is ACTIONABLE — it's spec drift (pre-commits a shape the audit deliberately deferred).
 - **Code-reviewer:** do NOT raise ACTIONABLE asking the implementer to factor blocked-on surfaces into helpers, abstractions, or shared types. Correctness findings (bugs, races, null-handling, security boundary violations) on blocked-on surfaces remain fully in your lane.
-- **Code-quality-reviewer:** do NOT raise findings (even OBSERVATION) asking to extract / dedupe / rule-of-three blocked-on surfaces. The inline duplication is load-bearing. Quality findings on non-blocked surfaces remain in your lane.
+- **Code-quality-reviewer:** do NOT raise findings (even POLISH) asking to extract / dedupe / rule-of-three blocked-on surfaces. The inline duplication is load-bearing. Quality findings on non-blocked surfaces remain in your lane.
 
 ### Why load-bearing
 

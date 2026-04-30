@@ -34,7 +34,7 @@ Reason like a principal-engineer project lead:
 
 - **You orchestrate; you don't implement.** Code edits happen inside implementer or contract-author dispatches. The orchestrator's only direct file mutations are: the initial scaffold commit (Phase 0), git operations (`add`, `commit`, `push`, `merge`), the Progress Log append at PR completion, and the YAML DAG block in the PR description.
 - **Subagents do NOT run git.** Implementers and contract-authors stage their changes by editing files; the orchestrator runs every `git add`, `git commit`, `git push`, and `git merge`. Recovery for a subagent that ran git anyway: [`references/failure-modes.md` § Reading subagent responses](references/failure-modes.md#reading-subagent-responses).
-- **All ACTIONABLE reviewer findings round-trip to the implementer.** OBSERVATION findings are aggregated into a post-merge polish list surfaced at PR completion (see the **Findings Discipline** section below).
+- **All ACTIONABLE and POLISH reviewer findings round-trip to the implementer.** VERIFICATION is reasoning, not a finding — it lives in the reviewer's `## Verification narrative` section and is never re-dispatched (see the **Findings Discipline** section below).
 - **Halt on `BLOCKED`** with the graceful-drain protocol — let in-flight subagents finish, collect all results, surface to user (full protocol: [`references/failure-modes.md` § Graceful Drain Protocol](references/failure-modes.md#graceful-drain-protocol-worktree-mode)).
 - **Never push to `develop` or `main` directly.** Always squash-merge through PR (mechanics in **Phase E** below).
 - **Manage TaskCreate at subagent-dispatch granularity** (see the **TaskCreate Hygiene** section below).
@@ -53,7 +53,7 @@ digraph plan_execution_v2 {
     "Dispatch contract-author" [shape=box];
     "Dispatch implementers\n(sequential default,\nworktree if flagged)" [shape=box];
     "Per-task: dispatch 3 reviewers\n(parallel)" [shape=box];
-    "Round-trip ACTIONABLE\nfindings to implementer" [shape=box];
+    "Round-trip POLISH/ACTIONABLE\nfindings to implementer" [shape=box];
     "Task DONE?" [shape=diamond];
     "More tasks at this level?" [shape=diamond];
     "More levels?" [shape=diamond];
@@ -76,8 +76,8 @@ digraph plan_execution_v2 {
     "Dispatch contract-author" -> "Dispatch implementers\n(sequential default,\nworktree if flagged)";
     "Level has contract task?" -> "Dispatch implementers\n(sequential default,\nworktree if flagged)" [label="no"];
     "Dispatch implementers\n(sequential default,\nworktree if flagged)" -> "Per-task: dispatch 3 reviewers\n(parallel)";
-    "Per-task: dispatch 3 reviewers\n(parallel)" -> "Round-trip ACTIONABLE\nfindings to implementer";
-    "Round-trip ACTIONABLE\nfindings to implementer" -> "Task DONE?";
+    "Per-task: dispatch 3 reviewers\n(parallel)" -> "Round-trip POLISH/ACTIONABLE\nfindings to implementer";
+    "Round-trip POLISH/ACTIONABLE\nfindings to implementer" -> "Task DONE?";
     "Task DONE?" -> "Per-task: dispatch 3 reviewers\n(parallel)" [label="no — re-review"];
     "Task DONE?" -> "More tasks at this level?" [label="yes"];
     "More tasks at this level?" -> "Dispatch implementers\n(sequential default,\nworktree if flagged)" [label="yes"];
@@ -191,7 +191,7 @@ status: pending-analysis
 - [ ] <criterion 2>
 
 ## Review Notes
-<!-- POPULATED AS THE PR PROGRESSES — small-task collapses, OBSERVATION findings, etc. -->
+<!-- POPULATED AS THE PR PROGRESSES — small-task collapses, residual cap-fire findings (exception, not norm), etc. -->
 
 Refs: ADR-NNN[, BL-NNN], Plan-NNN
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
@@ -371,11 +371,11 @@ The three roles (templates under [`prompts/`](prompts/) — `spec-reviewer.promp
 - **Code-quality-reviewer** — idiom, type safety, test depth, neighboring-code conformance, against [`.claude/rules/coding-standards.md`](../../rules/coding-standards.md).
 - **Code-reviewer** — correctness, regressions, edge cases, security, staff-level bar.
 
-Findings carry severity labels: **ACTIONABLE** (round-trip immediately) or **OBSERVATION** (aggregate to post-merge polish list). See the **Findings Discipline** section below.
+Findings carry severity labels: **VERIFICATION** (narrative — reviewer showing work, no fix), **POLISH** (real improvement — fix in-PR), or **ACTIONABLE** (round-trip immediately — must fix to merge). See the **Findings Discipline** section below.
 
-Route per [`references/failure-modes.md`](references/failure-modes.md). Loop until all three reviewers return `DONE` (or `DONE_WITH_CONCERNS` whose findings are all OBSERVATION).
+Route per [`references/failure-modes.md`](references/failure-modes.md). Loop until all three reviewers return `DONE` (no POLISH or ACTIONABLE findings; VERIFICATION narrative may still appear in their reports).
 
-**Round-trip cap: 3 rounds per task.** After 3 implementer→reviewer round-trips on the same task, halt the task and surface the consolidated finding-set to the user. The user decides: ship as-is (treat residual findings as OBSERVATION), manual fix, or abort the task. (Why 3 specifically: [`references/failure-modes.md` § Round-trip cap rationale](references/failure-modes.md#round-trip-cap-rationale).)
+**Round-trip cap: 3 rounds per task.** After 3 implementer→reviewer round-trips on the same task, halt the task and surface the consolidated finding-set to the user. The user decides: ship as-is (residual POLISH/ACTIONABLE lands in a follow-up PR — exception, not norm), manual fix, or abort the task. (Why 3 specifically: [`references/failure-modes.md` § Round-trip cap rationale](references/failure-modes.md#round-trip-cap-rationale).)
 
 #### Small-task collapse rule
 
@@ -399,7 +399,7 @@ What integration coverage concretely checks (the gate Phase C cannot provide):
 - **PR-level acceptance criteria coverage** — every test-plan item from the plan's PR section has corresponding test code in the diff. Per-task ACs are a subset of the PR ACs; the union may have gaps that no individual task is responsible for.
 - **Full-branch lint/test surface** — `pnpm lint` and `pnpm test` pass workspace-wide. Per-task implementers run tests scoped to their target package only; cross-package breaks first show up at PR scope.
 
-Route findings the same way: ACTIONABLE → round-trip to the implementer of the last-touching task; OBSERVATION → polish list.
+Route findings the same way: POLISH and ACTIONABLE → round-trip to the implementer of the last-touching task; VERIFICATION lives in the reviewer's narrative section (no orchestrator action).
 
 **Round-trip cap: 3 rounds at PR scope.** After 3 final-review round-trips, halt and surface the consolidated finding-set to the user — same cap and rationale as Phase C ([`references/failure-modes.md` § Round-trip cap rationale](references/failure-modes.md#round-trip-cap-rationale)). The user decides: ship as-is, manual intervention, or abort the PR.
 
@@ -449,7 +449,7 @@ If the plan has more PRs and the user requested multi-PR execution, return to Ph
 
 - The squash-commit SHA on `develop`.
 - Next-up PR (if any).
-- Aggregated OBSERVATION findings from all phases (the "post-merge polish" list).
+- Residual cap-fire findings, if any (only present when a round-trip cap fired and the user chose ship-as-is — exception, not norm).
 
 ## Dispatch Modes
 
@@ -466,12 +466,13 @@ The plan-analyst tags each task `dispatch_mode: sequential | worktree`. The orch
 
 ## Findings Discipline
 
-Reviewers tag every finding with one of two severity labels:
+Reviewers tag every finding with one of three severity labels:
 
-- **ACTIONABLE** — round-trip to the implementer immediately (blocks the task in Phase C, the PR in Phase D).
-- **OBSERVATION** — aggregate to a post-merge polish list (does not block).
+- **VERIFICATION** — reviewer showing their work (call-stack trace, idiom-match check, cite-resolution). Lives in the report's `## Verification narrative` section, not as a numbered finding. The orchestrator does not re-dispatch the implementer for VERIFICATION; there is nothing to fix.
+- **POLISH** — real improvement that does not block correctness or contract: tighter naming, drift comments, missing JSDoc, redundant defensive checks, idiom mismatch with neighboring code, citation drift, an under-cited cite traceable via a less-obvious route. Round-trips to the implementer (consolidated with ACTIONABLE); fix in-PR — the PR is the cheapest moment under AI-implementer economics (see `feedback_review_label_framework`).
+- **ACTIONABLE** — must fix to merge: bugs, regressions, races, security boundary violations, silent failures, type unsoundness on exported APIs, premature abstraction on `blocked_on` surfaces, citation that names a non-existent ID, invariant cite that doesn't preserve the I-NNN-M property. Round-trips immediately.
 
-Full routing rules per reviewer role, examples, "no label" recovery, and the round-trip cap rationale live in [`references/failure-modes.md` § Findings Discipline](references/failure-modes.md#findings-discipline). The two-label discipline replaces v1's "all findings round-trip" rule, which produced the Plan-001 PR #4 cosmetic spiral.
+Full routing rules per reviewer role, examples, "no label" recovery, and the round-trip cap rationale live in [`references/failure-modes.md` § Findings Discipline](references/failure-modes.md#findings-discipline). The three-label discipline replaces the prior binary OBSERVATION/ACTIONABLE scheme, which conflated VERIFICATION (no-op narrative) with POLISH (real fix needed) and bucketed both as "skip" — surfacing the failure mode in Plan-007 PR #19, where 10 of 11 OBSERVATIONs were verification statements but 1 was a real polish finding (citation drift) deferred only because of the bucket name.
 
 ## TaskCreate Hygiene
 
@@ -489,7 +490,7 @@ Read these when the workflow step calls for them:
 
 - [`references/state-recovery.md`](references/state-recovery.md) — resumption protocol when a session compacts or crashes mid-PR. Updated for the three-artifact state model.
 - [`prompts/`](prompts/) — per-role prompt templates: `plan-analyst.prompt.md`, `contract-author.prompt.md`, `implementer.prompt.md`, `spec-reviewer.prompt.md`, `code-quality-reviewer.prompt.md`, `code-reviewer.prompt.md`. Read the relevant role's file before dispatching that role — each template is self-contained with mindset, hard rules, exit states, and report format. Each file declares a target dispatch-prompt size; if you exceed it after substituting placeholders, the task is probably under-decomposed or the plan section being pasted is too long (link instead of paste).
-- [`references/failure-modes.md`](references/failure-modes.md) — exit-state taxonomy (`DONE`, `DONE_WITH_CONCERNS`, `NEEDS_CONTEXT`, `BLOCKED`), graceful-drain protocol for worktree mode, ACTIONABLE/OBSERVATION routing rules, round-trip caps.
+- [`references/failure-modes.md`](references/failure-modes.md) — exit-state taxonomy (`DONE`, `DONE_WITH_CONCERNS`, `NEEDS_CONTEXT`, `BLOCKED`), graceful-drain protocol for worktree mode, three-label routing rules (VERIFICATION/POLISH/ACTIONABLE), round-trip caps.
 
 ## Anti-Patterns
 
@@ -505,8 +506,9 @@ Read these when the workflow step calls for them:
 - **Subagents running git.** Implementers and contract-authors stage edits by writing files; the orchestrator owns every git mutation. A subagent that runs `git commit` has violated the contract — re-dispatch with the contract restated and discard their commit.
 - **Embedding the orchestrator's TaskList in a subagent prompt.** Subagents start with a fresh context window. Pass task definition + plan section + diff — nothing else.
 - **Letting TaskCreate accumulate across PRs.** When PR #M merges, clear its tasks before opening PR #M+1.
-- **Treating reviewer OBSERVATIONS as ACTIONABLE.** The label exists to prevent the cosmetic-spiral failure mode; if you round-trip every observation you've reverted to the old discipline. Surface OBSERVATIONS to the user post-merge instead.
-- **Dropping ACTIONABLE findings.** The polish list is for OBSERVATIONS only. Every ACTIONABLE finding round-trips to the implementer until resolved (or until the round-trip cap fires).
+- **Surfacing VERIFICATION as a finding.** VERIFICATION is the reviewer showing their work — "I traced X, no race"; "I read Spec-NNN row 4 and the diff implements it." It belongs in the report's `## Verification narrative` section, not as a numbered finding entry. Promoting verification statements to numbered findings produces the cosmetic-spiral failure mode the three-label scheme was designed to eliminate.
+- **Deferring POLISH to a follow-up PR by default.** Both POLISH and ACTIONABLE round-trip to the implementer; both fix in-PR. Under AI-implementer economics, the PR is the cheapest moment to fix POLISH (context loaded, mental model hot, no human reviewer fatigue to defend). Deferring pays a context-reload cost and risks the polish rotting in a backlog item that never lands. Cap-fire residual is the only legitimate post-merge POLISH path — and it's exception, not norm.
+- **Dropping POLISH or ACTIONABLE findings.** Every POLISH or ACTIONABLE finding round-trips to the implementer until resolved (or until the round-trip cap fires and the user adjudicates).
 - **Bypassing the round-trip cap by "starting fresh."** When 3 rounds didn't converge, the orchestrator surfaces to the user — it does NOT discard the iteration count and re-dispatch the reviewers from scratch. Circumventing the cap reverts to v1's R1→R9 cosmetic-spiral failure mode. If the cap fires, it means the disagreement is structural; force the human decision.
 - **Auto-filling an incomplete plan.** If Phase A returns `NEEDS_CONTEXT`, halt and surface to user. Doc-first discipline is non-negotiable.
 - **Editing the PR body's DAG mid-execution.** The DAG is the static decomposition. If you discover the DAG is wrong, halt; re-dispatch the plan-analyst with the new constraint; replace the DAG block atomically. Don't ad-hoc-edit it.
@@ -520,7 +522,7 @@ This skill is designed to learn. After the first PR you execute under v2, before
 
 - Did the plan-analyst's DAG match what implementation actually needed, or did the orchestrator have to re-dispatch the analyst mid-execution?
 - Did sequential mode produce noticeably smaller per-task diffs than the v1 PR-scoped implementer? Compare review-round counts.
-- Were ACTIONABLE/OBSERVATION labels applied consistently, or did reviewers default to one label and ignore the other?
+- Were VERIFICATION/POLISH/ACTIONABLE labels applied consistently, or did reviewers default to one label (especially: did POLISH findings actually surface, or did reviewers conflate them with VERIFICATION and bucket them as no-op narrative)?
 - Did per-task reviews catch issues earlier than v1 did, or did Phase D's final review still surface significant cross-task drift?
 - Did worktree mode trigger? If yes, was the wall-clock win worth the setup overhead?
 - Did Phase E's Progress Log convention work, or did the doc commit feel awkward at squash-merge time?
