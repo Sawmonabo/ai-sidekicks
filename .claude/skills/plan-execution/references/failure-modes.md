@@ -106,6 +106,23 @@ Examples:
 
 Routing: same as POLISH (ACTIONABLE+POLISH consolidated list re-dispatched to the implementer). The distinction between ACTIONABLE and POLISH is signal for the user when the round-trip cap fires — see § Round-trip cap rationale below.
 
+### ACTIONABLE deferral discipline
+
+The default for ACTIONABLE is fix-in-PR. Deferring ACTIONABLE via Path A (file BL-NNN, ship as-is) is permitted only on these grounds — surface and verify each before presenting a defer recommendation to the user:
+
+1. **Scope creep across plan/PR boundary.** The fix requires changes in territory the current PR does not own (e.g., a Phase 3 PR cannot land Phase 5 contract changes). Phase-2-on-a-Phase-3-PR is borderline — surface the trade-off explicitly with file paths, do not silently absorb.
+2. **Genuinely tracked.** A BL-NNN with exit criteria, or a separate accepted plan/spec/ADR, already exists today. Cite it by id. An informal `BLOCKED-ON-CN` marker in a file header, a `TODO`/`FIXME` comment, or "future amendment will…" prose does NOT count as tracked — those markers ARE the discipline violation when ACTIONABLE is flagged on a surface guarded only by them.
+
+**Anti-pattern: mismatched-heuristic deferral.** Do not borrow heuristics from abstraction-extraction concerns to justify deferring ACTIONABLE leak/defect/lifecycle-gap fixes:
+
+- **Rule-of-three** governs _extracting helpers from concrete duplication_. It does NOT govern _closing a lifecycle gap on an existing interface_ (e.g., adding `onCancel` to a stream type that already has `next`/`complete`/`cancel` is API completion, not extraction). When a reviewer flags ACTIONABLE on a single-consumer surface, the right question is "is this a defect on an existing surface?" — not "do we have three consumers yet?"
+- **Premature-abstraction risk** applies to _new abstractions_. Completing the lifecycle of an interface that already exists does not introduce a new abstraction.
+- **Bounded-leak / "not catastrophic"** is a cost description, not a justification. Under AI-implementer economics (per `feedback_review_label_framework.md`), the PR is the cheapest moment to fix; "bounded by X" softens the framing without changing the rule.
+
+When in doubt, present without a recommendation that softens ACTIONABLE. Lead with the concrete cost of fix-in-PR (file paths, scope creep into adjacent phase, test surface) and let the user choose. Recommendations biased toward defer-ACTIONABLE that fail audits 1 and 2 are framework violations.
+
+History: this anti-pattern surfaced on Plan-007 PR #19 Round 6 F5 (2026-04-29). The orchestrator argued rule-of-three to defer an upstream-watcher leak whose fix was actually one optional method on an existing contract. User caught the framing error in one sentence; recant cost was a wasted A/B presentation cycle. See `feedback_actionable_deferral_discipline` memory.
+
 ### Why three labels (history)
 
 The earlier project rule was "all findings round-trip regardless of severity." Plan-001 PR #4 demonstrated the failure mode — R5/R6/R9 spiraled on cosmetic feedback (the `feedback_cosmetic_review_spiral` memory). The first fix introduced binary OBSERVATION/ACTIONABLE: ACTIONABLE round-trips, OBSERVATION aggregates to a post-merge polish list.
