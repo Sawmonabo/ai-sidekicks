@@ -91,14 +91,10 @@ import type { StreamingPrimitive } from "../streaming-primitive.js";
  *     `afterCursor` and an `onEvent` lambda that calls
  *     `sub.next(event)` on the streaming primitive's producer. The
  *     callback returns an `unsubscribe` handle for upstream-side
- *     teardown — though the SERVER-SIDE `LocalSubscription<T>`
- *     interface does NOT expose an `onCancel` hook today (see header
- *     comment §"What this file does NOT do"), so the unsubscribe
- *     handle is currently un-invoked from this file. It is captured
- *     for future-amendment forwards-compatibility — when
- *     `LocalSubscription<T>` gains `onCancel`, this file's binding
- *     wires the unsubscribe handle to the streaming primitive's
- *     teardown path without contract churn.
+ *     teardown; the handler registers it via `sub.onCancel` so that
+ *     wire-cancel, transport-disconnect, AND trusted-internal
+ *     teardown paths all propagate cleanup back to the upstream
+ *     event source.
  *
  * The bootstrap orchestrator (Plan-001 Phase 5) supplies the concrete
  * implementation. T-007p-3-4 (sibling test) injects test doubles for
@@ -119,12 +115,19 @@ export interface SessionSubscribeDeps {
    * `SessionEvent` produced; the handler routes those calls to the
    * streaming primitive's producer.
    *
-   * Returns an `unsubscribe` callback the caller invokes to stop
-   * upstream event delivery. See header comment §"What this file does
-   * NOT do" — the SERVER-SIDE `LocalSubscription<T>` interface does
-   * not yet expose an `onCancel` hook, so the unsubscribe handle is
-   * currently un-invoked at this layer. It is captured for forwards-
-   * compatibility.
+   * Returns an `unsubscribe` callback the handler registers via
+   * `sub.onCancel` to propagate teardown upstream when the wire client
+   * cancels, the transport disconnects, or `cancelSubscription` runs.
+   *
+   * **Re-entrant safety precondition.** The returned `unsubscribe`
+   * callback MAY be invoked synchronously from inside the `onEvent`
+   * call stack (the live-tail catch's `sub.next()` failure path
+   * cancels the subscription, which fires registered `onCancel`
+   * handlers — including this `unsubscribe` — while the upstream's
+   * emit frame is still on the stack). Implementations MUST tolerate
+   * being unsubscribed mid-emit (e.g. snapshot-during-emit or queued-
+   * removal) without corrupting the listener iteration or double-
+   * delivering the in-flight event.
    *
    * Domain-side errors during subscription setup (session not found,
    * invalid `afterCursor`, permission denied) MUST surface as thrown
