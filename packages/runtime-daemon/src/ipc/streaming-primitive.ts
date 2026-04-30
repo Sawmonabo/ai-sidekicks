@@ -169,9 +169,34 @@ export class StreamingValidationError extends Error {
  * single `Map<SubscriptionId, SubscriptionEntry>` holds every active
  * subscription regardless of value type.
  */
+/**
+ * Lifecycle state for a single subscription. Drives both the silent-no-op
+ * posture of `next()` (anything other than `active` collapses to no-op) and
+ * the `onCancel`-firing logic — only `canceled` triggers handler firing,
+ * `complete` is intentionally inert at this seam (natural producer-driven
+ * termination is already known to the producer; firing `onCancel` there
+ * would be self-callback noise).
+ */
+type SubscriptionState = "active" | "complete" | "canceled";
+
 interface SubscriptionEntry {
   readonly transportId: number;
   readonly valueSchema: ZodType<unknown>;
+  /**
+   * Mutable lifecycle marker. Transitions are monotonic: `active` →
+   * `complete` (via `complete()`) OR `active` → `canceled` (via
+   * `cancel()` / `cleanupTransport()` / `cancelSubscription()`). Once
+   * non-`active`, subsequent teardown calls are idempotent no-ops.
+   */
+  state: SubscriptionState;
+  /**
+   * Handler queue for `onCancel`. Mutable contents (push on registration,
+   * cleared after firing) so registration-after-cancel does NOT replay
+   * already-fired handlers. The `readonly` modifier on the field reflects
+   * the reference's stability — the array identity is set once at entry
+   * construction and never reassigned.
+   */
+  readonly onCancelHandlers: Array<() => void>;
 }
 
 // --------------------------------------------------------------------------
@@ -290,6 +315,8 @@ export class StreamingPrimitive {
       // The runtime contract is preserved: `safeParse` is type-erased
       // and the per-subscription `T` is recovered at the call site.
       valueSchema: valueSchema as ZodType<unknown>,
+      state: "active",
+      onCancelHandlers: [],
     };
     this.#subscriptions.set(subscriptionId, entry);
 
@@ -326,22 +353,42 @@ export class StreamingPrimitive {
       }
     };
 
+    const fireOnCancelHandlers = (): void => {
+      // Per-handler error isolation. A handler that throws does NOT
+      // prevent subsequent handlers from firing — the producer cannot
+      // block cancel teardown by throwing in `onCancel`. Errors are
+      // intentionally swallowed at this layer; handler authors that
+      // need to surface failures must do so through their own
+      // logging/metrics path. Mirrors the orchestrator-handles-it
+      // posture used for `next()`'s send failures.
+      for (const handler of entry.onCancelHandlers) {
+        try {
+          handler();
+        } catch {
+          // Intentional swallow — see comment above.
+        }
+      }
+      // Clear after firing so an `onCancel` registration AFTER cancel
+      // does not replay already-fired handlers. The synchronous-fire
+      // branch on `onCancel` registration handles the post-cancel case.
+      entry.onCancelHandlers.length = 0;
+    };
+
     const subscription: LocalSubscription<T> = {
       subscriptionId,
       next(value: T): void {
-        // Look up the entry. If `complete()` or `cancel()` already
-        // dropped it, OR if `cleanupTransport(transportId)` removed it
-        // due to disconnect, this lookup misses and we silent-no-op.
-        // Documented contract per `LocalSubscription.next` JSDoc.
-        const e = subscriptions.get(subscriptionId);
-        if (e === undefined) {
+        // Silent no-op contract: any non-`active` state collapses
+        // (post-`complete()`, post-`cancel()`, or post-
+        // `cleanupTransport(transportId)`). Documented in
+        // `LocalSubscription.next` JSDoc.
+        if (entry.state !== "active") {
           return;
         }
         // I-007-7 streaming analog: validate before send. `safeParse`
         // returns `{ success: false, error }` rather than throwing —
         // we structure the throw ourselves with the subscription
         // correlation key.
-        const parsed = e.valueSchema.safeParse(value);
+        const parsed = entry.valueSchema.safeParse(value);
         if (!parsed.success) {
           throw new StreamingValidationError(
             subscriptionId,
@@ -366,30 +413,72 @@ export class StreamingPrimitive {
         // orchestrator's lambda handles `encodeFrame` + `socket.write`;
         // a closed transport is the orchestrator's concern (silent
         // drop / observability log), not ours.
-        send(e.transportId, frame);
+        send(entry.transportId, frame);
       },
       complete(): void {
         // Phase 2: state-only — no wire frame is emitted. Idempotent
-        // (a second `complete()` after the entry is gone is a no-op).
-        // Subsequent `next()` calls will look up and miss, becoming
-        // silent no-ops per the documented contract.
+        // via the `state !== "active"` guard. Subsequent `next()`
+        // calls collapse to silent no-ops.
+        //
+        // Does NOT fire `onCancel` handlers: natural producer-driven
+        // termination is already known to the producer; firing the
+        // hook here would be self-callback noise. The contract-level
+        // JSDoc on `LocalSubscription.onCancel` documents this.
         //
         // Future phases MAY introduce a `$/subscription/complete`
         // (server→client) notification; until then `complete()` and
-        // `cancel()` are server-side state-only markers. The JSDoc on
-        // the contracts-side interface documents the deferral.
+        // `cancel()` are server-side state-only markers.
+        if (entry.state !== "active") {
+          return;
+        }
+        entry.state = "complete";
         removeFromTransport(subscriptionId);
         subscriptions.delete(subscriptionId);
       },
       cancel(): void {
         // Phase 2: state-only — server-initiated unilateral cancel.
-        // Identical mechanics to `complete()` at this layer; the
-        // semantic distinction (natural-completion vs deliberate-
-        // cancel) is observable only in the producer's call-site
-        // context, not on the wire. Future phases MAY introduce
-        // a `$/subscription/cancel` (server→client) frame.
+        // Wire mechanics are identical to `complete()` (no Phase 2
+        // wire frame); the semantic distinction is observable through
+        // `onCancel` handler firing — `cancel()` fires handlers,
+        // `complete()` does not.
+        //
+        // Order of operations (advisor refinement): remove-from-maps
+        // BEFORE firing handlers. A handler that re-enters the
+        // primitive (e.g., consults `cancelSubscription` for the same
+        // id) MUST observe the post-cancel state — it would be
+        // confusing for a handler firing on cancel to see its own
+        // subscription still in the map.
+        if (entry.state !== "active") {
+          return;
+        }
+        entry.state = "canceled";
         removeFromTransport(subscriptionId);
         subscriptions.delete(subscriptionId);
+        fireOnCancelHandlers();
+      },
+      onCancel(fn: () => void): void {
+        // AbortSignal-style registration-after-cancel: registering on
+        // an already-canceled subscription fires synchronously before
+        // `onCancel` returns. Without this, an upstream resource
+        // acquired AFTER cancel-fire would leak silently — the producer
+        // expects the hook to clean it up regardless of timing.
+        if (entry.state === "canceled") {
+          try {
+            fn();
+          } catch {
+            // Intentional swallow — same isolation as the bulk-fire
+            // path; producers cannot block cancel teardown by throwing.
+          }
+          return;
+        }
+        // `complete` does NOT fire onCancel — natural producer-driven
+        // termination is already known to the producer. Drop the
+        // handler silently so call-site code that registers
+        // unconditionally does not error.
+        if (entry.state === "complete") {
+          return;
+        }
+        entry.onCancelHandlers.push(fn);
       },
     };
     return subscription;
@@ -410,10 +499,50 @@ export class StreamingPrimitive {
     if (bucket === undefined) {
       return;
     }
-    for (const subscriptionId of bucket) {
-      this.#subscriptions.delete(subscriptionId);
-    }
+    // Snapshot the bucket BEFORE iteration. An `onCancel` handler that
+    // re-enters the primitive (e.g., calls `cancelSubscription` for a
+    // sibling id, or constructs a fresh subscription on the same
+    // transport) could mutate `bucket` mid-iteration. Snapshotting
+    // decouples the iteration from concurrent mutation; the bucket
+    // entry itself is dropped wholesale below.
+    const subscriptionIds = [...bucket];
     this.#subscriptionsByTransport.delete(transportId);
+    for (const subscriptionId of subscriptionIds) {
+      // Per-subscription try/catch (advisor refinement): a single
+      // subscription's catastrophic failure (or its handler chain's
+      // failure escaping the per-handler isolation) MUST NOT break
+      // sibling subscriptions in the bulk-cleanup loop. Defense-in-
+      // depth on top of the per-handler isolation inside the closure's
+      // `fireOnCancelHandlers`: the inner layer catches handler
+      // throws, the outer layer catches anything else (e.g., a
+      // hypothetically-throwing entry mutation).
+      try {
+        const entry = this.#subscriptions.get(subscriptionId);
+        if (entry === undefined) {
+          continue;
+        }
+        // Order of operations matches the closure-side `cancel()`:
+        // mark canceled, remove from maps, then fire handlers. A
+        // handler re-entering the primitive observes the post-cancel
+        // state.
+        entry.state = "canceled";
+        this.#subscriptions.delete(subscriptionId);
+        for (const handler of entry.onCancelHandlers) {
+          try {
+            handler();
+          } catch {
+            // Per-handler isolation — same posture as the closure's
+            // bulk-fire helper. Swallow and continue to siblings.
+          }
+        }
+        entry.onCancelHandlers.length = 0;
+      } catch {
+        // Per-subscription isolation — defensive, the inner code is
+        // not expected to throw under the current contract. Silently
+        // continue so disconnect cleanup remains best-effort across
+        // the transport's full subscription set.
+      }
+    }
   }
 
   /**
@@ -435,6 +564,11 @@ export class StreamingPrimitive {
     if (entry === undefined) {
       return false;
     }
+    // Order of operations matches the closure-side `cancel()`: mark
+    // canceled, remove from maps, then fire handlers. A handler that
+    // re-enters the primitive (e.g., consults `cancelSubscription` for
+    // its own id) observes the post-cancel state.
+    entry.state = "canceled";
     const bucket = this.#subscriptionsByTransport.get(entry.transportId);
     if (bucket !== undefined) {
       bucket.delete(subscriptionId);
@@ -443,6 +577,17 @@ export class StreamingPrimitive {
       }
     }
     this.#subscriptions.delete(subscriptionId);
+    // Per-handler error isolation — same posture as the closure's
+    // bulk-fire helper. A handler that throws does NOT prevent
+    // siblings from firing.
+    for (const handler of entry.onCancelHandlers) {
+      try {
+        handler();
+      } catch {
+        // Intentional swallow — see closure-side `fireOnCancelHandlers`.
+      }
+    }
+    entry.onCancelHandlers.length = 0;
     return true;
   }
 

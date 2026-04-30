@@ -884,6 +884,124 @@ describe("Phase D Round 4 F1 — replay-flush + live-tail crash guards (Codex P1
 });
 
 // ----------------------------------------------------------------------------
+// Plan-007 PR #19 Round 6 F5 — onCancel wire-up: upstream unsubscribe runs
+// when the wire client cancels OR the transport disconnects, so the Plan-001
+// Phase 5 event-source detaches its watcher rather than leaking it for the
+// transport's lifetime. Codex flagged the discarded `unsubscribe` handle in
+// `session-subscribe.ts:273` as ACTIONABLE (Round 6); Path B (extend
+// `LocalSubscription<T>` with `onCancel`) closes the gap on the existing
+// lifecycle interface.
+// ----------------------------------------------------------------------------
+
+describe("PR #19 R6 F5 — session.subscribe wires upstream unsubscribe via sub.onCancel", () => {
+  it("wire-cancel (`$/subscription/cancel` from the same transport) fires the upstream unsubscribe", async () => {
+    // Arrange — `subscribeToSession`'s test double returns a vi-fn
+    // unsubscribe so we can assert exactly when it ran. The handler-binding
+    // path registers the unsubscribe via `sub.onCancel(unsubscribe)`; the
+    // primitive's wire-cancel path (the registered `$/subscription/cancel`
+    // handler dispatching to `cancelSubscription`) must fire it.
+    const registry = new MethodRegistryImpl();
+    const send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>();
+    const primitive = new StreamingPrimitive({ registry, send });
+    const unsubscribe = vi.fn<() => void>();
+    const subscribeToSession = vi.fn<SessionSubscribeDeps["subscribeToSession"]>(() => unsubscribe);
+    const deps: SessionSubscribeDeps = {
+      streamingPrimitive: primitive,
+      subscribeToSession,
+    };
+    registerSessionSubscribe(registry, deps);
+
+    const transportId = 13;
+    const ctx: HandlerContext = { transportId };
+    const subscribeReq: SessionSubscribeRequest = { sessionId: TEST_SESSION_ID };
+    const result = (await registry.dispatch(
+      "session.subscribe",
+      subscribeReq,
+      ctx,
+    )) as SessionSubscribeResponse;
+    // Drain the replay-flush boundary so any post-init race is observable
+    // before we cancel.
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(unsubscribe).not.toHaveBeenCalled();
+
+    // Act — dispatch the wire-cancel through the registered cancel handler
+    // (the same path a real client's `$/subscription/cancel` notification
+    // walks). The cancel handler verifies transport-scoped ownership BEFORE
+    // calling `cancelSubscription`; matching `transportId` is required.
+    const cancelResult = await registry.dispatch(
+      "$/subscription/cancel",
+      { subscriptionId: result.subscriptionId },
+      { transportId },
+    );
+
+    // Assert — the cancel removed the entry AND fired the registered
+    // upstream-detach callback. Without the F5 wire-up, the entry would
+    // drain but `unsubscribe` would stay uncalled, leaving the upstream
+    // event-source's watcher running.
+    expect((cancelResult as { canceled: boolean }).canceled).toBe(true);
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it("transport-disconnect (`cleanupTransport`) fires the upstream unsubscribe", async () => {
+    // Arrange — same wiring; the disconnect path runs through the bootstrap
+    // orchestrator's composed `onDisconnect` hook in production, which
+    // calls `streamingPrimitive.cleanupTransport(transportId)`. Direct
+    // invocation here models that hook firing.
+    const registry = new MethodRegistryImpl();
+    const send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>();
+    const primitive = new StreamingPrimitive({ registry, send });
+    const unsubscribe = vi.fn<() => void>();
+    const subscribeToSession = vi.fn<SessionSubscribeDeps["subscribeToSession"]>(() => unsubscribe);
+    const deps: SessionSubscribeDeps = {
+      streamingPrimitive: primitive,
+      subscribeToSession,
+    };
+    registerSessionSubscribe(registry, deps);
+
+    const transportId = 21;
+    const ctx: HandlerContext = { transportId };
+    const subscribeReq: SessionSubscribeRequest = { sessionId: TEST_SESSION_ID };
+    await registry.dispatch("session.subscribe", subscribeReq, ctx);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(unsubscribe).not.toHaveBeenCalled();
+
+    // Act — simulate transport disconnect via cleanupTransport.
+    primitive.cleanupTransport(transportId);
+
+    // Assert — the upstream watcher detached; without the F5 wire-up it
+    // would remain registered against the now-dead transport.
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it("complete() does NOT fire the upstream unsubscribe (natural producer-driven termination is silent)", async () => {
+    // Arrange — capture the `LocalSubscription` handle so the test can
+    // call `complete()` on it directly. We do this by replacing the handler-
+    // binding path with a direct primitive call (the handler returns the
+    // subscription via `createSubscription`; we exercise the same producer
+    // surface here).
+    const registry = new MethodRegistryImpl();
+    const send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>();
+    const primitive = new StreamingPrimitive({ registry, send });
+    const sub = primitive.createSubscription<SessionEvent>(31, SessionEventSchema);
+    const unsubscribe = vi.fn<() => void>();
+    sub.onCancel(unsubscribe);
+
+    // Act — natural completion. The producer signals "no more values" via
+    // `complete()`. By contract this MUST NOT fire onCancel handlers —
+    // the producer already knows the stream ended (it's the caller); a
+    // self-callback here would just be noise.
+    sub.complete();
+
+    // Assert — the upstream watcher is NOT detached on natural completion.
+    // The producer is responsible for releasing its own resources when it
+    // chooses to call `complete()`; the hook only fires on externally-
+    // imposed cancellation.
+    expect(unsubscribe).not.toHaveBeenCalled();
+  });
+});
+
+// ----------------------------------------------------------------------------
 // I-007-3-T5 — duplicate `registerSessionCreate` rejection (I-007-6)
 // ----------------------------------------------------------------------------
 

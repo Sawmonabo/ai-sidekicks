@@ -274,3 +274,138 @@ describe("W-007p-2-T11 — LocalSubscription round-trip + cancel cleanup", () =>
     expect(primitive.cancelSubscription(sub.subscriptionId)).toBe(false);
   });
 });
+
+// ----------------------------------------------------------------------------
+// LocalSubscription.onCancel lifecycle hook (Plan-007 PR #19 Round 6 F5
+// Path B — closes the upstream-watcher leak surfaced in Codex's review of
+// `session-subscribe.ts:273` where the discarded `unsubscribe` handle from
+// `subscribeToSession` left the upstream event-source consuming CPU/DB
+// resources after subscription teardown).
+// ----------------------------------------------------------------------------
+
+describe("LocalSubscription.onCancel lifecycle hook", () => {
+  it("fires registered handlers when cancel() is called", () => {
+    const { primitive } = makeFixture();
+    const sub = primitive.createSubscription<unknown>(1, passthroughSchema<unknown>());
+    const handler = vi.fn<() => void>();
+    sub.onCancel(handler);
+    expect(handler).not.toHaveBeenCalled();
+    sub.cancel();
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it("does NOT fire handlers on complete() — natural producer-driven termination is silent", () => {
+    const { primitive } = makeFixture();
+    const sub = primitive.createSubscription<unknown>(1, passthroughSchema<unknown>());
+    const handler = vi.fn<() => void>();
+    sub.onCancel(handler);
+    sub.complete();
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("fires handlers when cleanupTransport() drops the subscription (transport-disconnect path)", () => {
+    const { primitive } = makeFixture();
+    const sub = primitive.createSubscription<unknown>(42, passthroughSchema<unknown>());
+    const handler = vi.fn<() => void>();
+    sub.onCancel(handler);
+    primitive.cleanupTransport(42);
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it("fires handlers when cancelSubscription() drops the subscription (wire-cancel trusted path)", () => {
+    const { primitive } = makeFixture();
+    const sub = primitive.createSubscription<unknown>(42, passthroughSchema<unknown>());
+    const handler = vi.fn<() => void>();
+    sub.onCancel(handler);
+    expect(primitive.cancelSubscription(sub.subscriptionId)).toBe(true);
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it("registration AFTER cancel fires synchronously (AbortSignal-style — covers race where upstream resource is acquired after cancel-fire)", () => {
+    const { primitive } = makeFixture();
+    const sub = primitive.createSubscription<unknown>(1, passthroughSchema<unknown>());
+    sub.cancel();
+    const handler = vi.fn<() => void>();
+    // Fires synchronously inside the onCancel call.
+    sub.onCancel(handler);
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it("registration AFTER complete is silently dropped (matches no-fire-on-complete semantic)", () => {
+    const { primitive } = makeFixture();
+    const sub = primitive.createSubscription<unknown>(1, passthroughSchema<unknown>());
+    sub.complete();
+    const handler = vi.fn<() => void>();
+    expect(() => sub.onCancel(handler)).not.toThrow();
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("multiple handlers fire in registration order on cancel()", () => {
+    const { primitive } = makeFixture();
+    const sub = primitive.createSubscription<unknown>(1, passthroughSchema<unknown>());
+    const order: number[] = [];
+    sub.onCancel(() => order.push(1));
+    sub.onCancel(() => order.push(2));
+    sub.onCancel(() => order.push(3));
+    sub.cancel();
+    expect(order).toStrictEqual([1, 2, 3]);
+  });
+
+  it("per-handler error isolation: a handler that throws does NOT prevent siblings from firing", () => {
+    const { primitive } = makeFixture();
+    const sub = primitive.createSubscription<unknown>(1, passthroughSchema<unknown>());
+    const before = vi.fn<() => void>();
+    const after = vi.fn<() => void>();
+    sub.onCancel(before);
+    sub.onCancel(() => {
+      throw new Error("handler-internal failure");
+    });
+    sub.onCancel(after);
+    expect(() => sub.cancel()).not.toThrow();
+    expect(before).toHaveBeenCalledTimes(1);
+    expect(after).toHaveBeenCalledTimes(1);
+  });
+
+  it("cleanupTransport() bulk path: a throwing handler in one subscription does NOT prevent sibling subscription handlers from firing", () => {
+    const { primitive } = makeFixture();
+    const subA = primitive.createSubscription<unknown>(7, passthroughSchema<unknown>());
+    const subB = primitive.createSubscription<unknown>(7, passthroughSchema<unknown>());
+    const aHandler = vi.fn<() => void>();
+    const bHandler = vi.fn<() => void>();
+    subA.onCancel(() => {
+      throw new Error("A handler internal failure");
+    });
+    subA.onCancel(aHandler);
+    subB.onCancel(bHandler);
+    expect(() => primitive.cleanupTransport(7)).not.toThrow();
+    // A's per-handler isolation still drains its remaining handlers.
+    expect(aHandler).toHaveBeenCalledTimes(1);
+    // B is independent of A — bulk-loop's per-subscription guard means
+    // A's failure cannot reach B's slot.
+    expect(bHandler).toHaveBeenCalledTimes(1);
+  });
+
+  it("handlers fire AFTER the entry is removed from the maps (re-entrant handler observes post-cancel state)", () => {
+    const { primitive } = makeFixture();
+    const sub = primitive.createSubscription<unknown>(99, passthroughSchema<unknown>());
+    let observedCancelable: boolean | null = null;
+    sub.onCancel(() => {
+      // A handler that re-enters the primitive: try to cancel the same
+      // id via the trusted seam. Maps must already be cleared so this
+      // returns false (the entry is gone).
+      observedCancelable = primitive.cancelSubscription(sub.subscriptionId);
+    });
+    sub.cancel();
+    expect(observedCancelable).toBe(false);
+  });
+
+  it("idempotent cancel(): a second cancel() does NOT re-fire handlers (handler queue cleared after first fire)", () => {
+    const { primitive } = makeFixture();
+    const sub = primitive.createSubscription<unknown>(1, passthroughSchema<unknown>());
+    const handler = vi.fn<() => void>();
+    sub.onCancel(handler);
+    sub.cancel();
+    sub.cancel(); // idempotent — guard is `state !== "active"`
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+});

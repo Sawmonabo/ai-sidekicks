@@ -343,11 +343,20 @@ export const SubscriptionCancelResultSchema: z.ZodType<SubscriptionCancelResult>
  *     a future-phase `$/subscription/cancel` (server→client) frame may
  *     supplement. Future `next(value)` calls are silent no-ops.
  *     Idempotent.
+ *   * `onCancel(fn)` → register a callback that fires when the
+ *     subscription terminates via an externally-imposed cancel
+ *     (`cancel()`, `cleanupTransport()` on transport disconnect, or
+ *     a CLIENT-initiated `$/subscription/cancel` wire frame). Does
+ *     NOT fire on `complete()` — natural producer-driven termination
+ *     is already known to the producer. Used by handlers to release
+ *     upstream resources (e.g., dispose an in-memory event-bus
+ *     watcher, abort an in-flight fetch) without leaking on cancel.
  *
  * Note: the SERVER-side `cancel()` is distinct from the CLIENT-initiated
  * `$/subscription/cancel` notification handled by the registered
  * cancel-method handler. Both paths lead to entry-removal but originate
- * differently.
+ * differently. `onCancel` handlers fire on BOTH paths plus
+ * `cleanupTransport`.
  */
 export interface LocalSubscription<T> {
   /**
@@ -400,4 +409,49 @@ export interface LocalSubscription<T> {
    * originate differently.
    */
   cancel(): void;
+
+  /**
+   * Register a callback that fires once when the subscription terminates
+   * via an EXTERNALLY-IMPOSED cancel — i.e., one of:
+   *
+   *   * `cancel()` (server-initiated unilateral cancel)
+   *   * `cleanupTransport()` (transport-disconnect bulk cleanup driven
+   *     by the bootstrap orchestrator's `onDisconnect` composition)
+   *   * CLIENT-initiated `$/subscription/cancel` notification, which
+   *     the streaming primitive's registered cancel-method handler
+   *     dispatches via `cancelSubscription(transportId, subscriptionId)`
+   *
+   * Handlers do NOT fire on `complete()` — natural producer-driven
+   * termination is by definition already known to the producer; firing
+   * `onCancel` there would be self-callback noise.
+   *
+   * Semantics:
+   *
+   *   * Multiple registrations are allowed; handlers fire in registration
+   *     order.
+   *   * Per-handler error isolation: a handler that throws does NOT
+   *     prevent subsequent handlers from firing. Errors are caught and
+   *     swallowed at this layer (handlers are intentionally fire-and-
+   *     forget — the producer cannot block cancel teardown). Handler
+   *     authors that need to surface failures must do so through their
+   *     own logging/metrics path.
+   *   * Handlers fire AFTER the entry is removed from the per-
+   *     subscription / per-transport maps, so a handler that re-enters
+   *     the primitive (e.g., consults `cancelSubscription` for the same
+   *     id) observes the post-cancel state.
+   *   * Mirrors AbortSignal-style semantics: registering an `onCancel`
+   *     handler on an ALREADY-canceled subscription fires the handler
+   *     synchronously before `onCancel` returns. This makes the lifecycle
+   *     hook robust to race conditions where an upstream resource is
+   *     acquired after cancel has already fired (the handler still runs
+   *     and releases the resource, rather than leaking).
+   *   * Idempotent registration: registering the same function reference
+   *     twice queues two separate firings. Callers that need single-fire
+   *     semantics must dedupe at the call site.
+   *
+   * Used by Phase 3 handlers (e.g., `session.subscribe`) to release
+   * upstream resources — the discarded `unsubscribe` handle from
+   * `subscribeToSession` is the canonical leak this hook closes.
+   */
+  onCancel(fn: () => void): void;
 }

@@ -54,22 +54,6 @@
 //     daemon's session service / projector. The `SessionSubscribeDeps.subscribeToSession`
 //     callback receives the `afterCursor` and is responsible for replaying
 //     historical events before transitioning to live-tail.
-//   * `LocalSubscription<T>` cancel-side cleanup propagation: the
-//     server-side `LocalSubscription<T>` interface does NOT expose an
-//     `onCancel` hook today (per `jsonrpc-streaming.ts` lines 380-403). When
-//     the wire client's `$/subscription/cancel` arrives or the transport
-//     disconnects, the streaming primitive removes its entry but DOES NOT
-//     notify upstream producers — which means the Plan-001 Phase 5 deps'
-//     event-source subscription continues to call `sub.next(event)` on a
-//     drained subscription. That call is a documented silent no-op (per
-//     `LocalSubscription.next` JSDoc lines 333-337); however, the upstream
-//     subscription continues to consume CPU / DB resources until the
-//     event-source itself learns to detach. A future Phase 3 amendment to
-//     `LocalSubscription<T>` (per the advisor-flagged naming/lifecycle note
-//     in `jsonrpc-streaming.ts` lines 312-322) will introduce an `onCancel`
-//     callback the deps can use to detach. Tracking: BLOCKED-ON-C7 (when
-//     error-contracts.md §Plan-007 lands the canonical wire shape, the
-//     companion lifecycle amendment can land alongside).
 //   * Test coverage — owned by T-007p-3-4 (sibling task).
 //
 // BLOCKED-ON-C6 — `register` call site carries a marker for the canonical
@@ -257,20 +241,26 @@ export function registerSessionSubscribe(
     // session-handlers.test.ts captures wire frame ordering under the
     // current dispatch path.
     //
-    // The unsubscribe handle is captured for forwards-compatibility per
-    // the header comment — `LocalSubscription<T>` does not yet expose an
-    // `onCancel` hook, so we do not invoke `unsubscribe` from this layer
-    // today. The `void` discard is explicit so a future amendment that
-    // wires `unsubscribe` to a teardown hook is a single-site edit.
-    //
     // Atomicity guard — `subscribeToSession` throws synchronously per its
     // JSDoc contract (session not found, invalid afterCursor, permission
     // denied); without `sub.cancel()` on throw, the streaming-primitive
     // entry would orphan in both maps until `cleanupTransport`.
+    //
+    // Cancel-side cleanup propagation — the unsubscribe handle returned
+    // from `subscribeToSession` is registered via `sub.onCancel`. When
+    // the wire client cancels (`$/subscription/cancel`), the producer's
+    // local `cancel()` fires, OR transport-disconnect cleanup runs
+    // (`cleanupTransport`), the streaming primitive fires the registered
+    // unsubscribe so the Plan-001 Phase 5 event-source detaches its
+    // upstream watcher. Without this wire-up the upstream watcher
+    // outlives the canceled subscription, leaking one watcher per
+    // subscribe/cancel cycle. (The watcher's per-event lambda would
+    // continue to fire `sub.next(event)` — a documented silent no-op —
+    // but consume CPU / DB resources until transport close.)
     const replayBuffer: SessionEvent[] = [];
     let replayDrained = false;
     try {
-      void deps.subscribeToSession(params.sessionId, params.afterCursor, (event) => {
+      const unsubscribe = deps.subscribeToSession(params.sessionId, params.afterCursor, (event) => {
         if (replayDrained) {
           // Live-tail path — fires from whatever turn the upstream event-
           // source triggers (DB tick, event bus, etc.). The outer try/catch
@@ -309,6 +299,15 @@ export function registerSessionSubscribe(
           replayBuffer.push(event);
         }
       });
+      // Register the upstream-detach callback. If a wire-cancel or
+      // transport-disconnect lands AFTER this point, the streaming
+      // primitive fires `unsubscribe` so the Plan-001 Phase 5 event-
+      // source detaches. Registration here (after the synchronous
+      // `subscribeToSession` returns) is safe: there's no preemption
+      // between adjacent statements, and the AbortSignal-style
+      // synchronous-fire on `onCancel` covers any race where cancel
+      // arrives before registration completes.
+      sub.onCancel(unsubscribe);
     } catch (err) {
       sub.cancel();
       throw err;
