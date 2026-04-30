@@ -159,10 +159,9 @@ describe("T4 / session.create — end-to-end tRPC roundtrip via pglite", () => {
     });
 
     expect(response.sessionId).toBe(SESSION_ID);
-    // Tier 1: state defaults to 'active' per Plan-001 PR #4 service contract.
-    // Tier 1 default state is `provisioning` (the daemon flips to `active`
+    // Tier 1 default state is `provisioning`; the daemon flips to `active`
     // post-attach per Plan-001 PR #4 service contract — the directory layer
-    // never owns the active transition).
+    // never owns the active transition.
     expect(response.state).toBe("provisioning");
     // Memberships array contains exactly the owner — the only participant
     // bound at create time per BL-069 invariant #2.
