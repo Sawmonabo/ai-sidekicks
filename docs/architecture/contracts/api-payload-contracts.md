@@ -238,7 +238,7 @@ Plan-008 Phase 1 (Plan-008-bootstrap, Tier 1 carve-out per [`docs/plans/008-cont
 | `session.read` | `query` | `SessionReadRequestSchema` | `SessionReadResponseSchema` | `directoryService.readSession(...)` |
 | `session.join` | `mutation` | `SessionJoinRequestSchema` | `SessionJoinResponseSchema` | `directoryService.joinSession(...)` |
 
-The procedure-type assignments follow the tRPC convention: read-only operations use `query` (HTTP GET-like, idempotent); writes / state-changes use `mutation` (HTTP POST-like, non-idempotent). Method-name strings are dotted-lowercase (`session.create`, `session.read`, `session.join`) — **not** slash-style (`session/create`); slash-style is reserved for Plan-007's JSON-RPC method-name registry, which is a separate transport surface and out of scope for this BL-102 partial.
+The procedure-type assignments follow the tRPC convention: read-only operations use `query` (HTTP GET-like, idempotent); writes / state-changes use `mutation` (HTTP POST-like, non-idempotent). Method-name strings are dotted-lowercase (`session.create`, `session.read`, `session.join`) per the canonical format ratified in §Tier 1 (cont.): Plan-007 below — the same dotted-lowercase convention applies to both Plan-008's tRPC HTTP procedures and Plan-007's JSON-RPC IPC methods so that client SDK call-site shape is symmetric across local IPC and remote control-plane calls.
 
 ```ts
 // session.create — tRPC mutation
@@ -280,7 +280,55 @@ The wire frame below is the Tier 1 ratified shape, formerly carried inline as `B
 
 The `EventEnvelopeVersion` brand carried on every emitted envelope is already canonical at the Plan-006 definition below — `string & { readonly __brand: "EventEnvelopeVersion" }` per [ADR-018 §Decision #1](../../decisions/018-event-envelope-versioning.md). The BL-102 sub-item asking whether `protocolVersion` is integer-or-string typed is closed by reference to that brand: on the wire it is the semver `"MAJOR.MINOR"` string, never numeric. This section references the existing definition; it does not redefine it.
 
-Other BL-102 sub-items remain open as follow-up: the Plan-007 JSON-RPC method-name registry (a separate transport surface from the tRPC registry above), and any cross-tier `SessionEvent` discriminated-union surface forwarding (the canonical type already lives in `packages/contracts/src/event.ts` as a Zod-validated `z.discriminatedUnion("type", [...])`; whether it needs a wire-form mirror in this file is a separate decision).
+The Plan-007 JSON-RPC method-name registry sub-item is closed in §Tier 1 (cont.): Plan-007 below. One BL-102 sub-item remains open beyond that: cross-tier `SessionEvent` discriminated-union surface forwarding — the canonical type already lives in `packages/contracts/src/event.ts` as a Zod-validated `z.discriminatedUnion("type", [...])`; whether it needs a wire-form mirror in this file is a separate decision tracked under [BL-102](../../backlog.md).
+
+---
+
+## Tier 1 (cont.): Plan-007 — Plan-007-Partial (local IPC daemon-control)
+
+[Plan-007 Phase 3](../../plans/007-local-ipc-and-daemon-control.md) defines the JSON-RPC IPC surface served by the local runtime daemon to in-tree clients (CLI, desktop renderer). The Plan-007-partial Tier 1 carve-out per [`docs/plans/007-local-ipc-and-daemon-control.md`](../../plans/007-local-ipc-and-daemon-control.md) §Execution Windows ratifies a subset of that surface inline with Plan-001's session-core types. This subsection ratifies the canonical method-name format that [Plan-007 §I-007-9](../../plans/007-local-ipc-and-daemon-control.md) requires the registry to enforce mechanically at `register(method, ...)` call time. Other Plan-007 `BLOCKED-ON-C6` items (`MethodRegistry` runtime shape per F-007p-2-03, `LocalSubscription<T>` shape per F-007p-3-02, `protocolVersion` integer-vs-string typing per F-007p-2-01, JSON-RPC error envelope shape per F-007p-2-02 — the latter falls under [BL-103](../../backlog.md)) remain open as separate sub-items.
+
+### JSON-RPC Method-Name Registry (Tier 1 Ratified)
+
+Closes the BL-102 sub-item "JSON-RPC method-name canonical-format registry (`session.create` vs `session/create`)" and feature ID F-007p-3-01.
+
+**Canonical format**: `dotted-lowercase`. Method-name strings match the regex:
+
+```
+/^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)+$/
+```
+
+The regex accepts the Tier 1 surface (`session.create`, `session.read`, `session.join`, `session.subscribe`) and rejects:
+
+- `session/create` — slash-style (visually conflated with HTTP path segments; ambiguous in JSON-RPC contexts where method names appear in the JSON `method` field, not URLs).
+- `SessionCreate` — PascalCase (collides with the project's TypeScript type-name convention; `SessionCreate` is already a request-payload type symbol per `packages/contracts/src/session.ts`, so a string-form would be ambiguous at every call site).
+- `sessionCreate` — camelCase (cannot express the namespace/operation split without a convention-internal delimiter; doesn't scale to nested namespaces such as `session.member.add`, which would have to become `sessionMemberAdd` and lose the structural signal).
+
+**Method-name table** (Plan-007 Phase 3 surface, per F-007p-3-01):
+
+| Method | Procedure type | Notes |
+| --- | --- | --- |
+| `session.create` | RPC (request/response) | Materialize new session row + emit `SessionCreated`. |
+| `session.read` | RPC (request/response) | Resolve session by id. |
+| `session.join` | RPC (request/response) | Add member; emit `MemberJoined`. |
+| `session.subscribe` | Long-lived (`LocalSubscription<EventEnvelope>`) | Replay-then-tail event stream. |
+
+**Cross-transport consistency**: This same dotted-lowercase format is used by Plan-008's tRPC HTTP procedures (per §Tier 1 (cont.): Plan-008 above). Both transport surfaces share the convention so that client SDK call-site shape is symmetric across local IPC and remote control-plane calls — `client.session.create({ ... })` reads identically whether the underlying transport is local JSON-RPC over Unix domain socket or tRPC HTTP over the control-plane.
+
+**Register-time enforcement** (closes [Plan-007 §I-007-9](../../plans/007-local-ipc-and-daemon-control.md) `BLOCKED-ON-C6`): the method registry's `register(method, handler)` call MUST evaluate `method` against this regex and throw on mismatch. This is mechanical validation, not human review — out-of-format names cannot reach the dispatcher.
+
+```ts
+const METHOD_NAME_FORMAT = /^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)+$/;
+
+function register(method: string, handler: Handler): void {
+  if (!METHOD_NAME_FORMAT.test(method)) {
+    throw new Error(`method name "${method}" violates dotted-lowercase canonical format`);
+  }
+  // ... registry insertion
+}
+```
+
+The runtime regex check is owed by the Plan-007 substrate at `packages/runtime-daemon/src/ipc/registry.ts:register()` as a follow-up code commit; per F-007p-2-03 the `MethodRegistry` interface itself remains `BLOCKED-ON-C6` separately and is not closed by this section.
 
 ---
 
