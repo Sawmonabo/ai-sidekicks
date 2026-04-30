@@ -1,12 +1,16 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
   // Type-validates test files without emitting. The production `tsconfig.json`
-  // excludes `src/**/__tests__/**` so test files don't ship in `dist/`; this
-  // config covers them via a `noEmit` typecheck pass.
+  // excludes `src/**/__tests__/**` so unit tests under `src/` don't ship in
+  // `dist/`; integration tests under `test/` are outside the production
+  // `include` glob entirely. This config covers BOTH via a `noEmit` typecheck
+  // pass — `rootDir` widens to the package root so `test/**/*` is in-scope
+  // (per Plan-008 §T-008b-1-5 the SSE round-trip integration test lives at
+  // `test/transport/sse-roundtrip.test.ts`).
   "extends": "../../tsconfig.node22.json",
   "compilerOptions": {
     "noEmit": true,
-    "rootDir": "./src",
+    "rootDir": ".",
     // `isolatedDeclarations` (inherited from base) requires either `declaration`
     // or `composite`; we keep `declaration: true` paired with `noEmit: true` so
     // the typechecker honors `isolatedDeclarations` constraints without writing
@@ -17,6 +21,6 @@
     "declarationMap": false,
     "sourceMap": false
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*", "test/**/*"],
   "exclude": ["dist", "node_modules"]
 }
