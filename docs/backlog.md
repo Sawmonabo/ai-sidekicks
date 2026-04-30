@@ -47,7 +47,7 @@ Use this shape for new backlog items:
 
 ## Active Items
 
-The seven items below were surfaced by the [plan-readiness-audit Tier 1](./operations/plan-implementation-readiness-audit-runbook.md) audit (commit `05125dc`, 2026-04-28). Each tracks a cross-cutting governance amendment that the Tier 1 plan amendments deferred via `BLOCKED-ON-CN` tags. Resolution unblocks the corresponding Tier 1 plan content for first-code-execution PRs.
+The items below were surfaced by the [plan-readiness-audit Tier 1](./operations/plan-implementation-readiness-audit-runbook.md) audit (commit `05125dc`, 2026-04-28). Each tracks a cross-cutting governance amendment that the Tier 1 plan amendments deferred via `BLOCKED-ON-CN` tags. Resolution unblocks the corresponding Tier 1 plan content for first-code-execution PRs. BL-104 (C-4 — ADR-014 runtime authorization reconciliation) resolved 2026-04-30 and archived.
 
 ### BL-101: C-3 — Plan-023 Tier-8 substrate carve-out from Tier 1
 
@@ -75,15 +75,6 @@ The seven items below were surfaced by the [plan-readiness-audit Tier 1](./opera
 - References: [Plan-007](./plans/007-local-ipc-and-daemon-control.md) Phase 2 (BLOCKED-ON-C7 ×9), [error-contracts.md](./architecture/contracts/error-contracts.md)
 - Summary: Plan-007 Phase 2 JSON-RPC error model is unspecified. `error.ts` shapes are not mapped to JSON-RPC standard codes (-32700 parse error / -32600 invalid request / -32601 method not found / -32602 invalid params / -32603 internal error) plus custom domain codes (`unknown_setting`, `resource.limit_exceeded`, etc.). Register codes in `error-contracts.md`; map daemon-side error envelopes to canonical wire shapes.
 - Exit Criteria: All BLOCKED-ON-C7 tags resolved with `error-contracts.md` citation; F-007p-2-02 closed; T-007p-1-4 unknown_setting test asserts on full envelope shape (not just code string).
-
-### BL-104: C-4 — ADR-014 runtime authorization reconciliation (Cloudflare Workers vs Fastify)
-
-- Status: `todo`
-- Priority: `P0`
-- Owner: `unassigned`
-- References: [Plan-008](./plans/008-control-plane-relay-and-session-join.md) §Preconditions (BLOCKED-ON-C4 ×8), [ADR-014](./decisions/014-trpc-control-plane-api.md), [Plan-003](./plans/003-runtime-node-attach.md)
-- Summary: ADR-014 authorizes Cloudflare Workers for the tRPC v11 control-plane API; Plan-008 declares Fastify host without ADR backing. Pick one resolution: (a) ADR-014 amendment authorizing Fastify v5 for Tier 1 bootstrap (with rationale tied to local-first development + dev-loop ergonomics + workerd-emulation cost); (b) Plan-008 amendment to use Cloudflare Workers + workerd local emulation for Tier 1 bootstrap; (c) ADR-NNN supersedes ADR-014 for Tier 1 bootstrap runtime selection.
-- Exit Criteria: ADR-014 consistent with Plan-008's runtime declaration; every "Fastify host" reference in Plan-008 either replaced with the C-4-resolved adapter OR remains because ADR-014 amendment authorizes Fastify; Plan-003 line 79 reference updated in lockstep; F-008b-1-02 closed.
 
 ### BL-105: C-8 + C-9 — Spec-006 event registry amendments
 
