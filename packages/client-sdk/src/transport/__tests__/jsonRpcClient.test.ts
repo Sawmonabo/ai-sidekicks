@@ -892,3 +892,131 @@ describe("Phase D Round 5 F3 — cancel() idempotency (Codex P2 regression)", ()
     expect(client.subscriptionCount).toBe(0);
   });
 });
+
+// ----------------------------------------------------------------------------
+// Phase D Round 7 F6 — thenable transport.send rejection propagates
+// (Codex P2 regression)
+// ----------------------------------------------------------------------------
+//
+// F4 (Phase D Round 4) replaced `instanceof Promise` with a duck-typed
+// `then` check on `transport.send()`'s return value, so cross-realm
+// Promises and non-native thenables that satisfy `PromiseLike<void>` get
+// the rejection-handler attached. The first cut called `.catch` directly
+// on the duck-typed value — but `PromiseLike<T>` per the TC39 spec ONLY
+// requires `.then(onFulfilled, onRejected)`. A valid thenable MAY omit
+// `.catch`, in which case the direct call throws synchronously
+// (`TypeError: thenable.catch is not a function`) and the outer try/catch
+// would surface a misleading rejection while the actual transport write
+// may have succeeded. Codex Round 7 P2 flagged this; F6 routes through
+// `Promise.resolve(...).catch(...)` so any thenable is absorbed into a
+// native Promise before `.catch` is invoked.
+//
+// This test asserts the regression by feeding a transport whose `send`
+// returns a literal thenable that lacks `.catch` and rejects via the
+// `.then` second argument. Pre-fix, the call would reject with the
+// synthetic TypeError; post-fix, it rejects with the thenable's
+// authentic error.
+
+describe("Phase D Round 7 F6 — thenable transport.send rejection propagates (Codex P2 regression)", () => {
+  /**
+   * Transport double whose `send` returns a literal thenable WITHOUT
+   * `.catch`. Triggers F6's regression case: pre-fix the SDK called
+   * `.catch` directly on the duck-typed thenable and threw a synthetic
+   * TypeError; post-fix `Promise.resolve(...)` absorbs the thenable so
+   * the original rejection surfaces.
+   */
+  class ThenableSendRejectingTransport implements ClientTransport {
+    public readonly sentEnvelopes: Array<JsonRpcRequest | JsonRpcNotification> = [];
+    #onClose: ((reason?: Error) => void) | null = null;
+    public readonly rejectionError: Error;
+
+    public constructor(rejectionError: Error) {
+      this.rejectionError = rejectionError;
+    }
+
+    public send(envelope: JsonRpcRequest | JsonRpcNotification): PromiseLike<void> {
+      this.sentEnvelopes.push(envelope);
+      const err = this.rejectionError;
+      // Literal thenable — implements ONLY `.then(onFulfilled, onRejected)`
+      // per `PromiseLike<T>`. NO `.catch`, NO `.finally`. Rejects via
+      // the second arg on a microtask (matches real-Promise async
+      // rejection semantics).
+      return {
+        then<TResult1, TResult2>(
+          _onFulfilled?: ((value: void) => TResult1 | PromiseLike<TResult1>) | null,
+          onRejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
+        ): PromiseLike<TResult1 | TResult2> {
+          return new Promise<TResult1 | TResult2>((resolve, reject) => {
+            queueMicrotask(() => {
+              if (onRejected) {
+                try {
+                  resolve(onRejected(err));
+                } catch (callbackErr) {
+                  reject(callbackErr);
+                }
+              } else {
+                reject(err);
+              }
+            });
+          });
+        },
+      };
+    }
+
+    public onMessage(_handler: (msg: JsonRpcResponseEnvelope | JsonRpcNotification) => void): void {
+      // No-op — this transport tests the send-rejection path only and
+      // never dispatches inbound messages.
+    }
+
+    public onClose(handler: (reason?: Error) => void): void {
+      this.#onClose = handler;
+    }
+
+    public close(): Promise<void> {
+      if (this.#onClose !== null) {
+        this.#onClose(undefined);
+      }
+      return Promise.resolve();
+    }
+  }
+
+  it("transport.send returning a thenable WITHOUT `.catch` propagates the rejection (no synthetic TypeError)", async () => {
+    const sendErr = new Error("transport write failed");
+    const transport = new ThenableSendRejectingTransport(sendErr);
+    const client = new JsonRpcClient(transport, { protocolVersion: 1 });
+
+    const paramsSchema = z.object({ key: z.string() });
+    const resultSchema = z.object({ ok: z.boolean() });
+
+    const promise = client.call("test.method", { key: "value" }, paramsSchema, resultSchema);
+
+    // The thenable's `then(onFulfilled, onRejected)` was invoked by
+    // `Promise.resolve(...)` (NOT a direct `.catch` access — that would
+    // have thrown synchronously since the literal thenable has no
+    // `.catch`). The microtask-deferred rejection lands the original
+    // error on the call's promise.
+    let caught: unknown = null;
+    try {
+      await promise;
+    } catch (err) {
+      caught = err;
+    }
+
+    // CRITICAL — the rejection MUST be the transport's authentic error,
+    // NOT a synthetic `TypeError: ... is not a function` that pre-fix
+    // would have surfaced when the SDK called `.catch` on the literal
+    // thenable.
+    expect(caught).toBe(sendErr);
+    expect((caught as Error).message).toBe("transport write failed");
+
+    // Pending map drained — the `Promise.resolve(...).catch` path
+    // deletes the entry on rejection so subsequent late responses
+    // (e.g., a delayed daemon reply on the same id) don't leak.
+    expect(client.pendingCount).toBe(0);
+
+    // The send envelope was captured (the transport DID push it before
+    // returning the rejecting thenable — emulates the real-world case
+    // where the wire write may succeed even if the thenable rejects).
+    expect(transport.sentEnvelopes.length).toBe(1);
+  });
+});

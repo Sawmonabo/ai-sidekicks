@@ -662,7 +662,17 @@ export class JsonRpcClient {
           sendResult !== null &&
           typeof (sendResult as { then?: unknown }).then === "function"
         ) {
-          (sendResult as Promise<void>).catch((err: unknown) => {
+          // Use `Promise.resolve(...).catch(...)` rather than calling
+          // `.catch` directly on the thenable. The PromiseLike contract
+          // (TC39 spec) only requires `.then`; valid thenables MAY omit
+          // `.catch`, in which case the direct call would throw
+          // synchronously (TypeError) and the outer try/catch would
+          // delete the pending entry while the transport's send may
+          // actually have succeeded — leaking the daemon's response on
+          // arrival. `Promise.resolve` absorbs any thenable into a
+          // native Promise, so `.catch` is guaranteed to exist (closes
+          // Codex F6, Phase D Round 7).
+          Promise.resolve(sendResult as PromiseLike<void>).catch((err: unknown) => {
             this.#pending.delete(id);
             reject(err instanceof Error ? err : new Error(String(err)));
           });

@@ -99,12 +99,16 @@ export interface ClientTransport {
    *      header per Spec-007 §Wire Format.
    *   3. Write the framed bytes to the underlying transport.
    *
-   * The return type is `void | Promise<void>` so synchronous transports
-   * (in-memory test doubles) and asynchronous transports (Node `net.Socket`
-   * write paths that await drain) both fit. Callers `await` the result
-   * either way — `await void` is a valid no-op per ECMAScript.
+   * The return type is `void | PromiseLike<void>` so synchronous
+   * transports (in-memory test doubles), asynchronous transports (Node
+   * `net.Socket` write paths that await drain), AND non-native thenables
+   * (cross-realm Promises from workers/iframes, custom thenable wrappers)
+   * all fit. Callers route the awaitable through `Promise.resolve(...)`
+   * to absorb arbitrary thenables before attaching rejection handlers,
+   * since `PromiseLike` only contractually exposes `.then` (TC39 spec)
+   * — `.catch` and `.finally` are NOT guaranteed.
    */
-  send(envelope: JsonRpcRequest | JsonRpcNotification): void | Promise<void>;
+  send(envelope: JsonRpcRequest | JsonRpcNotification): void | PromiseLike<void>;
 
   /**
    * Register the inbound message dispatcher. The transport MUST call the
