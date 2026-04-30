@@ -1,13 +1,18 @@
-// Plan-008 §Phase 1 §T-008b-1-4 / §T-008b-1-T11: AST-walker test that
-// re-asserts I-008-3 enforcement #2 — the session router CRUD factory + SSE
+// Plan-008 §Phase 1 §T-008b-1-4 / §T-008b-1-T10 / §T-008b-1-T11: dual-layer
+// enforcement of I-008-3 #2 — the session router CRUD factory + SSE
 // subscription factory + their declaration siblings MUST NOT import the
 // `pg` driver directly. They are required to route 100% through
 // `SessionDirectoryService` (the wrapper Plan-001 owns).
 //
-// The corresponding ESLint `no-restricted-imports` rule layered in
-// eslint.config.mjs catches the violation at lint time; this test catches
-// it at test time so CI rejects the regression even if lint is bypassed
-// (e.g. a local `--no-verify` push past the pre-commit hook).
+// This file holds two complementary checks against that invariant:
+//   * §T-008b-1-T11 — AST-walker over the LIVE source files, verifying
+//     no `pg` / `pg/*` import currently exists. Catches regressions even
+//     if lint is bypassed (e.g. a local `--no-verify` push past the
+//     pre-commit hook).
+//   * §T-008b-1-T10 — programmatic ESLint check that the
+//     `no-restricted-imports` rule itself fires on a synthetic regression
+//     for each of the 4 forbidden file paths. T10 + T11 together prove
+//     "the rule has teeth AND the live source is clean".
 //
 // What we check, file-by-file:
 //   - No `ImportDeclaration` whose moduleSpecifier matches /^pg(\/.*)?$/
@@ -23,14 +28,19 @@
 //
 // Refs: docs/plans/008-control-plane-relay-and-session-join.md §I-008-3 #2,
 //       docs/plans/008-control-plane-relay-and-session-join.md §T-008b-1-4,
+//       docs/plans/008-control-plane-relay-and-session-join.md §T-008b-1-T10,
 //       docs/plans/008-control-plane-relay-and-session-join.md §T-008b-1-T11.
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { ESLint } from "eslint";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 const SESSIONS_DIR = resolve(import.meta.dirname, "..");
+// Workspace root holds eslint.config.mjs — five hops above this file:
+//   __tests__/ → sessions/ → src/ → control-plane/ → packages/ → root.
+const WORKSPACE_ROOT = resolve(import.meta.dirname, "../../../../..");
 
 // The set of files governed by I-008-3 #2. Mirrors the `files` array in
 // eslint.config.mjs's `no-restricted-imports` block — keep them in sync.
@@ -143,5 +153,67 @@ describe("I-008-3 #2: session router + SSE factories MUST NOT import pg directly
       PG_IMPORT_PATTERN.test(finding.moduleSpecifier),
     );
     expect(violations).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §T-008b-1-T10: ESLint rule fires programmatically on synthetic regression
+// ---------------------------------------------------------------------------
+//
+// The AST walker above (§T11) verifies the LIVE source files are clean.
+// This block verifies the LINT RULE catches a regression — i.e., that the
+// rule's `files` glob in eslint.config.mjs is wired to the right paths and
+// the `paths` / `patterns` blocks fire on a `pg` import. Together T10 + T11
+// form the enforcement-side coverage of I-008-3 #2 (#1 being constructor
+// injection, verified in session-router.test.ts).
+//
+// Synthetic source: a single static `import { Pool } from "pg";` plus a
+// `pg/native` dynamic import in the negative-of-positive test. The ESLint
+// rule's `paths` entry catches the bare specifier; the `patterns` entry
+// catches the subpath. We pin `filePath` to each of the 4 forbidden files
+// so the `files` glob in the rule scope matches.
+
+const PG_VIOLATION_SOURCE = `import { Pool } from "pg";\nexport const x = new Pool();\n`;
+
+describe("§T-008b-1-T10: ESLint no-restricted-imports rule fires programmatically on each forbidden file path", () => {
+  // Single ESLint instance, reused across rows — config discovery is
+  // expensive and constructor invocation reads from disk every time.
+  // `cwd` pins config discovery to the workspace root so the
+  // eslint.config.mjs at that location is the active config.
+  const eslint = new ESLint({ cwd: WORKSPACE_ROOT });
+
+  for (const fileName of FORBIDDEN_PG_IMPORT_FILES) {
+    it(`flags \`import "pg"\` when filePath = ${fileName}`, async () => {
+      const targetPath = resolve(SESSIONS_DIR, fileName);
+      const results = await eslint.lintText(PG_VIOLATION_SOURCE, {
+        filePath: targetPath,
+      });
+
+      expect(results).toHaveLength(1);
+      const messages = results[0]!.messages;
+      const restrictedImportViolations = messages.filter(
+        (m) => m.ruleId === "no-restricted-imports",
+      );
+      expect(restrictedImportViolations).toHaveLength(1);
+      // The rule's message string carries the I-008-3 #2 reference — that
+      // citation is operator-facing diagnostic. Pin on it so a future
+      // edit that loosens the message into something generic surfaces.
+      expect(restrictedImportViolations[0]!.message).toContain("Plan-008 I-008-3 #2");
+    });
+  }
+
+  it("does NOT flag the same import when filePath is outside the restricted set", async () => {
+    // Negative control. `session-directory-service.ts` IS allowed to
+    // import `pg` — that's its job (it's the wrapper the forbidden files
+    // route through). The rule's `files` glob excludes it; this test
+    // proves the exclusion is real, not just absence of inclusion.
+    const allowedPath = resolve(SESSIONS_DIR, "session-directory-service.ts");
+    const results = await eslint.lintText(PG_VIOLATION_SOURCE, {
+      filePath: allowedPath,
+    });
+    const restrictedImportViolations = results[0]!.messages.filter(
+      (m) => m.ruleId === "no-restricted-imports",
+    );
+    expect(restrictedImportViolations).toEqual([]);
   });
 });

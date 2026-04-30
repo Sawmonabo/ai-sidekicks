@@ -76,12 +76,15 @@ export function createSessionSubscribeSse(deps: SessionRouterDeps): SessionSubsc
     signal,
   }) {
     // The provider owns ordering + cursor semantics. The factory's only job
-    // is to (a) parse + validate the wire input via Zod, (b) thread the
-    // abort signal through, (c) re-yield the tracked envelopes verbatim.
+    // is to (a) parse + validate the wire input via Zod, (b) resolve the
+    // dual-cursor precedence (header beats body — see
+    // `SessionSubscribeRequest` doc in @ai-sidekicks/contracts for the
+    // two-transport rationale), (c) thread the abort signal through,
+    // (d) re-yield the tracked envelopes verbatim.
     // Tier 5 swaps the provider; this generator body is the stable surface.
     yield* deps.eventStreamProvider({
       sessionId: input.sessionId,
-      afterCursor: input.afterCursor,
+      afterCursor: input.lastEventId ?? input.afterCursor,
       signal: signal ?? NEVER_ABORTED_SIGNAL,
     });
   });
