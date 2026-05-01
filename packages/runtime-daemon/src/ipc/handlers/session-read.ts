@@ -36,8 +36,10 @@
 //     is responsible for both.
 //   * Test coverage — owned by T-007p-3-4 (sibling task).
 //
-// BLOCKED-ON-C6 — `register` call site carries a marker for the canonical
-// method-name format pending api-payload-contracts.md §Plan-007.
+// Method-name format ratified: dotted-lowercase per
+// docs/architecture/contracts/api-payload-contracts.md §JSON-RPC Method-Name
+// Registry (Tier 1 Ratified, lines 291-331). The `register` call site below
+// passes `"session.read"`, which matches the canonical regex.
 
 import type {
   Handler,
@@ -85,7 +87,6 @@ export function registerSessionRead(registry: MethodRegistry, deps: SessionReadD
     return deps.readSession(params);
   };
 
-  // BLOCKED-ON-C6: method-name canonical format pending api-payload-contracts.md §Plan-007
   registry.register("session.read", SessionReadRequestSchema, SessionReadResponseSchema, handler, {
     mutating: false,
   });

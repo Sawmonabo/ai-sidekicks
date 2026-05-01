@@ -22,6 +22,24 @@ Every control-plane endpoint defined in this document is implicitly scoped to th
 
 ---
 
+## Source-of-Truth Policy
+
+This file is the **design surface** for cross-cutting payload contracts — brand types, procedure-type assignments, method-name formats, error envelopes, SSE wire frames, and other shapes that span multiple plans and require ratification before any package implements them. Cross-package consumers reading this file see a single canonical declaration of how the wire surface is shaped.
+
+Package-local typed surfaces are **canonical in code**, not in this file. Examples (non-exhaustive):
+
+- `MethodRegistry` interface — `packages/contracts/src/jsonrpc-registry.ts`
+- `LocalSubscription<T>` streaming primitive — `packages/contracts/src/jsonrpc-streaming.ts`
+- `SecureDefaults` config + effective-settings — `packages/runtime-daemon/src/bootstrap/secure-defaults.ts`
+- LSP-style streaming method-name taxonomy (`$/subscription/notify`, `$/subscription/cancel`) — `packages/contracts/src/jsonrpc-streaming.ts`
+- `SessionEvent` discriminated-union schema — `packages/contracts/src/event.ts`
+
+This file does **NOT** maintain doc-side mirrors of those types. A consumer searching for the canonical runtime type reads the code path directly; this file's role for those surfaces is to cite the code location and explain cross-cutting consistency, not to redefine them. The Zod schema in code is the source of truth, and divergence between this file's prose and the Zod schema is resolved in favor of the schema.
+
+The "no-mirror" disposition was ratified for [BL-102](../../backlog.md) mirror-class sub-items on 2026-04-30. Cross-cutting decisions that DO require ratification in this file (procedure-type tables, method-name regexes, SSE wire-frame primitives, brand-type catalogs) remain in scope; package-local interface shapes do not.
+
+---
+
 ## Branded ID Types
 
 All domain IDs use branded string types for compile-time safety.
@@ -274,19 +292,21 @@ The wire frame below is the Tier 1 ratified shape, formerly carried inline as `B
 - `X-Accel-Buffering: no`
 - One `EventEnvelope` per SSE event, encoded as `data: <single-line JSON>` (`JSON.stringify` with no embedded newlines, per [WHATWG HTML §Server-sent events — `data` field](https://html.spec.whatwg.org/multipage/server-sent-events.html#dispatchMessage)).
 - `id:` carries the `EventCursor` value from Plan-006 (or a placeholder string at Tier 1 pending Plan-006 widening).
-- `retry: 5000` — advisory client retry interval in milliseconds.
+- `retry: 5000` — advisory client retry interval in milliseconds (enforced at `packages/control-plane/src/server/sse-retry-prefix.ts`).
 - On reconnect with the `Last-Event-ID` header, the server emits all events strictly after that cursor.
 - `event: heartbeat\ndata: {}\n\n` every 15 seconds in the absence of data.
 
-The `EventEnvelopeVersion` brand carried on every emitted envelope is already canonical at the Plan-006 definition below — `string & { readonly __brand: "EventEnvelopeVersion" }` per [ADR-018 §Decision #1](../../decisions/018-event-envelope-versioning.md). The BL-102 sub-item asking whether `protocolVersion` is integer-or-string typed is closed by reference to that brand: on the wire it is the semver `"MAJOR.MINOR"` string, never numeric. This section references the existing definition; it does not redefine it.
+The `EventEnvelopeVersion` brand carried on every emitted envelope is canonical at the Plan-006 definition below — `string & { readonly __brand: "EventEnvelopeVersion" }` per [ADR-018 §Decision #1](../../decisions/018-event-envelope-versioning.md): on the wire it is the semver `"MAJOR.MINOR"` string. This is the **event envelope** version field, distinct from the JSON-RPC handshake `protocolVersion` field discussed in §Tier 1 (cont.): Plan-007 below.
 
-The Plan-007 JSON-RPC method-name registry sub-item is closed in §Tier 1 (cont.): Plan-007 below. One BL-102 sub-item remains open beyond that: cross-tier `SessionEvent` discriminated-union surface forwarding — the canonical type already lives in `packages/contracts/src/event.ts` as a Zod-validated `z.discriminatedUnion("type", [...])`; whether it needs a wire-form mirror in this file is a separate decision tracked under [BL-102](../../backlog.md).
+The cross-tier `SessionEvent` discriminated-union surface is closed via [BL-102](../../backlog.md) no-mirror disposition (2026-04-30): the canonical type lives in `packages/contracts/src/event.ts` as a Zod-validated `z.discriminatedUnion("type", [...])`, this file does not maintain a wire-form mirror, and the §Source-of-Truth Policy above governs the relationship.
+
+The Plan-007 JSON-RPC method-name registry sub-item is closed in §Tier 1 (cont.): Plan-007 below. One BL-102 sub-item remains open: the JSON-RPC handshake `protocolVersion` field type — [Spec-007:54](../../specs/007-local-ipc-and-daemon-control.md) declares integer; this file does not yet ratify a type. (Note: this file's prior version closed the sub-item by conflating handshake-`protocolVersion` with the `EventEnvelopeVersion` brand above; that closure was rolled back in commit `735b069` (2026-04-30) as a mis-conflation — the two surfaces are distinct.) Pending: Spec-007 amendment or matching ratification on this file.
 
 ---
 
 ## Tier 1 (cont.): Plan-007 — Plan-007-Partial (local IPC daemon-control)
 
-[Plan-007 Phase 3](../../plans/007-local-ipc-and-daemon-control.md) defines the JSON-RPC IPC surface served by the local runtime daemon to in-tree clients (CLI, desktop renderer). The Plan-007-partial Tier 1 carve-out per [`docs/plans/007-local-ipc-and-daemon-control.md`](../../plans/007-local-ipc-and-daemon-control.md) §Execution Windows ratifies a subset of that surface inline with Plan-001's session-core types. This subsection ratifies the canonical method-name format that [Plan-007 §I-007-9](../../plans/007-local-ipc-and-daemon-control.md) requires the registry to enforce mechanically at `register(method, ...)` call time. Other Plan-007 `BLOCKED-ON-C6` items (`MethodRegistry` runtime shape per F-007p-2-03, `LocalSubscription<T>` shape per F-007p-3-02, `protocolVersion` integer-vs-string typing per F-007p-2-01, JSON-RPC error envelope shape per F-007p-2-02 — the latter falls under [BL-103](../../backlog.md)) remain open as separate sub-items.
+[Plan-007 Phase 3](../../plans/007-local-ipc-and-daemon-control.md) defines the JSON-RPC IPC surface served by the local runtime daemon to in-tree clients (CLI, desktop renderer). The Plan-007-partial Tier 1 carve-out per [`docs/plans/007-local-ipc-and-daemon-control.md`](../../plans/007-local-ipc-and-daemon-control.md) §Execution Windows ratifies a subset of that surface inline with Plan-001's session-core types. This subsection ratifies the canonical method-name format that [Plan-007 §I-007-9](../../plans/007-local-ipc-and-daemon-control.md) requires the registry to enforce mechanically at `register(method, ...)` call time. The remaining Plan-007 sub-items are: (a) `MethodRegistry` runtime shape per F-007p-2-03 — closed via [BL-102](../../backlog.md) no-mirror disposition (2026-04-30); canonical source: `packages/contracts/src/jsonrpc-registry.ts`. (b) `LocalSubscription<T>` shape per F-007p-3-02 — closed via [BL-102](../../backlog.md) no-mirror disposition (2026-04-30); canonical source: `packages/contracts/src/jsonrpc-streaming.ts`. (c) `protocolVersion` field type per F-007p-2-01 — **OPEN**; Spec-007:54 declares integer, this file does not yet ratify (a prior closure-by-conflation with `EventEnvelopeVersion` was rolled back in commit `735b069`, 2026-04-30); pending Spec-007 amendment or matching ratification on this file. (d) JSON-RPC error envelope shape per F-007p-2-02 — falls under [BL-103](../../backlog.md), separate from BL-102.
 
 ### JSON-RPC Method-Name Registry (Tier 1 Ratified)
 
@@ -328,7 +348,7 @@ function register(method: string, handler: Handler): void {
 }
 ```
 
-The runtime regex check is owed by the Plan-007 substrate at `packages/runtime-daemon/src/ipc/registry.ts:register()` as a follow-up code commit; per F-007p-2-03 the `MethodRegistry` interface itself remains `BLOCKED-ON-C6` separately and is not closed by this section.
+The runtime regex check is owed by the Plan-007 substrate at `packages/runtime-daemon/src/ipc/registry.ts:register()`; the `MethodRegistry` interface itself (F-007p-2-03) is canonical in code at `packages/contracts/src/jsonrpc-registry.ts` per the §Source-of-Truth Policy at the top of this file (closed via [BL-102](../../backlog.md) no-mirror disposition, 2026-04-30).
 
 ---
 

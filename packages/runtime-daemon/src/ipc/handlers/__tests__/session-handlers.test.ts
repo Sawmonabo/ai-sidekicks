@@ -36,9 +36,9 @@
 //     drains BOTH `#subscriptions` AND `#subscriptionsByTransport` (verified
 //     via `cancelSubscription` returning `false` post-cancel). Cancel-
 //     idempotency on a fresh subscription verified separately (true → false
-//     across two direct calls). Frame-shape assertions carry inline-
-//     duplicated `// BLOCKED-ON-C6:` markers per the task contract's "no
-//     shared helper" directive.
+//     across two direct calls). Frame-shape assertions are inline-duplicated
+//     across each `it()` block per the task contract's "no shared helper"
+//     directive.
 //   * I-007-3-T5 — Duplicate `registerSessionCreate(registry, deps)` throws
 //     `RegistryRegistrationError("duplicate_method")` at registration time
 //     (I-007-6).
@@ -69,11 +69,10 @@
 // Shared-helper directive (task contract lines 184-189):
 //   T3's `$/subscription/notify` frame-shape assertions are INLINE-DUPLICATED
 //   verbatim across each `it()` block; the task contract explicitly forbids
-//   extracting a shared helper. The duplication is load-bearing — it keeps
-//   the `// BLOCKED-ON-C6:` markers attached to each individual assertion
-//   site, so the canonical method-name landing (when api-payload-contracts.md
-//   §Plan-007 lands the wire taxonomy) is a mechanical greedy-replace rather
-//   than a single-source edit that's easy to miss.
+//   extracting a shared helper. The duplication is load-bearing for
+//   per-block isolation: each `it()` block exercises the frame-shape
+//   contract independently so a regression in any single block surfaces in
+//   place rather than collapsing through a shared helper.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -374,16 +373,8 @@ describe("I-007-3-T3 — session.subscribe happy path + cancel idempotency", () 
     onEvent(event);
 
     // Assert — exactly one `$/subscription/notify` frame was emitted with
-    // the canonical wire shape.
-    //
-    // BLOCKED-ON-C6: frame-shape assertion below is keyed against the
-    // conservative inline `SUBSCRIPTION_NOTIFY_METHOD` constant. When
-    // api-payload-contracts.md §Plan-007 lands the canonical streaming
-    // method-name format, the constant updates and this assertion follows
-    // mechanically. Inline-duplicated per the task contract's "no shared
-    // helper" directive — the duplication is load-bearing for the
-    // canonical-method-name landing (the constant rename is greedy-
-    // replaceable across each call site).
+    // the canonical wire shape. Inline-duplicated per the task contract's
+    // "no shared helper" directive (per-block isolation; see file header).
     expect(send).toHaveBeenCalledTimes(1);
     const call = send.mock.calls[0];
     if (call === undefined) throw new Error("unreachable");
@@ -478,12 +469,9 @@ describe("I-007-3-T3 — session.subscribe happy path + cancel idempotency", () 
   });
 
   it("emits the `$/subscription/notify` method name verbatim with the canonical wire shape", async () => {
-    // BLOCKED-ON-C6: this test mirrors the frame-shape assertion in the
-    // first T3 `it()` block — inline-duplicated per the task contract's
-    // "no shared helper" directive. The duplication keeps the
-    // `SUBSCRIPTION_NOTIFY_METHOD` constant rename greedy-replaceable when
-    // api-payload-contracts.md §Plan-007 lands the canonical streaming
-    // method-name format.
+    // Mirrors the frame-shape assertion in the first T3 `it()` block —
+    // inline-duplicated per the task contract's "no shared helper"
+    // directive (per-block isolation; see file header).
     const registry = new MethodRegistryImpl();
     const send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>();
     const primitive = new StreamingPrimitive({ registry, send });
@@ -516,8 +504,6 @@ describe("I-007-3-T3 — session.subscribe happy path + cancel idempotency", () 
     const call = send.mock.calls[0];
     if (call === undefined) throw new Error("unreachable");
     const [, frame] = call;
-    // BLOCKED-ON-C6: keyed against the conservative inline streaming-
-    // method-name constant per streaming-primitive.ts:90-95.
     expect(frame.method).toBe(SUBSCRIPTION_NOTIFY_METHOD);
     expect(frame.jsonrpc).toBe(JSONRPC_VERSION);
   });
