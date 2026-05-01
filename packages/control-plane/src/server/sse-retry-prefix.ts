@@ -35,7 +35,12 @@ const RETRY_PREFIX_BYTES: Uint8Array = new TextEncoder().encode(`retry: ${SSE_RE
  * verbatim — only the body stream is transformed.
  */
 export function prefixSseRetry(response: Response): Response {
-  const contentType = response.headers.get("Content-Type") ?? "";
+  // Per RFC 9110 §8.3, media-type type/subtype tokens are case-insensitive —
+  // an upstream that emits `Text/Event-Stream` is RFC-valid SSE. The Fetch
+  // API normalizes header *names* to lowercase but passes *values* through
+  // verbatim, so `Headers.get("Content-Type")` returns the upstream bytes as
+  // set. Lowercase the value before the prefix check.
+  const contentType = response.headers.get("Content-Type")?.toLowerCase() ?? "";
   if (!contentType.startsWith(SSE_CONTENT_TYPE_PREFIX)) return response;
   if (response.body === null) return response;
 

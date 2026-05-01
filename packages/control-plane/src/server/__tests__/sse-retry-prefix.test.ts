@@ -230,6 +230,21 @@ describe("prefixSseRetry unit", () => {
     expect(await wrapped.text()).toBe('{"ok":true}');
   });
 
+  // Per RFC 9110 §8.3, media-type type/subtype tokens are case-insensitive.
+  // An upstream that emits `Text/Event-Stream` (or `TEXT/EVENT-STREAM`,
+  // `text/Event-Stream; charset=utf-8`, etc.) is RFC-valid SSE — the
+  // wrapper MUST apply. A regression that reverted the `.toLowerCase()`
+  // normalization would surface here as the upstream-passed-through path
+  // (no `retry:` prefix in the body).
+  it("matches Content-Type case-insensitively per RFC 9110", async () => {
+    const upstream = makeSseResponse(["event: connected\ndata: {}\n\n"]);
+    upstream.headers.set("Content-Type", "Text/Event-Stream; charset=utf-8");
+    const wrapped = prefixSseRetry(upstream);
+    expect(wrapped).not.toBe(upstream);
+    const text = await drainBody(wrapped);
+    expect(text.startsWith(`retry: ${SSE_RETRY_HINT_MS}\n`)).toBe(true);
+  });
+
   it("returns the response unchanged when body is null", () => {
     const upstream = new Response(null, {
       status: 204,
