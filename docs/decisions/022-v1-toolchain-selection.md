@@ -11,7 +11,7 @@
 
 ## Context
 
-V1 begins with no checked-in code. The repo holds a stub `package.json` (Apache-2.0 licensed) and the docs corpus; [Container Architecture](../architecture/container-architecture.md) §Canonical Implementation Topology is authoritative for the workspace shape (`packages/contracts/`, `packages/client-sdk/`, `packages/runtime-daemon/`, `packages/control-plane/`, `apps/desktop/{shell,renderer}/`, `apps/cli/`). [Plan-001](../plans/001-shared-session-core.md) is the next code-execution gate and owns `0001-initial.sql`, whose column shape is forward-declared into Plan-003/006/018/022.
+V1 begins with no checked-in code. The repo holds a stub `package.json` (Apache-2.0 licensed) and the docs corpus; [Container Architecture](../architecture/container-architecture.md) §Canonical Implementation Topology is authoritative for the workspace shape (`packages/contracts/`, `packages/client-sdk/`, `packages/runtime-daemon/`, `packages/control-plane/`, `apps/desktop/`, `apps/cli/`). [Plan-001](../plans/001-shared-session-core.md) is the next code-execution gate and owns `0001-initial.sql`, whose column shape is forward-declared into Plan-003/006/018/022.
 
 Constraints already locked by accepted ADRs:
 
