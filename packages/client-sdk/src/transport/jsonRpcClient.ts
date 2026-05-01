@@ -426,10 +426,27 @@ export interface JsonRpcClientOptions {
    * envelope per Spec-007:54 ("every request except health checks must
    * carry it"). ISO 8601 `YYYY-MM-DD` date-string per
    * api-payload-contracts.md §Tier 1 (cont.): Plan-007 (BL-102 ratified
-   * 2026-05-01). When undefined, the field is OMITTED from the envelope
-   * (no `undefined` carry per `exactOptionalPropertyTypes: true`).
+   * 2026-05-01).
+   *
+   * REQUIRED — the daemon's substrate gate (Fix #4 in
+   * `packages/runtime-daemon/src/ipc/local-ipc-gateway.ts#dispatchFrame`)
+   * rejects every non-handshake envelope missing or carrying a malformed
+   * `protocolVersion` with `-32600 InvalidRequest /
+   * transport.invalid_protocol_version`. The SDK's TypeScript surface
+   * therefore mirrors the wire contract: callers MUST advertise a version
+   * at construction. There is intentionally no library-side default —
+   * the protocol version is NEGOTIATED via `daemon.hello`
+   * (`packages/contracts/src/jsonrpc-negotiation.ts`), not contracts-level
+   * state, so a canonical fallback would mask missed handshakes.
+   *
+   * Pre-handshake bootstrap convention: callers send `daemon.hello` with
+   * their preferred / highest-supported version and use the daemon's
+   * `DaemonHelloAck.protocolVersion` for the rest of the session. The
+   * substrate exempts `daemon.hello` from envelope-level enforcement, so
+   * the value advertised on the handshake call itself is don't-care
+   * (the negotiation parameter rides in `params.protocolVersion`).
    */
-  readonly protocolVersion?: string;
+  readonly protocolVersion: string;
 }
 
 /**
@@ -457,16 +474,16 @@ export interface JsonRpcClientOptions {
  */
 export class JsonRpcClient {
   readonly #transport: ClientTransport;
-  readonly #protocolVersion: string | undefined;
+  readonly #protocolVersion: string;
   readonly #pending = new Map<JsonRpcId, PendingRequest>();
   readonly #subscriptions = new Map<string, SubscriptionState<unknown>>();
   #nextId = 1;
   #closed = false;
   #closeReason: Error | undefined = undefined;
 
-  public constructor(transport: ClientTransport, opts?: JsonRpcClientOptions) {
+  public constructor(transport: ClientTransport, opts: JsonRpcClientOptions) {
     this.#transport = transport;
-    this.#protocolVersion = opts?.protocolVersion;
+    this.#protocolVersion = opts.protocolVersion;
 
     // Register inbound dispatcher exactly once per transport.
     transport.onMessage((msg) => {
@@ -819,15 +836,18 @@ export class JsonRpcClient {
   }
 
   #buildRequestEnvelope(id: JsonRpcId, method: string, params: unknown): JsonRpcRequest {
-    // Conditional spread for `params` (a request MAY omit `params` per
-    // spec §4) and `protocolVersion` (omitted when constructor opts did
-    // not carry one) per `exactOptionalPropertyTypes: true`.
+    // Conditional spread for `params` only (a request MAY omit `params`
+    // per spec §4). `protocolVersion` is REQUIRED at construction (Fix #6
+    // — see `JsonRpcClientOptions.protocolVersion` JSDoc for rationale)
+    // so it always appears on the envelope. The substrate's
+    // `daemon.hello` exemption handles the bootstrap-handshake case
+    // where the version on the wire is don't-care.
     const envelope: JsonRpcRequest = {
       jsonrpc: JSONRPC_VERSION,
       id,
       method,
+      protocolVersion: this.#protocolVersion,
       ...(params !== undefined ? { params } : {}),
-      ...(this.#protocolVersion !== undefined ? { protocolVersion: this.#protocolVersion } : {}),
     };
     return envelope;
   }
