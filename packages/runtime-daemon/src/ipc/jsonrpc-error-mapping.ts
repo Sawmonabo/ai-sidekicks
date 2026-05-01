@@ -48,7 +48,7 @@
 //   when the failure is a substrate concern). `data.fields`, when
 //   present, carries the structured detail the throw site captured
 //   (e.g. `{ setting, value }` for `unknown_setting`, `{ limit, observed }`
-//   for `resource.limit_exceeded`).
+//   for `transport.message_too_large`).
 //
 // What this module does NOT do:
 //   * Reimplement sanitization. T-1's `sanitizeErrorMessage` is the single
@@ -146,19 +146,30 @@ function mapFramingErrorCode(code: string): JsonRpcErrorCodeValue {
  * Map T-1's `FramingError.code` to the canonical project dotted-namespace
  * `data.type` per error-contracts.md §JSON-RPC Wire Mapping.
  *
- * The `oversized_body` row is the only framing code that has a registered
- * domain-level dotted code (`resource.limit_exceeded`); the rest project
- * directly through their framing-code string (which carries no domain
- * meaning, only wire-level meaning). The §JSON-RPC Wire Mapping table
- * permits framework-level identifiers in `data.type` for substrate-only
- * concerns — `invalid_json`, `invalid_envelope`, `malformed_header` etc.
- * are not §Error Codes registry entries but they are stable, documented
- * substrate-level identifiers that downstream test/observability code
- * can discriminate against.
+ * The `oversized_body` row projects to the registered transport-layer
+ * code `transport.message_too_large` (HTTP 413 semantic per §Error Codes
+ * §Transport). This is intentionally distinct from `resource.limit_exceeded`
+ * (Spec-001 quota-enforcement code, HTTP 429): a wire frame exceeding the
+ * 1MB body cap is a TRANSPORT failure (peer is mis-using the framing
+ * layer) — it is NOT a domain-level resource limit (which describes
+ * sessions / runs / invites being created at a rate above
+ * `ResourceLimitExceededDetailsSchema`'s `{resource, limit, current}`
+ * contract). Conflating them violates the Spec-001 strict-schema invariant
+ * and makes 413-semantic peer mis-framing indistinguishable from 429-
+ * semantic quota saturation in downstream observability.
+ *
+ * The rest of the framing codes project directly through their framing-
+ * code string (which carries no domain meaning, only wire-level meaning).
+ * The §JSON-RPC Wire Mapping table permits framework-level identifiers in
+ * `data.type` for substrate-only concerns — `invalid_json`,
+ * `invalid_envelope`, `malformed_header` etc. are not §Error Codes
+ * registry entries but they are stable, documented substrate-level
+ * identifiers that downstream test/observability code can discriminate
+ * against.
  */
 function framingErrorDataType(code: string): string {
   if (code === "oversized_body") {
-    return "resource.limit_exceeded";
+    return "transport.message_too_large";
   }
   return code;
 }
@@ -221,11 +232,11 @@ function buildRegistryDispatchData(thrown: RegistryDispatchError): JsonRpcErrorD
 
 /**
  * Build the `data: JsonRpcErrorData` payload for a `FramingError`. The
- * `oversized_body` path projects to `resource.limit_exceeded` with the
- * captured byte counts; other framing codes project their framing-code
- * string directly. Throw sites that capture structured detail (e.g.
- * `{ limit, observed }` for `oversized_body`) propagate it through
- * `error.fields`.
+ * `oversized_body` path projects to `transport.message_too_large` (HTTP
+ * 413 semantic) with the captured byte counts; other framing codes
+ * project their framing-code string directly. Throw sites that capture
+ * structured detail (e.g. `{ limit, observed }` for `oversized_body`)
+ * propagate it through `error.fields`.
  */
 function buildFramingErrorData(thrown: FramingError): JsonRpcErrorData {
   const type = framingErrorDataType(thrown.code);
@@ -286,8 +297,9 @@ function buildSecureDefaultsValidationData(
  *      the registry code verbatim; `data.fields.issues` carries Zod
  *      validation issues when present.
  *   2. `FramingError` — T-1's framing-layer failure. `code` selects the
- *      JSON-RPC numeric; `data.type` projects to `resource.limit_exceeded`
- *      for `oversized_body` and to the framing-code string otherwise;
+ *      JSON-RPC numeric; `data.type` projects to
+ *      `transport.message_too_large` (HTTP 413 semantic) for
+ *      `oversized_body` and to the framing-code string otherwise;
  *      `data.fields` carries the throw-site-captured structured detail
  *      (e.g. `{ limit, observed }` for `oversized_body`).
  *   3. `NegotiationError` — gate-refusal failure. `negotiationCode` is

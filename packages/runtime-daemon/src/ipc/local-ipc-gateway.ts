@@ -292,7 +292,9 @@ export function parseFrame(buffer: Buffer): ParseFrameResult {
     // parser boundary; the gateway converts to `oversized_body`
     // disconnect. The structured `fields` payload feeds
     // `data.fields: { limit, observed }` per error-contracts.md
-    // §JSON-RPC Wire Mapping (`resource.limit_exceeded` row).
+    // §JSON-RPC Wire Mapping (`transport.message_too_large` row, HTTP
+    // 413 semantic — distinct from Spec-001's HTTP-429 quota code
+    // `resource.limit_exceeded`).
     throw new FramingError(
       "oversized_body",
       `parseFrame: declared body length ${declaredLength} exceeds ${MAX_MESSAGE_BYTES} byte limit`,

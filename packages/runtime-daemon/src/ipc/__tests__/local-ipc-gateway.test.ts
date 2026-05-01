@@ -551,8 +551,21 @@ describe("W-007p-2-T5 — 1MB max-message-size enforcement", () => {
           expect(response.id).toBeNull();
           // Plan-specified error code per Plan-007:268 + 377: -32600
           // InvalidRequest (oversized_body framing path). Mapping wired
-          // at jsonrpc-error-mapping.ts:175-199.
+          // at jsonrpc-error-mapping.ts §framingErrorDataType.
           expect(response.error.code).toBe(JsonRpcErrorCode.InvalidRequest);
+          // BL-103 two-layer envelope: `data.type` carries the canonical
+          // project code `transport.message_too_large` (HTTP 413
+          // semantic per error-contracts.md §Transport — distinct from
+          // Spec-001's `resource.limit_exceeded` HTTP-429 quota code);
+          // `data.fields` carries the throw-site `{ limit, observed }`
+          // detail captured at local-ipc-gateway.ts §parseFrame.
+          expect(response.error.data).toMatchObject({
+            type: "transport.message_too_large",
+            fields: {
+              limit: MAX_MESSAGE_BYTES,
+              observed: MAX_MESSAGE_BYTES + 1,
+            },
+          });
           // Wait for the eventual close so the next assertion runs
           // against a torn-down socket.
           await closed;

@@ -62,13 +62,13 @@ The numeric `code` is the JSON-RPC spec-mandated discriminator. The `data.type` 
 | --- | --- | --- |
 | `unknown_setting` | `-32602` | Bootstrap rejected an unrecognized SecureDefaults config key (per F-007p-1-2 + T-007p-1-4) |
 | `transport.unavailable` | `-32603` | Loopback-fallback transport requested without operator opt-in (per F-007p-2-09 Tier 1 conservative gate) |
-| `resource.limit_exceeded` | `-32600` | Inbound frame exceeded the 1MB body cap (per F-007p-2-05; the spec-required InvalidRequest classification per Plan-007:268 mapping) |
+| `transport.message_too_large` | `-32600` | Inbound frame exceeded the 1MB body cap (per F-007p-2-05; the spec-required InvalidRequest classification per Plan-007:268 mapping). Distinct from Spec-001's `resource.limit_exceeded` (HTTP-429 domain quota saturation): a 413-semantic peer mis-framing of the wire layer. |
 
 `data.fields` shape per code:
 
 - `unknown_setting`: `{ setting: string, value: unknown }`
 - `transport.unavailable`: `{ requested: string, reason: string }`
-- `resource.limit_exceeded`: `{ limit: number, observed: number }`
+- `transport.message_too_large`: `{ limit: number, observed: number }`
 
 ### Negotiation Refusals
 
@@ -189,6 +189,15 @@ expect(caught).toMatchObject({
 | `relay.connection_failed`     | Relay connection to the upstream service failed | 502         |
 | `relay.group_full`            | Relay group has reached its participant limit   | 429         |
 | `relay.authentication_failed` | Relay authentication failed                     | 401         |
+
+### Transport
+
+Wire-level codes describing peer mis-use of the framing/handshake layer. Distinct from §Resource (which describes domain-level quota saturation): a transport failure is a peer behaving incorrectly toward the protocol substrate, not a session/run/invite quota refusing additional creates.
+
+| Code | Description | HTTP Status |
+| --- | --- | --- |
+| `transport.unavailable` | Requested transport (e.g. loopback fallback) is not enabled for this daemon process per its conservative-default gate (Plan-007 F-007p-2-09) | 503 |
+| `transport.message_too_large` | Inbound frame's declared body length exceeded the 1MB cap, or daemon-side outbound build exceeded it (Plan-007 F-007p-2-05/F-007p-2-11). 413 semantic. | 413 |
 
 ### Resource
 

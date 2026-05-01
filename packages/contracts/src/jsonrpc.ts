@@ -168,7 +168,7 @@ export interface JsonRpcResponse<R = unknown> {
  *     handling; the numeric `code` is for JSON-RPC §5.1 framing only.
  *   * `fields?: Record<string, unknown>` — optional structured detail (e.g.
  *     `{ setting: string, value: unknown }` for `unknown_setting`,
- *     `{ limit, observed }` for `resource.limit_exceeded`). Producers
+ *     `{ limit, observed }` for `transport.message_too_large`). Producers
  *     MUST keep this payload free of stack traces, absolute paths, and
  *     secrets per Plan-007 invariant I-007-8.
  *
