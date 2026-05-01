@@ -41,7 +41,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - `packages/control-plane/src/participants/participant-projection-service.ts`
 - `packages/control-plane/src/presence/presence-aggregation-service.ts`
 - `packages/client-sdk/src/participantClient.ts`
-- `apps/desktop/renderer/src/participants/`
+- `apps/desktop/src/renderer/src/participants/`
 - `apps/cli/src/participants/`
 
 ## Data And Storage Changes

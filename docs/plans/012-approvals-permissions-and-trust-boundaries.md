@@ -43,7 +43,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - `packages/runtime-daemon/src/policy/grant-evaluator.ts`
 - `packages/control-plane/src/approvals/approval-projection-service.ts`
 - `packages/client-sdk/src/approvalClient.ts`
-- `apps/desktop/renderer/src/approvals/`
+- `apps/desktop/src/renderer/src/approvals/`
 
 ## Data And Storage Changes
 

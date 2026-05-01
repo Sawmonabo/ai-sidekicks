@@ -42,8 +42,8 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - `packages/runtime-daemon/src/orchestration/orchestration-run-service.ts`
 - `packages/runtime-daemon/src/orchestration/run-link-projector.ts`
 - `packages/client-sdk/src/orchestrationClient.ts`
-- `apps/desktop/renderer/src/channels/`
-- `apps/desktop/renderer/src/child-runs/`
+- `apps/desktop/src/renderer/src/channels/`
+- `apps/desktop/src/renderer/src/child-runs/`
 
 ## Data And Storage Changes
 

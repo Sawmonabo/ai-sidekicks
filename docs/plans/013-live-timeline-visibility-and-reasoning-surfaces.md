@@ -41,8 +41,8 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - `packages/runtime-daemon/src/timeline/reasoning-surface-service.ts`
 - `packages/runtime-daemon/src/timeline/child-run-summary-service.ts`
 - `packages/client-sdk/src/timelineClient.ts`
-- `apps/desktop/renderer/src/timeline/`
-- `apps/desktop/renderer/src/reasoning-surfaces/`
+- `apps/desktop/src/renderer/src/timeline/`
+- `apps/desktop/src/renderer/src/reasoning-surfaces/`
 
 ## Data And Storage Changes
 

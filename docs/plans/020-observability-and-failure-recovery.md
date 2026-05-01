@@ -48,7 +48,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - `packages/runtime-daemon/src/observability/metrics-auth.ts` — bearer-token / mTLS gate for non-loopback `METRICS_BIND`
 - `packages/control-plane/src/health/`
 - `packages/client-sdk/src/healthClient.ts`
-- `apps/desktop/renderer/src/health-and-recovery/`
+- `apps/desktop/src/renderer/src/health-and-recovery/`
 
 ## PII in Diagnostics
 

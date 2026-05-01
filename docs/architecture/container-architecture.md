@@ -40,8 +40,7 @@ The canonical monorepo layout for implementation is:
 | `packages/client-sdk/` | Typed client SDK used by desktop renderer and CLI. |
 | `packages/runtime-daemon/` | Local Runtime Daemon implementation and local execution services. |
 | `packages/control-plane/` | Collaboration Control Plane services and shared-session coordination logic. |
-| `apps/desktop/shell/` | Desktop shell or Electron main-process code. |
-| `apps/desktop/renderer/` | Desktop renderer UI and session-facing application surfaces. |
+| `apps/desktop/` | Desktop application package. Main process under `src/main/`, preload bridge under `src/preload/`, renderer UI under `src/renderer/` per the electron-vite zero-config convention ([electron-vite Development guide](https://electron-vite.org/guide/dev) — Project Structure conventions for sibling `main` / `preload` / `renderer` directories under `src/`). |
 | `apps/cli/` | CLI client implementation over the shared client SDK. |
 
 - Implementation plans may target submodules beneath these roots.
@@ -50,7 +49,7 @@ The canonical monorepo layout for implementation is:
 ## Client Delivery Sequence
 
 - `apps/cli/` is the first shipped client path over `packages/client-sdk/` and the typed daemon contract.
-- `apps/desktop/shell/` and `apps/desktop/renderer/` are the second client path and must reuse the same client SDK and daemon semantics rather than introducing a separate local control surface.
+- `apps/desktop/` is the second client path and must reuse the same client SDK and daemon semantics rather than introducing a separate local control surface.
 - When a daemon capability is new, the contract and CLI path are the canonical proving ground before renderer-specific UX layers are treated as complete.
 
 ## Data Flow
