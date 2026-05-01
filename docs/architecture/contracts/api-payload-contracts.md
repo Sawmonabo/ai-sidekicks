@@ -292,7 +292,7 @@ The wire frame below is the Tier 1 ratified shape, formerly carried inline as `B
 - `X-Accel-Buffering: no`
 - One `EventEnvelope` per SSE event, encoded as `data: <single-line JSON>` (`JSON.stringify` with no embedded newlines, per [WHATWG HTML §Server-sent events — `data` field](https://html.spec.whatwg.org/multipage/server-sent-events.html#dispatchMessage)).
 - `id:` carries the `EventCursor` value from Plan-006 (or a placeholder string at Tier 1 pending Plan-006 widening).
-- `retry: 5000` — advisory client retry interval in milliseconds.
+- `retry: 5000` — advisory client retry interval in milliseconds (enforced at `packages/control-plane/src/server/sse-retry-prefix.ts`).
 - On reconnect with the `Last-Event-ID` header, the server emits all events strictly after that cursor.
 - `event: heartbeat\ndata: {}\n\n` every 15 seconds in the absence of data.
 
