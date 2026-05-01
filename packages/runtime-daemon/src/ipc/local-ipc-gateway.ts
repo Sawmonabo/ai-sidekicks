@@ -535,6 +535,53 @@ export function sanitizeErrorMessage(value: unknown): string {
     }
   }
 
+  const sanitized = redactPathsFromString(raw);
+
+  if (sanitized.length > SANITIZED_MESSAGE_MAX_LEN) {
+    return `${sanitized.slice(0, SANITIZED_MESSAGE_MAX_LEN - "…[truncated]".length)}…[truncated]`;
+  }
+  return sanitized;
+}
+
+/**
+ * Path-shape redaction primitive: replaces Unix absolute paths, UNC
+ * paths, and Windows-drive paths with the literal `<redacted-path>`.
+ * Extracted from `sanitizeErrorMessage` so the I-007-8 enforcement
+ * regex set is shared between the `error.message` seam (single-string
+ * sanitization in `sanitizeErrorMessage`) and the `data.fields` seam
+ * (recursive structured-value sanitization in `jsonrpc-error-mapping.ts`'s
+ * `sanitizeFields`). Centralizing the regexes here keeps both surfaces
+ * auditable in one place — a future tightening of the path patterns
+ * (e.g. macOS `/Volumes/...` UNC-style mounts, or `nix store` paths)
+ * applies to both surfaces uniformly.
+ *
+ * Regex order is load-bearing: Unix first because `/`-anchor cannot
+ * collide with UNC's `\\` or Windows-drive's `[A-Za-z]:\\`; UNC second
+ * because its `\\\\` prefix is not matched by the drive-letter pattern;
+ * Windows-drive last. Each pattern accepts an optional `:line:col`
+ * trailer to handle stack-frame-shaped strings.
+ *
+ * Character classes are intentionally conservative: Unix uses
+ * `[A-Za-z0-9_.-]` (no spaces — Unix paths conventionally don't carry
+ * them, and a space terminates a path token); UNC host follows the
+ * same shape but UNC share/path segments use `[A-Za-z0-9_. -]` to
+ * tolerate `\\fs\Shared Drive\config.json`; Windows-drive segments
+ * likewise tolerate internal spaces (`C:\Program Files\bin.exe`).
+ *
+ * Non-throwing contract: pure regex `.replace` calls. Cannot throw for
+ * any string input. Idempotent: a string already containing
+ * `<redacted-path>` literals will not be re-replaced because the
+ * literal does not match any of the three patterns.
+ *
+ * ReDoS posture: each pattern's quantifier body is bounded by a
+ * character class, not a wildcard — `(?:\/[A-Za-z0-9_.-]+)+` matches
+ * disjoint segments of distinct character runs, so backtracking is
+ * linear in the input length. Pathological inputs like
+ * `'/'.repeat(N)` (where each `/` is followed by no characters in the
+ * class) terminate immediately because `[A-Za-z0-9_.-]+` requires at
+ * least one character after `/`.
+ */
+export function redactPathsFromString(input: string): string {
   // Unix absolute paths with optional `:line:col` suffix. The character
   // class is conservative: alphanumerics, `_`, `.`, `-`, `/` only. Stop
   // at whitespace, quotes, or any character that wouldn't legitimately
@@ -542,7 +589,7 @@ export function sanitizeErrorMessage(value: unknown): string {
   // leading-`/` anchor cannot collide with UNC's leading `\\` or the
   // Windows-drive `[A-Za-z]:\` anchor, and the regex is the most
   // common-case match by far.
-  let sanitized = raw.replace(/(?:\/[A-Za-z0-9_.-]+)+(?::\d+(?::\d+)?)?/g, "<redacted-path>");
+  let sanitized = input.replace(/(?:\/[A-Za-z0-9_.-]+)+(?::\d+(?::\d+)?)?/g, "<redacted-path>");
   // UNC paths: `\\host\share\path...`. Host segment is hostname-shape
   // (alphanumerics, `_`, `.`, `-` — no spaces in hostnames), but the
   // share + path segments after the first separator can contain spaces
@@ -564,10 +611,6 @@ export function sanitizeErrorMessage(value: unknown): string {
     /[A-Za-z]:\\(?:[A-Za-z0-9_. -]+\\?)+(?::\d+(?::\d+)?)?/g,
     "<redacted-path>",
   );
-
-  if (sanitized.length > SANITIZED_MESSAGE_MAX_LEN) {
-    return `${sanitized.slice(0, SANITIZED_MESSAGE_MAX_LEN - "…[truncated]".length)}…[truncated]`;
-  }
   return sanitized;
 }
 
