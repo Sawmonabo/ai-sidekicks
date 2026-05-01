@@ -55,7 +55,7 @@ We will adopt the following V1 toolchain. Every choice is forward-declared as th
 
 Three integration constraints make these choices reinforce each other rather than stand alone:
 
-1. **Two-ABI native bindings.** The renderer (Electron 41 main + preload via `electron-v123` ABI) and the daemon (Node 22 native ABI) share `better-sqlite3` source but require different compiled binaries. pnpm's isolated linker is the only manager primitive that keeps each workspace's `node_modules` resolution-scoped, allowing `pnpm rebuild --filter=apps/desktop/shell better-sqlite3` against Electron headers without disturbing the daemon's Node 22 build (`pnpm/pnpm#9073`, `WiseLibs/better-sqlite3#1393`). Hoisted layouts (npm, Bun default, Yarn `node-modules`) put a single `better-sqlite3` at `node_modules/better-sqlite3` and break one runtime or the other.
+1. **Two-ABI native bindings.** The renderer (Electron 41 main + preload via `electron-v123` ABI) and the daemon (Node 22 native ABI) share `better-sqlite3` source but require different compiled binaries. pnpm's isolated linker is the only manager primitive that keeps each workspace's `node_modules` resolution-scoped, allowing `pnpm rebuild --filter=@ai-sidekicks/desktop better-sqlite3` against Electron headers without disturbing the daemon's Node 22 build (`pnpm/pnpm#9073`, `WiseLibs/better-sqlite3#1393`). Hoisted layouts (npm, Bun default, Yarn `node-modules`) put a single `better-sqlite3` at `node_modules/better-sqlite3` and break one runtime or the other.
 2. **Hash-chain BLOB ergonomics.** Spec-006's integrity protocol (`prev_hash`, `row_hash`, `daemon_signature`, `participant_signature`) operates on Buffers — BLAKE3, Ed25519, RFC 8785 JCS canonicalization all consume Node `Buffer`. better-sqlite3 returns BLOBs as `Buffer`; node:sqlite returns `Uint8Array`, requiring an extra `Buffer.from(view)` per read. Across event replay (read-heavy) this is allocation noise we eliminate by binding choice.
 3. **Single-toolchain renderer + Node coverage.** Vitest 4.x with `projects` is the only stable runner that handles Node-class packages, type-only packages, _and_ the React renderer in one toolchain via Browser Mode (Playwright provider, stable since 4.0 / 2025-10-22). Pairing Vitest with the existing esbuild dependency from the JS-emit toolchain produces zero-config TS execution everywhere.
 
@@ -150,7 +150,7 @@ A skeptical staff engineer would argue:
 
 | Scenario | Likelihood | Impact | Detection | Mitigation |
 | --- | --- | --- | --- | --- |
-| pnpm regresses two-ABI native bindings on a release | Low | High | `pnpm rebuild --filter=apps/desktop/shell better-sqlite3` fails in CI | Pin pnpm minor version in `engines.pnpm`; downgrade if a rebuild test breaks |
+| pnpm regresses two-ABI native bindings on a release | Low | High | `pnpm rebuild --filter=@ai-sidekicks/desktop better-sqlite3` fails in CI | Pin pnpm minor version in `engines.pnpm`; downgrade if a rebuild test breaks |
 | Turborepo deprecates self-hostable remote cache | Low | Medium | Vercel announcement; `turbo.json` schema breaks | Fork `ducktors/turborepo-remote-cache`; or migrate to Nx self-host (also free per Powerpack announcement) |
 | Vitest 4.x Browser Mode regression breaks renderer tests | Med | Medium | Renderer test suite fails after Vitest update | Pin Vitest minor; fall back to Playwright Component Testing for renderer-only |
 | typescript-eslint perf becomes intolerable | Med | Low–Medium | CI lint stage > 5 min; developer-feedback friction | Earlier migration to Oxlint + tsgolint (already V1.1 plan); reduce type-aware rule set in interim |
@@ -215,7 +215,7 @@ A skeptical staff engineer would argue:
 | Plan-001 implementation completes without integration friction across all primitives | All Plan-001 acceptance criteria pass with ADR-022 toolchain unchanged | Plan-001 Done Checklist | `2026-05-15` |
 | CI cold-build under target | < 10 minutes from `pnpm install` to all-package build green | CI pipeline timing | `2026-05-15` |
 | Hot-build under target (single-package change) | < 30 seconds from save to test result | Local `turbo watch` + Vitest watch latency | `2026-05-15` |
-| Two-ABI native binding rebuild succeeds on all V1 platforms | `pnpm rebuild --filter=apps/desktop/shell better-sqlite3` succeeds on macOS x64/arm64, Linux x64/arm64, Windows x64 | CI matrix run | `2026-05-15` |
+| Two-ABI native binding rebuild succeeds on all V1 platforms | `pnpm rebuild --filter=@ai-sidekicks/desktop better-sqlite3` succeeds on macOS x64/arm64, Linux x64/arm64, Windows x64 | CI matrix run | `2026-05-15` |
 
 ---
 
