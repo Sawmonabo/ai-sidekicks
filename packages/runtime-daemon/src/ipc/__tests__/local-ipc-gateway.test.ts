@@ -62,6 +62,8 @@ import { JSONRPC_VERSION } from "@ai-sidekicks/contracts";
 
 import { bootstrap } from "../../bootstrap/index.js";
 import { SecureDefaults } from "../../bootstrap/secure-defaults.js";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts";
+
 import {
   encodeFrame,
   FramingError,
@@ -72,7 +74,6 @@ import {
   SANITIZED_MESSAGE_MAX_LEN,
   type SupervisionHooks,
 } from "../local-ipc-gateway.js";
-import { JsonRpcErrorCode } from "../jsonrpc-error-mapping.js";
 import { MethodRegistryImpl } from "../registry.js";
 
 import { passthroughSchema } from "./__fixtures__/zod-schemas.js";
@@ -80,6 +81,17 @@ import { passthroughSchema } from "./__fixtures__/zod-schemas.js";
 // ----------------------------------------------------------------------------
 // Test fixtures
 // ----------------------------------------------------------------------------
+
+/**
+ * Canonical envelope-level `protocolVersion` for gateway-routed test
+ * fixtures. Spec-007:54 (BL-102 ratified 2026-05-01) requires every
+ * non-handshake request to carry an ISO 8601 `YYYY-MM-DD` date-string.
+ * The substrate enforces this BEFORE handler dispatch
+ * (`local-ipc-gateway.ts#dispatchFrame` Step 3.5); fixtures below mirror
+ * the constant so a single update propagates if the negotiated version
+ * advances.
+ */
+const TEST_PROTOCOL_VERSION = "2026-05-01";
 
 /**
  * Allocate a fresh ephemeral OS-local socket path under `os.tmpdir()`.
@@ -364,6 +376,7 @@ describe("W-007p-2-T2 — Unix domain socket round-trip", () => {
           jsonrpc: JSONRPC_VERSION,
           id: 1,
           method: "math.sum",
+          protocolVersion: TEST_PROTOCOL_VERSION,
           params: { a: 3, b: 4 },
         };
         client.socket.write(encodeFrame(request));
@@ -431,6 +444,7 @@ describe("W-007p-2-T3 — Windows named pipe round-trip", () => {
             jsonrpc: JSONRPC_VERSION,
             id: 1,
             method: "ping.echo",
+            protocolVersion: TEST_PROTOCOL_VERSION,
             params: { ping: true },
           };
           client.socket.write(encodeFrame(request));
@@ -462,17 +476,20 @@ describe("W-007p-2-T3 — Windows named pipe round-trip", () => {
 // ----------------------------------------------------------------------------
 //
 // Per F-007p-2-09, attempting a non-loopback bind path at Tier 1 must
-// fail with `transport.unavailable` (BLOCKED-ON-C7 envelope). Today's
-// surface refuses non-loopback at SecureDefaults.load with
+// fail with the `transport.unavailable` wire envelope. Today's Tier 1
+// surface refuses non-loopback at `SecureDefaults.load` time with
 // `invalid_bind_address` (config-time, not gateway-time); the
-// `transport.unavailable` shape on the wire does not yet exist. Marked
-// `it.todo` per task contract authorization for absent surfaces; the
-// test ID is preserved so Tier 4's widening pass picks up the
-// inflation.
+// `transport.unavailable` gate fires at gateway-time and is deferred to
+// Tier 4. Marked `it.todo` per task contract authorization for absent
+// surfaces; the test ID is preserved so Tier 4's widening pass picks up
+// the inflation. (The two-layer envelope mapping itself exists post-
+// BL-103, so when the gateway-time gate lands at Tier 4 the assertion
+// will project through `mapJsonRpcError` exactly like the
+// `unknown_setting` envelope test in `secure-defaults.test.ts`.)
 
 describe("W-007p-2-T4 — gated loopback fallback (Tier 1)", () => {
   it.todo(
-    "non-loopback bind attempt fails at the gateway with `transport.unavailable` (BLOCKED-ON-C7 envelope; surface deferred to Tier 4 where the gate fires at gateway-time rather than config-time)",
+    "non-loopback bind attempt fails at the gateway with `transport.unavailable` envelope (surface deferred to Tier 4 where the gate fires at gateway-time rather than config-time)",
   );
 });
 
@@ -547,8 +564,21 @@ describe("W-007p-2-T5 — 1MB max-message-size enforcement", () => {
           expect(response.id).toBeNull();
           // Plan-specified error code per Plan-007:268 + 377: -32600
           // InvalidRequest (oversized_body framing path). Mapping wired
-          // at jsonrpc-error-mapping.ts:175-199.
+          // at jsonrpc-error-mapping.ts §framingErrorDataType.
           expect(response.error.code).toBe(JsonRpcErrorCode.InvalidRequest);
+          // BL-103 two-layer envelope: `data.type` carries the canonical
+          // project code `transport.message_too_large` (HTTP 413
+          // semantic per error-contracts.md §Transport — distinct from
+          // Spec-001's `resource.limit_exceeded` HTTP-429 quota code);
+          // `data.fields` carries the throw-site `{ limit, observed }`
+          // detail captured at local-ipc-gateway.ts §parseFrame.
+          expect(response.error.data).toMatchObject({
+            type: "transport.message_too_large",
+            fields: {
+              limit: MAX_MESSAGE_BYTES,
+              observed: MAX_MESSAGE_BYTES + 1,
+            },
+          });
           // Wait for the eventual close so the next assertion runs
           // against a torn-down socket.
           await closed;
@@ -566,6 +596,7 @@ describe("W-007p-2-T5 — 1MB max-message-size enforcement", () => {
           jsonrpc: JSONRPC_VERSION,
           id: 1,
           method: "x.y",
+          protocolVersion: TEST_PROTOCOL_VERSION,
           params: {},
         };
         client2.socket.write(encodeFrame(request));
@@ -632,6 +663,7 @@ describe("W-007p-2-T10 — handler-thrown error mapping (I-007-8)", () => {
           jsonrpc: JSONRPC_VERSION,
           id: 9,
           method: "math.sum",
+          protocolVersion: TEST_PROTOCOL_VERSION,
           params: {},
         };
         client.socket.write(encodeFrame(request));
@@ -944,6 +976,435 @@ describe("RT-codex-1 finding #3 — parseFrame caps header section even when del
     expect(caught).toBeInstanceOf(FramingError);
     if (caught instanceof FramingError) {
       expect(caught.code).toBe("header_too_long");
+    }
+  });
+});
+
+// ----------------------------------------------------------------------------
+// RT-codex-2 finding #4 — envelope-level `protocolVersion` substrate gate
+// ----------------------------------------------------------------------------
+//
+// Spec-007 §Wire Format line 54 (BL-102 ratified 2026-05-01) mandates:
+// "Every request (except health checks) must include a `protocolVersion`
+// field carrying an ISO 8601 date-string in `YYYY-MM-DD` form." Prior to
+// this gate, `local-ipc-gateway.ts#dispatchFrame` validated only
+// `jsonrpc` / `method` / `id`-shape and dispatched to the handler — the
+// per-request `protocolVersion` field went uninspected. The narrowed
+// type at `packages/contracts/src/jsonrpc.ts:100` is COMPILE-TIME only;
+// peer wire bytes can carry any shape, so the substrate must enforce
+// per I-007-7 (validation runs before handler dispatch).
+//
+// The gate fires three discriminated reasons in `data.fields.reason`:
+//   * `missing` — the field is absent from the envelope.
+//   * `wrong_type` — the field is present but not a JS string (incl.
+//     `null`, which arrives as `typeof === "object"`). Includes the
+//     observed JS typeof tag in `data.fields.observedType`.
+//   * `invalid_format` — the field is a string but does not match the
+//     ISO 8601 `YYYY-MM-DD` shape (`PROTOCOL_VERSION_REGEX`).
+//
+// The handshake `daemon.hello` is exempt — its negotiation parameter
+// rides in `params.protocolVersion`, not the envelope. The exempt set
+// is canonical at `packages/contracts/src/jsonrpc.ts`.
+//
+// Wire shape (post-gate): `-32600 InvalidRequest` + `data.type:
+// "transport.invalid_protocol_version"` + `data.fields: { reason, ... }`
+// per error-contracts.md §Plan-007 Tier 1 Domain Identifiers + §Transport
+// (BL-103 lineage).
+//
+// Connection-stay-open semantic: this gate is an envelope-level
+// violation, NOT a framing violation. The connection MUST stay open so
+// a corrected reconnect-less retry succeeds (mirrors the `id`-shape
+// gate at lines 1059-1073 of `local-ipc-gateway.ts`).
+//
+// Notification path: per JSON-RPC §4.1 the server MUST NOT reply to a
+// notification, even on envelope violation. The substrate drops the
+// frame and surfaces via supervision `onError` so operators can
+// correlate notification-side wire violations.
+
+describe("RT-codex-2 finding #4 — envelope-level protocolVersion substrate gate", () => {
+  // -- helpers --------------------------------------------------------------
+
+  /**
+   * Build a hand-crafted JSON-RPC envelope frame with a custom
+   * `protocolVersion` field. We bypass `encodeFrame` so we can plant
+   * arbitrary protocolVersion shapes (including `null`, missing,
+   * wrong-type) that the typed encoder would refuse.
+   */
+  function frameWithProtocolVersion(
+    method: string,
+    id: number,
+    pvJsonLiteral: string | null,
+  ): Buffer {
+    const pvSegment = pvJsonLiteral === null ? "" : `,"protocolVersion":${pvJsonLiteral}`;
+    const bodyText = `{"jsonrpc":"${JSONRPC_VERSION}","id":${id},"method":"${method}"${pvSegment},"params":{}}`;
+    const bodyBytes = Buffer.from(bodyText, "utf8");
+    const header = `Content-Length: ${bodyBytes.byteLength}\r\n\r\n`;
+    return Buffer.concat([Buffer.from(header, "ascii"), bodyBytes]);
+  }
+
+  function frameNotificationWithProtocolVersion(
+    method: string,
+    pvJsonLiteral: string | null,
+  ): Buffer {
+    const pvSegment = pvJsonLiteral === null ? "" : `,"protocolVersion":${pvJsonLiteral}`;
+    const bodyText = `{"jsonrpc":"${JSONRPC_VERSION}","method":"${method}"${pvSegment},"params":{}}`;
+    const bodyBytes = Buffer.from(bodyText, "utf8");
+    const header = `Content-Length: ${bodyBytes.byteLength}\r\n\r\n`;
+    return Buffer.concat([Buffer.from(header, "ascii"), bodyBytes]);
+  }
+
+  /**
+   * Register `session.create`-style stub on the registry so the gate
+   * has a real method-name to validate against. The handler MUST NOT
+   * be invoked when the gate fires — the `handlerSpy` assertion proves
+   * this on every gate-firing case (I-007-7 substrate-side).
+   */
+  function makeRegistry(method = "session.create"): {
+    readonly registry: MethodRegistryImpl;
+    readonly handlerSpy: ReturnType<typeof vi.fn>;
+  } {
+    const registry = new MethodRegistryImpl();
+    const handlerSpy = vi.fn(async () => ({ ok: true }));
+    const handler: Handler<unknown, { ok: boolean }> = handlerSpy;
+    registry.register(
+      method,
+      passthroughSchema<unknown>(),
+      passthroughSchema<{ ok: boolean }>(),
+      handler,
+    );
+    return { registry, handlerSpy };
+  }
+
+  // -- positive path: well-formed protocolVersion dispatches ----------------
+
+  it("well-formed envelope-level protocolVersion is accepted; handler runs", async () => {
+    const socketPath = ephemeralSocketPath("pv-ok");
+    bootstrap({ bindAddress: "127.0.0.1", localIpcPath: socketPath, bannerFormat: "text" });
+    const { registry, handlerSpy } = makeRegistry("session.create");
+    const gateway = new LocalIpcGateway({ registry });
+    try {
+      await gateway.start();
+      const client = await makeClient(socketPath);
+      try {
+        client.socket.write(frameWithProtocolVersion("session.create", 7, '"2026-05-01"'));
+        const acc = await client.waitForBytes((b) => {
+          try {
+            return parseFrame(b).frame !== null;
+          } catch {
+            return false;
+          }
+        });
+        const response = decodeOneFrame(acc) as JsonRpcResponse;
+        expect(response.id).toBe(7);
+        expect(response.result).toStrictEqual({ ok: true });
+        expect(handlerSpy).toHaveBeenCalledTimes(1);
+      } finally {
+        await client.close();
+      }
+    } finally {
+      await gateway.stop();
+      await fs.rm(socketPath, { force: true });
+    }
+  });
+
+  // -- gate firings: each reason gets its own case --------------------------
+
+  // Discriminated reason cases: each row is a wire envelope whose
+  // protocolVersion field is malformed in a specific way. The substrate
+  // MUST reject with -32600 InvalidRequest + transport.invalid_protocol_version
+  // and the handler MUST NOT run. We assert the discriminator
+  // (`data.fields.reason`) is the expected discrete value so future
+  // refactors don't collapse the discrimination into a single
+  // less-specific reason.
+  const cases: ReadonlyArray<{
+    readonly label: string;
+    readonly pvLiteral: string | null;
+    readonly expectedReason: "missing" | "wrong_type" | "invalid_format";
+    readonly expectedObservedType?: string;
+  }> = [
+    { label: "missing field", pvLiteral: null, expectedReason: "missing" },
+    {
+      label: "null value (typeof === 'object')",
+      pvLiteral: "null",
+      expectedReason: "wrong_type",
+      expectedObservedType: "null",
+    },
+    {
+      label: "number value",
+      pvLiteral: "42",
+      expectedReason: "wrong_type",
+      expectedObservedType: "number",
+    },
+    {
+      label: "boolean value",
+      pvLiteral: "true",
+      expectedReason: "wrong_type",
+      expectedObservedType: "boolean",
+    },
+    {
+      label: "object value",
+      pvLiteral: "{}",
+      expectedReason: "wrong_type",
+      expectedObservedType: "object",
+    },
+    {
+      label: "string but not ISO 8601 date",
+      pvLiteral: '"not-a-date"',
+      expectedReason: "invalid_format",
+    },
+    {
+      label: "string with semver shape",
+      pvLiteral: '"1.0.0"',
+      expectedReason: "invalid_format",
+    },
+    {
+      label: "string ISO 8601 date with extra time component",
+      pvLiteral: '"2026-05-01T00:00:00Z"',
+      expectedReason: "invalid_format",
+    },
+  ];
+
+  for (const { label, pvLiteral, expectedReason, expectedObservedType } of cases) {
+    it(`rejects ${label} with -32600 + transport.invalid_protocol_version (reason=${expectedReason}); handler not invoked`, async () => {
+      const socketPath = ephemeralSocketPath(`pv-${expectedReason}`);
+      bootstrap({ bindAddress: "127.0.0.1", localIpcPath: socketPath, bannerFormat: "text" });
+      const { registry, handlerSpy } = makeRegistry("session.create");
+      const gateway = new LocalIpcGateway({ registry });
+      try {
+        await gateway.start();
+        const client = await makeClient(socketPath);
+        try {
+          client.socket.write(frameWithProtocolVersion("session.create", 11, pvLiteral));
+          const acc = await client.waitForBytes((b) => {
+            try {
+              return parseFrame(b).frame !== null;
+            } catch {
+              return false;
+            }
+          });
+          const response = decodeOneFrame(acc) as JsonRpcErrorResponse;
+          expect(response.jsonrpc).toBe(JSONRPC_VERSION);
+          // Request id is preserved on rejection — the spec requires
+          // the error response to correlate to the request the peer
+          // sent (id=11 in our fixture).
+          expect(response.id).toBe(11);
+          expect(response.error.code).toBe(JsonRpcErrorCode.InvalidRequest);
+          const expectedFields: Record<string, unknown> = { reason: expectedReason };
+          if (expectedObservedType !== undefined) {
+            expectedFields["observedType"] = expectedObservedType;
+          }
+          expect(response.error.data).toMatchObject({
+            type: "transport.invalid_protocol_version",
+            fields: expectedFields,
+          });
+          // Handler never invoked — I-007-7 substrate-side guarantee.
+          expect(handlerSpy).not.toHaveBeenCalled();
+        } finally {
+          await client.close();
+        }
+      } finally {
+        await gateway.stop();
+        await fs.rm(socketPath, { force: true });
+      }
+    });
+  }
+
+  // -- exempt method: daemon.hello bypasses the envelope gate ---------------
+
+  it("`daemon.hello` is exempt: missing envelope-level protocolVersion still dispatches", async () => {
+    const socketPath = ephemeralSocketPath("pv-exempt");
+    bootstrap({ bindAddress: "127.0.0.1", localIpcPath: socketPath, bannerFormat: "text" });
+    const { registry, handlerSpy } = makeRegistry("daemon.hello");
+    const gateway = new LocalIpcGateway({ registry });
+    try {
+      await gateway.start();
+      const client = await makeClient(socketPath);
+      try {
+        // No protocolVersion in the envelope — must still dispatch.
+        client.socket.write(frameWithProtocolVersion("daemon.hello", 3, null));
+        const acc = await client.waitForBytes((b) => {
+          try {
+            return parseFrame(b).frame !== null;
+          } catch {
+            return false;
+          }
+        });
+        const response = decodeOneFrame(acc) as JsonRpcResponse;
+        expect(response.id).toBe(3);
+        expect(response.result).toStrictEqual({ ok: true });
+        expect(handlerSpy).toHaveBeenCalledTimes(1);
+      } finally {
+        await client.close();
+      }
+    } finally {
+      await gateway.stop();
+      await fs.rm(socketPath, { force: true });
+    }
+  });
+
+  // -- connection stays open: rejected request does NOT tear down the socket
+
+  it("connection stays open after gate rejection; subsequent valid request on same socket dispatches", async () => {
+    const socketPath = ephemeralSocketPath("pv-stay-open");
+    bootstrap({ bindAddress: "127.0.0.1", localIpcPath: socketPath, bannerFormat: "text" });
+    const { registry, handlerSpy } = makeRegistry("session.create");
+    const gateway = new LocalIpcGateway({ registry });
+    try {
+      await gateway.start();
+      const client = await makeClient(socketPath);
+      try {
+        // First frame: missing protocolVersion → gate rejects.
+        client.socket.write(frameWithProtocolVersion("session.create", 21, null));
+        const firstAcc = await client.waitForBytes((b) => {
+          try {
+            return parseFrame(b).frame !== null;
+          } catch {
+            return false;
+          }
+        });
+        const firstResponse = decodeOneFrame(firstAcc) as JsonRpcErrorResponse;
+        expect(firstResponse.id).toBe(21);
+        expect(firstResponse.error.code).toBe(JsonRpcErrorCode.InvalidRequest);
+        // Second frame on the SAME socket: well-formed → must
+        // dispatch. If the gate had torn the connection down, this
+        // write would either fail or never produce a response.
+        client.socket.write(frameWithProtocolVersion("session.create", 22, '"2026-05-01"'));
+        const secondAcc = await client.waitForBytes((b) => {
+          // We need the SECOND frame in the accumulator — count
+          // distinct response ids by parsing successively.
+          try {
+            const r1 = parseFrame(b);
+            if (r1.frame === null) return false;
+            const remaining = b.subarray(r1.consumed);
+            return parseFrame(remaining).frame !== null;
+          } catch {
+            return false;
+          }
+        });
+        // Decode the second frame from the accumulated buffer.
+        const r1 = parseFrame(secondAcc);
+        if (r1.frame === null) throw new Error("expected first frame to decode");
+        const remaining = secondAcc.subarray(r1.consumed);
+        const r2 = parseFrame(remaining);
+        if (r2.frame === null) throw new Error("expected second frame to decode");
+        const secondResponse = JSON.parse(r2.frame.toString("utf8")) as JsonRpcResponse;
+        expect(secondResponse.id).toBe(22);
+        expect(secondResponse.result).toStrictEqual({ ok: true });
+        // Handler ran exactly once (the rejected first request never
+        // reached it; the second valid request did).
+        expect(handlerSpy).toHaveBeenCalledTimes(1);
+      } finally {
+        await client.close();
+      }
+    } finally {
+      await gateway.stop();
+      await fs.rm(socketPath, { force: true });
+    }
+  });
+
+  // -- notification path: silent drop + onError supervision -----------------
+
+  it("notification with bad protocolVersion is dropped silently; supervision onError fires", async () => {
+    const socketPath = ephemeralSocketPath("pv-notif");
+    bootstrap({ bindAddress: "127.0.0.1", localIpcPath: socketPath, bannerFormat: "text" });
+    const { registry, handlerSpy } = makeRegistry("session.create");
+    const onConnect = vi.fn();
+    const onDisconnect = vi.fn();
+    const onError = vi.fn();
+    const hooks: SupervisionHooks = { onConnect, onDisconnect, onError };
+    const gateway = new LocalIpcGateway({ registry, hooks });
+    try {
+      await gateway.start();
+      const client = await makeClient(socketPath);
+      try {
+        // Notification with NO protocolVersion. Per JSON-RPC §4.1 the
+        // server MUST NOT respond. The substrate drops the frame and
+        // surfaces via onError supervision.
+        client.socket.write(frameNotificationWithProtocolVersion("session.create", null));
+        // Wait briefly for the gateway to process the frame and
+        // invoke onError. We poll instead of asserting "no response"
+        // synchronously — the contract is "no response is ever sent",
+        // so we drive a positive observation (onError fired) before
+        // asserting the negative.
+        for (let i = 0; i < 50 && onError.mock.calls.length === 0; i++) {
+          await new Promise((res) => setTimeout(res, 5));
+        }
+        expect(onError).toHaveBeenCalledTimes(1);
+        // The error surfaced is the FramingError carrying our gate's
+        // discriminated reason — operator observability sees the
+        // wire violation even though the wire stays silent.
+        const errArg = onError.mock.calls[0]?.[1] as unknown;
+        expect(errArg).toBeInstanceOf(FramingError);
+        if (errArg instanceof FramingError) {
+          expect(errArg.code).toBe("invalid_protocol_version");
+          expect(errArg.fields).toMatchObject({ reason: "missing" });
+        }
+        // No bytes received from the gateway — the wire stays silent
+        // for the notification path.
+        expect(client.received.length).toBe(0);
+        // Handler never invoked.
+        expect(handlerSpy).not.toHaveBeenCalled();
+      } finally {
+        await client.close();
+      }
+    } finally {
+      await gateway.stop();
+      await fs.rm(socketPath, { force: true });
+    }
+  });
+
+  // -- malformed-id ordering: id-shape rejects before our gate -------------
+
+  it("malformed id rejection fires BEFORE protocolVersion gate (ordering is load-bearing)", async () => {
+    // Regression guard: the gate is intentionally ordered AFTER the
+    // id-shape check (Step 3) so envelopes with BOTH a malformed id
+    // AND a missing protocolVersion surface the id-shape failure
+    // (`invalid_envelope`), not the protocolVersion failure
+    // (`transport.invalid_protocol_version`). A future refactor that
+    // reordered these would silently change the surfaced data.type for
+    // such envelopes — this test pins the ordering.
+    const socketPath = ephemeralSocketPath("pv-order");
+    bootstrap({ bindAddress: "127.0.0.1", localIpcPath: socketPath, bannerFormat: "text" });
+    const { registry, handlerSpy } = makeRegistry("session.create");
+    const gateway = new LocalIpcGateway({ registry });
+    try {
+      await gateway.start();
+      const client = await makeClient(socketPath);
+      try {
+        // Malformed id (object) AND missing protocolVersion. The
+        // id-shape check at Step 3 must fire first.
+        const bodyText = `{"jsonrpc":"${JSONRPC_VERSION}","id":{},"method":"session.create","params":{}}`;
+        const bodyBytes = Buffer.from(bodyText, "utf8");
+        const header = `Content-Length: ${bodyBytes.byteLength}\r\n\r\n`;
+        client.socket.write(Buffer.concat([Buffer.from(header, "ascii"), bodyBytes]));
+        const acc = await client.waitForBytes((b) => {
+          try {
+            return parseFrame(b).frame !== null;
+          } catch {
+            return false;
+          }
+        });
+        const response = decodeOneFrame(acc) as JsonRpcErrorResponse;
+        expect(response.jsonrpc).toBe(JSONRPC_VERSION);
+        // Per JSON-RPC §5: when id can't be detected/recovered, the
+        // error response id MUST be Null. Our id-shape gate sends
+        // `null` literally per `mapJsonRpcError(wrapped, null)` at
+        // local-ipc-gateway.ts:1070.
+        expect(response.id).toBeNull();
+        expect(response.error.code).toBe(JsonRpcErrorCode.InvalidRequest);
+        // Critical: the surfaced data.type is from the id-shape gate
+        // (synthetic "invalid_envelope" code projecting to
+        // "invalid_envelope" per framingErrorDataType's default
+        // arm), NOT our protocolVersion gate. If a future refactor
+        // reordered the gates, this assertion would fail.
+        expect(response.error.data).toMatchObject({ type: "invalid_envelope" });
+        expect(handlerSpy).not.toHaveBeenCalled();
+      } finally {
+        await client.close();
+      }
+    } finally {
+      await gateway.stop();
+      await fs.rm(socketPath, { force: true });
     }
   });
 });

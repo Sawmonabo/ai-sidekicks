@@ -134,21 +134,26 @@ const VALID_BANNER_FORMATS: ReadonlySet<string> = new Set<string>(["text", "json
 /**
  * Validation error surface for `SecureDefaults.load`. The string `code`
  * is the stable identifier downstream consumers (and tests) assert on;
- * the JSON-RPC envelope shape that wraps these codes is BLOCKED-ON-C7
- * (error-contracts.md JSON-RPC mapping). Test surface at this task is
- * the `code` field only.
+ * `fields` carries the structured detail (offending setting name, value)
+ * that `mapJsonRpcError` projects into the JSON-RPC envelope's
+ * `error.data.fields` per error-contracts.md §JSON-RPC Wire Mapping
+ * (BL-103 closed 2026-05-01).
  *
  * Distinct codes per failure mode are kept (rather than collapsing every
  * validation failure to a single `invalid_config`) so downstream
- * observability survives when C-7 lands the envelope shape.
+ * observability discriminates the specific config-validation defect.
  */
 export class SecureDefaultsValidationError extends Error {
   readonly code: string;
+  readonly fields?: Record<string, unknown>;
 
-  constructor(code: string, message: string) {
+  constructor(code: string, message: string, fields?: Record<string, unknown>) {
     super(message);
     this.name = "SecureDefaultsValidationError";
     this.code = code;
+    if (fields !== undefined) {
+      this.fields = fields;
+    }
   }
 }
 
@@ -247,6 +252,7 @@ function validateConfig(config: SecureDefaultsConfig): SecureDefaultsEffectiveSe
     throw new SecureDefaultsValidationError(
       "invalid_config",
       `SecureDefaults.load: config must be an object (got ${describeNonObject(config)})`,
+      { value: config },
     );
   }
 
@@ -265,6 +271,7 @@ function validateConfig(config: SecureDefaultsConfig): SecureDefaultsEffectiveSe
       throw new SecureDefaultsValidationError(
         "unknown_setting",
         `SecureDefaults.load: unknown setting "${key}" — Tier 1 validation surface accepts only ${listKeys(KNOWN_KEYS)} (I-007-5)`,
+        { setting: key, value: (config as unknown as Record<string, unknown>)[key] },
       );
     }
   }
@@ -275,18 +282,21 @@ function validateConfig(config: SecureDefaultsConfig): SecureDefaultsEffectiveSe
     throw new SecureDefaultsValidationError(
       "missing_required_setting",
       `SecureDefaults.load: required setting "bindAddress" is missing`,
+      { setting: "bindAddress" },
     );
   }
   if (!hasOwn(config, "localIpcPath")) {
     throw new SecureDefaultsValidationError(
       "missing_required_setting",
       `SecureDefaults.load: required setting "localIpcPath" is missing`,
+      { setting: "localIpcPath" },
     );
   }
   if (!hasOwn(config, "bannerFormat")) {
     throw new SecureDefaultsValidationError(
       "missing_required_setting",
       `SecureDefaults.load: required setting "bannerFormat" is missing`,
+      { setting: "bannerFormat" },
     );
   }
 
@@ -296,12 +306,14 @@ function validateConfig(config: SecureDefaultsConfig): SecureDefaultsEffectiveSe
     throw new SecureDefaultsValidationError(
       "invalid_bind_address",
       `SecureDefaults.load: bindAddress must be a non-empty string (got ${describeValue(bindAddress)})`,
+      { setting: "bindAddress", value: bindAddress },
     );
   }
   if (!LOOPBACK_BIND_ADDRESSES.has(bindAddress)) {
     throw new SecureDefaultsValidationError(
       "invalid_bind_address",
       `SecureDefaults.load: bindAddress "${bindAddress}" is not in the Tier 1 loopback set ${listKeys(LOOPBACK_BIND_ADDRESSES)} — non-loopback bind paths widen at Tier 4 (I-007-5)`,
+      { setting: "bindAddress", value: bindAddress },
     );
   }
 
@@ -321,6 +333,7 @@ function validateConfig(config: SecureDefaultsConfig): SecureDefaultsEffectiveSe
       throw new SecureDefaultsValidationError(
         "invalid_bind_port",
         `SecureDefaults.load: bindPort must be an integer in [0, 65535] (got ${describeValue(candidate)})`,
+        { setting: "bindPort", value: candidate },
       );
     }
     bindPort = candidate;
@@ -333,6 +346,7 @@ function validateConfig(config: SecureDefaultsConfig): SecureDefaultsEffectiveSe
     throw new SecureDefaultsValidationError(
       "invalid_local_ipc_path",
       `SecureDefaults.load: localIpcPath must be a non-empty string (got ${describeValue(localIpcPath)})`,
+      { setting: "localIpcPath", value: localIpcPath },
     );
   }
 
@@ -342,6 +356,7 @@ function validateConfig(config: SecureDefaultsConfig): SecureDefaultsEffectiveSe
     throw new SecureDefaultsValidationError(
       "invalid_banner_format",
       `SecureDefaults.load: bannerFormat must be one of ${listKeys(VALID_BANNER_FORMATS)} (got ${describeValue(bannerFormat)})`,
+      { setting: "bannerFormat", value: bannerFormat },
     );
   }
 

@@ -89,13 +89,13 @@ describe("W-007p-2-T1 — handshake + version-negotiation compatibility", () => 
   it("compatible handshake (intersection non-empty) → `compatible: true` + max-of-intersection", async () => {
     const { gated } = makeFixture();
     const params: DaemonHello = {
-      protocolVersion: 1,
-      supportedProtocols: [1],
+      protocolVersion: "2026-05-01",
+      supportedProtocols: ["2026-05-01"],
     };
     const ctx: HandlerContext = { transportId: 100 };
     const ack = (await gated.dispatch(DAEMON_HELLO_METHOD, params, ctx)) as DaemonHelloAck;
     expect(ack.compatible).toBe(true);
-    expect(ack.protocolVersion).toBe(1);
+    expect(ack.protocolVersion).toBe("2026-05-01");
     // No reason on success.
     expect(ack.reason).toBeUndefined();
   });
@@ -105,13 +105,13 @@ describe("W-007p-2-T1 — handshake + version-negotiation compatibility", () => 
     // Client supports both 0 and 1; daemon supports [1]. Intersection
     // is {1}; max is 1.
     const params: DaemonHello = {
-      protocolVersion: 1,
-      supportedProtocols: [0, 1],
+      protocolVersion: "2026-05-01",
+      supportedProtocols: ["2025-12-31", "2026-05-01"],
     };
     const ctx: HandlerContext = { transportId: 101 };
     const ack = (await gated.dispatch(DAEMON_HELLO_METHOD, params, ctx)) as DaemonHelloAck;
     expect(ack.compatible).toBe(true);
-    expect(ack.protocolVersion).toBe(1);
+    expect(ack.protocolVersion).toBe("2026-05-01");
   });
 
   it("incompatible handshake (client too old) → `compatible: false` + `version.floor_exceeded` + daemonSupportedProtocols", async () => {
@@ -119,8 +119,8 @@ describe("W-007p-2-T1 — handshake + version-negotiation compatibility", () => 
     // Client only advertises 0; daemon supports [1]. Client is below
     // daemon's floor.
     const params: DaemonHello = {
-      protocolVersion: 0,
-      supportedProtocols: [0],
+      protocolVersion: "2025-12-31",
+      supportedProtocols: ["2025-12-31"],
     };
     const ctx: HandlerContext = { transportId: 102 };
     const ack = (await gated.dispatch(DAEMON_HELLO_METHOD, params, ctx)) as DaemonHelloAck;
@@ -129,9 +129,7 @@ describe("W-007p-2-T1 — handshake + version-negotiation compatibility", () => 
     // daemonSupportedProtocols is surfaced so the client can decide
     // whether to retry.
     expect(ack.daemonSupportedProtocols).toBeDefined();
-    expect(ack.daemonSupportedProtocols).toStrictEqual(
-      DAEMON_SUPPORTED_PROTOCOL_VERSIONS as ReadonlyArray<number | string>,
-    );
+    expect(ack.daemonSupportedProtocols).toStrictEqual(DAEMON_SUPPORTED_PROTOCOL_VERSIONS);
   });
 
   it("incompatible handshake (client too new) → `compatible: false` + `version.ceiling_exceeded`", async () => {
@@ -139,8 +137,8 @@ describe("W-007p-2-T1 — handshake + version-negotiation compatibility", () => 
     // Client advertises [2, 3]; daemon supports [1]. Client is above
     // daemon's ceiling.
     const params: DaemonHello = {
-      protocolVersion: 2,
-      supportedProtocols: [2, 3],
+      protocolVersion: "2026-06-01",
+      supportedProtocols: ["2026-06-01", "2026-07-01"],
     };
     const ctx: HandlerContext = { transportId: 103 };
     const ack = (await gated.dispatch(DAEMON_HELLO_METHOD, params, ctx)) as DaemonHelloAck;
@@ -152,8 +150,8 @@ describe("W-007p-2-T1 — handshake + version-negotiation compatibility", () => 
     const { gated } = makeFixture();
     const ctx: HandlerContext = { transportId: 104 };
     const params: DaemonHello = {
-      protocolVersion: 1,
-      supportedProtocols: [1],
+      protocolVersion: "2026-05-01",
+      supportedProtocols: ["2026-05-01"],
     };
     const first = (await gated.dispatch(DAEMON_HELLO_METHOD, params, ctx)) as DaemonHelloAck;
     expect(first.compatible).toBe(true);
@@ -164,14 +162,14 @@ describe("W-007p-2-T1 — handshake + version-negotiation compatibility", () => 
     expect(second.reason).toBe(NEGOTIATION_REASON_HANDSHAKE_ALREADY_COMPLETED);
     // Prior negotiated version is echoed back so the client can
     // correlate.
-    expect(second.protocolVersion).toBe(1);
+    expect(second.protocolVersion).toBe("2026-05-01");
   });
 
   it("daemon.hello requires ctx.transportId — refusing direct dispatch with no wire boundary", async () => {
     const { gated } = makeFixture();
     const params: DaemonHello = {
-      protocolVersion: 1,
-      supportedProtocols: [1],
+      protocolVersion: "2026-05-01",
+      supportedProtocols: ["2026-05-01"],
     };
     let caught: unknown = null;
     try {
@@ -179,17 +177,25 @@ describe("W-007p-2-T1 — handshake + version-negotiation compatibility", () => 
     } catch (err) {
       caught = err;
     }
-    // The handler explicitly throws `NegotiationError` when no
-    // transportId is present (per protocol-negotiation.ts:570-575).
-    expect(caught).toBeInstanceOf(NegotiationError);
+    // The handler throws a plain Error when no transportId is present —
+    // a substrate-internal invariant violation (test misconfiguration
+    // or daemon-bootstrap bug), NOT a client protocol violation. On the
+    // wire this collapses to `-32603 InternalError` per
+    // error-contracts.md §JSON-RPC Wire Mapping. The not.toBeInstanceOf
+    // (NegotiationError) check is the discriminating assertion — every
+    // NegotiationError IS an Error, so the negative is what pins the
+    // posture.
+    expect(caught).toBeInstanceOf(Error);
+    expect(caught).not.toBeInstanceOf(NegotiationError);
+    expect((caught as Error).message).toContain("ctx.transportId");
   });
 
   it("`cleanupTransport` clears the per-transport state (idempotent on unknown id)", async () => {
     const { gated, negotiator } = makeFixture();
     const ctx: HandlerContext = { transportId: 105 };
     const params: DaemonHello = {
-      protocolVersion: 1,
-      supportedProtocols: [1],
+      protocolVersion: "2026-05-01",
+      supportedProtocols: ["2026-05-01"],
     };
     await gated.dispatch(DAEMON_HELLO_METHOD, params, ctx);
     // Verify the state is `done-compatible` before cleanup.
@@ -223,7 +229,7 @@ describe("W-007p-2-T8 — mutating-op gate when version-mismatch", () => {
     expect(result).toStrictEqual({ ok: true });
   });
 
-  it("mutating methods are refused in `pre` state with `pre_handshake_mutating_refused` (I-007-1)", async () => {
+  it("mutating methods are refused in `pre` state with `protocol.handshake_required` (I-007-1)", async () => {
     const { raw, gated } = makeFixture();
     const handler: Handler<unknown, { ok: true }> = async () => ({ ok: true });
     raw.register(
@@ -242,7 +248,7 @@ describe("W-007p-2-T8 — mutating-op gate when version-mismatch", () => {
     }
     expect(caught).toBeInstanceOf(NegotiationError);
     if (caught instanceof NegotiationError) {
-      expect(caught.negotiationCode).toBe("pre_handshake_mutating_refused");
+      expect(caught.negotiationCode).toBe("protocol.handshake_required");
     }
   });
 
@@ -259,8 +265,8 @@ describe("W-007p-2-T8 — mutating-op gate when version-mismatch", () => {
     const ctx: HandlerContext = { transportId: 202 };
     // Compatible handshake.
     const params: DaemonHello = {
-      protocolVersion: 1,
-      supportedProtocols: [1],
+      protocolVersion: "2026-05-01",
+      supportedProtocols: ["2026-05-01"],
     };
     const ack = (await gated.dispatch(DAEMON_HELLO_METHOD, params, ctx)) as DaemonHelloAck;
     expect(ack.compatible).toBe(true);
@@ -288,15 +294,15 @@ describe("W-007p-2-T8 — mutating-op gate when version-mismatch", () => {
     const ctx: HandlerContext = { transportId: 203 };
     // Incompatible handshake (ceiling exceeded).
     const params: DaemonHello = {
-      protocolVersion: 2,
-      supportedProtocols: [2, 3],
+      protocolVersion: "2026-06-01",
+      supportedProtocols: ["2026-06-01", "2026-07-01"],
     };
     const ack = (await gated.dispatch(DAEMON_HELLO_METHOD, params, ctx)) as DaemonHelloAck;
     expect(ack.compatible).toBe(false);
     // Read still passes (Spec-007:67-68).
     const readResult = await gated.dispatch("math.read", {}, ctx);
     expect(readResult).toStrictEqual({ ok: true });
-    // Mutating refused with `version_mismatch_mutating_refused`.
+    // Mutating refused with `protocol.version_mismatch`.
     let caught: unknown = null;
     try {
       await gated.dispatch("math.write", {}, ctx);
@@ -305,7 +311,7 @@ describe("W-007p-2-T8 — mutating-op gate when version-mismatch", () => {
     }
     expect(caught).toBeInstanceOf(NegotiationError);
     if (caught instanceof NegotiationError) {
-      expect(caught.negotiationCode).toBe("version_mismatch_mutating_refused");
+      expect(caught.negotiationCode).toBe("protocol.version_mismatch");
     }
   });
 
@@ -335,8 +341,8 @@ describe("W-007p-2-T8 — mutating-op gate when version-mismatch", () => {
     // pre-handshake.
     const ctx: HandlerContext = { transportId: 205 };
     const params: DaemonHello = {
-      protocolVersion: 1,
-      supportedProtocols: [1],
+      protocolVersion: "2026-05-01",
+      supportedProtocols: ["2026-05-01"],
     };
     await expect(gated.dispatch(DAEMON_HELLO_METHOD, params, ctx)).resolves.toBeDefined();
   });

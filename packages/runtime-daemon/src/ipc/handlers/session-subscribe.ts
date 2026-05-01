@@ -76,7 +76,6 @@ import {
 } from "@ai-sidekicks/contracts";
 import type { EventCursor } from "@ai-sidekicks/contracts";
 
-import { NegotiationError } from "../protocol-negotiation.js";
 import type { StreamingPrimitive } from "../streaming-primitive.js";
 
 /**
@@ -152,16 +151,13 @@ export interface SessionSubscribeDeps {
  * Handler shape:
  *   1. Refuse `ctx.transportId === undefined` — per-connection state
  *      (the streaming primitive's per-transport reverse-index) requires
- *      a transport identity. Mirrors `protocol-negotiation.ts` lines
- *      570-575: a missing transport id means the call originated from
- *      direct test code; refuse explicitly so the misconfiguration
- *      surfaces clearly. The `NegotiationError` reuse keeps the daemon's
- *      error-class taxonomy uniform — Plan-007 Phase 2 already established
- *      `NegotiationError` as the "transport-required" error class for
- *      protocol-state operations, and per-connection streaming setup is
- *      structurally the same kind of operation. (Until C-7 lands the
- *      canonical mapping, this collapses to `-32603 InternalError` at
- *      `mapJsonRpcError` per the existing `NegotiationError` mapping.)
+ *      a transport identity. A missing transport id means the call
+ *      originated from direct test code (or a daemon-bootstrap bug) —
+ *      neither is a client protocol violation, so we throw a plain Error
+ *      which `mapJsonRpcError` collapses to `-32603 InternalError` per
+ *      error-contracts.md §JSON-RPC Wire Mapping (the honest mapping for
+ *      a substrate-internal invariant violation). Mirrors the same
+ *      posture in `protocol-negotiation.ts`'s `daemon.hello` handler.
  *   2. Call `streamingPrimitive.createSubscription<SessionEvent>(
  *      transportId, SessionEventSchema)` to allocate the producer handle.
  *      The primitive generates a fresh `subscriptionId`, registers the
@@ -189,8 +185,7 @@ export function registerSessionSubscribe(
     ctx,
   ) => {
     if (ctx.transportId === undefined) {
-      throw new NegotiationError(
-        "pre_handshake_mutating_refused",
+      throw new Error(
         "session.subscribe: handler requires ctx.transportId (per-connection streaming state requires a transport identity)",
       );
     }

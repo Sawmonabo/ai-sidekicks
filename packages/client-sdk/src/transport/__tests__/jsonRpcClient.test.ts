@@ -136,7 +136,7 @@ describe("I-007-3-T4 — JsonRpcClient.call rejects with JsonRpcSchemaError on s
     // The server's response will deliberately violate it. We pair this with
     // a permissive params schema so the params-phase doesn't short-circuit.
     const transport = new InMemoryTransport();
-    const client = new JsonRpcClient(transport, { protocolVersion: 1 });
+    const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
 
     const paramsSchema = z.object({ key: z.string() });
     const resultSchema = z.object({
@@ -162,6 +162,12 @@ describe("I-007-3-T4 — JsonRpcClient.call rejects with JsonRpcSchemaError on s
     // Sanity — the request envelope carries the canonical fields.
     expect(sentEnvelope.jsonrpc).toBe(JSONRPC_VERSION);
     expect(sentEnvelope.method).toBe("session.create");
+    // Fix #6 / Codex P1 — `protocolVersion` is REQUIRED at construction
+    // and emitted on every request envelope (matches the substrate's
+    // `transport.invalid_protocol_version` gate). Asserting here pins
+    // the unconditional-emit contract; a regression that re-introduces
+    // the conditional spread would tick this expectation.
+    expect(sentEnvelope.protocolVersion).toBe("2026-05-01");
 
     // Drive a malformed response. The server returned a `result` whose
     // shape does NOT match `resultSchema` — `sessionId` is a non-UUID and
@@ -207,7 +213,7 @@ describe("I-007-3-T4 — JsonRpcClient.call rejects with JsonRpcSchemaError on s
     // BEFORE any wire I/O happens, and the throw becomes a Promise
     // rejection (since `call` is async).
     const transport = new InMemoryTransport();
-    const client = new JsonRpcClient(transport, { protocolVersion: 1 });
+    const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
 
     const paramsSchema = z.object({ key: z.string() });
     const resultSchema = z.unknown();
@@ -259,7 +265,7 @@ describe("I-007-3-T4 — JsonRpcClient.call rejects with JsonRpcSchemaError on s
     // on `.phase`; if the SDK split the surface into two classes the
     // downstream observability would need two `instanceof` branches.
     const transport = new InMemoryTransport();
-    const client = new JsonRpcClient(transport, { protocolVersion: 1 });
+    const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
     const paramsSchema = z.object({ key: z.string() });
     const resultSchema = z.object({ sessionId: z.string().uuid() });
 
@@ -381,7 +387,7 @@ describe("subscribe-init registers #subscriptions synchronously (Codex P1 regres
   it("a coalesced response+notify pair (delivered in one synchronous frame) lands the first event", async () => {
     // Arrange — a value schema for a trivial event payload.
     const transport = new InMemoryTransport();
-    const client = new JsonRpcClient(transport, { protocolVersion: 1 });
+    const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
     const valueSchema = z.object({ kind: z.literal("event"), seq: z.number() });
 
     // Act 1 — open the subscription. `subscribe()` returns a handle
@@ -446,7 +452,7 @@ describe("subscribe-init registers #subscriptions synchronously (Codex P1 regres
     // frames in the same synchronous parse loop, not just the first one
     // after the response.
     const transport = new InMemoryTransport();
-    const client = new JsonRpcClient(transport, { protocolVersion: 1 });
+    const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
     const valueSchema = z.object({ kind: z.literal("event"), seq: z.number() });
 
     const subscription = client.subscribe<z.infer<typeof valueSchema>>(
@@ -531,7 +537,7 @@ describe("Phase D Round 4 F2 — malformed subscriptionId rejected at SDK bounda
   it("non-UUID subscriptionId fails the init schema; no #subscriptions entry; iterator surfaces JsonRpcSchemaError", async () => {
     // Arrange — open `subscribe()`, capture the init request id.
     const transport = new InMemoryTransport();
-    const client = new JsonRpcClient(transport, { protocolVersion: 1 });
+    const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
     const valueSchema = z.object({ kind: z.literal("event"), seq: z.number() });
 
     const subscription = client.subscribe<z.infer<typeof valueSchema>>(
@@ -602,7 +608,7 @@ describe("Phase D Round 4 F2 — malformed subscriptionId rejected at SDK bounda
     // a non-loose schema and dropped the additional-fields-allowed
     // posture.
     const transport = new InMemoryTransport();
-    const client = new JsonRpcClient(transport, { protocolVersion: 1 });
+    const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
     const valueSchema = z.object({ kind: z.literal("event"), seq: z.number() });
 
     const subscription = client.subscribe<z.infer<typeof valueSchema>>(
@@ -676,7 +682,7 @@ describe("Phase D Round 5 F3 — cancel() idempotency (Codex P2 regression)", ()
     // Arrange — open a subscription, drive the init response so status
     // reaches `"active"`, then issue concurrent `cancel()` calls.
     const transport = new InMemoryTransport();
-    const client = new JsonRpcClient(transport, { protocolVersion: 1 });
+    const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
     const valueSchema = z.object({ kind: z.literal("event"), seq: z.number() });
 
     const subscription = client.subscribe<z.infer<typeof valueSchema>>(
@@ -755,7 +761,7 @@ describe("Phase D Round 5 F3 — cancel() idempotency (Codex P2 regression)", ()
     // terminal-status guard at the top of `#cancelSubscription` intercepts
     // post-settlement calls before the in-flight guard is even consulted.
     const transport = new InMemoryTransport();
-    const client = new JsonRpcClient(transport, { protocolVersion: 1 });
+    const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
     const valueSchema = z.object({ kind: z.literal("event"), seq: z.number() });
 
     const subscription = client.subscribe<z.infer<typeof valueSchema>>(
@@ -820,7 +826,7 @@ describe("Phase D Round 5 F3 — cancel() idempotency (Codex P2 regression)", ()
     // via `completeSubscriptionWithError`. A subsequent `subscription.next()`
     // call should reject with the wire error (`JsonRpcRemoteError`).
     const transport = new InMemoryTransport();
-    const client = new JsonRpcClient(transport, { protocolVersion: 1 });
+    const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
     const valueSchema = z.object({ kind: z.literal("event"), seq: z.number() });
 
     const subscription = client.subscribe<z.infer<typeof valueSchema>>(
@@ -862,7 +868,7 @@ describe("Phase D Round 5 F3 — cancel() idempotency (Codex P2 regression)", ()
     transport.dispatchInbound({
       jsonrpc: JSONRPC_VERSION,
       id: cancelEnvelope.id,
-      error: { code: -32603, message: "internal daemon failure", data: undefined },
+      error: { code: -32603, message: "internal daemon failure" },
     });
 
     // Both `cancel()` promises resolve (the catch in `#emitCancelRpc` does
@@ -983,7 +989,7 @@ describe("Phase D Round 7 F6 — thenable transport.send rejection propagates (C
   it("transport.send returning a thenable WITHOUT `.catch` propagates the rejection (no synthetic TypeError)", async () => {
     const sendErr = new Error("transport write failed");
     const transport = new ThenableSendRejectingTransport(sendErr);
-    const client = new JsonRpcClient(transport, { protocolVersion: 1 });
+    const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
 
     const paramsSchema = z.object({ key: z.string() });
     const resultSchema = z.object({ ok: z.boolean() });
@@ -1018,5 +1024,152 @@ describe("Phase D Round 7 F6 — thenable transport.send rejection propagates (C
     // returning the rejecting thenable — emulates the real-world case
     // where the wire write may succeed even if the thenable rejects).
     expect(transport.sentEnvelopes.length).toBe(1);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Fix #6 / Codex P1 regression — protocolVersion REQUIRED at construction
+// and emitted on every outbound request envelope
+// ----------------------------------------------------------------------------
+//
+// Codex P1 (issuecomment 3172637743): after Fix #4 the daemon's substrate gate
+// (`packages/runtime-daemon/src/ipc/local-ipc-gateway.ts#dispatchFrame`)
+// rejects every non-handshake JSON-RPC envelope missing or carrying a
+// malformed `protocolVersion` with `-32600 InvalidRequest /
+// transport.invalid_protocol_version`. Pre-Fix-#6 the SDK side held
+// `JsonRpcClientOptions.protocolVersion` optional and omitted the field
+// when constructor opts were unset — so a caller writing
+// `new JsonRpcClient(transport)` got a client whose every non-handshake
+// call would runtime-fail with `-32600`, even though the TypeScript
+// surface signaled the construction was valid. F6 closes the gap by
+// making the field REQUIRED at the type level and emitting it
+// unconditionally on every outbound request envelope.
+//
+// This describe block pins THREE wire-emission sites against regressions:
+//
+//   1. `call(method, params, ...)` request envelope.
+//   2. `subscribe(method, params, valueSchema)` init request envelope.
+//   3. The `$/subscription/cancel` envelope emitted by `LocalSubscription.cancel()`.
+//
+// Each test captures an outbound envelope and asserts it carries the
+// caller-advertised `protocolVersion` literal. A regression that
+// re-introduces the conditional spread (`...(this.#protocolVersion !== undefined ? ... : {})`)
+// or makes `opts` optional again would tick at least one of these
+// expectations.
+//
+// The TYPE-LEVEL contract (constructor `opts: JsonRpcClientOptions`,
+// field `protocolVersion: string`) is enforced by `tsc -b` at the
+// monorepo build step — a regression that loosens the field back to
+// optional or makes the constructor's `opts` optional would surface as
+// a TypeScript build failure on this very test file (every `new
+// JsonRpcClient(transport, { protocolVersion: ... })` call site requires
+// the field). No `// @ts-expect-error` belt-and-suspenders is needed
+// because the existing call sites ARE the type-level contract proof.
+
+describe("Fix #6 / Codex P1 regression — protocolVersion REQUIRED + emitted unconditionally", () => {
+  it("call() request envelope carries the caller-advertised protocolVersion", () => {
+    const transport = new InMemoryTransport();
+    const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
+    const paramsSchema = z.object({ key: z.string() });
+    const resultSchema = z.unknown();
+
+    // Issue a call — we don't await it; we only need the outbound envelope.
+    void client.call("test.method", { key: "v" }, paramsSchema, resultSchema);
+
+    expect(transport.sentEnvelopes.length).toBe(1);
+    const envelope = transport.sentEnvelopes[0];
+    if (envelope === undefined || !("id" in envelope)) {
+      throw new Error("unreachable — call() emits a request envelope");
+    }
+    expect(envelope.protocolVersion).toBe("2026-05-01");
+    expect(envelope.jsonrpc).toBe(JSONRPC_VERSION);
+    expect(envelope.method).toBe("test.method");
+  });
+
+  it("subscribe() init request envelope carries the caller-advertised protocolVersion", () => {
+    const transport = new InMemoryTransport();
+    const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
+    const valueSchema = z.object({ kind: z.literal("event"), seq: z.number() });
+
+    client.subscribe<z.infer<typeof valueSchema>>("test.subscribe", { topic: "x" }, valueSchema);
+
+    expect(transport.sentEnvelopes.length).toBe(1);
+    const envelope = transport.sentEnvelopes[0];
+    if (envelope === undefined || !("id" in envelope)) {
+      throw new Error("unreachable — subscribe init emits a request envelope");
+    }
+    expect(envelope.protocolVersion).toBe("2026-05-01");
+    expect(envelope.method).toBe("test.subscribe");
+  });
+
+  it("$/subscription/cancel envelope carries the caller-advertised protocolVersion", async () => {
+    // Drive the full subscribe → ack → cancel flow so the cancel envelope
+    // is emitted onto the transport, then assert it carries the
+    // caller-advertised version (the cancel path goes through `this.call`
+    // internally; this test pins that the internal call path also emits
+    // the version).
+    const transport = new InMemoryTransport();
+    const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
+    const valueSchema = z.object({ kind: z.literal("event"), seq: z.number() });
+
+    const subscription = client.subscribe<z.infer<typeof valueSchema>>(
+      "test.subscribe",
+      { topic: "x" },
+      valueSchema,
+    );
+
+    const initEnvelope = transport.sentEnvelopes[0];
+    if (initEnvelope === undefined || !("id" in initEnvelope)) {
+      throw new Error("unreachable — subscribe init emits a request envelope");
+    }
+    const subscriptionId = "77777777-7777-4777-8777-777777777777";
+    transport.dispatchInbound({
+      jsonrpc: JSONRPC_VERSION,
+      id: initEnvelope.id,
+      result: { subscriptionId },
+    });
+
+    // Issue cancel; the cancel envelope appears on the wire synchronously.
+    const cancelPromise = subscription.cancel();
+
+    const cancelEnvelopes = transport.sentEnvelopes.filter(
+      (env) => "method" in env && env.method === SUBSCRIPTION_CANCEL_METHOD,
+    );
+    expect(cancelEnvelopes.length).toBe(1);
+    const cancelEnvelope = cancelEnvelopes[0];
+    if (cancelEnvelope === undefined || !("id" in cancelEnvelope)) {
+      throw new Error("unreachable — cancel envelope is a request");
+    }
+    expect(cancelEnvelope.protocolVersion).toBe("2026-05-01");
+
+    // Drain the cancel ack so the test exits cleanly without an unhandled
+    // pending promise.
+    transport.dispatchInbound({
+      jsonrpc: JSONRPC_VERSION,
+      id: cancelEnvelope.id,
+      result: { canceled: true },
+    });
+    await cancelPromise;
+  });
+
+  it("a different caller-advertised protocolVersion appears verbatim on the wire", () => {
+    // Pin that the SDK does NOT canonicalize / normalize / default the
+    // version — the literal the caller passes is what lands on the
+    // envelope. Guards against a regression that, e.g., introduces a
+    // library-side default and overrides the caller's value.
+    const transport = new InMemoryTransport();
+    const customVersion = "2027-01-15";
+    const client = new JsonRpcClient(transport, { protocolVersion: customVersion });
+    const paramsSchema = z.unknown();
+    const resultSchema = z.unknown();
+
+    void client.call("test.method", undefined, paramsSchema, resultSchema);
+
+    expect(transport.sentEnvelopes.length).toBe(1);
+    const envelope = transport.sentEnvelopes[0];
+    if (envelope === undefined || !("id" in envelope)) {
+      throw new Error("unreachable — call() emits a request envelope");
+    }
+    expect(envelope.protocolVersion).toBe(customVersion);
   });
 });

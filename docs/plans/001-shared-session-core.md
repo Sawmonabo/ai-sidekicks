@@ -271,7 +271,7 @@ Plan-001 implementation lands as a sequence of small PRs. Each PR exercises one 
 **Goal:** Tests C1–C4 from § Test And Verification Plan go green.
 
 - `packages/contracts/src/session.ts` — `SessionId`, `SessionCreate`, `SessionRead`, `SessionJoin`, `SessionSubscribe` payload schemas. Plan-001 also exports `SessionSubscribeStream = AsyncIterable<EventEnvelope>` typed against an opaque `EventEnvelope` placeholder per **C-6** (forward-stub for Plan-006); the stub is narrowed when Plan-006 ships at Tier 4.
-- `packages/contracts/src/event.ts` — `SessionEvent` discriminated union (V1 subset: `SessionCreated`, `MemberJoined`, `ChannelCreated`). **BLOCKED-ON-C8** — `MemberJoined` is referenced here but not registered in [Spec-006 §Event Type Summary](../specs/006-session-event-taxonomy-and-audit-log.md); the C-6 / C-8 governance options at [BL-105](../backlog.md#bl-105-c-8--c-9--spec-006-event-registry-amendments) (register `member.joined` in Spec-006, OR rename Plan-001 Phase 2 deliverable to use `MembershipRoleChanged`) resolve at Task 1.10. The discriminator surface in `api-payload-contracts.md` (per C-6) lands the same Phase as this file.
+- `packages/contracts/src/event.ts` — `SessionEvent` discriminated union (V1 subset: `SessionCreated`, `MembershipCreated`, `ChannelCreated`). [BL-105](../archive/backlog-archive.md) closed 2026-05-01 — `MembershipCreated` is registered as `membership.created` in [Spec-006 §Invite and Membership](../specs/006-session-event-taxonomy-and-audit-log.md) (resource-lifecycle naming parallels `session.created` / `channel.created` / `invite.created`). The discriminator surface in `api-payload-contracts.md` (per C-6) lands the same Phase as this file.
 - `packages/contracts/src/error.ts` — `resource.limit_exceeded` shape; also `version.floor_exceeded` and `version.ceiling_exceeded` shapes per [ADR-018 §Decision #4](../decisions/018-cross-version-compatibility.md). The runtime guards land in later Phases / Plans; Phase 2 ships the wire-shape contracts only.
 
 #### Tasks
@@ -280,9 +280,9 @@ Plan-001 implementation lands as a sequence of small PRs. Each PR exercises one 
 
 **Files:** `packages/contracts/src/session.ts`, `packages/contracts/test/session.test.ts` **Spec coverage:** Spec-001 AC1, AC3, AC4 **Verifies invariant:** none (contract layer)
 
-##### T2.2 — `SessionEvent` discriminated union (BLOCKED-ON-C8)
+##### T2.2 — `SessionEvent` discriminated union
 
-**Files:** `packages/contracts/src/event.ts`, `packages/contracts/test/event.test.ts` **Spec coverage:** Spec-001 AC1, AC6 **Verifies invariant:** none **Note:** depends on resolution of C-8 (Spec-006 `member.joined` registration vs `MembershipRoleChanged` rename).
+**Files:** `packages/contracts/src/event.ts`, `packages/contracts/test/event.test.ts` **Spec coverage:** Spec-001 AC1, AC6 **Verifies invariant:** none **Note:** [BL-105](../archive/backlog-archive.md) closed 2026-05-01 — `membership.created` is registered in [Spec-006 §Invite and Membership](../specs/006-session-event-taxonomy-and-audit-log.md). The Phase 2 deliverable ships the wire string `membership.created` and the typed `MembershipCreatedEvent` symbol.
 
 ##### T2.3 — Error contracts: `resource.limit_exceeded`, `version.floor_exceeded`, `version.ceiling_exceeded`
 

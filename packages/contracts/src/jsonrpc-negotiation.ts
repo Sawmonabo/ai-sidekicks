@@ -32,9 +32,10 @@
 //   * The negotiation algorithm constants (`DAEMON_SUPPORTED_PROTOCOL_VERSIONS`)
 //     — daemon-internal; declared in the runtime file, not exported on the wire.
 //   * JSON-RPC numeric error code mapping for negotiation failures — owned
-//     by T-007p-2-2 (`jsonrpc-error-mapping.ts`). Negotiation-refusal
-//     throws collapse to `-32603 InternalError` at the substrate boundary
-//     until C-7 lands the canonical mapping (BLOCKED-ON-C7).
+//     by T-007p-2-2 (`jsonrpc-error-mapping.ts`). Per the canonical mapping
+//     table at error-contracts.md §JSON-RPC Wire Mapping (BL-103 ratified
+//     2026-05-01), `protocol.handshake_required` and `protocol.version_mismatch`
+//     ride as `data.type` on a `-32600 InvalidRequest` envelope.
 //
 // Schema-placement decision (T-007p-2-4 scope extension):
 //   The DAG task contract names ONLY
@@ -47,12 +48,14 @@
 //   runtime dep. Cross-package wire-envelope schemas live in
 //   `packages/contracts/` alongside `JsonRpcRequest` / `JsonRpcResponse`.
 //
-// BLOCKED-ON-C6. The `protocolVersion` field type is parameterized over
-// `number | string` per the audit directive — Spec-007:54 declares an
-// integer field; api-payload-contracts.md:541-548 declares a string field.
-// The substrate accepts both; Phase 3 handlers narrow once the canonical
-// type is declared. The same parameterization rides on `DaemonHello.protocolVersion`,
-// `DaemonHello.supportedProtocols[]`, and `DaemonHelloAck.protocolVersion`.
+// `protocolVersion` ratified as ISO 8601 `YYYY-MM-DD` date-string at
+// api-payload-contracts.md §Tier 1 (cont.): Plan-007 (BL-102 closed
+// 2026-05-01). The same date-string shape rides on
+// `DaemonHello.protocolVersion`, `DaemonHello.supportedProtocols[]`, and
+// `DaemonHelloAck.protocolVersion`. Format follows the MCP precedent
+// (modelcontextprotocol.io §Architecture overview); the negotiation
+// algorithm uses lex-sort to find max version (lex order ≡ chronological
+// for ISO 8601).
 
 import { z } from "zod";
 
@@ -62,15 +65,10 @@ import { z } from "zod";
 
 /**
  * Canonical JSON-RPC method name for the negotiation handshake. The
- * `daemon.hello` shape conforms to the conservative inline regex in
- * `packages/runtime-daemon/src/ipc/registry.ts` (`METHOD_NAME_DOTTED_REGEX`,
- * dotted-lowercase) so registration succeeds against the I-007-9 check.
- *
- * BLOCKED-ON-C6 — when api-payload-contracts.md §Plan-007 lands the
- * canonical method-name table, replace this constant with the imported
- * canonical string. The conservative inline form is dotted-lowercase per
- * F-007p-3-01 leaning, so a name accepted today remains accepted under
- * the canonical taxonomy.
+ * `daemon.hello` string conforms to the dotted-lowercase canonical format
+ * ratified at api-payload-contracts.md §JSON-RPC Method-Name Registry
+ * (Tier 1 Ratified, 2026-04-30) — registration succeeds against the
+ * I-007-9 register-time regex check.
  */
 export const DAEMON_HELLO_METHOD = "daemon.hello" as const;
 export type DaemonHelloMethod = typeof DAEMON_HELLO_METHOD;
@@ -102,24 +100,29 @@ export const NEGOTIATION_FIELD_MAX_LEN = 256;
 export const SUPPORTED_PROTOCOLS_MAX_LEN = 32;
 
 // --------------------------------------------------------------------------
-// protocolVersion — shared parameterization (BLOCKED-ON-C6)
+// protocolVersion — ISO 8601 date-string (per api-payload-contracts.md §Tier 1 (cont.): Plan-007)
 // --------------------------------------------------------------------------
 
 /**
- * The `protocolVersion` field type. Spec-007:54 declares an integer field;
- * api-payload-contracts.md:541-548 declares a string field. The substrate
- * accepts both runtime types and does not narrow per the BLOCKED-ON-C6
- * directive — Phase 3 handlers narrow once the canonical type lands.
- *
- * The schema accepts a finite number OR a non-empty bounded string. We do
- * not refine to e.g. semver-shape-validation here — the F-007p-2-10
- * negotiation algorithm operates on the raw runtime values; semver parsing
- * lives in the daemon-side runtime where the algorithm runs.
+ * The canonical regex for an ISO 8601 `YYYY-MM-DD` date-string. Exported
+ * so the substrate's envelope-level enforcement gate (Spec-007:54 per-
+ * request `protocolVersion` field, see `local-ipc-gateway.ts#dispatchFrame`)
+ * shares the EXACT shape that `ProtocolVersionSchema` validates inside
+ * `daemon.hello` payloads — a single source of truth prevents drift
+ * between the wire-frame gate (substrate) and the negotiation handler
+ * (registry). The Zod schema below wraps this regex; do not redeclare it.
  */
-export const ProtocolVersionSchema: z.ZodType<number | string> = z.union([
-  z.number().int().nonnegative(),
-  z.string().min(1).max(NEGOTIATION_FIELD_MAX_LEN),
-]);
+export const PROTOCOL_VERSION_REGEX: RegExp = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * The `protocolVersion` field type — ISO 8601 `YYYY-MM-DD` date-string per
+ * api-payload-contracts.md §Tier 1 (cont.): Plan-007 (BL-102 ratified
+ * 2026-05-01). The regex (`PROTOCOL_VERSION_REGEX`) enforces the calendar-
+ * date shape; the F-007p-2-10 negotiation algorithm uses lex-sort over
+ * conforming strings (lex order ≡ chronological for ISO 8601), so no
+ * semver parser is needed.
+ */
+export const ProtocolVersionSchema: z.ZodString = z.string().regex(PROTOCOL_VERSION_REGEX);
 
 // --------------------------------------------------------------------------
 // DaemonHello (client → daemon)
@@ -165,7 +168,11 @@ const NegotiationFreeFormString = z.string().min(1).max(NEGOTIATION_FIELD_MAX_LE
 export const DaemonHelloSchema: z.ZodType<DaemonHello> = z
   .object({
     protocolVersion: ProtocolVersionSchema,
-    supportedProtocols: z.array(ProtocolVersionSchema).max(SUPPORTED_PROTOCOLS_MAX_LEN).optional(),
+    supportedProtocols: z
+      .array(ProtocolVersionSchema)
+      .min(1)
+      .max(SUPPORTED_PROTOCOLS_MAX_LEN)
+      .optional(),
     clientId: NegotiationFreeFormString.optional(),
     capabilities: z.array(NegotiationFreeFormString).max(SUPPORTED_PROTOCOLS_MAX_LEN).optional(),
   })
@@ -178,10 +185,8 @@ export const DaemonHelloSchema: z.ZodType<DaemonHello> = z
  * `readonly`-keyed shape we want consumers to see.
  */
 export interface DaemonHello {
-  // BLOCKED-ON-C6 — narrows to one of `number` / `string` when canonical
-  // type lands.
-  readonly protocolVersion: number | string;
-  readonly supportedProtocols?: ReadonlyArray<number | string>;
+  readonly protocolVersion: string;
+  readonly supportedProtocols?: ReadonlyArray<string>;
   readonly clientId?: string;
   readonly capabilities?: ReadonlyArray<string>;
 }
@@ -194,20 +199,19 @@ export interface DaemonHello {
  * Discriminated reason field for an INCOMPATIBLE handshake. F-007p-2-10
  * distinguishes "client too old" (`version.floor_exceeded`) from "client too
  * new" (`version.ceiling_exceeded`). The reason ALSO surfaces if the
- * handshake fired twice on the same connection (`handshake_already_completed`)
- * — the conservative "fail-second" posture.
+ * handshake fired twice on the same connection
+ * (`protocol.handshake_already_completed`) — the conservative "fail-second"
+ * posture.
  *
- * BLOCKED-ON-C7 — these strings are a CONSERVATIVE INLINE form. When
- * error-contracts.md §Plan-007 lands the canonical project dotted-namespace
- * code table, the union narrows to the canonical strings (likely the same
- * shape, possibly different prefix). Test code asserting on these strings
- * remains valid because the inline form is a strict subset of any
- * post-C-7 expansion.
+ * Strings ratified at error-contracts.md §JSON-RPC Wire Mapping (BL-103
+ * closed 2026-05-01). All three are dotted-namespace project codes and
+ * surface as `DaemonHelloAck.reason` (NOT as a JSON-RPC numeric — the
+ * Ack itself is a successful response that carries `compatible: false`).
  */
 export const NEGOTIATION_REASON_FLOOR_EXCEEDED = "version.floor_exceeded" as const;
 export const NEGOTIATION_REASON_CEILING_EXCEEDED = "version.ceiling_exceeded" as const;
 export const NEGOTIATION_REASON_HANDSHAKE_ALREADY_COMPLETED =
-  "handshake_already_completed" as const;
+  "protocol.handshake_already_completed" as const;
 
 export type NegotiationIncompatibleReason =
   | typeof NEGOTIATION_REASON_FLOOR_EXCEEDED
@@ -232,9 +236,9 @@ export type NegotiationIncompatibleReason =
  *
  * Optional fields:
  *   * `reason` — populated only when `compatible: false`. Names the
- *     specific failure mode (floor/ceiling/repeated-handshake). BLOCKED-ON-C7
- *     transitional shape; canonical project dotted-namespace strings land
- *     when error-contracts.md §Plan-007 resolves.
+ *     specific failure mode (floor/ceiling/repeated-handshake) per the
+ *     canonical dotted-namespace strings ratified at error-contracts.md
+ *     §JSON-RPC Wire Mapping (BL-103 closed 2026-05-01).
  *   * `serverCapabilities` — opaque tag list mirroring the client's
  *     `capabilities`. Phase 3 handlers populate; Tier 1 substrate emits an
  *     empty array if no capabilities are advertised.
@@ -270,10 +274,8 @@ export const DaemonHelloAckSchema: z.ZodType<DaemonHelloAck> = z
  */
 export interface DaemonHelloAck {
   readonly compatible: boolean;
-  // BLOCKED-ON-C6 — narrows to one of `number` / `string` when canonical
-  // type lands.
-  readonly protocolVersion: number | string;
+  readonly protocolVersion: string;
   readonly reason?: NegotiationIncompatibleReason;
   readonly serverCapabilities?: ReadonlyArray<string>;
-  readonly daemonSupportedProtocols?: ReadonlyArray<number | string>;
+  readonly daemonSupportedProtocols?: ReadonlyArray<string>;
 }

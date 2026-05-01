@@ -45,11 +45,10 @@
 //   from `@ai-sidekicks/contracts`) so the name resolves to the consumer
 //   shape at the call site.
 //
-// BLOCKED-ON-C6 — `protocolVersion` is parameterized over `number | string`
-// per the audit directive; mirrors the same parameterization in
-// `JsonRpcRequest.protocolVersion` at the contracts layer. When
-// api-payload-contracts.md §Plan-007 declares the canonical type, this
-// union narrows in place.
+// `protocolVersion` is an ISO 8601 `YYYY-MM-DD` date-string per
+// api-payload-contracts.md §Tier 1 (cont.): Plan-007 (BL-102 ratified
+// 2026-05-01); mirrors the narrowed `JsonRpcRequest.protocolVersion` at
+// the contracts layer.
 
 import type {
   HandlerContext,

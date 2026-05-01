@@ -37,8 +37,9 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { Handler, HandlerContext } from "@ai-sidekicks/contracts";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts";
 
-import { mapJsonRpcError, JsonRpcErrorCode } from "../jsonrpc-error-mapping.js";
+import { mapJsonRpcError } from "../jsonrpc-error-mapping.js";
 import {
   isCanonicalMethodName,
   MethodRegistryImpl,
@@ -183,13 +184,12 @@ describe("W-007p-2-T7 — method-not-found namespace isolation", () => {
     const envelope = mapJsonRpcError(err, 7);
     expect(envelope.error.code).toBe(JsonRpcErrorCode.MethodNotFound);
     expect(envelope.id).toBe(7);
-    // The substrate-carry `data.registryCode` exposes the discriminator
-    // for downstream observability per
-    // jsonrpc-error-mapping.ts:275-289.
-    const data = envelope.error.data;
-    if (data !== null && typeof data === "object") {
-      expect((data as Record<string, unknown>)["registryCode"]).toBe("method_not_found");
-    }
+    // Two-layer envelope per error-contracts.md §JSON-RPC Wire Mapping
+    // (BL-103 closed 2026-05-01): the registry's stable string code
+    // projects into `data.type` so downstream observability can
+    // discriminate on the canonical project identifier without parsing
+    // the human-readable message.
+    expect(envelope.error.data).toEqual({ type: "method_not_found" });
   });
 
   it("`has(method)` returns true for registered names and false for unregistered", () => {

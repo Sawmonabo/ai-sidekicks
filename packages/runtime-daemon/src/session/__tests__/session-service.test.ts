@@ -67,7 +67,7 @@ function makeCreatedEvent(): AppendableEvent {
   };
 }
 
-function makeMembershipJoinedEvent(sequence: number, monotonicNs: bigint): AppendableEvent {
+function makeMembershipCreatedEvent(sequence: number, monotonicNs: bigint): AppendableEvent {
   return {
     id: `01J0EV0001NN5J5J5J5J5J5J0${sequence.toString()}`,
     sessionId: SESSION_ID,
@@ -75,7 +75,7 @@ function makeMembershipJoinedEvent(sequence: number, monotonicNs: bigint): Appen
     occurredAt: "2026-04-27T12:01:00.000Z",
     monotonicNs,
     category: "membership_change",
-    type: "membership.joined",
+    type: "membership.created",
     actor: OWNER_ID,
     // `role` is required by `MembershipRoleSchema` per the contracts —
     // the projection mirrors the full wire union (`MembershipRole` in
@@ -155,7 +155,7 @@ describe("SessionService — D2 (replay reads events by sequence ASC)", () => {
     // order; the canonical ordering is established by the read path's
     // ORDER BY sequence ASC.
     const created: AppendableEvent = makeCreatedEvent();
-    const joined: AppendableEvent = makeMembershipJoinedEvent(1, 2_000_000_000n);
+    const joined: AppendableEvent = makeMembershipCreatedEvent(1, 2_000_000_000n);
     const channel: AppendableEvent = makeChannelCreatedEvent(
       2,
       3_000_000_000n,
@@ -204,7 +204,7 @@ describe("SessionService — D3 (replay uses sequence not monotonic_ns)", () => 
     // data; sequence is the canonical replay key. Replay MUST produce
     // sequence=[0, 1, 2] regardless of monotonic_ns clock skew.
     const e0: AppendableEvent = { ...makeCreatedEvent(), monotonicNs: 5_000_000_000n };
-    const e1: AppendableEvent = makeMembershipJoinedEvent(1, 1_000_000_000n);
+    const e1: AppendableEvent = makeMembershipCreatedEvent(1, 1_000_000_000n);
     const e2: AppendableEvent = makeChannelCreatedEvent(
       2,
       3_000_000_000n,
@@ -288,7 +288,7 @@ describe("SessionService — D4 (snapshot survives daemon restart)", () => {
   it("yields identical projection after closing and reopening the database file", () => {
     // First "process": create session, add a member and a channel.
     const created: AppendableEvent = makeCreatedEvent();
-    const joined: AppendableEvent = makeMembershipJoinedEvent(1, 2_000_000_000n);
+    const joined: AppendableEvent = makeMembershipCreatedEvent(1, 2_000_000_000n);
     const channel: AppendableEvent = makeChannelCreatedEvent(
       2,
       3_000_000_000n,

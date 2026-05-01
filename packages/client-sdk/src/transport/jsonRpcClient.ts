@@ -54,9 +54,9 @@
 //     receive numeric error codes and surface them as a typed
 //     `JsonRpcRemoteError` with `code` / `message` / optional `data`.
 //
-// BLOCKED-ON-C6 — `protocolVersion` is parameterized over `number | string`
-// per the audit directive; mirrors the same parameterization in
-// `JsonRpcRequest.protocolVersion`.
+// `protocolVersion` is an ISO 8601 `YYYY-MM-DD` date-string per
+// api-payload-contracts.md §Tier 1 (cont.): Plan-007 (BL-102 ratified
+// 2026-05-01); mirrors the narrowed `JsonRpcRequest.protocolVersion`.
 
 import type {
   JsonRpcId,
@@ -78,60 +78,16 @@ import type { ZodType } from "zod";
 import type { ClientTransport, LocalSubscription } from "./types.js";
 
 // --------------------------------------------------------------------------
-// JsonRpcErrorCode — JSON-RPC 2.0 numeric error codes (mirror of daemon-side)
-// --------------------------------------------------------------------------
-
-/**
- * JSON-RPC 2.0 spec reserved numeric error codes (per
- * https://www.jsonrpc.org/specification §5.1 "Error object"). The SDK
- * declares these locally rather than importing from `@ai-sidekicks/runtime-
- * daemon` — the SDK package deliberately depends ONLY on
- * `@ai-sidekicks/contracts` per the Tier 1 dependency direction (clients
- * depend on contracts; never on the daemon).
- *
- * The five values mirror `JsonRpcErrorCode` in
- * `packages/runtime-daemon/src/ipc/jsonrpc-error-mapping.ts` lines 102-114
- * verbatim. A future amendment that promotes this constant to
- * `@ai-sidekicks/contracts` (so daemon and SDK share one declaration) is
- * tracked under BLOCKED-ON-C7 — until the canonical project dotted-namespace
- * code table lands, the JSON-RPC numerics are duplicated across the two
- * sides for dependency-direction hygiene.
- *
- *   * `-32700 ParseError` — Invalid JSON received by the server.
- *   * `-32600 InvalidRequest` — Envelope is not a valid JSON-RPC Request.
- *   * `-32601 MethodNotFound` — Method does not exist / is not available.
- *   * `-32602 InvalidParams` — Invalid method parameter(s).
- *   * `-32603 InternalError` — Internal JSON-RPC error.
- *
- * BLOCKED-ON-C7: when error-contracts.md §Plan-007 lands, a single
- * canonical declaration in `@ai-sidekicks/contracts` replaces both the
- * daemon-side and SDK-side copies; the imports here flip in place.
- */
-export const JsonRpcErrorCode = {
-  ParseError: -32700,
-  InvalidRequest: -32600,
-  MethodNotFound: -32601,
-  InvalidParams: -32602,
-  InternalError: -32603,
-} as const;
-
-/**
- * Type alias for the JSON-RPC numeric error code value space. Test code
- * pattern-matches on the numeric without taking a runtime dependency on the
- * `JsonRpcErrorCode` named-constant object.
- */
-export type JsonRpcErrorCodeValue = (typeof JsonRpcErrorCode)[keyof typeof JsonRpcErrorCode];
-
-// --------------------------------------------------------------------------
 // Typed error classes
 // --------------------------------------------------------------------------
 
 /**
  * Thrown by the SDK when the daemon returns a JSON-RPC error response. The
- * `code` is the JSON-RPC numeric (one of the values in `JsonRpcErrorCode`,
- * or a project-extended code once BLOCKED-ON-C7 resolves), `message` is
- * the daemon-sanitized human-readable string (per I-007-8), and `data` is
- * the optional supplementary structured value.
+ * `code` is the JSON-RPC numeric (one of the values in
+ * `JsonRpcErrorCode` from `@ai-sidekicks/contracts`), `message` is the
+ * daemon-sanitized human-readable string (per I-007-8), and `data` is the
+ * optional structured `{ type, fields? }` envelope per
+ * error-contracts.md §JSON-RPC Wire Mapping (BL-103 closed 2026-05-01).
  *
  * Distinct from `JsonRpcSchemaError` — this class wraps the wire's `error`
  * branch (the daemon's I-007-8 path), while `JsonRpcSchemaError` flags
@@ -463,21 +419,34 @@ function completeSubscriptionWithError<T>(state: SubscriptionState<T>, error: Er
  * field; the type stays open for additive extension (telemetry hooks,
  * default-timeout configuration, request-context decorators) at later
  * phases.
- *
- * BLOCKED-ON-C6 — `protocolVersion` narrows to one of `number` / `string`
- * when api-payload-contracts.md §Plan-007 declares the canonical type.
  */
 export interface JsonRpcClientOptions {
   /**
    * The protocol version attached to every outgoing JSON-RPC request
    * envelope per Spec-007:54 ("every request except health checks must
-   * carry it"). Phase 3 attaches the value to every request unconditionally
-   * — the daemon's substrate accepts both `number` and `string` runtime
-   * shapes per BLOCKED-ON-C6, so a permissive emitter is safe. When
-   * undefined, the field is OMITTED from the envelope (no `undefined`
-   * carry per `exactOptionalPropertyTypes: true`).
+   * carry it"). ISO 8601 `YYYY-MM-DD` date-string per
+   * api-payload-contracts.md §Tier 1 (cont.): Plan-007 (BL-102 ratified
+   * 2026-05-01).
+   *
+   * REQUIRED — the daemon's substrate gate (Fix #4 in
+   * `packages/runtime-daemon/src/ipc/local-ipc-gateway.ts#dispatchFrame`)
+   * rejects every non-handshake envelope missing or carrying a malformed
+   * `protocolVersion` with `-32600 InvalidRequest /
+   * transport.invalid_protocol_version`. The SDK's TypeScript surface
+   * therefore mirrors the wire contract: callers MUST advertise a version
+   * at construction. There is intentionally no library-side default —
+   * the protocol version is NEGOTIATED via `daemon.hello`
+   * (`packages/contracts/src/jsonrpc-negotiation.ts`), not contracts-level
+   * state, so a canonical fallback would mask missed handshakes.
+   *
+   * Pre-handshake bootstrap convention: callers send `daemon.hello` with
+   * their preferred / highest-supported version and use the daemon's
+   * `DaemonHelloAck.protocolVersion` for the rest of the session. The
+   * substrate exempts `daemon.hello` from envelope-level enforcement, so
+   * the value advertised on the handshake call itself is don't-care
+   * (the negotiation parameter rides in `params.protocolVersion`).
    */
-  readonly protocolVersion?: number | string;
+  readonly protocolVersion: string;
 }
 
 /**
@@ -488,7 +457,7 @@ export interface JsonRpcClientOptions {
  * Usage shape (Phase 5 `sessionClient.ts` consumer):
  *   ```typescript
  *   const transport = await openLocalIpcTransport(socketPath);
- *   const client = new JsonRpcClient(transport, { protocolVersion: 1 });
+ *   const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
  *   const session = await client.call(
  *     "session.create",
  *     payload,
@@ -505,16 +474,16 @@ export interface JsonRpcClientOptions {
  */
 export class JsonRpcClient {
   readonly #transport: ClientTransport;
-  readonly #protocolVersion: number | string | undefined;
+  readonly #protocolVersion: string;
   readonly #pending = new Map<JsonRpcId, PendingRequest>();
   readonly #subscriptions = new Map<string, SubscriptionState<unknown>>();
   #nextId = 1;
   #closed = false;
   #closeReason: Error | undefined = undefined;
 
-  public constructor(transport: ClientTransport, opts?: JsonRpcClientOptions) {
+  public constructor(transport: ClientTransport, opts: JsonRpcClientOptions) {
     this.#transport = transport;
-    this.#protocolVersion = opts?.protocolVersion;
+    this.#protocolVersion = opts.protocolVersion;
 
     // Register inbound dispatcher exactly once per transport.
     transport.onMessage((msg) => {
@@ -867,15 +836,18 @@ export class JsonRpcClient {
   }
 
   #buildRequestEnvelope(id: JsonRpcId, method: string, params: unknown): JsonRpcRequest {
-    // Conditional spread for `params` (a request MAY omit `params` per
-    // spec §4) and `protocolVersion` (omitted when constructor opts did
-    // not carry one) per `exactOptionalPropertyTypes: true`.
+    // Conditional spread for `params` only (a request MAY omit `params`
+    // per spec §4). `protocolVersion` is REQUIRED at construction (Fix #6
+    // — see `JsonRpcClientOptions.protocolVersion` JSDoc for rationale)
+    // so it always appears on the envelope. The substrate's
+    // `daemon.hello` exemption handles the bootstrap-handshake case
+    // where the version on the wire is don't-care.
     const envelope: JsonRpcRequest = {
       jsonrpc: JSONRPC_VERSION,
       id,
       method,
+      protocolVersion: this.#protocolVersion,
       ...(params !== undefined ? { params } : {}),
-      ...(this.#protocolVersion !== undefined ? { protocolVersion: this.#protocolVersion } : {}),
     };
     return envelope;
   }

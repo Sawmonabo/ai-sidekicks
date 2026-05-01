@@ -373,7 +373,7 @@ export interface SessionJoinRequest {
 // limited to ASCII whitespace + NUL byte — preempting Plan-018's grammar
 // choices at the wire layer would be wrong (see `wireFreeFormString` rationale).
 //
-// Re-used by `event.ts`'s `membership.joined` payload schema, so future
+// Re-used by `event.ts`'s `membership.created` payload schema, so future
 // tightening at this single site applies consistently to both surfaces.
 export const IDENTITY_HANDLE_MAX_LEN = 64;
 export const IdentityHandleSchema: z.ZodString = wireFreeFormString(

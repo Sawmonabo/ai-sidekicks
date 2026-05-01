@@ -6,7 +6,7 @@
 // V1 event coverage (mirrors @ai-sidekicks/contracts §V1 SessionEvent):
 //   * session.created       — bootstrap session + owner membership +
 //                             main channel (synthesized from defaults)
-//   * membership.joined     — append membership row
+//   * membership.created     — append membership row
 //   * channel.created       — append channel row
 //
 // D1 contract: a single `session.created` event MUST yield a snapshot
@@ -181,8 +181,8 @@ export function projectEvent(
       throw new Error(
         `projectEvent: 'session.created' may only appear at sequence=0 (got sequence=${String(event.sequence)})`,
       );
-    case "membership.joined":
-      return applyMembershipJoined(snapshot, event);
+    case "membership.created":
+      return applyMembershipCreated(snapshot, event);
     case "channel.created":
       return applyChannelCreated(snapshot, event);
     default:
@@ -206,7 +206,7 @@ function bootstrapFromCreated(event: StoredEvent): DaemonSessionSnapshot {
   // (per `packages/contracts/src/event.ts:239`), and the canonical
   // `session.created` payload comment at
   // `packages/contracts/src/event.ts:289-301` is explicit:
-  //   "The owner participant is conveyed via the membership.joined event
+  //   "The owner participant is conveyed via the membership.created event
   //    that follows."
   // i.e. on the wire, `session.created.actor` may legitimately be null
   // (system-emitted) and the owner's identity arrives in the `membership.
@@ -221,7 +221,7 @@ function bootstrapFromCreated(event: StoredEvent): DaemonSessionSnapshot {
   //
   // So: when `actor` is a non-empty string, synthesize the owner row (the
   // Plan-001 pre-IPC shortcut). When `actor` is null or empty, return
-  // memberships=[] — the subsequent `membership.joined` event populates
+  // memberships=[] — the subsequent `membership.created` event populates
   // owner identity. This keeps the projector correct against the wire
   // contract today AND keeps the D1 fixture path (which sets `actor:
   // OWNER_ID`) working as Plan-001 intends.
@@ -263,17 +263,17 @@ function bootstrapFromCreated(event: StoredEvent): DaemonSessionSnapshot {
 }
 
 // --------------------------------------------------------------------------
-// membership.joined — appends a member (idempotent on participantId).
+// membership.created — appends a member (idempotent on participantId).
 // --------------------------------------------------------------------------
 
-function applyMembershipJoined(
+function applyMembershipCreated(
   snapshot: DaemonSessionSnapshot,
   event: StoredEvent,
 ): DaemonSessionSnapshot {
   const participantId: unknown = event.payload["participantId"];
   if (typeof participantId !== "string" || participantId.length === 0) {
     throw new Error(
-      `applyMembershipJoined: payload.participantId must be a non-empty string at sequence=${String(event.sequence)}`,
+      `applyMembershipCreated: payload.participantId must be a non-empty string at sequence=${String(event.sequence)}`,
     );
   }
   const role: MembershipRole = readRoleFromPayload(event);
@@ -295,7 +295,7 @@ function applyMembershipJoined(
   };
 }
 
-// `MembershipJoinedEvent.payload.role` is required and validated by the
+// `MembershipCreatedEvent.payload.role` is required and validated by the
 // contracts schema (`MembershipRoleSchema = z.enum(["owner", "viewer",
 // "collaborator", "runtime contributor"])`). Plan-001 PR #3 is upstream
 // of the IPC mapping seam (PR #5), so events arriving here originate from
@@ -312,7 +312,7 @@ function readRoleFromPayload(event: StoredEvent): MembershipRole {
   const role: unknown = event.payload["role"];
   if (typeof role !== "string" || !VALID_MEMBERSHIP_ROLES.has(role as MembershipRole)) {
     throw new Error(
-      `applyMembershipJoined: payload.role must be one of ${[...VALID_MEMBERSHIP_ROLES].join("|")} at sequence=${String(event.sequence)} (got ${typeof role === "string" ? `'${role}'` : typeof role})`,
+      `applyMembershipCreated: payload.role must be one of ${[...VALID_MEMBERSHIP_ROLES].join("|")} at sequence=${String(event.sequence)} (got ${typeof role === "string" ? `'${role}'` : typeof role})`,
     );
   }
   return role as MembershipRole;

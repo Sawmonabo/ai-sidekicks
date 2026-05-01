@@ -51,7 +51,7 @@ This spec covers transport choice, version negotiation, request and stream seman
 
 - The wire format is JSON-RPC 2.0 with LSP-style Content-Length framing (not newline-delimited). Each message is preceded by `Content-Length: <byte-count>\r\n\r\n`.
 - Maximum message size: 1 MB.
-- Every request (except health checks) must include a `protocolVersion` integer field.
+- Every request (except health checks) must include a `protocolVersion` field carrying an ISO 8601 date-string in `YYYY-MM-DD` form (per §Tier 1 (cont.): Plan-007 ratification in [api-payload-contracts.md](../architecture/contracts/api-payload-contracts.md)).
 - Serialization: JSON via `JSON.stringify`/`JSON.parse`. No binary serialization.
 - The client SDK in `packages/client-sdk/` wraps JSON-RPC in a thin typed Zod layer (~500-1000 LOC), following the MCP TypeScript SDK pattern.
 

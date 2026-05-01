@@ -7,7 +7,7 @@
 // projection as the projector applied at append time).
 //
 // Coverage shape:
-//   • For each V1 variant (session.created, membership.joined, channel.created):
+//   • For each V1 variant (session.created, membership.created, channel.created):
 //       - parse a wire-shaped fixture, JSON-serialize it, JSON-parse it,
 //         re-parse through the schema — assert deep equality with the input
 //   • Discriminator dispatch is correct (parsed.type narrows the payload)
@@ -66,13 +66,13 @@ const buildSessionCreated = () => ({
   },
 });
 
-const buildMembershipJoined = () => ({
+const buildMembershipCreated = () => ({
   id: "evt-0002",
   sessionId: SESSION_ID,
   sequence: 1,
   occurredAt: "2026-01-22T19:14:36.000Z",
   category: "membership_change" as const,
-  type: "membership.joined" as const,
+  type: "membership.created" as const,
   actor: PARTICIPANT_ID,
   correlationId: "req-001",
   version: VERSION,
@@ -100,17 +100,17 @@ const buildChannelCreated = () => ({
 });
 
 describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
-  it("registers exactly the V1 subset (session.created, membership.joined, channel.created)", () => {
+  it("registers exactly the V1 subset (session.created, membership.created, channel.created)", () => {
     expect(SESSION_EVENT_TYPES).toEqual([
       "session.created",
-      "membership.joined",
+      "membership.created",
       "channel.created",
     ]);
   });
 
   it.each([
     ["session.created", buildSessionCreated],
-    ["membership.joined", buildMembershipJoined],
+    ["membership.created", buildMembershipCreated],
     ["channel.created", buildChannelCreated],
   ] as const)("round-trips %s through JSON without loss", (label, build) => {
     const original = build();
@@ -145,12 +145,12 @@ describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
   });
 
   it("rejects payload smuggling across discriminator branches", () => {
-    // session.created envelope but with a membership.joined payload shape.
+    // session.created envelope but with a membership.created payload shape.
     // Because each variant uses `.strict()` the wrong-shape payload must
     // be rejected (no silent reinterpretation).
     const sessionCreated = buildSessionCreated();
-    const membershipJoined = buildMembershipJoined();
-    const broken = { ...sessionCreated, payload: membershipJoined.payload };
+    const membershipCreated = buildMembershipCreated();
+    const broken = { ...sessionCreated, payload: membershipCreated.payload };
     const result = SessionEventSchema.safeParse(broken);
     expect(result.success).toBe(false);
   });
@@ -183,7 +183,7 @@ describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
 
   it.each([
     ["session.created", buildSessionCreated, "session_lifecycle"],
-    ["membership.joined", buildMembershipJoined, "membership_change"],
+    ["membership.created", buildMembershipCreated, "membership_change"],
     ["channel.created", buildChannelCreated, "session_lifecycle"],
   ] as const)("emits the canonical category %s -> %s", (label, build, expected) => {
     // Round-trip parse pin: each variant carries its declared canonical
@@ -246,6 +246,7 @@ describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
       "recovery_events",
       "participant_lifecycle",
       "audit_integrity",
+      "security_events",
       "event_maintenance",
       "policy_events",
     ];

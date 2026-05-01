@@ -43,10 +43,10 @@
 //     T-007p-2-1 (`local-ipc-gateway.ts`). This module wraps the registry
 //     dispatch surface; the gateway is unaware of the wrap.
 //   * JSON-RPC numeric error code mapping for negotiation refusal — owned
-//     by T-007p-2-2 (`jsonrpc-error-mapping.ts`). Negotiation-refusal
-//     `NegotiationError` throws collapse to `-32603 InternalError` at the
-//     substrate boundary until C-7 lands the canonical mapping
-//     (BLOCKED-ON-C7).
+//     by T-007p-2-2 (`jsonrpc-error-mapping.ts`). The dispatcher
+//     discriminates `instanceof NegotiationError` and projects
+//     `negotiationCode` into `error.data.type` per error-contracts.md
+//     §JSON-RPC Wire Mapping (BL-103 closed 2026-05-01).
 //
 // Architectural shape — gate-as-wrapper (NOT gate-as-function):
 //   This module exports a `ProtocolNegotiator` class whose `wrap(registry)`
@@ -57,19 +57,6 @@
 //   inside `#dispatchFrame`, so it must wrap the registry that gateway
 //   already injects. The bootstrap orchestrator constructs the negotiator,
 //   wraps the registry, and passes the wrapped instance to the gateway.
-//
-// BLOCKED-ON-C6 — `protocolVersion: number | string` parameterization is
-// inherited from the contracts package's `DaemonHello` / `DaemonHelloAck`
-// shapes. This module's negotiation algorithm operates on the runtime
-// types and does NOT narrow.
-//
-// BLOCKED-ON-C7 — every place where a project dotted-namespace error code
-// would normally land carries a `// BLOCKED-ON-C7` comment marking the
-// mechanical replacement site. Until error-contracts.md §Plan-007 lands,
-// gate-refusal errors collapse to `-32603 InternalError` at
-// `mapJsonRpcError`; the canonical mapping table replaces the inline
-// `NegotiationError` throws with the table-driven dotted-namespace code at
-// C-7-land time.
 
 import type {
   DaemonHello,
@@ -95,21 +82,21 @@ import {
 // --------------------------------------------------------------------------
 
 /**
- * The protocol versions THIS daemon build can speak. Tier 1 ships exactly
- * one (`1`); future amendments add additional versions as the JSON-RPC
- * envelope shape evolves.
+ * The protocol versions THIS daemon build can speak. V1 ships exactly
+ * one (`"2026-05-01"`); future amendments append further ISO 8601
+ * `YYYY-MM-DD` strings as the JSON-RPC envelope shape evolves.
  *
- * The list is daemon-internal — clients learn the daemon's full set via the
- * `DaemonHelloAck.daemonSupportedProtocols` field on a refused handshake.
+ * The list is daemon-internal — clients learn the daemon's full set via
+ * the `DaemonHelloAck.daemonSupportedProtocols` field on a refused
+ * handshake.
  *
- * Stored as a `readonly number[]` rather than `readonly string[]` because
- * the canonical wire-shape per Spec-007:54 is integer (BLOCKED-ON-C6 for
- * the parametric reading; the substrate accepts both runtime types). The
- * negotiation algorithm uses numeric `Math.max` against the intersection;
- * cross-form comparison (number ↔ string) yields the empty intersection
- * per the documented convention in `intersectAndMax`.
+ * Stored as `readonly string[]` per the BL-102 ratification at
+ * api-payload-contracts.md §Tier 1 (cont.): Plan-007 (2026-05-01). The
+ * negotiation algorithm uses lex-sort to find the max version — ISO 8601
+ * lex order ≡ chronological order — so no separate semver parser is
+ * needed.
  */
-export const DAEMON_SUPPORTED_PROTOCOL_VERSIONS: readonly number[] = [1];
+export const DAEMON_SUPPORTED_PROTOCOL_VERSIONS: readonly string[] = ["2026-05-01"];
 
 // --------------------------------------------------------------------------
 // NegotiationError — gate-refusal failure surface
@@ -121,51 +108,59 @@ export const DAEMON_SUPPORTED_PROTOCOL_VERSIONS: readonly number[] = [1];
  * inside a successful `DaemonHelloAck` envelope) — these codes are for
  * gate-refusal THROWS, not for handshake-completion ACKs.
  *
- *   * `"pre_handshake_mutating_refused"` — a mutating method was dispatched
+ *   * `"protocol.handshake_required"` — a mutating method was dispatched
  *     before any `daemon.hello` completed on this connection. I-007-1
  *     fail-closed enforcement: the gate refuses rather than letting the
- *     dispatch flow through to the registry.
- *   * `"version_mismatch_mutating_refused"` — a mutating method was
- *     dispatched after a `daemon.hello` that yielded `compatible: false`.
+ *     dispatch flow through to the registry. Maps to JSON-RPC `-32600`
+ *     per error-contracts.md §JSON-RPC Wire Mapping.
+ *   * `"protocol.version_mismatch"` — a mutating method was dispatched
+ *     after a `daemon.hello` that yielded `compatible: false`.
  *     Spec-007:67-68 enforcement: read-only methods continue working;
- *     mutating methods are blocked until versions are compatible.
+ *     mutating methods are blocked until versions are compatible. Maps
+ *     to JSON-RPC `-32600` per error-contracts.md §JSON-RPC Wire Mapping.
  *
- * BLOCKED-ON-C7 — when error-contracts.md §Plan-007 lands the canonical
- * project dotted-namespace code table, these strings are replaced by the
- * canonical equivalents (likely `version.mutating_refused` and
- * `protocol.handshake_required`). Test code asserting on these codes
- * remains valid because the inline form is a strict subset of any post-C-7
- * expansion (we keep the same code, possibly add a canonical alias).
+ * Both strings are the canonical project dotted-namespace identifiers
+ * registered at error-contracts.md §JSON-RPC Wire Mapping (BL-103 closed
+ * 2026-05-01); `mapJsonRpcError` projects `negotiationCode` directly into
+ * the JSON-RPC envelope's `error.data.type`.
  */
-export type NegotiationErrorCode =
-  | "pre_handshake_mutating_refused"
-  | "version_mismatch_mutating_refused";
+export type NegotiationErrorCode = "protocol.handshake_required" | "protocol.version_mismatch";
 
 /**
  * Error thrown from the gate-as-wrapper's `dispatch` proxy when a mutating
  * method is refused. The throw flows out of the wrapped registry's
- * `dispatch()`, through the gateway's `mapJsonRpcError`, and reaches the
- * wire as `-32603 InternalError` at Tier 1 (BLOCKED-ON-C7 transitional
- * shape — when the canonical mapping table lands, the discriminator at
- * `mapJsonRpcError` adds an explicit `instanceof NegotiationError` branch
- * that selects the correct numeric code).
+ * `dispatch()` and reaches `mapJsonRpcError`, which discriminates
+ * `instanceof NegotiationError` and projects `negotiationCode` into
+ * `error.data.type` (and `fields`, when present, into `error.data.fields`)
+ * per error-contracts.md §JSON-RPC Wire Mapping.
  *
  * Subclassing `Error`:
  *   * `name` is set so stack traces / `instanceof` discrimination works
  *     uniformly across the daemon's error-handling surfaces. Mirrors the
  *     pattern in `RegistryDispatchError` and `FramingError`.
- *   * `negotiationCode` is a stable string consumers compare against
- *     without parsing `message`.
+ *   * `negotiationCode` is the canonical project dotted-namespace
+ *     identifier consumers compare against without parsing `message`.
+ *   * `fields` carries optional structured detail (e.g. `{ reason }` for
+ *     `protocol.version_mismatch` so observers can correlate the prior
+ *     handshake's incompatibility reason).
  *   * `message` is human-readable, includes the offending method name,
  *     and is safe to print to operator logs (no secrets, no path leaks).
  */
 export class NegotiationError extends Error {
   readonly negotiationCode: NegotiationErrorCode;
+  readonly fields?: Record<string, unknown>;
 
-  constructor(negotiationCode: NegotiationErrorCode, message: string) {
+  constructor(
+    negotiationCode: NegotiationErrorCode,
+    message: string,
+    fields?: Record<string, unknown>,
+  ) {
     super(message);
     this.name = "NegotiationError";
     this.negotiationCode = negotiationCode;
+    if (fields !== undefined) {
+      this.fields = fields;
+    }
   }
 }
 
@@ -180,7 +175,7 @@ export class NegotiationError extends Error {
  * Three states (advisor-pinned simplification — no `handshake-pending`):
  *
  *   * `"pre"` — no `daemon.hello` has yet completed for this connection.
- *     Mutating dispatch is refused with `pre_handshake_mutating_refused`;
+ *     Mutating dispatch is refused with `protocol.handshake_required`;
  *     the only method that escapes is `daemon.hello` itself (registered
  *     with `mutating: false`).
  *   * `"done-compatible"` — a `daemon.hello` completed and the daemon
@@ -189,7 +184,7 @@ export class NegotiationError extends Error {
  *     does not refuse.
  *   * `"done-incompatible"` — a `daemon.hello` completed but the daemon
  *     could not find a compatible protocol version. Mutating dispatch is
- *     refused with `version_mismatch_mutating_refused`; read-only
+ *     refused with `protocol.version_mismatch`; read-only
  *     dispatches continue to flow through (Spec-007:67-68).
  *
  * State transitions:
@@ -220,11 +215,11 @@ export type NegotiationState =
   | { readonly kind: "pre" }
   | {
       readonly kind: "done-compatible";
-      readonly negotiatedProtocolVersion: number | string;
+      readonly negotiatedProtocolVersion: string;
     }
   | {
       readonly kind: "done-incompatible";
-      readonly preferredProtocolVersion: number | string;
+      readonly preferredProtocolVersion: string;
       readonly reason: NegotiationIncompatibleReason;
     };
 
@@ -236,8 +231,8 @@ export type NegotiationState =
  * Result of the F-007p-2-10 negotiation algorithm against a `DaemonHello`
  * payload. Three shapes:
  *
- *   * `{ kind: "compatible", negotiated }` — `max(client ∩ daemon)` is
- *     defined; `negotiated` is that value.
+ *   * `{ kind: "compatible", negotiated }` — lex-max of `client ∩ daemon`
+ *     is defined; `negotiated` is that value.
  *   * `{ kind: "floor", daemonPreferred }` — every client-advertised
  *     version is BELOW the daemon's lowest supported version. Client too
  *     old. The daemon's preferred version is the highest the daemon
@@ -246,20 +241,14 @@ export type NegotiationState =
  *     version is ABOVE the daemon's highest supported version. Client too
  *     new.
  *
- * Cross-form convention (advisor-pinned): `number` only intersects
- * `number`; `string` only intersects `string`. A client advertising
- * `["1"]` against a daemon supporting `[1]` produces an empty intersection
- * — discriminated as `"floor"` because string-form versions cannot be
- * compared numerically against integer-form versions and the daemon's
- * conservative posture treats "uncomparable" as "client too old to
- * understand the daemon's preferred form". When C-6 lands the canonical
- * `protocolVersion` type, the cross-form ambiguity disappears and this
- * function narrows.
+ * All values are ISO 8601 `YYYY-MM-DD` date-strings per the BL-102
+ * ratification (api-payload-contracts.md §Tier 1 (cont.): Plan-007).
+ * Comparisons rely on lex order ≡ chronological order.
  */
 type NegotiationOutcome =
-  | { readonly kind: "compatible"; readonly negotiated: number | string }
-  | { readonly kind: "floor"; readonly daemonPreferred: number }
-  | { readonly kind: "ceiling"; readonly daemonPreferred: number };
+  | { readonly kind: "compatible"; readonly negotiated: string }
+  | { readonly kind: "floor"; readonly daemonPreferred: string }
+  | { readonly kind: "ceiling"; readonly daemonPreferred: string };
 
 /**
  * Run the F-007p-2-10 negotiation algorithm against a `DaemonHello` and
@@ -268,71 +257,41 @@ type NegotiationOutcome =
  * Algorithm (per F-007p-2-10):
  *   1. Build the client's advertised set: `supportedProtocols` if present,
  *      else fall back to a singleton `[protocolVersion]`.
- *   2. Filter to numeric entries; cross-form (string) entries are
- *      discarded per the convention above.
- *   3. Intersect with `DAEMON_SUPPORTED_PROTOCOL_VERSIONS`.
- *   4. If non-empty: return `Math.max(intersection)` as compatible.
- *   5. If empty: discriminate floor (max(client) < min(daemon)) vs
- *      ceiling (min(client) > max(daemon)).
+ *   2. Intersect with `DAEMON_SUPPORTED_PROTOCOL_VERSIONS`.
+ *   3. If non-empty: return the lex-max of the intersection as compatible.
+ *   4. If empty: discriminate floor (lex-max(client) < lex-min(daemon))
+ *      vs ceiling (lex-max(client) >= lex-min(daemon) but no overlap).
  *
- * The daemon's preferred version on refusal is the highest the daemon
- * supports — `Math.max(DAEMON_SUPPORTED_PROTOCOL_VERSIONS)` — surfaced to
- * the client via the ack.
+ * The daemon's preferred version on refusal is the lex-max of the daemon's
+ * supported set, surfaced to the client via the ack so the client can
+ * decide whether to retry against a different version.
+ *
+ * ISO 8601 `YYYY-MM-DD` lex order is identical to chronological order, so
+ * `[...].sort().at(-1)!` is the max-version primitive — no separate
+ * semver parser is required. Schema validation upstream guarantees every
+ * advertised string conforms to the regex and `supportedProtocols` (when
+ * present) carries at least one entry.
  */
 function negotiateProtocol(hello: DaemonHello): NegotiationOutcome {
   const daemonSupported = DAEMON_SUPPORTED_PROTOCOL_VERSIONS;
-  // Cast to mutable for spread-into-Math.max; the array itself is not
-  // mutated. `as readonly number[]` is preserved at the binding level.
-  // Math.max argument type accepts (...values: number[]).
-  const daemonMax = Math.max(...daemonSupported);
-  const daemonMin = Math.min(...daemonSupported);
+  const daemonSorted = [...daemonSupported].sort();
+  const daemonMin = daemonSorted.at(0)!;
+  const daemonMax = daemonSorted.at(-1)!;
 
-  // Step 1: build client-advertised set with singleton fallback.
-  // `supportedProtocols` is optional per the contract; when absent,
-  // `protocolVersion` itself is the singleton.
-  const clientAdvertised: ReadonlyArray<number | string> =
+  const clientAdvertised: ReadonlyArray<string> =
     hello.supportedProtocols !== undefined ? hello.supportedProtocols : [hello.protocolVersion];
 
-  // Step 2: filter to numeric entries. Cross-form (string) entries are
-  // discarded per the cross-form convention. If every advertised entry
-  // is non-numeric, `clientNumeric` is empty — falls through to the
-  // floor/ceiling discrimination as "client below daemon's lowest" by
-  // the conservative convention.
-  const clientNumeric: number[] = [];
-  for (const v of clientAdvertised) {
-    if (typeof v === "number" && Number.isFinite(v) && v >= 0) {
-      clientNumeric.push(v);
-    }
-  }
-
-  if (clientNumeric.length === 0) {
-    // No comparable client versions. The conservative posture is to treat
-    // this as `floor_exceeded` ("client too old to speak the daemon's
-    // numeric protocol version"). The client receives the daemon's
-    // preferred version and can retry with a numeric value.
-    return { kind: "floor", daemonPreferred: daemonMax };
-  }
-
-  // Step 3: intersect with daemon-supported.
-  const daemonSet = new Set(daemonSupported);
-  const intersection = clientNumeric.filter((v) => daemonSet.has(v));
+  const daemonSet = new Set<string>(daemonSupported);
+  const intersection = clientAdvertised.filter((v) => daemonSet.has(v));
 
   if (intersection.length > 0) {
-    // Step 4: max-of-intersection is the negotiated version.
-    return { kind: "compatible", negotiated: Math.max(...intersection) };
+    return { kind: "compatible", negotiated: [...intersection].sort().at(-1)! };
   }
 
-  // Step 5: empty intersection. Discriminate floor vs ceiling on the
-  // client's MAX advertised version against the daemon's MIN/MAX.
-  const clientMax = Math.max(...clientNumeric);
+  const clientMax = [...clientAdvertised].sort().at(-1)!;
   if (clientMax < daemonMin) {
     return { kind: "floor", daemonPreferred: daemonMax };
   }
-  // clientMax >= daemonMin AND no overlap means clientMin > daemonMax
-  // (every client version is above the daemon's range). Catches the
-  // ceiling case AND any pathological mixed range that has no overlap
-  // (which the conservative convention treats as ceiling — the client
-  // is advertising versions newer than this daemon understands).
   return { kind: "ceiling", daemonPreferred: daemonMax };
 }
 
@@ -430,7 +389,7 @@ class WrappedRegistry implements MethodRegistry {
         const state = this.#negotiator.getState(transportId);
         if (state.kind === "pre") {
           throw new NegotiationError(
-            "pre_handshake_mutating_refused",
+            "protocol.handshake_required",
             // Sanitization at the gateway boundary covers any path leak
             // that might enter via `method`; here the only inputs are the
             // method name string (developer-supplied) and a static
@@ -440,8 +399,9 @@ class WrappedRegistry implements MethodRegistry {
         }
         if (state.kind === "done-incompatible") {
           throw new NegotiationError(
-            "version_mismatch_mutating_refused",
+            "protocol.version_mismatch",
             `protocol-negotiation: mutating method ${JSON.stringify(method)} refused because the connection's prior handshake was incompatible (reason=${JSON.stringify(state.reason)}; per Spec-007:67-68)`,
+            { reason: state.reason },
           );
         }
         // state.kind === "done-compatible" → pass through.
@@ -562,14 +522,17 @@ export class ProtocolNegotiator {
    */
   registerHandshakeMethod(registry: MethodRegistry): void {
     const handler: Handler<DaemonHello, DaemonHelloAck> = async (params, ctx) => {
-      // Per the advisor-pinned contract: `daemon.hello` MUST require
-      // ctx.transportId. No transport id means the call originated from
-      // direct test code with no per-connection state to track — refuse
-      // explicitly so a test misconfiguration surfaces as a clear
-      // failure rather than silently corrupting the negotiator's map.
+      // `daemon.hello` MUST require ctx.transportId. A missing transport
+      // id means the call originated from direct test code (or a daemon-
+      // bootstrap bug) — neither is a client protocol violation, so we
+      // throw a plain Error which `mapJsonRpcError` collapses to `-32603
+      // InternalError` (the honest mapping for a substrate-internal
+      // invariant violation per error-contracts.md §JSON-RPC Wire
+      // Mapping). Refuse explicitly so the misconfiguration surfaces as
+      // a clear failure rather than silently corrupting the negotiator's
+      // map.
       if (ctx.transportId === undefined) {
-        throw new NegotiationError(
-          "pre_handshake_mutating_refused",
+        throw new Error(
           `${DAEMON_HELLO_METHOD}: handler requires ctx.transportId (per-connection negotiation state requires a transport identity)`,
         );
       }
@@ -633,16 +596,11 @@ export class ProtocolNegotiator {
       this.#states.set(transportId, newState);
       // The ack surfaces `daemonSupportedProtocols` so the client can
       // decide whether to abort or retry against a different version.
-      // The `as readonly (number | string)[]` widens the daemon-internal
-      // `readonly number[]` to the contract's `ReadonlyArray<number |
-      // string>` shape; the runtime values are unchanged.
       return {
         compatible: false,
         protocolVersion: outcome.daemonPreferred,
         reason,
-        daemonSupportedProtocols: DAEMON_SUPPORTED_PROTOCOL_VERSIONS as ReadonlyArray<
-          number | string
-        >,
+        daemonSupportedProtocols: DAEMON_SUPPORTED_PROTOCOL_VERSIONS,
       };
     };
 

@@ -75,12 +75,12 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 ## Event Taxonomy Coverage
 
-Plan-006 owns the **120-event type registry across 18 categories** per [Spec-006 §Event Type Summary](../specs/006-session-event-taxonomy-and-audit-log.md). The 18 categories:
+Plan-006 owns the **123-event type registry across 19 categories** per [Spec-006 §Event Type Summary](../specs/006-session-event-taxonomy-and-audit-log.md). The 19 categories:
 
 | Category | Count | Emitter Plan |
 | --- | --- | --- |
 | `session_lifecycle` (session + channel/agent + repo/workspace/worktree) | 24 | [Plan-001](./001-shared-session-core.md) (7 `session.*`) + [Plan-016](./016-multi-agent-channels-and-orchestration.md) (6 `channel.*`/`agent.*`) + [Plan-009](./009-repo-attachment-and-workspace-binding.md) + [Plan-010](./010-worktree-lifecycle-and-execution-modes.md) (11 `repo.*`/`workspace.*`/`worktree.*`) |
-| `membership_change` (invite/membership + presence) | 12 | [Plan-002](./002-invite-membership-and-presence.md) |
+| `membership_change` (invite/membership + presence) | 13 | [Plan-002](./002-invite-membership-and-presence.md) (incl. `membership.created`) |
 | `channel_arbitration` | 2 | [Plan-016](./016-multi-agent-channels-and-orchestration.md) |
 | `run_lifecycle` | 9 | [Plan-004](./004-queue-steer-pause-resume.md) |
 | `interactive_request` (queue + intervention) | 11 | [Plan-004](./004-queue-steer-pause-resume.md) |
@@ -95,9 +95,10 @@ Plan-006 owns the **120-event type registry across 18 categories** per [Spec-006
 | `recovery_events` | 3 | [Plan-015](./015-persistence-recovery-and-replay.md) |
 | `participant_lifecycle` | 5 | [Plan-022](./022-data-retention-and-gdpr.md) |
 | `audit_integrity` | 3 | **Plan-006** (verifier + observer) |
+| `security_events` | 2 | [Plan-007](./007-local-ipc-and-daemon-control.md) (`security.default.override` Phase 1; `security.update.available` Tier 4) |
 | `event_maintenance` | 3 | **Plan-006** (compactor, schema-migration emitter, shred audit artifact) |
 | `policy_events` | 2 | V1.1 Cedar runtime bundle loader — see V1/V1.1 note below |
-| **Total** | **120** |  |
+| **Total** | **123** |  |
 
 Plan-006 is the canonical emitter for the two bold-faced categories above (6 event types):
 

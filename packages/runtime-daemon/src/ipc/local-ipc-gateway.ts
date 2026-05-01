@@ -51,9 +51,10 @@
 //     applies I-007-8 sanitization. The gateway DOES NOT reach into
 //     the discriminator branches itself — it only routes thrown values.
 //
-// BLOCKED-ON-C6 — `protocolVersion: number | string` parameterization is
-// inherited from `@ai-sidekicks/contracts`'s `JsonRpcRequest` shape; the
-// substrate accepts both runtime types and does not narrow.
+// `protocolVersion` ratified as ISO 8601 `YYYY-MM-DD` date-string at
+// api-payload-contracts.md §Tier 1 (cont.): Plan-007 (BL-102 closed
+// 2026-05-01). The substrate accepts the date-string form; non-conforming
+// shapes are rejected at schema-validation before reaching the gateway.
 
 import * as net from "node:net";
 
@@ -65,7 +66,11 @@ import type {
   JsonRpcResponse,
   MethodRegistry,
 } from "@ai-sidekicks/contracts";
-import { JSONRPC_VERSION } from "@ai-sidekicks/contracts";
+import {
+  ENVELOPE_PROTOCOL_VERSION_EXEMPT_METHODS,
+  JSONRPC_VERSION,
+  PROTOCOL_VERSION_REGEX,
+} from "@ai-sidekicks/contracts";
 
 import { assertLoadedForBind } from "../bootstrap/index.js";
 import { SecureDefaults } from "../bootstrap/secure-defaults.js";
@@ -200,15 +205,22 @@ export interface ParseFrameResult {
  * Parser/encoder errors. Distinct subclass of `Error` so the gateway can
  * discriminate framing violations from arbitrary thrown values inside the
  * supervision/disconnect path. Carries a `code` string for test
- * introspection; the JSON-RPC numeric mapping (`-32600` etc.) is T-2's
- * surface and does NOT live here.
+ * introspection and an optional `fields` payload for the throw sites that
+ * project structured detail through `mapJsonRpcError` into the JSON-RPC
+ * envelope's `error.data.fields` per error-contracts.md §JSON-RPC Wire
+ * Mapping (BL-103 closed 2026-05-01). The JSON-RPC numeric mapping
+ * (`-32600` etc.) is T-2's surface and does NOT live here.
  */
 export class FramingError extends Error {
   readonly code: string;
-  constructor(code: string, message: string) {
+  readonly fields?: Record<string, unknown>;
+  constructor(code: string, message: string, fields?: Record<string, unknown>) {
     super(message);
     this.name = "FramingError";
     this.code = code;
+    if (fields !== undefined) {
+      this.fields = fields;
+    }
   }
 }
 
@@ -282,10 +294,15 @@ export function parseFrame(buffer: Buffer): ParseFrameResult {
   if (declaredLength > MAX_MESSAGE_BYTES) {
     // F-007p-2-11 / F-007p-2-05: oversized-body rejection. Throw at the
     // parser boundary; the gateway converts to `oversized_body`
-    // disconnect.
+    // disconnect. The structured `fields` payload feeds
+    // `data.fields: { limit, observed }` per error-contracts.md
+    // §JSON-RPC Wire Mapping (`transport.message_too_large` row, HTTP
+    // 413 semantic — distinct from Spec-001's HTTP-429 quota code
+    // `resource.limit_exceeded`).
     throw new FramingError(
       "oversized_body",
       `parseFrame: declared body length ${declaredLength} exceeds ${MAX_MESSAGE_BYTES} byte limit`,
+      { limit: MAX_MESSAGE_BYTES, observed: declaredLength },
     );
   }
 
@@ -328,6 +345,7 @@ export function encodeFrame(envelope: JsonRpcMessage): Buffer {
     throw new FramingError(
       "oversized_body",
       `encodeFrame: encoded body length ${declaredLength} exceeds ${MAX_MESSAGE_BYTES} byte limit`,
+      { limit: MAX_MESSAGE_BYTES, observed: declaredLength },
     );
   }
 
@@ -521,6 +539,53 @@ export function sanitizeErrorMessage(value: unknown): string {
     }
   }
 
+  const sanitized = redactPathsFromString(raw);
+
+  if (sanitized.length > SANITIZED_MESSAGE_MAX_LEN) {
+    return `${sanitized.slice(0, SANITIZED_MESSAGE_MAX_LEN - "…[truncated]".length)}…[truncated]`;
+  }
+  return sanitized;
+}
+
+/**
+ * Path-shape redaction primitive: replaces Unix absolute paths, UNC
+ * paths, and Windows-drive paths with the literal `<redacted-path>`.
+ * Extracted from `sanitizeErrorMessage` so the I-007-8 enforcement
+ * regex set is shared between the `error.message` seam (single-string
+ * sanitization in `sanitizeErrorMessage`) and the `data.fields` seam
+ * (recursive structured-value sanitization in `jsonrpc-error-mapping.ts`'s
+ * `sanitizeFields`). Centralizing the regexes here keeps both surfaces
+ * auditable in one place — a future tightening of the path patterns
+ * (e.g. macOS `/Volumes/...` UNC-style mounts, or `nix store` paths)
+ * applies to both surfaces uniformly.
+ *
+ * Regex order is load-bearing: Unix first because `/`-anchor cannot
+ * collide with UNC's `\\` or Windows-drive's `[A-Za-z]:\\`; UNC second
+ * because its `\\\\` prefix is not matched by the drive-letter pattern;
+ * Windows-drive last. Each pattern accepts an optional `:line:col`
+ * trailer to handle stack-frame-shaped strings.
+ *
+ * Character classes are intentionally conservative: Unix uses
+ * `[A-Za-z0-9_.-]` (no spaces — Unix paths conventionally don't carry
+ * them, and a space terminates a path token); UNC host follows the
+ * same shape but UNC share/path segments use `[A-Za-z0-9_. -]` to
+ * tolerate `\\fs\Shared Drive\config.json`; Windows-drive segments
+ * likewise tolerate internal spaces (`C:\Program Files\bin.exe`).
+ *
+ * Non-throwing contract: pure regex `.replace` calls. Cannot throw for
+ * any string input. Idempotent: a string already containing
+ * `<redacted-path>` literals will not be re-replaced because the
+ * literal does not match any of the three patterns.
+ *
+ * ReDoS posture: each pattern's quantifier body is bounded by a
+ * character class, not a wildcard — `(?:\/[A-Za-z0-9_.-]+)+` matches
+ * disjoint segments of distinct character runs, so backtracking is
+ * linear in the input length. Pathological inputs like
+ * `'/'.repeat(N)` (where each `/` is followed by no characters in the
+ * class) terminate immediately because `[A-Za-z0-9_.-]+` requires at
+ * least one character after `/`.
+ */
+export function redactPathsFromString(input: string): string {
   // Unix absolute paths with optional `:line:col` suffix. The character
   // class is conservative: alphanumerics, `_`, `.`, `-`, `/` only. Stop
   // at whitespace, quotes, or any character that wouldn't legitimately
@@ -528,7 +593,7 @@ export function sanitizeErrorMessage(value: unknown): string {
   // leading-`/` anchor cannot collide with UNC's leading `\\` or the
   // Windows-drive `[A-Za-z]:\` anchor, and the regex is the most
   // common-case match by far.
-  let sanitized = raw.replace(/(?:\/[A-Za-z0-9_.-]+)+(?::\d+(?::\d+)?)?/g, "<redacted-path>");
+  let sanitized = input.replace(/(?:\/[A-Za-z0-9_.-]+)+(?::\d+(?::\d+)?)?/g, "<redacted-path>");
   // UNC paths: `\\host\share\path...`. Host segment is hostname-shape
   // (alphanumerics, `_`, `.`, `-` — no spaces in hostnames), but the
   // share + path segments after the first separator can contain spaces
@@ -550,10 +615,6 @@ export function sanitizeErrorMessage(value: unknown): string {
     /[A-Za-z]:\\(?:[A-Za-z0-9_. -]+\\?)+(?::\d+(?::\d+)?)?/g,
     "<redacted-path>",
   );
-
-  if (sanitized.length > SANITIZED_MESSAGE_MAX_LEN) {
-    return `${sanitized.slice(0, SANITIZED_MESSAGE_MAX_LEN - "…[truncated]".length)}…[truncated]`;
-  }
   return sanitized;
 }
 
@@ -1016,6 +1077,81 @@ export class LocalIpcGateway {
     }
     const requestId: JsonRpcId = isNotification ? null : extractIdSafely(envelope);
     const params = envelope["params"];
+
+    // Step 3.5: enforce per-request `protocolVersion` per Spec-007 §Wire
+    // Format line 54 (BL-102 ratified 2026-05-01). The substrate refuses
+    // dispatch BEFORE the handler runs (I-007-7 substrate-side: every
+    // request that reaches the registry MUST carry a wire-shape-valid
+    // `protocolVersion` field on the JSON-RPC envelope itself). The
+    // handshake (`daemon.hello`) is exempt because the negotiation
+    // parameter rides in `params.protocolVersion` (proposed primary) /
+    // `params.supportedProtocols` (full set) — by definition the
+    // envelope-level field cannot exist before the handshake completes.
+    // The exempt set is canonical at
+    // `packages/contracts/src/jsonrpc.ts` `ENVELOPE_PROTOCOL_VERSION_EXEMPT_METHODS`.
+    //
+    // Ordering rationale: this gate fires AFTER Step 3 (id-shape) so
+    // that structural-envelope violations (id wrong type) surface their
+    // own `invalid_envelope` data.type rather than this gate's
+    // `invalid_protocol_version`. A future refactor MUST NOT reorder
+    // these — the malformed-id regression test (RT-codex-1 finding #2)
+    // depends on id-shape rejecting first; reordering would change
+    // the surfaced `data.type` for `{ id: {}, ...no protocolVersion }`
+    // envelopes silently.
+    //
+    // Wire-shape: the gate fires three discriminated reasons
+    // (`missing` / `wrong_type` / `invalid_format`) carried in
+    // `data.fields.reason`. The actual offending VALUE is NOT echoed
+    // back — `wrong_type` includes a JS-typeof tag (`"object"`,
+    // `"number"`, `"boolean"`) so observability can reason without
+    // surfacing client-supplied content. Note: a JSON `null` arrives
+    // as `typeof null === "object"`, which we classify under
+    // `wrong_type` (not `missing`) — the field is PRESENT but not a
+    // string, mirroring the JSON-Schema `null !== absent` distinction.
+    //
+    // Notification path: per JSON-RPC §4.1 the server MUST NOT respond
+    // to notifications. A notification with a malformed protocolVersion
+    // field is therefore dropped silently, with the violation surfaced
+    // through the supervision `onError` hook (mirroring the dispatch-
+    // path notification handling at lines 1107-1126 below). The
+    // `state.disposed` early-return preserves the supervision contract
+    // "every onError(transport, ...) is followed by exactly one
+    // onDisconnect(transport, reason) for the same transport id" — if
+    // the peer disconnected before this branch fires, the onDisconnect
+    // already ran and surfacing onError now would dangle.
+    if (!ENVELOPE_PROTOCOL_VERSION_EXEMPT_METHODS.has(methodCandidate)) {
+      const pvCandidate = envelope["protocolVersion"];
+      let pvReason: "missing" | "wrong_type" | "invalid_format" | null = null;
+      let pvObservedType: string | null = null;
+      if (pvCandidate === undefined) {
+        pvReason = "missing";
+      } else if (typeof pvCandidate !== "string") {
+        pvReason = "wrong_type";
+        pvObservedType = pvCandidate === null ? "null" : typeof pvCandidate;
+      } else if (!PROTOCOL_VERSION_REGEX.test(pvCandidate)) {
+        pvReason = "invalid_format";
+      }
+      if (pvReason !== null) {
+        const fields: Record<string, unknown> =
+          pvObservedType !== null
+            ? { reason: pvReason, observedType: pvObservedType }
+            : { reason: pvReason };
+        const wrapped = new FramingError(
+          "invalid_protocol_version",
+          `invalid JSON-RPC envelope: protocolVersion ${pvReason} (Spec-007:54)`,
+          fields,
+        );
+        if (isNotification) {
+          if (state.disposed) return;
+          if (this.#hooks !== null) {
+            this.#hooks.onError(state.transport, wrapped);
+          }
+          return;
+        }
+        this.#sendEnvelope(state, mapJsonRpcError(wrapped, requestId));
+        return;
+      }
+    }
 
     // Step 4: dispatch through the registry. The registry's
     // `dispatch()` returns a `Promise<unknown>` that resolves with

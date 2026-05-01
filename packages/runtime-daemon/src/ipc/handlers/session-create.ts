@@ -115,7 +115,7 @@ export interface SessionCreateDeps {
  *
  * Mutating flag: `mutating: true`. `session.create` is the canonical
  * domain mutation — it appends a `session.created` event, materializes
- * a session row, and emits a `membership.joined` event for the
+ * a session row, and emits a `membership.created` event for the
  * creator. The pre-handshake mutating-op gate refuses dispatch on a
  * connection whose `daemon.hello` exchange has not completed
  * compatibly (per Plan-007 Phase 2's `ProtocolNegotiator`); the gate

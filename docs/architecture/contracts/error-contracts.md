@@ -18,6 +18,91 @@ interface ErrorResponse {
 }
 ```
 
+This shape is the **HTTP/control-plane** envelope (tRPC + REST surfaces). Local IPC traffic uses the JSON-RPC wire envelope declared in §JSON-RPC Wire Mapping below — the dotted-namespace `code` from this envelope rides as `data.type` on the JSON-RPC side. The two surfaces share the same project code registry (§Error Codes); only the framing differs.
+
+---
+
+## JSON-RPC Wire Mapping
+
+Local IPC traffic (Plan-007 daemon ↔ in-tree clients) frames errors per [JSON-RPC 2.0 §5.1](https://www.jsonrpc.org/specification#error_object), which structurally requires `code` to be a Number. The dotted-namespace identifier (the canonical project code in §Error Codes below) rides in `data.type` per the [RFC 7807 Problem Details](https://datatracker.ietf.org/doc/html/rfc7807) precedent for structured error responses and the [LSP 3.17 ResponseError](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#responseError) field convention. This section closes BL-103 and the BLOCKED-ON-C7 markers in Plan-007 Phase 2.
+
+### Numeric Code Space (per JSON-RPC 2.0 §5.1)
+
+| Numeric code | JSON-RPC name  | Triggered by                                                   |
+| ------------ | -------------- | -------------------------------------------------------------- |
+| `-32700`     | ParseError     | Frame body is not valid JSON                                   |
+| `-32600`     | InvalidRequest | JSON parses but envelope is not a valid JSON-RPC Request shape |
+| `-32601`     | MethodNotFound | Method is not registered against the dispatcher                |
+| `-32602`     | InvalidParams  | Zod schema validation on `params` failed                       |
+| `-32603`     | InternalError  | Handler-thrown unhandled exception or programmer-error path    |
+
+The reserved range `-32768..-32000` is the JSON-RPC spec's prerogative; the project does NOT mint additional numeric codes inside that range. Project domain codes live as dotted-namespace strings in `data.type`.
+
+### Two-Layer Envelope Shape
+
+```ts
+interface JsonRpcErrorEnvelope {
+  readonly code: number; // one of the values above; the JSON-RPC §5.1 discriminator
+  readonly message: string; // human-readable; sanitized at I-007-8 boundary (no stack/secret leak)
+  readonly data?: {
+    readonly type: string; // dotted-namespace project code (e.g. "session.not_found")
+    readonly fields?: Record<string, unknown>;
+    // structured detail (e.g. { setting: "max_workers", value: -1 })
+  };
+}
+```
+
+The numeric `code` is the JSON-RPC spec-mandated discriminator. The `data.type` is the canonical project code — the same dotted-namespace strings the §Error Codes tables register. Consumers MUST discriminate on `data.type` (not on `message`) for project-level error handling; `code` is for JSON-RPC-level discrimination only.
+
+`data.fields` is optional structured detail. Producers MUST keep it free of sensitive content (no stack traces, no absolute paths, no secrets) per Plan-007 invariant I-007-8. The daemon's `mapJsonRpcError` substrate enforces I-007-8 a second time on the `data.fields` channel as defense-in-depth: every value passes through `sanitizeFields` (path redaction, length cap, JSON-unsafe value sentinels — `BigInt` / `NaN` / `Infinity` / `Symbol` / `Function` / circular references / hostile getters — and width / depth / node-count caps) before the envelope is serialized. Producer discipline remains primary; the substrate is the safety net that survives a future builder forgetting to redact.
+
+### Plan-007 Tier 1 Domain Identifiers
+
+| `data.type` | JSON-RPC `code` | Trigger |
+| --- | --- | --- |
+| `unknown_setting` | `-32602` | Bootstrap rejected an unrecognized SecureDefaults config key (per F-007p-1-2 + T-007p-1-4) |
+| `transport.unavailable` | `-32603` | Loopback-fallback transport requested without operator opt-in (per F-007p-2-09 Tier 1 conservative gate) |
+| `transport.message_too_large` | `-32600` | Inbound frame exceeded the 1MB body cap (per F-007p-2-05; the spec-required InvalidRequest classification per Plan-007:268 mapping). Distinct from Spec-001's `resource.limit_exceeded` (HTTP-429 domain quota saturation): a 413-semantic peer mis-framing of the wire layer. |
+| `transport.invalid_protocol_version` | `-32600` | Per-request envelope-level `protocolVersion` field violates Spec-007:54 (BL-102 ratified): missing, wrong type, or fails the ISO 8601 `YYYY-MM-DD` shape. The substrate gate at `local-ipc-gateway.ts#dispatchFrame` enforces per I-007-7 BEFORE handler dispatch; the handshake (`daemon.hello`) is exempt because the negotiation parameter rides in `params.protocolVersion`. Distinct from `protocol.version_mismatch` (NegotiationError, registry-side gate for incompatible negotiated versions on subsequent mutating ops): the wire-layer envelope shape gate fires once-per-frame, the registry-side gate fires once-per-incompatible-mutating-op. |
+
+`data.fields` shape per code:
+
+- `unknown_setting`: `{ setting: string, value: unknown }`
+- `transport.unavailable`: `{ requested: string, reason: string }`
+- `transport.message_too_large`: `{ limit: number, observed: number }`
+- `transport.invalid_protocol_version`: `{ reason: "missing" | "wrong_type" | "invalid_format", observedType?: string }` (`observedType` is the JS-typeof tag of the offending value, present only when `reason === "wrong_type"`; the offending VALUE itself is NOT echoed back so client-supplied content does not leak through observability)
+
+### Negotiation Refusals
+
+`NegotiationError` throws (the gate-refusal codes in `packages/runtime-daemon/src/ipc/protocol-negotiation.ts`) and `DaemonHelloAck.reason` strings (the handshake-incompatible reasons in `packages/contracts/src/jsonrpc-negotiation.ts`) all map through the same envelope. The reason strings are canonicalized to dotted-namespace form per BL-103 closure:
+
+| `data.type` | JSON-RPC `code` | Surface | Trigger |
+| --- | --- | --- | --- |
+| `version.floor_exceeded` | n/a (DaemonHelloAck.reason field) | DaemonHelloAck | Client below daemon's lex-min supported version |
+| `version.ceiling_exceeded` | n/a (DaemonHelloAck.reason field) | DaemonHelloAck | Client above daemon's lex-max supported version |
+| `protocol.handshake_already_completed` | n/a (DaemonHelloAck.reason field) | DaemonHelloAck | Second `daemon.hello` on a connection with latched outcome |
+| `protocol.handshake_required` | `-32600` | NegotiationError | Mutating dispatch attempted in `pre` state (I-007-1) |
+| `protocol.version_mismatch` | `-32600` | NegotiationError | Mutating dispatch attempted in `done-incompatible` state (Spec-007:67-68) |
+
+### Test-Side Discrimination
+
+Test code asserting on JSON-RPC error envelopes MUST discriminate on `data.type` for project-level expectations and on `code` for JSON-RPC-level expectations. The pre-BL-103 substrate's code-string-only assertion (T-007p-1-4 unknown_setting test) widens to full-envelope-shape assertion as part of BL-103 closure:
+
+```ts
+// pre-BL-103 (code-string only — BLOCKED-ON-C7 conservative shape)
+expect(caught.code).toBe("unknown_setting");
+
+// post-BL-103 (full envelope)
+expect(caught).toMatchObject({
+  code: -32602,
+  message: expect.stringContaining("unknown_setting"),
+  data: {
+    type: "unknown_setting",
+    fields: expect.objectContaining({ setting: expect.any(String) }),
+  },
+});
+```
+
 ---
 
 ## Error Codes
@@ -106,6 +191,16 @@ interface ErrorResponse {
 | `relay.connection_failed`     | Relay connection to the upstream service failed | 502         |
 | `relay.group_full`            | Relay group has reached its participant limit   | 429         |
 | `relay.authentication_failed` | Relay authentication failed                     | 401         |
+
+### Transport
+
+Wire-level codes describing peer mis-use of the framing/handshake layer. Distinct from §Resource (which describes domain-level quota saturation): a transport failure is a peer behaving incorrectly toward the protocol substrate, not a session/run/invite quota refusing additional creates.
+
+| Code | Description | HTTP Status |
+| --- | --- | --- |
+| `transport.unavailable` | Requested transport (e.g. loopback fallback) is not enabled for this daemon process per its conservative-default gate (Plan-007 F-007p-2-09) | 503 |
+| `transport.message_too_large` | Inbound frame's declared body length exceeded the 1MB cap, or daemon-side outbound build exceeded it (Plan-007 F-007p-2-05/F-007p-2-11). 413 semantic. | 413 |
+| `transport.invalid_protocol_version` | Per-request envelope-level `protocolVersion` field violates Spec-007:54 (BL-102 ratification): the field is missing, the wrong JS type, or fails the ISO 8601 `YYYY-MM-DD` shape. Substrate-side gate; fires BEFORE handler dispatch (I-007-7). Distinct from `version.floor_exceeded` / `version.ceiling_exceeded` (registry-side handshake-incompatibility) and from `protocol.version_mismatch` (registry-side mutating-op gate after handshake declared incompatible). 400 semantic. | 400 |
 
 ### Resource
 
