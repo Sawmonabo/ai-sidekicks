@@ -246,6 +246,7 @@ describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
       "recovery_events",
       "participant_lifecycle",
       "audit_integrity",
+      "security_events",
       "event_maintenance",
       "policy_events",
     ];

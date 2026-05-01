@@ -52,7 +52,7 @@ import {
 // EventCategory — canonical taxonomy enum.
 // --------------------------------------------------------------------------
 //
-// Mirrors api-payload-contracts.md lines 485–502 verbatim (15 categories).
+// Mirrors api-payload-contracts.md lines 485–502 verbatim (16 categories).
 // Spec-006 §523 specifies that `category` participates in the canonical-bytes
 // computation that backs the integrity protocol's BLAKE3 hash chain and
 // Ed25519 signature; producers MUST emit the category that matches the type's
@@ -85,6 +85,7 @@ export type EventCategory =
   | "recovery_events"
   | "participant_lifecycle"
   | "audit_integrity"
+  | "security_events"
   | "event_maintenance"
   | "policy_events";
 export const EventCategorySchema: z.ZodType<EventCategory> = z.enum([
@@ -101,6 +102,7 @@ export const EventCategorySchema: z.ZodType<EventCategory> = z.enum([
   "recovery_events",
   "participant_lifecycle",
   "audit_integrity",
+  "security_events",
   "event_maintenance",
   "policy_events",
 ]);
