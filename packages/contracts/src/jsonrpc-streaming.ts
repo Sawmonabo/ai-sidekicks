@@ -80,12 +80,14 @@
 //      composed `onDisconnect` hook — every subscription owned by the
 //      closed transport is dropped without further wire I/O.
 //
-// BLOCKED-ON-C6 — `subscriptionId` is a UUID-shaped branded type;
-// `crypto.randomUUID()` (Node 22.12+ native) emits RFC 9562 UUIDs
-// matching `z.uuid()`. The brand symbol convention follows session.ts
-// §Branded ID Types verbatim. When api-payload-contracts.md §Plan-007
-// declares the canonical streaming-id taxonomy, the brand string narrows
-// in place; consumers keep the same import lines.
+// Canonical source: this file. `subscriptionId` is a UUID-shaped
+// branded type; `crypto.randomUUID()` (Node 22.12+ native) emits
+// RFC 9562 UUIDs matching `z.uuid()`. The brand symbol convention
+// follows session.ts §Branded ID Types verbatim. Per BL-102 no-mirror
+// disposition, `api-payload-contracts.md` does not maintain a doc-side
+// mirror of this code-side typed surface; ADR-018 §Decision #1 (MINOR
+// widening) governs additive evolution if the brand string later
+// narrows in place — consumers keep the same import lines.
 
 import { z } from "zod";
 
@@ -105,11 +107,12 @@ import { z } from "zod";
  * `$/segment[/segment]*` shape; both `$/subscription/notify` and
  * `$/subscription/cancel` match.
  *
- * BLOCKED-ON-C6 — when api-payload-contracts.md §Plan-007 lands the
- * canonical streaming method-name table, replace this constant with the
- * imported canonical string. The conservative inline form is LSP-style per
- * F-007p-2-14 leaning, so a name accepted today remains accepted under
- * the canonical taxonomy.
+ * Canonical source: this file. Per BL-102 no-mirror disposition, the
+ * LSP-style streaming method-name taxonomy is canonical in code;
+ * api-payload-contracts.md does not maintain a doc-side mirror. The
+ * dotted-lowercase regex ratified at §JSON-RPC Method-Name Registry
+ * (lines 291-331) is intentionally limited to user-namespace methods
+ * and excludes the `$/`-prefixed system namespace by design.
  *
  * Important: this method is OUTBOUND-ONLY (server-emitted). The streaming
  * primitive does NOT register a handler for it on the inbound dispatch
@@ -135,7 +138,8 @@ export type SubscriptionNotifyMethod = typeof SUBSCRIPTION_NOTIFY_METHOD;
  * negotiation state. (T-007p-2-4 §registerHandshakeMethod JSDoc lines
  * 539-561 carries the canonical version of this argument.)
  *
- * BLOCKED-ON-C6 — same replacement plan as `SUBSCRIPTION_NOTIFY_METHOD`.
+ * Canonical source: this file (no-mirror disposition mirrors
+ * `SUBSCRIPTION_NOTIFY_METHOD` above).
  */
 export const SUBSCRIPTION_CANCEL_METHOD = "$/subscription/cancel" as const;
 export type SubscriptionCancelMethod = typeof SUBSCRIPTION_CANCEL_METHOD;

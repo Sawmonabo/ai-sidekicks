@@ -12,16 +12,17 @@
 // itself yields `tracked(cursor, event)` envelopes that tRPC turns into
 // SSE frames with `id: <cursor>` + `data: <serialized event>`.
 //
-// **BLOCKED-ON-C6** — the canonical wire frame is owned by api-payload-
-// contracts.md §Plan-008 (BL-102). The conservative inline values exported
-// from this file pin Phase 1 behavior; once C-6 ratifies, only this file
-// needs to update — both the factory and the consuming SDK pull from the
-// constants here.
+// SSE wire frame ratified per
+// docs/architecture/contracts/api-payload-contracts.md §SSE Wire Frame
+// (Tier 1 Ratified, lines 268-283): Content-Type text/event-stream; one
+// EventEnvelope per `data:` line as single-line JSON; `id:` carries
+// EventCursor; `retry: 5000`; heartbeat every 15s; tRPC fetch adapter
+// handles SSE natively per BL-104.
 //
 // Refs: docs/plans/008-control-plane-relay-and-session-join.md §I-008-3 #1,
 //       docs/plans/008-control-plane-relay-and-session-join.md §T-008b-1-3,
 //       docs/plans/008-control-plane-relay-and-session-join.md §CP-008-3,
-//       docs/architecture/contracts/api-payload-contracts.md §Tier 1 (Plan-008).
+//       docs/architecture/contracts/api-payload-contracts.md §SSE Wire Frame.
 
 import type { EventCursor, SessionEvent, SessionId } from "@ai-sidekicks/contracts";
 import type { TrackedEnvelope } from "@trpc/server";
@@ -38,8 +39,8 @@ export const SSE_HEARTBEAT_INTERVAL_MS = 15_000;
 /**
  * Initial-frame `retry:` hint sent to the EventSource client. 5 s gives
  * intermediary infrastructure time to recover before the client dials back
- * in; tRPC's stream consumer respects this on reconnect. Conservative inline
- * value — BLOCKED-ON-C6 ratification in api-payload-contracts.md.
+ * in; tRPC's stream consumer respects this on reconnect. Ratified per
+ * api-payload-contracts.md §SSE Wire Frame (Tier 1 Ratified, line 277).
  */
 export const SSE_RETRY_HINT_MS = 5_000;
 

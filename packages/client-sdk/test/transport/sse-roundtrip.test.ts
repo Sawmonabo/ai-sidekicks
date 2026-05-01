@@ -8,19 +8,13 @@
 // round-trips it against an in-process `buildControlPlaneFetchHandler`
 // instance.
 //
-// **BLOCKED-ON-C6 posture (per plan body §T-008b-1-5 line 222):** the SSE
-// wire-frame primitive (Content-Type, `data:` encoding, `id:`/`retry:`/
-// `Last-Event-ID` semantics, heartbeat cadence, end-of-stream marker)
-// awaits ratification in api-payload-contracts.md §Plan-008. Until then,
-// this test asserts on the conservative inline shape from T-008b-1-3 +
-// the tRPC v11.17.0 `sseStreamProducer` surface citations below. When C-6
-// resolves and ratifies a different shape, three assertion classes update
-// jointly: the four named-event branches in `sessionClientSubscribeStub`
-// (connected/ping/return/serialized-error), the tracked-envelope frame
-// shape (`{id, data}` / no `event:` field), and the per-event
-// `event.id` round-trip spot-checks. The schema-validate-at-consumer
-// posture (`SessionEventSchema.parse`) is load-bearing regardless of
-// frame shape and stays as-is.
+// SSE wire frame ratified per
+// docs/architecture/contracts/api-payload-contracts.md §SSE Wire Frame
+// (Tier 1 Ratified, lines 268-283): Content-Type text/event-stream; one
+// EventEnvelope per `data:` line as single-line JSON; `id:` carries
+// EventCursor; `retry: 5000`; heartbeat every 15s; tRPC fetch adapter
+// handles SSE natively per BL-104. The assertions below pin that shape
+// against the tRPC v11.17.0 `sseStreamProducer` surface citations.
 //
 // The round-trip exercise:
 //

@@ -470,14 +470,14 @@ export const SessionSubscribeRequestSchema: z.ZodType<
   })
   .strict();
 
-// BLOCKED-ON-C6 — the canonical `session.subscribe` response payload
-// shape will land in api-payload-contracts.md §Plan-007 alongside the
-// canonical method-name table. Today's conservative inline schema
-// carries only the `subscriptionId`; if the canonical shape adds
-// fields (e.g. an initial cursor echo, a server-replay-state marker)
-// it widens additively per ADR-018 §Decision #1 (MINOR widening), so
-// a response accepted today remains accepted under the canonical
-// taxonomy.
+// Canonical source: this file. Per BL-102 no-mirror disposition,
+// `api-payload-contracts.md` does not maintain a doc-side mirror of
+// code-side typed surfaces unless prose context for non-code readers
+// is required. Today's conservative inline schema carries only the
+// `subscriptionId`; if the shape later adds fields (e.g. an initial
+// cursor echo, a server-replay-state marker) it widens additively
+// per ADR-018 §Decision #1 (MINOR widening), so a response accepted
+// today remains accepted under any future evolution.
 export interface SessionSubscribeResponse {
   subscriptionId: SubscriptionId;
 }

@@ -49,12 +49,11 @@
 //   * Test coverage — owned by T-007p-3-4 (sibling task). This file is
 //     production code only.
 //
-// BLOCKED-ON-C6 — every `register` call site below carries a marker for the
-// canonical method-name format pending api-payload-contracts.md §Plan-007.
-// Today's conservative dotted-namespace strings (`"session.create"`, etc.)
-// match the regex enforced by `MethodRegistryImpl` and remain valid under
-// the canonical taxonomy (additive per ADR-018 §Decision #1); the marker
-// merely documents the future replacement site.
+// Method-name format ratified: dotted-lowercase per
+// docs/architecture/contracts/api-payload-contracts.md §JSON-RPC Method-Name
+// Registry (Tier 1 Ratified, lines 291-331). Canonical regex:
+// `/^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)+$/` — the `register` call site below
+// passes `"session.create"`, which matches.
 //
 // Pattern reference: `registerHandshakeMethod` in
 // `packages/runtime-daemon/src/ipc/protocol-negotiation.ts` lines 563-659 is
@@ -128,7 +127,6 @@ export function registerSessionCreate(registry: MethodRegistry, deps: SessionCre
     return deps.createSession(params);
   };
 
-  // BLOCKED-ON-C6: method-name canonical format pending api-payload-contracts.md §Plan-007
   registry.register(
     "session.create",
     SessionCreateRequestSchema,

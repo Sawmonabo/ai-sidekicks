@@ -31,10 +31,12 @@
 //     "invalid_params")`.
 //
 //   * I-007-9 — method names conform to the canonical format declared in
-//     api-payload-contracts.md §Plan-007. The runtime ships a
-//     CONSERVATIVE INLINE regex (see `METHOD_NAME_DOTTED_REGEX` +
-//     `METHOD_NAME_LSP_REGEX` below) until C-6 lands the canonical
-//     declaration. The regex check runs at `register()` time per I-007-9.
+//     docs/architecture/contracts/api-payload-contracts.md §JSON-RPC
+//     Method-Name Registry (Tier 1 Ratified, lines 291-331). The dotted-
+//     lowercase regex `/^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)+$/` is canonical;
+//     LSP-style `$/`-prefixed names remain enforced via a sibling regex
+//     pending a follow-up decision. The regex check runs at `register()`
+//     time per I-007-9.
 //
 // What this module does NOT do (deferred to sibling tasks):
 //   * JSON-RPC numeric error code mapping (`-32601` method not found,
@@ -50,13 +52,12 @@
 //     `isMutating(method)` for T-2-4 to consult; the registry itself does
 //     not refuse dispatch based on version state.
 //
-// BLOCKED-ON-C6 — `METHOD_NAME_DOTTED_REGEX` + `METHOD_NAME_LSP_REGEX`
-// are conservative inline regexes. When api-payload-contracts.md §Plan-007
-// lands the canonical method-name format taxonomy, replace the regexes
-// with the imported canonical pattern(s). The replacement is mechanical
-// (one constant per pattern; no call-site changes); the inline pattern is
-// designed to be a strict subset of the eventual canonical one so that
-// any name accepted today remains accepted tomorrow.
+// `METHOD_NAME_DOTTED_REGEX` is canonical per
+// docs/architecture/contracts/api-payload-contracts.md §JSON-RPC Method-Name
+// Registry (Tier 1 Ratified, lines 291-331). `METHOD_NAME_LSP_REGEX` enforces
+// the LSP-style `$/`-prefixed system-method shape used by the streaming
+// primitive (T-007p-2-5); the LSP shape is not addressed by the §Method-Name
+// Registry ratification and remains a separate follow-up.
 
 import type {
   Handler,
@@ -67,7 +68,7 @@ import type {
 } from "@ai-sidekicks/contracts";
 
 // --------------------------------------------------------------------------
-// Method-name format regexes (BLOCKED-ON-C6)
+// Method-name format regexes
 // --------------------------------------------------------------------------
 
 /**
@@ -81,12 +82,9 @@ import type {
  *   `sessionCreate` (no dot), `session/create` (slash separator),
  *   `session.` (trailing dot), `.create` (leading dot).
  *
- * BLOCKED-ON-C6: replace with the canonical pattern from
- * api-payload-contracts.md §Plan-007 once C-6 lands. The replacement is
- * a single-line edit — every consumer continues to call `register(...)`
- * unchanged. The conservative inline pattern is a strict subset of the
- * dotted-lowercase taxonomy F-007p-3-01 leans toward, so any name
- * accepted today remains accepted under the canonical pattern.
+ * Canonical regex per docs/architecture/contracts/api-payload-contracts.md
+ * §JSON-RPC Method-Name Registry (Tier 1 Ratified, lines 291-331):
+ * `/^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)+$/`.
  */
 const METHOD_NAME_DOTTED_REGEX = /^[a-z][a-z0-9]*(?:\.[a-z][a-z0-9]*)+$/;
 
@@ -110,18 +108,20 @@ const METHOD_NAME_DOTTED_REGEX = /^[a-z][a-z0-9]*(?:\.[a-z][a-z0-9]*)+$/;
  *   dollar), `$/Subscription/notify` (uppercase head), `$//notify`
  *   (empty segment).
  *
- * BLOCKED-ON-C6: same replacement plan as `METHOD_NAME_DOTTED_REGEX`.
+ * The LSP-style shape is not addressed by api-payload-contracts.md §JSON-RPC
+ * Method-Name Registry (which ratifies dotted-lowercase only); whether the
+ * LSP form remains accepted, gets re-homed under a separate namespace, or is
+ * subsumed into a unified canonical taxonomy is a separate follow-up.
  */
 const METHOD_NAME_LSP_REGEX = /^\$\/[a-z][a-zA-Z0-9]*(?:\/[a-z][a-zA-Z0-9]*)*$/;
 
 /**
- * Test a method-name string against the conservative inline format
- * registry (BLOCKED-ON-C6). Returns `true` if the name matches EITHER
- * the dotted-lowercase pattern OR the LSP `$/`-prefixed pattern.
- *
- * Centralized as a function (rather than inlined at the call site) so the
- * BLOCKED-ON-C6 replacement is a single-file edit. Exported only for
- * test reach — production callers go through `register()`.
+ * Test a method-name string against the registry's accepted shapes.
+ * Returns `true` if the name matches EITHER the canonical dotted-lowercase
+ * pattern (per api-payload-contracts.md §JSON-RPC Method-Name Registry,
+ * lines 291-331) OR the LSP `$/`-prefixed system-method pattern (separate
+ * follow-up). Exported only for test reach — production callers go through
+ * `register()`.
  */
 export function isCanonicalMethodName(method: string): boolean {
   return METHOD_NAME_DOTTED_REGEX.test(method) || METHOD_NAME_LSP_REGEX.test(method);
@@ -140,8 +140,9 @@ export function isCanonicalMethodName(method: string): boolean {
  *   * `"duplicate_method"` — I-007-6 enforcement: a second `register()`
  *     call with the same method name. Synchronous throw at register-time.
  *   * `"invalid_method_name"` — I-007-9 enforcement: the method-name
- *     string did not match the canonical regex (BLOCKED-ON-C6
- *     conservative inline form).
+ *     string did not match the canonical dotted-lowercase regex (per
+ *     api-payload-contracts.md §JSON-RPC Method-Name Registry, lines
+ *     291-331) OR the sibling LSP-style `$/`-prefixed regex.
  */
 export type RegistryRegistrationCode = "duplicate_method" | "invalid_method_name";
 
@@ -305,10 +306,7 @@ export class MethodRegistryImpl implements MethodRegistry {
     if (!isCanonicalMethodName(method)) {
       throw new RegistryRegistrationError(
         "invalid_method_name",
-        // BLOCKED-ON-C6 — the canonical format taxonomy is undeclared in
-        // api-payload-contracts.md §Plan-007; until then this message
-        // names the conservative inline regexes the runtime accepts.
-        `MethodRegistry.register: method name ${JSON.stringify(method)} does not match the conservative inline format regex (BLOCKED-ON-C6 — expected dotted-lowercase 'namespace.method' or LSP-style '$/segment[/segment]*' until api-payload-contracts.md §Plan-007 declares the canonical format)`,
+        `MethodRegistry.register: method name ${JSON.stringify(method)} does not match the canonical dotted-lowercase format 'namespace.method' (per api-payload-contracts.md §JSON-RPC Method-Name Registry) or the LSP-style '$/segment[/segment]*' system-method shape`,
       );
     }
 

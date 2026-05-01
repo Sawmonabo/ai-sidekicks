@@ -69,11 +69,13 @@
 //     exactly one consumer (the orchestrator), which makes the plumbing
 //     a one-line lambda.
 //
-// BLOCKED-ON-C6 — `subscriptionId` is a UUID string at runtime;
-// `crypto.randomUUID()` (Node 22.12+ native) emits RFC 9562 UUIDs that
-// match `SubscriptionIdSchema` (`z.uuid().brand<>()`). The brand symbol
-// convention follows session.ts §Branded ID Types verbatim; the contracts-
-// side schema enforces it.
+// `subscriptionId` is a UUID string at runtime; `crypto.randomUUID()`
+// (Node 22.12+ native) emits RFC 9562 UUIDs that match
+// `SubscriptionIdSchema` (`z.uuid().brand<>()`). The brand symbol
+// convention follows session.ts §Branded ID Types verbatim; the
+// contracts-side schema enforces it. Per BL-102 no-mirror disposition,
+// the brand is canonical in `packages/contracts/src/jsonrpc-streaming.ts`
+// and `api-payload-contracts.md` does not maintain a doc-side mirror.
 
 import type {
   Handler,

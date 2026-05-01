@@ -25,13 +25,13 @@
 //     IS the content contract that the Plan-026-owned banner consumer
 //     reads from.
 //
-// BLOCKED-ON-C6. The config + effective-settings shape below is the
-// audit-derived conservative inline contract. When
-// docs/architecture/contracts/api-payload-contracts.md §Plan-007 lands
-// the authoritative `SecureDefaults` schema, the inline interfaces are
-// replaced wholesale by imports from `@ai-sidekicks/contracts` (no
-// new abstractions or premature interfaces are introduced here in
-// anticipation of that pickup).
+// Canonical source: this file. Per BL-102 no-mirror disposition, the
+// `SecureDefaults` config + effective-settings shape is canonical in
+// code; api-payload-contracts.md does not maintain a doc-side mirror.
+// The interfaces below are the authoritative contract for the Tier 1
+// loopback-bind validation surface; Plan-007-remainder widens the
+// surface (Tier 4) by extending the schema additively per ADR-018
+// §Decision #1 (MINOR widening).
 //
 // What this module does NOT do (deferred):
 //   * Port-availability or interface-reachability probing (a listener
@@ -43,8 +43,7 @@
 //     `unknown_setting` per I-007-2 + I-007-5.
 
 // --------------------------------------------------------------------------
-// Inline contract types (BLOCKED-ON-C6 — replace with imported types when
-// api-payload-contracts.md §Plan-007 lands the authoritative schema).
+// Inline contract types — canonical source per BL-102 no-mirror disposition.
 // --------------------------------------------------------------------------
 
 /**

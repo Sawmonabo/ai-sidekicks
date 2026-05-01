@@ -26,10 +26,10 @@
 //     `-32602 Invalid Params` at the substrate boundary (T-007p-2-2's
 //     mapping).
 //   * I-007-9 — method names conform to the canonical format declared in
-//     api-payload-contracts.md §Plan-007. The runtime registry validates
-//     at register-time via a regex check. (BLOCKED-ON-C6 — the canonical
-//     format is undeclared; the runtime ships a conservative inline regex
-//     until C-6 lands.)
+//     docs/architecture/contracts/api-payload-contracts.md §JSON-RPC
+//     Method-Name Registry (Tier 1 Ratified, lines 291-331). The runtime
+//     registry validates at register-time via the canonical regex
+//     /^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)+$/.
 //
 // What this file does NOT define (deferred to sibling tasks):
 //   * The runtime registry class implementation (`MethodRegistry implements
@@ -169,8 +169,10 @@ export interface MethodRegistry {
    * Register a typed handler against a method name.
    *
    * @param method - The dotted-namespace method name (e.g. `session.create`).
-   *   Format is governed by I-007-9 + canonical regex (BLOCKED-ON-C6;
-   *   conservative inline regex in the runtime implementation).
+   *   Format is governed by I-007-9 + the canonical regex
+   *   /^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)+$/ ratified at
+   *   docs/architecture/contracts/api-payload-contracts.md §JSON-RPC
+   *   Method-Name Registry (lines 291-331).
    * @param paramsSchema - Zod schema validating the request `params`.
    *   Runs before handler dispatch (I-007-7).
    * @param resultSchema - Zod schema validating the handler's resolved

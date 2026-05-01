@@ -13,9 +13,11 @@
 //   * I-007-7 — schema validation runs BEFORE handler dispatch. Handler
 //     is NEVER invoked on a malformed payload — `safeParse` short-
 //     circuits dispatch with `RegistryDispatchError("invalid_params")`.
-//   * I-007-9 — method names conform to the canonical regex set
-//     (BLOCKED-ON-C6 conservative inline form;
-//     `METHOD_NAME_DOTTED_REGEX` ∪ `METHOD_NAME_LSP_REGEX`).
+//   * I-007-9 — method names conform to the canonical regex set:
+//     `METHOD_NAME_DOTTED_REGEX` (canonical per
+//     docs/architecture/contracts/api-payload-contracts.md §JSON-RPC
+//     Method-Name Registry, lines 291-331) ∪ `METHOD_NAME_LSP_REGEX`
+//     (LSP-style `$/`-prefixed; separate follow-up).
 //
 // W-tests covered here (per Plan-007 §Phase 2 lines 379-381):
 //   * W-007p-2-T7 — Method-not-found namespace-isolation. Invoking an
@@ -278,7 +280,7 @@ describe("I-007-6 — duplicate method registration rejected at register-time", 
 // I-007-9 — method-name format validation
 // ----------------------------------------------------------------------------
 
-describe("I-007-9 — method-name format validation (BLOCKED-ON-C6 conservative)", () => {
+describe("I-007-9 — method-name format validation", () => {
   // Exhaustive each-table over the dotted-lowercase + LSP-style accepts.
   const ACCEPTED = [
     "session.create",
