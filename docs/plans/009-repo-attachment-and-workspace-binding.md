@@ -41,7 +41,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - `packages/runtime-daemon/src/workspace/workspace-service.ts`
 - `packages/runtime-daemon/src/workspace/workspace-projector.ts`
 - `packages/client-sdk/src/repoClient.ts`
-- `apps/desktop/renderer/src/repo-attach/`
+- `apps/desktop/src/renderer/src/repo-attach/`
 
 ## Data And Storage Changes
 

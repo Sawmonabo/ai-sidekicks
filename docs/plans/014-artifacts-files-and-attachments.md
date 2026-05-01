@@ -43,7 +43,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - `packages/runtime-daemon/src/artifacts/payload-store.ts`
 - `packages/control-plane/src/artifacts/artifact-manifest-service.ts`
 - `packages/client-sdk/src/artifactClient.ts`
-- `apps/desktop/renderer/src/artifacts/`
+- `apps/desktop/src/renderer/src/artifacts/`
 
 ## Data And Storage Changes
 

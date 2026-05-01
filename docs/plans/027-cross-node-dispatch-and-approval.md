@@ -49,7 +49,7 @@ This plan covers the caller-side dispatch client, target-side dispatch intake an
 - `packages/runtime-daemon/src/events/` — emits Plan-006 `dispatch.*` events through the existing event writer.
 - `packages/control-plane/src/cross-node-dispatch/` — new control-plane coordination-row service and relay routing adapter.
 - `packages/client-sdk/src/crossNodeDispatchClient.ts` — typed SDK wrapper for caller-side and audit-verification reads.
-- `apps/desktop/renderer/src/cross-node-dispatch/` — target-owner approval surface added through the Plan-023 bridge.
+- `apps/desktop/src/renderer/src/cross-node-dispatch/` — target-owner approval surface added through the Plan-023 bridge.
 - `docs/architecture/contracts/api-payload-contracts.md` — extended by this plan with typed request/response shapes.
 - `docs/architecture/contracts/error-contracts.md` — extended by this plan with dispatch-specific rejection reasons.
 
@@ -80,7 +80,7 @@ This plan covers the caller-side dispatch client, target-side dispatch intake an
 6. Implement target-side execution adapter that dispatches only to declared capability handlers, aborts on caller-token expiry, emits the exact Spec-024 lifecycle, and signs results.
 7. Implement caller-side result verification, result observation events, and actionable failure surfaces for denied, rejected, expired, failed, and buffered dispatches.
 8. Implement detached-caller result buffering on the target daemon with the `caller_token.exp + 5 minutes` delivery window.
-9. Add desktop approval UI integration under `apps/desktop/renderer/src/cross-node-dispatch/`, routed only through the Plan-023 preload bridge.
+9. Add desktop approval UI integration under `apps/desktop/src/renderer/src/cross-node-dispatch/`, routed only through the Plan-023 preload bridge.
 10. Add audit/export verification that recomputes request hashes and verifies both caller and approver PASETO signatures.
 11. Extend API and error contract docs with final request/response/error shapes before marking implementation complete.
 

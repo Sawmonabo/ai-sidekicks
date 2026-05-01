@@ -41,8 +41,8 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - `packages/runtime-daemon/src/attention/attention-projector.ts`
 - `packages/runtime-daemon/src/attention/notification-emit-service.ts`
 - `packages/client-sdk/src/attentionClient.ts`
-- `apps/desktop/shell/src/notifications/`
-- `apps/desktop/renderer/src/attention/`
+- `apps/desktop/src/main/notifications/`
+- `apps/desktop/src/renderer/src/attention/`
 
 ## Data And Storage Changes
 

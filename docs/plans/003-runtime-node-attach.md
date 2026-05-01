@@ -95,7 +95,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - `packages/runtime-daemon/src/node/node-capability-service.ts`
 - `packages/control-plane/src/runtime-nodes/`
 - `packages/client-sdk/src/runtimeNodeClient.ts`
-- `apps/desktop/renderer/src/runtime-node-attach/`
+- `apps/desktop/src/renderer/src/runtime-node-attach/`
 
 ## Data And Storage Changes
 
@@ -126,19 +126,19 @@ The remaining 2 events in the `runtime_node_lifecycle` category — `session.clo
 ## Implementation Steps
 
 - Contracts: See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed schemas this plan consumes.
-- Steps 1–3 land at Tier 3 (Plan-003's canonical tier). Step 4 (renderer integration) is **blocked until Tier 8** because `apps/desktop/renderer/` does not exist until Plan-023 ships at Tier 8 — see [cross-plan-dependencies.md §2 `apps/desktop/renderer/` row](../architecture/cross-plan-dependencies.md#2-package-path-ownership-map) and §Execution Windows below. Plan-003 ships steps 1–3 at Tier 3; step 4 is added as a follow-up PR at Tier 8 once the renderer tree exists.
+- Steps 1–3 land at Tier 3 (Plan-003's canonical tier). Step 4 (renderer integration) is **blocked until Tier 8** because `apps/desktop/src/renderer/` does not exist until Plan-023 ships at Tier 8 — see [cross-plan-dependencies.md §2 `apps/desktop/src/renderer/` row](../architecture/cross-plan-dependencies.md#2-package-path-ownership-map) and §Execution Windows below. Plan-003 ships steps 1–3 at Tier 3; step 4 is added as a follow-up PR at Tier 8 once the renderer tree exists.
 
 1. **[Tier 3]** Define node contracts and migration shape.
 2. **[Tier 3]** Implement Local Runtime Daemon node registry and capability declaration service; emit the 7 `runtime_node.*` events above through the canonical session-event append path. Per §Invariants I-003-2, `runtime_node.online` MUST emit only after `runtime_node.capability_declared` succeeds. Per §Cross-Plan Obligations CP-003-1, events are shipped as event-shape stubs against the Plan-001 forward-declared integrity columns; Plan-006 at Tier 4 lands the verifier and the canonical writer.
 3. **[Tier 3]** Implement Collaboration Control Plane RuntimeNode attach and presence services. **Per [Spec-003 §Required Behavior line 53](../specs/003-runtime-node-attach.md#required-behavior):** at attach, the control plane MUST verify the daemon's reported version against the session's `min_client_version` floor. A NULL floor permits all daemons. A daemon below the floor MUST be admitted in read-only state — the daemon remains joined and may read session state, but any subsequent write attempt MUST return typed `VERSION_FLOOR_EXCEEDED` per [ADR-018 §Decision #4](../decisions/018-cross-version-compatibility.md). Ejection MUST NOT be the response to a floor mismatch (graceful degradation, not ejection — per §Invariants I-003-1).
-4. **[Tier 8 — blocked until Plan-023 ships]** Add desktop attach flow and session node roster UI under `apps/desktop/renderer/src/runtime-node-attach/` (per [cross-plan-dependencies.md §2 row for `apps/desktop/renderer/`](../architecture/cross-plan-dependencies.md#2-package-path-ownership-map)). This step lands as a follow-up PR sequenced after Plan-023.
+4. **[Tier 8 — blocked until Plan-023 ships]** Add desktop attach flow and session node roster UI under `apps/desktop/src/renderer/src/runtime-node-attach/` (per [cross-plan-dependencies.md §2 row for `apps/desktop/src/renderer/`](../architecture/cross-plan-dependencies.md#2-package-path-ownership-map)). This step lands as a follow-up PR sequenced after Plan-023.
 
 ## Execution Windows
 
 Plan-003's steps cross two execution tiers:
 
 - **Tier 3 window** (canonical Plan-003 tier): steps 1–3 ship as Phase sequence below. Surfaces all node-attach/capability/presence/version-floor behavior over the Plan-008-bootstrap Tier 1 substrate.
-- **Tier 8 window** (renderer follow-up): step 4 ships as a single PR after Plan-023 creates `apps/desktop/renderer/` at Tier 8. The renderer subtree at `apps/desktop/renderer/src/runtime-node-attach/` is the only deliverable in this window.
+- **Tier 8 window** (renderer follow-up): step 4 ships as a single PR after Plan-023 creates `apps/desktop/src/renderer/` at Tier 8. The renderer subtree at `apps/desktop/src/renderer/src/runtime-node-attach/` is the only deliverable in this window.
 
 Splitting prevents Plan-003 from being parked at Tier 3 waiting five tiers for the renderer to exist; the attach/capability semantics are the load-bearing surface and ship at Tier 3.
 
@@ -247,11 +247,11 @@ Plan-003 implementation lands as a sequence of small PRs. Tier 3 PRs ship steps 
 
 ### Phase 5 — Renderer (Tier 8 Follow-Up)
 
-**Precondition:** Plan-023 complete (`apps/desktop/renderer/` exists). Sequenced at Tier 8 per §Execution Windows above.
+**Precondition:** Plan-023 complete (`apps/desktop/src/renderer/` exists). Sequenced at Tier 8 per §Execution Windows above.
 
 **Goal:** Step 4 ships; manual two-client attach smoke passes (one client at floor, one below — verify both visible in roster, below-floor blocked on write).
 
-- `apps/desktop/renderer/src/runtime-node-attach/` — renderer views for attach flow, capability declaration, node roster, mixed-version status indicators (thin projection over the Spec-023 preload-bridge `window.sidekicks` surface; MUST NOT bypass the bridge to reach daemon or control-plane state directly)
+- `apps/desktop/src/renderer/src/runtime-node-attach/` — renderer views for attach flow, capability declaration, node roster, mixed-version status indicators (thin projection over the Spec-023 preload-bridge `window.sidekicks` surface; MUST NOT bypass the bridge to reach daemon or control-plane state directly)
 
 After Phase 4 lands green at Tier 3, Plan-003's load-bearing semantics are complete. Phase 5 ships at Tier 8 as a renderer follow-up.
 

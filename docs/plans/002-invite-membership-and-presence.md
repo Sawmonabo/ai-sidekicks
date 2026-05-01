@@ -78,7 +78,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - `packages/control-plane/src/memberships/`
 - `packages/control-plane/src/presence/`
 - `packages/client-sdk/src/membershipClient.ts`
-- `apps/desktop/renderer/src/session-members/`
+- `apps/desktop/src/renderer/src/session-members/`
 
 ## Data And Storage Changes
 
@@ -96,19 +96,19 @@ Target paths below assume the canonical implementation topology defined in [Cont
 ## Implementation Steps
 
 - Contracts: See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed schemas this plan consumes.
-- Steps 1–3 land at Tier 2 (Plan-002's canonical tier). Step 4 (renderer integration) is **blocked until Tier 8** because `apps/desktop/renderer/` does not exist until Plan-023 ships at Tier 8 — see [cross-plan-dependencies.md §2 `apps/desktop/renderer/` row](../architecture/cross-plan-dependencies.md#2-package-path-ownership-map) and §Execution Windows below. Plan-002 ships steps 1–3 at Tier 2; step 4 is added as a follow-up PR at Tier 8 once the renderer tree exists.
+- Steps 1–3 land at Tier 2 (Plan-002's canonical tier). Step 4 (renderer integration) is **blocked until Tier 8** because `apps/desktop/src/renderer/` does not exist until Plan-023 ships at Tier 8 — see [cross-plan-dependencies.md §2 `apps/desktop/src/renderer/` row](../architecture/cross-plan-dependencies.md#2-package-path-ownership-map) and §Execution Windows below. Plan-002 ships steps 1–3 at Tier 2; step 4 is added as a follow-up PR at Tier 8 once the renderer tree exists.
 
 1. **[Tier 2]** Implement invite and membership contracts plus migrations. Invite tokens use PASETO v4 (see ADR-010). Define the four invite lifecycle states: `pending`, `accepted`, `revoked`, `expired`. Declining is implicit in V1 (unopened invites expire); no explicit `declined` state is required.
 2. **[Tier 2]** Build control-plane services for invite issuance, acceptance, revocation, and role update. Owner-elevation and last-owner-cannot-leave checks (per §Invariants I-002-1, I-002-2) gate the `MembershipUpdate` paths. Lock-ordering inherits from Plan-001 (per §Invariants I-002-4).
 3. **[Tier 2]** Add participant presence heartbeat ingestion and summary projection. Use Yjs Awareness (`y-protocols/awareness`) as the presence CRDT; fan out updates via Postgres LISTEN/NOTIFY in V1. Expose `PresenceUpdate` and `PresenceRead` JSON-RPC methods for local IPC bridging under the Plan-007-partial wire substrate. Default heartbeat timing: 15 s heartbeat interval, 45 s grace period before marking a participant offline. Presence MUST remain in-memory only (per §Invariants I-002-3). Add `ChannelList` read-only projection per §API And Transport Changes.
-4. **[Tier 8 — blocked until Plan-023 ships]** Integrate desktop invite acceptance and participant roster surfaces under `apps/desktop/renderer/src/session-members/` (per [cross-plan-dependencies.md §2 row for `apps/desktop/renderer/`](../architecture/cross-plan-dependencies.md#2-package-path-ownership-map)). This step lands as a follow-up PR sequenced after Plan-023.
+4. **[Tier 8 — blocked until Plan-023 ships]** Integrate desktop invite acceptance and participant roster surfaces under `apps/desktop/src/renderer/src/session-members/` (per [cross-plan-dependencies.md §2 row for `apps/desktop/src/renderer/`](../architecture/cross-plan-dependencies.md#2-package-path-ownership-map)). This step lands as a follow-up PR sequenced after Plan-023.
 
 ## Execution Windows
 
 Plan-002's steps cross two execution tiers:
 
 - **Tier 2 window** (canonical Plan-002 tier): steps 1–3 ship as Phase sequence below. Surfaces all invite/membership/presence behavior and the `ChannelList` projection over the Plan-007-partial + Plan-008-bootstrap Tier 1 substrate.
-- **Tier 8 window** (renderer follow-up): step 4 ships as a single PR after Plan-023 creates `apps/desktop/renderer/` at Tier 8. The renderer subtree at `apps/desktop/renderer/src/session-members/` is the only deliverable in this window.
+- **Tier 8 window** (renderer follow-up): step 4 ships as a single PR after Plan-023 creates `apps/desktop/src/renderer/` at Tier 8. The renderer subtree at `apps/desktop/src/renderer/src/session-members/` is the only deliverable in this window.
 
 Splitting prevents Plan-002 from being parked at Tier 2 waiting six tiers for the renderer to exist; the membership/presence semantics are the load-bearing surface and ship at Tier 2.
 
@@ -226,11 +226,11 @@ Plan-002 implementation lands as a sequence of small PRs. Tier 2 PRs ship steps 
 
 ### Phase 6 — Renderer (Tier 8 Follow-Up)
 
-**Precondition:** Plan-023 complete (`apps/desktop/renderer/` exists). Sequenced at Tier 8 per §Execution Windows above.
+**Precondition:** Plan-023 complete (`apps/desktop/src/renderer/` exists). Sequenced at Tier 8 per §Execution Windows above.
 
 **Goal:** Step 4 ships; manual two-client invite/accept smoke passes.
 
-- `apps/desktop/renderer/src/session-members/` — renderer views for invite acceptance, participant roster, presence indicators (thin projection over the Spec-023 preload-bridge `window.sidekicks` surface; MUST NOT bypass the bridge to reach daemon or control-plane state directly)
+- `apps/desktop/src/renderer/src/session-members/` — renderer views for invite acceptance, participant roster, presence indicators (thin projection over the Spec-023 preload-bridge `window.sidekicks` surface; MUST NOT bypass the bridge to reach daemon or control-plane state directly)
 
 After Phase 5 lands green at Tier 2, Plan-002's load-bearing semantics are complete. Phase 6 ships at Tier 8 as a renderer follow-up.
 

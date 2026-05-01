@@ -47,16 +47,7 @@ Use this shape for new backlog items:
 
 ## Active Items
 
-The items below were surfaced by the [plan-readiness-audit Tier 1](./operations/plan-implementation-readiness-audit-runbook.md) audit (commit `05125dc`, 2026-04-28). Each tracks a cross-cutting governance amendment that the Tier 1 plan amendments deferred via `BLOCKED-ON-CN` tags. Resolution unblocks the corresponding Tier 1 plan content for first-code-execution PRs. BL-104 (C-4 — ADR-014 runtime authorization reconciliation) resolved 2026-04-30 and archived.
-
-### BL-101: C-3 — Plan-023 Tier-8 substrate carve-out from Tier 1
-
-- Status: `todo`
-- Priority: `P0`
-- Owner: `unassigned`
-- References: [Plan-001](./plans/001-shared-session-core.md) Phase 1 + Phase 5 (BLOCKED-ON-C3 tags), [Plan-024](./plans/024-rust-pty-sidecar.md) Phase 4 (BLOCKED-ON-C3), [Plan-023](./plans/023-desktop-shell-and-renderer.md), [cross-plan-dependencies.md §3 + §5](./architecture/cross-plan-dependencies.md)
-- Summary: Plan-001 Phase 5 imports `apps/desktop/main/src/sidecar-lifecycle.ts` (Plan-023 Tier-8 CREATE-domain). Same defect class as the canonical substrate-import bug fixed by commit `a230a50` (`docs(repo): re-tier Plan-007 partial + Plan-008 carve-out to Tier 1`). Pick one resolution: (1) Plan-023 carve-out into Tier 1 mirroring Plan-007-partial / Plan-008-bootstrap pattern; (2) defer Plan-001 Phase 5 sidecar-lifecycle work to a Phase 5b at Tier 8; (3) transfer CP-001-1 ownership to Plan-023.
-- Exit Criteria: Plan-001 / Plan-024 BLOCKED-ON-C3 tags resolved or replaced with carve-out citation; cross-plan-deps §3 / §5 / §2 coordinated; Plan-001 Phase 5 first-code-execution PR unblocked.
+The items below were surfaced by the [plan-readiness-audit Tier 1](./operations/plan-implementation-readiness-audit-runbook.md) audit (commit `05125dc`, 2026-04-28). Each tracks a cross-cutting governance amendment that the Tier 1 plan amendments deferred via `BLOCKED-ON-CN` tags. Resolution unblocks the corresponding Tier 1 plan content for first-code-execution PRs. BL-104 (C-4 — ADR-014 runtime authorization reconciliation) resolved 2026-04-30 and archived. BL-101 (C-3 — Plan-023 Tier-8 substrate carve-out from Tier 1) resolved 2026-04-30 via path (1) Plan-023 Tier 1 Partial carve-out and archived.
 
 ### BL-102: C-6 — `api-payload-contracts.md` forward-declared type stubs
 

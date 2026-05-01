@@ -44,7 +44,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - `packages/runtime-daemon/src/workspace/execution-mode-service.ts`
 - `packages/runtime-daemon/src/git/worktree-projector.ts`
 - `packages/client-sdk/src/worktreeClient.ts`
-- `apps/desktop/renderer/src/execution-mode-picker/`
+- `apps/desktop/src/renderer/src/execution-mode-picker/`
 
 ## Data And Storage Changes
 

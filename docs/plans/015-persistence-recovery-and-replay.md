@@ -42,7 +42,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - `packages/runtime-daemon/src/replay/replay-service.ts`
 - `packages/runtime-daemon/src/provider/runtime-binding-store.ts`
 - `packages/client-sdk/src/recoveryClient.ts`
-- `apps/desktop/renderer/src/recovery-status/`
+- `apps/desktop/src/renderer/src/recovery-status/`
 
 ## Data And Storage Changes
 

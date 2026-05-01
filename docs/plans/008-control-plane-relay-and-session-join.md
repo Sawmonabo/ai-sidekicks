@@ -36,7 +36,7 @@ Lands at Plan-008's original Tier 5 slot once Plan-002 (invite/presence) is comp
 - **Invite-acceptance handoff** — wires Plan-002 invite resolution into the Tier 1 `sessionRouter`.
 - **Reconnect association + relay negotiation** — `RelayNegotiation`, `SessionResumeAfterReconnect`, presence re-association.
 - **Postgres tables** — `session_directory` and `relay_connections` per [Shared Postgres Schema](../architecture/schemas/shared-postgres-schema.md).
-- **Client surfaces** — `apps/desktop/renderer/src/session-join/`, `apps/cli/src/session-join/`, and `packages/client-sdk/src/sessionJoinClient.ts`.
+- **Client surfaces** — `apps/desktop/src/renderer/src/session-join/`, `apps/cli/src/session-join/`, and `packages/client-sdk/src/sessionJoinClient.ts`.
 
 ## Goal
 
@@ -133,7 +133,7 @@ Plan-008-bootstrap's SSE substrate consumes `EventEnvelope` from `packages/contr
 - `packages/control-plane/src/relay/relay-broker-service.ts` — Tier 5 remainder
 - `packages/control-plane/src/presence/presence-register-service.ts` — Tier 5 remainder
 - `packages/client-sdk/src/sessionJoinClient.ts` — Tier 5 remainder
-- `apps/desktop/renderer/src/session-join/` — Tier 8 follow-up (renderer subtree per [cross-plan-dependencies.md §2 `apps/desktop/renderer/` row](../architecture/cross-plan-dependencies.md#2-package-path-ownership-map))
+- `apps/desktop/src/renderer/src/session-join/` — Tier 8 follow-up (renderer subtree per [cross-plan-dependencies.md §2 `apps/desktop/src/renderer/` row](../architecture/cross-plan-dependencies.md#2-package-path-ownership-map))
 - `apps/cli/src/session-join/` — Tier 5 remainder
 
 ## Data And Storage Changes
@@ -160,7 +160,7 @@ Plan-008-bootstrap's SSE substrate consumes `EventEnvelope` from `packages/contr
    - **(d)** Inject `SessionDirectoryService` per I-008-3 enforcement mechanism #1 (constructor injection): factory function takes the directory-service instance and returns the typed tRPC router.
 2. **[Tier 5]** Implement control-plane join and presence services with membership verification and invite-acceptance handoff. Requires Plan-002 (invite/presence) substrates per I-008-2.
 3. **[Tier 5]** Implement relay broker flows and reconnect association logic without coupling them to execution authority. V1 relay encryption uses pairwise X25519 ECDH + XChaCha20-Poly1305 (via `@noble/curves` and `@noble/ciphers`) with Ed25519 signature verification over each participant's ephemeral X25519 key bundle per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md). Relay sharding targets 25 connections per data DO using WebSocket Hibernation for Durable Objects. Relay authentication uses PASETO v4 tokens (per ADR-010, requires Plan-018 issuer surface — I-008-2).
-4. **[Tier 8 — blocked until Plan-023 ships for renderer; Tier 5 for CLI]** Add desktop and CLI shared-session join surfaces plus typed client SDK integration. CLI surface ships at Tier 5 alongside the join service; desktop renderer subtree at `apps/desktop/renderer/src/session-join/` ships at Tier 8 once Plan-023 creates the renderer tree (per [cross-plan-dependencies.md §2 row for `apps/desktop/renderer/`](../architecture/cross-plan-dependencies.md#2-package-path-ownership-map)).
+4. **[Tier 8 — blocked until Plan-023 ships for renderer; Tier 5 for CLI]** Add desktop and CLI shared-session join surfaces plus typed client SDK integration. CLI surface ships at Tier 5 alongside the join service; desktop renderer subtree at `apps/desktop/src/renderer/src/session-join/` ships at Tier 8 once Plan-023 creates the renderer tree (per [cross-plan-dependencies.md §2 row for `apps/desktop/src/renderer/`](../architecture/cross-plan-dependencies.md#2-package-path-ownership-map)).
 
 ## Tier 1 Bootstrap PR Sequence
 

@@ -51,7 +51,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - `packages/runtime-daemon/src/workflows/workflow-projector.ts`
 - `packages/runtime-daemon/src/workflows/human-phase-form-service.ts`
 - `packages/client-sdk/src/workflowClient.ts`
-- `apps/desktop/renderer/src/workflows/`
+- `apps/desktop/src/renderer/src/workflows/`
 
 ## Data And Storage Changes
 

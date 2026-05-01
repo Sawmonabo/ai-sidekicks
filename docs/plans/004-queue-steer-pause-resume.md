@@ -42,7 +42,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - `packages/runtime-daemon/src/interventions/intervention-service.ts`
 - `packages/runtime-daemon/src/session/run-engine.ts`
 - `packages/client-sdk/src/runControlClient.ts`
-- `apps/desktop/renderer/src/run-controls/`
+- `apps/desktop/src/renderer/src/run-controls/`
 
 ## Data And Storage Changes
 

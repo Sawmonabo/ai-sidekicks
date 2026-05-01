@@ -13,7 +13,7 @@
 The C4 hierarchy is fully present:
 
 - **System Context** (`system-context.md`) identifies six primary actors and defines the execution-local / coordination-shared split.
-- **Container Architecture** (`container-architecture.md`) names seven containers: Desktop Shell, Desktop Renderer, CLI Client, Local Runtime Daemon, Collaboration Control Plane, Local Event Store, and Shared Metadata Store. It also defines the canonical monorepo layout (`packages/contracts/`, `packages/client-sdk/`, `packages/runtime-daemon/`, `packages/control-plane/`, `apps/desktop/shell/`, `apps/desktop/renderer/`, `apps/cli/`).
+- **Container Architecture** (`container-architecture.md`) names seven containers: Desktop Shell, Desktop Renderer, CLI Client, Local Runtime Daemon, Collaboration Control Plane, Local Event Store, and Shared Metadata Store. It also defines the canonical monorepo layout (`packages/contracts/`, `packages/client-sdk/`, `packages/runtime-daemon/`, `packages/control-plane/`, `apps/desktop/src/main/`, `apps/desktop/src/renderer/`, `apps/cli/`).
 - **Component docs** exist for all three major containers: Local Daemon (7 components), Desktop App (5 components), and Control Plane (7 components).
 
 Boundaries between the three are clean. The system-context doc explicitly defines three trust boundaries (client/daemon, daemon/control-plane, daemon/providers). The container doc reinforces these: renderer is untrusted vs. shell and daemon; the control plane is trusted for coordination but not code execution.

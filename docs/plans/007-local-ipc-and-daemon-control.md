@@ -32,7 +32,7 @@ Lands at Plan-007's original Tier 4 slot, co-tier with Plan-005 (runtime binding
 
 - The four other JSON-RPC method namespaces — `run.*`, `repo.*`, `artifact.*`, `settings.*`, `daemon.*` — extending the substrate's namespace registry without re-implementing the wire layer.
 - The Spec-027 secure-defaults bootstrap surface owned by Plan-007 widens at Tier 4 alongside the additional bind paths — `tls-surface.ts` (row 8 — only load-bearing once a non-loopback / TLS bind enters), `first-run-keys.ts` (row 3 — daemon master key generation; key custody is Plan-022's at Tier 5), `update-notify.ts` (row 7a — periodic poller, not a bind-time gate), and the CLI `self-update` dual-verification command (row 7b — out-of-process). The Tier 1 partial already ships the bind-time `SecureDefaults` validation surface (`secure-defaults.ts` + `secure-defaults-events.ts`) scoped to the loopback OS-local socket bind path it exposes; §Invariants I-007-1 / I-007-2 / I-007-5 hold at every execution window per the validation-surface-widens-with-bind-surface rule.
-- The CLI delivery track (`apps/cli/`) and desktop-shell daemon supervision (`apps/desktop/shell/src/daemon-supervision/`, `apps/desktop/renderer/src/daemon-status/`).
+- The CLI delivery track (`apps/cli/`) and desktop-shell daemon supervision (`apps/desktop/src/main/daemon-supervision/`, `apps/desktop/src/renderer/src/daemon-status/`).
 
 ### Substrate-vs-Namespace Decomposition Rule (Methodology)
 
@@ -185,8 +185,8 @@ Plan-007-partial Phase 1 emits `security.default.override` (Spec-027:81+138+146 
 - `packages/runtime-daemon/src/bootstrap/first-run-keys.ts` — daemon first-run key generation (Spec-027 row 3 daemon scope)
 - `packages/runtime-daemon/src/bootstrap/update-notify.ts` — Spec-027 row 7a notify-by-default poller
 - `apps/cli/src/commands/self-update.ts` — Spec-027 row 7b dual-verification self-update (manifest sig + Sigstore bundle)
-- `apps/desktop/shell/src/daemon-supervision/`
-- `apps/desktop/renderer/src/daemon-status/`
+- `apps/desktop/src/main/daemon-supervision/`
+- `apps/desktop/src/renderer/src/daemon-status/`
 - `apps/cli/src/`
 
 ## Data And Storage Changes

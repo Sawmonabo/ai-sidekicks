@@ -98,7 +98,7 @@ The antithesis wins on bundle size and baseline memory but loses on the one cons
 ## Reversibility Assessment
 
 - **Reversal cost:** Very high once V1 desktop ships. Desktop shell migration touches every renderer-to-shell IPC surface, packaging pipeline, auto-update mechanism, code-signing certificate chain, install-tool UX, and native-dialog integration. Multi-month migration under realistic assumptions.
-- **Blast radius:** `apps/desktop/shell/`, `apps/desktop/renderer/`, preload bridge contracts, auto-update infrastructure, signed-release pipeline, user-install tooling, every user with an installed version of the prior shell.
+- **Blast radius:** `apps/desktop/src/main/`, `apps/desktop/src/renderer/`, preload bridge contracts, auto-update infrastructure, signed-release pipeline, user-install tooling, every user with an installed version of the prior shell.
 - **Migration path:** Build a parallel shell target under a new package; migrate renderer code (React + Vite is shell-agnostic); migrate preload bridge to new shell's equivalent; migrate auto-update; cut over in a major version with a deprecation window for the previous shell.
 - **Point of no return:** First V1 desktop release ships to users. Before that milestone, reversal is implementation-cost only, not user-migration cost.
 

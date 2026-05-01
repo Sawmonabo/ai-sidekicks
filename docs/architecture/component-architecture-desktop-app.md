@@ -31,8 +31,10 @@ The desktop app is the primary interactive client, but it must remain a client. 
 
 ## Implementation Home
 
-- Desktop shell root: `apps/desktop/shell/`
-- Desktop renderer root: `apps/desktop/renderer/`
+- Desktop application package root: `apps/desktop/`
+- Main process root: `apps/desktop/src/main/`
+- Preload bridge root: `apps/desktop/src/preload/`
+- Renderer root: `apps/desktop/src/renderer/`
 - Shared client SDK root: `packages/client-sdk/`
 - Related CLI client root: `apps/cli/`
 

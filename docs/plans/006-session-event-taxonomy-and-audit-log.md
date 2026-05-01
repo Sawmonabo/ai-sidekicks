@@ -56,7 +56,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - `packages/runtime-daemon/src/events/replay-service.ts` — `EventReadAfterCursor`, `EventReadWindow`, cursor state tracking compacted regions
 - `packages/control-plane/src/event-anchors/` — shared `event_log_anchors` write path (metadata only per ADR-017)
 - `packages/client-sdk/src/eventClient.ts` — typed SDK methods + `EventSubscription`
-- `apps/desktop/renderer/src/timeline/` — audit-stub rendering for compacted regions
+- `apps/desktop/src/renderer/src/timeline/` — audit-stub rendering for compacted regions
 
 ## Data And Storage Changes
 

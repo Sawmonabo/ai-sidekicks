@@ -42,7 +42,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - `packages/runtime-daemon/src/artifacts/diff-artifact-service.ts`
 - `packages/runtime-daemon/src/git/pr-preparation-service.ts`
 - `packages/client-sdk/src/gitflowClient.ts`
-- `apps/desktop/renderer/src/diff-review/`
+- `apps/desktop/src/renderer/src/diff-review/`
 
 ## Data And Storage Changes
 
