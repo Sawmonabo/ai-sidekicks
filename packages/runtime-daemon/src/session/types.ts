@@ -79,7 +79,7 @@ export interface StoredEvent {
 // `MembershipProjection` and `ChannelProjection` carry only the fields
 // derivable from V1 SessionEvents (see contracts/src/event.ts §V1 union):
 // session.created -> bootstrap session + owner membership + main channel,
-// membership.joined -> membership row, channel.created -> channel row.
+// membership.created -> membership row, channel.created -> channel row.
 // PR #4/#5 will widen these as more event variants land.
 //
 // `MembershipRole` mirrors the canonical contracts enum verbatim

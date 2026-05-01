@@ -92,13 +92,14 @@ import {
   JSONRPC_VERSION,
   SessionCreateRequestSchema,
   SessionCreateResponseSchema,
+  JsonRpcErrorCode,
   SessionEventSchema,
   SessionSubscribeRequestSchema,
   SessionSubscribeResponseSchema,
   SUBSCRIPTION_NOTIFY_METHOD,
 } from "@ai-sidekicks/contracts";
 
-import { mapJsonRpcError, JsonRpcErrorCode } from "../../jsonrpc-error-mapping.js";
+import { mapJsonRpcError } from "../../jsonrpc-error-mapping.js";
 import {
   MethodRegistryImpl,
   RegistryDispatchError,
@@ -326,7 +327,8 @@ describe("I-007-3-T3 — session.subscribe happy path + cancel idempotency", () 
     registerSessionSubscribe(registry, deps);
 
     // Act — dispatch `session.subscribe` with a transport-bound ctx (the
-    // handler refuses `ctx.transportId === undefined` with NegotiationError).
+    // handler refuses `ctx.transportId === undefined` with a plain Error
+    // per substrate-internal-invariant posture; maps to -32603 on wire).
     const transportId = 42;
     const ctx: HandlerContext = { transportId };
     const subscribeReq: SessionSubscribeRequest = {

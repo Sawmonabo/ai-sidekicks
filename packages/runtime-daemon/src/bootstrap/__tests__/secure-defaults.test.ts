@@ -21,10 +21,14 @@
 //     downstream consumers will key on.
 //   * I-007-5 (Tier-4-scope-key refusal, T4): each of `tlsMode`,
 //     `tlsCertPath`, `nonLoopbackHost`, `firstRunKeysPolicy` is refused
-//     with the `unknown_setting` error code STRING. The full envelope
-//     shape is BLOCKED-ON-C7 (error-contracts.md JSON-RPC mapping); T4
-//     asserts on the code STRING only and a follow-up amendment lands
-//     the envelope-shape assertion when C-7 resolves.
+//     with the `unknown_setting` error code AND the canonical two-layer
+//     JSON-RPC envelope per error-contracts.md §JSON-RPC Wire Mapping
+//     (BL-103 closed 2026-05-01) — `error.code === -32602
+//     InvalidParams`, `error.data === { type: "unknown_setting",
+//     fields: { setting, value } }`. T4 asserts source-side (typed
+//     error class + stable string code) AND wire-side (envelope shape
+//     via `mapJsonRpcError`) so a regression on either projection seam
+//     fails the test.
 //   * I-007-4 (single-emit-per-startup, T5): the `SecureDefaultOverrideEmitter`
 //     fires each `behavior` integer exactly once across the process
 //     lifetime; two distinct behaviors each emit independently; AND the
@@ -43,6 +47,9 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts";
+
+import { mapJsonRpcError } from "../../ipc/jsonrpc-error-mapping.js";
 import { bootstrap, assertLoadedForBind } from "../index.js";
 import {
   SecureDefaultOverrideEmitter,
@@ -334,13 +341,17 @@ describe("W-007p-1-T3 (I-007-3: effectiveSettings non-secret typed values)", () 
 //
 // The plan names four specific Tier-4-scope keys: `tlsMode`,
 // `tlsCertPath`, `nonLoopbackHost`, `firstRunKeysPolicy`. Each must
-// be refused with the `unknown_setting` error code STRING.
+// be refused with `unknown_setting` AND project to the canonical
+// two-layer JSON-RPC envelope per error-contracts.md §JSON-RPC Wire
+// Mapping (BL-103 closed 2026-05-01).
 //
-// BLOCKED-ON-C7 discipline: assertions are on `caught.code` STRING
-// only — no envelope-shape, no JSON-RPC numeric code, no
-// `error.data` shape. When error-contracts.md JSON-RPC mapping lands
-// (C-7), a follow-up amendment widens this test to assert the full
-// envelope.
+// Two-layer assertion: the test asserts source-side (typed
+// `SecureDefaultsValidationError` with stable `code` string) AND
+// wire-side (numeric `-32602 InvalidParams` + `data.type ===
+// "unknown_setting"` + `data.fields === { setting, value }`) by
+// wrapping the caught error through `mapJsonRpcError`. A regression
+// on either the typed-error contract OR the wire-projection seam
+// fails the test.
 //
 // Test shape: `it.each` over the four-key list. Each case feeds an
 // otherwise-valid config plus the offending Tier-4 key — the source's
@@ -364,7 +375,7 @@ describe("W-007p-1-T4 (I-007-5: Tier-4-scope-key refusal)", () => {
     "firstRunKeysPolicy",
   ];
 
-  it.each(TIER_4_KEYS)("refuses key %p with code='unknown_setting'", (tier4Key) => {
+  it.each(TIER_4_KEYS)("refuses key %p with `unknown_setting` envelope", (tier4Key) => {
     const config = {
       ...VALID_BASE_CONFIG,
       [tier4Key]: "any-value",
@@ -377,7 +388,8 @@ describe("W-007p-1-T4 (I-007-5: Tier-4-scope-key refusal)", () => {
       caught = err;
     }
 
-    // Typed-error witness: instance check first, then code STRING.
+    // Source-side: typed error with stable string code. Instance check
+    // first so the narrow holds for the field accesses below.
     expect(caught).toBeInstanceOf(SecureDefaultsValidationError);
     if (!(caught instanceof SecureDefaultsValidationError)) return;
     expect(caught.code).toBe("unknown_setting");
@@ -385,6 +397,20 @@ describe("W-007p-1-T4 (I-007-5: Tier-4-scope-key refusal)", () => {
     // actionable diagnostic at the validation site (vs a generic
     // "config bad" string).
     expect(caught.message).toMatch(new RegExp(tier4Key));
+
+    // Wire-side: `mapJsonRpcError` projects the typed error into the
+    // canonical two-layer envelope per error-contracts.md §JSON-RPC
+    // Wire Mapping. Numeric -32602 InvalidParams (boot-time config IS
+    // request params from the operator's perspective); `data.type` is
+    // the stable code string; `data.fields` carries the structured
+    // detail captured at the throw site.
+    const envelope = mapJsonRpcError(caught, 1);
+    expect(envelope.error.code).toBe(JsonRpcErrorCode.InvalidParams);
+    expect(envelope.error.data).toEqual({
+      type: "unknown_setting",
+      fields: { setting: tier4Key, value: "any-value" },
+    });
+
     // Fail-closed side-effect: the singleton stayed unloaded.
     expect(SecureDefaults.isLoaded()).toBe(false);
   });
@@ -412,6 +438,17 @@ describe("W-007p-1-T4 (I-007-5: Tier-4-scope-key refusal)", () => {
     expect(caught).toBeInstanceOf(SecureDefaultsValidationError);
     if (!(caught instanceof SecureDefaultsValidationError)) return;
     expect(caught.code).toBe("unknown_setting");
+
+    // Wire envelope is the canonical two-layer shape. The exact
+    // surfaced key depends on JS object-iteration order (insertion
+    // order for own string keys per ES2015), so we assert the
+    // discriminating shape — `type` + `fields.setting` membership in
+    // the input set — rather than pinning a specific key.
+    const envelope = mapJsonRpcError(caught, 1);
+    expect(envelope.error.code).toBe(JsonRpcErrorCode.InvalidParams);
+    expect(envelope.error.data?.type).toBe("unknown_setting");
+    const fields = envelope.error.data?.fields as Record<string, unknown> | undefined;
+    expect(fields?.["setting"]).toMatch(/^(tlsMode|nonLoopbackHost|firstRunKeysPolicy)$/);
   });
 });
 

@@ -3,7 +3,7 @@
 //
 // Plan-001 PR #2 ships only the three event types its vertical slice needs:
 //   • session.created    — emitted on `SessionCreate` admit
-//   • membership.joined  — emitted on `SessionJoin` admit
+//   • membership.created  — emitted on `SessionJoin` admit
 //   • channel.created    — emitted when a session's main channel materializes
 //
 // The discriminated-union `SessionEvent` discriminates on the wire `type`
@@ -12,12 +12,14 @@
 // lives in Spec-006 §Event Type Enumeration; this file is intentionally a
 // strict subset.
 //
-// IMPORTANT (one open spec gap surfaced by this PR): Spec-006 currently
-// enumerates `session.created` and `channel.created` under
-// `session_lifecycle`, but does not yet enumerate `membership.joined` under
-// `membership_change`. The wire string is registered here per the namespace
-// convention (`<category>.<verb>`); a follow-up doc PR should register it
-// in Spec-006 § Event Type Enumeration.
+// All three V1 wire strings are registered in Spec-006 § Event Type
+// Enumeration: `session.created` and `channel.created` under
+// `session_lifecycle`; `membership.created` under `membership_change`
+// (registered 2026-05-01 via BL-105 closure). The
+// `<category>.<verb>` namespace convention is governed by Spec-006
+// §Canonical Serialization Rules; the resource-lifecycle naming
+// (`<resource>.created`) parallels `session.created` / `channel.created`
+// / `invite.created`.
 //
 // Versioning: `version` is an `EventEnvelopeVersion` — a semver
 // `"MAJOR.MINOR"` STRING per ADR-018 §Decision #1. It is NEVER numeric on
@@ -148,7 +150,7 @@ export const EventEnvelopeVersionSchema: z.ZodType<EventEnvelopeVersion> = z
 //   • IDENTITY_HANDLE_MAX_LEN (64)     — display handles (Plan-018 owns the
 //     canonical grammar; this is a wire-layer ceiling). Defined in session.ts
 //     so it can be co-located with `SessionJoinRequestSchema`; the underlying
-//     `IdentityHandleSchema` is re-imported here for the membership.joined
+//     `IdentityHandleSchema` is re-imported here for the membership.created
 //     payload so the validation chain stays single-sourced.
 //   • CHANNEL_NAME_MAX_LEN (128)       — channel display labels (UI-visible).
 //     Defined in session.ts (co-located with `ChannelSummarySchema`); re-
@@ -256,7 +258,7 @@ const sessionCreatedPayloadSchema = z
   })
   .strict();
 
-const membershipJoinedPayloadSchema = z
+const membershipCreatedPayloadSchema = z
   .object({
     membershipId: MembershipIdSchema,
     participantId: ParticipantIdSchema,
@@ -289,7 +291,7 @@ const channelCreatedPayloadSchema = z
 // Payload mirrors the session-bootstrap projection: the new session id
 // (redundant with the envelope's `sessionId`, kept for projector convenience)
 // plus the resolved config + metadata. The owner participant is conveyed via
-// the membership.joined event that follows.
+// the membership.created event that follows.
 
 export interface SessionCreatedEvent extends SessionEventCommonFields {
   type: "session.created";
@@ -310,11 +312,11 @@ export const SessionCreatedEventSchema: z.ZodType<SessionCreatedEvent> = z
   .strict();
 
 // --------------------------------------------------------------------------
-// membership.joined — emitted when a participant is admitted to a session.
+// membership.created — emitted when a participant is admitted to a session.
 // --------------------------------------------------------------------------
 
-export interface MembershipJoinedEvent extends SessionEventCommonFields {
-  type: "membership.joined";
+export interface MembershipCreatedEvent extends SessionEventCommonFields {
+  type: "membership.created";
   category: "membership_change";
   payload: {
     membershipId: MembershipId;
@@ -323,12 +325,12 @@ export interface MembershipJoinedEvent extends SessionEventCommonFields {
     identityHandle: string;
   };
 }
-export const MembershipJoinedEventSchema: z.ZodType<MembershipJoinedEvent> = z
+export const MembershipCreatedEventSchema: z.ZodType<MembershipCreatedEvent> = z
   .object({
     ...buildCommonShape(),
-    type: z.literal("membership.joined"),
+    type: z.literal("membership.created"),
     category: z.literal("membership_change"),
-    payload: membershipJoinedPayloadSchema,
+    payload: membershipCreatedPayloadSchema,
   })
   .strict();
 
@@ -370,7 +372,7 @@ export const ChannelCreatedEventSchema: z.ZodType<ChannelCreatedEvent> = z
 // Payloads are shared via the named `*PayloadSchema` consts above so
 // payload shapes can't drift between the two surfaces.
 
-export type SessionEvent = SessionCreatedEvent | MembershipJoinedEvent | ChannelCreatedEvent;
+export type SessionEvent = SessionCreatedEvent | MembershipCreatedEvent | ChannelCreatedEvent;
 export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion("type", [
   z
     .object({
@@ -383,9 +385,9 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
   z
     .object({
       ...buildCommonShape(),
-      type: z.literal("membership.joined"),
+      type: z.literal("membership.created"),
       category: z.literal("membership_change"),
-      payload: membershipJoinedPayloadSchema,
+      payload: membershipCreatedPayloadSchema,
     })
     .strict(),
   z
@@ -401,10 +403,10 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
 // Re-export the wire-type literals as a const tuple so consumers can iterate
 // the registered V1 subset without re-parsing the schemas. Matches the
 // pattern other contract packages will use as the union grows in later PRs.
-export type SessionEventType = "session.created" | "membership.joined" | "channel.created";
+export type SessionEventType = "session.created" | "membership.created" | "channel.created";
 export const SESSION_EVENT_TYPES: readonly SessionEventType[] = [
   "session.created",
-  "membership.joined",
+  "membership.created",
   "channel.created",
 ] as const;
 
@@ -427,7 +429,7 @@ export const SESSION_EVENT_TYPES: readonly SessionEventType[] = [
 export const SESSION_EVENT_CATEGORY_BY_TYPE: ReadonlyMap<SessionEventType, EventCategory> = new Map(
   [
     ["session.created", "session_lifecycle"],
-    ["membership.joined", "membership_change"],
+    ["membership.created", "membership_change"],
     ["channel.created", "session_lifecycle"],
   ],
 );

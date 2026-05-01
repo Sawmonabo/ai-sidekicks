@@ -51,9 +51,10 @@
 //     applies I-007-8 sanitization. The gateway DOES NOT reach into
 //     the discriminator branches itself — it only routes thrown values.
 //
-// BLOCKED-ON-C6 — `protocolVersion: number | string` parameterization is
-// inherited from `@ai-sidekicks/contracts`'s `JsonRpcRequest` shape; the
-// substrate accepts both runtime types and does not narrow.
+// `protocolVersion` ratified as ISO 8601 `YYYY-MM-DD` date-string at
+// api-payload-contracts.md §Tier 1 (cont.): Plan-007 (BL-102 closed
+// 2026-05-01). The substrate accepts the date-string form; non-conforming
+// shapes are rejected at schema-validation before reaching the gateway.
 
 import * as net from "node:net";
 
@@ -200,15 +201,22 @@ export interface ParseFrameResult {
  * Parser/encoder errors. Distinct subclass of `Error` so the gateway can
  * discriminate framing violations from arbitrary thrown values inside the
  * supervision/disconnect path. Carries a `code` string for test
- * introspection; the JSON-RPC numeric mapping (`-32600` etc.) is T-2's
- * surface and does NOT live here.
+ * introspection and an optional `fields` payload for the throw sites that
+ * project structured detail through `mapJsonRpcError` into the JSON-RPC
+ * envelope's `error.data.fields` per error-contracts.md §JSON-RPC Wire
+ * Mapping (BL-103 closed 2026-05-01). The JSON-RPC numeric mapping
+ * (`-32600` etc.) is T-2's surface and does NOT live here.
  */
 export class FramingError extends Error {
   readonly code: string;
-  constructor(code: string, message: string) {
+  readonly fields?: Record<string, unknown>;
+  constructor(code: string, message: string, fields?: Record<string, unknown>) {
     super(message);
     this.name = "FramingError";
     this.code = code;
+    if (fields !== undefined) {
+      this.fields = fields;
+    }
   }
 }
 
@@ -282,10 +290,13 @@ export function parseFrame(buffer: Buffer): ParseFrameResult {
   if (declaredLength > MAX_MESSAGE_BYTES) {
     // F-007p-2-11 / F-007p-2-05: oversized-body rejection. Throw at the
     // parser boundary; the gateway converts to `oversized_body`
-    // disconnect.
+    // disconnect. The structured `fields` payload feeds
+    // `data.fields: { limit, observed }` per error-contracts.md
+    // §JSON-RPC Wire Mapping (`resource.limit_exceeded` row).
     throw new FramingError(
       "oversized_body",
       `parseFrame: declared body length ${declaredLength} exceeds ${MAX_MESSAGE_BYTES} byte limit`,
+      { limit: MAX_MESSAGE_BYTES, observed: declaredLength },
     );
   }
 
@@ -328,6 +339,7 @@ export function encodeFrame(envelope: JsonRpcMessage): Buffer {
     throw new FramingError(
       "oversized_body",
       `encodeFrame: encoded body length ${declaredLength} exceeds ${MAX_MESSAGE_BYTES} byte limit`,
+      { limit: MAX_MESSAGE_BYTES, observed: declaredLength },
     );
   }
 

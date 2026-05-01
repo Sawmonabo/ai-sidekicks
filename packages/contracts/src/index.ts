@@ -4,7 +4,7 @@
 //   • session.ts — branded ID schemas, shared enums + projection types,
 //     SessionCreate / SessionRead / SessionJoin / SessionSubscribe payloads
 //   • event.ts   — V1 SessionEvent discriminated union
-//                 (session.created, membership.joined, channel.created)
+//                 (session.created, membership.created, channel.created)
 //   • error.ts   — resource.limit_exceeded error envelope
 //
 // Subsequent PRs (Plan-002+) will extend each module additively. Anything

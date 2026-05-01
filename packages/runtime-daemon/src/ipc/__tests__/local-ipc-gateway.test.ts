@@ -62,6 +62,8 @@ import { JSONRPC_VERSION } from "@ai-sidekicks/contracts";
 
 import { bootstrap } from "../../bootstrap/index.js";
 import { SecureDefaults } from "../../bootstrap/secure-defaults.js";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts";
+
 import {
   encodeFrame,
   FramingError,
@@ -72,7 +74,6 @@ import {
   SANITIZED_MESSAGE_MAX_LEN,
   type SupervisionHooks,
 } from "../local-ipc-gateway.js";
-import { JsonRpcErrorCode } from "../jsonrpc-error-mapping.js";
 import { MethodRegistryImpl } from "../registry.js";
 
 import { passthroughSchema } from "./__fixtures__/zod-schemas.js";
@@ -462,17 +463,20 @@ describe("W-007p-2-T3 — Windows named pipe round-trip", () => {
 // ----------------------------------------------------------------------------
 //
 // Per F-007p-2-09, attempting a non-loopback bind path at Tier 1 must
-// fail with `transport.unavailable` (BLOCKED-ON-C7 envelope). Today's
-// surface refuses non-loopback at SecureDefaults.load with
+// fail with the `transport.unavailable` wire envelope. Today's Tier 1
+// surface refuses non-loopback at `SecureDefaults.load` time with
 // `invalid_bind_address` (config-time, not gateway-time); the
-// `transport.unavailable` shape on the wire does not yet exist. Marked
-// `it.todo` per task contract authorization for absent surfaces; the
-// test ID is preserved so Tier 4's widening pass picks up the
-// inflation.
+// `transport.unavailable` gate fires at gateway-time and is deferred to
+// Tier 4. Marked `it.todo` per task contract authorization for absent
+// surfaces; the test ID is preserved so Tier 4's widening pass picks up
+// the inflation. (The two-layer envelope mapping itself exists post-
+// BL-103, so when the gateway-time gate lands at Tier 4 the assertion
+// will project through `mapJsonRpcError` exactly like the
+// `unknown_setting` envelope test in `secure-defaults.test.ts`.)
 
 describe("W-007p-2-T4 — gated loopback fallback (Tier 1)", () => {
   it.todo(
-    "non-loopback bind attempt fails at the gateway with `transport.unavailable` (BLOCKED-ON-C7 envelope; surface deferred to Tier 4 where the gate fires at gateway-time rather than config-time)",
+    "non-loopback bind attempt fails at the gateway with `transport.unavailable` envelope (surface deferred to Tier 4 where the gate fires at gateway-time rather than config-time)",
   );
 });
 

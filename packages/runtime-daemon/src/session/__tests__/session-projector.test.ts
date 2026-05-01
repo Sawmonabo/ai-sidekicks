@@ -80,7 +80,7 @@ describe("session-projector — D1 (bootstrap projection)", () => {
       occurredAt: OCCURRED_AT,
       monotonicNs: 1_000_000_000n,
       category: "membership_change",
-      type: "membership.joined",
+      type: "membership.created",
       actor: OWNER_PARTICIPANT_ID,
       payload: { participantId: SECOND_PARTICIPANT_ID, role: "collaborator" },
       correlationId: null,
@@ -325,14 +325,14 @@ describe("session-projector — main-channel projection invariants", () => {
 });
 
 // --------------------------------------------------------------------------
-// projectEvent — membership.joined role propagation
+// projectEvent — membership.created role propagation
 // --------------------------------------------------------------------------
 //
 // The projector reads `payload.role` directly so every variant of the
 // canonical `MembershipRole` union (`@ai-sidekicks/contracts`) round-
 // trips through projection without daemon-side narrowing.
 
-describe("projectEvent — membership.joined", () => {
+describe("projectEvent — membership.created", () => {
   it("propagates payload.role into the projection (full MembershipRole union)", () => {
     const created: StoredEvent = makeCreatedEvent();
     const initial: DaemonSessionSnapshot | null = replay([created]);
@@ -346,7 +346,7 @@ describe("projectEvent — membership.joined", () => {
       occurredAt: "2026-04-27T12:01:00.000Z",
       monotonicNs: 2_000_000_000n,
       category: "membership_change",
-      type: "membership.joined",
+      type: "membership.created",
       actor: OWNER_PARTICIPANT_ID,
       payload: { participantId: SECOND_PARTICIPANT_ID, role: "collaborator" },
       correlationId: null,
@@ -363,7 +363,7 @@ describe("projectEvent — membership.joined", () => {
     });
   });
 
-  it("rejects a membership.joined event missing payload.role", () => {
+  it("rejects a membership.created event missing payload.role", () => {
     const created: StoredEvent = makeCreatedEvent();
     const initial: DaemonSessionSnapshot | null = replay([created]);
     expect(initial).not.toBeNull();
@@ -376,7 +376,7 @@ describe("projectEvent — membership.joined", () => {
       occurredAt: "2026-04-27T12:01:00.000Z",
       monotonicNs: 2_000_000_000n,
       category: "membership_change",
-      type: "membership.joined",
+      type: "membership.created",
       actor: OWNER_PARTICIPANT_ID,
       payload: { participantId: SECOND_PARTICIPANT_ID },
       correlationId: null,

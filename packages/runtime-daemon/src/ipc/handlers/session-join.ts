@@ -19,7 +19,7 @@
 //
 // Why `mutating: true`: `session.join` mutates domain state — it admits a
 // new participant, materializes a `Membership` row, and emits a canonical
-// `membership.joined` event. The pre-handshake mutating-op gate
+// `membership.created` event. The pre-handshake mutating-op gate
 // (`ProtocolNegotiator`) refuses dispatch on connections without a
 // compatible handshake; the gate predicate is `isMutating(method) ===
 // true`, so this flag is what makes the gate refuse pre-handshake calls.

@@ -136,7 +136,7 @@ describe("I-007-3-T4 — JsonRpcClient.call rejects with JsonRpcSchemaError on s
     // The server's response will deliberately violate it. We pair this with
     // a permissive params schema so the params-phase doesn't short-circuit.
     const transport = new InMemoryTransport();
-    const client = new JsonRpcClient(transport, { protocolVersion: 1 });
+    const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
 
     const paramsSchema = z.object({ key: z.string() });
     const resultSchema = z.object({
@@ -207,7 +207,7 @@ describe("I-007-3-T4 — JsonRpcClient.call rejects with JsonRpcSchemaError on s
     // BEFORE any wire I/O happens, and the throw becomes a Promise
     // rejection (since `call` is async).
     const transport = new InMemoryTransport();
-    const client = new JsonRpcClient(transport, { protocolVersion: 1 });
+    const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
 
     const paramsSchema = z.object({ key: z.string() });
     const resultSchema = z.unknown();
@@ -259,7 +259,7 @@ describe("I-007-3-T4 — JsonRpcClient.call rejects with JsonRpcSchemaError on s
     // on `.phase`; if the SDK split the surface into two classes the
     // downstream observability would need two `instanceof` branches.
     const transport = new InMemoryTransport();
-    const client = new JsonRpcClient(transport, { protocolVersion: 1 });
+    const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
     const paramsSchema = z.object({ key: z.string() });
     const resultSchema = z.object({ sessionId: z.string().uuid() });
 
@@ -381,7 +381,7 @@ describe("subscribe-init registers #subscriptions synchronously (Codex P1 regres
   it("a coalesced response+notify pair (delivered in one synchronous frame) lands the first event", async () => {
     // Arrange — a value schema for a trivial event payload.
     const transport = new InMemoryTransport();
-    const client = new JsonRpcClient(transport, { protocolVersion: 1 });
+    const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
     const valueSchema = z.object({ kind: z.literal("event"), seq: z.number() });
 
     // Act 1 — open the subscription. `subscribe()` returns a handle
@@ -446,7 +446,7 @@ describe("subscribe-init registers #subscriptions synchronously (Codex P1 regres
     // frames in the same synchronous parse loop, not just the first one
     // after the response.
     const transport = new InMemoryTransport();
-    const client = new JsonRpcClient(transport, { protocolVersion: 1 });
+    const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
     const valueSchema = z.object({ kind: z.literal("event"), seq: z.number() });
 
     const subscription = client.subscribe<z.infer<typeof valueSchema>>(
@@ -531,7 +531,7 @@ describe("Phase D Round 4 F2 — malformed subscriptionId rejected at SDK bounda
   it("non-UUID subscriptionId fails the init schema; no #subscriptions entry; iterator surfaces JsonRpcSchemaError", async () => {
     // Arrange — open `subscribe()`, capture the init request id.
     const transport = new InMemoryTransport();
-    const client = new JsonRpcClient(transport, { protocolVersion: 1 });
+    const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
     const valueSchema = z.object({ kind: z.literal("event"), seq: z.number() });
 
     const subscription = client.subscribe<z.infer<typeof valueSchema>>(
@@ -602,7 +602,7 @@ describe("Phase D Round 4 F2 — malformed subscriptionId rejected at SDK bounda
     // a non-loose schema and dropped the additional-fields-allowed
     // posture.
     const transport = new InMemoryTransport();
-    const client = new JsonRpcClient(transport, { protocolVersion: 1 });
+    const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
     const valueSchema = z.object({ kind: z.literal("event"), seq: z.number() });
 
     const subscription = client.subscribe<z.infer<typeof valueSchema>>(
@@ -676,7 +676,7 @@ describe("Phase D Round 5 F3 — cancel() idempotency (Codex P2 regression)", ()
     // Arrange — open a subscription, drive the init response so status
     // reaches `"active"`, then issue concurrent `cancel()` calls.
     const transport = new InMemoryTransport();
-    const client = new JsonRpcClient(transport, { protocolVersion: 1 });
+    const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
     const valueSchema = z.object({ kind: z.literal("event"), seq: z.number() });
 
     const subscription = client.subscribe<z.infer<typeof valueSchema>>(
@@ -755,7 +755,7 @@ describe("Phase D Round 5 F3 — cancel() idempotency (Codex P2 regression)", ()
     // terminal-status guard at the top of `#cancelSubscription` intercepts
     // post-settlement calls before the in-flight guard is even consulted.
     const transport = new InMemoryTransport();
-    const client = new JsonRpcClient(transport, { protocolVersion: 1 });
+    const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
     const valueSchema = z.object({ kind: z.literal("event"), seq: z.number() });
 
     const subscription = client.subscribe<z.infer<typeof valueSchema>>(
@@ -820,7 +820,7 @@ describe("Phase D Round 5 F3 — cancel() idempotency (Codex P2 regression)", ()
     // via `completeSubscriptionWithError`. A subsequent `subscription.next()`
     // call should reject with the wire error (`JsonRpcRemoteError`).
     const transport = new InMemoryTransport();
-    const client = new JsonRpcClient(transport, { protocolVersion: 1 });
+    const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
     const valueSchema = z.object({ kind: z.literal("event"), seq: z.number() });
 
     const subscription = client.subscribe<z.infer<typeof valueSchema>>(
@@ -862,7 +862,7 @@ describe("Phase D Round 5 F3 — cancel() idempotency (Codex P2 regression)", ()
     transport.dispatchInbound({
       jsonrpc: JSONRPC_VERSION,
       id: cancelEnvelope.id,
-      error: { code: -32603, message: "internal daemon failure", data: undefined },
+      error: { code: -32603, message: "internal daemon failure" },
     });
 
     // Both `cancel()` promises resolve (the catch in `#emitCancelRpc` does
@@ -983,7 +983,7 @@ describe("Phase D Round 7 F6 — thenable transport.send rejection propagates (C
   it("transport.send returning a thenable WITHOUT `.catch` propagates the rejection (no synthetic TypeError)", async () => {
     const sendErr = new Error("transport write failed");
     const transport = new ThenableSendRejectingTransport(sendErr);
-    const client = new JsonRpcClient(transport, { protocolVersion: 1 });
+    const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
 
     const paramsSchema = z.object({ key: z.string() });
     const resultSchema = z.object({ ok: z.boolean() });

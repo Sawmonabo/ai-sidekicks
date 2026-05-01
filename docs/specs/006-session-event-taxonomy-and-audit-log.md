@@ -113,16 +113,17 @@ Payload shape: `{sessionId, previousState?, newState, actor?}`
 
 Payload shape: `{sessionId, participantId, inviteId?, previousRole?, newRole?, actor}`
 
-| Type                      | Description                                               |
-| ------------------------- | --------------------------------------------------------- |
-| `invite.created`          | An invitation to join the session has been created.       |
-| `invite.accepted`         | A participant has accepted a session invitation.          |
-| `invite.revoked`          | A session invitation has been revoked before acceptance.  |
-| `invite.expired`          | A session invitation has expired without being accepted.  |
+| Type | Description |
+| --- | --- |
+| `invite.created` | An invitation to join the session has been created. |
+| `invite.accepted` | A participant has accepted a session invitation. |
+| `invite.revoked` | A session invitation has been revoked before acceptance. |
+| `invite.expired` | A session invitation has expired without being accepted. |
+| `membership.created` | A participant's first-time membership in the session has been created (post-invite-accept or direct-add). The canonical "first joined" event — distinct from `invite.accepted` (which records the invite-state transition) and from `presence.online` (which is per-device and ephemeral). |
 | `membership.role_changed` | A participant's role within the session has been changed. |
-| `membership.suspended`    | A participant's membership has been suspended.            |
-| `membership.revoked`      | A participant's membership has been permanently revoked.  |
-| `membership.reactivated`  | A suspended participant's membership has been restored.   |
+| `membership.suspended` | A participant's membership has been suspended. |
+| `membership.revoked` | A participant's membership has been permanently revoked. |
+| `membership.reactivated` | A suspended participant's membership has been restored. |
 
 > See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed payload definitions.
 
@@ -440,6 +441,25 @@ Payload shape: `{sessionId, anchorId?, verifierNodeId}` (base). Per-event payloa
 
 > See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed payload definitions.
 
+### Security Events (`security_events`)
+
+Daemon-emitted events recording operator-facing security posture transitions — fail-safe-default overrides and update-availability signals per [Spec-027 §Required Behavior](./027-self-host-secure-defaults.md#required-behavior). These events belong to a distinct category from `audit_integrity` (which records the audit log's tamper-evidence state) and from `event_maintenance` (which records operations on the event stream itself) because they describe **the daemon's security posture** at process scope. Like those two infrastructure-state categories, security events fire at daemon scope across all sessions hosted on the node — they are not session-scoped.
+
+**Invariant: at-most-once-per-startup emission for `security.default.override`.** Per [Plan-007 §Invariants I-007-4](../plans/007-local-ipc-and-daemon-control.md#invariants), each active override emits exactly one `security.default.override` event per process startup, never per request. Multi-override scenarios emit one event per distinct override.
+
+Payload shape: `{nodeId, occurredAt}` (base). Per-event payload extensions called out inline.
+
+| Type | Description | Payload Extension |
+| --- | --- | --- |
+| `security.default.override` | An operator opt-in override of a fail-safe default has been activated for this daemon process. Cardinality is at most one per override per process startup (per Plan-007 invariant I-007-4). The set of override `behavior` integers and `row` strings (e.g. `7a`, `7b`) is enumerated in [Spec-027 §Required Behavior](./027-self-host-secure-defaults.md#required-behavior). | base + `{behavior: integer, row: string, effective_value: string, banner_printed_at: string}` per [Spec-027 §Interfaces And Contracts](./027-self-host-secure-defaults.md#interfaces-and-contracts) |
+| `security.update.available` | The daemon's update poller (Spec-027 row 7a) has detected a newer release on the configured release feed. The daemon MUST NOT self-swap while IPC is live; CLI-invoked `ai-sidekicks self-update` (row 7b) is the only sanctioned swap flow. | base + `{currentVersion: string, newerVersion: string, releaseChannel: string, releaseUrl?: string}` |
+
+**Precedent — `security.default.override`.** Spec-027 row 8 (`legacy_tls12`), row 5 (`postgres_sslmode=verify-ca`), row 6 (`backup_disabled`), row 9a (`metrics_disabled`), row 4 (`insecure_bind`) all enumerate `security.default.override=<behavior>` strings as the structured-log surface; the structured-log payload schema is fixed at [Spec-027:138](./027-self-host-secure-defaults.md#interfaces-and-contracts) `{behavior, row, effective_value, banner_printed_at}`. The taxonomy registration here lifts that structured-log payload into the canonical event envelope.
+
+**Precedent — `security.update.available`.** Spec-027 §Example Flows Example 4 (line 157) describes the emission path: "newer `version=128` release is detected. Daemon emits `security.update.available` log event, updates `auto_update_check_status` gauge, and appends one line to the next startup banner". The `currentVersion` / `newerVersion` field pair mirrors npm's `outdated` JSON output (`current` / `wanted` / `latest`) and Homebrew's `brew outdated --json=v2` (`installed_versions[]` / `current_version`); no upstream event-shape precedent literally named `security.update.available` was found, so the field set is composed from those CLI-output precedents plus Spec-027 row 7a's emit context.
+
+> See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed payload definitions.
+
 ### Event Maintenance (`event_maintenance`)
 
 Daemon-level events recording operations on the event stream itself — schema migrations, compaction passes, and crypto-shred fan-out. These events belong to a distinct category from any session-scoped category because they describe **the event log as infrastructure**, not the session content it carries. One `event.compacted` event may compact thousands of prior events across multiple sessions; one `event.shredded` event spans every session a purged participant touched.
@@ -481,12 +501,12 @@ Payload shape: `{nodeId, bundleId, bundleVersion}` (base). Per-event payload ext
 
 ### Event Type Summary
 
-Total enumerated event types: **120**
+Total enumerated event types: **123**
 
 | Category | Count | Types |
 | --- | --- | --- |
 | `session_lifecycle` (session) | 7 | `session.created` through `session.purged` |
-| `membership_change` (invite/membership) | 8 | `invite.created` through `membership.reactivated` |
+| `membership_change` (invite/membership) | 9 | `invite.created` through `membership.reactivated` (incl. `membership.created`) |
 | `membership_change` (presence) | 4 | `presence.online` through `presence.offline` |
 | `session_lifecycle` (channel/agent) | 6 | `channel.created` through `agent.config_updated` |
 | `channel_arbitration` | 2 | `arbitration.paused`, `arbitration.resumed` |
@@ -505,9 +525,10 @@ Total enumerated event types: **120**
 | `recovery_events` | 3 | `recovery.attempted`, `recovery.succeeded`, `recovery.failed` |
 | `participant_lifecycle` | 5 | `participant.exported` through `participant.device_reset` |
 | `audit_integrity` | 3 | `audit_integrity_verified`, `audit_integrity_failed`, `key_reuse_detected` |
+| `security_events` | 2 | `security.default.override`, `security.update.available` |
 | `event_maintenance` | 3 | `schema.migrated`, `event.compacted`, `event.shredded` |
 | `policy_events` | 2 | `policy_bundle.loaded`, `policy_bundle.rejected` |
-| **Total** | **120** | Exceeds Forge's 69-type baseline by 74% |
+| **Total** | **123** | Exceeds Forge's 69-type baseline by 78% |
 
 ## Integrity Protocol
 

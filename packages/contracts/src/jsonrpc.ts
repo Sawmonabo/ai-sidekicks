@@ -17,13 +17,14 @@
 //
 // What this file does NOT define (deferred to sibling tasks):
 //   * `MethodRegistry` — owned by T-007p-2-3 (`packages/runtime-daemon/src/ipc/registry.ts`).
-//   * JSON-RPC numeric error code mapping (`-32700` parse, `-32600` invalid
-//     request, `-32601` method not found, `-32602` invalid params, `-32603`
-//     internal error) ↔ project dotted-namespace ErrorResponse — owned by
-//     T-007p-2-2 (`jsonrpc-error-mapping.ts`). This file exposes the
-//     ABSTRACT `code: number, message: string, data?: unknown` error-object
-//     shape the JSON-RPC spec requires; T-2 lands the canonical mapping
-//     table.
+//   * JSON-RPC numeric error code mapping discriminator (which thrown values
+//     map to which JSON-RPC numeric code, sanitization, envelope assembly) —
+//     owned by T-007p-2-2 (`jsonrpc-error-mapping.ts`). This file exposes
+//     the wire-envelope SHAPE per BL-103 closure; the discriminator that
+//     populates it lives daemon-side. The canonical numeric ↔ project
+//     dotted-namespace mapping table itself lives at
+//     docs/architecture/contracts/error-contracts.md §JSON-RPC Wire Mapping
+//     (BL-103 ratified 2026-05-01).
 //   * `DaemonHello` / `DaemonHelloAck` — owned by T-007p-2-4
 //     (`protocol-negotiation.ts`).
 //   * `LocalSubscription<T>` / `$/subscription/notify` notification methods
@@ -33,13 +34,12 @@
 //     `$/subscription/notify` is one specific instance T-5 will type
 //     against this generic shape.
 //
-// BLOCKED-ON-C6. The `protocolVersion` field type is parameterized over
-// `number | string` per the audit directive. Spec-007:54 declares an integer
-// field; api-payload-contracts.md:541-548 declares a string field. The
-// substrate accepts both shapes; Phase 3 handlers narrow once
-// api-payload-contracts.md §Plan-007 lands the canonical type. When C-6
-// resolves, the union narrows in place — every consumer keeps the same
-// type-import line.
+// `protocolVersion` field type ratified at api-payload-contracts.md
+// §Tier 1 (cont.): Plan-007 (BL-102 closed 2026-05-01) — ISO 8601
+// `YYYY-MM-DD` date-string per the MCP §Architecture overview precedent
+// (modelcontextprotocol.io). Spec-007:54 amended to match. Date-strings
+// sort lexicographically equivalent to chronologically and dodge the
+// semver "v1.5 with no v1.4" ambiguity.
 
 // --------------------------------------------------------------------------
 // Constants
@@ -81,11 +81,10 @@ export type JsonRpcId = string | number | null;
  * JSON-RPC 2.0 request envelope.
  *
  * `protocolVersion` is the Spec-007 §Wire Format per-request field
- * (line 54 — every request except health checks must carry it). It is
- * typed as `number | string` per the BLOCKED-ON-C6 directive — Spec-007:54
- * declares an integer; api-payload-contracts.md:541-548 declares a string.
- * The substrate accepts either; Phase 3 handlers narrow when the canonical
- * type lands. Optional because health checks omit it per Spec-007:54.
+ * (line 54 — every request except health checks must carry it). Typed as
+ * an ISO 8601 `YYYY-MM-DD` date-string per api-payload-contracts.md
+ * §Tier 1 (cont.): Plan-007 (BL-102 ratified 2026-05-01). Optional because
+ * health checks omit it per Spec-007:54.
  *
  * `params` is `unknown` at this layer because the substrate does NOT
  * validate it — Zod schema validation runs INSIDE the registry's
@@ -98,10 +97,7 @@ export interface JsonRpcRequest<P = unknown> {
   readonly id: JsonRpcId;
   readonly method: string;
   readonly params?: P;
-  // BLOCKED-ON-C6 — narrows to `number` or `string` (one of the two) when
-  // api-payload-contracts.md §Plan-007 declares the canonical
-  // `protocolVersion` field type.
-  readonly protocolVersion?: number | string;
+  readonly protocolVersion?: string;
 }
 
 // --------------------------------------------------------------------------
@@ -153,28 +149,107 @@ export interface JsonRpcResponse<R = unknown> {
 // --------------------------------------------------------------------------
 
 /**
+ * Structured `data` payload riding inside a JSON-RPC error object. Shape
+ * ratified at error-contracts.md §JSON-RPC Wire Mapping (BL-103 closed
+ * 2026-05-01) per the [RFC 7807 Problem Details]
+ * (https://datatracker.ietf.org/doc/html/rfc7807) precedent and the
+ * [LSP 3.17 ResponseError]
+ * (https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#responseError)
+ * field convention:
+ *
+ *   * `type: string` — the canonical project dotted-namespace code (e.g.
+ *     `session.not_found`, `unknown_setting`, `protocol.handshake_required`,
+ *     `resource.limit_exceeded`). The string is a SUPERSET of the
+ *     error-contracts.md §Error Codes registry: it ALSO includes
+ *     framework-level / substrate-only identifiers (e.g. `invalid_params`,
+ *     `invalid_envelope`, `method_not_found`, `oversized_body`) that are
+ *     stable substrate identifiers without §Error Codes registry entries.
+ *     Consumers MUST discriminate on `data.type` for project-level error
+ *     handling; the numeric `code` is for JSON-RPC §5.1 framing only.
+ *   * `fields?: Record<string, unknown>` — optional structured detail (e.g.
+ *     `{ setting: string, value: unknown }` for `unknown_setting`,
+ *     `{ limit, observed }` for `resource.limit_exceeded`). Producers
+ *     MUST keep this payload free of stack traces, absolute paths, and
+ *     secrets per Plan-007 invariant I-007-8.
+ *
+ * The shape is REQUIRED whenever `data` is populated. The substrate's
+ * daemon-side discriminator (T-007p-2-2's `jsonrpc-error-mapping.ts`)
+ * projects each typed throw into this canonical shape; clients see the
+ * canonical shape only.
+ */
+export interface JsonRpcErrorData {
+  readonly type: string;
+  readonly fields?: Record<string, unknown>;
+}
+
+// --------------------------------------------------------------------------
+// JsonRpcErrorCode — JSON-RPC 2.0 spec §5.1 numeric error codes
+// --------------------------------------------------------------------------
+
+/**
+ * The five JSON-RPC 2.0 spec reserved numeric error codes (per
+ * https://www.jsonrpc.org/specification §5.1 "Error object"). These are
+ * the only numerics the substrate emits — domain-specific codes ride in
+ * `error.data.type` per error-contracts.md §JSON-RPC Wire Mapping (BL-103
+ * closed 2026-05-01).
+ *
+ * Promoted to `@ai-sidekicks/contracts` so that daemon-side mapping
+ * (`packages/runtime-daemon/src/ipc/jsonrpc-error-mapping.ts`) and SDK-side
+ * decoding (`packages/client-sdk/src/transport/jsonRpcClient.ts`) share
+ * one canonical declaration. Both packages depend on
+ * `@ai-sidekicks/contracts` per the Tier 1 dependency direction (clients
+ * depend on contracts; never on the daemon).
+ *
+ *   * `-32700 ParseError` — Invalid JSON received by the server.
+ *   * `-32600 InvalidRequest` — JSON parsed but the envelope is not a
+ *     valid JSON-RPC Request object.
+ *   * `-32601 MethodNotFound` — The method does not exist / is not
+ *     available.
+ *   * `-32602 InvalidParams` — Invalid method parameter(s); Zod validation
+ *     failure at the registry's dispatch boundary.
+ *   * `-32603 InternalError` — Internal JSON-RPC error; handler-thrown
+ *     unexpected error or result-schema validation failure (programmer
+ *     error on the daemon side).
+ */
+export const JsonRpcErrorCode = {
+  ParseError: -32700,
+  InvalidRequest: -32600,
+  MethodNotFound: -32601,
+  InvalidParams: -32602,
+  InternalError: -32603,
+} as const;
+
+/**
+ * Type alias for the JSON-RPC numeric error code value space. Test code
+ * and downstream callers pattern-match on the numeric without taking a
+ * runtime dependency on the `JsonRpcErrorCode` named-constant object.
+ */
+export type JsonRpcErrorCodeValue = (typeof JsonRpcErrorCode)[keyof typeof JsonRpcErrorCode];
+
+/**
  * JSON-RPC 2.0 error response envelope (spec §5.1).
  *
  * The error object's shape per spec §5.1:
  *   * `code: integer` — error code; the JSON-RPC reserved range
- *     (-32768..-32000) is the spec's prerogative; project domain codes
- *     ride in `data`. The canonical mapping table between JSON-RPC
- *     numeric codes and project dotted-namespace ErrorResponse codes is
- *     T-007p-2-2's surface — this file does NOT enumerate them.
+ *     (-32768..-32000) is the spec's prerogative. The canonical numeric ↔
+ *     project dotted-namespace table lives at error-contracts.md
+ *     §JSON-RPC Wire Mapping. Project domain codes ride in `data.type`
+ *     (NOT in `code`), per the table.
  *   * `message: string` — human-readable; the substrate's I-007-8
- *     sanitization step strips stack traces and absolute paths from
- *     this field before it leaves the daemon. Sanitization itself is
- *     a substrate-side helper (`sanitizeErrorMessage` in
+ *     sanitization step strips stack traces and absolute paths from this
+ *     field before it leaves the daemon. Sanitization itself is a
+ *     substrate-side helper (`sanitizeErrorMessage` in
  *     `local-ipc-gateway.ts`); the contract here is "this string is
  *     trusted to not leak secrets".
- *   * `data?: unknown` — optional supplementary structured value. T-2's
- *     mapping carries the project dotted code (e.g. `session.not_found`)
- *     here when a registered domain error fires through the substrate.
+ *   * `data?: JsonRpcErrorData` — structured project-level detail per
+ *     BL-103. `data.type` is the project dotted-namespace code;
+ *     `data.fields` is optional structured context. See `JsonRpcErrorData`
+ *     above for the full contract.
  */
 export interface JsonRpcError {
   readonly code: number;
   readonly message: string;
-  readonly data?: unknown;
+  readonly data?: JsonRpcErrorData;
 }
 
 export interface JsonRpcErrorResponse {
