@@ -461,7 +461,7 @@ The ready set (NS-01, NS-03, NS-04, NS-11, NS-12, NS-13a, NS-14, NS-22) shares n
 - Type: governance
 - Priority: `P1` (blocks NS-13b)
 - Upstream: none
-- References: [audit runbook](../operations/plan-implementation-readiness-audit-runbook.md), [spec template](../specs/000-spec-template.md), [Spec-027](../specs/027-self-host-secure-defaults.md):6
+- References: [audit runbook](../operations/plan-implementation-readiness-audit-runbook.md), [spec template](../specs/000-spec-template.md), [Spec-027](../specs/027-self-host-secure-defaults.md):5
 - Summary: The plan-readiness-audit runbook only names plans as audit subjects; the spec template's Status section has no audit-gate row. With Spec-027 currently `draft` while Plan-007 PRs #16/#17/#19 have already shipped citing Spec-027 rows extensively, the corpus has discovered a missing governance lifecycle step. Land either (a) a runbook amendment that extends audit coverage to specs, or (b) a new ADR formalizing spec-status promotion. Without this, NS-13b has no governance path.
 - Exit Criteria: Either runbook §Status Promotion Gate amended to cover specs, or new ADR `accepted` defining spec-status promotion path; spec-template Status section lists the gate.
 
@@ -471,7 +471,7 @@ The ready set (NS-01, NS-03, NS-04, NS-11, NS-12, NS-13a, NS-14, NS-22) shares n
 - Type: governance (load-bearing)
 - Priority: `P1`
 - Upstream: NS-13a (gate must exist before Spec-027 can clear it)
-- References: [Spec-027](../specs/027-self-host-secure-defaults.md):6, [Plan-007](../plans/007-local-ipc-and-daemon-control.md):14, 25, 87, 172, 174, 182, 184-187, 208, 210, 212, 224, 232, 245, 256-257, 372, 403, 454, 458, Plan-007 PR #16 / #17 / #19 squash commits
+- References: [Spec-027](../specs/027-self-host-secure-defaults.md):5, [Plan-007](../plans/007-local-ipc-and-daemon-control.md):14, 25, 87, 172, 174, 182, 184-187, 208, 210, 212, 224, 232, 245, 256-257, 372, 403, 454, 458, Plan-007 PR #16 / #17 / #19 squash commits
 - Summary: Spec-027 is the only `draft` spec in the corpus while Plan-007 PRs (merged 2026-04-28..30) shipped daemon-bootstrap code citing it heavily — a doc-first-before-coding violation surfaced by the next-steps investigation. Promote per the gate established in NS-13a, with a Plan-007 PR-row attestation that the spec body is still authoritative for the rows shipped.
 - Exit Criteria: Spec-027 status flipped to `approved`; Plan-007 cross-references re-validated against the post-promotion spec body; doc-first-before-coding invariant restored.
 
@@ -501,7 +501,7 @@ The ready set (NS-01, NS-03, NS-04, NS-11, NS-12, NS-13a, NS-14, NS-22) shares n
 - Type: cleanup (doc-only)
 - Priority: `P2`
 - Upstream: none
-- References: [Plan-001](../plans/001-shared-session-core.md):55, 183, 297, 306, 308, 328, 337, 339; [Plan-022](../plans/022-data-retention-and-gdpr.md):22, 51, 107, 159; [ADR-022](../decisions/022-v1-toolchain-selection.md):14, 299; [Plan-001](../plans/001-shared-session-core.md) `session.ts:388` cite; [Plan-008](../plans/008-control-plane-relay-and-session-join.md):28, 188 `session.ts:388` cite
+- References: [Plan-001](../plans/001-shared-session-core.md):12, 55, 121, 183, 297, 306, 308, 328, 337, 339; [Plan-022](../plans/022-data-retention-and-gdpr.md):22, 51, 107, 159; [ADR-022](../decisions/022-v1-toolchain-selection.md):14, 299; [Plan-001](../plans/001-shared-session-core.md) `session.ts:388` cite; [Plan-008](../plans/008-control-plane-relay-and-session-join.md):28, 188 `session.ts:388` cite
 - Summary: The cross-plan-deps audit (this PR) corrected two repo-truth drifts already present in §1 + §2 + §3 + §5: (a) migration filename `0001-initial.sql` → `0001-initial.ts` (live files are TypeScript per `packages/{runtime-daemon,control-plane}/src/migrations/`), and (b) `packages/contracts/src/session.ts:388` → `:408` (the `SessionSubscribe` comment block moved to line 408 after Plan-001 Phase 2 contract evolution). Both drifts also appear in sibling docs that this audit's scope did not modify. Sweep Plan-001 (10 occurrences of `.sql` + 1 of `:388`), Plan-022 (4 occurrences of `.sql`), ADR-022 (2 occurrences of `.sql`), and Plan-008 (2 occurrences of `:388`). Single PR, doc-only, ~30 min. Archive (`backlog-archive.md`) is frozen and excluded from sweep.
 - Exit Criteria: All listed sibling-doc occurrences updated to current values; grep for `0001-initial\.sql` and `session\.ts:388` outside `docs/archive/` returns zero matches.
 
