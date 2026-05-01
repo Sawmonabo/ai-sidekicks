@@ -1,6 +1,12 @@
 ---
 name: plan-execution
 description: Execute implementation plans (docs/plans/NNN-*.md) one Phase per PR by consuming the audit-derived `#### Tasks` block as the dispatch contract, expanding it into a task DAG, dispatching task-scoped implementer subagents (sequential by default, worktree-isolated when wall-clock parallelism is required), gating each task with a small-scope reviewer pipeline (spec / quality / correctness), and gating the merged PR with a final integration-coverage review pipeline. Use whenever the user says "execute Plan-NNN", "execute Plan-NNN Phase N", "execute Plan-NNN PR #M", "kick off Plan-NNN", "work on Plan-NNN", "start Plan-NNN", "continue Plan-NNN", or any equivalent that names a plan. Also use when the user says "resume the plan" or "pick up where we left off" on a feat/plan-NNN-* branch. The skill auto-detects the next eligible Phase by walking the plan's Implementation Phase Sequence and checking each Phase's `**Precondition:**` against branch + merged-PR + cross-plan state; an explicit "PR #M" or "Phase N" overrides the inference. The audit precondition gate (Status Promotion Gate from `docs/operations/plan-implementation-readiness-audit-runbook.md`) blocks dispatch on un-audited plans.
+requires_files:
+  - docs/operations/plan-implementation-readiness-audit-runbook.md
+  - docs/architecture/cross-plan-dependencies.md
+  - docs/plans/000-plan-template.md
+  - .claude/rules/coding-standards.md
+  - .claude/skills/plan-execution/scripts/preflight.mjs
 ---
 
 # Plan Execution
@@ -112,23 +118,9 @@ Canonicality precedence: **branch commits > YAML DAG > TaskCreate > PR descripti
 
 ### Phase 0 — State inference and scaffold
 
-Phase 0 has four sequential checks: audit gate → repo state → phase selection → branch decision.
+Phase 0 has three sequential checks: repo state → preflight (mechanical gates) → branch decision.
 
-#### 0.1 — Audit precondition gate (Status Promotion Gate)
-
-Read the plan's `## Preconditions` section. If the audit-complete checkbox is unchecked:
-
-```markdown
-- [ ] **Plan-readiness audit complete per [...]**
-```
-
-HALT immediately with `RESULT: NEEDS_CONTEXT` and surface to the user:
-
-> Plan-NNN has not passed the plan-readiness audit (runbook: `docs/operations/plan-implementation-readiness-audit-runbook.md`). The Status Promotion Gate blocks code-execution dispatch on un-audited plans. Run the audit first, or document an explicit waiver in the plan body before re-running.
-
-The check passes when the line is `- [x]`. **Why this gate exists:** running on an un-audited plan means the plan-analyst infers acceptance criteria from prose — exactly the drift the audit's G4 traceability gate was built to prevent. Skipping it reverts the skill to a spec-drift failure mode the runbook's Status Promotion Gate exists to prevent.
-
-#### 0.2 — Repo + PR state inference
+#### 0.1 — Repo + PR state inference
 
 Run in parallel:
 
@@ -139,27 +131,23 @@ gh pr list --state open --head "$(git branch --show-current)" --json number,titl
 gh pr list --state merged --search "Plan-NNN in:title" --json number,title --limit 20
 ```
 
-#### 0.3 — Phase selection (replaces title-count PR inference)
+#### 0.2 — Preflight (mechanical gates)
 
-Read `## Implementation Phase Sequence` from the plan. Walk it top-down to pick the next eligible Phase:
+Run the preflight tool with the plan file (and optional explicit phase if the user override-supplied one):
 
-1. For each `### Phase N — title`, skip the phase if it has already shipped — its title (or "Plan-NNN PR #N") appears in the merged-PR list from 0.2.
-2. For each remaining phase, evaluate the `**Precondition:**` line. Best-effort parse:
-   - "PR #X merged" → `gh pr view X` confirms merged
-   - "Plan-MMM Phase K approved/merged" → that plan's Progress Log entry exists
-   - "ADR-NNN accepted" → ADR's `Status` field is `accepted`
-   - Cross-plan dependencies → consult [`docs/architecture/cross-plan-dependencies.md`](../../../docs/architecture/cross-plan-dependencies.md) §5 for substrate/namespace + partial/remainder carve-outs.
-3. The next-up Phase is the **first** un-shipped phase whose Precondition resolves to satisfied.
-4. **Multiple eligible phases simultaneously** (e.g., Tier 1 substrate finished AND a Tier-N remainder unblocked at the same time, common under carve-outs) → halt with `NEEDS_CONTEXT`; ask the user which to execute.
-5. **Zero eligible phases** → halt; surface the unmet preconditions per phase.
+```bash
+node .claude/skills/plan-execution/scripts/preflight.mjs docs/plans/NNN-*.md [phase-number]
+```
 
-User overrides bypass steps 1-3: `PR #M` or `Phase N` in the trigger phrase short-circuits the walk. Override does NOT bypass 0.1 (audit gate runs unconditionally).
+The tool resolves the next-up phase, runs all mechanical gates (project-locality, audit checkbox, phase un-shipped, tasks-block G4 cites, phase preconditions), and emits the phase number on `stdout` when it passes. Full contract: [`scripts/preflight-contract.md`](scripts/preflight-contract.md).
 
-**Why phase-walk, not title-count:** plans with substrate/namespace or partial/remainder carve-outs ship Phases non-contiguously across tiers. Plan-007 ships Phases 1-3 in Tier 1 (substrate partial) and Phases 4+ in Tier 4 (remainder). Counting "Plan-007 in:title" PRs after the third merge returns next M=4, which silently maps to Tier-4 work whose preconditions (Plan-001 + others) may not be met. Phase-walk gates each phase on its declared Precondition.
+**On non-zero exit:** halt with `RESULT: NEEDS_CONTEXT` and surface the tool's `stdout` verbatim — the message is self-contained (failure type, file paths, remediation hint). Do not paraphrase; the message is the contract.
 
-#### 0.4 — Branch + scaffold decision
+The preflight is the authoritative source for these gates; SKILL.md prose does NOT duplicate the gate logic. To add a new mechanical check (e.g., a future "minimum CI version" gate), edit the tool, not this file. The motivating shape — `gh`-mediated phase-walk over title-count to handle substrate/namespace and partial/remainder carve-outs that ship phases non-contiguously across tiers (Plan-007 ships Phases 1-3 in Tier 1 and Phases 4+ in Tier 4) — lives in the tool source and its contract; SKILL.md does not restate it.
 
-After 0.1, 0.2, and 0.3 resolve cleanly, decide branch state:
+#### 0.3 — Branch + scaffold decision
+
+After 0.1 and 0.2 resolve cleanly, decide branch state:
 
 - **Branch is `feat/plan-NNN-*` with open PR matching the selected Phase** → in-progress PR. Read [`references/state-recovery.md`](references/state-recovery.md). The PR body's YAML DAG block is your starting state.
 - **Branch is `develop` (or anything else) and no PR open for the selected Phase** → fresh start; scaffold below.
@@ -373,6 +361,14 @@ The three roles (templates under [`prompts/`](prompts/) — `spec-reviewer.promp
 
 Findings carry severity labels: **VERIFICATION** (narrative — reviewer showing work, no fix), **POLISH** (real improvement — fix in-PR), or **ACTIONABLE** (round-trip immediately — must fix to merge). See the **Findings Discipline** section below.
 
+**Validate the responses before routing.** Save each reviewer's response (or pipe via stdin) and run:
+
+```bash
+node .claude/skills/plan-execution/scripts/validate-review-response.mjs --conflicts spec.md quality.md code.md
+```
+
+Exit 0 means no inter-reviewer conflicts at the same `file:line`. Exit 1 emits a JSON conflict report to `stdout`; resolve per [`references/failure-modes.md` § Inter-reviewer conflict adjudication](references/failure-modes.md#inter-reviewer-conflict-adjudication) (severity precedence ACTIONABLE > POLISH > VERIFICATION; opposing-direction same-severity halts to user).
+
 Route per [`references/failure-modes.md`](references/failure-modes.md). Loop until all three reviewers return `DONE` (no POLISH or ACTIONABLE findings; VERIFICATION narrative may still appear in their reports).
 
 **Round-trip cap: 3 rounds per task.** After 3 implementer→reviewer round-trips on the same task, halt the task and surface the consolidated finding-set to the user. The user decides: ship as-is (residual POLISH/ACTIONABLE lands in a follow-up PR — exception, not norm), manual fix, or abort the task. (Why 3 specifically: [`references/failure-modes.md` § Round-trip cap rationale](references/failure-modes.md#round-trip-cap-rationale).)
@@ -399,7 +395,15 @@ What integration coverage concretely checks (the gate Phase C cannot provide):
 - **PR-level acceptance criteria coverage** — every test-plan item from the plan's PR section has corresponding test code in the diff. Per-task ACs are a subset of the PR ACs; the union may have gaps that no individual task is responsible for.
 - **Full-branch lint/test surface** — `pnpm lint` and `pnpm test` pass workspace-wide. Per-task implementers run tests scoped to their target package only; cross-package breaks first show up at PR scope.
 
-Route findings the same way: POLISH and ACTIONABLE → round-trip to the implementer of the last-touching task; VERIFICATION lives in the reviewer's narrative section (no orchestrator action).
+**Validate Phase D stamps before routing.** Phase D scope is the full PR, not one task — so each finding MUST carry a `Round-trip target: <task-id>` stamp identifying which task receives the round-trip. For each reviewer response, run:
+
+```bash
+node .claude/skills/plan-execution/scripts/validate-review-response.mjs --phase=D response.md
+```
+
+Exit 1 lists findings missing the stamp. Re-dispatch the reviewer asking specifically for the missing stamps; do NOT route the response with unstamped findings.
+
+Route findings the same way: POLISH and ACTIONABLE → round-trip to the implementer of the last-touching task (per `Round-trip target:`); VERIFICATION lives in the reviewer's narrative section (no orchestrator action).
 
 **Round-trip cap: 3 rounds at PR scope.** After 3 final-review round-trips, halt and surface the consolidated finding-set to the user — same cap and rationale as Phase C ([`references/failure-modes.md` § Round-trip cap rationale](references/failure-modes.md#round-trip-cap-rationale)). The user decides: ship as-is, manual intervention, or abort the PR.
 
@@ -488,16 +492,19 @@ The orchestrator owns the TaskCreate list; subagents do not. Five rules:
 
 Read these when the workflow step calls for them:
 
+- [`scripts/preflight.mjs`](scripts/preflight.mjs) — preflight tool invoked at Phase 0.2; runs all five mechanical gates (project-locality, audit checkbox, phase un-shipped, tasks-block G4 cites, phase preconditions). Exit 0 = pass + phase number on stdout; exit 1 = halt with verbatim message; exit 2 = internal error.
+- [`scripts/preflight-contract.md`](scripts/preflight-contract.md) — authoritative contract for the preflight tool: invocation, exit codes, gate-by-gate definitions, design rationale (phase-walk vs title-count). Edit gates here and in `preflight.mjs`; do NOT add gate logic to SKILL.md prose.
+- [`scripts/validate-review-response.mjs`](scripts/validate-review-response.mjs) — reviewer-response validator invoked at Phase C (`--conflicts` mode, inter-reviewer conflict detection by `file:line`) and Phase D (`--phase=D` mode, Round-trip target stamp validation).
 - [`references/state-recovery.md`](references/state-recovery.md) — resumption protocol when a session compacts or crashes mid-PR. Updated for the three-artifact state model.
 - [`prompts/`](prompts/) — per-role prompt templates: `plan-analyst.prompt.md`, `contract-author.prompt.md`, `implementer.prompt.md`, `spec-reviewer.prompt.md`, `code-quality-reviewer.prompt.md`, `code-reviewer.prompt.md`. Read the relevant role's file before dispatching that role — each template is self-contained with mindset, hard rules, exit states, and report format. Each file declares a target dispatch-prompt size; if you exceed it after substituting placeholders, the task is probably under-decomposed or the plan section being pasted is too long (link instead of paste).
-- [`references/failure-modes.md`](references/failure-modes.md) — exit-state taxonomy (`DONE`, `DONE_WITH_CONCERNS`, `NEEDS_CONTEXT`, `BLOCKED`), graceful-drain protocol for worktree mode, three-label routing rules (VERIFICATION/POLISH/ACTIONABLE), round-trip caps.
+- [`references/failure-modes.md`](references/failure-modes.md) — exit-state taxonomy (`DONE`, `DONE_WITH_CONCERNS`, `NEEDS_CONTEXT`, `BLOCKED`), graceful-drain protocol for worktree mode, three-label routing rules (VERIFICATION/POLISH/ACTIONABLE), round-trip caps, inter-reviewer conflict adjudication.
 
 ## Anti-Patterns
 
 - **Branching off `main`.** Always branch off `develop`.
 - **Skipping Phase 0 state inference.** Even on a fresh-looking session, run the `git`/`gh` commands first. Surprises (uncommitted changes, an unexpected branch, a divergent DAG) must be resolved before dispatching.
-- **Skipping the audit precondition gate (Phase 0.1).** Plan-readiness audit is not optional. Running on un-audited plans means the analyst infers ACs from prose, producing the drift the audit's G4 traceability gate was built to prevent. The Status Promotion Gate from the audit runbook is the authoritative source.
-- **Inferring next PR by counting merged "Plan-NNN" titles.** Plans with substrate/namespace or partial/remainder carve-outs ship phases non-contiguously across tiers (Plan-007 ships Phases 1-3 in Tier 1, Phases 4+ in Tier 4). Title-counting silently maps post-Tier-1 to Tier-4 work whose preconditions may not be met. Use phase-precondition-driven selection from Phase 0.3.
+- **Skipping or paraphrasing preflight halts.** Plan-readiness audit is not optional — preflight Gate 2 (audit checkbox) blocks dispatch on un-audited plans. Running on un-audited plans means the analyst infers ACs from prose, producing the drift the audit's G4 traceability gate was built to prevent. Surface the tool's halt message verbatim; the message is the contract.
+- **Inferring next PR by counting merged "Plan-NNN" titles.** Plans with substrate/namespace or partial/remainder carve-outs ship phases non-contiguously across tiers — title-counting silently maps post-carve-out work to a tier whose preconditions may not be met. The preflight's phase-walk (Gate 3 + Gate 5) gates each phase on its declared Precondition; rationale at [`scripts/preflight-contract.md` § Gate 3](scripts/preflight-contract.md).
 - **Skipping Phase A.** Don't dispatch implementers without a validated DAG in the PR body. Pre-decomposition is the whole point of the v2 architecture.
 - **Re-deriving task structure from plan prose when the audit Tasks block exists.** The audit produced the granularity; the Tasks block is the dispatch contract. Re-deriving discards the `Spec coverage:` and `Verifies invariant:` cites that downstream spec-review depends on. If the audit's granularity is wrong, fix the audit (re-run); do not silently re-decompose in the analyst.
 - **Over-decomposing the DAG.** A 30-LOC change is one task, not three. If the analyst returns sub-50-LOC single-file tasks across the board, re-dispatch with the over-decompose objection — the small-task collapse rule is a band-aid, not a license. Over-decomposition multiplies dispatch cost without buying review-scope cleanness.

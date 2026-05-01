@@ -144,6 +144,20 @@ Plan-NNN implementation lands as a sequence of small PRs. Each PR exercises one 
 
 **Precondition:** {What must be merged or accepted before this PR can start.}
 
+<!--
+  Machine-readable preconditions (consumed by plan-execution preflight tool).
+  Supported types: pr_merged, adr_accepted, plan_phase, cross_plan_carve_out.
+  Required for plans authored from 2026-04-30 onward; legacy plans use prose
+  fallback parsing of the `**Precondition:**` line above.
+-->
+
+```yaml
+preconditions:
+  - { type: pr_merged, ref: 19 }
+  - { type: adr_accepted, ref: 23 }
+  - { type: plan_phase, plan: 1, phase: 5, status: merged }
+```
+
 **Goal:** {What tests go green; what behavior is delivered.}
 
 - {Scope item}

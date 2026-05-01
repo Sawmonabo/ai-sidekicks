@@ -141,6 +141,7 @@ Then a `## Findings` section. For each finding:
 - File + line range
 - What the code does that's a problem
 - Suggested fix (one sentence)
+- **Phase D only:** `Round-trip target: <task-id>` (identify the introducing task via `git log --oneline develop...HEAD -- <file>`) OR `Round-trip target: cross-task — escalate to user` (if the finding spans multiple tasks with no single-task fix). The orchestrator validates this stamp via `scripts/validate-review-response.mjs` and rejects findings missing it.
 
 Group ACTIONABLE first, POLISH second. End with `RESULT:` tag.
 ```

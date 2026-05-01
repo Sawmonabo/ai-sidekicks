@@ -123,6 +123,20 @@ When in doubt, present without a recommendation that softens ACTIONABLE. Lead wi
 
 History: this anti-pattern surfaced on Plan-007 PR #19 Round 6 F5 (2026-04-29). The orchestrator argued rule-of-three to defer an upstream-watcher leak whose fix was actually one optional method on an existing contract. User caught the framing error in one sentence; recant cost was a wasted A/B presentation cycle. See `feedback_actionable_deferral_discipline` memory.
 
+### Inter-reviewer conflict adjudication
+
+Three reviewers run in parallel against the same diff. Their findings sometimes conflict at the same `file:line` surface. The orchestrator adjudicates before re-dispatching the implementer (otherwise the implementer gets contradictory instructions and one reviewer's correction silently overrides the other's at the next round).
+
+**Detection is mechanical (preflight-adjacent).** The reviewer-response validator (`scripts/validate-review-response.mjs`) parses each reviewer's findings, groups by `file:line`, and flags conflicts. The rules below are the orchestrator's adjudication policy on detected conflicts.
+
+**Severity precedence at same surface.** ACTIONABLE > POLISH > VERIFICATION. If reviewer A flags `packages/foo/src/bar.ts:45-52` ACTIONABLE and reviewer B flags the same surface POLISH, the consolidated round-trip carries the ACTIONABLE label and the POLISH content folds in (the implementer fixes the higher concern; the lower-severity surface is by-construction addressed). Mechanical: pick max severity by precedence above.
+
+**Opposing-direction same-severity.** Reviewer A says "extract this duplication into a helper" (POLISH, idiom); reviewer B says "this duplication is load-bearing on a `blocked_on` surface — do not extract" (POLISH, conservative-shape). The findings are mutually exclusive at the same surface. Halt the per-task pipeline; surface to user with one example sentence from each reviewer; wait for direction. Do NOT re-dispatch the implementer with both — that produces churn at the next round-trip.
+
+**Same surface, same direction, different severities.** Reviewers agree on the fix but stamp it differently. Use the higher severity for round-trip; record the disagreement in PR Review Notes for skill-refinement signal (recurring pattern means the reviewer prompts disagree on the line between the two labels).
+
+**Different surfaces, no conflict.** The default — consolidate all findings; route per rule 9 (Phase C) or rule 14 (Phase D).
+
 ### Why three labels (history)
 
 The earlier project rule was "all findings round-trip regardless of severity." Plan-001 PR #4 demonstrated the failure mode — R5/R6/R9 spiraled on cosmetic feedback (the `feedback_cosmetic_review_spiral` memory). The first fix introduced binary OBSERVATION/ACTIONABLE: ACTIONABLE round-trips, OBSERVATION aggregates to a post-merge polish list.
