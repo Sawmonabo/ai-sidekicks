@@ -11,30 +11,37 @@
 //       stdout = JSON describing the failure.
 //   2 — internal error; stderr describes.
 
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import process from 'node:process';
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import process from "node:process";
 
 // ---------- pure parsers ----------
 
-const SEVERITY_RE = /^\s*[-*]?\s*(?:\*\*)?Severity(?:\*\*)?\s*:\s*\*?\*?\s*(POLISH|ACTIONABLE|VERIFICATION)/im;
+const SEVERITY_RE =
+  /^\s*[-*]?\s*(?:\*\*)?Severity(?:\*\*)?\s*:\s*\*?\*?\s*(POLISH|ACTIONABLE|VERIFICATION)/im;
 const FILE_LINE_RE = /([\w./@-]+\.[a-zA-Z][\w]*?):(\d+(?:-\d+)?)/;
 const ROUND_TRIP_RE = /Round-trip target\s*:\s*([^\n`*]+)/i;
 const RESULT_RE = /^\s*\*?\*?\s*RESULT\s*:\s*\*?\*?\s*(\w+)/m;
 
 export function parseReviewerResponse(source) {
-  const lines = source.split('\n');
+  const lines = source.split("\n");
   const findings = [];
   let current = null;
   let inFindings = false;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    if (/^##\s+Findings\b/i.test(line)) { inFindings = true; continue; }
+    if (/^##\s+Findings\b/i.test(line)) {
+      inFindings = true;
+      continue;
+    }
     if (!inFindings) continue;
     // End of findings: any other top-level ## header
     if (/^##\s+/.test(line) && !/^##\s+Findings\b/i.test(line)) {
-      if (current) { findings.push(current); current = null; }
+      if (current) {
+        findings.push(current);
+        current = null;
+      }
       break;
     }
 
@@ -54,7 +61,7 @@ export function parseReviewerResponse(source) {
   if (current) findings.push(current);
 
   for (const f of findings) {
-    const body = f.lines.join('\n');
+    const body = f.lines.join("\n");
     const fl = body.match(FILE_LINE_RE);
     if (fl) f.file_line = `${fl[1]}:${fl[2]}`;
     const rt = body.match(ROUND_TRIP_RE);
@@ -79,8 +86,8 @@ export function validatePhaseD(parsed) {
       errors.push({
         severity: f.severity,
         file_line: f.file_line,
-        excerpt: f.text.split('\n').slice(0, 2).join(' / ').slice(0, 200),
-        missing: 'Round-trip target:',
+        excerpt: f.text.split("\n").slice(0, 2).join(" / ").slice(0, 200),
+        missing: "Round-trip target:",
       });
     }
   }
@@ -107,7 +114,7 @@ export function detectConflicts(responses) {
       bySurface.get(f.file_line).push({
         reviewer: r.reviewer,
         severity: f.severity,
-        excerpt: f.text.split('\n').slice(0, 2).join(' / ').slice(0, 200),
+        excerpt: f.text.split("\n").slice(0, 2).join(" / ").slice(0, 200),
       });
     }
   }
@@ -128,45 +135,47 @@ export function detectConflicts(responses) {
 // ---------- IO helpers ----------
 
 function readSource(file) {
-  if (file === '-' || file === '/dev/stdin') return readFileSync(0, 'utf8');
-  return readFileSync(file, 'utf8');
+  if (file === "-" || file === "/dev/stdin") return readFileSync(0, "utf8");
+  return readFileSync(file, "utf8");
 }
 
 function reviewerNameFromPath(p) {
-  const base = p.split('/').pop() || p;
+  const base = p.split("/").pop() || p;
   // Match conventions like "spec-reviewer.md", "code-quality.txt", or
   // fall back to filename stem.
   const m = base.match(/(spec|code-quality|code|quality)/i);
-  return m ? m[1].toLowerCase() : base.replace(/\.[^.]+$/, '');
+  return m ? m[1].toLowerCase() : base.replace(/\.[^.]+$/, "");
 }
 
 // ---------- CLI ----------
 
 function printJson(obj) {
-  process.stdout.write(JSON.stringify(obj, null, 2) + '\n');
+  process.stdout.write(JSON.stringify(obj, null, 2) + "\n");
 }
 
 async function main() {
   const args = process.argv.slice(2);
-  if (args.length === 0 || args.includes('--help') || args.includes('-h')) {
-    process.stderr.write([
-      'Usage:',
-      '  validate-review-response.mjs <file>             # parse, output JSON to stdout',
-      '  validate-review-response.mjs --phase=D <file>   # require Round-trip target on each finding',
-      '  validate-review-response.mjs --conflicts <f>... # detect inter-reviewer conflicts (≥2 files)',
-      '',
-      'Use `-` as <file> to read from stdin.',
-    ].join('\n') + '\n');
+  if (args.length === 0 || args.includes("--help") || args.includes("-h")) {
+    process.stderr.write(
+      [
+        "Usage:",
+        "  validate-review-response.mjs <file>             # parse, output JSON to stdout",
+        "  validate-review-response.mjs --phase=D <file>   # require Round-trip target on each finding",
+        "  validate-review-response.mjs --conflicts <f>... # detect inter-reviewer conflicts (≥2 files)",
+        "",
+        "Use `-` as <file> to read from stdin.",
+      ].join("\n") + "\n",
+    );
     process.exit(2);
   }
 
-  const phaseD = args.includes('--phase=D');
-  const conflictsMode = args.includes('--conflicts');
-  const fileArgs = args.filter((a) => !a.startsWith('--'));
+  const phaseD = args.includes("--phase=D");
+  const conflictsMode = args.includes("--conflicts");
+  const fileArgs = args.filter((a) => !a.startsWith("--"));
 
   if (conflictsMode) {
     if (fileArgs.length < 2) {
-      process.stderr.write('--conflicts requires ≥ 2 response files\n');
+      process.stderr.write("--conflicts requires ≥ 2 response files\n");
       process.exit(2);
     }
     const responses = fileArgs.map((f) => ({
@@ -179,7 +188,7 @@ async function main() {
   }
 
   if (fileArgs.length === 0) {
-    process.stderr.write('no input file given\n');
+    process.stderr.write("no input file given\n");
     process.exit(2);
   }
   const source = readSource(fileArgs[0]);
