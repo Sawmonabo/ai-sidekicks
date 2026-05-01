@@ -30,6 +30,7 @@ import type { SessionRouterDeps } from "../sessions/session-router.js";
 import type { SessionRouterContext } from "../sessions/trpc.js";
 import { checkDevEnvironment, type DevEnvironmentEnv } from "./dev-environment-gate.js";
 import { checkFeatureFlag, type FeatureFlagEnv } from "./feature-flag-gate.js";
+import { prefixSseRetry } from "./sse-retry-prefix.js";
 
 export type ControlPlaneEnv = FeatureFlagEnv & DevEnvironmentEnv;
 
@@ -85,7 +86,7 @@ export function buildControlPlaneFetchHandler(
     const envResult = checkDevEnvironment(env);
     if (!envResult.ok) return refuseUnavailable(envResult.reason, log);
 
-    return fetchRequestHandler({
+    const response = await fetchRequestHandler({
       endpoint,
       req: request,
       router,
@@ -93,6 +94,7 @@ export function buildControlPlaneFetchHandler(
         requestId: generateRequestId(),
       }),
     });
+    return prefixSseRetry(response);
   };
 }
 
