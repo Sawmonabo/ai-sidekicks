@@ -66,7 +66,11 @@ import type {
   JsonRpcResponse,
   MethodRegistry,
 } from "@ai-sidekicks/contracts";
-import { JSONRPC_VERSION } from "@ai-sidekicks/contracts";
+import {
+  ENVELOPE_PROTOCOL_VERSION_EXEMPT_METHODS,
+  JSONRPC_VERSION,
+  PROTOCOL_VERSION_REGEX,
+} from "@ai-sidekicks/contracts";
 
 import { assertLoadedForBind } from "../bootstrap/index.js";
 import { SecureDefaults } from "../bootstrap/secure-defaults.js";
@@ -1073,6 +1077,81 @@ export class LocalIpcGateway {
     }
     const requestId: JsonRpcId = isNotification ? null : extractIdSafely(envelope);
     const params = envelope["params"];
+
+    // Step 3.5: enforce per-request `protocolVersion` per Spec-007 §Wire
+    // Format line 54 (BL-102 ratified 2026-05-01). The substrate refuses
+    // dispatch BEFORE the handler runs (I-007-7 substrate-side: every
+    // request that reaches the registry MUST carry a wire-shape-valid
+    // `protocolVersion` field on the JSON-RPC envelope itself). The
+    // handshake (`daemon.hello`) is exempt because the negotiation
+    // parameter rides in `params.protocolVersion` (proposed primary) /
+    // `params.supportedProtocols` (full set) — by definition the
+    // envelope-level field cannot exist before the handshake completes.
+    // The exempt set is canonical at
+    // `packages/contracts/src/jsonrpc.ts` `ENVELOPE_PROTOCOL_VERSION_EXEMPT_METHODS`.
+    //
+    // Ordering rationale: this gate fires AFTER Step 3 (id-shape) so
+    // that structural-envelope violations (id wrong type) surface their
+    // own `invalid_envelope` data.type rather than this gate's
+    // `invalid_protocol_version`. A future refactor MUST NOT reorder
+    // these — the malformed-id regression test (RT-codex-1 finding #2)
+    // depends on id-shape rejecting first; reordering would change
+    // the surfaced `data.type` for `{ id: {}, ...no protocolVersion }`
+    // envelopes silently.
+    //
+    // Wire-shape: the gate fires three discriminated reasons
+    // (`missing` / `wrong_type` / `invalid_format`) carried in
+    // `data.fields.reason`. The actual offending VALUE is NOT echoed
+    // back — `wrong_type` includes a JS-typeof tag (`"object"`,
+    // `"number"`, `"boolean"`) so observability can reason without
+    // surfacing client-supplied content. Note: a JSON `null` arrives
+    // as `typeof null === "object"`, which we classify under
+    // `wrong_type` (not `missing`) — the field is PRESENT but not a
+    // string, mirroring the JSON-Schema `null !== absent` distinction.
+    //
+    // Notification path: per JSON-RPC §4.1 the server MUST NOT respond
+    // to notifications. A notification with a malformed protocolVersion
+    // field is therefore dropped silently, with the violation surfaced
+    // through the supervision `onError` hook (mirroring the dispatch-
+    // path notification handling at lines 1107-1126 below). The
+    // `state.disposed` early-return preserves the supervision contract
+    // "every onError(transport, ...) is followed by exactly one
+    // onDisconnect(transport, reason) for the same transport id" — if
+    // the peer disconnected before this branch fires, the onDisconnect
+    // already ran and surfacing onError now would dangle.
+    if (!ENVELOPE_PROTOCOL_VERSION_EXEMPT_METHODS.has(methodCandidate)) {
+      const pvCandidate = envelope["protocolVersion"];
+      let pvReason: "missing" | "wrong_type" | "invalid_format" | null = null;
+      let pvObservedType: string | null = null;
+      if (pvCandidate === undefined) {
+        pvReason = "missing";
+      } else if (typeof pvCandidate !== "string") {
+        pvReason = "wrong_type";
+        pvObservedType = pvCandidate === null ? "null" : typeof pvCandidate;
+      } else if (!PROTOCOL_VERSION_REGEX.test(pvCandidate)) {
+        pvReason = "invalid_format";
+      }
+      if (pvReason !== null) {
+        const fields: Record<string, unknown> =
+          pvObservedType !== null
+            ? { reason: pvReason, observedType: pvObservedType }
+            : { reason: pvReason };
+        const wrapped = new FramingError(
+          "invalid_protocol_version",
+          `invalid JSON-RPC envelope: protocolVersion ${pvReason} (Spec-007:54)`,
+          fields,
+        );
+        if (isNotification) {
+          if (state.disposed) return;
+          if (this.#hooks !== null) {
+            this.#hooks.onError(state.transport, wrapped);
+          }
+          return;
+        }
+        this.#sendEnvelope(state, mapJsonRpcError(wrapped, requestId));
+        return;
+      }
+    }
 
     // Step 4: dispatch through the registry. The registry's
     // `dispatch()` returns a `Promise<unknown>` that resolves with

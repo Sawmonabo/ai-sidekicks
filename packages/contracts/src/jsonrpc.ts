@@ -56,6 +56,32 @@
 export const JSONRPC_VERSION = "2.0" as const;
 export type JsonRpcVersion = typeof JSONRPC_VERSION;
 
+/**
+ * Methods exempt from the substrate's envelope-level `protocolVersion`
+ * gate. Spec-007:54 mandates that every request carries an ISO 8601
+ * `YYYY-MM-DD` `protocolVersion` field on the JSON-RPC envelope; the
+ * `local-ipc-gateway.ts#dispatchFrame` substrate enforces the field
+ * BEFORE dispatch (per I-007-7), but the handshake exchange itself
+ * (`daemon.hello`) cannot — by definition — carry a negotiated version
+ * because the negotiation has not yet occurred. The handshake's
+ * `protocolVersion` rides in `params.protocolVersion` (proposed primary)
+ * + `params.supportedProtocols` (full set), validated INSIDE the
+ * registry against `DaemonHelloSchema` per F-007p-2-10.
+ *
+ * Tier 1 surface only registers `daemon.hello`; Tier-4 health-check
+ * methods (Spec-007:54 "except health checks") will extend this set
+ * when those methods are implemented. Adding a method here is a
+ * deliberate, documented exemption — every entry MUST cite which
+ * envelope-level violation invariant it is shifting into the handler's
+ * own params validation.
+ *
+ * Frozen via `readonly` so consumers cannot mutate the substrate's gate
+ * at runtime.
+ */
+export const ENVELOPE_PROTOCOL_VERSION_EXEMPT_METHODS: ReadonlySet<string> = new Set([
+  "daemon.hello",
+]);
+
 // --------------------------------------------------------------------------
 // JsonRpcId
 // --------------------------------------------------------------------------

@@ -104,13 +104,25 @@ export const SUPPORTED_PROTOCOLS_MAX_LEN = 32;
 // --------------------------------------------------------------------------
 
 /**
+ * The canonical regex for an ISO 8601 `YYYY-MM-DD` date-string. Exported
+ * so the substrate's envelope-level enforcement gate (Spec-007:54 per-
+ * request `protocolVersion` field, see `local-ipc-gateway.ts#dispatchFrame`)
+ * shares the EXACT shape that `ProtocolVersionSchema` validates inside
+ * `daemon.hello` payloads — a single source of truth prevents drift
+ * between the wire-frame gate (substrate) and the negotiation handler
+ * (registry). The Zod schema below wraps this regex; do not redeclare it.
+ */
+export const PROTOCOL_VERSION_REGEX: RegExp = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
  * The `protocolVersion` field type — ISO 8601 `YYYY-MM-DD` date-string per
  * api-payload-contracts.md §Tier 1 (cont.): Plan-007 (BL-102 ratified
- * 2026-05-01). The regex enforces the calendar-date shape; the
- * F-007p-2-10 negotiation algorithm uses lex-sort over conforming strings
- * (lex order ≡ chronological for ISO 8601), so no semver parser is needed.
+ * 2026-05-01). The regex (`PROTOCOL_VERSION_REGEX`) enforces the calendar-
+ * date shape; the F-007p-2-10 negotiation algorithm uses lex-sort over
+ * conforming strings (lex order ≡ chronological for ISO 8601), so no
+ * semver parser is needed.
  */
-export const ProtocolVersionSchema: z.ZodString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+export const ProtocolVersionSchema: z.ZodString = z.string().regex(PROTOCOL_VERSION_REGEX);
 
 // --------------------------------------------------------------------------
 // DaemonHello (client → daemon)

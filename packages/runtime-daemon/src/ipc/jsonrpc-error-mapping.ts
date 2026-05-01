@@ -123,17 +123,27 @@ import { RegistryDispatchError } from "./registry.js";
  *     `method` on a request, etc.). The framing+JSON layers succeeded;
  *     the JSON-RPC layer rejects. → `-32600 InvalidRequest` per spec §5.1
  *     ("The JSON sent is not a valid Request object").
+ *   * `"invalid_protocol_version"` — request envelope is structurally
+ *     valid (jsonrpc / method / id-shape all pass) but the per-request
+ *     `protocolVersion` field is missing, the wrong type, or fails the
+ *     ISO 8601 `YYYY-MM-DD` shape per Spec-007:54 (BL-102 ratification).
+ *     The substrate refuses dispatch BEFORE the handler runs (I-007-7).
+ *     → `-32600 InvalidRequest` per spec §5.1 ("The JSON sent is not a
+ *     valid Request object" — a request missing a wire-mandated field
+ *     IS not a valid Request object).
  *
- * The two virtual codes `"invalid_json"` and `"invalid_envelope"` are
- * NOT thrown by `parseFrame` directly — `local-ipc-gateway.ts`'s
- * `#dispatchFrame` synthesizes them when wrapping `JSON.parse` /
- * envelope-shape failures into a `FramingError` (so this mapping
- * function has a single point of dispatch). The synthesis is documented
- * at the call sites in `local-ipc-gateway.ts`.
+ * The three virtual codes `"invalid_json"`, `"invalid_envelope"`, and
+ * `"invalid_protocol_version"` are NOT thrown by `parseFrame` directly —
+ * `local-ipc-gateway.ts`'s `#dispatchFrame` synthesizes them when
+ * wrapping `JSON.parse` / envelope-shape / protocolVersion failures
+ * into a `FramingError` (so this mapping function has a single point of
+ * dispatch). The synthesis is documented at the call sites in
+ * `local-ipc-gateway.ts`.
  */
 function mapFramingErrorCode(code: string): JsonRpcErrorCodeValue {
   switch (code) {
     case "invalid_envelope":
+    case "invalid_protocol_version":
     case "oversized_body":
       return JsonRpcErrorCode.InvalidRequest;
     case "header_too_long":
@@ -170,6 +180,16 @@ function mapFramingErrorCode(code: string): JsonRpcErrorCodeValue {
  * and makes 413-semantic peer mis-framing indistinguishable from 429-
  * semantic quota saturation in downstream observability.
  *
+ * The `invalid_protocol_version` row projects to the registered
+ * transport-layer code `transport.invalid_protocol_version` (per
+ * error-contracts.md §Plan-007 Tier 1 Domain Identifiers + §Transport).
+ * This is the substrate-side enforcement of Spec-007:54's per-request
+ * `protocolVersion` field requirement — the field is part of the wire
+ * envelope contract, so its absence / wrong type / bad format is a
+ * TRANSPORT failure (peer mis-using the wire layer), distinct from
+ * `protocol.version_mismatch` (NegotiationError, registry-side gate
+ * for incompatible negotiated versions on subsequent mutating ops).
+ *
  * The rest of the framing codes project directly through their framing-
  * code string (which carries no domain meaning, only wire-level meaning).
  * The §JSON-RPC Wire Mapping table permits framework-level identifiers in
@@ -182,6 +202,9 @@ function mapFramingErrorCode(code: string): JsonRpcErrorCodeValue {
 function framingErrorDataType(code: string): string {
   if (code === "oversized_body") {
     return "transport.message_too_large";
+  }
+  if (code === "invalid_protocol_version") {
+    return "transport.invalid_protocol_version";
   }
   return code;
 }

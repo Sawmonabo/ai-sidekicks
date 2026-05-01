@@ -63,12 +63,14 @@ The numeric `code` is the JSON-RPC spec-mandated discriminator. The `data.type` 
 | `unknown_setting` | `-32602` | Bootstrap rejected an unrecognized SecureDefaults config key (per F-007p-1-2 + T-007p-1-4) |
 | `transport.unavailable` | `-32603` | Loopback-fallback transport requested without operator opt-in (per F-007p-2-09 Tier 1 conservative gate) |
 | `transport.message_too_large` | `-32600` | Inbound frame exceeded the 1MB body cap (per F-007p-2-05; the spec-required InvalidRequest classification per Plan-007:268 mapping). Distinct from Spec-001's `resource.limit_exceeded` (HTTP-429 domain quota saturation): a 413-semantic peer mis-framing of the wire layer. |
+| `transport.invalid_protocol_version` | `-32600` | Per-request envelope-level `protocolVersion` field violates Spec-007:54 (BL-102 ratified): missing, wrong type, or fails the ISO 8601 `YYYY-MM-DD` shape. The substrate gate at `local-ipc-gateway.ts#dispatchFrame` enforces per I-007-7 BEFORE handler dispatch; the handshake (`daemon.hello`) is exempt because the negotiation parameter rides in `params.protocolVersion`. Distinct from `protocol.version_mismatch` (NegotiationError, registry-side gate for incompatible negotiated versions on subsequent mutating ops): the wire-layer envelope shape gate fires once-per-frame, the registry-side gate fires once-per-incompatible-mutating-op. |
 
 `data.fields` shape per code:
 
 - `unknown_setting`: `{ setting: string, value: unknown }`
 - `transport.unavailable`: `{ requested: string, reason: string }`
 - `transport.message_too_large`: `{ limit: number, observed: number }`
+- `transport.invalid_protocol_version`: `{ reason: "missing" | "wrong_type" | "invalid_format", observedType?: string }` (`observedType` is the JS-typeof tag of the offending value, present only when `reason === "wrong_type"`; the offending VALUE itself is NOT echoed back so client-supplied content does not leak through observability)
 
 ### Negotiation Refusals
 
@@ -198,6 +200,7 @@ Wire-level codes describing peer mis-use of the framing/handshake layer. Distinc
 | --- | --- | --- |
 | `transport.unavailable` | Requested transport (e.g. loopback fallback) is not enabled for this daemon process per its conservative-default gate (Plan-007 F-007p-2-09) | 503 |
 | `transport.message_too_large` | Inbound frame's declared body length exceeded the 1MB cap, or daemon-side outbound build exceeded it (Plan-007 F-007p-2-05/F-007p-2-11). 413 semantic. | 413 |
+| `transport.invalid_protocol_version` | Per-request envelope-level `protocolVersion` field violates Spec-007:54 (BL-102 ratification): the field is missing, the wrong JS type, or fails the ISO 8601 `YYYY-MM-DD` shape. Substrate-side gate; fires BEFORE handler dispatch (I-007-7). Distinct from `version.floor_exceeded` / `version.ceiling_exceeded` (registry-side handshake-incompatibility) and from `protocol.version_mismatch` (registry-side mutating-op gate after handshake declared incompatible). 400 semantic. | 400 |
 
 ### Resource
 
