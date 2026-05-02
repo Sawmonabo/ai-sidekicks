@@ -43,6 +43,7 @@ exclude = [
   "^https://www\\.npmjs\\.com/package/.*",
   "^https://www\\.mdpi\\.com/.*",
   "^https://platform\\.openai\\.com/.*",
+  "^https://techcommunity\\.microsoft\\.com/.*",
 ]
 
 # GitHub-hosted-runner network has higher tail latency than typical dev
