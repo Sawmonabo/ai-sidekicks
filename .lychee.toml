@@ -45,8 +45,15 @@ exclude = [
   "^https://platform\\.openai\\.com/.*",
 ]
 
-max_retries = 1
-timeout = 10
+# GitHub-hosted-runner network has higher tail latency than typical dev
+# loops — 10s timeouts produced sporadic flaps on `electron-vite.org` and
+# `etcd.io` (both <1s from a developer machine, both returned 200 on
+# manual probe). 20s gives a wider safety margin without hurting wall
+# time, since `max_concurrency = 16` keeps fast URLs in flight in
+# parallel. `max_retries = 2` (2 retries on top of the initial attempt
+# = 3 total) covers transient timeouts and 5xx hiccups.
+max_retries = 2
+timeout = 20
 max_concurrency = 16
 cache = false
 require_https = false
