@@ -90,7 +90,7 @@
     ]
   },
   "alwaysThinkingEnabled": true,
-  "effortLevel": "high",
+  "effortLevel": "xhigh",
   "autoCompactWindow": 300000,
   "companyAnnouncements": [
     "Hey Sawbo, I can't fix bugs you haven't written yet. Get coding!",

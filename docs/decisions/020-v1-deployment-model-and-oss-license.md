@@ -212,7 +212,7 @@ The QA-matrix cost is structurally limited by the decision to put both relay bac
 | Supabase self-host | Precedent | OSS core + hosted SaaS on one codebase; Apache-2.0 license | <https://supabase.com/docs/guides/self-hosting> |
 | PostHog self-host | Precedent | OSS core + hosted SaaS; MIT with later re-license | <https://posthog.com/docs/self-host> |
 | Sentry OSS → BSL → FSL | Precedent | Source-available relicensing path when competitive re-hosting materializes | <https://sentry.io/_/open-source/> |
-| tmate | Precedent | OSS terminal-sharing with free default relay + self-host option | <https://tmate.io/> |
+| tmate | Precedent | OSS terminal-sharing with free default relay + self-host option | <https://github.com/tmate-io/tmate> |
 | Mattermost | Precedent | OSS + paid-tier two-deployment model | <https://mattermost.com/> |
 | Cloudflare Workers + Durable Objects | Documentation | Sharded relay architecture used for project-operated free relay | <https://developers.cloudflare.com/durable-objects/> |
 | `rate-limiter-flexible` | Documentation | Postgres/Redis backends for self-host rate limiting | <https://github.com/animir/node-rate-limiter-flexible> |
@@ -272,7 +272,7 @@ The QA-matrix cost is structurally limited by the decision to put both relay bac
 
 | Date | Event | Notes |
 | --- | --- | --- |
-| 2026-04-16 | Research conducted | Comparable-product survey, ongoing-cost evidence, Cloudflare Durable Object portability analysis, license option-space evaluation, and timing analysis (V1 vs V1.1) recommended Option B (V1 hosted-only) under an enterprise-commercial-SaaS cost model. The analysis is preserved in [§Alternatives Option B](#option-b-v1-hosted-only-self-host-deferred-to-v11-rejected-was-the-research-briefs-recommendation) above (steel-man + rejection rationale) and the supporting primary sources are catalogued in [§Research Conducted](#research-conducted) above |
+| 2026-04-16 | Research conducted | Comparable-product survey, ongoing-cost evidence, Cloudflare Durable Object portability analysis, license option-space evaluation, and timing analysis (V1 vs V1.1) recommended Option B (V1 hosted-only) under an enterprise-commercial-SaaS cost model. The analysis is preserved in [§Alternatives Option B](#option-b-v1-hosted-only-self-host-deferred-to-v11-rejected--was-the-research-briefs-recommendation) above (steel-man + rejection rationale) and the supporting primary sources are catalogued in [§Research Conducted](#research-conducted) above |
 | 2026-04-17 | Product framing clarified | OSS developer-tool posture; not enterprise-commercial-SaaS; research brief Option B recommendation superseded on this basis |
 | 2026-04-17 | Proposed | Drafted against BL-053 exit criteria |
 | 2026-04-17 | Accepted | ADR accepted as V1 deployment model + OSS license commitment |

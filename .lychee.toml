@@ -1,0 +1,60 @@
+# Lychee configuration. Reference: https://lychee.cli.rs/usage/config/
+#
+# Validates inbound anchors and outbound local-file links across docs/, ADRs,
+# plans, etc. HTTP checks happen in CI; pre-commit runs --offline.
+
+verbose = "warn"
+# `include_fragments` was a bool in earlier lychee versions and is a string in
+# v0.24.2: `full` (anchor + text-fragment), `anchor-only`, `text-only`, `none`.
+# Pre-commit (`--offline`) needs full — file://-scheme anchor verification is
+# the inbound-integrity primitive. CI's online step overrides via
+# `--include-fragments=none` because external HTTP-fetched HTML doesn't expose
+# JS-rendered anchors (Node.js / NIST / Cloudflare / Docusaurus /
+# Sphinx / Swagger UI all do this), so external-anchor checks generate
+# false positives. See lychee.example.toml in the pinned tag.
+include_fragments = "full"
+
+# Treat rate-limited responses as "alive" — 429 is transient by definition,
+# rejecting it would flap CI on probe bursts. 200..=299 covers all success
+# codes; lychee's default also accepts 200..=299 alone, listing it explicitly
+# documents intent.
+accept = ["200..=299", "429"]
+
+exclude_path = [
+  "node_modules/**",
+  ".git/**",
+  ".agents/**",
+  ".claude/**",
+  "dist/**",
+  "build/**",
+  "docs/archive/**",
+  ".turbo/**",
+  ".pnpm-store/**",
+]
+
+# URL-pattern excludes. Hosts that persistently 403 lychee's bot-shaped
+# probe (Cloudflare bot-detection, academic publisher AI scraping defenses,
+# JS-only content guards) need to be excluded — the URLs work in a browser,
+# they're not broken, but they cannot be HTTP-probed without a browser-class
+# user agent. Each entry is a host the corpus actually references; adding a
+# blanket "exclude all 403s" via `accept` would hide real broken links.
+exclude = [
+  "^https://docs\\.anthropic\\.com/.*",
+  "^https://www\\.npmjs\\.com/package/.*",
+  "^https://www\\.mdpi\\.com/.*",
+  "^https://platform\\.openai\\.com/.*",
+  "^https://techcommunity\\.microsoft\\.com/.*",
+]
+
+# GitHub-hosted-runner network has higher tail latency than typical dev
+# loops — 10s timeouts produced sporadic flaps on `electron-vite.org` and
+# `etcd.io` (both <1s from a developer machine, both returned 200 on
+# manual probe). 20s gives a wider safety margin without hurting wall
+# time, since `max_concurrency = 16` keeps fast URLs in flight in
+# parallel. `max_retries = 2` (2 retries on top of the initial attempt
+# = 3 total) covers transient timeouts and 5xx hiccups.
+max_retries = 2
+timeout = 20
+max_concurrency = 16
+cache = false
+require_https = false

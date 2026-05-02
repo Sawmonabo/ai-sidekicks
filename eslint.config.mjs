@@ -28,6 +28,31 @@ export default tseslint.config(
       ],
     },
   },
+  // Node-globals scope for build tooling (`tools/`) and root-level config files.
+  // Packages under `packages/*` and `apps/*` get their globals from
+  // `@types/node` via the TS language server; this block covers `.mjs` /
+  // tooling scripts that ESLint parses without TS type-info.
+  {
+    files: ["tools/**/*.{ts,mjs,js}", "*.config.{ts,mjs,js}", "*.{mjs,cjs}"],
+    languageOptions: {
+      globals: {
+        process: "readonly",
+        console: "readonly",
+        Buffer: "readonly",
+        __dirname: "readonly",
+        __filename: "readonly",
+        fetch: "readonly",
+        URL: "readonly",
+        URLSearchParams: "readonly",
+        setTimeout: "readonly",
+        clearTimeout: "readonly",
+        setInterval: "readonly",
+        clearInterval: "readonly",
+        AbortController: "readonly",
+        AbortSignal: "readonly",
+      },
+    },
+  },
   // Plan-008 §I-008-3 enforcement #2 — the tRPC session router + SSE
   // subscription factories must NEVER reach a database driver directly. They
   // route 100% through `SessionDirectoryService` (the wrapper Plan-001 owns).

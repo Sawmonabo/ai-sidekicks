@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "../../tsconfig.node22.json",
+  // Pre-commit hook scripts run under `node --experimental-strip-types` (no
+  // runtime type-check). The IDE invariants below match that reality:
+  //   - composite/isolatedDeclarations OFF: tools/ is not a referenced project
+  //     in the root solution file; it ships nothing.
+  //   - allowImportingTsExtensions ON: Node strip-types accepts `.ts` import
+  //     specifiers natively (>=22.6); test files use `import "../foo.ts"`.
+  //   - noUncheckedIndexedAccess / noPropertyAccessFromIndexSignature OFF:
+  //     these are package-quality invariants for long-lived libraries; for
+  //     one-shot scripts with known input shapes they trade safety for noise.
+  "compilerOptions": {
+    "composite": false,
+    "isolatedDeclarations": false,
+    "noEmit": true,
+    "rootDir": ".",
+    "allowImportingTsExtensions": true,
+    "noUncheckedIndexedAccess": false,
+    "noPropertyAccessFromIndexSignature": false
+  },
+  "include": ["**/*.ts"],
+  "exclude": ["node_modules"]
+}

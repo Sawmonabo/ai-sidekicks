@@ -1,0 +1,155 @@
+# Doc-corpus integrity CI gate. Pre-commit checks staged-impact-only; this
+# workflow runs the full sweep on every PR and develop/main push so:
+#   (a) findings that escape pre-commit (`--no-verify` bypass) are caught
+#       before merge — closing ADR-023 §Axis 2 D-1 for doc-corpus checks;
+#   (b) lychee's HTTP probes (skipped at pre-commit) run against the canonical
+#       internet view of every external link.
+# Lychee runs as two passes — `--offline` for inbound file:// + anchors
+# (matches pre-commit), then online for outbound HTTP rot detection
+# (200..=299 + 429 accepted; bot-blocked hosts excluded in `.lychee.toml`).
+#
+# Branch protection on develop and main MUST require the `docs-corpus-gate`
+# job (only). Per ADR-023 §Axis 1 individual matrix legs are not stable
+# required-check targets — the aggregator pattern is.
+
+name: docs-corpus
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lychee:
+    name: lychee — inbound anchors + outbound links
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      # Inline install mirrors `tools/install-lychee.mjs` semantics: pin to
+      # v0.24.2, musl-static, SHA256-verified. `lycheeverse/lychee-action@v2`
+      # is broken for v0.24.x: its install script runs `tar -xvzf` without
+      # `--strip-components=1` and the binary lands at `lychee-<triple>/lychee`
+      # instead of the flat `lychee` it then tries to install.
+      # Keep `LYCHEE_VERSION` here in sync with the `VERSION` constant in
+      # `tools/install-lychee.mjs` so local + CI run the same binary.
+      - name: Install lychee v0.24.2
+        run: |
+          set -euo pipefail
+          LYCHEE_VERSION="v0.24.2"
+          BASE="https://github.com/lycheeverse/lychee/releases/download/lychee-${LYCHEE_VERSION}"
+          ASSET="lychee-x86_64-unknown-linux-musl.tar.gz"
+          curl -fsSL "${BASE}/${ASSET}" -o /tmp/lychee.tar.gz
+          curl -fsSL "${BASE}/${ASSET}.sha256" -o /tmp/lychee.sha256
+          EXPECTED=$(awk '{print $1}' /tmp/lychee.sha256)
+          ACTUAL=$(sha256sum /tmp/lychee.tar.gz | awk '{print $1}')
+          if [ "${EXPECTED}" != "${ACTUAL}" ]; then
+            echo "SHA256 mismatch: expected ${EXPECTED}, got ${ACTUAL}" >&2
+            exit 1
+          fi
+          mkdir -p "${HOME}/.local/bin"
+          tar -xzf /tmp/lychee.tar.gz -C "${HOME}/.local/bin" --strip-components=1
+          chmod +x "${HOME}/.local/bin/lychee"
+          echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
+
+      - name: Run lychee (offline — inbound file refs + anchors)
+        # Mirrors `lefthook.yml`'s `docs-anchor-check` job: file:// resolution
+        # + anchor checks (`include_fragments = "full"` from `.lychee.toml`).
+        # ADR-023 §Axis 2 D-1 parity — pre-commit and CI verify the same
+        # inbound-integrity invariant against the same config.
+        run: |
+          lychee --offline --no-progress --config .lychee.toml './**/*.md'
+
+      - name: Run lychee (online — outbound HTTP probes)
+        # Whole-repo HTTP probing for outbound link rot. `--include-fragments=
+        # none` disables anchor checking on HTTP-fetched pages (anchors on
+        # JS-rendered third-party docs aren't in the static HTML lychee parses
+        # — Node.js / NIST / Cloudflare / Docusaurus / Sphinx / Swagger UI all
+        # do this). Inbound `file.md#anchor` checks are still covered by the
+        # offline pass above. Accept-list for 200..=299 and 429 lives in
+        # `.lychee.toml`'s `accept = [...]` so the same policy applies
+        # whichever runner invokes lychee.
+        #
+        # Step-level retry absorbs transient GitHub-runner network flakes
+        # ("Connection failed" on healthy hosts that respond 200 from any
+        # other vantage). lychee's per-URL `max_retries` is already 2, but a
+        # whole-run flake (DNS hiccup, packet drop in the runner's egress
+        # path) retries every URL together. One additional outer attempt
+        # after a 15s pause is the empirical sweet spot — it catches the
+        # observed flakes (kubernetes.io, electron-vite.org, etcd.io) and
+        # still surfaces real link rot when both passes agree.
+        run: |
+          set -e
+          attempt() {
+            lychee --no-progress --config .lychee.toml --include-fragments=none './**/*.md'
+          }
+          if ! attempt; then
+            echo "lychee online pass failed; retrying once after 15s to absorb runner-network flakes" >&2
+            sleep 15
+            attempt
+          fi
+
+  custom-checks:
+    name: custom hooks — mermaid + cite + path-ripple + tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@8b2eead6074fefa43a68bf4c9e0f03ea4126b5ba # v6.0.3
+        with:
+          version: 10.33.2
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22.12"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: docs-corpus checks (full repo)
+        # Single runner composing path-canonical-ripple + mermaid-set-coherence +
+        # cite-target-existence. The runner reads argv for per-file checks
+        # (mermaid + cite, scoped to `.md`) and runs path-canonical-ripple
+        # unconditionally (whole-repo grep via the registry's `scope` globs).
+        run: |
+          mapfile -t files < <(git ls-files '*.md' | grep -v '^docs/archive/' || true)
+          node --experimental-strip-types tools/docs-corpus/bin/pre-commit-runner.ts "${files[@]}"
+
+      - name: Unit tests for hook implementations
+        run: pnpm exec vitest run --root tools/docs-corpus
+
+  docs-corpus-gate:
+    name: docs-corpus-gate
+    runs-on: ubuntu-latest
+    needs: [lychee, custom-checks]
+    if: always()
+    steps:
+      - name: Aggregate required-checks status
+        run: |
+          fail=0
+          if [[ "${{ needs.lychee.result }}" != "success" ]]; then
+            echo "docs-corpus-gate: required job 'lychee' did not succeed (result=${{ needs.lychee.result }})"
+            fail=1
+          fi
+          if [[ "${{ needs.custom-checks.result }}" != "success" ]]; then
+            echo "docs-corpus-gate: required job 'custom-checks' did not succeed (result=${{ needs.custom-checks.result }})"
+            fail=1
+          fi
+          if [[ $fail -ne 0 ]]; then
+            exit 1
+          fi
+          echo "docs-corpus-gate: all required jobs succeeded"

@@ -124,7 +124,7 @@ We adopt the following five-axis configuration.
 
 ## Alternatives Considered
 
-Per [Type 1](#header) treatment, alternatives are listed with brief rejection rationales. Per-option steel-mans appear inline above where load-bearing.
+Per Type 1 treatment, alternatives are listed with brief rejection rationales. Per-option steel-mans appear inline above where load-bearing.
 
 ### Axis 1 alternatives
 
@@ -277,7 +277,7 @@ Primary sources consulted during ADR-023 research, surfaced forward from transie
 | `rust-cross/cargo-zigbuild` | Documentation | Can target `*-apple-darwin` from Linux given a macOS SDK; Apple `codesign`/`notarytool` only run on macOS. | <https://github.com/rust-cross/cargo-zigbuild> |
 | Electron — Native Node Modules | Documentation | "Electron has a different application binary interface (ABI) from a given Node.js binary." | <https://www.electronjs.org/docs/latest/tutorial/using-native-node-modules> |
 | GitHub Community Discussion #26822 — matrix branch protection | GitHub-issue | Aggregator-job pattern (`if: always()`, `needs:`-shell-check) is canonical for matrix branch protection. | <https://github.com/orgs/community/discussions/26822> |
-| GitHub Docs — Required status checks (branch protection) | Documentation | Matrix-leg names embed strategy values; renaming silently bypasses protection. | <https://docs.github.com/en/repositories/configuring-branch-and-merge-management/managing-protected-branches/managing-a-branch-protection-rule> |
+| GitHub Docs — Required status checks (branch protection) | Documentation | Matrix-leg names embed strategy values; renaming silently bypasses protection. | <https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/managing-a-branch-protection-rule> |
 
 #### Axis 2 — Pre-commit framework + dev-loop
 
@@ -292,7 +292,7 @@ Primary sources consulted during ADR-023 research, surfaced forward from transie
 | Lefthook releases | Documentation | Latest stable v2.1.6 (2026-04-16); active 2.1.x stream. | <https://github.com/evilmartians/lefthook/releases> |
 | Lefthook README (raw) | Documentation | Single dependency-free Go binary; npm/gem/pipx/go install paths; parallel + glob/regexp + sub-dir + tags + Docker. | <https://raw.githubusercontent.com/evilmartians/lefthook/master/README.md> |
 | Lefthook configuration docs | Documentation | Top-level keys: `min_version`, `parallel: true`, `commands.run`/`glob`/`exclude_tags`/`files`/`stage_fixed`. | <https://github.com/evilmartians/lefthook/blob/master/docs/configuration.md> |
-| Lefthook install docs | Documentation | "Standalone, no-deps binary"; `lefthook self-update`. | <https://lefthook.dev/install.html> |
+| Lefthook install docs | Documentation | "Standalone, no-deps binary"; `lefthook self-update`. | <https://lefthook.dev/install/> |
 | Lefthook `npm-installer` source | Documentation | Postinstall script downloads platform Go binary from GitHub release; CI-skipped unless `LEFTHOOK=1`. | <https://github.com/evilmartians/lefthook/blob/master/packaging/registries/npm-installer/install.js> |
 | Lefthook packaging registries | Documentation | Multi-tier: `npm`, `npm-bundled`, `npm-installer`, plus aur/pypi/rubygems. | <https://github.com/evilmartians/lefthook/tree/master/packaging/registries> |
 | `simple-git-hooks` | Documentation | v2.13.1 (2025-07-31); zero deps; no monorepo / parallel support documented. | <https://github.com/toplenboren/simple-git-hooks> |
@@ -383,7 +383,7 @@ Primary sources consulted during ADR-023 research, surfaced forward from transie
 ### Related ADRs and Specs
 
 - [ADR-001](001-session-is-the-primary-domain-object.md) — first-class session primitive (every release artifact is session-recoverable through Plan-001).
-- [ADR-016](016-electron-shell-with-react-renderer.md) — Electron shell forces the daemon's Node 22 floor, which interacts with [ADR-022](022-v1-toolchain-selection.md)'s two-tier Node target and Axis 3's release CI Node 24 selection.
+- [ADR-016](016-electron-desktop-shell.md) — Electron shell forces the daemon's Node 22 floor, which interacts with [ADR-022](022-v1-toolchain-selection.md)'s two-tier Node target and Axis 3's release CI Node 24 selection.
 - [ADR-019](019-windows-v1-tier-and-pty-sidecar.md) — §Decision item 6 (5-platform sidecar packaging via `@esbuild/*` pattern), item 7 (Windows code-signing custody — Azure Artifact Signing preferred / EV cert fallback), item 8 (SmartScreen reputation pooling under shared signer identity). ADR-023 axis 5 is the signing-custody overlay; ADR-019 remains the canonical sidecar-distribution doc.
 - [ADR-020](020-v1-deployment-model-and-oss-license.md) — Apache-2.0 OSS license stance (forces Axis 4's TruffleHog deferral on AGPL grounds).
 - [ADR-022](022-v1-toolchain-selection.md) — pnpm 10.33+, Turborepo 2.9+, ESLint 10, Vitest 4, two-tier Node 22.12+/24.x. CI job graph is named there as a success criterion; ADR-023 builds out the workflow files.
