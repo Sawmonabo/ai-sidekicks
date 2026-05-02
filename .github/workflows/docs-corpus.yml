@@ -78,8 +78,25 @@ jobs:
         # offline pass above. Accept-list for 200..=299 and 429 lives in
         # `.lychee.toml`'s `accept = [...]` so the same policy applies
         # whichever runner invokes lychee.
+        #
+        # Step-level retry absorbs transient GitHub-runner network flakes
+        # ("Connection failed" on healthy hosts that respond 200 from any
+        # other vantage). lychee's per-URL `max_retries` is already 2, but a
+        # whole-run flake (DNS hiccup, packet drop in the runner's egress
+        # path) retries every URL together. One additional outer attempt
+        # after a 15s pause is the empirical sweet spot — it catches the
+        # observed flakes (kubernetes.io, electron-vite.org, etcd.io) and
+        # still surfaces real link rot when both passes agree.
         run: |
-          lychee --no-progress --config .lychee.toml --include-fragments=none './**/*.md'
+          set -e
+          attempt() {
+            lychee --no-progress --config .lychee.toml --include-fragments=none './**/*.md'
+          }
+          if ! attempt; then
+            echo "lychee online pass failed; retrying once after 15s to absorb runner-network flakes" >&2
+            sleep 15
+            attempt
+          fi
 
   custom-checks:
     name: custom hooks — mermaid + cite + path-ripple + tests
