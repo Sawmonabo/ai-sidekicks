@@ -72,7 +72,15 @@ function gitGrep(
   exclude: string[],
   cwd: string,
 ): { file: string; line: number; text: string }[] {
-  const args = ["grep", "-nF", "--", needle];
+  // `--cached` searches the index instead of the working tree. Without it, a
+  // tracked file with unstaged WIP that contains a deprecated path triggers a
+  // hit even when the commit being made is unrelated and clean — the hook
+  // blocks a no-op-with-respect-to-deprecated-paths commit. Searching the
+  // index reflects exactly what the next commit would contribute, which is
+  // the correct semantics for a pre-commit gate. In CI the working tree
+  // matches HEAD after checkout, so the two modes produce identical results
+  // there; the switch is purely additive.
+  const args = ["grep", "--cached", "-nF", "--", needle];
   for (const s of scope) args.push(":(glob)" + s);
   for (const e of exclude) args.push(":(exclude,glob)" + e);
 

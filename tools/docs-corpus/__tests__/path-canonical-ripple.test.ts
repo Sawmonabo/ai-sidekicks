@@ -119,6 +119,64 @@ describe("path-canonical-ripple", () => {
     cleanup();
   });
 
+  it("IGNORES unstaged working-tree edits to tracked files", () => {
+    // Codex review on PR #27: the prior `git grep` invocation omitted
+    // `--cached` and therefore scanned the working tree, so a tracked file
+    // with unrelated WIP containing a deprecated path could block a clean
+    // commit. A pre-commit gate should reflect what the next commit would
+    // contribute (i.e. the index), not arbitrary unstaged drift.
+    const root = mkdtempSync(resolve(tmpdir(), "pcr-wip-"));
+    execSync("git init -q -b main", { cwd: root });
+    execSync("git config user.email test@test", { cwd: root });
+    execSync("git config user.name test", { cwd: root });
+    mkdirSync(resolve(root, "docs"), { recursive: true });
+    writeFileSync(resolve(root, "docs/clean.md"), "uses apps/desktop/ everywhere\n");
+    writeFileSync(
+      resolve(root, "registry.json"),
+      JSON.stringify(
+        {
+          paths: [
+            {
+              canonical: "apps/desktop/",
+              deprecated: ["apps/desktop/shell"],
+              scope: ["docs/**/*.md"],
+              exclude: ["docs/archive/**"],
+            },
+          ],
+        },
+        null,
+        2,
+      ),
+    );
+    execSync("git add -A && git commit -q -m bootstrap", { cwd: root });
+    // Introduce a deprecated string in the working tree only — do NOT stage.
+    writeFileSync(
+      resolve(root, "docs/clean.md"),
+      "uses apps/desktop/ everywhere\nWIP: apps/desktop/shell mention\n",
+    );
+    const prevCwd = process.cwd();
+    const prevRegistry = process.env.DOCS_CORPUS_REGISTRY;
+    try {
+      process.chdir(root);
+      process.env.DOCS_CORPUS_REGISTRY = "registry.json";
+      const hits = checkPathCanonicalRipple();
+      expect(hits).toEqual([]);
+      // Sanity check the inverse: once the WIP is staged, the same content
+      // SHOULD be flagged. Confirms `--cached` is the only source of the
+      // earlier acceptance and the hook still catches deprecated paths in
+      // the index.
+      execSync("git add docs/clean.md", { cwd: root });
+      const stagedHits = checkPathCanonicalRipple();
+      expect(stagedHits.length).toBeGreaterThan(0);
+      expect(stagedHits[0].deprecated).toBe("apps/desktop/shell");
+    } finally {
+      process.chdir(prevCwd);
+      if (prevRegistry === undefined) delete process.env.DOCS_CORPUS_REGISTRY;
+      else process.env.DOCS_CORPUS_REGISTRY = prevRegistry;
+      rmSync(root, { recursive: true });
+    }
+  });
+
   it("FAILS CLOSED when the registry file is missing", () => {
     // Codex review on PR #27: prior behavior logged a warning and returned an
     // empty registry, silently disabling the canonical-path guard if the file
