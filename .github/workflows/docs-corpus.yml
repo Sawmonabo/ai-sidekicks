@@ -1,9 +1,10 @@
 # Doc-corpus integrity CI gate. Pre-commit checks staged-impact-only; this
-# workflow runs the full sweep on every PR and develop/main push so:
-#   (a) findings that escape pre-commit (`--no-verify` bypass) are caught
-#       before merge — closing ADR-023 §Axis 2 D-1 for doc-corpus checks;
-#   (b) lychee's HTTP probes (skipped at pre-commit) run against the canonical
-#       internet view of every external link.
+# workflow runs the full sweep on every PR and develop/main push so findings
+# that escape pre-commit (`--no-verify` bypass) are caught before merge —
+# closing ADR-023 §Axis 2 D-1 for doc-corpus checks. Outbound HTTP probing is
+# deferred to a follow-up PR (see the `Run lychee` step note for the
+# rate-limit + JS-rendered-anchor constraints that need an accept-list /
+# per-host-concurrency policy first).
 #
 # Branch protection on develop and main MUST require the `docs-corpus-gate`
 # job (only). Per ADR-023 §Axis 1 individual matrix legs are not stable
@@ -58,9 +59,17 @@ jobs:
           chmod +x "${HOME}/.local/bin/lychee"
           echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
 
-      - name: Run lychee
+      - name: Run lychee (offline — inbound file refs + anchors)
+        # Mirrors the pre-commit invocation: file:// resolution + anchor checks
+        # only, no outbound HTTP probes. Outbound link verification surfaced
+        # ~30 false positives (JS-rendered anchors on Node.js / NIST /
+        # Cloudflare docs sites that lychee can't parse) plus transient
+        # rate-limits (429s); enabling it requires an accept-list / per-host
+        # concurrency tuning that is its own follow-up. ADR-023 §Axis 2 D-1
+        # parity is preserved — same checks, same flags as `lefthook.yml`'s
+        # `docs-anchor-check` job.
         run: |
-          lychee --no-progress --config .lychee.toml --base . --verbose './**/*.md'
+          lychee --offline --no-progress --config .lychee.toml './**/*.md'
 
   custom-checks:
     name: custom hooks — mermaid + cite + path-ripple + tests
