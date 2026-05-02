@@ -125,6 +125,8 @@ The catalog is the single source of truth. Hooks, skills, and audit-prompts refe
 - **Doc corpus lacks a stable identifier system.** Heading text is being used as a stable identifier — a known design weakness. Long-term fix is to give each BL / NS / catalog item a slug-stable shortname (e.g., `<a id="bl-107"></a>` HTML anchors that don't depend on heading text). Out of scope for this catalog.
 - **Mermaid graph IS the source of truth; prose enumerations are not generated from it.** Long-term fix is a build step that emits the prose enumeration from the graph. Out of scope for this catalog.
 
+<a id="detection-layer-matrix"></a>
+
 ## Detection-layer matrix
 
 | Layer | Runs on | Latency | Determinism | Cost |
