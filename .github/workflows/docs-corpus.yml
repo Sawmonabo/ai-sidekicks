@@ -32,29 +32,35 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: "22.12"
-
-      # `lycheeverse/lychee-action@v2`'s install script does `tar -xvzf` without
-      # `--strip-components=1` and breaks on v0.24.x's nested archive layout
-      # (`lychee-<triple>/lychee`). Bypassing the action and reusing the local
-      # provisioner gives ADR-023 §Axis 2 D-1 parity: identical version, SHA256
-      # verification, and `--strip-components=1` extraction in both gates.
-      - name: Provision lychee binary
+      # Inline install mirrors `tools/install-lychee.mjs` semantics: pin to
+      # v0.24.2, musl-static, SHA256-verified. `lycheeverse/lychee-action@v2`
+      # is broken for v0.24.x: its install script runs `tar -xvzf` without
+      # `--strip-components=1` and the binary lands at `lychee-<triple>/lychee`
+      # instead of the flat `lychee` it then tries to install.
+      # Keep `LYCHEE_VERSION` here in sync with the `VERSION` constant in
+      # `tools/install-lychee.mjs` so local + CI run the same binary.
+      - name: Install lychee v0.24.2
         run: |
-          mkdir -p node_modules/.bin node_modules/.cache
-          FORCE_LYCHEE_INSTALL=1 node tools/install-lychee.mjs
+          set -euo pipefail
+          LYCHEE_VERSION="v0.24.2"
+          BASE="https://github.com/lycheeverse/lychee/releases/download/lychee-${LYCHEE_VERSION}"
+          ASSET="lychee-x86_64-unknown-linux-musl.tar.gz"
+          curl -fsSL "${BASE}/${ASSET}" -o /tmp/lychee.tar.gz
+          curl -fsSL "${BASE}/${ASSET}.sha256" -o /tmp/lychee.sha256
+          EXPECTED=$(awk '{print $1}' /tmp/lychee.sha256)
+          ACTUAL=$(sha256sum /tmp/lychee.tar.gz | awk '{print $1}')
+          if [ "${EXPECTED}" != "${ACTUAL}" ]; then
+            echo "SHA256 mismatch: expected ${EXPECTED}, got ${ACTUAL}" >&2
+            exit 1
+          fi
+          mkdir -p "${HOME}/.local/bin"
+          tar -xzf /tmp/lychee.tar.gz -C "${HOME}/.local/bin" --strip-components=1
+          chmod +x "${HOME}/.local/bin/lychee"
+          echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
 
       - name: Run lychee
         run: |
-          ./node_modules/.bin/lychee \
-            --no-progress \
-            --config .lychee.toml \
-            --base . \
-            --verbose \
-            './**/*.md'
+          lychee --no-progress --config .lychee.toml --base . --verbose './**/*.md'
 
   custom-checks:
     name: custom hooks — mermaid + cite + path-ripple + tests
