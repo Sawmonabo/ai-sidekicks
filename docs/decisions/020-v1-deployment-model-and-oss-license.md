@@ -212,7 +212,7 @@ The QA-matrix cost is structurally limited by the decision to put both relay bac
 | Supabase self-host | Precedent | OSS core + hosted SaaS on one codebase; Apache-2.0 license | <https://supabase.com/docs/guides/self-hosting> |
 | PostHog self-host | Precedent | OSS core + hosted SaaS; MIT with later re-license | <https://posthog.com/docs/self-host> |
 | Sentry OSS → BSL → FSL | Precedent | Source-available relicensing path when competitive re-hosting materializes | <https://sentry.io/_/open-source/> |
-| tmate | Precedent | OSS terminal-sharing with free default relay + self-host option | <https://tmate.io/> |
+| tmate | Precedent | OSS terminal-sharing with free default relay + self-host option | <https://github.com/tmate-io/tmate> |
 | Mattermost | Precedent | OSS + paid-tier two-deployment model | <https://mattermost.com/> |
 | Cloudflare Workers + Durable Objects | Documentation | Sharded relay architecture used for project-operated free relay | <https://developers.cloudflare.com/durable-objects/> |
 | `rate-limiter-flexible` | Documentation | Postgres/Redis backends for self-host rate limiting | <https://github.com/animir/node-rate-limiter-flexible> |

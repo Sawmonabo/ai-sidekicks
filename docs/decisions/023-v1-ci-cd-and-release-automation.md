@@ -277,7 +277,7 @@ Primary sources consulted during ADR-023 research, surfaced forward from transie
 | `rust-cross/cargo-zigbuild` | Documentation | Can target `*-apple-darwin` from Linux given a macOS SDK; Apple `codesign`/`notarytool` only run on macOS. | <https://github.com/rust-cross/cargo-zigbuild> |
 | Electron — Native Node Modules | Documentation | "Electron has a different application binary interface (ABI) from a given Node.js binary." | <https://www.electronjs.org/docs/latest/tutorial/using-native-node-modules> |
 | GitHub Community Discussion #26822 — matrix branch protection | GitHub-issue | Aggregator-job pattern (`if: always()`, `needs:`-shell-check) is canonical for matrix branch protection. | <https://github.com/orgs/community/discussions/26822> |
-| GitHub Docs — Required status checks (branch protection) | Documentation | Matrix-leg names embed strategy values; renaming silently bypasses protection. | <https://docs.github.com/en/repositories/configuring-branch-and-merge-management/managing-protected-branches/managing-a-branch-protection-rule> |
+| GitHub Docs — Required status checks (branch protection) | Documentation | Matrix-leg names embed strategy values; renaming silently bypasses protection. | <https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/managing-a-branch-protection-rule> |
 
 #### Axis 2 — Pre-commit framework + dev-loop
 
@@ -292,7 +292,7 @@ Primary sources consulted during ADR-023 research, surfaced forward from transie
 | Lefthook releases | Documentation | Latest stable v2.1.6 (2026-04-16); active 2.1.x stream. | <https://github.com/evilmartians/lefthook/releases> |
 | Lefthook README (raw) | Documentation | Single dependency-free Go binary; npm/gem/pipx/go install paths; parallel + glob/regexp + sub-dir + tags + Docker. | <https://raw.githubusercontent.com/evilmartians/lefthook/master/README.md> |
 | Lefthook configuration docs | Documentation | Top-level keys: `min_version`, `parallel: true`, `commands.run`/`glob`/`exclude_tags`/`files`/`stage_fixed`. | <https://github.com/evilmartians/lefthook/blob/master/docs/configuration.md> |
-| Lefthook install docs | Documentation | "Standalone, no-deps binary"; `lefthook self-update`. | <https://lefthook.dev/install.html> |
+| Lefthook install docs | Documentation | "Standalone, no-deps binary"; `lefthook self-update`. | <https://lefthook.dev/install/> |
 | Lefthook `npm-installer` source | Documentation | Postinstall script downloads platform Go binary from GitHub release; CI-skipped unless `LEFTHOOK=1`. | <https://github.com/evilmartians/lefthook/blob/master/packaging/registries/npm-installer/install.js> |
 | Lefthook packaging registries | Documentation | Multi-tier: `npm`, `npm-bundled`, `npm-installer`, plus aur/pypi/rubygems. | <https://github.com/evilmartians/lefthook/tree/master/packaging/registries> |
 | `simple-git-hooks` | Documentation | v2.13.1 (2025-07-31); zero deps; no monorepo / parallel support documented. | <https://github.com/toplenboren/simple-git-hooks> |
