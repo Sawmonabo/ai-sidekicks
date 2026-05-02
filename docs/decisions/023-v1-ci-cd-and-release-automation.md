@@ -124,7 +124,7 @@ We adopt the following five-axis configuration.
 
 ## Alternatives Considered
 
-Per [Type 1](#header) treatment, alternatives are listed with brief rejection rationales. Per-option steel-mans appear inline above where load-bearing.
+Per Type 1 treatment, alternatives are listed with brief rejection rationales. Per-option steel-mans appear inline above where load-bearing.
 
 ### Axis 1 alternatives
 
@@ -383,7 +383,7 @@ Primary sources consulted during ADR-023 research, surfaced forward from transie
 ### Related ADRs and Specs
 
 - [ADR-001](001-session-is-the-primary-domain-object.md) — first-class session primitive (every release artifact is session-recoverable through Plan-001).
-- [ADR-016](016-electron-shell-with-react-renderer.md) — Electron shell forces the daemon's Node 22 floor, which interacts with [ADR-022](022-v1-toolchain-selection.md)'s two-tier Node target and Axis 3's release CI Node 24 selection.
+- [ADR-016](016-electron-desktop-shell.md) — Electron shell forces the daemon's Node 22 floor, which interacts with [ADR-022](022-v1-toolchain-selection.md)'s two-tier Node target and Axis 3's release CI Node 24 selection.
 - [ADR-019](019-windows-v1-tier-and-pty-sidecar.md) — §Decision item 6 (5-platform sidecar packaging via `@esbuild/*` pattern), item 7 (Windows code-signing custody — Azure Artifact Signing preferred / EV cert fallback), item 8 (SmartScreen reputation pooling under shared signer identity). ADR-023 axis 5 is the signing-custody overlay; ADR-019 remains the canonical sidecar-distribution doc.
 - [ADR-020](020-v1-deployment-model-and-oss-license.md) — Apache-2.0 OSS license stance (forces Axis 4's TruffleHog deferral on AGPL grounds).
 - [ADR-022](022-v1-toolchain-selection.md) — pnpm 10.33+, Turborepo 2.9+, ESLint 10, Vitest 4, two-tier Node 22.12+/24.x. CI job graph is named there as a success criterion; ADR-023 builds out the workflow files.

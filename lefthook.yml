@@ -34,6 +34,35 @@ pre-commit:
           echo "WARNING: Install per CONTRIBUTING.md or https://github.com/gitleaks/gitleaks" >&2
         fi
 
+    # Doc-corpus regression checks (extends ADR-023 §Axis 2 pre-commit chain).
+    # Staged-impact-only to stay under the <1s typical / <5s p99 latency budget.
+    # Full-repo sweep runs in CI (.github/workflows/docs-corpus.yml).
+    # See docs/operations/failure-mode-catalog.md for the catalog these enforce.
+    - name: docs-anchor-check
+      # lychee — inbound `file.md#anchor` + outbound link verification.
+      # `pnpm install` provisions lychee at node_modules/.bin/lychee via
+      # tools/install-lychee.mjs (postinstall). The conditional remains
+      # graceful: if `--ignore-scripts` was used, fresh-clone state without
+      # `pnpm install` ran, etc., the WARNING surfaces and CI is the
+      # authoritative gate.
+      glob: "*.md"
+      run: |
+        if command -v lychee >/dev/null 2>&1; then
+          lychee --offline --no-progress --config .lychee.toml {staged_files}
+        elif [ -x node_modules/.bin/lychee ]; then
+          node_modules/.bin/lychee --offline --no-progress --config .lychee.toml {staged_files}
+        else
+          echo "WARNING: lychee not installed locally; CI docs-corpus job is the authoritative gate." >&2
+          echo "WARNING: Run 'pnpm install' to provision, or 'cargo install lychee' for a system install." >&2
+        fi
+
+    - name: docs-corpus-checks
+      # Single dispatch script (tools/docs-corpus/bin/pre-commit-runner.ts) that
+      # composes three lib/ checks: path-canonical-ripple (whole-repo sweep),
+      # mermaid-set-coherence (PR #27 round 2 hard-signal), and
+      # cite-target-existence (file.md:NNN truncation floor).
+      run: node --experimental-strip-types tools/docs-corpus/bin/pre-commit-runner.ts {staged_files}
+
 commit-msg:
   jobs:
     - name: commitlint

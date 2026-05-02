@@ -272,7 +272,7 @@ The QA-matrix cost is structurally limited by the decision to put both relay bac
 
 | Date | Event | Notes |
 | --- | --- | --- |
-| 2026-04-16 | Research conducted | Comparable-product survey, ongoing-cost evidence, Cloudflare Durable Object portability analysis, license option-space evaluation, and timing analysis (V1 vs V1.1) recommended Option B (V1 hosted-only) under an enterprise-commercial-SaaS cost model. The analysis is preserved in [§Alternatives Option B](#option-b-v1-hosted-only-self-host-deferred-to-v11-rejected-was-the-research-briefs-recommendation) above (steel-man + rejection rationale) and the supporting primary sources are catalogued in [§Research Conducted](#research-conducted) above |
+| 2026-04-16 | Research conducted | Comparable-product survey, ongoing-cost evidence, Cloudflare Durable Object portability analysis, license option-space evaluation, and timing analysis (V1 vs V1.1) recommended Option B (V1 hosted-only) under an enterprise-commercial-SaaS cost model. The analysis is preserved in [§Alternatives Option B](#option-b-v1-hosted-only-self-host-deferred-to-v11-rejected--was-the-research-briefs-recommendation) above (steel-man + rejection rationale) and the supporting primary sources are catalogued in [§Research Conducted](#research-conducted) above |
 | 2026-04-17 | Product framing clarified | OSS developer-tool posture; not enterprise-commercial-SaaS; research brief Option B recommendation superseded on this basis |
 | 2026-04-17 | Proposed | Drafted against BL-053 exit criteria |
 | 2026-04-17 | Accepted | ADR accepted as V1 deployment model + OSS license commitment |

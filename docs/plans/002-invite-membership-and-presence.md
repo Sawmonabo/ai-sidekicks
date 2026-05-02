@@ -208,7 +208,7 @@ Plan-002 implementation lands as a sequence of small PRs at Tier 2. Phases 1–5
 
 **Goal:** Invite rate limits per Spec-002 §Rate Limiting (20/session/hr, 50/participant/hr, 100 pending/session) are enforced; standard `RateLimitResponse` returned on threshold breach.
 
-- Add rate-limit middleware to invite endpoints; defer rate-limiter implementation to [Plan-021](./021-server-side-rate-limiting-and-admin-bans.md) if not yet shipped (cross-plan deferral note added here, contract stub in `packages/contracts/src/rate-limiter.ts` already owned by Plan-021)
+- Add rate-limit middleware to invite endpoints; defer rate-limiter implementation to [Plan-021](./021-rate-limiting-policy.md) if not yet shipped (cross-plan deferral note added here, contract stub in `packages/contracts/src/rate-limiter.ts` already owned by Plan-021)
 
 ### Phase 5 — Client SDK Membership Surface
 

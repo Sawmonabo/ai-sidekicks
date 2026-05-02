@@ -17,7 +17,7 @@
     "test": "turbo run test",
     "format": "prettier --write \"**/*.{ts,tsx,js,mjs,cjs,json,md,yml,yaml}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,mjs,cjs,json,md,yml,yaml}\"",
-    "prepare": "lefthook install"
+    "prepare": "lefthook install && node tools/install-lychee.mjs"
   },
   "devDependencies": {
     "@commitlint/cli": "^20.5.2",

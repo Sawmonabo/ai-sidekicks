@@ -1,0 +1,32 @@
+# Lychee configuration. Reference: https://lychee.cli.rs/usage/config/
+#
+# Validates inbound anchors and outbound local-file links across docs/, ADRs,
+# plans, etc. HTTP checks happen in CI; pre-commit runs --offline.
+
+verbose = "warn"
+# `include_fragments` was a bool in earlier lychee versions and is a string
+# in v0.24.2 ("full" enables anchor + text-fragment checking, "anchor" only,
+# "none" off). See lychee.example.toml in the pinned tag.
+include_fragments = "full"
+
+exclude_path = [
+  "node_modules/**",
+  ".git/**",
+  ".agents/**",
+  ".claude/**",
+  "dist/**",
+  "build/**",
+  "docs/archive/**",
+  ".turbo/**",
+  ".pnpm-store/**",
+]
+
+exclude = [
+  "^https://docs\\.anthropic\\.com/.*",
+]
+
+max_retries = 1
+timeout = 10
+max_concurrency = 16
+cache = false
+require_https = false
