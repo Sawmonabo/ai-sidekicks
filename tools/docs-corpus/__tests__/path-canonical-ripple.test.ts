@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { writeFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { writeFileSync, readFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { resolve } from "node:path";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { execSync } from "node:child_process";
 import {
   checkPathCanonicalRipple,
@@ -175,6 +176,33 @@ describe("path-canonical-ripple", () => {
       else process.env.DOCS_CORPUS_REGISTRY = prevRegistry;
       rmSync(root, { recursive: true });
     }
+  });
+
+  it("REGISTRY SHAPE: no deprecated entry ends with '/' (substring-match contract)", () => {
+    // Codex review on PR #27 commit c09ce2f: a deprecated entry like
+    // `apps/desktop/shell/` (with trailing slash) only catches the
+    // literal-path form via `git grep -F` substring matching; it MISSES the
+    // executable / CLI form `--filter=apps/desktop/shell` that PR #24 round 1
+    // famously failed to canonicalize. The no-slash form catches BOTH.
+    //
+    // This test guards the registry shape itself, not the runtime behavior:
+    // if a future contributor adds a deprecated entry with a trailing slash,
+    // this test fires loudly so the CLI-form blind spot does not silently
+    // re-emerge. If a slash IS load-bearing for a future entry (e.g. when
+    // the substring would false-positive), document the rationale in the
+    // entry's `note` field and add an explicit allowlist exception here.
+    const here = dirname(fileURLToPath(import.meta.url));
+    const registryPath = resolve(here, "..", "canonical-paths.json");
+    const registry = JSON.parse(readFileSync(registryPath, "utf8")) as {
+      paths: { canonical: string; deprecated: string[] }[];
+    };
+    const slashy: { canonical: string; deprecated: string }[] = [];
+    for (const entry of registry.paths) {
+      for (const dep of entry.deprecated) {
+        if (dep.endsWith("/")) slashy.push({ canonical: entry.canonical, deprecated: dep });
+      }
+    }
+    expect(slashy).toEqual([]);
   });
 
   it("FAILS CLOSED when the registry file is missing", () => {

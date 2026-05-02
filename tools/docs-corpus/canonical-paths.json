@@ -4,12 +4,18 @@
   "paths": [
     {
       "canonical": "apps/desktop/",
-      "deprecated": ["apps/desktop/shell/", "apps/desktop/renderer/"],
+      "deprecated": ["apps/desktop/shell", "apps/desktop/renderer"],
       "introduced": "2026-04-30",
       "refs": ["BL-101", "ADR-022"],
       "scope": ["docs/**/*.md", "AGENTS.md", "CLAUDE.md", "CONTRIBUTING.md", "README.md"],
-      "exclude": ["docs/archive/**", ".agents/**", ".claude/scratch/**", "**/tools/docs-corpus/**"],
-      "note": "Plan-023 Tier 1 partial substrate carve-out collapsed shell/renderer into a single apps/desktop workspace. Archive paths intentionally retain historical references."
+      "exclude": [
+        "docs/archive/**",
+        "docs/operations/failure-mode-catalog.md",
+        ".agents/**",
+        ".claude/scratch/**",
+        "**/tools/docs-corpus/**"
+      ],
+      "note": "Plan-023 Tier 1 partial substrate carve-out collapsed shell/renderer into a single apps/desktop workspace. Deprecated forms are written without the trailing slash on purpose — `git grep -F` is a substring match, so `apps/desktop/shell` catches BOTH the literal-path form (`apps/desktop/shell/foo.ts`) AND the executable / CLI form (`pnpm rebuild --filter=apps/desktop/shell better-sqlite3`); the latter is the form that escaped the original PR #24 review per failure-mode-catalog.md row CAT-01. docs/archive/** retains historical references; docs/operations/failure-mode-catalog.md documents the failure pattern itself and must contain the literal deprecated string."
     }
   ]
 }
