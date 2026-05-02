@@ -118,4 +118,28 @@ describe("path-canonical-ripple", () => {
     expect(hits).toEqual([]);
     cleanup();
   });
+
+  it("FAILS CLOSED when the registry file is missing", () => {
+    // Codex review on PR #27: prior behavior logged a warning and returned an
+    // empty registry, silently disabling the canonical-path guard if the file
+    // was deleted/renamed. An enforcement gate must fail loudly when its
+    // policy source vanishes — silent disable is the worst outcome.
+    const root = mkdtempSync(resolve(tmpdir(), "pcr-missing-"));
+    execSync("git init -q -b main", { cwd: root });
+    execSync("git config user.email test@test", { cwd: root });
+    execSync("git config user.name test", { cwd: root });
+    execSync("git commit -q --allow-empty -m bootstrap", { cwd: root });
+    const prevCwd = process.cwd();
+    const prevRegistry = process.env.DOCS_CORPUS_REGISTRY;
+    try {
+      process.chdir(root);
+      process.env.DOCS_CORPUS_REGISTRY = "registry.json";
+      expect(() => checkPathCanonicalRipple()).toThrow(/path-canonical-ripple: registry missing/i);
+    } finally {
+      process.chdir(prevCwd);
+      if (prevRegistry === undefined) delete process.env.DOCS_CORPUS_REGISTRY;
+      else process.env.DOCS_CORPUS_REGISTRY = prevRegistry;
+      rmSync(root, { recursive: true });
+    }
+  });
 });

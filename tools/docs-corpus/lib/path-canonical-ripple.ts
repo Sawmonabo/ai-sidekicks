@@ -55,8 +55,12 @@ function getRegistryPath(repoRoot: string): string {
 function loadRegistry(repoRoot: string): RegistryFile {
   const registryPath = getRegistryPath(repoRoot);
   if (!existsSync(registryPath)) {
-    console.error(`path-canonical-ripple: registry missing at ${registryPath}; nothing to enforce`);
-    return { paths: [] };
+    // Fail closed: a missing registry must surface as a hard failure, not a
+    // silent pass. Returning an empty registry would disable the entire
+    // canonical-path guard whenever the file is deleted, renamed, or its
+    // override env var points at a bad path — exactly the scenario this
+    // hook exists to prevent.
+    throw new Error(`path-canonical-ripple: registry missing at ${registryPath}`);
   }
   const text = readFileSync(registryPath, "utf8");
   return JSON.parse(text) as RegistryFile;

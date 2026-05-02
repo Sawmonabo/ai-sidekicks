@@ -37,7 +37,11 @@ function findRepoRoot(): string {
   return process.cwd();
 }
 
-const REPO_ROOT = process.env.REPO_ROOT ?? findRepoRoot();
+// REPO_ROOT is read lazily (not captured at module load) so tests can override
+// via the env var across multiple cases without resetting the module graph.
+function getRepoRoot(): string {
+  return process.env.REPO_ROOT ?? findRepoRoot();
+}
 
 export function extractCites(citingFile: string): Cite[] {
   const content = readFileSync(citingFile, "utf8");
@@ -45,6 +49,7 @@ export function extractCites(citingFile: string): Cite[] {
   const baseDir = dirname(citingFile);
   const linkRe = /\]\(([^)]+\.md)\)\s*:\s*([\d,\s-]+)/g;
   const codeRe = /`([\w./-]+\.(?:ts|tsx|js|mjs|md)):(\d+)`/g;
+  const repoRoot = getRepoRoot();
 
   const lines = content.split("\n");
   for (let i = 0; i < lines.length; i++) {
@@ -73,8 +78,15 @@ export function extractCites(citingFile: string): Cite[] {
     while ((m = codeRe.exec(line)) !== null) {
       const targetName = m[1];
       const targetLine = Number.parseInt(m[2], 10);
-      const candidate = resolve(REPO_ROOT, targetName);
-      if (existsSync(candidate)) {
+      const candidate = resolve(repoRoot, targetName);
+      // Path-shaped citations (containing `/`) are checked unconditionally —
+      // a renamed/deleted target is the exact CAT-06 silent-failure mode this
+      // hook exists to catch. Bare-name citations (e.g. `session.ts:N`) are
+      // kept gated on existence because the resolver only tries
+      // `<repoRoot>/<bare>`, which is wrong for nested files; flagging them
+      // would generate false positives until basename-resolution is reworked.
+      const isPathShaped = targetName.includes("/");
+      if (isPathShaped || existsSync(candidate)) {
         cites.push({
           file: citingFile,
           line: i + 1,

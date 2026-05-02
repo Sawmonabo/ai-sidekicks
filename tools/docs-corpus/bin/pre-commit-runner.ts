@@ -29,8 +29,22 @@ function isMdFile(p: string): boolean {
   }
 }
 
+// Per-file checks (mermaid + cite) are scoped to governance corpus only.
+// `docs/archive/` is frozen historical content (CLAUDE.md "Documentation
+// Corpus") and `docs/reference/` is excerpted upstream materials (CLAUDE.md
+// non-governance docs). Citations there describe other projects' source
+// files, not ours, so cite-target-existence's missing-target check would
+// generate false positives on path-shapes that happen to coincide with our
+// own. path-canonical-ripple has its own per-entry scope/exclude in the
+// registry and is unaffected.
+const PER_FILE_CHECK_EXCLUDED_PREFIXES = ["docs/archive/", "docs/reference/"];
+
+function isInGovernanceCorpus(p: string): boolean {
+  return !PER_FILE_CHECK_EXCLUDED_PREFIXES.some((prefix) => p.startsWith(prefix));
+}
+
 function main(): number {
-  const stagedMd = process.argv.slice(2).filter(isMdFile);
+  const stagedMd = process.argv.slice(2).filter(isMdFile).filter(isInGovernanceCorpus);
   const messages: string[] = [];
   let exitCode = 0;
 
