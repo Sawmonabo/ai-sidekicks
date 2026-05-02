@@ -59,12 +59,17 @@ export function extractCites(citingFile: string): Cite[] {
       const relTarget = m[1].trim();
       if (/^https?:/.test(relTarget) || relTarget.startsWith("#")) continue;
       const targetPath = isAbsolute(relTarget) ? relTarget : resolve(baseDir, relTarget);
-      const lineList = m[2]
-        .split(/[,\s]+/)
-        .map((s) => s.split("-")[0])
-        .filter(Boolean)
-        .map((s) => Number.parseInt(s, 10))
-        .filter((n) => Number.isFinite(n) && n > 0);
+      // Range citations like `:10-99` validate BOTH endpoints — only checking
+      // the start lets a citation drift out of range at the tail when the
+      // target file shrinks. Each endpoint becomes its own cite so a bad end
+      // surfaces independently of a valid start.
+      const lineList: number[] = [];
+      for (const token of m[2].split(/[,\s]+/).filter(Boolean)) {
+        for (const part of token.split("-")) {
+          const n = Number.parseInt(part, 10);
+          if (Number.isFinite(n) && n > 0) lineList.push(n);
+        }
+      }
       for (const targetLine of lineList) {
         cites.push({
           file: citingFile,

@@ -382,7 +382,7 @@ The ready set (NS-01, NS-03, NS-04, NS-11, NS-12, NS-13a, NS-14) shares no code 
 - Type: code
 - Priority: `P1`
 - Upstream: NS-01 (Phase 1 scaffolding) + NS-04 (T5.4 cwd-translator)
-- References: [Plan-024](../plans/024-rust-pty-sidecar.md):285-298
+- References: [Plan-024](../plans/024-rust-pty-sidecar.md):285-297
 - Summary: Implement `NodePtyHost` in `packages/runtime-daemon/src/pty/` consuming the Plan-001 cwd-translator. All platforms default to `NodePtyHost` in Phase 2; Windows default flips to `RustSidecarPtyHost` at Phase 5 per F-024-2-02 + BL-106.
 - Exit Criteria: K1/K3 kill-semantics tests green; `AIS_PTY_BACKEND` env-grammar parsed; `node-pty@^1.2.0-beta.12` pinned.
 

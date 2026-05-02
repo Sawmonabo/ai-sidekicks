@@ -80,6 +80,42 @@ describe("cite-target-existence — inline-code citations", () => {
     }
   });
 
+  it("FLAGS markdown-link range citations whose end line is out of range", () => {
+    // Codex review on PR #27 commit f6e7895: range citations like
+    // `[Plan-X](file.md):10-99` previously only validated the start; the
+    // end was discarded by `s.split("-")[0]`. A file that shrinks below
+    // the cited end-line silently passed.
+    const { root, cleanup } = setupRepo({
+      "docs/note.md": "see [Plan-X](./target.md):2-99 for context.\n",
+      "docs/target.md": "line one\nline two\nline three\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/note.md")]),
+      );
+      const outOfRange = violations.filter((v) => v.reason === "line-out-of-range");
+      expect(outOfRange).toHaveLength(1);
+      expect(outOfRange[0].cite.targetLine).toBe(99);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("ACCEPTS markdown-link range citations whose endpoints are both valid", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/note.md": "see [Plan-X](./target.md):1-3 for context.\n",
+      "docs/target.md": "line one\nline two\nline three\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/note.md")]),
+      );
+      expect(violations).toEqual([]);
+    } finally {
+      cleanup();
+    }
+  });
+
   it("SKIPS bare-name citations whose target is missing (preserves known limitation)", () => {
     // Bare-name citations like `session.ts:N` resolve only against REPO_ROOT,
     // which is the wrong location for nested files. Until basename resolution
