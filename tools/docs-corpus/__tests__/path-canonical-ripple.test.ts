@@ -205,6 +205,30 @@ describe("path-canonical-ripple", () => {
     expect(slashy).toEqual([]);
   });
 
+  it("TERMINATES the repo-root walk at the filesystem root (Windows drive-root parity)", () => {
+    // Codex review on PR #27 commit 90b6e40: the repo-root walk terminated on
+    // `dir !== "/"` which is POSIX-specific. `path.dirname("C:\\")` returns
+    // `"C:\\"` (idempotent at the drive root), so a Windows pre-commit hook
+    // would loop forever with no diagnostic. The fix terminates on
+    // parent-equals-current, which works on both POSIX (`dirname("/") === "/"`)
+    // and Windows. This test exercises the termination path on the host
+    // platform — if the loop ever regressed to the POSIX-only guard, vitest's
+    // per-test timeout would catch the hang. The same termination logic
+    // mechanically applies to Windows because the predicate is path-string
+    // equality, not a hard-coded sentinel.
+    const root = mkdtempSync(resolve(tmpdir(), "pcr-noroot-"));
+    // Intentionally do NOT `git init` — the walk must reach the filesystem
+    // root and terminate there rather than spinning.
+    const prevCwd = process.cwd();
+    try {
+      process.chdir(root);
+      expect(() => checkPathCanonicalRipple()).toThrow(/could not locate repo root/i);
+    } finally {
+      process.chdir(prevCwd);
+      rmSync(root, { recursive: true });
+    }
+  });
+
   it("FAILS CLOSED when the registry file is missing", () => {
     // Codex review on PR #27: prior behavior logged a warning and returned an
     // empty registry, silently disabling the canonical-path guard if the file

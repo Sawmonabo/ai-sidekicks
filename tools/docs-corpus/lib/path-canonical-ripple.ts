@@ -12,7 +12,7 @@
 
 import { readFileSync, existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 
 export interface PathEntry {
   canonical: string;
@@ -35,12 +35,18 @@ export interface PathRippleViolation {
 }
 
 function findRepoRoot(start: string): string {
+  // Termination via parent-equals-current rather than `dir !== "/"` so the walk
+  // terminates on Windows drive roots too. `path.dirname("C:\\")` returns
+  // `"C:\\"` (idempotent), so the POSIX-only `dir !== "/"` guard would loop
+  // forever there and hang the pre-commit hook with no diagnostic. The same
+  // termination check covers POSIX root because `dirname("/") === "/"`.
   let dir = start;
-  while (dir !== "/") {
+  for (;;) {
     if (existsSync(resolve(dir, ".git"))) return dir;
-    dir = resolve(dir, "..");
+    const parent = dirname(dir);
+    if (parent === dir) throw new Error("could not locate repo root");
+    dir = parent;
   }
-  throw new Error("could not locate repo root");
 }
 
 function getRegistryPath(repoRoot: string): string {

@@ -29,12 +29,18 @@ export interface CiteViolation {
 }
 
 function findRepoRoot(): string {
+  // Termination via parent-equals-current rather than `dir !== "/"` so the walk
+  // terminates on Windows drive roots too. `path.dirname("C:\\")` returns
+  // `"C:\\"` (idempotent), so the POSIX-only `dir !== "/"` guard would loop
+  // forever there and hang the pre-commit hook with no diagnostic. The same
+  // termination check covers POSIX root because `dirname("/") === "/"`.
   let dir = process.cwd();
-  while (dir !== "/") {
+  for (;;) {
     if (existsSync(resolve(dir, ".git"))) return dir;
-    dir = dirname(dir);
+    const parent = dirname(dir);
+    if (parent === dir) return process.cwd();
+    dir = parent;
   }
-  return process.cwd();
 }
 
 // REPO_ROOT is read lazily (not captured at module load) so tests can override

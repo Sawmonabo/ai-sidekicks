@@ -116,6 +116,38 @@ describe("cite-target-existence — inline-code citations", () => {
     }
   });
 
+  it("TERMINATES the repo-root walk at the filesystem root (Windows drive-root parity)", () => {
+    // Codex review on PR #27 commit 90b6e40 flagged the equivalent walk in
+    // path-canonical-ripple.ts; this file shared the same bug. The walk
+    // terminated on `dir !== "/"` which is POSIX-specific — `path.dirname
+    // ("C:\\")` returns `"C:\\"` so a Windows pre-commit hook would loop
+    // forever with no diagnostic. The fix terminates on parent-equals-current
+    // and falls back to `process.cwd()` if no `.git` ancestor is found,
+    // matching the prior fallback semantics. Test bypasses REPO_ROOT so the
+    // path actually exercises `findRepoRoot`; if the loop ever regressed,
+    // vitest's per-test timeout would catch the hang.
+    const root = mkdtempSync(resolve(tmpdir(), "cte-noroot-"));
+    // Intentionally do NOT `git init` — the walk must reach the filesystem
+    // root and terminate there rather than spinning.
+    writeFileSync(resolve(root, "note.md"), "see `something.ts:42` for context.\n");
+    const prevCwd = process.cwd();
+    const prevRepoRoot = process.env.REPO_ROOT;
+    try {
+      delete process.env.REPO_ROOT;
+      process.chdir(root);
+      // Bare-name lookup with no `.git` ancestor: should return [] without
+      // hanging. The function must complete; the value is the known-limitation
+      // skip, not the termination condition under test.
+      const cites = extractCites(resolve(root, "note.md"));
+      expect(cites).toEqual([]);
+    } finally {
+      process.chdir(prevCwd);
+      if (prevRepoRoot === undefined) delete process.env.REPO_ROOT;
+      else process.env.REPO_ROOT = prevRepoRoot;
+      rmSync(root, { recursive: true });
+    }
+  });
+
   it("SKIPS bare-name citations whose target is missing (preserves known limitation)", () => {
     // Bare-name citations like `session.ts:N` resolve only against REPO_ROOT,
     // which is the wrong location for nested files. Until basename resolution
