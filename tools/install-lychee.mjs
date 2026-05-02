@@ -4,7 +4,11 @@
 // link breakage locally instead of waiting for CI.
 //
 // Design notes:
-//   - Skipped in CI (the docs-corpus workflow uses lycheeverse/lychee-action).
+//   - Skipped in CI by default; `lycheeverse/lychee-action@v2`'s install
+//     script does `tar -xvzf` without `--strip-components=1` and breaks on
+//     v0.24.x's nested archive layout. The docs-corpus workflow opts back
+//     into this script via `FORCE_LYCHEE_INSTALL=1` so local + CI run the
+//     same provisioning code (ADR-023 §Axis 2 D-1: CI parity).
 //   - Skipped on Windows (ADR-019 §V1 deployment puts Windows on its own tier;
 //     warn-and-skip is the right default until that tier ships).
 //   - Tolerant of network failure: failing to provision MUST NOT break
@@ -112,7 +116,7 @@ async function provision(triple) {
 }
 
 async function main() {
-  if (process.env.CI === "true") return;
+  if (process.env.CI === "true" && process.env.FORCE_LYCHEE_INSTALL !== "1") return;
   if (process.env.SKIP_LYCHEE_INSTALL === "1") return;
 
   if (process.platform === "win32") {

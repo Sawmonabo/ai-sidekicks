@@ -32,21 +32,29 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Run lychee
-        # SHA-pin per ADR-023 §Axis 4 supply-chain hygiene; Renovate's
-        # helpers:pinGitHubActionDigests preset keeps this current.
-        uses: lycheeverse/lychee-action@v2
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
         with:
-          # Pin the lychee binary to match `tools/install-lychee.mjs` (local
-          # pre-commit). The action's default trails (currently v0.23.0); without
-          # this pin, `.lychee.toml`'s `include_fragments = "full"` (string form,
-          # introduced post-v0.23) would parse-fail in CI even though it passes
-          # locally. ADR-023 §Axis 2 D-1: CI parity for pre-commit checks.
-          lycheeVersion: "v0.24.2"
-          args: >-
-            --no-progress --config .lychee.toml --base . --verbose './**/*.md'
+          node-version: "22.12"
 
-          fail: true
+      # `lycheeverse/lychee-action@v2`'s install script does `tar -xvzf` without
+      # `--strip-components=1` and breaks on v0.24.x's nested archive layout
+      # (`lychee-<triple>/lychee`). Bypassing the action and reusing the local
+      # provisioner gives ADR-023 §Axis 2 D-1 parity: identical version, SHA256
+      # verification, and `--strip-components=1` extraction in both gates.
+      - name: Provision lychee binary
+        run: |
+          mkdir -p node_modules/.bin node_modules/.cache
+          FORCE_LYCHEE_INSTALL=1 node tools/install-lychee.mjs
+
+      - name: Run lychee
+        run: |
+          ./node_modules/.bin/lychee \
+            --no-progress \
+            --config .lychee.toml \
+            --base . \
+            --verbose \
+            './**/*.md'
 
   custom-checks:
     name: custom hooks — mermaid + cite + path-ripple + tests
