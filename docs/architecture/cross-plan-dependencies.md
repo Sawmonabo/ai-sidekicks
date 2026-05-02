@@ -289,7 +289,7 @@ graph TB
   NS12[NS-12: Plan-001 Phase 5 split + dep alignment]:::ready
   NS13a[NS-13a: spec-status promotion gate<br/>runbook/ADR amendment]:::ready
   NS14[NS-14: Tier 2 plan-readiness audit<br/>Plan-002 alone]:::ready
-  NS22[NS-22: sibling-doc staleness sweep<br/>0001-initial sql→ts + session.ts line cite]:::ready
+  NS22[NS-22: sibling-doc staleness sweep<br/>0001-initial sql→ts + session.ts line cite]:::blocked
 
   %% BLOCKED
   NS02[NS-02: Plan-001 Phase 5 Lane A<br/>T5.1 + T5.5 + T5.6]:::blocked
@@ -308,6 +308,7 @@ graph TB
 
   %% Code track edges
   NS12 --> NS02
+  NS12 --> NS22
   NS01 --> NS05
   NS04 --> NS05
   NS04 --> NS07
@@ -333,7 +334,7 @@ graph TB
 
 ### Recommended first wave
 
-The ready set (NS-01, NS-03, NS-04, NS-11, NS-12, NS-13a, NS-14, NS-22) shares no code paths or governance files. Suggested parallel dispatch: **NS-01 + NS-03 + NS-04** as three independent code lanes; **NS-12 + NS-13a + NS-14 + NS-11 + NS-22** as concurrent governance / audit / cleanup lanes. NS-12 is critical-path for NS-02 — landing it first frees Plan-001 Phase 5 Lane A.
+The ready set (NS-01, NS-03, NS-04, NS-11, NS-12, NS-13a, NS-14) shares no code paths or governance files. Suggested parallel dispatch: **NS-01 + NS-03 + NS-04** as three independent code lanes; **NS-12 + NS-13a + NS-14 + NS-11** as concurrent governance / audit / cleanup lanes. NS-12 is critical-path for NS-02 — landing it first frees Plan-001 Phase 5 Lane A. NS-22 (sibling-doc staleness sweep) serializes behind NS-12 because both edit `docs/plans/001-shared-session-core.md` (NS-12 amends Plan-001:357 in Phase 5; NS-22 sweeps Plan-001 lines 12, 55, 121, 183, 297, 306, 308, 328, 337, 339); dispatch in the second wave.
 
 ### NS-01: Plan-024 Phase 1 — Rust crate scaffolding
 
@@ -497,10 +498,10 @@ The ready set (NS-01, NS-03, NS-04, NS-11, NS-12, NS-13a, NS-14, NS-22) shares n
 
 ### NS-22: Sibling-doc staleness sweep (cross-plan-deps audit propagation)
 
-- Status: `todo`
+- Status: `blocked`
 - Type: cleanup (doc-only)
 - Priority: `P2`
-- Upstream: none
+- Upstream: NS-12 (Plan-001 file co-ownership prevents parallel dispatch — NS-12 amends Plan-001:357 in Phase 5; NS-22 sweeps Plan-001 lines 12, 55, 121, 183, 297, 306, 308, 328, 337, 339; physical line ranges don't overlap but concurrent edits to the same file create avoidable rebase / squash-merge churn)
 - References: [Plan-001](../plans/001-shared-session-core.md):12, 55, 121, 183, 297, 306, 308, 328, 337, 339; [Plan-022](../plans/022-data-retention-and-gdpr.md):22, 51, 107, 159; [ADR-022](../decisions/022-v1-toolchain-selection.md):14, 299; [Plan-001](../plans/001-shared-session-core.md) `session.ts:388` cite; [Plan-008](../plans/008-control-plane-relay-and-session-join.md):28, 188 `session.ts:388` cite
 - Summary: The cross-plan-deps audit (this PR) corrected two repo-truth drifts already present in §1 + §2 + §3 + §5: (a) migration filename `0001-initial.sql` → `0001-initial.ts` (live files are TypeScript per `packages/{runtime-daemon,control-plane}/src/migrations/`), and (b) `packages/contracts/src/session.ts:388` → `:408` (the `SessionSubscribe` comment block moved to line 408 after Plan-001 Phase 2 contract evolution). Both drifts also appear in sibling docs that this audit's scope did not modify. Sweep Plan-001 (10 occurrences of `.sql` + 1 of `:388`), Plan-022 (4 occurrences of `.sql`), ADR-022 (2 occurrences of `.sql`), and Plan-008 (2 occurrences of `:388`). Single PR, doc-only, ~30 min. Archive (`backlog-archive.md`) is frozen and excluded from sweep.
 - Exit Criteria: All listed sibling-doc occurrences updated to current values; grep for `0001-initial\.sql` and `session\.ts:388` outside `docs/archive/` returns zero matches.
