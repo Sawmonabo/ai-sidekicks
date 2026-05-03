@@ -327,10 +327,11 @@ git worktree add .worktrees/<task-id> <PR-branch>-<task-id>
 
 When all worktree implementers return `DONE`, run per-task review pipelines (one per task; reviewer worktrees are not needed — reviewers read the diff via `git diff <PR-branch>...<task-branch>`).
 
-After per-task reviewers clear each task, merge task branches into the PR branch in DAG order:
+After per-task reviewers clear each task, merge task branches into the PR branch in DAG order. For each merge, capture the task-branch tip SHA against the task's id BEFORE merging — same per-task manifest used by Phase B.1; Phase D's labeled `git show` block needs it. The SHA stays reachable after teardown via the merge commit's second parent (`<merge-sha>^2`), so `git show <task-tip-sha>` continues to produce the per-task diff for Phase D dispatch.
 
 ```bash
 git switch <PR-branch>
+TASK_TIP_SHA=$(git rev-parse <PR-branch>-<task-id>)  # record against <task-id> for Phase D manifest
 git merge --no-ff <PR-branch>-<task-id> -m "merge <task-id> into PR-branch"
 git push
 ```
