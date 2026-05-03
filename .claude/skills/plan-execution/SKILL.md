@@ -275,6 +275,8 @@ git commit -m "<conventional commit message from the implementer's report>"
 git push
 ```
 
+After `git push`, record the resulting commit SHA against the contract task's id (e.g., `T1.1: <sha>`) — Phase D's reviewer brief packs this per-task manifest to disambiguate findings on files touched by multiple tasks across DAG levels.
+
 #### B.2 — Implementer dispatches
 
 For each remaining task at this level:
@@ -296,6 +298,8 @@ git add <task target_paths>
 git commit -m "<conventional commit message>"
 git push
 ```
+
+After `git push`, record the resulting commit SHA against the task's id — same per-task manifest used by Phase B.1; Phase D depends on it.
 
 Then dispatch the next task at this level.
 
@@ -385,8 +389,9 @@ For tasks whose diff is exclusively `.md` files under `docs/`, dispatch only the
 
 After all DAG levels are complete (every task is DONE and committed/merged into the PR branch), dispatch the three reviewers ONE MORE TIME in parallel, scoped to the FULL PR diff (`git diff develop...HEAD`). Each reviewer's brief carries:
 
-- The full PR diff (`git diff develop...HEAD`).
-- The YAML DAG block from the PR description — load-bearing for `Round-trip target` resolution: each task's `id` + `target_paths` lets the reviewer map a finding's file path back to the introducing task. Without this, reviewers cannot derive the stamp the validator requires (they have no shell access to run `git log`).
+- The full PR diff (`git diff develop...HEAD`) — for integration-coverage assessment.
+- The YAML DAG block from the PR description (provides `target_paths` per task — the first-level filter for `Round-trip target` resolution).
+- A per-task commit manifest produced by the orchestrator from the per-task SHAs recorded in Phases B.1/B.2: one `<task-id>: <commit-sha>` line per task, plus the `git show <commit-sha>` output for each commit, labeled in the brief with the task-id (e.g., `### T1.1 (commit abc123)`). This is load-bearing when multiple tasks share `target_paths` (normal across DAG levels — a contract-author task at level 0 plus an implementer task at level 1 both list the same file): the reviewer locates the cited line inside the labeled per-task diff to pick the introducing task, without needing shell access to run `git log` themselves.
 - The plan section verbatim, including `## Invariants`.
 - The integration-coverage framing prompt below.
 
