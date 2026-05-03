@@ -408,7 +408,7 @@ node .claude/skills/plan-execution/scripts/validate-review-response.mjs --phase=
 
 Exit 1 lists findings missing the stamp. Re-dispatch the reviewer asking specifically for the missing stamps; do NOT route the response with unstamped findings.
 
-Route findings the same way: POLISH and ACTIONABLE → round-trip to the implementer of the last-touching task (per `Round-trip target:`); VERIFICATION lives in the reviewer's narrative section (no orchestrator action).
+Route findings by the `Round-trip target:` value: with `Round-trip target: <task-id>` → round-trip POLISH/ACTIONABLE to that task's implementer; with `Round-trip target: cross-task — escalate to user` → halt and surface the consolidated finding-set to the user (the reviewer judged no single task is responsible — typically a cross-task contract drift or missing PR-level coverage). VERIFICATION lives in the reviewer's narrative section (no orchestrator action).
 
 **Round-trip cap: 3 rounds at PR scope.** After 3 final-review round-trips, halt and surface the consolidated finding-set to the user — same cap and rationale as Phase C ([`references/failure-modes.md` § Round-trip cap rationale](references/failure-modes.md#round-trip-cap-rationale)). The user decides: ship as-is, manual intervention, or abort the PR.
 
