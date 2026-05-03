@@ -170,7 +170,11 @@ preconditions:
 - {type: adr_accepted, ref: 23}
 \`\`\``;
   const compactEntries = parsePreconditionsBlock(compactWithComment);
-  assert.equal(compactEntries.length, 2, "compact form must include both items past a same-indent comment");
+  assert.equal(
+    compactEntries.length,
+    2,
+    "compact form must include both items past a same-indent comment",
+  );
   assert.equal(compactEntries[0].ref, 19);
   assert.equal(compactEntries[1].ref, 23);
 
@@ -184,7 +188,11 @@ phase:
   - {type: adr_accepted, ref: 23}
 \`\`\``;
   const nestedEntries = parsePreconditionsBlock(compactNestedWithComment);
-  assert.equal(nestedEntries.length, 2, "compact-nested form must include both items past a parent-indent comment");
+  assert.equal(
+    nestedEntries.length,
+    2,
+    "compact-nested form must include both items past a parent-indent comment",
+  );
   assert.equal(nestedEntries[0].type, "pr_merged");
   assert.equal(nestedEntries[1].type, "adr_accepted");
 
@@ -197,7 +205,11 @@ preconditions:
   - {type: adr_accepted, ref: 23}
 \`\`\``;
   const expandedEntries = parsePreconditionsBlock(expandedWithComment);
-  assert.equal(expandedEntries.length, 2, "expanded form must include both items past an in-list comment");
+  assert.equal(
+    expandedEntries.length,
+    2,
+    "expanded form must include both items past an in-list comment",
+  );
 
   const commentBeforeFirstItem = `### Phase 1
 
@@ -207,7 +219,11 @@ preconditions:
 - {type: pr_merged, ref: 19}
 \`\`\``;
   const headerCommentEntries = parsePreconditionsBlock(commentBeforeFirstItem);
-  assert.equal(headerCommentEntries.length, 1, "comment between key and first item must not exit the block");
+  assert.equal(
+    headerCommentEntries.length,
+    1,
+    "comment between key and first item must not exit the block",
+  );
   assert.equal(headerCommentEntries[0].ref, 19);
 });
 

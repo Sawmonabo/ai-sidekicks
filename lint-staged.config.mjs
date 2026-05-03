@@ -24,6 +24,12 @@ export default {
     // `dist/` which is gitignored.
     () => "tsc -b",
   ],
-  "*.{js,mjs,cjs,jsx}": ["eslint --fix --cache"],
+  // Match the TS/TSX rule: eslint first, prettier last so CI's
+  // `prettier --check "**/*.{ts,tsx,js,mjs,cjs,...}"` (see package.json
+  // `format:check`) is a redundancy gate rather than a discovery surface
+  // for JS/MJS format drift. Without `prettier --write` here, edits to
+  // `.mjs` files (hooks, scripts) bypass local formatting and only
+  // surface as red CI on the prettier-check step.
+  "*.{js,mjs,cjs,jsx}": ["eslint --fix --cache", "prettier --write"],
   "*.{json,json5,md,yml,yaml,css,scss}": ["prettier --write"],
 };
