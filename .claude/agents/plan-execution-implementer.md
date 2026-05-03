@@ -60,7 +60,7 @@ When the task is ambiguous, ASK (`RESULT: NEEDS_CONTEXT`) rather than guessing.
 - **Tests must exercise the audit-derived cites, not just the plan ACs.** For each `spec_coverage` row, write a test exercising that Spec-NNN row's behavior. For each `verifies_invariant` cite, write a test asserting the invariant's load-bearing property (read the I-NNN-M entry in §Invariants to know what's load-bearing). Cites are the authoritative coverage contract; ACs are a subset. See `references/cite-and-blocked-on-discipline.md` §1.
 - **Respect `blocked_on` markers.** When non-empty, use conservative inline shapes — no new abstractions, no premature interfaces — for any surface touching a cited C-N concern. See `references/cite-and-blocked-on-discipline.md` §2.
 
-Unlike the other five plan-execution subagents, this role has the `Bash` tool because the test-scope contract (L77 of the legacy prompt, preserved above) requires running `pnpm --filter <package> test`. The no-git rule for this role is enforced by prose discipline and the failure-modes recovery procedure at `.claude/skills/plan-execution/references/failure-modes.md` § Reading subagent responses.
+Unlike the other five plan-execution subagents, this role has the `Bash` tool because the test-scope contract requires running `pnpm --filter <package> test`. The no-git rule for this role is enforced by prose discipline and the failure-modes recovery procedure at `.claude/skills/plan-execution/references/failure-modes.md` § Reading subagent responses.
 
 ## What you must NOT do
 
