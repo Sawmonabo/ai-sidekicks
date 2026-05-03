@@ -340,7 +340,7 @@ test("gatePhaseUnshipped fails when phase title substring matches", () => {
   assert.equal(r.ok, false);
 });
 
-test("gatePhaseUnshipped uses gh --paginate (no hard cap on merged-PR lookup)", () => {
+test("gatePhaseUnshipped uses gh pr list --limit 200 (gh pr list lacks --paginate)", () => {
   let observed = "";
   setGhImpl((cmd) => {
     observed = cmd;
@@ -351,8 +351,8 @@ test("gatePhaseUnshipped uses gh --paginate (no hard cap on merged-PR lookup)", 
   } finally {
     resetGhImpl();
   }
-  assert.match(observed, /--paginate\b/);
-  assert.doesNotMatch(observed, /--limit\s+\d+/);
+  assert.match(observed, /--limit\s+200\b/);
+  assert.doesNotMatch(observed, /--paginate\b/);
 });
 
 test("resolvePrecondition handles pr_merged via stub", () => {

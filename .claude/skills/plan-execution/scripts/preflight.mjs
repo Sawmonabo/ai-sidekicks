@@ -280,12 +280,12 @@ export function gatePhaseUnshipped(planNumber, phase, mergedList) {
   let merged = mergedList;
   if (!Array.isArray(merged)) {
     const planNum3 = String(planNumber).padStart(3, "0");
-    // `--paginate` walks every page of search results server-side, so plans
-    // that accumulate more than one page of merged PRs (the implicit cap is
-    // 30 per page) cannot have older phase PRs fall out of view. The search
-    // filter keeps the result set small in practice (<1 page per plan).
+    // `gh pr list` lacks `--paginate` (only `gh api` supports it), so cap
+    // explicitly. The search filter (Plan-NNN in:title, state=merged) returns
+    // one PR per shipped phase; even pathological plans have <30 phases, so
+    // 200 is ~7x headroom — practically unbounded for the foreseeable corpus.
     const r = runGh(
-      `gh pr list --state merged --search "Plan-${planNum3} in:title" --json number,title --paginate`,
+      `gh pr list --state merged --search "Plan-${planNum3} in:title" --json number,title --limit 200`,
     );
     if (!r.ok) {
       return {
