@@ -99,23 +99,36 @@ export function parseFlowMapping(line) {
 }
 
 export function parsePreconditionsBlock(phaseSection) {
-  const blockMatch = phaseSection.match(/```yaml\s*\n([\s\S]*?)\n```/);
+  // Accept both ```yaml and ```yml — markdown writers use either; treating
+  // them differently produces silent gate-skips when a plan author picks the
+  // shorter fence.
+  const blockMatch = phaseSection.match(/```ya?ml\s*\n([\s\S]*?)\n```/);
   if (!blockMatch) return null;
   const lines = blockMatch[1].split("\n");
-  let inPre = false;
+  // Track the column at which `preconditions:` was found. -1 means we're not
+  // inside the block. List items are recognized only when their indent
+  // exceeds the key's indent, so nested forms (e.g. `phase: { preconditions: [...] }`
+  // expressed as two-level YAML) parse correctly. De-indenting back to the
+  // key's column or shallower exits the block; re-arming on a subsequent
+  // `preconditions:` key keeps the parser forgiving against malformed YAML.
+  let preIndent = -1;
   const entries = [];
   for (const line of lines) {
-    if (/^preconditions\s*:/.test(line)) {
-      inPre = true;
+    const keyMatch = line.match(/^(\s*)preconditions\s*:\s*$/);
+    if (keyMatch) {
+      preIndent = keyMatch[1].length;
       continue;
     }
-    if (inPre) {
-      if (/^\s*-\s+/.test(line)) {
-        const entry = parseFlowMapping(line);
-        if (entry) entries.push(entry);
-      } else if (/^\S/.test(line)) {
-        inPre = false;
-      }
+    if (preIndent < 0) continue;
+    const itemMatch = line.match(/^(\s*)-\s+/);
+    if (itemMatch && itemMatch[1].length > preIndent) {
+      const entry = parseFlowMapping(line);
+      if (entry) entries.push(entry);
+      continue;
+    }
+    if (/\S/.test(line)) {
+      const lineIndent = line.match(/^\s*/)[0].length;
+      if (lineIndent <= preIndent) preIndent = -1;
     }
   }
   return entries;
@@ -263,8 +276,12 @@ export function gatePhaseUnshipped(planNumber, phase, mergedList) {
   let merged = mergedList;
   if (!Array.isArray(merged)) {
     const planNum3 = String(planNumber).padStart(3, "0");
+    // `--paginate` walks every page of search results server-side, so plans
+    // that accumulate more than one page of merged PRs (the implicit cap is
+    // 30 per page) cannot have older phase PRs fall out of view. The search
+    // filter keeps the result set small in practice (<1 page per plan).
     const r = runGh(
-      `gh pr list --state merged --search "Plan-${planNum3} in:title" --json number,title --limit 50`,
+      `gh pr list --state merged --search "Plan-${planNum3} in:title" --json number,title --paginate`,
     );
     if (!r.ok) {
       return {

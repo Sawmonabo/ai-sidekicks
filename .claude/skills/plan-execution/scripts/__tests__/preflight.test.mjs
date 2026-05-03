@@ -128,6 +128,59 @@ test("parsePreconditionsBlock returns null when no yaml block", () => {
   assert.equal(parsePreconditionsBlock("### Phase 1\nno yaml here"), null);
 });
 
+test("parsePreconditionsBlock accepts ```yml as alias for ```yaml", () => {
+  const sec = `### Phase 1
+
+\`\`\`yml
+preconditions:
+  - {type: pr_merged, ref: 42}
+\`\`\``;
+  const entries = parsePreconditionsBlock(sec);
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].ref, 42);
+});
+
+test("parsePreconditionsBlock parses indented preconditions key under a parent map", () => {
+  const sec = `### Phase 1
+
+\`\`\`yaml
+phase:
+  preconditions:
+    - {type: adr_accepted, ref: 23}
+    - {type: plan_phase, plan: 1, phase: 5, status: merged}
+\`\`\``;
+  const entries = parsePreconditionsBlock(sec);
+  assert.equal(entries.length, 2);
+  assert.equal(entries[0].type, "adr_accepted");
+  assert.equal(entries[1].plan, 1);
+});
+
+test("parsePreconditionsBlock stops at sibling key on de-indent", () => {
+  const sec = `### Phase 1
+
+\`\`\`yaml
+preconditions:
+  - {type: pr_merged, ref: 19}
+goal: ship the thing
+not_a_precondition:
+  - {type: pr_merged, ref: 999}
+\`\`\``;
+  const entries = parsePreconditionsBlock(sec);
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].ref, 19);
+});
+
+test("parsePreconditionsBlock returns [] for empty preconditions list", () => {
+  const sec = `### Phase 1
+
+\`\`\`yaml
+preconditions:
+goal: scaffolding
+\`\`\``;
+  const entries = parsePreconditionsBlock(sec);
+  assert.deepEqual(entries, []);
+});
+
 test("regexParsePreconditionsLine extracts patterns", () => {
   const e1 = regexParsePreconditionsLine("PR #19 merged");
   assert.equal(e1.length, 1);
@@ -255,6 +308,21 @@ test("gatePhaseUnshipped fails when phase title substring matches", () => {
   const merged = [{ number: 9, title: "feat: Workspace Bootstrap landing" }];
   const r = gatePhaseUnshipped(1, { number: 1, title: "Workspace Bootstrap" }, merged);
   assert.equal(r.ok, false);
+});
+
+test("gatePhaseUnshipped uses gh --paginate (no hard cap on merged-PR lookup)", () => {
+  let observed = "";
+  setGhImpl((cmd) => {
+    observed = cmd;
+    return "[]";
+  });
+  try {
+    gatePhaseUnshipped(1, { number: 99, title: "Future Phase" });
+  } finally {
+    resetGhImpl();
+  }
+  assert.match(observed, /--paginate\b/);
+  assert.doesNotMatch(observed, /--limit\s+\d+/);
 });
 
 test("resolvePrecondition handles pr_merged via stub", () => {
