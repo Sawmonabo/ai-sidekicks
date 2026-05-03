@@ -124,6 +124,53 @@ preconditions:
   assert.equal(entries[1].ref, 23);
 });
 
+test("parsePreconditionsBlock accepts compact YAML block-sequence form (items at same indent as key)", () => {
+  // YAML allows block-sequence items at the SAME column as the parent key
+  // (compact form), not only at a strictly greater column (expanded form).
+  // The strict-greater guard misclassified compact-form preconditions as
+  // empty, letting gatePreconditions dispatch work with required gates
+  // ungated. Both forms must parse identically.
+  const compactTopLevel = `### Phase 1
+
+\`\`\`yaml
+preconditions:
+- {type: pr_merged, ref: 19}
+- {type: adr_accepted, ref: 23}
+\`\`\``;
+  const compactEntries = parsePreconditionsBlock(compactTopLevel);
+  assert.equal(compactEntries.length, 2);
+  assert.equal(compactEntries[0].type, "pr_merged");
+  assert.equal(compactEntries[1].ref, 23);
+
+  const compactNested = `### Phase 1
+
+\`\`\`yaml
+phase:
+  preconditions:
+  - {type: plan_phase, plan: 1, phase: 5, status: merged}
+\`\`\``;
+  const nestedEntries = parsePreconditionsBlock(compactNested);
+  assert.equal(nestedEntries.length, 1);
+  assert.equal(nestedEntries[0].plan, 1);
+});
+
+test("parsePreconditionsBlock locks first item's indent — sibling list at parent indent stays excluded", () => {
+  // Regression guard for the compact-form fix: when the first item lands at
+  // a STRICTLY-greater indent (expanded form), the locked itemIndent must
+  // exclude later list items that drop back to the parent key's indent
+  // (which would belong to a sibling list, not the preconditions block).
+  const sec = `### Phase 1
+
+\`\`\`yaml
+preconditions:
+  - {type: pr_merged, ref: 19}
+- {type: should_not_be_pre, ref: 999}
+\`\`\``;
+  const entries = parsePreconditionsBlock(sec);
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].ref, 19);
+});
+
 test("parsePreconditionsBlock returns null when no yaml block", () => {
   assert.equal(parsePreconditionsBlock("### Phase 1\nno yaml here"), null);
 });

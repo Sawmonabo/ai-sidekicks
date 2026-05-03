@@ -105,13 +105,18 @@ export function parsePreconditionsBlock(phaseSection) {
   const blockMatch = phaseSection.match(/```ya?ml\s*\n([\s\S]*?)\n```/);
   if (!blockMatch) return null;
   const lines = blockMatch[1].split("\n");
-  // Track the column at which `preconditions:` was found. -1 means we're not
-  // inside the block. List items are recognized only when their indent
-  // exceeds the key's indent, so nested forms (e.g. `phase: { preconditions: [...] }`
-  // expressed as two-level YAML) parse correctly. De-indenting back to the
-  // key's column or shallower exits the block; re-arming on a subsequent
-  // `preconditions:` key keeps the parser forgiving against malformed YAML.
+  // Track the column at which `preconditions:` was found (-1 means we're not
+  // inside the block). The first list item after the key locks `itemIndent`;
+  // subsequent items must match that exact indent. Both YAML block-sequence
+  // forms are accepted: compact (`indent === preIndent`, e.g.
+  // `preconditions:\n- {…}`) and expanded (`indent > preIndent`, e.g.
+  // `preconditions:\n  - {…}`). Locking on the first item prevents a sibling
+  // list at the parent key's indent from being falsely absorbed in expanded
+  // mode. De-indenting back to the key's column or shallower with a non-list
+  // line exits the block; re-arming on a subsequent `preconditions:` key
+  // keeps the parser forgiving against malformed YAML.
   let preIndent = -1;
+  let itemIndent = -1;
   const entries = [];
   for (const line of lines) {
     // Accept trailing whitespace and an optional YAML line-comment after the
@@ -121,18 +126,28 @@ export function parsePreconditionsBlock(phaseSection) {
     const keyMatch = line.match(/^(\s*)preconditions\s*:\s*(#.*)?$/);
     if (keyMatch) {
       preIndent = keyMatch[1].length;
+      itemIndent = -1;
       continue;
     }
     if (preIndent < 0) continue;
     const itemMatch = line.match(/^(\s*)-\s+/);
-    if (itemMatch && itemMatch[1].length > preIndent) {
-      const entry = parseFlowMapping(line);
-      if (entry) entries.push(entry);
-      continue;
+    if (itemMatch) {
+      const indent = itemMatch[1].length;
+      if (itemIndent < 0 && indent >= preIndent) itemIndent = indent;
+      if (indent === itemIndent) {
+        const entry = parseFlowMapping(line);
+        if (entry) entries.push(entry);
+        continue;
+      }
+      // List item at unexpected indent (e.g., a sibling list outside the
+      // preconditions block in expanded mode) — fall through to exit logic.
     }
     if (/\S/.test(line)) {
       const lineIndent = line.match(/^\s*/)[0].length;
-      if (lineIndent <= preIndent) preIndent = -1;
+      if (lineIndent <= preIndent) {
+        preIndent = -1;
+        itemIndent = -1;
+      }
     }
   }
   return entries;
