@@ -154,6 +154,80 @@ phase:
   assert.equal(nestedEntries[0].plan, 1);
 });
 
+test("parsePreconditionsBlock ignores in-list YAML comments at any indent", () => {
+  // Comments are metadata — they must not change parser state. In compact
+  // form (or compact-nested), a comment at the parent key's indent column
+  // satisfies `lineIndent <= preIndent` and would otherwise trigger
+  // block-exit, dropping every later item silently. That's a gate-skip:
+  // gatePreconditions sees only the first item and dispatches work even
+  // though later required gates aren't met.
+  const compactWithComment = `### Phase 1
+
+\`\`\`yaml
+preconditions:
+- {type: pr_merged, ref: 19}
+# leading-column comment between items
+- {type: adr_accepted, ref: 23}
+\`\`\``;
+  const compactEntries = parsePreconditionsBlock(compactWithComment);
+  assert.equal(compactEntries.length, 2, "compact form must include both items past a same-indent comment");
+  assert.equal(compactEntries[0].ref, 19);
+  assert.equal(compactEntries[1].ref, 23);
+
+  const compactNestedWithComment = `### Phase 1
+
+\`\`\`yaml
+phase:
+  preconditions:
+  - {type: pr_merged, ref: 19}
+  # parent-indent comment between items (Codex P1 case)
+  - {type: adr_accepted, ref: 23}
+\`\`\``;
+  const nestedEntries = parsePreconditionsBlock(compactNestedWithComment);
+  assert.equal(nestedEntries.length, 2, "compact-nested form must include both items past a parent-indent comment");
+  assert.equal(nestedEntries[0].type, "pr_merged");
+  assert.equal(nestedEntries[1].type, "adr_accepted");
+
+  const expandedWithComment = `### Phase 1
+
+\`\`\`yaml
+preconditions:
+  - {type: pr_merged, ref: 19}
+  # in-list comment at item indent
+  - {type: adr_accepted, ref: 23}
+\`\`\``;
+  const expandedEntries = parsePreconditionsBlock(expandedWithComment);
+  assert.equal(expandedEntries.length, 2, "expanded form must include both items past an in-list comment");
+
+  const commentBeforeFirstItem = `### Phase 1
+
+\`\`\`yaml
+preconditions:
+# comment immediately after key, before first item
+- {type: pr_merged, ref: 19}
+\`\`\``;
+  const headerCommentEntries = parsePreconditionsBlock(commentBeforeFirstItem);
+  assert.equal(headerCommentEntries.length, 1, "comment between key and first item must not exit the block");
+  assert.equal(headerCommentEntries[0].ref, 19);
+});
+
+test("parsePreconditionsBlock still exits on real sibling key with trailing comment", () => {
+  // Regression guard for the comment-fix: a key-with-trailing-comment line
+  // (`goal: ship  # blah`) is NOT a comment-only line — its first non-space
+  // character is `g`, not `#` — so the de-indent exit must still fire.
+  const sec = `### Phase 1
+
+\`\`\`yaml
+preconditions:
+- {type: pr_merged, ref: 19}
+goal: ship  # trailing comment on a real key line
+- {type: not_under_pre, ref: 999}
+\`\`\``;
+  const entries = parsePreconditionsBlock(sec);
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].ref, 19);
+});
+
 test("parsePreconditionsBlock locks first item's indent — sibling list at parent indent stays excluded", () => {
   // Regression guard for the compact-form fix: when the first item lands at
   // a STRICTLY-greater indent (expanded form), the locked itemIndent must

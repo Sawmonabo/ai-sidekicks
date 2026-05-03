@@ -112,9 +112,10 @@ export function parsePreconditionsBlock(phaseSection) {
   // `preconditions:\n- {…}`) and expanded (`indent > preIndent`, e.g.
   // `preconditions:\n  - {…}`). Locking on the first item prevents a sibling
   // list at the parent key's indent from being falsely absorbed in expanded
-  // mode. De-indenting back to the key's column or shallower with a non-list
-  // line exits the block; re-arming on a subsequent `preconditions:` key
-  // keeps the parser forgiving against malformed YAML.
+  // mode. De-indenting back to the key's column or shallower with a non-list,
+  // non-comment-only line exits the block; comments are metadata and never
+  // change parser state. Re-arming on a subsequent `preconditions:` key keeps
+  // the parser forgiving against malformed YAML.
   let preIndent = -1;
   let itemIndent = -1;
   const entries = [];
@@ -142,7 +143,13 @@ export function parsePreconditionsBlock(phaseSection) {
       // List item at unexpected indent (e.g., a sibling list outside the
       // preconditions block in expanded mode) — fall through to exit logic.
     }
-    if (/\S/.test(line)) {
+    // Comments are metadata — never trigger block exit, regardless of their
+    // indent. In compact form (`indent === preIndent`) a comment-only line at
+    // the parent indent would otherwise satisfy the de-indent exit check and
+    // silently drop subsequent items, producing a gate-skip on later
+    // preconditions. Match `# foo` or `   # foo` but not `key: # trailing`,
+    // which is a key-with-trailing-comment.
+    if (/\S/.test(line) && !/^\s*#/.test(line)) {
       const lineIndent = line.match(/^\s*/)[0].length;
       if (lineIndent <= preIndent) {
         preIndent = -1;
