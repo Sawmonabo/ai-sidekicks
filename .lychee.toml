@@ -44,6 +44,12 @@ exclude = [
   "^https://www\\.mdpi\\.com/.*",
   "^https://platform\\.openai\\.com/.*",
   "^https://techcommunity\\.microsoft\\.com/.*",
+  # Cloudflare-fronted hosts that intermittently TLS-handshake-fail or TCP-reset
+  # under lychee's bot-shaped probe from the GitHub-Actions runner network.
+  # Both URLs render in browsers (verified manually); the failure mode is not
+  # a broken page, it's the same shape as the entries above.
+  "^https://kubernetes\\.io/.*",
+  "^https://nx\\.dev/.*",
 ]
 
 # GitHub-hosted-runner network has higher tail latency than typical dev
