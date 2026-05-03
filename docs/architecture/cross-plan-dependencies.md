@@ -281,18 +281,17 @@ This section tracks the actionable next steps the [plan-readiness-audit Tier 1](
 
 ```mermaid
 graph TB
-  %% READY (no upstream NS-XX blockers)
+  %% READY (no upstream NS-XX blockers, or all upstream satisfied)
   NS01[NS-01: Plan-024 Phase 1<br/>Rust crate scaffolding]:::ready
+  NS02[NS-02: Plan-001 Phase 5 Lane A<br/>T5.1 + T5.5 + T5.6]:::ready
   NS03[NS-03: Plan-023-partial Tier 1<br/>Electron + React skeleton]:::ready
   NS04[NS-04: Plan-001 T5.4 cwd-translator<br/>+ Plan-024 T-024-2-1 contracts pair]:::ready
   NS11[NS-11: Plan-007-partial cleanup<br/>3 stale BLOCKED-ON-C9 comments]:::ready
-  NS12[NS-12: Plan-001 Phase 5 split + dep alignment]:::ready
   NS13a[NS-13a: spec-status promotion gate<br/>runbook/ADR amendment]:::ready
   NS14[NS-14: Tier 2 plan-readiness audit<br/>Plan-002 alone]:::ready
-  NS22[NS-22: sibling-doc staleness sweep<br/>0001-initial sql→ts + session.ts line cite]:::blocked
+  NS22[NS-22: sibling-doc staleness sweep<br/>0001-initial sql→ts + session.ts line cite]:::ready
 
   %% BLOCKED
-  NS02[NS-02: Plan-001 Phase 5 Lane A<br/>T5.1 + T5.5 + T5.6]:::blocked
   NS05[NS-05: Plan-024 Phase 2 NodePtyHost]:::blocked
   NS06[NS-06: Plan-001 T5.2 renderer wiring]:::blocked
   NS07[NS-07: Plan-024 Phase 3 RustSidecarPtyHost]:::blocked
@@ -301,6 +300,9 @@ graph TB
   NS10[NS-10: Plan-024 Phase 5 measurement]:::blocked
   NS13b[NS-13b: Spec-027 draft → approved]:::blocked
   NS15[NS-15..NS-21: Tiers 3-9 audits<br/>1 PR per tier, sequential]:::blocked
+
+  %% COMPLETED
+  NS12[NS-12: Plan-001 Phase 5 split + dep alignment]:::completed
 
   %% EXISTING BACKLOG (governance)
   BL106[BL-106: Plan-024 calendar-window<br/>P1 governance]:::governance
@@ -329,12 +331,13 @@ graph TB
 
   classDef ready fill:#9f9,stroke:#0a0,color:#000
   classDef blocked fill:#fcc,stroke:#a00,color:#000
+  classDef completed fill:#ccc,stroke:#666,color:#000
   classDef governance fill:#ffc,stroke:#aa0,color:#000
 ```
 
 ### Recommended first wave
 
-The ready set (NS-01, NS-03, NS-04, NS-11, NS-12, NS-13a, NS-14) shares no code paths or governance files. Suggested parallel dispatch: **NS-01 + NS-03 + NS-04** as three independent code lanes; **NS-12 + NS-13a + NS-14 + NS-11** as concurrent governance / audit / cleanup lanes. NS-12 is critical-path for NS-02 — landing it first frees Plan-001 Phase 5 Lane A. NS-22 (sibling-doc staleness sweep) serializes behind NS-12 because both edit `docs/plans/001-shared-session-core.md` (NS-12 amends Plan-001:357 in Phase 5; NS-22 sweeps Plan-001 lines 12, 55, 121, 183, 297, 306, 308, 328, 337, 339); dispatch in the second wave.
+With NS-12 resolved 2026-05-03 (this commit — Plan-001 §Phase 5 Precondition rewritten to four-lane structure + Lane A unblocked), the ready set is now NS-01, NS-02, NS-03, NS-04, NS-11, NS-13a, NS-14, NS-22 (8 items). The set shares no code paths or governance files — re-derived from each entry's `Files:` / target_paths after NS-12's removal and NS-02 + NS-22's promotion. Suggested parallel dispatch: **NS-01 + NS-02 + NS-03 + NS-04** as four independent code lanes (NS-02 = Plan-001 Phase 5 Lane A, recommended split into 3 atomic PRs per the entry below); **NS-13a + NS-14 + NS-11 + NS-22** as concurrent governance / audit / cleanup lanes. The previous serialization of NS-22 behind NS-12 is dissolved — NS-22 targets distinct content (`0001-initial.sql` filename + `session.ts:388` cite occurrences in Plan-001 / Plan-022 / ADR-022 / Plan-008) from NS-12's edit scope (Plan-001 §Preconditions + §Phase 5 Precondition); NS-22 dispatches cleanly against the post-NS-12 HEAD without rebase churn.
 
 ### NS-01: Plan-024 Phase 1 — Rust crate scaffolding
 
@@ -348,12 +351,12 @@ The ready set (NS-01, NS-03, NS-04, NS-11, NS-12, NS-13a, NS-14) shares no code 
 
 ### NS-02: Plan-001 Phase 5 Lane A — sessionClient + pg.Pool + I7 (T5.1, T5.5, T5.6)
 
-- Status: `blocked`
+- Status: `todo`
 - Type: code (recommended split into 3 atomic PRs)
 - Priority: `P1`
-- Upstream: NS-12 (Plan-001:357 reads as a monolithic gate; per `feedback_honor_plan_preconditions.md`, amend the plan before shipping per-task PRs rather than relying on PR-description rationale)
-- References: [Plan-001](../plans/001-shared-session-core.md):357-397, integration tests I1-I4 at Plan-001:199-202
-- Summary: Three independent unblocked-when-NS-12-lands tasks. **T5.1** (load-bearing for Plan-002+ consumers): `packages/client-sdk/src/sessionClient.ts` + integration tests verifying I1-I4 at `packages/client-sdk/test/sessionClient.integration.test.ts`. **T5.5**: `pg.Pool`-backed `Querier` composition for `SessionDirectoryService`. **T5.6**: strengthen `createSession` lock-ordering test, discharge the `TODO(Plan-001 Phase 5)` annotation. Recommended sequencing: T5.1 first, then T5.5/T5.6 in either order.
+- Upstream: none (NS-12 resolved 2026-05-03 — Plan-001 §Phase 5 Precondition four-lane split is at HEAD; Lane A is now actionable directly against the per-task `Files:` rows)
+- References: [Plan-001](../plans/001-shared-session-core.md):358-399, integration tests I1-I4 at Plan-001:200-203
+- Summary: Three independent code tasks comprising Plan-001 Phase 5 Lane A per the post-NS-12 four-lane split. **T5.1** (load-bearing for Plan-002+ consumers): `packages/client-sdk/src/sessionClient.ts` + integration tests verifying I1-I4 at `packages/client-sdk/test/sessionClient.integration.test.ts`. **T5.5**: `pg.Pool`-backed `Querier` composition for `SessionDirectoryService`. **T5.6**: strengthen `createSession` lock-ordering test, discharge the `TODO(Plan-001 Phase 5)` annotation. Recommended sequencing: T5.1 first, then T5.5/T5.6 in either order.
 - Exit Criteria: T5.1 lands `sessionClient.ts` with I1-I4 green; T5.5 ships pg.Pool driver; T5.6 strengthens the lock-ordering regression test.
 
 ### NS-03: Plan-023-partial Tier 1 — Electron + React skeleton
@@ -448,13 +451,13 @@ The ready set (NS-01, NS-03, NS-04, NS-11, NS-12, NS-13a, NS-14) shares no code 
 
 ### NS-12: Plan-001 Phase 5 split amendment + Phase 5 dep alignment
 
-- Status: `todo`
+- Status: `completed` (resolved 2026-05-03 via this commit — Plan-001:357 rewritten to four-lane structure with per-task gating; downstream NS-02 + NS-22 unblocked)
 - Type: governance (doc-only)
-- Priority: `P1` (critical-path for NS-02)
+- Priority: `P1` (was critical-path for NS-02)
 - Upstream: none
-- References: [Plan-001](../plans/001-shared-session-core.md):357-397
-- Summary: Amend Plan-001:357 to (a) canonicalize the four-lane Phase 5 split: **Lane A** (T5.1 / T5.5 / T5.6 unblocked once amendment lands) + **Lane B** (T5.4 paired with Plan-024 T-024-2-1, see NS-04) + **Lane C** (T5.2 after Plan-023-partial, see NS-06) + **Lane D** (T5.3 after Plan-023-partial + Plan-024 Phase 3, see NS-08); and (b) align Phase 5 Dependencies to include Plan-023 Tier 1 Partial substrate (per [BL-101](../archive/backlog-archive.md#bl-101-c-3--plan-023-tier-1-partial-substrate-carve-out-mirrors-plan-007-partial--plan-008-bootstrap) (a) resolution 2026-04-30; this document §3 row 108 reflects post-resolution truth — Plan-001:357 currently cites only Plan-007-partial + Plan-008-bootstrap and lags). Without (a), Plan-001:357 reads as a monolithic gate ("Phase 5 cannot start until all three upstream Tier 1 substrates are merged") that conflicts with the per-task `Files:` lines at 375-397. Without (b), Plan-001 header contradicts §3. Hard precondition for NS-02 per `feedback_honor_plan_preconditions.md`.
-- Exit Criteria: Plan-001:357 rewritten to enumerate the four-lane split; Phase 5 Dependencies row cites Plan-007-partial + Plan-008-bootstrap + Plan-023-partial; per-task gating canonical; NS-02 PRs cite Plan-001:357 directly.
+- References: [Plan-001](../plans/001-shared-session-core.md):358-399 (post-amendment; pre-amendment was :357-397)
+- Summary: Amended Plan-001 §Phase 5 Precondition (was :357 pre-amendment; now :358) to (a) canonicalize the four-lane Phase 5 split: **Lane A** (T5.1 / T5.5 / T5.6 unblocked once amendment lands) + **Lane B** (T5.4 paired with Plan-024 T-024-2-1, see NS-04) + **Lane C** (T5.2 after Plan-023-partial, see NS-06) + **Lane D** (T5.3 after Plan-023-partial + Plan-024 Phase 3, see NS-08); and (b) align Phase 5 Dependencies to include Plan-023 Tier 1 Partial substrate (per [BL-101](../archive/backlog-archive.md#bl-101-c-3--plan-023-tier-1-partial-substrate-carve-out-mirrors-plan-007-partial--plan-008-bootstrap) (a) resolution 2026-04-30). Pre-amendment, Plan-001 §Phase 5 Precondition read as a monolithic gate ("Phase 5 cannot start until all three upstream Tier 1 substrates are merged") that conflicted with the per-task `Files:` lines at T5.1-T5.6; the amendment makes per-task gating canonical and resolves the conflict.
+- Exit Criteria: Plan-001 §Phase 5 Precondition rewritten to enumerate the four-lane split with per-task gating; downstream NS-02 PRs cite Plan-001:358 directly. **Met.**
 
 ### NS-13a: Spec-status promotion gate clarification
 
@@ -498,11 +501,11 @@ The ready set (NS-01, NS-03, NS-04, NS-11, NS-12, NS-13a, NS-14) shares no code 
 
 ### NS-22: Sibling-doc staleness sweep (cross-plan-deps audit propagation)
 
-- Status: `blocked`
+- Status: `todo`
 - Type: cleanup (doc-only)
 - Priority: `P2`
-- Upstream: NS-12 (Plan-001 file co-ownership prevents parallel dispatch — NS-12 amends Plan-001:357 in Phase 5; NS-22 sweeps Plan-001 lines 12, 55, 121, 183, 297, 306, 308, 328, 337, 339; physical line ranges don't overlap but concurrent edits to the same file create avoidable rebase / squash-merge churn)
-- References: [Plan-001](../plans/001-shared-session-core.md):12, 55, 121, 183, 297, 306, 308, 328, 337, 339; [Plan-022](../plans/022-data-retention-and-gdpr.md):22, 51, 107, 159; [ADR-022](../decisions/022-v1-toolchain-selection.md):14, 299; [Plan-001](../plans/001-shared-session-core.md) `session.ts:388` cite; [Plan-008](../plans/008-control-plane-relay-and-session-join.md):28, 188 `session.ts:388` cite
+- Upstream: none (NS-12 resolved 2026-05-03 — the Plan-001 file co-ownership concern dissolves; NS-22's sweep targets at lines 12, 55, 121, 183, 297, 306, 308, 328, 337, 339 do not overlap with NS-12's edit ranges at lines 77-83 + 357-363)
+- References: [Plan-001](../plans/001-shared-session-core.md):12, 55, 122, 184, 298, 307, 309, 329, 338, 340 (line numbers post-NS-12 — `0001-initial.sql` cites); [Plan-022](../plans/022-data-retention-and-gdpr.md):22, 51, 107, 159; [ADR-022](../decisions/022-v1-toolchain-selection.md):14, 299; [Plan-001](../plans/001-shared-session-core.md):369 `session.ts:388` cite (post-NS-12 line); [Plan-008](../plans/008-control-plane-relay-and-session-join.md):28, 188 `session.ts:388` cite
 - Summary: The cross-plan-deps audit (this PR) corrected two repo-truth drifts already present in §1 + §2 + §3 + §5: (a) migration filename `0001-initial.sql` → `0001-initial.ts` (live files are TypeScript per `packages/{runtime-daemon,control-plane}/src/migrations/`), and (b) `packages/contracts/src/session.ts:388` → `:408` (the `SessionSubscribe` comment block moved to line 408 after Plan-001 Phase 2 contract evolution). Both drifts also appear in sibling docs that this audit's scope did not modify. Sweep Plan-001 (10 occurrences of `.sql` + 1 of `:388`), Plan-022 (4 occurrences of `.sql`), ADR-022 (2 occurrences of `.sql`), and Plan-008 (2 occurrences of `:388`). Single PR, doc-only, ~30 min. Archive (`backlog-archive.md`) is frozen and excluded from sweep.
 - Exit Criteria: All listed sibling-doc occurrences updated to current values; grep for `0001-initial\.sql` and `session\.ts:388` outside `docs/archive/` returns zero matches.
 
