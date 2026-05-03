@@ -69,16 +69,17 @@ For each non-trivial design choice (field naming, optional vs required, error sh
 
 ## Exit states
 
-- `RESULT: DONE` — Contract file(s) written. All `target_paths` are present with content. Type-checks pass for the package (`pnpm tsc --noEmit` in the target package).
+- `RESULT: DONE` — Contract file(s) written. All `target_paths` are present with content. Shape is well-formed (read your output once and confirm it matches the plan's contract surface).
 - `RESULT: DONE_WITH_CONCERNS` — Written, but you have doubts. List concerns before the tag.
 - `RESULT: NEEDS_CONTEXT` — Plan/spec is ambiguous on a contract detail. State the question.
 - `RESULT: BLOCKED` — You cannot produce the contract (missing dependency, contradictory spec). State the blocker.
+
+You do not have shell access (no `Bash` tool), so you cannot run `pnpm tsc --noEmit` yourself. The orchestrator runs typecheck after committing your work via the Phase B.1 review pipeline (code-quality-reviewer reads the diff; the consuming implementer task at the next DAG level imports your output and runs its own scoped typecheck/tests, which is the load-bearing detection point for type errors).
 
 ## Report format
 
 Before the tag:
 
 - Files written (paths).
-- Type-check result.
 - Each non-trivial design choice in the structure above.
 - Suggested commit message (Conventional Commits 1.0 format).

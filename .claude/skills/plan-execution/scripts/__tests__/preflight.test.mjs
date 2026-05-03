@@ -181,6 +181,36 @@ goal: scaffolding
   assert.deepEqual(entries, []);
 });
 
+test("parsePreconditionsBlock accepts trailing YAML comment after preconditions key", () => {
+  const sec = `### Phase 1
+
+\`\`\`yaml
+preconditions: # gated by ADR-023
+  - {type: pr_merged, ref: 19}
+\`\`\``;
+  const entries = parsePreconditionsBlock(sec);
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].ref, 19);
+});
+
+test("parsePreconditionsBlock does NOT enter block on inline scalar value", () => {
+  // `preconditions: []` and `preconditions: foo` are inline values, not block
+  // openers — entering block mode here would let the parser misinterpret
+  // following lines as members of an empty list.
+  const inlineEmpty = `### Phase 1
+\`\`\`yaml
+preconditions: []
+phase: 1
+\`\`\``;
+  assert.deepEqual(parsePreconditionsBlock(inlineEmpty), []);
+  const inlineScalar = `### Phase 1
+\`\`\`yaml
+preconditions: legacy
+phase: 1
+\`\`\``;
+  assert.deepEqual(parsePreconditionsBlock(inlineScalar), []);
+});
+
 test("regexParsePreconditionsLine extracts patterns", () => {
   const e1 = regexParsePreconditionsLine("PR #19 merged");
   assert.equal(e1.length, 1);

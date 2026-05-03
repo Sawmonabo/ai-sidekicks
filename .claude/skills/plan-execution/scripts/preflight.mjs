@@ -114,7 +114,11 @@ export function parsePreconditionsBlock(phaseSection) {
   let preIndent = -1;
   const entries = [];
   for (const line of lines) {
-    const keyMatch = line.match(/^(\s*)preconditions\s*:\s*$/);
+    // Accept trailing whitespace and an optional YAML line-comment after the
+    // colon (e.g. `preconditions: # gated by ADR-023`). Reject inline values
+    // (`preconditions: foo` or `preconditions: []`) so an inline-empty list
+    // doesn't falsely enter block mode and silently swallow following lines.
+    const keyMatch = line.match(/^(\s*)preconditions\s*:\s*(#.*)?$/);
     if (keyMatch) {
       preIndent = keyMatch[1].length;
       continue;
