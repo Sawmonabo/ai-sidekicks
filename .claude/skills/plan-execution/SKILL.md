@@ -26,7 +26,7 @@ If the user names a plan but the trigger phrase is ambiguous, use this skill any
 
 ## Your Role: Orchestrator
 
-You are the orchestrator. You don't write code; you decompose, dispatch, review-route, and gate. Six subagent roles, each with its own prompt template under [`prompts/`](prompts/) — plan-analyst, contract-author, implementer, spec-reviewer, code-quality-reviewer, code-reviewer — are _your_ subagents. You brief them, parse their `RESULT:` tags, and decide what happens next.
+You are the orchestrator. You don't write code; you decompose, dispatch, review-route, and gate. Six subagent roles, each defined at `.claude/agents/plan-execution-<role>.md` — `plan-execution-plan-analyst`, `plan-execution-contract-author`, `plan-execution-implementer`, `plan-execution-spec-reviewer`, `plan-execution-code-quality-reviewer`, `plan-execution-code-reviewer` — are _your_ subagents. You dispatch them via `Agent({subagent_type: "plan-execution-<role>", prompt: "<runtime brief>"})`; the runtime auto-loads each agent's contract from its definition file. You brief them with the runtime data their `## Inputs` section names, parse their `RESULT:` tags, and decide what happens next.
 
 ### Mindset
 
@@ -39,7 +39,7 @@ Reason like a principal-engineer project lead:
 ### Hard rules
 
 - **You orchestrate; you don't implement.** Code edits happen inside implementer or contract-author dispatches. The orchestrator's only direct file mutations are: the initial scaffold commit (Phase 0), git operations (`add`, `commit`, `push`, `merge`), the Progress Log append at PR completion, and the YAML DAG block in the PR description.
-- **Subagents do NOT run git.** Implementers and contract-authors stage their changes by editing files; the orchestrator runs every `git add`, `git commit`, `git push`, and `git merge`. Recovery for a subagent that ran git anyway: [`references/failure-modes.md` § Reading subagent responses](references/failure-modes.md#reading-subagent-responses).
+- **Subagents do NOT run git.** Implementers and contract-authors stage their changes by editing files; the orchestrator runs every `git add`, `git commit`, `git push`, and `git merge`. Mechanically enforced for five of six roles: the agent definitions for plan-analyst, contract-author, spec-reviewer, code-quality-reviewer, and code-reviewer omit `Bash` from `tools:`, so `git` is unavailable. The implementer role retains `Bash` because its test-scope contract (`pnpm --filter <pkg> test`) requires it; for that role the no-git rule is enforced by prose discipline. Recovery for a subagent that ran git anyway (now structurally restricted to the implementer role): [`references/failure-modes.md` § Reading subagent responses](references/failure-modes.md#reading-subagent-responses).
 - **All ACTIONABLE and POLISH reviewer findings round-trip to the implementer.** VERIFICATION is reasoning, not a finding — it lives in the reviewer's `## Verification narrative` section and is never re-dispatched (see the **Findings Discipline** section below).
 - **Halt on `BLOCKED`** with the graceful-drain protocol — let in-flight subagents finish, collect all results, surface to user (full protocol: [`references/failure-modes.md` § Graceful Drain Protocol](references/failure-modes.md#graceful-drain-protocol-worktree-mode)).
 - **Never push to `develop` or `main` directly.** Always squash-merge through PR (mechanics in **Phase E** below).
@@ -191,7 +191,7 @@ EOF
 
 ### Phase A — Plan analysis (decompose to task DAG)
 
-Dispatch the **plan-analyst** subagent (template: [`prompts/plan-analyst.prompt.md`](prompts/plan-analyst.prompt.md)). Pass it:
+Dispatch the **plan-analyst** subagent via `Agent({subagent_type: "plan-execution-plan-analyst", prompt: "<runtime brief>"})`. Definition: [`.claude/agents/plan-execution-plan-analyst.md`](../../agents/plan-execution-plan-analyst.md). The runtime brief passes:
 
 - **The audit-derived `#### Tasks` block for the selected Phase, verbatim.** This is the dispatch contract — Tasks rows map 1:1 to DAG tasks. The audit runbook's G4 traceability gate produced these rows with `Files`, `Spec coverage`, `Verifies invariant`, and optional `BLOCKED-ON-C*` markers. Do NOT have the analyst re-derive task structure from plan prose; re-deriving discards the cites that downstream review depends on.
 - The Phase section (Goal, Scope, Precondition) for orientation only — not the dispatch contract.
@@ -281,7 +281,7 @@ For each remaining task at this level:
 
 **Sequential mode (default):**
 
-Dispatch one implementer at a time on the PR branch. The implementer prompt (template: [`prompts/implementer.prompt.md`](prompts/implementer.prompt.md)) contains:
+Dispatch one implementer at a time on the PR branch via `Agent({subagent_type: "plan-execution-implementer", prompt: "<runtime brief>"})`. Definition: [`.claude/agents/plan-execution-implementer.md`](../../agents/plan-execution-implementer.md). The runtime brief passes:
 
 - The task's `title`, `target_paths`, `spec_coverage`, `verifies_invariant`, `blocked_on`, `acceptance_criteria`, `contract_consumes`, `notes`.
 - The plan section verbatim (orientation; NOT the dispatch contract).
@@ -353,7 +353,7 @@ After each task's implementer (or contract-author) returns `DONE`, BEFORE that t
 - The task-scoped diff. Sequential mode: `git diff` against `HEAD` (staged + unstaged for `target_paths`). Worktree mode: `git diff <PR-branch>...<task-branch> -- <target_paths>`.
 - The plan section verbatim, including `## Invariants` (orientation; spec-reviewer reads I-NNN-M entries cited in `verifies_invariant`).
 
-The three roles (templates under [`prompts/`](prompts/) — `spec-reviewer.prompt.md`, `code-quality-reviewer.prompt.md`, `code-reviewer.prompt.md`):
+The three roles (defined at [`.claude/agents/`](../../agents/) — `plan-execution-spec-reviewer`, `plan-execution-code-quality-reviewer`, `plan-execution-code-reviewer`; dispatch via `Agent({subagent_type: "plan-execution-<role>", prompt: "<runtime brief>"})`):
 
 - **Spec-reviewer** — does the diff match the task's acceptance criteria + plan section + cited ADRs?
 - **Code-quality-reviewer** — idiom, type safety, test depth, neighboring-code conformance, against [`.claude/rules/coding-standards.md`](../../rules/coding-standards.md).
@@ -496,7 +496,7 @@ Read these when the workflow step calls for them:
 - [`scripts/preflight-contract.md`](scripts/preflight-contract.md) — authoritative contract for the preflight tool: invocation, exit codes, gate-by-gate definitions, design rationale (phase-walk vs title-count). Edit gates here and in `preflight.mjs`; do NOT add gate logic to SKILL.md prose.
 - [`scripts/validate-review-response.mjs`](scripts/validate-review-response.mjs) — reviewer-response validator invoked at Phase C (`--conflicts` mode, inter-reviewer conflict detection by `file:line`) and Phase D (`--phase=D` mode, Round-trip target stamp validation).
 - [`references/state-recovery.md`](references/state-recovery.md) — resumption protocol when a session compacts or crashes mid-PR. Updated for the three-artifact state model.
-- [`prompts/`](prompts/) — per-role prompt templates: `plan-analyst.prompt.md`, `contract-author.prompt.md`, `implementer.prompt.md`, `spec-reviewer.prompt.md`, `code-quality-reviewer.prompt.md`, `code-reviewer.prompt.md`. Read the relevant role's file before dispatching that role — each template is self-contained with mindset, hard rules, exit states, and report format. Each file declares a target dispatch-prompt size; if you exceed it after substituting placeholders, the task is probably under-decomposed or the plan section being pasted is too long (link instead of paste).
+- **Subagent definitions** at [`.claude/agents/`](../../agents/) — six files: `plan-execution-plan-analyst.md`, `plan-execution-contract-author.md`, `plan-execution-implementer.md`, `plan-execution-spec-reviewer.md`, `plan-execution-code-quality-reviewer.md`, `plan-execution-code-reviewer.md`. Each definition is auto-loaded by the runtime when the orchestrator dispatches via `Agent({subagent_type: "plan-execution-<role>", prompt: "<runtime brief>"})`; the orchestrator never `Read`s these files. The runtime brief carries only what varies per dispatch (task definition, plan section, diff text); invariant content (mindset, hard rules, exit states, output schema, severity calibration) lives in the definition. **Iteration caveat:** Claude Code does NOT live-reload `.claude/agents/` — edits to a definition require a session restart before the runtime picks them up. Iterate the orchestrator's runtime brief in `SKILL.md` (which IS live-reloaded) when possible; touch the agent definitions only when the contract genuinely needs to change.
 - [`references/failure-modes.md`](references/failure-modes.md) — exit-state taxonomy (`DONE`, `DONE_WITH_CONCERNS`, `NEEDS_CONTEXT`, `BLOCKED`), graceful-drain protocol for worktree mode, three-label routing rules (VERIFICATION/POLISH/ACTIONABLE), round-trip caps, inter-reviewer conflict adjudication.
 
 ## Anti-Patterns
