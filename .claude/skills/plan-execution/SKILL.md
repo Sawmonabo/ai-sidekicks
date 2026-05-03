@@ -267,7 +267,7 @@ For each level in `levels[]`, in order:
 
 If the level contains a task with `role: contract-author`, dispatch it FIRST (alone). It produces only the contract file (interface, schema, type definitions); its commit is the foundation later tasks at this level depend on.
 
-When contract-author returns `RESULT: DONE`, run the standard per-task review pipeline (Phase C below). When the contract task's reviewers all return `DONE`, commit:
+When contract-author returns `RESULT: DONE`, run the standard per-task review pipeline (Phase C below). When the contract task's reviewers all return `DONE`, run typecheck against the contract task's target package (`pnpm --filter <pkg> exec tsc --noEmit` for a single workspace package; `pnpm typecheck` at root when the contract spans multiple packages or the package filter is unclear) — the contract-author has no shell access, so this typecheck is the orchestrator's responsibility, restoring the verification the pre-migration subagent ran inline. If typecheck fails, halt Phase B.1 and round-trip the type errors back to the contract-author as a follow-on dispatch (same pattern as a reviewer ACTIONABLE finding); do NOT commit a contract that fails typecheck. When typecheck passes, commit:
 
 ```bash
 git add <contract task target_paths>

@@ -74,7 +74,7 @@ For each non-trivial design choice (field naming, optional vs required, error sh
 - `RESULT: NEEDS_CONTEXT` — Plan/spec is ambiguous on a contract detail. State the question.
 - `RESULT: BLOCKED` — You cannot produce the contract (missing dependency, contradictory spec). State the blocker.
 
-You do not have shell access (no `Bash` tool), so you cannot run `pnpm tsc --noEmit` yourself. The orchestrator runs typecheck after committing your work via the Phase B.1 review pipeline (code-quality-reviewer reads the diff; the consuming implementer task at the next DAG level imports your output and runs its own scoped typecheck/tests, which is the load-bearing detection point for type errors).
+You do not have shell access (no `Bash` tool), so you cannot run `pnpm tsc --noEmit` yourself. The orchestrator runs typecheck against your target package after the Phase C review pipeline clears and before committing your work (`pnpm --filter <pkg> exec tsc --noEmit`, or `pnpm typecheck` at root if the contract spans multiple packages). If typecheck fails, the orchestrator halts Phase B.1 and round-trips the type errors back to you as a follow-on dispatch — same pattern as a reviewer ACTIONABLE finding.
 
 ## Report format
 
