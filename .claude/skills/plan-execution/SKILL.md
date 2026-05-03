@@ -383,7 +383,12 @@ For tasks whose diff is exclusively `.md` files under `docs/`, dispatch only the
 
 ### Phase D — Final review pipeline
 
-After all DAG levels are complete (every task is DONE and committed/merged into the PR branch), dispatch the three reviewers ONE MORE TIME in parallel, scoped to the FULL PR diff (`git diff develop...HEAD`).
+After all DAG levels are complete (every task is DONE and committed/merged into the PR branch), dispatch the three reviewers ONE MORE TIME in parallel, scoped to the FULL PR diff (`git diff develop...HEAD`). Each reviewer's brief carries:
+
+- The full PR diff (`git diff develop...HEAD`).
+- The YAML DAG block from the PR description — load-bearing for `Round-trip target` resolution: each task's `id` + `target_paths` lets the reviewer map a finding's file path back to the introducing task. Without this, reviewers cannot derive the stamp the validator requires (they have no shell access to run `git log`).
+- The plan section verbatim, including `## Invariants`.
+- The integration-coverage framing prompt below.
 
 The final reviewer prompt explicitly frames the role as **integration coverage**:
 

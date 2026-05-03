@@ -101,7 +101,7 @@ Then a `## Findings` section. For each finding:
 - File + line range
 - What the code does that's a problem
 - Suggested fix (one sentence)
-- **Phase D only:** `Round-trip target: <task-id>` (identify the introducing task via `git log --oneline develop...HEAD -- <file>`) OR `Round-trip target: cross-task — escalate to user` (if the finding spans multiple tasks with no single-task fix). The orchestrator validates this stamp via `scripts/validate-review-response.mjs` and rejects findings missing it.
+- **Phase D only:** `Round-trip target: <task-id>` — resolve by matching the finding's file path to a task's `target_paths` in the DAG passed in your brief. When exactly one task's `target_paths` includes the file, that's the round-trip target. When multiple tasks share the file (normal across DAG levels — e.g., a contract-author task at level 0 plus an implementer task at level 1), pick the task whose diff hunks introduced the cited code. Use `Round-trip target: cross-task — escalate to user` when the file matches zero tasks' `target_paths` or no single task is clearly responsible. The orchestrator validates this stamp via `scripts/validate-review-response.mjs` and rejects findings missing it.
 
 Group findings by severity: ACTIONABLE first, POLISH second.
 
