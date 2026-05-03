@@ -1,5 +1,6 @@
 ---
 name: ripple-check-path-identifier
+color: orange
 description: Internal subagent for the /ripple-check orchestrator only. Do not invoke directly — the orchestrator dispatches this subagent in parallel with siblings to audit a doc-corpus diff for CAT-01 (path canonicalization) and CAT-02 (identifier rename) ripple. The orchestrator passes diff hunks and a file list via the prompt parameter; this subagent returns one JSON object with findings.
 model: inherit
 tools: ["Read", "Grep", "Glob", "Edit", "Write"]

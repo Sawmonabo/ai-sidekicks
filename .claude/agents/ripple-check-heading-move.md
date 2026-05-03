@@ -1,5 +1,6 @@
 ---
 name: ripple-check-heading-move
+color: pink
 description: Internal subagent for the /ripple-check orchestrator only. Do not invoke directly — the orchestrator dispatches this subagent in parallel with siblings to audit a doc-corpus diff for CAT-03 (heading move / archival) and CAT-04 (heading-text edit / slug change) ripple. The orchestrator passes diff hunks (heading edits) and optional lychee output via the prompt parameter; this subagent returns one JSON object with findings.
 model: inherit
 tools: ["Read", "Grep", "Glob", "Edit", "Write"]

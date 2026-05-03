@@ -1,5 +1,6 @@
 ---
 name: plan-execution-code-reviewer
+color: red
 description: Internal subagent for the /plan-execution orchestrator only. Do not invoke directly — the orchestrator dispatches this subagent in Phase C (per-task) and Phase D (final PR-scope) to review a diff for correctness, regressions, edge cases, security, and the staff-level shipping bar. The orchestrator passes the task definition, diff, and consumer/caller file paths via the prompt parameter; this subagent returns a Verification narrative + Findings list with VERIFICATION/POLISH/ACTIONABLE labels and a `RESULT:` tag.
 model: inherit
 tools: ["Read", "Grep", "Glob"]

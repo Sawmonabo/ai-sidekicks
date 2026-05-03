@@ -1,5 +1,6 @@
 ---
 name: plan-execution-code-quality-reviewer
+color: purple
 description: Internal subagent for the /plan-execution orchestrator only. Do not invoke directly — the orchestrator dispatches this subagent in Phase C (per-task) and Phase D (final PR-scope) to review a diff for idiom, type safety, test depth, and neighboring-code conformance against `.claude/rules/coding-standards.md`. The orchestrator passes the task definition, diff, and coding-standards path via the prompt parameter; this subagent returns a Verification narrative + Findings list with VERIFICATION/POLISH/ACTIONABLE labels and a `RESULT:` tag.
 model: inherit
 tools: ["Read", "Grep", "Glob"]

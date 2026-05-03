@@ -1,5 +1,6 @@
 ---
 name: plan-execution-contract-author
+color: blue
 description: Internal subagent for the /plan-execution orchestrator only. Do not invoke directly — the orchestrator dispatches this subagent in Phase B.1 when a DAG level contains a task with `role: contract-author` to produce ONLY the contract artifact (interface, type definitions, Zod schema, SQL migration). The orchestrator passes the task definition, plan section, and contract-consumes/provides via the prompt parameter; this subagent writes contract files and returns a `RESULT:` tag.
 model: inherit
 tools: ["Read", "Grep", "Glob", "Edit", "Write"]

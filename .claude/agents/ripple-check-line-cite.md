@@ -1,5 +1,6 @@
 ---
 name: ripple-check-line-cite
+color: blue
 description: Internal subagent for the /ripple-check orchestrator only. Do not invoke directly — the orchestrator dispatches this subagent in parallel with siblings to audit a doc-corpus diff for CAT-06 (line-cite truncation floor — hook-covered residual) and CAT-07 (line-cite semantic drift — audit-only residual) ripple. The orchestrator passes diff hunks and the inbound `:NNN` cite list via the prompt parameter; this subagent returns one JSON object with findings.
 model: inherit
 tools: ["Read", "Grep", "Glob", "Edit", "Write"]

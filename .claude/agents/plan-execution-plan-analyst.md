@@ -1,5 +1,6 @@
 ---
 name: plan-execution-plan-analyst
+color: cyan
 description: Internal subagent for the /plan-execution orchestrator only. Do not invoke directly — the orchestrator dispatches this subagent in Phase A to decompose a Phase's audit-derived `#### Tasks` block into a topologically-sorted YAML task DAG. The orchestrator passes the Tasks block, the Phase section, plan §Invariants, governing spec path, and cited ADR paths via the prompt parameter; this subagent returns a YAML DAG plus a `RESULT:` tag.
 model: inherit
 tools: ["Read", "Grep", "Glob"]

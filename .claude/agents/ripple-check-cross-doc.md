@@ -1,5 +1,6 @@
 ---
 name: ripple-check-cross-doc
+color: green
 description: Internal subagent for the /ripple-check orchestrator only. Do not invoke directly — the orchestrator dispatches this subagent in parallel with siblings to audit a doc-corpus diff for cross-document narrative coherence (the audit-layer residual that spans catalog rows). The orchestrator passes diff hunks and a list of docs that reference modified files via the prompt parameter; this subagent returns one JSON object with findings tagged `catalog_row: cross-doc`.
 model: inherit
 tools: ["Read", "Grep", "Glob", "Edit", "Write"]
