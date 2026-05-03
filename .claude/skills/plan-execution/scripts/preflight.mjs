@@ -99,22 +99,61 @@ export function parseFlowMapping(line) {
 }
 
 export function parsePreconditionsBlock(phaseSection) {
-  const blockMatch = phaseSection.match(/```yaml\s*\n([\s\S]*?)\n```/);
+  // Accept both ```yaml and ```yml — markdown writers use either; treating
+  // them differently produces silent gate-skips when a plan author picks the
+  // shorter fence.
+  const blockMatch = phaseSection.match(/```ya?ml\s*\n([\s\S]*?)\n```/);
   if (!blockMatch) return null;
   const lines = blockMatch[1].split("\n");
-  let inPre = false;
+  // Track the column at which `preconditions:` was found (-1 means we're not
+  // inside the block). The first list item after the key locks `itemIndent`;
+  // subsequent items must match that exact indent. Both YAML block-sequence
+  // forms are accepted: compact (`indent === preIndent`, e.g.
+  // `preconditions:\n- {…}`) and expanded (`indent > preIndent`, e.g.
+  // `preconditions:\n  - {…}`). Locking on the first item prevents a sibling
+  // list at the parent key's indent from being falsely absorbed in expanded
+  // mode. De-indenting back to the key's column or shallower with a non-list,
+  // non-comment-only line exits the block; comments are metadata and never
+  // change parser state. Re-arming on a subsequent `preconditions:` key keeps
+  // the parser forgiving against malformed YAML.
+  let preIndent = -1;
+  let itemIndent = -1;
   const entries = [];
   for (const line of lines) {
-    if (/^preconditions\s*:/.test(line)) {
-      inPre = true;
+    // Accept trailing whitespace and an optional YAML line-comment after the
+    // colon (e.g. `preconditions: # gated by ADR-023`). Reject inline values
+    // (`preconditions: foo` or `preconditions: []`) so an inline-empty list
+    // doesn't falsely enter block mode and silently swallow following lines.
+    const keyMatch = line.match(/^(\s*)preconditions\s*:\s*(#.*)?$/);
+    if (keyMatch) {
+      preIndent = keyMatch[1].length;
+      itemIndent = -1;
       continue;
     }
-    if (inPre) {
-      if (/^\s*-\s+/.test(line)) {
+    if (preIndent < 0) continue;
+    const itemMatch = line.match(/^(\s*)-\s+/);
+    if (itemMatch) {
+      const indent = itemMatch[1].length;
+      if (itemIndent < 0 && indent >= preIndent) itemIndent = indent;
+      if (indent === itemIndent) {
         const entry = parseFlowMapping(line);
         if (entry) entries.push(entry);
-      } else if (/^\S/.test(line)) {
-        inPre = false;
+        continue;
+      }
+      // List item at unexpected indent (e.g., a sibling list outside the
+      // preconditions block in expanded mode) — fall through to exit logic.
+    }
+    // Comments are metadata — never trigger block exit, regardless of their
+    // indent. In compact form (`indent === preIndent`) a comment-only line at
+    // the parent indent would otherwise satisfy the de-indent exit check and
+    // silently drop subsequent items, producing a gate-skip on later
+    // preconditions. Match `# foo` or `   # foo` but not `key: # trailing`,
+    // which is a key-with-trailing-comment.
+    if (/\S/.test(line) && !/^\s*#/.test(line)) {
+      const lineIndent = line.match(/^\s*/)[0].length;
+      if (lineIndent <= preIndent) {
+        preIndent = -1;
+        itemIndent = -1;
       }
     }
   }
@@ -263,8 +302,12 @@ export function gatePhaseUnshipped(planNumber, phase, mergedList) {
   let merged = mergedList;
   if (!Array.isArray(merged)) {
     const planNum3 = String(planNumber).padStart(3, "0");
+    // `gh pr list` lacks `--paginate` (only `gh api` supports it), so cap
+    // explicitly. The search filter (Plan-NNN in:title, state=merged) returns
+    // one PR per shipped phase; even pathological plans have <30 phases, so
+    // 200 is ~7x headroom — practically unbounded for the foreseeable corpus.
     const r = runGh(
-      `gh pr list --state merged --search "Plan-${planNum3} in:title" --json number,title --limit 50`,
+      `gh pr list --state merged --search "Plan-${planNum3} in:title" --json number,title --limit 200`,
     );
     if (!r.ok) {
       return {

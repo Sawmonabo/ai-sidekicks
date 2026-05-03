@@ -234,7 +234,7 @@ The `RESULT:` tag is at the **end** of the response. Everything before it is the
 
 **Tag matches body but body is thin.** E.g., reviewer says `RESULT: DONE` with one sentence "looks good." Re-dispatch — they didn't actually review. Real `DONE` from a reviewer should reference at least which files they read and which checks they ran.
 
-**Subagent ran git.** Check the implementer/contract-author report for `git commit` / `git push` / `git branch` mentions. If present, contract violation. Recover by:
+**Subagent ran git.** Only the implementer role can trigger this — the other five roles (plan-analyst, contract-author, spec-reviewer, code-quality-reviewer, code-reviewer) have `Bash` omitted from their agent-definition `tools:` field, so `git` is unavailable to them. The implementer retains `Bash` for its `pnpm --filter <pkg> test` contract, and the no-git rule for that role is enforced by prose discipline only. Check the implementer's report for `git commit` / `git push` / `git branch` mentions; if present, contract violation. Recover by:
 
 1. `git status` and `git log -1` to see the stray commit; `git log @{u}..HEAD` (and `git log HEAD..@{u}`) to determine whether it was already pushed.
 2. If a stray commit that was NOT pushed: `git reset HEAD~1 --soft` recovers the diff to staged state.

@@ -26,7 +26,7 @@ If the user names a plan but the trigger phrase is ambiguous, use this skill any
 
 ## Your Role: Orchestrator
 
-You are the orchestrator. You don't write code; you decompose, dispatch, review-route, and gate. Six subagent roles, each with its own prompt template under [`prompts/`](prompts/) — plan-analyst, contract-author, implementer, spec-reviewer, code-quality-reviewer, code-reviewer — are _your_ subagents. You brief them, parse their `RESULT:` tags, and decide what happens next.
+You are the orchestrator. You don't write code; you decompose, dispatch, review-route, and gate. Six subagent roles, each defined at `.claude/agents/plan-execution-<role>.md` — `plan-execution-plan-analyst`, `plan-execution-contract-author`, `plan-execution-implementer`, `plan-execution-spec-reviewer`, `plan-execution-code-quality-reviewer`, `plan-execution-code-reviewer` — are _your_ subagents. You dispatch them via `Agent({subagent_type: "plan-execution-<role>", prompt: "<runtime brief>"})`; the runtime auto-loads each agent's contract from its definition file. You brief them with the runtime data their `## Inputs` section names, parse their `RESULT:` tags, and decide what happens next.
 
 ### Mindset
 
@@ -39,7 +39,7 @@ Reason like a principal-engineer project lead:
 ### Hard rules
 
 - **You orchestrate; you don't implement.** Code edits happen inside implementer or contract-author dispatches. The orchestrator's only direct file mutations are: the initial scaffold commit (Phase 0), git operations (`add`, `commit`, `push`, `merge`), the Progress Log append at PR completion, and the YAML DAG block in the PR description.
-- **Subagents do NOT run git.** Implementers and contract-authors stage their changes by editing files; the orchestrator runs every `git add`, `git commit`, `git push`, and `git merge`. Recovery for a subagent that ran git anyway: [`references/failure-modes.md` § Reading subagent responses](references/failure-modes.md#reading-subagent-responses).
+- **Subagents do NOT run git.** Implementers and contract-authors stage their changes by editing files; the orchestrator runs every `git add`, `git commit`, `git push`, and `git merge`. Mechanically enforced for five of six roles: the agent definitions for plan-analyst, contract-author, spec-reviewer, code-quality-reviewer, and code-reviewer omit `Bash` from `tools:`, so `git` is unavailable. The implementer role retains `Bash` because its test-scope contract (`pnpm --filter <pkg> test`) requires it; for that role the no-git rule is enforced by prose discipline. Recovery for a subagent that ran git anyway (now structurally restricted to the implementer role): [`references/failure-modes.md` § Reading subagent responses](references/failure-modes.md#reading-subagent-responses).
 - **All ACTIONABLE and POLISH reviewer findings round-trip to the implementer.** VERIFICATION is reasoning, not a finding — it lives in the reviewer's `## Verification narrative` section and is never re-dispatched (see the **Findings Discipline** section below).
 - **Halt on `BLOCKED`** with the graceful-drain protocol — let in-flight subagents finish, collect all results, surface to user (full protocol: [`references/failure-modes.md` § Graceful Drain Protocol](references/failure-modes.md#graceful-drain-protocol-worktree-mode)).
 - **Never push to `develop` or `main` directly.** Always squash-merge through PR (mechanics in **Phase E** below).
@@ -48,7 +48,7 @@ Reason like a principal-engineer project lead:
 ## Workflow
 
 ```dot
-digraph plan_execution_v2 {
+digraph plan_execution {
     "User trigger" [shape=doublecircle];
     "Phase 0: state inference\n+ scaffold (if fresh)" [shape=box];
     "Phase A: dispatch plan-analyst" [shape=box];
@@ -191,7 +191,7 @@ EOF
 
 ### Phase A — Plan analysis (decompose to task DAG)
 
-Dispatch the **plan-analyst** subagent (template: [`prompts/plan-analyst.prompt.md`](prompts/plan-analyst.prompt.md)). Pass it:
+Dispatch the **plan-analyst** subagent via `Agent({subagent_type: "plan-execution-plan-analyst", prompt: "<runtime brief>"})`. Definition: [`.claude/agents/plan-execution-plan-analyst.md`](../../agents/plan-execution-plan-analyst.md). The runtime brief passes:
 
 - **The audit-derived `#### Tasks` block for the selected Phase, verbatim.** This is the dispatch contract — Tasks rows map 1:1 to DAG tasks. The audit runbook's G4 traceability gate produced these rows with `Files`, `Spec coverage`, `Verifies invariant`, and optional `BLOCKED-ON-C*` markers. Do NOT have the analyst re-derive task structure from plan prose; re-deriving discards the cites that downstream review depends on.
 - The Phase section (Goal, Scope, Precondition) for orientation only — not the dispatch contract.
@@ -267,7 +267,7 @@ For each level in `levels[]`, in order:
 
 If the level contains a task with `role: contract-author`, dispatch it FIRST (alone). It produces only the contract file (interface, schema, type definitions); its commit is the foundation later tasks at this level depend on.
 
-When contract-author returns `RESULT: DONE`, run the standard per-task review pipeline (Phase C below). When the contract task's reviewers all return `DONE`, commit:
+When contract-author returns `RESULT: DONE`, run the standard per-task review pipeline (Phase C below). When the contract task's reviewers all return `DONE`, run typecheck against the contract task's target package (`pnpm --filter <pkg> exec tsc --noEmit` for a single workspace package; `pnpm typecheck` at root when the contract spans multiple packages or the package filter is unclear) — the contract-author has no shell access, so this typecheck is the orchestrator's responsibility, restoring the verification the pre-migration subagent ran inline. If typecheck fails, halt Phase B.1 and round-trip the type errors back to the contract-author as a follow-on dispatch (same pattern as a reviewer ACTIONABLE finding); do NOT commit a contract that fails typecheck. When typecheck passes, run per-package tests with the same single-vs-multi fork (`pnpm --filter <pkg> test` for a single workspace package; `pnpm test` at root when the contract spans multiple packages or the package filter is unclear) — the contract-author may have written a tooling-sanity test but cannot execute it (pre-migration the subagent ran only `tsc --noEmit` inline, never general tests, so this test step is new gate coverage rather than a restoration); it closes the runtime-test gap the typecheck step alone does not cover, blocking a `RESULT: DONE` from advancing past Phase B.1 with an unrun sanity test. If tests fail, halt and round-trip the failures back to the contract-author exactly like the typecheck case; do NOT commit a contract whose tests fail. When both typecheck and tests pass, commit:
 
 ```bash
 git add <contract task target_paths>
@@ -275,13 +275,15 @@ git commit -m "<conventional commit message from the implementer's report>"
 git push
 ```
 
+After `git push`, record the resulting commit SHA against the contract task's id (e.g., `T1.1: <sha>`) — Phase D's reviewer brief packs this per-task manifest to disambiguate findings on files touched by multiple tasks across DAG levels.
+
 #### B.2 — Implementer dispatches
 
 For each remaining task at this level:
 
 **Sequential mode (default):**
 
-Dispatch one implementer at a time on the PR branch. The implementer prompt (template: [`prompts/implementer.prompt.md`](prompts/implementer.prompt.md)) contains:
+Dispatch one implementer at a time on the PR branch via `Agent({subagent_type: "plan-execution-implementer", prompt: "<runtime brief>"})`. Definition: [`.claude/agents/plan-execution-implementer.md`](../../agents/plan-execution-implementer.md). The runtime brief passes:
 
 - The task's `title`, `target_paths`, `spec_coverage`, `verifies_invariant`, `blocked_on`, `acceptance_criteria`, `contract_consumes`, `notes`.
 - The plan section verbatim (orientation; NOT the dispatch contract).
@@ -296,6 +298,8 @@ git add <task target_paths>
 git commit -m "<conventional commit message>"
 git push
 ```
+
+After `git push`, record the resulting commit SHA against the task's id — same per-task manifest used by Phase B.1; Phase D depends on it.
 
 Then dispatch the next task at this level.
 
@@ -323,10 +327,11 @@ git worktree add .worktrees/<task-id> <PR-branch>-<task-id>
 
 When all worktree implementers return `DONE`, run per-task review pipelines (one per task; reviewer worktrees are not needed — reviewers read the diff via `git diff <PR-branch>...<task-branch>`).
 
-After per-task reviewers clear each task, merge task branches into the PR branch in DAG order:
+After per-task reviewers clear each task, merge task branches into the PR branch in DAG order. For each merge, capture the task-branch tip SHA against the task's id BEFORE merging — same per-task manifest used by Phase B.1; Phase D's labeled `git show` block needs it. The SHA stays reachable after teardown via the merge commit's second parent (`<merge-sha>^2`), so `git show <task-tip-sha>` continues to produce the per-task diff for Phase D dispatch.
 
 ```bash
 git switch <PR-branch>
+TASK_TIP_SHA=$(git rev-parse <PR-branch>-<task-id>)  # record against <task-id> for Phase D manifest
 git merge --no-ff <PR-branch>-<task-id> -m "merge <task-id> into PR-branch"
 git push
 ```
@@ -353,7 +358,7 @@ After each task's implementer (or contract-author) returns `DONE`, BEFORE that t
 - The task-scoped diff. Sequential mode: `git diff` against `HEAD` (staged + unstaged for `target_paths`). Worktree mode: `git diff <PR-branch>...<task-branch> -- <target_paths>`.
 - The plan section verbatim, including `## Invariants` (orientation; spec-reviewer reads I-NNN-M entries cited in `verifies_invariant`).
 
-The three roles (templates under [`prompts/`](prompts/) — `spec-reviewer.prompt.md`, `code-quality-reviewer.prompt.md`, `code-reviewer.prompt.md`):
+The three roles (defined at [`.claude/agents/`](../../agents/) — `plan-execution-spec-reviewer`, `plan-execution-code-quality-reviewer`, `plan-execution-code-reviewer`; dispatch via `Agent({subagent_type: "plan-execution-<role>", prompt: "<runtime brief>"})`):
 
 - **Spec-reviewer** — does the diff match the task's acceptance criteria + plan section + cited ADRs?
 - **Code-quality-reviewer** — idiom, type safety, test depth, neighboring-code conformance, against [`.claude/rules/coding-standards.md`](../../rules/coding-standards.md).
@@ -383,7 +388,13 @@ For tasks whose diff is exclusively `.md` files under `docs/`, dispatch only the
 
 ### Phase D — Final review pipeline
 
-After all DAG levels are complete (every task is DONE and committed/merged into the PR branch), dispatch the three reviewers ONE MORE TIME in parallel, scoped to the FULL PR diff (`git diff develop...HEAD`).
+After all DAG levels are complete (every task is DONE and committed/merged into the PR branch), dispatch the three reviewers ONE MORE TIME in parallel, scoped to the FULL PR diff (`git diff develop...HEAD`). Each reviewer's brief carries:
+
+- The full PR diff (`git diff develop...HEAD`) — for integration-coverage assessment.
+- The YAML DAG block from the PR description (provides `target_paths` per task — the first-level filter for `Round-trip target` resolution).
+- A per-task commit manifest produced by the orchestrator from the per-task SHAs recorded in Phases B.1/B.2: one `<task-id>: <commit-sha>` line per task, plus the `git show <commit-sha>` output for each commit, labeled in the brief with the task-id (e.g., `### T1.1 (commit abc123)`). This is load-bearing when multiple tasks share `target_paths` (normal across DAG levels — a contract-author task at level 0 plus an implementer task at level 1 both list the same file): the reviewer locates the cited line inside the labeled per-task diff to pick the introducing task, without needing shell access to run `git log` themselves.
+- The plan section verbatim, including `## Invariants`.
+- The integration-coverage framing prompt below.
 
 The final reviewer prompt explicitly frames the role as **integration coverage**:
 
@@ -403,7 +414,7 @@ node .claude/skills/plan-execution/scripts/validate-review-response.mjs --phase=
 
 Exit 1 lists findings missing the stamp. Re-dispatch the reviewer asking specifically for the missing stamps; do NOT route the response with unstamped findings.
 
-Route findings the same way: POLISH and ACTIONABLE → round-trip to the implementer of the last-touching task (per `Round-trip target:`); VERIFICATION lives in the reviewer's narrative section (no orchestrator action).
+Route findings by the `Round-trip target:` value: with `Round-trip target: <task-id>` → round-trip POLISH/ACTIONABLE to that task's implementer; with `Round-trip target: cross-task — escalate to user` → halt and surface the consolidated finding-set to the user (the reviewer judged no single task is responsible — typically a cross-task contract drift or missing PR-level coverage). VERIFICATION lives in the reviewer's narrative section (no orchestrator action).
 
 **Round-trip cap: 3 rounds at PR scope.** After 3 final-review round-trips, halt and surface the consolidated finding-set to the user — same cap and rationale as Phase C ([`references/failure-modes.md` § Round-trip cap rationale](references/failure-modes.md#round-trip-cap-rationale)). The user decides: ship as-is, manual intervention, or abort the PR.
 
@@ -496,7 +507,7 @@ Read these when the workflow step calls for them:
 - [`scripts/preflight-contract.md`](scripts/preflight-contract.md) — authoritative contract for the preflight tool: invocation, exit codes, gate-by-gate definitions, design rationale (phase-walk vs title-count). Edit gates here and in `preflight.mjs`; do NOT add gate logic to SKILL.md prose.
 - [`scripts/validate-review-response.mjs`](scripts/validate-review-response.mjs) — reviewer-response validator invoked at Phase C (`--conflicts` mode, inter-reviewer conflict detection by `file:line`) and Phase D (`--phase=D` mode, Round-trip target stamp validation).
 - [`references/state-recovery.md`](references/state-recovery.md) — resumption protocol when a session compacts or crashes mid-PR. Updated for the three-artifact state model.
-- [`prompts/`](prompts/) — per-role prompt templates: `plan-analyst.prompt.md`, `contract-author.prompt.md`, `implementer.prompt.md`, `spec-reviewer.prompt.md`, `code-quality-reviewer.prompt.md`, `code-reviewer.prompt.md`. Read the relevant role's file before dispatching that role — each template is self-contained with mindset, hard rules, exit states, and report format. Each file declares a target dispatch-prompt size; if you exceed it after substituting placeholders, the task is probably under-decomposed or the plan section being pasted is too long (link instead of paste).
+- **Subagent definitions** at [`.claude/agents/`](../../agents/) — six files: `plan-execution-plan-analyst.md`, `plan-execution-contract-author.md`, `plan-execution-implementer.md`, `plan-execution-spec-reviewer.md`, `plan-execution-code-quality-reviewer.md`, `plan-execution-code-reviewer.md`. Each definition is auto-loaded by the runtime when the orchestrator dispatches via `Agent({subagent_type: "plan-execution-<role>", prompt: "<runtime brief>"})`; the orchestrator never `Read`s these files. The runtime brief carries only what varies per dispatch (task definition, plan section, diff text); invariant content (mindset, hard rules, exit states, output schema, severity calibration) lives in the definition. **Iteration caveat:** Claude Code does NOT live-reload `.claude/agents/` — edits to a definition require a session restart before the runtime picks them up. Iterate the orchestrator's runtime brief in `SKILL.md` (which IS live-reloaded) when possible; touch the agent definitions only when the contract genuinely needs to change.
 - [`references/failure-modes.md`](references/failure-modes.md) — exit-state taxonomy (`DONE`, `DONE_WITH_CONCERNS`, `NEEDS_CONTEXT`, `BLOCKED`), graceful-drain protocol for worktree mode, three-label routing rules (VERIFICATION/POLISH/ACTIONABLE), round-trip caps, inter-reviewer conflict adjudication.
 
 ## Anti-Patterns

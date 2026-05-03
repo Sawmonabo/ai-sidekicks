@@ -124,8 +124,228 @@ preconditions:
   assert.equal(entries[1].ref, 23);
 });
 
+test("parsePreconditionsBlock accepts compact YAML block-sequence form (items at same indent as key)", () => {
+  // YAML allows block-sequence items at the SAME column as the parent key
+  // (compact form), not only at a strictly greater column (expanded form).
+  // The strict-greater guard misclassified compact-form preconditions as
+  // empty, letting gatePreconditions dispatch work with required gates
+  // ungated. Both forms must parse identically.
+  const compactTopLevel = `### Phase 1
+
+\`\`\`yaml
+preconditions:
+- {type: pr_merged, ref: 19}
+- {type: adr_accepted, ref: 23}
+\`\`\``;
+  const compactEntries = parsePreconditionsBlock(compactTopLevel);
+  assert.equal(compactEntries.length, 2);
+  assert.equal(compactEntries[0].type, "pr_merged");
+  assert.equal(compactEntries[1].ref, 23);
+
+  const compactNested = `### Phase 1
+
+\`\`\`yaml
+phase:
+  preconditions:
+  - {type: plan_phase, plan: 1, phase: 5, status: merged}
+\`\`\``;
+  const nestedEntries = parsePreconditionsBlock(compactNested);
+  assert.equal(nestedEntries.length, 1);
+  assert.equal(nestedEntries[0].plan, 1);
+});
+
+test("parsePreconditionsBlock ignores in-list YAML comments at any indent", () => {
+  // Comments are metadata — they must not change parser state. In compact
+  // form (or compact-nested), a comment at the parent key's indent column
+  // satisfies `lineIndent <= preIndent` and would otherwise trigger
+  // block-exit, dropping every later item silently. That's a gate-skip:
+  // gatePreconditions sees only the first item and dispatches work even
+  // though later required gates aren't met.
+  const compactWithComment = `### Phase 1
+
+\`\`\`yaml
+preconditions:
+- {type: pr_merged, ref: 19}
+# leading-column comment between items
+- {type: adr_accepted, ref: 23}
+\`\`\``;
+  const compactEntries = parsePreconditionsBlock(compactWithComment);
+  assert.equal(
+    compactEntries.length,
+    2,
+    "compact form must include both items past a same-indent comment",
+  );
+  assert.equal(compactEntries[0].ref, 19);
+  assert.equal(compactEntries[1].ref, 23);
+
+  const compactNestedWithComment = `### Phase 1
+
+\`\`\`yaml
+phase:
+  preconditions:
+  - {type: pr_merged, ref: 19}
+  # parent-indent comment between items (Codex P1 case)
+  - {type: adr_accepted, ref: 23}
+\`\`\``;
+  const nestedEntries = parsePreconditionsBlock(compactNestedWithComment);
+  assert.equal(
+    nestedEntries.length,
+    2,
+    "compact-nested form must include both items past a parent-indent comment",
+  );
+  assert.equal(nestedEntries[0].type, "pr_merged");
+  assert.equal(nestedEntries[1].type, "adr_accepted");
+
+  const expandedWithComment = `### Phase 1
+
+\`\`\`yaml
+preconditions:
+  - {type: pr_merged, ref: 19}
+  # in-list comment at item indent
+  - {type: adr_accepted, ref: 23}
+\`\`\``;
+  const expandedEntries = parsePreconditionsBlock(expandedWithComment);
+  assert.equal(
+    expandedEntries.length,
+    2,
+    "expanded form must include both items past an in-list comment",
+  );
+
+  const commentBeforeFirstItem = `### Phase 1
+
+\`\`\`yaml
+preconditions:
+# comment immediately after key, before first item
+- {type: pr_merged, ref: 19}
+\`\`\``;
+  const headerCommentEntries = parsePreconditionsBlock(commentBeforeFirstItem);
+  assert.equal(
+    headerCommentEntries.length,
+    1,
+    "comment between key and first item must not exit the block",
+  );
+  assert.equal(headerCommentEntries[0].ref, 19);
+});
+
+test("parsePreconditionsBlock still exits on real sibling key with trailing comment", () => {
+  // Regression guard for the comment-fix: a key-with-trailing-comment line
+  // (`goal: ship  # blah`) is NOT a comment-only line — its first non-space
+  // character is `g`, not `#` — so the de-indent exit must still fire.
+  const sec = `### Phase 1
+
+\`\`\`yaml
+preconditions:
+- {type: pr_merged, ref: 19}
+goal: ship  # trailing comment on a real key line
+- {type: not_under_pre, ref: 999}
+\`\`\``;
+  const entries = parsePreconditionsBlock(sec);
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].ref, 19);
+});
+
+test("parsePreconditionsBlock locks first item's indent — sibling list at parent indent stays excluded", () => {
+  // Regression guard for the compact-form fix: when the first item lands at
+  // a STRICTLY-greater indent (expanded form), the locked itemIndent must
+  // exclude later list items that drop back to the parent key's indent
+  // (which would belong to a sibling list, not the preconditions block).
+  const sec = `### Phase 1
+
+\`\`\`yaml
+preconditions:
+  - {type: pr_merged, ref: 19}
+- {type: should_not_be_pre, ref: 999}
+\`\`\``;
+  const entries = parsePreconditionsBlock(sec);
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].ref, 19);
+});
+
 test("parsePreconditionsBlock returns null when no yaml block", () => {
   assert.equal(parsePreconditionsBlock("### Phase 1\nno yaml here"), null);
+});
+
+test("parsePreconditionsBlock accepts ```yml as alias for ```yaml", () => {
+  const sec = `### Phase 1
+
+\`\`\`yml
+preconditions:
+  - {type: pr_merged, ref: 42}
+\`\`\``;
+  const entries = parsePreconditionsBlock(sec);
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].ref, 42);
+});
+
+test("parsePreconditionsBlock parses indented preconditions key under a parent map", () => {
+  const sec = `### Phase 1
+
+\`\`\`yaml
+phase:
+  preconditions:
+    - {type: adr_accepted, ref: 23}
+    - {type: plan_phase, plan: 1, phase: 5, status: merged}
+\`\`\``;
+  const entries = parsePreconditionsBlock(sec);
+  assert.equal(entries.length, 2);
+  assert.equal(entries[0].type, "adr_accepted");
+  assert.equal(entries[1].plan, 1);
+});
+
+test("parsePreconditionsBlock stops at sibling key on de-indent", () => {
+  const sec = `### Phase 1
+
+\`\`\`yaml
+preconditions:
+  - {type: pr_merged, ref: 19}
+goal: ship the thing
+not_a_precondition:
+  - {type: pr_merged, ref: 999}
+\`\`\``;
+  const entries = parsePreconditionsBlock(sec);
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].ref, 19);
+});
+
+test("parsePreconditionsBlock returns [] for empty preconditions list", () => {
+  const sec = `### Phase 1
+
+\`\`\`yaml
+preconditions:
+goal: scaffolding
+\`\`\``;
+  const entries = parsePreconditionsBlock(sec);
+  assert.deepEqual(entries, []);
+});
+
+test("parsePreconditionsBlock accepts trailing YAML comment after preconditions key", () => {
+  const sec = `### Phase 1
+
+\`\`\`yaml
+preconditions: # gated by ADR-023
+  - {type: pr_merged, ref: 19}
+\`\`\``;
+  const entries = parsePreconditionsBlock(sec);
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].ref, 19);
+});
+
+test("parsePreconditionsBlock does NOT enter block on inline scalar value", () => {
+  // `preconditions: []` and `preconditions: foo` are inline values, not block
+  // openers — entering block mode here would let the parser misinterpret
+  // following lines as members of an empty list.
+  const inlineEmpty = `### Phase 1
+\`\`\`yaml
+preconditions: []
+phase: 1
+\`\`\``;
+  assert.deepEqual(parsePreconditionsBlock(inlineEmpty), []);
+  const inlineScalar = `### Phase 1
+\`\`\`yaml
+preconditions: legacy
+phase: 1
+\`\`\``;
+  assert.deepEqual(parsePreconditionsBlock(inlineScalar), []);
 });
 
 test("regexParsePreconditionsLine extracts patterns", () => {
@@ -255,6 +475,21 @@ test("gatePhaseUnshipped fails when phase title substring matches", () => {
   const merged = [{ number: 9, title: "feat: Workspace Bootstrap landing" }];
   const r = gatePhaseUnshipped(1, { number: 1, title: "Workspace Bootstrap" }, merged);
   assert.equal(r.ok, false);
+});
+
+test("gatePhaseUnshipped uses gh pr list --limit 200 (gh pr list lacks --paginate)", () => {
+  let observed = "";
+  setGhImpl((cmd) => {
+    observed = cmd;
+    return "[]";
+  });
+  try {
+    gatePhaseUnshipped(1, { number: 99, title: "Future Phase" });
+  } finally {
+    resetGhImpl();
+  }
+  assert.match(observed, /--limit\s+200\b/);
+  assert.doesNotMatch(observed, /--paginate\b/);
 });
 
 test("resolvePrecondition handles pr_merged via stub", () => {

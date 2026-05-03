@@ -44,6 +44,17 @@ exclude = [
   "^https://www\\.mdpi\\.com/.*",
   "^https://platform\\.openai\\.com/.*",
   "^https://techcommunity\\.microsoft\\.com/.*",
+  # Cloudflare-fronted hosts that intermittently TLS-handshake-fail or TCP-reset
+  # under lychee's bot-shaped probe from the GitHub-Actions runner network.
+  # Both URLs render in browsers (verified manually); the failure mode is not
+  # a broken page, it's the same shape as the entries above.
+  "^https://kubernetes\\.io/.*",
+  "^https://nx\\.dev/.*",
+  # EU regulator (EDPB) with origin-level bot detection — returns 403 on
+  # lychee's bot-shaped probe, even after retry. Verified live in a browser
+  # (regulatory-guidance pages cited from docs/specs/006); same failure shape
+  # as the academic / publisher entries above.
+  "^https://www\\.edpb\\.europa\\.eu/.*",
 ]
 
 # GitHub-hosted-runner network has higher tail latency than typical dev
