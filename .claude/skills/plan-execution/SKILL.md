@@ -48,7 +48,7 @@ Reason like a principal-engineer project lead:
 ## Workflow
 
 ```dot
-digraph plan_execution_v2 {
+digraph plan_execution {
     "User trigger" [shape=doublecircle];
     "Phase 0: state inference\n+ scaffold (if fresh)" [shape=box];
     "Phase A: dispatch plan-analyst" [shape=box];
