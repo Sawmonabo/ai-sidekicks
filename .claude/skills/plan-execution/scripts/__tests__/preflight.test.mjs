@@ -477,6 +477,35 @@ test("gatePhaseUnshipped fails when phase title substring matches", () => {
   assert.equal(r.ok, false);
 });
 
+test("gatePhaseUnshipped passes when only docs PR mentions Plan-NNN Phase N", () => {
+  // Doc-only governance PR that amends the phase's Precondition section must
+  // not false-match as a shipped phase. Real-world case: PR #29
+  // "docs(repo): resolve NS-12 — split Plan-001 Phase 5 + audit checkbox".
+  const merged = [
+    { number: 29, title: "docs(repo): resolve NS-12 — split Plan-001 Phase 5 + audit checkbox" },
+  ];
+  const r = gatePhaseUnshipped(1, { number: 5, title: "Client SDK And Desktop Bootstrap" }, merged);
+  assert.equal(r.ok, true);
+});
+
+test("gatePhaseUnshipped passes when only chore PR mentions phase title substring", () => {
+  // Chore PRs (e.g., dependency bumps, scaffolding tweaks) that mention the
+  // phase title in their subject must not false-match.
+  const merged = [{ number: 30, title: "chore(client-sdk): scaffold Workspace Bootstrap dirs" }];
+  const r = gatePhaseUnshipped(1, { number: 1, title: "Workspace Bootstrap" }, merged);
+  assert.equal(r.ok, true);
+});
+
+test("gatePhaseUnshipped accepts feat-with-scope-and-bang prefix as code shipment", () => {
+  // Conventional Commits allows `feat(scope)!:` for breaking changes. The
+  // prefix matcher must not exclude breaking-change shipments.
+  const merged = [
+    { number: 31, title: "feat(daemon)!: ship Plan-001 Phase 3 with breaking projector schema" },
+  ];
+  const r = gatePhaseUnshipped(1, { number: 3, title: "Daemon Migration" }, merged);
+  assert.equal(r.ok, false);
+});
+
 test("gatePhaseUnshipped uses gh pr list --limit 200 (gh pr list lacks --paginate)", () => {
   let observed = "";
   setGhImpl((cmd) => {

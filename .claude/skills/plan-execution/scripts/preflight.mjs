@@ -283,10 +283,17 @@ export function gateAuditCheckbox(planSource, planFile) {
 
 function _phaseAlreadyShipped(merged, planNumber, phase) {
   const planNum3 = String(planNumber).padStart(3, "0");
+  // Code-type Conventional Commit prefixes denote a code shipment. Doc / chore
+  // / test / build PRs may reference a phase in their title without shipping
+  // it (e.g., a governance amendment that rewrites the phase's Precondition
+  // section). Filtering on prefix prevents the `Plan-NNN.*Phase N` and phase-
+  // title substring patterns from false-matching such PRs against the gate.
+  const codePrefixPattern = /^(feat|fix|refactor|perf)(\([^)]+\))?!?:/i;
   const prFormPattern = new RegExp(`Plan-${planNumber}\\b.*PR\\s*#${phase.number}\\b`, "i");
   const phaseFormPattern = new RegExp(`Plan-${planNum3}\\b.*Phase\\s*${phase.number}\\b`, "i");
   for (const pr of merged) {
     const t = pr.title || "";
+    if (!codePrefixPattern.test(t)) continue;
     if (prFormPattern.test(t) || phaseFormPattern.test(t)) return t;
     if (
       phase.title &&

@@ -30,7 +30,9 @@ Greps the plan body's `## Preconditions` section for the regex `^- \[x\] \*\*Pla
 
 ### Gate 3 — Phase un-shipped
 
-Runs `gh pr list --state merged --search "Plan-NNN in:title" --json title` and asserts the selected phase's title (or "Plan-NNN PR #N" form) does not appear. When phase is auto-selected, the tool just skips already-shipped phases; this gate fires only on explicit-phase overrides for already-shipped phases.
+Runs `gh pr list --state merged --search "Plan-NNN in:title" --json title` and asserts that no merged PR with a code-type Conventional Commit prefix carries the selected phase's title or "Plan-NNN PR #N" / "Plan-NNN Phase N" form. When phase is auto-selected, the tool just skips already-shipped phases; this gate fires only on explicit-phase overrides for already-shipped phases.
+
+**Code-type prefix filter.** Only `feat:`, `fix:`, `refactor:`, `perf:` (with optional scope `(...)` and breaking-change `!`) count as a phase shipment. Doc / chore / test / build / ci / style PRs may reference a phase in their title without shipping it — for example, a `docs(repo): ...` governance amendment that rewrites the phase's Precondition section, or a `chore: ...` scaffolding tweak that mentions the phase title in passing. Without this filter, those PRs would false-match the `Plan-NNN.*Phase N` pattern and block dispatch on a phase that was never actually shipped.
 
 **Why phase-walk, not title-count.** Plans with substrate/namespace or partial/remainder carve-outs ship phases non-contiguously across tiers. Plan-007 ships Phases 1-3 in Tier 1 (substrate partial carve-out) and Phases 4+ in Tier 4 (remainder). Counting merged `Plan-007 in:title` PRs after the third merge returns next M=4, which silently maps to Tier-4 work whose preconditions (Plan-001 + others) may not be met. The phase-walk gates each phase on its declared Precondition (Gate 5), so the auto-selected phase is always the lowest-numbered phase whose preconditions all pass — substrate-carved or otherwise.
 
