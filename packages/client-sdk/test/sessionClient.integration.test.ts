@@ -62,6 +62,7 @@ import {
 } from "@ai-sidekicks/control-plane";
 import { tracked } from "@trpc/server";
 import { describe, expect, it, vi } from "vitest";
+import { ZodError } from "zod";
 
 import {
   createControlPlaneSessionClient,
@@ -898,6 +899,132 @@ describe("C2 / Codex RT-1 Finding 2 — control-plane SSE parser handles CRLF fr
     expect(events[1]?.event.id).toBe(EVENT_ID_2);
     expect(events[0]?.event.sequence).toBe(0);
     expect(events[1]?.event.sequence).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// C3 / Codex RT-2 Finding 3 — control-plane subscribe with pre-aborted signal
+// does NOT call the fetcher (zero HTTP requests issued). Symmetric with C1's
+// daemon-path coverage. Regression test for the bug where the control-plane
+// path called `fetcher(new Request(...))` unconditionally — even when the
+// caller's signal was already aborted — sending a subscribe HTTP request on
+// the wire and (for custom fetchers that don't fully honor `Request.signal`)
+// crossing the network despite the cancel intent.
+// ---------------------------------------------------------------------------
+
+describe("C3 / Codex RT-2 Finding 3 — control-plane subscribe pre-aborted signal does not call fetcher", () => {
+  it("control-plane transport: when options.signal is already aborted, the fetcher is never invoked and the async iterable yields zero values", async () => {
+    // The fake fetcher returns a valid SSE response (mirroring C2's fixture).
+    // If the pre-abort guard regresses and the fetcher IS called, the test
+    // still fails on the `not.toHaveBeenCalled()` assertion below — the
+    // valid-response choice is just so the failure mode reads as "fetcher was
+    // unexpectedly called" rather than as a noisy TypeError on `.status`
+    // access against a `vi.fn().mockReturnValue(undefined)` default. This
+    // matches the C1 spy-calls-through pattern: the test's purpose is the
+    // call-count assertion, not exercising the post-call path.
+    const event1 = makeSessionCreatedEvent(EVENT_ID_1, 0);
+    const sseBody = `id: ${CURSOR_1}\ndata: ${JSON.stringify(event1)}\n\n`;
+    const bodyBytes = new TextEncoder().encode(sseBody);
+    const fetcher = vi.fn((_request: Request): Promise<Response> => {
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(bodyBytes);
+          controller.close();
+        },
+      });
+      return Promise.resolve(
+        new Response(stream, {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        }),
+      );
+    });
+    const sdk = createControlPlaneSessionClient({
+      fetcher,
+      baseUrl: "https://control-plane.test",
+    });
+
+    const ac = new AbortController();
+    ac.abort();
+
+    const events = await drain(sdk.subscribe({ sessionId: SESSION_ID, signal: ac.signal }));
+
+    // C3 core assertion #1: zero values yielded — the async generator
+    // returned at the pre-abort check before consuming any stream data.
+    expect(events).toEqual([]);
+    // C3 core assertion #2: the fetcher was never called — proves no HTTP
+    // request reached the wire (the actual harm cited in Codex's finding for
+    // custom fetchers that don't honor `Request.signal`).
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// C4 / Codex RT-2 Finding 4 — control-plane SSE frame `id` is validated via
+// EventCursorSchema (NOT cast unsafely). Regression test for the bug where the
+// SDK applied `frame.id as EventCursor` without a Zod parse — letting empty
+// strings, oversized values, or other malformed wire input flow through as
+// "valid" replay cursors and break the `afterCursor`-based reconnect contract
+// on the next subscribe.
+// ---------------------------------------------------------------------------
+
+describe("C4 / Codex RT-2 Finding 4 — control-plane SSE rejects malformed frame id via EventCursorSchema", () => {
+  it("control-plane transport: SSE frame with empty `id` value rejects with ZodError naming the cursor schema constraint", async () => {
+    // The malformed frame uses `id:` (empty value, parses to "") with a
+    // VALID `data:` payload. The empty `id` survives the existing
+    // `frame.id === undefined` guard (parseSseFrame sets it to "" not
+    // undefined when the colon has no value), so without the Zod parse the
+    // unsafe `as EventCursor` would yield `eventId: ""` — exactly the
+    // contract-breaking surface Codex flagged. With the fix, EventCursorSchema
+    // (`z.string().min(1).max(256)`) rejects on `.min(1)`.
+    //
+    // We make `data:` a fully-valid serialized SessionEvent so the parse
+    // failure isolates to the cursor surface — if `data:` were also broken,
+    // the test could pass for the wrong reason (event-payload parse fails
+    // first). The cursor parse runs BEFORE the event parse in the production
+    // code (per the ordering chosen in this PR), but defense-in-depth on the
+    // fixture keeps the test diagnostic.
+    const validEvent = makeSessionCreatedEvent(EVENT_ID_1, 0);
+    const sseBody = `id:\ndata: ${JSON.stringify(validEvent)}\n\n`;
+    const bodyBytes = new TextEncoder().encode(sseBody);
+    const fetcher = (_request: Request): Promise<Response> => {
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(bodyBytes);
+          controller.close();
+        },
+      });
+      return Promise.resolve(
+        new Response(stream, {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        }),
+      );
+    };
+    const sdk = createControlPlaneSessionClient({
+      fetcher,
+      baseUrl: "https://control-plane.test",
+    });
+
+    // C4 core assertion #1: iteration THROWS with a ZodError type. Pinning
+    // the error TYPE (not the message text) keeps the test stable across
+    // future Zod version bumps that may reword the constraint message; the
+    // type contract is what matters for the trust-boundary discipline.
+    await expect(drain(sdk.subscribe({ sessionId: SESSION_ID }))).rejects.toThrow(ZodError);
+
+    // C4 core assertion #2: the rejection's message names the schema's
+    // length constraint (the `.min(1)` floor of EVENT_CURSOR_MAX_LEN). We
+    // match a regex on the "too small" / >=1 phrasing rather than pinning a
+    // literal Zod string — Zod v4's wording is "Too small: expected string
+    // to have >=1 characters" but the project has churned across major
+    // versions before (v3 said "String must contain at least 1 character(s)").
+    // This regex matches either phrasing on the digit "1" + a length-related
+    // token, surfacing a citation-mismatch failure (rather than a false
+    // positive on a generic ZodError) if the underlying schema's floor
+    // changes from 1 to something else.
+    await expect(drain(sdk.subscribe({ sessionId: SESSION_ID }))).rejects.toThrow(
+      /(>=\s*1\s+characters?|at least 1\s+character|too_small)/i,
+    );
   });
 });
 

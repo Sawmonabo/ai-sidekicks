@@ -54,6 +54,7 @@ import type {
   SessionReadResponse,
 } from "@ai-sidekicks/contracts";
 import {
+  EventCursorSchema,
   SessionCreateRequestSchema,
   SessionCreateResponseSchema,
   SessionEventSchema,
@@ -473,6 +474,21 @@ async function* controlPlaneSubscribe(
   trpcUrl: (method: string) => string,
   options: SessionSubscribeOptions,
 ): AsyncIterable<SessionEventEnvelope> {
+  // Pre-abort fast-exit — symmetric with `daemonSubscribe`. The control-plane
+  // path's pre-abort harm is two-fold: (a) `fetcher(new Request(...))` crosses
+  // the network even when the caller already signaled cancel, and (b) for
+  // custom fetchers that don't fully honor `Request.signal` (a common gap in
+  // user-supplied fetch wrappers), the subscribe HTTP request goes out on the
+  // wire regardless. Returning here yields zero items — identical
+  // caller-visible behavior to `daemonSubscribe`'s fast-exit, so timeout /
+  // circuit-breaker callers that swap transports get transport-agnostic
+  // semantics. Match the explicit `=== true` check the daemon path uses so a
+  // future change to `signal?: AbortSignal | undefined` typing doesn't silently
+  // regress this guard via truthy-coercion.
+  if (options.signal?.aborted === true) {
+    return;
+  }
+
   const headers = new Headers();
   // The control-plane procedure carries `lastEventId` derived from this
   // header. The client surface unifies under `afterCursor`; we route that
@@ -547,9 +563,23 @@ async function* controlPlaneSubscribe(
         if (frame.id === undefined || frame.data === undefined) {
           throw new Error("Control-plane subscribe: tracked frame missing id or data field");
         }
+        // Validate `frame.id` at the trust boundary. The wire string from the
+        // control-plane producer is network input; an unvalidated `as
+        // EventCursor` cast would surface malformed cursors (empty string
+        // satisfies the `!== undefined` guard above; oversized / corrupted
+        // strings surface unchanged) as replay cursors and break the
+        // `afterCursor`-based reconnect contract on the next subscribe (the
+        // server may reject or ignore a malformed `Last-Event-ID`, leading to
+        // duplicate replay from the start). We parse BEFORE `frame.data` so a
+        // failure isolates to the cursor surface rather than the event-payload
+        // surface — same trust-boundary discipline `SessionEventSchema.parse`
+        // applies to `frame.data`. Errors propagate as ZodError through the
+        // async generator; the error message names the schema constraint
+        // violated (e.g. "String must contain at least 1 character(s)").
+        const eventId = EventCursorSchema.parse(frame.id);
         const validated = SessionEventSchema.parse(JSON.parse(frame.data));
         yield {
-          eventId: frame.id as EventCursor,
+          eventId,
           event: validated,
         };
       }
