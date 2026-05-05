@@ -100,9 +100,19 @@ jobs:
     # result, so a 502/403/timeout from a third party (Jenkins outage,
     # Cloudflare WAF, slow remote) does NOT block PR merge. The job runs
     # on every PR + develop/main push so reviewers see drift signal in
-    # the checks UI; CI red here means "third-party outbound rot,
-    # investigate post-merge or add to .lychee.toml exclude", not "this
-    # PR introduced a regression".
+    # the checks UI.
+    #
+    # The probe step ALWAYS exits 0; outbound failures surface as
+    # `::warning::` annotations (yellow icon in the GitHub Actions UI,
+    # not red) so the workflow status reflects the actual signal class:
+    # "advisory drift detected, not regression-blocking". Without the
+    # explicit exit-0 + warning, the job's red ❌ propagates to the
+    # workflow header even though the gate is green — which reads as
+    # "CI failed" to a casual reviewer and undermines the inbound /
+    # outbound semantic split. Drift findings live in the run log
+    # above the warning annotation; CI noise is the cost of that
+    # visibility, but the noise should be yellow (advisory), not red
+    # (failure).
     #
     # The split is a behavior change from the prior single-`lychee` job
     # (which conflated inbound-integrity with outbound-drift in one
@@ -155,15 +165,25 @@ jobs:
         # observed flakes (kubernetes.io, electron-vite.org, etcd.io) and
         # still surfaces real link rot when both passes agree.
         run: |
-          set -e
           attempt() {
             lychee --no-progress --config .lychee.toml --include-fragments=none './**/*.md'
           }
-          if ! attempt; then
-            echo "lychee online pass failed; retrying once after 15s to absorb runner-network flakes" >&2
-            sleep 15
-            attempt
+          if attempt; then
+            exit 0
           fi
+          echo "lychee online pass failed; retrying once after 15s to absorb runner-network flakes" >&2
+          sleep 15
+          if attempt; then
+            exit 0
+          fi
+          # Both attempts failed. Surface as a warning (yellow icon) rather
+          # than a step failure (red icon) — this is the advisory drift
+          # channel, not a regression gate. Drift findings live in the run
+          # log above the annotation; reviewers see yellow on the workflow
+          # header (advisory) instead of red (failure), preserving the
+          # inbound / outbound semantic split per the job-level header.
+          echo "::warning title=lychee outbound rot::Outbound HTTP probe found broken external links (advisory — not blocking merge). See run log above for the failing URLs."
+          exit 0
 
   custom-checks:
     name: custom hooks — mermaid + cite + path-ripple + tests
