@@ -1,16 +1,37 @@
 # Doc-corpus integrity CI gate. Pre-commit checks staged-impact-only; this
-# workflow runs the full sweep on every PR and develop/main push so:
-#   (a) findings that escape pre-commit (`--no-verify` bypass) are caught
-#       before merge — closing ADR-023 §Axis 2 D-1 for doc-corpus checks;
-#   (b) lychee's HTTP probes (skipped at pre-commit) run against the canonical
-#       internet view of every external link.
-# Lychee runs as two passes — `--offline` for inbound file:// + anchors
-# (matches pre-commit), then online for outbound HTTP rot detection
-# (200..=299 + 429 accepted; bot-blocked hosts excluded in `.lychee.toml`).
+# workflow runs the full sweep on every PR and develop/main push.
+#
+# Three jobs, two risk classes:
+#   1. lychee-inbound — file:// + anchor integrity (offline). PR-introduced
+#      regression risk we own. REQUIRED via docs-corpus-gate. Mirrors
+#      lefthook.yml's `docs-anchor-check` pre-commit hook for ADR-023
+#      §Axis 2 D-1 parity (pre-commit and CI verify the same invariant).
+#   2. custom-checks — mermaid + cite-target + path-ripple + tooling tests.
+#      Same risk class as lychee-inbound — PR-introduced regression we own.
+#      REQUIRED via docs-corpus-gate.
+#   3. lychee-outbound — outbound HTTP probe (online). Third-party drift /
+#      link rot we don't own (Cloudflare WAF rejecting bot UAs, Jenkins infra
+#      502, GitHub-runner egress timeouts on slow remotes). ADVISORY — runs
+#      on every PR for visibility, but excluded from docs-corpus-gate so a
+#      flapping third party doesn't block merge on work unrelated to the
+#      failing URL. The split reflects the real error model: outbound
+#      failures mean a third-party server farted; inbound failures mean
+#      the PR introduced a broken anchor.
 #
 # Branch protection on develop and main MUST require the `docs-corpus-gate`
-# job (only). Per ADR-023 §Axis 1 individual matrix legs are not stable
-# required-check targets — the aggregator pattern is.
+# job (only). Per ADR-023 §Axis 1, individual matrix legs are not stable
+# required-check targets — the aggregator pattern is. The gate name is
+# stable across the lychee-inbound/lychee-outbound split (its dependency
+# set changed; its identity didn't), so no branch-protection update is
+# needed when this change ships.
+#
+# Lychee install is duplicated across the inbound + outbound jobs (inline
+# curl + sha256 verify against the v0.24.2 musl-static asset). The
+# `LYCHEE_VERSION` constant in both jobs MUST stay in sync with the
+# `VERSION` constant in `tools/install-lychee.mjs` (the pre-commit local
+# installer) — three sites, one binary. Could be DRYed behind a
+# `.github/actions/install-lychee` composite action; deferred to keep
+# this PR scoped to the inbound/outbound split itself.
 
 name: docs-corpus
 
@@ -28,8 +49,8 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  lychee:
-    name: lychee — inbound anchors + outbound links
+  lychee-inbound:
+    name: lychee — inbound anchors (required)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -41,7 +62,7 @@ jobs:
       # `--strip-components=1` and the binary lands at `lychee-<triple>/lychee`
       # instead of the flat `lychee` it then tries to install.
       # Keep `LYCHEE_VERSION` here in sync with the `VERSION` constant in
-      # `tools/install-lychee.mjs` so local + CI run the same binary.
+      # `tools/install-lychee.mjs` AND with the lychee-outbound job below.
       - name: Install lychee v0.24.2
         run: |
           set -euo pipefail
@@ -65,9 +86,55 @@ jobs:
         # Mirrors `lefthook.yml`'s `docs-anchor-check` job: file:// resolution
         # + anchor checks (`include_fragments = "full"` from `.lychee.toml`).
         # ADR-023 §Axis 2 D-1 parity — pre-commit and CI verify the same
-        # inbound-integrity invariant against the same config.
+        # inbound-integrity invariant against the same config. This is the
+        # PR-introduced regression we own: a broken `[text](./file.md#anchor)`
+        # cite from a code or doc edit fails here and blocks merge via the
+        # docs-corpus-gate aggregator.
         run: |
           lychee --offline --no-progress --config .lychee.toml './**/*.md'
+
+  lychee-outbound:
+    name: lychee — outbound HTTP (advisory)
+    runs-on: ubuntu-latest
+    # ADVISORY job — `docs-corpus-gate` does NOT depend on this job's
+    # result, so a 502/403/timeout from a third party (Jenkins outage,
+    # Cloudflare WAF, slow remote) does NOT block PR merge. The job runs
+    # on every PR + develop/main push so reviewers see drift signal in
+    # the checks UI; CI red here means "third-party outbound rot,
+    # investigate post-merge or add to .lychee.toml exclude", not "this
+    # PR introduced a regression".
+    #
+    # The split is a behavior change from the prior single-`lychee` job
+    # (which conflated inbound-integrity with outbound-drift in one
+    # required check). Rationale: ADR-023 §Axis 2 D-1 frames inbound
+    # integrity as the load-bearing invariant; outbound was bolted on
+    # for drift detection. Drift detectors warn; gates fail-closed —
+    # they want different SLAs.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      # Identical to lychee-inbound's install step — same binary, same
+      # SHA, same pinned VERSION constraint. See the workflow header
+      # comment for the three-site sync contract.
+      - name: Install lychee v0.24.2
+        run: |
+          set -euo pipefail
+          LYCHEE_VERSION="v0.24.2"
+          BASE="https://github.com/lycheeverse/lychee/releases/download/lychee-${LYCHEE_VERSION}"
+          ASSET="lychee-x86_64-unknown-linux-musl.tar.gz"
+          curl -fsSL "${BASE}/${ASSET}" -o /tmp/lychee.tar.gz
+          curl -fsSL "${BASE}/${ASSET}.sha256" -o /tmp/lychee.sha256
+          EXPECTED=$(awk '{print $1}' /tmp/lychee.sha256)
+          ACTUAL=$(sha256sum /tmp/lychee.tar.gz | awk '{print $1}')
+          if [ "${EXPECTED}" != "${ACTUAL}" ]; then
+            echo "SHA256 mismatch: expected ${EXPECTED}, got ${ACTUAL}" >&2
+            exit 1
+          fi
+          mkdir -p "${HOME}/.local/bin"
+          tar -xzf /tmp/lychee.tar.gz -C "${HOME}/.local/bin" --strip-components=1
+          chmod +x "${HOME}/.local/bin/lychee"
+          echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
 
       - name: Run lychee (online — outbound HTTP probes)
         # Whole-repo HTTP probing for outbound link rot. `--include-fragments=
@@ -75,9 +142,9 @@ jobs:
         # JS-rendered third-party docs aren't in the static HTML lychee parses
         # — Node.js / NIST / Cloudflare / Docusaurus / Sphinx / Swagger UI all
         # do this). Inbound `file.md#anchor` checks are still covered by the
-        # offline pass above. Accept-list for 200..=299 and 429 lives in
-        # `.lychee.toml`'s `accept = [...]` so the same policy applies
-        # whichever runner invokes lychee.
+        # offline pass in the lychee-inbound job above. Accept-list for
+        # 200..=299 and 429 lives in `.lychee.toml`'s `accept = [...]` so
+        # the same policy applies whichever runner invokes lychee.
         #
         # Step-level retry absorbs transient GitHub-runner network flakes
         # ("Connection failed" on healthy hosts that respond 200 from any
@@ -135,14 +202,21 @@ jobs:
   docs-corpus-gate:
     name: docs-corpus-gate
     runs-on: ubuntu-latest
-    needs: [lychee, custom-checks]
+    # Required-check aggregator. Depends ONLY on the load-bearing
+    # invariant jobs (lychee-inbound + custom-checks) — both verify
+    # PR-introduced regression risk we own. lychee-outbound is
+    # intentionally absent from `needs:` because its failures are
+    # third-party drift signal, not a PR-introduced regression. See
+    # the workflow header comment for the full advisory-vs-required
+    # rationale.
+    needs: [lychee-inbound, custom-checks]
     if: always()
     steps:
       - name: Aggregate required-checks status
         run: |
           fail=0
-          if [[ "${{ needs.lychee.result }}" != "success" ]]; then
-            echo "docs-corpus-gate: required job 'lychee' did not succeed (result=${{ needs.lychee.result }})"
+          if [[ "${{ needs.lychee-inbound.result }}" != "success" ]]; then
+            echo "docs-corpus-gate: required job 'lychee-inbound' did not succeed (result=${{ needs.lychee-inbound.result }})"
             fail=1
           fi
           if [[ "${{ needs.custom-checks.result }}" != "success" ]]; then
