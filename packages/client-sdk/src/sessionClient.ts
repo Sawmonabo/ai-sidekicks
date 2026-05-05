@@ -191,6 +191,17 @@ async function* daemonSubscribe(
   client: JsonRpcClient,
   options: SessionSubscribeOptions,
 ): AsyncIterable<SessionEventEnvelope> {
+  // Pre-abort fast-exit: if the caller's signal is ALREADY aborted, do not
+  // touch the wire. Returning from an async generator yields zero items, so
+  // the caller's `for await` exits immediately. This keeps timeout / circuit-
+  // breaker paths from spending a daemon round-trip on a subscription they
+  // intend to cancel before any data flows. Must precede `client.subscribe`
+  // because that call synchronously sends the `session.subscribe` envelope
+  // and reserves a server-side `StreamingPrimitive` entry.
+  if (options.signal?.aborted === true) {
+    return;
+  }
+
   // Build the wire payload. The daemon's `SessionSubscribeRequestSchema`
   // accepts both `afterCursor` and `lastEventId`; we use `afterCursor`
   // because the daemon transport is a JSON-RPC body (not an HTTP header).
@@ -211,16 +222,11 @@ async function* daemonSubscribe(
   // We use `addEventListener("abort", ...)` rather than checking
   // `signal.aborted` mid-loop because the underlying `LocalSubscription`
   // parks on `next()` between value arrivals — a polling check inside
-  // `for await` would only fire AFTER the next value lands.
+  // `for await` would only fire AFTER the next value lands. (The
+  // pre-aborted case is handled above before `client.subscribe` runs.)
   let abortListener: (() => void) | undefined;
   if (options.signal !== undefined) {
     const sig = options.signal;
-    if (sig.aborted) {
-      // Pre-aborted: skip the wire altogether. The caller already signaled
-      // they don't want the data.
-      await subscription.cancel().catch(() => undefined);
-      return;
-    }
     abortListener = (): void => {
       void subscription.cancel().catch(() => undefined);
     };
@@ -260,6 +266,33 @@ async function* daemonSubscribe(
  * (api-payload-contracts.md §HTTP Endpoints).
  */
 const DEFAULT_TRPC_ENDPOINT = "/trpc";
+
+/**
+ * SSE frame separator — an empty line terminated by either LF or CRLF.
+ * WHATWG HTML §9.2.6 (Server-sent events §interpretation) allows lines to
+ * end with U+000D U+000A (CRLF), U+000A (LF), or U+000D (CR); a frame
+ * boundary is two consecutive line terminators. tRPC v11.17.0's
+ * `sseStreamProducer` emits LF-only today, but proxies and Node's HTTP
+ * server can re-encode the stream to CRLF in transit, so the consumer must
+ * accept both forms (and the mixed case where one terminator is CRLF and
+ * the other LF) to remain interoperable. Compiled at module scope so the
+ * RegExp is not rebuilt per-frame in the read loop. Lone-CR separators
+ * (legal per the spec but not surfaced by tRPC's producer or by the proxies
+ * cited in the bug report) are out of scope for this fix; surfaced as a
+ * future-work concern in the PR notes rather than silently expanding the
+ * scope of this round-trip.
+ */
+const SSE_FRAME_BOUNDARY = /\r?\n\r?\n/;
+
+/**
+ * SSE intra-frame line separator — the same LF / CRLF tolerance as
+ * `SSE_FRAME_BOUNDARY`, applied to split a single frame into its `field:`
+ * lines. WHATWG HTML §9.2.6 allows the two forms; using a shared regex
+ * keeps the frame-boundary tolerance and the line-split tolerance aligned
+ * (mismatched tolerance would parse the frame envelope but mis-split lines
+ * inside the frame, surfacing as silently-dropped fields).
+ */
+const SSE_LINE_SEPARATOR = /\r?\n/;
 
 /**
  * Constructor options for the control-plane factory.
@@ -476,12 +509,17 @@ async function* controlPlaneSubscribe(
       const { value, done } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
-      let sepIdx = buffer.indexOf("\n\n");
-      while (sepIdx !== -1) {
-        const frameText = buffer.slice(0, sepIdx);
-        buffer = buffer.slice(sepIdx + 2);
+      // Match LF (`\n\n`), CRLF (`\r\n\r\n`), or mixed terminators (`\r\n\n`,
+      // `\n\r\n`) — see SSE_FRAME_BOUNDARY JSDoc for the WHATWG citation.
+      // `exec()` on a non-global regex restarts from index 0 each call, so
+      // re-running it after `buffer = buffer.slice(...)` finds the next
+      // boundary cleanly without `lastIndex` bookkeeping.
+      let match = SSE_FRAME_BOUNDARY.exec(buffer);
+      while (match !== null) {
+        const frameText = buffer.slice(0, match.index);
+        buffer = buffer.slice(match.index + match[0].length);
         const frame = parseSseFrame(frameText);
-        sepIdx = buffer.indexOf("\n\n");
+        match = SSE_FRAME_BOUNDARY.exec(buffer);
 
         // Sentinel handling — see `sse-roundtrip.test.ts:323-366` for the
         // four named sentinels emitted by tRPC v11.17.0's `sseStreamProducer`
@@ -546,7 +584,11 @@ interface SseFrame {
  */
 function parseSseFrame(frameText: string): SseFrame {
   const fields: { event?: string; data?: string; id?: string } = {};
-  for (const line of frameText.split("\n")) {
+  // Split on LF or CRLF (SSE_LINE_SEPARATOR) to mirror the frame-boundary
+  // tolerance — see the regex's JSDoc for the spec citation. The accumulated
+  // multi-line `data:` join below uses literal `\n` per WHATWG §9.2.6 (the
+  // spec's data buffer is LF-only regardless of input separator).
+  for (const line of frameText.split(SSE_LINE_SEPARATOR)) {
     if (line === "" || line.startsWith(":")) continue;
     const colonIdx = line.indexOf(":");
     if (colonIdx === -1) continue;

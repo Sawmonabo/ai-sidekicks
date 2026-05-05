@@ -61,7 +61,7 @@ import {
   type SessionEventStreamProvider,
 } from "@ai-sidekicks/control-plane";
 import { tracked } from "@trpc/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   createControlPlaneSessionClient,
@@ -597,6 +597,50 @@ describe("I2 / Spec-001 AC4 — Second client join sees existing event history (
 });
 
 // ---------------------------------------------------------------------------
+// C1 / Codex RT-1 Finding 1 — daemon subscribe with pre-aborted signal does
+// NOT touch the wire (zero envelopes sent; underlying client.subscribe never
+// invoked). Regression test for the bug where the pre-abort check ran AFTER
+// `client.subscribe()` already serialized the `session.subscribe` envelope
+// and reserved a server-side `StreamingPrimitive` entry — defeating the
+// stated fast-exit contract for timeout / circuit-breaker callers.
+// ---------------------------------------------------------------------------
+
+describe("C1 / Codex RT-1 Finding 1 — daemon subscribe pre-aborted signal does not call client.subscribe", () => {
+  it("daemon transport: when options.signal is already aborted, no wire envelope is sent and the async iterable yields zero values", async () => {
+    // Build a harness with NO scripted session.subscribe response — if the
+    // pre-abort check regressed and a `session.subscribe` envelope leaked
+    // through, the unscripted-method path would dispatch a JSON-RPC error
+    // back, surfacing as a rejection — but more directly, the empty
+    // sentEnvelopes assertion catches it first.
+    const harness = buildDaemonHarness([]);
+    const sdk = createDaemonSessionClient(harness.client);
+    // Spy on the JsonRpcClient's `subscribe` method to assert it was never
+    // invoked. The spy calls through (vi.spyOn default), so it is NOT what
+    // prevents the wire side-effect — that is the pre-abort `return` in
+    // `daemonSubscribe`. The spy is the most direct test of the Codex
+    // finding's wording ("calls `client.subscribe(...)` before the abort
+    // check runs"); the `sentEnvelopes` assertion is the most direct test
+    // of the stated harm ("sends `session.subscribe` on the wire").
+    const subscribeSpy = vi.spyOn(harness.client, "subscribe");
+
+    const ac = new AbortController();
+    ac.abort();
+
+    const events = await drain(sdk.subscribe({ sessionId: SESSION_ID, signal: ac.signal }));
+
+    // C1 core assertion #1: zero values yielded — the async generator
+    // returned at the pre-abort check before producing anything.
+    expect(events).toEqual([]);
+    // C1 core assertion #2: the underlying JsonRpcClient.subscribe was never
+    // called — the SDK never reserved a server-side subscription handle.
+    expect(subscribeSpy).not.toHaveBeenCalled();
+    // C1 core assertion #3: zero JSON-RPC envelopes reached the transport —
+    // proves no `session.subscribe` request was serialized to the wire.
+    expect(harness.transport.sentEnvelopes).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // I3 — SessionSubscribe yields events in sequence ASC across reconnect
 // (Spec-001 AC3, AC7-partial) — control-plane transport
 // ---------------------------------------------------------------------------
@@ -775,6 +819,85 @@ describe("I4 / Spec-001 AC6 — Reconnect after lost stream restores from snapsh
     // server state, not client state.
     expect(reconnected[1]?.eventId).toBe(CURSOR_3);
     expect(reconnected[1]?.event.type).toBe("membership.created");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// C2 / Codex RT-1 Finding 2 — control-plane SSE parser handles CRLF separators
+// (WHATWG HTML §9.2.6 — line terminators may be CRLF, LF, or CR; this fix
+// covers CRLF + LF, the two forms the bug report cited and the two tRPC's
+// producer plus typical proxies emit). Regression test for the bug where the
+// parser only matched LF (`\n\n`) frame separators and never emitted any
+// frame for a CRLF-terminated stream — making `subscribe()` appear stuck
+// until connection close.
+// ---------------------------------------------------------------------------
+
+describe("C2 / Codex RT-1 Finding 2 — control-plane SSE parser handles CRLF frame separators", () => {
+  it("control-plane transport: CRLF-terminated SSE frames yield events in order with their tRPC tracked cursors", async () => {
+    // Reuse the schema-valid event fixtures so any future regression in
+    // `SessionEventSchema` shape surfaces as a Zod-parse failure here, not
+    // a false-pass against a hand-rolled stub event.
+    const event1 = makeSessionCreatedEvent(EVENT_ID_1, 0);
+    const event2 = makeSessionCreatedEvent(EVENT_ID_2, 1);
+
+    // Build the SSE body with CRLF line terminators. tRPC tracked envelope
+    // shape is `id: <cursor>\r\ndata: <JSON>\r\n\r\n` — no `event:` field
+    // (matches `parseSseFrame`'s tracked-envelope branch in sessionClient.ts).
+    // We encode the body as a single Uint8Array — splitting across multiple
+    // chunks is not necessary for this regression: the bug was the
+    // separator regex, not chunking. The TextDecoder pass-through inside
+    // `controlPlaneSubscribe` accumulates bytes regardless of chunk
+    // boundaries; pinning a multi-chunk path is orthogonal.
+    const sseBody = [
+      `id: ${CURSOR_1}\r\n`,
+      `data: ${JSON.stringify(event1)}\r\n`,
+      `\r\n`,
+      `id: ${CURSOR_2}\r\n`,
+      `data: ${JSON.stringify(event2)}\r\n`,
+      `\r\n`,
+    ].join("");
+    const bodyBytes = new TextEncoder().encode(sseBody);
+
+    // The fake fetcher ignores the request and returns a fixed-body
+    // Response. `text/event-stream` Content-Type is set defensively to
+    // mirror what production servers emit; the SDK doesn't currently
+    // gate on it, but a future tightening that does would catch a
+    // regression here rather than in production.
+    const fetcher = (_request: Request): Promise<Response> => {
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(bodyBytes);
+          controller.close();
+        },
+      });
+      return Promise.resolve(
+        new Response(stream, {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        }),
+      );
+    };
+
+    const sdk = createControlPlaneSessionClient({
+      fetcher,
+      baseUrl: "https://control-plane.test",
+    });
+
+    const events = await drain(sdk.subscribe({ sessionId: SESSION_ID }));
+
+    // C2 core assertion #1: BOTH frames were yielded — pre-fix the parser
+    // never matched a frame boundary on `\r\n\r\n`, so `events` would be
+    // empty (or hang depending on stream closure). Length-2 proves the
+    // CRLF-aware boundary regex matched both frame ends.
+    expect(events).toHaveLength(2);
+    // C2 core assertion #2: cursors and order preserved — proves the
+    // intra-frame line splitter (also CRLF-aware) correctly separated
+    // `id:` from `data:` inside each CRLF-terminated frame.
+    expect(events.map((e) => e.eventId)).toEqual([CURSOR_1, CURSOR_2]);
+    expect(events[0]?.event.id).toBe(EVENT_ID_1);
+    expect(events[1]?.event.id).toBe(EVENT_ID_2);
+    expect(events[0]?.event.sequence).toBe(0);
+    expect(events[1]?.event.sequence).toBe(1);
   });
 });
 
