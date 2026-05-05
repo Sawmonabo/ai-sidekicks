@@ -1029,6 +1029,101 @@ describe("C4 / Codex RT-2 Finding 4 — control-plane SSE rejects malformed fram
 });
 
 // ---------------------------------------------------------------------------
+// C5 / Codex RT-3 Finding 5 — control-plane subscribe with mid-stream signal
+// abort completes WITHOUT throwing (the async generator returns cleanly via
+// the inner read-loop catch, matching the daemon path's `addEventListener(
+// "abort", () => subscription.cancel())` contract). Regression test for the
+// asymmetry where the CP path passed `signal` directly to `RequestInit.signal`
+// — when abort fired mid-stream, the underlying fetch body's
+// `getReader().read()` rejected with `AbortError` and bubbled through the
+// `try { while(true) { reader.read() } } finally { reader.cancel() }` block,
+// so callers swapping transports for the same cancel flow saw an exception
+// only on the CP transport.
+// ---------------------------------------------------------------------------
+
+describe("C5 / Codex RT-3 Finding 5 — control-plane subscribe mid-stream signal abort completes without throwing", () => {
+  it("control-plane transport: when options.signal is aborted AFTER the SSE response is established, subscribe completes silently (matches daemon-path teardown contract)", async () => {
+    const ac = new AbortController();
+    // We need a `ReadableStream` that (a) parks at first pull (so the
+    // consumer's `reader.read()` is awaiting indefinitely — gives us the
+    // mid-stream window) and (b) can be transitioned into a rejected-read
+    // state from the fetcher's abort handler. `controller.error(reason)`
+    // causes any pending `reader.read()` promise to reject with `reason`,
+    // regardless of whether the stream is locked — this mirrors what fetch's
+    // actual internals do on abort. (`stream.cancel()` would throw TypeError
+    // on a locked stream; the consumer locks via `getReader()` before abort
+    // fires, so cancel-from-fetcher is not viable.)
+    let streamController: ReadableStreamDefaultController<Uint8Array> | undefined;
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        streamController = controller;
+      },
+      pull() {
+        // Park: do not enqueue or close — leaves reader.read() awaiting
+        // until streamController.error() is called from the abort handler.
+      },
+    });
+    const fetcher = vi.fn((request: Request): Promise<Response> => {
+      // Faithful in-process mirror of fetch's actual behavior: when the
+      // request signal aborts mid-stream, the response body stream errors
+      // with AbortError, which propagates to the pending reader.read().
+      request.signal?.addEventListener("abort", () => {
+        streamController?.error(new DOMException("aborted", "AbortError"));
+      });
+      return Promise.resolve(
+        new Response(stream, {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        }),
+      );
+    });
+    const sdk = createControlPlaneSessionClient({
+      fetcher,
+      baseUrl: "https://control-plane.test",
+    });
+
+    let threw: unknown = undefined;
+    const consume = (async (): Promise<void> => {
+      try {
+        for await (const _ of sdk.subscribe({ sessionId: SESSION_ID, signal: ac.signal })) {
+          // No frames will arrive — the stream parks until abort.
+        }
+      } catch (err) {
+        threw = err;
+      }
+    })();
+
+    // Yield to the macrotask queue so subscribe() reaches the read-loop
+    // park (fetcher resolved, getReader() called, awaiting first read).
+    // setTimeout vs queueMicrotask: the read loop crosses several await
+    // boundaries (fetcher promise, body.getReader, reader.read) before
+    // parking; a single microtask drain isn't enough — a macrotask boundary
+    // guarantees the loop has reached the awaited read().
+    await new Promise((r) => setTimeout(r, 10));
+
+    // Trigger mid-stream abort. The fetcher's abort listener fires
+    // synchronously, calls streamController.error(AbortError), which
+    // rejects the awaited reader.read() inside controlPlaneSubscribe with
+    // AbortError. The new inner catch sees options.signal.aborted === true
+    // and returns from the generator instead of throwing.
+    ac.abort();
+
+    await consume;
+
+    // C5 core assertion #1: the consumer's catch did NOT execute — the
+    // async generator returned cleanly (mid-stream abort path) instead of
+    // bubbling AbortError through the `finally` block. Pre-fix, this would
+    // capture the rejected reader.read()'s AbortError.
+    expect(threw).toBeUndefined();
+    // C5 core assertion #2: the fetcher WAS called once — proves we
+    // exercised the post-establishment path (mid-stream abort), not C3's
+    // pre-abort short-circuit. If `threw === undefined` AND fetcher was
+    // never called, the test would falsely pass on the pre-abort guard.
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Control-plane CRUD smoke tests — pin the JSON envelope decode path
 // ---------------------------------------------------------------------------
 //

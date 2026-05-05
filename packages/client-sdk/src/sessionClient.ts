@@ -522,7 +522,41 @@ async function* controlPlaneSubscribe(
   let buffer = "";
   try {
     while (true) {
-      const { value, done } = await reader.read();
+      let result: Awaited<ReturnType<typeof reader.read>>;
+      try {
+        result = await reader.read();
+      } catch (err) {
+        // Caller-initiated abort surfaces here mid-stream as AbortError. The
+        // daemon transport completes silently on signal abort
+        // (`subscription.cancel()` unwinds the `for await` with `done: true` —
+        // see `daemonSubscribe`'s `addEventListener("abort", ...)` wiring at
+        // ~L228-235 above); mirror that contract on the CP path so callers
+        // can swap transports for the same cancel flow without the CP
+        // transport surfacing AbortError that the daemon path swallows.
+        // Genuine I/O failures (network drop, server reset, reader stalled)
+        // still propagate — only the signal-aborted case is graceful.
+        //
+        // Check `options.signal?.aborted === true` (NOT `err instanceof
+        // DOMException` or `err.name === "AbortError"`) — symmetric with the
+        // pre-abort guard at L488 and the daemon path's `=== true` check at
+        // L202, robust to platform differences in how AbortError is surfaced
+        // (`DOMException` in browsers, `Error` with `code === "ABORT_ERR"`
+        // in Node, `Error` with `name === "AbortError"` in undici, etc.).
+        // Local alias `signal` breaks the TS narrowing inherited from the L488
+        // pre-abort guard. That guard narrowed `options.signal?.aborted` to
+        // `false | undefined`; checking `options.signal.aborted` directly (or
+        // via `options.signal !== undefined && options.signal.aborted`) refines
+        // through the SAME property path, so TS keeps the `false` narrowing and
+        // rejects `=== true`. The signal CAN abort mid-stream after the await
+        // (that's the case this catch exists to handle); aliasing creates a
+        // fresh `signal.aborted` access path TS narrows independently.
+        const signal = options.signal;
+        if (signal !== undefined && signal.aborted === true) {
+          return;
+        }
+        throw err;
+      }
+      const { value, done } = result;
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
       // Match LF (`\n\n`), CRLF (`\r\n\r\n`), or mixed terminators (`\r\n\n`,
