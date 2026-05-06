@@ -305,7 +305,13 @@ export class ParseArgsError extends Error {
 // "PR #0" / "Tier 0" instead of failing fast at arg parse.
 const POSITIVE_INTEGER_RE = /^[1-9]\d*$/;
 const PR_NUMBER_RE = POSITIVE_INTEGER_RE;
-const CANDIDATE_NS_TOKEN_RE = /^NS-\d+[a-z]?(?:\.\.NS-\d+)?$/;
+// `\d{2,}` (min 2 digits) matches the canonical zero-padded form that
+// `NS_ID()` (line 770) emits via `String(n).padStart(2, "0")`. Pre-fix the
+// regex accepted `\d+`, so `--candidate-ns NS-1` would parse but silently
+// fail `locateNsEntry` (which compares against the canonical `NS-01`),
+// surfacing as `ns_entry_not_found` rather than fail-fast at arg parse.
+// REJECT (not normalize) — force the orchestrator to pass canonical form.
+const CANDIDATE_NS_TOKEN_RE = /^NS-\d{2,}[a-z]?(?:\.\.NS-\d{2,})?$/;
 const PLAN_RE = /^\d{3}(-partial)?$/;
 const PHASE_RE = /^(\d+|[A-Z])$/;
 const TASK_RE = /^(T\d+(\.\d+)?|T-\d{3}-\d+-\d+|tier-\d+)$/;

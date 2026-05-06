@@ -341,6 +341,41 @@ test("parseArgs validates --candidate-ns token shape (NS-NN, NS-NNa, NS-NN..NS-N
   assert.throws(() => parseArgs(["30", "--candidate-ns", "NS-01,bogus"]), /--candidate-ns/);
 });
 
+// Bug-9 (Codex thread PRRT_kwDOSCycWc6AIyME): --candidate-ns must require the
+// canonical zero-padded form (NS-01, not NS-1) because locateNsEntry compares
+// against `NS_ID()` output which always pads via `String(n).padStart(2, "0")`.
+// REJECT (not normalize) — fail fast at arg parse so the orchestrator never
+// hits the silent ns_entry_not_found path on a single-digit dispatch token.
+
+test("parseArgs rejects single-digit NS token (--candidate-ns NS-1)", () => {
+  assert.throws(
+    () => parseArgs(["30", "--candidate-ns", "NS-1"]),
+    /--candidate-ns token malformed: NS-1/,
+  );
+});
+
+test("parseArgs rejects single-digit NS token in range (--candidate-ns NS-01..NS-3)", () => {
+  assert.throws(
+    () => parseArgs(["30", "--candidate-ns", "NS-01..NS-3"]),
+    /--candidate-ns token malformed: NS-01\.\.NS-3/,
+  );
+});
+
+test("parseArgs rejects single-digit NS token with suffix (--candidate-ns NS-1a)", () => {
+  assert.throws(
+    () => parseArgs(["30", "--candidate-ns", "NS-1a"]),
+    /--candidate-ns token malformed: NS-1a/,
+  );
+});
+
+test("parseArgs accepts canonical NS-01 (Bug-9 happy-path counterpart)", () => {
+  assert.equal(parseArgs(["30", "--candidate-ns", "NS-01"]).candidateNs, "NS-01");
+});
+
+test("parseArgs accepts triple-digit NS-100 (no upper width cap)", () => {
+  assert.equal(parseArgs(["30", "--candidate-ns", "NS-100"]).candidateNs, "NS-100");
+});
+
 test("parseArgs validates --plan shape (NNN or NNN-partial)", () => {
   assert.equal(parseArgs(["30", "--plan", "024", "--auto-create"]).plan, "024");
   assert.equal(parseArgs(["30", "--plan", "023-partial", "--auto-create"]).plan, "023-partial");
