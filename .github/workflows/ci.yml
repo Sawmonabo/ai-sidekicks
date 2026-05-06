@@ -94,6 +94,16 @@ jobs:
       - name: Test (Node 22 tier — excluding control-plane)
         run: pnpm turbo run test --filter='!@ai-sidekicks/control-plane'
 
+      # Plan-execution skill tests (Layer 1 fixture-driven + Layer 2 unit). Closes the gap
+      # noted in spec §10.4(a) — pre-housekeeper, the .claude/skills/plan-execution/scripts/
+      # tests had no CI run. Uses --experimental-strip-types per ADR-022 + repo precedent
+      # (tools/docs-corpus/bin/pre-commit-runner.ts ships with the same flag). Single-quoted
+      # glob form (not the directory form the plan prescribed) — Node 22.21.1 treats a bare
+      # directory arg as a module specifier and errors with "Cannot find module"; the glob
+      # is resolved by Node's built-in walker (≥v21), not the shell.
+      - name: Run plan-execution skill tests (Layer 1 + Layer 2)
+        run: node --test --experimental-strip-types '.claude/skills/plan-execution/scripts/__tests__/**/*.test.mjs'
+
   # Tier-2 (Node 24 — control-plane + CLI per ADR-022 §Decision row 8). The
   # control-plane package declares `engines.node: ">=24.0.0"`, so its build /
   # typecheck / test must run against Node 24 to validate the floor. Other
