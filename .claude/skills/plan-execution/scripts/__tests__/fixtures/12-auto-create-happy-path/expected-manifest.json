@@ -1,0 +1,38 @@
+{
+  "generated_at": "2026-05-03T00:00:00Z",
+  "pr_number": 48,
+  "plan": "029",
+  "phase": "2",
+  "task_id": null,
+  "script_exit_code": 0,
+  "matched_entry": null,
+  "auto_create": {
+    "reserved_ns_nn": 24,
+    "derived_title_seed": "Plan-029 Phase 2"
+  },
+  "mechanical_edits": {
+    "plan_checklist_ticks": [
+      {
+        "file": "docs/plans/029-orphan-pr-fixture.md",
+        "phase": "2",
+        "items_ticked": 3
+      }
+    ]
+  },
+  "schema_violations": [],
+  "verification_failures": [],
+  "affected_files": [
+    "docs/architecture/cross-plan-dependencies.md",
+    "docs/plans/029-orphan-pr-fixture.md"
+  ],
+  "semantic_work_pending": [
+    "auto_create_compose_entry",
+    "auto_create_compose_mermaid_node",
+    "auto_create_derive_upstream"
+  ],
+  "warnings": [],
+  "subagent_completed_at": null,
+  "semantic_edits": {},
+  "concerns": [],
+  "result": null
+}

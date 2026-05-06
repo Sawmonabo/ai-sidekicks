@@ -739,6 +739,16 @@ const SEMANTIC_WORK_PENDING_COMPLETION = [
   "unannotated_referenced_files_check",
 ];
 
+// Spec §5.1 step 4' line 577 enumerates these three items verbatim. The
+// candidate-ns symmetric items (ready_set_re_derivation, etc.) are NOT
+// included here — defer to a follow-on spec amendment if subagent practice
+// shows they're load-bearing for the auto-create branch too.
+const SEMANTIC_WORK_PENDING_AUTO_CREATE = [
+  "auto_create_compose_entry",
+  "auto_create_compose_mermaid_node",
+  "auto_create_derive_upstream",
+];
+
 function locateNsEntry({ lines, candidateNs }) {
   for (let i = 0; i < lines.length; i += 1) {
     const heading = parseNsHeading(lines[i]);
@@ -815,6 +825,101 @@ function emitFailureManifest(opts) {
   });
 }
 
+// §3a.3 reserves NS-23 for the schema-amendment PR. Until that PR ships and
+// the corpus actually contains an NS-23 heading, reserveNextFreeNs returns 23
+// (max+1 with max=22), which would collide with the reservation. Bump past 23
+// here; once NS-23 lands in the corpus, reserveNextFreeNs will skip it
+// naturally and this guard becomes a no-op.
+const NS_RESERVED_INTEGERS = new Set([23]);
+
+function deriveTitleSeed(args) {
+  if (args.prTag) {
+    return args.prTag.replace(/^[a-z]+(\([^)]+\))?:\s*/, "");
+  }
+  if (args.plan && args.phase) {
+    return `Plan-${args.plan} Phase ${args.phase}`;
+  }
+  return null;
+}
+
+function runAutoCreate({ args, repoRoot, corpusText, corpusLines, baseManifest, corpusRel }) {
+  let reservedNsNn = reserveNextFreeNs(corpusText);
+  while (NS_RESERVED_INTEGERS.has(reservedNsNn)) reservedNsNn += 1;
+
+  const derivedTitleSeed = deriveTitleSeed(args);
+  if (derivedTitleSeed === null) {
+    emitFailureManifest({
+      ...baseManifest,
+      scriptExitCode: 5,
+      schemaViolations: [{ kind: "auto_create_title_seed_underivable" }],
+    });
+    return { exitCode: 5 };
+  }
+
+  const existingTitles = corpusLines
+    .map((l) => parseNsHeading(l))
+    .filter((h) => h !== null)
+    .map((h) => h.title);
+  const dupCheck = checkDuplicateTitle({ existingTitles, newTitle: derivedTitleSeed });
+  if (!dupCheck.ok) {
+    emitFailureManifest({
+      ...baseManifest,
+      scriptExitCode: 5,
+      schemaViolations: [dupCheck.failure],
+    });
+    return { exitCode: 5 };
+  }
+
+  // Spec §5.1 step 3' — auto-create still ticks the plan §Done Checklist
+  // (mirrors candidate-ns step 7). The auto-create flow has no candidate-side
+  // mechanical edits to apply, so plan_checklist_ticks is the only mechanical
+  // edit that fires here. exit-3 soft-failure mirrors candidate-ns: missing
+  // plan file / Phase section / checklist sub-section all warn-and-continue.
+  const planChecklistTicks = [];
+  const affectedFiles = [corpusRel];
+  const warnings = [];
+  let scriptExitCode = 0;
+  if (args.plan && args.phase) {
+    let didTick = false;
+    const planFile = findPlanFile({ repoRoot, plan: args.plan });
+    if (planFile !== null) {
+      const planLines = readFileSync(planFile, "utf8").split("\n");
+      const tickResult = tickPlanDoneChecklist({ lines: planLines, phase: args.phase });
+      if (!tickResult.notFound && tickResult.ticksApplied > 0) {
+        writeFileSync(planFile, tickResult.lines.join("\n"));
+        const planRel = relative(repoRoot, planFile);
+        planChecklistTicks.push({
+          file: planRel,
+          phase: args.phase,
+          items_ticked: tickResult.ticksApplied,
+        });
+        affectedFiles.push(planRel);
+        didTick = true;
+      }
+    }
+    if (!didTick) {
+      scriptExitCode = 3;
+      warnings.push({
+        kind: "plan_checklist_not_found",
+        plan: args.plan,
+        phase: args.phase,
+      });
+    }
+  }
+
+  const { manifestPath } = emitManifest({
+    ...baseManifest,
+    scriptExitCode,
+    matchedEntry: null,
+    autoCreate: { reservedNsNn, derivedTitleSeed },
+    mechanicalEdits: { plan_checklist_ticks: planChecklistTicks },
+    affectedFiles,
+    semanticWorkPending: SEMANTIC_WORK_PENDING_AUTO_CREATE,
+    warnings,
+  });
+  return { exitCode: scriptExitCode, manifestPath };
+}
+
 export async function runHousekeeper({
   args,
   repoRoot,
@@ -846,12 +951,14 @@ export async function runHousekeeper({
   let corpusLines = corpusText.split("\n");
 
   if (!args.candidateNs) {
-    emitFailureManifest({
-      ...baseManifest,
-      scriptExitCode: 1,
-      schemaViolations: [{ kind: "auto_create_not_implemented" }],
+    return runAutoCreate({
+      args,
+      repoRoot,
+      corpusText,
+      corpusLines,
+      baseManifest,
+      corpusRel,
     });
-    return { exitCode: 1 };
   }
 
   const located = locateNsEntry({ lines: corpusLines, candidateNs: args.candidateNs });
