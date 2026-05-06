@@ -505,3 +505,108 @@ export function verifyPlanIdentity({ headingTitle, args, type, rangeBoundaries }
   }
   return { ok: false, failure: { kind: "plan_identity_missing" } };
 }
+
+// ---------- Tasks 3.11-3.14: mechanical edits (§5.1 steps 5-7) ----------
+
+export function applyStatusFlipSinglePr({ lines, statusLineIndex, prNumber, today }) {
+  const result = [...lines];
+  result[statusLineIndex] =
+    `- Status: \`completed\` (resolved ${today} via PR #${prNumber} — <TODO subagent prose>)`;
+  return result;
+}
+
+const PRS_UNCHECKED_ROW_RE = /^ {2}- \[ \] (\S+) — (.+)$/;
+
+export function applyMultiPrTickAndRecompute({
+  lines,
+  statusLineIndex,
+  prsBlockStartIndex,
+  taskId,
+  prNumber,
+  today,
+  upstreamBlocked,
+  upstreamNsRef,
+}) {
+  const result = [...lines];
+  for (let i = prsBlockStartIndex + 1; i < result.length; i += 1) {
+    const m = PRS_UNCHECKED_ROW_RE.exec(result[i]);
+    if (!m) {
+      // Non-PRs-row line ends the block (defensive — orchestrator passes a clean prsBlockStartIndex)
+      if (!result[i].startsWith("  - [")) break;
+      continue;
+    }
+    if (m[1] === taskId) {
+      result[i] = `  - [x] ${taskId} — ${m[2]} (PR #${prNumber}, merged ${today})`;
+      break;
+    }
+  }
+  const prsBlock = parsePRsBlock(result.slice(prsBlockStartIndex).join("\n"));
+  const allChecked = prsBlock.every((r) => r.checked);
+  if (upstreamBlocked && !allChecked) {
+    const checked = prsBlock.filter((r) => r.checked);
+    const last = checked.reduce((acc, r) => (r.mergedAt > acc.mergedAt ? r : acc));
+    result[statusLineIndex] =
+      `- Status: \`blocked\` (blocked-on ${upstreamNsRef}; last shipped: PR #${last.prNumber}, ${last.mergedAt})`;
+  } else {
+    result[statusLineIndex] = computeStatusFromPRs({
+      prsBlock,
+      upstreamBlocked: false,
+      today,
+      prNumber,
+    });
+  }
+  return result;
+}
+
+const MERMAID_NODE_RE = /(NS(\d+))\[([^\]]+)\]:::(ready|blocked|completed|governance)/g;
+const CLASSDEF_RE = /^\s*classDef\b/;
+
+export function applyMermaidClassSwap({ lines, nsNum, newClass }) {
+  const result = [...lines];
+  const targetId = `NS${String(nsNum).padStart(2, "0")}`;
+  for (let i = 0; i < result.length; i += 1) {
+    if (CLASSDEF_RE.test(result[i])) continue;
+    const original = result[i];
+    const replaced = original.replace(MERMAID_NODE_RE, (match, fullId, _digits, body, _cls) =>
+      fullId === targetId ? `${fullId}[${body}]:::${newClass}` : match,
+    );
+    if (replaced !== original) result[i] = replaced;
+  }
+  return result;
+}
+
+export function tickPlanDoneChecklist({ lines, phase }) {
+  const result = [...lines];
+  const phaseHeadingRe = new RegExp(`^### Phase ${phase}\\b`);
+  let phaseStart = -1;
+  for (let i = 0; i < result.length; i += 1) {
+    if (phaseHeadingRe.test(result[i])) {
+      phaseStart = i;
+      break;
+    }
+  }
+  if (phaseStart === -1) return { lines: result, ticksApplied: 0, notFound: true };
+  let phaseEnd = result.length;
+  for (let i = phaseStart + 1; i < result.length; i += 1) {
+    if (/^### Phase /.test(result[i])) {
+      phaseEnd = i;
+      break;
+    }
+  }
+  let checklistStart = -1;
+  for (let i = phaseStart; i < phaseEnd; i += 1) {
+    if (/^#### Done Checklist/.test(result[i])) {
+      checklistStart = i;
+      break;
+    }
+  }
+  if (checklistStart === -1) return { lines: result, ticksApplied: 0, notFound: true };
+  let ticksApplied = 0;
+  for (let i = checklistStart + 1; i < phaseEnd; i += 1) {
+    if (result[i].startsWith("- [ ] ")) {
+      result[i] = "- [x] " + result[i].slice(6);
+      ticksApplied += 1;
+    }
+  }
+  return { lines: result, ticksApplied };
+}

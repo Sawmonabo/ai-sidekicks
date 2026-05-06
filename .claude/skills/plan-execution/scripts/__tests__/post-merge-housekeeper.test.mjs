@@ -17,6 +17,10 @@ import {
   verifyTypeSignature,
   verifyFileOverlap,
   verifyPlanIdentity,
+  applyStatusFlipSinglePr,
+  applyMultiPrTickAndRecompute,
+  applyMermaidClassSwap,
+  tickPlanDoneChecklist,
 } from "../post-merge-housekeeper.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -632,4 +636,202 @@ test("verifyPlanIdentity: cleanup/governance Types SKIP the check", () => {
     assert.equal(result.ok, true);
     assert.deepEqual(result.concerns, [{ kind: "plan_identity_skipped_for_manual_dispatch" }]);
   }
+});
+
+// ---------- applyStatusFlipSinglePr (Task 3.11 — step 5a) ----------
+
+test("applyStatusFlipSinglePr replaces todo status with completed-with-placeholder", () => {
+  const lines = ["### NS-01: Plan-024 Phase 1", "- Status: `todo`", "- Type: code"];
+  const result = applyStatusFlipSinglePr({
+    lines,
+    statusLineIndex: 1,
+    prNumber: 30,
+    today: "2026-05-10",
+  });
+  assert.equal(
+    result[1],
+    "- Status: `completed` (resolved 2026-05-10 via PR #30 — <TODO subagent prose>)",
+  );
+});
+
+test("applyStatusFlipSinglePr handles in_progress status (not just todo)", () => {
+  const lines = ["...", "- Status: `in_progress` (last shipped: PR #20, 2026-05-01)", "..."];
+  const result = applyStatusFlipSinglePr({
+    lines,
+    statusLineIndex: 1,
+    prNumber: 30,
+    today: "2026-05-10",
+  });
+  assert.equal(
+    result[1],
+    "- Status: `completed` (resolved 2026-05-10 via PR #30 — <TODO subagent prose>)",
+  );
+});
+
+// ---------- applyMultiPrTickAndRecompute (Task 3.12 — step 5b) ----------
+
+test("applyMultiPrTickAndRecompute: tick T5.5 row, recompute Status to in_progress", () => {
+  const lines = [
+    "### NS-02: Plan-001 Phase 5 Lane A",
+    "- Status: `in_progress` (last shipped: PR #34, 2026-05-04)",
+    "- ... other fields ...",
+    "- PRs:",
+    "  - [x] T5.1 — sessionClient (PR #34, merged 2026-05-04)",
+    "  - [ ] T5.5 — pg.Pool-backed Querier composition",
+    "  - [ ] T5.6 — strengthen createSession lock-ordering test",
+  ];
+  const result = applyMultiPrTickAndRecompute({
+    lines,
+    statusLineIndex: 1,
+    prsBlockStartIndex: 3,
+    taskId: "T5.5",
+    prNumber: 38,
+    today: "2026-05-10",
+    upstreamBlocked: false,
+  });
+  assert.match(
+    result[5],
+    /^ {2}- \[x\] T5\.5 — pg\.Pool-backed Querier composition \(PR #38, merged 2026-05-10\)$/,
+  );
+  assert.match(result[1], /^- Status: `in_progress` \(last shipped: PR #38, 2026-05-10\)/);
+});
+
+test("applyMultiPrTickAndRecompute: tick last unchecked → recompute Status to completed", () => {
+  const lines = [
+    "...",
+    "- Status: `in_progress` (last shipped: PR #38, 2026-05-10)",
+    "...",
+    "- PRs:",
+    "  - [x] T5.1 — sessionClient (PR #34, merged 2026-05-04)",
+    "  - [x] T5.5 — pg.Pool-backed Querier composition (PR #38, merged 2026-05-10)",
+    "  - [ ] T5.6 — strengthen createSession lock-ordering test",
+  ];
+  const result = applyMultiPrTickAndRecompute({
+    lines,
+    statusLineIndex: 1,
+    prsBlockStartIndex: 3,
+    taskId: "T5.6",
+    prNumber: 41,
+    today: "2026-05-15",
+    upstreamBlocked: false,
+  });
+  assert.match(
+    result[1],
+    /^- Status: `completed` \(resolved 2026-05-15 via PR #41 — last sub-task; <TODO subagent prose>\)/,
+  );
+});
+
+test("applyMultiPrTickAndRecompute: blocked-override sets Status to blocked when upstreamBlocked true (row 5)", () => {
+  const lines = [
+    "### NS-02: Plan-001 Phase 5 Lane A",
+    "- Status: `in_progress` (last shipped: PR #34, 2026-05-04)",
+    "- Upstream: NS-04 (blocked)",
+    "- PRs:",
+    "  - [x] T5.1 — sessionClient (PR #34, merged 2026-05-04)",
+    "  - [ ] T5.5 — pg.Pool-backed Querier composition",
+    "  - [ ] T5.6 — strengthen createSession lock-ordering test",
+  ];
+  const result = applyMultiPrTickAndRecompute({
+    lines,
+    statusLineIndex: 1,
+    prsBlockStartIndex: 3,
+    taskId: "T5.5",
+    prNumber: 38,
+    today: "2026-05-10",
+    upstreamBlocked: true,
+    upstreamNsRef: "NS-04",
+  });
+  assert.match(
+    result[5],
+    /^ {2}- \[x\] T5\.5 — pg\.Pool-backed Querier composition \(PR #38, merged 2026-05-10\)$/,
+  );
+  assert.match(
+    result[1],
+    /^- Status: `blocked` \(blocked-on NS-04; last shipped: PR #38, 2026-05-10\)/,
+  );
+});
+
+test("applyMultiPrTickAndRecompute: blocked-override does NOT fire when all checked (row 6 wins)", () => {
+  const lines = [
+    "### NS-02: Plan-001 Phase 5 Lane A",
+    "- Status: `in_progress` (last shipped: PR #38, 2026-05-10)",
+    "- Upstream: NS-04 (blocked)",
+    "- PRs:",
+    "  - [x] T5.1 — sessionClient (PR #34, merged 2026-05-04)",
+    "  - [x] T5.5 — pg.Pool-backed Querier composition (PR #38, merged 2026-05-10)",
+    "  - [ ] T5.6 — strengthen createSession lock-ordering test",
+  ];
+  const result = applyMultiPrTickAndRecompute({
+    lines,
+    statusLineIndex: 1,
+    prsBlockStartIndex: 3,
+    taskId: "T5.6",
+    prNumber: 41,
+    today: "2026-05-15",
+    upstreamBlocked: true,
+    upstreamNsRef: "NS-04",
+  });
+  assert.match(
+    result[6],
+    /^ {2}- \[x\] T5\.6 — strengthen createSession lock-ordering test \(PR #41, merged 2026-05-15\)$/,
+  );
+  assert.match(
+    result[1],
+    /^- Status: `completed` \(resolved 2026-05-15 via PR #41 — last sub-task; <TODO subagent prose>\)/,
+  );
+});
+
+// ---------- applyMermaidClassSwap (Task 3.13 — step 6) ----------
+
+test("applyMermaidClassSwap: changes :::ready to :::completed for matching node", () => {
+  const lines = [
+    "```mermaid",
+    "    NS01[NS-01: Plan-024 Phase 1<br/>Rust crate scaffolding]:::ready",
+    "```",
+  ];
+  const result = applyMermaidClassSwap({ lines, nsNum: 1, newClass: "completed" });
+  assert.match(result[1], /:::completed$/);
+});
+
+test("applyMermaidClassSwap: handles edge syntax following the class attachment", () => {
+  const lines = ["    NS01[NS-01: foo]:::ready --> NS02[NS-02: bar]:::ready"];
+  const result = applyMermaidClassSwap({ lines, nsNum: 1, newClass: "completed" });
+  assert.match(result[0], /NS01\[NS-01: foo\]:::completed --> NS02\[NS-02: bar\]:::ready/);
+});
+
+test("applyMermaidClassSwap: never modifies classDef definitions", () => {
+  const lines = ["    classDef ready fill:#fff", "    NS01[NS-01: foo]:::ready"];
+  const result = applyMermaidClassSwap({ lines, nsNum: 1, newClass: "completed" });
+  assert.equal(result[0], "    classDef ready fill:#fff");
+});
+
+// ---------- tickPlanDoneChecklist (Task 3.14 — step 7) ----------
+
+test("tickPlanDoneChecklist: ticks all unchecked boxes in the matched Phase's checklist", () => {
+  const lines = [
+    "### Phase 1 — Rust crate scaffolding",
+    "...",
+    "#### Done Checklist",
+    "",
+    "- [ ] First item",
+    "- [ ] Second item",
+    "- [x] Third item already done",
+    "",
+    "### Phase 2 — Other",
+    "#### Done Checklist",
+    "",
+    "- [ ] Should NOT be ticked (different phase)",
+  ];
+  const { lines: result, ticksApplied } = tickPlanDoneChecklist({ lines, phase: "1" });
+  assert.equal(ticksApplied, 2);
+  assert.equal(result[4], "- [x] First item");
+  assert.equal(result[5], "- [x] Second item");
+  assert.equal(result[11], "- [ ] Should NOT be ticked (different phase)");
+});
+
+test("tickPlanDoneChecklist: returns ticksApplied=0 + flag when no checklist found", () => {
+  const lines = ["### Phase 1 — Foo", "no checklist sub-section"];
+  const { ticksApplied, notFound } = tickPlanDoneChecklist({ lines, phase: "1" });
+  assert.equal(ticksApplied, 0);
+  assert.equal(notFound, true);
 });
