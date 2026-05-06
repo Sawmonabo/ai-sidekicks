@@ -507,7 +507,36 @@ async function* controlPlaneSubscribe(
   const url = `${trpcUrl(SESSION_METHOD_SUBSCRIBE)}?input=${encodeURIComponent(
     JSON.stringify({ sessionId: options.sessionId }),
   )}`;
-  const response = await fetcher(new Request(url, init));
+  let response: Response;
+  try {
+    response = await fetcher(new Request(url, init));
+  } catch (err) {
+    // Caller-initiated abort surfaces here during request setup as AbortError
+    // (the underlying fetch sees its `Request.signal` abort and rejects the
+    // promise). Mirror the daemon-path teardown contract — silent end-of-
+    // iteration when the caller signaled cancel — instead of bubbling
+    // AbortError that the daemon path's `addEventListener("abort", () =>
+    // subscription.cancel())` wiring swallows. This closes the third abort
+    // window: pre-call guard (L488) handles aborts BEFORE fetcher is invoked;
+    // this catch handles aborts BETWEEN invocation and response receipt; the
+    // L555-587 read-loop catch handles aborts AFTER response is received and
+    // mid-stream. Genuine network failures (DNS, connect refused, TLS
+    // handshake fail) still propagate via `throw err`; only the
+    // signal-aborted case is graceful.
+    //
+    // Local alias bypasses the same TS control-flow narrowing inherited from
+    // the L488 pre-abort guard that the L555-587 read-loop catch documents in
+    // detail — see that comment for the full narrowing-graph rationale. The
+    // `=== true` form is symmetric with both the pre-abort guard and the
+    // read-loop catch, robust to the platform differences in how AbortError
+    // surfaces (`DOMException` in browsers, `Error` with `code === "ABORT_ERR"`
+    // in Node, `Error` with `name === "AbortError"` in undici, etc.).
+    const signal = options.signal;
+    if (signal !== undefined && signal.aborted === true) {
+      return;
+    }
+    throw err;
+  }
   if (response.status !== 200) {
     throw new Error(
       `Control-plane subscribe failed: HTTP ${String(response.status)} ${response.statusText}`,

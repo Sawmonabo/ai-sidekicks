@@ -1124,6 +1124,89 @@ describe("C5 / Codex RT-3 Finding 5 — control-plane subscribe mid-stream signa
 });
 
 // ---------------------------------------------------------------------------
+// C6 / Codex RT-4 Finding 6 — control-plane subscribe with request-setup-window
+// signal abort completes WITHOUT throwing (the async generator returns cleanly
+// via the new try/catch wrapping the `await fetcher(new Request(url, init))`,
+// matching the daemon path's `addEventListener("abort", () =>
+// subscription.cancel())` contract). Regression test for the third abort
+// window: pre-call (L488 guard, RT-2) handles aborts BEFORE fetcher is
+// invoked, the read-loop catch (RT-3) handles aborts AFTER the SSE response
+// is received and mid-stream, but a window remained where abort fired BETWEEN
+// fetcher invocation and response receipt — the awaited fetcher promise
+// rejected with AbortError and bubbled out of subscribe(), surfacing as an
+// unexpected exception in timeout/circuit-breaker callers under high network
+// latency. C5 above pins the read-loop window; C6 pins the request-setup
+// window. Together C3+C5+C6 lock down all three abort-handling paths in the
+// control-plane subscribe flow.
+// ---------------------------------------------------------------------------
+
+describe("C6 / Codex RT-4 Finding 6 — control-plane subscribe request-setup-window signal abort completes without throwing", () => {
+  it("control-plane transport: when options.signal is aborted DURING the fetcher promise (before response is received), subscribe completes silently (matches daemon-path teardown contract)", async () => {
+    const ac = new AbortController();
+    // Build a fetcher that returns a never-resolving promise UNTIL the
+    // request signal aborts, at which point it rejects with AbortError. This
+    // mirrors fetch's actual setup-window behavior: the promise pends until
+    // the network responds OR the caller aborts (e.g. DNS resolution stalls
+    // and the caller's circuit-breaker fires). The abort listener is wired
+    // on the Request's signal — which is the same signal the SDK forwards
+    // from `options.signal` into `RequestInit.signal` at L499-505 — so the
+    // listener fires when `ac.abort()` is called downstream.
+    const fetcher = vi.fn((request: Request): Promise<Response> => {
+      return new Promise<Response>((_, reject) => {
+        request.signal?.addEventListener("abort", () => {
+          reject(new DOMException("aborted", "AbortError"));
+        });
+      });
+    });
+    const sdk = createControlPlaneSessionClient({
+      fetcher,
+      baseUrl: "https://control-plane.test",
+    });
+
+    let threw: unknown = undefined;
+    const consume = (async (): Promise<void> => {
+      try {
+        for await (const _ of sdk.subscribe({ sessionId: SESSION_ID, signal: ac.signal })) {
+          // Never reached — the fetcher never resolves with a response.
+        }
+      } catch (err) {
+        threw = err;
+      }
+    })();
+
+    // Yield to the macrotask queue so subscribe() reaches the awaited fetcher
+    // promise (passes the L488 pre-abort guard, builds the Request, and parks
+    // on `await fetcher(...)` at L512). setTimeout vs queueMicrotask: same
+    // rationale as C5 — the path crosses several synchronous statements but
+    // a macrotask boundary guarantees the awaited fetcher promise is the
+    // current pending continuation.
+    await new Promise((r) => setTimeout(r, 10));
+
+    // Trigger setup-window abort. The fetcher's abort listener fires
+    // synchronously, rejects the awaited fetcher promise with AbortError.
+    // The new setup-window catch sees options.signal.aborted === true and
+    // returns from the generator instead of throwing.
+    ac.abort();
+
+    await consume;
+
+    // C6 core assertion #1: the consumer's catch did NOT execute — the async
+    // generator returned cleanly via the new setup-window catch instead of
+    // bubbling AbortError from the fetcher rejection. Pre-fix, this would
+    // capture the rejected fetcher promise's AbortError.
+    expect(threw).toBeUndefined();
+    // C6 core assertion #2: the fetcher WAS called once — proves we
+    // exercised the post-pre-abort-guard path (request-setup window), not
+    // C3's pre-abort short-circuit. If `threw === undefined` AND fetcher was
+    // never called, the test would falsely pass on the L488 pre-abort guard
+    // (the diagnostic distinguisher: pre-abort returns BEFORE fetcher is
+    // invoked, so `toHaveBeenCalledTimes(1)` is the witness that we
+    // reached the fetcher await before abort fired).
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Control-plane CRUD smoke tests — pin the JSON envelope decode path
 // ---------------------------------------------------------------------------
 //
