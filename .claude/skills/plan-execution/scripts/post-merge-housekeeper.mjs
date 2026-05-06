@@ -13,8 +13,8 @@
 //   verifyTypeSignature / verifyFileOverlap /
 //   verifyPlanIdentity                                    — §5.1 step 3 verifiers
 
-import { existsSync, statSync } from "node:fs";
-import { dirname, isAbsolute, relative, resolve } from "node:path";
+import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 // ---------- Task 3.2: parseNsHeading ----------
 
@@ -609,4 +609,69 @@ export function tickPlanDoneChecklist({ lines, phase }) {
     }
   }
   return { lines: result, ticksApplied };
+}
+
+// ---------- Task 3.15: emitManifest (§5.3 schema) ----------
+//
+// Writes the post-merge manifest under <repoRoot>/.agents/tmp/. The shape
+// follows §5.3 verbatim: pre-script fields populated; subagent-stage fields
+// (subagent_completed_at / semantic_edits / concerns / result) emitted as
+// null|empty stubs so consumers can switch on them without hasOwnProperty.
+//
+// auto_create is always present at top level — null in --candidate-ns mode,
+// {reserved_ns_nn, derived_title_seed} in --auto-create mode (P5 fix).
+
+export function emitManifest({
+  repoRoot,
+  prNumber,
+  plan = null,
+  phase = null,
+  taskId = null,
+  scriptExitCode,
+  matchedEntry = null,
+  autoCreate = null,
+  mechanicalEdits = {},
+  schemaViolations = [],
+  affectedFiles = [],
+  semanticWorkPending = [],
+  warnings = [],
+}) {
+  const tmpDir = join(repoRoot, ".agents", "tmp");
+  mkdirSync(tmpDir, { recursive: true });
+  const manifestPath = join(tmpDir, `housekeeper-manifest-PR${prNumber}.json`);
+  const manifest = {
+    pr_number: prNumber,
+    plan,
+    phase,
+    task_id: taskId,
+    script_exit_code: scriptExitCode,
+    matched_entry:
+      matchedEntry === null
+        ? null
+        : {
+            ns_id: matchedEntry.nsId,
+            heading: matchedEntry.heading,
+            shape: matchedEntry.shape,
+            file: matchedEntry.file,
+            heading_line: matchedEntry.headingLine,
+          },
+    auto_create:
+      autoCreate == null
+        ? null
+        : {
+            reserved_ns_nn: autoCreate.reservedNsNn,
+            derived_title_seed: autoCreate.derivedTitleSeed,
+          },
+    mechanical_edits: mechanicalEdits,
+    schema_violations: schemaViolations,
+    affected_files: affectedFiles,
+    semantic_work_pending: semanticWorkPending,
+    warnings,
+    subagent_completed_at: null,
+    semantic_edits: {},
+    concerns: [],
+    result: null,
+  };
+  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+  return { manifestPath };
 }

@@ -4,6 +4,8 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -21,6 +23,7 @@ import {
   applyMultiPrTickAndRecompute,
   applyMermaidClassSwap,
   tickPlanDoneChecklist,
+  emitManifest,
 } from "../post-merge-housekeeper.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -834,4 +837,114 @@ test("tickPlanDoneChecklist: returns ticksApplied=0 + flag when no checklist fou
   const { ticksApplied, notFound } = tickPlanDoneChecklist({ lines, phase: "1" });
   assert.equal(ticksApplied, 0);
   assert.equal(notFound, true);
+});
+
+// ---------- emitManifest (Task 3.15 — §5.3 schema) ----------
+
+test("emitManifest writes JSON matching spec §5.3 shape (--candidate-ns mode)", () => {
+  const tmpRepo = mkdtempSync(join(tmpdir(), "manifest-emit-"));
+  try {
+    const result = emitManifest({
+      repoRoot: tmpRepo,
+      prNumber: 30,
+      plan: "024",
+      phase: "1",
+      taskId: null,
+      scriptExitCode: 0,
+      matchedEntry: {
+        nsId: "NS-01",
+        heading: "### NS-01: Plan-024 Phase 1 — Rust crate scaffolding",
+        shape: "single-pr",
+        file: "docs/architecture/cross-plan-dependencies.md",
+        headingLine: 342,
+      },
+      mechanicalEdits: {},
+      schemaViolations: [],
+      affectedFiles: [
+        "docs/architecture/cross-plan-dependencies.md",
+        "docs/plans/024-rust-pty-sidecar.md",
+      ],
+      semanticWorkPending: [
+        "compose_status_completion_prose",
+        "ready_set_re_derivation",
+        "line_cite_sweep",
+      ],
+    });
+    const written = JSON.parse(readFileSync(result.manifestPath, "utf8"));
+    assert.equal(written.pr_number, 30);
+    assert.equal(written.script_exit_code, 0);
+    assert.equal(written.result, null);
+    assert.deepEqual(written.semantic_edits, {});
+    assert.deepEqual(written.concerns, []);
+    assert.equal(written.subagent_completed_at, null);
+  } finally {
+    rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test("emitManifest writes auto-create stub manifest when scriptExitCode=0 + autoCreate set", () => {
+  const tmpRepo = mkdtempSync(join(tmpdir(), "manifest-ac-"));
+  try {
+    const result = emitManifest({
+      repoRoot: tmpRepo,
+      prNumber: 50,
+      plan: "029",
+      phase: "2",
+      taskId: null,
+      scriptExitCode: 0,
+      autoCreate: { reservedNsNn: 24, derivedTitleSeed: "Plan-029 Phase 2 — example" },
+      mechanicalEdits: {
+        plan_checklist_ticks: [{ file: "docs/plans/029-foo.md", phase: "2", items_ticked: 4 }],
+      },
+      schemaViolations: [],
+      affectedFiles: ["docs/architecture/cross-plan-dependencies.md", "docs/plans/029-foo.md"],
+      semanticWorkPending: [
+        "auto_create_compose_entry",
+        "auto_create_compose_mermaid_node",
+        "auto_create_derive_upstream",
+      ],
+    });
+    const written = JSON.parse(readFileSync(result.manifestPath, "utf8"));
+    assert.equal(written.auto_create.reserved_ns_nn, 24);
+    assert.equal(written.auto_create.derived_title_seed, "Plan-029 Phase 2 — example");
+    assert.equal(written.mechanical_edits.status_flip, undefined);
+  } finally {
+    rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test("emitManifest emits auto_create:null sentinel in --candidate-ns mode (P5 fix)", () => {
+  const tmpRepo = mkdtempSync(join(tmpdir(), "manifest-cn-null-"));
+  try {
+    const result = emitManifest({
+      repoRoot: tmpRepo,
+      prNumber: 31,
+      plan: "024",
+      phase: "1",
+      taskId: null,
+      scriptExitCode: 0,
+      matchedEntry: {
+        nsId: "NS-01",
+        heading: "### NS-01: Plan-024 Phase 1 — Rust crate scaffolding",
+        shape: "single-pr",
+        file: "docs/architecture/cross-plan-dependencies.md",
+        headingLine: 342,
+      },
+      mechanicalEdits: { status_flip: { from: "ready", to: "completed" } },
+      schemaViolations: [],
+      affectedFiles: ["docs/architecture/cross-plan-dependencies.md"],
+      semanticWorkPending: [],
+      // autoCreate omitted — must serialize as JSON null sentinel
+    });
+    const raw = readFileSync(result.manifestPath, "utf8");
+    const written = JSON.parse(raw);
+    assert.ok(
+      Object.prototype.hasOwnProperty.call(written, "auto_create"),
+      "manifest must include auto_create key even in --candidate-ns mode (spec §5.3)",
+    );
+    assert.equal(written.auto_create, null);
+    assert.match(raw, /"auto_create":\s*null/);
+  } finally {
+    rmSync(tmpRepo, { recursive: true, force: true });
+  }
 });
