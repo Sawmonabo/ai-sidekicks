@@ -28,6 +28,12 @@ import {
   checkDuplicateTitle,
   runHousekeeper,
 } from "../post-merge-housekeeper.mjs";
+import {
+  listFixtures,
+  readArgs,
+  readExpectedManifest,
+  expectFilesEqual,
+} from "./helpers/fixture-loader.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // .claude/skills/plan-execution/scripts/__tests__ → repo root is 5 levels up.
@@ -1061,3 +1067,58 @@ test("runHousekeeper: end-to-end --candidate-ns NS-01 happy path on minimal fixt
     rmSync(tmpRepo, { recursive: true, force: true });
   }
 });
+
+// ---------- Fixture-driven byte-for-byte equality (Task 3.20) ----------
+//
+// Per spec §5.2 the housekeeper script is a deterministic transform: given the
+// same args + corpus + plan tree, the same files must come out + the same
+// manifest must be written. Each fixture under __tests__/fixtures/ encodes one
+// shape (single-pr / multi-pr / skip / verifier-violation / auto-create); the
+// loop below runs the orchestrator against `input/`, compares the post-mutation
+// tree to `expected/` byte-for-byte, and deep-equals the emitted manifest to
+// `expected-manifest.json`. Adding a fixture is a data-only change — no test
+// edit required.
+
+const FIXTURES_DIR = join(HERE, "fixtures");
+const FIXTURE_TODAY = "2026-05-03";
+// Convention: fixtures whose name starts with `00-` are loader-helper stubs
+// (used only by helpers/__tests__/fixture-loader.test.mjs); runnable
+// housekeeper fixtures are numbered `01-` and up.
+const RUNNABLE_FIXTURE = (f) => !f.name.startsWith("00-");
+
+for (const fixture of listFixtures(FIXTURES_DIR).filter(RUNNABLE_FIXTURE)) {
+  test(`fixture ${fixture.name}: byte-for-byte equality`, async () => {
+    const args = readArgs(fixture);
+    const expectedManifest = readExpectedManifest(fixture);
+    const tmpRepo = mkdtempSync(join(tmpdir(), `fix-${fixture.name}-`));
+    try {
+      cpSync(fixture.inputDir, tmpRepo, { recursive: true });
+      const result = await runHousekeeper({
+        args,
+        repoRoot: tmpRepo,
+        today: FIXTURE_TODAY,
+      });
+      assert.equal(
+        result.exitCode,
+        expectedManifest.script_exit_code,
+        `fixture ${fixture.name}: exit code mismatch`,
+      );
+      expectFilesEqual(tmpRepo, fixture.expectedDir);
+      const manifestPath = join(
+        tmpRepo,
+        ".agents",
+        "tmp",
+        `housekeeper-manifest-PR${args.prNumber}.json`,
+      );
+      assert.ok(existsSync(manifestPath), `manifest not written: ${manifestPath}`);
+      const actualManifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+      assert.deepEqual(
+        actualManifest,
+        expectedManifest,
+        `fixture ${fixture.name}: manifest mismatch`,
+      );
+    } finally {
+      rmSync(tmpRepo, { recursive: true, force: true });
+    }
+  });
+}

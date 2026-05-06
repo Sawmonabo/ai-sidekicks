@@ -12,6 +12,7 @@
     "file": "docs/architecture/cross-plan-dependencies.md",
     "heading_line": 5
   },
+  "auto_create": null,
   "mechanical_edits": {
     "status_flip": {
       "ns_id": "NS-01",
