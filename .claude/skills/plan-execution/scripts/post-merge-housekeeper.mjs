@@ -559,17 +559,19 @@ export function applyMultiPrTickAndRecompute({
   return result;
 }
 
-const MERMAID_NODE_RE = /(NS(\d+))\[([^\]]+)\]:::(ready|blocked|completed|governance)/g;
+const MERMAID_NODE_RE = /(NS(\d+)([a-z])?)\[([^\]]+)\]:::(ready|blocked|completed|governance)/g;
 const CLASSDEF_RE = /^\s*classDef\b/;
 
-export function applyMermaidClassSwap({ lines, nsNum, newClass }) {
+export function applyMermaidClassSwap({ lines, nsNum, suffix = null, newClass }) {
   const result = [...lines];
-  const targetId = `NS${String(nsNum).padStart(2, "0")}`;
+  const targetId = `NS${String(nsNum).padStart(2, "0")}${suffix ?? ""}`;
   for (let i = 0; i < result.length; i += 1) {
     if (CLASSDEF_RE.test(result[i])) continue;
     const original = result[i];
-    const replaced = original.replace(MERMAID_NODE_RE, (match, fullId, _digits, body, _cls) =>
-      fullId === targetId ? `${fullId}[${body}]:::${newClass}` : match,
+    const replaced = original.replace(
+      MERMAID_NODE_RE,
+      (match, fullId, _digits, _suffix, body, _cls) =>
+        fullId === targetId ? `${fullId}[${body}]:::${newClass}` : match,
     );
     if (replaced !== original) result[i] = replaced;
   }
@@ -781,8 +783,8 @@ function findPrsBlockStartIndex({ lines, headingLine, bodyEnd }) {
   return -1;
 }
 
-function findMermaidNode({ lines, nsNum }) {
-  const targetId = `NS${String(nsNum).padStart(2, "0")}`;
+function findMermaidNode({ lines, nsNum, suffix = null }) {
+  const targetId = `NS${String(nsNum).padStart(2, "0")}${suffix ?? ""}`;
   const NODE_RE = new RegExp(`\\b${targetId}\\[[^\\]]+\\]:::(\\w+)`);
   for (let i = 0; i < lines.length; i += 1) {
     if (CLASSDEF_RE.test(lines[i])) continue;
@@ -920,11 +922,16 @@ export async function runHousekeeper({
       });
       return { exitCode: 2 };
     }
+    const tierRangeMatch =
+      located.rangeUpperNum !== null ? /\bTier (\d+)-(\d+)\b/.exec(located.headingTitle) : null;
+    const rangeBoundaries = tierRangeMatch
+      ? { K1: Number(tierRangeMatch[1]), K2: Number(tierRangeMatch[2]) }
+      : null;
     const identityCheck = verifyPlanIdentity({
       headingTitle: located.headingTitle,
       args,
       type: fields.type,
-      rangeBoundaries: null,
+      rangeBoundaries,
     });
     if (!identityCheck.ok) {
       emitFailureManifest({
@@ -1010,12 +1017,17 @@ export async function runHousekeeper({
       })
     ].includes("`completed`");
   if (newClassFlipped) {
-    const node = findMermaidNode({ lines: corpusLines, nsNum: located.nsNum });
+    const node = findMermaidNode({
+      lines: corpusLines,
+      nsNum: located.nsNum,
+      suffix: located.suffix,
+    });
     if (node !== null) {
       const fromClass = `:::${node.currentClass}`;
       corpusLines = applyMermaidClassSwap({
         lines: corpusLines,
         nsNum: located.nsNum,
+        suffix: located.suffix,
         newClass: "completed",
       });
       mermaidClassSwap = {

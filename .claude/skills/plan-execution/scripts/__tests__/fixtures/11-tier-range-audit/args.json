@@ -1,0 +1,6 @@
+{
+  "prNumber": 47,
+  "tier": "5",
+  "candidateNs": "NS-15..NS-21",
+  "diffTouchedFiles": ["docs/plans/010-tier-5-audit.md"]
+}
