@@ -12,6 +12,8 @@ import {
   parsePRsBlock,
   computeStatusFromPRs,
   extractFileReferences,
+  parseArgs,
+  ParseArgsError,
 } from "../post-merge-housekeeper.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -276,4 +278,134 @@ test("extractFileReferences: filter discards typo'd entries inside brace expansi
   assert.ok(result.files.includes("packages/contracts/src/error.ts"));
   assert.equal(result.unresolvable.length, 1);
   assert.equal(result.unresolvable[0].path, "packages/contracts/src/session-typo.ts");
+});
+
+// ---------- parseArgs (Task 3.7 — §5.1 step 0) ----------
+
+test("parseArgs requires --candidate-ns OR --auto-create (mutual exclusion)", () => {
+  assert.throws(
+    () => parseArgs(["30"]),
+    /must pass exactly one of --candidate-ns or --auto-create/,
+  );
+  assert.throws(
+    () => parseArgs(["30", "--candidate-ns", "NS-01", "--auto-create"]),
+    /mutually exclusive/,
+  );
+});
+
+test("parseArgs requires at-least-one of --plan / --task / --tier (non-cleanup default)", () => {
+  assert.throws(() => parseArgs(["30", "--auto-create"]), /at least one of --plan, --task, --tier/);
+});
+
+test("parseArgs accepts pure --candidate-ns (cleanup carve-out — runtime check enforces Type)", () => {
+  const args = parseArgs(["30", "--candidate-ns", "NS-22"]);
+  assert.equal(args.candidateNs, "NS-22");
+  assert.equal(args.plan, null);
+  assert.equal(args.task, null);
+  assert.equal(args.tier, null);
+  assert.equal(args.autoCreate, false);
+  assert.equal(args.prNumber, 30);
+});
+
+test("parseArgs accepts comma-list --candidate-ns (NS-XX,NS-YY)", () => {
+  const args = parseArgs(["30", "--candidate-ns", "NS-04,NS-08"]);
+  assert.equal(args.candidateNs, "NS-04,NS-08");
+});
+
+test("parseArgs validates --candidate-ns token shape (NS-NN, NS-NNa, NS-NN..NS-NN)", () => {
+  assert.equal(parseArgs(["30", "--candidate-ns", "NS-13a"]).candidateNs, "NS-13a");
+  assert.equal(parseArgs(["30", "--candidate-ns", "NS-15..NS-21"]).candidateNs, "NS-15..NS-21");
+  assert.throws(() => parseArgs(["30", "--candidate-ns", "X-01"]), /--candidate-ns/);
+  assert.throws(() => parseArgs(["30", "--candidate-ns", "NS-01,bogus"]), /--candidate-ns/);
+});
+
+test("parseArgs validates --plan shape (NNN or NNN-partial)", () => {
+  assert.equal(parseArgs(["30", "--plan", "024", "--auto-create"]).plan, "024");
+  assert.equal(parseArgs(["30", "--plan", "023-partial", "--auto-create"]).plan, "023-partial");
+  assert.throws(() => parseArgs(["30", "--plan", "abc", "--auto-create"]), /--plan/);
+});
+
+test("parseArgs validates --phase shape (digit or [A-Z])", () => {
+  assert.equal(parseArgs(["30", "--plan", "024", "--phase", "1", "--auto-create"]).phase, "1");
+  assert.equal(parseArgs(["30", "--plan", "024", "--phase", "B", "--auto-create"]).phase, "B");
+  assert.throws(
+    () => parseArgs(["30", "--plan", "024", "--phase", "ab", "--auto-create"]),
+    /--phase/,
+  );
+});
+
+test("parseArgs validates --task shape (D-4 three forms: T<N>, T-NNN-N-N, tier-K)", () => {
+  assert.equal(parseArgs(["30", "--plan", "001", "--task", "T5.1", "--auto-create"]).task, "T5.1");
+  assert.equal(parseArgs(["30", "--plan", "001", "--task", "T5", "--auto-create"]).task, "T5");
+  assert.equal(
+    parseArgs(["30", "--plan", "024", "--task", "T-024-2-1", "--auto-create"]).task,
+    "T-024-2-1",
+  );
+  assert.equal(parseArgs(["30", "--task", "tier-3", "--auto-create"]).task, "tier-3");
+  assert.throws(
+    () => parseArgs(["30", "--plan", "024", "--task", "5.1", "--auto-create"]),
+    /--task/,
+  );
+  assert.throws(() => parseArgs(["30", "--task", "tier-3-9", "--auto-create"]), /--task/);
+});
+
+test("parseArgs validates --tier shape (single digit) + accepts as identity token", () => {
+  assert.equal(parseArgs(["30", "--tier", "5", "--auto-create"]).tier, "5");
+  assert.throws(() => parseArgs(["30", "--tier", "five", "--auto-create"]), /--tier/);
+});
+
+test("parseArgs accepts --pr-tag passthrough (no shape validation)", () => {
+  const args = parseArgs([
+    "30",
+    "--plan",
+    "002",
+    "--pr-tag",
+    "plan-readiness-audit-tier-2-complete",
+    "--auto-create",
+  ]);
+  assert.equal(args.prTag, "plan-readiness-audit-tier-2-complete");
+});
+
+test("parseArgs validates <PR#> is positive integer (positional)", () => {
+  assert.throws(() => parseArgs([]), /missing positional/);
+  assert.throws(() => parseArgs(["abc", "--auto-create", "--plan", "024"]), /<PR#>/);
+});
+
+test("parseArgs rejects unknown flags (defense against orchestrator drift)", () => {
+  assert.throws(
+    () => parseArgs(["30", "--candidate-ns", "NS-01", "--bogus"]),
+    /unknown flag.*--bogus/,
+  );
+});
+
+test("parseArgs: mutual-exclusion violations carry exit code ≥6 (Plan Invariant I-7)", () => {
+  let err;
+  try {
+    parseArgs(["30", "--candidate-ns", "NS-01", "--auto-create"]);
+  } catch (e) {
+    err = e;
+  }
+  assert.ok(err instanceof ParseArgsError, "expected ParseArgsError");
+  assert.ok(typeof err.exitCode === "number", "ParseArgsError must carry exitCode");
+  assert.ok(err.exitCode >= 6, `expected exitCode ≥6, got ${err.exitCode}`);
+
+  err = undefined;
+  try {
+    parseArgs(["30"]);
+  } catch (e) {
+    err = e;
+  }
+  assert.ok(err instanceof ParseArgsError);
+  assert.ok(err.exitCode >= 6);
+});
+
+test("parseArgs: shape-validation violations also carry exit code ≥6", () => {
+  let err;
+  try {
+    parseArgs(["30", "--plan", "abc", "--auto-create"]);
+  } catch (e) {
+    err = e;
+  }
+  assert.ok(err instanceof ParseArgsError);
+  assert.ok(err.exitCode >= 6);
 });

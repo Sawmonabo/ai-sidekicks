@@ -14,6 +14,7 @@
 //   - parsePRsBlock       (Task 3.4 — multi-PR block grammar)
 //   - computeStatusFromPRs(Task 3.5 — §3a.2 6-row completion matrix)
 //   - extractFileReferences(Task 3.6 — §3a.4 file/dir + brace expansion)
+//   - parseArgs           (Task 3.7 — §5.1 step 0 argv → typed args, throws ParseArgsError)
 
 import { existsSync, statSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
@@ -275,4 +276,120 @@ export function extractFileReferences({ references, summary, repoRoot, entryFile
     directories: Array.from(directories),
     unresolvable,
   };
+}
+
+// ---------- Task 3.7: parseArgs (§5.1 step 0) ----------
+//
+// Throws ParseArgsError(exitCode≥6) on mutual-exclusion or shape-validation
+// violations (Plan Invariant I-7). The CLI entrypoint (Task 3.19) translates
+// `error.exitCode` into the process exit code so callers can route on it.
+//
+// `--task` regex per Plan §Decisions-Locked D-4 (widens spec §5.1 to include
+// `tier-K` for §4.3.2 rule-3 dispatch).
+//
+// `--candidate-ns` is intentionally permissive when passed alone: the cleanup/
+// governance carve-out (no plan/task/tier required) is enforced at runtime by
+// Task 3.10 plan-identity sanity, not here. parseArgs only enforces:
+//   - exactly one of {--candidate-ns, --auto-create}
+//   - at-least-one of {--plan, --task, --tier} when --auto-create
+
+export class ParseArgsError extends Error {
+  constructor(message, exitCode) {
+    super(message);
+    this.name = "ParseArgsError";
+    this.exitCode = exitCode;
+  }
+}
+
+const PR_NUMBER_RE = /^\d+$/;
+const CANDIDATE_NS_TOKEN_RE = /^NS-\d+[a-z]?(?:\.\.NS-\d+)?$/;
+const PLAN_RE = /^\d{3}(-partial)?$/;
+const PHASE_RE = /^(\d+|[A-Z])$/;
+const TASK_RE = /^(T\d+(\.\d+)?|T-\d{3}-\d+-\d+|tier-\d+)$/;
+const TIER_RE = /^\d+$/;
+
+const VALUE_FLAGS = new Set([
+  "--candidate-ns",
+  "--plan",
+  "--phase",
+  "--task",
+  "--tier",
+  "--pr-tag",
+]);
+const BOOLEAN_FLAGS = new Set(["--auto-create"]);
+
+export function parseArgs(argv) {
+  if (!Array.isArray(argv) || argv.length === 0) {
+    throw new ParseArgsError("missing positional <PR#> argument", 6);
+  }
+  const [first, ...rest] = argv;
+  if (!PR_NUMBER_RE.test(first)) {
+    throw new ParseArgsError(`<PR#> must be a positive integer, got: ${first}`, 6);
+  }
+  const result = {
+    prNumber: Number(first),
+    candidateNs: null,
+    autoCreate: false,
+    plan: null,
+    phase: null,
+    task: null,
+    tier: null,
+    prTag: null,
+  };
+  for (let i = 0; i < rest.length; i += 1) {
+    const flag = rest[i];
+    if (BOOLEAN_FLAGS.has(flag)) {
+      if (flag === "--auto-create") result.autoCreate = true;
+      continue;
+    }
+    if (!VALUE_FLAGS.has(flag)) {
+      throw new ParseArgsError(`unknown flag: ${flag}`, 6);
+    }
+    const value = rest[i + 1];
+    if (value === undefined || value.startsWith("--")) {
+      throw new ParseArgsError(`flag ${flag} requires a value`, 6);
+    }
+    i += 1;
+    switch (flag) {
+      case "--candidate-ns": {
+        for (const token of value.split(",")) {
+          if (!CANDIDATE_NS_TOKEN_RE.test(token)) {
+            throw new ParseArgsError(`--candidate-ns token malformed: ${token}`, 6);
+          }
+        }
+        result.candidateNs = value;
+        break;
+      }
+      case "--plan":
+        if (!PLAN_RE.test(value)) throw new ParseArgsError(`--plan malformed: ${value}`, 6);
+        result.plan = value;
+        break;
+      case "--phase":
+        if (!PHASE_RE.test(value)) throw new ParseArgsError(`--phase malformed: ${value}`, 6);
+        result.phase = value;
+        break;
+      case "--task":
+        if (!TASK_RE.test(value)) throw new ParseArgsError(`--task malformed: ${value}`, 6);
+        result.task = value;
+        break;
+      case "--tier":
+        if (!TIER_RE.test(value)) throw new ParseArgsError(`--tier malformed: ${value}`, 6);
+        result.tier = value;
+        break;
+      case "--pr-tag":
+        result.prTag = value;
+        break;
+    }
+  }
+  const hasCandidate = result.candidateNs !== null;
+  if (hasCandidate && result.autoCreate) {
+    throw new ParseArgsError("--candidate-ns and --auto-create are mutually exclusive", 6);
+  }
+  if (!hasCandidate && !result.autoCreate) {
+    throw new ParseArgsError("must pass exactly one of --candidate-ns or --auto-create", 6);
+  }
+  if (result.autoCreate && result.plan === null && result.task === null && result.tier === null) {
+    throw new ParseArgsError("--auto-create requires at least one of --plan, --task, --tier", 6);
+  }
+  return result;
 }
