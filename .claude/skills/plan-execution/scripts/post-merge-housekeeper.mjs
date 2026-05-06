@@ -492,14 +492,26 @@ export function verifyFileOverlap({ type, refs, touched }) {
 
 const PLAN_IDENTITY_SKIP_TYPES = new Set([...CLEANUP_TYPES, ...GOVERNANCE_TYPES]);
 
+const REGEX_SPECIALS_RE = /[.*+?^${}()|[\]\\]/g;
+
+// Token-bounded match: needle must not be flanked by [\w.-] on either side.
+// Plain `.includes()` lets `--task T5` collide with heading `T5.4` (period
+// continues the token) and `--tier 1` collide with `Tier 10` (digit continues).
+// Periods and hyphens are treated as continuation chars because real task IDs
+// use both forms (e.g., `T5.4`, `T-024-2-1`) per cross-plan-dependencies.md.
+function tokenBoundedRe(needle) {
+  const escaped = needle.replace(REGEX_SPECIALS_RE, "\\$&");
+  return new RegExp(`(?<![\\w.-])${escaped}(?![\\w.-])`);
+}
+
 export function verifyPlanIdentity({ headingTitle, args, type, rangeBoundaries }) {
   if (PLAN_IDENTITY_SKIP_TYPES.has(type)) {
     return { ok: true, concerns: [{ kind: "plan_identity_skipped_for_manual_dispatch" }] };
   }
-  if (args.plan && headingTitle.includes(`Plan-${args.plan}`)) return { ok: true };
-  if (args.task && headingTitle.includes(args.task)) return { ok: true };
+  if (args.plan && tokenBoundedRe(`Plan-${args.plan}`).test(headingTitle)) return { ok: true };
+  if (args.task && tokenBoundedRe(args.task).test(headingTitle)) return { ok: true };
   if (args.tier) {
-    if (headingTitle.includes(`Tier ${args.tier}`)) return { ok: true };
+    if (tokenBoundedRe(`Tier ${args.tier}`).test(headingTitle)) return { ok: true };
     if (rangeBoundaries) {
       const k = Number(args.tier);
       if (k >= rangeBoundaries.K1 && k <= rangeBoundaries.K2) return { ok: true };

@@ -635,6 +635,36 @@ test("verifyPlanIdentity: --tier range-arithmetic branch (rule 4) — Tier 5 in 
   );
 });
 
+test("verifyPlanIdentity: --task T5 must NOT match heading containing T5.4 (prefix collision via period)", () => {
+  const result = verifyPlanIdentity({
+    headingTitle: "Plan-001 T5.4 cwd-translator + Plan-024 T-024-2-1",
+    args: { task: "T5" },
+    type: "code",
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.failure.kind, "plan_identity_missing");
+});
+
+test("verifyPlanIdentity: --plan 10 must NOT match heading containing Plan-100 (prefix collision via digit)", () => {
+  const result = verifyPlanIdentity({
+    headingTitle: "Plan-100 Phase 1 — synthesis layer",
+    args: { plan: "10" },
+    type: "code",
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.failure.kind, "plan_identity_missing");
+});
+
+test("verifyPlanIdentity: --tier 1 must NOT match heading containing Tier 10 (prefix collision via digit)", () => {
+  const result = verifyPlanIdentity({
+    headingTitle: "Tier 10 plan-readiness audit — Plan-099",
+    args: { tier: "1" },
+    type: "audit (doc-only)",
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.failure.kind, "plan_identity_missing");
+});
+
 test("verifyPlanIdentity: cleanup/governance Types SKIP the check", () => {
   for (const t of [
     "cleanup",
