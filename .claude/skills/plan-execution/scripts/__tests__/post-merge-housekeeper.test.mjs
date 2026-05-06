@@ -4,7 +4,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,6 +26,7 @@ import {
   emitManifest,
   reserveNextFreeNs,
   checkDuplicateTitle,
+  runHousekeeper,
 } from "../post-merge-housekeeper.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -1019,4 +1020,44 @@ test("checkDuplicateTitle handles empty existingTitles list (no collision possib
     }),
     { ok: true },
   );
+});
+
+// ---------- emitManifest generated_at field (Task 3.18 prerequisite) ----------
+
+test("emitManifest writes generated_at as the first key when provided", () => {
+  const tmpRepo = mkdtempSync(join(tmpdir(), "manifest-genat-"));
+  try {
+    const result = emitManifest({
+      repoRoot: tmpRepo,
+      prNumber: 42,
+      generatedAt: "2026-05-03T00:00:00Z",
+      scriptExitCode: 0,
+    });
+    const raw = readFileSync(result.manifestPath, "utf8");
+    const written = JSON.parse(raw);
+    assert.equal(written.generated_at, "2026-05-03T00:00:00Z");
+    // Ordering matters for spec §5.3 readability — assert generated_at is first.
+    assert.equal(Object.keys(written)[0], "generated_at");
+  } finally {
+    rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+// ---------- runHousekeeper end-to-end smoke (Task 3.18) ----------
+
+test("runHousekeeper: end-to-end --candidate-ns NS-01 happy path on minimal fixture", async () => {
+  const tmpRepo = mkdtempSync(join(tmpdir(), "rh-smoke-"));
+  try {
+    const fixtureInput = join(HERE, "fixtures", "01-single-pr-happy-path", "input");
+    cpSync(fixtureInput, tmpRepo, { recursive: true });
+    const result = await runHousekeeper({
+      args: { prNumber: 30, plan: "024", phase: "1", candidateNs: "NS-01" },
+      repoRoot: tmpRepo,
+      today: "2026-05-03",
+    });
+    assert.equal(result.exitCode, 0);
+    assert.ok(existsSync(join(tmpRepo, ".agents/tmp/housekeeper-manifest-PR30.json")));
+  } finally {
+    rmSync(tmpRepo, { recursive: true, force: true });
+  }
 });

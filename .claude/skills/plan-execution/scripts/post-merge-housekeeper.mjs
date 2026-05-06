@@ -13,8 +13,9 @@
 //   verifyTypeSignature / verifyFileOverlap /
 //   verifyPlanIdentity                                    — §5.1 step 3 verifiers
 
-import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import process from "node:process";
 
 // ---------- Task 3.2: parseNsHeading ----------
 
@@ -624,6 +625,7 @@ export function tickPlanDoneChecklist({ lines, phase }) {
 export function emitManifest({
   repoRoot,
   prNumber,
+  generatedAt = null,
   plan = null,
   phase = null,
   taskId = null,
@@ -640,6 +642,7 @@ export function emitManifest({
   mkdirSync(tmpDir, { recursive: true });
   const manifestPath = join(tmpDir, `housekeeper-manifest-PR${prNumber}.json`);
   const manifest = {
+    generated_at: generatedAt ?? new Date().toISOString(),
     pr_number: prNumber,
     plan,
     phase,
@@ -710,4 +713,334 @@ export function checkDuplicateTitle({ existingTitles, newTitle }) {
     }
   }
   return { ok: true };
+}
+
+// ---------- Tasks 3.18-3.19: runHousekeeper orchestrator + CLI entrypoint ----------
+//
+// Glue for §5.1's pipeline (locate → schema-validate → verify → mechanical edit →
+// plan checklist tick → emit manifest). Returns { exitCode, manifestPath }; never
+// throws on exit ≥ 1 (only on internal bugs). The verifier trio is silently
+// SKIPPED when diffTouchedFiles is null — the CLI computes git-diff and passes
+// the touched-file list; the fixture harness omits it (since fixture trees aren't
+// real git diffs and would otherwise fail Type-signature for code-typed entries).
+
+const NS_ID = (nsNum, suffix) => `NS-${String(nsNum).padStart(2, "0")}${suffix ?? ""}`;
+
+const SEMANTIC_WORK_PENDING_COMPLETION = [
+  "compose_status_completion_prose",
+  "ready_set_re_derivation",
+  "line_cite_sweep",
+  "set_quantifier_reverification",
+  "ns_auto_create_evaluation",
+  "unannotated_referenced_files_check",
+];
+
+function locateNsEntry({ lines, candidateNs }) {
+  for (let i = 0; i < lines.length; i += 1) {
+    const heading = parseNsHeading(lines[i]);
+    if (heading === null) continue;
+    const id = NS_ID(heading.nsNum, heading.suffix);
+    const rangeId = heading.rangeUpperNum
+      ? `NS-${String(heading.nsNum).padStart(2, "0")}..NS-${String(heading.rangeUpperNum).padStart(2, "0")}`
+      : null;
+    if (id !== candidateNs && rangeId !== candidateNs) continue;
+    let bodyEnd = lines.length;
+    for (let j = i + 1; j < lines.length; j += 1) {
+      const l = lines[j];
+      if (/^#{1,6} /.test(l) || /^```/.test(l)) {
+        bodyEnd = j;
+        break;
+      }
+    }
+    return {
+      headingLine: i,
+      heading: lines[i],
+      headingTitle: heading.title,
+      nsNum: heading.nsNum,
+      suffix: heading.suffix,
+      rangeUpperNum: heading.rangeUpperNum,
+      bodyEnd,
+    };
+  }
+  return null;
+}
+
+function findStatusLineIndex({ lines, headingLine, bodyEnd }) {
+  for (let i = headingLine + 1; i < bodyEnd; i += 1) {
+    if (/^- Status:/.test(lines[i])) return i;
+  }
+  return -1;
+}
+
+function findPrsBlockStartIndex({ lines, headingLine, bodyEnd }) {
+  for (let i = headingLine + 1; i < bodyEnd; i += 1) {
+    if (PRS_HEADER_RE.test(lines[i])) return i;
+  }
+  return -1;
+}
+
+function findMermaidNode({ lines, nsNum }) {
+  const targetId = `NS${String(nsNum).padStart(2, "0")}`;
+  const NODE_RE = new RegExp(`\\b${targetId}\\[[^\\]]+\\]:::(\\w+)`);
+  for (let i = 0; i < lines.length; i += 1) {
+    if (CLASSDEF_RE.test(lines[i])) continue;
+    const m = NODE_RE.exec(lines[i]);
+    if (m) return { lineIndex: i, currentClass: m[1] };
+  }
+  return null;
+}
+
+function findPlanFile({ repoRoot, plan }) {
+  const plansDir = join(repoRoot, "docs", "plans");
+  if (!existsSync(plansDir)) return null;
+  const matches = readdirSync(plansDir).filter(
+    (name) => name.startsWith(`${plan}-`) && name.endsWith(".md"),
+  );
+  if (matches.length !== 1) return null;
+  return join(plansDir, matches[0]);
+}
+
+function emitFailureManifest(opts) {
+  emitManifest({
+    autoCreate: null,
+    mechanicalEdits: {},
+    affectedFiles: [],
+    semanticWorkPending: [],
+    warnings: [],
+    ...opts,
+  });
+}
+
+export async function runHousekeeper({
+  args,
+  repoRoot,
+  today = process.env.HOUSEKEEPER_TODAY ?? new Date().toISOString().slice(0, 10),
+  diffTouchedFiles = null,
+}) {
+  const generatedAt = `${today}T00:00:00Z`;
+  const corpusRel = "docs/architecture/cross-plan-dependencies.md";
+  const corpusPath = join(repoRoot, corpusRel);
+  const baseManifest = {
+    repoRoot,
+    prNumber: args.prNumber,
+    generatedAt,
+    plan: args.plan,
+    phase: args.phase,
+    taskId: args.task ?? null,
+  };
+
+  if (!existsSync(corpusPath)) {
+    emitFailureManifest({
+      ...baseManifest,
+      scriptExitCode: 1,
+      schemaViolations: [{ kind: "corpus_file_missing", path: corpusRel }],
+    });
+    return { exitCode: 1 };
+  }
+
+  const corpusText = readFileSync(corpusPath, "utf8");
+  let corpusLines = corpusText.split("\n");
+
+  if (!args.candidateNs) {
+    emitFailureManifest({
+      ...baseManifest,
+      scriptExitCode: 1,
+      schemaViolations: [{ kind: "auto_create_not_implemented" }],
+    });
+    return { exitCode: 1 };
+  }
+
+  const located = locateNsEntry({ lines: corpusLines, candidateNs: args.candidateNs });
+  if (located === null) {
+    emitFailureManifest({
+      ...baseManifest,
+      scriptExitCode: 1,
+      schemaViolations: [{ kind: "ns_entry_not_found", ns_id: args.candidateNs }],
+    });
+    return { exitCode: 1 };
+  }
+
+  const nsId = NS_ID(located.nsNum, located.suffix);
+  const matchedEntryBase = {
+    nsId,
+    heading: located.heading,
+    file: corpusRel,
+    headingLine: located.headingLine + 1,
+  };
+
+  const body = corpusLines.slice(located.headingLine + 1, located.bodyEnd).join("\n");
+  const fields = parseSubFields(body);
+  const requiredFields = ["status", "type", "references", "summary"];
+  const violations = requiredFields
+    .filter((f) => fields[f] === null)
+    .map((f) => ({ kind: "schema_violation", field: f }));
+  if (violations.length > 0) {
+    emitFailureManifest({
+      ...baseManifest,
+      scriptExitCode: 5,
+      matchedEntry: { ...matchedEntryBase, shape: "unknown" },
+      schemaViolations: violations,
+    });
+    return { exitCode: 5 };
+  }
+
+  const prsBlock = parsePRsBlock(body);
+  const shape = prsBlock === null ? "single-pr" : "multi-pr";
+
+  if (diffTouchedFiles !== null) {
+    const typeCheck = verifyTypeSignature({ type: fields.type, touchedFiles: diffTouchedFiles });
+    if (!typeCheck.ok) {
+      emitFailureManifest({
+        ...baseManifest,
+        scriptExitCode: 2,
+        matchedEntry: { ...matchedEntryBase, shape },
+        schemaViolations: [typeCheck.failure],
+      });
+      return { exitCode: 2 };
+    }
+  }
+
+  if (shape === "multi-pr" && !args.task) {
+    emitFailureManifest({
+      ...baseManifest,
+      scriptExitCode: 4,
+      matchedEntry: { ...matchedEntryBase, shape },
+      schemaViolations: [{ kind: "multi_pr_requires_task_arg" }],
+    });
+    return { exitCode: 4 };
+  }
+
+  let statusFlip;
+  let prsBlockTicks = [];
+
+  if (shape === "single-pr") {
+    const statusLineIndex = findStatusLineIndex({
+      lines: corpusLines,
+      headingLine: located.headingLine,
+      bodyEnd: located.bodyEnd,
+    });
+    const fromLine = corpusLines[statusLineIndex];
+    corpusLines = applyStatusFlipSinglePr({
+      lines: corpusLines,
+      statusLineIndex,
+      prNumber: args.prNumber,
+      today,
+    });
+    statusFlip = {
+      ns_id: nsId,
+      from_line: fromLine,
+      to_line: corpusLines[statusLineIndex],
+      computed_via: "single-pr direct flip",
+    };
+  } else {
+    const statusLineIndex = findStatusLineIndex({
+      lines: corpusLines,
+      headingLine: located.headingLine,
+      bodyEnd: located.bodyEnd,
+    });
+    const prsBlockStartIndex = findPrsBlockStartIndex({
+      lines: corpusLines,
+      headingLine: located.headingLine,
+      bodyEnd: located.bodyEnd,
+    });
+    const fromLine = corpusLines[statusLineIndex];
+    corpusLines = applyMultiPrTickAndRecompute({
+      lines: corpusLines,
+      statusLineIndex,
+      prsBlockStartIndex,
+      taskId: args.task,
+      prNumber: args.prNumber,
+      today,
+      upstreamBlocked: false,
+      upstreamNsRef: null,
+    });
+    prsBlockTicks = [{ ns_id: nsId, task_id: args.task }];
+    statusFlip = {
+      ns_id: nsId,
+      from_line: fromLine,
+      to_line: corpusLines[statusLineIndex],
+      computed_via: "prs-matrix recompute",
+    };
+  }
+
+  let mermaidClassSwap = null;
+  const newClassFlipped =
+    corpusLines[
+      findStatusLineIndex({
+        lines: corpusLines,
+        headingLine: located.headingLine,
+        bodyEnd: located.bodyEnd,
+      })
+    ].includes("`completed`");
+  if (newClassFlipped) {
+    const node = findMermaidNode({ lines: corpusLines, nsNum: located.nsNum });
+    if (node !== null) {
+      const fromClass = `:::${node.currentClass}`;
+      corpusLines = applyMermaidClassSwap({
+        lines: corpusLines,
+        nsNum: located.nsNum,
+        newClass: "completed",
+      });
+      mermaidClassSwap = {
+        ns_id: nsId,
+        from: fromClass,
+        to: ":::completed",
+        node_line: node.lineIndex + 1,
+      };
+    }
+  }
+
+  const planChecklistTicks = [];
+  const affectedFiles = [corpusRel];
+  if (args.plan && args.phase) {
+    const planFile = findPlanFile({ repoRoot, plan: args.plan });
+    if (planFile !== null) {
+      const planLines = readFileSync(planFile, "utf8").split("\n");
+      const tickResult = tickPlanDoneChecklist({ lines: planLines, phase: args.phase });
+      if (!tickResult.notFound && tickResult.ticksApplied > 0) {
+        writeFileSync(planFile, tickResult.lines.join("\n"));
+        const planRel = relative(repoRoot, planFile);
+        planChecklistTicks.push({
+          file: planRel,
+          phase: args.phase,
+          items_ticked: tickResult.ticksApplied,
+        });
+        affectedFiles.push(planRel);
+      }
+    }
+  }
+
+  writeFileSync(corpusPath, corpusLines.join("\n"));
+
+  const { manifestPath } = emitManifest({
+    ...baseManifest,
+    scriptExitCode: 0,
+    matchedEntry: { ...matchedEntryBase, shape },
+    autoCreate: null,
+    mechanicalEdits: {
+      status_flip: statusFlip,
+      prs_block_ticks: prsBlockTicks,
+      mermaid_class_swap: mermaidClassSwap,
+      plan_checklist_ticks: planChecklistTicks,
+    },
+    affectedFiles,
+    semanticWorkPending: SEMANTIC_WORK_PENDING_COMPLETION,
+    warnings: [],
+  });
+
+  return { exitCode: 0, manifestPath };
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  try {
+    const args = parseArgs(process.argv.slice(2));
+    const result = await runHousekeeper({ args, repoRoot: process.cwd() });
+    process.exit(result.exitCode);
+  } catch (err) {
+    if (err instanceof ParseArgsError) {
+      process.stderr.write(`error: ${err.message}\n`);
+      process.exit(err.exitCode);
+    }
+    throw err;
+  }
 }
