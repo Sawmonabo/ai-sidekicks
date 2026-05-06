@@ -393,6 +393,18 @@ test("parseArgs validates <PR#> is positive integer (positional)", () => {
   assert.throws(() => parseArgs(["abc", "--auto-create", "--plan", "024"]), /<PR#>/);
 });
 
+test("parseArgs rejects <PR#> = 0 / 00 / leading-zero (avoids `PR #0` audit-trail corruption)", () => {
+  assert.throws(() => parseArgs(["0", "--auto-create", "--plan", "024"]), /<PR#>/);
+  assert.throws(() => parseArgs(["00", "--auto-create", "--plan", "024"]), /<PR#>/);
+  assert.throws(() => parseArgs(["01", "--auto-create", "--plan", "024"]), /<PR#>/);
+});
+
+test("parseArgs rejects --tier 0 / 00 / leading-zero (avoids `Tier 0` identity-check corruption)", () => {
+  assert.throws(() => parseArgs(["30", "--tier", "0", "--auto-create"]), /--tier/);
+  assert.throws(() => parseArgs(["30", "--tier", "00", "--auto-create"]), /--tier/);
+  assert.throws(() => parseArgs(["30", "--tier", "01", "--auto-create"]), /--tier/);
+});
+
 test("parseArgs rejects unknown flags (defense against orchestrator drift)", () => {
   assert.throws(
     () => parseArgs(["30", "--candidate-ns", "NS-01", "--bogus"]),

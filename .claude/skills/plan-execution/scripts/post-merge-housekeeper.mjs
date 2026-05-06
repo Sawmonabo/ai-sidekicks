@@ -300,12 +300,17 @@ export class ParseArgsError extends Error {
   }
 }
 
-const PR_NUMBER_RE = /^\d+$/;
+// Positive-integer regex: rejects empty, `0`, `00`, and leading zeros (`01`).
+// PR numbers and tier numbers MUST be > 0 — `0` flowing in from an unset
+// upstream env var default would otherwise corrupt the audit trail with
+// "PR #0" / "Tier 0" instead of failing fast at arg parse.
+const POSITIVE_INTEGER_RE = /^[1-9]\d*$/;
+const PR_NUMBER_RE = POSITIVE_INTEGER_RE;
 const CANDIDATE_NS_TOKEN_RE = /^NS-\d+[a-z]?(?:\.\.NS-\d+)?$/;
 const PLAN_RE = /^\d{3}(-partial)?$/;
 const PHASE_RE = /^(\d+|[A-Z])$/;
 const TASK_RE = /^(T\d+(\.\d+)?|T-\d{3}-\d+-\d+|tier-\d+)$/;
-const TIER_RE = /^\d+$/;
+const TIER_RE = POSITIVE_INTEGER_RE;
 
 const VALUE_FLAGS = new Set([
   "--candidate-ns",
