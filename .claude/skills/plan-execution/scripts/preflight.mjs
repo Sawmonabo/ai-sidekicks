@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // preflight.mjs — plan-execution skill mechanical gate runner.
-// Authoritative contract: ./preflight-contract.md.
+// Authoritative contract: ../references/preflight-contract.md.
 //
 // Exit codes:
 //   0 — all gates pass; stdout = selected phase number on a single line.
@@ -541,7 +541,7 @@ async function main() {
   const args = process.argv.slice(2);
   if (args.length === 0 || args[0] === "--help" || args[0] === "-h") {
     process.stderr.write(
-      "Usage: node preflight.mjs <plan-file> [phase-number]\nSee preflight-contract.md.\n",
+      "Usage: node preflight.mjs <plan-file> [phase-number]\nSee ../references/preflight-contract.md.\n",
     );
     process.exit(2);
   }
