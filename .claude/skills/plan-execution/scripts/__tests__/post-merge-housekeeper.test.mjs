@@ -24,6 +24,8 @@ import {
   applyMermaidClassSwap,
   tickPlanDoneChecklist,
   emitManifest,
+  reserveNextFreeNs,
+  checkDuplicateTitle,
 } from "../post-merge-housekeeper.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -947,4 +949,74 @@ test("emitManifest emits auto_create:null sentinel in --candidate-ns mode (P5 fi
   } finally {
     rmSync(tmpRepo, { recursive: true, force: true });
   }
+});
+
+// ---------- reserveNextFreeNs (Task 3.16 — auto-create step 1') ----------
+
+test("reserveNextFreeNs returns max(NN)+1 across all NS-NN headings", () => {
+  const content = "### NS-01: a\n### NS-22: z\n### NS-13a: b\n### NS-15..NS-21: r";
+  assert.equal(reserveNextFreeNs(content), 23);
+});
+
+test("reserveNextFreeNs treats range upper bound as the integer (NS-15..NS-21 → 22)", () => {
+  // Defensive: ensures range syntax NS-15..NS-21 contributes integer 21 to the max.
+  const content = "### NS-15..NS-21: r";
+  assert.equal(reserveNextFreeNs(content), 22);
+});
+
+test("reserveNextFreeNs skips NS-23 if already reserved per §3a.3", () => {
+  const content = "### NS-22: z\n### NS-23: §6 schema amendment";
+  assert.equal(reserveNextFreeNs(content), 24);
+});
+
+test("reserveNextFreeNs throws on collision (defensive numbering race)", () => {
+  // Two NS-23 headings somehow present.
+  const content = "### NS-22: z\n### NS-23: first\n### NS-23: second";
+  assert.throws(() => reserveNextFreeNs(content), /duplicate.*NS-23/i);
+});
+
+test("reserveNextFreeNs returns 1 when content has no NS-NN headings (defensive)", () => {
+  const content = "# Some other heading\n## Nothing relevant\nplain text";
+  assert.equal(reserveNextFreeNs(content), 1);
+});
+
+// ---------- checkDuplicateTitle (Task 3.17 — auto-create step 2') ----------
+
+test("checkDuplicateTitle returns ok when title is novel", () => {
+  assert.deepEqual(
+    checkDuplicateTitle({
+      existingTitles: ["Plan-024 Phase 1 — Rust crate scaffolding"],
+      newTitle: "Plan-029 Phase 2 — example",
+    }),
+    { ok: true },
+  );
+});
+
+test("checkDuplicateTitle returns failure on substring-match collision (new contains existing)", () => {
+  const result = checkDuplicateTitle({
+    existingTitles: ["Plan-024 Phase 1 — Rust crate scaffolding"],
+    newTitle: "Plan-024 Phase 1 — Rust crate scaffolding (refresh)",
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.failure.kind, "auto_create_duplicate_title");
+});
+
+test("checkDuplicateTitle catches reverse substring direction (existing contains new)", () => {
+  // "Plan-024 Phase 1" is a substring of the existing heading title.
+  const result = checkDuplicateTitle({
+    existingTitles: ["Plan-024 Phase 1 — Rust crate scaffolding"],
+    newTitle: "Plan-024 Phase 1",
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.failure.kind, "auto_create_duplicate_title");
+});
+
+test("checkDuplicateTitle handles empty existingTitles list (no collision possible)", () => {
+  assert.deepEqual(
+    checkDuplicateTitle({
+      existingTitles: [],
+      newTitle: "Plan-029 Phase 2 — example",
+    }),
+    { ok: true },
+  );
 });

@@ -675,3 +675,39 @@ export function emitManifest({
   writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
   return { manifestPath };
 }
+
+// ---------- Task 3.16: reserveNextFreeNs (auto-create step 1') ----------
+
+export function reserveNextFreeNs(content) {
+  const seenIds = new Set();
+  const seenIntegers = new Set();
+  for (const line of content.split("\n")) {
+    const heading = parseNsHeading(line);
+    if (heading === null) continue;
+    const id = `NS-${String(heading.nsNum).padStart(2, "0")}${heading.suffix ?? ""}`;
+    if (seenIds.has(id)) {
+      throw new Error(`duplicate ${id} heading detected in §6 corpus`);
+    }
+    seenIds.add(id);
+    const top = heading.rangeUpperNum ?? heading.nsNum;
+    for (let n = heading.nsNum; n <= top; n++) {
+      seenIntegers.add(n);
+    }
+  }
+  if (seenIntegers.size === 0) return 1;
+  return Math.max(...seenIntegers) + 1;
+}
+
+// ---------- Task 3.17: checkDuplicateTitle (auto-create step 2') ----------
+
+export function checkDuplicateTitle({ existingTitles, newTitle }) {
+  for (const existing of existingTitles) {
+    if (existing.includes(newTitle) || newTitle.includes(existing)) {
+      return {
+        ok: false,
+        failure: { kind: "auto_create_duplicate_title", colliding_with: existing },
+      };
+    }
+  }
+  return { ok: true };
+}
