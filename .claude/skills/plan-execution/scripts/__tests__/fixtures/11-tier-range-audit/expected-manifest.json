@@ -1,0 +1,48 @@
+{
+  "generated_at": "2026-05-03T00:00:00Z",
+  "pr_number": 47,
+  "plan": null,
+  "phase": null,
+  "task_id": null,
+  "script_exit_code": 0,
+  "matched_entry": {
+    "ns_id": "NS-15",
+    "heading": "### NS-15..NS-21: Tier 3-9 plan-readiness audits",
+    "shape": "single-pr",
+    "file": "docs/architecture/cross-plan-dependencies.md",
+    "heading_line": 5
+  },
+  "auto_create": null,
+  "mechanical_edits": {
+    "status_flip": {
+      "ns_id": "NS-15",
+      "from_line": "- Status: `todo`",
+      "to_line": "- Status: `completed` (resolved 2026-05-03 via PR #47 — <TODO subagent prose>)",
+      "computed_via": "single-pr direct flip"
+    },
+    "prs_block_ticks": [],
+    "mermaid_class_swap": {
+      "ns_id": "NS-15",
+      "from": ":::ready",
+      "to": ":::completed",
+      "node_line": 17
+    },
+    "plan_checklist_ticks": []
+  },
+  "schema_violations": [],
+  "verification_failures": [],
+  "affected_files": ["docs/architecture/cross-plan-dependencies.md"],
+  "semantic_work_pending": [
+    "compose_status_completion_prose",
+    "ready_set_re_derivation",
+    "line_cite_sweep",
+    "set_quantifier_reverification",
+    "ns_auto_create_evaluation",
+    "unannotated_referenced_files_check"
+  ],
+  "warnings": [],
+  "subagent_completed_at": null,
+  "semantic_edits": {},
+  "concerns": [],
+  "result": null
+}

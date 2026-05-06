@@ -1,0 +1,26 @@
+{
+  "generated_at": "2026-05-03T00:00:00Z",
+  "pr_number": 99,
+  "plan": "024",
+  "phase": "1",
+  "task_id": null,
+  "script_exit_code": 5,
+  "matched_entry": {
+    "ns_id": "NS-50",
+    "heading": "### NS-50: Schema-violation fixture (missing Type sub-field)",
+    "shape": "unknown",
+    "file": "docs/architecture/cross-plan-dependencies.md",
+    "heading_line": 5
+  },
+  "auto_create": null,
+  "mechanical_edits": {},
+  "schema_violations": [{ "kind": "schema_violation", "field": "type" }],
+  "verification_failures": [],
+  "affected_files": [],
+  "semantic_work_pending": [],
+  "warnings": [],
+  "subagent_completed_at": null,
+  "semantic_edits": {},
+  "concerns": [],
+  "result": null
+}

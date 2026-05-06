@@ -660,6 +660,7 @@ One JSON file, two write stages, no versioning:
     ]
   },
   "schema_violations": [],
+  "verification_failures": [],
   "affected_files": [
     "docs/architecture/cross-plan-dependencies.md",
     "docs/plans/024-rust-pty-sidecar.md"

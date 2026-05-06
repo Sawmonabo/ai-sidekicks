@@ -1,0 +1,48 @@
+{
+  "generated_at": "2026-05-03T00:00:00Z",
+  "pr_number": 38,
+  "plan": "001",
+  "phase": "5",
+  "task_id": "T-001-5-3",
+  "script_exit_code": 3,
+  "matched_entry": {
+    "ns_id": "NS-02",
+    "heading": "### NS-02: Plan-001 Phase 5 split + dep alignment",
+    "shape": "multi-pr",
+    "file": "docs/architecture/cross-plan-dependencies.md",
+    "heading_line": 5
+  },
+  "auto_create": null,
+  "mechanical_edits": {
+    "status_flip": {
+      "ns_id": "NS-02",
+      "from_line": "- Status: `in_progress` (last shipped: PR #36, 2026-05-01)",
+      "to_line": "- Status: `completed` (resolved 2026-05-03 via PR #38 — last sub-task; <TODO subagent prose>)",
+      "computed_via": "prs-matrix recompute"
+    },
+    "prs_block_ticks": [{ "ns_id": "NS-02", "task_id": "T-001-5-3" }],
+    "mermaid_class_swap": {
+      "ns_id": "NS-02",
+      "from": ":::ready",
+      "to": ":::completed",
+      "node_line": 21
+    },
+    "plan_checklist_ticks": []
+  },
+  "schema_violations": [],
+  "verification_failures": [],
+  "affected_files": ["docs/architecture/cross-plan-dependencies.md"],
+  "semantic_work_pending": [
+    "compose_status_completion_prose",
+    "ready_set_re_derivation",
+    "line_cite_sweep",
+    "set_quantifier_reverification",
+    "ns_auto_create_evaluation",
+    "unannotated_referenced_files_check"
+  ],
+  "warnings": [{ "kind": "plan_checklist_not_found", "plan": "001", "phase": "5" }],
+  "subagent_completed_at": null,
+  "semantic_edits": {},
+  "concerns": [],
+  "result": null
+}

@@ -1,0 +1,7 @@
+{
+  "prNumber": 41,
+  "plan": "024",
+  "phase": "1",
+  "candidateNs": "NS-01",
+  "diffTouchedFiles": ["docs/specs/024-rust-pty-sidecar.md", "docs/plans/024-rust-pty-sidecar.md"]
+}

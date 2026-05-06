@@ -1,0 +1,5 @@
+{
+  "prNumber": 44,
+  "candidateNs": "NS-11",
+  "diffTouchedFiles": ["packages/whatever/src/foo.ts", "docs/specs/007-foo.md"]
+}
