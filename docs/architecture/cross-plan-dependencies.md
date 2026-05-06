@@ -290,6 +290,7 @@ graph TB
   NS13a[NS-13a: spec-status promotion gate<br/>runbook/ADR amendment]:::ready
   NS14[NS-14: Tier 2 plan-readiness audit<br/>Plan-002 alone]:::ready
   NS22[NS-22: sibling-doc staleness sweep<br/>0001-initial sql→ts + session.ts line cite]:::ready
+  NS23[NS-23: §6 schema amendment<br/>multi-PR housekeeping]:::completed
 
   %% BLOCKED
   NS05[NS-05: Plan-024 Phase 2 NodePtyHost]:::blocked
@@ -351,13 +352,17 @@ With NS-12 resolved 2026-05-03 (this commit — Plan-001 §Phase 5 Precondition 
 
 ### NS-02: Plan-001 Phase 5 Lane A — sessionClient + pg.Pool + I7 (T5.1, T5.5, T5.6)
 
-- Status: `todo`
+- Status: `in_progress` (last shipped: PR #30, 2026-05-05)
 - Type: code (recommended split into 3 atomic PRs)
 - Priority: `P1`
 - Upstream: none (NS-12 resolved 2026-05-03 — Plan-001 §Phase 5 Precondition four-lane split is at HEAD; Lane A is now actionable directly against the per-task `Files:` rows)
 - References: [Plan-001](../plans/001-shared-session-core.md):358-399, integration tests I1-I4 at Plan-001:200-203
 - Summary: Three independent code tasks comprising Plan-001 Phase 5 Lane A per the post-NS-12 four-lane split. **T5.1** (load-bearing for Plan-002+ consumers): `packages/client-sdk/src/sessionClient.ts` + integration tests verifying I1-I4 at `packages/client-sdk/test/sessionClient.integration.test.ts`. **T5.5**: `pg.Pool`-backed `Querier` composition for `SessionDirectoryService`. **T5.6**: strengthen `createSession` lock-ordering test, discharge the `TODO(Plan-001 Phase 5)` annotation. Recommended sequencing: T5.1 first, then T5.5/T5.6 in either order.
 - Exit Criteria: T5.1 lands `sessionClient.ts` with I1-I4 green; T5.5 ships pg.Pool driver; T5.6 strengthens the lock-ordering regression test.
+- PRs:
+  - [x] T5.1 — sessionClient + I1-I4 integration tests (PR #30, merged 2026-05-05)
+  - [ ] T5.5 — pg.Pool-backed Querier composition
+  - [ ] T5.6 — strengthen createSession lock-ordering test
 
 ### NS-03: Plan-023-partial Tier 1 — Electron + React skeleton
 
@@ -378,6 +383,9 @@ With NS-12 resolved 2026-05-03 (this commit — Plan-001 §Phase 5 Precondition 
 - References: [Plan-001](../plans/001-shared-session-core.md):387-389, [Plan-024](../plans/024-rust-pty-sidecar.md):75, 285, 301
 - Summary: T5.4 wraps both `RustSidecarPtyHost` and `NodePtyHost` for OS-level cwd translation per I-024-5 to mitigate the Windows `ERROR_SHARING_VIOLATION` risk. F-024-2-04 binds T5.4 as a Precondition for **both** Plan-024 Phase 2 (NodePtyHost) **and** Phase 3 (RustSidecarPtyHost) — without it, Windows CI surfaces the sharing-violation regression. Clean sequence: ship the `PtyHost` contract interface alone, then T5.4 consumes it, then NS-05 consumes T5.4.
 - Exit Criteria: `spawn-cwd-translator.ts` + Linux/macOS unit tests + Windows-CI integration tests (I6 / W2 / W3) green; `PtyHost` interface live in contracts.
+- PRs:
+  - [ ] T-024-2-1 — packages/contracts/src/pty-host.ts contract interface
+  - [ ] T5.4 — packages/runtime-daemon/src/session/spawn-cwd-translator.ts wiring + Windows-CI integration tests (I6/W2/W3)
 
 ### NS-05: Plan-024 Phase 2 — NodePtyHost
 
@@ -498,6 +506,14 @@ With NS-12 resolved 2026-05-03 (this commit — Plan-001 §Phase 5 Precondition 
 - References: [audit runbook](../operations/plan-implementation-readiness-audit-runbook.md):85-87 ("Tiers: strictly serialized"), this document §5 (Tier 3-9 rows)
 - Summary: Tiers 3-9 audits run one PR per tier (per CLAUDE.md "8 tier-PRs of audit work owed before broad Tier 2+ code execution can resume"). Each tier-K audit PR commits the tier's plan amendments + tags `plan-readiness-audit-tier-K-complete`. Tier 8 includes Plan-017 — the only `review`-status plan, which must promote `review → approved` at its tier audit.
 - Exit Criteria: All 8 tier-PRs merged; all 27 plans cleared the audit; broad Tier 2+ code execution unblocked.
+- PRs:
+  - [ ] tier-3 — Tier 3 plan-readiness audit
+  - [ ] tier-4 — Tier 4 plan-readiness audit
+  - [ ] tier-5 — Tier 5 plan-readiness audit
+  - [ ] tier-6 — Tier 6 plan-readiness audit
+  - [ ] tier-7 — Tier 7 plan-readiness audit
+  - [ ] tier-8 — Tier 8 plan-readiness audit
+  - [ ] tier-9 — Tier 9 plan-readiness audit
 
 ### NS-22: Sibling-doc staleness sweep (cross-plan-deps audit propagation)
 
@@ -508,6 +524,16 @@ With NS-12 resolved 2026-05-03 (this commit — Plan-001 §Phase 5 Precondition 
 - References: [Plan-001](../plans/001-shared-session-core.md):12, 55, 122, 184, 298, 307, 309, 329, 338, 340 (line numbers post-NS-12 — `0001-initial.sql` cites); [Plan-022](../plans/022-data-retention-and-gdpr.md):22, 51, 107, 159; [ADR-022](../decisions/022-v1-toolchain-selection.md):14, 299; [Plan-001](../plans/001-shared-session-core.md):369 `session.ts:388` cite (post-NS-12 line); [Plan-008](../plans/008-control-plane-relay-and-session-join.md):28, 188 `session.ts:388` cite
 - Summary: The cross-plan-deps audit (this PR) corrected two repo-truth drifts already present in §1 + §2 + §3 + §5: (a) migration filename `0001-initial.sql` → `0001-initial.ts` (live files are TypeScript per `packages/{runtime-daemon,control-plane}/src/migrations/`), and (b) `packages/contracts/src/session.ts:388` → `:408` (the `SessionSubscribe` comment block moved to line 408 after Plan-001 Phase 2 contract evolution). Both drifts also appear in sibling docs that this audit's scope did not modify. Sweep Plan-001 (10 occurrences of `.sql` + 1 of `:388`), Plan-022 (4 occurrences of `.sql`), ADR-022 (2 occurrences of `.sql`), and Plan-008 (2 occurrences of `:388`). Single PR, doc-only, ~30 min. Archive (`backlog-archive.md`) is frozen and excluded from sweep.
 - Exit Criteria: All listed sibling-doc occurrences updated to current values; grep for `0001-initial\.sql` and `session\.ts:388` outside `docs/archive/` returns zero matches.
+
+### NS-23: §6 schema amendment for multi-PR housekeeping
+
+- Status: `completed` (resolved 2026-05-05 via this commit — schema amendment landed; housekeeper design §3a in-scope)
+- Type: governance (doc-only)
+- Priority: `P1`
+- Upstream: none
+- References: [housekeeper design](../superpowers/specs/2026-05-03-plan-execution-housekeeper-design.md) §3a
+- Summary: Add structured `PRs:` sub-field to NS-02, NS-04, NS-15..NS-21 per the housekeeper design's §3a.1 grammar. Single-PR entries (NS-01, NS-03, NS-05..NS-10, NS-11, NS-13a, NS-13b, NS-14, NS-22) are unchanged. The amendment is the first dogfood for the housekeeper itself: NS-23's Status flips to `completed` MANUALLY when this PR merges (the housekeeper does not exist yet to auto-flip it). The next plan-execution PR after the housekeeper ships (PR 4 in §10.1) is the housekeeper's first auto-run.
+- Exit Criteria: §6 entries NS-02, NS-04, NS-15..NS-21 carry `PRs:` blocks per §3a.1 grammar; `- Status: \`completed\` (resolved YYYY-MM-DD via this commit — schema amendment landed; housekeeper design §3a in-scope)` recorded inline on this entry.
 
 ---
 
