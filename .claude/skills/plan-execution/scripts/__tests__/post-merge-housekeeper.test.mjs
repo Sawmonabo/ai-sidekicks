@@ -699,6 +699,7 @@ test("applyMultiPrTickAndRecompute: tick T5.5 row, recompute Status to in_progre
     lines,
     statusLineIndex: 1,
     prsBlockStartIndex: 3,
+    prsBlockBeforeTick: parsePRsBlock(lines.slice(3).join("\n")),
     taskId: "T5.5",
     prNumber: 38,
     today: "2026-05-10",
@@ -725,6 +726,7 @@ test("applyMultiPrTickAndRecompute: tick last unchecked → recompute Status to 
     lines,
     statusLineIndex: 1,
     prsBlockStartIndex: 3,
+    prsBlockBeforeTick: parsePRsBlock(lines.slice(3).join("\n")),
     taskId: "T5.6",
     prNumber: 41,
     today: "2026-05-15",
@@ -750,6 +752,7 @@ test("applyMultiPrTickAndRecompute: blocked-override sets Status to blocked when
     lines,
     statusLineIndex: 1,
     prsBlockStartIndex: 3,
+    prsBlockBeforeTick: parsePRsBlock(lines.slice(3).join("\n")),
     taskId: "T5.5",
     prNumber: 38,
     today: "2026-05-10",
@@ -780,6 +783,7 @@ test("applyMultiPrTickAndRecompute: blocked-override does NOT fire when all chec
     lines,
     statusLineIndex: 1,
     prsBlockStartIndex: 3,
+    prsBlockBeforeTick: parsePRsBlock(lines.slice(3).join("\n")),
     taskId: "T5.6",
     prNumber: 41,
     today: "2026-05-15",
@@ -1291,6 +1295,264 @@ test("runHousekeeper: comma-list aborts on first ns_entry_not_found with not_eva
     // No mechanical edits applied — corpus unchanged.
     const corpus = readFileSync(join(docsDir, "cross-plan-dependencies.md"), "utf8");
     assert.match(corpus, /- Status: `todo`/);
+  } finally {
+    rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+// ---------- Bug-4 (Codex thread r3193301918): pre-validate task-in-block ----------
+// applyMultiPrTickAndRecompute used to silently exit its tick-loop when --task
+// didn't match an unchecked row, leaving the Status line untouched and the PRs
+// block unmodified — an invisible no-op. validateCandidate + the single-candidate
+// path now pre-validate that args.task matches an unchecked row before edits run.
+
+test("runHousekeeper: multi-pr --task that does not match any unchecked row exits 2 with multi_pr_task_not_in_block (single-candidate)", async () => {
+  const tmpRepo = mkdtempSync(join(tmpdir(), "task-not-in-block-single-"));
+  try {
+    const docsDir = join(tmpRepo, "docs", "architecture");
+    execFileSync("mkdir", ["-p", docsDir]);
+    writeFileSync(
+      join(docsDir, "cross-plan-dependencies.md"),
+      [
+        "# Cross-Plan Dependencies",
+        "",
+        "## 6. NS Catalog",
+        "",
+        "### NS-95: Plan-095 Phase 1 — multi-PR with two real tasks",
+        "",
+        "- Status: `todo`",
+        "- Type: cleanup",
+        "- Priority: `P3`",
+        "- Upstream: none",
+        "- References: [Plan-095](../plans/095.md)",
+        "- Summary: Two tasks T-095-1-1 and T-095-1-2; both unchecked.",
+        "- Exit Criteria: PR merges with both ticks.",
+        "- PRs:",
+        "  - [ ] T-095-1-1 — first sub-task",
+        "  - [ ] T-095-1-2 — second sub-task",
+        "",
+      ].join("\n"),
+    );
+    const result = await runHousekeeper({
+      args: {
+        prNumber: 95,
+        plan: "095",
+        phase: "1",
+        task: "T-095-1-9",
+        candidateNs: "NS-95",
+      },
+      repoRoot: tmpRepo,
+      today: "2026-05-06",
+    });
+    assert.equal(result.exitCode, 2);
+    const manifestPath = join(tmpRepo, ".agents", "tmp", "housekeeper-manifest-PR95.json");
+    assert.ok(existsSync(manifestPath));
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    assert.equal(manifest.verification_failures.length, 1);
+    assert.equal(manifest.verification_failures[0].kind, "multi_pr_task_not_in_block");
+    assert.equal(manifest.verification_failures[0].ns_id, "NS-95");
+    assert.equal(manifest.verification_failures[0].task_id, "T-095-1-9");
+    // Mechanical no-op — corpus unchanged (Status, PRs block both intact).
+    const corpus = readFileSync(join(docsDir, "cross-plan-dependencies.md"), "utf8");
+    assert.match(corpus, /- Status: `todo`/);
+    assert.match(corpus, /^ {2}- \[ \] T-095-1-1 — first sub-task$/m);
+    assert.match(corpus, /^ {2}- \[ \] T-095-1-2 — second sub-task$/m);
+  } finally {
+    rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test("runHousekeeper: comma-list multi-pr --task that does not match any unchecked row exits 2 (multi-candidate via validateCandidate)", async () => {
+  const tmpRepo = mkdtempSync(join(tmpdir(), "task-not-in-block-multi-"));
+  try {
+    const docsDir = join(tmpRepo, "docs", "architecture");
+    execFileSync("mkdir", ["-p", docsDir]);
+    writeFileSync(
+      join(docsDir, "cross-plan-dependencies.md"),
+      [
+        "# Cross-Plan Dependencies",
+        "",
+        "## 6. NS Catalog",
+        "",
+        "### NS-96: Plan-096 Phase 1 — first multi-PR",
+        "",
+        "- Status: `todo`",
+        "- Type: cleanup",
+        "- Priority: `P3`",
+        "- Upstream: none",
+        "- References: [Plan-096](../plans/096.md)",
+        "- Summary: Two unchecked tasks.",
+        "- Exit Criteria: PR merges.",
+        "- PRs:",
+        "  - [ ] T-096-1-1 — alpha",
+        "  - [ ] T-096-1-2 — beta",
+        "",
+        "### NS-97: Plan-097 Phase 1 — second multi-PR",
+        "",
+        "- Status: `todo`",
+        "- Type: cleanup",
+        "- Priority: `P3`",
+        "- Upstream: none",
+        "- References: [Plan-097](../plans/097.md)",
+        "- Summary: Two unchecked tasks.",
+        "- Exit Criteria: PR merges.",
+        "- PRs:",
+        "  - [ ] T-097-1-1 — gamma",
+        "  - [ ] T-097-1-2 — delta",
+        "",
+      ].join("\n"),
+    );
+    const result = await runHousekeeper({
+      args: {
+        prNumber: 96,
+        plan: "096",
+        phase: "1",
+        // T-096-1-1 IS in NS-96, but NS-97 has T-097-1-1 / T-097-1-2 only —
+        // so dispatch fails on NS-97 (validateCandidate rejects with verification
+        // failure), aborting before edits land. NS-96 validates clean (in
+        // matched_entries) but its mechanical edits are NOT applied due to abort.
+        task: "T-096-1-1",
+        candidateNs: "NS-96,NS-97",
+      },
+      repoRoot: tmpRepo,
+      today: "2026-05-06",
+    });
+    assert.equal(result.exitCode, 2);
+    const manifestPath = join(tmpRepo, ".agents", "tmp", "housekeeper-manifest-PR96.json");
+    assert.ok(existsSync(manifestPath));
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    // NS-96 validated clean (in matched_entries); NS-97 failed validation.
+    assert.equal(manifest.matched_entries.length, 2);
+    assert.equal(manifest.matched_entries[0].ns_id, "NS-96");
+    assert.equal(manifest.matched_entries[1].ns_id, "NS-97");
+    assert.equal(manifest.verification_failures[0].kind, "multi_pr_task_not_in_block");
+    assert.equal(manifest.verification_failures[0].ns_id, "NS-97");
+    assert.equal(manifest.verification_failures[0].task_id, "T-096-1-1");
+    // Transactional abort — corpus untouched, including NS-96's PRs block.
+    const corpus = readFileSync(join(docsDir, "cross-plan-dependencies.md"), "utf8");
+    assert.match(corpus, /^ {2}- \[ \] T-096-1-1 — alpha$/m);
+  } finally {
+    rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+// ---------- Bug-5 (Codex thread r3193301921): try/catch parsePRsBlock ----------
+// parsePRsBlock throws on malformed checked rows missing the (PR #N, merged ...)
+// annotation. CLI only caught ParseArgsError so the process crashed (exit 1 from
+// uncaught exception). Now wrapped: exit 5 + schema_violations[kind: prs_block_malformed].
+
+test("runHousekeeper: malformed PRs block (checked row missing PR annotation) exits 5 with prs_block_malformed (single-candidate)", async () => {
+  const tmpRepo = mkdtempSync(join(tmpdir(), "prs-malformed-single-"));
+  try {
+    const docsDir = join(tmpRepo, "docs", "architecture");
+    execFileSync("mkdir", ["-p", docsDir]);
+    writeFileSync(
+      join(docsDir, "cross-plan-dependencies.md"),
+      [
+        "# Cross-Plan Dependencies",
+        "",
+        "## 6. NS Catalog",
+        "",
+        "### NS-98: Plan-098 Phase 1 — malformed PRs block",
+        "",
+        "- Status: `in_progress` (last shipped: PR #50, 2026-05-01)",
+        "- Type: cleanup",
+        "- Priority: `P3`",
+        "- Upstream: none",
+        "- References: [Plan-098](../plans/098.md)",
+        "- Summary: Checked row is missing the required (PR #N, merged ...) annotation.",
+        "- Exit Criteria: PR merges.",
+        "- PRs:",
+        "  - [x] T-098-1-1 — first sub-task with NO annotation",
+        "  - [ ] T-098-1-2 — second sub-task",
+        "",
+      ].join("\n"),
+    );
+    const result = await runHousekeeper({
+      args: {
+        prNumber: 98,
+        plan: "098",
+        phase: "1",
+        task: "T-098-1-2",
+        candidateNs: "NS-98",
+      },
+      repoRoot: tmpRepo,
+      today: "2026-05-06",
+    });
+    assert.equal(result.exitCode, 5);
+    const manifestPath = join(tmpRepo, ".agents", "tmp", "housekeeper-manifest-PR98.json");
+    assert.ok(existsSync(manifestPath), "manifest must be emitted (no uncaught exception)");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    assert.equal(manifest.schema_violations.length, 1);
+    assert.equal(manifest.schema_violations[0].kind, "prs_block_malformed");
+    assert.equal(manifest.schema_violations[0].ns_id, "NS-98");
+    assert.match(manifest.schema_violations[0].message, /missing required.*annotation/);
+    // Mechanical no-op — corpus unchanged.
+    const corpus = readFileSync(join(docsDir, "cross-plan-dependencies.md"), "utf8");
+    assert.match(corpus, /^- Status: `in_progress` \(last shipped: PR #50, 2026-05-01\)$/m);
+  } finally {
+    rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test("runHousekeeper: malformed PRs block in multi-candidate path also exits 5 (no uncaught throw)", async () => {
+  const tmpRepo = mkdtempSync(join(tmpdir(), "prs-malformed-multi-"));
+  try {
+    const docsDir = join(tmpRepo, "docs", "architecture");
+    execFileSync("mkdir", ["-p", docsDir]);
+    writeFileSync(
+      join(docsDir, "cross-plan-dependencies.md"),
+      [
+        "# Cross-Plan Dependencies",
+        "",
+        "## 6. NS Catalog",
+        "",
+        "### NS-89: Plan-089 Phase 1 — clean single-PR entry",
+        "",
+        "- Status: `todo`",
+        "- Type: cleanup",
+        "- Priority: `P3`",
+        "- Upstream: none",
+        "- References: [Plan-089](../plans/089.md)",
+        "- Summary: Validates clean.",
+        "- Exit Criteria: PR merges.",
+        "",
+        "### NS-88: Plan-088 Phase 1 — malformed PRs block",
+        "",
+        "- Status: `in_progress` (last shipped: PR #44, 2026-04-30)",
+        "- Type: cleanup",
+        "- Priority: `P3`",
+        "- Upstream: none",
+        "- References: [Plan-088](../plans/088.md)",
+        "- Summary: Checked row is missing PR annotation.",
+        "- Exit Criteria: PR merges.",
+        "- PRs:",
+        "  - [x] T-088-1-1 — first sub-task with NO annotation",
+        "  - [ ] T-088-1-2 — second sub-task",
+        "",
+      ].join("\n"),
+    );
+    const result = await runHousekeeper({
+      args: {
+        prNumber: 88,
+        plan: "088",
+        phase: "1",
+        task: "T-088-1-2",
+        candidateNs: "NS-89,NS-88",
+      },
+      repoRoot: tmpRepo,
+      today: "2026-05-06",
+    });
+    assert.equal(result.exitCode, 5);
+    const manifestPath = join(tmpRepo, ".agents", "tmp", "housekeeper-manifest-PR88.json");
+    assert.ok(existsSync(manifestPath));
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    // NS-89 validated clean; NS-88 fails parsePRsBlock; no `not_evaluated`
+    // tail because NS-88 was the last token. validateCandidate caught the
+    // parse error and returned schemaViolations rather than letting it throw.
+    assert.equal(manifest.schema_violations[0].kind, "prs_block_malformed");
+    assert.equal(manifest.schema_violations[0].ns_id, "NS-88");
+    // Pre-fix: process crashed with uncaught exception (no manifest, no exit 5).
   } finally {
     rmSync(tmpRepo, { recursive: true, force: true });
   }

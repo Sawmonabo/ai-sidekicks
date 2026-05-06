@@ -519,10 +519,18 @@ export function applyStatusFlipSinglePr({ lines, statusLineIndex, prNumber, toda
 
 const PRS_UNCHECKED_ROW_RE = /^ {2}- \[ \] (\S+) — (.+)$/;
 
+// Caller must pre-validate prsBlockBeforeTick (orchestrator's job per
+// validateCandidate / single-candidate's pre-validation): every taskId is
+// resolvable and the row matching `taskId` is present and unchecked. We
+// derive prsBlockAfterTick by mapping the validated structure rather than
+// re-parsing the post-tick lines, which both eliminates a redundant parse
+// and removes a throw site that previously crashed the CLI on a malformed
+// PRs block (the parse already happened upstream and was wrapped there).
 export function applyMultiPrTickAndRecompute({
   lines,
   statusLineIndex,
   prsBlockStartIndex,
+  prsBlockBeforeTick,
   taskId,
   prNumber,
   today,
@@ -542,16 +550,18 @@ export function applyMultiPrTickAndRecompute({
       break;
     }
   }
-  const prsBlock = parsePRsBlock(result.slice(prsBlockStartIndex).join("\n"));
-  const allChecked = prsBlock.every((r) => r.checked);
+  const prsBlockAfterTick = prsBlockBeforeTick.map((r) =>
+    r.taskId === taskId ? { ...r, checked: true, prNumber, mergedAt: today } : r,
+  );
+  const allChecked = prsBlockAfterTick.every((r) => r.checked);
   if (upstreamBlocked && !allChecked) {
-    const checked = prsBlock.filter((r) => r.checked);
+    const checked = prsBlockAfterTick.filter((r) => r.checked);
     const last = checked.reduce((acc, r) => (r.mergedAt > acc.mergedAt ? r : acc));
     result[statusLineIndex] =
       `- Status: \`blocked\` (blocked-on ${upstreamNsRef}; last shipped: PR #${last.prNumber}, ${last.mergedAt})`;
   } else {
     result[statusLineIndex] = computeStatusFromPRs({
-      prsBlock,
+      prsBlock: prsBlockAfterTick,
       upstreamBlocked: false,
       today,
       prNumber,
@@ -956,7 +966,17 @@ function validateCandidate({ token, corpusLines, corpusPath, repoRoot, args, dif
   if (violations.length > 0) {
     return { ok: false, matchedEntryBase, schemaViolations: violations, shape: "unknown" };
   }
-  const prsBlock = parsePRsBlock(body);
+  let prsBlock;
+  try {
+    prsBlock = parsePRsBlock(body);
+  } catch (err) {
+    return {
+      ok: false,
+      matchedEntryBase,
+      shape: "unknown",
+      schemaViolations: [{ kind: "prs_block_malformed", ns_id: nsId, message: err.message }],
+    };
+  }
   const shape = prsBlock === null ? "single-pr" : "multi-pr";
   if (diffTouchedFiles !== null) {
     const typeCheck = verifyTypeSignature({ type: fields.type, touchedFiles: diffTouchedFiles });
@@ -1016,7 +1036,28 @@ function validateCandidate({ token, corpusLines, corpusPath, repoRoot, args, dif
       multiPrTaskMissing: true,
     };
   }
-  return { ok: true, matchedEntryBase, located, fields, shape, nsId };
+  if (shape === "multi-pr") {
+    // Bug-4 pre-validation: applyMultiPrTickAndRecompute used to silently
+    // exit its tick-loop when --task didn't match an unchecked row, leaving
+    // the Status line untouched and the PRs block unmodified — an invisible
+    // no-op that masked orchestrator-misdispatch (wrong --task) as success.
+    // Catch it as a verification failure (not schema; the entry itself is
+    // well-formed — the dispatch is wrong) so the subagent can re-derive.
+    const taskRow = prsBlock.find((r) => r.taskId === args.task);
+    if (!taskRow || taskRow.checked) {
+      return {
+        ok: false,
+        matchedEntryBase,
+        shape,
+        verificationFailure: {
+          kind: "multi_pr_task_not_in_block",
+          ns_id: nsId,
+          task_id: args.task,
+        },
+      };
+    }
+  }
+  return { ok: true, matchedEntryBase, located, fields, shape, nsId, prsBlock };
 }
 
 function applyEditsForCandidate({ candidate, corpusLines, args, today }) {
@@ -1057,6 +1098,7 @@ function applyEditsForCandidate({ candidate, corpusLines, args, today }) {
       lines,
       statusLineIndex,
       prsBlockStartIndex,
+      prsBlockBeforeTick: candidate.prsBlock,
       taskId: args.task,
       prNumber: args.prNumber,
       today,
@@ -1333,7 +1375,18 @@ export async function runHousekeeper({
     return { exitCode: 5 };
   }
 
-  const prsBlock = parsePRsBlock(body);
+  let prsBlock;
+  try {
+    prsBlock = parsePRsBlock(body);
+  } catch (err) {
+    emitFailureManifest({
+      ...baseManifest,
+      scriptExitCode: 5,
+      matchedEntry: { ...matchedEntryBase, shape: "unknown" },
+      schemaViolations: [{ kind: "prs_block_malformed", ns_id: nsId, message: err.message }],
+    });
+    return { exitCode: 5 };
+  }
   const shape = prsBlock === null ? "single-pr" : "multi-pr";
 
   if (diffTouchedFiles !== null) {
@@ -1399,6 +1452,27 @@ export async function runHousekeeper({
     return { exitCode: 4 };
   }
 
+  if (shape === "multi-pr") {
+    // Bug-4 pre-validation: applyMultiPrTickAndRecompute used to silently
+    // exit its tick-loop when --task didn't match an unchecked row, leaving
+    // the Status line untouched and the PRs block unmodified — an invisible
+    // no-op that masked orchestrator-misdispatch (wrong --task) as success.
+    // Catch it as a verification failure (not schema; the entry itself is
+    // well-formed — the dispatch is wrong) so the subagent can re-derive.
+    const taskRow = prsBlock.find((r) => r.taskId === args.task);
+    if (!taskRow || taskRow.checked) {
+      emitFailureManifest({
+        ...baseManifest,
+        scriptExitCode: 2,
+        matchedEntry: { ...matchedEntryBase, shape },
+        verificationFailures: [
+          { kind: "multi_pr_task_not_in_block", ns_id: nsId, task_id: args.task },
+        ],
+      });
+      return { exitCode: 2 };
+    }
+  }
+
   let statusFlip;
   let prsBlockTicks = [];
 
@@ -1448,6 +1522,7 @@ export async function runHousekeeper({
       lines: corpusLines,
       statusLineIndex,
       prsBlockStartIndex,
+      prsBlockBeforeTick: prsBlock,
       taskId: args.task,
       prNumber: args.prNumber,
       today,
