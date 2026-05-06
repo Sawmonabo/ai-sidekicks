@@ -992,7 +992,10 @@ export async function runHousekeeper({
 
   const planChecklistTicks = [];
   const affectedFiles = [corpusRel];
+  const warnings = [];
+  let scriptExitCode = 0;
   if (args.plan && args.phase) {
+    let didTick = false;
     const planFile = findPlanFile({ repoRoot, plan: args.plan });
     if (planFile !== null) {
       const planLines = readFileSync(planFile, "utf8").split("\n");
@@ -1006,7 +1009,22 @@ export async function runHousekeeper({
           items_ticked: tickResult.ticksApplied,
         });
         affectedFiles.push(planRel);
+        didTick = true;
       }
+    }
+    // Per spec §5.1 line 505 + line 950: exit 3 (soft-failure, continue) when
+    // the plan checklist is unreachable — covers (a) plan file not found,
+    // (b) `### Phase N` section absent, (c) Done Checklist sub-section absent,
+    // (d) all boxes already ticked from a prior partial run. Mechanical edits
+    // to the corpus are still applied; the warning propagates to the subagent
+    // which surfaces it as a `concerns` entry with kind: plan_checklist_not_found.
+    if (!didTick) {
+      scriptExitCode = 3;
+      warnings.push({
+        kind: "plan_checklist_not_found",
+        plan: args.plan,
+        phase: args.phase,
+      });
     }
   }
 
@@ -1014,7 +1032,7 @@ export async function runHousekeeper({
 
   const { manifestPath } = emitManifest({
     ...baseManifest,
-    scriptExitCode: 0,
+    scriptExitCode,
     matchedEntry: { ...matchedEntryBase, shape },
     autoCreate: null,
     mechanicalEdits: {
@@ -1025,10 +1043,10 @@ export async function runHousekeeper({
     },
     affectedFiles,
     semanticWorkPending: SEMANTIC_WORK_PENDING_COMPLETION,
-    warnings: [],
+    warnings,
   });
 
-  return { exitCode: 0, manifestPath };
+  return { exitCode: scriptExitCode, manifestPath };
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
