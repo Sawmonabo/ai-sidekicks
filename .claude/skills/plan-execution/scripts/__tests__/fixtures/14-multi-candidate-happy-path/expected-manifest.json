@@ -1,0 +1,80 @@
+{
+  "generated_at": "2026-05-03T00:00:00Z",
+  "pr_number": 60,
+  "plan": "070",
+  "phase": "1",
+  "task_id": null,
+  "script_exit_code": 0,
+  "matched_entry": null,
+  "matched_entries": [
+    {
+      "ns_id": "NS-70",
+      "heading": "### NS-70: Plan-070 Phase 1 — first single-PR entry",
+      "shape": "single-pr",
+      "file": "docs/architecture/cross-plan-dependencies.md",
+      "heading_line": 5
+    },
+    {
+      "ns_id": "NS-71",
+      "heading": "### NS-71: Plan-070 Phase 1 — second single-PR entry",
+      "shape": "single-pr",
+      "file": "docs/architecture/cross-plan-dependencies.md",
+      "heading_line": 15
+    }
+  ],
+  "auto_create": null,
+  "mechanical_edits": {
+    "status_flips": [
+      {
+        "ns_id": "NS-70",
+        "from_line": "- Status: `todo`",
+        "to_line": "- Status: `completed` (resolved 2026-05-03 via PR #60 — <TODO subagent prose>)",
+        "computed_via": "single-pr direct flip"
+      },
+      {
+        "ns_id": "NS-71",
+        "from_line": "- Status: `todo`",
+        "to_line": "- Status: `completed` (resolved 2026-05-03 via PR #60 — <TODO subagent prose>)",
+        "computed_via": "single-pr direct flip"
+      }
+    ],
+    "prs_block_ticks": [],
+    "mermaid_class_swaps": [
+      {
+        "ns_id": "NS-70",
+        "from": ":::ready",
+        "to": ":::completed",
+        "node_line": 27
+      },
+      {
+        "ns_id": "NS-71",
+        "from": ":::ready",
+        "to": ":::completed",
+        "node_line": 28
+      }
+    ],
+    "plan_checklist_ticks": [
+      {
+        "file": "docs/plans/070-fixture.md",
+        "phase": "1",
+        "items_ticked": 2
+      }
+    ]
+  },
+  "schema_violations": [],
+  "verification_failures": [],
+  "affected_files": ["docs/architecture/cross-plan-dependencies.md", "docs/plans/070-fixture.md"],
+  "semantic_work_pending": [
+    "compose_status_completion_prose",
+    "ready_set_re_derivation",
+    "line_cite_sweep",
+    "set_quantifier_reverification",
+    "ns_auto_create_evaluation",
+    "unannotated_referenced_files_check"
+  ],
+  "warnings": [],
+  "subagent_completed_at": null,
+  "semantic_edits": {},
+  "concerns": [],
+  "result": null
+}

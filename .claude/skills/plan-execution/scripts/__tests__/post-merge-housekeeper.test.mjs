@@ -1233,3 +1233,65 @@ test("CLI entrypoint reads HEAD diff and feeds verifier trio (regression for r31
     rmSync(tmpRepo, { recursive: true, force: true });
   }
 });
+
+// ---------- Multi-candidate first-failure semantics (Codex thread r3193301912) ----------
+// Spec §5.1 line 521 ("aborts on first failure rather than partial-applying")
+// + line 551 ("remaining candidates' verification states enumerated"). When
+// the first candidate locates+validates clean but the second is missing from
+// the corpus, the script must abort BEFORE applying any mechanical edit and
+// surface `kind: not_evaluated` for unvisited tokens.
+
+test("runHousekeeper: comma-list aborts on first ns_entry_not_found with not_evaluated tokens enumerated", async () => {
+  const tmpRepo = mkdtempSync(join(tmpdir(), "multi-not-found-"));
+  try {
+    const docsDir = join(tmpRepo, "docs", "architecture");
+    execFileSync("mkdir", ["-p", docsDir]);
+    writeFileSync(
+      join(docsDir, "cross-plan-dependencies.md"),
+      [
+        "# Cross-Plan Dependencies",
+        "",
+        "## 6. NS Catalog",
+        "",
+        "### NS-90: Plan-090 Phase 1 — exists",
+        "",
+        "- Status: `todo`",
+        "- Type: cleanup",
+        "- Priority: `P3`",
+        "- Upstream: none",
+        "- References: [Plan-090](../plans/090.md)",
+        "- Summary: Sole entry; NS-91 + NS-92 do not exist.",
+        "- Exit Criteria: PR merges.",
+        "",
+      ].join("\n"),
+    );
+    const result = await runHousekeeper({
+      args: {
+        prNumber: 70,
+        plan: "090",
+        phase: "1",
+        task: null,
+        candidateNs: "NS-90,NS-91,NS-92",
+      },
+      repoRoot: tmpRepo,
+      today: "2026-05-03",
+    });
+    assert.equal(result.exitCode, 1);
+    const manifestPath = join(tmpRepo, ".agents", "tmp", "housekeeper-manifest-PR70.json");
+    assert.ok(existsSync(manifestPath));
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    // Per spec: NS-90 validated clean (in matched_entries); NS-91 is the
+    // failing candidate (ns_entry_not_found); NS-92 was never evaluated.
+    assert.equal(manifest.matched_entries.length, 1);
+    assert.equal(manifest.matched_entries[0].ns_id, "NS-90");
+    assert.equal(manifest.schema_violations[0].kind, "ns_entry_not_found");
+    assert.equal(manifest.schema_violations[0].ns_id, "NS-91");
+    assert.equal(manifest.schema_violations[1].kind, "not_evaluated");
+    assert.equal(manifest.schema_violations[1].ns_id, "NS-92");
+    // No mechanical edits applied — corpus unchanged.
+    const corpus = readFileSync(join(docsDir, "cross-plan-dependencies.md"), "utf8");
+    assert.match(corpus, /- Status: `todo`/);
+  } finally {
+    rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});

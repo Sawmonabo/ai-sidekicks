@@ -634,6 +634,7 @@ export function emitManifest({
   taskId = null,
   scriptExitCode,
   matchedEntry = null,
+  matchedEntries = null,
   autoCreate = null,
   mechanicalEdits = {},
   schemaViolations = [],
@@ -645,6 +646,17 @@ export function emitManifest({
   const tmpDir = join(repoRoot, ".agents", "tmp");
   mkdirSync(tmpDir, { recursive: true });
   const manifestPath = join(tmpDir, `housekeeper-manifest-PR${prNumber}.json`);
+  // Multi-candidate (--candidate-ns NS-XX,NS-YY) sets matchedEntries (plural)
+  // and leaves matched_entry null. Single-candidate sets matchedEntry and
+  // leaves matched_entries null. Subagent-stage consumers switch on whichever
+  // is non-null; emitting both keys (one always null) keeps the schema closed.
+  const serializeEntry = (e) => ({
+    ns_id: e.nsId,
+    heading: e.heading,
+    shape: e.shape,
+    file: e.file,
+    heading_line: e.headingLine,
+  });
   const manifest = {
     generated_at: generatedAt ?? new Date().toISOString(),
     pr_number: prNumber,
@@ -652,16 +664,11 @@ export function emitManifest({
     phase,
     task_id: taskId,
     script_exit_code: scriptExitCode,
-    matched_entry:
-      matchedEntry === null
-        ? null
-        : {
-            ns_id: matchedEntry.nsId,
-            heading: matchedEntry.heading,
-            shape: matchedEntry.shape,
-            file: matchedEntry.file,
-            heading_line: matchedEntry.headingLine,
-          },
+    matched_entry: matchedEntry === null ? null : serializeEntry(matchedEntry),
+    // matched_entries is OMITTED entirely (not null) when single-candidate so
+    // existing fixture manifests stay byte-for-byte stable. Subagent consumers
+    // detect multi-candidate by checking `Array.isArray(manifest.matched_entries)`.
+    ...(matchedEntries !== null && { matched_entries: matchedEntries.map(serializeEntry) }),
     auto_create:
       autoCreate == null
         ? null
@@ -921,6 +928,315 @@ function runAutoCreate({ args, repoRoot, corpusText, corpusLines, baseManifest, 
   return { exitCode: scriptExitCode, manifestPath };
 }
 
+// ---------- Multi-candidate dispatch (spec §5.1 step 1 comma-list) ----------
+// Validates ALL tokens first (locate + schema + verify trio); applies edits
+// only when every candidate validates clean. On first-failure, surfaces the
+// failure for the failing candidate and tags untouched remaining tokens with
+// `kind: not_evaluated` per spec line 551 ("remaining candidates' verification
+// states enumerated"). The N=1 path is intentionally NOT routed through this
+// function — preserves byte-for-byte fixture compatibility.
+function validateCandidate({ token, corpusLines, corpusPath, repoRoot, args, diffTouchedFiles }) {
+  const located = locateNsEntry({ lines: corpusLines, candidateNs: token });
+  if (located === null) {
+    return { ok: false, schemaViolation: { kind: "ns_entry_not_found", ns_id: token } };
+  }
+  const nsId = NS_ID(located.nsNum, located.suffix);
+  const matchedEntryBase = {
+    nsId,
+    heading: located.heading,
+    file: relative(repoRoot, corpusPath),
+    headingLine: located.headingLine + 1,
+  };
+  const body = corpusLines.slice(located.headingLine + 1, located.bodyEnd).join("\n");
+  const fields = parseSubFields(body);
+  const requiredFields = ["status", "type", "references", "summary"];
+  const violations = requiredFields
+    .filter((f) => fields[f] === null)
+    .map((f) => ({ kind: "schema_violation", field: f, ns_id: nsId }));
+  if (violations.length > 0) {
+    return { ok: false, matchedEntryBase, schemaViolations: violations, shape: "unknown" };
+  }
+  const prsBlock = parsePRsBlock(body);
+  const shape = prsBlock === null ? "single-pr" : "multi-pr";
+  if (diffTouchedFiles !== null) {
+    const typeCheck = verifyTypeSignature({ type: fields.type, touchedFiles: diffTouchedFiles });
+    if (!typeCheck.ok) {
+      return {
+        ok: false,
+        matchedEntryBase,
+        shape,
+        verificationFailure: { ...typeCheck.failure, ns_id: nsId },
+      };
+    }
+    const refs = extractFileReferences({
+      references: fields.references,
+      summary: fields.summary,
+      repoRoot,
+      entryFile: corpusPath,
+    });
+    const overlapCheck = verifyFileOverlap({
+      type: fields.type,
+      refs,
+      touched: diffTouchedFiles,
+    });
+    if (!overlapCheck.ok) {
+      return {
+        ok: false,
+        matchedEntryBase,
+        shape,
+        verificationFailure: { ...overlapCheck.failure, ns_id: nsId },
+      };
+    }
+    const tierRangeMatch =
+      located.rangeUpperNum !== null ? /\bTier (\d+)-(\d+)\b/.exec(located.headingTitle) : null;
+    const rangeBoundaries = tierRangeMatch
+      ? { K1: Number(tierRangeMatch[1]), K2: Number(tierRangeMatch[2]) }
+      : null;
+    const identityCheck = verifyPlanIdentity({
+      headingTitle: located.headingTitle,
+      args,
+      type: fields.type,
+      rangeBoundaries,
+    });
+    if (!identityCheck.ok) {
+      return {
+        ok: false,
+        matchedEntryBase,
+        shape,
+        verificationFailure: { ...identityCheck.failure, ns_id: nsId },
+      };
+    }
+  }
+  if (shape === "multi-pr" && !args.task) {
+    return {
+      ok: false,
+      matchedEntryBase,
+      shape,
+      schemaViolations: [{ kind: "multi_pr_requires_task_arg", ns_id: nsId }],
+      multiPrTaskMissing: true,
+    };
+  }
+  return { ok: true, matchedEntryBase, located, fields, shape, nsId };
+}
+
+function applyEditsForCandidate({ candidate, corpusLines, args, today }) {
+  const { located, shape, nsId } = candidate;
+  let lines = corpusLines;
+  let statusFlip;
+  let prsTickEntry = null;
+  if (shape === "single-pr") {
+    const statusLineIndex = findStatusLineIndex({
+      lines,
+      headingLine: located.headingLine,
+      bodyEnd: located.bodyEnd,
+    });
+    const fromLine = lines[statusLineIndex];
+    lines = applyStatusFlipSinglePr({ lines, statusLineIndex, prNumber: args.prNumber, today });
+    statusFlip = {
+      ns_id: nsId,
+      from_line: fromLine,
+      to_line: lines[statusLineIndex],
+      computed_via: "single-pr direct flip",
+    };
+  } else {
+    const statusLineIndex = findStatusLineIndex({
+      lines,
+      headingLine: located.headingLine,
+      bodyEnd: located.bodyEnd,
+    });
+    const prsBlockStartIndex = findPrsBlockStartIndex({
+      lines,
+      headingLine: located.headingLine,
+      bodyEnd: located.bodyEnd,
+    });
+    const fromLine = lines[statusLineIndex];
+    const blockedOnMatch = /^- Status:\s*`blocked`\s*\(blocked-on\s+(NS-\d+[a-z]?)/.exec(fromLine);
+    const upstreamBlocked = blockedOnMatch !== null;
+    const upstreamNsRef = upstreamBlocked ? blockedOnMatch[1] : null;
+    lines = applyMultiPrTickAndRecompute({
+      lines,
+      statusLineIndex,
+      prsBlockStartIndex,
+      taskId: args.task,
+      prNumber: args.prNumber,
+      today,
+      upstreamBlocked,
+      upstreamNsRef,
+    });
+    prsTickEntry = { ns_id: nsId, task_id: args.task };
+    statusFlip = {
+      ns_id: nsId,
+      from_line: fromLine,
+      to_line: lines[statusLineIndex],
+      computed_via: "prs-matrix recompute",
+    };
+  }
+  let mermaidClassSwap = null;
+  const newClassFlipped =
+    lines[
+      findStatusLineIndex({ lines, headingLine: located.headingLine, bodyEnd: located.bodyEnd })
+    ].includes("`completed`");
+  if (newClassFlipped) {
+    const node = findMermaidNode({ lines, nsNum: located.nsNum, suffix: located.suffix });
+    if (node !== null) {
+      const fromClass = `:::${node.currentClass}`;
+      lines = applyMermaidClassSwap({
+        lines,
+        nsNum: located.nsNum,
+        suffix: located.suffix,
+        newClass: "completed",
+      });
+      mermaidClassSwap = {
+        ns_id: nsId,
+        from: fromClass,
+        to: ":::completed",
+        node_line: node.lineIndex + 1,
+      };
+    }
+  }
+  return { lines, statusFlip, prsTickEntry, mermaidClassSwap };
+}
+
+function runMultiCandidate({
+  args,
+  tokens,
+  repoRoot,
+  corpusLines,
+  corpusPath,
+  corpusRel,
+  baseManifest,
+  diffTouchedFiles,
+  today,
+}) {
+  const validated = [];
+  for (let i = 0; i < tokens.length; i += 1) {
+    const result = validateCandidate({
+      token: tokens[i],
+      corpusLines,
+      corpusPath,
+      repoRoot,
+      args,
+      diffTouchedFiles,
+    });
+    if (!result.ok) {
+      // Spec §5.1 line 521: abort on first failure with `not_evaluated` for
+      // remaining tokens (line 551 "remaining candidates' verification states
+      // enumerated"). Determine exit code from the failure type.
+      const remainingNotEvaluated = tokens
+        .slice(i + 1)
+        .map((t) => ({ kind: "not_evaluated", ns_id: t }));
+      let exitCode;
+      const failureManifest = {
+        ...baseManifest,
+        matchedEntries: validated.map((c) => ({ ...c.matchedEntryBase, shape: c.shape })),
+      };
+      if (result.schemaViolation) {
+        exitCode = 1;
+        failureManifest.scriptExitCode = 1;
+        failureManifest.schemaViolations = [result.schemaViolation, ...remainingNotEvaluated];
+      } else if (result.verificationFailure) {
+        exitCode = 2;
+        failureManifest.scriptExitCode = 2;
+        failureManifest.verificationFailures = [
+          result.verificationFailure,
+          ...remainingNotEvaluated,
+        ];
+        failureManifest.matchedEntries.push({ ...result.matchedEntryBase, shape: result.shape });
+      } else if (result.multiPrTaskMissing) {
+        exitCode = 4;
+        failureManifest.scriptExitCode = 4;
+        failureManifest.schemaViolations = [...result.schemaViolations, ...remainingNotEvaluated];
+        failureManifest.matchedEntries.push({ ...result.matchedEntryBase, shape: result.shape });
+      } else {
+        exitCode = 5;
+        failureManifest.scriptExitCode = 5;
+        failureManifest.schemaViolations = [...result.schemaViolations, ...remainingNotEvaluated];
+        failureManifest.matchedEntries.push({ ...result.matchedEntryBase, shape: result.shape });
+      }
+      emitFailureManifest(failureManifest);
+      return { exitCode };
+    }
+    validated.push(result);
+  }
+
+  // All candidates validated — apply edits sequentially. Each apply mutates
+  // corpusLines for the next candidate's locate() to pick up updated headings
+  // (locate is line-index-based, additions/removals would shift; status-line
+  // edits don't change line counts so this is safe).
+  let lines = corpusLines;
+  const statusFlips = [];
+  const prsBlockTicks = [];
+  const mermaidClassSwaps = [];
+  for (const candidate of validated) {
+    const {
+      lines: newLines,
+      statusFlip,
+      prsTickEntry,
+      mermaidClassSwap,
+    } = applyEditsForCandidate({
+      candidate,
+      corpusLines: lines,
+      args,
+      today,
+    });
+    lines = newLines;
+    statusFlips.push(statusFlip);
+    if (prsTickEntry) prsBlockTicks.push(prsTickEntry);
+    if (mermaidClassSwap) mermaidClassSwaps.push(mermaidClassSwap);
+  }
+
+  const planChecklistTicks = [];
+  const affectedFiles = [corpusRel];
+  const warnings = [];
+  let scriptExitCode = 0;
+  if (args.plan && args.phase) {
+    let didTick = false;
+    const planFile = findPlanFile({ repoRoot, plan: args.plan });
+    if (planFile !== null) {
+      const planLines = readFileSync(planFile, "utf8").split("\n");
+      const tickResult = tickPlanDoneChecklist({ lines: planLines, phase: args.phase });
+      if (!tickResult.notFound && tickResult.ticksApplied > 0) {
+        writeFileSync(planFile, tickResult.lines.join("\n"));
+        const planRel = relative(repoRoot, planFile);
+        planChecklistTicks.push({
+          file: planRel,
+          phase: args.phase,
+          items_ticked: tickResult.ticksApplied,
+        });
+        affectedFiles.push(planRel);
+        didTick = true;
+      }
+    }
+    if (!didTick) {
+      scriptExitCode = 3;
+      warnings.push({
+        kind: "plan_checklist_not_found",
+        plan: args.plan,
+        phase: args.phase,
+      });
+    }
+  }
+
+  writeFileSync(corpusPath, lines.join("\n"));
+
+  const { manifestPath } = emitManifest({
+    ...baseManifest,
+    scriptExitCode,
+    matchedEntries: validated.map((c) => ({ ...c.matchedEntryBase, shape: c.shape })),
+    autoCreate: null,
+    mechanicalEdits: {
+      status_flips: statusFlips,
+      prs_block_ticks: prsBlockTicks,
+      mermaid_class_swaps: mermaidClassSwaps,
+      plan_checklist_ticks: planChecklistTicks,
+    },
+    affectedFiles,
+    semanticWorkPending: SEMANTIC_WORK_PENDING_COMPLETION,
+    warnings,
+  });
+  return { exitCode: scriptExitCode, manifestPath };
+}
+
 export async function runHousekeeper({
   args,
   repoRoot,
@@ -959,6 +1275,27 @@ export async function runHousekeeper({
       corpusLines,
       baseManifest,
       corpusRel,
+    });
+  }
+
+  // Spec §5.1 step 1 + line 454: `--candidate-ns NS-XX,NS-YY` is a comma-list.
+  // For N≥2, dispatch to the multi-candidate path which validates ALL tokens
+  // before any mechanical edit (per line 521: "aborts on first failure rather
+  // than partial-applying"), then emits a multi-entry manifest. For N=1 the
+  // existing single-candidate path runs unchanged so all prior fixtures stay
+  // byte-for-byte stable.
+  const tokens = args.candidateNs.split(",");
+  if (tokens.length >= 2) {
+    return runMultiCandidate({
+      args,
+      tokens,
+      repoRoot,
+      corpusLines,
+      corpusPath,
+      corpusRel,
+      baseManifest,
+      diffTouchedFiles,
+      today,
     });
   }
 
