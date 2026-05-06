@@ -28,7 +28,7 @@ import {
   emitManifest,
   reserveNextFreeNs,
   checkDuplicateTitle,
-  readGitDiffTouchedFiles,
+  readTouchedFilesFromPath,
   runHousekeeper,
 } from "../post-merge-housekeeper.mjs";
 import {
@@ -1179,40 +1179,81 @@ for (const fixture of listFixtures(FIXTURES_DIR).filter(RUNNABLE_FIXTURE)) {
 }
 
 // ---------- CLI entrypoint diff-source wiring (Codex thread r3193301906) ----------
-// Pre-fix, the CLI block at the bottom of post-merge-housekeeper.mjs called
-// `runHousekeeper({ args, repoRoot })` without `diffTouchedFiles`. With null
-// touched-files, the verifier trio (Type-signature / file-overlap / plan-identity)
-// is silently skipped — misdispatch protection disabled. Now the CLI derives
-// it via `git diff-tree --no-commit-id --name-only -r HEAD`.
+// Pre-Bug-8 fix, the CLI shelled out to `git diff-tree HEAD`, violating Plan
+// Invariant I-3 (script never imports child_process for git) AND failing on
+// merge commits (`diff-tree HEAD` returns empty for merges without -m/-c/--cc,
+// silently skipping the verifier trio). Per Codex thread PRRT_kwDOSCycWc6AIyL9,
+// the orchestrator now computes the PR-wide diff (BEFORE squash-merge per
+// Phase E ordering) and passes its file-list path via `--touched-files-path`.
 
-function initTmpGitRepo(prefix) {
-  const repo = mkdtempSync(join(tmpdir(), prefix));
-  execFileSync("git", ["init", "-q", "-b", "main"], { cwd: repo });
-  execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: repo });
-  execFileSync("git", ["config", "user.name", "Test"], { cwd: repo });
-  execFileSync("git", ["config", "commit.gpgsign", "false"], { cwd: repo });
-  return repo;
-}
-
-test("readGitDiffTouchedFiles enumerates HEAD's touched-file set", () => {
-  const tmpRepo = initTmpGitRepo("git-diff-");
+test("readTouchedFilesFromPath reads newline-delimited paths from file", () => {
+  const tmpRepo = mkdtempSync(join(tmpdir(), "tfp-read-"));
   try {
-    writeFileSync(join(tmpRepo, "alpha.md"), "alpha\n");
-    writeFileSync(join(tmpRepo, "beta.ts"), "export const beta = 1;\n");
-    execFileSync("git", ["add", "alpha.md", "beta.ts"], { cwd: tmpRepo });
-    execFileSync("git", ["commit", "-q", "-m", "feat: two files"], { cwd: tmpRepo });
-    const touched = readGitDiffTouchedFiles(tmpRepo);
+    const tfp = join(tmpRepo, "touched.txt");
+    writeFileSync(tfp, "alpha.md\nbeta.ts\n");
+    const touched = readTouchedFilesFromPath(tfp);
     assert.deepEqual(touched.sort(), ["alpha.md", "beta.ts"]);
   } finally {
     rmSync(tmpRepo, { recursive: true, force: true });
   }
 });
 
-test("CLI entrypoint reads HEAD diff and feeds verifier trio (regression for r3193301906)", () => {
-  const tmpRepo = initTmpGitRepo("cli-verifier-");
+test("readTouchedFilesFromPath returns [] for empty file (no diff)", () => {
+  const tmpRepo = mkdtempSync(join(tmpdir(), "tfp-empty-"));
   try {
-    // Minimal corpus + plan + commit. NS-99 is `code` Type but the diff
-    // touches a doc-only file → file-overlap verifier MUST fail (exit 2).
+    const tfp = join(tmpRepo, "touched.txt");
+    writeFileSync(tfp, "");
+    assert.deepEqual(readTouchedFilesFromPath(tfp), []);
+  } finally {
+    rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test("parseArgs accepts --touched-files-path with arbitrary string value", () => {
+  const args = parseArgs([
+    "32",
+    "--candidate-ns",
+    "NS-01",
+    "--plan",
+    "001",
+    "--phase",
+    "1",
+    "--touched-files-path",
+    "/tmp/touched.txt",
+  ]);
+  assert.equal(args.touchedFilesPath, "/tmp/touched.txt");
+});
+
+test("parseArgs leaves touchedFilesPath null when flag is omitted (entrypoint enforces)", () => {
+  const args = parseArgs(["32", "--candidate-ns", "NS-01", "--plan", "001", "--phase", "1"]);
+  assert.equal(args.touchedFilesPath, null);
+});
+
+test("CLI entrypoint exits 6 with ParseArgsError when --touched-files-path is missing", () => {
+  const tmpRepo = mkdtempSync(join(tmpdir(), "cli-tfp-required-"));
+  try {
+    const scriptPath = join(HERE, "..", "post-merge-housekeeper.mjs");
+    const result = spawnSync(
+      process.execPath,
+      [scriptPath, "32", "--candidate-ns", "NS-01", "--plan", "001", "--phase", "1"],
+      { cwd: tmpRepo, encoding: "utf8" },
+    );
+    assert.equal(
+      result.status,
+      6,
+      `expected exit 6, got ${result.status}\nstderr: ${result.stderr}`,
+    );
+    assert.match(result.stderr, /--touched-files-path is required/);
+  } finally {
+    rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test("CLI entrypoint reads --touched-files-path and feeds verifier trio (regression for r3193301906)", () => {
+  const tmpRepo = mkdtempSync(join(tmpdir(), "cli-verifier-"));
+  try {
+    // Minimal corpus + plan. NS-99 is `code` Type but the touched-files file
+    // names doc-only paths → file-overlap verifier MUST fail (exit 2).
     // Pre-fix, with null touched-files, this would silently flip status (exit 0).
     const docsDir = join(tmpRepo, "docs", "architecture");
     execFileSync("mkdir", ["-p", docsDir]);
@@ -1248,14 +1289,25 @@ test("CLI entrypoint reads HEAD diff and feeds verifier trio (regression for r31
         "\n",
       ),
     );
-    // Commit touches the plan stub only — code-Type NS-99's References cite
-    // packages/foo/src/bar.ts which is NOT in HEAD's touched-file set.
-    execFileSync("git", ["add", "."], { cwd: tmpRepo });
-    execFileSync("git", ["commit", "-q", "-m", "feat: doc-only commit"], { cwd: tmpRepo });
+    // Touched-files list names the plan stub only — code-Type NS-99's
+    // References cite packages/foo/src/bar.ts which is NOT in the set.
+    const touchedFilesPath = join(tmpRepo, "touched.txt");
+    writeFileSync(touchedFilesPath, "docs/plans/099-stub.md\n");
     const scriptPath = join(HERE, "..", "post-merge-housekeeper.mjs");
     const result = spawnSync(
       process.execPath,
-      [scriptPath, "99", "--candidate-ns", "NS-99", "--plan", "099", "--phase", "1"],
+      [
+        scriptPath,
+        "99",
+        "--candidate-ns",
+        "NS-99",
+        "--plan",
+        "099",
+        "--phase",
+        "1",
+        "--touched-files-path",
+        touchedFilesPath,
+      ],
       { cwd: tmpRepo, encoding: "utf8" },
     );
     // Exit 2 = verification_failures; pre-fix, this returned 0 (verifier skipped).

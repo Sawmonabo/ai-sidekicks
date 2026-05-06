@@ -13,7 +13,6 @@
 //   verifyTypeSignature / verifyFileOverlap /
 //   verifyPlanIdentity                                    — §5.1 step 3 verifiers
 
-import { execSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import process from "node:process";
@@ -319,6 +318,7 @@ const VALUE_FLAGS = new Set([
   "--task",
   "--tier",
   "--pr-tag",
+  "--touched-files-path",
 ]);
 const BOOLEAN_FLAGS = new Set(["--auto-create"]);
 
@@ -339,6 +339,7 @@ export function parseArgs(argv) {
     task: null,
     tier: null,
     prTag: null,
+    touchedFilesPath: null,
   };
   for (let i = 0; i < rest.length; i += 1) {
     const flag = rest[i];
@@ -382,6 +383,9 @@ export function parseArgs(argv) {
         break;
       case "--pr-tag":
         result.prTag = value;
+        break;
+      case "--touched-files-path":
+        result.touchedFilesPath = value;
         break;
     }
   }
@@ -1646,28 +1650,27 @@ export async function runHousekeeper({
   return { exitCode: scriptExitCode, manifestPath };
 }
 
-// Diff source: post-merge HEAD names the squash-merged commit on `develop`.
-// `git diff-tree --no-commit-id --name-only -r --root HEAD` enumerates files
-// touched by that commit; the verifier trio (§5.1 step 3) reads this set to
-// check Type-signature + file-overlap. The `--root` flag handles the edge case
-// of HEAD being a root commit (no parent) — without it, root commits return an
-// empty set and silently skip the verifier trio. Spec §5.1 Synopsis (line
-// 482-486) does NOT prescribe a `--diff-source` flag, so HEAD is the implicit
-// default. Tests pass `diffTouchedFiles` directly (bypassing this CLI block)
-// for hermeticity.
-export function readGitDiffTouchedFiles(repoRoot) {
-  const out = execSync("git diff-tree --no-commit-id --name-only -r --root HEAD", {
-    cwd: repoRoot,
-    encoding: "utf8",
-  });
-  return out.trim().split("\n").filter(Boolean);
+// Diff source: orchestrator owns git knowledge per Plan Invariant I-3 (script
+// never shells out to git). The orchestrator computes the PR-wide diff (e.g.
+// `git diff origin/develop...HEAD --name-only` on the feature branch BEFORE
+// squash-merge per Phase E ordering — see SKILL.md L100,L421) and writes the
+// resulting one-path-per-line file, then passes its absolute path via
+// `--touched-files-path`. The verifier trio (§5.1 step 3) reads this set to
+// check Type-signature + file-overlap. Tests inject `diffTouchedFiles` directly
+// (bypassing the CLI file read) for hermeticity.
+export function readTouchedFilesFromPath(touchedFilesPath) {
+  const out = readFileSync(touchedFilesPath, "utf8");
+  return out.split("\n").filter(Boolean);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   try {
     const args = parseArgs(process.argv.slice(2));
+    if (args.touchedFilesPath === null) {
+      throw new ParseArgsError("--touched-files-path is required when invoked as CLI", 6);
+    }
     const repoRoot = process.cwd();
-    const diffTouchedFiles = readGitDiffTouchedFiles(repoRoot);
+    const diffTouchedFiles = readTouchedFilesFromPath(args.touchedFilesPath);
     const result = await runHousekeeper({ args, repoRoot, diffTouchedFiles });
     process.exit(result.exitCode);
   } catch (err) {
