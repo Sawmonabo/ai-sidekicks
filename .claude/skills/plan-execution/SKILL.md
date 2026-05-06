@@ -418,45 +418,50 @@ Route findings by the `Round-trip target:` value: with `Round-trip target: <task
 
 **Round-trip cap: 3 rounds at PR scope.** After 3 final-review round-trips, halt and surface the consolidated finding-set to the user — same cap and rationale as Phase C ([`references/failure-modes.md` § Round-trip cap rationale](references/failure-modes.md#round-trip-cap-rationale)). The user decides: ship as-is, manual intervention, or abort the PR.
 
-### Phase E — Progress Log + CI + squash-merge
+### Phase E — Post-merge housekeeping
 
-When final reviewers all return `DONE`:
+Per Plan §Decisions-Locked D-3: Phase E ticks ALL Done-Checklist boxes for the merged Phase, not just the most recent task — this matches the orchestrator's complete-Phase-merge trigger.
 
-1. **Append to the plan body's Progress Log section.** If the section doesn't exist, create it just before the `## Done Checklist` section:
+Phase E fires AFTER `gh pr merge --squash --delete-branch` returns success — i.e., after the squash-merge commit is on `develop`. It updates the §6 NS catalog and the plan's `Done Checklist` so the catalog stays a faithful index of what shipped. The housekeeper is a 7th plan-execution role (color: blue, tools: Read/Grep/Glob/Edit/Write); see `references/post-merge-housekeeper-contract.md` for the full contract.
 
-```markdown
-## Progress Log
+The phase has 8 steps in this exact order — DO NOT reorder; step 6 (Progress Log) explicitly moves AFTER housekeeping per spec §6.1 design choice (a single commit bundles housekeeping + log so the post-merge state is atomic):
 
-- **PR #M** (squash-commit `<sha>` on `develop`, merged YYYY-MM-DD): tasks `<T1, T2, ...>` delivered. Acceptance criteria green: `<list>`. Post-merge polish surfaced: `<count>` items (see PR #M Review Notes).
+1. **Run candidate-lookup** over `docs/architecture/cross-plan-dependencies.md` §6 per the four heading-only matching rules in `references/post-merge-housekeeper-contract.md` § Candidate-Lookup Rules:[^d7]
+   - Rule 1: Plan + Phase match (e.g., diff touches `docs/plans/024-rust-pty-sidecar.md` + commit cites Phase 1 → match `### NS-NN: Plan-024 Phase 1 — ...`)
+   - Rule 2: Plan + task-id match (e.g., commit cites `T5.1` → match `### NS-NN: Plan-001 Phase 5 Lane A` whose `PRs:` block has a `T5.1` row)
+   - Rule 3: Plan + Tier-K match (e.g., diff is a Tier-3 plan-readiness audit → match `### NS-15..NS-21: Tier 3-9 plan-readiness audits` via the lower-endpoint of the range form `tier-3`)
+   - Rule 4: No-match fallback (drop to step 2 NEEDS_CONTEXT branch)
+
+2. **Dispatch the script** `node --experimental-strip-types .claude/skills/plan-execution/scripts/post-merge-housekeeper.mjs` based on rule outcome:
+   - 1 candidate match → `--candidate-ns NS-NN <plan/phase/task flags>`
+   - 0 candidate matches → `--auto-create <plan/phase/task flags>` (script reserves next free NS-NN, writes a stub entry with `<TODO subagent prose>` placeholders)
+   - 2+ candidate matches → halt with NEEDS_CONTEXT (orchestrator surfaces both candidates to the user; do NOT auto-disambiguate)
+
+3. **Validate the script-stage manifest** at `.agents/tmp/housekeeper-manifest-PR<N>.json` against the script-stage invariants per spec §5.3:
+   - exit code matches `script_exit_code`
+   - `mechanical_edits.status_flip.to_line` contains `<TODO subagent prose>` literal placeholder string (subagent fills this)
+   - `affected_files` is a subset of files actually edited by the script
+
+4. **Dispatch the `plan-execution-housekeeper` subagent** with the manifest path. The subagent reads the manifest, composes completion-prose for each `<TODO subagent prose>` placeholder using merged-commit context, then re-derives set-quantifier claims by reading ONLY `docs/architecture/cross-plan-dependencies.md` §6 prose (per Plan §Decisions-Locked D-2 — NOT the design spec §6, which is `## 6. Data flow`). Writes back via Edit tool. Returns one of the four canonical exit-states (DONE / DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED) — no new exit-state per Plan Invariant I-2.
+
+5. **Validate the subagent-stage manifest**:
+   - `<TODO subagent prose>` literal is GONE from every line the script touched
+   - subagent's edits are confined to `affected_files` (out-of-scope edits → DONE_WITH_CONCERNS routing per `references/failure-modes.md`)
+   - schema_violations from script stage are reconciled (each one either fixed or surfaced in `concerns`)
+
+6. **Append the Progress Log entry** to the active session's progress log file (`.agents/tmp/<session-id>/progress.md`). This step explicitly MOVED from before-merge to after-housekeeping per spec §6.1 — the log entry references the squash-merge commit hash + housekeeping commit message + any subagent concerns, so callers reading the log see "shipped + housekept" as one event.
+
+7. **Single `git commit`** that bundles housekeeping (steps 4-5 edits) + Progress Log (step 6 edit) into one commit on `develop`. The commit message follows the contract:
+
+```
+chore(repo): housekeeping for PR #<N> — NS-XX <flip-or-create>
 ```
 
-Commit the doc edit on the PR branch:
+(subagent's manifest provides the suggested message; orchestrator may amend to add concerns annotations).
 
-```bash
-git add docs/plans/NNN-*.md
-git commit -m "docs(plans): append PR #M to Plan-NNN progress log"
-git push
-```
+8. **Push + verify** — `git push origin develop`. The housekeeping commit is now part of the develop-bound history; subsequent plan-execution runs see the updated catalog. Phase E ENDS here; the orchestrator drains the session.
 
-The squash-commit SHA is unknown until merge; use a placeholder (`<pending>`) at append time and patch via a follow-up `develop` commit after merge if exact SHAs matter for audit. (Most users will skip the patch — the merge time + PR # is enough provenance.)
-
-2. **Mark PR ready and watch CI:**
-
-```bash
-gh pr ready
-gh pr checks --watch
-```
-
-If CI fails, diagnose and dispatch a one-task implementer to fix (lint/format/test failures get the failing output + the file). Run a per-task review pipeline on that fix, just like any other task. Infrastructure failures surface to user.
-
-3. **When CI is green, squash-merge:**
-
-```bash
-gh pr merge --squash --delete-branch
-git switch develop && git pull --ff-only
-```
-
-4. Confirm the squash-commit on `develop` matches the PR title.
+[^d7]: See Plan §Decisions-Locked D-7 (the §5.5 17-row coverage matrix) for which fixture validates which lookup rule.
 
 ### Phase F — Next PR or stop
 
