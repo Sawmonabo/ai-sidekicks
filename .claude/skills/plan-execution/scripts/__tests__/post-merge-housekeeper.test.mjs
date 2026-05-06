@@ -1088,7 +1088,12 @@ const RUNNABLE_FIXTURE = (f) => !f.name.startsWith("00-");
 
 for (const fixture of listFixtures(FIXTURES_DIR).filter(RUNNABLE_FIXTURE)) {
   test(`fixture ${fixture.name}: byte-for-byte equality`, async () => {
-    const args = readArgs(fixture);
+    // Optional `diffTouchedFiles` in args.json is hoisted out — it is not part
+    // of the parsed-CLI args shape, but a separate runHousekeeper param the
+    // CLI computes from `git diff`. Verifier-trio fixtures (05/06/07) need to
+    // simulate the touched-file list; happy-path fixtures omit it (verifier
+    // trio is silently skipped when null).
+    const { diffTouchedFiles, ...args } = readArgs(fixture);
     const expectedManifest = readExpectedManifest(fixture);
     const tmpRepo = mkdtempSync(join(tmpdir(), `fix-${fixture.name}-`));
     try {
@@ -1097,6 +1102,7 @@ for (const fixture of listFixtures(FIXTURES_DIR).filter(RUNNABLE_FIXTURE)) {
         args,
         repoRoot: tmpRepo,
         today: FIXTURE_TODAY,
+        diffTouchedFiles: diffTouchedFiles ?? null,
       });
       assert.equal(
         result.exitCode,
