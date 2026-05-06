@@ -13,6 +13,7 @@
 //   verifyTypeSignature / verifyFileOverlap /
 //   verifyPlanIdentity                                    — §5.1 step 3 verifiers
 
+import { execSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import process from "node:process";
@@ -1205,10 +1206,29 @@ export async function runHousekeeper({
   return { exitCode: scriptExitCode, manifestPath };
 }
 
+// Diff source: post-merge HEAD names the squash-merged commit on `develop`.
+// `git diff-tree --no-commit-id --name-only -r --root HEAD` enumerates files
+// touched by that commit; the verifier trio (§5.1 step 3) reads this set to
+// check Type-signature + file-overlap. The `--root` flag handles the edge case
+// of HEAD being a root commit (no parent) — without it, root commits return an
+// empty set and silently skip the verifier trio. Spec §5.1 Synopsis (line
+// 482-486) does NOT prescribe a `--diff-source` flag, so HEAD is the implicit
+// default. Tests pass `diffTouchedFiles` directly (bypassing this CLI block)
+// for hermeticity.
+export function readGitDiffTouchedFiles(repoRoot) {
+  const out = execSync("git diff-tree --no-commit-id --name-only -r --root HEAD", {
+    cwd: repoRoot,
+    encoding: "utf8",
+  });
+  return out.trim().split("\n").filter(Boolean);
+}
+
 if (import.meta.url === `file://${process.argv[1]}`) {
   try {
     const args = parseArgs(process.argv.slice(2));
-    const result = await runHousekeeper({ args, repoRoot: process.cwd() });
+    const repoRoot = process.cwd();
+    const diffTouchedFiles = readGitDiffTouchedFiles(repoRoot);
+    const result = await runHousekeeper({ args, repoRoot, diffTouchedFiles });
     process.exit(result.exitCode);
   } catch (err) {
     if (err instanceof ParseArgsError) {

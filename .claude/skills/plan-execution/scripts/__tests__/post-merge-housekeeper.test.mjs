@@ -4,9 +4,11 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import process from "node:process";
 import { fileURLToPath } from "node:url";
 import {
   parseNsHeading,
@@ -26,6 +28,7 @@ import {
   emitManifest,
   reserveNextFreeNs,
   checkDuplicateTitle,
+  readGitDiffTouchedFiles,
   runHousekeeper,
 } from "../post-merge-housekeeper.mjs";
 import {
@@ -1128,3 +1131,105 @@ for (const fixture of listFixtures(FIXTURES_DIR).filter(RUNNABLE_FIXTURE)) {
     }
   });
 }
+
+// ---------- CLI entrypoint diff-source wiring (Codex thread r3193301906) ----------
+// Pre-fix, the CLI block at the bottom of post-merge-housekeeper.mjs called
+// `runHousekeeper({ args, repoRoot })` without `diffTouchedFiles`. With null
+// touched-files, the verifier trio (Type-signature / file-overlap / plan-identity)
+// is silently skipped — misdispatch protection disabled. Now the CLI derives
+// it via `git diff-tree --no-commit-id --name-only -r HEAD`.
+
+function initTmpGitRepo(prefix) {
+  const repo = mkdtempSync(join(tmpdir(), prefix));
+  execFileSync("git", ["init", "-q", "-b", "main"], { cwd: repo });
+  execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: repo });
+  execFileSync("git", ["config", "user.name", "Test"], { cwd: repo });
+  execFileSync("git", ["config", "commit.gpgsign", "false"], { cwd: repo });
+  return repo;
+}
+
+test("readGitDiffTouchedFiles enumerates HEAD's touched-file set", () => {
+  const tmpRepo = initTmpGitRepo("git-diff-");
+  try {
+    writeFileSync(join(tmpRepo, "alpha.md"), "alpha\n");
+    writeFileSync(join(tmpRepo, "beta.ts"), "export const beta = 1;\n");
+    execFileSync("git", ["add", "alpha.md", "beta.ts"], { cwd: tmpRepo });
+    execFileSync("git", ["commit", "-q", "-m", "feat: two files"], { cwd: tmpRepo });
+    const touched = readGitDiffTouchedFiles(tmpRepo);
+    assert.deepEqual(touched.sort(), ["alpha.md", "beta.ts"]);
+  } finally {
+    rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test("CLI entrypoint reads HEAD diff and feeds verifier trio (regression for r3193301906)", () => {
+  const tmpRepo = initTmpGitRepo("cli-verifier-");
+  try {
+    // Minimal corpus + plan + commit. NS-99 is `code` Type but the diff
+    // touches a doc-only file → file-overlap verifier MUST fail (exit 2).
+    // Pre-fix, with null touched-files, this would silently flip status (exit 0).
+    const docsDir = join(tmpRepo, "docs", "architecture");
+    execFileSync("mkdir", ["-p", docsDir]);
+    const planDir = join(tmpRepo, "docs", "plans");
+    execFileSync("mkdir", ["-p", planDir]);
+    writeFileSync(
+      join(docsDir, "cross-plan-dependencies.md"),
+      [
+        "# Cross-Plan Dependencies",
+        "",
+        "## 6. NS Catalog",
+        "",
+        "### NS-99: Plan-099 Phase 1 — code-only entry",
+        "",
+        "- Status: `todo`",
+        "- Type: code",
+        "- Priority: `P3`",
+        "- Upstream: none",
+        "- References: [Plan-099](../plans/099-stub.md)",
+        "- Summary: Code-only entry whose References point at packages/foo/src/bar.ts.",
+        "- Exit Criteria: PR merges with file touched.",
+        "",
+        "```mermaid",
+        "graph TB",
+        "  NS99[NS-99: Plan-099 Phase 1<br/>code-only entry]:::ready",
+        "```",
+        "",
+      ].join("\n"),
+    );
+    writeFileSync(
+      join(planDir, "099-stub.md"),
+      ["# Plan-099", "", "### Phase 1 — stub", "", "#### Done Checklist", "", "- [ ] One", ""].join(
+        "\n",
+      ),
+    );
+    // Commit touches the plan stub only — code-Type NS-99's References cite
+    // packages/foo/src/bar.ts which is NOT in HEAD's touched-file set.
+    execFileSync("git", ["add", "."], { cwd: tmpRepo });
+    execFileSync("git", ["commit", "-q", "-m", "feat: doc-only commit"], { cwd: tmpRepo });
+    const scriptPath = join(HERE, "..", "post-merge-housekeeper.mjs");
+    const result = spawnSync(
+      process.execPath,
+      [scriptPath, "99", "--candidate-ns", "NS-99", "--plan", "099", "--phase", "1"],
+      { cwd: tmpRepo, encoding: "utf8" },
+    );
+    // Exit 2 = verification_failures; pre-fix, this returned 0 (verifier skipped).
+    assert.equal(
+      result.status,
+      2,
+      `expected exit 2 (verification_failures), got ${result.status}\nstderr: ${result.stderr}\nstdout: ${result.stdout}`,
+    );
+    const manifestPath = join(tmpRepo, ".agents", "tmp", "housekeeper-manifest-PR99.json");
+    assert.ok(existsSync(manifestPath), "manifest must exist on exit 2");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    assert.ok(
+      manifest.verification_failures.length > 0,
+      "verification_failures must be populated when CLI feeds diffTouchedFiles",
+    );
+    // Type-signature fires before file-overlap (NS-99 is `code` Type, diff is
+    // doc-only). Either kind proves the verifier trio actually ran — pre-fix,
+    // verification_failures was empty because diffTouchedFiles was null.
+    assert.equal(manifest.verification_failures[0].kind, "type_signature_mismatch");
+  } finally {
+    rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
