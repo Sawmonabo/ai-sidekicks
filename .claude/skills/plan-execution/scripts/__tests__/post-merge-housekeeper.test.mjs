@@ -1362,6 +1362,70 @@ test("runHousekeeper: multi-pr --task that does not match any unchecked row exit
   }
 });
 
+test("runHousekeeper: multi-pr --task references an already-checked (shipped) row exits 2 with multi_pr_task_not_in_block (Mode B)", async () => {
+  // The original Bug-4 silent-pass class: PRS_UNCHECKED_ROW_RE only matches
+  // `[ ]` rows, so re-dispatching a task whose row is already `[x]` (shipped
+  // in a prior PR) used to skip the tick-loop without surfacing — the entry
+  // looked unchanged AND the script exited 0. Pre-validation now catches this
+  // alongside Mode A (taskRow absent entirely): both routed to the same
+  // verification kind because they are both orchestrator-misdispatch.
+  const tmpRepo = mkdtempSync(join(tmpdir(), "task-already-checked-"));
+  try {
+    const docsDir = join(tmpRepo, "docs", "architecture");
+    execFileSync("mkdir", ["-p", docsDir]);
+    writeFileSync(
+      join(docsDir, "cross-plan-dependencies.md"),
+      [
+        "# Cross-Plan Dependencies",
+        "",
+        "## 6. NS Catalog",
+        "",
+        "### NS-94: Plan-094 Phase 1 — multi-PR with one already-shipped task",
+        "",
+        "- Status: `in_progress` (last shipped: PR #50, 2026-04-01)",
+        "- Type: cleanup",
+        "- Priority: `P3`",
+        "- Upstream: none",
+        "- References: [Plan-094](../plans/094.md)",
+        "- Summary: T-094-1-1 already shipped in PR #50; T-094-1-2 still unchecked.",
+        "- Exit Criteria: PR merges with both ticks.",
+        "- PRs:",
+        "  - [x] T-094-1-1 — first sub-task (PR #50, merged 2026-04-01)",
+        "  - [ ] T-094-1-2 — second sub-task",
+        "",
+      ].join("\n"),
+    );
+    const result = await runHousekeeper({
+      args: {
+        prNumber: 94,
+        plan: "094",
+        phase: "1",
+        // T-094-1-1 IS in the PRs block — but it is already [x]. Pre-fix this
+        // would silently no-op (exit 0); the fix routes it to exit 2.
+        task: "T-094-1-1",
+        candidateNs: "NS-94",
+      },
+      repoRoot: tmpRepo,
+      today: "2026-05-06",
+    });
+    assert.equal(result.exitCode, 2);
+    const manifestPath = join(tmpRepo, ".agents", "tmp", "housekeeper-manifest-PR94.json");
+    assert.ok(existsSync(manifestPath));
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    assert.equal(manifest.verification_failures.length, 1);
+    assert.equal(manifest.verification_failures[0].kind, "multi_pr_task_not_in_block");
+    assert.equal(manifest.verification_failures[0].ns_id, "NS-94");
+    assert.equal(manifest.verification_failures[0].task_id, "T-094-1-1");
+    // Mechanical no-op — Status, the [x] row, and the [ ] row all intact.
+    const corpus = readFileSync(join(docsDir, "cross-plan-dependencies.md"), "utf8");
+    assert.match(corpus, /^- Status: `in_progress` \(last shipped: PR #50, 2026-04-01\)$/m);
+    assert.match(corpus, /^ {2}- \[x\] T-094-1-1 — first sub-task \(PR #50, merged 2026-04-01\)$/m);
+    assert.match(corpus, /^ {2}- \[ \] T-094-1-2 — second sub-task$/m);
+  } finally {
+    rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
 test("runHousekeeper: comma-list multi-pr --task that does not match any unchecked row exits 2 (multi-candidate via validateCandidate)", async () => {
   const tmpRepo = mkdtempSync(join(tmpdir(), "task-not-in-block-multi-"));
   try {
