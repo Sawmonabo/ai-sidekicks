@@ -2,6 +2,12 @@ import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
 
+// Module-scope literal: the placeholder string the script writes into stubbed `Status:` lines and
+// `semantic_edits` values for the subagent to replace. Kept in one place so a future change to the
+// literal (or to the validator's checks for it) stays in sync across `validateManifestSubagentStage`
+// and `walkForPlaceholder`. Module-private — the prompt template embeds the literal as prose.
+const PLACEHOLDER = "<TODO subagent prose>";
+
 // Canonical subagent prompt template — verbatim from
 // .claude/skills/plan-execution/references/post-merge-housekeeper-contract.md §Canonical Subagent Prompt Template.
 // Plan §Decisions-Locked D-1: this contract is canonical; the script reproduces it verbatim,
@@ -78,7 +84,6 @@ export function buildHousekeeperPrompt({ manifestPath, scriptExitCode, prNumber,
  */
 export function validateManifestSubagentStage({ manifest, repoRoot = process.cwd() }) {
   const gaps = [];
-  const PLACEHOLDER = "<TODO subagent prose>";
 
   for (const item of manifest.semantic_work_pending ?? []) {
     const inEdits =
@@ -125,7 +130,7 @@ export function validateManifestSubagentStage({ manifest, repoRoot = process.cwd
  */
 function walkForPlaceholder(value, path, onHit) {
   if (typeof value === "string") {
-    if (value.includes("<TODO subagent prose>")) onHit(path);
+    if (value.includes(PLACEHOLDER)) onHit(path);
     return;
   }
   if (Array.isArray(value)) {

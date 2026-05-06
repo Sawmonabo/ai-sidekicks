@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -73,20 +73,24 @@ test("validateManifestSubagentStage: fail when pending item is unaddressed", () 
 
 test("validateManifestSubagentStage: fail when <TODO subagent prose> placeholder still present in any affected file", () => {
   const tmpRepo = mkdtempSync(join(tmpdir(), "validate-todo-"));
-  mkdirSync(join(tmpRepo, "docs/architecture"), { recursive: true });
-  writeFileSync(
-    join(tmpRepo, "docs/architecture/cross-plan-dependencies.md"),
-    "### NS-01: foo\n- Status: `completed` (resolved 2026-05-03 via PR #30 — <TODO subagent prose>)\n",
-  );
-  const manifest = {
-    semantic_work_pending: [],
-    semantic_edits: {},
-    concerns: [],
-    affected_files: ["docs/architecture/cross-plan-dependencies.md"],
-  };
-  const result = validateManifestSubagentStage({ manifest, repoRoot: tmpRepo });
-  assert.equal(result.valid, false);
-  assert.match(result.gaps[0], /<TODO subagent prose>/);
+  try {
+    mkdirSync(join(tmpRepo, "docs/architecture"), { recursive: true });
+    writeFileSync(
+      join(tmpRepo, "docs/architecture/cross-plan-dependencies.md"),
+      "### NS-01: foo\n- Status: `completed` (resolved 2026-05-03 via PR #30 — <TODO subagent prose>)\n",
+    );
+    const manifest = {
+      semantic_work_pending: [],
+      semantic_edits: {},
+      concerns: [],
+      affected_files: ["docs/architecture/cross-plan-dependencies.md"],
+    };
+    const result = validateManifestSubagentStage({ manifest, repoRoot: tmpRepo });
+    assert.equal(result.valid, false);
+    assert.match(result.gaps[0], /<TODO subagent prose>/);
+  } finally {
+    rmSync(tmpRepo, { recursive: true, force: true });
+  }
 });
 
 test("validateManifestSubagentStage: fail when <TODO subagent prose> placeholder appears in semantic_edits values (P2 fix)", () => {

@@ -2685,21 +2685,25 @@ test("validateManifestSubagentStage: fail when pending item is unaddressed", () 
 
 test("validateManifestSubagentStage: fail when <TODO subagent prose> placeholder still present in any affected file", () => {
   const tmpRepo = mkdtempSync(join(tmpdir(), "validate-todo-"));
-  // Author docs/architecture/cross-plan-dependencies.md with the placeholder string in a Status: line
-  mkdirSync(join(tmpRepo, "docs/architecture"), { recursive: true });
-  writeFileSync(
-    join(tmpRepo, "docs/architecture/cross-plan-dependencies.md"),
-    "### NS-01: foo\n- Status: `completed` (resolved 2026-05-03 via PR #30 — <TODO subagent prose>)\n",
-  );
-  const manifest = {
-    semantic_work_pending: [],
-    semantic_edits: {},
-    concerns: [],
-    affected_files: ["docs/architecture/cross-plan-dependencies.md"],
-  };
-  const result = validateManifestSubagentStage({ manifest, repoRoot: tmpRepo });
-  assert.equal(result.valid, false);
-  assert.match(result.gaps[0], /<TODO subagent prose>/);
+  try {
+    // Author docs/architecture/cross-plan-dependencies.md with the placeholder string in a Status: line
+    mkdirSync(join(tmpRepo, "docs/architecture"), { recursive: true });
+    writeFileSync(
+      join(tmpRepo, "docs/architecture/cross-plan-dependencies.md"),
+      "### NS-01: foo\n- Status: `completed` (resolved 2026-05-03 via PR #30 — <TODO subagent prose>)\n",
+    );
+    const manifest = {
+      semantic_work_pending: [],
+      semantic_edits: {},
+      concerns: [],
+      affected_files: ["docs/architecture/cross-plan-dependencies.md"],
+    };
+    const result = validateManifestSubagentStage({ manifest, repoRoot: tmpRepo });
+    assert.equal(result.valid, false);
+    assert.match(result.gaps[0], /<TODO subagent prose>/);
+  } finally {
+    rmSync(tmpRepo, { recursive: true, force: true });
+  }
 });
 
 // P2 fix — validator MUST also scan the VALUES inside semantic_edits.* for leftover placeholders.
@@ -2751,10 +2755,10 @@ test("validateManifestSubagentStage: scans nested semantic_edits values (e.g. ar
 });
 ```
 
-The new tests reference `mkdirSync` and `writeFileSync` — add to the test file's `node:fs` import block (collapse with any existing `node:fs` import line):
+The new tests reference `mkdirSync`, `writeFileSync`, and `rmSync` (Test 6 reaps its tmp dir via `try/finally` to match the sibling `post-merge-housekeeper.test.mjs` convention) — add to the test file's `node:fs` import block (collapse with any existing `node:fs` import line):
 
 ```js
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from "node:fs";
 ```
 
 - [ ] **Step 2: FAIL → implement → PASS → commit.**
@@ -2765,6 +2769,12 @@ Implementation:
 // .claude/skills/plan-execution/lib/housekeeper-orchestrator-helpers.mjs
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
+
+// Module-scope literal: the placeholder string the script writes into stubbed `Status:` lines and
+// `semantic_edits` values for the subagent to replace. Kept in one place so a future change to the
+// literal (or to the validator's checks for it) stays in sync across `validateManifestSubagentStage`
+// and `walkForPlaceholder`. Module-private — the prompt template embeds the literal as prose.
+const PLACEHOLDER = "<TODO subagent prose>";
 
 export function buildHousekeeperPrompt({ manifestPath, scriptExitCode, prNumber, manifest }) {
   // Pure string composition; tests pin prompt drift.
@@ -2790,7 +2800,6 @@ export function buildHousekeeperPrompt({ manifestPath, scriptExitCode, prNumber,
 
 export function validateManifestSubagentStage({ manifest, repoRoot = process.cwd() }) {
   const gaps = [];
-  const PLACEHOLDER = "<TODO subagent prose>";
 
   for (const item of manifest.semantic_work_pending ?? []) {
     const inEdits =
@@ -2835,7 +2844,7 @@ export function validateManifestSubagentStage({ manifest, repoRoot = process.cwd
 // messages can pinpoint which nested field carries the placeholder.
 function walkForPlaceholder(value, path, onHit) {
   if (typeof value === "string") {
-    if (value.includes("<TODO subagent prose>")) onHit(path);
+    if (value.includes(PLACEHOLDER)) onHit(path);
     return;
   }
   if (Array.isArray(value)) {
