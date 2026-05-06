@@ -1,0 +1,7 @@
+{
+  "prNumber": 42,
+  "plan": "024",
+  "phase": "1",
+  "candidateNs": "NS-01",
+  "diffTouchedFiles": ["packages/different-pkg/src/main.rs"]
+}

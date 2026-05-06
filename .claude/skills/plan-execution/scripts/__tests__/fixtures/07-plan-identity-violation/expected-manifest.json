@@ -1,0 +1,26 @@
+{
+  "generated_at": "2026-05-03T00:00:00Z",
+  "pr_number": 43,
+  "plan": "999",
+  "phase": "1",
+  "task_id": null,
+  "script_exit_code": 2,
+  "matched_entry": {
+    "ns_id": "NS-01",
+    "heading": "### NS-01: Plan-024 Phase 1 — Rust crate scaffolding",
+    "shape": "single-pr",
+    "file": "docs/architecture/cross-plan-dependencies.md",
+    "heading_line": 5
+  },
+  "auto_create": null,
+  "mechanical_edits": {},
+  "schema_violations": [],
+  "verification_failures": [{ "kind": "plan_identity_missing" }],
+  "affected_files": [],
+  "semantic_work_pending": [],
+  "warnings": [],
+  "subagent_completed_at": null,
+  "semantic_edits": {},
+  "concerns": [],
+  "result": null
+}

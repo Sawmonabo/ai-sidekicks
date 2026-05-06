@@ -900,6 +900,41 @@ export async function runHousekeeper({
       });
       return { exitCode: 2 };
     }
+    const refs = extractFileReferences({
+      references: fields.references,
+      summary: fields.summary,
+      repoRoot,
+      entryFile: corpusPath,
+    });
+    const overlapCheck = verifyFileOverlap({
+      type: fields.type,
+      refs,
+      touched: diffTouchedFiles,
+    });
+    if (!overlapCheck.ok) {
+      emitFailureManifest({
+        ...baseManifest,
+        scriptExitCode: 2,
+        matchedEntry: { ...matchedEntryBase, shape },
+        verificationFailures: [overlapCheck.failure],
+      });
+      return { exitCode: 2 };
+    }
+    const identityCheck = verifyPlanIdentity({
+      headingTitle: located.headingTitle,
+      args,
+      type: fields.type,
+      rangeBoundaries: null,
+    });
+    if (!identityCheck.ok) {
+      emitFailureManifest({
+        ...baseManifest,
+        scriptExitCode: 2,
+        matchedEntry: { ...matchedEntryBase, shape },
+        verificationFailures: [identityCheck.failure],
+      });
+      return { exitCode: 2 };
+    }
   }
 
   if (shape === "multi-pr" && !args.task) {
