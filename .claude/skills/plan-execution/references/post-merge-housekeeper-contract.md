@@ -176,7 +176,7 @@ Your responsibilities (per Spec §5.4 / §6.2):
 
 4. Reconcile schema_violations — every entry in `manifest.schema_violations` MUST surface in `manifest.concerns[]` with `kind: "schema_violation"`. The script halted with exit ≥1 if any are present; the subagent's job is to surface them, not silently fix them.
 
-5. Bound your edits to `manifest.affected_files` — out-of-scope edits trigger a sprawl violation and route to DONE_WITH_CONCERNS per `references/failure-modes.md` rule 21.
+5. Bound your edits to `manifest.affected_files` — out-of-scope edits trigger an orchestrator round-trip per `references/failure-modes.md` rule 20 (sprawl routing). To justify a scope expansion, add a `concerns` entry `{kind: affected_files_extension, addressing: <reason>}` and extend `affected_files`.
 
 6. Write back the updated manifest (overwrite `<manifest-path>`) plus any direct file edits via the Edit tool.
 
