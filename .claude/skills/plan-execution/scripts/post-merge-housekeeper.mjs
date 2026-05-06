@@ -1096,6 +1096,17 @@ export async function runHousekeeper({
       bodyEnd: located.bodyEnd,
     });
     const fromLine = corpusLines[statusLineIndex];
+    // Derive upstream-blocked signal from the current Status line's textual
+    // form per spec §3a.2 row 5 ("Upstream blocked-on cite present?"). The
+    // cite shape mirrors what applyMultiPrTickAndRecompute writes back when
+    // it preserves the override (line ~550): `blocked` (blocked-on NS-XX; ...).
+    // Read-then-pass-through: the orchestrator does NOT recurse into the
+    // upstream entry; it trusts the entry's own current Status line as the
+    // authoritative blocked-on cite. If the upstream NS becomes unblocked, a
+    // separate housekeeping cycle on THAT entry refreshes both.
+    const blockedOnMatch = /^- Status:\s*`blocked`\s*\(blocked-on\s+(NS-\d+[a-z]?)/.exec(fromLine);
+    const upstreamBlocked = blockedOnMatch !== null;
+    const upstreamNsRef = upstreamBlocked ? blockedOnMatch[1] : null;
     corpusLines = applyMultiPrTickAndRecompute({
       lines: corpusLines,
       statusLineIndex,
@@ -1103,8 +1114,8 @@ export async function runHousekeeper({
       taskId: args.task,
       prNumber: args.prNumber,
       today,
-      upstreamBlocked: false,
-      upstreamNsRef: null,
+      upstreamBlocked,
+      upstreamNsRef,
     });
     prsBlockTicks = [{ ns_id: nsId, task_id: args.task }];
     statusFlip = {

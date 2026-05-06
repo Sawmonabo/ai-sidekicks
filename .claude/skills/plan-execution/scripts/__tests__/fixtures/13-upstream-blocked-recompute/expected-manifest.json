@@ -1,0 +1,49 @@
+{
+  "generated_at": "2026-05-03T00:00:00Z",
+  "pr_number": 200,
+  "plan": "050",
+  "phase": "2",
+  "task_id": "T-050-2-2",
+  "script_exit_code": 0,
+  "matched_entry": {
+    "ns_id": "NS-50b",
+    "heading": "### NS-50b: Plan-050 Phase 2 — multi-PR upstream-blocked recompute",
+    "shape": "multi-pr",
+    "file": "docs/architecture/cross-plan-dependencies.md",
+    "heading_line": 5
+  },
+  "auto_create": null,
+  "mechanical_edits": {
+    "status_flip": {
+      "ns_id": "NS-50b",
+      "from_line": "- Status: `blocked` (blocked-on NS-50; last shipped: PR #100, 2026-04-15)",
+      "to_line": "- Status: `blocked` (blocked-on NS-50; last shipped: PR #200, 2026-05-03)",
+      "computed_via": "prs-matrix recompute"
+    },
+    "prs_block_ticks": [{ "ns_id": "NS-50b", "task_id": "T-050-2-2" }],
+    "mermaid_class_swap": null,
+    "plan_checklist_ticks": [
+      {
+        "file": "docs/plans/050-fixture.md",
+        "phase": "2",
+        "items_ticked": 3
+      }
+    ]
+  },
+  "schema_violations": [],
+  "verification_failures": [],
+  "affected_files": ["docs/architecture/cross-plan-dependencies.md", "docs/plans/050-fixture.md"],
+  "semantic_work_pending": [
+    "compose_status_completion_prose",
+    "ready_set_re_derivation",
+    "line_cite_sweep",
+    "set_quantifier_reverification",
+    "ns_auto_create_evaluation",
+    "unannotated_referenced_files_check"
+  ],
+  "warnings": [],
+  "subagent_completed_at": null,
+  "semantic_edits": {},
+  "concerns": [],
+  "result": null
+}
