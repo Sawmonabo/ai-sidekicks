@@ -30,6 +30,7 @@
     "plan_checklist_ticks": []
   },
   "schema_violations": [],
+  "verification_failures": [],
   "affected_files": ["docs/architecture/cross-plan-dependencies.md"],
   "semantic_work_pending": [
     "compose_status_completion_prose",

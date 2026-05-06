@@ -438,17 +438,17 @@ export function verifyTypeSignature({ type, touchedFiles }) {
   }
   const { docs, code } = partitionTouches(touchedFiles);
   if (type === "code") {
-    return code ? { ok: true } : { ok: false, failure: { kind: "type_signature_violation" } };
+    return code ? { ok: true } : { ok: false, failure: { kind: "type_signature_mismatch" } };
   }
   if (isAudit(type) || GOVERNANCE_TYPES.has(type)) {
     return docs && !code
       ? { ok: true }
-      : { ok: false, failure: { kind: "type_signature_violation" } };
+      : { ok: false, failure: { kind: "type_signature_mismatch" } };
   }
   if (isCodeGovernance(type)) {
     return docs && code
       ? { ok: true }
-      : { ok: false, failure: { kind: "type_signature_violation" } };
+      : { ok: false, failure: { kind: "type_signature_mismatch" } };
   }
   return { ok: false, failure: { kind: "type_signature_unknown_type" } };
 }
@@ -634,6 +634,7 @@ export function emitManifest({
   autoCreate = null,
   mechanicalEdits = {},
   schemaViolations = [],
+  verificationFailures = [],
   affectedFiles = [],
   semanticWorkPending = [],
   warnings = [],
@@ -667,6 +668,7 @@ export function emitManifest({
           },
     mechanical_edits: mechanicalEdits,
     schema_violations: schemaViolations,
+    verification_failures: verificationFailures,
     affected_files: affectedFiles,
     semantic_work_pending: semanticWorkPending,
     warnings,
@@ -894,7 +896,7 @@ export async function runHousekeeper({
         ...baseManifest,
         scriptExitCode: 2,
         matchedEntry: { ...matchedEntryBase, shape },
-        schemaViolations: [typeCheck.failure],
+        verificationFailures: [typeCheck.failure],
       });
       return { exitCode: 2 };
     }
