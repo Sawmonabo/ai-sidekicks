@@ -2,19 +2,16 @@
 // post-merge-housekeeper.mjs — plan-execution skill housekeeper script.
 //
 // Stage 1 of a 2-stage post-merge automation. Authoritative contract:
-// ../references/post-merge-housekeeper-contract.md (added in PR 4); design
-// at docs/superpowers/specs/2026-05-03-plan-execution-housekeeper-design.md.
-// This commit (C3 of PR #32) lands only the pure parsers — orchestrator,
-// arg parsing, mechanical edits, and manifest emission ship in C4-C9.
+// ../references/post-merge-housekeeper-contract.md; design at
+// docs/superpowers/specs/2026-05-03-plan-execution-housekeeper-design.md.
 //
-// Pure parsers exported here:
-//   - parseNsHeading      (Task 3.2 — §3a.1 grammar)
-//   - parseSubFields      (Task 3.3 — Status/Type/Priority/Upstream/References/
-//                          Summary/Exit Criteria)
-//   - parsePRsBlock       (Task 3.4 — multi-PR block grammar)
-//   - computeStatusFromPRs(Task 3.5 — §3a.2 6-row completion matrix)
-//   - extractFileReferences(Task 3.6 — §3a.4 file/dir + brace expansion)
-//   - parseArgs           (Task 3.7 — §5.1 step 0 argv → typed args, throws ParseArgsError)
+// Public surface (used by runHousekeeper + tests):
+//   parseNsHeading / parseSubFields / parsePRsBlock      — §6 entry parsers
+//   computeStatusFromPRs                                  — §3a.2 6-row matrix
+//   extractFileReferences                                 — §3a.4 path heuristic
+//   parseArgs + ParseArgsError                            — §5.1 step 0
+//   verifyTypeSignature / verifyFileOverlap /
+//   verifyPlanIdentity                                    — §5.1 step 3 verifiers
 
 import { existsSync, statSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
@@ -392,4 +389,119 @@ export function parseArgs(argv) {
     throw new ParseArgsError("--auto-create requires at least one of --plan, --task, --tier", 6);
   }
   return result;
+}
+
+// ---------- Tasks 3.8-3.10: verifiers (§5.1 step 3) ----------
+//
+// Three-state outcome for callers (orchestrator, Task 3.18):
+//   { ok: true }                                     — pass, no annotation needed
+//   { ok: true, kind: "<discriminator>" }            — pass with discriminator (file-overlap)
+//   { ok: true, concerns: [{kind: "..."}] }          — pass with concern → manifest annotation
+//   { ok: false, failure: { kind: "..." } }          — halt, surface in verification_failures
+//
+// SKIP families (per §5.1 step 3 carve-outs):
+//   cleanup* / governance* — SKIP file-overlap AND plan-identity
+//   audit*                 — SKIP file-overlap (plan-identity still checked via Plan-NNN substring)
+
+const CLEANUP_TYPES = new Set(["cleanup", "cleanup (doc-only)"]);
+const GOVERNANCE_TYPES = new Set([
+  "governance",
+  "governance (doc-only)",
+  "governance (load-bearing)",
+]);
+
+function isAudit(type) {
+  return type.startsWith("audit");
+}
+
+function isCodeGovernance(type) {
+  return (
+    type === "code + governance" ||
+    type === "code (cross-plan PR pair, internally a 3-step sequence)"
+  );
+}
+
+function partitionTouches(touchedFiles) {
+  let docs = false;
+  let code = false;
+  for (const f of touchedFiles) {
+    if (f.startsWith("docs/")) docs = true;
+    else code = true;
+  }
+  return { docs, code };
+}
+
+export function verifyTypeSignature({ type, touchedFiles }) {
+  if (CLEANUP_TYPES.has(type)) {
+    return { ok: true, concerns: [{ kind: "cleanup_diff_unverified" }] };
+  }
+  const { docs, code } = partitionTouches(touchedFiles);
+  if (type === "code") {
+    return code ? { ok: true } : { ok: false, failure: { kind: "type_signature_violation" } };
+  }
+  if (isAudit(type) || GOVERNANCE_TYPES.has(type)) {
+    return docs && !code
+      ? { ok: true }
+      : { ok: false, failure: { kind: "type_signature_violation" } };
+  }
+  if (isCodeGovernance(type)) {
+    return docs && code
+      ? { ok: true }
+      : { ok: false, failure: { kind: "type_signature_violation" } };
+  }
+  return { ok: false, failure: { kind: "type_signature_unknown_type" } };
+}
+
+const FILE_OVERLAP_SKIP_TYPES = new Set([...CLEANUP_TYPES, ...GOVERNANCE_TYPES]);
+
+export function verifyFileOverlap({ type, refs, touched }) {
+  if (FILE_OVERLAP_SKIP_TYPES.has(type) || isAudit(type)) {
+    return { ok: true, kind: "skip" };
+  }
+  const refsEmpty = refs.files.length === 0 && refs.directories.length === 0;
+  if (refsEmpty) {
+    return { ok: true, concerns: [{ kind: "file_overlap_unverifiable_for_sparse_body" }] };
+  }
+  const touchedSet = new Set(touched);
+  let kind = null;
+  for (const f of refs.files) {
+    if (touchedSet.has(f)) {
+      kind = "pass_file_path";
+      break;
+    }
+  }
+  if (kind === null) {
+    for (const d of refs.directories) {
+      if (touched.some((t) => t.startsWith(d))) {
+        kind = "pass_dir_prefix";
+        break;
+      }
+    }
+  }
+  if (kind === null) {
+    return { ok: false, failure: { kind: "file_overlap_zero" } };
+  }
+  const allRefsDocs =
+    refs.files.every((f) => f.startsWith("docs/")) &&
+    refs.directories.every((d) => d.startsWith("docs/"));
+  if (allRefsDocs) kind = "pass_doc_path_only";
+  return { ok: true, kind };
+}
+
+const PLAN_IDENTITY_SKIP_TYPES = new Set([...CLEANUP_TYPES, ...GOVERNANCE_TYPES]);
+
+export function verifyPlanIdentity({ headingTitle, args, type, rangeBoundaries }) {
+  if (PLAN_IDENTITY_SKIP_TYPES.has(type)) {
+    return { ok: true, concerns: [{ kind: "plan_identity_skipped_for_manual_dispatch" }] };
+  }
+  if (args.plan && headingTitle.includes(`Plan-${args.plan}`)) return { ok: true };
+  if (args.task && headingTitle.includes(args.task)) return { ok: true };
+  if (args.tier) {
+    if (headingTitle.includes(`Tier ${args.tier}`)) return { ok: true };
+    if (rangeBoundaries) {
+      const k = Number(args.tier);
+      if (k >= rangeBoundaries.K1 && k <= rangeBoundaries.K2) return { ok: true };
+    }
+  }
+  return { ok: false, failure: { kind: "plan_identity_missing" } };
 }

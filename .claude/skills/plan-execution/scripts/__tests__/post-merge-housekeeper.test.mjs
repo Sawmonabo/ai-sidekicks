@@ -14,6 +14,9 @@ import {
   extractFileReferences,
   parseArgs,
   ParseArgsError,
+  verifyTypeSignature,
+  verifyFileOverlap,
+  verifyPlanIdentity,
 } from "../post-merge-housekeeper.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -408,4 +411,225 @@ test("parseArgs: shape-validation violations also carry exit code ≥6", () => {
   }
   assert.ok(err instanceof ParseArgsError);
   assert.ok(err.exitCode >= 6);
+});
+
+// ---------- verifyTypeSignature (Task 3.8 — §5.1 step 3 first sub-bullet) ----------
+
+test("verifyTypeSignature: code Type accepts packages/ + apps/ touches", () => {
+  assert.deepEqual(
+    verifyTypeSignature({ type: "code", touchedFiles: ["packages/runtime-daemon/src/foo.ts"] }),
+    { ok: true },
+  );
+  assert.deepEqual(
+    verifyTypeSignature({ type: "code", touchedFiles: ["apps/desktop/src/main.ts"] }),
+    { ok: true },
+  );
+  assert.deepEqual(
+    verifyTypeSignature({
+      type: "code",
+      touchedFiles: [".github/workflows/ci.yml", "packages/sidecar-rust-pty/Cargo.toml"],
+    }),
+    { ok: true },
+  );
+});
+
+test("verifyTypeSignature: code Type rejects pure-doc diff", () => {
+  assert.equal(
+    verifyTypeSignature({ type: "code", touchedFiles: ["docs/plans/024-rust-pty-sidecar.md"] }).ok,
+    false,
+  );
+});
+
+test("verifyTypeSignature: audit (doc-only) rejects packages/ touches", () => {
+  assert.equal(
+    verifyTypeSignature({
+      type: "audit (doc-only)",
+      touchedFiles: ["packages/contracts/src/foo.ts"],
+    }).ok,
+    false,
+  );
+  assert.equal(
+    verifyTypeSignature({ type: "audit (doc-only)", touchedFiles: ["docs/plans/002-foo.md"] }).ok,
+    true,
+  );
+});
+
+test("verifyTypeSignature: code + governance requires BOTH docs/ and packages|apps/", () => {
+  assert.equal(
+    verifyTypeSignature({
+      type: "code + governance",
+      touchedFiles: ["docs/plans/024-foo.md", "packages/foo/src/bar.ts"],
+    }).ok,
+    true,
+  );
+  assert.equal(
+    verifyTypeSignature({ type: "code + governance", touchedFiles: ["packages/foo/src/bar.ts"] })
+      .ok,
+    false,
+  );
+});
+
+test("verifyTypeSignature: cleanup is permissive with cleanup_diff_unverified concern", () => {
+  const result = verifyTypeSignature({ type: "cleanup", touchedFiles: ["any/file.ts"] });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.concerns, [{ kind: "cleanup_diff_unverified" }]);
+});
+
+// ---------- verifyFileOverlap (Task 3.9 — §5.1 step 3 second sub-bullet) ----------
+
+test("verifyFileOverlap (code, file-path entry): PASS when intersect non-empty", () => {
+  const refs = { files: ["packages/sidecar-rust-pty/src/main.rs"], directories: [] };
+  const touched = ["packages/sidecar-rust-pty/src/main.rs"];
+  assert.deepEqual(verifyFileOverlap({ type: "code", refs, touched }), {
+    ok: true,
+    kind: "pass_file_path",
+  });
+});
+
+test("verifyFileOverlap (code, dir-prefix entry): PASS when any touched file starts with dir", () => {
+  const refs = { files: [], directories: ["packages/runtime-daemon/src/pty/"] };
+  const touched = ["packages/runtime-daemon/src/pty/node-pty-host.ts"];
+  assert.deepEqual(verifyFileOverlap({ type: "code", refs, touched }), {
+    ok: true,
+    kind: "pass_dir_prefix",
+  });
+});
+
+test("verifyFileOverlap (code, refs non-empty + intersection empty): halt file_overlap_zero", () => {
+  const refs = { files: ["packages/sidecar-rust-pty/src/main.rs"], directories: [] };
+  const touched = ["docs/plans/007-foo.md"];
+  const result = verifyFileOverlap({ type: "code", refs, touched });
+  assert.equal(result.ok, false);
+  assert.equal(result.failure.kind, "file_overlap_zero");
+});
+
+test("verifyFileOverlap (code, refs empty): SOFT-WARN file_overlap_unverifiable_for_sparse_body", () => {
+  const refs = { files: [], directories: [] };
+  const result = verifyFileOverlap({ type: "code", refs, touched: ["packages/foo/src/bar.ts"] });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.concerns, [{ kind: "file_overlap_unverifiable_for_sparse_body" }]);
+});
+
+test("verifyFileOverlap (audit Types): SKIP unconditionally", () => {
+  const result = verifyFileOverlap({
+    type: "audit (doc-only)",
+    refs: { files: [], directories: [] },
+    touched: [],
+  });
+  assert.deepEqual(result, { ok: true, kind: "skip" });
+});
+
+test("verifyFileOverlap (governance / cleanup Types): SKIP unconditionally", () => {
+  for (const t of [
+    "cleanup",
+    "cleanup (doc-only)",
+    "governance",
+    "governance (doc-only)",
+    "governance (load-bearing)",
+  ]) {
+    assert.deepEqual(
+      verifyFileOverlap({ type: t, refs: { files: [], directories: [] }, touched: [] }),
+      { ok: true, kind: "skip" },
+    );
+  }
+});
+
+test("verifyFileOverlap: doc-path-only PASS for NS-04-shape (References plan-link only)", () => {
+  const refs = {
+    files: ["docs/plans/001-shared-session-core.md", "docs/plans/024-rust-pty-sidecar.md"],
+    directories: [],
+  };
+  const touched = [
+    "docs/plans/001-shared-session-core.md",
+    "packages/runtime-daemon/src/session/spawn-cwd-translator.ts",
+  ];
+  const result = verifyFileOverlap({
+    type: "code (cross-plan PR pair, internally a 3-step sequence)",
+    refs,
+    touched,
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.kind, "pass_doc_path_only");
+});
+
+// ---------- verifyPlanIdentity (Task 3.10 — §5.1 step 3 third sub-bullet) ----------
+
+test("verifyPlanIdentity: passes when --plan substring present in heading", () => {
+  const result = verifyPlanIdentity({
+    headingTitle: "Plan-024 Phase 1 — Rust crate scaffolding",
+    args: { plan: "024" },
+    type: "code",
+  });
+  assert.equal(result.ok, true);
+});
+
+test("verifyPlanIdentity: fails when --plan substring missing", () => {
+  const result = verifyPlanIdentity({
+    headingTitle: "Plan-024 Phase 1",
+    args: { plan: "007" },
+    type: "code",
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.failure.kind, "plan_identity_missing");
+});
+
+test("verifyPlanIdentity: --task substring branch", () => {
+  assert.equal(
+    verifyPlanIdentity({
+      headingTitle: "Plan-001 T5.4 cwd-translator + Plan-024 T-024-2-1",
+      args: { plan: "001", task: "T5.4" },
+      type: "code (cross-plan PR pair, internally a 3-step sequence)",
+    }).ok,
+    true,
+  );
+});
+
+test("verifyPlanIdentity: --tier substring branch (rule 3)", () => {
+  assert.equal(
+    verifyPlanIdentity({
+      headingTitle: "Tier 2 plan-readiness audit — Plan-002",
+      args: { plan: "002", tier: "2" },
+      type: "audit (doc-only)",
+    }).ok,
+    true,
+  );
+});
+
+test("verifyPlanIdentity: --tier range-arithmetic branch (rule 4) — Tier 5 in [3, 9]", () => {
+  assert.equal(
+    verifyPlanIdentity({
+      headingTitle: "Tier 3-9 plan-readiness audits",
+      args: { tier: "5" },
+      type: "audit (doc-only chain)",
+      rangeBoundaries: { K1: 3, K2: 9 },
+    }).ok,
+    true,
+  );
+  assert.equal(
+    verifyPlanIdentity({
+      headingTitle: "Tier 3-9 plan-readiness audits",
+      args: { tier: "12" },
+      type: "audit (doc-only chain)",
+      rangeBoundaries: { K1: 3, K2: 9 },
+    }).ok,
+    false,
+  );
+});
+
+test("verifyPlanIdentity: cleanup/governance Types SKIP the check", () => {
+  for (const t of [
+    "cleanup",
+    "cleanup (doc-only)",
+    "governance",
+    "governance (doc-only)",
+    "governance (load-bearing)",
+  ]) {
+    const result = verifyPlanIdentity({
+      headingTitle: "anything no plan no tier",
+      args: {},
+      type: t,
+    });
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.concerns, [{ kind: "plan_identity_skipped_for_manual_dispatch" }]);
+  }
 });
