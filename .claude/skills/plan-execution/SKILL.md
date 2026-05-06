@@ -420,7 +420,7 @@ Route findings by the `Round-trip target:` value: with `Round-trip target: <task
 
 ### Phase E — Post-merge housekeeping
 
-Per Plan §Decisions-Locked D-3: Phase E ticks ALL Done-Checklist boxes for the merged Phase, not just the most recent task — this matches the orchestrator's complete-Phase-merge trigger.
+- Per Plan §Decisions-Locked D-3: Phase E ticks ALL Done-Checklist boxes for the merged Phase, not just the most recent task — this matches the orchestrator's complete-Phase-merge trigger.
 
 Phase E fires AFTER `gh pr merge --squash --delete-branch` returns success — i.e., after the squash-merge commit is on `develop`. It updates the §6 NS catalog and the plan's `Done Checklist` so the catalog stays a faithful index of what shipped. The housekeeper is a 7th plan-execution role (color: blue, tools: Read/Grep/Glob/Edit/Write); see `references/post-merge-housekeeper-contract.md` for the full contract.
 
