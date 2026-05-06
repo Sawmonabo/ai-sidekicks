@@ -232,6 +232,21 @@ async function* daemonSubscribe(
       void subscription.cancel().catch(() => undefined);
     };
     sig.addEventListener("abort", abortListener, { once: true });
+    // Race-close: if the signal aborted between the L202 pre-check and this
+    // addEventListener (e.g., during client.subscribe()'s synchronous envelope
+    // dispatch + StreamingPrimitive reservation), the listener missed the
+    // abort event. Re-check sig.aborted now and fire the same cancel path
+    // the listener would have. Without this, the daemon's subscription stays
+    // live and the for-await parks indefinitely on a caller-canceled stream.
+    // Use truthy `sig.aborted` (NOT `=== true`) — `sig` is already narrowed to
+    // `AbortSignal` by the `options.signal !== undefined` block, so TS knows
+    // `sig.aborted` is `boolean`. The `=== true` discipline only matters when
+    // the type might widen via optional chaining.
+    if (sig.aborted) {
+      sig.removeEventListener("abort", abortListener);
+      void subscription.cancel().catch(() => undefined);
+      return;
+    }
   }
 
   try {
@@ -544,6 +559,28 @@ async function* controlPlaneSubscribe(
   }
   if (response.body === null) {
     throw new Error("Control-plane subscribe: response body is null");
+  }
+  // WHATWG HTML §9.2.6 SSE parsing requires the response Content-Type to be
+  // `text/event-stream` (optional `; charset=utf-8` parameter). Without this
+  // check, an intermediary or auth layer that returns a non-SSE 200 payload
+  // (JSON error envelope, HTML login redirect, etc.) silently produces zero
+  // frames through the parser and the async generator ends cleanly —
+  // misreporting a failed subscription as a normal empty stream. Match the
+  // EventSource spec's fail-fast behavior: a non-SSE Content-Type on a 200
+  // response is a contract violation, not data. Regex anchors:
+  //   * `^text\/event-stream` — anchored start, literal type
+  //   * `\b` — word boundary so a hypothetical `text/event-streaming` type
+  //     does not match
+  //   * `/i` — case-insensitive per RFC 9110 §8.3.1 (media types are
+  //     case-insensitive)
+  // The regex tolerates the optional `; charset=utf-8` parameter naturally
+  // because it does not anchor on the end of the string.
+  const contentType = response.headers.get("Content-Type");
+  const isSse = contentType !== null && /^text\/event-stream\b/i.test(contentType);
+  if (!isSse) {
+    throw new Error(
+      `Control-plane subscribe: expected Content-Type 'text/event-stream', got '${contentType ?? "<missing>"}'`,
+    );
   }
 
   const reader = response.body.getReader();

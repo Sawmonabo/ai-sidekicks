@@ -1207,6 +1207,199 @@ describe("C6 / Codex RT-4 Finding 6 — control-plane subscribe request-setup-wi
 });
 
 // ---------------------------------------------------------------------------
+// C7 / Codex RT-5 Finding A — daemon subscribe re-checks AbortSignal AFTER
+// attaching the abort listener (race-close). Regression test for the bug where
+// a signal that aborted BETWEEN the L202 pre-check and the L234 addEventListener
+// (e.g., DURING `client.subscribe()`'s synchronous envelope dispatch +
+// StreamingPrimitive reservation) was missed: the listener never fired (already
+// dispatched), and the for-await parked indefinitely on a caller-canceled
+// stream while the daemon's subscription stayed live.
+//
+// Harness construction note: external `ac.abort()` after starting the consumer's
+// `for await` does NOT exercise this race — by the time the IIFE body's first
+// await yields control, the generator body has already attached the listener.
+// To put abort INSIDE the L202-to-L234 window we mock `client.subscribe` to call
+// `ac.abort()` synchronously inside its impl. This means: pre-check passes →
+// client.subscribe runs (mock fires abort) → addEventListener attaches AFTER the
+// abort already fired → re-check catches it and fires `subscription.cancel()`.
+// The contract the fix MUST close: "after the post-listener re-check, if signal
+// is aborted, cancel fires" — `cancelSpy` being called is the witness.
+// ---------------------------------------------------------------------------
+
+describe("C7 / Codex RT-5 Finding A — daemon subscribe re-checks AbortSignal after attaching abort listener", () => {
+  it("daemon transport: when signal aborts during client.subscribe() (after pre-check, before listener attach), the post-listener re-check fires subscription.cancel() and the iterable yields zero values", async () => {
+    // Build a daemon harness with NO scripted subscribe response — the mocked
+    // `client.subscribe` overrides the wire path entirely, so the unscripted-
+    // method default never fires. The harness still gives us a real
+    // JsonRpcClient instance to spy against.
+    const harness = buildDaemonHarness([]);
+    const sdk = createDaemonSessionClient(harness.client);
+
+    const ac = new AbortController();
+
+    // Mock `client.subscribe` to fire `ac.abort()` synchronously inside its
+    // body — this places the abort INSIDE the L202-to-L234 window the fix
+    // closes. The returned fake subscription's iterator parks indefinitely so
+    // (a) we prove the for-await would never naturally exit, and (b) any
+    // erroneous yield surfaces as a hung test rather than a false pass. The
+    // `cancelSpy` is the assertion target — it MUST be called by the new
+    // race-close re-check, not by the for-await's `return()` (the parked
+    // iterator never enters return() because the re-check returns the
+    // generator BEFORE entering the try-block).
+    const cancelSpy = vi.fn((): Promise<void> => Promise.resolve());
+    const fakeSubscription = {
+      subscriptionId: "fake-sub-id",
+      cancel: cancelSpy,
+      next: (): Promise<undefined> => new Promise<undefined>(() => undefined),
+      [Symbol.asyncIterator](): AsyncIterator<SessionEvent> {
+        return {
+          next: (): Promise<IteratorResult<SessionEvent>> =>
+            new Promise<IteratorResult<SessionEvent>>(() => undefined),
+          return: (): Promise<IteratorResult<SessionEvent>> =>
+            Promise.resolve({ value: undefined, done: true }),
+        };
+      },
+    };
+    const subscribeSpy = vi
+      .spyOn(harness.client, "subscribe")
+      .mockImplementation(((): typeof fakeSubscription => {
+        // Synchronously abort BEFORE returning. This is the race window: the
+        // generator already passed L202's pre-check (signal was not aborted at
+        // that point) and is in the synchronous body of `client.subscribe()`
+        // that, in production, would have serialized the wire envelope and
+        // reserved a `StreamingPrimitive` entry. Pre-fix, the abort event
+        // dispatched here had no listener attached yet (addEventListener runs
+        // AFTER this returns), so the listener missed it and the consumer
+        // parked forever on a canceled stream.
+        ac.abort();
+        return fakeSubscription;
+      }) as unknown as typeof harness.client.subscribe);
+
+    const events = await drain(sdk.subscribe({ sessionId: SESSION_ID, signal: ac.signal }));
+
+    // C7 core assertion #1: zero values yielded — the async generator returned
+    // from the post-listener race-close `if (sig.aborted) { return; }` BEFORE
+    // entering the try-block's for-await.
+    expect(events).toEqual([]);
+    // C7 core assertion #2: client.subscribe WAS called once — proves we
+    // PASSED the L202 pre-abort check (which would have returned before any
+    // call). The diagnostic distinguisher: pre-abort returns BEFORE
+    // client.subscribe runs, so `toHaveBeenCalledTimes(1)` is the witness
+    // that we reached the new race window the fix closes.
+    expect(subscribeSpy).toHaveBeenCalledTimes(1);
+    // C7 core assertion #3: subscription.cancel WAS called — proves the
+    // post-listener re-check (`if (sig.aborted) { ... void
+    // subscription.cancel().catch(...) ... return; }`) fired the cancel path
+    // the listener would have. Without the fix, cancel is NEVER called in
+    // this window — the listener missed the abort, the for-await parks
+    // forever, and the daemon's StreamingPrimitive entry stays live.
+    expect(cancelSpy).toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// C8 / Codex RT-5 Finding B — control-plane subscribe validates SSE
+// Content-Type before parsing the response body. Regression test for the bug
+// where any 200 response was treated as a valid SSE stream — if an
+// intermediary or auth layer returned a non-SSE 200 payload (JSON error
+// envelope, HTML login redirect, etc.), the parser silently produced zero
+// frames and the async generator ended cleanly, misreporting a failed
+// subscription as a normal empty stream.
+//
+// WHATWG HTML §9.2.6 SSE parsing requires the response Content-Type to be
+// `text/event-stream` (optional `; charset=utf-8` parameter). The fetch spec
+// mandates the user agent fail processing if the type does not match — the
+// SDK MUST do the same since we parse the body manually rather than via
+// EventSource.
+// ---------------------------------------------------------------------------
+
+describe("C8 / Codex RT-5 Finding B — control-plane subscribe rejects non-SSE Content-Type on 200 response", () => {
+  it("control-plane transport: 200 response with Content-Type 'application/json' rejects with error naming the actual type observed", async () => {
+    // The fake fetcher returns a 200 response with a JSON body and JSON
+    // Content-Type — the exact "intermediary returned 200 + JSON error envelope"
+    // shape the bug allowed to silently pass as an empty stream. Pre-fix, the
+    // parser would loop over the body, find no `\n\n` frame boundary in the
+    // JSON payload (or find one and fail to parse the resulting fragment as
+    // an SSE frame), and the generator would end cleanly with zero events —
+    // the very misreport the fix closes.
+    const jsonBody = '{"error":"unauthorized"}';
+    const bodyBytes = new TextEncoder().encode(jsonBody);
+    const fetcher = (_request: Request): Promise<Response> => {
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(bodyBytes);
+          controller.close();
+        },
+      });
+      return Promise.resolve(
+        new Response(stream, {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    };
+    const sdk = createControlPlaneSessionClient({
+      fetcher,
+      baseUrl: "https://control-plane.test",
+    });
+
+    // C8 core assertion #1: iteration THROWS rather than silently ending. The
+    // async generator MUST surface the contract violation to the caller; a
+    // resolved-empty iteration would be a false-pass against the "failed
+    // subscription misreported as empty stream" surface Codex flagged.
+    await expect(drain(sdk.subscribe({ sessionId: SESSION_ID }))).rejects.toThrow(
+      /expected Content-Type 'text\/event-stream'/,
+    );
+
+    // C8 core assertion #2: the rejection's message names the ACTUAL type
+    // observed ('application/json'), proving the diagnostic surfaces the
+    // wrong-type value rather than just a generic "wrong type" string. This
+    // matters for production debugging — an operator reading the error needs
+    // to know what the intermediary actually returned.
+    await expect(drain(sdk.subscribe({ sessionId: SESSION_ID }))).rejects.toThrow(
+      /application\/json/,
+    );
+  });
+
+  it("control-plane transport: 200 response with NO Content-Type header rejects with error naming '<missing>'", async () => {
+    // Defensive coverage for the missing-header case (production
+    // intermediaries can strip Content-Type entirely, e.g., a misconfigured
+    // proxy). The error message MUST distinguish missing from wrong-type so
+    // operators can route diagnoses correctly. We construct the Response with
+    // a Headers object that explicitly lacks Content-Type — Response's
+    // implementation does not auto-add one when constructed from a stream.
+    const sseishBody = "id: x\ndata: {}\n\n";
+    const bodyBytes = new TextEncoder().encode(sseishBody);
+    const fetcher = (_request: Request): Promise<Response> => {
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(bodyBytes);
+          controller.close();
+        },
+      });
+      return Promise.resolve(
+        new Response(stream, {
+          status: 200,
+          // Explicitly empty headers — no Content-Type set. The SDK's
+          // `headers.get("Content-Type")` returns null in this case.
+          headers: new Headers(),
+        }),
+      );
+    };
+    const sdk = createControlPlaneSessionClient({
+      fetcher,
+      baseUrl: "https://control-plane.test",
+    });
+
+    // The error message uses `<missing>` as the literal sentinel for null
+    // Content-Type — distinguishes from wrong-type rejections. Pinning this
+    // sentinel in the test ensures a future change to the fallback string
+    // surfaces here rather than as a downstream operator confusion.
+    await expect(drain(sdk.subscribe({ sessionId: SESSION_ID }))).rejects.toThrow(/<missing>/);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Control-plane CRUD smoke tests — pin the JSON envelope decode path
 // ---------------------------------------------------------------------------
 //
