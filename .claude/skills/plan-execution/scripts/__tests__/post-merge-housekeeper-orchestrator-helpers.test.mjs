@@ -78,6 +78,39 @@ test("validateManifestSubagentStage: fail when pending item is unaddressed", () 
   assert.match(result.gaps[0], /addressing: "ready_set_re_derivation"/);
 });
 
+test("validateManifestSubagentStage: fails when affected_files entry is missing from disk (Codex Finding 10)", () => {
+  // Codex P1 (PR #33 R6 / Finding 10): the placeholder-scan loop's `if (existsSync(full))`
+  // gate had no else-branch, so a subagent run that DELETED a declared affected_files entry
+  // (e.g. accidentally `rm`-ing docs/architecture/cross-plan-dependencies.md) silently passed
+  // validation — the loop just moved on. The contract clause "affected_files ⊇ files actually
+  // edited" implies those files exist post-edit; deletion is destructive out-of-scope behavior
+  // and MUST surface as a gap rather than slipping through. Negative case (file present, no
+  // placeholder) is covered by the existing happy-path test at line 54 — manifest declares
+  // docs/architecture/cross-plan-dependencies.md against the real cwd, file exists, no gap.
+  const tmpRepo = mkdtempSync(join(tmpdir(), "validate-missing-"));
+  try {
+    // Intentionally do NOT mkdirSync/writeFileSync — the file is absent on disk.
+    const manifest = {
+      semantic_work_pending: [],
+      semantic_edits: {},
+      concerns: [],
+      affected_files: ["docs/architecture/cross-plan-dependencies.md"],
+      result: "DONE",
+    };
+    const result = validateManifestSubagentStage({ manifest, repoRoot: tmpRepo });
+    assert.equal(result.valid, false);
+    assert.equal(result.gaps.length, 1);
+    assert.match(
+      result.gaps[0],
+      /^docs\/architecture\/cross-plan-dependencies\.md declared in affected_files but missing from disk/,
+    );
+    assert.match(result.gaps[0], /destructive out-of-scope behavior/);
+    assert.match(result.gaps[0], /deletion is not permitted/);
+  } finally {
+    rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
 test("validateManifestSubagentStage: fail when <TODO subagent prose> placeholder still present in any affected file", () => {
   const tmpRepo = mkdtempSync(join(tmpdir(), "validate-todo-"));
   try {

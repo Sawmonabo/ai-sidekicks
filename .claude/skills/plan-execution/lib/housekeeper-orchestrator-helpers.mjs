@@ -90,6 +90,9 @@ export function buildHousekeeperPrompt({ manifestPath, scriptExitCode, prNumber,
  *     `manifest.result === "BLOCKED" | "NEEDS_CONTEXT"` — the subagent halted before
  *     completing semantic work, so per-item pairing is not required.
  *  3. No <TODO subagent prose> placeholder remains in any affected_files on disk.
+ *     ALSO: every entry in affected_files MUST exist on disk (Codex P1 PR #33 R6) —
+ *     the subagent contract permits edits but not deletions; a missing entry surfaces
+ *     as a gap rather than being silently skipped.
  *  4. (P2 fix) No <TODO subagent prose> placeholder in any semantic_edits value (nested scan).
  *  5. Every schema_violations entry is surfaced as its own concerns entry, matched
  *     per-entry on `kind` (the violation's own kind verbatim — `"schema_violation"`
@@ -175,11 +178,20 @@ export function validateManifestSubagentStage({
 
   for (const path of manifest.affected_files ?? []) {
     const full = join(repoRoot, path);
-    if (existsSync(full)) {
-      const text = readFileSync(full, "utf8");
-      if (text.includes(PLACEHOLDER))
-        gaps.push(`${PLACEHOLDER} placeholder still present in ${path}`);
+    if (!existsSync(full)) {
+      // Codex P1 PR #33 R6 / Finding 10: prior loop silently skipped any non-existent
+      // path (existsSync gate with no else-branch), so a subagent that deleted a declared
+      // file (e.g. cross-plan-dependencies.md) passed validation. The contract clause
+      // "affected_files ⊇ files actually edited" implies post-edit existence — deletion
+      // is a contract violation. Surface it as a gap, then skip the placeholder read.
+      gaps.push(
+        `${path} declared in affected_files but missing from disk — destructive out-of-scope behavior (subagent contract: affected_files MUST exist; deletion is not permitted via the housekeeper subagent surface)`,
+      );
+      continue;
     }
+    const text = readFileSync(full, "utf8");
+    if (text.includes(PLACEHOLDER))
+      gaps.push(`${PLACEHOLDER} placeholder still present in ${path}`);
   }
 
   // P2 fix — scan semantic_edits VALUES for leftover placeholders.
