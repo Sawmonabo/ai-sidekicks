@@ -886,6 +886,102 @@ test("validateManifestSubagentStage: subagent may ADD new schema_violations beyo
   );
 });
 
+// ---------- Codex F-AMSEL (PR #33): script-stage verification_failures preservation ----------
+// Mirror of F-AMP7Y — same bypass shape but for the exit-2 halt path.
+// Without an immutable comparison, a subagent could clear
+// manifest.verification_failures and return DONE/DONE_WITH_CONCERNS, bypassing
+// check #8's BLOCKED enforcement for Type-signature / file-overlap /
+// plan-identity mismatch / multi_pr_task_not_in_block.
+
+test("validateManifestSubagentStage: subagent-emitted verification_failures is superset of script-stage snapshot (Codex F-AMSEL)", () => {
+  const scriptVerificationFailures = [
+    { kind: "type_signature_mismatch" },
+    { kind: "file_overlap_zero" },
+    { kind: "auto_create_duplicate_title", colliding_with: "NS-15" },
+  ];
+  // Subagent dropped all three entries — bypassing the BLOCKED enforcement.
+  const subagentManifest = {
+    semantic_work_pending: [],
+    semantic_edits: {},
+    concerns: [],
+    verification_failures: [], // CLEARED by careless / malicious subagent
+    affected_files: [],
+    result: "DONE",
+  };
+  const result = validateManifestSubagentStage({
+    manifest: subagentManifest,
+    scriptVerificationFailures,
+  });
+  assert.equal(result.valid, false);
+  assert.ok(
+    result.gaps.some((g) => g.includes("type_signature_mismatch")),
+    `expected gap for type_signature_mismatch; got ${JSON.stringify(result.gaps)}`,
+  );
+  assert.ok(
+    result.gaps.some((g) => g.includes("file_overlap_zero")),
+    `expected gap for file_overlap_zero; got ${JSON.stringify(result.gaps)}`,
+  );
+  assert.ok(
+    result.gaps.some((g) => g.includes("auto_create_duplicate_title") && g.includes("NS-15")),
+    `expected gap for auto_create_duplicate_title with colliding_with field; got ${JSON.stringify(result.gaps)}`,
+  );
+});
+
+test("validateManifestSubagentStage: subagent passes when verification_failures preserves script-stage snapshot (F-AMSEL negative case)", () => {
+  // Canonical happy-path under exit-2 halt — subagent retains script-stage
+  // failure AND surfaces it in concerns AND returns BLOCKED.
+  const scriptVerificationFailures = [{ kind: "type_signature_mismatch" }];
+  const subagentManifest = {
+    semantic_work_pending: [],
+    semantic_edits: {},
+    concerns: [
+      {
+        kind: "type_signature_mismatch",
+        addressing: "type_signature_mismatch",
+        detail: "candidate Type signature mismatch; surfaced for user adjudication",
+      },
+    ],
+    verification_failures: [{ kind: "type_signature_mismatch" }], // PRESERVED
+    affected_files: [],
+    result: "BLOCKED",
+  };
+  assert.deepEqual(
+    validateManifestSubagentStage({
+      manifest: subagentManifest,
+      scriptVerificationFailures,
+    }),
+    { valid: true },
+  );
+});
+
+test("validateManifestSubagentStage: key-order-independent JSON canonicalization for verification_failures (F-AMSEL determinism)", () => {
+  // The check #10 key uses JSON.stringify with sorted keys, so the subagent can
+  // serialize entries with keys in a different order than the script and the
+  // comparison still matches. Verifies the determinism property of the canonical
+  // key — protects against false-positive gaps when the subagent re-stringifies.
+  const scriptVerificationFailures = [
+    { kind: "auto_create_duplicate_title", colliding_with: "NS-15" },
+  ];
+  const subagentManifest = {
+    semantic_work_pending: [],
+    semantic_edits: {},
+    concerns: [{ kind: "auto_create_duplicate_title", addressing: "auto_create_duplicate_title" }],
+    verification_failures: [
+      // Same logical entry but keys deliberately re-ordered (subagent re-stringified).
+      { colliding_with: "NS-15", kind: "auto_create_duplicate_title" },
+    ],
+    affected_files: [],
+    result: "BLOCKED",
+  };
+  assert.deepEqual(
+    validateManifestSubagentStage({
+      manifest: subagentManifest,
+      scriptVerificationFailures,
+    }),
+    { valid: true },
+  );
+});
+
 test("detectAffectedFilesSprawl: edits outside manifest's affected_files trigger REDISPATCH routing — NOT DONE_WITH_CONCERNS at first detection (Codex P1 PR #33 Finding 15 / failure-modes.md rule 20)", () => {
   const result = detectAffectedFilesSprawl({
     manifestAffectedFiles: ["docs/architecture/cross-plan-dependencies.md"],

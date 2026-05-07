@@ -128,8 +128,17 @@ export function buildHousekeeperPrompt({ manifestPath, scriptExitCode, prNumber,
  *     `affected_files`: subagent may ADD new violations (rare; would be subagent
  *     surfacing schema problems the script missed) but MUST NOT REMOVE
  *     script-stage violations.
+ * 10. (Codex F-AMSEL PR #33) When `scriptVerificationFailures` is provided, the
+ *     subagent-emitted `manifest.verification_failures` MUST contain every entry
+ *     from the script-stage snapshot (matched by canonical JSON serialization,
+ *     since verification_failure entries are small structured `{kind, ...}` shapes
+ *     without a stable composite key). Mirrors check #9's preservation rule for
+ *     `schema_violations` — without it, a subagent could clear the array and
+ *     return DONE/DONE_WITH_CONCERNS, bypassing the check #8 BLOCKED enforcement
+ *     for the exit-2 halt path (Type-signature / file-overlap / plan-identity
+ *     mismatch / multi_pr_task_not_in_block).
  *
- * @param {{ manifest: object, repoRoot?: string, scriptAffectedFiles?: string[], scriptSchemaViolations?: object[] }} opts
+ * @param {{ manifest: object, repoRoot?: string, scriptAffectedFiles?: string[], scriptSchemaViolations?: object[], scriptVerificationFailures?: object[] }} opts
  * @returns {{ valid: true } | { valid: false, gaps: string[] }}
  */
 export function validateManifestSubagentStage({
@@ -137,6 +146,7 @@ export function validateManifestSubagentStage({
   repoRoot = process.cwd(),
   scriptAffectedFiles = null,
   scriptSchemaViolations = null,
+  scriptVerificationFailures = null,
 }) {
   const gaps = [];
 
@@ -327,6 +337,27 @@ export function validateManifestSubagentStage({
           .join(" ");
         gaps.push(
           `script-stage schema_violation (${idLabel}) absent from subagent-emitted schema_violations (Codex F-AMP7Y: subagent MUST NOT clear script-stage violations; check #6 BLOCKED enforcement requires the array to remain populated)`,
+        );
+      }
+    }
+  }
+
+  // Check #10 — verification_failures preservation (Codex F-AMSEL PR #33).
+  // Mirror check #9 for the exit-2 halt path. verification_failure entries are
+  // small structured `{kind: "..."}` shapes (some carry additional fields like
+  // colliding_with) without a stable composite key, so canonical JSON serialization
+  // (with sorted keys) is the comparison key — entries are small enough that
+  // whole-object comparison is fine. Without this check, a subagent could clear
+  // manifest.verification_failures and return DONE/DONE_WITH_CONCERNS, bypassing
+  // check #8's BLOCKED enforcement for Type-signature / file-overlap / plan-identity
+  // mismatch / multi_pr_task_not_in_block.
+  if (Array.isArray(scriptVerificationFailures)) {
+    const failureKey = (f) => JSON.stringify(f, Object.keys(f).sort());
+    const subagentFailureKeys = new Set((manifest.verification_failures ?? []).map(failureKey));
+    for (const vf of scriptVerificationFailures) {
+      if (!subagentFailureKeys.has(failureKey(vf))) {
+        gaps.push(
+          `script-stage verification_failure (${JSON.stringify(vf)}) absent from subagent-emitted verification_failures (Codex F-AMSEL: subagent MUST NOT clear script-stage failures; check #8 BLOCKED enforcement requires the array to remain populated)`,
         );
       }
     }
