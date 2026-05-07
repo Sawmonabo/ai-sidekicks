@@ -418,11 +418,22 @@ Route findings by the `Round-trip target:` value: with `Round-trip target: <task
 
 **Round-trip cap: 3 rounds at PR scope.** After 3 final-review round-trips, halt and surface the consolidated finding-set to the user — same cap and rationale as Phase C ([`references/failure-modes.md` § Round-trip cap rationale](references/failure-modes.md#round-trip-cap-rationale)). The user decides: ship as-is, manual intervention, or abort the PR.
 
+### Phase D.5 — Merge transition
+
+After Phase D returns "all reviewers DONE", the orchestrator transitions the feature PR from `draft` to `ready`, waits for CI to go green, and squash-merges into `develop`. This phase is the explicit bridge between Phase D (review complete) and Phase E (post-merge housekeeping); without it, the orchestrator has no documented step that creates the merged commit Phase E depends on. The four steps run in this exact order:
+
+1. **Mark PR ready for review** — `gh pr ready <PR#>` (no-op if already ready). The required-conversation-resolution branch protection takes effect at this point; any unresolved review threads block the merge in step 3.
+2. **Wait for CI to go green** — `gh pr checks <PR#> --watch --interval 10` blocks until every required check returns SUCCESS. On any FAILURE, halt Phase D.5 and surface the failed check + logs to the user (CI red is not auto-fixed — the user decides whether to round-trip Phase B/C, manual fix, or abort).
+3. **Squash-merge into `develop`** — `gh pr merge <PR#> --squash --delete-branch`. This produces the canonical squash-commit on `develop` (whose SHA Phase E step 6 references in the Progress Log) and deletes the feature branch in one atomic action. On merge failure (e.g. mergeStateStatus regressed to BLOCKED between step 2 and step 3 because a new review thread fired), halt and surface to user.
+4. **Sync local `develop`** — `git switch develop && git pull --ff-only`. The orchestrator's local working tree now matches `origin/develop` at the new squash-commit; Phase E reads from this state. `--ff-only` guards against an unexpected divergence (would surface as "Not possible to fast-forward" → halt and surface).
+
+After step 4 returns success, advance to Phase E. The squash-commit SHA is captured for Phase E step 6's Progress Log reference.
+
 ### Phase E — Post-merge housekeeping
 
 - Per Plan §Decisions-Locked D-3: Phase E ticks ALL Done-Checklist boxes for the merged Phase, not just the most recent task — this matches the orchestrator's complete-Phase-merge trigger.
 
-Phase E fires AFTER `gh pr merge --squash --delete-branch` returns success — i.e., after the squash-merge commit is on `develop`. It updates the §6 NS catalog and the plan's `Done Checklist` so the catalog stays a faithful index of what shipped. The housekeeper is a 7th plan-execution role (color: blue, tools: Read/Grep/Glob/Edit/Write); see `references/post-merge-housekeeper-contract.md` for the full contract.
+Phase E fires AFTER Phase D.5 step 4 (`git switch develop && git pull --ff-only`) returns success — i.e., the orchestrator's local `develop` is at the new squash-commit. Phase E updates the §6 NS catalog and the plan's `Done Checklist` so the catalog stays a faithful index of what shipped. The housekeeping commit lands via its own auto-merge PR (steps 7-8) so the no-direct-push-to-develop hard rule (line 45) is preserved end-to-end. The housekeeper is a 7th plan-execution role (color: blue, tools: Read/Grep/Glob/Edit/Write); see `references/post-merge-housekeeper-contract.md` for the full contract.
 
 The phase has 8 steps in this exact order — DO NOT reorder; step 6 (Progress Log) explicitly moves AFTER housekeeping per spec §6.1 design choice (a single commit bundles housekeeping + log so the post-merge state is atomic):
 
@@ -451,15 +462,28 @@ The phase has 8 steps in this exact order — DO NOT reorder; step 6 (Progress L
 
 6. **Append the Progress Log entry** to the plan body's `## Progress Log` section in `docs/plans/NNN-*.md` (creating the section just before `## Done Checklist` if it doesn't exist). This step explicitly MOVED from before-merge to after-housekeeping per spec §6.1 — the log entry references the squash-merge commit hash + housekeeping commit message + any subagent concerns, so callers reading the log see "shipped + housekept" as one event.
 
-7. **Single `git commit`** that bundles housekeeping (steps 4-5 edits) + Progress Log (step 6 edit) into one commit on `develop`. The commit message follows the contract:
+7. **Stage housekeeping on a dedicated branch** — cut a `housekeeping/PR<N>` branch off `develop`, commit the bundled housekeeping (steps 4-5 edits) + Progress Log (step 6 edit) into a single commit, push the branch:
 
+```bash
+git switch -c housekeeping/PR<N>
+git add <affected_files>
+git commit -m "chore(repo): housekeeping for PR #<N> — NS-XX <flip-or-create>"
+git push -u origin HEAD
 ```
-chore(repo): housekeeping for PR #<N> — NS-XX <flip-or-create>
+
+The commit message subject follows the contract above (subagent's manifest provides the suggested message; orchestrator may amend to add concerns annotations). Direct commits on `develop` are NOT permitted (hard rule line 45) — the housekeeping PR is the canonical landing path.
+
+8. **Open auto-merge PR + wait for landing** — create the housekeeping PR against `develop`, enable auto-merge (squash mode), poll until merged:
+
+```bash
+gh pr create --base develop --head housekeeping/PR<N> \
+  --title "chore(repo): housekeeping for PR #<N> — NS-XX <flip-or-create>" \
+  --body "Auto-generated by /plan-execution Phase E for PR #<N>. Refs: NS-XX."
+gh pr merge <housekeeping-pr#> --auto --squash --delete-branch
+gh pr checks <housekeeping-pr#> --watch --interval 10
 ```
 
-(subagent's manifest provides the suggested message; orchestrator may amend to add concerns annotations).
-
-8. **Push + verify** — `git push origin develop`. The housekeeping commit is now part of the develop-bound history; subsequent plan-execution runs see the updated catalog. Phase E ENDS here; the orchestrator drains the session.
+`--auto` queues the squash-merge to fire automatically once required CI checks return SUCCESS — typically 2-3 min on a doc-only diff (lychee + docs-corpus + lint). On housekeeping-CI failure, halt and surface to user (Phase E does NOT auto-fix housekeeping failures — those usually mean the §6 catalog edits broke a cite that the script-stage `affected_files` superset check missed). Once `gh pr checks --watch` returns success and the PR transitions to `merged`, the housekeeping commit is on `develop`; subsequent plan-execution runs see the updated catalog. Phase E ENDS here; the orchestrator drains the session.
 
 [^d7]: See Plan §Decisions-Locked D-7 (the §5.5 17-row coverage matrix) for which fixture validates which lookup rule.
 
