@@ -90,7 +90,7 @@ Exit codes:  0  success
 **Validation invariants (orchestrator):**
 
 - After script: `mechanical_edits` populated per `script_exit_code` (exit 1 → `matched_entry` and `status_flip` may be absent; exit 3 → `plan_checklist_ticks` may be empty; exit 5 → `schema_violations` non-empty + edits aborted). `semantic_work_pending` non-empty. `result === null`.
-- After subagent: `result !== null`. Every item in `semantic_work_pending` appears in EITHER `semantic_edits` OR `concerns`. Every entry in `schema_violations` appears in `concerns` with matching `kind: schema_violation`, AND `result === "BLOCKED"`. No `<TODO subagent prose>` placeholders remain in any file under `affected_files`. `affected_files` ⊇ files actually edited (subagent did not sprawl outside declared scope; extensions to `affected_files` are documented in `concerns` with `kind: affected_files_extension`).
+- After subagent: `result !== null`. Every item in `semantic_work_pending` appears in EITHER `semantic_edits.<item-key>` OR `concerns[]` with `addressing: <item-key>` matching the exact pending-item key (waived when `result === "BLOCKED"` or `"NEEDS_CONTEXT"`, since the subagent halted before completing semantic work). Every entry in `schema_violations` appears in `concerns` with matching `kind: schema_violation`, AND `result === "BLOCKED"`. No `<TODO subagent prose>` placeholders remain in any file under `affected_files`. `affected_files` ⊇ files actually edited (subagent did not sprawl outside declared scope; extensions to `affected_files` are documented in `concerns` with `kind: affected_files_extension`).
 
 If validation fails, orchestrator halts Phase E and surfaces the gap (script-stage failure) OR round-trips to the subagent (subagent-stage failure).
 
@@ -176,11 +176,13 @@ Your responsibilities (per Spec §5.4 / §6.2):
 
 4. Reconcile schema_violations — every entry in `manifest.schema_violations` MUST surface in `manifest.concerns[]` with `kind: "schema_violation"`. The script halted with exit ≥1 if any are present; the subagent's job is to surface them, not silently fix them.
 
-5. Bound your edits to `manifest.affected_files` — out-of-scope edits trigger an orchestrator round-trip per `references/failure-modes.md` rule 20 (sprawl routing). To justify a scope expansion, add a `concerns` entry `{kind: affected_files_extension, addressing: <reason>}` and extend `affected_files`.
+5. Reconcile semantic_work_pending — every item in `manifest.semantic_work_pending` MUST be paired to either (a) a `semantic_edits.<item-key>` entry containing the composed output, or (b) a `concerns[]` entry whose `addressing` field equals the exact item key verbatim (e.g. `{kind: "deferred_for_followup", addressing: "set_quantifier_reverification"}`). The validator pairs each pending item via this `addressing` key — `kind` is the subagent's choice; only `addressing` is the match key. Exception: when returning `BLOCKED` or `NEEDS_CONTEXT` (subagent halted before completing semantic work), per-item pairing is waived and the validator skips this check.
 
-6. Write back the updated manifest (overwrite `<manifest-path>`) plus any direct file edits via the Edit tool.
+6. Bound your edits to `manifest.affected_files` — out-of-scope edits trigger an orchestrator round-trip per `references/failure-modes.md` rule 20 (sprawl routing). To justify a scope expansion, add a `concerns` entry `{kind: affected_files_extension, addressing: <reason>}` and extend `affected_files`.
 
-7. Return one of the four canonical exit-states (per Plan Invariant I-2): DONE / DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED. No new exit-state.
+7. Write back the updated manifest (overwrite `<manifest-path>`) plus any direct file edits via the Edit tool.
+
+8. Return one of the four canonical exit-states (per Plan Invariant I-2): DONE / DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED. No new exit-state.
 
 Hard rules:
 - Do NOT introduce new exit-states.

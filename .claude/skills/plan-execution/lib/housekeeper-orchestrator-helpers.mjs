@@ -24,11 +24,13 @@ Your responsibilities (per Spec §5.4 / §6.2):
 
 4. Reconcile schema_violations — every entry in \`manifest.schema_violations\` MUST surface in \`manifest.concerns[]\` with \`kind: "schema_violation"\`. The script halted with exit ≥1 if any are present; the subagent's job is to surface them, not silently fix them.
 
-5. Bound your edits to \`manifest.affected_files\` — out-of-scope edits trigger an orchestrator round-trip per \`references/failure-modes.md\` rule 20 (sprawl routing). To justify a scope expansion, add a \`concerns\` entry \`{kind: affected_files_extension, addressing: <reason>}\` and extend \`affected_files\`.
+5. Reconcile semantic_work_pending — every item in \`manifest.semantic_work_pending\` MUST be paired to either (a) a \`semantic_edits.<item-key>\` entry containing the composed output, or (b) a \`concerns[]\` entry whose \`addressing\` field equals the exact item key verbatim (e.g. \`{kind: "deferred_for_followup", addressing: "set_quantifier_reverification"}\`). The validator pairs each pending item via this \`addressing\` key — \`kind\` is the subagent's choice; only \`addressing\` is the match key. Exception: when returning \`BLOCKED\` or \`NEEDS_CONTEXT\` (subagent halted before completing semantic work), per-item pairing is waived and the validator skips this check.
 
-6. Write back the updated manifest (overwrite \`<manifest-path>\`) plus any direct file edits via the Edit tool.
+6. Bound your edits to \`manifest.affected_files\` — out-of-scope edits trigger an orchestrator round-trip per \`references/failure-modes.md\` rule 20 (sprawl routing). To justify a scope expansion, add a \`concerns\` entry \`{kind: affected_files_extension, addressing: <reason>}\` and extend \`affected_files\`.
 
-7. Return one of the four canonical exit-states (per Plan Invariant I-2): DONE / DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED. No new exit-state.
+7. Write back the updated manifest (overwrite \`<manifest-path>\`) plus any direct file edits via the Edit tool.
+
+8. Return one of the four canonical exit-states (per Plan Invariant I-2): DONE / DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED. No new exit-state.
 
 Hard rules:
 - Do NOT introduce new exit-states.
@@ -74,7 +76,12 @@ export function buildHousekeeperPrompt({ manifestPath, scriptExitCode, prNumber,
  * Validate the manifest after the subagent stage completes.
  *
  * Checks:
- *  1. Every item in semantic_work_pending has a corresponding entry in semantic_edits or concerns.
+ *  1. Every item in semantic_work_pending has a corresponding entry in semantic_edits
+ *     OR a concerns[] entry whose `addressing` field equals the exact item key
+ *     (per canonical-template responsibility #5; `kind` is the subagent's choice,
+ *     `addressing` is the validator's match key). WAIVED when
+ *     `manifest.result === "BLOCKED" | "NEEDS_CONTEXT"` — the subagent halted before
+ *     completing semantic work, so per-item pairing is not required.
  *  2. No <TODO subagent prose> placeholder remains in any affected_files on disk.
  *  3. (P2 fix) No <TODO subagent prose> placeholder in any semantic_edits value (nested scan).
  *  4. Every schema_violations entry is surfaced as its own concerns entry with kind:
@@ -95,15 +102,24 @@ export function validateManifestSubagentStage({
 }) {
   const gaps = [];
 
-  for (const item of manifest.semantic_work_pending ?? []) {
-    const inEdits =
-      manifest.semantic_edits &&
-      Object.prototype.hasOwnProperty.call(manifest.semantic_edits, item);
-    const inConcerns = (manifest.concerns ?? []).some((c) => c.addressing === item);
-    if (!inEdits && !inConcerns)
-      gaps.push(
-        `${item} listed in semantic_work_pending but absent from semantic_edits and concerns`,
-      );
+  // Halt-state waiver: when subagent returns BLOCKED or NEEDS_CONTEXT, it stopped
+  // before completing semantic work. The per-item semantic_work_pending pairing
+  // would force false-gap round-trips (see Codex P1 finding on PR #33). Other
+  // checks (placeholders, schema_violations, affected_files superset) still apply.
+  const haltedBeforeCompletion =
+    manifest.result === "BLOCKED" || manifest.result === "NEEDS_CONTEXT";
+
+  if (!haltedBeforeCompletion) {
+    for (const item of manifest.semantic_work_pending ?? []) {
+      const inEdits =
+        manifest.semantic_edits &&
+        Object.prototype.hasOwnProperty.call(manifest.semantic_edits, item);
+      const inConcerns = (manifest.concerns ?? []).some((c) => c.addressing === item);
+      if (!inEdits && !inConcerns)
+        gaps.push(
+          `${item} listed in semantic_work_pending but absent from semantic_edits and concerns (need either semantic_edits.${item} or a concerns entry with addressing: "${item}")`,
+        );
+    }
   }
 
   for (const path of manifest.affected_files ?? []) {

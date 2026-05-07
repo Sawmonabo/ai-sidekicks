@@ -70,9 +70,10 @@ test("validateManifestSubagentStage: fail when pending item is unaddressed", () 
   };
   const result = validateManifestSubagentStage({ manifest });
   assert.equal(result.valid, false);
-  assert.deepEqual(result.gaps, [
-    "ready_set_re_derivation listed in semantic_work_pending but absent from semantic_edits and concerns",
-  ]);
+  assert.equal(result.gaps.length, 1);
+  assert.match(result.gaps[0], /^ready_set_re_derivation listed in semantic_work_pending/);
+  // Gap message now hints at the contract requirement (addressing: <item-key>) — Codex P1 fix on PR #33.
+  assert.match(result.gaps[0], /addressing: "ready_set_re_derivation"/);
 });
 
 test("validateManifestSubagentStage: fail when <TODO subagent prose> placeholder still present in any affected file", () => {
@@ -192,6 +193,66 @@ test("validateManifestSubagentStage: schema_violations match by field alone when
   assert.equal(result.valid, true);
 });
 
+test("validateManifestSubagentStage: BLOCKED result waives per-item pairing for semantic_work_pending (Codex P1 false-gap fix)", () => {
+  // Codex P1 (PR #33 R2): when subagent halts at BLOCKED, it cannot complete every
+  // semantic_work_pending item. The validator MUST skip the per-item check, otherwise
+  // legitimate BLOCKED outcomes get round-tripped as false gaps (forcing wasted dispatches).
+  const manifest = {
+    semantic_work_pending: [
+      "compose_status_completion_prose",
+      "ready_set_re_derivation",
+      "line_cite_sweep",
+    ],
+    semantic_edits: {},
+    concerns: [{ kind: "blocking_dependency", detail: "missing input X" }],
+    affected_files: [],
+    result: "BLOCKED",
+  };
+  assert.deepEqual(validateManifestSubagentStage({ manifest }), { valid: true });
+});
+
+test("validateManifestSubagentStage: NEEDS_CONTEXT result waives per-item pairing for semantic_work_pending", () => {
+  // Same waiver as BLOCKED — subagent halted before completing semantic work.
+  const manifest = {
+    semantic_work_pending: ["compose_status_completion_prose"],
+    semantic_edits: {},
+    concerns: [{ kind: "needs_input", detail: "ambiguous spec" }],
+    affected_files: [],
+    result: "NEEDS_CONTEXT",
+  };
+  assert.deepEqual(validateManifestSubagentStage({ manifest }), { valid: true });
+});
+
+test("validateManifestSubagentStage: DONE_WITH_CONCERNS still requires per-item pairing (waiver narrowly scoped to halt-states)", () => {
+  // DONE_WITH_CONCERNS means the subagent completed its work (with caveats) — the
+  // per-item check still applies. Only BLOCKED/NEEDS_CONTEXT (true halts) waive it.
+  const manifest = {
+    semantic_work_pending: ["compose_status_completion_prose"],
+    semantic_edits: {},
+    concerns: [{ kind: "general_observation", detail: "unrelated note" }],
+    affected_files: [],
+    result: "DONE_WITH_CONCERNS",
+  };
+  const result = validateManifestSubagentStage({ manifest });
+  assert.equal(result.valid, false);
+  assert.equal(result.gaps.length, 1);
+  assert.match(result.gaps[0], /^compose_status_completion_prose listed in semantic_work_pending/);
+});
+
+test("validateManifestSubagentStage: per-item pairing matches by `addressing: <item-key>` exactly (concern.kind is irrelevant)", () => {
+  // Per the canonical template (responsibility #5): concerns deferring a pending item set
+  // `addressing: <exact-pending-item-key>`. The kind field is the subagent's choice;
+  // only `addressing` is the validator's match key.
+  const manifest = {
+    semantic_work_pending: ["set_quantifier_reverification", "line_cite_sweep"],
+    semantic_edits: { line_cite_sweep: "..." },
+    concerns: [{ kind: "deferred_for_followup", addressing: "set_quantifier_reverification" }],
+    affected_files: [],
+    result: "DONE_WITH_CONCERNS",
+  };
+  assert.deepEqual(validateManifestSubagentStage({ manifest }), { valid: true });
+});
+
 // ---------- Task 4.8: Layer 2 unit tests for D-7 rows 12-15 + I-1/I-2/I-3 invariants ----------
 
 test("buildHousekeeperPrompt: emitted prompt matches the canonical template in references/post-merge-housekeeper-contract.md (D-7 row 12)", () => {
@@ -215,7 +276,7 @@ test("buildHousekeeperPrompt: emitted prompt matches the canonical template in r
   // Strip placeholder-substitution variance: replace concrete values with the contract's `<placeholders>`
   // so the structural shape matches even if values differ (the test pins SHAPE, not VALUES).
   // Use replaceAll for `<manifest-path>` because the canonical template embeds it twice (line 1
-  // "Manifest:" + responsibility #6 "Write back the updated manifest"); buildHousekeeperPrompt's
+  // "Manifest:" + responsibility #7 "Write back the updated manifest"); buildHousekeeperPrompt's
   // replaceAll substitutes both occurrences and the snapshot must invert both.
   const normalized = emitted
     .replaceAll("/tmp/m.json", "<manifest-path>")
