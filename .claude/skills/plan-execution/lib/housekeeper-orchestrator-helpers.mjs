@@ -77,7 +77,9 @@ export function buildHousekeeperPrompt({ manifestPath, scriptExitCode, prNumber,
  *  1. Every item in semantic_work_pending has a corresponding entry in semantic_edits or concerns.
  *  2. No <TODO subagent prose> placeholder remains in any affected_files on disk.
  *  3. (P2 fix) No <TODO subagent prose> placeholder in any semantic_edits value (nested scan).
- *  4. Every schema_violations entry is surfaced as a concerns entry with kind: "schema_violation".
+ *  4. Every schema_violations entry is surfaced as its own concerns entry with kind:
+ *     "schema_violation", matched per-entry on `field` (and `ns_id` when present).
+ *     A single generic concern cannot satisfy multiple violations.
  *  5. (D-7 row 14) When `scriptAffectedFiles` is provided, the subagent-emitted
  *     manifest.affected_files MUST be a superset — the subagent may extend the
  *     list (justified via a `concerns` entry of kind `affected_files_extension`)
@@ -120,10 +122,25 @@ export function validateManifestSubagentStage({
     });
   }
 
-  // schema_violations × concerns reconciliation
+  // schema_violations × concerns reconciliation. Each schema_violations entry MUST
+  // surface as its OWN concerns entry with kind "schema_violation". We match
+  // structurally on `field` (and `ns_id` when the violation carries one) so N
+  // violations cannot be satisfied by a single generic concerns entry — the prior
+  // `.some(c => c.kind === "schema_violation")` predicate ignored `sv` entirely
+  // and let one concern absorb every violation.
+  const schemaConcerns = (manifest.concerns ?? []).filter((c) => c.kind === "schema_violation");
   for (const sv of manifest.schema_violations ?? []) {
-    const matched = (manifest.concerns ?? []).some((c) => c.kind === "schema_violation");
-    if (!matched) gaps.push(`schema_violation ${sv.kind} not surfaced in concerns`);
+    const matched = schemaConcerns.some((c) => {
+      if (c.field !== sv.field) return false;
+      if (sv.ns_id !== undefined && c.ns_id !== sv.ns_id) return false;
+      return true;
+    });
+    if (!matched) {
+      const idLabel = sv.ns_id ? `${sv.ns_id}.${sv.field}` : String(sv.field);
+      gaps.push(
+        `schema_violation ${idLabel} not surfaced in concerns (need entry with kind: "schema_violation" + matching field${sv.ns_id ? " + ns_id" : ""})`,
+      );
+    }
   }
 
   // D-7 row 14 — superset check. When the orchestrator passes the script's

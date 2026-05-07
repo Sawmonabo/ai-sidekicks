@@ -138,6 +138,60 @@ test("validateManifestSubagentStage: scans nested semantic_edits values (e.g. ar
   );
 });
 
+test("validateManifestSubagentStage: schema_violations require per-entry concerns match (1 generic concern cannot satisfy N violations)", () => {
+  // Codex P1 regression (PR #33): the prior `.some(c => c.kind === "schema_violation")`
+  // predicate ignored `sv` entirely, so a single generic concern absorbed every violation.
+  // Two violations with distinct fields + only one matching concern MUST gap on the unmatched one.
+  const manifest = {
+    semantic_work_pending: [],
+    semantic_edits: {},
+    schema_violations: [
+      { kind: "schema_violation", field: "status", ns_id: "NS-15" },
+      { kind: "schema_violation", field: "type", ns_id: "NS-15" },
+    ],
+    concerns: [{ kind: "schema_violation", field: "status", ns_id: "NS-15", detail: "..." }],
+    affected_files: [],
+  };
+  const result = validateManifestSubagentStage({ manifest });
+  assert.equal(result.valid, false);
+  assert.ok(
+    result.gaps.some((g) => g.includes("NS-15.type") && !g.includes("NS-15.status")),
+    `expected exactly the 'type' violation to gap (status is matched); got: ${JSON.stringify(result.gaps)}`,
+  );
+});
+
+test("validateManifestSubagentStage: schema_violations pass when each entry has a matching concerns entry by field+ns_id", () => {
+  const manifest = {
+    semantic_work_pending: [],
+    semantic_edits: {},
+    schema_violations: [
+      { kind: "schema_violation", field: "status", ns_id: "NS-15" },
+      { kind: "schema_violation", field: "type", ns_id: "NS-15" },
+    ],
+    concerns: [
+      { kind: "schema_violation", field: "status", ns_id: "NS-15", detail: "..." },
+      { kind: "schema_violation", field: "type", ns_id: "NS-15", detail: "..." },
+    ],
+    affected_files: [],
+  };
+  const result = validateManifestSubagentStage({ manifest });
+  assert.equal(result.valid, true);
+});
+
+test("validateManifestSubagentStage: schema_violations match by field alone when ns_id is absent (--candidate-ns shape)", () => {
+  // Per script line 1394: --candidate-ns mode emits violations without ns_id.
+  // Matching falls back to `field` alone in that case.
+  const manifest = {
+    semantic_work_pending: [],
+    semantic_edits: {},
+    schema_violations: [{ kind: "schema_violation", field: "summary" }],
+    concerns: [{ kind: "schema_violation", field: "summary", detail: "..." }],
+    affected_files: [],
+  };
+  const result = validateManifestSubagentStage({ manifest });
+  assert.equal(result.valid, true);
+});
+
 // ---------- Task 4.8: Layer 2 unit tests for D-7 rows 12-15 + I-1/I-2/I-3 invariants ----------
 
 test("buildHousekeeperPrompt: emitted prompt matches the canonical template in references/post-merge-housekeeper-contract.md (D-7 row 12)", () => {
