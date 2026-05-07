@@ -31,6 +31,19 @@
     "auto_create_derive_upstream"
   ],
   "warnings": [],
+  "_script_stage": {
+    "affected_files": [
+      "docs/architecture/cross-plan-dependencies.md",
+      "docs/plans/029-orphan-pr-fixture.md"
+    ],
+    "schema_violations": [],
+    "verification_failures": [],
+    "semantic_work_pending": [
+      "auto_create_compose_entry",
+      "auto_create_compose_mermaid_node",
+      "auto_create_derive_upstream"
+    ]
+  },
   "subagent_completed_at": null,
   "semantic_edits": {},
   "concerns": [],

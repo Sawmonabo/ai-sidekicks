@@ -37,6 +37,12 @@ test("buildHousekeeperPrompt: AUTO-CREATE mode wording for exit 0 + auto_create.
 
 test("buildHousekeeperPrompt: schema-violation mode wording for exit 5", () => {
   const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
     schema_violations: [
       { kind: "PRs_block_malformed", field: "PRs:", detail: "missing annotation" },
     ],
@@ -53,6 +59,12 @@ test("buildHousekeeperPrompt: schema-violation mode wording for exit 5", () => {
 
 test("validateManifestSubagentStage: pass when every pending item has semantic_edits or concerns entry", () => {
   const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
     semantic_work_pending: ["compose_status_completion_prose", "ready_set_re_derivation"],
     semantic_edits: { compose_status_completion_prose: "...", ready_set_re_derivation: "..." },
     concerns: [],
@@ -64,6 +76,12 @@ test("validateManifestSubagentStage: pass when every pending item has semantic_e
 
 test("validateManifestSubagentStage: fail when pending item is unaddressed", () => {
   const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
     semantic_work_pending: ["compose_status_completion_prose", "ready_set_re_derivation"],
     semantic_edits: { compose_status_completion_prose: "..." },
     concerns: [],
@@ -91,6 +109,12 @@ test("validateManifestSubagentStage: fails when affected_files entry is missing 
   try {
     // Intentionally do NOT mkdirSync/writeFileSync — the file is absent on disk.
     const manifest = {
+      _script_stage: {
+        affected_files: [],
+        schema_violations: [],
+        verification_failures: [],
+        semantic_work_pending: [],
+      },
       semantic_work_pending: [],
       semantic_edits: {},
       concerns: [],
@@ -126,6 +150,12 @@ test("validateManifestSubagentStage: fails with gap (not crash) when affected_fi
       recursive: true,
     });
     const manifest = {
+      _script_stage: {
+        affected_files: [],
+        schema_violations: [],
+        verification_failures: [],
+        semantic_work_pending: [],
+      },
       semantic_work_pending: [],
       semantic_edits: {},
       concerns: [],
@@ -155,6 +185,12 @@ test("validateManifestSubagentStage: fail when <TODO subagent prose> placeholder
       "### NS-01: foo\n- Status: `completed` (resolved 2026-05-03 via PR #30 — <TODO subagent prose>)\n",
     );
     const manifest = {
+      _script_stage: {
+        affected_files: [],
+        schema_violations: [],
+        verification_failures: [],
+        semantic_work_pending: [],
+      },
       semantic_work_pending: [],
       semantic_edits: {},
       concerns: [],
@@ -171,6 +207,12 @@ test("validateManifestSubagentStage: fail when <TODO subagent prose> placeholder
 
 test("validateManifestSubagentStage: fail when <TODO subagent prose> placeholder appears in semantic_edits values (P2 fix)", () => {
   const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
     semantic_work_pending: ["compose_status_completion_prose"],
     semantic_edits: {
       compose_status_completion_prose: "(resolved 2026-05-03 via PR #30 — <TODO subagent prose>)",
@@ -193,6 +235,12 @@ test("validateManifestSubagentStage: fail when <TODO subagent prose> placeholder
 
 test("validateManifestSubagentStage: scans nested semantic_edits values (e.g. arrays of prose strings)", () => {
   const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
     semantic_work_pending: ["line_cite_sweep"],
     semantic_edits: {
       line_cite_sweep: [
@@ -217,6 +265,12 @@ test("validateManifestSubagentStage: schema_violations require per-entry concern
   // predicate ignored `sv` entirely, so a single generic concern absorbed every violation.
   // Two violations with distinct fields + only one matching concern MUST gap on the unmatched one.
   const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
     semantic_work_pending: [],
     semantic_edits: {},
     schema_violations: [
@@ -237,6 +291,12 @@ test("validateManifestSubagentStage: schema_violations require per-entry concern
 
 test("validateManifestSubagentStage: schema_violations pass when each entry has a matching concerns entry by field+ns_id", () => {
   const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
     semantic_work_pending: [],
     semantic_edits: {},
     schema_violations: [
@@ -258,6 +318,12 @@ test("validateManifestSubagentStage: schema_violations match by field alone when
   // Per script line 1394: --candidate-ns mode emits violations without ns_id.
   // Matching falls back to `field` alone in that case.
   const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
     semantic_work_pending: [],
     semantic_edits: {},
     schema_violations: [{ kind: "schema_violation", field: "summary" }],
@@ -275,6 +341,12 @@ test("validateManifestSubagentStage: distinct-kind violations require kind-discr
   // letting one concern absorb every violation. Adding `kind` to the match
   // key prevents distinct-kind violations from sharing a concern.
   const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
     semantic_work_pending: [],
     semantic_edits: {},
     schema_violations: [
@@ -300,6 +372,12 @@ test("validateManifestSubagentStage: auto_create_title_seed_underivable singleto
   // field/ns_id. The matching concern needs the same `kind`; field/ns_id are absent on both
   // sides and the matcher must treat that as a valid pairing (not a trivial-false gap).
   const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
     semantic_work_pending: [],
     semantic_edits: {},
     schema_violations: [{ kind: "auto_create_title_seed_underivable" }],
@@ -315,6 +393,12 @@ test("validateManifestSubagentStage: fieldless-violation gap message uses (kind:
   // When sv lacks both ns_id and field, idLabel falls back to `(kind: <kind>)` so the
   // failure message remains identifiable instead of printing `undefined`.
   const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
     semantic_work_pending: [],
     semantic_edits: {},
     schema_violations: [{ kind: "auto_create_title_seed_underivable" }],
@@ -335,6 +419,12 @@ test("validateManifestSubagentStage: BLOCKED result waives per-item pairing for 
   // semantic_work_pending item. The validator MUST skip the per-item check, otherwise
   // legitimate BLOCKED outcomes get round-tripped as false gaps (forcing wasted dispatches).
   const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
     semantic_work_pending: [
       "compose_status_completion_prose",
       "ready_set_re_derivation",
@@ -351,6 +441,12 @@ test("validateManifestSubagentStage: BLOCKED result waives per-item pairing for 
 test("validateManifestSubagentStage: NEEDS_CONTEXT result waives per-item pairing for semantic_work_pending", () => {
   // Same waiver as BLOCKED — subagent halted before completing semantic work.
   const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
     semantic_work_pending: ["compose_status_completion_prose"],
     semantic_edits: {},
     concerns: [{ kind: "needs_input", detail: "ambiguous spec" }],
@@ -364,6 +460,12 @@ test("validateManifestSubagentStage: DONE_WITH_CONCERNS still requires per-item 
   // DONE_WITH_CONCERNS means the subagent completed its work (with caveats) — the
   // per-item check still applies. Only BLOCKED/NEEDS_CONTEXT (true halts) waive it.
   const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
     semantic_work_pending: ["compose_status_completion_prose"],
     semantic_edits: {},
     concerns: [{ kind: "general_observation", detail: "unrelated note" }],
@@ -381,6 +483,12 @@ test("validateManifestSubagentStage: per-item pairing matches by `addressing: <i
   // `addressing: <exact-pending-item-key>`. The kind field is the subagent's choice;
   // only `addressing` is the validator's match key.
   const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
     semantic_work_pending: ["set_quantifier_reverification", "line_cite_sweep"],
     semantic_edits: { line_cite_sweep: "..." },
     concerns: [{ kind: "deferred_for_followup", addressing: "set_quantifier_reverification" }],
@@ -403,6 +511,12 @@ test("validateManifestSubagentStage: fails when semantic_edits[item] is undefine
   // composed a value (e.g. `semantic_edits.compose_status_completion_prose = undefined`).
   // hasOwnProperty would return true, masking the missing payload — gap MUST fire.
   const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
     semantic_work_pending: ["compose_status_completion_prose"],
     semantic_edits: { compose_status_completion_prose: undefined },
     concerns: [],
@@ -423,6 +537,12 @@ test("validateManifestSubagentStage: fails when semantic_edits[item] is null (Co
   // null is JSON's explicit empty value — equally invalid as undefined under the
   // contract (responsibility #5 requires composed output).
   const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
     semantic_work_pending: ["ready_set_re_derivation"],
     semantic_edits: { ready_set_re_derivation: null },
     concerns: [],
@@ -442,6 +562,12 @@ test("validateManifestSubagentStage: fails when semantic_edits[item] is empty st
   // Empty / whitespace-only strings are not "composed output". isMeaningfulPayload
   // trims before checking length so "" and "   " both fail.
   const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
     semantic_work_pending: ["line_cite_sweep"],
     semantic_edits: { line_cite_sweep: "" },
     concerns: [],
@@ -461,6 +587,12 @@ test("validateManifestSubagentStage: fails when semantic_edits[item] is empty ob
   // `{}` is the placeholder shape a careless subagent might emit when stubbing the slot.
   // Object.keys(value).length === 0 catches it before it slips through.
   const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
     semantic_work_pending: ["set_quantifier_reverification"],
     semantic_edits: { set_quantifier_reverification: {} },
     concerns: [],
@@ -482,6 +614,12 @@ test("validateManifestSubagentStage: passes when semantic_edits[item] is a non-e
   // object with composed-prose fields). This pairs with the four failing-payload tests
   // above to lock the meaningful-payload boundary in both directions.
   const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
     semantic_work_pending: ["compose_status_completion_prose"],
     semantic_edits: {
       compose_status_completion_prose: {
@@ -507,6 +645,12 @@ test("validateManifestSubagentStage: fails when semantic_edits[item] is `false` 
   // `{compose_status_completion_prose: false}` thinking it's a "no-op marker".
   // The contract requires composed prose; `false` is not output-bearing.
   const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
     semantic_work_pending: ["compose_status_completion_prose"],
     semantic_edits: { compose_status_completion_prose: false },
     concerns: [],
@@ -526,6 +670,12 @@ test("validateManifestSubagentStage: fails when semantic_edits[item] is `0` (Cod
   // Number `0` is the second plausible misuse (e.g. an int counter the subagent
   // confused for a payload). Same rejection rule as `false`.
   const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
     semantic_work_pending: ["ready_set_re_derivation"],
     semantic_edits: { ready_set_re_derivation: 0 },
     concerns: [],
@@ -552,6 +702,12 @@ test("validateManifestSubagentStage: fails when result is null (Codex Finding 7)
   // `result: null` is the script-stage stub shape (per contract §Manifest schema line 62).
   // If the subagent returns this unchanged, the orchestrator can't route Phase E — gap MUST fire.
   const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
     semantic_work_pending: [],
     semantic_edits: {},
     concerns: [],
@@ -574,6 +730,12 @@ test("validateManifestSubagentStage: fails when result is null (Codex Finding 7)
 test("validateManifestSubagentStage: fails when result is an unknown string (Codex Finding 7)", () => {
   // Off-canon literals (typos, hallucinated states, legacy values) MUST gap.
   const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
     semantic_work_pending: [],
     semantic_edits: {},
     concerns: [],
@@ -596,6 +758,12 @@ test("validateManifestSubagentStage: passes when result is 'DONE' (Codex Finding
   // Round-trip a clean DONE manifest — proves the canonical-state check accepts the
   // happy path and doesn't false-fire when the contract is satisfied.
   const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
     semantic_work_pending: [],
     semantic_edits: {},
     concerns: [],
@@ -616,6 +784,12 @@ test("validateManifestSubagentStage: fails when schema_violations present but re
   // Subagent surfaced the violation in concerns (so the per-entry matcher passes) BUT
   // returned a non-BLOCKED state. The contract requires BOTH conditions; this case MUST gap.
   const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
     semantic_work_pending: [],
     semantic_edits: {},
     schema_violations: [{ kind: "schema_violation", field: "summary", ns_id: "NS-15" }],
@@ -643,6 +817,12 @@ test("validateManifestSubagentStage: passes when schema_violations present AND r
   // Both halves of the contract clause satisfied: violations surface in concerns AND
   // result is BLOCKED. The validator returns valid:true (no schema-violation gaps).
   const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
     semantic_work_pending: [],
     semantic_edits: {},
     schema_violations: [{ kind: "schema_violation", field: "summary", ns_id: "NS-15" }],
@@ -669,6 +849,12 @@ test("validateManifestSubagentStage: fails when verification_failures present bu
   // and the existing fixtures (e.g. fixtures/05-type-signature-violation/expected-manifest.json
   // at line 18: `[{ "kind": "type_signature_mismatch" }]`).
   const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
     semantic_work_pending: [],
     semantic_edits: {},
     verification_failures: [{ kind: "type_signature_mismatch" }],
@@ -696,6 +882,12 @@ test("validateManifestSubagentStage: passes when verification_failures present A
   // Both halves of the contract clause satisfied: verification failure surfaced AND
   // result is BLOCKED. The validator returns valid:true (no verification_failures gap).
   const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
     semantic_work_pending: [],
     semantic_edits: {},
     verification_failures: [{ kind: "file_overlap_zero" }],
@@ -806,6 +998,12 @@ test("validateManifestSubagentStage: subagent-emitted affected_files is superset
     "docs/plans/024-rust-pty-sidecar.md",
   ];
   const subagentManifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
     semantic_work_pending: [],
     semantic_edits: {},
     concerns: [],
@@ -836,6 +1034,12 @@ test("validateManifestSubagentStage: subagent-emitted schema_violations is super
   ];
   // Subagent dropped both entries — bypassing the BLOCKED enforcement.
   const subagentManifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
     semantic_work_pending: [],
     semantic_edits: {},
     concerns: [],
@@ -867,6 +1071,12 @@ test("validateManifestSubagentStage: subagent passes when schema_violations pres
   // returns BLOCKED — the canonical happy-path shape under exit-5 halt.
   const scriptSchemaViolations = [{ kind: "schema_violation", field: "PRs", ns_id: "NS-02" }];
   const subagentManifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
     semantic_work_pending: [],
     semantic_edits: {},
     concerns: [
@@ -899,6 +1109,12 @@ test("validateManifestSubagentStage: subagent may ADD new schema_violations beyo
   // check, not a strict-equality check.
   const scriptSchemaViolations = [{ kind: "schema_violation", field: "PRs", ns_id: "NS-02" }];
   const subagentManifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
     semantic_work_pending: [],
     semantic_edits: {},
     concerns: [
@@ -936,6 +1152,12 @@ test("validateManifestSubagentStage: subagent-emitted verification_failures is s
   ];
   // Subagent dropped all three entries — bypassing the BLOCKED enforcement.
   const subagentManifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
     semantic_work_pending: [],
     semantic_edits: {},
     concerns: [],
@@ -967,6 +1189,12 @@ test("validateManifestSubagentStage: subagent passes when verification_failures 
   // failure AND surfaces it in concerns AND returns BLOCKED.
   const scriptVerificationFailures = [{ kind: "type_signature_mismatch" }];
   const subagentManifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
     semantic_work_pending: [],
     semantic_edits: {},
     concerns: [
@@ -998,6 +1226,12 @@ test("validateManifestSubagentStage: key-order-independent JSON canonicalization
     { kind: "auto_create_duplicate_title", colliding_with: "NS-15" },
   ];
   const subagentManifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
     semantic_work_pending: [],
     semantic_edits: {},
     concerns: [{ kind: "auto_create_duplicate_title", addressing: "auto_create_duplicate_title" }],
@@ -1032,6 +1266,12 @@ test("validateManifestSubagentStage: cleared semantic_work_pending no longer byp
   // ONE round-trip. The script snapshot is the immutable contract.
   const scriptSemanticWorkPending = ["compose_status_completion_prose", "ready_set_re_derivation"];
   const subagentManifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
     semantic_work_pending: [], // CLEARED — pre-fix this bypassed validation entirely.
     semantic_edits: {}, // No prose composed.
     concerns: [], // No concerns recorded.
@@ -1063,6 +1303,12 @@ test("validateManifestSubagentStage: subagent passes when all script-stage pendi
   // pending list and addresses every item via semantic_edits or concerns.addressing.
   const scriptSemanticWorkPending = ["compose_status_completion_prose", "ready_set_re_derivation"];
   const subagentManifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
     semantic_work_pending: ["compose_status_completion_prose", "ready_set_re_derivation"],
     semantic_edits: {
       compose_status_completion_prose: "(resolved 2026-05-06 via PR #33 — auto-housekeeping prose)",
@@ -1093,6 +1339,12 @@ test("validateManifestSubagentStage: subagent-added pending items are also itera
   // otherwise the subagent could add work and silently skip addressing it.
   const scriptSemanticWorkPending = ["compose_status_completion_prose"];
   const subagentManifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
     // Subagent ADDED `line_cite_sweep` (committed to addressing it) but did NOT
     // pair it with semantic_edits or concerns.
     semantic_work_pending: ["compose_status_completion_prose", "line_cite_sweep"],
@@ -1116,6 +1368,160 @@ test("validateManifestSubagentStage: subagent-added pending items are also itera
   assert.ok(
     result.gaps.some((g) => g.startsWith("line_cite_sweep listed in")),
     `expected gap for subagent-added line_cite_sweep; got: ${JSON.stringify(result.gaps)}`,
+  );
+});
+
+// ---------- F-AMbIV regression tests (manifest._script_stage A2 design) ----------
+// These four tests pin the F-AMbIV path-(a) fix: the validator reads the script-stage
+// snapshot from manifest._script_stage when scriptXXX params are absent, and a
+// structural-tampering check catches subagents that try to bypass preservation checks
+// by removing or corrupting the snapshot.
+
+test("validateManifestSubagentStage: reads _script_stage from manifest when scriptXXX params not provided (Codex F-AMbIV A2 design)", () => {
+  // F-AMbIV A2 design: when the orchestrator does NOT plumb scriptXXX (current
+  // production reality — F-AMP7Y/F-AMSEL/F-AMWXK fixes were validator-API-layer
+  // half-fixes), the validator falls back to manifest._script_stage. This test
+  // pins that fallback: the script-stage snapshot is in the manifest, the
+  // subagent attempted to clear all four arrays, and the validator catches
+  // the bypass via the manifest-embedded snapshot — NO scriptXXX param passed.
+  const subagentManifest = {
+    _script_stage: {
+      affected_files: ["docs/plans/024-rust-pty-sidecar.md"],
+      schema_violations: [{ kind: "schema_violation", field: "PRs", ns_id: "NS-02" }],
+      verification_failures: [{ kind: "type_signature_mismatch" }],
+      semantic_work_pending: ["compose_status_completion_prose"],
+    },
+    // Subagent CLEARED all four — bypass attempt
+    affected_files: [],
+    schema_violations: [],
+    verification_failures: [],
+    semantic_work_pending: [],
+    semantic_edits: {},
+    concerns: [],
+    result: "DONE",
+  };
+  const result = validateManifestSubagentStage({ manifest: subagentManifest });
+  assert.equal(result.valid, false);
+  // Expect 4 gaps: affected_files superset (#7), schema_violations preservation (#9),
+  // verification_failures preservation (#10), semantic_work_pending union (#11).
+  // No structural-tampering gap because _script_stage IS present and well-formed.
+  assert.ok(
+    result.gaps.some(
+      (g) => g.includes("docs/plans/024-rust-pty-sidecar.md") && g.includes("D-7 row 14"),
+    ),
+    `expected affected_files superset gap (check #7); got: ${JSON.stringify(result.gaps)}`,
+  );
+  assert.ok(
+    result.gaps.some((g) => g.includes("F-AMP7Y") && g.includes("NS-02")),
+    `expected schema_violations preservation gap (check #9 / F-AMP7Y); got: ${JSON.stringify(result.gaps)}`,
+  );
+  assert.ok(
+    result.gaps.some((g) => g.includes("F-AMSEL") && g.includes("type_signature_mismatch")),
+    `expected verification_failures preservation gap (check #10 / F-AMSEL); got: ${JSON.stringify(result.gaps)}`,
+  );
+  assert.ok(
+    result.gaps.some((g) =>
+      g.startsWith("compose_status_completion_prose listed in semantic_work_pending"),
+    ),
+    `expected semantic_work_pending union gap (check #11 / F-AMWXK) sourced from _script_stage; got: ${JSON.stringify(result.gaps)}`,
+  );
+});
+
+test("validateManifestSubagentStage: missing _script_stage emits structural tampering gap (F-AMbIV)", () => {
+  // Secondary-attack defense: subagent CLEARS schema_violations AND ALSO removes
+  // _script_stage to defeat the manifest-embedded snapshot path. Without this
+  // structural check, the validator would have no comparison source (scriptXXX
+  // null + _script_stage absent) and the F-AMP7Y/F-AMSEL/F-AMWXK preservation
+  // checks would silently disable. The structural-tampering gap exposes the
+  // bypass attempt directly.
+  const tamperedManifest = {
+    // _script_stage REMOVED by subagent (bypass attempt)
+    affected_files: [],
+    schema_violations: [],
+    verification_failures: [],
+    semantic_work_pending: [],
+    semantic_edits: {},
+    concerns: [],
+    result: "DONE",
+  };
+  const result = validateManifestSubagentStage({ manifest: tamperedManifest });
+  assert.equal(result.valid, false);
+  assert.ok(
+    result.gaps.some(
+      (g) =>
+        g.includes("manifest._script_stage missing") &&
+        g.includes("Codex F-AMbIV") &&
+        g.includes("circumvents preservation checks #7/#9/#10/#11"),
+    ),
+    `expected structural-tampering gap citing F-AMbIV; got: ${JSON.stringify(result.gaps)}`,
+  );
+});
+
+test("validateManifestSubagentStage: malformed _script_stage (string instead of object) emits gap (F-AMbIV)", () => {
+  // Tampering variant: subagent replaces _script_stage with a non-object value
+  // (string, array, scalar). The structural-tampering check rejects all three
+  // shapes — only `{affected_files, schema_violations, verification_failures,
+  // semantic_work_pending}` (each an array) satisfies the contract.
+  const tamperedManifest = {
+    _script_stage: "tampered-by-subagent",
+    affected_files: [],
+    schema_violations: [],
+    verification_failures: [],
+    semantic_work_pending: [],
+    semantic_edits: {},
+    concerns: [],
+    result: "DONE",
+  };
+  const result = validateManifestSubagentStage({ manifest: tamperedManifest });
+  assert.equal(result.valid, false);
+  assert.ok(
+    result.gaps.some(
+      (g) =>
+        g.includes("manifest._script_stage is not an object") &&
+        g.includes("got string") &&
+        g.includes("Codex F-AMbIV"),
+    ),
+    `expected structural-tampering gap naming the string kind; got: ${JSON.stringify(result.gaps)}`,
+  );
+});
+
+test("validateManifestSubagentStage: scriptXXX param takes precedence over manifest._script_stage (F-AMbIV precedence)", () => {
+  // Precedence rule per check #12: explicit scriptXXX param > manifest._script_stage[field].
+  // Test: pass scriptSchemaViolations with one value; embed a DIFFERENT value
+  // in manifest._script_stage.schema_violations. The preservation check should
+  // fire on the PARAM value (subagent must preserve PARAM_SV not SNAPSHOT_SV) —
+  // proves the param wins and the snapshot is decorative for that field.
+  const PARAM_SV = [{ kind: "schema_violation", field: "PRs", ns_id: "NS-99" }];
+  const SNAPSHOT_SV = [{ kind: "schema_violation", field: "Type", ns_id: "NS-77" }];
+  const subagentManifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: SNAPSHOT_SV,
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
+    affected_files: [],
+    schema_violations: [],
+    verification_failures: [],
+    semantic_work_pending: [],
+    semantic_edits: {},
+    concerns: [],
+    result: "BLOCKED",
+  };
+  const result = validateManifestSubagentStage({
+    manifest: subagentManifest,
+    scriptSchemaViolations: PARAM_SV,
+  });
+  assert.equal(result.valid, false);
+  // Param value (NS-99) MUST surface as gap — it's what the subagent failed to preserve.
+  assert.ok(
+    result.gaps.some((g) => g.includes("NS-99") && g.includes("F-AMP7Y")),
+    `expected preservation gap for PARAM_SV (NS-99); got: ${JSON.stringify(result.gaps)}`,
+  );
+  // Snapshot value (NS-77) MUST NOT surface — param won the precedence battle.
+  assert.ok(
+    !result.gaps.some((g) => g.includes("NS-77")),
+    `snapshot NS-77 must NOT appear in gaps when param NS-99 took precedence; got: ${JSON.stringify(result.gaps)}`,
   );
 });
 

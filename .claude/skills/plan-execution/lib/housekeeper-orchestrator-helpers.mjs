@@ -37,7 +37,8 @@ Hard rules:
 - Do NOT edit files outside \`manifest.affected_files\`.
 - Do NOT leave \`<TODO subagent prose>\` placeholders intact.
 - Do NOT read NS catalog item BODIES; the §6-prose-only constraint applies to the set-quantifier reverification surface (responsibility #2).
-- Do NOT confuse design-spec §6 ("Data flow") with \`cross-plan-dependencies.md\` §6 ("Active Next Steps DAG"); D-2 routes to the latter.`;
+- Do NOT confuse design-spec §6 ("Data flow") with \`cross-plan-dependencies.md\` §6 ("Active Next Steps DAG"); D-2 routes to the latter.
+- Do NOT touch \`manifest._script_stage\` (Codex F-AMbIV). It is the script-embedded immutable snapshot of the four arrays the validator enforces preservation/iteration on (\`affected_files\`, \`schema_violations\`, \`verification_failures\`, \`semantic_work_pending\`); when you rewrite the manifest, copy \`_script_stage\` through verbatim. Removing the key, replacing it with a non-object, or swapping any of its four fields for non-array values is itself a bypass attempt and surfaces in the validator as a structural-tampering gap.`;
 
 /**
  * Build the housekeeper subagent prompt.
@@ -149,8 +150,33 @@ export function buildHousekeeperPrompt({ manifestPath, scriptExitCode, prNumber,
  *     semantically actionable ("X listed but unaddressed") in ONE round-trip
  *     instead of TWO (array-shrink gap → re-add → unaddressed). Subagent MAY add
  *     new pending items (the union catches those too).
+ * 12. (Codex F-AMbIV PR #33) `manifest._script_stage` is the script-embedded
+ *     immutable snapshot of the four checked arrays (affected_files /
+ *     schema_violations / verification_failures / semantic_work_pending). Path-(a)
+ *     A2 design: the validator reads `_script_stage` directly from the manifest
+ *     so the four preservation/iteration checks (#7 / #9 / #10 / #11) work end-to-end
+ *     WITHOUT requiring the orchestrator to plumb scriptXXX params at every callsite.
+ *     PRECEDENCE per field: explicit scriptXXX param > `manifest._script_stage[field]`
+ *     > `null` (legacy fallback when neither source is available — preserves
+ *     pre-F-AMbIV test fixtures that don't construct `_script_stage`). STRUCTURAL
+ *     TAMPERING DETECTION: when ANY scriptXXX param is null (validator is relying on
+ *     the manifest-embedded snapshot path), `manifest._script_stage` MUST be a
+ *     non-array object whose four fields are each arrays — missing, scalar, array,
+ *     or non-array-typed-fields all surface as gaps. Without this guard, a subagent
+ *     could (a) clear `manifest.schema_violations` AND (b) ALSO remove `_script_stage`,
+ *     restoring the pre-F-AMP7Y/F-AMSEL/F-AMWXK bypass (validator finds no comparison
+ *     source for checks #7/#9/#10/#11 → checks short-circuit on `Array.isArray(null)`
+ *     → empty subagent arrays + cleared snapshot → DONE returned with no gaps).
+ *     When ALL four scriptXXX params are passed (the explicit-orchestrator-plumbing
+ *     path), the validator skips the structural-tampering check entirely — the
+ *     snapshot source is external and untamperable, and `_script_stage` becomes
+ *     decorative. Subagent contract: `_script_stage` is READ-ONLY; touching it
+ *     surfaces here as a structural-tampering gap (per agent file + contract doc).
  *
  * @param {{ manifest: object, repoRoot?: string, scriptAffectedFiles?: string[], scriptSchemaViolations?: object[], scriptVerificationFailures?: object[], scriptSemanticWorkPending?: string[] }} opts
+ *   `manifest._script_stage` (when present) shape: `{ affected_files: string[],
+ *   schema_violations: object[], verification_failures: object[],
+ *   semantic_work_pending: string[] }` — see contract doc §Manifest schema.
  * @returns {{ valid: true } | { valid: false, gaps: string[] }}
  */
 export function validateManifestSubagentStage({
@@ -162,6 +188,76 @@ export function validateManifestSubagentStage({
   scriptSemanticWorkPending = null,
 }) {
   const gaps = [];
+
+  // Check #12 — Codex F-AMbIV PR #33: structural-shape tampering detection on
+  // `manifest._script_stage`. When ANY scriptXXX param is null, the validator falls
+  // back to the manifest-embedded snapshot for that field; if the snapshot is missing
+  // or malformed the four preservation/iteration checks (#7/#9/#10/#11) silently
+  // disable, restoring the pre-F-AMP7Y/F-AMSEL/F-AMWXK bypass class. When ALL four
+  // scriptXXX are passed (orchestrator-explicit-plumbing path), the snapshot source
+  // is external and the structural check is skipped.
+  const fromManifest = manifest._script_stage;
+  const reliesOnManifestSnapshot =
+    scriptAffectedFiles == null ||
+    scriptSchemaViolations == null ||
+    scriptVerificationFailures == null ||
+    scriptSemanticWorkPending == null;
+  if (reliesOnManifestSnapshot) {
+    if (fromManifest === undefined || fromManifest === null) {
+      gaps.push(
+        `manifest._script_stage missing — subagent contract requires preserving the immutable script-stage snapshot (Codex F-AMbIV: removing _script_stage circumvents preservation checks #7/#9/#10/#11)`,
+      );
+    } else if (typeof fromManifest !== "object" || Array.isArray(fromManifest)) {
+      const actualKind = Array.isArray(fromManifest) ? "array" : typeof fromManifest;
+      gaps.push(
+        `manifest._script_stage is not an object (got ${actualKind}) — structural tampering detected (Codex F-AMbIV)`,
+      );
+    } else {
+      for (const field of [
+        "affected_files",
+        "schema_violations",
+        "verification_failures",
+        "semantic_work_pending",
+      ]) {
+        if (!Array.isArray(fromManifest[field])) {
+          const actualKind =
+            fromManifest[field] === undefined ? "undefined" : typeof fromManifest[field];
+          gaps.push(
+            `manifest._script_stage.${field} is not an array (got ${actualKind}) — structural tampering detected (Codex F-AMbIV)`,
+          );
+        }
+      }
+    }
+  }
+
+  // Resolve effective script-stage snapshot per-field with precedence:
+  // (1) explicit scriptXXX param > (2) manifest._script_stage[field] > (3) null.
+  // The (3) fallback only triggers when neither source is available — preserves
+  // pre-F-AMbIV test fixtures that omit both. Defensive type-guards on _script_stage
+  // (only treat as object if it survived the structural check above) prevent a
+  // malformed snapshot from poisoning the resolved value with non-array data.
+  const safeFromManifest =
+    fromManifest && typeof fromManifest === "object" && !Array.isArray(fromManifest)
+      ? fromManifest
+      : null;
+  const effScriptAffectedFiles =
+    scriptAffectedFiles ??
+    (Array.isArray(safeFromManifest?.affected_files) ? safeFromManifest.affected_files : null);
+  const effScriptSchemaViolations =
+    scriptSchemaViolations ??
+    (Array.isArray(safeFromManifest?.schema_violations)
+      ? safeFromManifest.schema_violations
+      : null);
+  const effScriptVerificationFailures =
+    scriptVerificationFailures ??
+    (Array.isArray(safeFromManifest?.verification_failures)
+      ? safeFromManifest.verification_failures
+      : null);
+  const effScriptSemanticWorkPending =
+    scriptSemanticWorkPending ??
+    (Array.isArray(safeFromManifest?.semantic_work_pending)
+      ? safeFromManifest.semantic_work_pending
+      : null);
 
   // Check #1 — canonical exit-state enforcement (Codex P2 PR #33 R4 / Finding 7).
   // Plan Invariant I-2: subagent MUST return one of {DONE, DONE_WITH_CONCERNS,
@@ -190,17 +286,18 @@ export function validateManifestSubagentStage({
     manifest.result === "BLOCKED" || manifest.result === "NEEDS_CONTEXT";
 
   if (!haltedBeforeCompletion) {
-    // Codex F-AMWXK PR #33: when scriptSemanticWorkPending is provided, iterate
-    // the UNION of script-stage snapshot + subagent-written array. The script
-    // snapshot is the immutable contract (subagent CANNOT bypass by clearing);
-    // the subagent's additions are also iterated (subagent committed to address
-    // anything they added). Falls back to subagent-only when script snapshot is
-    // null (legacy callsites + tests that don't plumb the snapshot).
+    // Codex F-AMWXK PR #33: when scriptSemanticWorkPending is provided (now resolved
+    // via F-AMbIV precedence: explicit param > manifest._script_stage.semantic_work_pending
+    // > null), iterate the UNION of script-stage snapshot + subagent-written array.
+    // The script snapshot is the immutable contract (subagent CANNOT bypass by
+    // clearing); the subagent's additions are also iterated (subagent committed to
+    // address anything they added). Falls back to subagent-only when both snapshot
+    // sources are null (legacy callsites + tests that don't plumb the snapshot).
     const pendingItems =
-      scriptSemanticWorkPending != null
+      effScriptSemanticWorkPending != null
         ? Array.from(
             new Set([
-              ...(scriptSemanticWorkPending ?? []),
+              ...(effScriptSemanticWorkPending ?? []),
               ...(manifest.semantic_work_pending ?? []),
             ]),
           )
@@ -360,12 +457,14 @@ export function validateManifestSubagentStage({
   }
 
   // D-7 row 14 — superset check. When the orchestrator passes the script's
-  // stage-1 affected_files, the subagent's stage-2 list MUST include every
-  // entry. Dropping a file is a contract violation (the subagent may not
-  // narrow scope; it may only justify expansion via `affected_files_extension`).
-  if (Array.isArray(scriptAffectedFiles)) {
+  // stage-1 affected_files (now resolved via F-AMbIV precedence: explicit
+  // scriptAffectedFiles param > manifest._script_stage.affected_files > null),
+  // the subagent's stage-2 list MUST include every entry. Dropping a file is a
+  // contract violation (the subagent may not narrow scope; it may only justify
+  // expansion via `affected_files_extension`).
+  if (Array.isArray(effScriptAffectedFiles)) {
     const subagentSet = new Set(manifest.affected_files ?? []);
-    for (const path of scriptAffectedFiles) {
+    for (const path of effScriptAffectedFiles) {
       if (!subagentSet.has(path)) {
         gaps.push(
           `${path} declared by script but absent from subagent-emitted affected_files (D-7 row 14: subagent affected_files MUST be a superset of script affected_files)`,
@@ -382,10 +481,10 @@ export function validateManifestSubagentStage({
   // script-stage entry, matched by composite key kind+field+ns_id (same pairing
   // the check #5 matcher uses). The subagent MAY add new violations (rare) but
   // MUST NOT remove script-stage ones.
-  if (Array.isArray(scriptSchemaViolations)) {
+  if (Array.isArray(effScriptSchemaViolations)) {
     const violationKey = (v) => `${v.kind ?? ""}|${v.field ?? ""}|${v.ns_id ?? ""}`;
     const subagentViolationKeys = new Set((manifest.schema_violations ?? []).map(violationKey));
-    for (const sv of scriptSchemaViolations) {
+    for (const sv of effScriptSchemaViolations) {
       if (!subagentViolationKeys.has(violationKey(sv))) {
         const idLabel = [
           sv.kind && `kind=${sv.kind}`,
@@ -410,10 +509,10 @@ export function validateManifestSubagentStage({
   // manifest.verification_failures and return DONE/DONE_WITH_CONCERNS, bypassing
   // check #8's BLOCKED enforcement for Type-signature / file-overlap / plan-identity
   // mismatch / multi_pr_task_not_in_block.
-  if (Array.isArray(scriptVerificationFailures)) {
+  if (Array.isArray(effScriptVerificationFailures)) {
     const failureKey = (f) => JSON.stringify(f, Object.keys(f).sort());
     const subagentFailureKeys = new Set((manifest.verification_failures ?? []).map(failureKey));
-    for (const vf of scriptVerificationFailures) {
+    for (const vf of effScriptVerificationFailures) {
       if (!subagentFailureKeys.has(failureKey(vf))) {
         gaps.push(
           `script-stage verification_failure (${JSON.stringify(vf)}) absent from subagent-emitted verification_failures (Codex F-AMSEL: subagent MUST NOT clear script-stage failures; check #8 BLOCKED enforcement requires the array to remain populated)`,

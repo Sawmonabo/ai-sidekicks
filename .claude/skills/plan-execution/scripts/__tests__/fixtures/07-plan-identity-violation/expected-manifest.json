@@ -15,10 +15,24 @@
   "auto_create": null,
   "mechanical_edits": {},
   "schema_violations": [],
-  "verification_failures": [{ "kind": "plan_identity_missing" }],
+  "verification_failures": [
+    {
+      "kind": "plan_identity_missing"
+    }
+  ],
   "affected_files": [],
   "semantic_work_pending": [],
   "warnings": [],
+  "_script_stage": {
+    "affected_files": [],
+    "schema_violations": [],
+    "verification_failures": [
+      {
+        "kind": "plan_identity_missing"
+      }
+    ],
+    "semantic_work_pending": []
+  },
   "subagent_completed_at": null,
   "semantic_edits": {},
   "concerns": [],
