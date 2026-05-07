@@ -137,8 +137,20 @@ export function buildHousekeeperPrompt({ manifestPath, scriptExitCode, prNumber,
  *     return DONE/DONE_WITH_CONCERNS, bypassing the check #8 BLOCKED enforcement
  *     for the exit-2 halt path (Type-signature / file-overlap / plan-identity
  *     mismatch / multi_pr_task_not_in_block).
+ * 11. (Codex F-AMWXK PR #33) When `scriptSemanticWorkPending` is provided, the
+ *     per-item pairing iteration (check #2) reads from the UNION of the script-stage
+ *     snapshot AND the subagent-written array — NOT from the subagent array alone.
+ *     Without this, a subagent could clear `manifest.semantic_work_pending` and
+ *     return DONE/DONE_WITH_CONCERNS; the existing iteration would loop zero times
+ *     and emit zero gaps, letting unaddressed semantic work pass validation.
+ *     STRUCTURAL DIVERGENCE from checks #9/#10: those guard array-non-emptiness →
+ *     BLOCKED state with a separate preservation check; F-AMWXK feeds the existing
+ *     per-item iteration with the immutable script set so the gap message stays
+ *     semantically actionable ("X listed but unaddressed") in ONE round-trip
+ *     instead of TWO (array-shrink gap → re-add → unaddressed). Subagent MAY add
+ *     new pending items (the union catches those too).
  *
- * @param {{ manifest: object, repoRoot?: string, scriptAffectedFiles?: string[], scriptSchemaViolations?: object[], scriptVerificationFailures?: object[] }} opts
+ * @param {{ manifest: object, repoRoot?: string, scriptAffectedFiles?: string[], scriptSchemaViolations?: object[], scriptVerificationFailures?: object[], scriptSemanticWorkPending?: string[] }} opts
  * @returns {{ valid: true } | { valid: false, gaps: string[] }}
  */
 export function validateManifestSubagentStage({
@@ -147,6 +159,7 @@ export function validateManifestSubagentStage({
   scriptAffectedFiles = null,
   scriptSchemaViolations = null,
   scriptVerificationFailures = null,
+  scriptSemanticWorkPending = null,
 }) {
   const gaps = [];
 
@@ -177,7 +190,22 @@ export function validateManifestSubagentStage({
     manifest.result === "BLOCKED" || manifest.result === "NEEDS_CONTEXT";
 
   if (!haltedBeforeCompletion) {
-    for (const item of manifest.semantic_work_pending ?? []) {
+    // Codex F-AMWXK PR #33: when scriptSemanticWorkPending is provided, iterate
+    // the UNION of script-stage snapshot + subagent-written array. The script
+    // snapshot is the immutable contract (subagent CANNOT bypass by clearing);
+    // the subagent's additions are also iterated (subagent committed to address
+    // anything they added). Falls back to subagent-only when script snapshot is
+    // null (legacy callsites + tests that don't plumb the snapshot).
+    const pendingItems =
+      scriptSemanticWorkPending != null
+        ? Array.from(
+            new Set([
+              ...(scriptSemanticWorkPending ?? []),
+              ...(manifest.semantic_work_pending ?? []),
+            ]),
+          )
+        : (manifest.semantic_work_pending ?? []);
+    for (const item of pendingItems) {
       // Codex P2 PR #33 R5 / Finding 9: hasOwnProperty alone admitted shapes like
       // `semantic_edits.compose_status_completion_prose = undefined` — key-present
       // but no payload. Contract responsibility #5 requires "an entry containing the

@@ -1017,6 +1017,108 @@ test("validateManifestSubagentStage: key-order-independent JSON canonicalization
   );
 });
 
+// ---------- Codex F-AMWXK (PR #33): script-stage semantic_work_pending preservation ----------
+
+test("validateManifestSubagentStage: cleared semantic_work_pending no longer bypasses per-item iteration (Codex F-AMWXK)", () => {
+  // Codex P1 (PR #33 / F-AMWXK): the per-item pairing iteration at L180 read
+  // `manifest.semantic_work_pending`, so a subagent could clear that array and
+  // return DONE/DONE_WITH_CONCERNS — the iteration looped zero times and emitted
+  // zero gaps, letting unaddressed semantic work pass validation. SAME bypass
+  // shape as F-AMP7Y (schema_violations) and F-AMSEL (verification_failures),
+  // but structurally different fix: instead of a separate preservation check
+  // (which would force a 3-round dance — array-shrink gap → re-add → unaddressed),
+  // feed the existing iteration with the UNION of script-stage + subagent arrays
+  // so the gap message stays "X listed but unaddressed" — directly actionable in
+  // ONE round-trip. The script snapshot is the immutable contract.
+  const scriptSemanticWorkPending = ["compose_status_completion_prose", "ready_set_re_derivation"];
+  const subagentManifest = {
+    semantic_work_pending: [], // CLEARED — pre-fix this bypassed validation entirely.
+    semantic_edits: {}, // No prose composed.
+    concerns: [], // No concerns recorded.
+    affected_files: [],
+    result: "DONE",
+  };
+  const result = validateManifestSubagentStage({
+    manifest: subagentManifest,
+    scriptSemanticWorkPending,
+  });
+  assert.equal(result.valid, false);
+  assert.equal(
+    result.gaps.length,
+    2,
+    `expected 2 gaps (one per script-stage pending item); got: ${JSON.stringify(result.gaps)}`,
+  );
+  assert.ok(
+    result.gaps.some((g) => g.startsWith("compose_status_completion_prose listed in")),
+    `expected gap for compose_status_completion_prose; got: ${JSON.stringify(result.gaps)}`,
+  );
+  assert.ok(
+    result.gaps.some((g) => g.startsWith("ready_set_re_derivation listed in")),
+    `expected gap for ready_set_re_derivation; got: ${JSON.stringify(result.gaps)}`,
+  );
+});
+
+test("validateManifestSubagentStage: subagent passes when all script-stage pending items are addressed (F-AMWXK negative case)", () => {
+  // Canonical happy path under the F-AMWXK fix: subagent preserves the script-stage
+  // pending list and addresses every item via semantic_edits or concerns.addressing.
+  const scriptSemanticWorkPending = ["compose_status_completion_prose", "ready_set_re_derivation"];
+  const subagentManifest = {
+    semantic_work_pending: ["compose_status_completion_prose", "ready_set_re_derivation"],
+    semantic_edits: {
+      compose_status_completion_prose: "(resolved 2026-05-06 via PR #33 — auto-housekeeping prose)",
+    },
+    concerns: [
+      {
+        kind: "deferred_for_followup",
+        addressing: "ready_set_re_derivation",
+        detail: "subagent surfaces ready-set rederivation as deferred",
+      },
+    ],
+    affected_files: [],
+    result: "DONE_WITH_CONCERNS",
+  };
+  assert.deepEqual(
+    validateManifestSubagentStage({
+      manifest: subagentManifest,
+      scriptSemanticWorkPending,
+    }),
+    { valid: true },
+  );
+});
+
+test("validateManifestSubagentStage: subagent-added pending items are also iterated (F-AMWXK union semantics)", () => {
+  // F-AMWXK fix uses Set union of script-stage + subagent-stage so subagent-added
+  // pending items are caught too. If subagent commits to addressing a new item by
+  // adding it to semantic_work_pending, the iteration must check it for pairing —
+  // otherwise the subagent could add work and silently skip addressing it.
+  const scriptSemanticWorkPending = ["compose_status_completion_prose"];
+  const subagentManifest = {
+    // Subagent ADDED `line_cite_sweep` (committed to addressing it) but did NOT
+    // pair it with semantic_edits or concerns.
+    semantic_work_pending: ["compose_status_completion_prose", "line_cite_sweep"],
+    semantic_edits: {
+      compose_status_completion_prose: "(resolved 2026-05-06 via PR #33 — prose)",
+    },
+    concerns: [],
+    affected_files: [],
+    result: "DONE",
+  };
+  const result = validateManifestSubagentStage({
+    manifest: subagentManifest,
+    scriptSemanticWorkPending,
+  });
+  assert.equal(result.valid, false);
+  assert.equal(
+    result.gaps.length,
+    1,
+    `expected exactly 1 gap (line_cite_sweep unaddressed; compose_status_completion_prose IS addressed); got: ${JSON.stringify(result.gaps)}`,
+  );
+  assert.ok(
+    result.gaps.some((g) => g.startsWith("line_cite_sweep listed in")),
+    `expected gap for subagent-added line_cite_sweep; got: ${JSON.stringify(result.gaps)}`,
+  );
+});
+
 test("detectAffectedFilesSprawl: edits outside manifest's affected_files trigger REDISPATCH routing — NOT DONE_WITH_CONCERNS at first detection (Codex P1 PR #33 Finding 15 / failure-modes.md rule 20)", () => {
   const result = detectAffectedFilesSprawl({
     manifestAffectedFiles: ["docs/architecture/cross-plan-dependencies.md"],
