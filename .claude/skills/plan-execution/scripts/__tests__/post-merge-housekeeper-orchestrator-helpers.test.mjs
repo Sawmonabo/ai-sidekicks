@@ -784,7 +784,16 @@ test("I-1 invariant: every cross-plan-dependencies.md NS heading remains extract
   // PRs:-block migrations + NS-23 + auto-create stubs, the hook MUST still pass against the
   // current cross-plan-dependencies.md without "broken cite" errors. This test is a regression
   // canary: if a housekeeper-mutating commit breaks a cite, this assertion catches it.
+  // Codex P2 PR #33 R8 / Finding 16: assert on the exception itself, not on a
+  // derived stderr string. The prior `e.stderr?.toString() ?? ...` chain stopped
+  // on empty-string (??-falls-back-on-null/undefined-only), so a hook that exited
+  // nonzero with empty stderr produced stderr = "" and the final equality check
+  // passed — false-positive that hid cite-target regressions. Now any throw fails
+  // the assertion with the captured exit code + stderr + stdout for diagnosis.
+  let caughtError = null;
   let stderr = "";
+  let stdout = "";
+  let exitCode = 0;
   try {
     execSync(
       "node --experimental-strip-types tools/docs-corpus/bin/pre-commit-runner.ts docs/architecture/cross-plan-dependencies.md",
@@ -794,12 +803,15 @@ test("I-1 invariant: every cross-plan-dependencies.md NS heading remains extract
       },
     );
   } catch (e) {
-    stderr = e.stderr?.toString() ?? e.stdout?.toString() ?? String(e);
+    caughtError = e;
+    stderr = e.stderr?.toString() ?? "";
+    stdout = e.stdout?.toString() ?? "";
+    exitCode = e.status ?? e.code ?? -1;
   }
   assert.equal(
-    stderr,
-    "",
-    `cite-target hook failed against current catalog — I-1 regression: ${stderr}`,
+    caughtError,
+    null,
+    `cite-target hook failed (exit ${exitCode}) against current catalog — I-1 regression\nSTDERR: ${stderr}\nSTDOUT: ${stdout}`,
   );
 });
 
