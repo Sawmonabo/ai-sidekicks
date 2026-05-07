@@ -573,6 +573,59 @@ test("validateManifestSubagentStage: passes when schema_violations present AND r
   assert.deepEqual(validateManifestSubagentStage({ manifest }), { valid: true });
 });
 
+// ---------- Codex Finding 11 (PR #33 R7): BLOCKED-when-verification_failures enforcement ----------
+// Mirror of Finding 6's schema_violations BLOCKED check. Contract clause from
+// `references/post-merge-housekeeper-contract.md` §exit-code 2 line 79: "candidate
+// verification failed (Type-signature / file-overlap / plan-identity mismatch — halt
+// BLOCKED via subagent surfacing of `verification_failures`)". Without this check, a
+// subagent could ship `DONE` / `DONE_WITH_CONCERNS` while verification_failures is
+// non-empty, bypassing the orchestrator's halt/routing-path determinism in Phase E.
+
+test("validateManifestSubagentStage: fails when verification_failures present but result is 'DONE_WITH_CONCERNS' (Codex Finding 11)", () => {
+  // Script exit-2 path: candidate verification failed (e.g. type_signature_mismatch,
+  // file_overlap_zero, plan_identity_mismatch). Subagent must end in BLOCKED;
+  // returning DONE_WITH_CONCERNS bypasses the documented halt path.
+  // verification_failures shape mirrors the script's emission (lines 1209/1426/1446/1466/1495)
+  // and the existing fixtures (e.g. fixtures/05-type-signature-violation/expected-manifest.json
+  // at line 18: `[{ "kind": "type_signature_mismatch" }]`).
+  const manifest = {
+    semantic_work_pending: [],
+    semantic_edits: {},
+    verification_failures: [{ kind: "type_signature_mismatch" }],
+    concerns: [{ kind: "type_signature_mismatch", detail: "..." }],
+    affected_files: [],
+    result: "DONE_WITH_CONCERNS",
+  };
+  const result = validateManifestSubagentStage({ manifest });
+  assert.equal(result.valid, false);
+  assert.ok(
+    result.gaps.some(
+      (g) =>
+        g.includes("verification_failures present") &&
+        g.includes(`result is "DONE_WITH_CONCERNS"`) &&
+        g.includes(`result === "BLOCKED"`),
+    ),
+    `expected gap citing BLOCKED-required-when-verification_failures; got: ${JSON.stringify(result.gaps)}`,
+  );
+  // Only the BLOCKED-state requirement should gap — proves this check is independent
+  // of the schema_violations check (which is empty here).
+  assert.equal(result.gaps.length, 1);
+});
+
+test("validateManifestSubagentStage: passes when verification_failures present AND result is 'BLOCKED' (Codex Finding 11 negative case)", () => {
+  // Both halves of the contract clause satisfied: verification failure surfaced AND
+  // result is BLOCKED. The validator returns valid:true (no verification_failures gap).
+  const manifest = {
+    semantic_work_pending: [],
+    semantic_edits: {},
+    verification_failures: [{ kind: "file_overlap_zero" }],
+    concerns: [{ kind: "file_overlap_zero", detail: "..." }],
+    affected_files: [],
+    result: "BLOCKED",
+  };
+  assert.deepEqual(validateManifestSubagentStage({ manifest }), { valid: true });
+});
+
 // ---------- Task 4.8: Layer 2 unit tests for D-7 rows 12-15 + I-1/I-2/I-3 invariants ----------
 
 test("buildHousekeeperPrompt: emitted prompt matches the canonical template in references/post-merge-housekeeper-contract.md (D-7 row 12)", () => {

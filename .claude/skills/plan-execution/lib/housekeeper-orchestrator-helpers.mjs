@@ -111,6 +111,13 @@ export function buildHousekeeperPrompt({ manifestPath, scriptExitCode, prNumber,
  *     manifest.affected_files MUST be a superset — the subagent may extend the
  *     list (justified via a `concerns` entry of kind `affected_files_extension`)
  *     but MUST NOT drop a file the script declared.
+ *  8. (Codex P1 PR #33 R7 / Finding 11) When `manifest.verification_failures` is
+ *     non-empty (script exit-2 halt path — Type-signature / file-overlap /
+ *     plan-identity mismatch or multi_pr_task_not_in_block), `manifest.result`
+ *     MUST equal `"BLOCKED"`. Mirrors check #6 for schema_violations — surfacing
+ *     alone is insufficient; the BLOCKED state is required for halt/routing-path
+ *     determinism after candidate-verification failure (per contract
+ *     `references/post-merge-housekeeper-contract.md` §exit-code 2 line 79).
  *
  * @param {{ manifest: object, repoRoot?: string, scriptAffectedFiles?: string[] }} opts
  * @returns {{ valid: true } | { valid: false, gaps: string[] }}
@@ -247,6 +254,28 @@ export function validateManifestSubagentStage({
           : `"${manifest.result}"`;
     gaps.push(
       `schema_violations present (${violationsCount} entries) but result is ${actualLabel}; contract requires result === "BLOCKED" when schema_violations is non-empty (post-merge-housekeeper-contract.md §Validation invariants)`,
+    );
+  }
+
+  // Check #8 — BLOCKED-when-verification_failures enforcement (Codex P1 PR #33 R7 / Finding 11).
+  // Mirrors check #6 for schema_violations. The script halts with exit 2 when candidate
+  // verification fails (Type-signature / file-overlap / plan-identity mismatch, or
+  // multi_pr_task_not_in_block) and populates `verification_failures` (script lines 1209,
+  // 1426, 1446, 1466, 1495). Per contract `references/post-merge-housekeeper-contract.md`
+  // §exit-code 2 line 79: "halt BLOCKED via subagent surfacing of `verification_failures`".
+  // Surfacing alone is insufficient — the BLOCKED state is load-bearing for the
+  // orchestrator's halt/routing-path determinism (DONE / DONE_WITH_CONCERNS would silently
+  // take the merge-and-continue path even when the script halted on candidate-verification).
+  const verificationFailureCount = manifest.verification_failures?.length ?? 0;
+  if (verificationFailureCount > 0 && manifest.result !== "BLOCKED") {
+    const actualLabel =
+      manifest.result === null
+        ? "null"
+        : manifest.result === undefined
+          ? "undefined"
+          : `"${manifest.result}"`;
+    gaps.push(
+      `verification_failures present (${verificationFailureCount} entries) but result is ${actualLabel}; contract requires result === "BLOCKED" when verification_failures is non-empty (post-merge-housekeeper-contract.md §exit-code 2 / script exit-2 halt path)`,
     );
   }
 

@@ -440,7 +440,7 @@ The phase has 8 steps in this exact order — DO NOT reorder; step 6 (Progress L
 3. **Validate the script-stage manifest** at `.agents/tmp/housekeeper-manifest-PR<N>.json` against the script-stage invariants per spec §5.3:
    - exit code matches `script_exit_code`
    - `mechanical_edits.status_flip.to_line` contains `<TODO subagent prose>` literal placeholder string (subagent fills this)
-   - `affected_files` is a subset of files actually edited by the script
+   - `affected_files` is a superset (or exact match) of files actually edited by the script — declared list must cover every actual edit so any out-of-scope write is detected before subagent dispatch (per `references/post-merge-housekeeper-contract.md` §Validation invariants line 93)
 
 4. **Dispatch the `plan-execution-housekeeper` subagent** with the manifest path. The subagent reads the manifest, composes completion-prose for each `<TODO subagent prose>` placeholder using merged-commit context, then re-derives set-quantifier claims by reading ONLY `docs/architecture/cross-plan-dependencies.md` §6 prose (per Plan §Decisions-Locked D-2 — NOT the design spec §6, which is `## 6. Data flow`). Writes back via Edit tool. Returns one of the four canonical exit-states (DONE / DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED) — no new exit-state per Plan Invariant I-2.
 
