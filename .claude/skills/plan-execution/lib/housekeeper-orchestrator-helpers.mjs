@@ -1,4 +1,4 @@
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
 
@@ -217,7 +217,38 @@ export function validateManifestSubagentStage({
       );
       continue;
     }
-    const text = readFileSync(full, "utf8");
+    // Codex F-AMU4D PR #33: guard against non-regular files (directories, symlinks
+    // pointing at directories, sockets, etc). readFileSync would throw EISDIR on a
+    // directory; the contract says affected_files entries are FILES (the script edits
+    // line-level content). Surface as a gap rather than crashing the orchestrator —
+    // a subagent contract violation must route through the validator's gap-collection
+    // path so Phase E can re-dispatch (NOT halt with an unhandled exception).
+    let stats;
+    try {
+      stats = statSync(full);
+    } catch (e) {
+      gaps.push(
+        `${path} declared in affected_files but stat failed (${e.code ?? e.message}); subagent contract requires regular files (Codex F-AMU4D)`,
+      );
+      continue;
+    }
+    if (!stats.isFile()) {
+      gaps.push(
+        `${path} declared in affected_files but is not a regular file (directory or other non-file kind); subagent contract requires regular files for line-level edits (Codex F-AMU4D)`,
+      );
+      continue;
+    }
+    let text;
+    try {
+      text = readFileSync(full, "utf8");
+    } catch (e) {
+      // Defense in depth — even after isFile() passes, readFileSync could fail on
+      // permissions, encoding, or transient I/O errors. Surface as a gap, not a crash.
+      gaps.push(
+        `${path} declared in affected_files but readFileSync failed (${e.code ?? e.message}); subagent contract requires readable file content (Codex F-AMU4D)`,
+      );
+      continue;
+    }
     if (text.includes(PLACEHOLDER))
       gaps.push(`${PLACEHOLDER} placeholder still present in ${path}`);
   }

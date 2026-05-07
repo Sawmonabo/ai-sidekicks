@@ -111,6 +111,41 @@ test("validateManifestSubagentStage: fails when affected_files entry is missing 
   }
 });
 
+test("validateManifestSubagentStage: fails with gap (not crash) when affected_files entry is a directory (Codex F-AMU4D)", () => {
+  // Codex P2 (PR #33 / F-AMU4D): the placeholder-scan loop called readFileSync
+  // unconditionally after the existsSync gate, so a subagent that declared a directory
+  // path in affected_files (or readFileSync hit any I/O error) crashed the orchestrator
+  // with EISDIR / ENOENT instead of routing through the validator's gap collection.
+  // The contract requires affected_files entries to be regular files (the script edits
+  // line-level content); a directory is a contract violation that MUST surface as a
+  // gap so Phase E can re-dispatch — not an unhandled exception that halts orchestration.
+  const tmpRepo = mkdtempSync(join(tmpdir(), "validate-nonfile-"));
+  try {
+    // Create a DIRECTORY at the path the manifest will declare as a file.
+    mkdirSync(join(tmpRepo, "docs/architecture/cross-plan-dependencies.md"), {
+      recursive: true,
+    });
+    const manifest = {
+      semantic_work_pending: [],
+      semantic_edits: {},
+      concerns: [],
+      affected_files: ["docs/architecture/cross-plan-dependencies.md"],
+      result: "DONE",
+    };
+    // The bug surface: prior code threw EISDIR here. The fix routes to gaps.push.
+    const result = validateManifestSubagentStage({ manifest, repoRoot: tmpRepo });
+    assert.equal(result.valid, false);
+    assert.equal(result.gaps.length, 1);
+    assert.match(
+      result.gaps[0],
+      /^docs\/architecture\/cross-plan-dependencies\.md declared in affected_files but is not a regular file/,
+    );
+    assert.match(result.gaps[0], /Codex F-AMU4D/);
+  } finally {
+    rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
 test("validateManifestSubagentStage: fail when <TODO subagent prose> placeholder still present in any affected file", () => {
   const tmpRepo = mkdtempSync(join(tmpdir(), "validate-todo-"));
   try {
