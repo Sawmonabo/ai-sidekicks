@@ -3411,10 +3411,12 @@ git commit -m "test(repo): Layer 2 unit tests for D-7 rows 12-15 + I-1/I-2/I-3 i
 - [ ] **Step 1: Run the full test command**
 
 ```bash
-node --test --experimental-strip-types .claude/skills/plan-execution/scripts/__tests__/
+node --test --experimental-strip-types .claude/skills/plan-execution/scripts/__tests__/*.test.mjs
 ```
 
-Expected: all tests pass (12 fixture tests from Phase 3 + parser units from Phase 3 + 4 Layer 2 helper tests from Task 4.3 + 4 Layer 2 D-7-row tests from Task 4.8).
+(Node 22.21 `--test` does not directory-walk explicit path args — must pass glob.)
+
+Expected: all tests pass (12 fixture tests from Phase 3 + parser units from Phase 3 + 4 Layer 2 helper tests from Task 4.3 + 7 Layer 2 D-7-row + invariant tests from Task 4.8).
 
 - [ ] **Step 2: If any fail, fix root cause + re-run.** Do not commit failures.
 
