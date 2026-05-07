@@ -67,6 +67,8 @@ The items below were surfaced by the [plan-readiness-audit Tier 1](./operations/
 - Summary: Procurement evidence record for Plan-024 signing-identity gates (per F-024-4-06). Four artifacts: (a) Microsoft eligibility-determination response (Track A) OR vendor procurement contract + token-shipment confirmation (Track B); (b) signing-identity attestation matching Spec-023's Electron shell per ADR-019 §Decision item 8 + ADR-023 §Axis 5; (c) Plan-024 §Decision Log entry naming the chosen track + date; (d) macOS Developer ID Application certificate procurement evidence (cert thumbprint + team-ID + Apple Developer enrollment-confirmation email).
 - Exit Criteria: All four artifacts attached; Plan-024 §Decision Log records the Windows signing-track choice + date; Plan-024 Phase 4 Preconditions row flips checked.
 
+<!-- DO NOT rename this heading without grepping the repo for the GFM slug `bl-109-reconcile-agentstmp-lifecycle-drift-between-state-recoverymd-and-lefthookyml`; an inbound anchor from `.claude/skills/plan-execution/references/state-recovery.md` depends on it. -->
+
 ### BL-109: Reconcile `.agents/tmp/` lifecycle drift between state-recovery.md and lefthook.yml
 
 - Status: `todo`
