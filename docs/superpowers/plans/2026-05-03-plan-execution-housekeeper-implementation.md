@@ -2986,7 +2986,7 @@ Insert at the bottom of the file (AFTER "Resuming a Phase A Halt"). Verbatim tex
 Phase E (post-merge housekeeping; see SKILL.md § Phase E) halts when:
 
 - The candidate-lookup over §6 returns 2+ matches → `NEEDS_CONTEXT` halt with both candidates surfaced
-- The script's mechanical-stage exits ≥1 (NS not found / verification failed / no checklist / multi-PR no task-id / schema violation / arg validation) → see `references/post-merge-housekeeper-contract.md` § Exit Codes
+- The script's mechanical-stage exits ≥1 (NS not found / verification failed / no checklist / multi-PR no task-id / schema violation / arg validation) → see `references/post-merge-housekeeper-contract.md` § Exit codes
 - The subagent returns DONE_WITH_CONCERNS, NEEDS_CONTEXT, or BLOCKED → routed per `references/failure-modes.md`
 
 Recovery diagnostic — run in this order:
@@ -3117,7 +3117,7 @@ Use the Edit tool with `old_string` = the rule-19 line + the markdownlint-enable
 
 20. **Housekeeper subagent edits files outside the manifest's `affected_files` declaration** → round-trip dispatch (NOT a new exit-state per spec §7.1 invariant). The orchestrator detects the sprawl by diffing `git status --short` against `manifest.affected_files`; any file in the diff not in `affected_files` is out-of-scope. Re-dispatch the subagent with the prompt: "Your last run edited <file_a>, <file_b> which are NOT in the manifest's `affected_files`. Either (a) revert those out-of-scope edits and re-emit your manifest, OR (b) extend `affected_files` AND add a `concerns` entry of `{kind: affected_files_extension, addressing: <reason>}` to justify the scope expansion." After re-dispatch returns DONE, the orchestrator validates the resolution choice. If the subagent picks (b) with weak justification, downgrade to DONE_WITH_CONCERNS and surface to user.
 
-21. **Housekeeper script schema-violation halt (exit 5) → subagent surfaces in concerns → returns BLOCKED** → reuse the existing BLOCKED routing from rule 4 (graceful drain in worktree mode; immediate halt in sequential mode). Per spec §7.1 invariant, NO new exit-state is introduced for this case. The orchestrator surfaces the consolidated `manifest.schema_violations` list to the user, who decides: (a) accept and let the malformed §6 entry ship — flag for follow-up; (b) abort the housekeeping commit; (c) hand-edit the §6 entry to fix the schema violation, then re-dispatch. Cross-link: `references/post-merge-housekeeper-contract.md` § Exit Codes documents which malformations trigger exit 5.
+21. **Housekeeper script schema-violation halt (exit 5) → subagent surfaces in concerns → returns BLOCKED** → reuse the existing BLOCKED routing from rule 4 (graceful drain in worktree mode; immediate halt in sequential mode). Per spec §7.1 invariant, NO new exit-state is introduced for this case. The orchestrator surfaces the consolidated `manifest.schema_violations` list to the user, who decides: (a) accept and let the malformed §6 entry ship — flag for follow-up; (b) abort the housekeeping commit; (c) hand-edit the §6 entry to fix the schema violation, then re-dispatch. Cross-link: `references/post-merge-housekeeper-contract.md` § Exit codes documents which malformations trigger exit 5.
 
 <!-- markdownlint-enable MD029 -->
 ```
