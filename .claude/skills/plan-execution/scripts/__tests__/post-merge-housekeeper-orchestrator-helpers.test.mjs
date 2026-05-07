@@ -742,15 +742,40 @@ test("validateManifestSubagentStage: subagent-emitted affected_files is superset
   );
 });
 
-test("detectAffectedFilesSprawl: edits outside manifest's affected_files trigger DONE_WITH_CONCERNS routing (D-7 row 15)", () => {
+test("detectAffectedFilesSprawl: edits outside manifest's affected_files trigger REDISPATCH routing — NOT DONE_WITH_CONCERNS at first detection (Codex P1 PR #33 Finding 15 / failure-modes.md rule 20)", () => {
   const result = detectAffectedFilesSprawl({
     manifestAffectedFiles: ["docs/architecture/cross-plan-dependencies.md"],
     gitDiffFiles: ["docs/architecture/cross-plan-dependencies.md", "docs/plans/099-mystery.md"],
   });
   assert.equal(result.sprawl, true);
   assert.deepEqual(result.outOfScope, ["docs/plans/099-mystery.md"]);
-  assert.equal(result.suggestedRouting, "DONE_WITH_CONCERNS");
+  assert.equal(
+    result.suggestedRouting,
+    "REDISPATCH",
+    "first detection MUST route to REDISPATCH per rule 20; DONE_WITH_CONCERNS is only valid AFTER the re-dispatched subagent picks (b) with weak justification",
+  );
   assert.match(result.suggestedConcernKind, /affected_files_extension/);
+  assert.ok(
+    result.redispatchPromptTemplate.includes("docs/plans/099-mystery.md"),
+    "redispatchPromptTemplate must enumerate the specific out-of-scope files so the subagent knows what to revert/justify",
+  );
+  assert.ok(
+    result.redispatchPromptTemplate.includes("(a) revert") &&
+      result.redispatchPromptTemplate.includes("(b) extend"),
+    "redispatchPromptTemplate must offer the rule-20 (a) revert / (b) extend choice verbatim",
+  );
+  assert.ok(
+    result.redispatchPromptTemplate.includes("affected_files_extension"),
+    "redispatchPromptTemplate must name the canonical concerns-entry kind for option (b)",
+  );
+});
+
+test("detectAffectedFilesSprawl: no sprawl returns sprawl:false with no routing (negative case for Finding 15 fix)", () => {
+  const result = detectAffectedFilesSprawl({
+    manifestAffectedFiles: ["docs/architecture/cross-plan-dependencies.md"],
+    gitDiffFiles: ["docs/architecture/cross-plan-dependencies.md"],
+  });
+  assert.deepEqual(result, { sprawl: false });
 });
 
 test("I-1 invariant: every cross-plan-dependencies.md NS heading remains extractable by the cite-target hook", () => {

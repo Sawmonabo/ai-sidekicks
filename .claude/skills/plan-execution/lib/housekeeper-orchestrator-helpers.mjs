@@ -301,26 +301,41 @@ export function validateManifestSubagentStage({
  * Detect whether the merged commit's git-diff touched files outside the
  * manifest's declared `affected_files` (scope sprawl). Pure function — no I/O.
  *
- * Per Plan §Decisions-Locked D-7 row 15 + `references/failure-modes.md` rule 20:
- * sprawl is NOT a hard error. The orchestrator routes to `RESULT: DONE_WITH_CONCERNS`
- * with a `concerns` entry of `kind: affected_files_extension` enumerating the
- * out-of-scope files; the Reviewer/user decides whether to backfill the manifest
- * or roll back the out-of-scope edits.
+ * Per `references/failure-modes.md` rule 20 + Plan §Decisions-Locked D-7 row 15:
+ * first-detection routes to `REDISPATCH`, NOT `DONE_WITH_CONCERNS`. The orchestrator
+ * re-dispatches the subagent with the rule-20 (a)/(b) prompt — the subagent must
+ * either (a) revert the out-of-scope edits and re-emit the manifest, OR (b) extend
+ * `affected_files` AND add a `concerns` entry of `kind: affected_files_extension`
+ * justifying the scope expansion. After the re-dispatch returns `DONE`, the
+ * orchestrator validates the resolution choice; only if the subagent picks (b) with
+ * weak justification does the orchestrator downgrade to `DONE_WITH_CONCERNS` and
+ * surface to the user. Returning `DONE_WITH_CONCERNS` at first detection (the
+ * pre-Codex-PR-#33-Finding-15 behavior) skipped the corrective round-trip and let
+ * unintended out-of-scope edits proceed to commit instead of forcing remediation.
+ *
+ * The `redispatchPromptTemplate` field provides the verbatim rule-20 prompt the
+ * orchestrator should send back to the subagent (with `<file_a>, <file_b>`
+ * substituted from `outOfScope`).
  *
  * @param {{ manifestAffectedFiles: string[], gitDiffFiles: string[] }} opts
- * @returns {{ sprawl: false } | { sprawl: true, outOfScope: string[], suggestedRouting: "DONE_WITH_CONCERNS", suggestedConcernKind: "affected_files_extension" }}
+ * @returns {{ sprawl: false } | { sprawl: true, outOfScope: string[], suggestedRouting: "REDISPATCH", suggestedConcernKind: "affected_files_extension", redispatchPromptTemplate: string }}
  */
 export function detectAffectedFilesSprawl({ manifestAffectedFiles, gitDiffFiles }) {
   const declared = new Set(manifestAffectedFiles);
   const outOfScope = gitDiffFiles.filter((f) => !declared.has(f));
-  return outOfScope.length === 0
-    ? { sprawl: false }
-    : {
-        sprawl: true,
-        outOfScope,
-        suggestedRouting: "DONE_WITH_CONCERNS",
-        suggestedConcernKind: "affected_files_extension",
-      };
+  if (outOfScope.length === 0) return { sprawl: false };
+  const fileList = outOfScope.join(", ");
+  return {
+    sprawl: true,
+    outOfScope,
+    suggestedRouting: "REDISPATCH",
+    suggestedConcernKind: "affected_files_extension",
+    redispatchPromptTemplate:
+      `Your last run edited ${fileList} which are NOT in the manifest's \`affected_files\`. ` +
+      `Either (a) revert those out-of-scope edits and re-emit your manifest, OR ` +
+      `(b) extend \`affected_files\` AND add a \`concerns\` entry of ` +
+      `\`{kind: affected_files_extension, addressing: <reason>}\` to justify the scope expansion.`,
+  };
 }
 
 /**
