@@ -76,15 +76,19 @@ export function buildHousekeeperPrompt({ manifestPath, scriptExitCode, prNumber,
  * Validate the manifest after the subagent stage completes.
  *
  * Checks:
- *  1. Every item in semantic_work_pending has a corresponding entry in semantic_edits
+ *  1. (Codex P2 PR #33 R4) `manifest.result` is one of the four canonical exit-states
+ *     (DONE / DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED) per Plan Invariant I-2.
+ *     `null`, `undefined`, or any other string fails. Does NOT short-circuit later
+ *     checks — every gap surfaces in one round-trip so the user sees them together.
+ *  2. Every item in semantic_work_pending has a corresponding entry in semantic_edits
  *     OR a concerns[] entry whose `addressing` field equals the exact item key
  *     (per canonical-template responsibility #5; `kind` is the subagent's choice,
  *     `addressing` is the validator's match key). WAIVED when
  *     `manifest.result === "BLOCKED" | "NEEDS_CONTEXT"` — the subagent halted before
  *     completing semantic work, so per-item pairing is not required.
- *  2. No <TODO subagent prose> placeholder remains in any affected_files on disk.
- *  3. (P2 fix) No <TODO subagent prose> placeholder in any semantic_edits value (nested scan).
- *  4. Every schema_violations entry is surfaced as its own concerns entry, matched
+ *  3. No <TODO subagent prose> placeholder remains in any affected_files on disk.
+ *  4. (P2 fix) No <TODO subagent prose> placeholder in any semantic_edits value (nested scan).
+ *  5. Every schema_violations entry is surfaced as its own concerns entry, matched
  *     per-entry on `kind` (the violation's own kind verbatim — `"schema_violation"`
  *     for `PRs:` block / missing-required-field shapes, or singleton kinds like
  *     `"auto_create_title_seed_underivable"` for AUTO-CREATE seed failures), plus
@@ -92,7 +96,12 @@ export function buildHousekeeperPrompt({ manifestPath, scriptExitCode, prNumber,
  *     cannot satisfy multiple violations of distinct kinds; a generic concern with
  *     no `field` cannot trivially absorb a violation that also lacks `field` —
  *     the `kind` discriminator prevents the trivial-equality match (Codex P2 fix).
- *  5. (D-7 row 14) When `scriptAffectedFiles` is provided, the subagent-emitted
+ *  6. (Codex P1 PR #33 R4) When `manifest.schema_violations` is non-empty, `manifest.result`
+ *     MUST equal `"BLOCKED"`. Surfacing the violations in `concerns` (check #5) is necessary
+ *     but not sufficient — the contract (`references/post-merge-housekeeper-contract.md`
+ *     §Validation invariants line 93) requires the BLOCKED exit-state for halt/routing-path
+ *     determinism in Phase E.
+ *  7. (D-7 row 14) When `scriptAffectedFiles` is provided, the subagent-emitted
  *     manifest.affected_files MUST be a superset — the subagent may extend the
  *     list (justified via a `concerns` entry of kind `affected_files_extension`)
  *     but MUST NOT drop a file the script declared.
@@ -106,6 +115,25 @@ export function validateManifestSubagentStage({
   scriptAffectedFiles = null,
 }) {
   const gaps = [];
+
+  // Check #1 — canonical exit-state enforcement (Codex P2 PR #33 R4 / Finding 7).
+  // Plan Invariant I-2: subagent MUST return one of {DONE, DONE_WITH_CONCERNS,
+  // NEEDS_CONTEXT, BLOCKED}. `null` (script-stage manifest, subagent never ran) and
+  // any unknown string break deterministic Phase-E routing. Does NOT short-circuit —
+  // continue running the remaining checks so the user sees every gap in one round-trip
+  // (avoids whack-a-mole re-dispatch cycles).
+  const canonicalStates = new Set(["DONE", "DONE_WITH_CONCERNS", "NEEDS_CONTEXT", "BLOCKED"]);
+  if (!canonicalStates.has(manifest.result)) {
+    const actualLabel =
+      manifest.result === null
+        ? "null"
+        : manifest.result === undefined
+          ? "undefined"
+          : `"${manifest.result}"`;
+    gaps.push(
+      `\`result\` is ${actualLabel} but must be one of: DONE, DONE_WITH_CONCERNS, NEEDS_CONTEXT, BLOCKED (Plan Invariant I-2)`,
+    );
+  }
 
   // Halt-state waiver: when subagent returns BLOCKED or NEEDS_CONTEXT, it stopped
   // before completing semantic work. The per-item semantic_work_pending pairing
@@ -170,6 +198,26 @@ export function validateManifestSubagentStage({
         `schema_violation ${idLabel} not surfaced in concerns (need entry with ${matchReqs})`,
       );
     }
+  }
+
+  // Check #6 — BLOCKED-when-schema-violations enforcement (Codex P1 PR #33 R4 / Finding 6).
+  // The matcher loop above handles the SURFACE half ("each violation is in concerns"); this
+  // check handles the EXIT-STATE half ("...AND result === BLOCKED"). Contract clause from
+  // `references/post-merge-housekeeper-contract.md` §Validation invariants line 93:
+  // "...AND `result === "BLOCKED"`". Surfacing alone is insufficient — the BLOCKED state is
+  // load-bearing for the orchestrator's halt/routing-path determinism (DONE / DONE_WITH_CONCERNS
+  // would silently take the merge-and-continue path even when the script halted on schema_violations).
+  const violationsCount = manifest.schema_violations?.length ?? 0;
+  if (violationsCount > 0 && manifest.result !== "BLOCKED") {
+    const actualLabel =
+      manifest.result === null
+        ? "null"
+        : manifest.result === undefined
+          ? "undefined"
+          : `"${manifest.result}"`;
+    gaps.push(
+      `schema_violations present (${violationsCount} entries) but result is ${actualLabel}; contract requires result === "BLOCKED" when schema_violations is non-empty (post-merge-housekeeper-contract.md §Validation invariants)`,
+    );
   }
 
   // D-7 row 14 — superset check. When the orchestrator passes the script's

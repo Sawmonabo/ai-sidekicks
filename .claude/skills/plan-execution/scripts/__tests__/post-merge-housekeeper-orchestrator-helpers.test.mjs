@@ -57,6 +57,7 @@ test("validateManifestSubagentStage: pass when every pending item has semantic_e
     semantic_edits: { compose_status_completion_prose: "...", ready_set_re_derivation: "..." },
     concerns: [],
     affected_files: ["docs/architecture/cross-plan-dependencies.md"],
+    result: "DONE",
   };
   assert.deepEqual(validateManifestSubagentStage({ manifest }), { valid: true });
 });
@@ -67,6 +68,7 @@ test("validateManifestSubagentStage: fail when pending item is unaddressed", () 
     semantic_edits: { compose_status_completion_prose: "..." },
     concerns: [],
     affected_files: [],
+    result: "DONE",
   };
   const result = validateManifestSubagentStage({ manifest });
   assert.equal(result.valid, false);
@@ -89,6 +91,7 @@ test("validateManifestSubagentStage: fail when <TODO subagent prose> placeholder
       semantic_edits: {},
       concerns: [],
       affected_files: ["docs/architecture/cross-plan-dependencies.md"],
+      result: "DONE",
     };
     const result = validateManifestSubagentStage({ manifest, repoRoot: tmpRepo });
     assert.equal(result.valid, false);
@@ -106,6 +109,7 @@ test("validateManifestSubagentStage: fail when <TODO subagent prose> placeholder
     },
     concerns: [],
     affected_files: [],
+    result: "DONE",
   };
   const result = validateManifestSubagentStage({ manifest });
   assert.equal(result.valid, false);
@@ -130,6 +134,7 @@ test("validateManifestSubagentStage: scans nested semantic_edits values (e.g. ar
     },
     concerns: [],
     affected_files: [],
+    result: "DONE",
   };
   const result = validateManifestSubagentStage({ manifest });
   assert.equal(result.valid, false);
@@ -152,6 +157,7 @@ test("validateManifestSubagentStage: schema_violations require per-entry concern
     ],
     concerns: [{ kind: "schema_violation", field: "status", ns_id: "NS-15", detail: "..." }],
     affected_files: [],
+    result: "BLOCKED",
   };
   const result = validateManifestSubagentStage({ manifest });
   assert.equal(result.valid, false);
@@ -174,6 +180,7 @@ test("validateManifestSubagentStage: schema_violations pass when each entry has 
       { kind: "schema_violation", field: "type", ns_id: "NS-15", detail: "..." },
     ],
     affected_files: [],
+    result: "BLOCKED",
   };
   const result = validateManifestSubagentStage({ manifest });
   assert.equal(result.valid, true);
@@ -188,6 +195,7 @@ test("validateManifestSubagentStage: schema_violations match by field alone when
     schema_violations: [{ kind: "schema_violation", field: "summary" }],
     concerns: [{ kind: "schema_violation", field: "summary", detail: "..." }],
     affected_files: [],
+    result: "BLOCKED",
   };
   const result = validateManifestSubagentStage({ manifest });
   assert.equal(result.valid, true);
@@ -208,6 +216,7 @@ test("validateManifestSubagentStage: distinct-kind violations require kind-discr
     // Only the schema_violation has a matching concern; the auto_create kind has none.
     concerns: [{ kind: "schema_violation", field: "summary", detail: "..." }],
     affected_files: [],
+    result: "BLOCKED",
   };
   const result = validateManifestSubagentStage({ manifest });
   assert.equal(result.valid, false);
@@ -228,6 +237,7 @@ test("validateManifestSubagentStage: auto_create_title_seed_underivable singleto
     schema_violations: [{ kind: "auto_create_title_seed_underivable" }],
     concerns: [{ kind: "auto_create_title_seed_underivable", detail: "..." }],
     affected_files: [],
+    result: "BLOCKED",
   };
   const result = validateManifestSubagentStage({ manifest });
   assert.equal(result.valid, true);
@@ -242,6 +252,7 @@ test("validateManifestSubagentStage: fieldless-violation gap message uses (kind:
     schema_violations: [{ kind: "auto_create_title_seed_underivable" }],
     concerns: [],
     affected_files: [],
+    result: "BLOCKED",
   };
   const result = validateManifestSubagentStage({ manifest });
   assert.equal(result.valid, false);
@@ -307,6 +318,118 @@ test("validateManifestSubagentStage: per-item pairing matches by `addressing: <i
     concerns: [{ kind: "deferred_for_followup", addressing: "set_quantifier_reverification" }],
     affected_files: [],
     result: "DONE_WITH_CONCERNS",
+  };
+  assert.deepEqual(validateManifestSubagentStage({ manifest }), { valid: true });
+});
+
+// ---------- Codex Finding 7 (PR #33 R4): canonical exit-state enforcement ----------
+// The validator MUST reject manifests whose `result` is not one of the four canonical
+// exit-states (DONE / DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED) per Plan Invariant
+// I-2. Prior validator behavior: `result === undefined` slipped through silently and
+// only `BLOCKED`/`NEEDS_CONTEXT` were ever consulted (for the halt-state waiver),
+// breaking deterministic Phase-E routing.
+
+test("validateManifestSubagentStage: fails when result is null (Codex Finding 7)", () => {
+  // `result: null` is the script-stage stub shape (per contract §Manifest schema line 62).
+  // If the subagent returns this unchanged, the orchestrator can't route Phase E — gap MUST fire.
+  const manifest = {
+    semantic_work_pending: [],
+    semantic_edits: {},
+    concerns: [],
+    affected_files: [],
+    result: null,
+  };
+  const result = validateManifestSubagentStage({ manifest });
+  assert.equal(result.valid, false);
+  assert.ok(
+    result.gaps.some(
+      (g) =>
+        g.includes("`result` is null") &&
+        g.includes("DONE, DONE_WITH_CONCERNS, NEEDS_CONTEXT, BLOCKED") &&
+        g.includes("Plan Invariant I-2"),
+    ),
+    `expected gap citing canonical states + Plan Invariant I-2 for null result; got: ${JSON.stringify(result.gaps)}`,
+  );
+});
+
+test("validateManifestSubagentStage: fails when result is an unknown string (Codex Finding 7)", () => {
+  // Off-canon literals (typos, hallucinated states, legacy values) MUST gap.
+  const manifest = {
+    semantic_work_pending: [],
+    semantic_edits: {},
+    concerns: [],
+    affected_files: [],
+    result: "MAYBE",
+  };
+  const result = validateManifestSubagentStage({ manifest });
+  assert.equal(result.valid, false);
+  assert.ok(
+    result.gaps.some(
+      (g) =>
+        g.includes(`\`result\` is "MAYBE"`) &&
+        g.includes("DONE, DONE_WITH_CONCERNS, NEEDS_CONTEXT, BLOCKED"),
+    ),
+    `expected gap citing canonical states for unknown result "MAYBE"; got: ${JSON.stringify(result.gaps)}`,
+  );
+});
+
+test("validateManifestSubagentStage: passes when result is 'DONE' (Codex Finding 7 negative case)", () => {
+  // Round-trip a clean DONE manifest — proves the canonical-state check accepts the
+  // happy path and doesn't false-fire when the contract is satisfied.
+  const manifest = {
+    semantic_work_pending: [],
+    semantic_edits: {},
+    concerns: [],
+    affected_files: [],
+    result: "DONE",
+  };
+  assert.deepEqual(validateManifestSubagentStage({ manifest }), { valid: true });
+});
+
+// ---------- Codex Finding 6 (PR #33 R4): BLOCKED-when-schema-violations enforcement ----------
+// Contract clause (`references/post-merge-housekeeper-contract.md` §Validation invariants
+// line 93): "Every entry in schema_violations appears in concerns ... AND result === BLOCKED".
+// The matcher loop already enforces the SURFACE half; this check enforces the EXIT-STATE half.
+// Without it, a subagent could ship `DONE`/`DONE_WITH_CONCERNS` while schema_violations
+// is non-empty, bypassing the orchestrator's halt/routing-path determinism in Phase E.
+
+test("validateManifestSubagentStage: fails when schema_violations present but result is 'DONE_WITH_CONCERNS' (Codex Finding 6)", () => {
+  // Subagent surfaced the violation in concerns (so the per-entry matcher passes) BUT
+  // returned a non-BLOCKED state. The contract requires BOTH conditions; this case MUST gap.
+  const manifest = {
+    semantic_work_pending: [],
+    semantic_edits: {},
+    schema_violations: [{ kind: "schema_violation", field: "summary", ns_id: "NS-15" }],
+    concerns: [{ kind: "schema_violation", field: "summary", ns_id: "NS-15", detail: "..." }],
+    affected_files: [],
+    result: "DONE_WITH_CONCERNS",
+  };
+  const result = validateManifestSubagentStage({ manifest });
+  assert.equal(result.valid, false);
+  assert.ok(
+    result.gaps.some(
+      (g) =>
+        g.includes("schema_violations present") &&
+        g.includes(`result is "DONE_WITH_CONCERNS"`) &&
+        g.includes(`result === "BLOCKED"`),
+    ),
+    `expected gap citing BLOCKED-required-when-schema_violations; got: ${JSON.stringify(result.gaps)}`,
+  );
+  // The matcher (check #5) is satisfied (violation has matching concern), so the only
+  // gap should be the BLOCKED-state requirement — proves the two checks are independent.
+  assert.equal(result.gaps.length, 1);
+});
+
+test("validateManifestSubagentStage: passes when schema_violations present AND result is 'BLOCKED' (Codex Finding 6 negative case)", () => {
+  // Both halves of the contract clause satisfied: violations surface in concerns AND
+  // result is BLOCKED. The validator returns valid:true (no schema-violation gaps).
+  const manifest = {
+    semantic_work_pending: [],
+    semantic_edits: {},
+    schema_violations: [{ kind: "schema_violation", field: "summary", ns_id: "NS-15" }],
+    concerns: [{ kind: "schema_violation", field: "summary", ns_id: "NS-15", detail: "..." }],
+    affected_files: [],
+    result: "BLOCKED",
   };
   assert.deepEqual(validateManifestSubagentStage({ manifest }), { valid: true });
 });
@@ -415,6 +538,7 @@ test("validateManifestSubagentStage: subagent-emitted affected_files is superset
     semantic_edits: {},
     concerns: [],
     affected_files: ["docs/architecture/cross-plan-dependencies.md"], // missing the second file → must FAIL
+    result: "DONE",
   };
   const result = validateManifestSubagentStage({ manifest: subagentManifest, scriptAffectedFiles });
   assert.equal(result.valid, false);
