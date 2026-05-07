@@ -430,7 +430,7 @@ The phase has 8 steps in this exact order — DO NOT reorder; step 6 (Progress L
    - Rule 1: Plan + Phase match (e.g., diff touches `docs/plans/024-rust-pty-sidecar.md` + commit cites Phase 1 → match `### NS-NN: Plan-024 Phase 1 — ...`)
    - Rule 2: Plan + task-id match (e.g., commit cites `T5.1` → match `### NS-NN: Plan-001 Phase 5 Lane A` whose `PRs:` block has a `T5.1` row)
    - Rule 3: Plan + Tier-K match (e.g., diff is a Tier-3 plan-readiness audit → match `### NS-15..NS-21: Tier 3-9 plan-readiness audits` via the lower-endpoint of the range form `tier-3`)
-   - Rule 4: No-match fallback (drop to step 2 NEEDS_CONTEXT branch)
+   - Rule 4: No-match fallback (drop to step 2 `--auto-create` branch — 0 candidates is genuinely new work, NOT ambiguity; `NEEDS_CONTEXT` is reserved for 2+ matches per spec §4.3.2)
 
 2. **Dispatch the script** `node --experimental-strip-types .claude/skills/plan-execution/scripts/post-merge-housekeeper.mjs` based on rule outcome:
    - 1 candidate match → `--candidate-ns NS-NN <plan/phase/task flags>`
@@ -446,7 +446,7 @@ The phase has 8 steps in this exact order — DO NOT reorder; step 6 (Progress L
 
 5. **Validate the subagent-stage manifest**:
    - `<TODO subagent prose>` literal is GONE from every line the script touched
-   - subagent's edits are confined to `affected_files` (out-of-scope edits → DONE_WITH_CONCERNS routing per `references/failure-modes.md`)
+   - subagent's edits are confined to `affected_files` (out-of-scope edits → round-trip re-dispatch per `references/failure-modes.md` rule 20: orchestrator offers (a) revert the sprawl OR (b) extend `affected_files` AND add a `concerns` entry of `kind: affected_files_extension` to justify; DONE_WITH_CONCERNS only fires if the subagent picks (b) with weak justification — not on first detection)
    - schema_violations from script stage are reconciled (each one either fixed or surfaced in `concerns`)
 
 6. **Append the Progress Log entry** to the plan body's `## Progress Log` section in `docs/plans/NNN-*.md` (creating the section just before `## Done Checklist` if it doesn't exist). This step explicitly MOVED from before-merge to after-housekeeping per spec §6.1 — the log entry references the squash-merge commit hash + housekeeping commit message + any subagent concerns, so callers reading the log see "shipped + housekept" as one event.
