@@ -78,11 +78,19 @@ export function buildHousekeeperPrompt({ manifestPath, scriptExitCode, prNumber,
  *  2. No <TODO subagent prose> placeholder remains in any affected_files on disk.
  *  3. (P2 fix) No <TODO subagent prose> placeholder in any semantic_edits value (nested scan).
  *  4. Every schema_violations entry is surfaced as a concerns entry with kind: "schema_violation".
+ *  5. (D-7 row 14) When `scriptAffectedFiles` is provided, the subagent-emitted
+ *     manifest.affected_files MUST be a superset — the subagent may extend the
+ *     list (justified via a `concerns` entry of kind `affected_files_extension`)
+ *     but MUST NOT drop a file the script declared.
  *
- * @param {{ manifest: object, repoRoot?: string }} opts
+ * @param {{ manifest: object, repoRoot?: string, scriptAffectedFiles?: string[] }} opts
  * @returns {{ valid: true } | { valid: false, gaps: string[] }}
  */
-export function validateManifestSubagentStage({ manifest, repoRoot = process.cwd() }) {
+export function validateManifestSubagentStage({
+  manifest,
+  repoRoot = process.cwd(),
+  scriptAffectedFiles = null,
+}) {
   const gaps = [];
 
   for (const item of manifest.semantic_work_pending ?? []) {
@@ -117,7 +125,49 @@ export function validateManifestSubagentStage({ manifest, repoRoot = process.cwd
     const matched = (manifest.concerns ?? []).some((c) => c.kind === "schema_violation");
     if (!matched) gaps.push(`schema_violation ${sv.kind} not surfaced in concerns`);
   }
+
+  // D-7 row 14 — superset check. When the orchestrator passes the script's
+  // stage-1 affected_files, the subagent's stage-2 list MUST include every
+  // entry. Dropping a file is a contract violation (the subagent may not
+  // narrow scope; it may only justify expansion via `affected_files_extension`).
+  if (Array.isArray(scriptAffectedFiles)) {
+    const subagentSet = new Set(manifest.affected_files ?? []);
+    for (const path of scriptAffectedFiles) {
+      if (!subagentSet.has(path)) {
+        gaps.push(
+          `${path} declared by script but absent from subagent-emitted affected_files (D-7 row 14: subagent affected_files MUST be a superset of script affected_files)`,
+        );
+      }
+    }
+  }
+
   return gaps.length === 0 ? { valid: true } : { valid: false, gaps };
+}
+
+/**
+ * Detect whether the merged commit's git-diff touched files outside the
+ * manifest's declared `affected_files` (scope sprawl). Pure function — no I/O.
+ *
+ * Per Plan §Decisions-Locked D-7 row 15 + `references/failure-modes.md` rule 20:
+ * sprawl is NOT a hard error. The orchestrator routes to `RESULT: DONE_WITH_CONCERNS`
+ * with a `concerns` entry of `kind: affected_files_extension` enumerating the
+ * out-of-scope files; the Reviewer/user decides whether to backfill the manifest
+ * or roll back the out-of-scope edits.
+ *
+ * @param {{ manifestAffectedFiles: string[], gitDiffFiles: string[] }} opts
+ * @returns {{ sprawl: false } | { sprawl: true, outOfScope: string[], suggestedRouting: "DONE_WITH_CONCERNS", suggestedConcernKind: "affected_files_extension" }}
+ */
+export function detectAffectedFilesSprawl({ manifestAffectedFiles, gitDiffFiles }) {
+  const declared = new Set(manifestAffectedFiles);
+  const outOfScope = gitDiffFiles.filter((f) => !declared.has(f));
+  return outOfScope.length === 0
+    ? { sprawl: false }
+    : {
+        sprawl: true,
+        outOfScope,
+        suggestedRouting: "DONE_WITH_CONCERNS",
+        suggestedConcernKind: "affected_files_extension",
+      };
 }
 
 /**

@@ -31,6 +31,7 @@
     "turbo": "^2.9.6",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.59.0",
-    "vitest": "catalog:testing"
+    "vitest": "catalog:testing",
+    "zod": "^4.3.6"
   }
 }

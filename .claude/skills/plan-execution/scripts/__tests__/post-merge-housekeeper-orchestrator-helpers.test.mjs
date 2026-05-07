@@ -1,12 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { execSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { z } from "zod";
 import {
   buildHousekeeperPrompt,
   validateManifestSubagentStage,
+  detectAffectedFilesSprawl,
 } from "../../lib/housekeeper-orchestrator-helpers.mjs";
+import { emitManifest } from "../post-merge-housekeeper.mjs";
 
 test("buildHousekeeperPrompt: includes manifest path + exit code", () => {
   const prompt = buildHousekeeperPrompt({
@@ -131,5 +135,198 @@ test("validateManifestSubagentStage: scans nested semantic_edits values (e.g. ar
   assert.ok(
     result.gaps.some((g) => g.includes("semantic_edits.line_cite_sweep")),
     `expected gap to mention semantic_edits.line_cite_sweep; got: ${JSON.stringify(result.gaps)}`,
+  );
+});
+
+// ---------- Task 4.8: Layer 2 unit tests for D-7 rows 12-15 + I-1/I-2/I-3 invariants ----------
+
+test("buildHousekeeperPrompt: emitted prompt matches the canonical template in references/post-merge-housekeeper-contract.md (D-7 row 12)", () => {
+  const contractPath =
+    ".claude/skills/plan-execution/references/post-merge-housekeeper-contract.md";
+  const contractText = readFileSync(contractPath, "utf8");
+  // Extract the canonical template fenced block (delimited by `## Canonical Subagent Prompt Template` heading + first ``` fence)
+  const m = contractText.match(/## Canonical Subagent Prompt Template[\s\S]*?```\n([\s\S]+?)```/);
+  assert.ok(
+    m,
+    "contract MUST contain a `## Canonical Subagent Prompt Template` section with a fenced template block",
+  );
+  const canonicalTemplate = m[1];
+  // Render the template with deterministic placeholder values so the comparison is stable
+  const emitted = buildHousekeeperPrompt({
+    manifestPath: "/tmp/m.json",
+    scriptExitCode: 0,
+    prNumber: 30,
+    manifest: { auto_create: null, schema_violations: [] },
+  });
+  // Strip placeholder-substitution variance: replace concrete values with the contract's `<placeholders>`
+  // so the structural shape matches even if values differ (the test pins SHAPE, not VALUES).
+  // Use replaceAll for `<manifest-path>` because the canonical template embeds it twice (line 1
+  // "Manifest:" + responsibility #6 "Write back the updated manifest"); buildHousekeeperPrompt's
+  // replaceAll substitutes both occurrences and the snapshot must invert both.
+  const normalized = emitted
+    .replaceAll("/tmp/m.json", "<manifest-path>")
+    .replaceAll("PR #30", "PR #<N>")
+    .replaceAll("exit code: 0", "exit code: <N>");
+  assert.equal(
+    normalized.trim(),
+    canonicalTemplate.trim(),
+    "buildHousekeeperPrompt drift from contract — update one to match the other (Plan §Decisions-Locked D-1: contract is canonical)",
+  );
+});
+
+// Defined inline here for test isolation; the production schema lives in
+// .claude/skills/plan-execution/lib/manifest-schema.mjs (a dependency of housekeeper-orchestrator-helpers.mjs).
+const ManifestSchema = z.object({
+  pr_number: z.number().int().positive(),
+  script_exit_code: z.number().int().min(0).max(7),
+  result: z.enum(["DONE", "DONE_WITH_CONCERNS", "NEEDS_CONTEXT", "BLOCKED"]).nullable(),
+  matched_entry: z
+    .object({
+      ns_id: z.string().regex(/^NS-\d+[a-z]?$/),
+      heading: z.string(),
+      shape: z.enum(["single-pr", "multi-pr"]),
+      file: z.string(),
+      heading_line: z.number().int().positive(),
+    })
+    .nullable(),
+  mechanical_edits: z.object({}).passthrough(),
+  semantic_edits: z.object({}).passthrough(),
+  schema_violations: z.array(z.object({ kind: z.string() }).passthrough()),
+  semantic_work_pending: z.array(z.string()),
+  affected_files: z.array(z.string()),
+  concerns: z.array(z.object({ kind: z.string() }).passthrough()),
+  auto_create: z
+    .object({ reserved_ns_nn: z.number().int().positive(), derived_title_seed: z.string() })
+    .nullable(),
+});
+
+test("emitManifest output passes zod parse against §5.3 schema (D-7 row 13)", () => {
+  const tmpRepo = mkdtempSync(join(tmpdir(), "manifest-zod-"));
+  try {
+    const result = emitManifest({
+      repoRoot: tmpRepo,
+      prNumber: 30,
+      plan: "024",
+      phase: "1",
+      taskId: null,
+      scriptExitCode: 0,
+      matchedEntry: {
+        nsId: "NS-01",
+        heading: "### NS-01: Plan-024 Phase 1 — Rust crate scaffolding",
+        shape: "single-pr",
+        file: "docs/architecture/cross-plan-dependencies.md",
+        headingLine: 342,
+      },
+      mechanicalEdits: { status_flip: { from: "ready", to: "completed" } },
+      schemaViolations: [],
+      affectedFiles: ["docs/architecture/cross-plan-dependencies.md"],
+      semanticWorkPending: [],
+    });
+    const written = JSON.parse(readFileSync(result.manifestPath, "utf8"));
+    const parsed = ManifestSchema.safeParse(written);
+    assert.ok(parsed.success, `zod parse failed: ${JSON.stringify(parsed.error?.issues, null, 2)}`);
+  } finally {
+    rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test("validateManifestSubagentStage: subagent-emitted affected_files is superset of script-detected overlap (D-7 row 14)", () => {
+  // The script's stage-1 manifest declares affected_files = ["docs/architecture/cross-plan-dependencies.md"].
+  // The subagent's stage-2 manifest must include EVERY file the script declared, plus any it added.
+  const scriptAffectedFiles = [
+    "docs/architecture/cross-plan-dependencies.md",
+    "docs/plans/024-rust-pty-sidecar.md",
+  ];
+  const subagentManifest = {
+    semantic_work_pending: [],
+    semantic_edits: {},
+    concerns: [],
+    affected_files: ["docs/architecture/cross-plan-dependencies.md"], // missing the second file → must FAIL
+  };
+  const result = validateManifestSubagentStage({ manifest: subagentManifest, scriptAffectedFiles });
+  assert.equal(result.valid, false);
+  assert.ok(
+    result.gaps.some(
+      (g) => g.includes("docs/plans/024-rust-pty-sidecar.md") && g.includes("affected_files"),
+    ),
+    `expected gap to mention the dropped file; got ${JSON.stringify(result.gaps)}`,
+  );
+});
+
+test("detectAffectedFilesSprawl: edits outside manifest's affected_files trigger DONE_WITH_CONCERNS routing (D-7 row 15)", () => {
+  const result = detectAffectedFilesSprawl({
+    manifestAffectedFiles: ["docs/architecture/cross-plan-dependencies.md"],
+    gitDiffFiles: ["docs/architecture/cross-plan-dependencies.md", "docs/plans/099-mystery.md"],
+  });
+  assert.equal(result.sprawl, true);
+  assert.deepEqual(result.outOfScope, ["docs/plans/099-mystery.md"]);
+  assert.equal(result.suggestedRouting, "DONE_WITH_CONCERNS");
+  assert.match(result.suggestedConcernKind, /affected_files_extension/);
+});
+
+test("I-1 invariant: every cross-plan-dependencies.md NS heading remains extractable by the cite-target hook", () => {
+  // The cite-target hook (tools/docs-corpus/bin/pre-commit-runner.ts) parses each ../../ path
+  // form and verifies the target file + line range exists. After the housekeeper introduces
+  // PRs:-block migrations + NS-23 + auto-create stubs, the hook MUST still pass against the
+  // current cross-plan-dependencies.md without "broken cite" errors. This test is a regression
+  // canary: if a housekeeper-mutating commit breaks a cite, this assertion catches it.
+  let stderr = "";
+  try {
+    execSync(
+      "node --experimental-strip-types tools/docs-corpus/bin/pre-commit-runner.ts docs/architecture/cross-plan-dependencies.md",
+      {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+  } catch (e) {
+    stderr = e.stderr?.toString() ?? e.stdout?.toString() ?? String(e);
+  }
+  assert.equal(
+    stderr,
+    "",
+    `cite-target hook failed against current catalog — I-1 regression: ${stderr}`,
+  );
+});
+
+test("I-2 invariant: plan-execution-housekeeper.md declares ONLY the four canonical exit-states (DONE / DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED)", () => {
+  const def = readFileSync(".claude/agents/plan-execution-housekeeper.md", "utf8");
+  // Find every `RESULT: <STATE>` reference (the contract pattern from failure-modes.md "Reading subagent responses")
+  const stateRefs = [...def.matchAll(/RESULT:\s*([A-Z_]+)/g)].map((m) => m[1]);
+  const uniqueStates = new Set(stateRefs);
+  const allowed = new Set(["DONE", "DONE_WITH_CONCERNS", "NEEDS_CONTEXT", "BLOCKED"]);
+  // Every state mentioned must be in the allowlist (no rogue states)
+  for (const state of uniqueStates) {
+    assert.ok(
+      allowed.has(state),
+      `I-2 invariant violated: subagent definition declares non-canonical exit-state "${state}"`,
+    );
+  }
+  // The full canonical set must appear at least once (defensive — if a state goes missing, the subagent
+  // can't communicate it back to the orchestrator and the routing rules in failure-modes.md don't fire).
+  for (const state of allowed) {
+    assert.ok(
+      uniqueStates.has(state),
+      `I-2 invariant violated: subagent definition does not declare canonical exit-state "${state}"`,
+    );
+  }
+});
+
+test("I-3 invariant: post-merge-housekeeper.mjs does NOT import child_process or shell out for git", () => {
+  const src = readFileSync(
+    ".claude/skills/plan-execution/scripts/post-merge-housekeeper.mjs",
+    "utf8",
+  );
+  // Mechanical guard 1: no `import ... from "node:child_process"` or `require('child_process')`
+  assert.doesNotMatch(
+    src,
+    /(?:import\s+[^;]*from\s+["']node:child_process["']|require\(["']child_process["']\))/,
+    "I-3 invariant violated: post-merge-housekeeper.mjs imports child_process — script must not shell out (orchestrator passes diff via flag/file)",
+  );
+  // Mechanical guard 2: no `spawn('git'` or `execSync('git'` callsite even if child_process imported via dynamic import
+  assert.doesNotMatch(
+    src,
+    /(?:spawn|exec|execSync|spawnSync)\s*\(\s*["']git["']/,
+    "I-3 invariant violated: post-merge-housekeeper.mjs invokes git directly — orchestrator-only responsibility",
   );
 });

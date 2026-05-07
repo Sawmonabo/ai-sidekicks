@@ -47,12 +47,12 @@ For ambiguous re-derivations (e.g., "is this NS now ready or still blocked by NS
 
 ## Exit states
 
-The four canonical exit-states from `references/failure-modes.md` (no new states introduced):
+The four canonical exit-states from `references/failure-modes.md` (no new states introduced). Each MUST be signaled to the orchestrator with the `RESULT:` prefix so the Plan I-2 invariant test (regex `/RESULT:\s*([A-Z_]+)/g`) parses every declaration:
 
-- `DONE` — all `semantic_work_pending` items have `semantic_edits` entries; no `concerns` entries.
-- `DONE_WITH_CONCERNS` — all pending work addressed, but at least one `concerns` entry surfaces an issue the Reviewer/user should consider.
-- `NEEDS_CONTEXT` — you cannot proceed without user input (e.g., AUTO-CREATE Type-classification rule's "Otherwise" halt per spec §5.4; ambiguous re-derivation).
-- `BLOCKED` — enforced halt (schema violation, verification failure surfaced from script exit 2).
+- `RESULT: DONE` — all `semantic_work_pending` items have `semantic_edits` entries; no `concerns` entries.
+- `RESULT: DONE_WITH_CONCERNS` — all pending work addressed, but at least one `concerns` entry surfaces an issue the Reviewer/user should consider.
+- `RESULT: NEEDS_CONTEXT` — you cannot proceed without user input (e.g., AUTO-CREATE Type-classification rule's "Otherwise" halt per spec §5.4; ambiguous re-derivation).
+- `RESULT: BLOCKED` — enforced halt (schema violation, verification failure surfaced from script exit 2).
 
 ## Report format
 
