@@ -361,8 +361,11 @@ function isMeaningfulPayload(value) {
   if (typeof value === "string") return value.trim().length > 0;
   if (Array.isArray(value)) return value.length > 0;
   if (typeof value === "object") return Object.keys(value).length > 0;
-  // numbers, booleans, etc — accept (rare in this contract but don't reject)
-  return true;
+  // Reject scalars (booleans, numbers, etc): the contract is composed
+  // completion-prose, which can't be a boolean or number. Codex P2 (PR #33):
+  // accepting `false`/`0` let a subagent satisfy `semantic_work_pending`
+  // without emitting any output-bearing payload.
+  return false;
 }
 
 /**

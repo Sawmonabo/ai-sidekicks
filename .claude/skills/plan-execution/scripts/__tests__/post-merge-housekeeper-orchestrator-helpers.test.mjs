@@ -461,6 +461,51 @@ test("validateManifestSubagentStage: passes when semantic_edits[item] is a non-e
   assert.deepEqual(validateManifestSubagentStage({ manifest }), { valid: true });
 });
 
+// ---------- Codex F-AMLor (PR #33): scalar payloads rejected as non-output-bearing ----------
+// Prior `isMeaningfulPayload` returned `true` for any non-null scalar (booleans, numbers)
+// via a permissive catch-all, so a subagent could satisfy `semantic_work_pending` with
+// `false`/`0` and still pass validation. The contract is composed completion-prose —
+// scalars cannot carry composed output. These tests pin the rejection boundary.
+
+test("validateManifestSubagentStage: fails when semantic_edits[item] is `false` (Codex F-AMLor)", () => {
+  // Boolean `false` is the most plausible misuse — a careless subagent might emit
+  // `{compose_status_completion_prose: false}` thinking it's a "no-op marker".
+  // The contract requires composed prose; `false` is not output-bearing.
+  const manifest = {
+    semantic_work_pending: ["compose_status_completion_prose"],
+    semantic_edits: { compose_status_completion_prose: false },
+    concerns: [],
+    affected_files: [],
+    result: "DONE",
+  };
+  const result = validateManifestSubagentStage({ manifest });
+  assert.equal(result.valid, false);
+  assert.equal(result.gaps.length, 1);
+  assert.match(
+    result.gaps[0],
+    /^compose_status_completion_prose listed in semantic_work_pending: semantic_edits\["compose_status_completion_prose"\] exists but value is empty/,
+  );
+});
+
+test("validateManifestSubagentStage: fails when semantic_edits[item] is `0` (Codex F-AMLor)", () => {
+  // Number `0` is the second plausible misuse (e.g. an int counter the subagent
+  // confused for a payload). Same rejection rule as `false`.
+  const manifest = {
+    semantic_work_pending: ["ready_set_re_derivation"],
+    semantic_edits: { ready_set_re_derivation: 0 },
+    concerns: [],
+    affected_files: [],
+    result: "DONE",
+  };
+  const result = validateManifestSubagentStage({ manifest });
+  assert.equal(result.valid, false);
+  assert.equal(result.gaps.length, 1);
+  assert.match(
+    result.gaps[0],
+    /^ready_set_re_derivation listed in semantic_work_pending: semantic_edits\["ready_set_re_derivation"\] exists but value is empty/,
+  );
+});
+
 // ---------- Codex Finding 7 (PR #33 R4): canonical exit-state enforcement ----------
 // The validator MUST reject manifests whose `result` is not one of the four canonical
 // exit-states (DONE / DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED) per Plan Invariant

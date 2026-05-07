@@ -58,7 +58,7 @@ The four canonical exit-states from `references/failure-modes.md` (no new states
 
 Return:
 
-1. The list of files you edited (must be ⊆ `manifest.affected_files` ∪ `concerns[kind=affected_files_extension].path`).
+1. The list of files you edited (must be ⊆ the (possibly-extended) `manifest.affected_files`; any extension MUST also be documented via a `concerns` entry of `{kind: affected_files_extension, addressing: <reason>}` per `references/failure-modes.md` rule 20 — the concern carries the rationale in `addressing`, NOT a `path` field; the extended path lives in `manifest.affected_files` itself).
 2. The manifest path (you rewrite it before returning).
 3. A suggested commit message in the form: `chore(repo): housekeeping for PR #<N> — NS-XX completion`.
 4. A final `RESULT: <state>` tag.
