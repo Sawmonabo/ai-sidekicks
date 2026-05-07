@@ -787,6 +787,105 @@ test("validateManifestSubagentStage: subagent-emitted affected_files is superset
   );
 });
 
+// ---------- Codex F-AMP7Y (PR #33): script-stage schema_violations preservation ----------
+// The validator's check #6 enforces BLOCKED routing on the subagent-written
+// `manifest.schema_violations`, but never checks the subagent retained the
+// script-stage entries. Without an immutable comparison, a subagent could clear
+// the array and return DONE/DONE_WITH_CONCERNS, bypassing BLOCKED entirely.
+// Mirrors the scriptAffectedFiles superset semantics (D-7 row 14).
+
+test("validateManifestSubagentStage: subagent-emitted schema_violations is superset of script-stage snapshot (Codex F-AMP7Y)", () => {
+  const scriptSchemaViolations = [
+    { kind: "schema_violation", field: "PRs", ns_id: "NS-02" },
+    { kind: "auto_create_title_seed_underivable", field: null, ns_id: null },
+  ];
+  // Subagent dropped both entries — bypassing the BLOCKED enforcement.
+  const subagentManifest = {
+    semantic_work_pending: [],
+    semantic_edits: {},
+    concerns: [],
+    schema_violations: [], // CLEARED by careless / malicious subagent
+    affected_files: [],
+    result: "DONE",
+  };
+  const result = validateManifestSubagentStage({
+    manifest: subagentManifest,
+    scriptSchemaViolations,
+  });
+  assert.equal(result.valid, false);
+  // Both script-stage violations must surface as gaps.
+  assert.ok(
+    result.gaps.some(
+      (g) =>
+        g.includes("kind=schema_violation") && g.includes("field=PRs") && g.includes("ns_id=NS-02"),
+    ),
+    `expected gap for the schema_violation entry; got ${JSON.stringify(result.gaps)}`,
+  );
+  assert.ok(
+    result.gaps.some((g) => g.includes("kind=auto_create_title_seed_underivable")),
+    `expected gap for the auto_create entry; got ${JSON.stringify(result.gaps)}`,
+  );
+});
+
+test("validateManifestSubagentStage: subagent passes when schema_violations preserves script-stage snapshot (F-AMP7Y negative case)", () => {
+  // Subagent retains the script-stage violation AND surfaces it in concerns AND
+  // returns BLOCKED — the canonical happy-path shape under exit-5 halt.
+  const scriptSchemaViolations = [{ kind: "schema_violation", field: "PRs", ns_id: "NS-02" }];
+  const subagentManifest = {
+    semantic_work_pending: [],
+    semantic_edits: {},
+    concerns: [
+      {
+        kind: "schema_violation",
+        field: "PRs",
+        ns_id: "NS-02",
+        addressing: "schema_violation",
+        detail: "PRs block missing on NS-02; surfaced for user adjudication",
+      },
+    ],
+    schema_violations: [
+      { kind: "schema_violation", field: "PRs", ns_id: "NS-02" }, // PRESERVED
+    ],
+    affected_files: [],
+    result: "BLOCKED",
+  };
+  assert.deepEqual(
+    validateManifestSubagentStage({
+      manifest: subagentManifest,
+      scriptSchemaViolations,
+    }),
+    { valid: true },
+  );
+});
+
+test("validateManifestSubagentStage: subagent may ADD new schema_violations beyond script-stage snapshot (F-AMP7Y additive case)", () => {
+  // Mirror of the affected_files extension allowance — subagent surfaces a NEW
+  // schema problem the script missed. Allowed because check #9 is a superset
+  // check, not a strict-equality check.
+  const scriptSchemaViolations = [{ kind: "schema_violation", field: "PRs", ns_id: "NS-02" }];
+  const subagentManifest = {
+    semantic_work_pending: [],
+    semantic_edits: {},
+    concerns: [
+      { kind: "schema_violation", field: "PRs", ns_id: "NS-02", addressing: "schema_violation" },
+      { kind: "schema_violation", field: "Status", ns_id: "NS-04", addressing: "schema_violation" },
+    ],
+    schema_violations: [
+      { kind: "schema_violation", field: "PRs", ns_id: "NS-02" }, // preserved
+      { kind: "schema_violation", field: "Status", ns_id: "NS-04" }, // ADDED by subagent
+    ],
+    affected_files: [],
+    result: "BLOCKED",
+  };
+  assert.deepEqual(
+    validateManifestSubagentStage({
+      manifest: subagentManifest,
+      scriptSchemaViolations,
+    }),
+    { valid: true },
+  );
+});
+
 test("detectAffectedFilesSprawl: edits outside manifest's affected_files trigger REDISPATCH routing — NOT DONE_WITH_CONCERNS at first detection (Codex P1 PR #33 Finding 15 / failure-modes.md rule 20)", () => {
   const result = detectAffectedFilesSprawl({
     manifestAffectedFiles: ["docs/architecture/cross-plan-dependencies.md"],

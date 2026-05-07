@@ -466,12 +466,12 @@ The phase has 8 steps in this exact order — DO NOT reorder; step 6 (Progress L
 
 ```bash
 git switch -c housekeeping/PR<N>
-git add <affected_files>
+git add <affected_files> docs/plans/<plan-file>
 git commit -m "chore(repo): housekeeping for PR #<N> — NS-XX <flip-or-create>"
 git push -u origin HEAD
 ```
 
-The commit message subject follows the contract above (subagent's manifest provides the suggested message; orchestrator may amend to add concerns annotations). Direct commits on `develop` are NOT permitted (hard rule line 45) — the housekeeping PR is the canonical landing path.
+`<plan-file>` is the plan being executed (the orchestrator knows it from Phase 0). It MUST be staged explicitly in addition to `<affected_files>` because step 6's Progress Log append is orchestrator-controlled (NOT script-controlled), so the plan file is not in the manifest's `affected_files` declaration — especially under exit 3 (no Done Checklist sub-section) where the script skips checklist ticking entirely and never touches the plan. Omitting it would leave the Progress Log edit unstaged, breaking the documented "single commit bundles housekeeping + log" guarantee (commit ships incomplete OR worktree stays dirty). The commit message subject follows the contract above (subagent's manifest provides the suggested message; orchestrator may amend to add concerns annotations). Direct commits on `develop` are NOT permitted (hard rule line 45) — the housekeeping PR is the canonical landing path.
 
 8. **Open auto-merge PR + wait for landing** — create the housekeeping PR against `develop`, enable auto-merge (squash mode), poll until merged:
 

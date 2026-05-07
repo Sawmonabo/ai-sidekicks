@@ -118,14 +118,25 @@ export function buildHousekeeperPrompt({ manifestPath, scriptExitCode, prNumber,
  *     alone is insufficient; the BLOCKED state is required for halt/routing-path
  *     determinism after candidate-verification failure (per contract
  *     `references/post-merge-housekeeper-contract.md` §exit-code 2 line 79).
+ *  9. (Codex F-AMP7Y PR #33) When `scriptSchemaViolations` is provided, the
+ *     subagent-emitted `manifest.schema_violations` MUST contain every entry
+ *     from the script-stage snapshot (matched by composite key kind+field+ns_id —
+ *     same pairing the surface-matcher in check #5 uses). The subagent rewrites
+ *     the manifest, so without this immutable comparison it could clear the
+ *     array and return DONE/DONE_WITH_CONCERNS, bypassing the check #6 BLOCKED
+ *     enforcement entirely. Mirrors check #7's superset semantics for
+ *     `affected_files`: subagent may ADD new violations (rare; would be subagent
+ *     surfacing schema problems the script missed) but MUST NOT REMOVE
+ *     script-stage violations.
  *
- * @param {{ manifest: object, repoRoot?: string, scriptAffectedFiles?: string[] }} opts
+ * @param {{ manifest: object, repoRoot?: string, scriptAffectedFiles?: string[], scriptSchemaViolations?: object[] }} opts
  * @returns {{ valid: true } | { valid: false, gaps: string[] }}
  */
 export function validateManifestSubagentStage({
   manifest,
   repoRoot = process.cwd(),
   scriptAffectedFiles = null,
+  scriptSchemaViolations = null,
 }) {
   const gaps = [];
 
@@ -289,6 +300,33 @@ export function validateManifestSubagentStage({
       if (!subagentSet.has(path)) {
         gaps.push(
           `${path} declared by script but absent from subagent-emitted affected_files (D-7 row 14: subagent affected_files MUST be a superset of script affected_files)`,
+        );
+      }
+    }
+  }
+
+  // Check #9 — schema_violations preservation (Codex F-AMP7Y PR #33).
+  // The subagent rewrites the manifest, so without this immutable comparison it
+  // could clear `manifest.schema_violations` and return DONE/DONE_WITH_CONCERNS,
+  // bypassing check #6's BLOCKED enforcement. Mirror check #7 (scriptAffectedFiles
+  // superset) — the subagent's stage-2 schema_violations MUST contain every
+  // script-stage entry, matched by composite key kind+field+ns_id (same pairing
+  // the check #5 matcher uses). The subagent MAY add new violations (rare) but
+  // MUST NOT remove script-stage ones.
+  if (Array.isArray(scriptSchemaViolations)) {
+    const violationKey = (v) => `${v.kind ?? ""}|${v.field ?? ""}|${v.ns_id ?? ""}`;
+    const subagentViolationKeys = new Set((manifest.schema_violations ?? []).map(violationKey));
+    for (const sv of scriptSchemaViolations) {
+      if (!subagentViolationKeys.has(violationKey(sv))) {
+        const idLabel = [
+          sv.kind && `kind=${sv.kind}`,
+          sv.field && `field=${sv.field}`,
+          sv.ns_id && `ns_id=${sv.ns_id}`,
+        ]
+          .filter(Boolean)
+          .join(" ");
+        gaps.push(
+          `script-stage schema_violation (${idLabel}) absent from subagent-emitted schema_violations (Codex F-AMP7Y: subagent MUST NOT clear script-stage violations; check #6 BLOCKED enforcement requires the array to remain populated)`,
         );
       }
     }
