@@ -193,6 +193,64 @@ test("validateManifestSubagentStage: schema_violations match by field alone when
   assert.equal(result.valid, true);
 });
 
+test("validateManifestSubagentStage: distinct-kind violations require kind-discriminated concerns (Codex P2 fix on PR #33)", () => {
+  // Codex P2 (PR #33 R3): when both sv and a generic concern lack `field`,
+  // `c.field !== sv.field` was trivially false (undefined !== undefined),
+  // letting one concern absorb every violation. Adding `kind` to the match
+  // key prevents distinct-kind violations from sharing a concern.
+  const manifest = {
+    semantic_work_pending: [],
+    semantic_edits: {},
+    schema_violations: [
+      { kind: "auto_create_title_seed_underivable" },
+      { kind: "schema_violation", field: "summary" },
+    ],
+    // Only the schema_violation has a matching concern; the auto_create kind has none.
+    concerns: [{ kind: "schema_violation", field: "summary", detail: "..." }],
+    affected_files: [],
+  };
+  const result = validateManifestSubagentStage({ manifest });
+  assert.equal(result.valid, false);
+  assert.equal(result.gaps.length, 1);
+  assert.ok(
+    result.gaps[0].includes("auto_create_title_seed_underivable"),
+    `expected gap on auto_create_title_seed_underivable; got: ${JSON.stringify(result.gaps)}`,
+  );
+});
+
+test("validateManifestSubagentStage: auto_create_title_seed_underivable singleton matches by kind alone (no field/ns_id)", () => {
+  // Per script line 899: emits `[{ kind: "auto_create_title_seed_underivable" }]` with no
+  // field/ns_id. The matching concern needs the same `kind`; field/ns_id are absent on both
+  // sides and the matcher must treat that as a valid pairing (not a trivial-false gap).
+  const manifest = {
+    semantic_work_pending: [],
+    semantic_edits: {},
+    schema_violations: [{ kind: "auto_create_title_seed_underivable" }],
+    concerns: [{ kind: "auto_create_title_seed_underivable", detail: "..." }],
+    affected_files: [],
+  };
+  const result = validateManifestSubagentStage({ manifest });
+  assert.equal(result.valid, true);
+});
+
+test("validateManifestSubagentStage: fieldless-violation gap message uses (kind: ...) label and matchReqs", () => {
+  // When sv lacks both ns_id and field, idLabel falls back to `(kind: <kind>)` so the
+  // failure message remains identifiable instead of printing `undefined`.
+  const manifest = {
+    semantic_work_pending: [],
+    semantic_edits: {},
+    schema_violations: [{ kind: "auto_create_title_seed_underivable" }],
+    concerns: [],
+    affected_files: [],
+  };
+  const result = validateManifestSubagentStage({ manifest });
+  assert.equal(result.valid, false);
+  assert.equal(result.gaps.length, 1);
+  assert.match(result.gaps[0], /\(kind: auto_create_title_seed_underivable\)/);
+  assert.match(result.gaps[0], /need entry with kind: "auto_create_title_seed_underivable"/);
+  assert.doesNotMatch(result.gaps[0], /matching field|matching ns_id/);
+});
+
 test("validateManifestSubagentStage: BLOCKED result waives per-item pairing for semantic_work_pending (Codex P1 false-gap fix)", () => {
   // Codex P1 (PR #33 R2): when subagent halts at BLOCKED, it cannot complete every
   // semantic_work_pending item. The validator MUST skip the per-item check, otherwise

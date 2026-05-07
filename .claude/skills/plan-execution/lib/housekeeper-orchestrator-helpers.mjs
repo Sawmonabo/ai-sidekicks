@@ -22,7 +22,7 @@ Your responsibilities (per Spec §5.4 / §6.2):
 
 3. AUTO-CREATE body — if \`manifest.auto_create !== null\`, compose the new NS entry's body (Type / Status / Priority / Upstream / References / Summary / Exit Criteria sub-fields) per the AUTO-CREATE allocation rules in spec §5.4.
 
-4. Reconcile schema_violations — every entry in \`manifest.schema_violations\` MUST surface in \`manifest.concerns[]\` with \`kind: "schema_violation"\`. The script halted with exit ≥1 if any are present; the subagent's job is to surface them, not silently fix them.
+4. Reconcile schema_violations — every entry in \`manifest.schema_violations\` MUST surface in \`manifest.concerns[]\` with the violation's own \`kind\` verbatim (the script emits \`"schema_violation"\` for \`PRs:\` block / missing-required-field shapes and singleton kinds like \`"auto_create_title_seed_underivable"\` for AUTO-CREATE seed failures), plus matching \`field\` and \`ns_id\` when the violation carries them. A single generic concern cannot absorb multiple distinct-kind violations. The script halted with exit ≥1 if any are present; the subagent's job is to surface them, not silently fix them.
 
 5. Reconcile semantic_work_pending — every item in \`manifest.semantic_work_pending\` MUST be paired to either (a) a \`semantic_edits.<item-key>\` entry containing the composed output, or (b) a \`concerns[]\` entry whose \`addressing\` field equals the exact item key verbatim (e.g. \`{kind: "deferred_for_followup", addressing: "set_quantifier_reverification"}\`). The validator pairs each pending item via this \`addressing\` key — \`kind\` is the subagent's choice; only \`addressing\` is the match key. Exception: when returning \`BLOCKED\` or \`NEEDS_CONTEXT\` (subagent halted before completing semantic work), per-item pairing is waived and the validator skips this check.
 
@@ -84,9 +84,14 @@ export function buildHousekeeperPrompt({ manifestPath, scriptExitCode, prNumber,
  *     completing semantic work, so per-item pairing is not required.
  *  2. No <TODO subagent prose> placeholder remains in any affected_files on disk.
  *  3. (P2 fix) No <TODO subagent prose> placeholder in any semantic_edits value (nested scan).
- *  4. Every schema_violations entry is surfaced as its own concerns entry with kind:
- *     "schema_violation", matched per-entry on `field` (and `ns_id` when present).
- *     A single generic concern cannot satisfy multiple violations.
+ *  4. Every schema_violations entry is surfaced as its own concerns entry, matched
+ *     per-entry on `kind` (the violation's own kind verbatim — `"schema_violation"`
+ *     for `PRs:` block / missing-required-field shapes, or singleton kinds like
+ *     `"auto_create_title_seed_underivable"` for AUTO-CREATE seed failures), plus
+ *     `field` and `ns_id` when the violation carries them. A single generic concern
+ *     cannot satisfy multiple violations of distinct kinds; a generic concern with
+ *     no `field` cannot trivially absorb a violation that also lacks `field` —
+ *     the `kind` discriminator prevents the trivial-equality match (Codex P2 fix).
  *  5. (D-7 row 14) When `scriptAffectedFiles` is provided, the subagent-emitted
  *     manifest.affected_files MUST be a superset — the subagent may extend the
  *     list (justified via a `concerns` entry of kind `affected_files_extension`)
@@ -139,22 +144,30 @@ export function validateManifestSubagentStage({
   }
 
   // schema_violations × concerns reconciliation. Each schema_violations entry MUST
-  // surface as its OWN concerns entry with kind "schema_violation". We match
-  // structurally on `field` (and `ns_id` when the violation carries one) so N
-  // violations cannot be satisfied by a single generic concerns entry — the prior
-  // `.some(c => c.kind === "schema_violation")` predicate ignored `sv` entirely
-  // and let one concern absorb every violation.
-  const schemaConcerns = (manifest.concerns ?? []).filter((c) => c.kind === "schema_violation");
+  // surface as its OWN concerns entry. Match key is `kind` + `field` + `ns_id`,
+  // each compared verbatim. The `kind` discriminator (Codex P2 follow-up to the R1
+  // per-entry fix) closes a loophole: when both sv and a generic concern lack `field`,
+  // `c.field !== sv.field` was trivially `false` (undefined !== undefined), letting
+  // a single generic concern absorb shapes like `{kind: "auto_create_title_seed_underivable"}`
+  // that the script emits as singletons without `field`/`ns_id`. By requiring kind
+  // alignment, distinct-kind violations cannot share a concern.
   for (const sv of manifest.schema_violations ?? []) {
-    const matched = schemaConcerns.some((c) => {
+    const matched = (manifest.concerns ?? []).some((c) => {
+      if (c.kind !== sv.kind) return false;
       if (c.field !== sv.field) return false;
       if (sv.ns_id !== undefined && c.ns_id !== sv.ns_id) return false;
       return true;
     });
     if (!matched) {
-      const idLabel = sv.ns_id ? `${sv.ns_id}.${sv.field}` : String(sv.field);
+      const idLabel =
+        sv.ns_id && sv.field
+          ? `${sv.ns_id}.${sv.field}`
+          : sv.field
+            ? String(sv.field)
+            : `(kind: ${sv.kind})`;
+      const matchReqs = `kind: "${sv.kind}"${sv.field !== undefined ? " + matching field" : ""}${sv.ns_id !== undefined ? " + matching ns_id" : ""}`;
       gaps.push(
-        `schema_violation ${idLabel} not surfaced in concerns (need entry with kind: "schema_violation" + matching field${sv.ns_id ? " + ns_id" : ""})`,
+        `schema_violation ${idLabel} not surfaced in concerns (need entry with ${matchReqs})`,
       );
     }
   }
