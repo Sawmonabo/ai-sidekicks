@@ -322,6 +322,112 @@ test("validateManifestSubagentStage: per-item pairing matches by `addressing: <i
   assert.deepEqual(validateManifestSubagentStage({ manifest }), { valid: true });
 });
 
+// ---------- Codex Finding 9 (PR #33 R5): non-empty semantic_edits payload required ----------
+// hasOwnProperty.call(...) only checks key presence, so a subagent could ship
+// DONE / DONE_WITH_CONCERNS with `semantic_edits.compose_status_prose = undefined`
+// (or null / "" / [] / {}) and the validator would accept zero payload. The contract
+// (responsibility #5: "containing the composed output") requires an actual payload.
+// These tests pin the value-must-be-meaningful rule and the differentiated gap message
+// (key-present-but-empty distinguished from key-missing-entirely).
+
+test("validateManifestSubagentStage: fails when semantic_edits[item] is undefined (Codex Finding 9)", () => {
+  // The literal motivating shape from the finding: subagent assigned the key but never
+  // composed a value (e.g. `semantic_edits.compose_status_completion_prose = undefined`).
+  // hasOwnProperty would return true, masking the missing payload — gap MUST fire.
+  const manifest = {
+    semantic_work_pending: ["compose_status_completion_prose"],
+    semantic_edits: { compose_status_completion_prose: undefined },
+    concerns: [],
+    affected_files: [],
+    result: "DONE",
+  };
+  const result = validateManifestSubagentStage({ manifest });
+  assert.equal(result.valid, false);
+  assert.equal(result.gaps.length, 1);
+  assert.match(
+    result.gaps[0],
+    /^compose_status_completion_prose listed in semantic_work_pending: semantic_edits\["compose_status_completion_prose"\] exists but value is empty/,
+  );
+  assert.match(result.gaps[0], /canonical-template responsibility #5/);
+});
+
+test("validateManifestSubagentStage: fails when semantic_edits[item] is null (Codex Finding 9)", () => {
+  // null is JSON's explicit empty value — equally invalid as undefined under the
+  // contract (responsibility #5 requires composed output).
+  const manifest = {
+    semantic_work_pending: ["ready_set_re_derivation"],
+    semantic_edits: { ready_set_re_derivation: null },
+    concerns: [],
+    affected_files: [],
+    result: "DONE",
+  };
+  const result = validateManifestSubagentStage({ manifest });
+  assert.equal(result.valid, false);
+  assert.equal(result.gaps.length, 1);
+  assert.match(
+    result.gaps[0],
+    /^ready_set_re_derivation listed in semantic_work_pending: semantic_edits\["ready_set_re_derivation"\] exists but value is empty/,
+  );
+});
+
+test("validateManifestSubagentStage: fails when semantic_edits[item] is empty string (Codex Finding 9)", () => {
+  // Empty / whitespace-only strings are not "composed output". isMeaningfulPayload
+  // trims before checking length so "" and "   " both fail.
+  const manifest = {
+    semantic_work_pending: ["line_cite_sweep"],
+    semantic_edits: { line_cite_sweep: "" },
+    concerns: [],
+    affected_files: [],
+    result: "DONE",
+  };
+  const result = validateManifestSubagentStage({ manifest });
+  assert.equal(result.valid, false);
+  assert.equal(result.gaps.length, 1);
+  assert.match(
+    result.gaps[0],
+    /^line_cite_sweep listed in semantic_work_pending: semantic_edits\["line_cite_sweep"\] exists but value is empty/,
+  );
+});
+
+test("validateManifestSubagentStage: fails when semantic_edits[item] is empty object (Codex Finding 9)", () => {
+  // `{}` is the placeholder shape a careless subagent might emit when stubbing the slot.
+  // Object.keys(value).length === 0 catches it before it slips through.
+  const manifest = {
+    semantic_work_pending: ["set_quantifier_reverification"],
+    semantic_edits: { set_quantifier_reverification: {} },
+    concerns: [],
+    affected_files: [],
+    result: "DONE",
+  };
+  const result = validateManifestSubagentStage({ manifest });
+  assert.equal(result.valid, false);
+  assert.equal(result.gaps.length, 1);
+  assert.match(
+    result.gaps[0],
+    /^set_quantifier_reverification listed in semantic_work_pending: semantic_edits\["set_quantifier_reverification"\] exists but value is empty/,
+  );
+});
+
+test("validateManifestSubagentStage: passes when semantic_edits[item] is a non-empty object (Codex Finding 9 negative case)", () => {
+  // Negative control — proves the new check accepts the canonical happy-path shape
+  // (e.g. `mechanical_edits.status_flip.to_line` echoed back into semantic_edits as an
+  // object with composed-prose fields). This pairs with the four failing-payload tests
+  // above to lock the meaningful-payload boundary in both directions.
+  const manifest = {
+    semantic_work_pending: ["compose_status_completion_prose"],
+    semantic_edits: {
+      compose_status_completion_prose: {
+        to_line:
+          "- Status: `completed` (resolved 2026-05-06 via PR #33 — housekeeper validator now requires non-empty semantic_edits payload)",
+      },
+    },
+    concerns: [],
+    affected_files: [],
+    result: "DONE",
+  };
+  assert.deepEqual(validateManifestSubagentStage({ manifest }), { valid: true });
+});
+
 // ---------- Codex Finding 7 (PR #33 R4): canonical exit-state enforcement ----------
 // The validator MUST reject manifests whose `result` is not one of the four canonical
 // exit-states (DONE / DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED) per Plan Invariant

@@ -83,7 +83,10 @@ export function buildHousekeeperPrompt({ manifestPath, scriptExitCode, prNumber,
  *  2. Every item in semantic_work_pending has a corresponding entry in semantic_edits
  *     OR a concerns[] entry whose `addressing` field equals the exact item key
  *     (per canonical-template responsibility #5; `kind` is the subagent's choice,
- *     `addressing` is the validator's match key). WAIVED when
+ *     `addressing` is the validator's match key). The semantic_edits[item] value MUST
+ *     be a meaningful payload (not null/undefined/empty-string/empty-array/empty-object)
+ *     — key-presence alone does not satisfy the contract clause "containing the composed
+ *     output" (Codex P2 PR #33 R5 / Finding 9). WAIVED when
  *     `manifest.result === "BLOCKED" | "NEEDS_CONTEXT"` — the subagent halted before
  *     completing semantic work, so per-item pairing is not required.
  *  3. No <TODO subagent prose> placeholder remains in any affected_files on disk.
@@ -144,14 +147,29 @@ export function validateManifestSubagentStage({
 
   if (!haltedBeforeCompletion) {
     for (const item of manifest.semantic_work_pending ?? []) {
-      const inEdits =
+      // Codex P2 PR #33 R5 / Finding 9: hasOwnProperty alone admitted shapes like
+      // `semantic_edits.compose_status_completion_prose = undefined` — key-present
+      // but no payload. Contract responsibility #5 requires "an entry containing the
+      // composed output", so we require a meaningful payload (not null/undefined/empty).
+      const keyPresent =
         manifest.semantic_edits &&
         Object.prototype.hasOwnProperty.call(manifest.semantic_edits, item);
+      const editValue = manifest.semantic_edits?.[item];
+      const inEdits = keyPresent && isMeaningfulPayload(editValue);
       const inConcerns = (manifest.concerns ?? []).some((c) => c.addressing === item);
-      if (!inEdits && !inConcerns)
-        gaps.push(
-          `${item} listed in semantic_work_pending but absent from semantic_edits and concerns (need either semantic_edits.${item} or a concerns entry with addressing: "${item}")`,
-        );
+      if (!inEdits && !inConcerns) {
+        if (keyPresent) {
+          // Differentiated gap: key is there but value is empty — more informative for
+          // the subagent's round-trip than the generic "absent" message.
+          gaps.push(
+            `${item} listed in semantic_work_pending: semantic_edits["${item}"] exists but value is empty (need composed output per canonical-template responsibility #5, or a concerns entry with addressing: "${item}")`,
+          );
+        } else {
+          gaps.push(
+            `${item} listed in semantic_work_pending but absent from semantic_edits and concerns (need either semantic_edits.${item} or a concerns entry with addressing: "${item}")`,
+          );
+        }
+      }
     }
   }
 
@@ -262,6 +280,33 @@ export function detectAffectedFilesSprawl({ manifestAffectedFiles, gitDiffFiles 
         suggestedRouting: "DONE_WITH_CONCERNS",
         suggestedConcernKind: "affected_files_extension",
       };
+}
+
+/**
+ * Decide whether a `semantic_edits[<item>]` value is a "meaningful payload" per
+ * canonical-template responsibility #5: an entry "containing the composed output".
+ *
+ * Codex P2 PR #33 R5 / Finding 9: `hasOwnProperty` returns true for keys whose
+ * value is `null` / `undefined` / `""` / `[]` / `{}`, which let pending items pass
+ * the validator with zero payload. This helper rejects those empty shapes so the
+ * subagent's DONE/DONE_WITH_CONCERNS cannot ship with unresolved semantic work.
+ *
+ * Numbers, booleans, and other primitives are accepted defensively — semantic_edits
+ * values are typically composed prose strings or placeholder-replaced objects, but
+ * future contract evolution may legitimately use scalar payloads (e.g. counts), and
+ * rejecting them would force a rule change here. Strings are trimmed before the
+ * length check so whitespace-only values do not satisfy the contract.
+ *
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+function isMeaningfulPayload(value) {
+  if (value === null || value === undefined) return false;
+  if (typeof value === "string") return value.trim().length > 0;
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === "object") return Object.keys(value).length > 0;
+  // numbers, booleans, etc — accept (rare in this contract but don't reject)
+  return true;
 }
 
 /**
