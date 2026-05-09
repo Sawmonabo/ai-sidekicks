@@ -719,9 +719,9 @@ export function emitManifest({
     affected_files: affectedFiles,
     semantic_work_pending: semanticWorkPending,
     warnings,
-    // Codex F-AMbIV PR #33: immutable script-stage snapshot embedded in the
-    // manifest itself. The validator reads this at subagent-stage to detect
-    // bypass attempts (subagent clearing schema_violations / verification_failures /
+    // Immutable script-stage snapshot embedded in the manifest itself. The
+    // validator reads this at subagent-stage to detect bypass attempts
+    // (subagent clearing schema_violations / verification_failures /
     // semantic_work_pending / affected_files). Mirrors the four script-output
     // arrays above; deep-cloned so a post-write mutation of the live arrays
     // (defensive — the script doesn't currently mutate, but a future caller

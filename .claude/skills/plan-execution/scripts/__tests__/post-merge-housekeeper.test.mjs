@@ -341,11 +341,11 @@ test("parseArgs validates --candidate-ns token shape (NS-NN, NS-NNa, NS-NN..NS-N
   assert.throws(() => parseArgs(["30", "--candidate-ns", "NS-01,bogus"]), /--candidate-ns/);
 });
 
-// Bug-9 (Codex thread PRRT_kwDOSCycWc6AIyME): --candidate-ns must require the
-// canonical zero-padded form (NS-01, not NS-1) because locateNsEntry compares
-// against `NS_ID()` output which always pads via `String(n).padStart(2, "0")`.
-// REJECT (not normalize) — fail fast at arg parse so the orchestrator never
-// hits the silent ns_entry_not_found path on a single-digit dispatch token.
+// Bug-9: --candidate-ns must require the canonical zero-padded form (NS-01,
+// not NS-1) because locateNsEntry compares against `NS_ID()` output which
+// always pads via `String(n).padStart(2, "0")`. REJECT (not normalize) — fail
+// fast at arg parse so the orchestrator never hits the silent
+// ns_entry_not_found path on a single-digit dispatch token.
 
 test("parseArgs rejects single-digit NS token (--candidate-ns NS-1)", () => {
   assert.throws(
@@ -1213,13 +1213,13 @@ for (const fixture of listFixtures(FIXTURES_DIR).filter(RUNNABLE_FIXTURE)) {
   });
 }
 
-// ---------- CLI entrypoint diff-source wiring (Codex thread r3193301906) ----------
+// ---------- CLI entrypoint diff-source wiring ----------
 // Pre-Bug-8 fix, the CLI shelled out to `git diff-tree HEAD`, violating Plan
 // Invariant I-3 (script never imports child_process for git) AND failing on
 // merge commits (`diff-tree HEAD` returns empty for merges without -m/-c/--cc,
-// silently skipping the verifier trio). Per Codex thread PRRT_kwDOSCycWc6AIyL9,
-// the orchestrator now computes the PR-wide diff (BEFORE squash-merge per
-// Phase E ordering) and passes its file-list path via `--touched-files-path`.
+// silently skipping the verifier trio). The orchestrator now computes the
+// PR-wide diff (BEFORE squash-merge per Phase E ordering) and passes its
+// file-list path via `--touched-files-path`.
 
 test("readTouchedFilesFromPath reads newline-delimited paths from file", () => {
   const tmpRepo = mkdtempSync(join(tmpdir(), "tfp-read-"));
@@ -1367,7 +1367,7 @@ test("CLI entrypoint reads --touched-files-path and feeds verifier trio (regress
   }
 });
 
-// ---------- Multi-candidate first-failure semantics (Codex thread r3193301912) ----------
+// ---------- Multi-candidate first-failure semantics ----------
 // Spec §5.1 line 521 ("aborts on first failure rather than partial-applying")
 // + line 551 ("remaining candidates' verification states enumerated"). When
 // the first candidate locates+validates clean but the second is missing from
@@ -1429,7 +1429,7 @@ test("runHousekeeper: comma-list aborts on first ns_entry_not_found with not_eva
   }
 });
 
-// ---------- Bug-4 (Codex thread r3193301918): pre-validate task-in-block ----------
+// ---------- Bug-4: pre-validate task-in-block ----------
 // applyMultiPrTickAndRecompute used to silently exit its tick-loop when --task
 // didn't match an unchecked row, leaving the Status line untouched and the PRs
 // block unmodified — an invisible no-op. validateCandidate + the single-candidate
@@ -1629,7 +1629,7 @@ test("runHousekeeper: comma-list multi-pr --task that does not match any uncheck
   }
 });
 
-// ---------- Bug-5 (Codex thread r3193301921): try/catch parsePRsBlock ----------
+// ---------- Bug-5: try/catch parsePRsBlock ----------
 // parsePRsBlock throws on malformed checked rows missing the (PR #N, merged ...)
 // annotation. CLI only caught ParseArgsError so the process crashed (exit 1 from
 // uncaught exception). Now wrapped: exit 5 + schema_violations[kind: prs_block_malformed].

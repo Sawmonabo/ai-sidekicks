@@ -98,7 +98,7 @@ test("validateManifestSubagentStage: fail when pending item is unaddressed", () 
   assert.match(result.gaps[0], /addressing: "ready_set_re_derivation"/);
 });
 
-test("validateManifestSubagentStage: fails when affected_files entry is missing from disk (Codex Finding 10)", () => {
+test("validateManifestSubagentStage: fails when affected_files entry is missing from disk", () => {
   // Codex P1 (PR #33 R6 / Finding 10): the placeholder-scan loop's `if (existsSync(full))`
   // gate had no else-branch, so a subagent run that DELETED a declared affected_files entry
   // (e.g. accidentally `rm`-ing docs/architecture/cross-plan-dependencies.md) silently passed
@@ -137,14 +137,15 @@ test("validateManifestSubagentStage: fails when affected_files entry is missing 
   }
 });
 
-test("validateManifestSubagentStage: fails with gap (not crash) when affected_files entry is a directory (Codex F-AMU4D)", () => {
-  // Codex P2 (PR #33 / F-AMU4D): the placeholder-scan loop called readFileSync
-  // unconditionally after the existsSync gate, so a subagent that declared a directory
-  // path in affected_files (or readFileSync hit any I/O error) crashed the orchestrator
-  // with EISDIR / ENOENT instead of routing through the validator's gap collection.
-  // The contract requires affected_files entries to be regular files (the script edits
-  // line-level content); a directory is a contract violation that MUST surface as a
-  // gap so Phase E can re-dispatch — not an unhandled exception that halts orchestration.
+test("validateManifestSubagentStage: fails with gap (not crash) when affected_files entry is a directory", () => {
+  // The placeholder-scan loop calls readFileSync unconditionally after the
+  // existsSync gate, so a subagent that declared a directory path in
+  // affected_files (or readFileSync hit any I/O error) would crash the
+  // orchestrator with EISDIR / ENOENT instead of routing through the
+  // validator's gap collection. The contract requires affected_files entries
+  // to be regular files (the script edits line-level content); a directory is
+  // a contract violation that MUST surface as a gap so Phase E can re-dispatch
+  // — not an unhandled exception that halts orchestration.
   const tmpRepo = mkdtempSync(join(tmpdir(), "validate-nonfile-"));
   try {
     // Create a DIRECTORY at the path the manifest will declare as a file.
@@ -172,7 +173,7 @@ test("validateManifestSubagentStage: fails with gap (not crash) when affected_fi
       result.gaps[0],
       /^docs\/architecture\/cross-plan-dependencies\.md declared in affected_files but is not a regular file/,
     );
-    assert.match(result.gaps[0], /Codex F-AMU4D/);
+    assert.match(result.gaps[0], /subagent contract requires regular files for line-level edits/);
   } finally {
     rmSync(tmpRepo, { recursive: true, force: true });
   }
@@ -500,7 +501,7 @@ test("validateManifestSubagentStage: per-item pairing matches by `addressing: <i
   assert.deepEqual(validateManifestSubagentStage({ manifest }), { valid: true });
 });
 
-// ---------- Codex Finding 9 (PR #33 R5): non-empty semantic_edits payload required ----------
+// ---------- Non-empty semantic_edits payload required ----------
 // hasOwnProperty.call(...) only checks key presence, so a subagent could ship
 // DONE / DONE_WITH_CONCERNS with `semantic_edits.compose_status_prose = undefined`
 // (or null / "" / [] / {}) and the validator would accept zero payload. The contract
@@ -508,7 +509,7 @@ test("validateManifestSubagentStage: per-item pairing matches by `addressing: <i
 // These tests pin the value-must-be-meaningful rule and the differentiated gap message
 // (key-present-but-empty distinguished from key-missing-entirely).
 
-test("validateManifestSubagentStage: fails when semantic_edits[item] is undefined (Codex Finding 9)", () => {
+test("validateManifestSubagentStage: fails when semantic_edits[item] is undefined", () => {
   // The literal motivating shape from the finding: subagent assigned the key but never
   // composed a value (e.g. `semantic_edits.compose_status_completion_prose = undefined`).
   // hasOwnProperty would return true, masking the missing payload — gap MUST fire.
@@ -535,7 +536,7 @@ test("validateManifestSubagentStage: fails when semantic_edits[item] is undefine
   assert.match(result.gaps[0], /canonical-template responsibility #5/);
 });
 
-test("validateManifestSubagentStage: fails when semantic_edits[item] is null (Codex Finding 9)", () => {
+test("validateManifestSubagentStage: fails when semantic_edits[item] is null", () => {
   // null is JSON's explicit empty value — equally invalid as undefined under the
   // contract (responsibility #5 requires composed output).
   const manifest = {
@@ -560,7 +561,7 @@ test("validateManifestSubagentStage: fails when semantic_edits[item] is null (Co
   );
 });
 
-test("validateManifestSubagentStage: fails when semantic_edits[item] is empty string (Codex Finding 9)", () => {
+test("validateManifestSubagentStage: fails when semantic_edits[item] is empty string", () => {
   // Empty / whitespace-only strings are not "composed output". isMeaningfulPayload
   // trims before checking length so "" and "   " both fail.
   const manifest = {
@@ -585,7 +586,7 @@ test("validateManifestSubagentStage: fails when semantic_edits[item] is empty st
   );
 });
 
-test("validateManifestSubagentStage: fails when semantic_edits[item] is empty object (Codex Finding 9)", () => {
+test("validateManifestSubagentStage: fails when semantic_edits[item] is empty object", () => {
   // `{}` is the placeholder shape a careless subagent might emit when stubbing the slot.
   // Object.keys(value).length === 0 catches it before it slips through.
   const manifest = {
@@ -610,7 +611,7 @@ test("validateManifestSubagentStage: fails when semantic_edits[item] is empty ob
   );
 });
 
-test("validateManifestSubagentStage: passes when semantic_edits[item] is a non-empty object (Codex Finding 9 negative case)", () => {
+test("validateManifestSubagentStage: passes when semantic_edits[item] is a non-empty object", () => {
   // Negative control — proves the new check accepts the canonical happy-path shape
   // (e.g. `mechanical_edits.status_flip.to_line` echoed back into semantic_edits as an
   // object with composed-prose fields). This pairs with the four failing-payload tests
@@ -636,13 +637,14 @@ test("validateManifestSubagentStage: passes when semantic_edits[item] is a non-e
   assert.deepEqual(validateManifestSubagentStage({ manifest }), { valid: true });
 });
 
-// ---------- Codex F-AMLor (PR #33): scalar payloads rejected as non-output-bearing ----------
-// Prior `isMeaningfulPayload` returned `true` for any non-null scalar (booleans, numbers)
-// via a permissive catch-all, so a subagent could satisfy `semantic_work_pending` with
-// `false`/`0` and still pass validation. The contract is composed completion-prose —
-// scalars cannot carry composed output. These tests pin the rejection boundary.
+// ---------- Scalar payloads rejected as non-output-bearing ----------
+// A permissive catch-all in `isMeaningfulPayload` returned `true` for any
+// non-null scalar (booleans, numbers), so a subagent could satisfy
+// `semantic_work_pending` with `false`/`0` and still pass validation. The
+// contract is composed completion-prose — scalars cannot carry composed
+// output. These tests pin the rejection boundary.
 
-test("validateManifestSubagentStage: fails when semantic_edits[item] is `false` (Codex F-AMLor)", () => {
+test("validateManifestSubagentStage: fails when semantic_edits[item] is `false`", () => {
   // Boolean `false` is the most plausible misuse — a careless subagent might emit
   // `{compose_status_completion_prose: false}` thinking it's a "no-op marker".
   // The contract requires composed prose; `false` is not output-bearing.
@@ -668,7 +670,7 @@ test("validateManifestSubagentStage: fails when semantic_edits[item] is `false` 
   );
 });
 
-test("validateManifestSubagentStage: fails when semantic_edits[item] is `0` (Codex F-AMLor)", () => {
+test("validateManifestSubagentStage: fails when semantic_edits[item] is `0`", () => {
   // Number `0` is the second plausible misuse (e.g. an int counter the subagent
   // confused for a payload). Same rejection rule as `false`.
   const manifest = {
@@ -693,14 +695,15 @@ test("validateManifestSubagentStage: fails when semantic_edits[item] is `0` (Cod
   );
 });
 
-// ---------- Codex Finding 7 (PR #33 R4): canonical exit-state enforcement ----------
-// The validator MUST reject manifests whose `result` is not one of the four canonical
-// exit-states (DONE / DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED) per Plan Invariant
-// I-2. Prior validator behavior: `result === undefined` slipped through silently and
-// only `BLOCKED`/`NEEDS_CONTEXT` were ever consulted (for the halt-state waiver),
-// breaking deterministic Phase-E routing.
+// ---------- Canonical exit-state enforcement ----------
+// The validator MUST reject manifests whose `result` is not one of the four
+// canonical exit-states (DONE / DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED)
+// per Plan Invariant I-2. Prior validator behavior: `result === undefined`
+// slipped through silently and only `BLOCKED`/`NEEDS_CONTEXT` were ever
+// consulted (for the halt-state waiver), breaking deterministic Phase-E
+// routing.
 
-test("validateManifestSubagentStage: fails when result is null (Codex Finding 7)", () => {
+test("validateManifestSubagentStage: fails when result is null", () => {
   // `result: null` is the script-stage stub shape (per contract §Manifest schema line 62).
   // If the subagent returns this unchanged, the orchestrator can't route Phase E — gap MUST fire.
   const manifest = {
@@ -729,7 +732,7 @@ test("validateManifestSubagentStage: fails when result is null (Codex Finding 7)
   );
 });
 
-test("validateManifestSubagentStage: fails when result is an unknown string (Codex Finding 7)", () => {
+test("validateManifestSubagentStage: fails when result is an unknown string", () => {
   // Off-canon literals (typos, hallucinated states, legacy values) MUST gap.
   const manifest = {
     _script_stage: {
@@ -756,7 +759,7 @@ test("validateManifestSubagentStage: fails when result is an unknown string (Cod
   );
 });
 
-test("validateManifestSubagentStage: passes when result is 'DONE' (Codex Finding 7 negative case)", () => {
+test("validateManifestSubagentStage: passes when result is 'DONE'", () => {
   // Round-trip a clean DONE manifest — proves the canonical-state check accepts the
   // happy path and doesn't false-fire when the contract is satisfied.
   const manifest = {
@@ -775,14 +778,14 @@ test("validateManifestSubagentStage: passes when result is 'DONE' (Codex Finding
   assert.deepEqual(validateManifestSubagentStage({ manifest }), { valid: true });
 });
 
-// ---------- Codex Finding 6 (PR #33 R4): BLOCKED-when-schema-violations enforcement ----------
+// ---------- BLOCKED-when-schema-violations enforcement ----------
 // Contract clause (`references/post-merge-housekeeper-contract.md` §Validation invariants
 // line 93): "Every entry in schema_violations appears in concerns ... AND result === BLOCKED".
 // The matcher loop already enforces the SURFACE half; this check enforces the EXIT-STATE half.
 // Without it, a subagent could ship `DONE`/`DONE_WITH_CONCERNS` while schema_violations
 // is non-empty, bypassing the orchestrator's halt/routing-path determinism in Phase E.
 
-test("validateManifestSubagentStage: fails when schema_violations present but result is 'DONE_WITH_CONCERNS' (Codex Finding 6)", () => {
+test("validateManifestSubagentStage: fails when schema_violations present but result is 'DONE_WITH_CONCERNS'", () => {
   // Subagent surfaced the violation in concerns (so the per-entry matcher passes) BUT
   // returned a non-BLOCKED state. The contract requires BOTH conditions; this case MUST gap.
   const manifest = {
@@ -815,7 +818,7 @@ test("validateManifestSubagentStage: fails when schema_violations present but re
   assert.equal(result.gaps.length, 1);
 });
 
-test("validateManifestSubagentStage: passes when schema_violations present AND result is 'BLOCKED' (Codex Finding 6 negative case)", () => {
+test("validateManifestSubagentStage: passes when schema_violations present AND result is 'BLOCKED'", () => {
   // Both halves of the contract clause satisfied: violations surface in concerns AND
   // result is BLOCKED. The validator returns valid:true (no schema-violation gaps).
   const manifest = {
@@ -835,7 +838,7 @@ test("validateManifestSubagentStage: passes when schema_violations present AND r
   assert.deepEqual(validateManifestSubagentStage({ manifest }), { valid: true });
 });
 
-// ---------- Codex Finding 11 (PR #33 R7): BLOCKED-when-verification_failures enforcement ----------
+// ---------- BLOCKED-when-verification_failures enforcement ----------
 // Mirror of Finding 6's schema_violations BLOCKED check. Contract clause from
 // `references/post-merge-housekeeper-contract.md` §exit-code 2 line 79: "candidate
 // verification failed (Type-signature / file-overlap / plan-identity mismatch — halt
@@ -843,7 +846,7 @@ test("validateManifestSubagentStage: passes when schema_violations present AND r
 // subagent could ship `DONE` / `DONE_WITH_CONCERNS` while verification_failures is
 // non-empty, bypassing the orchestrator's halt/routing-path determinism in Phase E.
 
-test("validateManifestSubagentStage: fails when verification_failures present but result is 'DONE_WITH_CONCERNS' (Codex Finding 11)", () => {
+test("validateManifestSubagentStage: fails when verification_failures present but result is 'DONE_WITH_CONCERNS'", () => {
   // Script exit-2 path: candidate verification failed (e.g. type_signature_mismatch,
   // file_overlap_zero, plan_identity_mismatch). Subagent must end in BLOCKED;
   // returning DONE_WITH_CONCERNS bypasses the documented halt path.
@@ -880,7 +883,7 @@ test("validateManifestSubagentStage: fails when verification_failures present bu
   assert.equal(result.gaps.length, 1);
 });
 
-test("validateManifestSubagentStage: passes when verification_failures present AND result is 'BLOCKED' (Codex Finding 11 negative case)", () => {
+test("validateManifestSubagentStage: passes when verification_failures present AND result is 'BLOCKED'", () => {
   // Both halves of the contract clause satisfied: verification failure surfaced AND
   // result is BLOCKED. The validator returns valid:true (no verification_failures gap).
   const manifest = {
@@ -1022,14 +1025,14 @@ test("validateManifestSubagentStage: subagent-emitted affected_files is superset
   );
 });
 
-// ---------- Codex F-AMP7Y (PR #33): script-stage schema_violations preservation ----------
+// ---------- Script-stage schema_violations preservation ----------
 // The validator's check #6 enforces BLOCKED routing on the subagent-written
 // `manifest.schema_violations`, but never checks the subagent retained the
 // script-stage entries. Without an immutable comparison, a subagent could clear
 // the array and return DONE/DONE_WITH_CONCERNS, bypassing BLOCKED entirely.
 // Mirrors the scriptAffectedFiles superset semantics (D-7 row 14).
 
-test("validateManifestSubagentStage: subagent-emitted schema_violations is superset of script-stage snapshot (Codex F-AMP7Y)", () => {
+test("validateManifestSubagentStage: subagent-emitted schema_violations is superset of script-stage snapshot", () => {
   const scriptSchemaViolations = [
     { kind: "schema_violation", field: "PRs", ns_id: "NS-02" },
     { kind: "auto_create_title_seed_underivable", field: null, ns_id: null },
@@ -1068,7 +1071,7 @@ test("validateManifestSubagentStage: subagent-emitted schema_violations is super
   );
 });
 
-test("validateManifestSubagentStage: subagent passes when schema_violations preserves script-stage snapshot (F-AMP7Y negative case)", () => {
+test("validateManifestSubagentStage: subagent passes when schema_violations preserves script-stage snapshot", () => {
   // Subagent retains the script-stage violation AND surfaces it in concerns AND
   // returns BLOCKED — the canonical happy-path shape under exit-5 halt.
   const scriptSchemaViolations = [{ kind: "schema_violation", field: "PRs", ns_id: "NS-02" }];
@@ -1105,7 +1108,7 @@ test("validateManifestSubagentStage: subagent passes when schema_violations pres
   );
 });
 
-test("validateManifestSubagentStage: subagent may ADD new schema_violations beyond script-stage snapshot (F-AMP7Y additive case)", () => {
+test("validateManifestSubagentStage: subagent may ADD new schema_violations beyond script-stage snapshot", () => {
   // Mirror of the affected_files extension allowance — subagent surfaces a NEW
   // schema problem the script missed. Allowed because check #9 is a superset
   // check, not a strict-equality check.
@@ -1139,14 +1142,15 @@ test("validateManifestSubagentStage: subagent may ADD new schema_violations beyo
   );
 });
 
-// ---------- Codex F-AMSEL (PR #33): script-stage verification_failures preservation ----------
-// Mirror of F-AMP7Y — same bypass shape but for the exit-2 halt path.
+// ---------- Script-stage verification_failures preservation ----------
+// Mirror of the schema_violations preservation tests above — same bypass
+// shape but for the exit-2 halt path.
 // Without an immutable comparison, a subagent could clear
 // manifest.verification_failures and return DONE/DONE_WITH_CONCERNS, bypassing
 // check #8's BLOCKED enforcement for Type-signature / file-overlap /
 // plan-identity mismatch / multi_pr_task_not_in_block.
 
-test("validateManifestSubagentStage: subagent-emitted verification_failures is superset of script-stage snapshot (Codex F-AMSEL)", () => {
+test("validateManifestSubagentStage: subagent-emitted verification_failures is superset of script-stage snapshot", () => {
   const scriptVerificationFailures = [
     { kind: "type_signature_mismatch" },
     { kind: "file_overlap_zero" },
@@ -1186,7 +1190,7 @@ test("validateManifestSubagentStage: subagent-emitted verification_failures is s
   );
 });
 
-test("validateManifestSubagentStage: subagent passes when verification_failures preserves script-stage snapshot (F-AMSEL negative case)", () => {
+test("validateManifestSubagentStage: subagent passes when verification_failures preserves script-stage snapshot", () => {
   // Canonical happy-path under exit-2 halt — subagent retains script-stage
   // failure AND surfaces it in concerns AND returns BLOCKED.
   const scriptVerificationFailures = [{ kind: "type_signature_mismatch" }];
@@ -1219,7 +1223,7 @@ test("validateManifestSubagentStage: subagent passes when verification_failures 
   );
 });
 
-test("validateManifestSubagentStage: key-order-independent JSON canonicalization for verification_failures (F-AMSEL determinism)", () => {
+test("validateManifestSubagentStage: key-order-independent JSON canonicalization for verification_failures", () => {
   // The check #10 key uses JSON.stringify with sorted keys, so the subagent can
   // serialize entries with keys in a different order than the script and the
   // comparison still matches. Verifies the determinism property of the canonical
@@ -1253,19 +1257,20 @@ test("validateManifestSubagentStage: key-order-independent JSON canonicalization
   );
 });
 
-// ---------- Codex F-AMWXK (PR #33): script-stage semantic_work_pending preservation ----------
+// ---------- Script-stage semantic_work_pending preservation ----------
 
-test("validateManifestSubagentStage: cleared semantic_work_pending no longer bypasses per-item iteration (Codex F-AMWXK)", () => {
-  // Codex P1 (PR #33 / F-AMWXK): the per-item pairing iteration at L180 read
+test("validateManifestSubagentStage: cleared semantic_work_pending no longer bypasses per-item iteration", () => {
+  // The per-item pairing iteration at L180 reads
   // `manifest.semantic_work_pending`, so a subagent could clear that array and
-  // return DONE/DONE_WITH_CONCERNS — the iteration looped zero times and emitted
-  // zero gaps, letting unaddressed semantic work pass validation. SAME bypass
-  // shape as F-AMP7Y (schema_violations) and F-AMSEL (verification_failures),
-  // but structurally different fix: instead of a separate preservation check
-  // (which would force a 3-round dance — array-shrink gap → re-add → unaddressed),
-  // feed the existing iteration with the UNION of script-stage + subagent arrays
-  // so the gap message stays "X listed but unaddressed" — directly actionable in
-  // ONE round-trip. The script snapshot is the immutable contract.
+  // return DONE/DONE_WITH_CONCERNS — the iteration would loop zero times and
+  // emit zero gaps, letting unaddressed semantic work pass validation. Same
+  // bypass shape as schema_violations and verification_failures preservation
+  // above, but structurally different fix: instead of a separate preservation
+  // check (which would force a 3-round dance — array-shrink gap → re-add →
+  // unaddressed), feed the existing iteration with the UNION of script-stage +
+  // subagent arrays so the gap message stays "X listed but unaddressed" —
+  // directly actionable in ONE round-trip. The script snapshot is the
+  // immutable contract.
   const scriptSemanticWorkPending = ["compose_status_completion_prose", "ready_set_re_derivation"];
   const subagentManifest = {
     _script_stage: {
@@ -1300,9 +1305,9 @@ test("validateManifestSubagentStage: cleared semantic_work_pending no longer byp
   );
 });
 
-test("validateManifestSubagentStage: subagent passes when all script-stage pending items are addressed (F-AMWXK negative case)", () => {
-  // Canonical happy path under the F-AMWXK fix: subagent preserves the script-stage
-  // pending list and addresses every item via semantic_edits or concerns.addressing.
+test("validateManifestSubagentStage: subagent passes when all script-stage pending items are addressed", () => {
+  // Canonical happy path: subagent preserves the script-stage pending list and
+  // addresses every item via semantic_edits or concerns.addressing.
   const scriptSemanticWorkPending = ["compose_status_completion_prose", "ready_set_re_derivation"];
   const subagentManifest = {
     _script_stage: {
@@ -1334,11 +1339,12 @@ test("validateManifestSubagentStage: subagent passes when all script-stage pendi
   );
 });
 
-test("validateManifestSubagentStage: subagent-added pending items are also iterated (F-AMWXK union semantics)", () => {
-  // F-AMWXK fix uses Set union of script-stage + subagent-stage so subagent-added
-  // pending items are caught too. If subagent commits to addressing a new item by
-  // adding it to semantic_work_pending, the iteration must check it for pairing —
-  // otherwise the subagent could add work and silently skip addressing it.
+test("validateManifestSubagentStage: subagent-added pending items are also iterated (union semantics)", () => {
+  // The validator uses Set union of script-stage + subagent-stage so
+  // subagent-added pending items are caught too. If subagent commits to
+  // addressing a new item by adding it to semantic_work_pending, the iteration
+  // must check it for pairing — otherwise the subagent could add work and
+  // silently skip addressing it.
   const scriptSemanticWorkPending = ["compose_status_completion_prose"];
   const subagentManifest = {
     _script_stage: {
@@ -1373,19 +1379,20 @@ test("validateManifestSubagentStage: subagent-added pending items are also itera
   );
 });
 
-// ---------- F-AMbIV regression tests (manifest._script_stage A2 design) ----------
-// These four tests pin the F-AMbIV path-(a) fix: the validator reads the script-stage
-// snapshot from manifest._script_stage when scriptXXX params are absent, and a
-// structural-tampering check catches subagents that try to bypass preservation checks
-// by removing or corrupting the snapshot.
+// ---------- manifest._script_stage embedded-snapshot regression tests ----------
+// These four tests pin the embedded-snapshot fix: the validator reads the
+// script-stage snapshot from manifest._script_stage when scriptXXX params are
+// absent, and a structural-tampering check catches subagents that try to
+// bypass preservation checks by removing or corrupting the snapshot.
 
-test("validateManifestSubagentStage: reads _script_stage from manifest when scriptXXX params not provided (Codex F-AMbIV A2 design)", () => {
-  // F-AMbIV A2 design: when the orchestrator does NOT plumb scriptXXX (current
-  // production reality — F-AMP7Y/F-AMSEL/F-AMWXK fixes were validator-API-layer
-  // half-fixes), the validator falls back to manifest._script_stage. This test
-  // pins that fallback: the script-stage snapshot is in the manifest, the
-  // subagent attempted to clear all four arrays, and the validator catches
-  // the bypass via the manifest-embedded snapshot — NO scriptXXX param passed.
+test("validateManifestSubagentStage: reads _script_stage from manifest when scriptXXX params not provided", () => {
+  // When the orchestrator does NOT plumb scriptXXX (current production
+  // reality — the per-field preservation fixes were validator-API-layer
+  // half-fixes), the validator falls back to manifest._script_stage. This
+  // test pins that fallback: the script-stage snapshot is in the manifest,
+  // the subagent attempted to clear all four arrays, and the validator
+  // catches the bypass via the manifest-embedded snapshot — NO scriptXXX
+  // param passed.
   const subagentManifest = {
     _script_stage: {
       affected_files: ["docs/plans/024-rust-pty-sidecar.md"],
@@ -1414,28 +1421,31 @@ test("validateManifestSubagentStage: reads _script_stage from manifest when scri
     `expected affected_files superset gap (check #7); got: ${JSON.stringify(result.gaps)}`,
   );
   assert.ok(
-    result.gaps.some((g) => g.includes("F-AMP7Y") && g.includes("NS-02")),
-    `expected schema_violations preservation gap (check #9 / F-AMP7Y); got: ${JSON.stringify(result.gaps)}`,
+    result.gaps.some((g) => g.includes("script-stage schema_violation") && g.includes("NS-02")),
+    `expected schema_violations preservation gap (check #9); got: ${JSON.stringify(result.gaps)}`,
   );
   assert.ok(
-    result.gaps.some((g) => g.includes("F-AMSEL") && g.includes("type_signature_mismatch")),
-    `expected verification_failures preservation gap (check #10 / F-AMSEL); got: ${JSON.stringify(result.gaps)}`,
+    result.gaps.some(
+      (g) =>
+        g.includes("script-stage verification_failure") && g.includes("type_signature_mismatch"),
+    ),
+    `expected verification_failures preservation gap (check #10); got: ${JSON.stringify(result.gaps)}`,
   );
   assert.ok(
     result.gaps.some((g) =>
       g.startsWith("compose_status_completion_prose listed in semantic_work_pending"),
     ),
-    `expected semantic_work_pending union gap (check #11 / F-AMWXK) sourced from _script_stage; got: ${JSON.stringify(result.gaps)}`,
+    `expected semantic_work_pending union gap (check #11) sourced from _script_stage; got: ${JSON.stringify(result.gaps)}`,
   );
 });
 
-test("validateManifestSubagentStage: missing _script_stage emits structural tampering gap (F-AMbIV)", () => {
-  // Secondary-attack defense: subagent CLEARS schema_violations AND ALSO removes
-  // _script_stage to defeat the manifest-embedded snapshot path. Without this
-  // structural check, the validator would have no comparison source (scriptXXX
-  // null + _script_stage absent) and the F-AMP7Y/F-AMSEL/F-AMWXK preservation
-  // checks would silently disable. The structural-tampering gap exposes the
-  // bypass attempt directly.
+test("validateManifestSubagentStage: missing _script_stage emits structural tampering gap", () => {
+  // Secondary-attack defense: subagent CLEARS schema_violations AND ALSO
+  // removes _script_stage to defeat the manifest-embedded snapshot path.
+  // Without this structural check, the validator would have no comparison
+  // source (scriptXXX null + _script_stage absent) and the per-field
+  // preservation checks would silently disable. The structural-tampering gap
+  // exposes the bypass attempt directly.
   const tamperedManifest = {
     // _script_stage REMOVED by subagent (bypass attempt)
     affected_files: [],
@@ -1452,14 +1462,13 @@ test("validateManifestSubagentStage: missing _script_stage emits structural tamp
     result.gaps.some(
       (g) =>
         g.includes("manifest._script_stage missing") &&
-        g.includes("Codex F-AMbIV") &&
         g.includes("circumvents preservation checks #7/#9/#10/#11"),
     ),
-    `expected structural-tampering gap citing F-AMbIV; got: ${JSON.stringify(result.gaps)}`,
+    `expected structural-tampering gap for missing _script_stage; got: ${JSON.stringify(result.gaps)}`,
   );
 });
 
-test("validateManifestSubagentStage: malformed _script_stage (string instead of object) emits gap (F-AMbIV)", () => {
+test("validateManifestSubagentStage: malformed _script_stage (string instead of object) emits gap", () => {
   // Tampering variant: subagent replaces _script_stage with a non-object value
   // (string, array, scalar). The structural-tampering check rejects all three
   // shapes — only `{affected_files, schema_violations, verification_failures,
@@ -1478,16 +1487,13 @@ test("validateManifestSubagentStage: malformed _script_stage (string instead of 
   assert.equal(result.valid, false);
   assert.ok(
     result.gaps.some(
-      (g) =>
-        g.includes("manifest._script_stage is not an object") &&
-        g.includes("got string") &&
-        g.includes("Codex F-AMbIV"),
+      (g) => g.includes("manifest._script_stage is not an object") && g.includes("got string"),
     ),
     `expected structural-tampering gap naming the string kind; got: ${JSON.stringify(result.gaps)}`,
   );
 });
 
-test("validateManifestSubagentStage: scriptXXX param takes precedence over manifest._script_stage (F-AMbIV precedence)", () => {
+test("validateManifestSubagentStage: scriptXXX param takes precedence over manifest._script_stage", () => {
   // Precedence rule per check #12: explicit scriptXXX param > manifest._script_stage[field].
   // Test: pass scriptSchemaViolations with one value; embed a DIFFERENT value
   // in manifest._script_stage.schema_violations. The preservation check should
@@ -1517,7 +1523,7 @@ test("validateManifestSubagentStage: scriptXXX param takes precedence over manif
   assert.equal(result.valid, false);
   // Param value (NS-99) MUST surface as gap — it's what the subagent failed to preserve.
   assert.ok(
-    result.gaps.some((g) => g.includes("NS-99") && g.includes("F-AMP7Y")),
+    result.gaps.some((g) => g.includes("NS-99") && g.includes("script-stage schema_violation")),
     `expected preservation gap for PARAM_SV (NS-99); got: ${JSON.stringify(result.gaps)}`,
   );
   // Snapshot value (NS-77) MUST NOT surface — param won the precedence battle.
@@ -1527,7 +1533,7 @@ test("validateManifestSubagentStage: scriptXXX param takes precedence over manif
   );
 });
 
-test("detectAffectedFilesSprawl: edits outside manifest's affected_files trigger REDISPATCH routing — NOT DONE_WITH_CONCERNS at first detection (Codex P1 PR #33 Finding 15 / failure-modes.md rule 20)", () => {
+test("detectAffectedFilesSprawl: edits outside manifest's affected_files trigger REDISPATCH routing — NOT DONE_WITH_CONCERNS at first detection (failure-modes.md rule 20)", () => {
   const result = detectAffectedFilesSprawl({
     manifestAffectedFiles: ["docs/architecture/cross-plan-dependencies.md"],
     gitDiffFiles: ["docs/architecture/cross-plan-dependencies.md", "docs/plans/099-mystery.md"],
@@ -1569,7 +1575,7 @@ test("I-1 invariant: every cross-plan-dependencies.md NS heading remains extract
   // PRs:-block migrations + NS-23 + auto-create stubs, the hook MUST still pass against the
   // current cross-plan-dependencies.md without "broken cite" errors. This test is a regression
   // canary: if a housekeeper-mutating commit breaks a cite, this assertion catches it.
-  // Codex P2 PR #33 R8 / Finding 16: assert on the exception itself, not on a
+  // Assert on the exception itself, not on a
   // derived stderr string. The prior `e.stderr?.toString() ?? ...` chain stopped
   // on empty-string (??-falls-back-on-null/undefined-only), so a hook that exited
   // nonzero with empty stderr produced stderr = "" and the final equality check
@@ -1624,7 +1630,7 @@ test("I-2 invariant: plan-execution-housekeeper.md declares ONLY the four canoni
 });
 
 // ───────────────────────────────────────────────────────────────────────────
-// decideHousekeeperRouting — Codex P1 PR #33 (`PRRT_kwDOSCycWc6ANGCa`)
+// decideHousekeeperRouting — exit-code → dispatch/halt mapping
 //
 // SKILL.md Phase E step 4 dispatched the housekeeper subagent unconditionally
 // after manifest validation, but the contract classifies several script exits
@@ -1634,7 +1640,7 @@ test("I-2 invariant: plan-execution-housekeeper.md declares ONLY the four canoni
 // misroute. One test per documented exit class plus a defensive-fallback test.
 // ───────────────────────────────────────────────────────────────────────────
 
-test("decideHousekeeperRouting: exit 0 (success) → dispatch (Codex F-AMNGCa)", () => {
+test("decideHousekeeperRouting: exit 0 (success) → dispatch", () => {
   const r = decideHousekeeperRouting({ scriptExitCode: 0 });
   assert.equal(r.action, "dispatch");
   assert.equal(r.exitClass, "subagent-handled");
@@ -1704,7 +1710,7 @@ test("decideHousekeeperRouting: defensive fallback for non-integer exit (e.g. Na
 
 // ──────────────────────────────────────────────────────────────────────────
 // assertRepoRelative + validator path-containment integration tests
-// (Codex P1 PR #33 thread `PRRT_kwDOSCycWc6AxXBH`)
+// assertRepoRelative + path-containment in affected_files
 //
 // Codex finding: validator's affected_files loop joined each declared path
 // against `repoRoot` and read it without first checking the path was
@@ -1721,21 +1727,21 @@ test("decideHousekeeperRouting: defensive fallback for non-integer exit (e.g. Na
 // that stays in repo → no path-containment gap).
 // ──────────────────────────────────────────────────────────────────────────
 
-test("assertRepoRelative: rejects absolute paths with contract-anchored gap (Codex F-AxXBH)", () => {
+test("assertRepoRelative: rejects absolute paths with contract-anchored gap", () => {
   const result = assertRepoRelative("/etc/passwd", "/repo");
   assert.equal(result.ok, false);
   assert.match(result.gap, /^\/etc\/passwd is an absolute path/);
   assert.match(result.gap, /subagent contract requires repo-relative paths under \/repo/);
 });
 
-test("assertRepoRelative: rejects parent-traversal paths that escape the repo (Codex F-AxXBH)", () => {
+test("assertRepoRelative: rejects parent-traversal paths that escape the repo", () => {
   const result = assertRepoRelative("../../etc/passwd", "/repo");
   assert.equal(result.ok, false);
   assert.match(result.gap, /^\.\.\/\.\.\/etc\/passwd resolves outside the repository/);
   assert.match(result.gap, /subagent contract requires repo-relative paths under \/repo/);
 });
 
-test("assertRepoRelative: accepts internal navigation that stays inside the repo (Codex F-AxXBH)", () => {
+test("assertRepoRelative: accepts internal navigation that stays inside the repo", () => {
   // `foo/../bar` resolves to `bar` within /repo — this is a legitimate
   // (if redundant) shape; the validator's job is containment, not style.
   // The negative case `..hidden.md` (literal dotfile-with-extension) also
@@ -1750,13 +1756,13 @@ test("assertRepoRelative: accepts internal navigation that stays inside the repo
   assert.equal(dotfileResult.full, "/repo/..hidden.md");
 });
 
-test("assertRepoRelative: accepts normal repo-relative paths and returns joined absolute path (Codex F-AxXBH)", () => {
+test("assertRepoRelative: accepts normal repo-relative paths and returns joined absolute path", () => {
   const result = assertRepoRelative("docs/architecture/cross-plan-dependencies.md", "/repo");
   assert.equal(result.ok, true);
   assert.equal(result.full, "/repo/docs/architecture/cross-plan-dependencies.md");
 });
 
-test("validateManifestSubagentStage: rejects absolute path in affected_files with path-containment gap (Codex F-AxXBH)", () => {
+test("validateManifestSubagentStage: rejects absolute path in affected_files with path-containment gap", () => {
   // Integration: bypass class fixed in this PR. Without `assertRepoRelative`,
   // the validator joined "/etc/passwd" against repoRoot via path.join — which
   // returns "/repo/etc/passwd" (NOT "/etc/passwd", because join lacks
@@ -1790,7 +1796,7 @@ test("validateManifestSubagentStage: rejects absolute path in affected_files wit
   }
 });
 
-test("validateManifestSubagentStage: rejects parent-traversal path in affected_files with path-containment gap (Codex F-AxXBH)", () => {
+test("validateManifestSubagentStage: rejects parent-traversal path in affected_files with path-containment gap", () => {
   // Integration: `../../etc/passwd` joined against tmpRepo resolves OUTSIDE
   // tmpRepo. Without `assertRepoRelative`, validator would have read the
   // outside-repo file (or hit ENOENT) and never surfaced the contract
@@ -1822,7 +1828,7 @@ test("validateManifestSubagentStage: rejects parent-traversal path in affected_f
   }
 });
 
-test("validateManifestSubagentStage: accepts internal navigation that stays inside the repo (Codex F-AxXBH)", () => {
+test("validateManifestSubagentStage: accepts internal repo-relative navigation in affected_files", () => {
   // Integration: `foo/../bar.md` resolves to `bar.md` within tmpRepo — that's
   // legitimate containment-passing input. Validator should NOT raise a
   // containment gap here. (We still expect downstream gaps if the resolved
@@ -1856,20 +1862,21 @@ test("validateManifestSubagentStage: accepts internal navigation that stays insi
 });
 
 // ──────────────────────────────────────────────────────────────────────────
-// Validator defensive type-checking (Codex P1 PR #33 threads `Axg-w` / `Axg-z`)
+// Validator defensive type-checking — element-shape sanitization
 //
 // Pattern: Array.isArray() gates ARRAY shape but not ELEMENT shape, so a
-// tampered manifest with non-string entries in affected_files (F-Axg-w) or
-// null/non-object entries in schema_violations (F-Axg-z) crashed the
-// validator with TypeError before it could surface the contract violation
-// as a gap. The fix routes per-element type mismatches to gap-collection,
-// matching the F-AMU4D "route to gap, not crash" routing pattern.
+// tampered manifest with non-string entries in affected_files or
+// null/non-object entries in schema_violations would crash the validator
+// with TypeError before it could surface the contract violation as a gap.
+// The fix routes per-element type mismatches to gap-collection — contract
+// violations route through the gap-collection path rather than crashing the
+// orchestrator.
 // ──────────────────────────────────────────────────────────────────────────
 
-test("validateManifestSubagentStage: returns gap (not crash) when affected_files contains null (Codex F-Axg-w)", () => {
-  // F-Axg-w: prior code passed `null` to assertRepoRelative → isAbsolute(null)
-  // throws TypeError "path must be a string". Defensive guard surfaces the
-  // contract violation as a structural-tampering gap and continues iteration.
+test("validateManifestSubagentStage: returns gap (not crash) when affected_files contains null", () => {
+  // Prior code passed `null` to assertRepoRelative → isAbsolute(null) throws
+  // TypeError "path must be a string". Defensive guard surfaces the contract
+  // violation as a structural-tampering gap and continues iteration.
   const tmpRepo = mkdtempSync(join(tmpdir(), "validate-null-path-"));
   try {
     const manifest = {
@@ -1890,18 +1897,17 @@ test("validateManifestSubagentStage: returns gap (not crash) when affected_files
     assert.equal(result.valid, false);
     assert.equal(result.gaps.length, 1);
     assert.match(result.gaps[0], /^affected_files\[0\] is not a string \(got null\)/);
-    assert.match(result.gaps[0], /Codex F-Axg-w/);
+    assert.match(result.gaps[0], /subagent contract requires string path entries/);
   } finally {
     rmSync(tmpRepo, { recursive: true, force: true });
   }
 });
 
-test("validateManifestSubagentStage: returns gap (not crash) when affected_files contains non-string entries (Codex F-Axg-w)", () => {
-  // F-Axg-w: cover the broader non-string class (number, object) — same
-  // TypeError surface in isAbsolute, same gap routing in the validator.
-  // Loop continues past each bad entry so multi-entry manifests surface
-  // multiple gaps in a single pass (a single bad entry mid-array must not
-  // mask later violations).
+test("validateManifestSubagentStage: returns gap (not crash) when affected_files contains non-string entries", () => {
+  // Cover the broader non-string class (number, object) — same TypeError
+  // surface in isAbsolute, same gap routing in the validator. Loop continues
+  // past each bad entry so multi-entry manifests surface multiple gaps in a
+  // single pass (a single bad entry mid-array must not mask later violations).
   const tmpRepo = mkdtempSync(join(tmpdir(), "validate-mixed-path-"));
   try {
     writeFileSync(join(tmpRepo, "good.md"), "no placeholder\n");
@@ -1926,16 +1932,16 @@ test("validateManifestSubagentStage: returns gap (not crash) when affected_files
     assert.match(result.gaps[0], /^affected_files\[0\] is not a string \(got number\)/);
     assert.match(result.gaps[1], /^affected_files\[1\] is not a string \(got object\)/);
     assert.ok(
-      result.gaps.every((g) => /Codex F-Axg-w/.test(g)),
-      `expected every gap to cite F-Axg-w; got ${JSON.stringify(result.gaps)}`,
+      result.gaps.every((g) => /subagent contract requires string path entries/.test(g)),
+      `expected every gap to cite the contract requirement; got ${JSON.stringify(result.gaps)}`,
     );
   } finally {
     rmSync(tmpRepo, { recursive: true, force: true });
   }
 });
 
-test("validateManifestSubagentStage: returns gap (not crash) when manifest.schema_violations contains null (Codex F-Axg-z)", () => {
-  // F-Axg-z: prior code did `(manifest.schema_violations ?? []).map(violationKey)`,
+test("validateManifestSubagentStage: returns gap (not crash) when manifest.schema_violations contains null", () => {
+  // Prior code did `(manifest.schema_violations ?? []).map(violationKey)`,
   // and violationKey did `v.kind ?? ""` — so `null` in the array threw
   // "Cannot read properties of null (reading 'kind')" inside the .map call,
   // crashing the validator before its preservation check could fire. The
@@ -1968,30 +1974,26 @@ test("validateManifestSubagentStage: returns gap (not crash) when manifest.schem
   const result = validateManifestSubagentStage({ manifest });
   assert.equal(result.valid, false);
   // Two gaps expected:
-  //   1. structural-tampering gap for the null entry (F-Axg-z)
+  //   1. structural-tampering gap for the null entry
   //   2. preservation gap for the script-stage NS-02 entry that the null
-  //      didn't preserve (F-AMP7Y) — since the Set built only valid entries
+  //      didn't preserve — since the Set is built only from valid entries
   //      and the script-stage NS-02 violation was not in it.
   assert.ok(
     result.gaps.some((g) => /^manifest\.schema_violations\[0\] is not an object/.test(g)),
-    `expected F-Axg-z structural-tampering gap; got ${JSON.stringify(result.gaps)}`,
-  );
-  assert.ok(
-    result.gaps.some((g) => /Codex F-Axg-z/.test(g)),
-    `expected F-Axg-z citation in gap; got ${JSON.stringify(result.gaps)}`,
+    `expected element-shape structural-tampering gap; got ${JSON.stringify(result.gaps)}`,
   );
   // Preservation gap fires too — proves the Set still rebuilds from valid
   // entries after the bad-entry skip.
   assert.ok(
-    result.gaps.some((g) => g.includes("F-AMP7Y") && g.includes("NS-02")),
-    `expected F-AMP7Y preservation gap to still fire after bad-entry skip; got ${JSON.stringify(result.gaps)}`,
+    result.gaps.some((g) => g.includes("script-stage schema_violation") && g.includes("NS-02")),
+    `expected schema_violations preservation gap to still fire after bad-entry skip; got ${JSON.stringify(result.gaps)}`,
   );
 });
 
-test("validateManifestSubagentStage: returns gap (not crash) when manifest.schema_violations contains non-object entries (Codex F-Axg-z)", () => {
-  // F-Axg-z: cover the broader non-object class (string, number, array). All
-  // dereference `v.kind` to throw TypeError (or silently produce undefined
-  // for strings/numbers, which would corrupt the preservation Set without
+test("validateManifestSubagentStage: returns gap (not crash) when manifest.schema_violations contains non-object entries", () => {
+  // Cover the broader non-object class (string, number, array). All dereference
+  // `v.kind` to throw TypeError (or silently produce undefined for
+  // strings/numbers, which would corrupt the preservation Set without
   // crashing). Defensive guard treats every non-plain-object as tampering.
   const manifest = {
     _script_stage: {
@@ -2034,7 +2036,6 @@ test("validateManifestSubagentStage: returns gap (not crash) when manifest.schem
 
 // ──────────────────────────────────────────────────────────────────────────
 // Class-level container-type + element-shape sanitization
-// (Codex P1 PR #33 threads `AxkNI` / `AxkNJ`)
 //
 // Bug class: `(manifest.X ?? []).method()` patterns at 6 callsites assumed
 // every array field was either an array or absent. Two sub-classes:
@@ -2051,7 +2052,7 @@ test("validateManifestSubagentStage: returns gap (not crash) when manifest.schem
 // gaps with idx-keyed locality and a contract-anchored shape hint.
 // ──────────────────────────────────────────────────────────────────────────
 
-test("validateManifestSubagentStage: returns gap (not crash) when schema_violations is an object (Codex F-AxkNI container-type)", () => {
+test("validateManifestSubagentStage: returns gap (not crash) when schema_violations is an object (container-type)", () => {
   const manifest = {
     _script_stage: {
       affected_files: [],
@@ -2072,13 +2073,9 @@ test("validateManifestSubagentStage: returns gap (not crash) when schema_violati
     result.gaps.some((g) => /^manifest\.schema_violations is not an array \(got object\)/.test(g)),
     `expected container-type gap; got ${JSON.stringify(result.gaps)}`,
   );
-  assert.ok(
-    result.gaps.some((g) => /Codex F-Axg-z/.test(g)),
-    `expected F-Axg-z citation; got ${JSON.stringify(result.gaps)}`,
-  );
 });
 
-test("validateManifestSubagentStage: returns gap (not crash) when affected_files is an object (Codex F-AxkNI container-type)", () => {
+test("validateManifestSubagentStage: returns gap (not crash) when affected_files is an object (container-type)", () => {
   const tmpRepo = mkdtempSync(join(tmpdir(), "validate-affected-obj-"));
   try {
     const manifest = {
@@ -2106,7 +2103,7 @@ test("validateManifestSubagentStage: returns gap (not crash) when affected_files
   }
 });
 
-test("validateManifestSubagentStage: returns gap (not crash) when concerns contains null entry (Codex F-AxkNJ element-shape)", () => {
+test("validateManifestSubagentStage: returns gap (not crash) when concerns contains null entry (element-shape)", () => {
   // Pre-fix: `(manifest.concerns ?? []).some(c => c.addressing === item)`
   // dereferenced `null.addressing` and threw TypeError. Post-fix:
   // sanitizeObjectArrayField surfaces a structural-tampering gap per bad
@@ -2134,10 +2131,6 @@ test("validateManifestSubagentStage: returns gap (not crash) when concerns conta
     `expected element-shape gap; got ${JSON.stringify(result.gaps)}`,
   );
   assert.ok(
-    result.gaps.some((g) => /Codex F-AxkNJ/.test(g)),
-    `expected F-AxkNJ citation; got ${JSON.stringify(result.gaps)}`,
-  );
-  assert.ok(
     result.gaps.some((g) =>
       /^compose_status_completion_prose listed in semantic_work_pending but absent/.test(g),
     ),
@@ -2145,7 +2138,7 @@ test("validateManifestSubagentStage: returns gap (not crash) when concerns conta
   );
 });
 
-test("validateManifestSubagentStage: returns gap (not crash) when concerns is a scalar (Codex F-AxkNJ container-type)", () => {
+test("validateManifestSubagentStage: returns gap (not crash) when concerns is a scalar (container-type)", () => {
   const manifest = {
     _script_stage: {
       affected_files: [],
@@ -2168,12 +2161,13 @@ test("validateManifestSubagentStage: returns gap (not crash) when concerns is a 
   );
 });
 
-test("validateManifestSubagentStage: returns gap (not crash) when verification_failures contains null (Codex F-AxkNI element-shape)", () => {
+test("validateManifestSubagentStage: returns gap (not crash) when verification_failures contains null (element-shape)", () => {
   // Pre-fix: `(manifest.verification_failures ?? []).map(failureKey)` and
   // `JSON.stringify(f, Object.keys(f).sort())` both crash on null.
-  // Post-fix: cleaned array filters tampering; F-AMSEL preservation check
-  // still fires on the unpreserved script-stage entry (proves the bad-
-  // element skip doesn't mask script-stage preservation enforcement).
+  // Post-fix: cleaned array filters tampering; verification_failures
+  // preservation check still fires on the unpreserved script-stage entry
+  // (proves the bad-element skip doesn't mask script-stage preservation
+  // enforcement).
   const manifest = {
     _script_stage: {
       affected_files: [],
@@ -2198,8 +2192,11 @@ test("validateManifestSubagentStage: returns gap (not crash) when verification_f
     `expected element-shape gap; got ${JSON.stringify(result.gaps)}`,
   );
   assert.ok(
-    result.gaps.some((g) => g.includes("F-AMSEL") && g.includes("type_signature_mismatch")),
-    `expected F-AMSEL preservation gap to still fire after element-shape skip; got ${JSON.stringify(result.gaps)}`,
+    result.gaps.some(
+      (g) =>
+        g.includes("script-stage verification_failure") && g.includes("type_signature_mismatch"),
+    ),
+    `expected verification_failures preservation gap to still fire after element-shape skip; got ${JSON.stringify(result.gaps)}`,
   );
 });
 

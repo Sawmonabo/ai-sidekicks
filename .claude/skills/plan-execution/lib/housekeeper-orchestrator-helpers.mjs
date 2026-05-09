@@ -77,7 +77,7 @@ export function buildHousekeeperPrompt({ manifestPath, scriptExitCode, prNumber,
  * Validate the manifest after the subagent stage completes.
  *
  * Checks:
- *  1. (Codex P2 PR #33 R4) `manifest.result` is one of the four canonical exit-states
+ *  1. `manifest.result` is one of the four canonical exit-states
  *     (DONE / DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED) per Plan Invariant I-2.
  *     `null`, `undefined`, or any other string fails. Does NOT short-circuit later
  *     checks — every gap surfaces in one round-trip so the user sees them together.
@@ -87,14 +87,14 @@ export function buildHousekeeperPrompt({ manifestPath, scriptExitCode, prNumber,
  *     `addressing` is the validator's match key). The semantic_edits[item] value MUST
  *     be a meaningful payload (not null/undefined/empty-string/empty-array/empty-object)
  *     — key-presence alone does not satisfy the contract clause "containing the composed
- *     output" (Codex P2 PR #33 R5 / Finding 9). WAIVED when
- *     `manifest.result === "BLOCKED" | "NEEDS_CONTEXT"` — the subagent halted before
- *     completing semantic work, so per-item pairing is not required.
+ *     output". WAIVED when `manifest.result === "BLOCKED" | "NEEDS_CONTEXT"` — the
+ *     subagent halted before completing semantic work, so per-item pairing is not
+ *     required.
  *  3. No <TODO subagent prose> placeholder remains in any affected_files on disk.
- *     ALSO: every entry in affected_files MUST exist on disk (Codex P1 PR #33 R6) —
- *     the subagent contract permits edits but not deletions; a missing entry surfaces
- *     as a gap rather than being silently skipped.
- *  4. (P2 fix) No <TODO subagent prose> placeholder in any semantic_edits value (nested scan).
+ *     ALSO: every entry in affected_files MUST exist on disk — the subagent contract
+ *     permits edits but not deletions; a missing entry surfaces as a gap rather
+ *     than being silently skipped.
+ *  4. No <TODO subagent prose> placeholder in any semantic_edits value (nested scan).
  *  5. Every schema_violations entry is surfaced as its own concerns entry, matched
  *     per-entry on `kind` (the violation's own kind verbatim — `"schema_violation"`
  *     for `PRs:` block / missing-required-field shapes, or singleton kinds like
@@ -102,76 +102,75 @@ export function buildHousekeeperPrompt({ manifestPath, scriptExitCode, prNumber,
  *     `field` and `ns_id` when the violation carries them. A single generic concern
  *     cannot satisfy multiple violations of distinct kinds; a generic concern with
  *     no `field` cannot trivially absorb a violation that also lacks `field` —
- *     the `kind` discriminator prevents the trivial-equality match (Codex P2 fix).
- *  6. (Codex P1 PR #33 R4) When `manifest.schema_violations` is non-empty, `manifest.result`
- *     MUST equal `"BLOCKED"`. Surfacing the violations in `concerns` (check #5) is necessary
+ *     the `kind` discriminator prevents the trivial-equality match.
+ *  6. When `manifest.schema_violations` is non-empty, `manifest.result` MUST equal
+ *     `"BLOCKED"`. Surfacing the violations in `concerns` (check #5) is necessary
  *     but not sufficient — the contract (`references/post-merge-housekeeper-contract.md`
  *     §Validation invariants line 93) requires the BLOCKED exit-state for halt/routing-path
  *     determinism in Phase E.
- *  7. (D-7 row 14) When `scriptAffectedFiles` is provided, the subagent-emitted
+ *  7. When `scriptAffectedFiles` is provided, the subagent-emitted
  *     manifest.affected_files MUST be a superset — the subagent may extend the
  *     list (justified via a `concerns` entry of kind `affected_files_extension`)
  *     but MUST NOT drop a file the script declared.
- *  8. (Codex P1 PR #33 R7 / Finding 11) When `manifest.verification_failures` is
- *     non-empty (script exit-2 halt path — Type-signature / file-overlap /
- *     plan-identity mismatch or multi_pr_task_not_in_block), `manifest.result`
- *     MUST equal `"BLOCKED"`. Mirrors check #6 for schema_violations — surfacing
- *     alone is insufficient; the BLOCKED state is required for halt/routing-path
- *     determinism after candidate-verification failure (per contract
+ *  8. When `manifest.verification_failures` is non-empty (script exit-2 halt path —
+ *     Type-signature / file-overlap / plan-identity mismatch or
+ *     multi_pr_task_not_in_block), `manifest.result` MUST equal `"BLOCKED"`. Mirrors
+ *     check #6 for schema_violations — surfacing alone is insufficient; the BLOCKED
+ *     state is required for halt/routing-path determinism after
+ *     candidate-verification failure (per contract
  *     `references/post-merge-housekeeper-contract.md` §exit-code 2 line 79).
- *  9. (Codex F-AMP7Y PR #33) When `scriptSchemaViolations` is provided, the
- *     subagent-emitted `manifest.schema_violations` MUST contain every entry
- *     from the script-stage snapshot (matched by composite key kind+field+ns_id —
- *     same pairing the surface-matcher in check #5 uses). The subagent rewrites
- *     the manifest, so without this immutable comparison it could clear the
- *     array and return DONE/DONE_WITH_CONCERNS, bypassing the check #6 BLOCKED
- *     enforcement entirely. Mirrors check #7's superset semantics for
- *     `affected_files`: subagent may ADD new violations (rare; would be subagent
- *     surfacing schema problems the script missed) but MUST NOT REMOVE
- *     script-stage violations.
- * 10. (Codex F-AMSEL PR #33) When `scriptVerificationFailures` is provided, the
- *     subagent-emitted `manifest.verification_failures` MUST contain every entry
- *     from the script-stage snapshot (matched by canonical JSON serialization,
- *     since verification_failure entries are small structured `{kind, ...}` shapes
+ *  9. When `scriptSchemaViolations` is provided, the subagent-emitted
+ *     `manifest.schema_violations` MUST contain every entry from the script-stage
+ *     snapshot (matched by composite key kind+field+ns_id — same pairing the
+ *     surface-matcher in check #5 uses). The subagent rewrites the manifest, so
+ *     without this immutable comparison it could clear the array and return
+ *     DONE/DONE_WITH_CONCERNS, bypassing the check #6 BLOCKED enforcement
+ *     entirely. Mirrors check #7's superset semantics for `affected_files`:
+ *     subagent may ADD new violations (rare; would be subagent surfacing schema
+ *     problems the script missed) but MUST NOT REMOVE script-stage violations.
+ * 10. When `scriptVerificationFailures` is provided, the subagent-emitted
+ *     `manifest.verification_failures` MUST contain every entry from the
+ *     script-stage snapshot (matched by canonical JSON serialization, since
+ *     verification_failure entries are small structured `{kind, ...}` shapes
  *     without a stable composite key). Mirrors check #9's preservation rule for
  *     `schema_violations` — without it, a subagent could clear the array and
  *     return DONE/DONE_WITH_CONCERNS, bypassing the check #8 BLOCKED enforcement
  *     for the exit-2 halt path (Type-signature / file-overlap / plan-identity
  *     mismatch / multi_pr_task_not_in_block).
- * 11. (Codex F-AMWXK PR #33) When `scriptSemanticWorkPending` is provided, the
- *     per-item pairing iteration (check #2) reads from the UNION of the script-stage
- *     snapshot AND the subagent-written array — NOT from the subagent array alone.
- *     Without this, a subagent could clear `manifest.semantic_work_pending` and
- *     return DONE/DONE_WITH_CONCERNS; the existing iteration would loop zero times
+ * 11. When `scriptSemanticWorkPending` is provided, the per-item pairing iteration
+ *     (check #2) reads from the UNION of the script-stage snapshot AND the
+ *     subagent-written array — NOT from the subagent array alone. Without this,
+ *     a subagent could clear `manifest.semantic_work_pending` and return
+ *     DONE/DONE_WITH_CONCERNS; the existing iteration would loop zero times
  *     and emit zero gaps, letting unaddressed semantic work pass validation.
  *     STRUCTURAL DIVERGENCE from checks #9/#10: those guard array-non-emptiness →
- *     BLOCKED state with a separate preservation check; F-AMWXK feeds the existing
- *     per-item iteration with the immutable script set so the gap message stays
- *     semantically actionable ("X listed but unaddressed") in ONE round-trip
+ *     BLOCKED state with a separate preservation check; this check feeds the
+ *     existing per-item iteration with the immutable script set so the gap message
+ *     stays semantically actionable ("X listed but unaddressed") in ONE round-trip
  *     instead of TWO (array-shrink gap → re-add → unaddressed). Subagent MAY add
  *     new pending items (the union catches those too).
- * 12. (Codex F-AMbIV PR #33) `manifest._script_stage` is the script-embedded
- *     immutable snapshot of the four checked arrays (affected_files /
- *     schema_violations / verification_failures / semantic_work_pending). Path-(a)
- *     A2 design: the validator reads `_script_stage` directly from the manifest
- *     so the four preservation/iteration checks (#7 / #9 / #10 / #11) work end-to-end
- *     WITHOUT requiring the orchestrator to plumb scriptXXX params at every callsite.
- *     PRECEDENCE per field: explicit scriptXXX param > `manifest._script_stage[field]`
- *     > `null` (legacy fallback when neither source is available — preserves
- *     pre-F-AMbIV test fixtures that don't construct `_script_stage`). STRUCTURAL
- *     TAMPERING DETECTION: when ANY scriptXXX param is null (validator is relying on
- *     the manifest-embedded snapshot path), `manifest._script_stage` MUST be a
- *     non-array object whose four fields are each arrays — missing, scalar, array,
- *     or non-array-typed-fields all surface as gaps. Without this guard, a subagent
- *     could (a) clear `manifest.schema_violations` AND (b) ALSO remove `_script_stage`,
- *     restoring the pre-F-AMP7Y/F-AMSEL/F-AMWXK bypass (validator finds no comparison
- *     source for checks #7/#9/#10/#11 → checks short-circuit on `Array.isArray(null)`
- *     → empty subagent arrays + cleared snapshot → DONE returned with no gaps).
- *     When ALL four scriptXXX params are passed (the explicit-orchestrator-plumbing
- *     path), the validator skips the structural-tampering check entirely — the
- *     snapshot source is external and untamperable, and `_script_stage` becomes
- *     decorative. Subagent contract: `_script_stage` is READ-ONLY; touching it
- *     surfaces here as a structural-tampering gap (per agent file + contract doc).
+ * 12. `manifest._script_stage` is the script-embedded immutable snapshot of the
+ *     four checked arrays (affected_files / schema_violations /
+ *     verification_failures / semantic_work_pending). The validator reads
+ *     `_script_stage` directly from the manifest so the four preservation/iteration
+ *     checks (#7 / #9 / #10 / #11) work end-to-end WITHOUT requiring the
+ *     orchestrator to plumb scriptXXX params at every callsite. PRECEDENCE per
+ *     field: explicit scriptXXX param > `manifest._script_stage[field]` > `null`
+ *     (legacy fallback when neither source is available — preserves test fixtures
+ *     that don't construct `_script_stage`). STRUCTURAL TAMPERING DETECTION: when
+ *     ANY scriptXXX param is null (validator is relying on the manifest-embedded
+ *     snapshot path), `manifest._script_stage` MUST be a non-array object whose
+ *     four fields are each arrays — missing, scalar, array, or non-array-typed
+ *     fields all surface as gaps. Without this guard, a subagent could (a) clear
+ *     `manifest.schema_violations` AND (b) ALSO remove `_script_stage`, restoring
+ *     the bypass class (validator finds no comparison source for checks
+ *     #7/#9/#10/#11 → checks short-circuit on `Array.isArray(null)` → empty
+ *     subagent arrays + cleared snapshot → DONE returned with no gaps). When ALL
+ *     four scriptXXX params are passed (the explicit-orchestrator-plumbing path),
+ *     the validator skips the structural-tampering check entirely — the snapshot
+ *     source is external and untamperable, and `_script_stage` becomes decorative.
+ *     Subagent contract: `_script_stage` is READ-ONLY; touching it surfaces here
+ *     as a structural-tampering gap (per agent file + contract doc).
  *
  * @param {{ manifest: object, repoRoot?: string, scriptAffectedFiles?: string[], scriptSchemaViolations?: object[], scriptVerificationFailures?: object[], scriptSemanticWorkPending?: string[] }} opts
  *   `manifest._script_stage` (when present) shape: `{ affected_files: string[],
@@ -189,13 +188,14 @@ export function validateManifestSubagentStage({
 }) {
   const gaps = [];
 
-  // Check #12 — Codex F-AMbIV PR #33: structural-shape tampering detection on
-  // `manifest._script_stage`. When ANY scriptXXX param is null, the validator falls
-  // back to the manifest-embedded snapshot for that field; if the snapshot is missing
-  // or malformed the four preservation/iteration checks (#7/#9/#10/#11) silently
-  // disable, restoring the pre-F-AMP7Y/F-AMSEL/F-AMWXK bypass class. When ALL four
-  // scriptXXX are passed (orchestrator-explicit-plumbing path), the snapshot source
-  // is external and the structural check is skipped.
+  // Check #12 — structural-shape tampering detection on `manifest._script_stage`.
+  // When ANY scriptXXX param is null, the validator falls back to the
+  // manifest-embedded snapshot for that field; if the snapshot is missing or
+  // malformed the four preservation/iteration checks (#7/#9/#10/#11) silently
+  // disable, restoring the bypass class where a subagent could clear emitted
+  // arrays AND remove the snapshot to bypass BLOCKED enforcement. When ALL four
+  // scriptXXX are passed (orchestrator-explicit-plumbing path), the snapshot
+  // source is external and the structural check is skipped.
   const fromManifest = manifest._script_stage;
   const reliesOnManifestSnapshot =
     scriptAffectedFiles == null ||
@@ -205,12 +205,12 @@ export function validateManifestSubagentStage({
   if (reliesOnManifestSnapshot) {
     if (fromManifest === undefined || fromManifest === null) {
       gaps.push(
-        `manifest._script_stage missing — subagent contract requires preserving the immutable script-stage snapshot (Codex F-AMbIV: removing _script_stage circumvents preservation checks #7/#9/#10/#11)`,
+        `manifest._script_stage missing — subagent contract requires preserving the immutable script-stage snapshot; removing _script_stage circumvents preservation checks #7/#9/#10/#11`,
       );
     } else if (typeof fromManifest !== "object" || Array.isArray(fromManifest)) {
       const actualKind = Array.isArray(fromManifest) ? "array" : typeof fromManifest;
       gaps.push(
-        `manifest._script_stage is not an object (got ${actualKind}) — structural tampering detected (Codex F-AMbIV)`,
+        `manifest._script_stage is not an object (got ${actualKind}) — structural tampering detected`,
       );
     } else {
       for (const field of [
@@ -223,7 +223,7 @@ export function validateManifestSubagentStage({
           const actualKind =
             fromManifest[field] === undefined ? "undefined" : typeof fromManifest[field];
           gaps.push(
-            `manifest._script_stage.${field} is not an array (got ${actualKind}) — structural tampering detected (Codex F-AMbIV)`,
+            `manifest._script_stage.${field} is not an array (got ${actualKind}) — structural tampering detected`,
           );
         }
       }
@@ -233,8 +233,8 @@ export function validateManifestSubagentStage({
   // Resolve effective script-stage snapshot per-field with precedence:
   // (1) explicit scriptXXX param > (2) manifest._script_stage[field] > (3) null.
   // The (3) fallback only triggers when neither source is available — preserves
-  // pre-F-AMbIV test fixtures that omit both. Defensive type-guards on _script_stage
-  // (only treat as object if it survived the structural check above) prevent a
+  // test fixtures that omit both. Defensive type-guards on _script_stage (only
+  // treat as object if it survived the structural check above) prevent a
   // malformed snapshot from poisoning the resolved value with non-array data.
   const safeFromManifest =
     fromManifest && typeof fromManifest === "object" && !Array.isArray(fromManifest)
@@ -259,64 +259,54 @@ export function validateManifestSubagentStage({
       ? safeFromManifest.semantic_work_pending
       : null);
 
-  // Codex P1 PR #33 (threads `Axg-z` / `AxkNI` / `AxkNJ`): sanitize each
-  // manifest array field ONCE here so every downstream loop iterates a
-  // known-good array. Three distinct bug surfaces close in this single block:
+  // Sanitize each manifest array field ONCE here so every downstream loop
+  // iterates a known-good array. Three distinct bug surfaces close in this
+  // single block:
   //
-  //   1. Container-type tampering (`AxkNI`): subagent emits an OBJECT or
-  //      scalar instead of an array. Pre-fix `(field ?? []).entries()` /
-  //      `.some()` / `.map()` throws "is not a function". Treat as empty
-  //      and surface a structural-tampering gap.
-  //   2. Element-shape tampering (`Axg-z` / `AxkNJ`): subagent emits an
-  //      array but elements are null/scalars/arrays instead of objects.
-  //      Downstream loops dereference `.kind`/`.field`/`.addressing` and
-  //      throw TypeError. Filter to objects; surface a structural-tampering
-  //      gap per bad entry; iterate the cleaned set everywhere downstream.
+  //   1. Container-type tampering: subagent emits an OBJECT or scalar
+  //      instead of an array. `(field ?? []).entries()` / `.some()` / `.map()`
+  //      would otherwise throw "is not a function". Treat as empty and
+  //      surface a structural-tampering gap.
+  //   2. Element-shape tampering: subagent emits an array but elements are
+  //      null/scalars/arrays instead of objects. Downstream loops would
+  //      otherwise dereference `.kind`/`.field`/`.addressing` and throw
+  //      TypeError. Filter to objects; surface a structural-tampering gap
+  //      per bad entry; iterate the cleaned set everywhere downstream.
   //
   // For arrays of plain strings (affected_files), only container-type +
-  // element string-type matter (handled in the existing affected_files
-  // loop with idx-keyed gaps). For arrays of objects (schema_violations,
-  // concerns, verification_failures), both axes apply.
+  // element string-type matter (per-element string check lives inline at
+  // the dedicated loop with locality-rich path-containment context). For
+  // arrays of objects (schema_violations, concerns, verification_failures),
+  // both axes apply.
   //
-  // The `sanitizeObjectArrayField` helper centralizes the gating so a future
-  // contract-defined object-array field (or any callsite that re-iterates
-  // these fields) cannot reintroduce the bug class. Pre-fix, six call sites
-  // shared the same `(manifest.X ?? []).method()` shape; post-fix, every
-  // consumer iterates the helper's `cleaned*` output and the class is
-  // structurally closed.
+  // Centralizing the gating in two helpers prevents the bug class from
+  // re-entering: a future contract-defined object-array field, or any new
+  // callsite that re-iterates these fields, MUST consume the cleaned array.
   const cleanedSchemaViolations = sanitizeObjectArrayField(
     manifest.schema_violations,
     "manifest.schema_violations",
     "{kind, field?, ns_id?}",
-    "Codex F-Axg-z",
     gaps,
   );
   const cleanedConcerns = sanitizeObjectArrayField(
     manifest.concerns,
     "manifest.concerns",
     "{kind, addressing, ...}",
-    "Codex F-AxkNJ",
     gaps,
   );
   const cleanedVerificationFailures = sanitizeObjectArrayField(
     manifest.verification_failures,
     "manifest.verification_failures",
     "{kind, ...}",
-    "Codex F-AxkNI",
     gaps,
   );
-  // affected_files is the only array field whose elements are STRINGS, not
-  // objects — its container-type guard lives inline at the dedicated loop
-  // (line ~360) so the existing string-shape gap message stays adjacent to
-  // the path-containment + existsSync chain that consumes each entry.
   const cleanedAffectedFiles = sanitizeStringArrayField(
     manifest.affected_files,
     "manifest.affected_files",
-    "Codex F-AxkNI",
     gaps,
   );
 
-  // Check #1 — canonical exit-state enforcement (Codex P2 PR #33 R4 / Finding 7).
+  // Check #1 — canonical exit-state enforcement.
   // Plan Invariant I-2: subagent MUST return one of {DONE, DONE_WITH_CONCERNS,
   // NEEDS_CONTEXT, BLOCKED}. `null` (script-stage manifest, subagent never ran) and
   // any unknown string break deterministic Phase-E routing. Does NOT short-circuit —
@@ -337,19 +327,20 @@ export function validateManifestSubagentStage({
 
   // Halt-state waiver: when subagent returns BLOCKED or NEEDS_CONTEXT, it stopped
   // before completing semantic work. The per-item semantic_work_pending pairing
-  // would force false-gap round-trips (see Codex P1 finding on PR #33). Other
-  // checks (placeholders, schema_violations, affected_files superset) still apply.
+  // would force false-gap round-trips. Other checks (placeholders,
+  // schema_violations, affected_files superset) still apply.
   const haltedBeforeCompletion =
     manifest.result === "BLOCKED" || manifest.result === "NEEDS_CONTEXT";
 
   if (!haltedBeforeCompletion) {
-    // Codex F-AMWXK PR #33: when scriptSemanticWorkPending is provided (now resolved
-    // via F-AMbIV precedence: explicit param > manifest._script_stage.semantic_work_pending
-    // > null), iterate the UNION of script-stage snapshot + subagent-written array.
-    // The script snapshot is the immutable contract (subagent CANNOT bypass by
-    // clearing); the subagent's additions are also iterated (subagent committed to
-    // address anything they added). Falls back to subagent-only when both snapshot
-    // sources are null (legacy callsites + tests that don't plumb the snapshot).
+    // When scriptSemanticWorkPending is provided (resolved via precedence:
+    // explicit param > manifest._script_stage.semantic_work_pending > null),
+    // iterate the UNION of script-stage snapshot + subagent-written array. The
+    // script snapshot is the immutable contract (subagent CANNOT bypass by
+    // clearing); the subagent's additions are also iterated (subagent committed
+    // to address anything they added). Falls back to subagent-only when both
+    // snapshot sources are null (legacy callsites + tests that don't plumb the
+    // snapshot).
     const pendingItems =
       effScriptSemanticWorkPending != null
         ? Array.from(
@@ -360,7 +351,7 @@ export function validateManifestSubagentStage({
           )
         : (manifest.semantic_work_pending ?? []);
     for (const item of pendingItems) {
-      // Codex P2 PR #33 R5 / Finding 9: hasOwnProperty alone admitted shapes like
+      // hasOwnProperty alone admits shapes like
       // `semantic_edits.compose_status_completion_prose = undefined` — key-present
       // but no payload. Contract responsibility #5 requires "an entry containing the
       // composed output", so we require a meaningful payload (not null/undefined/empty).
@@ -387,28 +378,27 @@ export function validateManifestSubagentStage({
   }
 
   for (const [idx, path] of cleanedAffectedFiles.entries()) {
-    // Codex P1 PR #33 (thread `Axg-w`): defensive type-check BEFORE forwarding
-    // to assertRepoRelative — its first call is `isAbsolute(path)`, which
-    // throws TypeError on non-string input (null, number, object). A tampered
-    // manifest must surface as a structural-tampering gap, not crash the
-    // orchestrator mid-validation. Same shape as F-AMU4D's "route to gap, not
-    // crash" pattern: contract violations route through gap-collection so
-    // Phase E can re-dispatch the subagent rather than halt with an unhandled
-    // exception. typeof-check + idx-position keys the gap so a Reviewer can
-    // locate the bad entry without re-parsing the manifest.
+    // Defensive type-check BEFORE forwarding to assertRepoRelative — its first
+    // call is `isAbsolute(path)`, which throws TypeError on non-string input
+    // (null, number, object). A tampered manifest must surface as a
+    // structural-tampering gap, not crash the orchestrator mid-validation.
+    // Contract violations route through gap-collection so Phase E can
+    // re-dispatch the subagent rather than halt with an unhandled exception.
+    // typeof-check + idx-position keys the gap so a Reviewer can locate the bad
+    // entry without re-parsing the manifest.
     if (typeof path !== "string") {
       gaps.push(
-        `affected_files[${idx}] is not a string (got ${path === null ? "null" : typeof path}); subagent contract requires string path entries (Codex F-Axg-w)`,
+        `affected_files[${idx}] is not a string (got ${path === null ? "null" : typeof path}); subagent contract requires string path entries`,
       );
       continue;
     }
-    // Codex P1 PR #33 (thread `AxXBH`): reject absolute or parent-traversal
-    // paths BEFORE the existsSync read. The validator must enforce the
-    // contract clause "affected_files entries are repo-relative" — otherwise
-    // a malformed manifest (`/etc/passwd`, `../../private`) bypasses
-    // validation and dead-ends step-7 `git add <affected_files>` with an
-    // "outside repository pathspec" error. See `assertRepoRelative` JSDoc
-    // for the threat model and lexical-vs-realpath rationale.
+    // Reject absolute or parent-traversal paths BEFORE the existsSync read. The
+    // validator must enforce the contract clause "affected_files entries are
+    // repo-relative" — otherwise a malformed manifest (`/etc/passwd`,
+    // `../../private`) bypasses validation and dead-ends step-7
+    // `git add <affected_files>` with an "outside repository pathspec" error.
+    // See `assertRepoRelative` JSDoc for the threat model and
+    // lexical-vs-realpath rationale.
     const containment = assertRepoRelative(path, repoRoot);
     if (!containment.ok) {
       gaps.push(`${containment.gap} (declared in affected_files)`);
@@ -416,34 +406,36 @@ export function validateManifestSubagentStage({
     }
     const full = containment.full;
     if (!existsSync(full)) {
-      // Codex P1 PR #33 R6 / Finding 10: prior loop silently skipped any non-existent
-      // path (existsSync gate with no else-branch), so a subagent that deleted a declared
-      // file (e.g. cross-plan-dependencies.md) passed validation. The contract clause
-      // "affected_files ⊇ files actually edited" implies post-edit existence — deletion
-      // is a contract violation. Surface it as a gap, then skip the placeholder read.
+      // Bare existsSync gate with no else-branch silently skips any
+      // non-existent path, so a subagent that deletes a declared file (e.g.
+      // cross-plan-dependencies.md) would pass validation. The contract clause
+      // "affected_files ⊇ files actually edited" implies post-edit existence —
+      // deletion is a contract violation. Surface as a gap, then skip the
+      // placeholder read.
       gaps.push(
         `${path} declared in affected_files but missing from disk — destructive out-of-scope behavior (subagent contract: affected_files MUST exist; deletion is not permitted via the housekeeper subagent surface)`,
       );
       continue;
     }
-    // Codex F-AMU4D PR #33: guard against non-regular files (directories, symlinks
-    // pointing at directories, sockets, etc). readFileSync would throw EISDIR on a
-    // directory; the contract says affected_files entries are FILES (the script edits
-    // line-level content). Surface as a gap rather than crashing the orchestrator —
-    // a subagent contract violation must route through the validator's gap-collection
-    // path so Phase E can re-dispatch (NOT halt with an unhandled exception).
+    // Guard against non-regular files (directories, symlinks pointing at
+    // directories, sockets, etc). readFileSync would throw EISDIR on a
+    // directory; the contract says affected_files entries are FILES (the script
+    // edits line-level content). Surface as a gap rather than crashing the
+    // orchestrator — a subagent contract violation must route through the
+    // validator's gap-collection path so Phase E can re-dispatch (NOT halt with
+    // an unhandled exception).
     let stats;
     try {
       stats = statSync(full);
     } catch (e) {
       gaps.push(
-        `${path} declared in affected_files but stat failed (${e.code ?? e.message}); subagent contract requires regular files (Codex F-AMU4D)`,
+        `${path} declared in affected_files but stat failed (${e.code ?? e.message}); subagent contract requires regular files`,
       );
       continue;
     }
     if (!stats.isFile()) {
       gaps.push(
-        `${path} declared in affected_files but is not a regular file (directory or other non-file kind); subagent contract requires regular files for line-level edits (Codex F-AMU4D)`,
+        `${path} declared in affected_files but is not a regular file (directory or other non-file kind); subagent contract requires regular files for line-level edits`,
       );
       continue;
     }
@@ -454,7 +446,7 @@ export function validateManifestSubagentStage({
       // Defense in depth — even after isFile() passes, readFileSync could fail on
       // permissions, encoding, or transient I/O errors. Surface as a gap, not a crash.
       gaps.push(
-        `${path} declared in affected_files but readFileSync failed (${e.code ?? e.message}); subagent contract requires readable file content (Codex F-AMU4D)`,
+        `${path} declared in affected_files but readFileSync failed (${e.code ?? e.message}); subagent contract requires readable file content`,
       );
       continue;
     }
@@ -462,7 +454,7 @@ export function validateManifestSubagentStage({
       gaps.push(`${PLACEHOLDER} placeholder still present in ${path}`);
   }
 
-  // P2 fix — scan semantic_edits VALUES for leftover placeholders.
+  // Scan semantic_edits VALUES for leftover placeholders.
   for (const [field, value] of Object.entries(manifest.semantic_edits ?? {})) {
     walkForPlaceholder(value, [field], (path) => {
       gaps.push(`${PLACEHOLDER} placeholder still present in semantic_edits.${path.join(".")}`);
@@ -471,12 +463,12 @@ export function validateManifestSubagentStage({
 
   // schema_violations × concerns reconciliation. Each schema_violations entry MUST
   // surface as its OWN concerns entry. Match key is `kind` + `field` + `ns_id`,
-  // each compared verbatim. The `kind` discriminator (Codex P2 follow-up to the R1
-  // per-entry fix) closes a loophole: when both sv and a generic concern lack `field`,
-  // `c.field !== sv.field` was trivially `false` (undefined !== undefined), letting
-  // a single generic concern absorb shapes like `{kind: "auto_create_title_seed_underivable"}`
-  // that the script emits as singletons without `field`/`ns_id`. By requiring kind
-  // alignment, distinct-kind violations cannot share a concern.
+  // each compared verbatim. The `kind` discriminator closes a loophole: when both
+  // sv and a generic concern lack `field`, `c.field !== sv.field` was trivially
+  // `false` (undefined !== undefined), letting a single generic concern absorb
+  // shapes like `{kind: "auto_create_title_seed_underivable"}` that the script
+  // emits as singletons without `field`/`ns_id`. By requiring kind alignment,
+  // distinct-kind violations cannot share a concern.
   for (const sv of cleanedSchemaViolations) {
     const matched = cleanedConcerns.some((c) => {
       if (c.kind !== sv.kind) return false;
@@ -498,7 +490,7 @@ export function validateManifestSubagentStage({
     }
   }
 
-  // Check #6 — BLOCKED-when-schema-violations enforcement (Codex P1 PR #33 R4 / Finding 6).
+  // Check #6 — BLOCKED-when-schema-violations enforcement.
   // The matcher loop above handles the SURFACE half ("each violation is in concerns"); this
   // check handles the EXIT-STATE half ("...AND result === BLOCKED"). Contract clause from
   // `references/post-merge-housekeeper-contract.md` §Validation invariants line 93:
@@ -518,7 +510,7 @@ export function validateManifestSubagentStage({
     );
   }
 
-  // Check #8 — BLOCKED-when-verification_failures enforcement (Codex P1 PR #33 R7 / Finding 11).
+  // Check #8 — BLOCKED-when-verification_failures enforcement.
   // Mirrors check #6 for schema_violations. The script halts with exit 2 when candidate
   // verification fails (Type-signature / file-overlap / plan-identity mismatch, or
   // multi_pr_task_not_in_block) and populates `verification_failures` (script lines 1209,
@@ -541,7 +533,7 @@ export function validateManifestSubagentStage({
   }
 
   // D-7 row 14 — superset check. When the orchestrator passes the script's
-  // stage-1 affected_files (now resolved via F-AMbIV precedence: explicit
+  // stage-1 affected_files (resolved via precedence: explicit
   // scriptAffectedFiles param > manifest._script_stage.affected_files > null),
   // the subagent's stage-2 list MUST include every entry. Dropping a file is a
   // contract violation (the subagent may not narrow scope; it may only justify
@@ -557,7 +549,7 @@ export function validateManifestSubagentStage({
     }
   }
 
-  // Check #9 — schema_violations preservation (Codex F-AMP7Y PR #33).
+  // Check #9 — schema_violations preservation.
   // The subagent rewrites the manifest, so without this immutable comparison it
   // could clear `manifest.schema_violations` and return DONE/DONE_WITH_CONCERNS,
   // bypassing check #6's BLOCKED enforcement. Mirror check #7 (scriptAffectedFiles
@@ -568,10 +560,10 @@ export function validateManifestSubagentStage({
   if (Array.isArray(effScriptSchemaViolations)) {
     const violationKey = (v) => `${v.kind ?? ""}|${v.field ?? ""}|${v.ns_id ?? ""}`;
     // Use the pre-cleaned subagent array (sanitized once near the top with
-    // structural-tampering gaps surfaced for null/non-object entries — see
-    // Codex F-Axg-z). Both this preservation loop and the reconciliation
-    // loop above now iterate the same known-good array, so a tampered
-    // manifest can't crash either with TypeError on element dereference.
+    // structural-tampering gaps surfaced for null/non-object entries). Both
+    // this preservation loop and the reconciliation loop above iterate the
+    // same known-good array, so a tampered manifest can't crash either with
+    // TypeError on element dereference.
     const subagentViolationKeys = new Set(cleanedSchemaViolations.map(violationKey));
     for (const sv of effScriptSchemaViolations) {
       if (!subagentViolationKeys.has(violationKey(sv))) {
@@ -583,13 +575,13 @@ export function validateManifestSubagentStage({
           .filter(Boolean)
           .join(" ");
         gaps.push(
-          `script-stage schema_violation (${idLabel}) absent from subagent-emitted schema_violations (Codex F-AMP7Y: subagent MUST NOT clear script-stage violations; check #6 BLOCKED enforcement requires the array to remain populated)`,
+          `script-stage schema_violation (${idLabel}) absent from subagent-emitted schema_violations — subagent MUST NOT clear script-stage violations; check #6 BLOCKED enforcement requires the array to remain populated`,
         );
       }
     }
   }
 
-  // Check #10 — verification_failures preservation (Codex F-AMSEL PR #33).
+  // Check #10 — verification_failures preservation.
   // Mirror check #9 for the exit-2 halt path. verification_failure entries are
   // small structured `{kind: "..."}` shapes (some carry additional fields like
   // colliding_with) without a stable composite key, so canonical JSON serialization
@@ -604,7 +596,7 @@ export function validateManifestSubagentStage({
     for (const vf of effScriptVerificationFailures) {
       if (!subagentFailureKeys.has(failureKey(vf))) {
         gaps.push(
-          `script-stage verification_failure (${JSON.stringify(vf)}) absent from subagent-emitted verification_failures (Codex F-AMSEL: subagent MUST NOT clear script-stage failures; check #8 BLOCKED enforcement requires the array to remain populated)`,
+          `script-stage verification_failure (${JSON.stringify(vf)}) absent from subagent-emitted verification_failures — subagent MUST NOT clear script-stage failures; check #8 BLOCKED enforcement requires the array to remain populated`,
         );
       }
     }
@@ -658,107 +650,25 @@ export function detectAffectedFilesSprawl({ manifestAffectedFiles, gitDiffFiles 
  * Decide whether a `semantic_edits[<item>]` value is a "meaningful payload" per
  * canonical-template responsibility #5: an entry "containing the composed output".
  *
- * Codex P2 PR #33 R5 / Finding 9: `hasOwnProperty` returns true for keys whose
- * value is `null` / `undefined` / `""` / `[]` / `{}`, which let pending items pass
- * the validator with zero payload. This helper rejects those empty shapes so the
- * subagent's DONE/DONE_WITH_CONCERNS cannot ship with unresolved semantic work.
+ * `hasOwnProperty` returns true for keys whose value is `null` / `undefined` /
+ * `""` / `[]` / `{}`, which lets pending items pass the validator with zero
+ * payload. This helper rejects those empty shapes so the subagent's
+ * DONE/DONE_WITH_CONCERNS cannot ship with unresolved semantic work.
  *
- * Numbers, booleans, and other primitives are accepted defensively — semantic_edits
- * values are typically composed prose strings or placeholder-replaced objects, but
- * future contract evolution may legitimately use scalar payloads (e.g. counts), and
- * rejecting them would force a rule change here. Strings are trimmed before the
- * length check so whitespace-only values do not satisfy the contract.
+ * Strings are trimmed before the length check so whitespace-only values do not
+ * satisfy the contract. Booleans and numbers are rejected because the contract
+ * is composed completion-prose; accepting `false`/`0` would let a subagent
+ * satisfy `semantic_work_pending` without emitting any output-bearing payload.
  *
  * @param {unknown} value
  * @returns {boolean}
  */
-/**
- * Sanitize a manifest array field whose elements are expected to be plain
- * objects. Surfaces structural-tampering gaps to `gaps` for two failure
- * modes that Array.isArray()-only structural checks miss:
- *
- *   1. Container-type tampering (Codex F-AxkNI) — `manifest.field` is an
- *      object/scalar/null instead of an array. Pre-fix, downstream
- *      `(field ?? []).method()` patterns threw "is not a function". Post-fix,
- *      the helper returns `[]` and surfaces ONE container-type gap.
- *   2. Element-shape tampering (Codex F-Axg-z / F-AxkNJ) — array elements are
- *      null/scalars/arrays instead of plain objects. Pre-fix, downstream
- *      loops dereferenced `.kind`/`.field`/`.addressing` and threw TypeError.
- *      Post-fix, each bad element gets an idx-keyed structural-tampering gap
- *      and is filtered out of the returned cleaned array.
- *
- * The `pretendShape` parameter is the contract-anchored hint used in the
- * gap message (e.g., "{kind, field?, ns_id?}") so the Reviewer / re-dispatched
- * subagent sees the EXPECTED element shape inline with the violation.
- *
- * The `findingTag` parameter is the Codex review-thread suffix (e.g.,
- * "Codex F-Axg-z") that closes the loop from the gap message back to the
- * originating finding for triage.
- *
- * Side-effect: pushes gaps to `gaps`. Returns: cleaned array of plain objects.
- *
- * @param {unknown} field
- * @param {string} fieldLabel - dotted manifest path used in gap messages
- * @param {string} pretendShape - contract-anchored shape hint
- * @param {string} findingTag - Codex finding suffix to cite
- * @param {string[]} gaps - mutable gap array (side-effect target)
- * @returns {object[]}
- */
-function sanitizeObjectArrayField(field, fieldLabel, pretendShape, findingTag, gaps) {
-  if (field === undefined || field === null) return [];
-  if (!Array.isArray(field)) {
-    gaps.push(
-      `${fieldLabel} is not an array (got ${field === null ? "null" : typeof field}); subagent contract requires an array of ${pretendShape} entries (${findingTag})`,
-    );
-    return [];
-  }
-  const cleaned = [];
-  for (const [idx, v] of field.entries()) {
-    if (v == null || typeof v !== "object" || Array.isArray(v)) {
-      gaps.push(
-        `${fieldLabel}[${idx}] is not an object (got ${v === null ? "null" : Array.isArray(v) ? "array" : typeof v}); subagent contract requires ${pretendShape} object entries (${findingTag})`,
-      );
-      continue;
-    }
-    cleaned.push(v);
-  }
-  return cleaned;
-}
-
-/**
- * Sanitize a manifest array field whose elements are expected to be strings.
- * Same threat model as `sanitizeObjectArrayField` but for string-element
- * arrays (e.g., `manifest.affected_files`). Returns the cleaned array of
- * strings; per-element string-type gaps are pushed by the consumer loop
- * (which carries additional path-containment / existsSync context inline)
- * so this helper only handles the container-type axis.
- *
- * @param {unknown} field
- * @param {string} fieldLabel
- * @param {string} findingTag
- * @param {string[]} gaps
- * @returns {unknown[]}
- */
-function sanitizeStringArrayField(field, fieldLabel, findingTag, gaps) {
-  if (field === undefined || field === null) return [];
-  if (!Array.isArray(field)) {
-    gaps.push(
-      `${fieldLabel} is not an array (got ${field === null ? "null" : typeof field}); subagent contract requires an array of string entries (${findingTag})`,
-    );
-    return [];
-  }
-  return field;
-}
 
 function isMeaningfulPayload(value) {
   if (value === null || value === undefined) return false;
   if (typeof value === "string") return value.trim().length > 0;
   if (Array.isArray(value)) return value.length > 0;
   if (typeof value === "object") return Object.keys(value).length > 0;
-  // Reject scalars (booleans, numbers, etc): the contract is composed
-  // completion-prose, which can't be a boolean or number. Codex P2 (PR #33):
-  // accepting `false`/`0` let a subagent satisfy `semantic_work_pending`
-  // without emitting any output-bearing payload.
   return false;
 }
 
@@ -785,18 +695,87 @@ function walkForPlaceholder(value, path, onHit) {
 }
 
 /**
+ * Sanitize a manifest array field whose elements are expected to be plain
+ * objects. Surfaces structural-tampering gaps to `gaps` for two failure
+ * modes that Array.isArray()-only structural checks miss:
+ *
+ *   1. Container-type tampering — `manifest.field` is an object/scalar/null
+ *      instead of an array. Downstream `(field ?? []).method()` patterns
+ *      would otherwise throw "is not a function". Returns `[]` and surfaces
+ *      one container-type gap.
+ *   2. Element-shape tampering — array elements are null/scalars/arrays
+ *      instead of plain objects. Downstream loops would otherwise dereference
+ *      `.kind`/`.field`/`.addressing` and throw TypeError. Each bad element
+ *      gets an idx-keyed structural-tampering gap and is filtered out.
+ *
+ * `pretendShape` is the contract-anchored hint embedded in the gap message
+ * (e.g., `{kind, field?, ns_id?}`) so the Reviewer / re-dispatched subagent
+ * sees the EXPECTED element shape inline with the violation.
+ *
+ * @param {unknown} field
+ * @param {string} fieldLabel - dotted manifest path used in gap messages
+ * @param {string} pretendShape - contract-anchored shape hint
+ * @param {string[]} gaps - mutable gap array (side-effect target)
+ * @returns {object[]}
+ */
+function sanitizeObjectArrayField(field, fieldLabel, pretendShape, gaps) {
+  if (field === undefined || field === null) return [];
+  if (!Array.isArray(field)) {
+    gaps.push(
+      `${fieldLabel} is not an array (got ${field === null ? "null" : typeof field}); subagent contract requires an array of ${pretendShape} entries`,
+    );
+    return [];
+  }
+  const cleaned = [];
+  for (const [idx, v] of field.entries()) {
+    if (v == null || typeof v !== "object" || Array.isArray(v)) {
+      gaps.push(
+        `${fieldLabel}[${idx}] is not an object (got ${v === null ? "null" : Array.isArray(v) ? "array" : typeof v}); subagent contract requires ${pretendShape} object entries`,
+      );
+      continue;
+    }
+    cleaned.push(v);
+  }
+  return cleaned;
+}
+
+/**
+ * Sanitize a manifest array field whose elements are expected to be strings.
+ * Same threat model as `sanitizeObjectArrayField` but for string-element
+ * arrays (e.g., `manifest.affected_files`). Returns the cleaned array of
+ * strings; per-element string-type gaps are pushed by the consumer loop
+ * (which carries additional path-containment / existsSync context inline)
+ * so this helper only handles the container-type axis.
+ *
+ * @param {unknown} field
+ * @param {string} fieldLabel
+ * @param {string[]} gaps
+ * @returns {unknown[]}
+ */
+function sanitizeStringArrayField(field, fieldLabel, gaps) {
+  if (field === undefined || field === null) return [];
+  if (!Array.isArray(field)) {
+    gaps.push(
+      `${fieldLabel} is not an array (got ${field === null ? "null" : typeof field}); subagent contract requires an array of string entries`,
+    );
+    return [];
+  }
+  return field;
+}
+
+/**
  * Assert a manifest-declared path is repo-relative AND lexically contained
  * under `repoRoot`. Returns a discriminated union the caller pattern-matches:
  * `{ ok: true, full }` for the joined absolute path, or `{ ok: false, gap }`
  * with a contract-anchored explanation suitable for `gaps.push()`.
  *
- * Codex P1 PR #33 (thread `PRRT_kwDOSCycWc6AxXBH`): the validator's
- * `affected_files` loop joined each declared path against `repoRoot` and read
- * it without first checking the path was repo-relative. A malformed subagent
- * manifest emitting an absolute path (`/etc/passwd`) or a parent-traversal
- * (`../../private/keys`) bypassed validation — the script's later step-7
- * `git add <affected_files>` would fail with "outside repository pathspec",
- * dead-ending housekeeping after a supposedly `valid: true` manifest signal.
+ * The `affected_files` loop joins each declared path against `repoRoot` and
+ * reads it; without first checking the path was repo-relative, a malformed
+ * subagent manifest emitting an absolute path (`/etc/passwd`) or a
+ * parent-traversal (`../../private/keys`) bypasses validation — the script's
+ * later step-7 `git add <affected_files>` then fails with "outside repository
+ * pathspec", dead-ending housekeeping after a supposedly `valid: true`
+ * manifest signal.
  *
  * Containment check is purely lexical (no `realpath`, no symlink resolution).
  * Threat model: subagent malformed-path bug, not symlink TOCTOU; lexical
@@ -834,15 +813,14 @@ export function assertRepoRelative(path, repoRoot) {
  * Decide whether Phase E should dispatch the housekeeper subagent or halt to
  * the user, based on the script's exit code.
  *
- * Codex P1 PR #33 (thread `PRRT_kwDOSCycWc6ANGCa`): SKILL.md Phase E step 4
- * dispatched the subagent unconditionally after manifest validation, but
- * `references/post-merge-housekeeper-contract.md` § Exit codes classifies several
- * exits as orchestrator-stage halts (operator action required, NOT subagent
- * work). Dispatching over a malformed/absent manifest routes a script crash or
- * orchestrator misdispatch into subagent-stage handling, where the LLM is
- * forced to interpret garbage and emit a `RESULT:` tag based on hallucinated
- * state — incorrect routing + wasted round-trips, instead of surfacing the
- * required halt to the user.
+ * SKILL.md Phase E step 4 used to dispatch the subagent unconditionally after
+ * manifest validation, but `references/post-merge-housekeeper-contract.md`
+ * § Exit codes classifies several exits as orchestrator-stage halts (operator
+ * action required, NOT subagent work). Dispatching over a malformed/absent
+ * manifest routes a script crash or orchestrator misdispatch into
+ * subagent-stage handling, where the LLM is forced to interpret garbage and
+ * emit a `RESULT:` tag based on hallucinated state — incorrect routing +
+ * wasted round-trips, instead of surfacing the required halt to the user.
  *
  * This helper is the single source of truth for the dispatch/halt mapping.
  * SKILL.md step 4, the contract's § Exit codes table, and any future audit
