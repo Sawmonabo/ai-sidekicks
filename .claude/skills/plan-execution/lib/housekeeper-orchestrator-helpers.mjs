@@ -190,6 +190,21 @@ export function validateManifestSubagentStage({
 }) {
   const gaps = [];
 
+  // Entry guard: a malformed subagent output (JSON literal `null`, undefined,
+  // scalar, array root, etc.) would otherwise crash on the first `manifest.X`
+  // dereference below before gap collection runs, breaking Phase E's contract-
+  // violation recovery path. Surface the malformed-root case as a structured
+  // gap and short-circuit so the orchestrator routes through validation-failure
+  // (re-dispatch / surface to user) rather than catching a TypeError.
+  if (manifest == null || typeof manifest !== "object" || Array.isArray(manifest)) {
+    const actualKind =
+      manifest === null ? "null" : Array.isArray(manifest) ? "array" : typeof manifest;
+    gaps.push(
+      `manifest is not a JSON object (got ${actualKind}) — subagent contract requires emitting a manifest object per references/post-merge-housekeeper-contract.md §Manifest schema; the validator cannot enforce contract checks against a non-object manifest root`,
+    );
+    return { valid: false, gaps };
+  }
+
   // Trust-boundary check + check #12 (structural-shape tampering on `manifest._script_stage`).
   //
   // The untamperable baseline for preservation checks (#7/#9/#10/#11) is the

@@ -80,6 +80,43 @@ test("buildHousekeeperPrompt: schema-violation mode wording for exit 5", () => {
   assert.match(prompt, /RESULT: BLOCKED/);
 });
 
+test("validateManifestSubagentStage: entry guard surfaces structured gap (no TypeError) when manifest is null", () => {
+  // F-A24wj: a malformed subagent output (JSON literal `null`) would otherwise
+  // crash on the first `manifest.X` dereference before gap collection runs.
+  // The validator MUST surface this as a structured gap and short-circuit so
+  // Phase E's contract-violation recovery path stays intact.
+  const result = validateManifestSubagentStage({ manifest: null });
+  assert.equal(result.valid, false);
+  assert.equal(result.gaps.length, 1);
+  assert.match(result.gaps[0], /manifest is not a JSON object \(got null\)/);
+  assert.match(result.gaps[0], /subagent contract requires emitting a manifest object/);
+});
+
+test("validateManifestSubagentStage: entry guard surfaces structured gap when manifest is undefined", () => {
+  const result = validateManifestSubagentStage({ manifest: undefined });
+  assert.equal(result.valid, false);
+  assert.equal(result.gaps.length, 1);
+  assert.match(result.gaps[0], /manifest is not a JSON object \(got undefined\)/);
+});
+
+test("validateManifestSubagentStage: entry guard surfaces structured gap when manifest is a non-object scalar", () => {
+  const numberResult = validateManifestSubagentStage({ manifest: 42 });
+  assert.equal(numberResult.valid, false);
+  assert.match(numberResult.gaps[0], /manifest is not a JSON object \(got number\)/);
+  const stringResult = validateManifestSubagentStage({ manifest: "oops" });
+  assert.equal(stringResult.valid, false);
+  assert.match(stringResult.gaps[0], /manifest is not a JSON object \(got string\)/);
+});
+
+test("validateManifestSubagentStage: entry guard surfaces structured gap when manifest is an array root", () => {
+  // JSON arrays at the root (e.g. subagent emits `[]` instead of `{}`) are
+  // technically `typeof === "object"` in JS — must catch via Array.isArray.
+  const result = validateManifestSubagentStage({ manifest: [] });
+  assert.equal(result.valid, false);
+  assert.equal(result.gaps.length, 1);
+  assert.match(result.gaps[0], /manifest is not a JSON object \(got array\)/);
+});
+
 test("validateManifestSubagentStage: pass when every pending item has semantic_edits or concerns entry", () => {
   const manifest = {
     _script_stage: {
