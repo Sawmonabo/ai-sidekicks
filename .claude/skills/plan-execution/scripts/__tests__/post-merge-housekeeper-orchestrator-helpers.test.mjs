@@ -2241,6 +2241,50 @@ test("validateManifestSubagentStage: returns gap (not crash) when semantic_work_
   );
 });
 
+test("validateManifestSubagentStage: returns gap (not crash) when _script_stage.verification_failures contains a null entry (script-side element-shape, missed call-site of object-array bug class)", () => {
+  // Pre-fix: the preservation loop iterates `effScriptVerificationFailures`
+  // raw and calls `failureKey(vf) = JSON.stringify(vf, Object.keys(vf).sort())`
+  // — `Object.keys(null)` throws "Cannot convert undefined or null to object",
+  // crashing the validator on a tampered `_script_stage.verification_failures`
+  // that contains `[null]` (or scalars/arrays). Container-type guard #12 only
+  // verifies the field is an array — element-shape was unguarded.
+  // Post-fix: cleanedScriptVerificationFailures sanitizes elements upstream of
+  // the preservation loop; null/scalar/array entries surface a structural-
+  // tampering gap and are skipped, so the loop body safely dereferences only
+  // object entries. Same fix shape as the manifest-side sanitize already in
+  // place for the schema_violations / verification_failures / concerns fields.
+  const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [null, { kind: "type_signature_mismatch" }],
+      semantic_work_pending: [],
+    },
+    semantic_work_pending: [],
+    semantic_edits: {},
+    concerns: [],
+    schema_violations: [],
+    verification_failures: [{ kind: "type_signature_mismatch" }],
+    affected_files: [],
+    result: "BLOCKED",
+  };
+  // Pre-fix this would throw; post-fix it returns a gap result.
+  const result = validateManifestSubagentStage({ manifest });
+  assert.equal(result.valid, false);
+  assert.ok(
+    result.gaps.some((g) =>
+      /^manifest\._script_stage\.verification_failures\[0\] is not an object \(got null\)/.test(g),
+    ),
+    `expected element-shape gap on script-side null entry; got ${JSON.stringify(result.gaps)}`,
+  );
+  // The well-formed entry MUST still match the subagent-side preservation set
+  // (proves the cleaned-array iteration didn't drop legitimate entries).
+  assert.ok(
+    !result.gaps.some((g) => /script-stage verification_failure/.test(g)),
+    `expected well-formed script-stage entry to be preserved by subagent emit; got ${JSON.stringify(result.gaps)}`,
+  );
+});
+
 test("I-3 invariant: post-merge-housekeeper.mjs does NOT import child_process or shell out for git", () => {
   const src = readFileSync(
     ".claude/skills/plan-execution/scripts/post-merge-housekeeper.mjs",

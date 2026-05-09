@@ -568,6 +568,20 @@ export function validateManifestSubagentStage({
   // the check #5 matcher uses). The subagent MAY add new violations (rare) but
   // MUST NOT remove script-stage ones.
   if (Array.isArray(effScriptSchemaViolations)) {
+    // Sanitize script-side ELEMENTS before iteration. Container-type was already
+    // gated by Array.isArray, but elements can still be null/scalar/array under
+    // a tampered `manifest._script_stage.schema_violations`. The loop body
+    // dereferences `sv.kind` / `sv.field` / `sv.ns_id` and would TypeError on a
+    // null entry — same crash class as the manifest-side sanitize above. Push
+    // the same structural-tampering gap the consumer would emit so a malformed
+    // snapshot surfaces a recoverable contract violation rather than crashing
+    // the validator.
+    const cleanedScriptSchemaViolations = sanitizeObjectArrayField(
+      effScriptSchemaViolations,
+      "manifest._script_stage.schema_violations",
+      "{kind, field?, ns_id?}",
+      gaps,
+    );
     const violationKey = (v) => `${v.kind ?? ""}|${v.field ?? ""}|${v.ns_id ?? ""}`;
     // Use the pre-cleaned subagent array (sanitized once near the top with
     // structural-tampering gaps surfaced for null/non-object entries). Both
@@ -575,7 +589,7 @@ export function validateManifestSubagentStage({
     // same known-good array, so a tampered manifest can't crash either with
     // TypeError on element dereference.
     const subagentViolationKeys = new Set(cleanedSchemaViolations.map(violationKey));
-    for (const sv of effScriptSchemaViolations) {
+    for (const sv of cleanedScriptSchemaViolations) {
       if (!subagentViolationKeys.has(violationKey(sv))) {
         const idLabel = [
           sv.kind && `kind=${sv.kind}`,
@@ -601,9 +615,22 @@ export function validateManifestSubagentStage({
   // check #8's BLOCKED enforcement for Type-signature / file-overlap / plan-identity
   // mismatch / multi_pr_task_not_in_block.
   if (Array.isArray(effScriptVerificationFailures)) {
+    // Sanitize script-side ELEMENTS before iteration. The `failureKey` closure
+    // calls `Object.keys(f)` which throws on a null/undefined element — and the
+    // structural check #12 only verifies the container is an array, not that
+    // elements are objects. A tampered `manifest._script_stage.verification_failures`
+    // containing `[null]` would crash the validator instead of surfacing a
+    // structural-tampering gap. Filter to objects, surface a gap per bad entry,
+    // iterate the cleaned set so the loop body can safely dereference.
+    const cleanedScriptVerificationFailures = sanitizeObjectArrayField(
+      effScriptVerificationFailures,
+      "manifest._script_stage.verification_failures",
+      "{kind, ...}",
+      gaps,
+    );
     const failureKey = (f) => JSON.stringify(f, Object.keys(f).sort());
     const subagentFailureKeys = new Set(cleanedVerificationFailures.map(failureKey));
-    for (const vf of effScriptVerificationFailures) {
+    for (const vf of cleanedScriptVerificationFailures) {
       if (!subagentFailureKeys.has(failureKey(vf))) {
         gaps.push(
           `script-stage verification_failure (${JSON.stringify(vf)}) absent from subagent-emitted verification_failures — subagent MUST NOT clear script-stage failures; check #8 BLOCKED enforcement requires the array to remain populated`,
