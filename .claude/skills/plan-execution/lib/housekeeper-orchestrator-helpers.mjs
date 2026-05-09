@@ -16,7 +16,7 @@ const CANONICAL_TEMPLATE = `You are the plan-execution-housekeeper subagent. Pha
 
 Your responsibilities (per Spec §5.4 / §6.2):
 
-1. Compose completion-prose — replace every \`<TODO subagent prose>\` placeholder in the manifest's \`mechanical_edits.status_flip.to_line\` (and in any \`semantic_edits\` field the script left stubbed) with one-line resolution narratives matching the NS-12 precedent shape. Use the merged-commit context (PR title, body, file diff) to ground each narrative.
+1. Compose completion-prose — replace every \`<TODO subagent prose>\` placeholder in the manifest's \`mechanical_edits.status_flip.to_line\` (single-candidate runs) OR each \`mechanical_edits.status_flips[].to_line\` entry (multi-candidate \`--candidate-ns NS-XX,NS-YY\` runs — the script swaps singular keys for plural arrays carrying one entry per processed NS; \`mechanical_edits.status_flip\` and \`mechanical_edits.mermaid_class_swap\` are absent in this shape, and \`matched_entry\` is null with \`matched_entries[]\` carrying the per-NS metadata), and in any \`semantic_edits\` field the script left stubbed, with one-line resolution narratives matching the NS-12 precedent shape. Use the merged-commit context (PR title, body, file diff) to ground each narrative.
 
 2. Re-derive set-quantifier claims — read ONLY \`docs/architecture/cross-plan-dependencies.md\` §6 prose paragraphs (the \`## 6. Active Next Steps DAG\` section's intro/closing prose plus inline narrative between NS entries; per Plan §Decisions-Locked D-2). For any quantifying claim invalidated by the merge (e.g. "ready set shares no files with X" / "all Y are Z" / "no W in the list does Q"), surface the invalidation in \`concerns[]\` with \`kind: "set_quantifier_drift"\`.
 

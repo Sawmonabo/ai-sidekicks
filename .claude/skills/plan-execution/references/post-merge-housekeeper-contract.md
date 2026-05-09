@@ -82,6 +82,14 @@ The plan-execution housekeeper subagent and its companion script (`scripts/post-
 
 For multi-PR shape, `matched_entry.shape` is `"multi-pr"`, `mechanical_edits.status_flip.computed_via` is `"prs-matrix recompute"` with the matrix-row that fired, and `mechanical_edits.prs_block_ticks` carries the per-tick details.
 
+For multi-candidate runs (`--candidate-ns NS-XX,NS-YY` — comma-list dispatched against multiple NS entries in one Phase E run), the script swaps the singular keys for plural arrays carrying one entry per processed NS:
+
+- `matched_entry: null` and `matched_entries: [...]` carries per-NS metadata (one entry per NS in the comma list).
+- `mechanical_edits.status_flip` and `mechanical_edits.mermaid_class_swap` are absent (omitted from the JSON entirely, not null) and the plural `mechanical_edits.status_flips: [...]` and `mechanical_edits.mermaid_class_swaps: [...]` arrays carry one entry per processed NS.
+- `mechanical_edits.prs_block_ticks` and `mechanical_edits.plan_checklist_ticks` retain their array shape across both single- and multi-candidate runs (they were already arrays).
+
+Subagent consumers detect multi-candidate by checking `Array.isArray(manifest.matched_entries)`; the canonical fixture for this shape is `scripts/__tests__/fixtures/14-multi-candidate-happy-path/expected-manifest.json`. The plural shape is independent of the per-NS multi-PR variation above — a multi-candidate run can include NS entries that are themselves multi-PR (each emits its own `status_flips[]` entry with `computed_via: "prs-matrix recompute"`).
+
 Stage 1 (script) writes the file with subagent fields stubbed. Stage 2 (subagent) reads, fills in its fields (including replacing the `<TODO subagent prose>` placeholders in `Status:` lines via direct file edits, then echoing the composed prose into `semantic_edits.completion_prose`), writes back.
 
 ## Exit codes
@@ -121,7 +129,7 @@ Exit codes:  0  success
 
 **Validation invariants (orchestrator):**
 
-- After script: `mechanical_edits` populated per `script_exit_code` (exit 1 → `matched_entry` and `status_flip` may be absent; exit 3 → `plan_checklist_ticks` may be empty; exit 5 → `schema_violations` non-empty + edits aborted). `semantic_work_pending` non-empty. `result === null`.
+- After script: `mechanical_edits` populated per `script_exit_code` (exit 1 → `matched_entry` and `status_flip` may be absent; exit 3 → `plan_checklist_ticks` may be empty; exit 5 → `schema_violations` non-empty + edits aborted; multi-candidate runs emit plural `matched_entries`/`status_flips`/`mermaid_class_swaps` in place of the singular keys per the multi-candidate-shape paragraph above). `semantic_work_pending` non-empty. `result === null`.
 - After subagent: `result !== null`. Every item in `semantic_work_pending` appears in EITHER `semantic_edits.<item-key>` OR `concerns[]` with `addressing: <item-key>` matching the exact pending-item key (waived when `result === "BLOCKED"` or `"NEEDS_CONTEXT"`, since the subagent halted before completing semantic work). Every entry in `schema_violations` appears in `concerns` with matching `kind` (the violation's own kind verbatim — typically `"schema_violation"` for missing-required-field shapes, but the script also emits singletons like `"auto_create_title_seed_underivable"` with no `field`/`ns_id`), plus matching `field` and `ns_id` when the violation carries them, AND `result === "BLOCKED"`. When `verification_failures` is non-empty (script exit-2 halt path — Type-signature / file-overlap / plan-identity mismatch or `multi_pr_task_not_in_block`), `result === "BLOCKED"` (mirrors the schema_violations rule — surfacing alone is insufficient; the BLOCKED state is load-bearing for the orchestrator's halt/routing-path determinism). No `<TODO subagent prose>` placeholders remain in any file under `affected_files`. `affected_files` ⊇ files actually edited (subagent did not sprawl outside declared scope; extensions to `affected_files` are documented in `concerns` with `kind: affected_files_extension`; deletion of a declared file is a contract violation surfaced by the validator's missing-file gap).
 
 If validation fails, orchestrator halts Phase E and surfaces the gap (script-stage failure) OR round-trips to the subagent (subagent-stage failure).
@@ -236,7 +244,7 @@ You are the plan-execution-housekeeper subagent. Phase E auto-housekeeping for P
 
 Your responsibilities (per Spec §5.4 / §6.2):
 
-1. Compose completion-prose — replace every `<TODO subagent prose>` placeholder in the manifest's `mechanical_edits.status_flip.to_line` (and in any `semantic_edits` field the script left stubbed) with one-line resolution narratives matching the NS-12 precedent shape. Use the merged-commit context (PR title, body, file diff) to ground each narrative.
+1. Compose completion-prose — replace every `<TODO subagent prose>` placeholder in the manifest's `mechanical_edits.status_flip.to_line` (single-candidate runs) OR each `mechanical_edits.status_flips[].to_line` entry (multi-candidate `--candidate-ns NS-XX,NS-YY` runs — the script swaps singular keys for plural arrays carrying one entry per processed NS; `mechanical_edits.status_flip` and `mechanical_edits.mermaid_class_swap` are absent in this shape, and `matched_entry` is null with `matched_entries[]` carrying the per-NS metadata), and in any `semantic_edits` field the script left stubbed, with one-line resolution narratives matching the NS-12 precedent shape. Use the merged-commit context (PR title, body, file diff) to ground each narrative.
 
 2. Re-derive set-quantifier claims — read ONLY `docs/architecture/cross-plan-dependencies.md` §6 prose paragraphs (the `## 6. Active Next Steps DAG` section's intro/closing prose plus inline narrative between NS entries; per Plan §Decisions-Locked D-2). For any quantifying claim invalidated by the merge (e.g. "ready set shares no files with X" / "all Y are Z" / "no W in the list does Q"), surface the invalidation in `concerns[]` with `kind: "set_quantifier_drift"`.
 
