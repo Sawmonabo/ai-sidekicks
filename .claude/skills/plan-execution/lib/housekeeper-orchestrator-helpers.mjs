@@ -616,3 +616,97 @@ function walkForPlaceholder(value, path, onHit) {
     for (const [k, v] of Object.entries(value)) walkForPlaceholder(v, [...path, k], onHit);
   }
 }
+
+/**
+ * Decide whether Phase E should dispatch the housekeeper subagent or halt to
+ * the user, based on the script's exit code.
+ *
+ * Codex P1 PR #33 (thread `PRRT_kwDOSCycWc6ANGCa`): SKILL.md Phase E step 4
+ * dispatched the subagent unconditionally after manifest validation, but
+ * `references/post-merge-housekeeper-contract.md` § Exit codes classifies several
+ * exits as orchestrator-stage halts (operator action required, NOT subagent
+ * work). Dispatching over a malformed/absent manifest routes a script crash or
+ * orchestrator misdispatch into subagent-stage handling, where the LLM is
+ * forced to interpret garbage and emit a `RESULT:` tag based on hallucinated
+ * state — incorrect routing + wasted round-trips, instead of surfacing the
+ * required halt to the user.
+ *
+ * This helper is the single source of truth for the dispatch/halt mapping.
+ * SKILL.md step 4, the contract's § Exit codes table, and any future audit
+ * script all delegate here so the mapping cannot drift across surfaces.
+ *
+ * Mapping (per § Exit codes):
+ *   - 0  success                             → dispatch (happy path)
+ *   - 1  --candidate-ns NS-XX not found      → HALT (orchestrator misdispatch)
+ *   - 2  candidate verification failed       → dispatch (subagent surfaces BLOCKED)
+ *   - 3  Done Checklist absent / fully ticked → dispatch (semantic work still applies)
+ *   - 4  multi-PR shape, --task arg missing  → HALT (orchestrator misdispatch)
+ *   - 5  schema_violations                   → dispatch (subagent surfaces BLOCKED)
+ *   - ≥6 crash / IO error / arg-validation   → HALT (script crash)
+ *
+ * Defensive fallback: any exit code outside the documented set (negative,
+ * non-integer, NaN) returns `halt` with `exitClass: "unknown-exit-code"`. The
+ * default-deny posture is intentional — dispatching the subagent over an
+ * unrecognized state is the bug class this helper exists to prevent.
+ *
+ * The `surfacePromptTemplate` on halt-states is the verbatim user-facing
+ * message the orchestrator should relay (mirrors `detectAffectedFilesSprawl`'s
+ * `redispatchPromptTemplate` pattern — halt-prose encoded in code, not
+ * paraphrased on the fly).
+ *
+ * @param {{ scriptExitCode: number }} opts
+ * @returns {{ action: "dispatch", exitClass: "subagent-handled" }
+ *          | { action: "halt", exitClass: "orchestrator-misdispatch" | "script-crash" | "unknown-exit-code", reason: string, surfacePromptTemplate: string }}
+ */
+export function decideHousekeeperRouting({ scriptExitCode }) {
+  if (
+    scriptExitCode === 0 ||
+    scriptExitCode === 2 ||
+    scriptExitCode === 3 ||
+    scriptExitCode === 5
+  ) {
+    return { action: "dispatch", exitClass: "subagent-handled" };
+  }
+
+  if (scriptExitCode === 1 || scriptExitCode === 4) {
+    const reason =
+      scriptExitCode === 1
+        ? "exit 1 — `--candidate-ns NS-XX` not found in `docs/architecture/cross-plan-dependencies.md` §6 (orchestrator dispatched the script with an NS that does not exist in the catalog)"
+        : "exit 4 — candidate has multi-PR shape but `--task <task-id>` arg was missing (orchestrator dispatched `--candidate-ns` mode without the required task selector for a multi-PR entry)";
+    return {
+      action: "halt",
+      exitClass: "orchestrator-misdispatch",
+      reason,
+      surfacePromptTemplate:
+        `Phase E aborted: script returned exit ${scriptExitCode} — orchestrator misdispatch. ${reason}. ` +
+        `Operator action required: re-run Phase E step 1 (candidate-lookup) with corrected flags. ` +
+        `Do NOT dispatch the housekeeper subagent — the manifest reflects a dispatch bug, not semantic work.`,
+    };
+  }
+
+  if (
+    typeof scriptExitCode === "number" &&
+    Number.isInteger(scriptExitCode) &&
+    scriptExitCode >= 6
+  ) {
+    return {
+      action: "halt",
+      exitClass: "script-crash",
+      reason: `exit ${scriptExitCode} — script crash / IO error / arg-validation failure (per contract § Exit codes ≥6)`,
+      surfacePromptTemplate:
+        `Phase E aborted: script returned exit ${scriptExitCode} — crash / IO error / arg-validation failure. ` +
+        `Inspect script stderr + manifest at \`.agents/tmp/housekeeper-manifest-PR<N>.json\` (manifest may be malformed or absent). ` +
+        `Operator action required — do NOT dispatch the housekeeper subagent over a crashed script's output.`,
+    };
+  }
+
+  return {
+    action: "halt",
+    exitClass: "unknown-exit-code",
+    reason: `unrecognized script exit code: ${scriptExitCode} (contract § Exit codes documents 0-5 and ≥6 only)`,
+    surfacePromptTemplate:
+      `Phase E aborted: script returned unrecognized exit code \`${scriptExitCode}\`. ` +
+      `Contract § Exit codes documents 0-5 and ≥6 only. ` +
+      `Inspect script source for an undocumented exit path or manifest tampering. Operator action required.`,
+  };
+}

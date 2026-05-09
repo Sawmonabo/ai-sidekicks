@@ -9,6 +9,7 @@ import {
   buildHousekeeperPrompt,
   validateManifestSubagentStage,
   detectAffectedFilesSprawl,
+  decideHousekeeperRouting,
 } from "../../lib/housekeeper-orchestrator-helpers.mjs";
 import { emitManifest } from "../post-merge-housekeeper.mjs";
 
@@ -1619,6 +1620,85 @@ test("I-2 invariant: plan-execution-housekeeper.md declares ONLY the four canoni
       `I-2 invariant violated: subagent definition does not declare canonical exit-state "${state}"`,
     );
   }
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// decideHousekeeperRouting — Codex P1 PR #33 (`PRRT_kwDOSCycWc6ANGCa`)
+//
+// SKILL.md Phase E step 4 dispatched the housekeeper subagent unconditionally
+// after manifest validation, but the contract classifies several script exits
+// as orchestrator-stage halts (operator action required, NOT subagent work).
+// These tests pin the dispatch/halt mapping so a future drift in either the
+// helper or the contract surfaces as a test failure rather than a runtime
+// misroute. One test per documented exit class plus a defensive-fallback test.
+// ───────────────────────────────────────────────────────────────────────────
+
+test("decideHousekeeperRouting: exit 0 (success) → dispatch (Codex F-AMNGCa)", () => {
+  const r = decideHousekeeperRouting({ scriptExitCode: 0 });
+  assert.equal(r.action, "dispatch");
+  assert.equal(r.exitClass, "subagent-handled");
+});
+
+test("decideHousekeeperRouting: exit 1 (--candidate-ns NS-XX not found) → halt orchestrator-misdispatch", () => {
+  const r = decideHousekeeperRouting({ scriptExitCode: 1 });
+  assert.equal(r.action, "halt");
+  assert.equal(r.exitClass, "orchestrator-misdispatch");
+  assert.match(r.reason, /not found/);
+  assert.match(r.surfacePromptTemplate, /Do NOT dispatch/);
+});
+
+test("decideHousekeeperRouting: exit 2 (verification failed) → dispatch (subagent surfaces BLOCKED)", () => {
+  const r = decideHousekeeperRouting({ scriptExitCode: 2 });
+  assert.equal(r.action, "dispatch");
+  assert.equal(r.exitClass, "subagent-handled");
+});
+
+test("decideHousekeeperRouting: exit 3 (Done Checklist absent / fully ticked) → dispatch (semantic work still applies)", () => {
+  const r = decideHousekeeperRouting({ scriptExitCode: 3 });
+  assert.equal(r.action, "dispatch");
+  assert.equal(r.exitClass, "subagent-handled");
+});
+
+test("decideHousekeeperRouting: exit 4 (multi-PR shape, --task arg missing) → halt orchestrator-misdispatch", () => {
+  const r = decideHousekeeperRouting({ scriptExitCode: 4 });
+  assert.equal(r.action, "halt");
+  assert.equal(r.exitClass, "orchestrator-misdispatch");
+  assert.match(r.reason, /multi-PR/);
+  assert.match(r.surfacePromptTemplate, /Do NOT dispatch/);
+});
+
+test("decideHousekeeperRouting: exit 5 (schema_violations) → dispatch (subagent surfaces BLOCKED)", () => {
+  const r = decideHousekeeperRouting({ scriptExitCode: 5 });
+  assert.equal(r.action, "dispatch");
+  assert.equal(r.exitClass, "subagent-handled");
+});
+
+test("decideHousekeeperRouting: exit 6 (script crash boundary) → halt script-crash", () => {
+  const r = decideHousekeeperRouting({ scriptExitCode: 6 });
+  assert.equal(r.action, "halt");
+  assert.equal(r.exitClass, "script-crash");
+  assert.match(r.reason, /crash/);
+  assert.match(r.surfacePromptTemplate, /crashed script/);
+});
+
+test("decideHousekeeperRouting: exit 137 (killed by SIGKILL — common crash) → halt script-crash", () => {
+  const r = decideHousekeeperRouting({ scriptExitCode: 137 });
+  assert.equal(r.action, "halt");
+  assert.equal(r.exitClass, "script-crash");
+});
+
+test("decideHousekeeperRouting: defensive fallback for unrecognized exit (negative integer) → halt unknown-exit-code", () => {
+  const r = decideHousekeeperRouting({ scriptExitCode: -1 });
+  assert.equal(r.action, "halt");
+  assert.equal(r.exitClass, "unknown-exit-code");
+  assert.match(r.reason, /unrecognized/);
+  assert.match(r.surfacePromptTemplate, /Operator action required/);
+});
+
+test("decideHousekeeperRouting: defensive fallback for non-integer exit (e.g. NaN) → halt unknown-exit-code (not dispatch)", () => {
+  const r = decideHousekeeperRouting({ scriptExitCode: NaN });
+  assert.equal(r.action, "halt");
+  assert.equal(r.exitClass, "unknown-exit-code");
 });
 
 test("I-3 invariant: post-merge-housekeeper.mjs does NOT import child_process or shell out for git", () => {

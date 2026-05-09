@@ -102,6 +102,21 @@ Exit codes:  0  success
              ≥6 crash / IO error / arg-validation failure
 ```
 
+**Dispatch / halt routing.** The orchestrator does NOT dispatch the housekeeper subagent on every exit code. The mapping is encoded in `lib/housekeeper-orchestrator-helpers.mjs` → `decideHousekeeperRouting({ scriptExitCode })` and pinned by 10 unit tests in `scripts/__tests__/post-merge-housekeeper-orchestrator-helpers.test.mjs`. SKILL.md Phase E step 4 calls the helper and switches on the returned `action`:
+
+| Exit | `action` | `exitClass` | Rationale |
+| --- | --- | --- | --- |
+| 0 | `dispatch` | `subagent-handled` | success — subagent completes semantic work |
+| 1 | `halt` | `orchestrator-misdispatch` | NS-XX not in §6 — orchestrator dispatched with bad flags |
+| 2 | `dispatch` | `subagent-handled` | verification failed — subagent surfaces `verification_failures` as BLOCKED |
+| 3 | `dispatch` | `subagent-handled` | no checklist to tick — semantic work (set-quantifier reverification etc.) still applies |
+| 4 | `halt` | `orchestrator-misdispatch` | multi-PR shape, `--task` arg missing — orchestrator dispatch bug |
+| 5 | `dispatch` | `subagent-handled` | schema_violations — subagent surfaces as BLOCKED |
+| ≥6 | `halt` | `script-crash` | crash / IO / arg-validation — script-stage failure, operator inspects stderr |
+| (other) | `halt` | `unknown-exit-code` | defensive fallback — default-deny posture |
+
+**Why a helper, not prose.** Codex P1 PR #33 (thread `PRRT_kwDOSCycWc6ANGCa`): an unconditional dispatch routes a script-stage crash or orchestrator misdispatch into the subagent, where the LLM is forced to interpret a malformed/absent manifest and emit a `RESULT:` tag based on hallucinated state — incorrect routing + wasted round-trips. Encoding the mapping in a tested helper (rather than re-deriving it from prose each Phase E run) prevents the prose-to-runtime drift this bug class exploits, mirrors the F-AMP7Y / F-AMSEL / F-AMWXK / F-AMbIV pattern (move enforcement OUT of prose, INTO validators with unit tests), and makes future audit scripts delegate to the same source.
+
 ## Validation invariants
 
 **Validation invariants (orchestrator):**
