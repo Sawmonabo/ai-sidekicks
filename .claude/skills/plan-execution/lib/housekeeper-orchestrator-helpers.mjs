@@ -259,27 +259,62 @@ export function validateManifestSubagentStage({
       ? safeFromManifest.semantic_work_pending
       : null);
 
-  // Codex P1 PR #33 (thread `Axg-z`): sanitize manifest.schema_violations
-  // ONCE here so every downstream loop iterates a known-good array. Two
-  // distinct loops dereference each entry's `kind`/`field`/`ns_id`:
-  //   - reconciliation loop (~line 423): each violation must surface as a
-  //     concerns entry with matching kind+field+ns_id
-  //   - preservation loop (~line 522): build a Set of subagent-emitted
-  //     keys to verify the script-stage snapshot survives
-  // Without this single-point sanitization, a tampered manifest with `null`
-  // or non-object entries would crash the FIRST loop with TypeError before
-  // the second could surface the structural-tampering gap. Filter once,
-  // surface tampering once, iterate clean everywhere.
-  const cleanedSchemaViolations = [];
-  for (const [idx, v] of (manifest.schema_violations ?? []).entries()) {
-    if (v == null || typeof v !== "object" || Array.isArray(v)) {
-      gaps.push(
-        `manifest.schema_violations[${idx}] is not an object (got ${v === null ? "null" : Array.isArray(v) ? "array" : typeof v}); subagent contract requires {kind, field?, ns_id?} object entries (Codex F-Axg-z)`,
-      );
-      continue;
-    }
-    cleanedSchemaViolations.push(v);
-  }
+  // Codex P1 PR #33 (threads `Axg-z` / `AxkNI` / `AxkNJ`): sanitize each
+  // manifest array field ONCE here so every downstream loop iterates a
+  // known-good array. Three distinct bug surfaces close in this single block:
+  //
+  //   1. Container-type tampering (`AxkNI`): subagent emits an OBJECT or
+  //      scalar instead of an array. Pre-fix `(field ?? []).entries()` /
+  //      `.some()` / `.map()` throws "is not a function". Treat as empty
+  //      and surface a structural-tampering gap.
+  //   2. Element-shape tampering (`Axg-z` / `AxkNJ`): subagent emits an
+  //      array but elements are null/scalars/arrays instead of objects.
+  //      Downstream loops dereference `.kind`/`.field`/`.addressing` and
+  //      throw TypeError. Filter to objects; surface a structural-tampering
+  //      gap per bad entry; iterate the cleaned set everywhere downstream.
+  //
+  // For arrays of plain strings (affected_files), only container-type +
+  // element string-type matter (handled in the existing affected_files
+  // loop with idx-keyed gaps). For arrays of objects (schema_violations,
+  // concerns, verification_failures), both axes apply.
+  //
+  // The `sanitizeObjectArrayField` helper centralizes the gating so a future
+  // contract-defined object-array field (or any callsite that re-iterates
+  // these fields) cannot reintroduce the bug class. Pre-fix, six call sites
+  // shared the same `(manifest.X ?? []).method()` shape; post-fix, every
+  // consumer iterates the helper's `cleaned*` output and the class is
+  // structurally closed.
+  const cleanedSchemaViolations = sanitizeObjectArrayField(
+    manifest.schema_violations,
+    "manifest.schema_violations",
+    "{kind, field?, ns_id?}",
+    "Codex F-Axg-z",
+    gaps,
+  );
+  const cleanedConcerns = sanitizeObjectArrayField(
+    manifest.concerns,
+    "manifest.concerns",
+    "{kind, addressing, ...}",
+    "Codex F-AxkNJ",
+    gaps,
+  );
+  const cleanedVerificationFailures = sanitizeObjectArrayField(
+    manifest.verification_failures,
+    "manifest.verification_failures",
+    "{kind, ...}",
+    "Codex F-AxkNI",
+    gaps,
+  );
+  // affected_files is the only array field whose elements are STRINGS, not
+  // objects — its container-type guard lives inline at the dedicated loop
+  // (line ~360) so the existing string-shape gap message stays adjacent to
+  // the path-containment + existsSync chain that consumes each entry.
+  const cleanedAffectedFiles = sanitizeStringArrayField(
+    manifest.affected_files,
+    "manifest.affected_files",
+    "Codex F-AxkNI",
+    gaps,
+  );
 
   // Check #1 — canonical exit-state enforcement (Codex P2 PR #33 R4 / Finding 7).
   // Plan Invariant I-2: subagent MUST return one of {DONE, DONE_WITH_CONCERNS,
@@ -334,7 +369,7 @@ export function validateManifestSubagentStage({
         Object.prototype.hasOwnProperty.call(manifest.semantic_edits, item);
       const editValue = manifest.semantic_edits?.[item];
       const inEdits = keyPresent && isMeaningfulPayload(editValue);
-      const inConcerns = (manifest.concerns ?? []).some((c) => c.addressing === item);
+      const inConcerns = cleanedConcerns.some((c) => c.addressing === item);
       if (!inEdits && !inConcerns) {
         if (keyPresent) {
           // Differentiated gap: key is there but value is empty — more informative for
@@ -351,7 +386,7 @@ export function validateManifestSubagentStage({
     }
   }
 
-  for (const [idx, path] of (manifest.affected_files ?? []).entries()) {
+  for (const [idx, path] of cleanedAffectedFiles.entries()) {
     // Codex P1 PR #33 (thread `Axg-w`): defensive type-check BEFORE forwarding
     // to assertRepoRelative — its first call is `isAbsolute(path)`, which
     // throws TypeError on non-string input (null, number, object). A tampered
@@ -443,7 +478,7 @@ export function validateManifestSubagentStage({
   // that the script emits as singletons without `field`/`ns_id`. By requiring kind
   // alignment, distinct-kind violations cannot share a concern.
   for (const sv of cleanedSchemaViolations) {
-    const matched = (manifest.concerns ?? []).some((c) => {
+    const matched = cleanedConcerns.some((c) => {
       if (c.kind !== sv.kind) return false;
       if (c.field !== sv.field) return false;
       if (sv.ns_id !== undefined && c.ns_id !== sv.ns_id) return false;
@@ -512,7 +547,7 @@ export function validateManifestSubagentStage({
   // contract violation (the subagent may not narrow scope; it may only justify
   // expansion via `affected_files_extension`).
   if (Array.isArray(effScriptAffectedFiles)) {
-    const subagentSet = new Set(manifest.affected_files ?? []);
+    const subagentSet = new Set(cleanedAffectedFiles);
     for (const path of effScriptAffectedFiles) {
       if (!subagentSet.has(path)) {
         gaps.push(
@@ -565,7 +600,7 @@ export function validateManifestSubagentStage({
   // mismatch / multi_pr_task_not_in_block.
   if (Array.isArray(effScriptVerificationFailures)) {
     const failureKey = (f) => JSON.stringify(f, Object.keys(f).sort());
-    const subagentFailureKeys = new Set((manifest.verification_failures ?? []).map(failureKey));
+    const subagentFailureKeys = new Set(cleanedVerificationFailures.map(failureKey));
     for (const vf of effScriptVerificationFailures) {
       if (!subagentFailureKeys.has(failureKey(vf))) {
         gaps.push(
@@ -637,6 +672,84 @@ export function detectAffectedFilesSprawl({ manifestAffectedFiles, gitDiffFiles 
  * @param {unknown} value
  * @returns {boolean}
  */
+/**
+ * Sanitize a manifest array field whose elements are expected to be plain
+ * objects. Surfaces structural-tampering gaps to `gaps` for two failure
+ * modes that Array.isArray()-only structural checks miss:
+ *
+ *   1. Container-type tampering (Codex F-AxkNI) — `manifest.field` is an
+ *      object/scalar/null instead of an array. Pre-fix, downstream
+ *      `(field ?? []).method()` patterns threw "is not a function". Post-fix,
+ *      the helper returns `[]` and surfaces ONE container-type gap.
+ *   2. Element-shape tampering (Codex F-Axg-z / F-AxkNJ) — array elements are
+ *      null/scalars/arrays instead of plain objects. Pre-fix, downstream
+ *      loops dereferenced `.kind`/`.field`/`.addressing` and threw TypeError.
+ *      Post-fix, each bad element gets an idx-keyed structural-tampering gap
+ *      and is filtered out of the returned cleaned array.
+ *
+ * The `pretendShape` parameter is the contract-anchored hint used in the
+ * gap message (e.g., "{kind, field?, ns_id?}") so the Reviewer / re-dispatched
+ * subagent sees the EXPECTED element shape inline with the violation.
+ *
+ * The `findingTag` parameter is the Codex review-thread suffix (e.g.,
+ * "Codex F-Axg-z") that closes the loop from the gap message back to the
+ * originating finding for triage.
+ *
+ * Side-effect: pushes gaps to `gaps`. Returns: cleaned array of plain objects.
+ *
+ * @param {unknown} field
+ * @param {string} fieldLabel - dotted manifest path used in gap messages
+ * @param {string} pretendShape - contract-anchored shape hint
+ * @param {string} findingTag - Codex finding suffix to cite
+ * @param {string[]} gaps - mutable gap array (side-effect target)
+ * @returns {object[]}
+ */
+function sanitizeObjectArrayField(field, fieldLabel, pretendShape, findingTag, gaps) {
+  if (field === undefined || field === null) return [];
+  if (!Array.isArray(field)) {
+    gaps.push(
+      `${fieldLabel} is not an array (got ${field === null ? "null" : typeof field}); subagent contract requires an array of ${pretendShape} entries (${findingTag})`,
+    );
+    return [];
+  }
+  const cleaned = [];
+  for (const [idx, v] of field.entries()) {
+    if (v == null || typeof v !== "object" || Array.isArray(v)) {
+      gaps.push(
+        `${fieldLabel}[${idx}] is not an object (got ${v === null ? "null" : Array.isArray(v) ? "array" : typeof v}); subagent contract requires ${pretendShape} object entries (${findingTag})`,
+      );
+      continue;
+    }
+    cleaned.push(v);
+  }
+  return cleaned;
+}
+
+/**
+ * Sanitize a manifest array field whose elements are expected to be strings.
+ * Same threat model as `sanitizeObjectArrayField` but for string-element
+ * arrays (e.g., `manifest.affected_files`). Returns the cleaned array of
+ * strings; per-element string-type gaps are pushed by the consumer loop
+ * (which carries additional path-containment / existsSync context inline)
+ * so this helper only handles the container-type axis.
+ *
+ * @param {unknown} field
+ * @param {string} fieldLabel
+ * @param {string} findingTag
+ * @param {string[]} gaps
+ * @returns {unknown[]}
+ */
+function sanitizeStringArrayField(field, fieldLabel, findingTag, gaps) {
+  if (field === undefined || field === null) return [];
+  if (!Array.isArray(field)) {
+    gaps.push(
+      `${fieldLabel} is not an array (got ${field === null ? "null" : typeof field}); subagent contract requires an array of string entries (${findingTag})`,
+    );
+    return [];
+  }
+  return field;
+}
+
 function isMeaningfulPayload(value) {
   if (value === null || value === undefined) return false;
   if (typeof value === "string") return value.trim().length > 0;

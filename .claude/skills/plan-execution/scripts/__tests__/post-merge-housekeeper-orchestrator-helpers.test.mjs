@@ -2032,6 +2032,177 @@ test("validateManifestSubagentStage: returns gap (not crash) when manifest.schem
   assert.match(tamperingGaps[2], /\(got array\)/);
 });
 
+// ──────────────────────────────────────────────────────────────────────────
+// Class-level container-type + element-shape sanitization
+// (Codex P1 PR #33 threads `AxkNI` / `AxkNJ`)
+//
+// Bug class: `(manifest.X ?? []).method()` patterns at 6 callsites assumed
+// every array field was either an array or absent. Two sub-classes:
+//   - container-type: subagent emits an OBJECT/scalar where an array is
+//     expected; .entries()/.some()/.map() throws "is not a function".
+//   - element-shape (non-string-element fields): subagent emits an array
+//     but elements are null/scalars; downstream loops dereference fields
+//     (.kind/.field/.addressing) and throw TypeError.
+//
+// Class-level fix consolidates ALL element-shape + container-type gating
+// in one block at the top of validateManifestSubagentStage via
+// sanitizeObjectArrayField + sanitizeStringArrayField helpers. Every
+// downstream consumer iterates the cleaned array; tampering surfaces as
+// gaps with idx-keyed locality and a contract-anchored shape hint.
+// ──────────────────────────────────────────────────────────────────────────
+
+test("validateManifestSubagentStage: returns gap (not crash) when schema_violations is an object (Codex F-AxkNI container-type)", () => {
+  const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
+    semantic_work_pending: [],
+    semantic_edits: {},
+    concerns: [],
+    schema_violations: {},
+    affected_files: [],
+    result: "DONE",
+  };
+  const result = validateManifestSubagentStage({ manifest });
+  assert.equal(result.valid, false);
+  assert.ok(
+    result.gaps.some((g) => /^manifest\.schema_violations is not an array \(got object\)/.test(g)),
+    `expected container-type gap; got ${JSON.stringify(result.gaps)}`,
+  );
+  assert.ok(
+    result.gaps.some((g) => /Codex F-Axg-z/.test(g)),
+    `expected F-Axg-z citation; got ${JSON.stringify(result.gaps)}`,
+  );
+});
+
+test("validateManifestSubagentStage: returns gap (not crash) when affected_files is an object (Codex F-AxkNI container-type)", () => {
+  const tmpRepo = mkdtempSync(join(tmpdir(), "validate-affected-obj-"));
+  try {
+    const manifest = {
+      _script_stage: {
+        affected_files: [],
+        schema_violations: [],
+        verification_failures: [],
+        semantic_work_pending: [],
+      },
+      semantic_work_pending: [],
+      semantic_edits: {},
+      concerns: [],
+      schema_violations: [],
+      affected_files: { not: "an array" },
+      result: "DONE",
+    };
+    const result = validateManifestSubagentStage({ manifest, repoRoot: tmpRepo });
+    assert.equal(result.valid, false);
+    assert.ok(
+      result.gaps.some((g) => /^manifest\.affected_files is not an array \(got object\)/.test(g)),
+      `expected container-type gap; got ${JSON.stringify(result.gaps)}`,
+    );
+  } finally {
+    rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test("validateManifestSubagentStage: returns gap (not crash) when concerns contains null entry (Codex F-AxkNJ element-shape)", () => {
+  // Pre-fix: `(manifest.concerns ?? []).some(c => c.addressing === item)`
+  // dereferenced `null.addressing` and threw TypeError. Post-fix:
+  // sanitizeObjectArrayField surfaces a structural-tampering gap per bad
+  // entry; the inConcerns lookup runs against the cleaned array. The
+  // tampered concerns array must NOT mask the canonical
+  // semantic_work_pending reconciliation gap.
+  const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
+    semantic_work_pending: ["compose_status_completion_prose"],
+    semantic_edits: {},
+    concerns: [null],
+    schema_violations: [],
+    affected_files: [],
+    result: "DONE",
+  };
+  const result = validateManifestSubagentStage({ manifest });
+  assert.equal(result.valid, false);
+  assert.ok(
+    result.gaps.some((g) => /^manifest\.concerns\[0\] is not an object \(got null\)/.test(g)),
+    `expected element-shape gap; got ${JSON.stringify(result.gaps)}`,
+  );
+  assert.ok(
+    result.gaps.some((g) => /Codex F-AxkNJ/.test(g)),
+    `expected F-AxkNJ citation; got ${JSON.stringify(result.gaps)}`,
+  );
+  assert.ok(
+    result.gaps.some((g) =>
+      /^compose_status_completion_prose listed in semantic_work_pending but absent/.test(g),
+    ),
+    `expected completion-pairing gap to still fire after element-shape skip; got ${JSON.stringify(result.gaps)}`,
+  );
+});
+
+test("validateManifestSubagentStage: returns gap (not crash) when concerns is a scalar (Codex F-AxkNJ container-type)", () => {
+  const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
+    semantic_work_pending: [],
+    semantic_edits: {},
+    concerns: "not an array",
+    schema_violations: [],
+    affected_files: [],
+    result: "DONE",
+  };
+  const result = validateManifestSubagentStage({ manifest });
+  assert.equal(result.valid, false);
+  assert.ok(
+    result.gaps.some((g) => /^manifest\.concerns is not an array \(got string\)/.test(g)),
+    `expected container-type gap; got ${JSON.stringify(result.gaps)}`,
+  );
+});
+
+test("validateManifestSubagentStage: returns gap (not crash) when verification_failures contains null (Codex F-AxkNI element-shape)", () => {
+  // Pre-fix: `(manifest.verification_failures ?? []).map(failureKey)` and
+  // `JSON.stringify(f, Object.keys(f).sort())` both crash on null.
+  // Post-fix: cleaned array filters tampering; F-AMSEL preservation check
+  // still fires on the unpreserved script-stage entry (proves the bad-
+  // element skip doesn't mask script-stage preservation enforcement).
+  const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [{ kind: "type_signature_mismatch", colliding_with: "Plan-007" }],
+      semantic_work_pending: [],
+    },
+    semantic_work_pending: [],
+    semantic_edits: {},
+    concerns: [],
+    schema_violations: [],
+    affected_files: [],
+    verification_failures: [null],
+    result: "BLOCKED",
+  };
+  const result = validateManifestSubagentStage({ manifest });
+  assert.equal(result.valid, false);
+  assert.ok(
+    result.gaps.some((g) =>
+      /^manifest\.verification_failures\[0\] is not an object \(got null\)/.test(g),
+    ),
+    `expected element-shape gap; got ${JSON.stringify(result.gaps)}`,
+  );
+  assert.ok(
+    result.gaps.some((g) => g.includes("F-AMSEL") && g.includes("type_signature_mismatch")),
+    `expected F-AMSEL preservation gap to still fire after element-shape skip; got ${JSON.stringify(result.gaps)}`,
+  );
+});
+
 test("I-3 invariant: post-merge-housekeeper.mjs does NOT import child_process or shell out for git", () => {
   const src = readFileSync(
     ".claude/skills/plan-execution/scripts/post-merge-housekeeper.mjs",
