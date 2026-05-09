@@ -2200,6 +2200,47 @@ test("validateManifestSubagentStage: returns gap (not crash) when verification_f
   );
 });
 
+test("validateManifestSubagentStage: returns gap (not crash) when semantic_work_pending is an object (container-type, missed call-site of object-array bug class on the spread)", () => {
+  // Pre-fix: `[...effScriptSemanticWorkPending, ...(manifest.semantic_work_pending ?? [])]`
+  // crashes "object is not iterable" when subagent tampers the field with a
+  // non-array (`??` only coalesces null/undefined). This is a missed call-site
+  // of the same bug class the sanitize helpers already cover for the object-
+  // array fields, applied at the spread surface instead of a method call.
+  // Post-fix: cleanedSemanticWorkPending sanitizes upstream; the union spread
+  // proceeds against the cleaned array; the script-stage snapshot still
+  // surfaces unaddressed pending work via the canonical pairing iteration.
+  // The second assertion is load-bearing — it proves a tampered live field
+  // doesn't mask the preservation contract the validator exists to enforce.
+  const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: ["compose_status_completion_prose"],
+    },
+    semantic_work_pending: { not: "an array" },
+    semantic_edits: {},
+    concerns: [],
+    schema_violations: [],
+    affected_files: [],
+    result: "DONE",
+  };
+  const result = validateManifestSubagentStage({ manifest });
+  assert.equal(result.valid, false);
+  assert.ok(
+    result.gaps.some((g) =>
+      /^manifest\.semantic_work_pending is not an array \(got object\)/.test(g),
+    ),
+    `expected container-type gap; got ${JSON.stringify(result.gaps)}`,
+  );
+  assert.ok(
+    result.gaps.some((g) =>
+      /^compose_status_completion_prose listed in semantic_work_pending but absent/.test(g),
+    ),
+    `expected script-stage pending item to still surface as unaddressed after manifest-side sanitize; got ${JSON.stringify(result.gaps)}`,
+  );
+});
+
 test("I-3 invariant: post-merge-housekeeper.mjs does NOT import child_process or shell out for git", () => {
   const src = readFileSync(
     ".claude/skills/plan-execution/scripts/post-merge-housekeeper.mjs",

@@ -305,6 +305,19 @@ export function validateManifestSubagentStage({
     "manifest.affected_files",
     gaps,
   );
+  // Same bug class as the object-array sanitizes above, applied to the
+  // semantic_work_pending union below. The downstream `[...effScript, ...manifest]`
+  // spread expands a non-iterable manifest field into "object is not iterable" at
+  // runtime — `??` only coalesces null/undefined. Sanitize ONLY the manifest side
+  // (untrusted subagent output); `effScriptSemanticWorkPending` is upstream-resolved
+  // via Array.isArray so the spread on the script side is safe by construction —
+  // do NOT symmetry-sanitize the script side or the trusted-vs-untrusted distinction
+  // collapses.
+  const cleanedSemanticWorkPending = sanitizeStringArrayField(
+    manifest.semantic_work_pending,
+    "manifest.semantic_work_pending",
+    gaps,
+  );
 
   // Check #1 — canonical exit-state enforcement.
   // Plan Invariant I-2: subagent MUST return one of {DONE, DONE_WITH_CONCERNS,
@@ -344,12 +357,9 @@ export function validateManifestSubagentStage({
     const pendingItems =
       effScriptSemanticWorkPending != null
         ? Array.from(
-            new Set([
-              ...(effScriptSemanticWorkPending ?? []),
-              ...(manifest.semantic_work_pending ?? []),
-            ]),
+            new Set([...(effScriptSemanticWorkPending ?? []), ...cleanedSemanticWorkPending]),
           )
-        : (manifest.semantic_work_pending ?? []);
+        : cleanedSemanticWorkPending;
     for (const item of pendingItems) {
       // hasOwnProperty alone admits shapes like
       // `semantic_edits.compose_status_completion_prose = undefined` — key-present
