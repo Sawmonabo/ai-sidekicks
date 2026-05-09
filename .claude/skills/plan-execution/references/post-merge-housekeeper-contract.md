@@ -115,7 +115,7 @@ Exit codes:  0  success
 | ≥6 | `halt` | `script-crash` | crash / IO / arg-validation — script-stage failure, operator inspects stderr |
 | (other) | `halt` | `unknown-exit-code` | defensive fallback — default-deny posture |
 
-**Why a helper, not prose.** Codex P1 PR #33 (thread `PRRT_kwDOSCycWc6ANGCa`): an unconditional dispatch routes a script-stage crash or orchestrator misdispatch into the subagent, where the LLM is forced to interpret a malformed/absent manifest and emit a `RESULT:` tag based on hallucinated state — incorrect routing + wasted round-trips. Encoding the mapping in a tested helper (rather than re-deriving it from prose each Phase E run) prevents the prose-to-runtime drift this bug class exploits, mirrors the F-AMP7Y / F-AMSEL / F-AMWXK / F-AMbIV pattern (move enforcement OUT of prose, INTO validators with unit tests), and makes future audit scripts delegate to the same source.
+**Why a helper, not prose.** An unconditional dispatch routes a script-stage crash or orchestrator misdispatch into the subagent, where the LLM is forced to interpret a malformed/absent manifest and emit a `RESULT:` tag based on hallucinated state — incorrect routing + wasted round-trips. Encoding the mapping in a tested helper (rather than re-deriving it from prose each Phase E run) prevents the prose-to-runtime drift this bug class exploits, follows the same encoding-in-code pattern the validator's preservation/iteration checks use (move enforcement OUT of prose, INTO validators with unit tests), and makes future audit scripts delegate to the same source.
 
 ## Validation invariants
 
@@ -126,11 +126,11 @@ Exit codes:  0  success
 
 If validation fails, orchestrator halts Phase E and surfaces the gap (script-stage failure) OR round-trips to the subagent (subagent-stage failure).
 
-### `_script_stage` immutability (Codex F-AMbIV)
+### `_script_stage` immutability
 
 `manifest._script_stage` is the script-embedded immutable snapshot of the four arrays the subagent could otherwise empty to bypass preservation/iteration enforcement: `affected_files`, `schema_violations`, `verification_failures`, `semantic_work_pending`. The script writes this field at script-stage; the validator reads it at subagent-stage as the **A2 design** snapshot source — the orchestrator does NOT need to plumb the four `scriptXXX` params at every callsite for checks #7/#9/#10/#11 to enforce. Per-field precedence: explicit `scriptXXX` param > `manifest._script_stage[field]` > `null` (legacy fallback).
 
-**Subagent contract:** `_script_stage` is **READ-ONLY**. The subagent rewrites the manifest end-to-end but MUST preserve `_script_stage` byte-for-byte — touching it (removing the key, replacing with a non-object, swapping any of the four fields for non-array values) is itself a bypass attempt and surfaces in the validator's gap-collection path as a structural-tampering gap referencing `Codex F-AMbIV`. The structural check fires whenever ANY `scriptXXX` param is null (the validator-relies-on-snapshot path); when ALL four `scriptXXX` are passed (orchestrator-explicit-plumbing), the snapshot source is external and the structural check is skipped.
+**Subagent contract:** `_script_stage` is **READ-ONLY**. The subagent rewrites the manifest end-to-end but MUST preserve `_script_stage` byte-for-byte — touching it (removing the key, replacing with a non-object, swapping any of the four fields for non-array values) is itself a bypass attempt and surfaces in the validator's gap-collection path as a structural-tampering gap. The structural check fires whenever ANY `scriptXXX` param is null (the validator-relies-on-snapshot path); when ALL four `scriptXXX` are passed (orchestrator-explicit-plumbing), the snapshot source is external and the structural check is skipped.
 
 ## Recovery diagnostic
 
@@ -256,5 +256,5 @@ Hard rules:
 - Do NOT leave `<TODO subagent prose>` placeholders intact.
 - Do NOT read NS catalog item BODIES; the §6-prose-only constraint applies to the set-quantifier reverification surface (responsibility #2).
 - Do NOT confuse design-spec §6 ("Data flow") with `cross-plan-dependencies.md` §6 ("Active Next Steps DAG"); D-2 routes to the latter.
-- Do NOT touch `manifest._script_stage` (Codex F-AMbIV). It is the script-embedded immutable snapshot of the four arrays the validator enforces preservation/iteration on (`affected_files`, `schema_violations`, `verification_failures`, `semantic_work_pending`); when you rewrite the manifest, copy `_script_stage` through verbatim. Removing the key, replacing it with a non-object, or swapping any of its four fields for non-array values is itself a bypass attempt and surfaces in the validator as a structural-tampering gap.
+- Do NOT touch `manifest._script_stage`. It is the script-embedded immutable snapshot of the four arrays the validator enforces preservation/iteration on (`affected_files`, `schema_violations`, `verification_failures`, `semantic_work_pending`); when you rewrite the manifest, copy `_script_stage` through verbatim. Removing the key, replacing it with a non-object, or swapping any of its four fields for non-array values is itself a bypass attempt and surfaces in the validator as a structural-tampering gap.
 ```
