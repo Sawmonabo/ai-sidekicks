@@ -55,7 +55,7 @@ The plan-execution housekeeper subagent and its companion script (`scripts/post-
   ],
   "warnings": [],
   "_script_stage": {
-    "// IMMUTABLE script-stage snapshot — see §_script_stage immutability —": "",
+    "// script-stage snapshot — see §_script_stage snapshot + orchestrator plumbing —": "",
     "affected_files": [
       "docs/architecture/cross-plan-dependencies.md",
       "docs/plans/024-rust-pty-sidecar.md"
@@ -126,11 +126,13 @@ Exit codes:  0  success
 
 If validation fails, orchestrator halts Phase E and surfaces the gap (script-stage failure) OR round-trips to the subagent (subagent-stage failure).
 
-### `_script_stage` immutability
+### `_script_stage` snapshot + orchestrator plumbing
 
-`manifest._script_stage` is the script-embedded immutable snapshot of the four arrays the subagent could otherwise empty to bypass preservation/iteration enforcement: `affected_files`, `schema_violations`, `verification_failures`, `semantic_work_pending`. The script writes this field at script-stage; the validator reads it at subagent-stage as the **A2 design** snapshot source — the orchestrator does NOT need to plumb the four `scriptXXX` params at every callsite for checks #7/#9/#10/#11 to enforce. Per-field precedence: explicit `scriptXXX` param > `manifest._script_stage[field]` > `null` (legacy fallback).
+`manifest._script_stage` is the script-embedded snapshot of the four arrays the subagent could otherwise empty to bypass preservation/iteration enforcement: `affected_files`, `schema_violations`, `verification_failures`, `semantic_work_pending`. The script writes this field at script-stage; the orchestrator reads it at SKILL.md step 3 (BEFORE subagent dispatch), stores it in conversation memory, and MUST plumb that stored snapshot forward as the four `scriptXXX` params on every `validateManifestSubagentStage` call at subagent-stage. The orchestrator's stage-1 conversation-memory record IS the untamperable baseline — frozen in context before subagent dispatch, inaccessible to the dispatched subagent which runs in a separated context and cannot rewrite what the orchestrator already saw. Per-field precedence: explicit `scriptXXX` param > `manifest._script_stage[field]` > `null`.
 
-**Subagent contract:** `_script_stage` is **READ-ONLY**. The subagent rewrites the manifest end-to-end but MUST preserve `_script_stage` byte-for-byte — touching it (removing the key, replacing with a non-object, swapping any of the four fields for non-array values) is itself a bypass attempt and surfaces in the validator's gap-collection path as a structural-tampering gap. The structural check fires whenever ANY `scriptXXX` param is null (the validator-relies-on-snapshot path); when ALL four `scriptXXX` are passed (orchestrator-explicit-plumbing), the snapshot source is external and the structural check is skipped.
+**Snapshot-fallback path is defense-in-depth, not the primary defense.** The validator falls back to `manifest._script_stage` when ANY `scriptXXX` param is null, but that fallback path reads the subagent-emitted snapshot — which the subagent could have tampered with by clearing both the top-level emit field AND the corresponding `_script_stage[field]` while keeping shape intact. The validator surfaces a **baseline-trust gap** whenever the snapshot-fallback path is taken (`manifest._script_stage is subagent-emitted and may be tampered — orchestrator MUST plumb scriptXXX from stage-1 conversation memory …`) so Phase E re-routes through the explicit-plumbing path before a tampered snapshot bypasses preservation checks #7/#9/#10/#11.
+
+**Subagent contract:** `_script_stage` is **READ-ONLY**. The subagent rewrites the manifest end-to-end but MUST preserve `_script_stage` byte-for-byte — touching it (removing the key, replacing with a non-object, swapping any of the four fields for non-array values) is itself a bypass attempt and surfaces in the validator's gap-collection path as a structural-tampering gap (check #12). The structural check fires only on the snapshot-fallback path (any `scriptXXX` null); when ALL four `scriptXXX` are passed (orchestrator-explicit-plumbing), the snapshot source is the orchestrator's stage-1 conversation memory and both the baseline-trust gap and the structural sub-check are skipped — `_script_stage` becomes a redundant integrity signal at that point.
 
 ## Recovery diagnostic
 
@@ -256,5 +258,5 @@ Hard rules:
 - Do NOT leave `<TODO subagent prose>` placeholders intact.
 - Do NOT read NS catalog item BODIES; the §6-prose-only constraint applies to the set-quantifier reverification surface (responsibility #2).
 - Do NOT confuse design-spec §6 ("Data flow") with `cross-plan-dependencies.md` §6 ("Active Next Steps DAG"); D-2 routes to the latter.
-- Do NOT touch `manifest._script_stage`. It is the script-embedded immutable snapshot of the four arrays the validator enforces preservation/iteration on (`affected_files`, `schema_violations`, `verification_failures`, `semantic_work_pending`); when you rewrite the manifest, copy `_script_stage` through verbatim. Removing the key, replacing it with a non-object, or swapping any of its four fields for non-array values is itself a bypass attempt and surfaces in the validator as a structural-tampering gap.
+- Do NOT touch `manifest._script_stage`. It is the script-embedded snapshot of the four arrays the validator enforces preservation/iteration on (`affected_files`, `schema_violations`, `verification_failures`, `semantic_work_pending`); when you rewrite the manifest, copy `_script_stage` through verbatim. The orchestrator plumbs its own stage-1 conversation-memory copy of these arrays as the validator's authoritative baseline (see § `_script_stage` snapshot + orchestrator plumbing); the manifest-embedded `_script_stage` is a redundant integrity signal — removing the key, replacing it with a non-object, or swapping any of its four fields for non-array values is itself a bypass attempt and surfaces in the validator as a structural-tampering gap.
 ```

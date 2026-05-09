@@ -14,6 +14,27 @@ import {
 } from "../../lib/housekeeper-orchestrator-helpers.mjs";
 import { emitManifest } from "../post-merge-housekeeper.mjs";
 
+// Production-path simulation: in Phase E the orchestrator reads the script-stage
+// manifest in SKILL.md step 3 BEFORE subagent dispatch, stores the four snapshot
+// fields in its conversation memory, and plumbs them forward as `scriptXXX`
+// params on the subsequent `validateManifestSubagentStage` call. That stored
+// stage-1 snapshot is the untamperable baseline (the dispatched subagent runs
+// in a separated context and cannot rewrite what the orchestrator already saw).
+// Honest test fixtures simulate the production path by spreading the helper so
+// `manifest._script_stage` (which in honest cases mirrors what the orchestrator
+// would have stored) becomes the four `scriptXXX` params:
+//
+//     validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) })
+//
+// Tampering / forgot-to-plumb tests intentionally OMIT this spread so the
+// validator's snapshot-fallback path runs and the baseline-trust gap fires.
+const stageOneFromManifest = (manifest) => ({
+  scriptAffectedFiles: manifest._script_stage?.affected_files,
+  scriptSchemaViolations: manifest._script_stage?.schema_violations,
+  scriptVerificationFailures: manifest._script_stage?.verification_failures,
+  scriptSemanticWorkPending: manifest._script_stage?.semantic_work_pending,
+});
+
 test("buildHousekeeperPrompt: includes manifest path + exit code", () => {
   const prompt = buildHousekeeperPrompt({
     manifestPath: "/tmp/m.json",
@@ -73,7 +94,9 @@ test("validateManifestSubagentStage: pass when every pending item has semantic_e
     affected_files: ["docs/architecture/cross-plan-dependencies.md"],
     result: "DONE",
   };
-  assert.deepEqual(validateManifestSubagentStage({ manifest }), { valid: true });
+  assert.deepEqual(validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) }), {
+    valid: true,
+  });
 });
 
 test("validateManifestSubagentStage: fail when pending item is unaddressed", () => {
@@ -90,7 +113,7 @@ test("validateManifestSubagentStage: fail when pending item is unaddressed", () 
     affected_files: [],
     result: "DONE",
   };
-  const result = validateManifestSubagentStage({ manifest });
+  const result = validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) });
   assert.equal(result.valid, false);
   assert.equal(result.gaps.length, 1);
   assert.match(result.gaps[0], /^ready_set_re_derivation listed in semantic_work_pending/);
@@ -123,7 +146,11 @@ test("validateManifestSubagentStage: fails when affected_files entry is missing 
       affected_files: ["docs/architecture/cross-plan-dependencies.md"],
       result: "DONE",
     };
-    const result = validateManifestSubagentStage({ manifest, repoRoot: tmpRepo });
+    const result = validateManifestSubagentStage({
+      manifest,
+      repoRoot: tmpRepo,
+      ...stageOneFromManifest(manifest),
+    });
     assert.equal(result.valid, false);
     assert.equal(result.gaps.length, 1);
     assert.match(
@@ -166,7 +193,11 @@ test("validateManifestSubagentStage: fails with gap (not crash) when affected_fi
       result: "DONE",
     };
     // The bug surface: prior code threw EISDIR here. The fix routes to gaps.push.
-    const result = validateManifestSubagentStage({ manifest, repoRoot: tmpRepo });
+    const result = validateManifestSubagentStage({
+      manifest,
+      repoRoot: tmpRepo,
+      ...stageOneFromManifest(manifest),
+    });
     assert.equal(result.valid, false);
     assert.equal(result.gaps.length, 1);
     assert.match(
@@ -200,7 +231,11 @@ test("validateManifestSubagentStage: fail when <TODO subagent prose> placeholder
       affected_files: ["docs/architecture/cross-plan-dependencies.md"],
       result: "DONE",
     };
-    const result = validateManifestSubagentStage({ manifest, repoRoot: tmpRepo });
+    const result = validateManifestSubagentStage({
+      manifest,
+      repoRoot: tmpRepo,
+      ...stageOneFromManifest(manifest),
+    });
     assert.equal(result.valid, false);
     assert.match(result.gaps[0], /<TODO subagent prose>/);
   } finally {
@@ -224,7 +259,7 @@ test("validateManifestSubagentStage: fail when <TODO subagent prose> placeholder
     affected_files: [],
     result: "DONE",
   };
-  const result = validateManifestSubagentStage({ manifest });
+  const result = validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) });
   assert.equal(result.valid, false);
   assert.ok(
     result.gaps.some(
@@ -255,7 +290,7 @@ test("validateManifestSubagentStage: scans nested semantic_edits values (e.g. ar
     affected_files: [],
     result: "DONE",
   };
-  const result = validateManifestSubagentStage({ manifest });
+  const result = validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) });
   assert.equal(result.valid, false);
   assert.ok(
     result.gaps.some((g) => g.includes("semantic_edits.line_cite_sweep")),
@@ -284,7 +319,7 @@ test("validateManifestSubagentStage: schema_violations require per-entry concern
     affected_files: [],
     result: "BLOCKED",
   };
-  const result = validateManifestSubagentStage({ manifest });
+  const result = validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) });
   assert.equal(result.valid, false);
   assert.ok(
     result.gaps.some((g) => g.includes("NS-15.type") && !g.includes("NS-15.status")),
@@ -313,7 +348,7 @@ test("validateManifestSubagentStage: schema_violations pass when each entry has 
     affected_files: [],
     result: "BLOCKED",
   };
-  const result = validateManifestSubagentStage({ manifest });
+  const result = validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) });
   assert.equal(result.valid, true);
 });
 
@@ -334,7 +369,7 @@ test("validateManifestSubagentStage: schema_violations match by field alone when
     affected_files: [],
     result: "BLOCKED",
   };
-  const result = validateManifestSubagentStage({ manifest });
+  const result = validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) });
   assert.equal(result.valid, true);
 });
 
@@ -361,7 +396,7 @@ test("validateManifestSubagentStage: distinct-kind violations require kind-discr
     affected_files: [],
     result: "BLOCKED",
   };
-  const result = validateManifestSubagentStage({ manifest });
+  const result = validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) });
   assert.equal(result.valid, false);
   assert.equal(result.gaps.length, 1);
   assert.ok(
@@ -388,7 +423,7 @@ test("validateManifestSubagentStage: auto_create_title_seed_underivable singleto
     affected_files: [],
     result: "BLOCKED",
   };
-  const result = validateManifestSubagentStage({ manifest });
+  const result = validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) });
   assert.equal(result.valid, true);
 });
 
@@ -409,7 +444,7 @@ test("validateManifestSubagentStage: fieldless-violation gap message uses (kind:
     affected_files: [],
     result: "BLOCKED",
   };
-  const result = validateManifestSubagentStage({ manifest });
+  const result = validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) });
   assert.equal(result.valid, false);
   assert.equal(result.gaps.length, 1);
   assert.match(result.gaps[0], /\(kind: auto_create_title_seed_underivable\)/);
@@ -438,7 +473,9 @@ test("validateManifestSubagentStage: BLOCKED result waives per-item pairing for 
     affected_files: [],
     result: "BLOCKED",
   };
-  assert.deepEqual(validateManifestSubagentStage({ manifest }), { valid: true });
+  assert.deepEqual(validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) }), {
+    valid: true,
+  });
 });
 
 test("validateManifestSubagentStage: NEEDS_CONTEXT result waives per-item pairing for semantic_work_pending", () => {
@@ -456,7 +493,9 @@ test("validateManifestSubagentStage: NEEDS_CONTEXT result waives per-item pairin
     affected_files: [],
     result: "NEEDS_CONTEXT",
   };
-  assert.deepEqual(validateManifestSubagentStage({ manifest }), { valid: true });
+  assert.deepEqual(validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) }), {
+    valid: true,
+  });
 });
 
 test("validateManifestSubagentStage: DONE_WITH_CONCERNS still requires per-item pairing (waiver narrowly scoped to halt-states)", () => {
@@ -475,7 +514,7 @@ test("validateManifestSubagentStage: DONE_WITH_CONCERNS still requires per-item 
     affected_files: [],
     result: "DONE_WITH_CONCERNS",
   };
-  const result = validateManifestSubagentStage({ manifest });
+  const result = validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) });
   assert.equal(result.valid, false);
   assert.equal(result.gaps.length, 1);
   assert.match(result.gaps[0], /^compose_status_completion_prose listed in semantic_work_pending/);
@@ -498,7 +537,9 @@ test("validateManifestSubagentStage: per-item pairing matches by `addressing: <i
     affected_files: [],
     result: "DONE_WITH_CONCERNS",
   };
-  assert.deepEqual(validateManifestSubagentStage({ manifest }), { valid: true });
+  assert.deepEqual(validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) }), {
+    valid: true,
+  });
 });
 
 // ---------- Non-empty semantic_edits payload required ----------
@@ -526,7 +567,7 @@ test("validateManifestSubagentStage: fails when semantic_edits[item] is undefine
     affected_files: [],
     result: "DONE",
   };
-  const result = validateManifestSubagentStage({ manifest });
+  const result = validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) });
   assert.equal(result.valid, false);
   assert.equal(result.gaps.length, 1);
   assert.match(
@@ -552,7 +593,7 @@ test("validateManifestSubagentStage: fails when semantic_edits[item] is null", (
     affected_files: [],
     result: "DONE",
   };
-  const result = validateManifestSubagentStage({ manifest });
+  const result = validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) });
   assert.equal(result.valid, false);
   assert.equal(result.gaps.length, 1);
   assert.match(
@@ -577,7 +618,7 @@ test("validateManifestSubagentStage: fails when semantic_edits[item] is empty st
     affected_files: [],
     result: "DONE",
   };
-  const result = validateManifestSubagentStage({ manifest });
+  const result = validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) });
   assert.equal(result.valid, false);
   assert.equal(result.gaps.length, 1);
   assert.match(
@@ -602,7 +643,7 @@ test("validateManifestSubagentStage: fails when semantic_edits[item] is empty ob
     affected_files: [],
     result: "DONE",
   };
-  const result = validateManifestSubagentStage({ manifest });
+  const result = validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) });
   assert.equal(result.valid, false);
   assert.equal(result.gaps.length, 1);
   assert.match(
@@ -634,7 +675,9 @@ test("validateManifestSubagentStage: passes when semantic_edits[item] is a non-e
     affected_files: [],
     result: "DONE",
   };
-  assert.deepEqual(validateManifestSubagentStage({ manifest }), { valid: true });
+  assert.deepEqual(validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) }), {
+    valid: true,
+  });
 });
 
 // ---------- Scalar payloads rejected as non-output-bearing ----------
@@ -661,7 +704,7 @@ test("validateManifestSubagentStage: fails when semantic_edits[item] is `false`"
     affected_files: [],
     result: "DONE",
   };
-  const result = validateManifestSubagentStage({ manifest });
+  const result = validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) });
   assert.equal(result.valid, false);
   assert.equal(result.gaps.length, 1);
   assert.match(
@@ -686,7 +729,7 @@ test("validateManifestSubagentStage: fails when semantic_edits[item] is `0`", ()
     affected_files: [],
     result: "DONE",
   };
-  const result = validateManifestSubagentStage({ manifest });
+  const result = validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) });
   assert.equal(result.valid, false);
   assert.equal(result.gaps.length, 1);
   assert.match(
@@ -719,7 +762,7 @@ test("validateManifestSubagentStage: fails when result is null", () => {
     affected_files: [],
     result: null,
   };
-  const result = validateManifestSubagentStage({ manifest });
+  const result = validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) });
   assert.equal(result.valid, false);
   assert.ok(
     result.gaps.some(
@@ -747,7 +790,7 @@ test("validateManifestSubagentStage: fails when result is an unknown string", ()
     affected_files: [],
     result: "MAYBE",
   };
-  const result = validateManifestSubagentStage({ manifest });
+  const result = validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) });
   assert.equal(result.valid, false);
   assert.ok(
     result.gaps.some(
@@ -775,7 +818,9 @@ test("validateManifestSubagentStage: passes when result is 'DONE'", () => {
     affected_files: [],
     result: "DONE",
   };
-  assert.deepEqual(validateManifestSubagentStage({ manifest }), { valid: true });
+  assert.deepEqual(validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) }), {
+    valid: true,
+  });
 });
 
 // ---------- BLOCKED-when-schema-violations enforcement ----------
@@ -802,7 +847,7 @@ test("validateManifestSubagentStage: fails when schema_violations present but re
     affected_files: [],
     result: "DONE_WITH_CONCERNS",
   };
-  const result = validateManifestSubagentStage({ manifest });
+  const result = validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) });
   assert.equal(result.valid, false);
   assert.ok(
     result.gaps.some(
@@ -835,7 +880,9 @@ test("validateManifestSubagentStage: passes when schema_violations present AND r
     affected_files: [],
     result: "BLOCKED",
   };
-  assert.deepEqual(validateManifestSubagentStage({ manifest }), { valid: true });
+  assert.deepEqual(validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) }), {
+    valid: true,
+  });
 });
 
 // ---------- BLOCKED-when-verification_failures enforcement ----------
@@ -867,7 +914,7 @@ test("validateManifestSubagentStage: fails when verification_failures present bu
     affected_files: [],
     result: "DONE_WITH_CONCERNS",
   };
-  const result = validateManifestSubagentStage({ manifest });
+  const result = validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) });
   assert.equal(result.valid, false);
   assert.ok(
     result.gaps.some(
@@ -900,7 +947,9 @@ test("validateManifestSubagentStage: passes when verification_failures present A
     affected_files: [],
     result: "BLOCKED",
   };
-  assert.deepEqual(validateManifestSubagentStage({ manifest }), { valid: true });
+  assert.deepEqual(validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) }), {
+    valid: true,
+  });
 });
 
 // ---------- Task 4.8: Layer 2 unit tests for D-7 rows 12-15 + I-1/I-2/I-3 invariants ----------
@@ -1015,7 +1064,11 @@ test("validateManifestSubagentStage: subagent-emitted affected_files is superset
     affected_files: ["docs/architecture/cross-plan-dependencies.md"], // missing the second file → must FAIL
     result: "DONE",
   };
-  const result = validateManifestSubagentStage({ manifest: subagentManifest, scriptAffectedFiles });
+  const result = validateManifestSubagentStage({
+    manifest: subagentManifest,
+    ...stageOneFromManifest(subagentManifest),
+    scriptAffectedFiles,
+  });
   assert.equal(result.valid, false);
   assert.ok(
     result.gaps.some(
@@ -1054,6 +1107,7 @@ test("validateManifestSubagentStage: subagent-emitted schema_violations is super
   };
   const result = validateManifestSubagentStage({
     manifest: subagentManifest,
+    ...stageOneFromManifest(subagentManifest),
     scriptSchemaViolations,
   });
   assert.equal(result.valid, false);
@@ -1102,6 +1156,7 @@ test("validateManifestSubagentStage: subagent passes when schema_violations pres
   assert.deepEqual(
     validateManifestSubagentStage({
       manifest: subagentManifest,
+      ...stageOneFromManifest(subagentManifest),
       scriptSchemaViolations,
     }),
     { valid: true },
@@ -1136,6 +1191,7 @@ test("validateManifestSubagentStage: subagent may ADD new schema_violations beyo
   assert.deepEqual(
     validateManifestSubagentStage({
       manifest: subagentManifest,
+      ...stageOneFromManifest(subagentManifest),
       scriptSchemaViolations,
     }),
     { valid: true },
@@ -1173,6 +1229,7 @@ test("validateManifestSubagentStage: subagent-emitted verification_failures is s
   };
   const result = validateManifestSubagentStage({
     manifest: subagentManifest,
+    ...stageOneFromManifest(subagentManifest),
     scriptVerificationFailures,
   });
   assert.equal(result.valid, false);
@@ -1217,6 +1274,7 @@ test("validateManifestSubagentStage: subagent passes when verification_failures 
   assert.deepEqual(
     validateManifestSubagentStage({
       manifest: subagentManifest,
+      ...stageOneFromManifest(subagentManifest),
       scriptVerificationFailures,
     }),
     { valid: true },
@@ -1251,6 +1309,7 @@ test("validateManifestSubagentStage: key-order-independent JSON canonicalization
   assert.deepEqual(
     validateManifestSubagentStage({
       manifest: subagentManifest,
+      ...stageOneFromManifest(subagentManifest),
       scriptVerificationFailures,
     }),
     { valid: true },
@@ -1287,6 +1346,7 @@ test("validateManifestSubagentStage: cleared semantic_work_pending no longer byp
   };
   const result = validateManifestSubagentStage({
     manifest: subagentManifest,
+    ...stageOneFromManifest(subagentManifest),
     scriptSemanticWorkPending,
   });
   assert.equal(result.valid, false);
@@ -1333,6 +1393,7 @@ test("validateManifestSubagentStage: subagent passes when all script-stage pendi
   assert.deepEqual(
     validateManifestSubagentStage({
       manifest: subagentManifest,
+      ...stageOneFromManifest(subagentManifest),
       scriptSemanticWorkPending,
     }),
     { valid: true },
@@ -1365,6 +1426,7 @@ test("validateManifestSubagentStage: subagent-added pending items are also itera
   };
   const result = validateManifestSubagentStage({
     manifest: subagentManifest,
+    ...stageOneFromManifest(subagentManifest),
     scriptSemanticWorkPending,
   });
   assert.equal(result.valid, false);
@@ -1385,14 +1447,19 @@ test("validateManifestSubagentStage: subagent-added pending items are also itera
 // absent, and a structural-tampering check catches subagents that try to
 // bypass preservation checks by removing or corrupting the snapshot.
 
-test("validateManifestSubagentStage: reads _script_stage from manifest when scriptXXX params not provided", () => {
-  // When the orchestrator does NOT plumb scriptXXX (current production
-  // reality — the per-field preservation fixes were validator-API-layer
-  // half-fixes), the validator falls back to manifest._script_stage. This
-  // test pins that fallback: the script-stage snapshot is in the manifest,
-  // the subagent attempted to clear all four arrays, and the validator
-  // catches the bypass via the manifest-embedded snapshot — NO scriptXXX
-  // param passed.
+test("validateManifestSubagentStage: snapshot-fallback path still surfaces preservation gaps when orchestrator forgot to plumb scriptXXX", () => {
+  // Defense-in-depth: even when the orchestrator forgets to plumb scriptXXX
+  // from its stage-1 conversation memory (the production-path described in
+  // SKILL.md step 5), the validator falls back to manifest._script_stage so
+  // the per-field preservation checks (#7/#9/#10/#11) still catch a bypass
+  // attempt where the subagent cleared all four top-level emit arrays. This
+  // test pins that fallback path: NO scriptXXX param is passed, the
+  // script-stage snapshot is in the manifest, the subagent attempted to clear
+  // all four arrays, and the validator catches the bypass via the
+  // manifest-embedded snapshot. The new baseline-trust gap ALSO fires (it
+  // surfaces the missing scriptXXX plumbing as the primary defense; the
+  // snapshot-fallback gaps are a secondary belt-and-braces signal that must
+  // remain functional in case the orchestrator misses both layers).
   const subagentManifest = {
     _script_stage: {
       affected_files: ["docs/plans/024-rust-pty-sidecar.md"],
@@ -1411,9 +1478,18 @@ test("validateManifestSubagentStage: reads _script_stage from manifest when scri
   };
   const result = validateManifestSubagentStage({ manifest: subagentManifest });
   assert.equal(result.valid, false);
-  // Expect 4 gaps: affected_files superset (#7), schema_violations preservation (#9),
-  // verification_failures preservation (#10), semantic_work_pending union (#11).
-  // No structural-tampering gap because _script_stage IS present and well-formed.
+  // Expect 5 gaps: baseline-trust (orchestrator-MUST-plumb), affected_files
+  // superset (#7), schema_violations preservation (#9), verification_failures
+  // preservation (#10), semantic_work_pending union (#11). No structural-
+  // tampering gap because _script_stage IS present and well-formed.
+  assert.ok(
+    result.gaps.some(
+      (g) =>
+        g.includes("manifest._script_stage is subagent-emitted and may be tampered") &&
+        g.includes("orchestrator MUST plumb"),
+    ),
+    `expected baseline-trust gap surfacing missing scriptXXX plumbing; got: ${JSON.stringify(result.gaps)}`,
+  );
   assert.ok(
     result.gaps.some(
       (g) => g.includes("docs/plans/024-rust-pty-sidecar.md") && g.includes("D-7 row 14"),
@@ -1439,13 +1515,14 @@ test("validateManifestSubagentStage: reads _script_stage from manifest when scri
   );
 });
 
-test("validateManifestSubagentStage: missing _script_stage emits structural tampering gap", () => {
-  // Secondary-attack defense: subagent CLEARS schema_violations AND ALSO
-  // removes _script_stage to defeat the manifest-embedded snapshot path.
-  // Without this structural check, the validator would have no comparison
-  // source (scriptXXX null + _script_stage absent) and the per-field
-  // preservation checks would silently disable. The structural-tampering gap
-  // exposes the bypass attempt directly.
+test("validateManifestSubagentStage: missing _script_stage emits structural tampering gap (alongside baseline-trust gap)", () => {
+  // Tertiary-attack defense: subagent CLEARS schema_violations AND ALSO
+  // removes _script_stage to defeat the manifest-embedded snapshot path. The
+  // primary defense is the orchestrator's stage-1 conversation-memory plumbing
+  // (surfaced as the baseline-trust gap when scriptXXX is omitted, as in this
+  // test); the structural sub-check #12 is a secondary signal for the case
+  // where the orchestrator missed plumbing AND the subagent also tampered with
+  // the manifest-embedded snapshot.
   const tamperedManifest = {
     // _script_stage REMOVED by subagent (bypass attempt)
     affected_files: [],
@@ -1461,6 +1538,14 @@ test("validateManifestSubagentStage: missing _script_stage emits structural tamp
   assert.ok(
     result.gaps.some(
       (g) =>
+        g.includes("manifest._script_stage is subagent-emitted and may be tampered") &&
+        g.includes("orchestrator MUST plumb"),
+    ),
+    `expected baseline-trust gap surfacing missing scriptXXX plumbing; got: ${JSON.stringify(result.gaps)}`,
+  );
+  assert.ok(
+    result.gaps.some(
+      (g) =>
         g.includes("manifest._script_stage missing") &&
         g.includes("circumvents preservation checks #7/#9/#10/#11"),
     ),
@@ -1468,11 +1553,14 @@ test("validateManifestSubagentStage: missing _script_stage emits structural tamp
   );
 });
 
-test("validateManifestSubagentStage: malformed _script_stage (string instead of object) emits gap", () => {
+test("validateManifestSubagentStage: malformed _script_stage (string instead of object) emits gap (alongside baseline-trust gap)", () => {
   // Tampering variant: subagent replaces _script_stage with a non-object value
   // (string, array, scalar). The structural-tampering check rejects all three
   // shapes — only `{affected_files, schema_violations, verification_failures,
-  // semantic_work_pending}` (each an array) satisfies the contract.
+  // semantic_work_pending}` (each an array) satisfies the contract. The
+  // baseline-trust gap also fires because scriptXXX is omitted (orchestrator
+  // forgot to plumb stage-1 memory; structural check #12 then catches the
+  // secondary tampering on the manifest-embedded snapshot).
   const tamperedManifest = {
     _script_stage: "tampered-by-subagent",
     affected_files: [],
@@ -1487,9 +1575,109 @@ test("validateManifestSubagentStage: malformed _script_stage (string instead of 
   assert.equal(result.valid, false);
   assert.ok(
     result.gaps.some(
+      (g) =>
+        g.includes("manifest._script_stage is subagent-emitted and may be tampered") &&
+        g.includes("orchestrator MUST plumb"),
+    ),
+    `expected baseline-trust gap surfacing missing scriptXXX plumbing; got: ${JSON.stringify(result.gaps)}`,
+  );
+  assert.ok(
+    result.gaps.some(
       (g) => g.includes("manifest._script_stage is not an object") && g.includes("got string"),
     ),
     `expected structural-tampering gap naming the string kind; got: ${JSON.stringify(result.gaps)}`,
+  );
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// Baseline-trust gap (Codex P1 fix on PR #33 thread AyDCN — "Require external
+// script snapshot for preservation checks")
+//
+// The untamperable baseline for the four preservation/iteration checks
+// (#7/#9/#10/#11) is the orchestrator-LLM's stage-1 conversation memory of
+// the script-emitted manifest (read in SKILL.md step 3, frozen in context
+// before subagent dispatch, inaccessible to the dispatched subagent which
+// runs in a separated context). The orchestrator MUST plumb that stored
+// snapshot forward as the four `scriptXXX` params on this validator call.
+// When ANY scriptXXX is omitted, the validator's snapshot-fallback path
+// reads `manifest._script_stage` instead — which is subagent-emitted and
+// thus potentially tampered (the structural sub-check #12 catches outright
+// shape tampering but not the narrower case where `_script_stage.{field}`
+// is cleared to `[]` while shape stays intact, matching a corresponding
+// cleared top-level emit field). The baseline-trust gap surfaces the
+// missing scriptXXX plumbing as a primary defense so Phase E re-routes
+// through the explicit-plumbing path before a tampered snapshot silently
+// bypasses preservation enforcement.
+// ──────────────────────────────────────────────────────────────────────────
+
+test("validateManifestSubagentStage: baseline-trust gap fires when scriptXXX omitted (orchestrator forgot to plumb stage-1 snapshot)", () => {
+  // Positive: healthy `_script_stage`, scriptXXX completely omitted, baseline-
+  // trust gap MUST fire. Validates the gap-push at the head of the
+  // `if (reliesOnManifestSnapshot)` block — `null == null` triggers reliance,
+  // gap surfaces orchestrator-MUST-plumb. No other gaps because the rest of
+  // the manifest is contract-shaped (DONE result, empty arrays, _script_stage
+  // structurally well-formed).
+  const subagentManifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
+    affected_files: [],
+    schema_violations: [],
+    verification_failures: [],
+    semantic_work_pending: [],
+    semantic_edits: {},
+    concerns: [],
+    result: "DONE",
+  };
+  const result = validateManifestSubagentStage({ manifest: subagentManifest });
+  assert.equal(result.valid, false);
+  assert.equal(
+    result.gaps.length,
+    1,
+    `expected exactly the baseline-trust gap; got: ${JSON.stringify(result.gaps)}`,
+  );
+  assert.match(result.gaps[0], /manifest\._script_stage is subagent-emitted and may be tampered/);
+  assert.match(result.gaps[0], /orchestrator MUST plumb/);
+  assert.match(result.gaps[0], /stage-1 manifest snapshot stored in conversation memory/);
+  assert.match(
+    result.gaps[0],
+    /falling back to manifest\._script_stage allows preservation bypass/,
+  );
+});
+
+test("validateManifestSubagentStage: baseline-trust gap suppressed when all four scriptXXX plumbed (production-path)", () => {
+  // Negative: orchestrator plumbs scriptXXX from its stage-1 conversation
+  // memory (simulated via `stageOneFromManifest(manifest)` spread). All four
+  // scriptXXX are non-null, so `reliesOnManifestSnapshot === false` and the
+  // baseline-trust gap does NOT fire. Validates the production-path: with
+  // proper plumbing, the snapshot-fallback path is skipped entirely and the
+  // structural sub-checks #12 are also skipped (the snapshot is irrelevant
+  // because the baseline came from orchestrator memory, not the subagent-
+  // emitted `_script_stage`).
+  const subagentManifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
+    affected_files: [],
+    schema_violations: [],
+    verification_failures: [],
+    semantic_work_pending: [],
+    semantic_edits: {},
+    concerns: [],
+    result: "DONE",
+  };
+  assert.deepEqual(
+    validateManifestSubagentStage({
+      manifest: subagentManifest,
+      ...stageOneFromManifest(subagentManifest),
+    }),
+    { valid: true },
   );
 });
 
@@ -1518,6 +1706,7 @@ test("validateManifestSubagentStage: scriptXXX param takes precedence over manif
   };
   const result = validateManifestSubagentStage({
     manifest: subagentManifest,
+    ...stageOneFromManifest(subagentManifest),
     scriptSchemaViolations: PARAM_SV,
   });
   assert.equal(result.valid, false);
@@ -1786,7 +1975,11 @@ test("validateManifestSubagentStage: rejects absolute path in affected_files wit
       affected_files: ["/etc/passwd"],
       result: "DONE",
     };
-    const result = validateManifestSubagentStage({ manifest, repoRoot: tmpRepo });
+    const result = validateManifestSubagentStage({
+      manifest,
+      repoRoot: tmpRepo,
+      ...stageOneFromManifest(manifest),
+    });
     assert.equal(result.valid, false);
     assert.equal(result.gaps.length, 1);
     assert.match(result.gaps[0], /^\/etc\/passwd is an absolute path/);
@@ -1818,7 +2011,11 @@ test("validateManifestSubagentStage: rejects parent-traversal path in affected_f
       affected_files: ["../../etc/passwd"],
       result: "DONE",
     };
-    const result = validateManifestSubagentStage({ manifest, repoRoot: tmpRepo });
+    const result = validateManifestSubagentStage({
+      manifest,
+      repoRoot: tmpRepo,
+      ...stageOneFromManifest(manifest),
+    });
     assert.equal(result.valid, false);
     assert.equal(result.gaps.length, 1);
     assert.match(result.gaps[0], /^\.\.\/\.\.\/etc\/passwd resolves outside the repository/);
@@ -1850,7 +2047,11 @@ test("validateManifestSubagentStage: accepts internal repo-relative navigation i
       affected_files: ["foo/../bar.md"],
       result: "DONE",
     };
-    const result = validateManifestSubagentStage({ manifest, repoRoot: tmpRepo });
+    const result = validateManifestSubagentStage({
+      manifest,
+      repoRoot: tmpRepo,
+      ...stageOneFromManifest(manifest),
+    });
     assert.equal(
       result.valid,
       true,
@@ -1893,7 +2094,11 @@ test("validateManifestSubagentStage: returns gap (not crash) when affected_files
       result: "DONE",
     };
     // Pre-fix this threw TypeError; post-fix it returns a gap.
-    const result = validateManifestSubagentStage({ manifest, repoRoot: tmpRepo });
+    const result = validateManifestSubagentStage({
+      manifest,
+      repoRoot: tmpRepo,
+      ...stageOneFromManifest(manifest),
+    });
     assert.equal(result.valid, false);
     assert.equal(result.gaps.length, 1);
     assert.match(result.gaps[0], /^affected_files\[0\] is not a string \(got null\)/);
@@ -1924,7 +2129,11 @@ test("validateManifestSubagentStage: returns gap (not crash) when affected_files
       affected_files: [42, { not: "a string" }, "good.md"],
       result: "DONE",
     };
-    const result = validateManifestSubagentStage({ manifest, repoRoot: tmpRepo });
+    const result = validateManifestSubagentStage({
+      manifest,
+      repoRoot: tmpRepo,
+      ...stageOneFromManifest(manifest),
+    });
     assert.equal(result.valid, false);
     // Two gaps for the non-string entries; "good.md" path passes containment
     // and no placeholder, so only the type-mismatch gaps surface.
@@ -1971,7 +2180,7 @@ test("validateManifestSubagentStage: returns gap (not crash) when manifest.schem
     result: "BLOCKED",
   };
   // Pre-fix this threw TypeError; post-fix returns gaps.
-  const result = validateManifestSubagentStage({ manifest });
+  const result = validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) });
   assert.equal(result.valid, false);
   // Two gaps expected:
   //   1. structural-tampering gap for the null entry
@@ -2017,7 +2226,7 @@ test("validateManifestSubagentStage: returns gap (not crash) when manifest.schem
     affected_files: [],
     result: "BLOCKED",
   };
-  const result = validateManifestSubagentStage({ manifest });
+  const result = validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) });
   assert.equal(result.valid, false);
   // Three structural-tampering gaps for the three bad entries; one
   // preservation gap for the unpreserved script-stage NS-02 entry.
@@ -2067,7 +2276,7 @@ test("validateManifestSubagentStage: returns gap (not crash) when schema_violati
     affected_files: [],
     result: "DONE",
   };
-  const result = validateManifestSubagentStage({ manifest });
+  const result = validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) });
   assert.equal(result.valid, false);
   assert.ok(
     result.gaps.some((g) => /^manifest\.schema_violations is not an array \(got object\)/.test(g)),
@@ -2092,7 +2301,11 @@ test("validateManifestSubagentStage: returns gap (not crash) when affected_files
       affected_files: { not: "an array" },
       result: "DONE",
     };
-    const result = validateManifestSubagentStage({ manifest, repoRoot: tmpRepo });
+    const result = validateManifestSubagentStage({
+      manifest,
+      repoRoot: tmpRepo,
+      ...stageOneFromManifest(manifest),
+    });
     assert.equal(result.valid, false);
     assert.ok(
       result.gaps.some((g) => /^manifest\.affected_files is not an array \(got object\)/.test(g)),
@@ -2124,7 +2337,7 @@ test("validateManifestSubagentStage: returns gap (not crash) when concerns conta
     affected_files: [],
     result: "DONE",
   };
-  const result = validateManifestSubagentStage({ manifest });
+  const result = validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) });
   assert.equal(result.valid, false);
   assert.ok(
     result.gaps.some((g) => /^manifest\.concerns\[0\] is not an object \(got null\)/.test(g)),
@@ -2153,7 +2366,7 @@ test("validateManifestSubagentStage: returns gap (not crash) when concerns is a 
     affected_files: [],
     result: "DONE",
   };
-  const result = validateManifestSubagentStage({ manifest });
+  const result = validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) });
   assert.equal(result.valid, false);
   assert.ok(
     result.gaps.some((g) => /^manifest\.concerns is not an array \(got string\)/.test(g)),
@@ -2183,7 +2396,7 @@ test("validateManifestSubagentStage: returns gap (not crash) when verification_f
     verification_failures: [null],
     result: "BLOCKED",
   };
-  const result = validateManifestSubagentStage({ manifest });
+  const result = validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) });
   assert.equal(result.valid, false);
   assert.ok(
     result.gaps.some((g) =>
@@ -2225,7 +2438,7 @@ test("validateManifestSubagentStage: returns gap (not crash) when semantic_work_
     affected_files: [],
     result: "DONE",
   };
-  const result = validateManifestSubagentStage({ manifest });
+  const result = validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) });
   assert.equal(result.valid, false);
   assert.ok(
     result.gaps.some((g) =>
@@ -2269,7 +2482,7 @@ test("validateManifestSubagentStage: returns gap (not crash) when _script_stage.
     result: "BLOCKED",
   };
   // Pre-fix this would throw; post-fix it returns a gap result.
-  const result = validateManifestSubagentStage({ manifest });
+  const result = validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) });
   assert.equal(result.valid, false);
   assert.ok(
     result.gaps.some((g) =>

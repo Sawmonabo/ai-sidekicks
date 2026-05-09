@@ -38,7 +38,7 @@ Hard rules:
 - Do NOT leave \`<TODO subagent prose>\` placeholders intact.
 - Do NOT read NS catalog item BODIES; the §6-prose-only constraint applies to the set-quantifier reverification surface (responsibility #2).
 - Do NOT confuse design-spec §6 ("Data flow") with \`cross-plan-dependencies.md\` §6 ("Active Next Steps DAG"); D-2 routes to the latter.
-- Do NOT touch \`manifest._script_stage\`. It is the script-embedded immutable snapshot of the four arrays the validator enforces preservation/iteration on (\`affected_files\`, \`schema_violations\`, \`verification_failures\`, \`semantic_work_pending\`); when you rewrite the manifest, copy \`_script_stage\` through verbatim. Removing the key, replacing it with a non-object, or swapping any of its four fields for non-array values is itself a bypass attempt and surfaces in the validator as a structural-tampering gap.`;
+- Do NOT touch \`manifest._script_stage\`. It is the script-embedded snapshot of the four arrays the validator enforces preservation/iteration on (\`affected_files\`, \`schema_violations\`, \`verification_failures\`, \`semantic_work_pending\`); when you rewrite the manifest, copy \`_script_stage\` through verbatim. The orchestrator plumbs its own stage-1 conversation-memory copy of these arrays as the validator's authoritative baseline (see § \`_script_stage\` snapshot + orchestrator plumbing); the manifest-embedded \`_script_stage\` is a redundant integrity signal — removing the key, replacing it with a non-object, or swapping any of its four fields for non-array values is itself a bypass attempt and surfaces in the validator as a structural-tampering gap.`;
 
 /**
  * Build the housekeeper subagent prompt.
@@ -149,28 +149,30 @@ export function buildHousekeeperPrompt({ manifestPath, scriptExitCode, prNumber,
  *     stays semantically actionable ("X listed but unaddressed") in ONE round-trip
  *     instead of TWO (array-shrink gap → re-add → unaddressed). Subagent MAY add
  *     new pending items (the union catches those too).
- * 12. `manifest._script_stage` is the script-embedded immutable snapshot of the
- *     four checked arrays (affected_files / schema_violations /
- *     verification_failures / semantic_work_pending). The validator reads
- *     `_script_stage` directly from the manifest so the four preservation/iteration
- *     checks (#7 / #9 / #10 / #11) work end-to-end WITHOUT requiring the
- *     orchestrator to plumb scriptXXX params at every callsite. PRECEDENCE per
- *     field: explicit scriptXXX param > `manifest._script_stage[field]` > `null`
- *     (legacy fallback when neither source is available — preserves test fixtures
- *     that don't construct `_script_stage`). STRUCTURAL TAMPERING DETECTION: when
- *     ANY scriptXXX param is null (validator is relying on the manifest-embedded
- *     snapshot path), `manifest._script_stage` MUST be a non-array object whose
- *     four fields are each arrays — missing, scalar, array, or non-array-typed
- *     fields all surface as gaps. Without this guard, a subagent could (a) clear
- *     `manifest.schema_violations` AND (b) ALSO remove `_script_stage`, restoring
- *     the bypass class (validator finds no comparison source for checks
- *     #7/#9/#10/#11 → checks short-circuit on `Array.isArray(null)` → empty
- *     subagent arrays + cleared snapshot → DONE returned with no gaps). When ALL
- *     four scriptXXX params are passed (the explicit-orchestrator-plumbing path),
- *     the validator skips the structural-tampering check entirely — the snapshot
- *     source is external and untamperable, and `_script_stage` becomes decorative.
- *     Subagent contract: `_script_stage` is READ-ONLY; touching it surfaces here
- *     as a structural-tampering gap (per agent file + contract doc).
+ * 12. `manifest._script_stage` is the script-embedded snapshot of the four
+ *     checked arrays (affected_files / schema_violations /
+ *     verification_failures / semantic_work_pending). The orchestrator reads
+ *     this snapshot at SKILL.md step 3 BEFORE subagent dispatch, stores it in
+ *     conversation memory (untamperable — the dispatched subagent cannot reach
+ *     back into orchestrator memory), and MUST plumb that stored snapshot
+ *     forward as the four scriptXXX params on this validator call. PRECEDENCE
+ *     per field: explicit scriptXXX param > `manifest._script_stage[field]` >
+ *     `null`. BASELINE-TRUST GAP: when ANY scriptXXX param is null (validator
+ *     falls back to the manifest-embedded snapshot path), the validator pushes
+ *     a gap directing the orchestrator to plumb scriptXXX from stage-1
+ *     conversation memory — the manifest-embedded `_script_stage` is
+ *     subagent-emitted and could be tampered (e.g. cleared in lockstep with
+ *     the top-level emit field) so it is NOT the authoritative baseline.
+ *     STRUCTURAL TAMPERING DETECTION (secondary signal): on the same fallback
+ *     path, `manifest._script_stage` MUST be a non-array object whose four
+ *     fields are each arrays — missing, scalar, array, or non-array-typed
+ *     fields surface as additional structural-tampering gaps. When ALL four
+ *     scriptXXX params are passed (the explicit-orchestrator-plumbing path),
+ *     the validator skips both the baseline-trust gap and the structural-
+ *     tampering sub-checks — the snapshot source is the orchestrator's stage-1
+ *     memory and `_script_stage` becomes a redundant integrity signal.
+ *     Subagent contract: `_script_stage` is READ-ONLY; touching it surfaces
+ *     here as a structural-tampering gap (per agent file + contract doc).
  *
  * @param {{ manifest: object, repoRoot?: string, scriptAffectedFiles?: string[], scriptSchemaViolations?: object[], scriptVerificationFailures?: object[], scriptSemanticWorkPending?: string[] }} opts
  *   `manifest._script_stage` (when present) shape: `{ affected_files: string[],
@@ -188,14 +190,27 @@ export function validateManifestSubagentStage({
 }) {
   const gaps = [];
 
-  // Check #12 — structural-shape tampering detection on `manifest._script_stage`.
-  // When ANY scriptXXX param is null, the validator falls back to the
-  // manifest-embedded snapshot for that field; if the snapshot is missing or
-  // malformed the four preservation/iteration checks (#7/#9/#10/#11) silently
-  // disable, restoring the bypass class where a subagent could clear emitted
-  // arrays AND remove the snapshot to bypass BLOCKED enforcement. When ALL four
-  // scriptXXX are passed (orchestrator-explicit-plumbing path), the snapshot
-  // source is external and the structural check is skipped.
+  // Trust-boundary check + check #12 (structural-shape tampering on `manifest._script_stage`).
+  //
+  // The untamperable baseline for preservation checks (#7/#9/#10/#11) is the
+  // orchestrator-LLM's conversation memory of the stage-1 manifest — read in
+  // SKILL.md step 3 BEFORE subagent dispatch, frozen in the orchestrator's
+  // context window, inaccessible to the dispatched subagent which runs in a
+  // separated context and cannot reach back into orchestrator memory. In Phase E
+  // production the orchestrator MUST plumb that stored stage-1 snapshot forward
+  // as the four `scriptXXX` params on this call. If it doesn't, the validator
+  // falls back to the subagent-emitted `manifest._script_stage` — which the
+  // subagent COULD have tampered with (e.g. cleared arrays after also clearing
+  // the top-level emit fields, defeating preservation #7/#9/#10/#11). The
+  // structural sub-checks below catch outright shape tampering (removed key,
+  // non-object value, non-array fields) but cannot detect the narrower case
+  // where `_script_stage.{field}` is cleared to `[]` while shape stays intact.
+  // The baseline-trust gap is therefore load-bearing: it surfaces "orchestrator
+  // forgot to plumb stage-1 snapshot" so Phase E can re-route through the
+  // explicit-plumbing path before a tampered snapshot silently bypasses
+  // enforcement. When ALL four scriptXXX are passed (orchestrator-explicit-
+  // plumbing path), the snapshot source is the orchestrator's stage-1 memory
+  // and both the baseline-trust gap and the structural sub-checks are skipped.
   const fromManifest = manifest._script_stage;
   const reliesOnManifestSnapshot =
     scriptAffectedFiles == null ||
@@ -203,6 +218,9 @@ export function validateManifestSubagentStage({
     scriptVerificationFailures == null ||
     scriptSemanticWorkPending == null;
   if (reliesOnManifestSnapshot) {
+    gaps.push(
+      `manifest._script_stage is subagent-emitted and may be tampered — orchestrator MUST plumb scriptAffectedFiles / scriptSchemaViolations / scriptVerificationFailures / scriptSemanticWorkPending from the stage-1 manifest snapshot stored in conversation memory (SKILL.md step 3, BEFORE subagent dispatch); falling back to manifest._script_stage allows preservation bypass when the subagent cleared both the top-level emit field and the snapshot field while keeping shape intact`,
+    );
     if (fromManifest === undefined || fromManifest === null) {
       gaps.push(
         `manifest._script_stage missing — subagent contract requires preserving the immutable script-stage snapshot; removing _script_stage circumvents preservation checks #7/#9/#10/#11`,
