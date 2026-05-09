@@ -259,6 +259,28 @@ export function validateManifestSubagentStage({
       ? safeFromManifest.semantic_work_pending
       : null);
 
+  // Codex P1 PR #33 (thread `Axg-z`): sanitize manifest.schema_violations
+  // ONCE here so every downstream loop iterates a known-good array. Two
+  // distinct loops dereference each entry's `kind`/`field`/`ns_id`:
+  //   - reconciliation loop (~line 423): each violation must surface as a
+  //     concerns entry with matching kind+field+ns_id
+  //   - preservation loop (~line 522): build a Set of subagent-emitted
+  //     keys to verify the script-stage snapshot survives
+  // Without this single-point sanitization, a tampered manifest with `null`
+  // or non-object entries would crash the FIRST loop with TypeError before
+  // the second could surface the structural-tampering gap. Filter once,
+  // surface tampering once, iterate clean everywhere.
+  const cleanedSchemaViolations = [];
+  for (const [idx, v] of (manifest.schema_violations ?? []).entries()) {
+    if (v == null || typeof v !== "object" || Array.isArray(v)) {
+      gaps.push(
+        `manifest.schema_violations[${idx}] is not an object (got ${v === null ? "null" : Array.isArray(v) ? "array" : typeof v}); subagent contract requires {kind, field?, ns_id?} object entries (Codex F-Axg-z)`,
+      );
+      continue;
+    }
+    cleanedSchemaViolations.push(v);
+  }
+
   // Check #1 — canonical exit-state enforcement (Codex P2 PR #33 R4 / Finding 7).
   // Plan Invariant I-2: subagent MUST return one of {DONE, DONE_WITH_CONCERNS,
   // NEEDS_CONTEXT, BLOCKED}. `null` (script-stage manifest, subagent never ran) and
@@ -329,7 +351,22 @@ export function validateManifestSubagentStage({
     }
   }
 
-  for (const path of manifest.affected_files ?? []) {
+  for (const [idx, path] of (manifest.affected_files ?? []).entries()) {
+    // Codex P1 PR #33 (thread `Axg-w`): defensive type-check BEFORE forwarding
+    // to assertRepoRelative — its first call is `isAbsolute(path)`, which
+    // throws TypeError on non-string input (null, number, object). A tampered
+    // manifest must surface as a structural-tampering gap, not crash the
+    // orchestrator mid-validation. Same shape as F-AMU4D's "route to gap, not
+    // crash" pattern: contract violations route through gap-collection so
+    // Phase E can re-dispatch the subagent rather than halt with an unhandled
+    // exception. typeof-check + idx-position keys the gap so a Reviewer can
+    // locate the bad entry without re-parsing the manifest.
+    if (typeof path !== "string") {
+      gaps.push(
+        `affected_files[${idx}] is not a string (got ${path === null ? "null" : typeof path}); subagent contract requires string path entries (Codex F-Axg-w)`,
+      );
+      continue;
+    }
     // Codex P1 PR #33 (thread `AxXBH`): reject absolute or parent-traversal
     // paths BEFORE the existsSync read. The validator must enforce the
     // contract clause "affected_files entries are repo-relative" — otherwise
@@ -405,7 +442,7 @@ export function validateManifestSubagentStage({
   // a single generic concern absorb shapes like `{kind: "auto_create_title_seed_underivable"}`
   // that the script emits as singletons without `field`/`ns_id`. By requiring kind
   // alignment, distinct-kind violations cannot share a concern.
-  for (const sv of manifest.schema_violations ?? []) {
+  for (const sv of cleanedSchemaViolations) {
     const matched = (manifest.concerns ?? []).some((c) => {
       if (c.kind !== sv.kind) return false;
       if (c.field !== sv.field) return false;
@@ -495,7 +532,12 @@ export function validateManifestSubagentStage({
   // MUST NOT remove script-stage ones.
   if (Array.isArray(effScriptSchemaViolations)) {
     const violationKey = (v) => `${v.kind ?? ""}|${v.field ?? ""}|${v.ns_id ?? ""}`;
-    const subagentViolationKeys = new Set((manifest.schema_violations ?? []).map(violationKey));
+    // Use the pre-cleaned subagent array (sanitized once near the top with
+    // structural-tampering gaps surfaced for null/non-object entries — see
+    // Codex F-Axg-z). Both this preservation loop and the reconciliation
+    // loop above now iterate the same known-good array, so a tampered
+    // manifest can't crash either with TypeError on element dereference.
+    const subagentViolationKeys = new Set(cleanedSchemaViolations.map(violationKey));
     for (const sv of effScriptSchemaViolations) {
       if (!subagentViolationKeys.has(violationKey(sv))) {
         const idLabel = [

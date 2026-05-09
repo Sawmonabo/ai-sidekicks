@@ -1855,6 +1855,183 @@ test("validateManifestSubagentStage: accepts internal navigation that stays insi
   }
 });
 
+// ──────────────────────────────────────────────────────────────────────────
+// Validator defensive type-checking (Codex P1 PR #33 threads `Axg-w` / `Axg-z`)
+//
+// Pattern: Array.isArray() gates ARRAY shape but not ELEMENT shape, so a
+// tampered manifest with non-string entries in affected_files (F-Axg-w) or
+// null/non-object entries in schema_violations (F-Axg-z) crashed the
+// validator with TypeError before it could surface the contract violation
+// as a gap. The fix routes per-element type mismatches to gap-collection,
+// matching the F-AMU4D "route to gap, not crash" routing pattern.
+// ──────────────────────────────────────────────────────────────────────────
+
+test("validateManifestSubagentStage: returns gap (not crash) when affected_files contains null (Codex F-Axg-w)", () => {
+  // F-Axg-w: prior code passed `null` to assertRepoRelative → isAbsolute(null)
+  // throws TypeError "path must be a string". Defensive guard surfaces the
+  // contract violation as a structural-tampering gap and continues iteration.
+  const tmpRepo = mkdtempSync(join(tmpdir(), "validate-null-path-"));
+  try {
+    const manifest = {
+      _script_stage: {
+        affected_files: [],
+        schema_violations: [],
+        verification_failures: [],
+        semantic_work_pending: [],
+      },
+      semantic_work_pending: [],
+      semantic_edits: {},
+      concerns: [],
+      affected_files: [null],
+      result: "DONE",
+    };
+    // Pre-fix this threw TypeError; post-fix it returns a gap.
+    const result = validateManifestSubagentStage({ manifest, repoRoot: tmpRepo });
+    assert.equal(result.valid, false);
+    assert.equal(result.gaps.length, 1);
+    assert.match(result.gaps[0], /^affected_files\[0\] is not a string \(got null\)/);
+    assert.match(result.gaps[0], /Codex F-Axg-w/);
+  } finally {
+    rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test("validateManifestSubagentStage: returns gap (not crash) when affected_files contains non-string entries (Codex F-Axg-w)", () => {
+  // F-Axg-w: cover the broader non-string class (number, object) — same
+  // TypeError surface in isAbsolute, same gap routing in the validator.
+  // Loop continues past each bad entry so multi-entry manifests surface
+  // multiple gaps in a single pass (a single bad entry mid-array must not
+  // mask later violations).
+  const tmpRepo = mkdtempSync(join(tmpdir(), "validate-mixed-path-"));
+  try {
+    writeFileSync(join(tmpRepo, "good.md"), "no placeholder\n");
+    const manifest = {
+      _script_stage: {
+        affected_files: [],
+        schema_violations: [],
+        verification_failures: [],
+        semantic_work_pending: [],
+      },
+      semantic_work_pending: [],
+      semantic_edits: {},
+      concerns: [],
+      affected_files: [42, { not: "a string" }, "good.md"],
+      result: "DONE",
+    };
+    const result = validateManifestSubagentStage({ manifest, repoRoot: tmpRepo });
+    assert.equal(result.valid, false);
+    // Two gaps for the non-string entries; "good.md" path passes containment
+    // and no placeholder, so only the type-mismatch gaps surface.
+    assert.equal(result.gaps.length, 2);
+    assert.match(result.gaps[0], /^affected_files\[0\] is not a string \(got number\)/);
+    assert.match(result.gaps[1], /^affected_files\[1\] is not a string \(got object\)/);
+    assert.ok(
+      result.gaps.every((g) => /Codex F-Axg-w/.test(g)),
+      `expected every gap to cite F-Axg-w; got ${JSON.stringify(result.gaps)}`,
+    );
+  } finally {
+    rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test("validateManifestSubagentStage: returns gap (not crash) when manifest.schema_violations contains null (Codex F-Axg-z)", () => {
+  // F-Axg-z: prior code did `(manifest.schema_violations ?? []).map(violationKey)`,
+  // and violationKey did `v.kind ?? ""` — so `null` in the array threw
+  // "Cannot read properties of null (reading 'kind')" inside the .map call,
+  // crashing the validator before its preservation check could fire. The
+  // preservation loop runs only when `_script_stage.schema_violations` is
+  // a non-empty array; this test seeds one entry there to exercise the
+  // tampered-subagent-array path.
+  const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [{ kind: "schema_violation", field: "PRs", ns_id: "NS-02" }],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
+    semantic_work_pending: [],
+    semantic_edits: {},
+    concerns: [
+      {
+        kind: "schema_violation",
+        field: "PRs",
+        ns_id: "NS-02",
+        addressing: "schema_violation",
+        detail: "PRs block missing on NS-02",
+      },
+    ],
+    schema_violations: [null],
+    affected_files: [],
+    result: "BLOCKED",
+  };
+  // Pre-fix this threw TypeError; post-fix returns gaps.
+  const result = validateManifestSubagentStage({ manifest });
+  assert.equal(result.valid, false);
+  // Two gaps expected:
+  //   1. structural-tampering gap for the null entry (F-Axg-z)
+  //   2. preservation gap for the script-stage NS-02 entry that the null
+  //      didn't preserve (F-AMP7Y) — since the Set built only valid entries
+  //      and the script-stage NS-02 violation was not in it.
+  assert.ok(
+    result.gaps.some((g) => /^manifest\.schema_violations\[0\] is not an object/.test(g)),
+    `expected F-Axg-z structural-tampering gap; got ${JSON.stringify(result.gaps)}`,
+  );
+  assert.ok(
+    result.gaps.some((g) => /Codex F-Axg-z/.test(g)),
+    `expected F-Axg-z citation in gap; got ${JSON.stringify(result.gaps)}`,
+  );
+  // Preservation gap fires too — proves the Set still rebuilds from valid
+  // entries after the bad-entry skip.
+  assert.ok(
+    result.gaps.some((g) => g.includes("F-AMP7Y") && g.includes("NS-02")),
+    `expected F-AMP7Y preservation gap to still fire after bad-entry skip; got ${JSON.stringify(result.gaps)}`,
+  );
+});
+
+test("validateManifestSubagentStage: returns gap (not crash) when manifest.schema_violations contains non-object entries (Codex F-Axg-z)", () => {
+  // F-Axg-z: cover the broader non-object class (string, number, array). All
+  // dereference `v.kind` to throw TypeError (or silently produce undefined
+  // for strings/numbers, which would corrupt the preservation Set without
+  // crashing). Defensive guard treats every non-plain-object as tampering.
+  const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [{ kind: "schema_violation", field: "PRs", ns_id: "NS-02" }],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
+    semantic_work_pending: [],
+    semantic_edits: {},
+    concerns: [
+      {
+        kind: "schema_violation",
+        field: "PRs",
+        ns_id: "NS-02",
+        addressing: "schema_violation",
+        detail: "...",
+      },
+    ],
+    schema_violations: ["not an object", 7, ["nested", "array"]],
+    affected_files: [],
+    result: "BLOCKED",
+  };
+  const result = validateManifestSubagentStage({ manifest });
+  assert.equal(result.valid, false);
+  // Three structural-tampering gaps for the three bad entries; one
+  // preservation gap for the unpreserved script-stage NS-02 entry.
+  const tamperingGaps = result.gaps.filter((g) =>
+    /^manifest\.schema_violations\[\d\] is not an object/.test(g),
+  );
+  assert.equal(
+    tamperingGaps.length,
+    3,
+    `expected 3 tampering gaps; got ${JSON.stringify(result.gaps)}`,
+  );
+  assert.match(tamperingGaps[0], /\(got string\)/);
+  assert.match(tamperingGaps[1], /\(got number\)/);
+  assert.match(tamperingGaps[2], /\(got array\)/);
+});
+
 test("I-3 invariant: post-merge-housekeeper.mjs does NOT import child_process or shell out for git", () => {
   const src = readFileSync(
     ".claude/skills/plan-execution/scripts/post-merge-housekeeper.mjs",
