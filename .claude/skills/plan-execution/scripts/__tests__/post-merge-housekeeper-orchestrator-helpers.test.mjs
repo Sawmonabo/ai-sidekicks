@@ -10,6 +10,7 @@ import {
   validateManifestSubagentStage,
   detectAffectedFilesSprawl,
   decideHousekeeperRouting,
+  assertRepoRelative,
 } from "../../lib/housekeeper-orchestrator-helpers.mjs";
 import { emitManifest } from "../post-merge-housekeeper.mjs";
 
@@ -1699,6 +1700,159 @@ test("decideHousekeeperRouting: defensive fallback for non-integer exit (e.g. Na
   const r = decideHousekeeperRouting({ scriptExitCode: NaN });
   assert.equal(r.action, "halt");
   assert.equal(r.exitClass, "unknown-exit-code");
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// assertRepoRelative + validator path-containment integration tests
+// (Codex P1 PR #33 thread `PRRT_kwDOSCycWc6AxXBH`)
+//
+// Codex finding: validator's affected_files loop joined each declared path
+// against `repoRoot` and read it without first checking the path was
+// repo-relative. A malformed manifest emitting an absolute path or a
+// parent-traversal silently bypassed validation; the script's later
+// step-7 `git add <affected_files>` would fail with "outside repository
+// pathspec", dead-ending housekeeping after a `valid: true` signal.
+//
+// The fix encodes containment in `assertRepoRelative` (lexical check,
+// repo-relative shape + non-traversal); validator now consults it BEFORE
+// existsSync. These 7 tests cover the helper's three branches directly
+// (absolute reject / traversal reject / accept) and the validator's three
+// integration paths (absolute → gap, traversal → gap, internal navigation
+// that stays in repo → no path-containment gap).
+// ──────────────────────────────────────────────────────────────────────────
+
+test("assertRepoRelative: rejects absolute paths with contract-anchored gap (Codex F-AxXBH)", () => {
+  const result = assertRepoRelative("/etc/passwd", "/repo");
+  assert.equal(result.ok, false);
+  assert.match(result.gap, /^\/etc\/passwd is an absolute path/);
+  assert.match(result.gap, /subagent contract requires repo-relative paths under \/repo/);
+});
+
+test("assertRepoRelative: rejects parent-traversal paths that escape the repo (Codex F-AxXBH)", () => {
+  const result = assertRepoRelative("../../etc/passwd", "/repo");
+  assert.equal(result.ok, false);
+  assert.match(result.gap, /^\.\.\/\.\.\/etc\/passwd resolves outside the repository/);
+  assert.match(result.gap, /subagent contract requires repo-relative paths under \/repo/);
+});
+
+test("assertRepoRelative: accepts internal navigation that stays inside the repo (Codex F-AxXBH)", () => {
+  // `foo/../bar` resolves to `bar` within /repo — this is a legitimate
+  // (if redundant) shape; the validator's job is containment, not style.
+  // The negative case `..hidden.md` (literal dotfile-with-extension) also
+  // passes because `relative()` returns `..hidden.md` with no separator —
+  // distinct from `..` or `../foo`.
+  const okResult = assertRepoRelative("foo/../bar", "/repo");
+  assert.equal(okResult.ok, true);
+  assert.equal(okResult.full, "/repo/bar");
+
+  const dotfileResult = assertRepoRelative("..hidden.md", "/repo");
+  assert.equal(dotfileResult.ok, true);
+  assert.equal(dotfileResult.full, "/repo/..hidden.md");
+});
+
+test("assertRepoRelative: accepts normal repo-relative paths and returns joined absolute path (Codex F-AxXBH)", () => {
+  const result = assertRepoRelative("docs/architecture/cross-plan-dependencies.md", "/repo");
+  assert.equal(result.ok, true);
+  assert.equal(result.full, "/repo/docs/architecture/cross-plan-dependencies.md");
+});
+
+test("validateManifestSubagentStage: rejects absolute path in affected_files with path-containment gap (Codex F-AxXBH)", () => {
+  // Integration: bypass class fixed in this PR. Without `assertRepoRelative`,
+  // the validator joined "/etc/passwd" against repoRoot via path.join — which
+  // returns "/repo/etc/passwd" (NOT "/etc/passwd", because join lacks
+  // resolve's absolute-path short-circuit) — and the file would either be
+  // missing (gap fires under the existsSync branch) or, in a hostile shape,
+  // could resolve to something the subagent never had authority to declare.
+  // The fix: surface absolute paths as their own gap class BEFORE existsSync,
+  // keyed to the contract clause "repo-relative paths".
+  const tmpRepo = mkdtempSync(join(tmpdir(), "validate-abspath-"));
+  try {
+    const manifest = {
+      _script_stage: {
+        affected_files: [],
+        schema_violations: [],
+        verification_failures: [],
+        semantic_work_pending: [],
+      },
+      semantic_work_pending: [],
+      semantic_edits: {},
+      concerns: [],
+      affected_files: ["/etc/passwd"],
+      result: "DONE",
+    };
+    const result = validateManifestSubagentStage({ manifest, repoRoot: tmpRepo });
+    assert.equal(result.valid, false);
+    assert.equal(result.gaps.length, 1);
+    assert.match(result.gaps[0], /^\/etc\/passwd is an absolute path/);
+    assert.match(result.gaps[0], /\(declared in affected_files\)$/);
+  } finally {
+    rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test("validateManifestSubagentStage: rejects parent-traversal path in affected_files with path-containment gap (Codex F-AxXBH)", () => {
+  // Integration: `../../etc/passwd` joined against tmpRepo resolves OUTSIDE
+  // tmpRepo. Without `assertRepoRelative`, validator would have read the
+  // outside-repo file (or hit ENOENT) and never surfaced the contract
+  // violation as a containment gap. The fix surfaces it as a distinct gap
+  // class BEFORE existsSync, so the orchestrator can route it as a subagent
+  // contract violation rather than mis-classifying it as deletion-of-declared.
+  const tmpRepo = mkdtempSync(join(tmpdir(), "validate-traversal-"));
+  try {
+    const manifest = {
+      _script_stage: {
+        affected_files: [],
+        schema_violations: [],
+        verification_failures: [],
+        semantic_work_pending: [],
+      },
+      semantic_work_pending: [],
+      semantic_edits: {},
+      concerns: [],
+      affected_files: ["../../etc/passwd"],
+      result: "DONE",
+    };
+    const result = validateManifestSubagentStage({ manifest, repoRoot: tmpRepo });
+    assert.equal(result.valid, false);
+    assert.equal(result.gaps.length, 1);
+    assert.match(result.gaps[0], /^\.\.\/\.\.\/etc\/passwd resolves outside the repository/);
+    assert.match(result.gaps[0], /\(declared in affected_files\)$/);
+  } finally {
+    rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test("validateManifestSubagentStage: accepts internal navigation that stays inside the repo (Codex F-AxXBH)", () => {
+  // Integration: `foo/../bar.md` resolves to `bar.md` within tmpRepo — that's
+  // legitimate containment-passing input. Validator should NOT raise a
+  // containment gap here. (We still expect downstream gaps if the resolved
+  // file is missing — that's a different class — so this test seeds the
+  // resolved file to isolate the containment-pass assertion.)
+  const tmpRepo = mkdtempSync(join(tmpdir(), "validate-internal-"));
+  try {
+    writeFileSync(join(tmpRepo, "bar.md"), "no placeholder here\n");
+    const manifest = {
+      _script_stage: {
+        affected_files: [],
+        schema_violations: [],
+        verification_failures: [],
+        semantic_work_pending: [],
+      },
+      semantic_work_pending: [],
+      semantic_edits: {},
+      concerns: [],
+      affected_files: ["foo/../bar.md"],
+      result: "DONE",
+    };
+    const result = validateManifestSubagentStage({ manifest, repoRoot: tmpRepo });
+    assert.equal(
+      result.valid,
+      true,
+      `expected valid=true for internal-navigation path, got gaps: ${JSON.stringify(result.gaps)}`,
+    );
+  } finally {
+    rmSync(tmpRepo, { recursive: true, force: true });
+  }
 });
 
 test("I-3 invariant: post-merge-housekeeper.mjs does NOT import child_process or shell out for git", () => {

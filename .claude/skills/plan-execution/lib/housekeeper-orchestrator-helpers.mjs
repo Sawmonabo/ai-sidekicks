@@ -1,5 +1,5 @@
 import { readFileSync, existsSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join, relative } from "node:path";
 import process from "node:process";
 
 // Module-scope literal: the placeholder string the script writes into stubbed `Status:` lines and
@@ -330,7 +330,19 @@ export function validateManifestSubagentStage({
   }
 
   for (const path of manifest.affected_files ?? []) {
-    const full = join(repoRoot, path);
+    // Codex P1 PR #33 (thread `AxXBH`): reject absolute or parent-traversal
+    // paths BEFORE the existsSync read. The validator must enforce the
+    // contract clause "affected_files entries are repo-relative" — otherwise
+    // a malformed manifest (`/etc/passwd`, `../../private`) bypasses
+    // validation and dead-ends step-7 `git add <affected_files>` with an
+    // "outside repository pathspec" error. See `assertRepoRelative` JSDoc
+    // for the threat model and lexical-vs-realpath rationale.
+    const containment = assertRepoRelative(path, repoRoot);
+    if (!containment.ok) {
+      gaps.push(`${containment.gap} (declared in affected_files)`);
+      continue;
+    }
+    const full = containment.full;
     if (!existsSync(full)) {
       // Codex P1 PR #33 R6 / Finding 10: prior loop silently skipped any non-existent
       // path (existsSync gate with no else-branch), so a subagent that deleted a declared
@@ -615,6 +627,52 @@ function walkForPlaceholder(value, path, onHit) {
   if (value && typeof value === "object") {
     for (const [k, v] of Object.entries(value)) walkForPlaceholder(v, [...path, k], onHit);
   }
+}
+
+/**
+ * Assert a manifest-declared path is repo-relative AND lexically contained
+ * under `repoRoot`. Returns a discriminated union the caller pattern-matches:
+ * `{ ok: true, full }` for the joined absolute path, or `{ ok: false, gap }`
+ * with a contract-anchored explanation suitable for `gaps.push()`.
+ *
+ * Codex P1 PR #33 (thread `PRRT_kwDOSCycWc6AxXBH`): the validator's
+ * `affected_files` loop joined each declared path against `repoRoot` and read
+ * it without first checking the path was repo-relative. A malformed subagent
+ * manifest emitting an absolute path (`/etc/passwd`) or a parent-traversal
+ * (`../../private/keys`) bypassed validation — the script's later step-7
+ * `git add <affected_files>` would fail with "outside repository pathspec",
+ * dead-ending housekeeping after a supposedly `valid: true` manifest signal.
+ *
+ * Containment check is purely lexical (no `realpath`, no symlink resolution).
+ * Threat model: subagent malformed-path bug, not symlink TOCTOU; lexical
+ * `relative()` is cheap, deterministic, and sufficient.
+ *
+ * `path.join("/root", "/etc/x")` returns "/root/etc/x" (NOT "/etc/x") because
+ * `join` lacks `resolve`'s absolute-path short-circuit. So `isAbsolute` must
+ * gate FIRST; otherwise `relative()` reports the joined path is contained and
+ * we'd silently accept an absolute path the subagent never had authority to
+ * declare.
+ *
+ * @param {string} path - manifest-declared path
+ * @param {string} repoRoot - absolute repo root (orchestrator-supplied)
+ * @returns {{ok: true, full: string} | {ok: false, gap: string}}
+ */
+export function assertRepoRelative(path, repoRoot) {
+  if (isAbsolute(path)) {
+    return {
+      ok: false,
+      gap: `${path} is an absolute path; subagent contract requires repo-relative paths under ${repoRoot}`,
+    };
+  }
+  const full = join(repoRoot, path);
+  const rel = relative(repoRoot, full);
+  if (rel === ".." || rel.startsWith(`..${"/"}`) || rel.startsWith(`..${"\\"}`)) {
+    return {
+      ok: false,
+      gap: `${path} resolves outside the repository (resolved: ${full}); subagent contract requires repo-relative paths under ${repoRoot}`,
+    };
+  }
+  return { ok: true, full };
 }
 
 /**
