@@ -341,7 +341,7 @@ test("parseArgs validates --candidate-ns token shape (NS-NN, NS-NNa, NS-NN..NS-N
   assert.throws(() => parseArgs(["30", "--candidate-ns", "NS-01,bogus"]), /--candidate-ns/);
 });
 
-// Bug-9: --candidate-ns must require the canonical zero-padded form (NS-01,
+// --candidate-ns must require the canonical zero-padded form (NS-01,
 // not NS-1) because locateNsEntry compares against `NS_ID()` output which
 // always pads via `String(n).padStart(2, "0")`. REJECT (not normalize) — fail
 // fast at arg parse so the orchestrator never hits the silent
@@ -368,7 +368,7 @@ test("parseArgs rejects single-digit NS token with suffix (--candidate-ns NS-1a)
   );
 });
 
-test("parseArgs accepts canonical NS-01 (Bug-9 happy-path counterpart)", () => {
+test("parseArgs accepts canonical NS-01 (canonical zero-padded happy-path counterpart)", () => {
   assert.equal(parseArgs(["30", "--candidate-ns", "NS-01"]).candidateNs, "NS-01");
 });
 
@@ -1214,9 +1214,9 @@ for (const fixture of listFixtures(FIXTURES_DIR).filter(RUNNABLE_FIXTURE)) {
 }
 
 // ---------- CLI entrypoint diff-source wiring ----------
-// Pre-Bug-8 fix, the CLI shelled out to `git diff-tree HEAD`, violating Plan
-// Invariant I-3 (script never imports child_process for git) AND failing on
-// merge commits (`diff-tree HEAD` returns empty for merges without -m/-c/--cc,
+// The CLI used to shell out to `git diff-tree HEAD`, violating Plan Invariant
+// I-3 (script never imports child_process for git) AND failing on merge
+// commits (`diff-tree HEAD` returns empty for merges without -m/-c/--cc,
 // silently skipping the verifier trio). The orchestrator now computes the
 // PR-wide diff (BEFORE squash-merge per Phase E ordering) and passes its
 // file-list path via `--touched-files-path`.
@@ -1429,7 +1429,7 @@ test("runHousekeeper: comma-list aborts on first ns_entry_not_found with not_eva
   }
 });
 
-// ---------- Bug-4: pre-validate task-in-block ----------
+// ---------- pre-validate multi-pr task-in-block ----------
 // applyMultiPrTickAndRecompute used to silently exit its tick-loop when --task
 // didn't match an unchecked row, leaving the Status line untouched and the PRs
 // block unmodified — an invisible no-op. validateCandidate + the single-candidate
@@ -1492,7 +1492,7 @@ test("runHousekeeper: multi-pr --task that does not match any unchecked row exit
 });
 
 test("runHousekeeper: multi-pr --task references an already-checked (shipped) row exits 2 with multi_pr_task_not_in_block (Mode B)", async () => {
-  // The original Bug-4 silent-pass class: PRS_UNCHECKED_ROW_RE only matches
+  // The original silent-pass class: PRS_UNCHECKED_ROW_RE only matches
   // `[ ]` rows, so re-dispatching a task whose row is already `[x]` (shipped
   // in a prior PR) used to skip the tick-loop without surfacing — the entry
   // looked unchanged AND the script exited 0. Pre-validation now catches this
@@ -1629,7 +1629,7 @@ test("runHousekeeper: comma-list multi-pr --task that does not match any uncheck
   }
 });
 
-// ---------- Bug-5: try/catch parsePRsBlock ----------
+// ---------- try/catch parsePRsBlock — malformed-row crash class ----------
 // parsePRsBlock throws on malformed checked rows missing the (PR #N, merged ...)
 // annotation. CLI only caught ParseArgsError so the process crashed (exit 1 from
 // uncaught exception). Now wrapped: exit 5 + schema_violations[kind: prs_block_malformed].

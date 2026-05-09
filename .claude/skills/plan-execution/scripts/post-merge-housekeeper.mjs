@@ -1079,12 +1079,13 @@ function validateCandidate({ token, corpusLines, corpusPath, repoRoot, args, dif
     };
   }
   if (shape === "multi-pr") {
-    // Bug-4 pre-validation: applyMultiPrTickAndRecompute used to silently
-    // exit its tick-loop when --task didn't match an unchecked row, leaving
-    // the Status line untouched and the PRs block unmodified — an invisible
-    // no-op that masked orchestrator-misdispatch (wrong --task) as success.
-    // Catch it as a verification failure (not schema; the entry itself is
-    // well-formed — the dispatch is wrong) so the subagent can re-derive.
+    // pre-validate task-in-block: applyMultiPrTickAndRecompute used to
+    // silently exit its tick-loop when --task didn't match an unchecked row,
+    // leaving the Status line untouched and the PRs block unmodified — an
+    // invisible no-op that masked orchestrator-misdispatch (wrong --task)
+    // as success. Catch it as a verification failure (not schema; the entry
+    // itself is well-formed — the dispatch is wrong) so the subagent can
+    // re-derive.
     const taskRow = prsBlock.find((r) => r.taskId === args.task);
     if (!taskRow || taskRow.checked) {
       return {
@@ -1495,12 +1496,13 @@ export async function runHousekeeper({
   }
 
   if (shape === "multi-pr") {
-    // Bug-4 pre-validation: applyMultiPrTickAndRecompute used to silently
-    // exit its tick-loop when --task didn't match an unchecked row, leaving
-    // the Status line untouched and the PRs block unmodified — an invisible
-    // no-op that masked orchestrator-misdispatch (wrong --task) as success.
-    // Catch it as a verification failure (not schema; the entry itself is
-    // well-formed — the dispatch is wrong) so the subagent can re-derive.
+    // pre-validate task-in-block: applyMultiPrTickAndRecompute used to
+    // silently exit its tick-loop when --task didn't match an unchecked row,
+    // leaving the Status line untouched and the PRs block unmodified — an
+    // invisible no-op that masked orchestrator-misdispatch (wrong --task)
+    // as success. Catch it as a verification failure (not schema; the entry
+    // itself is well-formed — the dispatch is wrong) so the subagent can
+    // re-derive.
     const taskRow = prsBlock.find((r) => r.taskId === args.task);
     if (!taskRow || taskRow.checked) {
       emitFailureManifest({
