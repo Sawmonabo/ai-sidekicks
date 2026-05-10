@@ -104,9 +104,13 @@ function defaultGhRunner(cmd) {
 // Parse phase number from PR title/body. Returns integer >= 1 or null.
 // Checks (title first, body second; first match wins):
 //   "Phase N" / "phase N"
-//   "P5" / "P5.1" (Plan-001 phase-number-with-task-suffix style)
+//   "P5.1"   (Plan-001 phase-number-with-task-suffix style — REQUIRES the
+//             `.M` task suffix; bare `P1`/`P2`/`P5` are intentionally NOT
+//             matched because they collide with Codex review-priority
+//             badges (P1/P2/P3) that can appear in PR bodies. Codex P2
+//             finding on PR #35 round 5.)
 export function parsePhaseFromPr({ title, body }) {
-  const patterns = [/\bPhase\s+(\d+)\b/i, /\bP(\d+)(?:\.\d+)?\b/];
+  const patterns = [/\bPhase\s+(\d+)\b/i, /\bP(\d+)\.\d+\b/];
   for (const text of [title, body]) {
     if (!text) continue;
     for (const re of patterns) {

@@ -60,6 +60,30 @@ test("parsePhaseFromPr: extracts from PN.M form", () => {
   assert.equal(parsePhaseFromPr({ title: "feat: P5.1 client SDK", body: null }), 5);
 });
 
+// Codex P2 finding on PR #35 round 5: the bare /\bP\d+\b/ matcher collided
+// with review-priority labels (P1/P2/P3) that Codex itself emits. A PR body
+// quoting Codex feedback ("addresses Codex P1 finding") would have P1 parsed
+// as a phase number, writing a syntactically valid but semantically wrong
+// manifest entry. The matcher now requires the `.M` task suffix (the only
+// shape Plan-001 actually uses).
+test("parsePhaseFromPr: bare P1 in body does NOT match (priority-label collision)", () => {
+  assert.equal(
+    parsePhaseFromPr({
+      title: "fix: bug",
+      body: "addresses Codex P1 finding from prior PR review",
+    }),
+    null,
+  );
+});
+
+test("parsePhaseFromPr: bare P2 in title does NOT match", () => {
+  assert.equal(parsePhaseFromPr({ title: "fix: P2 priority cleanup", body: null }), null);
+});
+
+test("parsePhaseFromPr: P5.1 (Plan-001 style) still matches after tightening", () => {
+  assert.equal(parsePhaseFromPr({ title: "feat: P5.1 client SDK", body: null }), 5);
+});
+
 test("parsePhaseFromPr: returns null when no marker", () => {
   assert.equal(parsePhaseFromPr({ title: "fix: bug", body: "no markers here" }), null);
 });
