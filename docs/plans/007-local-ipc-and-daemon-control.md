@@ -428,6 +428,105 @@ Validation surface widens at Tier 4 alongside the additional bind paths (HTTP, n
 
 ## Progress Log
 
+### Shipment Manifest
+
+<!-- Machine-readable. Housekeeper-emitted, orchestrator-written, preflight-read.
+     Schema authoritative in:
+       .claude/skills/plan-execution/scripts/lib/manifest.mjs -->
+
+```yaml
+manifest_schema_version: 1
+shipped:
+  - phase: 1
+    task: [T-007p-1-1, T-007p-1-2, T-007p-1-3, T-007p-1-4]
+    pr: 16
+    sha: 49f1116
+    merged_at: 2026-04-29
+    files:
+      - docs/plans/007-local-ipc-and-daemon-control.md
+      - packages/runtime-daemon/src/bootstrap/__tests__/secure-defaults.test.ts
+      - packages/runtime-daemon/src/bootstrap/index.ts
+      - packages/runtime-daemon/src/bootstrap/secure-defaults-events.ts
+      - packages/runtime-daemon/src/bootstrap/secure-defaults.ts
+    verifies_invariant: [I-007-1, I-007-2, I-007-3, I-007-4, I-007-5]
+    spec_coverage: ["Spec-027 row 4", "Spec-027 row 10"]
+    notes: |
+      Tier 1 (Plan-007-Partial) Phase 1 — SecureDefaults Bootstrap (loopback-bind validation only). Multi-task PR predates NS-02. Backfilled 2026-05-10. See `### Notes` subsection for round-trip details.
+  - phase: 2
+    task: [T-007p-2-1, T-007p-2-2, T-007p-2-3, T-007p-2-4, T-007p-2-5, T-007p-2-6]
+    pr: 17
+    sha: 3d8ef0e
+    merged_at: 2026-04-29
+    files:
+      - docs/plans/007-local-ipc-and-daemon-control.md
+      - packages/contracts/src/index.ts
+      - packages/contracts/src/jsonrpc-negotiation.ts
+      - packages/contracts/src/jsonrpc-registry.ts
+      - packages/contracts/src/jsonrpc-streaming.ts
+      - packages/contracts/src/jsonrpc.ts
+      - packages/runtime-daemon/src/ipc/__tests__/local-ipc-gateway.test.ts
+      - packages/runtime-daemon/src/ipc/__tests__/protocol-negotiation.test.ts
+      - packages/runtime-daemon/src/ipc/__tests__/registry.test.ts
+      - packages/runtime-daemon/src/ipc/__tests__/streaming-primitive.test.ts
+      - packages/runtime-daemon/src/ipc/jsonrpc-error-mapping.ts
+      - packages/runtime-daemon/src/ipc/local-ipc-gateway.ts
+      - packages/runtime-daemon/src/ipc/protocol-negotiation.ts
+      - packages/runtime-daemon/src/ipc/registry.ts
+      - packages/runtime-daemon/src/ipc/streaming-primitive.ts
+    verifies_invariant: [I-007-6, I-007-7, I-007-8, I-007-9]
+    spec_coverage:
+      [
+        "Spec-007 §Wire Format",
+        "Spec-007 §Required Behavior",
+        "Spec-007 §Fallback Behavior",
+        ADR-009,
+      ]
+    notes: |
+      Tier 1 Phase 2 — Wire Substrate (JSON-RPC 2.0 + LSP framing + namespace registry + negotiation + streaming primitive). Multi-task PR predates NS-02. Backfilled 2026-05-10.
+  - phase: 3
+    task: [T-007p-3-1, T-007p-3-2, T-007p-3-4]
+    pr: 19
+    sha: 0e5599d
+    merged_at: 2026-04-30
+    files:
+      - .claude/skills/plan-execution/SKILL.md
+      - .claude/skills/plan-execution/prompts/code-quality-reviewer.prompt.md
+      - .claude/skills/plan-execution/prompts/code-reviewer.prompt.md
+      - .claude/skills/plan-execution/prompts/spec-reviewer.prompt.md
+      - .claude/skills/plan-execution/references/cite-and-blocked-on-discipline.md
+      - .claude/skills/plan-execution/references/failure-modes.md
+      - docs/plans/007-local-ipc-and-daemon-control.md
+      - packages/client-sdk/package.json
+      - packages/client-sdk/src/transport/__tests__/jsonRpcClient.test.ts
+      - packages/client-sdk/src/transport/jsonRpcClient.ts
+      - packages/client-sdk/src/transport/types.ts
+      - packages/client-sdk/vitest.config.ts
+      - packages/contracts/src/jsonrpc-streaming.ts
+      - packages/contracts/src/session.ts
+      - packages/runtime-daemon/src/ipc/__tests__/streaming-primitive.test.ts
+      - packages/runtime-daemon/src/ipc/handlers/__tests__/session-handlers.test.ts
+      - packages/runtime-daemon/src/ipc/handlers/index.ts
+      - packages/runtime-daemon/src/ipc/handlers/session-create.ts
+      - packages/runtime-daemon/src/ipc/handlers/session-join.ts
+      - packages/runtime-daemon/src/ipc/handlers/session-read.ts
+      - packages/runtime-daemon/src/ipc/handlers/session-subscribe.ts
+      - packages/runtime-daemon/src/ipc/streaming-primitive.ts
+      - pnpm-lock.yaml
+    verifies_invariant: [I-007-7, I-007-8]
+    spec_coverage:
+      [
+        "§Cross-Plan Obligations CP-007-1",
+        "§Cross-Plan Obligations CP-007-4",
+        "Spec-007 §Acceptance Criteria",
+      ]
+    notes: |
+      Tier 1 Phase 3 — session.* Handlers + SDK Zod Layer. Multi-task PR (T-007p-3-3 verification deferred to Plan-001 Phase 5 consume time). Backfilled 2026-05-10.
+```
+
+### Notes
+
+<!-- Per-PR human commentary (round-trips, learnings, partial-ship details). -->
+
 - **PR #16** (squash-commit `49f1116` on `develop`, merged 2026-04-28): Phase 1 — SecureDefaults Bootstrap. Tasks `T-007p-1-1` (SecureDefaults.load + effectiveSettings), `T-007p-1-2` (security.default.override audit emitter), `T-007p-1-3` (bootstrap orchestrator + load-before-bind guard), `T-007p-1-4` (W-007p-1-T1..T5 invariant test suite) delivered. Acceptance criteria green: W-007p-1-T1..T5 (18 cases, 49/49 package tests pass). Plan-doc path amendment landed in same PR (T-007p-1-4 target_path corrected from `test/bootstrap/` to `src/bootstrap/__tests__/` to match repo's universal vitest include glob). BLOCKED-ON-C6 / -C7 / -C9 markers carried forward without premature shape pre-commit. Post-merge polish surfaced: ~30 OBSERVATIONs aggregated (see PR #16 Review Notes; key items: `localhost`/`bindPort`-negative coverage gaps, T-T4 regex-from-loop-var, citation-symmetry across bootstrap files).
 - **PR #17** (squash-commit `3d8ef0e` on `develop`, merged 2026-04-29): Phase 2 — Wire Substrate. Tasks `T-007p-2-1` (JSON-RPC 2.0 + LSP Content-Length framing + supervision hooks), `T-007p-2-2` (numeric-error-space ↔ dotted-namespace mapping), `T-007p-2-3` (method-namespace registry with mutating flag), `T-007p-2-4` (DaemonHello/DaemonHelloAck negotiation + mutating-op gate), `T-007p-2-5` (`LocalSubscription<T>` streaming primitive), `T-007p-2-6` (W-007p-2-T1..T11 invariant test suite) delivered. Acceptance criteria green: 129 passed / 1 skipped (Linux-runner Windows-pipe transport) / 1 todo (Tier-4 `transport.unavailable` deferred — _bind-path gate_, not envelope shape; the canonical envelope ships in BL-103 closure) across 7 test files in 2.18s. Plan-doc path amendment landed in same PR (T-007p-2-6 target_path corrected from `test/ipc/` to `src/ipc/__tests__/` to match repo's universal vitest include glob — same defect class as PR #16). BLOCKED-ON-C6 / -C7 markers carried forward across all five touched files with explicit replacement comments at each boundary. Round-trips: `86df812` reclassified `oversized_body` from `-32603 InternalError` to `-32600 InvalidRequest` per Plan-007:268 mapping contract (T-2 ACTIONABLE); `bf74902` folded round-trip-1 — non-idempotent test `close()` helper diagnosed via standalone Node repro as the W-007p-2-T5 5000ms-hang root cause (substrate gateway verified correct, fix landed pre-Phase-C); `3795d1f` round-trip-2 — three Phase-C ACTIONABLE findings (stale comment cleanup, silent-failure-pattern fix in `malformed_header` framing test, outer `expect(caught).toBeInstanceOf(...)` guard at registry.test.ts:387); `66099bf` round-trip-3 (Codex external review on PR head `0907f59`) — three P1/P2 ACTIONABLE findings on `local-ipc-gateway.ts` addressed inline (start() now rolls back `#server`/`#started` on listen failure preventing bootstrap-retry wedge; dispatch validates `id` shape (`string | number | null`) BEFORE handler dispatch per JSON-RPC §4 + I-007-7, malformed ids emit `-32600 Invalid Request` with `id: null` per §5; parseFrame applies the 1 KB header-section cap symmetrically whether or not CRLFCRLF is present, closing a header-bypass DoS surface) + 6 new RT-codex-1 invariant tests covering each fix's contract directly (regex-anchored wedge probe, `vi.fn()` spy asserting handler non-execution, byte-count assertions on header cap). Phase D (PR-scope, full-diff review) returned 0 ACTIONABLE / 3 OBSERVATIONS deferred to a polish PR: O-D-1 Plan-007 §CP-007-3 prose drift (`router.add` vs canonical `router.register`), O-D-2 test-fixture duplication (`passthroughSchema<T>` × 4, `rejectingSchema<T>` × 2 — past rule-of-three on a non-blocked surface), O-D-3 review-process attribution leaked into production source comments (~16 references to "advisor's #N", "orchestrator pre-brief"; rationale prose load-bearing, attribution prefixes are not). CI required multiple pushes — the lint-staged hook runs `eslint --fix` + `tsc -b` but not `prettier --write`, so format drift escapes locally; sealed twice with `0907f59` (PR #17 substrate) and `8e55500` (RT-codex-1 test additions). The repeating-defect pattern is added to the polish-PR scope for a hook-config follow-up (lint-staged should pipe `prettier --write` on staged paths so CI's `prettier --check` becomes a redundancy gate, not a discovery surface).
 - **PR #19** (squash-commit `0e5599d` on `develop`, merged 2026-04-30): Phase 3 — Handlers + SDK. Tasks `T-007p-3-1` (four `session.*` JSON-RPC handlers — `session-create.ts` / `session-read.ts` / `session-join.ts` / `session-subscribe.ts` + `handlers/index.ts` barrel binding into the T-007p-2-3 registry per §Cross-Plan Obligations CP-007-1), `T-007p-3-2` (SDK transport — `packages/client-sdk/src/transport/jsonRpcClient.ts` + `transport/types.ts` per CP-007-4, MCP TypeScript SDK pattern: synchronous-resolution test transport + Zod-validated `call<P,R>` and `subscribe<T>`), `T-007p-3-4` (W-007p-3 invariant test suite — `session-handlers.test.ts` (18 tests) + `jsonRpcClient.test.ts` (13 tests)) delivered. T-007p-3-3 verification deferred — the `sessionClient.ts` import-surface check executes when Plan-001 Phase 5 lands its consumer (the transport surface is shipped here; the verification is a one-shot integration check at consume time, not a Phase 3 deliverable). Acceptance criteria green: 158 runtime-daemon tests pass (1 skipped Linux-runner Windows-pipe transport, 1 todo Tier-4 `transport.unavailable` _bind-path gate_ — envelope itself ships in BL-103 closure) + 13 client-sdk tests pass + all 7 packages typecheck clean (0e5599d HEAD). I-007-3-T1..T5 invariants enforced (round-trip `session.create` per T1, malformed-payload rejection per T2 + I-007-7, `session.subscribe` streaming-primitive integration per T3, server-corruption `JsonRpcSchemaError(phase: "result")` per T4, params-phase fail-fast per T5). Phase D (PR-scope, full-diff review) ran 7 rounds of Codex external review against successive HEADs, each landing F-fixes that closed contract-level gaps surfaced on the SDK/handler boundary: `9f47116` ordered the `session.subscribe` response BEFORE replay notifies (sequencing fix discovered pre-Phase-D); F1 (`replay-flush exception guard`) wrapped `setImmediate(() => sub.next(event))` in try/catch so handler crashes during replay flush complete the subscription with an error envelope rather than silently leaking; F2 (`subscribeInitResultSchema`) tightened the SDK's init-result schema to validate `subscriptionId` against `SubscriptionId` per Plan-007 contract + added `#handleResponse` defensive check; F3 (`cancel idempotency under in-flight RPC`) added `state.cancelInFlight` field synchronously registered before first await — concurrent `cancel()` callers share one wire frame and resolve to the same outcome (clean teardown OR local error if daemon nacks); F4 (`thenable detection`) replaced `instanceof Promise` with duck-typed `then` check supporting cross-realm Promises and non-native thenables; F5 (`LocalSubscription.onCancel lifecycle hook`) added a contract-level addition to `LocalSubscription<T>` — handlers fire across all three teardown paths (`cancel()` / `cleanupTransport` / `cancelSubscription`) with AbortSignal-style semantics (registration-after-cancel fires synchronously, registration-after-complete is silently dropped, multi-handler firing in registration order, per-handler error isolation, two-layer try/catch in bulk cleanup, remove-from-maps-then-fire ordering so re-entrant handlers observe post-cancel state) — and wires `session-subscribe.ts` to register the upstream `unsubscribe` via `sub.onCancel(unsubscribe)`, closing the upstream-watcher leak that would have held the projector listener for the connection's lifetime; F6 (`Promise.resolve absorbs thenable`) routed the duck-typed thenable rejection handler through `Promise.resolve(...).catch(...)` so the absorption logic the existing comment cited matches the implementation — direct `.catch` access broke for valid `PromiseLike` values omitting `.catch` (TC39 spec only mandates `.then`), surfacing a synthetic `TypeError` while the actual wire write may have succeeded; same commit widened `ClientTransport.send` return type from `void | Promise<void>` to `void | PromiseLike<void>` so the type contract aligns with the runtime contract (backward compatible — Promise extends PromiseLike) + added a literal-thenable regression test (`ThenableSendRejectingTransport` whose `send` returns a thenable WITHOUT `.catch`) locking the fix; the re-entrant unsubscribe precondition was named on `SessionSubscribeDeps.subscribeToSession`'s returned function (Plan-001 Phase 5's projector implementation MUST tolerate snapshot-during-emit / queued-removal because the F1 live-tail catch's `sub.cancel()` now fires registered `onCancel` handlers from inside the upstream's `onEvent` call stack). Final state: all 6 review threads resolved via GraphQL `resolveReviewThread` (R1 P1 replay-flush, R2 P2 subscribe init schema, R3 P2 cancel idempotency, R3 P2 thenable detection, R6 P2 retain unsubscribe, R7 P2 Promise.resolve thenable absorption); branch-protection's `required_conversation_resolution: true` gate cleared; `mergeStateStatus: CLEAN`. Round 7→Round 8 cap-exception framing applied per the three-label review framework + ACTIONABLE-deferral discipline — F5 (lifecycle-contract API completion) and F6 (fix-uncovers-fix on the same contract surface) justified rounds beyond the budgeted final adversarial pass; Codex Round 8 returned no new findings, confirming convergence. Plan-001 Phase 5 (`sessionClient.ts` consumer + Desktop Bootstrap) is now unblocked — the CP-007-4 transport surface ships at `0e5599d` and the re-entrant precondition on `subscribeToSession` is documented for the projector wire-up.

@@ -417,6 +417,218 @@ After Phase 5 lands green and the manual smoke passes, Plan-001 is complete. Pla
 
 ## Progress Log
 
+### Shipment Manifest
+
+<!-- Machine-readable. Housekeeper-emitted, orchestrator-written, preflight-read.
+     Schema authoritative in:
+       .claude/skills/plan-execution/scripts/lib/manifest.mjs -->
+
+```yaml
+manifest_schema_version: 1
+shipped:
+  - phase: 1
+    task: [T1.1, T1.2, T1.3, T1.4, T1.5, T1.6]
+    pr: 6
+    sha: ca22530
+    merged_at: 2026-04-27
+    files:
+      - .claude/skills/claude-md-audit/SKILL.md
+      - .claude/skills/claude-md-audit/evals/README.md
+      - .claude/skills/claude-md-audit/evals/test-suite.json
+      - .claude/skills/plan-execution/SKILL.md
+      - .claude/skills/plan-execution/references/failure-modes.md
+      - .claude/skills/plan-execution/references/state-recovery.md
+      - .claude/skills/plan-execution/references/subagent-roles.md
+      - .claude/skills/update-docs/SKILL.md
+      - .github/CODEOWNERS
+      - .github/workflows/ci.yml
+      - .github/workflows/gitleaks.yml
+      - .github/workflows/release.yml
+      - .gitignore
+      - .markdownlint-cli2.yaml
+      - .npmrc
+      - .nvmrc
+      - .prettierignore
+      - .release-please-manifest.json
+      - AGENTS.md
+      - CLAUDE.md
+      - CONTRIBUTING.md
+      - README.md
+      - apps/desktop/package.json
+      - apps/desktop/src/index.ts
+      - apps/desktop/tsconfig.json
+      - apps/desktop/tsconfig.test.json
+      - assets/hero/cli-terminal.html
+      - assets/hero/desktop-app.html
+      - commitlint.config.mjs
+      - docs/architecture/component-architecture-control-plane.md
+      - docs/architecture/component-architecture-desktop-app.md
+      - docs/architecture/component-architecture-local-daemon.md
+      - docs/architecture/container-architecture.md
+      - docs/architecture/contracts/api-payload-contracts.md
+      - docs/architecture/contracts/error-contracts.md
+      - docs/architecture/cross-plan-dependencies.md
+      - docs/architecture/data-architecture.md
+      - docs/architecture/deployment-topology.md
+      - docs/architecture/observability-architecture.md
+      - docs/architecture/schemas/local-sqlite-schema.md
+      - docs/architecture/security-architecture.md
+      - docs/architecture/v1-feature-scope.md
+      - docs/archive/backlog-archive.md
+      - docs/decisions/000-adr-template.md
+      - docs/decisions/001-session-is-the-primary-domain-object.md
+      - docs/decisions/002-local-execution-shared-control-plane.md
+      - docs/decisions/003-daemon-backed-queue-and-interventions.md
+      - docs/decisions/004-sqlite-local-state-and-postgres-control-plane.md
+      - docs/decisions/005-provider-drivers-use-a-normalized-interface.md
+      - docs/decisions/006-worktree-first-execution-mode.md
+      - docs/decisions/007-collaboration-trust-and-permission-model.md
+      - docs/decisions/008-default-transports-and-relay-boundaries.md
+      - docs/decisions/009-json-rpc-ipc-wire-format.md
+      - docs/decisions/010-paseto-webauthn-mls-auth.md
+      - docs/decisions/011-generic-intervention-dispatch.md
+      - docs/decisions/012-cedar-approval-policy-engine.md
+      - docs/decisions/013-reserved.md
+      - docs/decisions/014-trpc-control-plane-api.md
+      - docs/decisions/015-v1-feature-scope-definition.md
+      - docs/decisions/016-electron-desktop-shell.md
+      - docs/decisions/017-shared-event-sourcing-scope.md
+      - docs/decisions/018-cross-version-compatibility.md
+      - docs/decisions/019-windows-v1-tier-and-pty-sidecar.md
+      - docs/decisions/020-v1-deployment-model-and-oss-license.md
+      - docs/decisions/021-cli-identity-key-storage-custody.md
+      - docs/decisions/022-v1-toolchain-selection.md
+      - docs/decisions/023-v1-ci-cd-and-release-automation.md
+      - docs/decisions/024-agentic-plan-execution-methodology.md
+      - docs/domain/agent-channel-and-run-model.md
+      - docs/domain/artifact-diff-and-approval-model.md
+      - docs/domain/glossary.md
+      - docs/domain/participant-and-membership-model.md
+      - docs/domain/queue-and-intervention-model.md
+      - docs/domain/repo-workspace-worktree-model.md
+      - docs/domain/run-state-machine.md
+      - docs/domain/runtime-node-model.md
+      - docs/domain/session-model.md
+      - docs/domain/trust-and-identity.md
+      - docs/domain/workflow-model.md
+      - docs/domain/workflow-phase-model.md
+      - docs/operations/cedar-policy-signing-and-rotation.md
+      - docs/operations/control-plane-runbook.md
+      - docs/operations/invite-session-desync-recovery.md
+      - docs/operations/local-daemon-runbook.md
+      - docs/operations/local-persistence-repair-and-restore.md
+      - docs/operations/provider-failure-runbook.md
+      - docs/operations/replay-and-audit-runbook.md
+      - docs/operations/repo-and-worktree-recovery.md
+      - docs/operations/self-host-secure-defaults.md
+      - docs/operations/stuck-run-debugging.md
+      - docs/plans/000-plan-template.md
+      - docs/plans/001-shared-session-core.md
+      - docs/plans/002-invite-membership-and-presence.md
+      - docs/plans/003-runtime-node-attach.md
+      - docs/plans/004-queue-steer-pause-resume.md
+      - docs/plans/005-provider-driver-contract-and-capabilities.md
+      - docs/plans/006-session-event-taxonomy-and-audit-log.md
+      - docs/plans/007-local-ipc-and-daemon-control.md
+      - docs/plans/008-control-plane-relay-and-session-join.md
+      - docs/plans/009-repo-attachment-and-workspace-binding.md
+    verifies_invariant: []
+    spec_coverage: []
+    notes: |
+      Phase 1 — Workspace Bootstrap. Multi-task PR predates NS-02 atomic-PR-per-task discipline. Backfilled 2026-05-10 via operator hand-curation; cross-validated against scripts/rebuild-shipment-manifest.mjs gh ground truth.
+  - phase: 2
+    task: [T2.1, T2.2, T2.3]
+    pr: 8
+    sha: 6166fa9
+    merged_at: 2026-04-27
+    files:
+      - packages/contracts/package.json
+      - packages/contracts/src/__tests__/error.test.ts
+      - packages/contracts/src/__tests__/session-create.test.ts
+      - packages/contracts/src/__tests__/session-event.test.ts
+      - packages/contracts/src/__tests__/session-id.test.ts
+      - packages/contracts/src/__tests__/session-join.test.ts
+      - packages/contracts/src/error.ts
+      - packages/contracts/src/event.ts
+      - packages/contracts/src/index.ts
+      - packages/contracts/src/session.ts
+      - pnpm-lock.yaml
+    verifies_invariant: []
+    spec_coverage: ["Spec-001 AC1", "Spec-001 AC3", "Spec-001 AC4", "Spec-001 AC6", "Spec-001 AC8"]
+    notes: |
+      Phase 2 — Contracts Package. Multi-task PR predates NS-02. Backfilled 2026-05-10.
+  - phase: 3
+    task: [T3.1, T3.2, T3.3, T3.4]
+    pr: 9
+    sha: 93f1e35
+    merged_at: 2026-04-27
+    files:
+      - .npmrc
+      - packages/runtime-daemon/package.json
+      - packages/runtime-daemon/src/index.ts
+      - packages/runtime-daemon/src/migrations/0001-initial.ts
+      - packages/runtime-daemon/src/session/__tests__/migration-race-loader.mjs
+      - packages/runtime-daemon/src/session/__tests__/migration-race-worker.mjs
+      - packages/runtime-daemon/src/session/__tests__/session-projector.test.ts
+      - packages/runtime-daemon/src/session/__tests__/session-service.test.ts
+      - packages/runtime-daemon/src/session/index.ts
+      - packages/runtime-daemon/src/session/migration-runner.ts
+      - packages/runtime-daemon/src/session/session-projector.ts
+      - packages/runtime-daemon/src/session/session-service.ts
+      - packages/runtime-daemon/src/session/types.ts
+      - packages/runtime-daemon/vitest.config.ts
+      - pnpm-lock.yaml
+    verifies_invariant: [I-001-2, I-001-3]
+    spec_coverage: ["Spec-001 AC1", "Spec-001 AC2", "Spec-001 AC4", "Spec-001 AC6"]
+    notes: |
+      Phase 3 — Daemon Migration And Projection. Multi-task PR predates NS-02. Backfilled 2026-05-10.
+  - phase: 4
+    task: [T4.1, T4.2, T4.3, T4.4]
+    pr: 10
+    sha: c723b18
+    merged_at: 2026-04-27
+    files:
+      - docs/architecture/cross-plan-dependencies.md
+      - docs/architecture/schemas/shared-postgres-schema.md
+      - docs/plans/001-shared-session-core.md
+      - packages/contracts/src/session.ts
+      - packages/control-plane/package.json
+      - packages/control-plane/src/index.ts
+      - packages/control-plane/src/migrations/0001-initial.ts
+      - packages/control-plane/src/sessions/__tests__/session-directory-service.test.ts
+      - packages/control-plane/src/sessions/migration-runner.ts
+      - packages/control-plane/src/sessions/session-directory-service.ts
+      - packages/control-plane/vitest.config.ts
+      - pnpm-lock.yaml
+    verifies_invariant: [I-001-1]
+    spec_coverage: ["Spec-001 AC1", "Spec-001 AC2", "Spec-001 AC4", "Spec-001 AC5", "Spec-001 AC8"]
+    notes: |
+      Phase 4 — Control Plane Directory. Multi-task PR predates NS-02. Backfilled 2026-05-10.
+  - phase: 5
+    task: T5.1
+    pr: 30
+    sha: 7e4ae47
+    merged_at: 2026-05-06
+    files:
+      - .claude/skills/plan-execution/scripts/__tests__/preflight.test.mjs
+      - .claude/skills/plan-execution/scripts/preflight-contract.md
+      - .claude/skills/plan-execution/scripts/preflight.mjs
+      - .github/workflows/docs-corpus.yml
+      - docs/plans/001-shared-session-core.md
+      - docs/superpowers/plans/2026-05-03-plan-execution-housekeeper-implementation.md
+      - packages/client-sdk/src/index.ts
+      - packages/client-sdk/src/sessionClient.ts
+      - packages/client-sdk/test/sessionClient.integration.test.ts
+    verifies_invariant: []
+    spec_coverage: ["Spec-001 AC1", "Spec-001 AC3", "Spec-001 AC4", "Spec-001 AC6"]
+    notes: |
+      Phase 5 Lane A T5.1 — sessionClient.ts (daemon JSON-RPC + control-plane tRPC/SSE transports). First atomic post-NS-02 PR for Plan-001. See `### Notes` subsection for the full PR #30 round-trip narrative.
+```
+
+### Notes
+
+<!-- Per-PR human commentary (round-trips, learnings, partial-ship details). -->
+
 - **PR #30** (squash-commit `7e4ae47` on `develop`, merged 2026-05-05): Phase 5 Lane A T5.1 — `sessionClient.ts`. Two factories shipped at `packages/client-sdk/src/sessionClient.ts`: `createDaemonSessionClient(client: JsonRpcClient): SessionClient` (consumes Plan-007 §CP-007-4 transport) + `createControlPlaneSessionClient(opts: ControlPlaneSessionClientOptions): SessionClient` (consumes Plan-008 tRPC `sessionRouter` + native SSE per BL-104 path-(b)). Shared `SessionClient` interface with `create` / `read` / `join` / `subscribe(): AsyncIterable<EventEnvelope>`. Acceptance criteria green: I1 (SessionCreate→SessionRead identity, daemon), I2 (two-client SessionJoin replay history, daemon), I3 (SessionSubscribe ASC sequence across reconnect, CP/SSE), I4 (reconnect after lost stream restores from snapshot, CP/SSE) — covering Spec-001 AC1 / AC3 / AC4 / AC6. Pre-Phase-A landed two prerequisite commits on the PR branch: `8c73268 fix(repo): require code-type prefix in plan-execution preflight Gate 3` (Gate 3 was false-matching doc/chore PRs against `Plan-NNN.*Phase N` patterns; tightened to `feat|fix|refactor|perf` Conventional Commit prefixes per CONTRIBUTING.md) and `777a765 docs(repo): seal preflight.mjs cite ripple after Gate 3 line shift` (CAT-06 inbound `:NNN` cite update in housekeeper plan after preflight.mjs:537 → :544 shift). Round-trips: round 1 surfaced ACTIONABLE barrel-export gap (`src/index.ts` missing `sessionClient.js` re-export — broke external consumers' import surface); round 2 surfaced asymmetric type-soundness gap (factory exported but `JsonRpcClient` parameter type only re-exported transitively, blocking TypeScript consumers from naming the dependency); round 3 closed both with wide transport re-exports (`export * from "./transport/jsonRpcClient.js"` + `"./transport/types.js"`) — task converged at round-trip cap (3 rounds) without cap-firing. Phase D (PR-scoped, full-diff) returned 0 POLISH / 0 ACTIONABLE across all three reviewers (spec / code-quality / code). Self-flagged learnings inline: async-generator priming pitfall (body executes only on first `next()` pull, not on iterator construction — caught in I2 test setup) + stale-citation correction (early reference to "mutation precedent in `sse-roundtrip.test.ts`" was self-corrected with primary-source citation to `@trpc/server@11.17.0` source — the cited test was subscribe-only). Post-Phase-D Codex external review then ran 5 rounds against successive HEADs and produced 8 findings (1 P1, 7 P2) across the same `sessionClient.ts` surface — all addressed inline with regression tests C1-C8: pre-abort guards on both transports (RT-1 + RT-2), CRLF-tolerant SSE frame parsing per WHATWG HTML §9.2.6 (RT-1), cursor validation via `EventCursorSchema.parse` at the trust boundary (RT-2), graceful mid-stream abort on the CP read loop (RT-3 / `5eef5fc`), graceful request-setup abort closing the third abort window (RT-4 / `6c179dc`), daemon abort race-close after listener attach (RT-5 / `101fa29`), and SSE Content-Type validation against silent-empty-stream misreports from non-SSE 200 responses (RT-5). Three abort windows now uniformly handled on the CP path matching the daemon path's `addEventListener("abort", () => subscription.cancel())` contract. Bundled CI hardening landed in the same PR: lychee CI split into required-inbound + advisory-outbound (`cdae21c`) per ADR-023 §Axis 2 D-1 (gates fail-closed; drift detectors warn) and the advisory-outbound failure flipped to yellow `::warning::` annotation (`49102db`) so the workflow header reflects the actual signal class. Final test count: 35 client-sdk tests (16 integration including C1-C8). Plan-001 Phase 5 Lane A T5.1 closes; T5.2-T5.6 remain unscheduled.
 
 ## Done Checklist
