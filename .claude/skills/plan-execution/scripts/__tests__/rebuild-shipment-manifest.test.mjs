@@ -84,6 +84,42 @@ test("parsePhaseFromPr: P5.1 (Plan-001 style) still matches after tightening", (
   assert.equal(parsePhaseFromPr({ title: "feat: P5.1 client SDK", body: null }), 5);
 });
 
+// Codex P2 finding on PR #35 round 6: parsePhaseFromPr previously had no
+// cross-plan scoping (parseTaskFromPr already had it from round 1). A PR
+// body citing "see Plan-001 Phase 5" in a Plan-024 PR could leak phase 5
+// into Plan-024's manifest. The fix mirrors parseTaskFromPr's defense:
+// when the matched text contains a Plan-NNN reference NOT equal to the
+// target plan, that text is skipped.
+test("parsePhaseFromPr: cross-plan citation in body does NOT leak into target plan", () => {
+  // Plan-024 PR whose body references Plan-001 Phase 5 for context
+  const r = parsePhaseFromPr({
+    title: "feat(rust-crate): scaffolding",
+    body: "Cross-plan note: see Plan-001 Phase 5 for the SDK consumer surface.",
+    plan: "024",
+  });
+  assert.equal(r, null);
+});
+
+test("parsePhaseFromPr: same text with target Plan-NNN ref still captures", () => {
+  // Same shape as above but the body cites the TARGET plan — capture proceeds.
+  const r = parsePhaseFromPr({
+    title: "feat(rust-crate): scaffolding",
+    body: "Plan-024 Phase 1 — scaffolding the rust crate.",
+    plan: "024",
+  });
+  assert.equal(r, 1);
+});
+
+test("parsePhaseFromPr: bare phase text with no Plan ref still captures (back-compat)", () => {
+  // Most PR titles are bare "Phase N" with no Plan ref — those must still match.
+  const r = parsePhaseFromPr({
+    title: "feat: Phase 3 work",
+    body: null,
+    plan: "001",
+  });
+  assert.equal(r, 3);
+});
+
 test("parsePhaseFromPr: returns null when no marker", () => {
   assert.equal(parsePhaseFromPr({ title: "fix: bug", body: "no markers here" }), null);
 });

@@ -109,10 +109,25 @@ function defaultGhRunner(cmd) {
 //             matched because they collide with Codex review-priority
 //             badges (P1/P2/P3) that can appear in PR bodies. Codex P2
 //             finding on PR #35 round 5.)
-export function parsePhaseFromPr({ title, body }) {
+//
+// Cross-plan defense (Codex P2 finding on PR #35 round 6 — mirrors the
+// parseTaskFromPr defense from round 1): neither phase pattern carries the
+// plan id inline, so a PR body citing "see Plan-001 Phase 5" in a Plan-024
+// PR could leak phase 5 into Plan-024's manifest. When the matched text
+// (title or body) contains a Plan-NNN reference NOT equal to the target
+// plan, that text is skipped. Texts with no Plan-NNN reference at all
+// remain captured (most PR titles are bare "Phase N" with no Plan ref —
+// the script already surfaces ambiguity for unconfirmed phase mappings).
+export function parsePhaseFromPr({ title, body, plan }) {
   const patterns = [/\bPhase\s+(\d+)\b/i, /\bP(\d+)\.\d+\b/];
+  const planRefPattern = /\bPlan-(\d{3})\b/g;
   for (const text of [title, body]) {
     if (!text) continue;
+    if (plan != null) {
+      const planRefs = new Set([...text.matchAll(planRefPattern)].map((m) => m[1]));
+      const otherPlanRefs = [...planRefs].filter((r) => r !== plan);
+      if (otherPlanRefs.length > 0) continue;
+    }
     for (const re of patterns) {
       const m = re.exec(text);
       if (m) return Number(m[1]);
@@ -166,7 +181,7 @@ export function parseTaskFromPr({ title, body, plan }) {
 // records the same).
 export function buildEntryFromPr({ pr, details, plan }) {
   const ambiguities = [];
-  const phase = parsePhaseFromPr(details);
+  const phase = parsePhaseFromPr({ ...details, plan });
   const task = parseTaskFromPr({ ...details, plan });
   const sha = (details.mergeCommit?.oid ?? "").slice(0, 7);
   const mergedAt = details.mergedAt ? details.mergedAt.split("T")[0] : null;
