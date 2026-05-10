@@ -283,18 +283,38 @@ export function gateAuditCheckbox(planSource, planFile) {
 
 function _phaseAlreadyShipped(merged, planNumber, phase) {
   const planNum3 = String(planNumber).padStart(3, "0");
-  // Code-type Conventional Commit prefixes denote a code shipment. Doc / chore
-  // / test / build PRs may reference a phase in their title without shipping
-  // it (e.g., a governance amendment that rewrites the phase's Precondition
-  // section). Filtering on prefix prevents the `Plan-NNN.*Phase N` and phase-
-  // title substring patterns from false-matching such PRs against the gate.
+  // Code-type Conventional Commit prefixes (on the squash subject = PR title)
+  // denote a code shipment. Doc / chore / test / build PRs may reference a
+  // phase in title or body without shipping it. The prefix filter on title
+  // gates everything below it.
   const codePrefixPattern = /^(feat|fix|refactor|perf)(\([^)]+\))?!?:/i;
-  const prFormPattern = new RegExp(`Plan-${planNumber}\\b.*PR\\s*#${phase.number}\\b`, "i");
+  // Two pattern classes with deliberately asymmetric reach:
+  //
+  //   prFormPattern    — `Plan-NNN PR #N` is the *precise* shipment marker
+  //                      (Plan-001's authoring convention assigns each phase
+  //                      a "PR #N" identity in its plan body). Check title
+  //                      AND body: Plan-001 PRs #6/#8/#9/#10 carry the
+  //                      marker in body only — their squash titles use
+  //                      package-scoped Conventional Commits like
+  //                      `feat(contracts): add session, event, ...` that
+  //                      omit `Plan-001` entirely.
+  //
+  //   phaseFormPattern — `Plan-NNN Phase N` is *narrative chatter* that
+  //   + title-substring  appears in partial-ship language ("Plan-001 Phase 5
+  //                      Lane A T5.1", "Plan-001 Phase 5 dispatch follow-up")
+  //                      and cross-reference prose. Keep TITLE-ONLY: title
+  //                      is author-controlled at squash time, body is
+  //                      draft-time chatter. Re-broadening either to body
+  //                      re-introduces the partial-ship false positive that
+  //                      Plan-001 Phase 5 (PR #30) demonstrates.
+  const prFormPattern = new RegExp(`Plan-${planNum3}\\b.*PR\\s*#${phase.number}\\b`, "i");
   const phaseFormPattern = new RegExp(`Plan-${planNum3}\\b.*Phase\\s*${phase.number}\\b`, "i");
   for (const pr of merged) {
     const t = pr.title || "";
     if (!codePrefixPattern.test(t)) continue;
-    if (prFormPattern.test(t) || phaseFormPattern.test(t)) return t;
+    const b = pr.body || "";
+    if (prFormPattern.test(t) || prFormPattern.test(b)) return t;
+    if (phaseFormPattern.test(t)) return t;
     if (
       phase.title &&
       phase.title.length >= 8 &&
@@ -310,11 +330,14 @@ export function gatePhaseUnshipped(planNumber, phase, mergedList) {
   if (!Array.isArray(merged)) {
     const planNum3 = String(planNumber).padStart(3, "0");
     // `gh pr list` lacks `--paginate` (only `gh api` supports it), so cap
-    // explicitly. The search filter (Plan-NNN in:title, state=merged) returns
-    // one PR per shipped phase; even pathological plans have <30 phases, so
-    // 200 is ~7x headroom — practically unbounded for the foreseeable corpus.
+    // explicitly. Search filter is `Plan-NNN in:title,body`: PRs whose titles
+    // use package-scoped Conventional Commits (e.g., `feat(contracts):`)
+    // carry their `Plan-NNN PR #M` shipment claim in body only, so a
+    // title-only filter silently drops them from the result set. Body
+    // inflates response size; 200 is ~7x headroom over realistic
+    // <30-phases-per-plan corpora.
     const r = runGh(
-      `gh pr list --state merged --search "Plan-${planNum3} in:title" --json number,title --limit 200`,
+      `gh pr list --state merged --search "Plan-${planNum3} in:title,body" --json number,title,body --limit 200`,
     );
     if (!r.ok) {
       return {
@@ -489,10 +512,16 @@ export function runPreflight(
   if (phases.length === 0)
     return { exit: 2, stderr: `no \`### Phase N —\` headers found in ${planFile}` };
 
-  // Pre-fetch merged PR list once for the plan; cuts gh calls in auto-detect from O(phases) to 1.
+  // Pre-fetch merged PR list once for the plan; cuts gh calls in auto-detect
+  // from O(phases) to 1. Search is `Plan-NNN in:title,body` and JSON includes
+  // `body` so `_phaseAlreadyShipped` can match the precise `Plan-NNN PR #N`
+  // shipment marker against bodies of PRs whose titles use package-scoped
+  // Conventional Commits and omit `Plan-NNN`. Limit stays at 50: bodies
+  // inflate response size meaningfully (Plan-001 PR bodies run >2KB), and
+  // 50 ≫ realistic phases-per-plan.
   const planNum3 = String(planNumber).padStart(3, "0");
   const mergedRes = runGh(
-    `gh pr list --state merged --search "Plan-${planNum3} in:title" --json number,title --limit 50`,
+    `gh pr list --state merged --search "Plan-${planNum3} in:title,body" --json number,title,body --limit 50`,
   );
   let merged;
   if (mergedRes.ok) {
