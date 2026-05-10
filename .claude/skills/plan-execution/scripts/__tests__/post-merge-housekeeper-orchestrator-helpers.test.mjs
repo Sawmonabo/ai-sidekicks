@@ -11,8 +11,11 @@ import {
   detectAffectedFilesSprawl,
   decideHousekeeperRouting,
   assertRepoRelative,
+  extractProposedEntry,
+  enrichEntryWithDag,
+  buildFinalManifestEntry,
 } from "../../lib/housekeeper-orchestrator-helpers.mjs";
-import { emitManifest } from "../post-merge-housekeeper.mjs";
+import { emitManifest, buildProposedManifestEntry } from "../post-merge-housekeeper.mjs";
 
 // Production-path simulation: in Phase E the orchestrator reads the script-stage
 // manifest in SKILL.md step 3 BEFORE subagent dispatch, stores the four snapshot
@@ -2551,5 +2554,225 @@ test("I-3 invariant: post-merge-housekeeper.mjs does NOT import child_process or
     src,
     /(?:spawn|exec|execSync|spawnSync)\s*\(\s*["']git["']/,
     "I-3 invariant violated: post-merge-housekeeper.mjs invokes git directly — orchestrator-only responsibility",
+  );
+});
+
+// ---------- buildProposedManifestEntry (script-side) ----------
+
+test("buildProposedManifestEntry: returns null when --squash-sha is missing", () => {
+  const args = {
+    plan: "024",
+    phase: "1",
+    task: "T-024-1-1",
+    prNumber: 30,
+    squashSha: null,
+    mergedAt: "2026-05-05",
+  };
+  assert.equal(buildProposedManifestEntry({ args, diffTouchedFiles: ["a.rs"] }), null);
+});
+
+test("buildProposedManifestEntry: returns null when --merged-at is missing", () => {
+  const args = {
+    plan: "024",
+    phase: "1",
+    task: "T-024-1-1",
+    prNumber: 30,
+    squashSha: "deadbee",
+    mergedAt: null,
+  };
+  assert.equal(buildProposedManifestEntry({ args, diffTouchedFiles: ["a.rs"] }), null);
+});
+
+test("buildProposedManifestEntry: returns null when task is missing", () => {
+  const args = {
+    plan: "024",
+    phase: "1",
+    task: null,
+    prNumber: 30,
+    squashSha: "deadbee",
+    mergedAt: "2026-05-05",
+  };
+  assert.equal(buildProposedManifestEntry({ args, diffTouchedFiles: ["a.rs"] }), null);
+});
+
+test("buildProposedManifestEntry: returns null when phase is non-numeric (Tier-A style)", () => {
+  const args = {
+    plan: "024",
+    phase: "A",
+    task: "T-024-A-1",
+    prNumber: 30,
+    squashSha: "deadbee",
+    mergedAt: "2026-05-05",
+  };
+  assert.equal(buildProposedManifestEntry({ args, diffTouchedFiles: ["a.rs"] }), null);
+});
+
+test("buildProposedManifestEntry: happy path returns shaped entry with empty audit fields", () => {
+  const args = {
+    plan: "024",
+    phase: "1",
+    task: "T-024-1-1",
+    prNumber: 30,
+    squashSha: "deadbee",
+    mergedAt: "2026-05-05",
+  };
+  const entry = buildProposedManifestEntry({
+    args,
+    diffTouchedFiles: ["packages/runtime-daemon/src/foo.rs"],
+  });
+  assert.deepEqual(entry, {
+    phase: 1,
+    task: "T-024-1-1",
+    pr: 30,
+    sha: "deadbee",
+    merged_at: "2026-05-05",
+    files: ["packages/runtime-daemon/src/foo.rs"],
+    verifies_invariant: [],
+    spec_coverage: [],
+  });
+});
+
+test("buildProposedManifestEntry: defaults files to [] when diffTouchedFiles is null", () => {
+  const args = {
+    plan: "024",
+    phase: "1",
+    task: "T-024-1-1",
+    prNumber: 30,
+    squashSha: "deadbee",
+    mergedAt: "2026-05-05",
+  };
+  const entry = buildProposedManifestEntry({ args, diffTouchedFiles: null });
+  assert.deepEqual(entry.files, []);
+});
+
+// ---------- extractProposedEntry ----------
+
+test("extractProposedEntry: returns null for null/undefined manifest", () => {
+  assert.equal(extractProposedEntry(null), null);
+  assert.equal(extractProposedEntry(undefined), null);
+});
+
+test("extractProposedEntry: returns null when field is absent", () => {
+  assert.equal(extractProposedEntry({ pr_number: 30 }), null);
+});
+
+test("extractProposedEntry: returns null when script emitted null (graceful degradation)", () => {
+  assert.equal(extractProposedEntry({ proposed_manifest_entry: null }), null);
+});
+
+test("extractProposedEntry: returns the entry as-is when present", () => {
+  const entry = {
+    phase: 1,
+    task: "T-024-1-1",
+    pr: 30,
+    sha: "deadbee",
+    merged_at: "2026-05-05",
+    files: ["a.rs"],
+    verifies_invariant: [],
+    spec_coverage: [],
+  };
+  assert.deepEqual(extractProposedEntry({ proposed_manifest_entry: entry }), entry);
+});
+
+// ---------- enrichEntryWithDag ----------
+
+const PROPOSED = {
+  phase: 5,
+  task: "T5.1",
+  pr: 30,
+  sha: "7e4ae47",
+  merged_at: "2026-05-05",
+  files: ["packages/client-sdk/src/sessionClient.ts"],
+  verifies_invariant: [],
+  spec_coverage: [],
+};
+
+test("enrichEntryWithDag: merges DAG verifies_invariant + spec_coverage into proposed entry", () => {
+  const dagTask = { verifies_invariant: ["I-001-1"], spec_coverage: ["Spec-001 row 4"] };
+  const out = enrichEntryWithDag(PROPOSED, dagTask);
+  assert.deepEqual(out.verifies_invariant, ["I-001-1"]);
+  assert.deepEqual(out.spec_coverage, ["Spec-001 row 4"]);
+  // Other fields preserved.
+  assert.equal(out.phase, 5);
+  assert.equal(out.pr, 30);
+});
+
+test("enrichEntryWithDag: notesOverride is attached when provided", () => {
+  const out = enrichEntryWithDag(
+    PROPOSED,
+    { verifies_invariant: [], spec_coverage: [] },
+    "Lane A only.",
+  );
+  assert.equal(out.notes, "Lane A only.");
+});
+
+test("enrichEntryWithDag: notes omitted when notesOverride is undefined or empty", () => {
+  const a = enrichEntryWithDag(PROPOSED, { verifies_invariant: [], spec_coverage: [] });
+  const b = enrichEntryWithDag(PROPOSED, { verifies_invariant: [], spec_coverage: [] }, "");
+  assert.ok(!("notes" in a));
+  assert.ok(!("notes" in b));
+});
+
+test("enrichEntryWithDag: throws when proposedEntry is null", () => {
+  assert.throws(
+    () => enrichEntryWithDag(null, { verifies_invariant: [], spec_coverage: [] }),
+    /script ran without --squash-sha\/--merged-at/,
+  );
+});
+
+test("enrichEntryWithDag: throws when dagTask is missing", () => {
+  assert.throws(() => enrichEntryWithDag(PROPOSED, null), /dagTask is required/);
+});
+
+test("enrichEntryWithDag: defaults audit arrays to [] when DAG fields are not arrays", () => {
+  const out = enrichEntryWithDag(PROPOSED, { verifies_invariant: undefined, spec_coverage: null });
+  assert.deepEqual(out.verifies_invariant, []);
+  assert.deepEqual(out.spec_coverage, []);
+});
+
+// ---------- buildFinalManifestEntry ----------
+
+test("buildFinalManifestEntry: end-to-end read + extract + enrich", () => {
+  const tmp = mkdtempSync(join(tmpdir(), "build-final-"));
+  try {
+    const manifestPath = join(tmp, "housekeeper-manifest-PR30.json");
+    writeFileSync(manifestPath, JSON.stringify({ proposed_manifest_entry: PROPOSED }, null, 2));
+    const out = buildFinalManifestEntry({
+      housekeeperManifestPath: manifestPath,
+      dagTask: { verifies_invariant: ["I-001-1"], spec_coverage: ["Spec-001 row 4"] },
+      notesOverride: "Lane A only.",
+    });
+    assert.deepEqual(out.verifies_invariant, ["I-001-1"]);
+    assert.deepEqual(out.spec_coverage, ["Spec-001 row 4"]);
+    assert.equal(out.notes, "Lane A only.");
+    assert.equal(out.pr, 30);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("buildFinalManifestEntry: returns null when script emitted no proposed entry", () => {
+  const tmp = mkdtempSync(join(tmpdir(), "build-final-"));
+  try {
+    const manifestPath = join(tmp, "housekeeper-manifest-PR30.json");
+    writeFileSync(manifestPath, JSON.stringify({ proposed_manifest_entry: null }, null, 2));
+    const out = buildFinalManifestEntry({
+      housekeeperManifestPath: manifestPath,
+      dagTask: { verifies_invariant: [], spec_coverage: [] },
+    });
+    assert.equal(out, null);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("buildFinalManifestEntry: throws when manifest path does not exist", () => {
+  assert.throws(
+    () =>
+      buildFinalManifestEntry({
+        housekeeperManifestPath: "/no/such/path/manifest.json",
+        dagTask: { verifies_invariant: [], spec_coverage: [] },
+      }),
+    /manifest not found/,
   );
 });

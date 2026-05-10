@@ -971,3 +971,98 @@ export function decideHousekeeperRouting({ scriptExitCode }) {
       `Inspect script source for an undocumented exit path or manifest tampering. Operator action required.`,
   };
 }
+
+// ---------- Shipment-manifest entry assembly (Phase E step 6) ----------
+//
+// Background: the post-merge-housekeeper script emits a `proposed_manifest_entry`
+// in its JSON manifest output (see post-merge-housekeeper.mjs § buildProposedManifestEntry).
+// That entry has the script-knowable fields populated (phase, task, pr, sha,
+// merged_at, files) but leaves `verifies_invariant: []` and `spec_coverage: []`
+// empty — those come from the audit Tasks-block, which the script has no
+// access to (Plan Invariant I-3 forbids git/network and the script has no DAG
+// reference). The orchestrator merges those audit-derived fields in here, then
+// hands the final entry to `appendManifestEntry` from scripts/lib/manifest.mjs.
+//
+// The orchestrator-side write path is the canonical Pattern B: script proposes,
+// orchestrator owns the plan-file edit. Subagent has no role (the housekeeper
+// subagent's tools list omits `Bash`/git, so it could not obtain the merge SHA
+// or merged-at date even if asked — see .claude/agents/plan-execution-housekeeper.md).
+
+/**
+ * Pull the script's `proposed_manifest_entry` field out of a parsed
+ * housekeeper-manifest object. Returns null when the script ran without
+ * `--squash-sha` / `--merged-at` / sufficient task identity (the script's
+ * graceful-degradation contract).
+ *
+ * @param {object} housekeeperManifest — parsed JSON of `.agents/tmp/housekeeper-manifest-PR<N>.json`
+ * @returns {object|null}
+ */
+export function extractProposedEntry(housekeeperManifest) {
+  if (!housekeeperManifest || typeof housekeeperManifest !== "object") return null;
+  const entry = housekeeperManifest.proposed_manifest_entry;
+  if (entry === undefined) return null;
+  return entry;
+}
+
+/**
+ * Merge audit-derived fields (verifies_invariant, spec_coverage) from the DAG
+ * task into the script-emitted proposed entry. The DAG task is the analyst's
+ * output (see SKILL.md § Phase A); its `verifies_invariant` and `spec_coverage`
+ * fields mirror the audit Tasks-block convention 1:1.
+ *
+ * Optional `notesOverride` lets the orchestrator attach free-form per-PR
+ * context (round-trip count, lane label, partial-ship caveats). Omit to leave
+ * `notes` unset on the entry.
+ *
+ * Throws when the proposed entry is null (caller should have short-circuited
+ * earlier — null indicates the script ran without manifest-emit args, which
+ * is a Phase E configuration bug, not a runtime branch).
+ *
+ * @param {object} proposedEntry — non-null entry from `extractProposedEntry`
+ * @param {object} dagTask — analyst-output task with `verifies_invariant: string[]` + `spec_coverage: string[]`
+ * @param {string} [notesOverride] — optional notes block (multi-line allowed)
+ * @returns {object} — final entry shape ready for `appendManifestEntry`
+ */
+export function enrichEntryWithDag(proposedEntry, dagTask, notesOverride) {
+  if (!proposedEntry || typeof proposedEntry !== "object") {
+    throw new Error(
+      "enrichEntryWithDag: proposedEntry is null — script ran without --squash-sha/--merged-at; orchestrator must pass both flags in Phase E step 2",
+    );
+  }
+  if (!dagTask || typeof dagTask !== "object") {
+    throw new Error("enrichEntryWithDag: dagTask is required");
+  }
+  const verifies = Array.isArray(dagTask.verifies_invariant) ? dagTask.verifies_invariant : [];
+  const spec = Array.isArray(dagTask.spec_coverage) ? dagTask.spec_coverage : [];
+  const out = {
+    ...proposedEntry,
+    verifies_invariant: verifies,
+    spec_coverage: spec,
+  };
+  if (typeof notesOverride === "string" && notesOverride.length > 0) {
+    out.notes = notesOverride;
+  }
+  return out;
+}
+
+/**
+ * Convenience: read the housekeeper manifest from disk, extract the proposed
+ * entry, and enrich with DAG fields. Returns the final entry or null when the
+ * script emitted no proposed entry (graceful-degradation path).
+ *
+ * @param {object} params
+ * @param {string} params.housekeeperManifestPath — absolute path to `.agents/tmp/housekeeper-manifest-PR<N>.json`
+ * @param {object} params.dagTask — analyst-output task
+ * @param {string} [params.notesOverride] — optional notes block
+ * @returns {object|null}
+ */
+export function buildFinalManifestEntry({ housekeeperManifestPath, dagTask, notesOverride }) {
+  if (!housekeeperManifestPath || !existsSync(housekeeperManifestPath)) {
+    throw new Error(`buildFinalManifestEntry: manifest not found at ${housekeeperManifestPath}`);
+  }
+  const raw = readFileSync(housekeeperManifestPath, "utf8");
+  const manifest = JSON.parse(raw);
+  const proposed = extractProposedEntry(manifest);
+  if (proposed === null) return null;
+  return enrichEntryWithDag(proposed, dagTask, notesOverride);
+}
