@@ -692,6 +692,36 @@ shipped: []
   assert.match(r.halt, /missing_schema_version/);
 });
 
+test("gatePhaseUnshipped halts when manifest YAML missing shipped key (missing_shipped)", () => {
+  // Codex P1 finding on PR #35 round 10: parser used to fail-open when
+  // only the schema-version line was present. The missing-shipped reason
+  // now routes through the same manifest_unparseable halt kind so the
+  // halt-text reasons-list documentation matches reality.
+  const planSrc = `# Plan-001
+
+### Phase 1 — Bootstrap
+
+#### Tasks
+
+##### T1.1 — A
+
+## Progress Log
+
+### Shipment Manifest
+
+\`\`\`yaml
+manifest_schema_version: 1
+\`\`\`
+
+### Notes
+`;
+  const r = gatePhaseUnshipped(planSrc, 1, { number: 1, title: "Bootstrap" });
+  assert.equal(r.ok, false);
+  assert.equal(r.kind, "manifest_unparseable");
+  assert.match(r.halt, /shipment manifest unparseable/);
+  assert.match(r.halt, /missing_shipped/);
+});
+
 test("gatePhaseUnshipped fails-open on unknown future schema versions", () => {
   // Per lib/manifest.mjs schema-version policy: unknown future versions are
   // returned ok with the parsed entries; preflight Gate 3 treats them as

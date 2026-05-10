@@ -23,10 +23,17 @@
 // ## Schema-version policy
 //
 // Parser accepts version >= 1. Unknown future versions are returned
-// with `{ ok: true, version, shipped }` so callers can fail-open
-// (preflight Gate 3 treats unknown-version manifests as opaque rather
-// than block-dispatch — partial migrations during a future schema bump
-// must not halt orchestration).
+// with `{ ok: true, version, shipped }` so read-side callers can
+// fail-open (preflight Gate 3 treats unknown-version manifests as
+// opaque rather than block-dispatch — partial migrations during a
+// future schema bump must not halt orchestration).
+//
+// Writer side is asymmetric: `appendManifestEntry` THROWS when
+// `parseResult.version > MANIFEST_SCHEMA_VERSION`. The entry shape
+// emitted by this module is v1; injecting a v1 entry into a future
+// vN manifest could violate constraints the new version added.
+// Operator must upgrade the writer to vN before the manifest is
+// editable again.
 //
 // ## Why hand-rolled (not Zod)
 //
@@ -113,6 +120,7 @@ function parseYaml(yamlSource) {
   const lines = yamlSource.split("\n");
   let version = null;
   const shipped = [];
+  let shippedFound = false;
   let i = 0;
   while (i < lines.length) {
     const line = lines[i];
@@ -127,10 +135,12 @@ function parseYaml(yamlSource) {
       continue;
     }
     if (/^shipped:\s*\[\s*\]\s*(?:#.*)?$/.test(line)) {
+      shippedFound = true;
       i++;
       continue;
     }
     if (/^shipped:\s*(?:#.*)?$/.test(line)) {
+      shippedFound = true;
       i++;
       const result = parseShippedEntries(lines, i);
       shipped.push(...result.entries);
@@ -141,6 +151,7 @@ function parseYaml(yamlSource) {
     i++;
   }
   if (version === null) return { ok: false, reason: "missing_schema_version" };
+  if (!shippedFound) return { ok: false, reason: "missing_shipped" };
   return { ok: true, version, shipped };
 }
 
@@ -398,6 +409,11 @@ export function appendManifestEntry(planSource, entry) {
   const parseResult = parseManifestBlock(planSource);
   if (!parseResult.ok) {
     throw new Error(`cannot append: manifest block invalid (${parseResult.reason})`);
+  }
+  if (parseResult.version > MANIFEST_SCHEMA_VERSION) {
+    throw new Error(
+      `cannot append: manifest schema version ${parseResult.version} > writer version ${MANIFEST_SCHEMA_VERSION}`,
+    );
   }
   const validation = validateEntry(entry);
   if (!validation.ok) {

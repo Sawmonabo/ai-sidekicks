@@ -394,6 +394,8 @@ export function gatePhaseUnshipped(planSource, planNumber, phase) {
         "    truncated.",
         "  - missing_schema_version: fenced block exists but `manifest_schema_version: 1`",
         "    is absent.",
+        "  - missing_shipped: schema-version present but the `shipped:` top-level key is",
+        "    absent. Add `shipped: []` for an empty manifest, or list entries under it.",
       ].join("\n"),
     };
   }

@@ -173,6 +173,23 @@ shipped: []
   assert.equal(r.reason, "missing_schema_version");
 });
 
+// Codex P1 finding on PR #35 round 10: parser previously returned
+// `{ ok: true, version, shipped: [] }` whenever the version line was
+// present even if the `shipped:` top-level key was absent. That silent
+// pass produced an empty shipment-set and re-opened Gate 3 for already-
+// shipped phases. Strict halt now matches `missing_schema_version`.
+test("parseManifestBlock: missing shipped key returns missing_shipped", () => {
+  const plan = `### Shipment Manifest
+
+\`\`\`yaml
+manifest_schema_version: 1
+\`\`\`
+`;
+  const r = parseManifestBlock(plan);
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, "missing_shipped");
+});
+
 test("parseManifestBlock: schema-version 2 is parsed fail-open", () => {
   const plan = `### Shipment Manifest
 
@@ -347,6 +364,25 @@ test("appendManifestEntry: throws on invalid entry", () => {
 
 test("appendManifestEntry: throws on missing section", () => {
   assert.throws(() => appendManifestEntry("# plan with no manifest\n", OK_ENTRY), /no_section/);
+});
+
+// Codex P2 finding on PR #35 round 10: parser fail-opens on future
+// schema versions so read-side tooling keeps working during partial
+// migrations, but the writer MUST refuse — the v1 entry shape this
+// module emits could violate constraints that vN added. Asymmetric
+// reader/writer policy, documented in the module header.
+test("appendManifestEntry: throws on future schema version", () => {
+  const futurePlan = `### Shipment Manifest
+
+\`\`\`yaml
+manifest_schema_version: 2
+shipped: []
+\`\`\`
+`;
+  assert.throws(
+    () => appendManifestEntry(futurePlan, OK_ENTRY),
+    /manifest schema version 2 > writer version 1/,
+  );
 });
 
 // ---------- serializeEntry ----------
