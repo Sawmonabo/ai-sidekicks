@@ -21,6 +21,20 @@ const SKILL_ROOT = resolve(__dirname, "..");
 const SKILL_MD = resolve(SKILL_ROOT, "SKILL.md");
 const REPO_ROOT = resolve(SKILL_ROOT, "..", "..", "..");
 
+// ---------- module constants ----------
+
+// Cap on the merged-PR list fetched for Gate 3 (phase-already-shipped).
+// 1000 is GitHub's documented per-query maximum for the search REST API
+// (`gh pr list --search`); fetching beyond it requires a paginated-search
+// upgrade, not a higher --limit. With body matching, the universe is "PRs
+// that mention Plan-NNN anywhere (Refs footers included)" — much wider
+// than phase shipments. Plan-001 trajectory: 21 today, ~400 worst-case at
+// V1 end (every V1 PR refs Plan-001). 1000 is 2.5x the worst-case
+// projection AND the API ceiling. If results.length >= LIMIT, both call
+// sites halt with a self-contained sentinel message rather than silently
+// truncating (the original bug Codex flagged on PR #34).
+export const MERGED_PRS_FETCH_LIMIT = 1000;
+
 // ---------- pure helpers (exported for tests) ----------
 
 export function parseFrontmatter(source) {
@@ -281,6 +295,31 @@ export function gateAuditCheckbox(planSource, planFile) {
   };
 }
 
+export function fetchLimitSentinelHalt(planNumber) {
+  const planNum3 = String(planNumber).padStart(3, "0");
+  return [
+    "## Preflight halt: merged-PR fetch hit ceiling",
+    "",
+    `\`gh pr list --search "Plan-${planNum3} in:title,body" --limit ${MERGED_PRS_FETCH_LIMIT}\``,
+    `returned exactly ${MERGED_PRS_FETCH_LIMIT} results — the GitHub search REST API's documented`,
+    "per-query maximum. Phase-shipment detection cannot guarantee completeness:",
+    "older shipping PRs may have been truncated from the response.",
+    "",
+    "Remediations:",
+    `  - Override the auto-walk: pass an explicit phase number as the second arg`,
+    `    (\`node preflight.mjs <plan-file> <phase-number>\`). Explicit-phase mode`,
+    `    still hits this same fetch path, so this only helps if the target phase`,
+    `    is reachable via a per-phase narrower search — which preflight does not`,
+    `    currently do. (Effective only after a paginated-search upgrade.)`,
+    `  - Upgrade preflight to use \`gh api search/issues --paginate\` so the cap`,
+    `    can rise above the single-query ceiling.`,
+    `  - Confirm the result count empirically:`,
+    `    \`gh pr list --state merged --search "Plan-${planNum3} in:title,body" --json number --limit ${MERGED_PRS_FETCH_LIMIT} | jq length\``,
+    `    If it returns ${MERGED_PRS_FETCH_LIMIT}, the API itself is at ceiling and`,
+    `    paginated search is required.`,
+  ].join("\n");
+}
+
 function _phaseAlreadyShipped(merged, planNumber, phase) {
   const planNum3 = String(planNumber).padStart(3, "0");
   // Code-type Conventional Commit prefixes (on the squash subject = PR title)
@@ -333,11 +372,10 @@ export function gatePhaseUnshipped(planNumber, phase, mergedList) {
     // explicitly. Search filter is `Plan-NNN in:title,body`: PRs whose titles
     // use package-scoped Conventional Commits (e.g., `feat(contracts):`)
     // carry their `Plan-NNN PR #M` shipment claim in body only, so a
-    // title-only filter silently drops them from the result set. Body
-    // inflates response size; 200 is ~7x headroom over realistic
-    // <30-phases-per-plan corpora.
+    // title-only filter silently drops them from the result set. Cap and
+    // sentinel rationale lives at MERGED_PRS_FETCH_LIMIT.
     const r = runGh(
-      `gh pr list --state merged --search "Plan-${planNum3} in:title,body" --json number,title,body --limit 200`,
+      `gh pr list --state merged --search "Plan-${planNum3} in:title,body" --json number,title,body --limit ${MERGED_PRS_FETCH_LIMIT}`,
     );
     if (!r.ok) {
       return {
@@ -351,6 +389,9 @@ export function gatePhaseUnshipped(planNumber, phase, mergedList) {
     } catch {
       merged = [];
     }
+  }
+  if (merged.length >= MERGED_PRS_FETCH_LIMIT) {
+    return { ok: false, halt: fetchLimitSentinelHalt(planNumber) };
   }
   const matchedTitle = _phaseAlreadyShipped(merged, planNumber, phase);
   if (!matchedTitle) return { ok: true };
@@ -516,12 +557,11 @@ export function runPreflight(
   // from O(phases) to 1. Search is `Plan-NNN in:title,body` and JSON includes
   // `body` so `_phaseAlreadyShipped` can match the precise `Plan-NNN PR #N`
   // shipment marker against bodies of PRs whose titles use package-scoped
-  // Conventional Commits and omit `Plan-NNN`. Limit stays at 50: bodies
-  // inflate response size meaningfully (Plan-001 PR bodies run >2KB), and
-  // 50 ≫ realistic phases-per-plan.
+  // Conventional Commits and omit `Plan-NNN`. Cap and sentinel rationale
+  // lives at MERGED_PRS_FETCH_LIMIT.
   const planNum3 = String(planNumber).padStart(3, "0");
   const mergedRes = runGh(
-    `gh pr list --state merged --search "Plan-${planNum3} in:title,body" --json number,title,body --limit 50`,
+    `gh pr list --state merged --search "Plan-${planNum3} in:title,body" --json number,title,body --limit ${MERGED_PRS_FETCH_LIMIT}`,
   );
   let merged;
   if (mergedRes.ok) {
@@ -532,6 +572,9 @@ export function runPreflight(
     }
   } else {
     return { exit: 2, stderr: `gh pr list failed: ${mergedRes.error}` };
+  }
+  if (merged.length >= MERGED_PRS_FETCH_LIMIT) {
+    return { exit: 1, stdout: fetchLimitSentinelHalt(planNumber) };
   }
 
   const opts = { repoRoot };

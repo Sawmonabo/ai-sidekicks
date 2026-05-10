@@ -26,6 +26,8 @@ import {
   setGhImpl,
   resetGhImpl,
   runPreflight,
+  MERGED_PRS_FETCH_LIMIT,
+  fetchLimitSentinelHalt,
 } from "../preflight.mjs";
 
 // ---------- pure parsers ----------
@@ -506,7 +508,7 @@ test("gatePhaseUnshipped accepts feat-with-scope-and-bang prefix as code shipmen
   assert.equal(r.ok, false);
 });
 
-test("gatePhaseUnshipped uses gh pr list --limit 200 (gh pr list lacks --paginate)", () => {
+test("gatePhaseUnshipped uses --limit MERGED_PRS_FETCH_LIMIT (gh pr list lacks --paginate)", () => {
   let observed = "";
   setGhImpl((cmd) => {
     observed = cmd;
@@ -517,7 +519,7 @@ test("gatePhaseUnshipped uses gh pr list --limit 200 (gh pr list lacks --paginat
   } finally {
     resetGhImpl();
   }
-  assert.match(observed, /--limit\s+200\b/);
+  assert.match(observed, new RegExp(`--limit\\s+${MERGED_PRS_FETCH_LIMIT}\\b`));
   assert.doesNotMatch(observed, /--paginate\b/);
 });
 
@@ -839,4 +841,122 @@ ${phaseSection(5, "Client SDK And Desktop Bootstrap")}
   } finally {
     resetGhImpl();
   }
+});
+
+// ---------- merged-PR fetch limit + sentinel halt (Codex finding on PR #34) ----------
+//
+// With body-matching the result universe is "PRs that mention Plan-NNN
+// anywhere (Refs footers included)" — much wider than phase shipments.
+// A capped fetch can silently truncate older shipping PRs, mis-resolving
+// preflight to an already-shipped phase. Both call sites must use the
+// same constant and halt loudly when the cap is hit.
+
+test("MERGED_PRS_FETCH_LIMIT is the GitHub search REST API ceiling (1000)", () => {
+  // If this constant ever drifts, both --limit assertions and the sentinel
+  // halt drift with it — and the API will silently top out at 1000 anyway.
+  // Keep the constant pinned so review notices any unilateral change.
+  assert.equal(MERGED_PRS_FETCH_LIMIT, 1000);
+});
+
+test("gatePhaseUnshipped passes --limit MERGED_PRS_FETCH_LIMIT to gh", () => {
+  let observed = "";
+  setGhImpl((cmd) => {
+    observed = cmd;
+    return "[]";
+  });
+  try {
+    gatePhaseUnshipped(1, { number: 99, title: "Future Phase" });
+  } finally {
+    resetGhImpl();
+  }
+  assert.match(
+    observed,
+    new RegExp(`--limit\\s+${MERGED_PRS_FETCH_LIMIT}\\b`),
+    "standalone path must use the module constant, not a literal",
+  );
+});
+
+test("runPreflight prefetch passes --limit MERGED_PRS_FETCH_LIMIT to gh", () => {
+  const repo = makeTempRepo();
+  const skillMd = join(repo, ".claude", "skills", "plan-execution", "SKILL.md");
+  writeFileSync(skillMd, `---\nname: test\nrequires_files: []\n---\n\nbody`);
+  const planFile = join(repo, "docs", "plans", "001-test.md");
+  writeFileSync(
+    planFile,
+    `# Plan-001\n\n## Preconditions\n\n- [x] **Plan-readiness audit complete per runbook.\n\n### Phase 1 — Foo\n\n**Precondition:** None.\n\n\`\`\`yaml\npreconditions: []\n\`\`\`\n\n#### Tasks\n\n- T1.1: Spec coverage: row 1 / Verifies invariant: I-001-1\n`,
+  );
+  let observed = "";
+  setGhImpl((cmd) => {
+    observed = cmd;
+    return "[]";
+  });
+  try {
+    runPreflight(planFile, undefined, { repoRoot: repo, skillMd });
+  } finally {
+    resetGhImpl();
+  }
+  assert.match(
+    observed,
+    new RegExp(`--limit\\s+${MERGED_PRS_FETCH_LIMIT}\\b`),
+    "prefetch path must use the module constant, not a literal",
+  );
+});
+
+test("gatePhaseUnshipped halts with sentinel when mergedList length >= MERGED_PRS_FETCH_LIMIT", () => {
+  // Build a synthetic list at the cap with one PR that would normally match
+  // the precise shipment marker. The sentinel must halt BEFORE pattern
+  // matching: we cannot guarantee completeness past the API ceiling, so
+  // returning a "shipped" or "un-shipped" verdict either way is unsafe.
+  const merged = new Array(MERGED_PRS_FETCH_LIMIT).fill(null).map((_, i) => ({
+    number: i + 1,
+    title: `feat(repo): noise PR ${i + 1}`,
+    body: `Refs: Plan-001`,
+  }));
+  // Inject one PR that, in a smaller corpus, would mark Phase 1 as shipped.
+  merged[0] = {
+    number: 6,
+    title: "feat(repo): scaffold V1 monorepo + engineering CI surface",
+    body: "Plan-001 PR #1 — Workspace Bootstrap.",
+  };
+  const r = gatePhaseUnshipped(1, { number: 1, title: "Workspace Bootstrap" }, merged);
+  assert.equal(r.ok, false, "sentinel must halt — cannot guarantee completeness past API ceiling");
+  assert.match(r.halt, /merged-PR fetch hit ceiling/);
+  assert.match(r.halt, /1000/, "halt must name the ceiling explicitly");
+});
+
+test("runPreflight halts with sentinel when prefetch returns >= MERGED_PRS_FETCH_LIMIT PRs", () => {
+  const repo = makeTempRepo();
+  const skillMd = join(repo, ".claude", "skills", "plan-execution", "SKILL.md");
+  writeFileSync(skillMd, `---\nname: test\nrequires_files: []\n---\n\nbody`);
+  const planFile = join(repo, "docs", "plans", "001-test.md");
+  writeFileSync(
+    planFile,
+    `# Plan-001\n\n## Preconditions\n\n- [x] **Plan-readiness audit complete per runbook.\n\n### Phase 1 — Foo\n\n**Precondition:** None.\n\n\`\`\`yaml\npreconditions: []\n\`\`\`\n\n#### Tasks\n\n- T1.1: Spec coverage: row 1 / Verifies invariant: I-001-1\n`,
+  );
+  const merged = new Array(MERGED_PRS_FETCH_LIMIT).fill(null).map((_, i) => ({
+    number: i + 1,
+    title: `feat(repo): noise PR ${i + 1}`,
+    body: `Refs: Plan-001`,
+  }));
+  setGhImpl(() => JSON.stringify(merged));
+  try {
+    const r = runPreflight(planFile, undefined, { repoRoot: repo, skillMd });
+    assert.equal(r.exit, 1, `expected exit 1 from sentinel halt; got ${r.exit}`);
+    assert.match(r.stdout, /merged-PR fetch hit ceiling/);
+  } finally {
+    resetGhImpl();
+  }
+});
+
+test("fetchLimitSentinelHalt names ceiling, plan, and remediation paths", () => {
+  const halt = fetchLimitSentinelHalt(1);
+  assert.match(halt, /merged-PR fetch hit ceiling/, "must lead with the failure type");
+  assert.match(
+    halt,
+    /Plan-001/,
+    "must name the plan in the search expression for empirical verify",
+  );
+  assert.match(halt, new RegExp(String(MERGED_PRS_FETCH_LIMIT)), "must name the cap");
+  assert.match(halt, /Remediations:/, "must list remediations, not just describe the failure");
+  assert.match(halt, /paginated/i, "must surface the structural fix (paginated search)");
 });
