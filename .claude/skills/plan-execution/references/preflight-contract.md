@@ -8,7 +8,7 @@ The orchestrator invokes this tool at Phase 0 of plan-execution. It is the autho
 
 When `phase` is omitted, the tool walks the plan's Implementation Phase Sequence and resolves to the first un-shipped phase whose preconditions all pass. When provided, it validates the specified phase explicitly (used when the user override-supplies a phase number).
 
-The tool MUST be run from the repo root (it shells out to `gh pr list`, which uses the cwd's git remote).
+The tool MUST be run from the repo root (Gate 5 `pr_merged` and `adr_accepted` resolvers shell out to `gh pr view` / read `docs/decisions/`, which expect the cwd's git remote and repo layout).
 
 ## Exit codes
 
@@ -30,25 +30,20 @@ Greps the plan body's `## Preconditions` section for the regex `^- \[x\] \*\*Pla
 
 ### Gate 3 — Phase un-shipped
 
-Runs `gh pr list --state merged --search "Plan-NNN in:title,body" --json number,title,body` and asserts that no merged PR with a code-type Conventional Commit prefix carries the selected phase's title or "Plan-NNN PR #N" / "Plan-NNN Phase N" form. When phase is auto-selected, the tool just skips already-shipped phases; this gate fires only on explicit-phase overrides for already-shipped phases.
+Reads the plan file in two passes:
 
-**Why title+body search.** Squash subjects often use package-scoped Conventional Commits (`feat(contracts):`, `feat(daemon):`, `feat(control-plane):`) that omit `Plan-NNN` entirely; the shipment claim lives only in the PR body's `Plan-NNN PR #M — <phase title>` line. A title-only search (`in:title`) silently drops these PRs from the result set — Plan-001 PRs #6/#8/#9/#10 are the canonical case — and the gate then mis-resolves the next un-shipped phase to the lowest-numbered already-shipped phase.
+1. **Declared tasks.** Extract the phase's `#### Tasks` block via `extractDeclaredTaskIds(phaseSection)`. Both audit-Tasks-block layouts are accepted: sub-header form (`##### T1.1 — title` — Plan-001 style) and bullet+bold inline form (`- **T-007p-1-1** (Files: …) — …` — Plan-007 partial style). Returns a sorted unique array of task ids.
+2. **Shipped tasks for this phase.** Extract via `parseManifestBlock(planSource)` from `lib/manifest.mjs`, then `shippedTaskIdsForPhase(manifest, phaseNumber)` which collects entries where `entry.phase === phaseNumber`, flattens the `task` field across both string and array forms (legacy multi-task PRs predate NS-02), and returns a `Set`.
 
-**Fetch limit + sentinel halt.** Both call sites (the standalone `gatePhaseUnshipped` and the `runPreflight` prefetch) cap the fetch at the `MERGED_PRS_FETCH_LIMIT` constant (currently `1000`). The cap is grounded in two facts:
+Halt if `declared ⊆ shipped` — every declared task for the phase appears in the manifest. NS-02 partial ships (e.g., Plan-001 Phase 5 Lane A T5.1 alone, with T5.5/T5.6 still declared and un-shipped) leave the gate open. Phases whose tasks block contains zero ids fall through to Gate 4 (the audit's G4 traceability gate catches missing Tasks-block content).
 
-- **GitHub search REST API ceiling.** `gh pr list --search` is a single-query call against the search API, which is documented to return at most 1000 results per query. A higher `--limit` value would be silently truncated by the API itself; raising the cap above 1000 requires switching to `gh api search/issues --paginate`.
-- **Empirical worst-case projection.** Body matching widens the universe from "phase shipments" to "PRs that mention `Plan-NNN` anywhere (including `Refs:` footers per AGENTS.md citation discipline)." Plan-001 (the foundational, most-Refs'd plan) measured 21 matches at the time this clause landed; a worst-case V1 projection (every V1 PR `Refs: Plan-001`) tops out at ≈400. 1000 is 2.5× that worst case AND the API ceiling.
+When phase is auto-selected, the tool just skips already-shipped phases; the explicit halt message fires only on explicit-phase overrides for already-shipped phases.
 
-When `merged.length >= MERGED_PRS_FETCH_LIMIT`, both call sites halt with the same self-contained sentinel message rather than proceeding on a possibly-truncated list. The halt names the ceiling, points at the structural fix (paginated search), and tells the operator how to verify the cap empirically. The earlier "50 ≫ realistic phases-per-plan" justification (which Codex flagged on PR #34) was correct under title-only matching but became unsafe the moment the search broadened to body — older shipping PRs could be silently truncated, mis-resolving preflight to an already-shipped phase. The sentinel makes that failure mode loud instead of silent.
+**Why manifest set-comparison, not gh search.** The pre-Commit-3 mechanism inferred shipment from PR title/body via `gh pr list --search "Plan-NNN in:title,body"` plus three regex matchers (`Plan-NNN PR #N`, `Plan-NNN Phase N`, phase-title substring) and a code-prefix filter. The history is documented in [BL-110](../../../../docs/backlog.md) and the Plan-001 cozy-crafting-hummingbird shipment-manifest refactor: PR-body conventions vary across plans (Plan-001 uses `Plan-NNN PR #N`, Plan-007 partial uses `T-NNNp-N-N`, post-NS-02 uses task ids in titles), every regex pattern bought one false-match class while introducing another, and the 1000-PR fetch ceiling forced a sentinel halt. The structured manifest moves shipment state out of free-form prose and into a `### Shipment Manifest` YAML block per plan; Gate 3 becomes a set-comparison against an explicit data structure. Less code (~30 lines vs ~145), no network call, no fetch ceiling, and the partial-ship class (NS-02 lane carve-outs) falls out of the set-comparison naturally rather than requiring an asymmetric-pattern-reach hack.
 
-**Code-type prefix filter.** Only `feat:`, `fix:`, `refactor:`, `perf:` (with optional scope `(...)` and breaking-change `!`) count as a phase shipment. Doc / chore / test / build / ci / style PRs may reference a phase in their title or body without shipping it — for example, a `docs(repo): ...` governance amendment that rewrites the phase's Precondition section, or a `chore: ...` scaffolding tweak that mentions the phase title in passing. Without this filter, those PRs would false-match the `Plan-NNN.*Phase N` pattern and block dispatch on a phase that was never actually shipped. The filter applies to the squash subject (PR title), not the body — bodies routinely cite other PRs/phases as cross-references regardless of the squash subject's Conventional Commit type.
+**Schema-version forward compat.** `parseManifestBlock` returns `{ ok: true, version, shipped }` for any version >= 1. Gate 3 treats unknown future versions (`manifest.version > MANIFEST_SCHEMA_VERSION`) as opaque — fail open, do not block dispatch on a partial migration. The policy lives in `lib/manifest.mjs`'s header.
 
-**Asymmetric pattern reach.** Three matchers, two reach classes:
-
-- **`Plan-NNN PR #N`** — the _precise_ shipment marker (Plan-001's authoring convention assigns each phase a "PR #N" identity in its plan body). Checked against **title AND body** so package-scoped squash subjects still resolve.
-- **`Plan-NNN Phase N`** and **phase-title substring** — _imprecise_ narrative chatter that appears in partial-ship language ("Plan-001 Phase 5 Lane A T5.1", "Plan-001 Phase 5 dispatch follow-up") and cross-reference prose. Kept **title-only**: title is author-controlled at squash time, body is draft-time chatter. Re-broadening either matcher to body re-introduces the partial-ship false positive (Plan-001 Phase 5 / PR #30 ships only T5.1; body mentions of "Phase 5 Lane A" must not register as a full-phase shipment, or dispatch halts on the still-pending T5.5/T5.6).
-
-**Why phase-walk, not title-count.** Plans with substrate/namespace or partial/remainder carve-outs ship phases non-contiguously across tiers. Plan-007 ships Phases 1-3 in Tier 1 (substrate partial carve-out) and Phases 4+ in Tier 4 (remainder). Counting merged `Plan-007 in:title,body` PRs after the third merge returns next M=4, which silently maps to Tier-4 work whose preconditions (Plan-001 + others) may not be met. The phase-walk gates each phase on its declared Precondition (Gate 5), so the auto-selected phase is always the lowest-numbered phase whose preconditions all pass — substrate-carved or otherwise.
+**Why phase-walk, not title-count.** Plans with substrate/namespace or partial/remainder carve-outs ship phases non-contiguously across tiers. Plan-007 ships Phases 1-3 in Tier 1 (substrate partial carve-out) and Phases 4+ in Tier 4 (remainder). Counting merged `Plan-007` PRs after the third merge returns next M=4, which silently maps to Tier-4 work whose preconditions (Plan-001 + others) may not be met. The phase-walk gates each phase on its declared Precondition (Gate 5), so the auto-selected phase is always the lowest-numbered phase whose preconditions all pass — substrate-carved or otherwise.
 
 ### Gate 4 — Tasks-block G4 cites
 
@@ -60,7 +55,7 @@ Parses the phase's `preconditions:` YAML block (see plan template § Implementat
 
 - `{type: pr_merged, ref: <N>}` → `gh pr view <N> --json state` returns `MERGED`.
 - `{type: adr_accepted, ref: <NNN>}` → `docs/decisions/<NNN>-*.md` Status field equals `accepted`.
-- `{type: plan_phase, plan: <NNN>, phase: <N>, status: merged}` → that plan's `## Progress Log` contains an entry for the phase.
+- `{type: plan_phase, plan: <NNN>, phase: <N>, status: merged}` → that plan's `### Shipment Manifest` block contains an entry whose `phase` field matches `<N>`. (Pre-Commit-6 the resolver matched on `## Progress Log` prose for `Phase N` or `PR #N` substrings; the new mechanism reads the structured manifest the same way Gate 3 does.)
 - `{type: cross_plan_carve_out, ref: <id>}` → entry exists in `docs/architecture/cross-plan-dependencies.md` §5; tool only verifies presence, not semantic correctness.
 
 If the phase has no `preconditions:` YAML block (legacy plan), fall back to regex parsing of the prose `**Precondition:**` line using the same pattern set ("PR #X merged", "ADR-NNN accepted", "Plan-MMM Phase K merged"). Both schema and regex failures escalate to exit code 2 if the precondition is wholly unparseable.

@@ -13,6 +13,7 @@ import { execSync } from "node:child_process";
 import { resolve, dirname, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import process from "node:process";
+import { parseManifestBlock, MANIFEST_SCHEMA_VERSION } from "./lib/manifest.mjs";
 
 // ---------- paths ----------
 
@@ -20,20 +21,6 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const SKILL_ROOT = resolve(__dirname, "..");
 const SKILL_MD = resolve(SKILL_ROOT, "SKILL.md");
 const REPO_ROOT = resolve(SKILL_ROOT, "..", "..", "..");
-
-// ---------- module constants ----------
-
-// Cap on the merged-PR list fetched for Gate 3 (phase-already-shipped).
-// 1000 is GitHub's documented per-query maximum for the search REST API
-// (`gh pr list --search`); fetching beyond it requires a paginated-search
-// upgrade, not a higher --limit. With body matching, the universe is "PRs
-// that mention Plan-NNN anywhere (Refs footers included)" — much wider
-// than phase shipments. Plan-001 trajectory: 21 today, ~400 worst-case at
-// V1 end (every V1 PR refs Plan-001). 1000 is 2.5x the worst-case
-// projection AND the API ceiling. If results.length >= LIMIT, both call
-// sites halt with a self-contained sentinel message rather than silently
-// truncating (the original bug Codex flagged on PR #34).
-export const MERGED_PRS_FETCH_LIMIT = 1000;
 
 // ---------- pure helpers (exported for tests) ----------
 
@@ -218,11 +205,35 @@ export function extractAdrStatus(source) {
   return null;
 }
 
-export function findProgressLogPhaseEntry(source, phaseNumber) {
-  const plMatch = source.match(/##\s*Progress Log\s*\n([\s\S]*?)(?=\n##\s|$)/i);
-  if (!plMatch) return false;
-  const content = plMatch[1];
-  return new RegExp(`(Phase\\s*${phaseNumber}\\b|PR\\s*#${phaseNumber}\\b)`, "i").test(content);
+// Extract declared task ids from a phase's `#### Tasks` block. Returns a
+// sorted unique array. Handles both audit-Tasks-block layouts:
+//   Pattern A: sub-header form     `##### T1.1 — title`
+//   Pattern B: bullet+bold inline  `- **T-007p-1-1** (Files: ...)`
+// Both patterns coexist across the corpus (Plan-001 phases use A;
+// Plan-007 partial phases use B); the audit runbook treats them as
+// equivalent and Gate 3's set-comparison must accept both.
+export function extractDeclaredTaskIds(phaseSection) {
+  const tasksMatch = phaseSection.match(/####\s*Tasks\s*\n([\s\S]*?)(?=\n####\s|\n###\s|$)/);
+  if (!tasksMatch) return [];
+  const block = tasksMatch[1];
+  const ids = new Set();
+  for (const m of block.matchAll(/^#####\s+(T[-a-zA-Z0-9.]+)\b/gm)) ids.add(m[1]);
+  for (const m of block.matchAll(/^-\s+\*\*(T[-a-zA-Z0-9.]+)\*\*/gm)) ids.add(m[1]);
+  return [...ids].sort();
+}
+
+// Extract the set of task ids shipped for a given phase from the parsed
+// manifest. Single-string `task` and array-form `task` (legacy multi-task
+// PRs predating NS-02) both contribute their ids. Returns a Set.
+export function shippedTaskIdsForPhase(manifest, phaseNumber) {
+  const out = new Set();
+  if (!manifest || !manifest.ok) return out;
+  for (const e of manifest.shipped) {
+    if (e.phase !== phaseNumber) continue;
+    if (Array.isArray(e.task)) for (const t of e.task) out.add(t);
+    else if (typeof e.task === "string" && e.task.trim() !== "") out.add(e.task);
+  }
+  return out;
 }
 
 // ---------- IO layer (stubbable) ----------
@@ -295,113 +306,31 @@ export function gateAuditCheckbox(planSource, planFile) {
   };
 }
 
-export function fetchLimitSentinelHalt(planNumber) {
-  const planNum3 = String(planNumber).padStart(3, "0");
-  return [
-    "## Preflight halt: merged-PR fetch hit ceiling",
-    "",
-    `\`gh pr list --search "Plan-${planNum3} in:title,body" --limit ${MERGED_PRS_FETCH_LIMIT}\``,
-    `returned exactly ${MERGED_PRS_FETCH_LIMIT} results — the GitHub search REST API's documented`,
-    "per-query maximum. Phase-shipment detection cannot guarantee completeness:",
-    "older shipping PRs may have been truncated from the response.",
-    "",
-    "Remediations:",
-    `  - Override the auto-walk: pass an explicit phase number as the second arg`,
-    `    (\`node preflight.mjs <plan-file> <phase-number>\`). Explicit-phase mode`,
-    `    still hits this same fetch path, so this only helps if the target phase`,
-    `    is reachable via a per-phase narrower search — which preflight does not`,
-    `    currently do. (Effective only after a paginated-search upgrade.)`,
-    `  - Upgrade preflight to use \`gh api search/issues --paginate\` so the cap`,
-    `    can rise above the single-query ceiling.`,
-    `  - Confirm the result count empirically:`,
-    `    \`gh pr list --state merged --search "Plan-${planNum3} in:title,body" --json number --limit ${MERGED_PRS_FETCH_LIMIT} | jq length\``,
-    `    If it returns ${MERGED_PRS_FETCH_LIMIT}, the API itself is at ceiling and`,
-    `    paginated search is required.`,
-  ].join("\n");
-}
-
-function _phaseAlreadyShipped(merged, planNumber, phase) {
-  const planNum3 = String(planNumber).padStart(3, "0");
-  // Code-type Conventional Commit prefixes (on the squash subject = PR title)
-  // denote a code shipment. Doc / chore / test / build PRs may reference a
-  // phase in title or body without shipping it. The prefix filter on title
-  // gates everything below it.
-  const codePrefixPattern = /^(feat|fix|refactor|perf)(\([^)]+\))?!?:/i;
-  // Two pattern classes with deliberately asymmetric reach:
-  //
-  //   prFormPattern    — `Plan-NNN PR #N` is the *precise* shipment marker
-  //                      (Plan-001's authoring convention assigns each phase
-  //                      a "PR #N" identity in its plan body). Check title
-  //                      AND body: Plan-001 PRs #6/#8/#9/#10 carry the
-  //                      marker in body only — their squash titles use
-  //                      package-scoped Conventional Commits like
-  //                      `feat(contracts): add session, event, ...` that
-  //                      omit `Plan-001` entirely.
-  //
-  //   phaseFormPattern — `Plan-NNN Phase N` is *narrative chatter* that
-  //   + title-substring  appears in partial-ship language ("Plan-001 Phase 5
-  //                      Lane A T5.1", "Plan-001 Phase 5 dispatch follow-up")
-  //                      and cross-reference prose. Keep TITLE-ONLY: title
-  //                      is author-controlled at squash time, body is
-  //                      draft-time chatter. Re-broadening either to body
-  //                      re-introduces the partial-ship false positive that
-  //                      Plan-001 Phase 5 (PR #30) demonstrates.
-  const prFormPattern = new RegExp(`Plan-${planNum3}\\b.*PR\\s*#${phase.number}\\b`, "i");
-  const phaseFormPattern = new RegExp(`Plan-${planNum3}\\b.*Phase\\s*${phase.number}\\b`, "i");
-  for (const pr of merged) {
-    const t = pr.title || "";
-    if (!codePrefixPattern.test(t)) continue;
-    const b = pr.body || "";
-    if (prFormPattern.test(t) || prFormPattern.test(b)) return t;
-    if (phaseFormPattern.test(t)) return t;
-    if (
-      phase.title &&
-      phase.title.length >= 8 &&
-      t.toLowerCase().includes(phase.title.toLowerCase())
-    )
-      return t;
-  }
-  return null;
-}
-
-export function gatePhaseUnshipped(planNumber, phase, mergedList) {
-  let merged = mergedList;
-  if (!Array.isArray(merged)) {
-    const planNum3 = String(planNumber).padStart(3, "0");
-    // `gh pr list` lacks `--paginate` (only `gh api` supports it), so cap
-    // explicitly. Search filter is `Plan-NNN in:title,body`: PRs whose titles
-    // use package-scoped Conventional Commits (e.g., `feat(contracts):`)
-    // carry their `Plan-NNN PR #M` shipment claim in body only, so a
-    // title-only filter silently drops them from the result set. Cap and
-    // sentinel rationale lives at MERGED_PRS_FETCH_LIMIT.
-    const r = runGh(
-      `gh pr list --state merged --search "Plan-${planNum3} in:title,body" --json number,title,body --limit ${MERGED_PRS_FETCH_LIMIT}`,
-    );
-    if (!r.ok) {
-      return {
-        ok: false,
-        halt: `## Preflight halt: gh CLI failed for phase-unshipped check\n\n${r.error}`,
-        internal: true,
-      };
-    }
-    try {
-      merged = JSON.parse(r.out || "[]");
-    } catch {
-      merged = [];
-    }
-  }
-  if (merged.length >= MERGED_PRS_FETCH_LIMIT) {
-    return { ok: false, halt: fetchLimitSentinelHalt(planNumber) };
-  }
-  const matchedTitle = _phaseAlreadyShipped(merged, planNumber, phase);
-  if (!matchedTitle) return { ok: true };
+// Gate 3 — phase un-shipped. Reads the in-plan `### Shipment Manifest` YAML
+// block and the phase's `#### Tasks` block, then halts only if every declared
+// task for the phase appears in the manifest's shipped set. NS-02 partial
+// ships (e.g., Plan-001 Phase 5 Lane A T5.1 alone) leave T5.5/T5.6 declared
+// but un-shipped, so the gate stays open. Schema-version forward-compat:
+// unknown future versions fail open per lib/manifest.mjs policy.
+export function gatePhaseUnshipped(planSource, planNumber, phase) {
+  const sec = extractPhaseSection(planSource, phase.number);
+  if (!sec) return { ok: true };
+  const declared = extractDeclaredTaskIds(sec);
+  if (declared.length === 0) return { ok: true };
+  const manifest = parseManifestBlock(planSource);
+  if (!manifest.ok) return { ok: true };
+  if (manifest.version > MANIFEST_SCHEMA_VERSION) return { ok: true };
+  const shipped = shippedTaskIdsForPhase(manifest, phase.number);
+  const allShipped = declared.every((t) => shipped.has(t));
+  if (!allShipped) return { ok: true };
   return {
     ok: false,
     halt: [
       "## Preflight halt: phase already shipped",
       "",
-      `Plan-${planNumber} Phase ${phase.number} ("${phase.title}") matches`,
-      `merged PR: "${matchedTitle}". Pick the next un-shipped phase.`,
+      `Plan-${planNumber} Phase ${phase.number} ("${phase.title}") declared tasks`,
+      `[${declared.join(", ")}] all appear in the shipment manifest. Pick the next`,
+      `un-shipped phase, or override-supply a phase number for explicit-phase mode.`,
     ].join("\n"),
   };
 }
@@ -457,8 +386,14 @@ export function resolvePrecondition(entry, { repoRoot = REPO_ROOT } = {}) {
       const planFile = findPaddedFile(resolve(repoRoot, "docs", "plans"), entry.plan);
       if (!planFile) return { ok: false, halt: `Plan-${entry.plan} not found in docs/plans/` };
       const source = readFileSync(planFile, "utf8");
-      if (findProgressLogPhaseEntry(source, entry.phase)) return { ok: true };
-      return { ok: false, halt: `Plan-${entry.plan} Phase ${entry.phase} not in Progress Log` };
+      const manifest = parseManifestBlock(source);
+      if (manifest.ok && manifest.shipped.some((e) => e.phase === entry.phase)) {
+        return { ok: true };
+      }
+      return {
+        ok: false,
+        halt: `Plan-${entry.plan} Phase ${entry.phase} has no entry in shipment manifest`,
+      };
     }
     case "cross_plan_carve_out": {
       const xplanPath = resolve(repoRoot, "docs", "architecture", "cross-plan-dependencies.md");
@@ -508,12 +443,9 @@ export function gatePreconditions(phaseSection, planFile, phaseNumber, opts = {}
 
 // ---------- orchestration ----------
 
-function _checkPhase(planSource, planNumber, phase, planFile, mergedList, opts) {
-  const ship = gatePhaseUnshipped(planNumber, phase, mergedList);
-  if (!ship.ok) {
-    if (ship.internal) return { eligible: false, reason: "gh-error", halt: ship.halt, fatal: true };
-    return { eligible: false, reason: "shipped", halt: ship.halt };
-  }
+function _checkPhase(planSource, planNumber, phase, planFile, opts) {
+  const ship = gatePhaseUnshipped(planSource, planNumber, phase);
+  if (!ship.ok) return { eligible: false, reason: "shipped", halt: ship.halt };
   const sec = extractPhaseSection(planSource, phase.number);
   if (!sec)
     return {
@@ -553,44 +485,19 @@ export function runPreflight(
   if (phases.length === 0)
     return { exit: 2, stderr: `no \`### Phase N —\` headers found in ${planFile}` };
 
-  // Pre-fetch merged PR list once for the plan; cuts gh calls in auto-detect
-  // from O(phases) to 1. Search is `Plan-NNN in:title,body` and JSON includes
-  // `body` so `_phaseAlreadyShipped` can match the precise `Plan-NNN PR #N`
-  // shipment marker against bodies of PRs whose titles use package-scoped
-  // Conventional Commits and omit `Plan-NNN`. Cap and sentinel rationale
-  // lives at MERGED_PRS_FETCH_LIMIT.
-  const planNum3 = String(planNumber).padStart(3, "0");
-  const mergedRes = runGh(
-    `gh pr list --state merged --search "Plan-${planNum3} in:title,body" --json number,title,body --limit ${MERGED_PRS_FETCH_LIMIT}`,
-  );
-  let merged;
-  if (mergedRes.ok) {
-    try {
-      merged = JSON.parse(mergedRes.out || "[]");
-    } catch {
-      merged = [];
-    }
-  } else {
-    return { exit: 2, stderr: `gh pr list failed: ${mergedRes.error}` };
-  }
-  if (merged.length >= MERGED_PRS_FETCH_LIMIT) {
-    return { exit: 1, stdout: fetchLimitSentinelHalt(planNumber) };
-  }
-
   const opts = { repoRoot };
   if (phaseArg !== undefined && phaseArg !== null) {
     const target = phases.find((p) => p.number === phaseArg);
     if (!target)
       return { exit: 1, stdout: `## Preflight halt: phase ${phaseArg} not found in ${planFile}` };
-    const r = _checkPhase(planSource, planNumber, target, planFile, merged, opts);
+    const r = _checkPhase(planSource, planNumber, target, planFile, opts);
     if (!r.eligible) return { exit: 1, stdout: r.halt };
     return { exit: 0, stdout: String(target.number) };
   }
 
   const skipped = [];
   for (const p of phases) {
-    const r = _checkPhase(planSource, planNumber, p, planFile, merged, opts);
-    if (r.fatal) return { exit: 2, stderr: r.halt };
+    const r = _checkPhase(planSource, planNumber, p, planFile, opts);
     if (r.reason === "shipped") continue;
     if (!r.eligible) {
       skipped.push(`Phase ${p.number} (${r.reason}): ${r.halt.split("\n")[0]}`);
