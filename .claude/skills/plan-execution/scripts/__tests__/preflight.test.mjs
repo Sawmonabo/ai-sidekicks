@@ -593,6 +593,78 @@ test("gatePhaseUnshipped halts when manifest section exists but YAML fence missi
   assert.match(r.halt, /no_yaml_fence/);
 });
 
+test("gatePhaseUnshipped halts when shipped[] entry has phase as string (manifest_invalid_entries)", () => {
+  // Codex P2 finding on PR #35 round 8: pre-fix the classifier read entry
+  // fields directly without schema-validating, so `phase: "5"` (string) would
+  // silently miss `e.phase === phaseNumber` (number) and re-open Gate 3 even
+  // though the entry was structurally present.
+  const planSrc = `# Plan-001
+
+### Phase 1 — Bootstrap
+
+#### Tasks
+
+##### T1.1 — A
+
+## Progress Log
+
+### Shipment Manifest
+
+\`\`\`yaml
+manifest_schema_version: 1
+shipped:
+  - phase: "1"
+    task: T1.1
+    pr: 6
+    sha: abc1234
+    merged_at: 2026-04-27
+    files: []
+    verifies_invariant: []
+    spec_coverage: []
+\`\`\`
+
+### Notes
+`;
+  const r = gatePhaseUnshipped(planSrc, 1, { number: 1, title: "Bootstrap" });
+  assert.equal(r.ok, false);
+  assert.match(r.halt, /entries fail schema validation/);
+  assert.match(r.halt, /shipped\[0\]/);
+  assert.match(r.halt, /phase must be a positive integer/);
+});
+
+test("gatePhaseUnshipped halts when shipped[] entry missing required task field", () => {
+  // Second flavor of round-8 P2: missing required field instead of type mismatch.
+  // Same halt path, different validateEntry error.
+  const planSrc = `# Plan-001
+
+### Phase 1 — Bootstrap
+
+#### Tasks
+
+##### T1.1 — A
+
+## Progress Log
+
+### Shipment Manifest
+
+\`\`\`yaml
+manifest_schema_version: 1
+shipped:
+  - phase: 1
+    pr: 6
+    sha: abc1234
+    merged_at: 2026-04-27
+    files: []
+\`\`\`
+
+### Notes
+`;
+  const r = gatePhaseUnshipped(planSrc, 1, { number: 1, title: "Bootstrap" });
+  assert.equal(r.ok, false);
+  assert.match(r.halt, /entries fail schema validation/);
+  assert.match(r.halt, /missing required field: task/);
+});
+
 test("gatePhaseUnshipped halts when manifest YAML missing schema_version (missing_schema_version)", () => {
   // Distinct parse-failure path from no_yaml_fence: fence parsed, but the
   // top-level manifest_schema_version key is absent. Same halt contract.
@@ -861,6 +933,49 @@ shipped: []
   );
   assert.equal(r.ok, false);
   assert.match(r.halt, /no entry in shipment manifest/);
+});
+
+test("resolvePrecondition plan_phase halts when upstream manifest has invalid entries", () => {
+  // Mirror of Gate 3's manifest_invalid_entries halt at the upstream tier
+  // (Codex P2 finding on PR #35 round 8). An upstream plan with type-mismatched
+  // shipped[] entries cannot be set-compared; resolver halts loudly rather
+  // than silently misclassifying ship status.
+  const repo = makeTempRepo();
+  writeFileSync(
+    join(repo, "docs", "plans", "007-test.md"),
+    `# Plan-007
+
+### Phase 3 — Daemon driver registry
+
+#### Tasks
+
+##### T-007p-3-1 — Driver registry skeleton
+
+## Progress Log
+
+### Shipment Manifest
+
+\`\`\`yaml
+manifest_schema_version: 1
+shipped:
+  - phase: "3"
+    task: T-007p-3-1
+    pr: 19
+    sha: 0e5599d
+    merged_at: 2026-04-30
+    files: []
+\`\`\`
+
+### Notes
+`,
+  );
+  const r = resolvePrecondition(
+    { type: "plan_phase", plan: 7, phase: 3, status: "merged" },
+    { repoRoot: repo },
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.halt, /entries that fail validateEntry/);
+  assert.match(r.halt, /phase must be a positive integer/);
 });
 
 test("resolvePrecondition plan_phase halts when upstream manifest unparseable", () => {

@@ -13,7 +13,7 @@ import { execSync } from "node:child_process";
 import { resolve, dirname, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import process from "node:process";
-import { parseManifestBlock, MANIFEST_SCHEMA_VERSION } from "./lib/manifest.mjs";
+import { parseManifestBlock, validateEntry, MANIFEST_SCHEMA_VERSION } from "./lib/manifest.mjs";
 
 // ---------- paths ----------
 
@@ -318,6 +318,12 @@ export function gateAuditCheckbox(planSource, planFile) {
 //     the loud-failure replacement for the silent-pass behavior Codex
 //     flagged on PR #35 round 7 (a malformed manifest would otherwise
 //     re-open Gate 3 and re-dispatch already-shipped phases).
+//   - manifest_invalid_entries: parseManifestBlock returned ok but at least
+//     one shipped[] entry fails validateEntry. Halt; pre-round-8 the
+//     classifier trusted parseManifestBlock and read fields directly, so
+//     type/shape errors (e.g. `phase: "5"` as string, missing `task`,
+//     unknown field names) silently produced an incomplete shipped-tasks
+//     set and re-opened Gate 3 (Codex P2 finding on PR #35 round 8).
 //   - manifest_future_schema: version > MANIFEST_SCHEMA_VERSION. Fail open
 //     per lib/manifest.mjs schema-version policy.
 //   - no_phase_section: the requested phase isn't declared in the plan.
@@ -332,6 +338,19 @@ export function classifyPhaseShipment(planSource, phaseNumber) {
   if (!manifest.ok) return { kind: "manifest_unparseable", reason: manifest.reason };
   if (manifest.version > MANIFEST_SCHEMA_VERSION) {
     return { kind: "manifest_future_schema", version: manifest.version, manifest };
+  }
+  // Schema-validate every shipped[] entry before reading fields. Skipping this
+  // would let `phase: "5"` (string) silently miss the `e.phase === phaseNumber`
+  // check, dropping that entry from the shipped-tasks set and re-opening
+  // Gate 3 for an already-shipped phase. Halt loudly with a per-index error
+  // list instead.
+  const entryErrors = [];
+  for (let i = 0; i < manifest.shipped.length; i++) {
+    const v = validateEntry(manifest.shipped[i]);
+    if (!v.ok) entryErrors.push({ index: i, errors: v.errors });
+  }
+  if (entryErrors.length > 0) {
+    return { kind: "manifest_invalid_entries", entryErrors, manifest };
   }
   const sec = extractPhaseSection(planSource, phaseNumber);
   if (!sec) return { kind: "no_phase_section", manifest };
@@ -374,6 +393,29 @@ export function gatePhaseUnshipped(planSource, planNumber, phase) {
         "    truncated.",
         "  - missing_schema_version: fenced block exists but `manifest_schema_version: 1`",
         "    is absent.",
+      ].join("\n"),
+    };
+  }
+  if (result.kind === "manifest_invalid_entries") {
+    return {
+      ok: false,
+      halt: [
+        "## Preflight halt: shipment manifest entries fail schema validation",
+        "",
+        `Plan-${planNumber} ### Shipment Manifest YAML parses, but ${result.entryErrors.length}`,
+        `entries fail validateEntry. Type/shape errors (e.g. \`phase: "5"\` as string,`,
+        `missing \`task\`, unknown field names) silently produce an incomplete shipped-`,
+        `tasks set, so Gate 3 halts to prevent re-dispatching an already-shipped phase`,
+        `(Codex P2 finding on PR #35 round 8).`,
+        "",
+        "Per-entry errors:",
+        ...result.entryErrors.flatMap((e) => [
+          `  shipped[${e.index}]:`,
+          ...e.errors.map((m) => `    - ${m}`),
+        ]),
+        "",
+        "Fix the failing entries (schema authoritative in lib/manifest.mjs §validateEntry)",
+        "and re-run preflight.",
       ].join("\n"),
     };
   }
@@ -460,6 +502,11 @@ export function resolvePrecondition(entry, { repoRoot = REPO_ROOT } = {}) {
           return {
             ok: false,
             halt: `Plan-${entry.plan} shipment manifest unparseable (${result.reason}); cannot determine Phase ${entry.phase} ship status`,
+          };
+        case "manifest_invalid_entries":
+          return {
+            ok: false,
+            halt: `Plan-${entry.plan} shipment manifest has ${result.entryErrors.length} entries that fail validateEntry (e.g. shipped[${result.entryErrors[0].index}]: ${result.entryErrors[0].errors[0]}); cannot determine Phase ${entry.phase} ship status`,
           };
         case "no_phase_section":
           return {
