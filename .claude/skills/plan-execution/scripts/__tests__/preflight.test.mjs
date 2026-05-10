@@ -549,9 +549,11 @@ shipped:
   assert.equal(r.ok, true, "partial-ship leaves T5.5/T5.6 declared but un-shipped");
 });
 
-test("gatePhaseUnshipped passes when manifest unparseable (no manifest section)", () => {
-  // Plans without a Shipment Manifest section (legacy, or template-pre-Commit-1)
-  // are treated as un-shipped — gate stays open.
+test("gatePhaseUnshipped halts when manifest section absent (no_section)", () => {
+  // Codex P1 finding on PR #35 round 7: pre-fix this returned ok:true,
+  // silently re-opening Gate 3 and re-dispatching already-shipped phases on
+  // any manifest formatting error. Strict halt is the only safe behavior;
+  // schema-version-future is the only intentional fail-open.
   const planSrc = `# Plan-001
 
 ### Phase 1 — Bootstrap
@@ -561,7 +563,61 @@ test("gatePhaseUnshipped passes when manifest unparseable (no manifest section)"
 ##### T1.1 — A
 `;
   const r = gatePhaseUnshipped(planSrc, 1, { number: 1, title: "Bootstrap" });
-  assert.equal(r.ok, true);
+  assert.equal(r.ok, false);
+  assert.match(r.halt, /shipment manifest unparseable/);
+  assert.match(r.halt, /no_section/);
+});
+
+test("gatePhaseUnshipped halts when manifest section exists but YAML fence missing (no_yaml_fence)", () => {
+  // Distinct parse-failure path from no_section: section heading present but
+  // the ```yaml fenced block is missing or truncated. Same halt contract.
+  const planSrc = `# Plan-001
+
+### Phase 1 — Bootstrap
+
+#### Tasks
+
+##### T1.1 — A
+
+## Progress Log
+
+### Shipment Manifest
+
+(prose-only — no fence)
+
+### Notes
+`;
+  const r = gatePhaseUnshipped(planSrc, 1, { number: 1, title: "Bootstrap" });
+  assert.equal(r.ok, false);
+  assert.match(r.halt, /shipment manifest unparseable/);
+  assert.match(r.halt, /no_yaml_fence/);
+});
+
+test("gatePhaseUnshipped halts when manifest YAML missing schema_version (missing_schema_version)", () => {
+  // Distinct parse-failure path from no_yaml_fence: fence parsed, but the
+  // top-level manifest_schema_version key is absent. Same halt contract.
+  const planSrc = `# Plan-001
+
+### Phase 1 — Bootstrap
+
+#### Tasks
+
+##### T1.1 — A
+
+## Progress Log
+
+### Shipment Manifest
+
+\`\`\`yaml
+shipped: []
+\`\`\`
+
+### Notes
+`;
+  const r = gatePhaseUnshipped(planSrc, 1, { number: 1, title: "Bootstrap" });
+  assert.equal(r.ok, false);
+  assert.match(r.halt, /shipment manifest unparseable/);
+  assert.match(r.halt, /missing_schema_version/);
 });
 
 test("gatePhaseUnshipped fails-open on unknown future schema versions", () => {
@@ -641,11 +697,22 @@ test("resolvePrecondition fails adr_accepted when status is proposed", () => {
   assert.match(r.halt, /Status=proposed/);
 });
 
-test("resolvePrecondition plan_phase reads target plan's shipment manifest", () => {
+test("resolvePrecondition plan_phase satisfies when every declared upstream task is shipped (full-ship)", () => {
+  // Post-round-7 the resolver does Gate-3-style set-comparison (declared ⊆
+  // shipped). Plan-007 PR #19's array-form manifest entry covers all three
+  // declared tasks for Phase 3 → precondition satisfied.
   const repo = makeTempRepo();
   writeFileSync(
     join(repo, "docs", "plans", "007-test.md"),
     `# Plan-007
+
+### Phase 3 — Daemon driver registry
+
+#### Tasks
+
+##### T-007p-3-1 — Driver registry skeleton
+##### T-007p-3-2 — Driver lifecycle hooks
+##### T-007p-3-4 — Driver crash isolation
 
 ## Progress Log
 
@@ -674,11 +741,107 @@ shipped:
   assert.equal(r.ok, true);
 });
 
-test("resolvePrecondition plan_phase fails when target plan has no manifest entry for phase", () => {
+test("resolvePrecondition plan_phase halts on partial-ship false-positive (NS-02 task-set comparison)", () => {
+  // Codex P2 finding on PR #35 round 7: pre-fix, any phase entry satisfied
+  // the precondition (`some(e.phase === entry.phase)`), so Plan-001's T5.1
+  // Lane A entry would unblock a downstream Plan-001 Phase 5 dependency
+  // even though T5.5/T5.6 were unshipped. This is the exact NS-02 partial-
+  // ship trap the manifest refactor exists to close at the upstream tier.
+  const repo = makeTempRepo();
+  writeFileSync(
+    join(repo, "docs", "plans", "001-test.md"),
+    `# Plan-001
+
+### Phase 5 — Client SDK + Desktop Bootstrap
+
+#### Tasks
+
+##### T5.1 — sessionClient transports (Lane A)
+##### T5.5 — Desktop shell IPC
+##### T5.6 — Renderer wiring
+
+## Progress Log
+
+### Shipment Manifest
+
+\`\`\`yaml
+manifest_schema_version: 1
+shipped:
+  - phase: 5
+    task: T5.1
+    pr: 30
+    sha: 7e4ae47
+    merged_at: 2026-05-05
+    files: []
+    verifies_invariant: []
+    spec_coverage: []
+\`\`\`
+
+### Notes
+`,
+  );
+  const r = resolvePrecondition(
+    { type: "plan_phase", plan: 1, phase: 5, status: "merged" },
+    { repoRoot: repo },
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.halt, /partially shipped/);
+  assert.match(r.halt, /T5\.5/);
+  assert.match(r.halt, /T5\.6/);
+});
+
+test("resolvePrecondition plan_phase falls back to phase-presence when upstream Tasks block has no declared task ids", () => {
+  // Legacy fallback: plans that shipped before the audit runbook formalized
+  // task ids in `#### Tasks` blocks have no declared set to compare. The
+  // resolver mirrors the pre-refactor `some(e.phase === entry.phase)`
+  // behavior so those plans don't fail-loud after the strict refactor.
   const repo = makeTempRepo();
   writeFileSync(
     join(repo, "docs", "plans", "007-test.md"),
     `# Plan-007
+
+### Phase 3 — Legacy phase without declared task ids
+
+prose-only Tasks block.
+
+## Progress Log
+
+### Shipment Manifest
+
+\`\`\`yaml
+manifest_schema_version: 1
+shipped:
+  - phase: 3
+    task: T-007-3-1
+    pr: 19
+    sha: 0e5599d
+    merged_at: 2026-04-30
+    files: []
+    verifies_invariant: []
+    spec_coverage: []
+\`\`\`
+
+### Notes
+`,
+  );
+  const r = resolvePrecondition(
+    { type: "plan_phase", plan: 7, phase: 3, status: "merged" },
+    { repoRoot: repo },
+  );
+  assert.equal(r.ok, true);
+});
+
+test("resolvePrecondition plan_phase halts when target plan has no manifest entry for phase", () => {
+  // Same fallback path as the prior test (no declared task ids), but with
+  // the manifest's `shipped:` empty so phase-presence also fails.
+  const repo = makeTempRepo();
+  writeFileSync(
+    join(repo, "docs", "plans", "007-test.md"),
+    `# Plan-007
+
+### Phase 3 — Legacy phase without declared task ids
+
+prose-only Tasks block.
 
 ## Progress Log
 
@@ -698,6 +861,32 @@ shipped: []
   );
   assert.equal(r.ok, false);
   assert.match(r.halt, /no entry in shipment manifest/);
+});
+
+test("resolvePrecondition plan_phase halts when upstream manifest unparseable", () => {
+  // Mirror of Gate 3's strict halt on parse failure (Codex P1 finding on PR
+  // #35 round 7). An upstream plan with a malformed manifest cannot be
+  // determined as shipped or unshipped — the resolver halts rather than
+  // silently satisfying or rejecting the precondition.
+  const repo = makeTempRepo();
+  writeFileSync(
+    join(repo, "docs", "plans", "007-test.md"),
+    `# Plan-007
+
+### Phase 3 — Daemon driver registry
+
+#### Tasks
+
+##### T-007p-3-1 — Driver registry skeleton
+`,
+  );
+  const r = resolvePrecondition(
+    { type: "plan_phase", plan: 7, phase: 3, status: "merged" },
+    { repoRoot: repo },
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.halt, /shipment manifest unparseable/);
+  assert.match(r.halt, /no_section/);
 });
 
 test("resolvePrecondition plan_phase fails when target plan absent", () => {
@@ -821,6 +1010,9 @@ test("runPreflight halts on unchecked audit checkbox", () => {
 });
 
 test("runPreflight halts when phase given but missing G4 cites", () => {
+  // Manifest section is required even when the test only exercises the
+  // cite gate — Gate 3's strict halt on parse failure (Codex P1 round-7)
+  // fires before Gate 4 if the section is absent.
   const repo = makeTempRepo();
   const skillMd = join(repo, ".claude", "skills", "plan-execution", "SKILL.md");
   writeFileSync(skillMd, `---\nname: test\nrequires_files: []\n---`);
@@ -834,6 +1026,17 @@ test("runPreflight halts when phase given but missing G4 cites", () => {
 ### Phase 1 — Bootstrap
 
 (no cites here)
+
+## Progress Log
+
+### Shipment Manifest
+
+\`\`\`yaml
+manifest_schema_version: 1
+shipped: []
+\`\`\`
+
+### Notes
 `,
   );
   const r = runPreflight(planFile, 1, { repoRoot: repo, skillMd });

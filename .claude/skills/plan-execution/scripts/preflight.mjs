@@ -306,33 +306,90 @@ export function gateAuditCheckbox(planSource, planFile) {
   };
 }
 
-// Gate 3 — phase un-shipped. Reads the in-plan `### Shipment Manifest` YAML
-// block and the phase's `#### Tasks` block, then halts only if every declared
-// task for the phase appears in the manifest's shipped set. NS-02 partial
-// ships (e.g., Plan-001 Phase 5 Lane A T5.1 alone) leave T5.5/T5.6 declared
-// but un-shipped, so the gate stays open. Schema-version forward-compat:
-// unknown future versions fail open per lib/manifest.mjs policy.
-export function gatePhaseUnshipped(planSource, planNumber, phase) {
-  const sec = extractPhaseSection(planSource, phase.number);
-  if (!sec) return { ok: true };
-  const declared = extractDeclaredTaskIds(sec);
-  if (declared.length === 0) return { ok: true };
+// Classify whether a phase has fully shipped. Shared by Gate 3 (this plan)
+// and Gate 5 plan_phase resolver (upstream plan). Ordering is load-bearing:
+// the manifest parse + version-future check fire BEFORE any structural
+// inspection of the phase section, so a future v2 manifest that reshapes
+// phase headings still fail-opens (treat-as-opaque semantic) instead of
+// halting with "section not found".
+//
+// Result kinds:
+//   - manifest_unparseable: parseManifestBlock returned !ok. Halt; this is
+//     the loud-failure replacement for the silent-pass behavior Codex
+//     flagged on PR #35 round 7 (a malformed manifest would otherwise
+//     re-open Gate 3 and re-dispatch already-shipped phases).
+//   - manifest_future_schema: version > MANIFEST_SCHEMA_VERSION. Fail open
+//     per lib/manifest.mjs schema-version policy.
+//   - no_phase_section: the requested phase isn't declared in the plan.
+//   - no_declared_tasks: phase exists but its #### Tasks block has no task
+//     ids in either the sub-header (`##### T1.1`) or bullet+bold
+//     (`- **T-007p-1-1**`) form.
+//   - partially_shipped: at least one declared task isn't in the shipped
+//     set. Carries `missing` so callers can render diagnostics.
+//   - fully_shipped: every declared task appears in the shipped set.
+export function classifyPhaseShipment(planSource, phaseNumber) {
   const manifest = parseManifestBlock(planSource);
-  if (!manifest.ok) return { ok: true };
-  if (manifest.version > MANIFEST_SCHEMA_VERSION) return { ok: true };
-  const shipped = shippedTaskIdsForPhase(manifest, phase.number);
-  const allShipped = declared.every((t) => shipped.has(t));
-  if (!allShipped) return { ok: true };
-  return {
-    ok: false,
-    halt: [
-      "## Preflight halt: phase already shipped",
-      "",
-      `Plan-${planNumber} Phase ${phase.number} ("${phase.title}") declared tasks`,
-      `[${declared.join(", ")}] all appear in the shipment manifest. Pick the next`,
-      `un-shipped phase, or override-supply a phase number for explicit-phase mode.`,
-    ].join("\n"),
-  };
+  if (!manifest.ok) return { kind: "manifest_unparseable", reason: manifest.reason };
+  if (manifest.version > MANIFEST_SCHEMA_VERSION) {
+    return { kind: "manifest_future_schema", version: manifest.version, manifest };
+  }
+  const sec = extractPhaseSection(planSource, phaseNumber);
+  if (!sec) return { kind: "no_phase_section", manifest };
+  const declared = extractDeclaredTaskIds(sec);
+  const phaseHasManifestEntry = manifest.shipped.some((e) => e.phase === phaseNumber);
+  if (declared.length === 0) {
+    return { kind: "no_declared_tasks", manifest, phaseHasManifestEntry };
+  }
+  const shipped = shippedTaskIdsForPhase(manifest, phaseNumber);
+  const missing = declared.filter((t) => !shipped.has(t));
+  if (missing.length === 0) {
+    return { kind: "fully_shipped", declared, shipped: [...shipped], manifest };
+  }
+  return { kind: "partially_shipped", declared, shipped: [...shipped], missing, manifest };
+}
+
+// Gate 3 — phase un-shipped. Halts when the phase is fully shipped, or when
+// the manifest can't be parsed (per Codex P1 finding on PR #35 round 7:
+// silent fail-open on parse failure was a correctness regression in
+// auto-walk mode — already-shipped phases would look unshipped after any
+// manifest formatting error). Schema-version forward-compat (unknown future
+// versions) remains the only intentional fail-open.
+export function gatePhaseUnshipped(planSource, planNumber, phase) {
+  const result = classifyPhaseShipment(planSource, phase.number);
+  if (result.kind === "manifest_unparseable") {
+    return {
+      ok: false,
+      halt: [
+        "## Preflight halt: shipment manifest unparseable",
+        "",
+        `Plan-${planNumber} has a malformed or missing ### Shipment Manifest block`,
+        `(reason: ${result.reason}). Gate 3 cannot determine whether Phase ${phase.number}`,
+        `("${phase.title}") is already shipped, so it halts rather than risk re-dispatching`,
+        `a completed phase (Codex P1 finding on PR #35 round 7).`,
+        "",
+        "Reasons returned by parseManifestBlock:",
+        "  - no_section: ### Shipment Manifest heading missing — plan was likely created",
+        "    before the template update. Add the section per docs/plans/000-plan-template.md.",
+        "  - no_yaml_fence: section exists but the ```yaml fenced block is missing or",
+        "    truncated.",
+        "  - missing_schema_version: fenced block exists but `manifest_schema_version: 1`",
+        "    is absent.",
+      ].join("\n"),
+    };
+  }
+  if (result.kind === "fully_shipped") {
+    return {
+      ok: false,
+      halt: [
+        "## Preflight halt: phase already shipped",
+        "",
+        `Plan-${planNumber} Phase ${phase.number} ("${phase.title}") declared tasks`,
+        `[${result.declared.join(", ")}] all appear in the shipment manifest. Pick the next`,
+        `un-shipped phase, or override-supply a phase number for explicit-phase mode.`,
+      ].join("\n"),
+    };
+  }
+  return { ok: true };
 }
 
 export function gateTasksBlockCites(phaseSection, planNumber, phaseNumber) {
@@ -386,19 +443,52 @@ export function resolvePrecondition(entry, { repoRoot = REPO_ROOT } = {}) {
       const planFile = findPaddedFile(resolve(repoRoot, "docs", "plans"), entry.plan);
       if (!planFile) return { ok: false, halt: `Plan-${entry.plan} not found in docs/plans/` };
       const source = readFileSync(planFile, "utf8");
-      const manifest = parseManifestBlock(source);
-      // Schema-version forward-compat: mirror Gate 3's fail-open. An upstream
-      // plan migrated to a future manifest schema MUST NOT block downstream
-      // phase dispatch; assume the upstream did its work and treat the
-      // precondition as satisfied. Codex P2 finding on PR #35 round 2.
-      if (manifest.ok && manifest.version > MANIFEST_SCHEMA_VERSION) return { ok: true };
-      if (manifest.ok && manifest.shipped.some((e) => e.phase === entry.phase)) {
-        return { ok: true };
+      // Mirror Gate 3's set-comparison via the shared classifier. Pre-round-7
+      // the resolver matched any phase entry (`some(e.phase === entry.phase)`),
+      // which became a partial-ship false-positive when manifest entries
+      // moved to task-level granularity (Codex P2 on PR #35 round 7: a single
+      // T5.1 entry in Plan-001 Phase 5 satisfied a downstream Plan-001 Phase 5
+      // precondition even though T5.5/T5.6 remained unshipped). Same fail-open
+      // contract as Gate 3: only future-schema is opaque-pass; everything else
+      // halts with an explicit reason.
+      const result = classifyPhaseShipment(source, entry.phase);
+      switch (result.kind) {
+        case "fully_shipped":
+        case "manifest_future_schema":
+          return { ok: true };
+        case "manifest_unparseable":
+          return {
+            ok: false,
+            halt: `Plan-${entry.plan} shipment manifest unparseable (${result.reason}); cannot determine Phase ${entry.phase} ship status`,
+          };
+        case "no_phase_section":
+          return {
+            ok: false,
+            halt: `Plan-${entry.plan} Phase ${entry.phase} section not found in plan file`,
+          };
+        case "no_declared_tasks":
+          // Legacy fallback: upstream Tasks block has no task ids. Fall back
+          // to phase-presence so plans that shipped before the audit runbook
+          // formalized #### Tasks blocks don't fail-loud.
+          if (result.phaseHasManifestEntry) return { ok: true };
+          return {
+            ok: false,
+            halt: `Plan-${entry.plan} Phase ${entry.phase} has no entry in shipment manifest`,
+          };
+        case "partially_shipped":
+          return {
+            ok: false,
+            halt: `Plan-${entry.plan} Phase ${entry.phase} only partially shipped — missing tasks: ${result.missing.join(", ")}`,
+          };
+        default:
+          // Defensive: classifyPhaseShipment kinds are exhaustive today; this
+          // branch fires only if a future kind lands without a handler. Halt
+          // loudly rather than silently fall through to cross_plan_carve_out.
+          return {
+            ok: false,
+            halt: `unhandled classifyPhaseShipment kind: ${result.kind}`,
+          };
       }
-      return {
-        ok: false,
-        halt: `Plan-${entry.plan} Phase ${entry.phase} has no entry in shipment manifest`,
-      };
     }
     case "cross_plan_carve_out": {
       const xplanPath = resolve(repoRoot, "docs", "architecture", "cross-plan-dependencies.md");
