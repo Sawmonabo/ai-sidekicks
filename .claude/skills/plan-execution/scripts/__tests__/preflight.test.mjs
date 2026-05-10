@@ -1252,3 +1252,84 @@ test("runPreflight returns no-eligible-phase halt when every phase is shipped", 
   assert.equal(r.exit, 1);
   assert.match(r.stdout, /no eligible un-shipped phase/);
 });
+
+test("runPreflight halts loudly in auto-walk mode when manifest is unparseable", () => {
+  // Codex P1 finding on PR #35 round 9 — pre-fix `_checkPhase` collapsed
+  // every Gate 3 failure (including round-7 strict halts) to `reason:
+  // "shipped"`, so auto-walk silenced manifest-unparseable phases and fell
+  // through to "no eligible un-shipped phase" instead of surfacing the halt.
+  // This test plan has TWO phases with no `### Shipment Manifest` section;
+  // under the old behavior every phase would silent-skip and the loop would
+  // emit the terminal "no eligible" message. The strict-halt text below only
+  // appears on the per-phase fail-loud path.
+  const repo = makeTempRepo();
+  const skillMd = join(repo, ".claude", "skills", "plan-execution", "SKILL.md");
+  writeFileSync(skillMd, `---\nname: test\nrequires_files: []\n---\n\nbody`);
+  const planFile = join(repo, "docs", "plans", "001-test.md");
+  writeFileSync(
+    planFile,
+    `# Plan-001
+
+## Preconditions
+
+- [x] **Plan-readiness audit complete per runbook.
+
+### Phase 1 — Bootstrap
+
+**Precondition:** None.
+
+\`\`\`yaml
+preconditions: []
+\`\`\`
+
+#### Tasks
+
+##### T1.1 — desc
+**Spec coverage:** Spec-001 row 1 **Verifies invariant:** I-001-1
+
+### Phase 2 — Next
+
+**Precondition:** None.
+
+\`\`\`yaml
+preconditions: []
+\`\`\`
+
+#### Tasks
+
+##### T2.1 — desc
+**Spec coverage:** Spec-001 row 2 **Verifies invariant:** I-001-2
+`,
+  );
+  const r = runPreflight(planFile, undefined, { repoRoot: repo, skillMd });
+  assert.equal(r.exit, 1);
+  assert.match(r.stdout, /shipment manifest unparseable/);
+  assert.doesNotMatch(r.stdout, /no eligible un-shipped phase/);
+});
+
+test("runPreflight halts loudly in auto-walk mode when shipped[] entries fail validation", () => {
+  // Same Codex P1 round-9 surface, manifest_invalid_entries side. Manifest
+  // YAML parses but the single entry has phase as string ("1") — round-8's
+  // validateEntry classifier kind. Pre-fix this would silent-skip both
+  // phases and emit "no eligible un-shipped phase"; new behavior halts
+  // immediately on the first phase with the schema-validation halt text.
+  const { repo, skillMd, planFile } = buildTestRepo({
+    phases: [
+      { n: 1, title: "Bootstrap", tasks: ["T1.1"] },
+      { n: 2, title: "Next", tasks: ["T2.1"] },
+    ],
+    manifestEntries: `shipped:
+  - phase: "1"
+    task: T1.1
+    pr: 6
+    sha: ca22530
+    merged_at: 2026-04-27
+    files: []
+    verifies_invariant: []
+    spec_coverage: []`,
+  });
+  const r = runPreflight(planFile, undefined, { repoRoot: repo, skillMd });
+  assert.equal(r.exit, 1);
+  assert.match(r.stdout, /entries fail schema validation/);
+  assert.doesNotMatch(r.stdout, /no eligible un-shipped phase/);
+});

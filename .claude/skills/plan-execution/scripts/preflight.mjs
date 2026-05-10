@@ -378,6 +378,7 @@ export function gatePhaseUnshipped(planSource, planNumber, phase) {
   if (result.kind === "manifest_unparseable") {
     return {
       ok: false,
+      kind: "manifest_unparseable",
       halt: [
         "## Preflight halt: shipment manifest unparseable",
         "",
@@ -399,6 +400,7 @@ export function gatePhaseUnshipped(planSource, planNumber, phase) {
   if (result.kind === "manifest_invalid_entries") {
     return {
       ok: false,
+      kind: "manifest_invalid_entries",
       halt: [
         "## Preflight halt: shipment manifest entries fail schema validation",
         "",
@@ -422,6 +424,7 @@ export function gatePhaseUnshipped(planSource, planNumber, phase) {
   if (result.kind === "fully_shipped") {
     return {
       ok: false,
+      kind: "fully_shipped",
       halt: [
         "## Preflight halt: phase already shipped",
         "",
@@ -587,7 +590,7 @@ export function gatePreconditions(phaseSection, planFile, phaseNumber, opts = {}
 
 function _checkPhase(planSource, planNumber, phase, planFile, opts) {
   const ship = gatePhaseUnshipped(planSource, planNumber, phase);
-  if (!ship.ok) return { eligible: false, reason: "shipped", halt: ship.halt };
+  if (!ship.ok) return { eligible: false, reason: ship.kind, halt: ship.halt };
   const sec = extractPhaseSection(planSource, phase.number);
   if (!sec)
     return {
@@ -640,12 +643,20 @@ export function runPreflight(
   const skipped = [];
   for (const p of phases) {
     const r = _checkPhase(planSource, planNumber, p, planFile, opts);
-    if (r.reason === "shipped") continue;
-    if (!r.eligible) {
-      skipped.push(`Phase ${p.number} (${r.reason}): ${r.halt.split("\n")[0]}`);
-      continue;
+    if (r.eligible) return { exit: 0, stdout: String(p.number) };
+    // `fully_shipped` is the only legitimate silent-skip — every other Gate 3
+    // failure must surface, including the round-7/8 strict halts. Pre-round-9
+    // _checkPhase collapsed all `gatePhaseUnshipped` failures to `reason:
+    // "shipped"`, so manifest_unparseable / manifest_invalid_entries got
+    // silenced in auto-walk mode (Codex P1 finding on PR #35 round 9). The
+    // explicit list — not a default — guarantees future strict-halt kinds
+    // also surface unless they're explicitly added as silent-skip.
+    if (r.reason === "fully_shipped") continue;
+    if (r.reason === "manifest_unparseable" || r.reason === "manifest_invalid_entries") {
+      return { exit: 1, stdout: r.halt };
     }
-    return { exit: 0, stdout: String(p.number) };
+    // no-section / audit / preconditions — per-phase issues, try next phase.
+    skipped.push(`Phase ${p.number} (${r.reason}): ${r.halt.split("\n")[0]}`);
   }
   const reasonsText = skipped.length
     ? `\n\nNon-eligible phases:\n${skipped.map((s) => `  - ${s}`).join("\n")}`
