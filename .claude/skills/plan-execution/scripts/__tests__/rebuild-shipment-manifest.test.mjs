@@ -204,8 +204,24 @@ test("fetchMergedPrNumbers: passes gh args verbatim and parses JSON", () => {
   };
   const result = fetchMergedPrNumbers({ plan: "001", ghRunner });
   assert.deepEqual(result, [6, 9, 30]);
-  assert.match(calledWith, /gh pr list --state merged --search "Plan-001"/);
+  assert.match(calledWith, /gh pr list --state merged/);
+  assert.match(calledWith, /--search "Plan-001 in:title,body"/);
   assert.match(calledWith, /--limit 1000/);
+});
+
+test("fetchMergedPrNumbers: search query is constrained to title/body fields", () => {
+  // Codex P2 finding on PR #35 round 2: without `in:title,body`, the GitHub
+  // search default also matches PR comments / discussion threads — an
+  // unrelated PR mentioning "Plan-001" in passing would land in the result
+  // set and corrupt the rebuilt manifest. The qualifier keeps the source
+  // set deterministic.
+  let calledWith = null;
+  const ghRunner = (cmd) => {
+    calledWith = cmd;
+    return JSON.stringify([]);
+  };
+  fetchMergedPrNumbers({ plan: "024", ghRunner });
+  assert.match(calledWith, /in:title,body/);
 });
 
 test("fetchMergedPrNumbers: throws exitCode=6 when result hits FETCH_LIMIT (saturation)", () => {

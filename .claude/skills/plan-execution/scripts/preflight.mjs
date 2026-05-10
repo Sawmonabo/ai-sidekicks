@@ -387,6 +387,11 @@ export function resolvePrecondition(entry, { repoRoot = REPO_ROOT } = {}) {
       if (!planFile) return { ok: false, halt: `Plan-${entry.plan} not found in docs/plans/` };
       const source = readFileSync(planFile, "utf8");
       const manifest = parseManifestBlock(source);
+      // Schema-version forward-compat: mirror Gate 3's fail-open. An upstream
+      // plan migrated to a future manifest schema MUST NOT block downstream
+      // phase dispatch; assume the upstream did its work and treat the
+      // precondition as satisfied. Codex P2 finding on PR #35 round 2.
+      if (manifest.ok && manifest.version > MANIFEST_SCHEMA_VERSION) return { ok: true };
       if (manifest.ok && manifest.shipped.some((e) => e.phase === entry.phase)) {
         return { ok: true };
       }

@@ -710,6 +710,35 @@ test("resolvePrecondition plan_phase fails when target plan absent", () => {
   assert.match(r.halt, /Plan-99 not found/);
 });
 
+test("resolvePrecondition plan_phase fails open on unknown future manifest schema version", () => {
+  // Codex P2 finding on PR #35 round 2: Gate 5 plan_phase resolver MUST mirror
+  // Gate 3's schema-version fail-open. Otherwise an upstream plan migrated to
+  // a future schema (manifest_schema_version: 2+) would block downstream
+  // dispatch with a false negative even when the upstream phase is shipped.
+  const repo = makeTempRepo();
+  writeFileSync(
+    join(repo, "docs", "plans", "007-test.md"),
+    `# Plan-007
+
+## Progress Log
+
+### Shipment Manifest
+
+\`\`\`yaml
+manifest_schema_version: 99
+shipped: []
+\`\`\`
+
+### Notes
+`,
+  );
+  const r = resolvePrecondition(
+    { type: "plan_phase", plan: 7, phase: 3, status: "merged" },
+    { repoRoot: repo },
+  );
+  assert.equal(r.ok, true);
+});
+
 // ---------- runPreflight integration ----------
 
 function buildTestRepo({ phases, manifestEntries = "shipped: []" }) {

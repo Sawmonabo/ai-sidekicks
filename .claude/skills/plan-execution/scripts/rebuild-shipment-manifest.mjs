@@ -210,7 +210,12 @@ export function buildEntryFromPr({ pr, details, plan }) {
 export const FETCH_LIMIT = 1000;
 
 export function fetchMergedPrNumbers({ plan, ghRunner = defaultGhRunner }) {
-  const cmd = `gh pr list --state merged --search "Plan-${plan}" --json number --limit ${FETCH_LIMIT}`;
+  // `in:title,body` constrains the GitHub search to PR titles and bodies; without
+  // it, the default search also matches review comments / discussion threads, so
+  // an unrelated merged PR that mentions "Plan-001" in passing would land in the
+  // result set and produce a wrong-phase/wrong-task entry (or stop the backfill
+  // with a validation error). Codex P2 finding on PR #35 round 2.
+  const cmd = `gh pr list --state merged --search "Plan-${plan} in:title,body" --json number --limit ${FETCH_LIMIT}`;
   const data = JSON.parse(ghRunner(cmd));
   if (data.length === FETCH_LIMIT) {
     const err = new Error(

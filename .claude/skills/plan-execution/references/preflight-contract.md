@@ -55,7 +55,7 @@ Parses the phase's `preconditions:` YAML block (see plan template § Implementat
 
 - `{type: pr_merged, ref: <N>}` → `gh pr view <N> --json state` returns `MERGED`.
 - `{type: adr_accepted, ref: <NNN>}` → `docs/decisions/<NNN>-*.md` Status field equals `accepted`.
-- `{type: plan_phase, plan: <NNN>, phase: <N>, status: merged}` → that plan's `### Shipment Manifest` block contains an entry whose `phase` field matches `<N>`. (Pre-Commit-6 the resolver matched on `## Progress Log` prose for `Phase N` or `PR #N` substrings; the new mechanism reads the structured manifest the same way Gate 3 does.)
+- `{type: plan_phase, plan: <NNN>, phase: <N>, status: merged}` → that plan's `### Shipment Manifest` block contains an entry whose `phase` field matches `<N>`. Schema-version forward-compat mirrors Gate 3: when `manifest.version > MANIFEST_SCHEMA_VERSION` the resolver fails open (precondition satisfied) so an upstream plan migrated to a future schema does NOT block downstream phase dispatch with a false negative. (Pre-Commit-6 the resolver matched on `## Progress Log` prose for `Phase N` or `PR #N` substrings; the new mechanism reads the structured manifest the same way Gate 3 does.)
 - `{type: cross_plan_carve_out, ref: <id>}` → entry exists in `docs/architecture/cross-plan-dependencies.md` §5; tool only verifies presence, not semantic correctness.
 
 If the phase has no `preconditions:` YAML block (legacy plan), fall back to regex parsing of the prose `**Precondition:**` line using the same pattern set ("PR #X merged", "ADR-NNN accepted", "Plan-MMM Phase K merged"). Both schema and regex failures escalate to exit code 2 if the precondition is wholly unparseable.
