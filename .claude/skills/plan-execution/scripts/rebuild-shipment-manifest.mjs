@@ -230,8 +230,26 @@ export function fetchMergedPrNumbers({ plan, ghRunner = defaultGhRunner }) {
 }
 
 export function fetchPrDetails({ pr, ghRunner = defaultGhRunner }) {
-  const cmd = `gh pr view ${pr} --json title,body,mergedAt,mergeCommit,files`;
-  return JSON.parse(ghRunner(cmd));
+  // changedFiles is the authoritative file-count exposed via GraphQL alongside
+  // files. `gh pr view --json files` issues a single `pullRequest.files(first: 100)`
+  // GraphQL query — there is no internal pagination, so PRs above the 100-file
+  // ceiling silently truncate the returned list. Compare lengths and halt loudly
+  // (exit 7) rather than commit a partial files: array to the manifest. Codex
+  // P2 finding on PR #35 round 4. Migrating to gh api with cursor pagination is
+  // the long-term fix; AI Sidekicks PRs currently sit well under 100 files.
+  const cmd = `gh pr view ${pr} --json title,body,mergedAt,mergeCommit,files,changedFiles`;
+  const data = JSON.parse(ghRunner(cmd));
+  const filesReturned = (data.files ?? []).length;
+  if (typeof data.changedFiles === "number" && filesReturned < data.changedFiles) {
+    const err = new Error(
+      `gh pr view ${pr} returned ${filesReturned} of ${data.changedFiles} changed files — ` +
+        `result is truncated; cannot guarantee shipment-manifest file-trace completeness. ` +
+        `Migrate fetchPrDetails to gh api with files pagination.`,
+    );
+    err.exitCode = 7;
+    throw err;
+  }
+  return data;
 }
 
 // ---------- plan-file resolver ----------

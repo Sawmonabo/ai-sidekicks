@@ -33,6 +33,7 @@ node --experimental-strip-types \
 | 4 | Manifest write conflict — entries exist for one or more PRs. Pass `--force` to skip. |
 | 5 | Validation failure — at least one proposed entry failed `validateEntry()` from `lib/manifest.mjs` (typically a missing merge SHA on a queued-and-reverted PR). Pass `--force` to skip the failed entries. |
 | 6 | Fetch saturation — `gh pr list --limit FETCH_LIMIT` returned exactly `FETCH_LIMIT` matches, so the result MAY be truncated and manifest completeness cannot be guaranteed. Raise `FETCH_LIMIT` in the script (currently 1000) or migrate to gh-api-with-pagination. This is the loud-failure replacement for the silent truncation that the manifest refactor eliminated from the preflight hot path. |
+| 7 | Per-PR file-list truncation — `gh pr view <N> --json files,changedFiles` returned fewer file entries than `changedFiles` reports. `gh pr view` issues a single `pullRequest.files(first: 100)` GraphQL query with no internal pagination, so PRs above the 100-file ceiling silently truncate. The script halts rather than commit a partial `files:` array to the shipment manifest. Long-term fix: migrate `fetchPrDetails` to `gh api` with cursor pagination. AI Sidekicks PRs currently sit well under 100 files. |
 
 ## Behavior
 

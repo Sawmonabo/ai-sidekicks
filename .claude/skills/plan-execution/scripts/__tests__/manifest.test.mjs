@@ -187,6 +187,45 @@ shipped: []
   assert.deepEqual(r.shipped, []);
 });
 
+// Codex P2 finding on PR #35 round 4: parseChildBlock previously only
+// recognized `- item` block lists; an indented multi-line flow array
+// (e.g., `spec_coverage:` followed by `[`, items, `]` on subsequent
+// indented lines — Plan-007's backfilled style) fell through to the
+// raw-string return path, then validateEntry failed on "must be an
+// array of strings". This test reproduces Plan-007 PR #17/#19's shape.
+test("parseManifestBlock: indented multi-line flow array parses as string[]", () => {
+  const plan = `### Shipment Manifest
+
+\`\`\`yaml
+manifest_schema_version: 1
+shipped:
+  - phase: 3
+    task: T-007p-3-2
+    pr: 17
+    sha: deadbee
+    merged_at: 2026-05-05
+    files: [a.ts]
+    verifies_invariant: [I-007-6]
+    spec_coverage:
+      [
+        "Spec-007 §Wire Format",
+        "Spec-007 §Required Behavior",
+        "Spec-007 §Fallback Behavior",
+        ADR-009,
+      ]
+\`\`\`
+`;
+  const r = parseManifestBlock(plan);
+  assert.equal(r.ok, true);
+  assert.equal(r.shipped.length, 1);
+  assert.deepEqual(r.shipped[0].spec_coverage, [
+    "Spec-007 §Wire Format",
+    "Spec-007 §Required Behavior",
+    "Spec-007 §Fallback Behavior",
+    "ADR-009",
+  ]);
+});
+
 // Codex P2 finding on PR #35 round 3: a naive `inner.split(",")` in
 // parseInlineScalar corrupted flow-array elements containing quoted commas
 // (e.g., spec_coverage: ["Spec-001 rows 4,5"]) by splitting them into two

@@ -259,6 +259,49 @@ test("fetchPrDetails: forwards PR number into command", () => {
   assert.match(calledWith, /gh pr view 30 --json title,body,mergedAt,mergeCommit,files/);
 });
 
+// Codex P2 finding on PR #35 round 4: gh pr view --json files issues a single
+// pullRequest.files(first: 100) GraphQL query with no internal pagination, so
+// PRs above the 100-file ceiling silently truncate. fetchPrDetails now also
+// requests changedFiles (the authoritative count) and halts with exit 7 when
+// returned files.length is below it.
+test("fetchPrDetails: requests changedFiles alongside files", () => {
+  let calledWith = null;
+  const ghRunner = (cmd) => {
+    calledWith = cmd;
+    return JSON.stringify({ ...SAMPLE_DETAILS, changedFiles: 1 });
+  };
+  fetchPrDetails({ pr: 30, ghRunner });
+  assert.match(calledWith, /--json title,body,mergedAt,mergeCommit,files,changedFiles/);
+});
+
+test("fetchPrDetails: throws exitCode=7 when files.length < changedFiles (truncation)", () => {
+  const ghRunner = () =>
+    JSON.stringify({
+      ...SAMPLE_DETAILS,
+      files: Array.from({ length: 100 }, (_, i) => ({ path: `f${i}.ts` })),
+      changedFiles: 137,
+    });
+  try {
+    fetchPrDetails({ pr: 99, ghRunner });
+    assert.fail("expected fetchPrDetails to throw on truncation");
+  } catch (e) {
+    assert.equal(e.exitCode, 7);
+    assert.match(e.message, /returned 100 of 137 changed files/);
+  }
+});
+
+test("fetchPrDetails: does NOT throw when files.length === changedFiles", () => {
+  const ghRunner = () =>
+    JSON.stringify({
+      ...SAMPLE_DETAILS,
+      files: [{ path: "a.ts" }, { path: "b.ts" }],
+      changedFiles: 2,
+    });
+  const r = fetchPrDetails({ pr: 30, ghRunner });
+  assert.equal(r.changedFiles, 2);
+  assert.equal(r.files.length, 2);
+});
+
 // ---------- resolvePlanFile ----------
 
 test("resolvePlanFile: returns the matching plan path", () => {

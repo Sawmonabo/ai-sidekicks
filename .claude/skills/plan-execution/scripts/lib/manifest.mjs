@@ -247,15 +247,39 @@ function applyField(entry, field, lines, nextI, fieldIndent) {
 }
 
 function parseChildBlock(lines) {
-  const firstNonBlank = lines.find((l) => !/^\s*$/.test(l));
-  if (firstNonBlank && /^\s*-\s/.test(firstNonBlank)) {
+  const nonBlank = lines.filter((l) => !/^\s*$/.test(l));
+  if (nonBlank.length === 0) return "";
+  const firstTrim = nonBlank[0].trim();
+  // Block-list form: `- item` per indented line.
+  if (/^-\s/.test(firstTrim)) {
     const out = [];
-    for (const l of lines) {
-      if (/^\s*$/.test(l)) continue;
+    for (const l of nonBlank) {
       const m = l.match(/^\s*-\s+(.*)$/);
       if (m) out.push(parseInlineScalar(m[1].replace(/\s*#.*$/, "").trim()));
     }
     return out;
+  }
+  // Multi-line indented flow-array form, used by Plan-007's backfilled manifest:
+  //   spec_coverage:
+  //     [
+  //       "Spec-007 §Wire Format",
+  //       "Spec-007 §Required Behavior",
+  //     ]
+  // Pre-fix this fell through to the raw-string return path, then validateEntry
+  // failed on `spec_coverage must be an array of strings`. Codex P2 finding on
+  // PR #35 round 4. The join-on-space + splitFlowArray combination preserves
+  // commas inside quoted elements (the round-3 fix).
+  const lastTrim = nonBlank[nonBlank.length - 1].trim();
+  if (firstTrim.startsWith("[") && lastTrim.endsWith("]")) {
+    const joined = nonBlank.map((l) => l.trim()).join(" ");
+    if (joined.startsWith("[") && joined.endsWith("]")) {
+      const inner = joined.slice(1, -1).trim();
+      if (inner === "") return [];
+      return splitFlowArray(inner)
+        .map((s) => s.trim())
+        .filter((s) => s !== "")
+        .map((s) => parseInlineScalar(s.replace(/\s*#.*$/, "").trim()));
+    }
   }
   return lines.join("\n").replace(/\n+$/, "");
 }
