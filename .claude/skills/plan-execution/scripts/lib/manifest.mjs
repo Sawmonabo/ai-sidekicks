@@ -260,13 +260,38 @@ function parseChildBlock(lines) {
   return lines.join("\n").replace(/\n+$/, "");
 }
 
+// Split a YAML flow-array body on top-level commas only — commas inside
+// "..." or '...' are preserved as-is. The naive `inner.split(",")` corrupts
+// quoted elements like "Spec-001 rows 4,5" by splitting them into two
+// items (Codex P2 finding on PR #35 round 3). Escape sequences (\" inside
+// double-quoted) are not handled — the manifest schema's quoted strings
+// (spec_coverage / verifies_invariant cite text) do not use them today.
+function splitFlowArray(inner) {
+  const parts = [];
+  let start = 0;
+  let quote = null;
+  for (let i = 0; i < inner.length; i += 1) {
+    const ch = inner[i];
+    if (quote) {
+      if (ch === quote) quote = null;
+    } else if (ch === '"' || ch === "'") {
+      quote = ch;
+    } else if (ch === ",") {
+      parts.push(inner.slice(start, i));
+      start = i + 1;
+    }
+  }
+  parts.push(inner.slice(start));
+  return parts;
+}
+
 function parseInlineScalar(raw) {
   if (raw === "") return "";
   if (/^"[^"]*"$|^'[^']*'$/.test(raw)) return raw.slice(1, -1);
   if (raw.startsWith("[") && raw.endsWith("]")) {
     const inner = raw.slice(1, -1).trim();
     if (inner === "") return [];
-    return inner.split(",").map((s) => parseInlineScalar(s.trim()));
+    return splitFlowArray(inner).map((s) => parseInlineScalar(s.trim()));
   }
   if (/^-?\d+$/.test(raw)) return Number(raw);
   if (/^-?\d+\.\d+$/.test(raw)) return Number(raw);

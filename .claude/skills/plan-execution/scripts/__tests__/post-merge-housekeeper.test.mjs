@@ -1244,6 +1244,52 @@ test("readTouchedFilesFromPath returns [] for empty file (no diff)", () => {
   }
 });
 
+// Codex P2 finding on PR #35 round 3: runAutoCreate previously hardcoded
+// `diffTouchedFiles: null` when calling buildProposedManifestEntry, so the
+// auto-create path always emitted an empty `files: []` even when the CLI
+// computed a real touched-files set from --touched-files-path. The fix
+// threaded diffTouchedFiles through the runAutoCreate -> buildProposedManifestEntry
+// chain. This test exercises the full runHousekeeper path against the
+// 12-auto-create-happy-path fixture with the additional manifest-emission args
+// (squashSha / mergedAt / task) plus diffTouchedFiles, then asserts the
+// resulting proposed_manifest_entry.files matches the touched-files input.
+test("runHousekeeper: auto-create path threads diffTouchedFiles into proposed_manifest_entry.files", async () => {
+  const tmpRepo = mkdtempSync(join(tmpdir(), "rh-ac-tf-"));
+  try {
+    const fixtureInput = join(HERE, "fixtures", "12-auto-create-happy-path", "input");
+    cpSync(fixtureInput, tmpRepo, { recursive: true });
+    const touched = [
+      "docs/plans/029-orphan-pr-fixture.md",
+      "docs/architecture/cross-plan-dependencies.md",
+    ];
+    const result = await runHousekeeper({
+      args: {
+        prNumber: 48,
+        plan: "029",
+        phase: "2",
+        autoCreate: true,
+        task: "T-029-2-1",
+        squashSha: "abc1234",
+        mergedAt: "2026-05-09",
+      },
+      repoRoot: tmpRepo,
+      today: "2026-05-03",
+      diffTouchedFiles: touched,
+    });
+    assert.equal(result.exitCode, 0);
+    const manifestPath = join(tmpRepo, ".agents", "tmp", "housekeeper-manifest-PR48.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    assert.ok(manifest.proposed_manifest_entry, "proposed_manifest_entry must be non-null");
+    assert.deepEqual(manifest.proposed_manifest_entry.files, touched);
+    assert.equal(manifest.proposed_manifest_entry.phase, 2);
+    assert.equal(manifest.proposed_manifest_entry.task, "T-029-2-1");
+    assert.equal(manifest.proposed_manifest_entry.pr, 48);
+    assert.equal(manifest.proposed_manifest_entry.sha, "abc1234");
+  } finally {
+    rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
 test("parseArgs accepts --touched-files-path with arbitrary string value", () => {
   const args = parseArgs([
     "32",

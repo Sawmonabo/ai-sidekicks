@@ -187,6 +187,33 @@ shipped: []
   assert.deepEqual(r.shipped, []);
 });
 
+// Codex P2 finding on PR #35 round 3: a naive `inner.split(",")` in
+// parseInlineScalar corrupted flow-array elements containing quoted commas
+// (e.g., spec_coverage: ["Spec-001 rows 4,5"]) by splitting them into two
+// items. splitFlowArray now respects quote pairing.
+test("parseManifestBlock: flow-array preserves commas inside quoted strings", () => {
+  const plan = `### Shipment Manifest
+
+\`\`\`yaml
+manifest_schema_version: 1
+shipped:
+  - phase: 5
+    task: T5.1
+    pr: 30
+    sha: 7e4ae47
+    merged_at: 2026-05-05
+    files: [a.ts, b.ts]
+    verifies_invariant: ["I-001-1", "I-001-2,maybe"]
+    spec_coverage: ["Spec-001 rows 4,5", "Spec-001 row 6"]
+\`\`\`
+`;
+  const r = parseManifestBlock(plan);
+  assert.equal(r.ok, true);
+  assert.equal(r.shipped.length, 1);
+  assert.deepEqual(r.shipped[0].spec_coverage, ["Spec-001 rows 4,5", "Spec-001 row 6"]);
+  assert.deepEqual(r.shipped[0].verifies_invariant, ["I-001-1", "I-001-2,maybe"]);
+});
+
 // ---------- validateEntry ----------
 
 const OK_ENTRY = {

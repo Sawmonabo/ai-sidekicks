@@ -957,7 +957,15 @@ function deriveTitleSeed(args) {
   return null;
 }
 
-function runAutoCreate({ args, repoRoot, corpusText, corpusLines, baseManifest, corpusRel }) {
+function runAutoCreate({
+  args,
+  repoRoot,
+  corpusText,
+  corpusLines,
+  baseManifest,
+  corpusRel,
+  diffTouchedFiles = null,
+}) {
   let reservedNsNn = reserveNextFreeNs(corpusText);
   while (NS_RESERVED_INTEGERS.has(reservedNsNn)) reservedNsNn += 1;
 
@@ -1031,7 +1039,10 @@ function runAutoCreate({ args, repoRoot, corpusText, corpusLines, baseManifest, 
     affectedFiles,
     semanticWorkPending: SEMANTIC_WORK_PENDING_AUTO_CREATE,
     warnings,
-    proposedManifestEntry: buildProposedManifestEntry({ args, diffTouchedFiles: null }),
+    // Codex P2 finding on PR #35 round 3: pass through the touched-files set
+    // computed from `--touched-files-path` so auto-created shipment-manifest
+    // entries record the authoritative file-change trace instead of `files: []`.
+    proposedManifestEntry: buildProposedManifestEntry({ args, diffTouchedFiles }),
   });
   return { exitCode: scriptExitCode, manifestPath };
 }
@@ -1417,6 +1428,7 @@ export async function runHousekeeper({
       corpusLines,
       baseManifest,
       corpusRel,
+      diffTouchedFiles,
     });
   }
 
