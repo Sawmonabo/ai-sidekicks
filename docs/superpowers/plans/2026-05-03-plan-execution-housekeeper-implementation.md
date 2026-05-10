@@ -182,6 +182,20 @@ The matrix lives canonically here; Phase 3 fixture-author tasks (3.20-3.31) refe
 
 Numbering note: the original Phase 3 ended at Task 3.31 (Open the PR). With NEW Tasks 3.30 (fixture 11) and 3.31 (fixture 12), the prior CI step + PR tasks are renumbered to Tasks 3.32 (CI) and 3.33 (PR) — see those tasks below for the renumbered headings.
 
+### D-8 (PR #33 architectural-drift resolution): Phase E lands via auto-merge PR + new Phase D.5 merge transition
+
+Phase E (post-merge housekeeping) was originally authored to commit + push directly to `develop` (see Task 4.4 verbatim prose below as written). Codex Findings 2/5/8 on PR #33 surfaced two architectural drifts simultaneously: (1) SKILL.md hard rule line 45 forbids direct push to `develop`/`main`, AND (2) the Phase E authoring had no documented bridge from "Phase D returned all-DONE" → "develop has the squash-commit Phase E reads from in step 6 Progress Log". The squash-commit was assumed to exist without a phase that produced it.
+
+Resolution shape (landed in PR #33 across `.claude/skills/plan-execution/SKILL.md` + `references/post-merge-housekeeper-contract.md`):
+
+- **NEW Phase D.5 (merge transition)** sits between Phase D (review complete) and Phase E (post-merge housekeeping). Four steps in strict order: `gh pr ready <PR#>` → `gh pr checks <PR#> --watch --interval 10` → `gh pr merge <PR#> --squash --delete-branch` → `git switch develop && git pull --ff-only`. This phase explicitly creates the merged commit Phase E depends on; without it, the orchestrator had no documented step that produced the commit Phase E step 6's Progress Log references.
+- **Phase E steps 7-8 rewritten**: instead of `git commit + git push origin develop`, the orchestrator cuts a `housekeeping/PR<N>` branch off `develop`, opens an auto-merge PR (`gh pr merge <housekeeping-pr#> --auto --squash --delete-branch`), and polls via `gh pr checks --watch --interval 10` until the PR transitions to merged. Branch is deleted automatically on merge.
+- **Contract addition**: a new `## Housekeeping commit landing` section in `references/post-merge-housekeeper-contract.md` (between `Status format` and `Canonical Subagent Prompt Template`) formalizes branch naming (`housekeeping/PR<N>`, strict format), PR title (identical to housekeeping commit subject — preserves Phase E's commit-message contract across branch-side AND develop-side history), PR body shape (auto-generated stub with required cross-references + optional concerns_block), auto-merge mechanics (`--auto --squash --delete-branch` queues merge to fire when required CI returns SUCCESS), and CI-failure handling (halt + surface; the housekeeping subagent has already returned by this point and is not re-dispatchable for CI-driven failures).
+
+Rationale: (a) preserves the `develop`/`main` no-direct-push invariant the project has enforced since [ADR-023](../../decisions/023-v1-ci-cd-and-release-automation.md); (b) gives the housekeeping diff the same CI gate (lychee + docs-corpus + lint) that feature PRs receive — status-flip prose can break docs-corpus cite checks AND only PR-CI catches that, so direct-push would have shipped CI-red catalog state to `develop`; (c) keeps Phase E atomic — auto-merge happens AFTER all housekeeping edits are validated AND CI-green, so a CI-red housekeeping PR halts before any partial-state lands on `develop`, instead of the direct-push pattern where partial state would already be shipped.
+
+Task 4.4's verbatim Phase E prose (lines 2878-2919 below, as authored at plan-write date 2026-05-03) is **SUPERSEDED** by the live SKILL.md after PR #33 lands. Future readers should treat the live `.claude/skills/plan-execution/SKILL.md` `### Phase D.5 — Merge transition` + `### Phase E — Post-merge housekeeping` sections as the canonical contract; the Task 4.4 prose-block remains in this plan only as a historical snapshot of what was originally authored, mirroring the ADR `superseded by ADR-N` convention. The Task 4.4 step-1/2/3/4 checkboxes are still load-bearing for the original Phase E authorship action — they remain checked.
+
 ---
 
 ## Phase 1 — PR 1: NS-23 Schema Amendment + `PRs:` Block Migration
@@ -2474,7 +2488,7 @@ Never silently skip a pending item.
 - **Edit only files declared in the manifest's `affected_files` list.** Extending the list is permitted when the line-cite sweep finds new affected files; the orchestrator validates the extension is justified (via a `concerns` entry of `kind: affected_files_extension`).
 - **Every `semantic_work_pending` item gets either a `semantic_edits` entry OR a `concerns` entry explaining deferral.** No silent skipping.
 - **Replace any `<TODO subagent prose>` placeholders the script left in `Status:` lines** with composed one-line resolution prose matching the NS-12 precedent shape (see `references/post-merge-housekeeper-contract.md` § Status format).
-- **Schema violations from script exit 5 are surfaced in `concerns` with `kind: schema_violation` + structured remediation hint, then return `RESULT: BLOCKED`.** Never silently fix. This is the canonical "subagent cannot proceed" exit-state per `references/failure-modes.md` § BLOCKED — the housekeeper's contract is enforce-the-schema-or-halt, identical in shape to a reviewer's ACTIONABLE finding.
+- **Schema violations from script exit 5 are surfaced in `concerns` with the violation's own `kind` verbatim (the script emits `"schema_violation"` for `PRs:` block / missing-required-field shapes and singleton kinds like `"auto_create_title_seed_underivable"` for AUTO-CREATE seed failures), plus matching `field` and `ns_id` when the violation carries them, plus a structured remediation hint, then return `RESULT: BLOCKED`.** Never silently fix. The orchestrator validator pairs each violation to its concern via `kind` (`+ field + ns_id` when present); a single generic concern cannot absorb multiple distinct-kind violations. This is the canonical "subagent cannot proceed" exit-state per `references/failure-modes.md` § BLOCKED — the housekeeper's contract is enforce-the-schema-or-halt, identical in shape to a reviewer's ACTIONABLE finding.
 - **PRs that touch NS-referenced files but whose body does not annotate any NS-XX** are surfaced as `concerns` with `kind: unannotated_ns_referenced_files` and the entry returns `RESULT: DONE_WITH_CONCERNS`. Do NOT silently no-op. The Reviewer/user decides whether to backfill the NS annotation in PR description or accept the omission.
 
 ## Decision presentation
@@ -2580,7 +2594,7 @@ Your responsibilities (per Spec §5.4 / §6.2):
 
 4. Reconcile schema_violations — every entry in `manifest.schema_violations` MUST surface in `manifest.concerns[]` with `kind: "schema_violation"`. The script halted with exit ≥1 if any are present; the subagent's job is to surface them, not silently fix them.
 
-5. Bound your edits to `manifest.affected_files` — out-of-scope edits trigger a sprawl violation and route to DONE_WITH_CONCERNS per `references/failure-modes.md` rule 21.
+5. Bound your edits to `manifest.affected_files` — out-of-scope edits trigger an orchestrator round-trip per `references/failure-modes.md` rule 20 (sprawl routing). To justify a scope expansion, add a `concerns` entry `{kind: affected_files_extension, addressing: <reason>}` and extend `affected_files`.
 
 6. Write back the updated manifest (overwrite `<manifest-path>`) plus any direct file edits via the Edit tool.
 
@@ -2685,21 +2699,25 @@ test("validateManifestSubagentStage: fail when pending item is unaddressed", () 
 
 test("validateManifestSubagentStage: fail when <TODO subagent prose> placeholder still present in any affected file", () => {
   const tmpRepo = mkdtempSync(join(tmpdir(), "validate-todo-"));
-  // Author docs/architecture/cross-plan-dependencies.md with the placeholder string in a Status: line
-  mkdirSync(join(tmpRepo, "docs/architecture"), { recursive: true });
-  writeFileSync(
-    join(tmpRepo, "docs/architecture/cross-plan-dependencies.md"),
-    "### NS-01: foo\n- Status: `completed` (resolved 2026-05-03 via PR #30 — <TODO subagent prose>)\n",
-  );
-  const manifest = {
-    semantic_work_pending: [],
-    semantic_edits: {},
-    concerns: [],
-    affected_files: ["docs/architecture/cross-plan-dependencies.md"],
-  };
-  const result = validateManifestSubagentStage({ manifest, repoRoot: tmpRepo });
-  assert.equal(result.valid, false);
-  assert.match(result.gaps[0], /<TODO subagent prose>/);
+  try {
+    // Author docs/architecture/cross-plan-dependencies.md with the placeholder string in a Status: line
+    mkdirSync(join(tmpRepo, "docs/architecture"), { recursive: true });
+    writeFileSync(
+      join(tmpRepo, "docs/architecture/cross-plan-dependencies.md"),
+      "### NS-01: foo\n- Status: `completed` (resolved 2026-05-03 via PR #30 — <TODO subagent prose>)\n",
+    );
+    const manifest = {
+      semantic_work_pending: [],
+      semantic_edits: {},
+      concerns: [],
+      affected_files: ["docs/architecture/cross-plan-dependencies.md"],
+    };
+    const result = validateManifestSubagentStage({ manifest, repoRoot: tmpRepo });
+    assert.equal(result.valid, false);
+    assert.match(result.gaps[0], /<TODO subagent prose>/);
+  } finally {
+    rmSync(tmpRepo, { recursive: true, force: true });
+  }
 });
 
 // P2 fix — validator MUST also scan the VALUES inside semantic_edits.* for leftover placeholders.
@@ -2751,10 +2769,10 @@ test("validateManifestSubagentStage: scans nested semantic_edits values (e.g. ar
 });
 ```
 
-The new tests reference `mkdirSync` and `writeFileSync` — add to the test file's `node:fs` import block (collapse with any existing `node:fs` import line):
+The new tests reference `mkdirSync`, `writeFileSync`, and `rmSync` (Test 6 reaps its tmp dir via `try/finally` to match the sibling `post-merge-housekeeper.test.mjs` convention) — add to the test file's `node:fs` import block (collapse with any existing `node:fs` import line):
 
 ```js
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from "node:fs";
 ```
 
 - [ ] **Step 2: FAIL → implement → PASS → commit.**
@@ -2765,6 +2783,12 @@ Implementation:
 // .claude/skills/plan-execution/lib/housekeeper-orchestrator-helpers.mjs
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
+
+// Module-scope literal: the placeholder string the script writes into stubbed `Status:` lines and
+// `semantic_edits` values for the subagent to replace. Kept in one place so a future change to the
+// literal (or to the validator's checks for it) stays in sync across `validateManifestSubagentStage`
+// and `walkForPlaceholder`. Module-private — the prompt template embeds the literal as prose.
+const PLACEHOLDER = "<TODO subagent prose>";
 
 export function buildHousekeeperPrompt({ manifestPath, scriptExitCode, prNumber, manifest }) {
   // Pure string composition; tests pin prompt drift.
@@ -2790,7 +2814,6 @@ export function buildHousekeeperPrompt({ manifestPath, scriptExitCode, prNumber,
 
 export function validateManifestSubagentStage({ manifest, repoRoot = process.cwd() }) {
   const gaps = [];
-  const PLACEHOLDER = "<TODO subagent prose>";
 
   for (const item of manifest.semantic_work_pending ?? []) {
     const inEdits =
@@ -2835,7 +2858,7 @@ export function validateManifestSubagentStage({ manifest, repoRoot = process.cwd
 // messages can pinpoint which nested field carries the placeholder.
 function walkForPlaceholder(value, path, onHit) {
   if (typeof value === "string") {
-    if (value.includes("<TODO subagent prose>")) onHit(path);
+    if (value.includes(PLACEHOLDER)) onHit(path);
     return;
   }
   if (Array.isArray(value)) {
@@ -2849,6 +2872,8 @@ function walkForPlaceholder(value, path, onHit) {
 ```
 
 ### Task 4.4: SKILL.md edits — Phase E section rewrite
+
+**[SUPERSEDED in PR #33 — see Plan §Decisions-Locked D-8]:** the verbatim Phase E prose pinned in Step 2 below was authored on 2026-05-03 with a direct `git push origin develop` shape that drifts from SKILL.md hard rule line 45 (no direct push to `develop`/`main`) AND assumes a squash-commit on `develop` that no phase produces. PR #33 resolves both drifts by inserting a NEW Phase D.5 (merge transition) and rewriting Phase E steps 7-8 to use a `housekeeping/PR<N>` auto-merge PR. The live `.claude/skills/plan-execution/SKILL.md` is canonical from PR #33 forward; the prose block below is a historical snapshot. Task 4.4's checkboxes remain load-bearing for the original authorship action — do NOT uncheck them.
 
 **Files:**
 
@@ -2896,7 +2921,7 @@ The phase has 8 steps in this exact order — DO NOT reorder; step 6 (Progress L
    - subagent's edits are confined to `affected_files` (out-of-scope edits → DONE_WITH_CONCERNS routing per `references/failure-modes.md`)
    - schema_violations from script stage are reconciled (each one either fixed or surfaced in `concerns`)
 
-6. **Append the Progress Log entry** to the active session's progress log file (`.agents/tmp/<session-id>/progress.md`). This step explicitly MOVED from before-merge to after-housekeeping per spec §6.1 — the log entry references the squash-merge commit hash + housekeeping commit message + any subagent concerns, so callers reading the log see "shipped + housekept" as one event.
+6. **Append the Progress Log entry** to the plan body's `## Progress Log` section in `docs/plans/NNN-*.md` (creating the section just before `## Done Checklist` if it doesn't exist). This step explicitly MOVED from before-merge to after-housekeeping per spec §6.1 — the log entry references the squash-merge commit hash + housekeeping commit message + any subagent concerns, so callers reading the log see "shipped + housekept" as one event.
 
 7. **Single `git commit`** that bundles housekeeping (steps 4-5 edits) + Progress Log (step 6 edit) into one commit on `develop`. The commit message follows the contract:
 ```
@@ -2977,7 +3002,7 @@ Insert at the bottom of the file (AFTER "Resuming a Phase A Halt"). Verbatim tex
 Phase E (post-merge housekeeping; see SKILL.md § Phase E) halts when:
 
 - The candidate-lookup over §6 returns 2+ matches → `NEEDS_CONTEXT` halt with both candidates surfaced
-- The script's mechanical-stage exits ≥1 (NS not found / verification failed / no checklist / multi-PR no task-id / schema violation / arg validation) → see `references/post-merge-housekeeper-contract.md` § Exit Codes
+- The script's mechanical-stage exits ≥1 (NS not found / verification failed / no checklist / multi-PR no task-id / schema violation / arg validation) → see `references/post-merge-housekeeper-contract.md` § Exit codes
 - The subagent returns DONE_WITH_CONCERNS, NEEDS_CONTEXT, or BLOCKED → routed per `references/failure-modes.md`
 
 Recovery diagnostic — run in this order:
@@ -3108,7 +3133,7 @@ Use the Edit tool with `old_string` = the rule-19 line + the markdownlint-enable
 
 20. **Housekeeper subagent edits files outside the manifest's `affected_files` declaration** → round-trip dispatch (NOT a new exit-state per spec §7.1 invariant). The orchestrator detects the sprawl by diffing `git status --short` against `manifest.affected_files`; any file in the diff not in `affected_files` is out-of-scope. Re-dispatch the subagent with the prompt: "Your last run edited <file_a>, <file_b> which are NOT in the manifest's `affected_files`. Either (a) revert those out-of-scope edits and re-emit your manifest, OR (b) extend `affected_files` AND add a `concerns` entry of `{kind: affected_files_extension, addressing: <reason>}` to justify the scope expansion." After re-dispatch returns DONE, the orchestrator validates the resolution choice. If the subagent picks (b) with weak justification, downgrade to DONE_WITH_CONCERNS and surface to user.
 
-21. **Housekeeper script schema-violation halt (exit 5) → subagent surfaces in concerns → returns BLOCKED** → reuse the existing BLOCKED routing from rule 4 (graceful drain in worktree mode; immediate halt in sequential mode). Per spec §7.1 invariant, NO new exit-state is introduced for this case. The orchestrator surfaces the consolidated `manifest.schema_violations` list to the user, who decides: (a) accept and let the malformed §6 entry ship — flag for follow-up; (b) abort the housekeeping commit; (c) hand-edit the §6 entry to fix the schema violation, then re-dispatch. Cross-link: `references/post-merge-housekeeper-contract.md` § Exit Codes documents which malformations trigger exit 5.
+21. **Housekeeper script schema-violation halt (exit 5) → subagent surfaces in concerns → returns BLOCKED** → reuse the existing BLOCKED routing from rule 4 (graceful drain in worktree mode; immediate halt in sequential mode). Per spec §7.1 invariant, NO new exit-state is introduced for this case. The orchestrator surfaces the consolidated `manifest.schema_violations` list to the user, who decides: (a) accept and let the malformed §6 entry ship — flag for follow-up; (b) abort the housekeeping commit; (c) hand-edit the §6 entry to fix the schema violation, then re-dispatch. Cross-link: `references/post-merge-housekeeper-contract.md` § Exit codes documents which malformations trigger exit 5.
 
 <!-- markdownlint-enable MD029 -->
 ```
@@ -3402,10 +3427,12 @@ git commit -m "test(repo): Layer 2 unit tests for D-7 rows 12-15 + I-1/I-2/I-3 i
 - [ ] **Step 1: Run the full test command**
 
 ```bash
-node --test --experimental-strip-types .claude/skills/plan-execution/scripts/__tests__/
+node --test --experimental-strip-types .claude/skills/plan-execution/scripts/__tests__/*.test.mjs
 ```
 
-Expected: all tests pass (12 fixture tests from Phase 3 + parser units from Phase 3 + 4 Layer 2 helper tests from Task 4.3 + 4 Layer 2 D-7-row tests from Task 4.8).
+(Node 22.21 `--test` does not directory-walk explicit path args — must pass glob.)
+
+Expected: all tests pass (12 fixture tests from Phase 3 + parser units from Phase 3 + 4 Layer 2 helper tests from Task 4.3 + 7 Layer 2 D-7-row + invariant tests from Task 4.8).
 
 - [ ] **Step 2: If any fail, fix root cause + re-run.** Do not commit failures.
 

@@ -199,6 +199,12 @@ These rules apply in order. The first matching rule wins. Rule numbers are globa
 18. **CI red on lint/format/test** → dispatch a one-task implementer to fix; run a per-task review pipeline on that fix; mark PR ready and re-watch CI.
 19. **CI red on infrastructure issue (GitHub Actions outage, unrelated environment failure)** → halt; surface to user.
 
+### Phase E — Post-merge housekeeping (housekeeper subagent + script round-trip)
+
+20. **Housekeeper subagent edits files outside the manifest's `affected_files` declaration** → round-trip dispatch (NOT a new exit-state per spec §7.1 invariant). The orchestrator detects the sprawl by diffing `git status --short` against `manifest.affected_files`; any file in the diff not in `affected_files` is out-of-scope. Re-dispatch the subagent with the prompt: "Your last run edited <file_a>, <file_b> which are NOT in the manifest's `affected_files`. Either (a) revert those out-of-scope edits and re-emit your manifest, OR (b) extend `affected_files` AND add a `concerns` entry of `{kind: affected_files_extension, addressing: <reason>}` to justify the scope expansion." After re-dispatch returns DONE, the orchestrator validates the resolution choice. If the subagent picks (b) with weak justification, downgrade to DONE_WITH_CONCERNS and surface to user.
+
+21. **Housekeeper script schema-violation halt (exit 5) → subagent surfaces in concerns → returns BLOCKED** → reuse the existing BLOCKED routing from rule 4 (graceful drain in worktree mode; immediate halt in sequential mode). Per spec §7.1 invariant, NO new exit-state is introduced for this case. The orchestrator surfaces the consolidated `manifest.schema_violations` list to the user, who decides: (a) accept and let the malformed §6 entry ship — flag for follow-up; (b) abort the housekeeping commit; (c) hand-edit the §6 entry to fix the schema violation, then re-dispatch. Cross-link: `references/post-merge-housekeeper-contract.md` § Exit codes documents which malformations trigger exit 5.
+
 <!-- markdownlint-enable MD029 -->
 
 ---

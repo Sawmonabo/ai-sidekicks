@@ -172,6 +172,9 @@ git push origin --delete <PR-branch>-T3 2>/dev/null  # may fail if remote branch
 - Conversation context.
 - In-flight subagent dispatches (interrupted subagents don't resume; they're re-dispatched from scratch).
 - Anything in `.agents/tmp/` (gitignored, deleted at commit time per AGENTS.md).
+
+> **Note (deferred drift; tracked as BL-109):** the assertion above that `.agents/tmp/` is "deleted at commit time per AGENTS.md" describes intended behavior, NOT what `lefthook.yml` currently enforces — the pre-commit chain has no prune job. Reconciliation (add the lefthook job OR reword this doc) is tracked as [BL-109](../../../../docs/backlog.md#bl-109-reconcile-agentstmp-lifecycle-drift-between-state-recoverymd-and-lefthookyml). Per spec §9.3 this is explicitly out of the housekeeper plan's scope.
+
 - Working-tree changes not yet committed.
 
 When in doubt, commit. A `chore: WIP — implementer in flight` commit is cheap durability insurance and gets squashed at the end anyway. Do NOT use this pattern as a default — it's an emergency-only tool when a session is about to end mid-task.
@@ -186,3 +189,35 @@ If the prior session halted in Phase A with the plan-analyst returning `NEEDS_CO
 4. Validate the new DAG; proceed to Phase B if valid.
 
 If the plan body was amended in response to the clarification, the new analyst dispatch will read the amended plan directly.
+
+## Resuming a Phase E housekeeping halt
+
+Phase E (post-merge housekeeping; see SKILL.md § Phase E) halts when:
+
+- The candidate-lookup over §6 returns 2+ matches → `NEEDS_CONTEXT` halt with both candidates surfaced
+- The script's mechanical-stage exits ≥1 (NS not found / verification failed / no checklist / multi-PR no task-id / schema violation / arg validation) → see `references/post-merge-housekeeper-contract.md` § Exit codes
+- The subagent returns DONE_WITH_CONCERNS, NEEDS_CONTEXT, or BLOCKED → routed per `references/failure-modes.md`
+
+Recovery diagnostic — run in this order:
+
+1. **Did the housekeeping commit land?** `git log --oneline -1` on the local `develop` branch — if the latest commit is `chore(repo): housekeeping for PR #<N> — NS-XX ...`, housekeeping completed and Phase E is DONE; resume the next plan-execution from Phase A.
+2. **Is the manifest present?** `ls .agents/tmp/housekeeper-manifest-PR<N>.json` (the squash-merge PR number). If absent, the script never wrote it — re-run `node post-merge-housekeeper.mjs` with the same args from the orchestrator's last log entry.
+3. **What does `manifest.result` say?** `jq .result .agents/tmp/housekeeper-manifest-PR<N>.json`:
+   - `null` → script-stage halt (read `manifest.script_exit_code` + `manifest.schema_violations`)
+   - `"DONE"` → housekeeping succeeded; the only remaining work is Phase E step 6-8 (Progress Log + commit + push); finish those manually
+   - `"DONE_WITH_CONCERNS"` → read `manifest.concerns`; for each `kind`, follow the routing rule in `references/failure-modes.md`
+   - `"NEEDS_CONTEXT"` → read `manifest.concerns[].context_request`; surface to the user; re-dispatch with the requested context
+   - `"BLOCKED"` → read `manifest.concerns[].blocker`; cannot proceed; user must decide
+
+### Candidate-lookup rules (verbatim from SKILL.md § Phase E step 1; mirrored here per spec §4.3.5)
+
+The script's `--candidate-ns` mode is dispatched only after orchestrator-side candidate-lookup returns exactly one match. The four heading-only matching rules (no body parsing) are:
+
+- **Rule 1 — Plan + Phase match:** Diff touches `docs/plans/<NNN>-<slug>.md` AND commit message cites `Phase <N>` → match `### NS-NN: Plan-<NNN> Phase <N> — ...` (case-insensitive on "Phase"). The plan-NN and phase-N must both appear in the heading; `Phase 5 Lane A` matches `Phase 5` (lane suffix is a Phase-5 sub-scope).
+- **Rule 2 — Plan + task-id match:** Commit message cites `T<phase>.<sub>` (e.g., `T5.1`) or `T-NNN-N-N` (e.g., `T-001-5-1`) → match `### NS-NN: Plan-<NNN> Phase <N> ...` whose `PRs:` block contains a row matching the task-id. Requires reading the `PRs:` block, but only to disambiguate among Phase-matching candidates.
+- **Rule 3 — Plan + Tier-K match:** Diff is a plan-readiness audit (matches `docs/plans/<tier-K>-<...>.md` shape) → match `### NS-NN..NS-MM: Tier <K>-<L> plan-readiness audits` via the lower-endpoint `tier-K` form. The task-arg form is `tier-3` (per Plan §Decisions-Locked D-4); range merges always use the lower endpoint, so `tier-3-9` is REJECTED at arg-parse.
+- **Rule 4 — No-match fallback:** If rules 1-3 produce zero matches, the orchestrator drops to `--auto-create` (which reserves the next free NS-NN with stub fields). If the orchestrator's intent was to MATCH (not create), surface NEEDS_CONTEXT halt with the rule-1/2/3 attempts so the user can disambiguate.
+
+If a Phase E halt's `manifest.script_exit_code === 1` (no NS match), trace which rule should have matched and why it didn't — typo'd Plan-NN, missing `PRs:` block row, lookup-rule-3 lower-endpoint mismatch, etc. The fixture `11-tier-range-audit` (Plan §Decisions-Locked D-7 row 11) is the canonical rule-3 test case to consult for shape comparison.
+
+Full contract: [`post-merge-housekeeper-contract.md`](post-merge-housekeeper-contract.md).

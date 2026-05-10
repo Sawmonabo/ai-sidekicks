@@ -719,6 +719,21 @@ export function emitManifest({
     affected_files: affectedFiles,
     semantic_work_pending: semanticWorkPending,
     warnings,
+    // Immutable script-stage snapshot embedded in the manifest itself. The
+    // validator reads this at subagent-stage to detect bypass attempts
+    // (subagent clearing schema_violations / verification_failures /
+    // semantic_work_pending / affected_files). Mirrors the four script-output
+    // arrays above; deep-cloned so a post-write mutation of the live arrays
+    // (defensive — the script doesn't currently mutate, but a future caller
+    // might) cannot retroactively poison the snapshot. Subagent contract:
+    // _script_stage is READ-ONLY — touching it is itself a bypass attempt and
+    // surfaces as a structural-tampering gap in the validator.
+    _script_stage: {
+      affected_files: [...affectedFiles],
+      schema_violations: schemaViolations.map((v) => ({ ...v })),
+      verification_failures: verificationFailures.map((f) => ({ ...f })),
+      semantic_work_pending: [...semanticWorkPending],
+    },
     subagent_completed_at: null,
     semantic_edits: {},
     concerns: [],
@@ -1064,12 +1079,13 @@ function validateCandidate({ token, corpusLines, corpusPath, repoRoot, args, dif
     };
   }
   if (shape === "multi-pr") {
-    // Bug-4 pre-validation: applyMultiPrTickAndRecompute used to silently
-    // exit its tick-loop when --task didn't match an unchecked row, leaving
-    // the Status line untouched and the PRs block unmodified — an invisible
-    // no-op that masked orchestrator-misdispatch (wrong --task) as success.
-    // Catch it as a verification failure (not schema; the entry itself is
-    // well-formed — the dispatch is wrong) so the subagent can re-derive.
+    // pre-validate task-in-block: applyMultiPrTickAndRecompute used to
+    // silently exit its tick-loop when --task didn't match an unchecked row,
+    // leaving the Status line untouched and the PRs block unmodified — an
+    // invisible no-op that masked orchestrator-misdispatch (wrong --task)
+    // as success. Catch it as a verification failure (not schema; the entry
+    // itself is well-formed — the dispatch is wrong) so the subagent can
+    // re-derive.
     const taskRow = prsBlock.find((r) => r.taskId === args.task);
     if (!taskRow || taskRow.checked) {
       return {
@@ -1480,12 +1496,13 @@ export async function runHousekeeper({
   }
 
   if (shape === "multi-pr") {
-    // Bug-4 pre-validation: applyMultiPrTickAndRecompute used to silently
-    // exit its tick-loop when --task didn't match an unchecked row, leaving
-    // the Status line untouched and the PRs block unmodified — an invisible
-    // no-op that masked orchestrator-misdispatch (wrong --task) as success.
-    // Catch it as a verification failure (not schema; the entry itself is
-    // well-formed — the dispatch is wrong) so the subagent can re-derive.
+    // pre-validate task-in-block: applyMultiPrTickAndRecompute used to
+    // silently exit its tick-loop when --task didn't match an unchecked row,
+    // leaving the Status line untouched and the PRs block unmodified — an
+    // invisible no-op that masked orchestrator-misdispatch (wrong --task)
+    // as success. Catch it as a verification failure (not schema; the entry
+    // itself is well-formed — the dispatch is wrong) so the subagent can
+    // re-derive.
     const taskRow = prsBlock.find((r) => r.taskId === args.task);
     if (!taskRow || taskRow.checked) {
       emitFailureManifest({

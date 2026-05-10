@@ -67,6 +67,19 @@ The items below were surfaced by the [plan-readiness-audit Tier 1](./operations/
 - Summary: Procurement evidence record for Plan-024 signing-identity gates (per F-024-4-06). Four artifacts: (a) Microsoft eligibility-determination response (Track A) OR vendor procurement contract + token-shipment confirmation (Track B); (b) signing-identity attestation matching Spec-023's Electron shell per ADR-019 §Decision item 8 + ADR-023 §Axis 5; (c) Plan-024 §Decision Log entry naming the chosen track + date; (d) macOS Developer ID Application certificate procurement evidence (cert thumbprint + team-ID + Apple Developer enrollment-confirmation email).
 - Exit Criteria: All four artifacts attached; Plan-024 §Decision Log records the Windows signing-track choice + date; Plan-024 Phase 4 Preconditions row flips checked.
 
+<!-- DO NOT rename this heading without grepping the repo for the GFM slug `bl-109-reconcile-agentstmp-lifecycle-drift-between-state-recoverymd-and-lefthookyml`; an inbound anchor from `.claude/skills/plan-execution/references/state-recovery.md` depends on it. -->
+
+### BL-109: Reconcile `.agents/tmp/` lifecycle drift between state-recovery.md and lefthook.yml
+
+- Status: `todo`
+- Priority: `P3`
+- References:
+  - [`state-recovery.md` § "What Durable State Means"](../.claude/skills/plan-execution/references/state-recovery.md) — line documents `.agents/tmp/` as gitignored + deleted-at-commit-time per AGENTS.md
+  - [`lefthook.yml`](../lefthook.yml) — current pre-commit chain has NO `.agents/tmp/` prune job
+  - [Spec docs/superpowers/specs/2026-05-03-plan-execution-housekeeper-design.md §9.3](../docs/superpowers/specs/2026-05-03-plan-execution-housekeeper-design.md) — explicit deferral; out of housekeeper scope
+- Summary: The `state-recovery.md` doc claims `.agents/tmp/` is "deleted at commit time per AGENTS.md", but `lefthook.yml`'s pre-commit chain has no prune job. Either add the lefthook job (mechanical fix) or reword the doc to match observed behavior (no auto-prune; manual cleanup expected). Spec §9.3 defers reconciliation to here.
+- Exit Criteria: One of (a) `lefthook.yml` gains a `pre-commit > prune-agents-tmp` job that mirrors AGENTS.md's "deleted at commit time" claim, or (b) `state-recovery.md` is reworded to drop the deletion claim and say "manually clean up after commits" — and the corresponding state-recovery.md `> **Note:**` block authored in this task is removed.
+
 ---
 
 _Closed items live in [Backlog Archive](./archive/backlog-archive.md)._

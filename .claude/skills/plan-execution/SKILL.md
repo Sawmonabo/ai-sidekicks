@@ -26,7 +26,7 @@ If the user names a plan but the trigger phrase is ambiguous, use this skill any
 
 ## Your Role: Orchestrator
 
-You are the orchestrator. You don't write code; you decompose, dispatch, review-route, and gate. Six subagent roles, each defined at `.claude/agents/plan-execution-<role>.md` — `plan-execution-plan-analyst`, `plan-execution-contract-author`, `plan-execution-implementer`, `plan-execution-spec-reviewer`, `plan-execution-code-quality-reviewer`, `plan-execution-code-reviewer` — are _your_ subagents. You dispatch them via `Agent({subagent_type: "plan-execution-<role>", prompt: "<runtime brief>"})`; the runtime auto-loads each agent's contract from its definition file. You brief them with the runtime data their `## Inputs` section names, parse their `RESULT:` tags, and decide what happens next.
+You are the orchestrator. You don't write code; you decompose, dispatch, review-route, and gate. Seven subagent roles, each defined at `.claude/agents/plan-execution-<role>.md` — `plan-execution-plan-analyst`, `plan-execution-contract-author`, `plan-execution-implementer`, `plan-execution-spec-reviewer`, `plan-execution-code-quality-reviewer`, `plan-execution-code-reviewer`, `plan-execution-housekeeper` — are _your_ subagents. You dispatch them via `Agent({subagent_type: "plan-execution-<role>", prompt: "<runtime brief>"})`; the runtime auto-loads each agent's contract from its definition file. You brief them with the runtime data their `## Inputs` section names, parse their `RESULT:` tags, and decide what happens next.
 
 ### Mindset
 
@@ -39,7 +39,7 @@ Reason like a principal-engineer project lead:
 ### Hard rules
 
 - **You orchestrate; you don't implement.** Code edits happen inside implementer or contract-author dispatches. The orchestrator's only direct file mutations are: the initial scaffold commit (Phase 0), git operations (`add`, `commit`, `push`, `merge`), the Progress Log append at PR completion, and the YAML DAG block in the PR description.
-- **Subagents do NOT run git.** Implementers and contract-authors stage their changes by editing files; the orchestrator runs every `git add`, `git commit`, `git push`, and `git merge`. Mechanically enforced for five of six roles: the agent definitions for plan-analyst, contract-author, spec-reviewer, code-quality-reviewer, and code-reviewer omit `Bash` from `tools:`, so `git` is unavailable. The implementer role retains `Bash` because its test-scope contract (`pnpm --filter <pkg> test`) requires it; for that role the no-git rule is enforced by prose discipline. Recovery for a subagent that ran git anyway (now structurally restricted to the implementer role): [`references/failure-modes.md` § Reading subagent responses](references/failure-modes.md#reading-subagent-responses).
+- **Subagents do NOT run git.** Implementers and contract-authors stage their changes by editing files; the orchestrator runs every `git add`, `git commit`, `git push`, and `git merge`. Mechanically enforced for six of seven roles: the agent definitions for plan-analyst, contract-author, spec-reviewer, code-quality-reviewer, code-reviewer, and housekeeper omit `Bash` from `tools:`, so `git` is unavailable. The implementer role retains `Bash` because its test-scope contract (`pnpm --filter <pkg> test`) requires it; for that role the no-git rule is enforced by prose discipline. Recovery for a subagent that ran git anyway (now structurally restricted to the implementer role): [`references/failure-modes.md` § Reading subagent responses](references/failure-modes.md#reading-subagent-responses).
 - **All ACTIONABLE and POLISH reviewer findings round-trip to the implementer.** VERIFICATION is reasoning, not a finding — it lives in the reviewer's `## Verification narrative` section and is never re-dispatched (see the **Findings Discipline** section below).
 - **Halt on `BLOCKED`** with the graceful-drain protocol — let in-flight subagents finish, collect all results, surface to user (full protocol: [`references/failure-modes.md` § Graceful Drain Protocol](references/failure-modes.md#graceful-drain-protocol-worktree-mode)).
 - **Never push to `develop` or `main` directly.** Always squash-merge through PR (mechanics in **Phase E** below).
@@ -418,45 +418,79 @@ Route findings by the `Round-trip target:` value: with `Round-trip target: <task
 
 **Round-trip cap: 3 rounds at PR scope.** After 3 final-review round-trips, halt and surface the consolidated finding-set to the user — same cap and rationale as Phase C ([`references/failure-modes.md` § Round-trip cap rationale](references/failure-modes.md#round-trip-cap-rationale)). The user decides: ship as-is, manual intervention, or abort the PR.
 
-### Phase E — Progress Log + CI + squash-merge
+### Phase D.5 — Merge transition
 
-When final reviewers all return `DONE`:
+After Phase D returns "all reviewers DONE", the orchestrator transitions the feature PR from `draft` to `ready`, waits for CI to go green, and squash-merges into `develop`. This phase is the explicit bridge between Phase D (review complete) and Phase E (post-merge housekeeping); without it, the orchestrator has no documented step that creates the merged commit Phase E depends on. The four steps run in this exact order:
 
-1. **Append to the plan body's Progress Log section.** If the section doesn't exist, create it just before the `## Done Checklist` section:
+1. **Mark PR ready for review** — `gh pr ready <PR#>` (no-op if already ready). The required-conversation-resolution branch protection takes effect at this point; any unresolved review threads block the merge in step 3.
+2. **Wait for CI to go green** — `gh pr checks <PR#> --watch --interval 10` blocks until every required check returns SUCCESS. On any FAILURE, halt Phase D.5 and surface the failed check + logs to the user (CI red is not auto-fixed — the user decides whether to round-trip Phase B/C, manual fix, or abort).
+3. **Squash-merge into `develop`** — `gh pr merge <PR#> --squash --delete-branch`. This produces the canonical squash-commit on `develop` (whose SHA Phase E step 6 references in the Progress Log) and deletes the feature branch in one atomic action. On merge failure (e.g. mergeStateStatus regressed to BLOCKED between step 2 and step 3 because a new review thread fired), halt and surface to user.
+4. **Sync local `develop`** — `git switch develop && git pull --ff-only`. The orchestrator's local working tree now matches `origin/develop` at the new squash-commit; Phase E reads from this state. `--ff-only` guards against an unexpected divergence (would surface as "Not possible to fast-forward" → halt and surface).
 
-```markdown
-## Progress Log
+After step 4 returns success, advance to Phase E. The squash-commit SHA is captured for Phase E step 6's Progress Log reference.
 
-- **PR #M** (squash-commit `<sha>` on `develop`, merged YYYY-MM-DD): tasks `<T1, T2, ...>` delivered. Acceptance criteria green: `<list>`. Post-merge polish surfaced: `<count>` items (see PR #M Review Notes).
-```
+### Phase E — Post-merge housekeeping
 
-Commit the doc edit on the PR branch:
+- Per Plan §Decisions-Locked D-3: Phase E ticks ALL Done-Checklist boxes for the merged Phase, not just the most recent task — this matches the orchestrator's complete-Phase-merge trigger.
+
+Phase E fires AFTER Phase D.5 step 4 (`git switch develop && git pull --ff-only`) returns success — i.e., the orchestrator's local `develop` is at the new squash-commit. Phase E updates the §6 NS catalog and the plan's `Done Checklist` so the catalog stays a faithful index of what shipped. The housekeeping commit lands via its own auto-merge PR (steps 7-8) so the no-direct-push-to-develop hard rule (line 45) is preserved end-to-end. The housekeeper is a 7th plan-execution role (color: blue, tools: Read/Grep/Glob/Edit/Write); see `references/post-merge-housekeeper-contract.md` for the full contract.
+
+The phase has 8 steps in this exact order — DO NOT reorder; step 6 (Progress Log) explicitly moves AFTER housekeeping per spec §6.1 design choice (a single commit bundles housekeeping + log so the post-merge state is atomic):
+
+1. **Run candidate-lookup** over `docs/architecture/cross-plan-dependencies.md` §6 per the four heading-only matching rules in `references/post-merge-housekeeper-contract.md` § Candidate-Lookup Rules: [^d7]
+   - Rule 1: Plan + Phase match (e.g., diff touches `docs/plans/024-rust-pty-sidecar.md` + commit cites Phase 1 → match `### NS-NN: Plan-024 Phase 1 — ...`)
+   - Rule 2: Plan + task-id match (e.g., commit cites `T5.1` → match `### NS-NN: Plan-001 Phase 5 Lane A` whose `PRs:` block has a `T5.1` row)
+   - Rule 3: Plan + Tier-K match (e.g., diff is a Tier-3 plan-readiness audit → match `### NS-15..NS-21: Tier 3-9 plan-readiness audits` via the lower-endpoint of the range form `tier-3`)
+   - Rule 4: No-match fallback (drop to step 2 `--auto-create` branch — 0 candidates is genuinely new work, NOT ambiguity; `NEEDS_CONTEXT` is reserved for 2+ matches per spec §4.3.2)
+
+2. **Dispatch the script** `node --experimental-strip-types .claude/skills/plan-execution/scripts/post-merge-housekeeper.mjs` based on rule outcome:
+   - 1 candidate match → `--candidate-ns NS-NN <plan/phase/task flags>`
+   - 0 candidate matches → `--auto-create <plan/phase/task flags>` (script reserves next free NS-NN, writes a stub entry with `<TODO subagent prose>` placeholders)
+   - 2+ candidate matches → halt with NEEDS_CONTEXT (orchestrator surfaces both candidates to the user; do NOT auto-disambiguate)
+
+3. **Validate the script-stage manifest** at `.agents/tmp/housekeeper-manifest-PR<N>.json` against the script-stage invariants per spec §5.3:
+   - exit code matches `script_exit_code`
+   - `mechanical_edits.status_flip.to_line` contains `<TODO subagent prose>` literal placeholder string (subagent fills this)
+   - `affected_files` is a superset (or exact match) of files actually edited by the script — declared list must cover every actual edit so any out-of-scope write is detected before subagent dispatch (per `references/post-merge-housekeeper-contract.md` §Validation invariants line 93)
+
+4. **Decide routing on `script_exit_code`, then dispatch xor halt** — call `decideHousekeeperRouting({ scriptExitCode })` from `lib/housekeeper-orchestrator-helpers.mjs`. That helper is the single source of truth for the dispatch/halt mapping; edit it (and its unit tests in `scripts/__tests__/post-merge-housekeeper-orchestrator-helpers.test.mjs`) when the contract's exit-code semantics change. The helper returns either `{ action: "dispatch", exitClass: "subagent-handled" }` (exits 0 / 2 / 3 / 5 — happy path, subagent-handled BLOCKED, no-checklist, schema-violation surfacing) or `{ action: "halt", exitClass, reason, surfacePromptTemplate }` (exits 1 / 4 — orchestrator misdispatch; exit ≥6 — script crash; defensive fallback for unrecognized codes).
+   - `action === "halt"` → relay `surfacePromptTemplate` verbatim to the user, halt Phase E, do NOT dispatch the subagent. The manifest reflects a script-stage / orchestrator-stage failure that needs operator action; routing it through the subagent would force the LLM to interpret a malformed/absent manifest and emit a `RESULT:` tag based on hallucinated state.
+   - `action === "dispatch"` → invoke the `plan-execution-housekeeper` subagent with the manifest path. The subagent reads the manifest, composes completion-prose for each `<TODO subagent prose>` placeholder using merged-commit context, then re-derives set-quantifier claims by reading ONLY `docs/architecture/cross-plan-dependencies.md` §6 prose (per Plan §Decisions-Locked D-2 — NOT the design spec §6, which is `## 6. Data flow`). Writes back via Edit tool. Returns one of the four canonical exit-states (DONE / DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED) — no new exit-state per Plan Invariant I-2.
+
+5. **Validate the subagent-stage manifest**:
+   - `<TODO subagent prose>` literal is GONE from every line the script touched
+   - subagent's edits are confined to `affected_files` (out-of-scope edits → round-trip re-dispatch per `references/failure-modes.md` rule 20: orchestrator offers (a) revert the sprawl OR (b) extend `affected_files` AND add a `concerns` entry of `kind: affected_files_extension` to justify; DONE_WITH_CONCERNS only fires if the subagent picks (b) with weak justification — not on first detection)
+   - schema_violations from script stage are reconciled (each one either fixed or surfaced in `concerns`)
+   - `manifest._script_stage` (script-embedded snapshot of `affected_files` / `schema_violations` / `verification_failures` / `semantic_work_pending`) is preserved verbatim — but **the orchestrator MUST plumb the stage-1 snapshot read in step 3 forward as the four `scriptXXX` params on `validateManifestSubagentStage`**. The orchestrator's own conversation-memory record of the stage-1 manifest is the untamperable baseline (frozen in context before subagent dispatch; the subagent runs in a separated context and cannot rewrite what the orchestrator already saw). `manifest._script_stage` on the subagent-emitted manifest is subagent-controlled — the contract treats it as READ-ONLY but a tampered subagent could still clear it; the validator's structural sub-checks (check #12 — removed key, non-object value, non-array fields) catch outright shape tampering as a secondary signal but cannot detect the narrower case where `_script_stage.{field}` is cleared to `[]` while the top-level emit field is also cleared. Omitting any `scriptXXX` param surfaces a `manifest._script_stage is subagent-emitted and may be tampered — orchestrator MUST plumb …` gap so Phase E re-routes through the explicit-plumbing path before a tampered snapshot bypasses preservation checks #7/#9/#10/#11. See `references/post-merge-housekeeper-contract.md` § `_script_stage` immutability.
+
+6. **Append the Progress Log entry** to the plan body's `## Progress Log` section in `docs/plans/NNN-*.md` (creating the section just before `## Done Checklist` if it doesn't exist). This step explicitly MOVED from before-merge to after-housekeeping per spec §6.1 — the log entry references the squash-merge commit hash + housekeeping commit message + any subagent concerns, so callers reading the log see "shipped + housekept" as one event.
+
+7. **Stage housekeeping on a dedicated branch** — cut a `housekeeping/PR<N>` branch off `develop`, commit the bundled housekeeping (steps 4-5 edits) + Progress Log (step 6 edit) into a single commit, push the branch:
 
 ```bash
-git add docs/plans/NNN-*.md
-git commit -m "docs(plans): append PR #M to Plan-NNN progress log"
-git push
+git switch -c housekeeping/PR<N>
+git add <affected_files> docs/plans/<plan-file>
+git commit -m "chore(repo): housekeeping for PR #<N> — NS-XX <flip-or-create>"
+git push -u origin HEAD
 ```
 
-The squash-commit SHA is unknown until merge; use a placeholder (`<pending>`) at append time and patch via a follow-up `develop` commit after merge if exact SHAs matter for audit. (Most users will skip the patch — the merge time + PR # is enough provenance.)
+`<plan-file>` is the plan being executed (the orchestrator knows it from Phase 0). It MUST be staged explicitly in addition to `<affected_files>` because step 6's Progress Log append is orchestrator-controlled (NOT script-controlled), so the plan file is not in the manifest's `affected_files` declaration — especially under exit 3 (no Done Checklist sub-section) where the script skips checklist ticking entirely and never touches the plan. Omitting it would leave the Progress Log edit unstaged, breaking the documented "single commit bundles housekeeping + log" guarantee (commit ships incomplete OR worktree stays dirty). The commit message subject follows the contract above (subagent's manifest provides the suggested message; orchestrator may amend to add concerns annotations). Direct commits on `develop` are NOT permitted (hard rule line 45) — the housekeeping PR is the canonical landing path.
 
-2. **Mark PR ready and watch CI:**
+8. **Open auto-merge PR + wait for landing** — create the housekeeping PR against `develop`, enable auto-merge (squash mode), poll until merged:
 
 ```bash
-gh pr ready
-gh pr checks --watch
+gh pr create --base develop --head housekeeping/PR<N> \
+  --title "chore(repo): housekeeping for PR #<N> — NS-XX <flip-or-create>" \
+  --body "Auto-generated by /plan-execution Phase E for PR #<N>. Refs: NS-XX."
+gh pr merge <housekeeping-pr#> --auto --squash --delete-branch
+gh pr checks <housekeeping-pr#> --watch --interval 10
+# Poll mergedAt — checks-complete ≠ merged in merge-queue repos (--auto can leave PR queued).
+while [ -z "$(gh pr view <housekeeping-pr#> --json mergedAt -q .mergedAt)" ]; do sleep 10; done
 ```
 
-If CI fails, diagnose and dispatch a one-task implementer to fix (lint/format/test failures get the failing output + the file). Run a per-task review pipeline on that fix, just like any other task. Infrastructure failures surface to user.
+`--auto` queues the squash-merge to fire automatically once required CI checks return SUCCESS — typically 2-3 min on a doc-only diff (lychee + docs-corpus + lint). On housekeeping-CI failure, halt and surface to user (Phase E does NOT auto-fix housekeeping failures — those usually mean the §6 catalog edits broke a cite that the script-stage `affected_files` superset check missed). The `mergedAt` poll AFTER `gh pr checks --watch` is load-bearing — `gh pr merge --auto` can leave the PR in a merge queue after CI passes ([gh CLI docs](https://cli.github.com/manual/gh_pr_merge): "If required checks have passed, the pull request will be added to the merge queue"), so `gh pr checks --watch` returning success does NOT guarantee the PR has actually merged. Polling `gh pr view --json mergedAt -q .mergedAt` for a non-empty value waits until the squash-commit is on `develop`. Once `mergedAt` returns non-empty, the housekeeping commit is on `develop`; subsequent plan-execution runs see the updated catalog. Phase E ENDS here; the orchestrator drains the session.
 
-3. **When CI is green, squash-merge:**
-
-```bash
-gh pr merge --squash --delete-branch
-git switch develop && git pull --ff-only
-```
-
-4. Confirm the squash-commit on `develop` matches the PR title.
+[^d7]: See Plan §Decisions-Locked D-7 (the §5.5 17-row coverage matrix) for which fixture validates which lookup rule.
 
 ### Phase F — Next PR or stop
 
@@ -507,7 +541,8 @@ Read these when the workflow step calls for them:
 - [`references/preflight-contract.md`](references/preflight-contract.md) — authoritative contract for the preflight tool: invocation, exit codes, gate-by-gate definitions, design rationale (phase-walk vs title-count). Edit gates here and in `preflight.mjs`; do NOT add gate logic to SKILL.md prose.
 - [`scripts/validate-review-response.mjs`](scripts/validate-review-response.mjs) — reviewer-response validator invoked at Phase C (`--conflicts` mode, inter-reviewer conflict detection by `file:line`) and Phase D (`--phase=D` mode, Round-trip target stamp validation).
 - [`references/state-recovery.md`](references/state-recovery.md) — resumption protocol when a session compacts or crashes mid-PR. Updated for the three-artifact state model.
-- **Subagent definitions** at [`.claude/agents/`](../../agents/) — six files: `plan-execution-plan-analyst.md`, `plan-execution-contract-author.md`, `plan-execution-implementer.md`, `plan-execution-spec-reviewer.md`, `plan-execution-code-quality-reviewer.md`, `plan-execution-code-reviewer.md`. Each definition is auto-loaded by the runtime when the orchestrator dispatches via `Agent({subagent_type: "plan-execution-<role>", prompt: "<runtime brief>"})`; the orchestrator never `Read`s these files. The runtime brief carries only what varies per dispatch (task definition, plan section, diff text); invariant content (mindset, hard rules, exit states, output schema, severity calibration) lives in the definition. **Iteration caveat:** Claude Code does NOT live-reload `.claude/agents/` — edits to a definition require a session restart before the runtime picks them up. Iterate the orchestrator's runtime brief in `SKILL.md` (which IS live-reloaded) when possible; touch the agent definitions only when the contract genuinely needs to change.
+- [`references/post-merge-housekeeper-contract.md`](references/post-merge-housekeeper-contract.md) — authoritative contract for the post-merge housekeeper script + subagent: invocation flags, exit codes, manifest schema, candidate-lookup rules, set-quantifier re-derivation rules. Edit hygiene rules here and in `scripts/post-merge-housekeeper.mjs` + `.claude/agents/plan-execution-housekeeper.md`; do NOT add hygiene logic to SKILL.md prose.
+- **Subagent definitions** at [`.claude/agents/`](../../agents/) — seven files: `plan-execution-plan-analyst.md`, `plan-execution-contract-author.md`, `plan-execution-implementer.md`, `plan-execution-spec-reviewer.md`, `plan-execution-code-quality-reviewer.md`, `plan-execution-code-reviewer.md`, `plan-execution-housekeeper.md`. Each definition is auto-loaded by the runtime when the orchestrator dispatches via `Agent({subagent_type: "plan-execution-<role>", prompt: "<runtime brief>"})`; the orchestrator never `Read`s these files. The runtime brief carries only what varies per dispatch (task definition, plan section, diff text); invariant content (mindset, hard rules, exit states, output schema, severity calibration) lives in the definition. **Iteration caveat:** Claude Code does NOT live-reload `.claude/agents/` — edits to a definition require a session restart before the runtime picks them up. Iterate the orchestrator's runtime brief in `SKILL.md` (which IS live-reloaded) when possible; touch the agent definitions only when the contract genuinely needs to change.
 - [`references/failure-modes.md`](references/failure-modes.md) — exit-state taxonomy (`DONE`, `DONE_WITH_CONCERNS`, `NEEDS_CONTEXT`, `BLOCKED`), graceful-drain protocol for worktree mode, three-label routing rules (VERIFICATION/POLISH/ACTIONABLE), round-trip caps, inter-reviewer conflict adjudication.
 
 ## Anti-Patterns

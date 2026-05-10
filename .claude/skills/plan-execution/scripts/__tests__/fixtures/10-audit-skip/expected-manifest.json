@@ -50,6 +50,22 @@
     "unannotated_referenced_files_check"
   ],
   "warnings": [],
+  "_script_stage": {
+    "affected_files": [
+      "docs/architecture/cross-plan-dependencies.md",
+      "docs/plans/008-rust-pty-sidecar.md"
+    ],
+    "schema_violations": [],
+    "verification_failures": [],
+    "semantic_work_pending": [
+      "compose_status_completion_prose",
+      "ready_set_re_derivation",
+      "line_cite_sweep",
+      "set_quantifier_reverification",
+      "ns_auto_create_evaluation",
+      "unannotated_referenced_files_check"
+    ]
+  },
   "subagent_completed_at": null,
   "semantic_edits": {},
   "concerns": [],
