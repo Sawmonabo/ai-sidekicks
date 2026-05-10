@@ -26,6 +26,8 @@ import {
   setGhImpl,
   resetGhImpl,
   runPreflight,
+  MERGED_PRS_FETCH_LIMIT,
+  fetchLimitSentinelHalt,
 } from "../preflight.mjs";
 
 // ---------- pure parsers ----------
@@ -506,7 +508,7 @@ test("gatePhaseUnshipped accepts feat-with-scope-and-bang prefix as code shipmen
   assert.equal(r.ok, false);
 });
 
-test("gatePhaseUnshipped uses gh pr list --limit 200 (gh pr list lacks --paginate)", () => {
+test("gatePhaseUnshipped uses --limit MERGED_PRS_FETCH_LIMIT (gh pr list lacks --paginate)", () => {
   let observed = "";
   setGhImpl((cmd) => {
     observed = cmd;
@@ -517,7 +519,7 @@ test("gatePhaseUnshipped uses gh pr list --limit 200 (gh pr list lacks --paginat
   } finally {
     resetGhImpl();
   }
-  assert.match(observed, /--limit\s+200\b/);
+  assert.match(observed, new RegExp(`--limit\\s+${MERGED_PRS_FETCH_LIMIT}\\b`));
   assert.doesNotMatch(observed, /--paginate\b/);
 });
 
@@ -680,4 +682,281 @@ requires_files: []
   } finally {
     resetGhImpl();
   }
+});
+
+// ---------- regression: Plan-001 phase-walk via title+body matching ----------
+//
+// Plan-001 PRs #6, #8, #9, #10 carry package-scoped Conventional Commit titles
+// (`feat(contracts):`, `feat(daemon):`, `feat(control-plane):`) that omit the
+// `Plan-001` substring. The shipment claim lives in the PR body's
+// `Plan-001 PR #N — <phase title>` line. Title-only matching dropped these
+// PRs from the gh search result and the pattern-match step, so preflight
+// auto-detect mis-resolved Phase 2 as the next un-shipped phase even though
+// PRs #8/#9/#10 had landed Phases 2/3/4 weeks earlier.
+//
+// PR #30 is the partial-ship counter-example: it ships only T5.1 of Phase 5's
+// Lane A (T5.5 + T5.6 still pending). Its body says `Plan-001 Phase 5 Lane A
+// T5.1` — narrative chatter, not a `Plan-NNN PR #N` shipment claim. The fix
+// must NOT mark Phase 5 as shipped from that body, or preflight halts on a
+// non-existent shipped phase and blocks dispatch on T5.5.
+
+test("gatePhaseUnshipped detects Phase shipment via 'Plan-NNN PR #N' in PR body", () => {
+  const merged = [
+    {
+      number: 6,
+      title: "feat(repo): scaffold V1 monorepo + engineering CI surface",
+      body: "## Summary\n\nPlan-001 PR #1 — Workspace Bootstrap. Lands the V1 monorepo skeleton.",
+    },
+    {
+      number: 8,
+      title: "feat(contracts): add session, event, and error payload schemas",
+      body: "## Summary\n\nImplements **Plan-001 PR #2 — Contracts Package**.",
+    },
+    {
+      number: 9,
+      title: "feat(daemon): add session migration, projector, and append/replay service",
+      body: "## Summary\n\nImplements **Plan-001 PR #3 — Daemon Migration And Projection**.",
+    },
+    {
+      number: 10,
+      title: "feat(control-plane): add session directory service (create/read/join)",
+      body: "## Summary\nPlan-001 PR #4 — Control Plane Directory.",
+    },
+  ];
+  for (const ph of [1, 2, 3, 4]) {
+    const r = gatePhaseUnshipped(1, { number: ph, title: `Phase ${ph} title` }, merged);
+    assert.equal(
+      r.ok,
+      false,
+      `Phase ${ph} should be marked shipped from body 'Plan-001 PR #${ph}'`,
+    );
+    assert.match(r.halt, /already shipped/);
+  }
+});
+
+test("gatePhaseUnshipped does NOT mark Phase 5 shipped when PR body says 'Phase 5 Lane A T5.1' (partial ship)", () => {
+  // Regression-protection: 'Plan-NNN Phase N' body language is partial-ship
+  // chatter (subsection-numbered tasks, lane references). The fix MUST NOT
+  // re-broaden phaseFormPattern or title-substring matching to body, or
+  // Plan-001 Phase 5 silently false-matches and dispatch halts on a
+  // non-existent shipped phase.
+  const merged = [
+    {
+      number: 30,
+      title: "feat(client-sdk): add sessionClient transports (Plan-001 T5.1)",
+      body: "## Summary\n\nPlan-001 Phase 5 Lane A T5.1 — author packages/client-sdk/src/sessionClient.ts. First of three PRs in Plan-001 Phase 5 Lane A; T5.5 and T5.6 follow as separate PRs.",
+    },
+  ];
+  const r = gatePhaseUnshipped(1, { number: 5, title: "Client SDK And Desktop Bootstrap" }, merged);
+  assert.equal(r.ok, true, "Phase 5 must remain un-shipped — PR #30 ships only T5.1");
+});
+
+test("gatePhaseUnshipped uses 'in:title,body' search and includes body in --json fields", () => {
+  let observed = "";
+  setGhImpl((cmd) => {
+    observed = cmd;
+    return "[]";
+  });
+  try {
+    gatePhaseUnshipped(1, { number: 99, title: "Future Phase" });
+  } finally {
+    resetGhImpl();
+  }
+  assert.match(observed, /in:title,body/, "must search title and body, not just title");
+  assert.match(observed, /--json\s+\S*\bbody\b/, "must request body in --json fields");
+});
+
+test("runPreflight returns next un-shipped phase for Plan-001-realistic corpus", () => {
+  const repo = makeTempRepo();
+  const skillMd = join(repo, ".claude", "skills", "plan-execution", "SKILL.md");
+  writeFileSync(
+    skillMd,
+    `---
+name: test
+requires_files: []
+---
+
+body`,
+  );
+  const planFile = join(repo, "docs", "plans", "001-test.md");
+  const phaseSection = (n, title) => `### Phase ${n} — ${title}
+
+**Precondition:** None.
+
+\`\`\`yaml
+preconditions: []
+\`\`\`
+
+#### Tasks
+
+- T${n}.1: Spec coverage: row ${n} / Verifies invariant: I-001-${n}
+`;
+  writeFileSync(
+    planFile,
+    `# Plan-001
+
+## Preconditions
+
+- [x] **Plan-readiness audit complete per runbook.
+
+${phaseSection(1, "Workspace Bootstrap")}
+${phaseSection(2, "Contracts Package")}
+${phaseSection(3, "Daemon Migration")}
+${phaseSection(4, "Control Plane Directory")}
+${phaseSection(5, "Client SDK And Desktop Bootstrap")}
+`,
+  );
+  const mergedPRs = [
+    {
+      number: 6,
+      title: "feat(repo): scaffold V1 monorepo + engineering CI surface",
+      body: "Plan-001 PR #1 — Workspace Bootstrap.",
+    },
+    {
+      number: 8,
+      title: "feat(contracts): add session, event, and error payload schemas",
+      body: "Plan-001 PR #2 — Contracts Package.",
+    },
+    {
+      number: 9,
+      title: "feat(daemon): add session migration, projector, and append/replay service",
+      body: "Plan-001 PR #3 — Daemon Migration.",
+    },
+    {
+      number: 10,
+      title: "feat(control-plane): add session directory service (create/read/join)",
+      body: "Plan-001 PR #4 — Control Plane Directory.",
+    },
+    {
+      number: 30,
+      title: "feat(client-sdk): add sessionClient transports (Plan-001 T5.1)",
+      body: "Plan-001 Phase 5 Lane A T5.1 — partial ship; T5.5 + T5.6 pending.",
+    },
+  ];
+  setGhImpl(() => JSON.stringify(mergedPRs));
+  try {
+    const r = runPreflight(planFile, undefined, { repoRoot: repo, skillMd });
+    assert.equal(r.exit, 0, `exit was ${r.exit}; stdout=${r.stdout}; stderr=${r.stderr}`);
+    assert.equal(r.stdout, "5", "Phases 1-4 shipped via body marker; Phase 5 still un-shipped");
+  } finally {
+    resetGhImpl();
+  }
+});
+
+// ---------- merged-PR fetch limit + sentinel halt (Codex finding on PR #34) ----------
+//
+// With body-matching the result universe is "PRs that mention Plan-NNN
+// anywhere (Refs footers included)" — much wider than phase shipments.
+// A capped fetch can silently truncate older shipping PRs, mis-resolving
+// preflight to an already-shipped phase. Both call sites must use the
+// same constant and halt loudly when the cap is hit.
+
+test("MERGED_PRS_FETCH_LIMIT is the GitHub search REST API ceiling (1000)", () => {
+  // If this constant ever drifts, both --limit assertions and the sentinel
+  // halt drift with it — and the API will silently top out at 1000 anyway.
+  // Keep the constant pinned so review notices any unilateral change.
+  assert.equal(MERGED_PRS_FETCH_LIMIT, 1000);
+});
+
+test("gatePhaseUnshipped passes --limit MERGED_PRS_FETCH_LIMIT to gh", () => {
+  let observed = "";
+  setGhImpl((cmd) => {
+    observed = cmd;
+    return "[]";
+  });
+  try {
+    gatePhaseUnshipped(1, { number: 99, title: "Future Phase" });
+  } finally {
+    resetGhImpl();
+  }
+  assert.match(
+    observed,
+    new RegExp(`--limit\\s+${MERGED_PRS_FETCH_LIMIT}\\b`),
+    "standalone path must use the module constant, not a literal",
+  );
+});
+
+test("runPreflight prefetch passes --limit MERGED_PRS_FETCH_LIMIT to gh", () => {
+  const repo = makeTempRepo();
+  const skillMd = join(repo, ".claude", "skills", "plan-execution", "SKILL.md");
+  writeFileSync(skillMd, `---\nname: test\nrequires_files: []\n---\n\nbody`);
+  const planFile = join(repo, "docs", "plans", "001-test.md");
+  writeFileSync(
+    planFile,
+    `# Plan-001\n\n## Preconditions\n\n- [x] **Plan-readiness audit complete per runbook.\n\n### Phase 1 — Foo\n\n**Precondition:** None.\n\n\`\`\`yaml\npreconditions: []\n\`\`\`\n\n#### Tasks\n\n- T1.1: Spec coverage: row 1 / Verifies invariant: I-001-1\n`,
+  );
+  let observed = "";
+  setGhImpl((cmd) => {
+    observed = cmd;
+    return "[]";
+  });
+  try {
+    runPreflight(planFile, undefined, { repoRoot: repo, skillMd });
+  } finally {
+    resetGhImpl();
+  }
+  assert.match(
+    observed,
+    new RegExp(`--limit\\s+${MERGED_PRS_FETCH_LIMIT}\\b`),
+    "prefetch path must use the module constant, not a literal",
+  );
+});
+
+test("gatePhaseUnshipped halts with sentinel when mergedList length >= MERGED_PRS_FETCH_LIMIT", () => {
+  // Build a synthetic list at the cap with one PR that would normally match
+  // the precise shipment marker. The sentinel must halt BEFORE pattern
+  // matching: we cannot guarantee completeness past the API ceiling, so
+  // returning a "shipped" or "un-shipped" verdict either way is unsafe.
+  const merged = new Array(MERGED_PRS_FETCH_LIMIT).fill(null).map((_, i) => ({
+    number: i + 1,
+    title: `feat(repo): noise PR ${i + 1}`,
+    body: `Refs: Plan-001`,
+  }));
+  // Inject one PR that, in a smaller corpus, would mark Phase 1 as shipped.
+  merged[0] = {
+    number: 6,
+    title: "feat(repo): scaffold V1 monorepo + engineering CI surface",
+    body: "Plan-001 PR #1 — Workspace Bootstrap.",
+  };
+  const r = gatePhaseUnshipped(1, { number: 1, title: "Workspace Bootstrap" }, merged);
+  assert.equal(r.ok, false, "sentinel must halt — cannot guarantee completeness past API ceiling");
+  assert.match(r.halt, /merged-PR fetch hit ceiling/);
+  assert.match(r.halt, /1000/, "halt must name the ceiling explicitly");
+});
+
+test("runPreflight halts with sentinel when prefetch returns >= MERGED_PRS_FETCH_LIMIT PRs", () => {
+  const repo = makeTempRepo();
+  const skillMd = join(repo, ".claude", "skills", "plan-execution", "SKILL.md");
+  writeFileSync(skillMd, `---\nname: test\nrequires_files: []\n---\n\nbody`);
+  const planFile = join(repo, "docs", "plans", "001-test.md");
+  writeFileSync(
+    planFile,
+    `# Plan-001\n\n## Preconditions\n\n- [x] **Plan-readiness audit complete per runbook.\n\n### Phase 1 — Foo\n\n**Precondition:** None.\n\n\`\`\`yaml\npreconditions: []\n\`\`\`\n\n#### Tasks\n\n- T1.1: Spec coverage: row 1 / Verifies invariant: I-001-1\n`,
+  );
+  const merged = new Array(MERGED_PRS_FETCH_LIMIT).fill(null).map((_, i) => ({
+    number: i + 1,
+    title: `feat(repo): noise PR ${i + 1}`,
+    body: `Refs: Plan-001`,
+  }));
+  setGhImpl(() => JSON.stringify(merged));
+  try {
+    const r = runPreflight(planFile, undefined, { repoRoot: repo, skillMd });
+    assert.equal(r.exit, 1, `expected exit 1 from sentinel halt; got ${r.exit}`);
+    assert.match(r.stdout, /merged-PR fetch hit ceiling/);
+  } finally {
+    resetGhImpl();
+  }
+});
+
+test("fetchLimitSentinelHalt names ceiling, plan, and remediation paths", () => {
+  const halt = fetchLimitSentinelHalt(1);
+  assert.match(halt, /merged-PR fetch hit ceiling/, "must lead with the failure type");
+  assert.match(
+    halt,
+    /Plan-001/,
+    "must name the plan in the search expression for empirical verify",
+  );
+  assert.match(halt, new RegExp(String(MERGED_PRS_FETCH_LIMIT)), "must name the cap");
+  assert.match(halt, /Remediations:/, "must list remediations, not just describe the failure");
+  assert.match(halt, /paginated/i, "must surface the structural fix (paginated search)");
 });
