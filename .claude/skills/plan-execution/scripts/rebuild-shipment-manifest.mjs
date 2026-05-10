@@ -31,6 +31,13 @@
 //      overwrite (default: refuse to clobber existing entries)
 //   5  parse failure — proposed entry failed validateEntry() (caller should
 //      inspect output, fix gh data or use --force to skip the bad entry)
+//   6  fetch saturation — `gh pr list --limit FETCH_LIMIT` returned exactly
+//      FETCH_LIMIT matches, so the result MAY be truncated and completeness
+//      cannot be guaranteed. Raise FETCH_LIMIT in this script (or migrate
+//      to gh-api-with-pagination) and re-run. This is the loud-failure
+//      replacement for the silent truncation that the manifest refactor
+//      eliminated from the preflight hot path; the recovery script's cold
+//      path inherits the same anti-silent-truncation discipline.
 
 import { execSync } from "node:child_process";
 import { readFileSync, writeFileSync, existsSync, readdirSync } from "node:fs";
@@ -116,19 +123,32 @@ export function parsePhaseFromPr({ title, body }) {
 //   null when no task ID present
 //
 // Recognized shapes:
-//   T-NNN-N-N or T-NNNp-N-N (audit-runbook style, e.g. T-007p-3-1)
-//   TN.M       (Plan-001 phase-task style, e.g. T5.1)
+//   T-NNN-N-N or T-NNNp-N-N (audit-runbook style, e.g. T-007p-3-1) — carries
+//                            the plan id inline, so always safe to capture.
+//   TN.M       (Plan-001 phase-task style, e.g. T5.1) — does NOT carry the
+//                            plan id, so capture is gated by a same-text
+//                            Plan-${plan} reference (see below).
 //
-// `plan` constrains the per-plan T-NNN prefix so e.g. a "T-007" cite in
-// a Plan-024 PR doesn't pollute the result.
+// Cross-plan defense: TN.M is only captured from a text (title or body)
+// when that text contains EXACTLY ONE Plan-NNN reference and it equals the
+// target plan. This blocks cross-plan citations like "see Plan-001 T5.1
+// for context" from leaking into a different plan's shipment manifest
+// (the Codex P2 finding on PR #35). Texts with no Plan-NNN ref or with
+// mixed Plan-NNN refs surface as ambiguity for operator confirmation
+// rather than auto-mapping.
 export function parseTaskFromPr({ title, body, plan }) {
-  const patterns = [new RegExp(`\\bT-${plan}p?-\\d+-\\d+\\b`, "g"), /\bT\d+\.\d+\b/g];
+  const planScopedPattern = new RegExp(`\\bT-${plan}p?-\\d+-\\d+\\b`, "g");
+  const tnmPattern = /\bT\d+\.\d+\b/g;
+  const planRefPattern = /\bPlan-(\d{3})\b/g;
   const found = new Set();
   for (const text of [title, body]) {
     if (!text) continue;
-    for (const re of patterns) {
-      const matches = text.match(re);
-      if (matches) for (const m of matches) found.add(m);
+    const scoped = text.match(planScopedPattern);
+    if (scoped) for (const m of scoped) found.add(m);
+    const planRefs = new Set([...text.matchAll(planRefPattern)].map((m) => m[1]));
+    if (planRefs.size === 1 && planRefs.has(plan)) {
+      const tnm = text.match(tnmPattern);
+      if (tnm) for (const m of tnm) found.add(m);
     }
   }
   if (found.size === 0) return null;
@@ -177,9 +197,30 @@ export function buildEntryFromPr({ pr, details, plan }) {
 
 // ---------- gh fetch (uses ghRunner) ----------
 
+// `gh pr list --limit N` returns at most N matches with no in-band signal
+// when the result was truncated. fetchMergedPrNumbers detects saturation
+// (`data.length === FETCH_LIMIT`) and throws an error tagged with
+// `exitCode = 6` so main fails loudly rather than silently omitting older
+// merged PRs (Codex P1 finding on PR #35). Headroom: every plan in this
+// repo currently sits well under 100 matches; 1000 mirrors the original
+// preflight ceiling that the hot-path manifest refactor eliminated, so
+// the cold-path recovery script inherits the same anti-silent-truncation
+// discipline. To handle a future plan that legitimately exceeds 1000,
+// raise FETCH_LIMIT or migrate to gh-api-with-pagination.
+export const FETCH_LIMIT = 1000;
+
 export function fetchMergedPrNumbers({ plan, ghRunner = defaultGhRunner }) {
-  const cmd = `gh pr list --state merged --search "Plan-${plan}" --json number --limit 200`;
+  const cmd = `gh pr list --state merged --search "Plan-${plan}" --json number --limit ${FETCH_LIMIT}`;
   const data = JSON.parse(ghRunner(cmd));
+  if (data.length === FETCH_LIMIT) {
+    const err = new Error(
+      `gh pr list returned the maximum ${FETCH_LIMIT} matches for Plan-${plan} — ` +
+        `result MAY be truncated; cannot guarantee manifest completeness. ` +
+        `Raise FETCH_LIMIT in rebuild-shipment-manifest.mjs or paginate via gh api.`,
+    );
+    err.exitCode = 6;
+    throw err;
+  }
   return data.map((p) => p.number).sort((a, b) => a - b);
 }
 
@@ -318,6 +359,6 @@ if (isMain) {
     })
     .catch((e) => {
       process.stderr.write(`error: ${e.message}\n`);
-      process.exit(2);
+      process.exit(e.exitCode ?? 2);
     });
 }

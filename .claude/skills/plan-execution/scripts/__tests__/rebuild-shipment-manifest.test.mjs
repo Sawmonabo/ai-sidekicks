@@ -80,8 +80,12 @@ test("parseTaskFromPr: ignores T-NNN cite for different plan", () => {
   assert.equal(r, null);
 });
 
-test("parseTaskFromPr: extracts TN.M form", () => {
-  const r = parseTaskFromPr({ title: "feat: T5.1 sessionClient", body: null, plan: "001" });
+test("parseTaskFromPr: extracts TN.M form when text references the target plan", () => {
+  const r = parseTaskFromPr({
+    title: "feat: T5.1 sessionClient (Plan-001)",
+    body: null,
+    plan: "001",
+  });
   assert.equal(r, "T5.1");
 });
 
@@ -96,8 +100,8 @@ test("parseTaskFromPr: returns array for multi-task PR", () => {
 
 test("parseTaskFromPr: dedupes across title and body", () => {
   const r = parseTaskFromPr({
-    title: "feat: T5.1 sessionClient",
-    body: "Implements T5.1 — see commit history.",
+    title: "feat: T5.1 sessionClient (Plan-001)",
+    body: "Plan-001 — implements T5.1; see commit history.",
     plan: "001",
   });
   assert.equal(r, "T5.1");
@@ -105,6 +109,35 @@ test("parseTaskFromPr: dedupes across title and body", () => {
 
 test("parseTaskFromPr: returns null when no task ID", () => {
   assert.equal(parseTaskFromPr({ title: "Phase 1 bootstrap", body: null, plan: "001" }), null);
+});
+
+test("parseTaskFromPr: ignores TN.M cite when text references multiple plans (cross-plan defense)", () => {
+  // Codex P2 finding on PR #35: a Plan-024 PR cross-referencing "Plan-001
+  // T5.1" must NOT mis-record T5.1 as Plan-024's shipped task.
+  const r = parseTaskFromPr({
+    title: "feat: Plan-024 fix; refs Plan-001 T5.1 for context",
+    body: null,
+    plan: "024",
+  });
+  assert.equal(r, null);
+});
+
+test("parseTaskFromPr: ignores TN.M cite when text has no Plan-NNN reference", () => {
+  // Same defense: TN.M without an in-text plan anchor is too ambiguous to
+  // auto-bind. The operator-confirmation path takes over instead.
+  const r = parseTaskFromPr({ title: "feat: T5.1 sessionClient", body: null, plan: "001" });
+  assert.equal(r, null);
+});
+
+test("parseTaskFromPr: still extracts plan-scoped T-NNNp?-N-N even when other plans are referenced", () => {
+  // The plan-scoped pattern carries the plan id inline, so it stays safe
+  // regardless of cross-plan text references.
+  const r = parseTaskFromPr({
+    title: "feat: Plan-007 T-007p-3-1 — see Plan-001 T5.1 for context",
+    body: null,
+    plan: "007",
+  });
+  assert.equal(r, "T-007p-3-1");
 });
 
 // ---------- buildEntryFromPr ----------
@@ -172,6 +205,31 @@ test("fetchMergedPrNumbers: passes gh args verbatim and parses JSON", () => {
   const result = fetchMergedPrNumbers({ plan: "001", ghRunner });
   assert.deepEqual(result, [6, 9, 30]);
   assert.match(calledWith, /gh pr list --state merged --search "Plan-001"/);
+  assert.match(calledWith, /--limit 1000/);
+});
+
+test("fetchMergedPrNumbers: throws exitCode=6 when result hits FETCH_LIMIT (saturation)", () => {
+  // Codex P1 finding on PR #35: gh pr list silently truncates at --limit, so
+  // a saturated result MAY be incomplete. Loud failure beats silent omission.
+  const saturated = Array.from({ length: 1000 }, (_, i) => ({ number: i + 1 }));
+  const ghRunner = () => JSON.stringify(saturated);
+  let caught = null;
+  try {
+    fetchMergedPrNumbers({ plan: "001", ghRunner });
+  } catch (e) {
+    caught = e;
+  }
+  assert.ok(caught, "expected throw on saturation");
+  assert.equal(caught.exitCode, 6);
+  assert.match(caught.message, /maximum 1000 matches/);
+  assert.match(caught.message, /MAY be truncated/);
+});
+
+test("fetchMergedPrNumbers: does NOT throw when result is below FETCH_LIMIT", () => {
+  // 999 is below the cap → safe.
+  const ghRunner = () => JSON.stringify(Array.from({ length: 999 }, (_, i) => ({ number: i + 1 })));
+  const result = fetchMergedPrNumbers({ plan: "001", ghRunner });
+  assert.equal(result.length, 999);
 });
 
 test("fetchPrDetails: forwards PR number into command", () => {
