@@ -1,48 +1,60 @@
-//! Plan-024 Phase 1 acceptance smoke test — `sh -c 'echo hello; exit 0'`.
+//! Plan-024 Phase 1 acceptance smoke tests — spawn-only, both platforms.
 //!
 //! Pins the Phase 1 acceptance criterion verbatim from
-//! `docs/plans/024-rust-pty-sidecar.md` §Test And Verification Plan:
-//! "spawn smoke test (spawning `sh -c 'echo hello; exit 0'`) succeeds".
+//! `docs/plans/024-rust-pty-sidecar.md` §Test And Verification Plan and
+//! the audit row at Plan-024:282:
+//!
+//! > "spawns `sh -c 'echo hello; exit 0'` on Linux/macOS **and**
+//! > `cmd.exe /c "echo hello"` on Windows; asserts stdout chunk is
+//! > delivered and exit-code propagates"
 //!
 //! The broader `tests/pty_session.rs` suite (T-024-1-4) covers
 //! [`PtySessionRegistry`] behavior in depth (seq monotonicity, kill paths,
 //! resize, write round-trip, race-closing). This file is intentionally
-//! narrow — one test that exercises the exact spawn command shape pinned
-//! by the audit row for T-024-1-5 and the Phase 1 acceptance criterion,
-//! so a future reader bisecting "did the spawn smoke regress?" reaches a
-//! single load-bearing test without sifting through nine peer cases.
+//! narrow — one spawn shape per platform, both legs asserted (stdout
+//! delivery + exit-code propagation), so a future reader bisecting "did
+//! the spawn smoke regress?" reaches a single load-bearing test per
+//! platform without sifting through peer cases.
 //!
-//! ## Platform scope
+//! ## Platform scope — spawn is platform-agnostic, kill is not
 //!
-//! `#![cfg(unix)]` because Phase 1 spawns `/bin/sh`, which is not a
-//! Windows binary path. The audit row's Windows counterpart spawn
-//! (`cmd.exe /c "echo hello"`) is **deferred to Phase 3 T-024-3-1**
-//! when the Windows kill-translation and Windows-side sidecar wire-up
-//! land (Plan-024 §Invariants I-024-1 + I-024-2; the same Phase 3 carve-
-//! out documented on `pty_session.rs` module rustdoc §7). Phase 3 will
-//! add a sibling `windows_spawn_smoke.rs` or extend this file with a
-//! `#[cfg(windows)]` arm spawning `cmd.exe /c "echo hello"`.
+//! Phase 1 pins BOTH Linux/macOS and Windows spawn shapes per the audit
+//! row. The platform gating in this file is at the per-test attribute
+//! level (`#[cfg(unix)]` / `#[cfg(windows)]`), NOT a module-level
+//! `#![cfg(unix)]` — because the surfaces this file actually exercises
+//! (`PtySessionRegistry::spawn`, the reader pump, the waiter task,
+//! `Envelope::DataFrame`, `Envelope::ExitCodeNotification`) are all
+//! platform-agnostic in `src/pty_session.rs`. Only `kill()` has
+//! `cfg(unix)` / `cfg(windows)` arms, and this file deliberately spawns
+//! children that exit naturally via `exit 0` (unix) or `cmd.exe /c
+//! "echo hello"` (Windows; `cmd.exe /c` returns the command's exit
+//! code), so `kill()` is never invoked.
 //!
-//! Module-level `#[cfg(unix)]` means the Windows CI matrix compiles
-//! zero tests from this file rather than producing a CI failure on a
-//! `/bin/sh`-not-found spawn.
+//! The Phase 3 carve-out (Plan-024 §Invariants I-024-1 + I-024-2 →
+//! T-024-3-1) lands the Windows `KillRequest` translation
+//! (`SIGINT`→`CTRL_C_EVENT`, `SIGTERM`→`CTRL_BREAK_EVENT`+`taskkill /T
+//! /F`, etc.). That work does NOT relate to spawn smoke — it does not
+//! gate this test on Windows.
 //!
 //! ## Spawn shape rationale
 //!
-//! The audit row writes the command as `sh -c 'echo hello; exit 0'`.
-//! We send `/bin/sh -c 'echo hello; exit 0'` because
 //! [`PtySessionRegistry::spawn`] calls `env_clear()` on the
 //! [`portable_pty::CommandBuilder`] before applying the request's `env`
-//! pairs — which means bare `sh` cannot be resolved via `PATH` from
-//! inside the child. `/bin/sh` is the absolute path on every supported
-//! Phase 1 unix platform (Linux + macOS), so the spawn is hermetic
-//! regardless of the parent's environment. This matches the convention
-//! the T-024-1-4 integration tests already use (see
-//! `tests/pty_session.rs`).
+//! pairs (deliberate hermetic-spawn design at `pty_session.rs:421`).
+//! With `PATH` empty in the child, bare command names cannot be resolved
+//! — so on both platforms we pass an absolute binary path:
+//!
+//! - Unix: `/bin/sh` (canonical absolute path on Linux + macOS; matches
+//!   the convention `tests/pty_session.rs` already uses).
+//! - Windows: `C:\Windows\System32\cmd.exe` (canonical absolute path on
+//!   every supported Windows build; `%WINDIR%` would require env
+//!   propagation that `env_clear()` removes).
+//!
+//! Working directories are correspondingly absolute (`/tmp` on unix,
+//! `C:\` on Windows) so the spawn does not depend on whatever path the
+//! parent test runner inherited.
 //!
 //! Plan-024 Phase 1 / T-024-1-5.
-
-#![cfg(unix)]
 
 use std::time::Duration;
 
@@ -51,24 +63,25 @@ use sidecar_rust_pty::pty_session::PtySessionRegistry;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::time::timeout;
 
-/// Two-second budget for the smoke scenario. `echo hello; exit 0`
-/// finishes in single-digit milliseconds even under CI load; 2 s is
-/// two orders of magnitude of headroom while still failing fast on a
-/// genuinely hung holder. Matches the budget used by the broader
-/// `tests/pty_session.rs` suite for parity across the Phase 1 PTY
-/// integration tests.
+/// Two-second budget for the smoke scenarios. `echo hello; exit 0`
+/// (unix) and `cmd.exe /c "echo hello"` (Windows) both finish in
+/// single-digit milliseconds even under CI load; 2 s is two orders of
+/// magnitude of headroom while still failing fast on a genuinely hung
+/// holder. Matches the budget used by the broader `tests/pty_session.rs`
+/// suite for parity across the Phase 1 PTY integration tests.
 const SMOKE_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Drain envelopes from `rx` until an [`Envelope::ExitCodeNotification`]
 /// is observed or [`SMOKE_TIMEOUT`] elapses. Returns every envelope
 /// received during the wait so the test can assert on ordering.
 ///
-/// Duplicated from `tests/pty_session.rs::drain_until_exit` because Rust
-/// integration tests are independent compilation units — each
-/// `tests/<name>.rs` is its own crate and cannot import helpers from
-/// peer test files. The alternative (a `tests/common/mod.rs` shared
-/// helper) is heavier than warranted for Phase 1 with a single smoke
-/// test; Phase 3+ can hoist common helpers if more `*_smoke.rs` files
+/// Platform-neutral — both the unix and Windows smoke arms share this
+/// helper. Duplicated from `tests/pty_session.rs::drain_until_exit`
+/// because Rust integration tests are independent compilation units —
+/// each `tests/<name>.rs` is its own crate and cannot import helpers
+/// from peer test files. The alternative (a `tests/common/mod.rs`
+/// shared helper) is heavier than warranted for Phase 1 with two smoke
+/// tests; Phase 3+ can hoist common helpers if more `*_smoke.rs` files
 /// appear.
 async fn drain_until_exit(rx: &mut UnboundedReceiver<Envelope>) -> Vec<Envelope> {
     let mut envelopes = Vec::new();
@@ -90,49 +103,25 @@ async fn drain_until_exit(rx: &mut UnboundedReceiver<Envelope>) -> Vec<Envelope>
     envelopes
 }
 
-/// Phase 1 acceptance: spawning `sh -c 'echo hello; exit 0'` produces
-/// a [`DataFrame`] whose stdout payload contains `"hello"` and exactly
-/// one [`ExitCodeNotification`] with `exit_code == 0` and
-/// `signal_code == None`.
+/// Assert the spawn-smoke acceptance shape on a drained envelope list.
 ///
-/// Pins both legs of the audit-row test behavior:
-///   (a) "stdout chunk is delivered" — at least one DataFrame on the
-///       stream, payload bytes contain `"hello"`.
-///   (b) "exit-code propagates" — exactly one ExitCodeNotification,
-///       exit_code == 0, signal_code == None (Phase 1 always-None
-///       contract per `pty_session.rs` module rustdoc §6).
+/// Both legs of the audit-row test behavior:
+///   (a) "stdout chunk is delivered" — at least one [`Envelope::DataFrame`]
+///       on the stream, every frame carries the spawned `session_id` and
+///       `stream: DataStream::Stdout`, concatenated bytes contain
+///       `"hello"`.
+///   (b) "exit-code propagates" — exactly one
+///       [`Envelope::ExitCodeNotification`], arriving as the LAST
+///       envelope, with the spawned `session_id`, `exit_code == 0`, and
+///       `signal_code == None` (Phase 1 always-None contract per
+///       `pty_session.rs` module rustdoc §6; Windows additionally always
+///       reports `signal_code: None` per `protocol.rs::ExitCodeNotification`
+///       rustdoc).
 ///
-/// PTY canonical mode translates LF to CRLF on output, so the
-/// observed payload may be `"hello\r\n"` rather than `"hello\n"`; the
-/// assertion uses `.contains("hello")` so either form passes.
-///
-/// [`DataFrame`]: sidecar_rust_pty::protocol::DataFrame
-/// [`ExitCodeNotification`]: sidecar_rust_pty::protocol::ExitCodeNotification
-#[tokio::test]
-async fn spawn_smoke_sh_echo_hello_exits_zero() {
-    let (registry, mut rx) = PtySessionRegistry::new();
-
-    // Phase 1 acceptance criterion: `sh -c 'echo hello; exit 0'`.
-    // `/bin/sh` (absolute) because `env_clear()` strips PATH in the
-    // child — see module rustdoc "Spawn shape rationale".
-    let response = registry
-        .spawn(SpawnRequest {
-            command: "/bin/sh".to_string(),
-            args: vec!["-c".to_string(), "echo hello; exit 0".to_string()],
-            env: Vec::new(),
-            cwd: "/tmp".to_string(),
-            rows: 24,
-            cols: 80,
-        })
-        .await
-        .expect("spawn of `sh -c 'echo hello; exit 0'` should succeed");
-
-    let session_id = response.session_id.clone();
-
-    let envelopes = drain_until_exit(&mut rx).await;
-
-    // Partition the envelopes into the two kinds we care about. Any
-    // unexpected variant fails the type-match on the next assertions.
+/// Factored out so the unix and Windows arms share assertion code —
+/// the only platform-specific axis is the spawn shape, not the
+/// post-spawn observation contract.
+fn assert_spawn_smoke_envelopes(envelopes: &[Envelope], session_id: &str) {
     let data_frames: Vec<_> = envelopes
         .iter()
         .filter_map(|e| match e {
@@ -192,4 +181,86 @@ async fn spawn_smoke_sh_echo_hello_exits_zero() {
         exit.signal_code, None,
         "Phase 1 emits signal_code: None for every exit per pty_session.rs §6"
     );
+}
+
+/// Phase 1 acceptance (unix arm): spawning `/bin/sh -c 'echo hello;
+/// exit 0'` produces a [`DataFrame`] whose stdout payload contains
+/// `"hello"` and exactly one [`ExitCodeNotification`] with `exit_code
+/// == 0` and `signal_code == None`.
+///
+/// PTY canonical mode translates LF to CRLF on output, so the
+/// observed payload may be `"hello\r\n"` rather than `"hello\n"`; the
+/// assertion uses `.contains("hello")` so either form passes.
+///
+/// [`DataFrame`]: sidecar_rust_pty::protocol::DataFrame
+/// [`ExitCodeNotification`]: sidecar_rust_pty::protocol::ExitCodeNotification
+#[cfg(unix)]
+#[tokio::test]
+async fn spawn_smoke_sh_echo_hello_exits_zero() {
+    let (registry, mut rx) = PtySessionRegistry::new();
+
+    // Phase 1 acceptance criterion: `sh -c 'echo hello; exit 0'`.
+    // `/bin/sh` (absolute) because `env_clear()` strips PATH in the
+    // child — see module rustdoc "Spawn shape rationale".
+    let response = registry
+        .spawn(SpawnRequest {
+            command: "/bin/sh".to_string(),
+            args: vec!["-c".to_string(), "echo hello; exit 0".to_string()],
+            env: Vec::new(),
+            cwd: "/tmp".to_string(),
+            rows: 24,
+            cols: 80,
+        })
+        .await
+        .expect("spawn of `sh -c 'echo hello; exit 0'` should succeed");
+
+    let session_id = response.session_id.clone();
+    let envelopes = drain_until_exit(&mut rx).await;
+    assert_spawn_smoke_envelopes(&envelopes, &session_id);
+}
+
+/// Phase 1 acceptance (Windows arm): spawning `cmd.exe /c "echo hello"`
+/// produces a [`DataFrame`] whose stdout payload contains `"hello"`
+/// and exactly one [`ExitCodeNotification`] with `exit_code == 0` and
+/// `signal_code == None`.
+///
+/// Windows `cmd.exe /c "echo hello"` writes `hello\r\n` and exits with
+/// the command's exit code (0 on success), so the assertion shape is
+/// identical to the unix arm. `signal_code` is always `None` on
+/// Windows per [`ExitCodeNotification`] rustdoc — Windows has no POSIX
+/// signal concept; the OS-level exit code carries the termination
+/// reason.
+///
+/// This test does NOT exercise [`PtySessionRegistry::kill`] — the
+/// child exits naturally — so the Phase 3 carve-out for Windows kill-
+/// translation (Plan-024 §Invariants I-024-1 + I-024-2 → T-024-3-1)
+/// does not gate it.
+///
+/// [`DataFrame`]: sidecar_rust_pty::protocol::DataFrame
+/// [`ExitCodeNotification`]: sidecar_rust_pty::protocol::ExitCodeNotification
+#[cfg(windows)]
+#[tokio::test]
+async fn spawn_smoke_cmd_exe_echo_hello_exits_zero() {
+    let (registry, mut rx) = PtySessionRegistry::new();
+
+    // Phase 1 acceptance criterion: `cmd.exe /c "echo hello"`.
+    // Absolute path because `env_clear()` strips %PATH% / %WINDIR% in
+    // the child — see module rustdoc "Spawn shape rationale". Raw
+    // string literal (`r"..."`) so the backslashes are preserved
+    // verbatim without double-escaping.
+    let response = registry
+        .spawn(SpawnRequest {
+            command: r"C:\Windows\System32\cmd.exe".to_string(),
+            args: vec!["/c".to_string(), "echo hello".to_string()],
+            env: Vec::new(),
+            cwd: r"C:\".to_string(),
+            rows: 24,
+            cols: 80,
+        })
+        .await
+        .expect(r#"spawn of `cmd.exe /c "echo hello"` should succeed"#);
+
+    let session_id = response.session_id.clone();
+    let envelopes = drain_until_exit(&mut rx).await;
+    assert_spawn_smoke_envelopes(&envelopes, &session_id);
 }
