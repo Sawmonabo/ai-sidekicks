@@ -613,3 +613,113 @@ async fn post_exit_kill_returns_unknown_session_not_recycled_pid() {
         ),
     }
 }
+
+/// Lifecycle smoke for the `PtySessionRegistry::spawn` insert-before-spawn
+/// ordering — the pre-fix shape spawned the reader + waiter tasks BEFORE
+/// inserting the handle into `self.sessions`. With a fast-exiting child
+/// (`sh -c 'exit 0'`) and the multi-threaded runtime used in production,
+/// the waiter could in principle drive its
+/// `sessions.lock().await; map.remove(&id)` to completion before
+/// `spawn()`'s own `insert` landed, leaking a stale entry for an
+/// already-reaped session.
+///
+/// The fix inserts the handle into `self.sessions` BEFORE spawning either
+/// task, so the waiter's `map.remove(&id)` is guaranteed to run after
+/// the entry exists. This test exercises the post-fix lifecycle and
+/// pins the load-bearing contract: spawning N fast-exiting children
+/// and draining all N `ExitCodeNotification`s must leave the registry
+/// at zero active sessions.
+///
+/// ## Scope and limits
+///
+/// This is a **positive-coverage smoke** for the lifecycle contract,
+/// not a deterministic bug reproducer. The pre-fix race fires only if
+/// the waiter task's `spawn_blocking → child.wait → notify → lock →
+/// remove` chain completes during the few microseconds between
+/// `spawn_waiter_task(...)` returning and `self.sessions.lock().await.
+/// insert(...)` completing on the calling thread. For
+/// `sh -c 'exit 0'` even with `multi_thread` + concurrent spawns the
+/// race window is too narrow to fire deterministically in CI — empirical
+/// validation against the buggy shape passes. The fix is enforced
+/// structurally by code review (insert MUST happen-before the spawn
+/// calls in `spawn()`); this test catches gross lifecycle regressions
+/// (e.g. a waiter that never removes, or a spawn that never inserts)
+/// that broadly break the contract.
+///
+/// ## Why `multi_thread` runtime
+///
+/// `#[tokio::test]` defaults to `flavor = "current_thread"`, which
+/// serializes spawn() through one executor thread and hides the
+/// scheduling shape that production uses. `main.rs` runs under a
+/// multi-threaded `#[tokio::main]`, where the waiter can land on a
+/// peer worker while spawn() is still on the calling thread. Pinning
+/// `flavor = "multi_thread"` here keeps the test's scheduler aligned
+/// with production so any future structural regression is exercised
+/// under the same conditions the bug originally arose under.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fast_exiting_child_lifecycle_returns_registry_to_zero() {
+    let (registry, mut rx) = PtySessionRegistry::new();
+
+    const N: usize = 16;
+    let mut session_ids: Vec<String> = Vec::with_capacity(N);
+    for _ in 0..N {
+        let resp = registry
+            .spawn(SpawnRequest {
+                command: "/bin/sh".to_string(),
+                args: vec!["-c".to_string(), "exit 0".to_string()],
+                env: empty_env(),
+                cwd: "/tmp".to_string(),
+                rows: 24,
+                cols: 80,
+            })
+            .await
+            .expect("spawn of `sh -c 'exit 0'` should succeed");
+        session_ids.push(resp.session_id);
+    }
+
+    // Drain envelopes until we observe one `ExitCodeNotification` per
+    // spawn. 10 s is generous; in practice all 16 finish within tens
+    // of milliseconds on every supported platform.
+    let mut exits_seen: std::collections::HashSet<String> =
+        std::collections::HashSet::with_capacity(N);
+    let _ = timeout(Duration::from_secs(10), async {
+        while exits_seen.len() < N {
+            match rx.recv().await {
+                Some(Envelope::ExitCodeNotification(n)) => {
+                    exits_seen.insert(n.session_id);
+                }
+                Some(_) => {}
+                None => return,
+            }
+        }
+    })
+    .await;
+
+    assert_eq!(
+        exits_seen.len(),
+        N,
+        "observed only {observed}/{N} ExitCodeNotifications within the 10 s budget — \
+         either the waiter task is not firing for every spawn (separate bug) or the \
+         envelope-drain loop is starved",
+        observed = exits_seen.len()
+    );
+
+    // The waiter's `map.remove(&id)` happens-after the
+    // `ExitCodeNotification` send (within microseconds in practice but
+    // the two operations are independent). Poll briefly so the test
+    // isn't flaky on slow CI; 2 s upper bound matches the lifecycle
+    // grace window used by `active_session_count_tracks_lifecycle`.
+    for _ in 0..40 {
+        if registry.active_session_count().await == 0 {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let final_count = registry.active_session_count().await;
+    panic!(
+        "registry leaked sessions: active_session_count() = {final_count} after every \
+         one of {N} fast-exit ExitCodeNotifications was observed. This indicates the \
+         spawn/exit lifecycle contract is broken — see `PtySessionRegistry::spawn` for \
+         the insert-before-spawn shape that closes the race the bug introduces."
+    );
+}

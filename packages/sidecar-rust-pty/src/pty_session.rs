@@ -221,12 +221,16 @@ impl From<std::io::Error> for PtySessionError {
 ///
 /// Construction happens inside [`PtySessionRegistry::spawn`]. Removal
 /// from the registry map is driven from the waiter task at exit. The
-/// `JoinHandle` fields are NOT aborted on drop — Tokio's `JoinHandle`
-/// detaches the task on drop, it does not abort it. The reader task
-/// self-terminates on PTY EOF (child closed its slave end); the waiter
-/// task self-terminates on `Child::wait` return. A Phase 1 misbehaving
-/// child that ignores its eventual SIGHUP / SIGKILL could in principle
-/// keep both tasks alive indefinitely — acceptable for Phase 1 where
+/// reader and waiter tasks are spawned by [`PtySessionRegistry::spawn`]
+/// AFTER this handle has been inserted into `self.sessions`; their
+/// [`JoinHandle`]s are intentionally detached at the spawn site rather
+/// than parked on `SessionHandle` (Tokio's `JoinHandle` detaches the
+/// task on drop, it does not abort it — see Tokio
+/// `tokio::task::JoinHandle` rustdoc). The reader task self-terminates
+/// on PTY EOF (child closed its slave end); the waiter task self-
+/// terminates on `Child::wait` return. A Phase 1 misbehaving child
+/// that ignores its eventual SIGHUP / SIGKILL could in principle keep
+/// both tasks alive indefinitely — acceptable for Phase 1 where
 /// session cleanup is driven by daemon-layer
 /// [`PtySessionRegistry::kill`] requests; Phase 3 may add a forced-
 /// abort `Drop` impl if that proves insufficient.
@@ -305,19 +309,6 @@ struct SessionHandle {
     /// the cross-thread store, and the kill path needs read access via
     /// the registry's `Arc<SessionHandle>`.
     exited: Arc<std::sync::atomic::AtomicBool>,
-
-    /// Tokio `JoinHandle` for the reader pump.
-    ///
-    /// `JoinHandle::drop` DETACHES the task (does not abort it). The
-    /// reader task self-terminates on PTY EOF; we hold the handle
-    /// solely to keep the join-result reachable if a future Phase
-    /// wants to surface task panics. Underscore prefix silences the
-    /// unused-field lint while keeping the documentation visible.
-    _reader_task: JoinHandle<()>,
-
-    /// Same detach-on-drop discipline as `_reader_task`.
-    /// Self-terminates on `Child::wait` return.
-    _waiter_task: JoinHandle<()>,
 }
 
 /// The session-id-keyed registry the dispatcher consumes.
@@ -460,40 +451,55 @@ impl PtySessionRegistry {
         // See `SessionHandle::exited` rustdoc for the full discussion.
         let exited = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
-        // Spawn the stdout-pump background task. PTY semantics: one
-        // merged reader, all DataFrames stamped `stream: Stdout`.
-        let reader_task = spawn_reader_task(session_id.clone(), reader, self.outbound.clone());
-
-        // Spawn the waiter task. On child exit it emits
-        // `ExitCodeNotification` and removes the session from the registry.
-        let waiter_task = spawn_waiter_task(
-            session_id.clone(),
-            child,
-            Arc::clone(&exited),
-            self.outbound.clone(),
-            self.sessions.clone(),
-        );
-
-        // Stash the session in the registry. Drop the `slave` half here
-        // (the `PtyPair` destructured into `pair.master` keeps the master
-        // alive via `MasterPty::resize` etc., while the slave can be
-        // dropped now that the child holds its own end of the PTY).
+        // Build the session handle BEFORE spawning the reader / waiter
+        // tasks. Inserting the handle into `self.sessions` first
+        // establishes a happens-before edge from "session registered"
+        // to "waiter may run" — without it, a fast-exiting child (e.g.
+        // `sh -c 'exit 0'`) can drive the waiter's
+        // `sessions.lock().await; map.remove(&session_id)` to completion
+        // BEFORE this method's `insert(...)` lands, leaking a registry
+        // entry for an already-reaped session. Insert-first eliminates
+        // the race deterministically; the waiter's `map.remove` is then
+        // guaranteed to run strictly after the insert.
+        //
+        // `pair.slave` is dropped here when `pair` goes out of scope.
+        // The child already holds its own slave-side handles; dropping
+        // ours is correct PTY-cleanup hygiene.
         let handle = Arc::new(SessionHandle {
             master: Mutex::new(pair.master),
             writer: Mutex::new(Some(writer)),
             pid,
-            exited,
-            _reader_task: reader_task,
-            _waiter_task: waiter_task,
+            exited: Arc::clone(&exited),
         });
-        // `pair.slave` is dropped here when `pair` goes out of scope.
-        // The child already holds its own slave-side handles; dropping
-        // ours is correct PTY-cleanup hygiene.
 
         self.sessions
             .lock()
             .await
             .insert(session_id.clone(), handle);
+
+        // Spawn the stdout-pump background task. PTY semantics: one
+        // merged reader, all DataFrames stamped `stream: Stdout`. The
+        // returned `JoinHandle` is detached at the call site —
+        // `JoinHandle::drop` detaches without aborting per Tokio's
+        // `tokio::task::JoinHandle` rustdoc, and the reader self-
+        // terminates on PTY EOF. The named local survives Commit B
+        // verbatim so the Commit C follow-up (drain-before-exit) can
+        // route this handle into the waiter without re-shaping spawn().
+        let _reader_task = spawn_reader_task(session_id.clone(), reader, self.outbound.clone());
+
+        // Spawn the waiter task. On child exit it emits
+        // `ExitCodeNotification` and removes the session from the
+        // registry — the insert above is now guaranteed to have
+        // completed before this task can run, so `map.remove(...)`
+        // never races the insert. `JoinHandle` detached for the same
+        // reason as the reader's.
+        let _waiter_task = spawn_waiter_task(
+            session_id.clone(),
+            child,
+            exited,
+            self.outbound.clone(),
+            self.sessions.clone(),
+        );
 
         Ok(SpawnResponse { session_id })
     }
