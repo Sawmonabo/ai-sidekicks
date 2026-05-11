@@ -6,3 +6,4 @@
 //! Plan-024 Phase 1.
 
 pub mod framing;
+pub mod protocol;
