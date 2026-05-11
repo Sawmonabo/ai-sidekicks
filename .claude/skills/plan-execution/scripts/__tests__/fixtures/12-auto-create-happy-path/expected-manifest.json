@@ -44,6 +44,7 @@
       "auto_create_derive_upstream"
     ]
   },
+  "proposed_manifest_entry": null,
   "subagent_completed_at": null,
   "semantic_edits": {},
   "concerns": [],

@@ -71,6 +71,17 @@ The plan-execution housekeeper subagent and its companion script (`scripts/post-
       "unannotated_referenced_files_check"
     ]
   },
+  "proposed_manifest_entry": {
+    "// — see §Proposed shipment-manifest entry —": "",
+    "phase": 1,
+    "task": "T-024-1-1",
+    "pr": 30,
+    "sha": "deadbee",
+    "merged_at": "2026-05-05",
+    "files": ["packages/runtime-daemon/src/foo.rs"],
+    "verifies_invariant": [],
+    "spec_coverage": []
+  },
 
   "// — written by subagent (null/empty until subagent fills) —": "",
   "subagent_completed_at": null,
@@ -91,6 +102,27 @@ For multi-candidate runs (`--candidate-ns NS-XX,NS-YY` — comma-list dispatched
 Subagent consumers detect multi-candidate by checking `Array.isArray(manifest.matched_entries)`; the canonical fixture for this shape is `scripts/__tests__/fixtures/14-multi-candidate-happy-path/expected-manifest.json`. The plural shape is independent of the per-NS multi-PR variation above — a multi-candidate run can include NS entries that are themselves multi-PR (each emits its own `status_flips[]` entry with `computed_via: "prs-matrix recompute"`).
 
 Stage 1 (script) writes the file with subagent fields stubbed. Stage 2 (subagent) reads, fills in its fields (including replacing the `<TODO subagent prose>` placeholders in `Status:` lines via direct file edits, then echoing the composed prose into `semantic_edits.completion_prose`), writes back.
+
+## Proposed shipment-manifest entry
+
+`proposed_manifest_entry` is the script's draft of the `### Shipment Manifest` YAML entry the orchestrator appends to the plan body in Phase E step 6 (replacing the prior prose-Progress-Log append). The schema mirrors the `lib/manifest.mjs` validator (`MANIFEST_SCHEMA_VERSION = 1`):
+
+| Field | Source | Notes |
+| --- | --- | --- |
+| `phase` | `--phase` flag (script) | Coerced to integer; null if non-numeric (Tier-A) — script returns `proposed_manifest_entry: null` in that case. |
+| `task` | `--task` flag (script) | String form; legacy multi-task PRs use array form (Plan-007 PR #19). |
+| `pr` | `--pr` flag (script) | Integer. |
+| `sha` | `--squash-sha` flag (orchestrator-supplied) | Abbreviated hex (7+ chars). Source: `git rev-parse --short HEAD` after Phase D.5 step 4. |
+| `merged_at` | `--merged-at` flag (orchestrator-supplied) | ISO date `YYYY-MM-DD`. Source: `gh pr view <PR#> --json mergedAt -q .mergedAt \| cut -dT -f1`. |
+| `files` | `diffTouchedFiles` from `git diff --name-only` (orchestrator-supplied) | Array; defaults to `[]` when caller didn't supply. |
+| `verifies_invariant` | Always `[]` at script stage | Audit-derived; orchestrator merges in DAG-task value via `enrichEntryWithDag` (lib/housekeeper-orchestrator-helpers.mjs). |
+| `spec_coverage` | Always `[]` at script stage | Same — DAG-task merge in step 6. |
+
+**Graceful degradation.** If the orchestrator omits `--squash-sha` or `--merged-at` (legacy callers, fixture tests, Phase E configuration bugs), the script emits `proposed_manifest_entry: null` rather than a partial entry. The orchestrator's `extractProposedEntry` helper returns null in that case, and step 6 halts with a configuration gap surfaced to the user — never a silent no-op manifest write.
+
+**Plan Invariant I-3 boundary.** The script does NOT touch the plan-file's `### Shipment Manifest` block itself (no git imports, no plan-file writes — see `__tests__/post-merge-housekeeper-orchestrator-helpers.test.mjs § I-3 invariant`). The script's job is to PROPOSE; the orchestrator's job is to enrich (DAG fields) + WRITE (via `appendManifestEntry` from `scripts/lib/manifest.mjs`). Pattern B per the cozy-crafting-hummingbird design (script ↔ orchestrator separation).
+
+**Idempotency.** `appendManifestEntry` is keyed on the `pr` field — re-running Phase E step 6 with the same proposed entry is a no-op (per `__tests__/manifest.test.mjs § appendManifestEntry: idempotency on pr`).
 
 ## Exit codes
 
@@ -233,7 +265,7 @@ Refs: NS-XX (or NS-NN..NS-MM for range entries; comma-list for multi-NS).
 
 **Auto-merge mechanics.** `gh pr merge <housekeeping-pr#> --auto --squash --delete-branch` queues the squash-merge to fire when required CI checks return SUCCESS. The orchestrator then polls via `gh pr checks <housekeeping-pr#> --watch --interval 10` until the PR transitions to `merged`. Typical wall-clock: 2-3 min on a doc-only diff.
 
-**CI failure on housekeeping PR.** Halt Phase E and surface to user. Phase E does NOT auto-fix housekeeping CI failures because they almost always indicate one of: (a) a §6-catalog cite that the script-stage `affected_files` superset check missed; (b) a malformed Status: line the subagent composed; (c) a Progress Log entry that broke a docs-corpus invariant. All three cases need user adjudication — the housekeeping subagent has already returned DONE/DONE_WITH_CONCERNS by this point and is not re-dispatchable for CI-driven failures.
+**CI failure on housekeeping PR.** Halt Phase E and surface to user. Phase E does NOT auto-fix housekeeping CI failures because they almost always indicate one of: (a) a §6-catalog cite that the script-stage `affected_files` superset check missed; (b) a malformed Status: line the subagent composed; (c) a `### Shipment Manifest` entry whose YAML broke the manifest schema parser or whose embedded fields broke a docs-corpus invariant. All three cases need user adjudication — the housekeeping subagent has already returned DONE/DONE_WITH_CONCERNS by this point and is not re-dispatchable for CI-driven failures.
 
 ## Canonical Subagent Prompt Template
 

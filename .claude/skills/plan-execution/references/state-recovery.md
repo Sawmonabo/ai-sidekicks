@@ -101,9 +101,9 @@ Match the combined state to a workflow phase:
 | Branch has commits for some tasks at level N; other tasks at level N pending | Phase B level N — dispatch missing tasks (sequential: continue the level; worktree: check worktrees first) |
 | Worktrees exist for level N tasks with commits but no merges into PR branch | Phase C — dispatch per-task reviewer pipelines for the worktree tasks; merge after they clear |
 | Worktrees exist with uncommitted changes | **Surface to user.** Implementer was mid-edit; don't auto-stash. |
-| All DAG tasks committed; no Progress Log entry on the plan; PR draft | Phase D — final review pipeline |
+| All DAG tasks committed; no `### Shipment Manifest` entry for this PR on the plan; PR draft | Phase D — final review pipeline |
 | Final review evidence in branch (review-fix commits after Phase D) | Phase D — re-dispatch final reviewers (they round-tripped) |
-| Plan body has Progress Log entry for this PR; PR is `ready`, CI pending | Phase E — wait for CI |
+| Plan body's `### Shipment Manifest` block has an entry for this PR (matching `pr:` field); PR is `ready`, CI pending | Phase E — wait for CI |
 | PR is `ready`, CI green, not merged | Phase E — squash-merge |
 | Branch deleted, PR merged | Phase F — next PR or done |
 

@@ -177,6 +177,47 @@ preconditions:
 - {Risk}
 - {Blocker}
 
+<!--
+  Progress Log section (required for plans whose PRs ship through the
+  /plan-execution Phase E housekeeper; omit for one-shot plans that ship
+  outside that path).
+
+  - The `### Shipment Manifest` subsection is machine-readable. The
+    plan-execution orchestrator appends one entry per merged PR; the
+    preflight tool reads this block to decide which phases / tasks are
+    already shipped.
+  - The `### Notes` subsection is per-PR human commentary (round-trips,
+    learnings, partial-ship details). Append-only.
+  - Schema authority for the manifest YAML lives in
+    .claude/skills/plan-execution/scripts/lib/manifest.mjs — the snippet
+    below is illustrative.
+-->
+
+## Progress Log
+
+### Shipment Manifest
+
+```yaml
+manifest_schema_version: 1
+shipped: []
+# Entry shape (illustrative — authoritative schema in lib/manifest.mjs):
+# - phase: 5
+#   task: T5.1               # single string default; array allowed for legacy multi-task PRs
+#   pr: 30
+#   sha: 7e4ae47
+#   merged_at: 2026-05-05
+#   files:
+#     - packages/client-sdk/src/sessionClient.ts
+#   verifies_invariant: [I-NNN-1]      # mirrors audit Tasks-block field name
+#   spec_coverage: [Spec-NNN row 4]    # mirrors audit Tasks-block field name
+#   notes: |
+#     Optional free-form context (round-trips, lane, learnings).
+```
+
+### Notes
+
+<!-- Per-PR human-readable commentary appended by the orchestrator at Phase E. -->
+
 ## Done Checklist
 
 - [ ] Code changes implemented

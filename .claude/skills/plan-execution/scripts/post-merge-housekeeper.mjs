@@ -316,6 +316,12 @@ const PLAN_RE = /^\d{3}(-partial)?$/;
 const PHASE_RE = /^(\d+|[A-Z])$/;
 const TASK_RE = /^(T\d+(\.\d+)?|T-\d{3}-\d+-\d+|tier-\d+)$/;
 const TIER_RE = POSITIVE_INTEGER_RE;
+// Mirrors lib/manifest.mjs SHA_RE + DATE_RE — single-source-of-truth lives in
+// the shared module; we re-validate at the CLI surface so a malformed value
+// fails fast at parseArgs rather than producing an invalid manifest entry the
+// orchestrator's appendManifestEntry would later reject.
+const SQUASH_SHA_RE = /^[0-9a-f]{7,40}$/i;
+const MERGED_AT_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 const VALUE_FLAGS = new Set([
   "--candidate-ns",
@@ -325,6 +331,8 @@ const VALUE_FLAGS = new Set([
   "--tier",
   "--pr-tag",
   "--touched-files-path",
+  "--squash-sha",
+  "--merged-at",
 ]);
 const BOOLEAN_FLAGS = new Set(["--auto-create"]);
 
@@ -346,6 +354,8 @@ export function parseArgs(argv) {
     tier: null,
     prTag: null,
     touchedFilesPath: null,
+    squashSha: null,
+    mergedAt: null,
   };
   for (let i = 0; i < rest.length; i += 1) {
     const flag = rest[i];
@@ -392,6 +402,18 @@ export function parseArgs(argv) {
         break;
       case "--touched-files-path":
         result.touchedFilesPath = value;
+        break;
+      case "--squash-sha":
+        if (!SQUASH_SHA_RE.test(value)) {
+          throw new ParseArgsError(`--squash-sha malformed: ${value}`, 6);
+        }
+        result.squashSha = value;
+        break;
+      case "--merged-at":
+        if (!MERGED_AT_RE.test(value)) {
+          throw new ParseArgsError(`--merged-at malformed: ${value}`, 6);
+        }
+        result.mergedAt = value;
         break;
     }
   }
@@ -661,6 +683,37 @@ export function tickPlanDoneChecklist({ lines, phase }) {
 //
 // auto_create is always present at top level — null in --candidate-ns mode,
 // {reserved_ns_nn, derived_title_seed} in --auto-create mode (P5 fix).
+//
+// proposed_manifest_entry is the script's draft of the in-plan
+// `### Shipment Manifest` YAML entry the orchestrator appends in Phase E
+// step 6 via lib/housekeeper-orchestrator-helpers.buildFinalManifestEntry.
+// Null when --squash-sha or --merged-at is omitted (graceful degradation
+// for fixture tests + legacy callers); the script never edits the plan
+// file's manifest block itself (Plan Invariant I-3 — no git/file ownership).
+
+export function buildProposedManifestEntry({ args, diffTouchedFiles }) {
+  if (!args.squashSha || !args.mergedAt) return null;
+  if (!args.plan || !args.phase || !args.task) return null;
+  // Phase A-Z (Tier-A / Tier-B style) cannot be expressed as a positive
+  // integer; the manifest schema requires `phase: <int>`. Skip rather than
+  // coerce — any later consumer would reject NaN.
+  const phaseNum = Number(args.phase);
+  if (!Number.isInteger(phaseNum) || phaseNum < 1) return null;
+  return {
+    phase: phaseNum,
+    task: args.task,
+    pr: args.prNumber,
+    sha: args.squashSha,
+    merged_at: args.mergedAt,
+    files: diffTouchedFiles ?? [],
+    // verifies_invariant + spec_coverage come from the audit Tasks-block
+    // (analyst output → DAG → orchestrator). The script has no DAG access;
+    // the orchestrator's Phase E step 6 helper merges these in before the
+    // final appendManifestEntry call.
+    verifies_invariant: [],
+    spec_coverage: [],
+  };
+}
 
 export function emitManifest({
   repoRoot,
@@ -679,6 +732,7 @@ export function emitManifest({
   affectedFiles = [],
   semanticWorkPending = [],
   warnings = [],
+  proposedManifestEntry = null,
 }) {
   const tmpDir = join(repoRoot, ".agents", "tmp");
   mkdirSync(tmpDir, { recursive: true });
@@ -734,6 +788,7 @@ export function emitManifest({
       verification_failures: verificationFailures.map((f) => ({ ...f })),
       semantic_work_pending: [...semanticWorkPending],
     },
+    proposed_manifest_entry: proposedManifestEntry,
     subagent_completed_at: null,
     semantic_edits: {},
     concerns: [],
@@ -902,7 +957,15 @@ function deriveTitleSeed(args) {
   return null;
 }
 
-function runAutoCreate({ args, repoRoot, corpusText, corpusLines, baseManifest, corpusRel }) {
+function runAutoCreate({
+  args,
+  repoRoot,
+  corpusText,
+  corpusLines,
+  baseManifest,
+  corpusRel,
+  diffTouchedFiles = null,
+}) {
   let reservedNsNn = reserveNextFreeNs(corpusText);
   while (NS_RESERVED_INTEGERS.has(reservedNsNn)) reservedNsNn += 1;
 
@@ -976,6 +1039,10 @@ function runAutoCreate({ args, repoRoot, corpusText, corpusLines, baseManifest, 
     affectedFiles,
     semanticWorkPending: SEMANTIC_WORK_PENDING_AUTO_CREATE,
     warnings,
+    // Codex P2 finding on PR #35 round 3: pass through the touched-files set
+    // computed from `--touched-files-path` so auto-created shipment-manifest
+    // entries record the authoritative file-change trace instead of `files: []`.
+    proposedManifestEntry: buildProposedManifestEntry({ args, diffTouchedFiles }),
   });
   return { exitCode: scriptExitCode, manifestPath };
 }
@@ -1318,6 +1385,7 @@ function runMultiCandidate({
     affectedFiles,
     semanticWorkPending: SEMANTIC_WORK_PENDING_COMPLETION,
     warnings,
+    proposedManifestEntry: buildProposedManifestEntry({ args, diffTouchedFiles }),
   });
   return { exitCode: scriptExitCode, manifestPath };
 }
@@ -1360,6 +1428,7 @@ export async function runHousekeeper({
       corpusLines,
       baseManifest,
       corpusRel,
+      diffTouchedFiles,
     });
   }
 
@@ -1668,6 +1737,7 @@ export async function runHousekeeper({
     affectedFiles,
     semanticWorkPending: SEMANTIC_WORK_PENDING_COMPLETION,
     warnings,
+    proposedManifestEntry: buildProposedManifestEntry({ args, diffTouchedFiles }),
   });
 
   return { exitCode: scriptExitCode, manifestPath };

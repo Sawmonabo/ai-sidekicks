@@ -60,6 +60,7 @@
       "unannotated_referenced_files_check"
     ]
   },
+  "proposed_manifest_entry": null,
   "subagent_completed_at": null,
   "semantic_edits": {},
   "concerns": [],
