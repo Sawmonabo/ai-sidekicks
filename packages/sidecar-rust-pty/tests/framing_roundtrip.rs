@@ -232,3 +232,49 @@ async fn read_two_back_to_back_frames() {
     assert_eq!(got_a, body_a);
     assert_eq!(got_b, body_b);
 }
+
+#[tokio::test]
+async fn read_rejects_duplicate_content_length() {
+    // Two Content-Length headers is the request-smuggling shape. The TS
+    // sibling framer (packages/runtime-daemon/src/ipc/local-ipc-gateway.ts)
+    // rejects this at the boundary; the Rust framer must match.
+    let header = b"Content-Length: 5\r\n\
+                   Content-Length: 5\r\n\
+                   \r\n";
+    let body = b"hello";
+    let mut bytes = Vec::with_capacity(header.len() + body.len());
+    bytes.extend_from_slice(header);
+    bytes.extend_from_slice(body);
+    let mut reader = BufReader::new(&bytes[..]);
+    let err = read_frame(&mut reader)
+        .await
+        .expect_err("read_frame should reject duplicate Content-Length");
+    assert_eq!(err.kind(), ErrorKind::InvalidData);
+    let msg = format!("{err}");
+    assert!(
+        msg.contains("duplicate") || msg.contains("Content-Length"),
+        "error message should reference duplicate Content-Length, got: {msg}"
+    );
+}
+
+#[tokio::test]
+async fn read_rejects_over_cap_header_line() {
+    // Feed a 2 KiB header line (well over the 1 KiB MAX_HEADER_LINE_BYTES
+    // cap). A malicious child could otherwise OOM the sidecar by streaming
+    // an unterminated `Content-Type: AAAAA…` for gigabytes.
+    let big_header_name = "X-Junk: ";
+    let padding_len = 2 * 1024 - big_header_name.len();
+    let padding: String = "A".repeat(padding_len);
+    let mut bytes: Vec<u8> = Vec::new();
+    bytes.extend_from_slice(big_header_name.as_bytes());
+    bytes.extend_from_slice(padding.as_bytes());
+    bytes.extend_from_slice(b"\r\n");
+    bytes.extend_from_slice(b"Content-Length: 5\r\n\r\n");
+    bytes.extend_from_slice(b"hello");
+
+    let mut reader = BufReader::new(&bytes[..]);
+    let err = read_frame(&mut reader)
+        .await
+        .expect_err("read_frame should reject over-cap header line");
+    assert_eq!(err.kind(), ErrorKind::InvalidData);
+}
