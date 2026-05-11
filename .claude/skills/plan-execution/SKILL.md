@@ -420,14 +420,35 @@ Route findings by the `Round-trip target:` value: with `Round-trip target: <task
 
 ### Phase D.5 — Merge transition
 
-After Phase D returns "all reviewers DONE", the orchestrator transitions the feature PR from `draft` to `ready`, waits for CI to go green, and squash-merges into `develop`. This phase is the explicit bridge between Phase D (review complete) and Phase E (post-merge housekeeping); without it, the orchestrator has no documented step that creates the merged commit Phase E depends on. The four steps run in this exact order:
+After Phase D returns "all reviewers DONE", the orchestrator transitions the feature PR from `draft` to `ready`, waits for CI to go green, waits for the Codex external reviewer's verdict on the HEAD commit, and squash-merges into `develop`. This phase is the explicit bridge between Phase D (subagent review complete) and Phase E (post-merge housekeeping); without it, the orchestrator has no documented step that creates the merged commit Phase E depends on. The five steps run in this exact order:
 
-1. **Mark PR ready for review** — `gh pr ready <PR#>` (no-op if already ready). The required-conversation-resolution branch protection takes effect at this point; any unresolved review threads block the merge in step 3.
+1. **Mark PR ready for review** — `gh pr ready <PR#>` (no-op if already ready). The required-conversation-resolution branch protection takes effect at this point; any unresolved review threads block the merge in step 4.
 2. **Wait for CI to go green** — `gh pr checks <PR#> --watch --interval 10` blocks until every required check returns SUCCESS. On any FAILURE, halt Phase D.5 and surface the failed check + logs to the user (CI red is not auto-fixed — the user decides whether to round-trip Phase B/C, manual fix, or abort).
-3. **Squash-merge into `develop`** — `gh pr merge <PR#> --squash --delete-branch`. This produces the canonical squash-commit on `develop` (whose SHA Phase E step 6 references in the Progress Log) and deletes the feature branch in one atomic action. On merge failure (e.g. mergeStateStatus regressed to BLOCKED between step 2 and step 3 because a new review thread fired), halt and surface to user.
-4. **Sync local `develop` and capture squash metadata** — `git switch develop && git pull --ff-only`. The orchestrator's local working tree now matches `origin/develop` at the new squash-commit; Phase E reads from this state. `--ff-only` guards against an unexpected divergence (would surface as "Not possible to fast-forward" → halt and surface). Then capture two values for Phase E step 2's flag passing: `git rev-parse --short HEAD` (the squash-commit SHA, abbreviated form for the manifest's `sha:` field) and `gh pr view <PR#> --json mergedAt -q .mergedAt | cut -dT -f1` (the merge date in `YYYY-MM-DD` form for the manifest's `merged_at:` field).
+3. **Wait for the Codex external reviewer's verdict on HEAD** — Codex auto-reviews on push since ~2026-05-05 (per `feedback_codex_bot_login.md` + `project_codex_review_integration.md` memories). The orchestrator MUST wait for that verdict before queuing the squash-merge, because `required_conversation_resolution` only blocks merge if Codex has left unresolved threads — silence (Codex still working) is observably indistinguishable from "passed with no findings" without an explicit wait. Three sub-steps:
 
-After step 4 returns success, advance to Phase E. The squash-commit SHA + merged-at date are passed to Phase E step 2's housekeeper-script invocation as `--squash-sha` and `--merged-at` flags so the script can populate `proposed_manifest_entry` for step 6's manifest write.
+   a. **Capture HEAD-SHA + thread baseline** — `HEAD_SHA=$(gh pr view <PR#> --json headRefOid -q .headRefOid)`; `BASELINE_THREADS=$(gh api graphql -f query='{repository(owner:"<o>",name:"<r>"){pullRequest(number:<PR#>){reviewThreads{totalCount}}}}' --jq '.data.repository.pullRequest.reviewThreads.totalCount')`. These two values anchor the poll to the current commit and the current thread count; any new push or any new thread is an intermediate-exit event per `feedback_pr_polling_cadence.md`.
+
+   b. **Initial eyes-poll (5 min budget, 30s × 10)** — wait for Codex's `eyes` (👀) reaction on the PR issue endpoint, which signals "I'm reviewing":
+
+   ```bash
+   gh api repos/<o>/<r>/issues/<PR#>/reactions \
+     -H "Accept: application/vnd.github.squirrel-girl-preview+json" \
+     --jq '.[] | select(.user.login == "chatgpt-codex-connector[bot]" and .content == "eyes")'
+   ```
+
+   Bot login MUST include the `[bot]` suffix per `feedback_codex_bot_login.md`. If no eyes after 5 min, post `gh pr comment <PR#> --body "@codex review"` as a manual fallback trigger, then resume the eyes-poll for another 5 min budget. Still no eyes after the fallback → halt and surface to user (Codex bot may be down or de-installed).
+
+   c. **Verdict poll (60s cadence, 10 min budget)** — once eyes is observed, poll for the terminal verdict, checking three signals per iteration:
+   - **Intermediate exit on new push** — `gh pr view <PR#> --json headRefOid -q .headRefOid` no longer matches `HEAD_SHA`. Re-baseline and restart sub-step (b).
+   - **Intermediate exit on new threads** — `reviewThreads.totalCount > BASELINE_THREADS`. Codex left findings; halt Phase D.5 and round-trip the new threads through Phase B/C (the new threads are the dispatch contract; reply BEFORE resolving per `feedback_thread_reply_discipline.md`).
+   - **Terminal exit on thumbs-up** — `+1` reaction from `chatgpt-codex-connector[bot]` on the same issue endpoint (filter `.content == "+1"`) AND `reviewThreads.totalCount == BASELINE_THREADS` (no new findings landed). Advance to step 4.
+
+   The +1 reaction is Codex's documented "no findings" signal (per Codex docs visible in any of its review bodies: _"If Codex has suggestions, it will comment; otherwise it will react with 👍."_). On long stable-state stalls (18+ verdict-poll iterations with no exit), surface to user — Codex sometimes never posts the explicit ack on small / mostly-CI commits and the user makes the manual ack call.
+
+4. **Squash-merge into `develop`** — `gh pr merge <PR#> --squash --delete-branch`. This produces the canonical squash-commit on `develop` (whose SHA Phase E step 6 references in the Progress Log) and deletes the feature branch in one atomic action. On merge failure (e.g. mergeStateStatus regressed to BLOCKED between step 3 and step 4 because a new review thread fired), halt and surface to user.
+5. **Sync local `develop` and capture squash metadata** — `git switch develop && git pull --ff-only`. The orchestrator's local working tree now matches `origin/develop` at the new squash-commit; Phase E reads from this state. `--ff-only` guards against an unexpected divergence (would surface as "Not possible to fast-forward" → halt and surface). Then capture two values for Phase E step 2's flag passing: `git rev-parse --short HEAD` (the squash-commit SHA, abbreviated form for the manifest's `sha:` field) and `gh pr view <PR#> --json mergedAt -q .mergedAt | cut -dT -f1` (the merge date in `YYYY-MM-DD` form for the manifest's `merged_at:` field).
+
+After step 5 returns success, advance to Phase E. The squash-commit SHA + merged-at date are passed to Phase E step 2's housekeeper-script invocation as `--squash-sha` and `--merged-at` flags so the script can populate `proposed_manifest_entry` for step 6's manifest write.
 
 ### Phase E — Post-merge housekeeping
 
