@@ -283,7 +283,7 @@ This section tracks the actionable next steps the [plan-readiness-audit Tier 1](
 graph TB
   %% READY (no upstream NS-XX blockers, or all upstream satisfied)
   NS01[NS-01: Plan-024 Phase 1<br/>Rust crate scaffolding]:::ready
-  NS02[NS-02: Plan-001 Phase 5 Lane A<br/>T5.1 + T5.5 + T5.6]:::ready
+  NS02[NS-02: Plan-001 Phase 5 Lane A<br/>T5.1 + T5.5 + T5.6]:::completed
   NS03[NS-03: Plan-023-partial Tier 1<br/>Electron + React skeleton]:::ready
   NS04[NS-04: Plan-001 T5.4 cwd-translator<br/>+ Plan-024 T-024-2-1 contracts pair]:::ready
   NS11[NS-11: Plan-007-partial cleanup<br/>3 stale BLOCKED-ON-C9 comments]:::ready
@@ -338,7 +338,7 @@ graph TB
 
 ### Recommended first wave
 
-With NS-12 resolved 2026-05-03 (this commit — Plan-001 §Phase 5 Precondition rewritten to four-lane structure + Lane A unblocked), the ready set is now NS-01, NS-02, NS-03, NS-04, NS-11, NS-13a, NS-14, NS-22 (8 items). The set shares no code paths or governance files — re-derived from each entry's `Files:` / target_paths after NS-12's removal and NS-02 + NS-22's promotion. Suggested parallel dispatch: **NS-01 + NS-02 + NS-03 + NS-04** as four independent code lanes (NS-02 = Plan-001 Phase 5 Lane A, recommended split into 3 atomic PRs per the entry below); **NS-13a + NS-14 + NS-11 + NS-22** as concurrent governance / audit / cleanup lanes. The previous serialization of NS-22 behind NS-12 is dissolved — NS-22 targets distinct content (`0001-initial.sql` filename + `session.ts:388` cite occurrences in Plan-001 / Plan-022 / ADR-022 / Plan-008) from NS-12's edit scope (Plan-001 §Preconditions + §Phase 5 Precondition); NS-22 dispatches cleanly against the post-NS-12 HEAD without rebase churn.
+With NS-02 completed 2026-05-11 (PR #38 — Lane A T5.1 + T5.5 + T5.6 all shipped; see entry below), the ready set is now NS-01, NS-03, NS-04, NS-11, NS-13a, NS-14, NS-22 (7 items). The set shares no code paths or governance files — re-derived from each entry's `Files:` / target_paths after NS-02's drop-out. Suggested parallel dispatch: **NS-01 + NS-03 + NS-04** as three independent code lanes; **NS-13a + NS-14 + NS-11 + NS-22** as concurrent governance / audit / cleanup lanes. The previous serialization of NS-22 behind NS-12 (resolved 2026-05-03) is dissolved — NS-22 targets distinct content (`0001-initial.sql` filename + `session.ts:388` cite occurrences in Plan-001 / Plan-022 / ADR-022 / Plan-008) from NS-12's edit scope (Plan-001 §Preconditions + §Phase 5 Precondition); NS-22 dispatches cleanly against the post-NS-12 HEAD without rebase churn.
 
 ### NS-01: Plan-024 Phase 1 — Rust crate scaffolding
 
@@ -352,7 +352,7 @@ With NS-12 resolved 2026-05-03 (this commit — Plan-001 §Phase 5 Precondition 
 
 ### NS-02: Plan-001 Phase 5 Lane A — sessionClient + pg.Pool + I7 (T5.1, T5.5, T5.6)
 
-- Status: `in_progress` (last shipped: PR #36, 2026-05-11)
+- Status: `completed` (resolved 2026-05-11 via PR #38 — last sub-task; Lane A complete: T5.1 PR #30 sessionClient + I1-I4, T5.5 PR #36 pg.Pool-backed Querier composition, T5.6 PR #38 strengthened createSession lock-ordering test with wrong-Querier discriminator and discharged the TODO(Plan-001 PR #5) annotation)
 - Type: code
 - Priority: `P1`
 - Upstream: none (NS-12 resolved 2026-05-03 — Plan-001 §Phase 5 Precondition four-lane split is at HEAD; Lane A is now actionable directly against the per-task `Files:` rows)
@@ -362,7 +362,7 @@ With NS-12 resolved 2026-05-03 (this commit — Plan-001 §Phase 5 Precondition 
 - PRs:
   - [x] T5.1 — sessionClient + I1-I4 integration tests (PR #30, merged 2026-05-05)
   - [x] T5.5 — pg.Pool-backed Querier composition (PR #36, merged 2026-05-11)
-  - [ ] T5.6 — strengthen createSession lock-ordering test
+  - [x] T5.6 — strengthen createSession lock-ordering test (PR #38, merged 2026-05-11)
 
 ### NS-03: Plan-023-partial Tier 1 — Electron + React skeleton
 
