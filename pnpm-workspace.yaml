@@ -32,6 +32,18 @@ allowBuilds:
   workerd: true
   esbuild: true
   sharp: false
+  # Plan-024 Phase 2 (T-024-2-2) — runtime-daemon PTY backend dependencies:
+  # - node-pty: prebuild-install pulls a platform-specific .node binding
+  #   for the in-process PTY backend. Required on every dev + CI platform
+  #   (the daemon's local NodePtyHost cannot construct without it).
+  # - koffi: FFI bindings used by NodePtyHost on Windows to call
+  #   `kernel32!GenerateConsoleCtrlEvent` for I-024-1 (Windows kill
+  #   semantics). Listed in `optionalDependencies` so non-Windows installs
+  #   skip the .node prebuild gracefully, but the build script itself
+  #   must be approved for the cases where the prebuild does land
+  #   (Windows CI today, the Phase 5 sidecar fallback path later).
+  node-pty: true
+  koffi: true
 
 # Workspace-wide dependency unification per ADR-022 §Decision row 1 (pnpm catalogs).
 # Catalogs eliminate per-package version drift for cross-cutting devDependencies (testing
