@@ -27,7 +27,11 @@
   },
   "dependencies": {
     "@ai-sidekicks/contracts": "workspace:*",
-    "better-sqlite3": "^12.9.0"
+    "better-sqlite3": "^12.9.0",
+    "node-pty": "^1.2.0-beta.12"
+  },
+  "optionalDependencies": {
+    "koffi": "^2.14.1"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
