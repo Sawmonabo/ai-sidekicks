@@ -590,7 +590,7 @@ async fn post_exit_kill_returns_unknown_session_not_recycled_pid() {
             // Expected: the `exited` flag short-circuited (or the
             // waiter already removed the session from the map).
         }
-        Err(PtySessionError::Io(io_err)) => {
+        Err(PtySessionError::Io(_)) => {
             // Acceptable: the flag race lost in this run; libc::kill
             // landed with ESRCH ("no such process") because the
             // kernel had already reaped the pid AND the pid happened
@@ -602,7 +602,6 @@ async fn post_exit_kill_returns_unknown_session_not_recycled_pid() {
             // or another error if the pid was recycled to a non-
             // owned process; the load-bearing assertion is that the
             // operation did NOT report success.
-            let _ = io_err; // silence unused-var if cfg keeps the binding alive
         }
         Ok(_) => panic!(
             "post-exit kill MUST NOT return Ok — it could be signaling a recycled pid. \

@@ -284,6 +284,23 @@ struct SessionHandle {
     /// `waitpid`-without-reap pattern. Phase 3 may revisit if exposure
     /// proves load-bearing in production.
     ///
+    /// Alternative considered: `Ordering::Relaxed` on both sides.
+    /// Rejected — the window-narrowing guarantee depends on a
+    /// happens-before edge from "waiter has finished reaping the
+    /// child" to "kill path observes `exited == true`". `Relaxed`
+    /// provides only atomicity, not ordering; the compiler or CPU
+    /// could reorder the kill path's `handle.pid` read (and even
+    /// adjacent loads from the `SessionHandle`) past the `exited`
+    /// load, defeating the intent. `Release`/`Acquire` establishes
+    /// exactly the synchronization edge we need at the minimum cost.
+    ///
+    /// Alternative considered: `Ordering::SeqCst` on both sides.
+    /// Rejected as overkill — there is only one atomic location
+    /// involved in this protocol, so no cross-variable total-order
+    /// requirement exists that `Release`/`Acquire` cannot satisfy.
+    /// `SeqCst` would add a global fence cost (multi-cycle on x86,
+    /// more on weakly-ordered ARM) for no observable behavior change.
+    ///
     /// `Arc` because the waiter task needs an independent handle for
     /// the cross-thread store, and the kill path needs read access via
     /// the registry's `Arc<SessionHandle>`.
