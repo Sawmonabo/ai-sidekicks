@@ -8,6 +8,12 @@
 export { SessionService } from "./session-service.js";
 export { applyMigrations, applyPragmas, openDatabase } from "./migration-runner.js";
 export { deriveMainChannelId, projectEvent, replay } from "./session-projector.js";
+export { translateSpawnCwd } from "./spawn-cwd-translator.js";
+export type {
+  DriverStrategy,
+  TranslateSpawnCwdInput,
+  WrappingShell,
+} from "./spawn-cwd-translator.js";
 export type {
   AppendableEvent,
   ChannelProjection,
