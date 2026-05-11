@@ -22,7 +22,7 @@
 // running session via a deferred resolution. Swap in the real
 // `NodePtyHost` once NS-05 ships — the assertion shape is stable.
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -102,8 +102,16 @@ beforeEach(() => {
   // translated `SpawnRequest.cwd` we WOULD pass to a real backend
   // is the stable parent, not the worktree, so a real backend
   // could not have held the lock.
+  //
+  // We materialize the worktree directory on disk so the teardown
+  // assertion (`rmSync(ctx.worktree, …, { force: false })`) has a
+  // real path to remove. Without this, the previous `force: true`
+  // form silently no-op'd on the missing path and the regression
+  // (dir-creation drift OR ERROR_SHARING_VIOLATION on a real
+  // backend) was unobservable.
   const stableParent: string = mkdtempSync(join(tmpdir(), "ai-sidekicks-spawn-cwd-"));
   const worktree: string = join(stableParent, "worktrees", "feature-x");
+  mkdirSync(worktree, { recursive: true });
 
   ctx = {
     host: new RecordingPtyHost(),
@@ -202,8 +210,14 @@ describe.skipIf(process.platform !== "win32")(
       // forwarded the worktree as the spawn-call cwd, a real
       // backend would lock it and this rmSync would throw
       // ERROR_SHARING_VIOLATION.
+      //
+      // `force: false` is load-bearing: without it, a missing
+      // directory (e.g., the fixture stopped creating it) would
+      // silently no-op and the assertion would pass vacuously,
+      // hiding both regressions this test guards (lock-not-released
+      // AND fixture-drift).
       expect(() => {
-        rmSync(ctx.worktree, { recursive: true, force: true });
+        rmSync(ctx.worktree, { recursive: true, force: false });
       }).not.toThrow();
     });
   },

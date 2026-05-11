@@ -185,14 +185,26 @@ export function translateSpawnCwd(input: TranslateSpawnCwdInput): SpawnRequest {
 
   // shell === "windows-cmd"
   //
-  // cmd.exe /d /s /c "cd /d "<worktree>" && "<cmd>" <args>"
+  // cmd.exe /d /s /v:off /c "cd /d "<worktree>" && "<cmd>" <args>"
   //
   //   /d    — skip AutoRun (avoids surprising shell-init side effects)
   //   /s    — strip the outer quotes per cmd.exe argument-parsing rules
   //           when the command line starts and ends with a `"`. Without
   //           /s, cmd.exe's path-with-spaces handling diverges from
   //           POSIX expectation and the `cd /d "<path>"` form misparses.
-  //   /c    — run the command and terminate
+  //   /v:off — explicitly disable delayed expansion of `!VAR!` syntax,
+  //           invariant to the per-system registry default at
+  //           `HKLM\\SOFTWARE\\Microsoft\\Command Processor\\DelayedExpansion`
+  //           (and the `HKCU` equivalent). Without this, an arg
+  //           containing `!VAR!` would expand at the wrapper-cmd.exe
+  //           layer on systems where an operator has flipped the
+  //           registry default to ON. `quoteWindowsCmd` does not
+  //           caret-escape `!` because the registry-OFF default makes
+  //           `!` an ordinary character; `/v:off` enforces that
+  //           assumption at every site regardless of registry state.
+  //   /c    — run the command and terminate. MUST come last in the flag
+  //           list because cmd.exe consumes the rest of the command line
+  //           as the command to run; `/v:off` must precede `/c`.
   //   /d (cd) — the `/d` argument to `cd` itself allows drive-letter
   //           switches (e.g., `cd /d D:\\worktrees\\foo` works across
   //           drive boundaries; `cd D:\\worktrees\\foo` without /d
@@ -213,7 +225,7 @@ export function translateSpawnCwd(input: TranslateSpawnCwdInput): SpawnRequest {
   return {
     kind: "spawn_request",
     command: "cmd.exe",
-    args: ["/d", "/s", "/c", winScript],
+    args: ["/d", "/s", "/v:off", "/c", winScript],
     env: spec.env,
     cwd: stableParent,
     rows: spec.rows,
@@ -237,13 +249,36 @@ function quotePosix(value: string): string {
 }
 
 /**
- * Windows cmd.exe quote-wrap. The cmd.exe parser uses `"` as the only
- * quoting character; a literal `"` inside a quoted span is escaped by
- * doubling it (`""`). This module does NOT attempt to defend against
- * cmd.exe metacharacters (`&`, `|`, `<`, `>`, `^`, `%`) embedded in
- * paths — they are exceedingly rare in real filesystem paths, and the
- * Windows integration test (mock-spawn) will exercise the common
- * "path with spaces" case which is the realistic failure mode.
+ * Windows cmd.exe quote-wrap. The cmd.exe parser interprets several
+ * characters even inside double-quoted spans, so the wrapper must:
+ *
+ *   1. Caret-escape cmd.exe metacharacters (`^`, `&`, `|`, `<`, `>`, `%`).
+ *      The caret (`^`) is cmd.exe's documented escape character; a
+ *      caret followed by a metacharacter passes the metacharacter
+ *      through literally to the target process. The `%` case is the
+ *      load-bearing one for argument content: cmd.exe's variable-
+ *      expansion pass scans `/c` script bytes for `%VAR%` even inside
+ *      `"..."` spans, so an arg like `--env=%PROD%` would be expanded
+ *      at the wrapper layer (wrong — the target process should see
+ *      `%PROD%` literally and decide its own env handling). Escaping
+ *      `%` as `^%` neutralizes the variable scanner because the
+ *      caret consumes the leading `%`, breaking the `%...%` pair.
+ *   2. Order matters: escape `^` FIRST. Steps 2-onward emit new `^`
+ *      bytes (e.g., `&` → `^&`), and if we escaped `^` AFTER those,
+ *      we would re-escape the carets we just introduced
+ *      (`^&` → `^^&`, wrong).
+ *   3. Double a literal `"` (cmd.exe's quoting-span escape is doubling,
+ *      not caret).
+ *   4. Wrap the result in outer `"..."`.
+ *
+ * Primary source: Microsoft Learn — "Windows commands / cmd" and the
+ * "command-line shell" parsing reference. Caret escape semantics are
+ * documented for `& | < > ^ %`. Delayed-expansion `!` is intentionally
+ * out of scope here: the wrapper passes `/v:off` explicitly to disable
+ * delayed expansion regardless of the per-system registry default at
+ * `HKLM\\SOFTWARE\\Microsoft\\Command Processor\\DelayedExpansion`, so
+ * `!` always reaches the target process literally and need not be
+ * escaped at the quoting layer.
  *
  * Empty string → `""` (two literal quotes; cmd.exe parses as empty arg).
  */
@@ -251,5 +286,17 @@ function quoteWindowsCmd(value: string): string {
   if (value.length === 0) {
     return '""';
   }
-  return '"' + value.replace(/"/g, '""') + '"';
+  // Caret first (steps 2+ introduce new carets we must not re-escape).
+  let escaped: string = value.replace(/\^/g, "^^");
+  // Then each remaining cmd.exe metacharacter. `%` is the load-bearing
+  // one — without `^%`, args containing `%VAR%` are expanded at the
+  // wrapper-cmd.exe layer instead of being passed through literally.
+  escaped = escaped.replace(/&/g, "^&");
+  escaped = escaped.replace(/\|/g, "^|");
+  escaped = escaped.replace(/</g, "^<");
+  escaped = escaped.replace(/>/g, "^>");
+  escaped = escaped.replace(/%/g, "^%");
+  // Finally, double literal `"` (cmd.exe's quoting-span escape) and
+  // wrap in outer quotes.
+  return '"' + escaped.replace(/"/g, '""') + '"';
 }

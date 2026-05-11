@@ -189,7 +189,7 @@ describe("translateSpawnCwd — cd-prefix (POSIX shell wrapping)", () => {
 // `*.windows.test.ts` file.
 
 describe("translateSpawnCwd — cd-prefix (Windows cmd.exe wrapping)", () => {
-  it("rewrites cwd to stable parent and wraps in `cmd.exe /d /s /c`", () => {
+  it("rewrites cwd to stable parent and wraps in `cmd.exe /d /s /v:off /c`", () => {
     const result: SpawnRequest = translateSpawnCwd(
       makeInput("cd-prefix", {
         spec: makeSpec({ cwd: "C:\\Users\\dev\\worktrees\\feature-x" }),
@@ -200,7 +200,61 @@ describe("translateSpawnCwd — cd-prefix (Windows cmd.exe wrapping)", () => {
 
     expect(result.cwd).toBe("C:\\Users\\dev");
     expect(result.command).toBe("cmd.exe");
-    expect(result.args.slice(0, 3)).toEqual(["/d", "/s", "/c"]);
+    expect(result.args.slice(0, 4)).toEqual(["/d", "/s", "/v:off", "/c"]);
+  });
+
+  it("passes `/v:off` between `/s` and `/c` (defense-in-depth vs. registry-flipped delayed expansion)", () => {
+    // cmd.exe's delayed-expansion default is OFF, but an operator can
+    // flip the per-system default ON via
+    // `HKLM\\SOFTWARE\\Microsoft\\Command Processor\\DelayedExpansion`
+    // (or the `HKCU` equivalent). On such a system, an arg containing
+    // `!VAR!` would expand at the wrapper layer because we do not
+    // caret-escape `!`. Passing `/v:off` explicitly makes the wrapper
+    // invariant to the registry state.
+    //
+    // Position matters: `/c` consumes the rest of the command line as
+    // the script to run, so `/v:off` MUST come before `/c`.
+    const result: SpawnRequest = translateSpawnCwd(
+      makeInput("cd-prefix", {
+        spec: makeSpec({ cwd: "C:\\worktrees\\f" }),
+        stableParent: "C:\\Users\\dev",
+        wrappingShell: "windows-cmd",
+      }),
+    );
+
+    const vOffIdx: number = result.args.indexOf("/v:off");
+    const cIdx: number = result.args.indexOf("/c");
+    expect(vOffIdx).toBeGreaterThan(-1);
+    expect(cIdx).toBeGreaterThan(-1);
+    expect(vOffIdx).toBeLessThan(cIdx);
+    // And it sits AFTER `/d` + `/s` (cmd.exe flag-order convention).
+    expect(vOffIdx).toBe(2);
+  });
+
+  it("preserves literal `!VAR!` in args (delayed expansion disabled at the wrapper)", () => {
+    // `quoteWindowsCmd` deliberately does not caret-escape `!`; the
+    // wrapper's `/v:off` flag is what guarantees `!VAR!` reaches the
+    // target process literally. This test documents the joint contract:
+    // an arg containing `!VAR!` survives unchanged through the
+    // wrapping-script bytes, and the `/v:off` flag is present so
+    // cmd.exe's delayed-expansion pass never runs on it.
+    const result: SpawnRequest = translateSpawnCwd(
+      makeInput("cd-prefix", {
+        spec: makeSpec({
+          command: "deploy.exe",
+          args: ["--env=!PROD!"],
+          cwd: "C:\\worktrees\\f",
+        }),
+        stableParent: "C:\\Users\\dev",
+        wrappingShell: "windows-cmd",
+      }),
+    );
+
+    // `/v:off` must precede `/c` — without it, a registry-flipped host
+    // would expand `!PROD!` at the wrapper layer.
+    expect(result.args).toContain("/v:off");
+    // The literal `!PROD!` survives in the wrapping-script bytes.
+    expect(result.args[4]).toContain('"--env=!PROD!"');
   });
 
   it("uses `cd /d` so drive-letter switches succeed", () => {
@@ -212,7 +266,7 @@ describe("translateSpawnCwd — cd-prefix (Windows cmd.exe wrapping)", () => {
       }),
     );
 
-    expect(result.args[3]).toContain(`cd /d "D:\\worktrees\\feature-x"`);
+    expect(result.args[4]).toContain(`cd /d "D:\\worktrees\\feature-x"`);
   });
 
   it("double-quote-escapes embedded quotes in cmd.exe quoting form", () => {
@@ -232,7 +286,165 @@ describe("translateSpawnCwd — cd-prefix (Windows cmd.exe wrapping)", () => {
       }),
     );
 
-    expect(result.args[3]).toContain('"C:\\tools\\quoted ""tool"".exe"');
+    expect(result.args[4]).toContain('"C:\\tools\\quoted ""tool"".exe"');
+  });
+
+  it("caret-escapes %VAR% in args so cmd.exe does not expand env vars at the wrapper layer", () => {
+    // The load-bearing case: cmd.exe's variable-expansion pass scans
+    // `/c` script bytes for `%VAR%` even inside `"..."` spans. Without
+    // `^%`, an arg like `--env=%PROD%` would be expanded at the
+    // wrapper-cmd.exe layer, leaking the daemon's env into the target
+    // process or substituting an empty string when the var is unset.
+    // The target process must see `%PROD%` literally.
+    const result: SpawnRequest = translateSpawnCwd(
+      makeInput("cd-prefix", {
+        spec: makeSpec({
+          command: "deploy.exe",
+          args: ["--env=%PROD%"],
+          cwd: "C:\\worktrees\\f",
+        }),
+        stableParent: "C:\\Users\\dev",
+        wrappingShell: "windows-cmd",
+      }),
+    );
+
+    // The `%` bytes are caret-escaped (`^%`). The wrapping double
+    // quotes are still emitted around the arg.
+    expect(result.args[4]).toContain('"--env=^%PROD^%"');
+    // And the raw, unescaped `%VAR%` form must NOT appear unescaped
+    // anywhere in the script — that would mean cmd.exe still scans it.
+    expect(result.args[4]).not.toContain("=%PROD%");
+  });
+
+  it.each([
+    { input: "%FOO", label: "leading `%` with no closer" },
+    { input: "FOO%", label: "trailing `%` with no opener" },
+    { input: "100%", label: "single `%` mid-string (percent-literal)" },
+    { input: "%%PATH%%", label: "doubled `%` bracketing a name" },
+    { input: "%", label: "lone `%`" },
+    { input: "%%", label: "doubled `%` only" },
+  ])(
+    "caret-escapes every `%` regardless of pairing — boundary case: $label",
+    ({ input }: { input: string }) => {
+      // Regression guard: the escape rule is "every `%` → `^%`", not
+      // "every `%...%` pair → `^%...^%`". A future refactor to a
+      // pair-aware regex like `/%([^%]+)%/g` would pass the canonical
+      // `%VAR%` test but corrupt boundary inputs like these. The
+      // contract we enforce: input's `%` count is preserved in the
+      // output's `%` count, and EVERY `%` in the output is preceded
+      // by a `^` byte. cmd.exe's variable scanner is byte-pair based
+      // (`%X%` where `X` is one of several token shapes), so a lone
+      // or unpaired `%` would not normally expand, but our defense
+      // is byte-level: any `%` reaching the wrapper unescaped is a
+      // bug. We assert byte-level invariance, not pair-shape parsing.
+      const result: SpawnRequest = translateSpawnCwd(
+        makeInput("cd-prefix", {
+          spec: makeSpec({
+            command: "tool.exe",
+            args: [input],
+            cwd: "C:\\worktrees\\f",
+          }),
+          stableParent: "C:\\Users\\dev",
+          wrappingShell: "windows-cmd",
+        }),
+      );
+
+      const script: string = result.args[4] ?? "";
+      // The script ends with the single quoted arg (the only piece
+      // containing `%` bytes — the fixed `cd` path and `tool.exe`
+      // command are `%`-free). Assert byte-level invariants on the
+      // full script:
+      //   - input's `%` count is preserved (no `%` is lost or doubled
+      //     into the output);
+      //   - every `%` in the output is preceded by a literal `^` byte
+      //     (the `^%` substring count equals the `%` count);
+      //   - there is no bare `%` reaching the wrapper unescaped.
+      const inputPercentCount: number = (input.match(/%/g) ?? []).length;
+      const outputPercentCount: number = (script.match(/%/g) ?? []).length;
+      const caretPercentPairCount: number = (script.match(/\^%/g) ?? []).length;
+
+      expect(outputPercentCount).toBe(inputPercentCount);
+      expect(caretPercentPairCount).toBe(outputPercentCount);
+      // No bare `%` (i.e., no `%` not preceded by `^`). The `^` inside
+      // the negated class is a literal `^` byte; ESLint flags `\^` as
+      // unnecessary because `^` has no special meaning outside the
+      // first position of a character class.
+      expect(/(^|[^^])%/.test(script)).toBe(false);
+    },
+  );
+
+  it("caret-escapes each of & | < > ^ in args", () => {
+    // Each metacharacter must be `^`-prefixed so cmd.exe passes it
+    // through literally instead of treating it as a command-separator
+    // (`&`, `|`), redirection (`<`, `>`), or escape (`^`).
+    const result: SpawnRequest = translateSpawnCwd(
+      makeInput("cd-prefix", {
+        spec: makeSpec({
+          command: "tool.exe",
+          args: ["a&b", "c|d", "e<f", "g>h", "i^j"],
+          cwd: "C:\\worktrees\\f",
+        }),
+        stableParent: "C:\\Users\\dev",
+        wrappingShell: "windows-cmd",
+      }),
+    );
+
+    const script: string | undefined = result.args[4];
+    expect(script).toBeDefined();
+    expect(script).toContain('"a^&b"');
+    expect(script).toContain('"c^|d"');
+    expect(script).toContain('"e^<f"');
+    expect(script).toContain('"g^>h"');
+    // Caret is escaped FIRST (so subsequent escapes' carets are not
+    // doubled). The literal `^` in input becomes `^^` in output.
+    expect(script).toContain('"i^^j"');
+  });
+
+  it("escapes caret before other metacharacters (order matters)", () => {
+    // Regression guard for the escape-order bug: if `^` is escaped
+    // AFTER `&`, the `^&` introduced by the `&` step would become
+    // `^^&`, doubling the caret count and corrupting the literal.
+    // With correct ordering (`^` first), `&` in input → `^&` (one
+    // caret), and `^` in input → `^^` (two carets) — but a string
+    // containing BOTH preserves the distinction.
+    const result: SpawnRequest = translateSpawnCwd(
+      makeInput("cd-prefix", {
+        spec: makeSpec({
+          command: "tool.exe",
+          args: ["a^b&c"],
+          cwd: "C:\\worktrees\\f",
+        }),
+        stableParent: "C:\\Users\\dev",
+        wrappingShell: "windows-cmd",
+      }),
+    );
+
+    // `^` → `^^`, then `&` → `^&`. Result: `a^^b^&c`. If the order
+    // were reversed, we'd see `a^^b^^&c` (incorrect: the `^` from
+    // the `&` step got re-escaped).
+    expect(result.args[4]).toContain('"a^^b^&c"');
+  });
+
+  it('preserves the `"` doubling rule when other metacharacters are present', () => {
+    // The `"` doubling and the metacharacter caret-escape are
+    // composed: caret-escapes happen FIRST (on the unquoted content),
+    // then `"` doubling, then outer `"..."` wrap. A string with both
+    // `&` and `"` must round-trip correctly under both passes.
+    const result: SpawnRequest = translateSpawnCwd(
+      makeInput("cd-prefix", {
+        spec: makeSpec({
+          command: 'tool "x" & y.exe',
+          args: [],
+          cwd: "C:\\worktrees\\f",
+        }),
+        stableParent: "C:\\Users\\dev",
+        wrappingShell: "windows-cmd",
+      }),
+    );
+
+    // `&` → `^&`, then `"` → `""`. Outer wrap adds the leading and
+    // trailing `"`. Expected: `"tool ""x"" ^& y.exe"`.
+    expect(result.args[4]).toContain('"tool ""x"" ^& y.exe"');
   });
 });
 
