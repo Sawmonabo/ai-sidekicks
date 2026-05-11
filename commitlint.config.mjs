@@ -6,12 +6,16 @@
 //
 // scope-enum: required, lowercase, hyphen-only. Mirrors the package + cross-cutting nouns
 // the workspace owns:
-//   - per-package nouns: `contracts`, `client-sdk`, `daemon`, `control-plane`, `desktop`
+//   - per-package nouns: `contracts`, `client-sdk`, `daemon`, `control-plane`, `desktop`,
+//     `sidecar-rust-pty`, `pty-sidecar-publishing`
 //   - cross-cutting nouns: `repo` (workspace-root scaffolding), `deps` (dependency bumps),
 //     `ci` (workflow files), `format` (manual format passes), `release` (release tooling)
 //
 // `daemon` is the conventional short alias for `runtime-daemon` (per CONTRIBUTING.md
 // Worked Example: `feat(daemon): scaffold pnpm workspace + Turbo pipeline`).
+// `sidecar-rust-pty` matches the Rust crate at `packages/sidecar-rust-pty/` (Plan-024).
+// `pty-sidecar-publishing` matches the platform-package publishing dir at
+// `packages/pty-sidecar-publishing/<platform>/<arch>/` (Plan-024 Phase 4 + Phase 5).
 
 /** @type {import("@commitlint/types").UserConfig} */
 export default {
@@ -32,6 +36,8 @@ export default {
         "daemon",
         "control-plane",
         "desktop",
+        "sidecar-rust-pty",
+        "pty-sidecar-publishing",
         // Cross-cutting nouns
         "repo",
         "deps",
