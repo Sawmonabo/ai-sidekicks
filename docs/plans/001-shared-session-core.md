@@ -623,6 +623,18 @@ shipped:
     spec_coverage: ["Spec-001 AC1", "Spec-001 AC3", "Spec-001 AC4", "Spec-001 AC6"]
     notes: |
       Phase 5 Lane A T5.1 — sessionClient.ts (daemon JSON-RPC + control-plane tRPC/SSE transports). First atomic post-NS-02 PR for Plan-001. See `### Notes` subsection for the full PR #30 round-trip narrative.
+  - phase: 5
+    task: T5.5
+    pr: 36
+    sha: a1ef5be
+    merged_at: 2026-05-11
+    files:
+      - packages/control-plane/src/sessions/__tests__/session-directory-service.test.ts
+      - packages/control-plane/src/sessions/session-directory-service.ts
+    verifies_invariant: []
+    spec_coverage: ["Spec-001 AC1", "Spec-001 AC2", "Spec-001 AC4"]
+    notes: |
+      Phase 5 Lane A T5.5 — `pg.Pool`-backed `Querier` composition for `SessionDirectoryService`. Adds three factories: `createPgPoolQuerier(pool: Pool): Querier` (per-query auto-checkout/release), `createPoolClientQuerier(client: PoolClient): Querier` (in-tx held-client adapter that rejects nested transactions), and `createSessionDirectoryServiceFromPool(pool: Pool): SessionDirectoryService` (convenience factory). Transaction logic: `pool.connect()` + manual BEGIN/COMMIT/ROLLBACK with try/finally release; ROLLBACK errors swallowed but the original fn error always re-raises; no follow-up ROLLBACK after COMMIT failure (Postgres auto-rolls-back). 14 new tests in the `createPgPoolQuerier — pool-checkout-and-release path` describe block exercise query/exec routing, transaction connect-once + held-client routing, nested-tx rejection, ROLLBACK paths, COMMIT-throws + BEGIN-throws, and AC1/AC2/AC4 through pg.Pool. Cast comments document the substrate-vs-surface generic-shape mismatch (`pool.query<R extends QueryResultRow>` constrains R while the Querier surface is generic on free T). Driver-agnostic — no I-001-N invariant exercised at runtime.
 ```
 
 ### Notes
