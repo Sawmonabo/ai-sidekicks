@@ -381,6 +381,82 @@ test("validateManifestSubagentStage: narration check fires even when result is a
   assert.ok(narration);
 });
 
+// CLI wrapper exit-code routing — narration alone returns 1, narration co-occurring
+// with any other gap returns 2 (auto-deviation requires trusted `_script_stage`;
+// any additional gap signals `_script_stage` itself may be untrusted). Codex PR #53 R4 P1.
+test("validate-subagent-manifest CLI: exit 1 fires only when narration is the sole gap", () => {
+  const tmpRepo = mkdtempSync(join(tmpdir(), "validate-cli-exit1-"));
+  try {
+    // Manifest that triggers narration alone — fully-honest stage-1 plumbing, no other
+    // integrity gaps. Stage-1 sidecar is identical to the manifest's _script_stage.
+    const narrationOnlyManifest = {
+      _script_stage: {
+        affected_files: [],
+        schema_violations: [],
+        verification_failures: [],
+        semantic_work_pending: ["compose_status_completion_prose"],
+      },
+      semantic_work_pending: ["compose_status_completion_prose"],
+      affected_files: [],
+      semantic_edits: {},
+      concerns: [],
+      subagent_completed_at: null,
+      result: null,
+    };
+    const manifestPath = join(tmpRepo, "manifest.json");
+    const stage1Path = join(tmpRepo, "stage1.json");
+    writeFileSync(manifestPath, JSON.stringify(narrationOnlyManifest));
+    writeFileSync(stage1Path, JSON.stringify(narrationOnlyManifest._script_stage));
+
+    const cliResolved = join(import.meta.dirname, "..", "validate-subagent-manifest.mjs");
+
+    const runCli = (extraArgs) => {
+      try {
+        const stdout = execSync(
+          `node --experimental-strip-types ${cliResolved} ${manifestPath}${extraArgs}`,
+          { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+        );
+        return { status: 0, stdout, stderr: "" };
+      } catch (e) {
+        return {
+          status: e.status,
+          stdout: e.stdout?.toString() ?? "",
+          stderr: e.stderr?.toString() ?? "",
+        };
+      }
+    };
+
+    // Narration-only invocation → expect exit 1 (every gap is "definitional" for narration:
+    // result non-canonical, narration_mode_detected, per-item unaddressed).
+    const narrationOnly = runCli(` --stage1 ${stage1Path}`);
+    assert.equal(
+      narrationOnly.status,
+      1,
+      `narration-only should exit 1; got ${narrationOnly.status}. stderr: ${narrationOnly.stderr}`,
+    );
+    const parsed = JSON.parse(narrationOnly.stdout);
+    assert.equal(parsed.narration_detected, true);
+
+    // Mixed-gap invocation — omit --stage1 so check #12 baseline-trust ALSO fires.
+    // narrationDetected is still true, but a non-definitional integrity gap is present,
+    // so exit should drop to 2.
+    const mixed = runCli("");
+    const parsedMixed = JSON.parse(mixed.stdout);
+    assert.equal(parsedMixed.narration_detected, true, "narration still fires");
+    assert.ok(
+      parsedMixed.gaps.some((g) => g.includes("subagent-emitted and may be tampered")),
+      `expected baseline-trust gap when --stage1 omitted; got ${JSON.stringify(parsedMixed.gaps)}`,
+    );
+    assert.equal(
+      mixed.status,
+      2,
+      `mixed-gap (narration + baseline-trust) must exit 2 so the orchestrator round-trips/halts rather than auto-deviating off untrusted _script_stage; got ${mixed.status}. stderr: ${mixed.stderr}`,
+    );
+  } finally {
+    rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
 test("validateManifestSubagentStage: fails when affected_files entry is missing from disk", () => {
   // Codex P1 (PR #33 R6 / Finding 10): the placeholder-scan loop's `if (existsSync(full))`
   // gate had no else-branch, so a subagent run that DELETED a declared affected_files entry

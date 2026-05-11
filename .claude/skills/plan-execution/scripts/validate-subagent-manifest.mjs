@@ -128,11 +128,27 @@ function main() {
     gaps.forEach((g, i) => process.stderr.write(`  ${i + 1}. ${g}\n`));
   }
 
-  // Narration-mode wins the exit code: when present, the orchestrator's response
-  // is the auto-deviation fallback (deterministic), NOT a generic round-trip.
-  // Distinguishing exit 1 from exit 2 lets `set -e` callers branch without
-  // re-parsing the JSON output.
-  if (narrationDetected) return 1;
+  // Exit-code routing — narration_mode_detected wins exit 1 only when every
+  // gap is "definitional" for narration (i.e., directly downstream of the
+  // subagent doing nothing). The narration scenario inherently produces three
+  // gap classes:
+  //   - check #1: `result` non-canonical
+  //   - check #2: per-item semantic_work_pending unaddressed (one per item)
+  //   - check #13: narration_mode_detected itself
+  // Any OTHER gap (baseline-trust #12, preservation #7/#9/#10/#11, halt-state
+  // #8, schema-surfacing #5, placeholder leak, on-disk affected_files
+  // failures, etc.) signals state the auto-deviation fallback cannot trust —
+  // applying edits from `_script_stage` then would compound the bug. Mixed
+  // cases must round-trip / halt through exit 2. (Codex PR #53 R4 P1.)
+  const DEFINITIONAL_NARRATION_GAP_PATTERNS = [
+    /^narration_mode_detected/,
+    /^`result` is /,
+    / listed in semantic_work_pending but absent from semantic_edits and concerns /,
+  ];
+  const allGapsAreDefinitional = gaps.every((g) =>
+    DEFINITIONAL_NARRATION_GAP_PATTERNS.some((p) => p.test(g)),
+  );
+  if (narrationDetected && allGapsAreDefinitional) return 1;
   if (!result.valid) return 2;
   return 0;
 }

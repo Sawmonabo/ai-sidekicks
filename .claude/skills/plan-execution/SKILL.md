@@ -514,7 +514,11 @@ The phase has 8 steps in this exact order — DO NOT reorder; step 6 (shipment-m
    Triggered when exit 1 (narration_mode_detected) fires, OR when exit 2 fires on two consecutive rounds without progress. The contract violation ("you orchestrate; you don't implement", hard rule line 41) is waived inside this fallback path because the subagent is structurally unable to complete the work — re-dispatching wastes a turn and the deterministic fix is for the orchestrator to apply the semantic edits directly.
    1. **Apply the semantic edits directly.** Read each item in `_script_stage.semantic_work_pending`. For each one, perform the corresponding edit on the file(s) in `affected_files` using the orchestrator's own Edit tool. The composition rules are the same the subagent would have followed (NS-12 precedent shape for status prose, §6 ready-set re-derivation rules, etc.) — see `references/post-merge-housekeeper-contract.md` § canonical responsibilities for the per-item recipes.
 
-   2. **Rewrite the manifest.** Set `result: "DONE_WITH_CONCERNS"`, populate `semantic_edits` with one entry per pending item (each carrying a short `summary` of what changed + the file + line), and add a `concerns` entry of the form:
+   2. **Rewrite the manifest.** Set `result` based on the halt-state arrays in `_script_stage`:
+      - If `_script_stage.schema_violations` OR `_script_stage.verification_failures` is non-empty → set `result: "BLOCKED"`. Validator check #8 enforces `result === "BLOCKED"` when either of those arrays carries entries; setting DONE_WITH_CONCERNS here would deterministically re-fail validation and trap the flow in retry loops (Codex PR #53 R4 P2).
+      - Otherwise → set `result: "DONE_WITH_CONCERNS"`.
+
+      Populate `semantic_edits` with one entry per pending item (each carrying a short `summary` of what changed + the file + line), and add a `concerns` entry of the form:
 
       ```json
       {
@@ -523,6 +527,8 @@ The phase has 8 steps in this exact order — DO NOT reorder; step 6 (shipment-m
         "summary": "The plan-execution-housekeeper subagent was dispatched <N> time(s) and returned RESULT: DONE / DONE_WITH_CONCERNS with totalToolUseCount: 0 each time (narration mode — emitted Tool: Edit\\n{...} as text content rather than invoking the tool API). The orchestrator applied the <N-items> semantic edits directly under the SKILL.md Phase E auto-deviation fallback. Tracking the agent-definition fix as a separate concern."
       }
       ```
+
+      When the result is BLOCKED, ALSO add a `concerns` entry per `_script_stage.schema_violations` / `_script_stage.verification_failures` entry per the standard reconciliation rules (kind+field+ns_id matched), so check #5 and check #10 are satisfied — auto-deviation does not waive halt-state surfacing, only the no-implement contract.
 
       Preserve `_script_stage` verbatim. Set `subagent_completed_at` to the dispatch's wall-clock end time.
 
