@@ -46,9 +46,10 @@
 // Production code resolves real implementations lazily; tests inject
 // `vi.fn()` mocks so Test K1 / Test K3 run on every platform without
 // requiring `node-pty` itself, `koffi`, or Windows APIs to be available
-// in the test environment. This is the same dependency-injection
-// pattern Plan-001 Phase 5 used for the cwd-translator's filesystem
-// seams (see `src/session/spawn-cwd-translator.ts`).
+// in the test environment. This is the architectural seam pattern;
+// see also `pty-host-selector.ts` at T-024-2-3 for the parallel
+// selector-side seam (the selector's `PtyHostSelectorDeps` follows the
+// same constructor-injected, resolve-with-defaults shape used here).
 //
 // Refs: Plan-024 §Implementation Steps 8, §Invariants I-024-1, I-024-2;
 // ADR-019 §Decision item 1, §Failure Mode Analysis row "kill propagation".
@@ -829,7 +830,21 @@ export class NodePtyHost implements PtyHost {
     // here (the cache is write-once after first emission so the
     // synthetic exit-code stays observable for any subsequent
     // idempotent re-emit per `kill()`).
-    if (record.exitCode === null) {
+    //
+    // R3 review ACTIONABLE-1: gate the synthetic emit on
+    // `this.sessions.has(sessionId)` so a `close()` that lands during
+    // the `await new Promise<void>` above cannot trigger an onExit
+    // fire after the session has been torn down. The IIFE captured
+    // `record` + `sessionId` by closure, so deleting from
+    // `this.sessions` does not interrupt the pending emission — the
+    // gate is the only durable signal. `sessions.has` is the
+    // canonical "is this session still live?" probe (close is the
+    // sole site that deletes entries), which keeps this check
+    // symmetric with the `kill()` "unknown sessionId" guard at line
+    // 571 above. Covers all three close-mid-flight race shapes:
+    // SIGTERM→2s→taskkill, SIGKILL→taskkill direct, and the 5s
+    // fallback wall-clock race.
+    if (record.exitCode === null && this.sessions.has(sessionId)) {
       record.exitCode = 1;
       record.signalCode = undefined;
       this.fireExit(sessionId, 1, undefined);

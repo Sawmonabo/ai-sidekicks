@@ -35,50 +35,18 @@ import type {
   NodePtySpawnFn,
   TaskkillResult,
 } from "../node-pty-host.js";
+import { makeFakeChild } from "./_fakes.js";
 
 import type { SpawnRequest } from "@ai-sidekicks/contracts";
 
 // ----------------------------------------------------------------------------
-// Test fixtures — fake `node-pty` child
+// Test fixtures — shared `makeFakeChild` helper imported from `_fakes.ts`
 // ----------------------------------------------------------------------------
-
-/**
- * Build a fake `node-pty` child whose handlers (`onData`, `onExit`)
- * capture the listener so the test can manually trigger an exit (used
- * by the idempotency case). `pid` defaults to 12345 — a number small
- * enough to fit in 32 bits but distinctive in test assertions.
- */
-function makeFakeChild(pid: number = 12345): {
-  child: NodePtyChild;
-  triggerExit: (exitCode: number, signal?: number) => void;
-} {
-  let exitListener: ((event: { exitCode: number; signal?: number }) => void) | null = null;
-  const child: NodePtyChild = {
-    pid,
-    onData: () => ({ dispose: () => undefined }),
-    onExit: (listener) => {
-      exitListener = listener;
-      return { dispose: () => undefined };
-    },
-    kill: vi.fn(),
-    resize: vi.fn(),
-    write: vi.fn(),
-  };
-  return {
-    child,
-    triggerExit: (exitCode: number, signal?: number) => {
-      if (exitListener === null) {
-        throw new Error(
-          "makeFakeChild.triggerExit: onExit listener not yet attached " +
-            "(was the child spawned via NodePtyHost.spawn?)",
-        );
-      }
-      const event: { exitCode: number; signal?: number } =
-        signal === undefined ? { exitCode } : { exitCode, signal };
-      exitListener(event);
-    },
-  };
-}
+//
+// Default pid for this suite is 12345 (a number small enough to fit in
+// 32 bits but distinctive in test assertions). See `_fakes.ts` for the
+// helper definition shared with `node-pty-host.tree-kill.test.ts`
+// (R3 review POLISH-2 / POLISH-3).
 
 const SAMPLE_SPAWN: SpawnRequest = {
   kind: "spawn_request",

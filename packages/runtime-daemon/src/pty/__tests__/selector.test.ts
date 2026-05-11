@@ -210,6 +210,10 @@ describe("selectPtyHost — unrecognized AIS_PTY_BACKEND values fall back with w
     { value: "sidecar", reason: "truncated typo of 'rust-sidecar'" },
     { value: "Node-Pty", reason: "mixed case of 'node-pty' — case-sensitive lowercase" },
     { value: "nodepty", reason: "no-hyphen typo of 'node-pty'" },
+    {
+      value: " node-pty",
+      reason: "leading whitespace — F-024-2-07 grammar is verbatim, no trimming",
+    },
     { value: "invalid", reason: "arbitrary unrecognized value" },
     { value: "", reason: "empty string is unrecognized per Plan-024:126" },
   ];

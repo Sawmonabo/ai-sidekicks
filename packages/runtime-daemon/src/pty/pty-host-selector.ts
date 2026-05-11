@@ -90,8 +90,13 @@ export interface PtyHostSelectorDeps {
    */
   readonly platform: NodeJS.Platform;
   /**
-   * Reader for `process.env.AIS_PTY_BACKEND`. Defaults to
-   * `() => process.env.AIS_PTY_BACKEND`.
+   * Reader for the `AIS_PTY_BACKEND` env-var. Defaults to
+   * `() => process.env["AIS_PTY_BACKEND"]`.
+   *
+   * Bracket notation is required by this repo's tsconfig
+   * (`noPropertyAccessFromIndexSignature: true`) — dot-notation on
+   * `process.env` does not compile here, so the literal default above
+   * is copy-paste-correct.
    *
    * Returning `undefined` means "env not set" (silent platform-default
    * path); any string — including empty string `""` — means "env set",
@@ -240,11 +245,5 @@ export function selectPtyHost(deps?: Partial<PtyHostSelectorDeps>): PtyHost {
  * beyond per Plan-024 §Step 9 lines 124–125.
  */
 function platformDefault(deps: PtyHostSelectorDeps): PtyHost {
-  // `deps.platform` is intentionally unread at Phase 2 — see the
-  // doc-comment above. Touch it via a void expression so eslint's
-  // `no-unused-vars` and TypeScript's `noUnusedParameters` (if enabled
-  // in a future tsconfig tightening) don't flag the parameter we keep
-  // for the Phase 5 evolution path.
-  void deps.platform;
   return deps.createNodePtyHost();
 }

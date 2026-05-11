@@ -36,41 +36,20 @@ import type {
   NodePtySpawnFn,
   TaskkillResult,
 } from "../node-pty-host.js";
+import { makeFakeChild } from "./_fakes.js";
 
 import type { SpawnRequest } from "@ai-sidekicks/contracts";
 
 // ----------------------------------------------------------------------------
-// Test fixtures — fake child + recorded mocks
+// Test fixtures — shared `makeFakeChild` helper imported from `_fakes.ts`
 // ----------------------------------------------------------------------------
-
-function makeFakeChild(pid: number = 67890): {
-  child: NodePtyChild;
-  triggerExit: (exitCode: number, signal?: number) => void;
-} {
-  let exitListener: ((event: { exitCode: number; signal?: number }) => void) | null = null;
-  const child: NodePtyChild = {
-    pid,
-    onData: () => ({ dispose: () => undefined }),
-    onExit: (listener) => {
-      exitListener = listener;
-      return { dispose: () => undefined };
-    },
-    kill: vi.fn(),
-    resize: vi.fn(),
-    write: vi.fn(),
-  };
-  return {
-    child,
-    triggerExit: (exitCode: number, signal?: number) => {
-      if (exitListener === null) {
-        throw new Error("makeFakeChild.triggerExit: onExit listener not yet attached");
-      }
-      const event: { exitCode: number; signal?: number } =
-        signal === undefined ? { exitCode } : { exitCode, signal };
-      exitListener(event);
-    },
-  };
-}
+//
+// Default pid for this suite is 67890 (distinct from the kill-
+// translation suite's 12345 so assertion failures point unambiguously
+// at the failing fixture). See `_fakes.ts` for the helper definition
+// shared with `node-pty-host.kill-translation.test.ts` (R3 review
+// POLISH-2 / POLISH-3).
+const TREE_KILL_FIXTURE_PID = 67890;
 
 const SAMPLE_SPAWN: SpawnRequest = {
   kind: "spawn_request",
@@ -99,7 +78,7 @@ beforeEach(() => {
   // the 2 s escalation timer without waiting wall-clock seconds.
   vi.useFakeTimers();
 
-  const { child, triggerExit } = makeFakeChild();
+  const { child, triggerExit } = makeFakeChild(TREE_KILL_FIXTURE_PID);
   // GCCE that does NOTHING — the test scenario is "child ignores
   // CTRL_BREAK_EVENT", so the GCCE call returns without triggering an
   // exit. The escalation timer fires the taskkill cascade.
@@ -486,5 +465,165 @@ describe("NodePtyHost — invokeTaskkill is wall-clock bounded (R2 POLISH-4)", (
     // exact property I-024-2 requires.
     expect(exitRecorder).toHaveBeenCalledTimes(1);
     expect(exitRecorder).toHaveBeenCalledWith(session_id, 1);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// R3 review ACTIONABLE-1 — synthetic-exit must not fire on a closed session
+// ----------------------------------------------------------------------------
+//
+// `invokeTaskkill` awaits `spawnTaskkill` (or the 5 s fallback) inside
+// an async IIFE that captures `record` + `sessionId` by closure. If
+// `close()` lands during that await (the consumer canceled the
+// session mid-escalation), `this.sessions.delete(sessionId)` removes
+// the table entry — but the closure still holds the references, so
+// the post-await synthetic-emit block would call `fireExit` on a
+// torn-down session unless the production code explicitly re-checks
+// `this.sessions.has(sessionId)` before firing.
+//
+// The fix gates the synthetic emission on the membership probe. These
+// three tests cover each race shape so a future reader sees the
+// regression contract at a glance:
+//
+//   * SIGTERM → 2 s timer → taskkill in-flight → close → resolve
+//   * SIGKILL → taskkill in-flight → close → resolve
+//   * 5 s wall-clock fallback → close mid-flight → fallback fires
+//
+// One gate (`this.sessions.has(sessionId)`) covers all three; we still
+// assert each shape independently because a regression that breaks
+// the gate for one entry path could pass the others (e.g., a future
+// refactor adds a separate fast-path for SIGKILL that forgets to
+// route through the same gate).
+
+describe("NodePtyHost — synthetic onExit gated on live session (R3 ACTIONABLE-1)", () => {
+  it("SIGTERM: close() during 2 s escalation IIFE suppresses the synthetic onExit when spawnTaskkill resolves post-close", async () => {
+    // Externally controllable taskkill resolution so we can interleave
+    // close() between "await spawnTaskkill begins" and "spawnTaskkill
+    // resolves". A `vi.fn().mockReturnValueOnce(deferred)` would also
+    // work; the explicit `new Promise` + captured `resolve` is more
+    // readable for the race scenario.
+    let resolveTaskkill!: (value: TaskkillResult) => void;
+    const taskkillPromise: Promise<TaskkillResult> = new Promise<TaskkillResult>((res) => {
+      resolveTaskkill = res;
+    });
+    ctx.mockTaskkill.mockReturnValueOnce(taskkillPromise);
+
+    const { session_id } = await ctx.host.spawn(SAMPLE_SPAWN);
+
+    // T+0: SIGTERM arms the 2 s escalation timer.
+    await ctx.host.kill(session_id, "SIGTERM");
+    expect(ctx.mockGCCE).toHaveBeenCalledWith(1, TREE_KILL_FIXTURE_PID);
+    expect(ctx.mockTaskkill).not.toHaveBeenCalled();
+
+    // T+2s: timer fires synchronously; the IIFE inside invokeTaskkill
+    // starts awaiting spawnTaskkill (which we've held open via the
+    // captured resolver). The fake-timer advance drains all queued
+    // microtasks, but spawnTaskkill stays unresolved.
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(ctx.mockTaskkill).toHaveBeenCalledTimes(1);
+    expect(ctx.mockTaskkill).toHaveBeenCalledWith(TREE_KILL_FIXTURE_PID);
+    expect(ctx.exitRecorder).not.toHaveBeenCalled();
+
+    // T+2s+ε: consumer cancels the session mid-flight. After close,
+    // `this.sessions.has(sessionId)` is false; the captured `record`
+    // + `sessionId` inside the IIFE remain valid (closure-held).
+    await ctx.host.close(session_id);
+
+    // Now release the taskkill. The IIFE's finish() resolves the outer
+    // Promise inside invokeTaskkill; control returns to the synthetic-
+    // emit block. WITHOUT the R3 fix: fireExit runs, exitRecorder is
+    // called with (sessionId, 1). WITH the fix: sessions.has gate
+    // suppresses the emit.
+    resolveTaskkill({ exitCode: 0 });
+
+    // Drain pending microtasks so the post-await synthetic block runs.
+    await vi.runAllTimersAsync();
+
+    // Load-bearing: NO onExit fire on the torn-down session.
+    expect(ctx.exitRecorder).not.toHaveBeenCalled();
+  });
+
+  it("SIGKILL: close() during the direct invokeTaskkill IIFE suppresses the synthetic onExit when spawnTaskkill resolves post-close", async () => {
+    // SIGKILL skips the 2 s graceful step — invokeTaskkill is called
+    // directly. The race is identical: an in-flight `await
+    // spawnTaskkill(pid)` followed by a close() before the promise
+    // settles must not fire the synthetic onExit.
+    let resolveTaskkill!: (value: TaskkillResult) => void;
+    const taskkillPromise: Promise<TaskkillResult> = new Promise<TaskkillResult>((res) => {
+      resolveTaskkill = res;
+    });
+    ctx.mockTaskkill.mockReturnValueOnce(taskkillPromise);
+
+    const { session_id } = await ctx.host.spawn(SAMPLE_SPAWN);
+
+    // Kick SIGKILL without awaiting — invokeTaskkill is now in flight
+    // inside the host, awaiting our held-open spawnTaskkill.
+    const killPromise: Promise<void> = ctx.host.kill(session_id, "SIGKILL");
+
+    // spawnTaskkill was invoked immediately; nothing else has happened.
+    expect(ctx.mockTaskkill).toHaveBeenCalledTimes(1);
+    expect(ctx.mockTaskkill).toHaveBeenCalledWith(TREE_KILL_FIXTURE_PID);
+    expect(ctx.exitRecorder).not.toHaveBeenCalled();
+
+    // Consumer cancels mid-flight.
+    await ctx.host.close(session_id);
+
+    // Resolve spawnTaskkill — drains the IIFE; without the gate, the
+    // synthetic emit would fire on the torn-down session.
+    resolveTaskkill({ exitCode: 0 });
+    await vi.runAllTimersAsync();
+    await killPromise;
+
+    // Load-bearing: NO onExit fire on the torn-down session.
+    expect(ctx.exitRecorder).not.toHaveBeenCalled();
+  });
+
+  it("5 s fallback race: close() during a never-resolving spawnTaskkill suppresses the synthetic onExit when the fallback timer wins", async () => {
+    // Construct a dedicated host with a never-resolving spawnTaskkill,
+    // mirroring the POLISH-4 wall-clock test above. Close()s during
+    // the wall-clock wait; the 5 s fallback fires, the race settles
+    // via the timeout path, and the gate must still suppress the
+    // synthetic emit because the session was torn down.
+    const { child } = makeFakeChild(45678);
+    const neverResolves: Promise<TaskkillResult> = new Promise<TaskkillResult>(() => {
+      // intentionally empty — the promise never settles.
+    });
+    const stuckTaskkill: Mock<(pid: number) => Promise<TaskkillResult>> = vi
+      .fn<(pid: number) => Promise<TaskkillResult>>()
+      .mockReturnValue(neverResolves);
+    const ptySpawnStub: Mock<NodePtySpawnFn> = vi.fn<NodePtySpawnFn>().mockReturnValue(child);
+    const exitRecorder: Mock<(sessionId: string, exitCode: number, signalCode?: number) => void> =
+      vi.fn();
+
+    const host = new NodePtyHost({
+      platform: "win32",
+      ptySpawn: ptySpawnStub,
+      generateConsoleCtrlEvent: vi.fn(),
+      spawnTaskkill: stuckTaskkill,
+    });
+    host.setOnExit(exitRecorder);
+
+    const { session_id } = await host.spawn(SAMPLE_SPAWN);
+
+    // SIGKILL → invokeTaskkill awaits never-resolving spawnTaskkill
+    // in a race with the 5 s fallback timer.
+    const killPromise: Promise<void> = host.kill(session_id, "SIGKILL");
+    expect(stuckTaskkill).toHaveBeenCalledTimes(1);
+
+    // Advance partway through the 5 s budget.
+    await vi.advanceTimersByTimeAsync(2500);
+
+    // Consumer cancels at T+2.5s, well before the fallback fires.
+    await host.close(session_id);
+
+    // Cross the 5 s boundary — fallback wins the race, finish()
+    // resolves the outer Promise, control returns to the synthetic-
+    // emit block. WITHOUT the R3 fix: fireExit runs even though the
+    // session is gone. WITH the fix: gate suppresses the emit.
+    await vi.advanceTimersByTimeAsync(2500);
+    await killPromise;
+
+    // Load-bearing: NO onExit fire on the torn-down session.
+    expect(exitRecorder).not.toHaveBeenCalled();
   });
 });
