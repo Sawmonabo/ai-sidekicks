@@ -565,6 +565,18 @@ export class NodePtyHost implements PtyHost {
    * On non-Windows platforms this delegates to `node-pty.kill(signal)`
    * unchanged (POSIX semantics).
    *
+   * Ack contract: `kill()` MUST resolve once the kill cascade has BEGUN,
+   * NOT when the child has actually exited — `KillResponse` is the ack
+   * for the cascade dispatch, and the terminal status flows through
+   * `onExit` (the daemon-layer analog of `ExitCodeNotification`). See
+   * `packages/contracts/src/pty-host-protocol.ts` `KillResponse` comment:
+   * "the sidecar acks once it has begun the kill cascade, NOT when the
+   * child has actually exited — `ExitCodeNotification` carries the
+   * terminal status." Consequently the Windows hard-stop branches MUST
+   * fire-and-forget `invokeTaskkill` (`void`, not `await`) — awaiting
+   * would block `kill()` for up to 5 s in the stuck-taskkill case and
+   * stall upstream request handling, conflicting with the contract.
+   *
    * Idempotency: if the child has already exited, re-emit `onExit` from
    * the cached exit-code and return; do not throw, do not call any FFI.
    */
@@ -598,18 +610,50 @@ export class NodePtyHost implements PtyHost {
       // is not an error.
       return await Promise.resolve();
     }
-    // Cancel any in-flight escalation timer before disposing.
+    // Cancel any in-flight escalation timer before disposing. This MUST
+    // run regardless of platform: a pending SIGTERM-armed escalation
+    // timer cancelled here prevents a stale `taskkill` from firing 2 s
+    // later (close-during-SIGTERM race, see edge-case analysis on the
+    // Codex P1 report).
     this.clearPendingEscalation(record);
+    // Subscriptions disposed BEFORE the kill dispatch so any node-pty
+    // child-side exit event that lands during the kill cascade has no
+    // listener to call into; the synthetic-onExit emission inside
+    // `invokeTaskkill` is suppressed by the existing `sessions.has`
+    // gate (R3 ACTIONABLE-1) since we delete from the table below.
     for (const sub of record.subscriptions) {
       sub.dispose();
     }
-    // If still alive, ask node-pty for a best-effort termination.
-    // Errors are swallowed: `close()` is the teardown path, not a kill.
+    // If still alive, terminate. The platform branch is load-bearing —
+    // see the file-header note about node-pty.kill on Windows targeting
+    // a single PID. Codex P1 (PR #51): a Windows `close()` that routes
+    // through `record.child.kill()` orphans descendants because
+    // node-pty's kill does not walk console-control-event /
+    // process-tree semantics, exactly the failure mode I-024-1 / I-024-2
+    // exist to prevent. Route through the same `taskkill /T /F /PID`
+    // hard-stop path that `kill(SIGKILL)` uses to honor the descendant-
+    // tree obligation. Fire-and-forget — `close()` MUST NOT block on the
+    // OS reap (the 5 s wall-clock cap inside `invokeTaskkill` is for
+    // the kill-cascade contract, not the teardown contract).
     if (record.exitCode === null) {
-      try {
-        record.child.kill();
-      } catch {
-        // Swallow — best-effort close.
+      if (this.deps.platform === "win32") {
+        // The synthetic onExit that `invokeTaskkill` emits at the tail
+        // is gated on `this.sessions.has(sessionId)` and will be
+        // SUPPRESSED because we call `sessions.delete(sessionId)`
+        // immediately below — intentional: `close()` is the consumer's
+        // signal to stop emitting on this session.
+        void this.invokeTaskkill(sessionId, record, record.child.pid);
+      } else {
+        // POSIX: `record.child.kill()` signals the session leader and
+        // TTY foreground-process-group semantics propagate the
+        // termination through the descendant tree. The Codex finding
+        // is specifically scoped to Windows; preserve the existing
+        // POSIX behavior unchanged.
+        try {
+          record.child.kill();
+        } catch {
+          // Swallow — best-effort close.
+        }
       }
     }
     this.sessions.delete(sessionId);
@@ -694,7 +738,21 @@ export class NodePtyHost implements PtyHost {
       // Direct hard-stop — skip CTRL_BREAK_EVENT entirely. The /T flag
       // walks the descendant tree (I-024-2 load-bearing piece); /F
       // forces termination of processes that ignore graceful signals.
-      await this.invokeTaskkill(sessionId, record, pid);
+      //
+      // Codex P2 (PR #51): fire-and-forget (`void`, not `await`) so
+      // `kill()` returns once the cascade has BEGUN, per the
+      // `KillResponse` ack contract in
+      // `packages/contracts/src/pty-host-protocol.ts`:
+      // "the sidecar acks once it has begun the kill cascade, NOT when
+      // the child has actually exited — `ExitCodeNotification` carries
+      // the terminal status." Awaiting here blocks `kill()` for up to
+      // 5 s in the stuck-taskkill case (the wall-clock fallback inside
+      // `invokeTaskkill`), conflicting with the contract and stalling
+      // upstream request handling. The synthetic `onExit` fires async
+      // when taskkill resolves (or the 5 s fallback wins). This aligns
+      // SIGKILL with the SIGTERM-escalation timer branch below, which
+      // is already `void this.invokeTaskkill(...)`.
+      void this.invokeTaskkill(sessionId, record, pid);
       return;
     }
 

@@ -627,3 +627,242 @@ describe("NodePtyHost — synthetic onExit gated on live session (R3 ACTIONABLE-
     expect(exitRecorder).not.toHaveBeenCalled();
   });
 });
+
+// ----------------------------------------------------------------------------
+// Codex P1 (PR #51) — close() on Windows must route through tree-kill path
+// ----------------------------------------------------------------------------
+//
+// `node-pty.kill(signal)` on Windows targets a single PID via the
+// node-pty binding and does NOT walk console-control-event / process-
+// tree semantics (per file header lines 16-30 of `node-pty-host.ts`,
+// citing microsoft/node-pty#167 and microsoft/node-pty#437). A
+// `close()` on a live Windows session that routes through
+// `record.child.kill()` therefore orphans the descendant tree —
+// exactly the failure mode I-024-1 / I-024-2 exist to prevent.
+//
+// The fix routes Windows `close()` through the same `taskkill /T /F
+// /PID <pid>` path that `kill(SIGKILL)` uses, fire-and-forget so the
+// teardown does not block on OS reap. The synthetic `onExit` that
+// `invokeTaskkill` emits at its tail is gated on the existing
+// `sessions.has(sessionId)` probe (R3 ACTIONABLE-1) and will be
+// suppressed because `close()` calls `sessions.delete(sessionId)`
+// immediately after dispatching the kill — intentional: `close()` is
+// the consumer's signal to stop emitting on this session.
+
+describe("NodePtyHost — close() on Windows routes through taskkill (Codex P1)", () => {
+  it("close() on Windows invokes taskkill (not record.child.kill); descendants are reaped via /T /F", async () => {
+    const { session_id } = await ctx.host.spawn(SAMPLE_SPAWN);
+
+    // Reset the kill spy (the fake child's `kill` is a vi.fn() per
+    // `_fakes.ts`); we assert it is NOT called by close() on Windows.
+    const childKillSpy: Mock = ctx.child.kill as unknown as Mock;
+    childKillSpy.mockClear();
+
+    // Pre-close: taskkill MUST NOT have fired yet.
+    expect(ctx.mockTaskkill).not.toHaveBeenCalled();
+
+    await ctx.host.close(session_id);
+
+    // Load-bearing P1 assertion: close() routed through taskkill /T /F
+    // /PID <pid> with the session's root pid. The /T flag (asserted via
+    // the production code's spawn args in `defaultSpawnTaskkill`) walks
+    // the descendant tree — which is the load-bearing piece I-024-2
+    // requires.
+    expect(ctx.mockTaskkill).toHaveBeenCalledTimes(1);
+    expect(ctx.mockTaskkill).toHaveBeenCalledWith(TREE_KILL_FIXTURE_PID);
+
+    // Negative: record.child.kill() MUST NOT be called on Windows —
+    // node-pty's kill is the orphaning path the P1 fix replaces.
+    expect(childKillSpy).not.toHaveBeenCalled();
+
+    // Negative: the synthetic onExit MUST NOT fire because the
+    // `sessions.has` gate suppresses it (sessions.delete ran inside
+    // close() before the synthetic-emit block ran on the microtask
+    // queue). `close()` is the consumer's signal to stop emitting; an
+    // onExit fire here would be a regression.
+    await vi.runAllTimersAsync();
+    expect(ctx.exitRecorder).not.toHaveBeenCalled();
+  });
+
+  it("close() on POSIX still uses record.child.kill() — Codex P1 fix is scoped to Windows", async () => {
+    // Build a POSIX host. The Codex finding is specifically scoped to
+    // Windows; POSIX `record.child.kill()` signals the session leader
+    // and TTY foreground-process-group semantics propagate to the
+    // descendant tree (no orphan-tree failure mode on POSIX).
+    const { child } = makeFakeChild(54321);
+    const ptySpawnStub: Mock<NodePtySpawnFn> = vi.fn<NodePtySpawnFn>().mockReturnValue(child);
+    const mockTaskkill: Mock<(pid: number) => Promise<TaskkillResult>> = vi
+      .fn<(pid: number) => Promise<TaskkillResult>>()
+      .mockResolvedValue({ exitCode: 0 });
+    const exitRecorder: Mock<(sessionId: string, exitCode: number, signalCode?: number) => void> =
+      vi.fn();
+
+    const host = new NodePtyHost({
+      platform: "linux",
+      ptySpawn: ptySpawnStub,
+      spawnTaskkill: mockTaskkill,
+    });
+    host.setOnExit(exitRecorder);
+
+    const { session_id } = await host.spawn(SAMPLE_SPAWN);
+    const childKillSpy: Mock = child.kill as unknown as Mock;
+    childKillSpy.mockClear();
+
+    await host.close(session_id);
+
+    // POSIX: record.child.kill() called once.
+    expect(childKillSpy).toHaveBeenCalledTimes(1);
+
+    // POSIX: taskkill MUST NOT be called — it's a Windows-only path
+    // and the POSIX branch in close() doesn't route through it.
+    expect(mockTaskkill).not.toHaveBeenCalled();
+  });
+
+  it("close() during in-flight SIGTERM clears the escalation timer; only the close-dispatched taskkill fires", async () => {
+    // Edge case from the P1 report: SIGTERM arms a 2 s escalation
+    // timer; close() lands at T+1s. `clearPendingEscalation` at the
+    // top of close() cancels the timer; the SIGTERM path's escalation
+    // is dead. Only the close-dispatched taskkill runs. This prevents
+    // two taskkills firing 2 s apart on the same pid (the close-during-
+    // SIGTERM race).
+    const { session_id } = await ctx.host.spawn(SAMPLE_SPAWN);
+
+    // T+0: SIGTERM → CTRL_BREAK_EVENT, arm 2 s escalation timer.
+    await ctx.host.kill(session_id, "SIGTERM");
+    expect(ctx.mockGCCE).toHaveBeenCalledWith(1, TREE_KILL_FIXTURE_PID);
+    expect(ctx.mockTaskkill).not.toHaveBeenCalled();
+
+    // T+1s: still inside the budget.
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(ctx.mockTaskkill).not.toHaveBeenCalled();
+
+    // T+1s: close() preempts. clearPendingEscalation cancels the
+    // SIGTERM-armed timer; close's own taskkill dispatch fires.
+    await ctx.host.close(session_id);
+    expect(ctx.mockTaskkill).toHaveBeenCalledTimes(1);
+    expect(ctx.mockTaskkill).toHaveBeenCalledWith(TREE_KILL_FIXTURE_PID);
+
+    // Drain past the original SIGTERM's 2 s escalation point — the
+    // dead timer must NOT fire a second taskkill.
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(ctx.mockTaskkill).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Codex P2 (PR #51) — kill(SIGKILL) acks on cascade BEGUN, not COMPLETED
+// ----------------------------------------------------------------------------
+//
+// The `KillResponse` contract in
+// `packages/contracts/src/pty-host-protocol.ts` documents:
+//
+//   "the sidecar acks once it has begun the kill cascade, NOT when the
+//    child has actually exited — `ExitCodeNotification` carries the
+//    terminal status."
+//
+// Before the P2 fix, `kill(SIGKILL)` awaited `invokeTaskkill`, which
+// waits up to 5 s on its wall-clock fallback timer. In the stuck-
+// taskkill case (`spawnTaskkill` never resolves), kill() blocked for
+// the full 5 s — that's "ack on cascade COMPLETED" semantics, not
+// "ack on cascade BEGUN". The fix changes `await this.invokeTaskkill(...)`
+// to `void this.invokeTaskkill(...)`, aligning SIGKILL with the
+// already-`void` SIGTERM escalation timer (line ~725 of
+// `node-pty-host.ts`).
+
+describe("NodePtyHost — kill(SIGKILL) returns once cascade has BEGUN (Codex P2)", () => {
+  it("kill(SIGKILL) with a never-resolving spawnTaskkill resolves before the 5 s fallback fires", async () => {
+    // Hold the spawnTaskkill promise open via a captured resolver. If
+    // P2 is regressed (i.e., kill() awaits invokeTaskkill), the
+    // `await kill()` below would suspend until the 5 s fallback timer
+    // fires; with the P2 fix it MUST resolve immediately because the
+    // cascade has begun (mockTaskkill was synchronously invoked
+    // before the IIFE's first await).
+    let resolveTaskkill!: (value: TaskkillResult) => void;
+    const taskkillPromise: Promise<TaskkillResult> = new Promise<TaskkillResult>((res) => {
+      resolveTaskkill = res;
+    });
+    ctx.mockTaskkill.mockReturnValueOnce(taskkillPromise);
+
+    const { session_id } = await ctx.host.spawn(SAMPLE_SPAWN);
+
+    // Sentinel: flips to true on the microtask AFTER `await killP`
+    // resolves. If `kill()` blocked on the 5 s fallback, the flag
+    // would not flip until we advanced the fake timers past 5 s. We
+    // verify it flips WITHOUT advancing the fake timers.
+    let killResolved = false;
+    const killP: Promise<void> = ctx.host.kill(session_id, "SIGKILL").then(() => {
+      killResolved = true;
+    });
+
+    // Cascade has BEGUN: spawnTaskkill was invoked synchronously
+    // inside invokeTaskkill's IIFE.
+    expect(ctx.mockTaskkill).toHaveBeenCalledTimes(1);
+    expect(ctx.mockTaskkill).toHaveBeenCalledWith(TREE_KILL_FIXTURE_PID);
+
+    // Synthetic onExit has NOT fired yet — invokeTaskkill is suspended
+    // on `await new Promise<void>` because the IIFE is suspended on
+    // the never-resolving spawnTaskkill.
+    expect(ctx.exitRecorder).not.toHaveBeenCalled();
+
+    // Drain only the microtask queue — NO fake-timer advance. Under
+    // the P2 fix `kill()` is non-blocking after the void; the await
+    // chain resolves in one microtask round trip.
+    await killP;
+
+    // Load-bearing P2 assertion: kill() resolved WITHOUT advancing
+    // fake timers (i.e., before the 5 s fallback would fire).
+    expect(killResolved).toBe(true);
+
+    // Confirm the fallback timer is still armed — onExit must NOT
+    // have fired from a premature fallback.
+    expect(ctx.exitRecorder).not.toHaveBeenCalled();
+
+    // Now resolve the held-open taskkill: synthetic onExit fires async
+    // when the IIFE completes (R3 ACTIONABLE-1 gate still in place but
+    // sessions.has(session_id) is true because we did NOT close).
+    resolveTaskkill({ exitCode: 0 });
+    await vi.runAllTimersAsync();
+
+    expect(ctx.exitRecorder).toHaveBeenCalledTimes(1);
+    expect(ctx.exitRecorder).toHaveBeenCalledWith(session_id, 1);
+  });
+
+  it("kill(SIGKILL) returns before spawnTaskkill resolves; cascade-begun ack is honored", async () => {
+    // Variant of the test above that does NOT use a never-resolving
+    // mock — instead the mock uses a captured resolver to verify the
+    // exact ordering: kill() resolves BEFORE spawnTaskkill resolves.
+    // This is the strict reading of the `KillResponse` contract:
+    // ack-on-cascade-begun means the ack happens when spawnTaskkill
+    // has been INVOKED, not when it has resolved.
+    let resolveTaskkill!: (value: TaskkillResult) => void;
+    const taskkillPromise: Promise<TaskkillResult> = new Promise<TaskkillResult>((res) => {
+      resolveTaskkill = res;
+    });
+    ctx.mockTaskkill.mockReturnValueOnce(taskkillPromise);
+
+    const { session_id } = await ctx.host.spawn(SAMPLE_SPAWN);
+
+    // Capture the order of resolutions.
+    const order: Array<string> = [];
+    const killP: Promise<void> = ctx.host.kill(session_id, "SIGKILL").then(() => {
+      order.push("kill-resolved");
+    });
+    void taskkillPromise.then(() => {
+      order.push("taskkill-resolved");
+    });
+
+    // Drain only microtasks (no fake-timer advance). kill() should
+    // resolve immediately because the cascade has begun.
+    await killP;
+
+    expect(order).toEqual(["kill-resolved"]);
+
+    // NOW resolve the taskkill. Under the P2 fix, this happens AFTER
+    // kill() has already returned, demonstrating the cascade-begun
+    // ack semantics.
+    resolveTaskkill({ exitCode: 0 });
+    await vi.runAllTimersAsync();
+
+    expect(order).toEqual(["kill-resolved", "taskkill-resolved"]);
+  });
+});
