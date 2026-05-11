@@ -48,6 +48,8 @@
 //     `revoked` membership stays put). Reactivation semantics belong to
 //     Plan-002's suspend/revoke/reactivate state machine.
 
+import type { Pool, PoolClient } from "pg";
+
 import type {
   ChannelSummary,
   EventCursor,
@@ -618,4 +620,244 @@ function hydrateMembershipSummary(row: MembershipRow): MembershipSummary {
     role: row.role as MembershipRole,
     state: row.state as MembershipState,
   };
+}
+
+// --------------------------------------------------------------------------
+// pg.Pool -> Querier adapter (Plan-001 PR #5 / T5.5)
+// --------------------------------------------------------------------------
+//
+// Production wiring composes a `Querier` from a `pg.Pool` so the same
+// `SessionDirectoryService` body (typed against `Querier`) can run against
+// shared Postgres in deployment AND against an in-process PGlite instance
+// in test. Phase 4 shipped the service driver-agnostic; this adapter is the
+// production-side concretion.
+//
+// Why a free function and not a class: the Querier interface is the only
+// surface this composition exposes — it has no per-instance state beyond
+// the Pool reference itself, and consumers never need to extend or
+// subclass it. A factory keeps the call site one-liner
+// (`createSessionDirectoryServiceFromPool(pool)`) without the noise of a
+// constructable wrapper.
+//
+// The three Querier methods map onto three distinct pg.Pool affordances:
+//
+//   * `query()` -> `pool.query(sql, params)`. pg.Pool's parameterized
+//     query helper internally `connect()`s, issues the statement over the
+//     extended query protocol, and `release()`s the client back to the
+//     pool. One round-trip, automatic checkout management. This is the
+//     right primitive for stateless out-of-transaction reads/writes —
+//     using `pool.connect()` here would force every Querier consumer to
+//     manage release manually, leak connections on caller-side throws,
+//     and add a checkout/release round-trip the pool already optimizes
+//     away for the one-shot case.
+//
+//   * `exec()` -> `pool.query(sql)` (no params). Without a values array,
+//     pg's `Client#query()` falls through to the simple query protocol
+//     which permits multi-statement batches (`BEGIN; ...; COMMIT;`). This
+//     is what the migration runner's `INITIAL_MIGRATION_SQL` body needs.
+//     Same auto-checkout-and-release semantics as `query()`. The Querier
+//     contract returns `void`; we discard the QueryResult.
+//
+//   * `transaction(fn)` -> `pool.connect()` + manual BEGIN/COMMIT. This
+//     is the load-bearing concretion. See `createPgPoolQuerier` docstring
+//     for the full mechanism.
+//
+// Why no error-handler wrapping pool errors: pg propagates `DatabaseError`
+// (`pg-protocol`) instances on SQL failures and `Error` instances on
+// transport failures; both bubble through unchanged so the service body
+// sees the same surface as it would under PGlite (which throws on SQL
+// failures from `pg.query()` too). Adding a translation layer here would
+// only obscure the underlying driver error in stack traces.
+
+/**
+ * Wrap a `pg.Pool` so it satisfies the `Querier` contract.
+ *
+ * Pool-checkout-and-release semantics:
+ *
+ *   * `query()` and `exec()` route through `pool.query()`, which
+ *     internally checks out a pooled client, runs the statement, and
+ *     releases the client on the same call. Two consecutive `query()`
+ *     calls MAY land on different pooled connections — that is fine for
+ *     stateless statements, but is precisely why `transaction(fn)`
+ *     cannot use the same pattern.
+ *
+ *   * `transaction(fn)` checks out ONE client via `pool.connect()`, holds
+ *     it across `BEGIN` / inner statements / `COMMIT`, and releases on
+ *     every exit path (commit success, application error, Postgres-side
+ *     error during COMMIT, ROLLBACK error). Without a held client, each
+ *     inner statement would check out a different pooled connection;
+ *     `BEGIN` would land on one client, the inner statements on others,
+ *     and `COMMIT` on yet another — the transaction would dissolve, AND
+ *     any session-scoped state (advisory locks acquired via
+ *     `pg_advisory_xact_lock`, `FOR UPDATE` row locks taken by the
+ *     `createSession` ordering, server-side prepared statements) would
+ *     not survive across statements.
+ *
+ *     The inner `Querier` passed to `fn` routes ALL THREE methods —
+ *     `query`, `exec`, and `transaction` — through the held client, not
+ *     back through the pool. Routing the inner `query()` through the pool
+ *     instead of the held client would defeat the entire point of the
+ *     transaction substrate (the lock would land on the wrong connection,
+ *     or no specific connection at all). The nested-`transaction` call
+ *     throws because Postgres has no native nested transactions without
+ *     SAVEPOINTs and Plan-001 has no SAVEPOINT requirement — the throw
+ *     matches the PGlite adapter's behavior so the failure mode is
+ *     identical across substrates.
+ *
+ * Rollback behavior:
+ *
+ *   * On error inside `fn`, the adapter issues `ROLLBACK` and re-raises
+ *     the underlying error. Unlike PGlite's `pg.transaction(fn)` (which
+ *     auto-rolls-back internally), pg.Pool has no auto-rollback — without
+ *     this manual ROLLBACK, an aborted transaction would stay open on the
+ *     client until release, the client would return to the pool in an
+ *     aborted state, and the next checkout would receive a client in a
+ *     `25P02 current transaction is aborted` state. The ROLLBACK call is
+ *     wrapped in its own try/catch so that a ROLLBACK failure (e.g., the
+ *     underlying connection was already terminated) does NOT mask the
+ *     original error — we still re-raise the original `fn` error, which
+ *     is what the caller actually needs to diagnose.
+ *
+ *   * On success, `COMMIT` is issued. If COMMIT itself throws (e.g.,
+ *     deferred constraint violation surfacing only at commit time), the
+ *     adapter does NOT issue ROLLBACK after — at that point the
+ *     transaction has already been rolled back server-side by Postgres
+ *     in response to the failed COMMIT, and a follow-up ROLLBACK on a
+ *     non-existent transaction would itself error. We re-raise the
+ *     COMMIT error.
+ *
+ *   * `client.release()` always runs in the `finally` block so the
+ *     connection returns to the pool whether the path terminated in
+ *     commit success, application error + ROLLBACK, COMMIT-time error,
+ *     or ROLLBACK error itself. Without the `finally`, any throw between
+ *     `connect()` and `release()` would leak the connection — the pool
+ *     would slowly deplete under any sustained error rate.
+ */
+export function createPgPoolQuerier(pool: Pool): Querier {
+  return {
+    query: async <T>(
+      sql: string,
+      params?: ReadonlyArray<unknown>,
+    ): Promise<{ rows: ReadonlyArray<T> }> => {
+      // pg's `query()` parameter array is typed as `unknown[]` (mutable),
+      // not `ReadonlyArray<unknown>`. The spread copy decouples the
+      // mutability claim at the type boundary without copying parameter
+      // values themselves. Mirrors the PGlite adapter pattern in the
+      // session-directory-service test file.
+      const mutableParams: unknown[] = params === undefined ? [] : [...params];
+      // Substrate-vs-surface generic-shape mismatch. `pool.query<R extends
+      // QueryResultRow>` constrains `R` to `{ [column: string]: any }`,
+      // but the Querier surface (`migration-runner.ts:111`) is generic on
+      // a free `T` so the service body can declare row shapes that don't
+      // match the substrate's index-signature constraint. We take the cast
+      // because preserving the Querier-side generic is what keeps the
+      // service body interchangeable across substrates — narrowing the
+      // surface to `<T extends Record<string, unknown>>` would propagate
+      // the pg-specific constraint into the migration-runner Querier
+      // contract and into the PGlite test adapter, breaking both. The
+      // PGlite test adapter takes the same lateral cast for the same
+      // reason (see `wrap()` in the test file).
+      const result = await pool.query<Record<string, unknown>>(sql, mutableParams);
+      return { rows: result.rows as ReadonlyArray<T> };
+    },
+    exec: async (sql: string): Promise<void> => {
+      // No params -> simple query protocol -> multi-statement batches
+      // permitted. See file-level docstring for the protocol rationale.
+      await pool.query(sql);
+    },
+    transaction: async <T>(fn: (tx: Querier) => Promise<T>): Promise<T> => {
+      // Hold ONE client across BEGIN/COMMIT — see method docstring for
+      // the connection-affinity rationale.
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        let result: T;
+        try {
+          result = await fn(createPoolClientQuerier(client));
+        } catch (originalError) {
+          // Application error inside `fn`. Issue ROLLBACK and re-raise
+          // the original error. The ROLLBACK is wrapped in its own
+          // try/catch so a ROLLBACK failure does NOT mask the caller-
+          // facing original error.
+          try {
+            await client.query("ROLLBACK");
+          } catch {
+            // Intentionally swallowed — the original error is what the
+            // caller needs to diagnose, not the ROLLBACK fallout.
+          }
+          throw originalError;
+        }
+        await client.query("COMMIT");
+        return result;
+      } finally {
+        // Always release — see method docstring §"finally" for the
+        // connection-leak rationale this defends against.
+        client.release();
+      }
+    },
+  };
+}
+
+/**
+ * Adapt a held `PoolClient` to the `Querier` interface for use inside a
+ * `transaction(fn)` callback.
+ *
+ * All three methods route through the SAME held client so the transaction
+ * boundary and any session-scoped state (advisory locks, FOR UPDATE row
+ * locks, prepared statements) survive across inner statements. Nested
+ * `transaction()` calls throw — Postgres has no native nested transactions
+ * without SAVEPOINTs and Plan-001 has no SAVEPOINT requirement. The throw
+ * matches the PGlite test adapter's behavior so the failure mode is
+ * identical across substrates.
+ *
+ * This factory is internal-only: callers should reach `pg.Pool` through
+ * `createPgPoolQuerier`, which constructs this inner Querier on every
+ * `transaction()` entry.
+ */
+function createPoolClientQuerier(client: PoolClient): Querier {
+  return {
+    query: async <T>(
+      sql: string,
+      params?: ReadonlyArray<unknown>,
+    ): Promise<{ rows: ReadonlyArray<T> }> => {
+      const mutableParams: unknown[] = params === undefined ? [] : [...params];
+      // Cast rationale identical to `createPgPoolQuerier`'s `query` — see
+      // the substrate-vs-surface generic-shape comment there. `client.query`
+      // shares the `R extends QueryResultRow` constraint with `pool.query`,
+      // so the same lateral cast applies on the held-client path.
+      const result = await client.query<Record<string, unknown>>(sql, mutableParams);
+      return { rows: result.rows as ReadonlyArray<T> };
+    },
+    exec: async (sql: string): Promise<void> => {
+      await client.query(sql);
+    },
+    transaction: <T>(_fn: (tx: Querier) => Promise<T>): Promise<T> => {
+      // Postgres has no native nested transactions without SAVEPOINTs.
+      // Plan-001 has no SAVEPOINT requirement; the throw matches the
+      // PGlite test adapter's behavior so the failure mode is identical
+      // across substrates. A future plan that needs nested-transaction
+      // semantics MUST extend the Querier contract (add a `savepoint(fn)`
+      // method) rather than overloading `transaction()` with a
+      // substrate-specific shape.
+      return Promise.reject(
+        new Error(
+          "Querier.transaction(): nested transactions are not supported on this substrate.",
+        ),
+      );
+    },
+  };
+}
+
+/**
+ * Compose a `SessionDirectoryService` from a `pg.Pool`.
+ *
+ * Convenience one-liner for production wiring: the SDK / control-plane
+ * host (Plan-001 PR #5 and consumers downstream) gets a fully-constructed
+ * service in one call instead of the two-step
+ * `new SessionDirectoryService(createPgPoolQuerier(pool))`. The factory
+ * matches the export-shape Phase 4 anticipated in the in-file note "Plan-
+ * 001 PR #5 will compose a `Querier` from `pg.Pool`".
+ */
+export function createSessionDirectoryServiceFromPool(pool: Pool): SessionDirectoryService {
+  return new SessionDirectoryService(createPgPoolQuerier(pool));
 }
