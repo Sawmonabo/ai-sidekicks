@@ -16,5 +16,23 @@ portable-pty = "0.9"
 serde = { version = "1.0", features = ["derive"] }
 serde_with = { version = "3.7", features = ["base64"] }
 serde_json = "1.0"
-tokio = { version = "1.40", features = ["rt-multi-thread", "macros", "process", "io-util", "io-std"] }
+# `sync` is required by `pty_session::PtySessionRegistry` for
+# `tokio::sync::{Mutex, mpsc}`. `time` is used by the `pty_session`
+# integration tests for `tokio::time::{sleep, timeout}` — the production
+# code path itself does not depend on `time`, but enabling it crate-wide
+# is simpler than the alternative `[dev-dependencies] tokio` re-export
+# pattern and keeps a single tokio dep declaration. `rt` (single-thread
+# runtime constructor) is pulled in transitively by `rt-multi-thread` but
+# listed explicitly so the intent is visible at the manifest level.
+tokio = { version = "1.40", features = ["rt-multi-thread", "macros", "process", "io-util", "io-std", "sync", "time"] }
 clap = { version = "4.5", features = ["derive"] }
+
+# POSIX `kill(2)` for `pty_session::kill()`. `portable-pty`'s default
+# `ChildKiller` on unix hardcodes `SIGHUP`; we need to forward the
+# caller-supplied `PtySignal` so this crate calls `libc::kill` directly with
+# the requested signal number. `libc` is already a transitive dependency of
+# `portable-pty` + `tokio`; declaring it explicitly under a `cfg(unix)` target
+# makes the signal-delivery intent visible in the manifest and pins the
+# major version. Per Plan-024 T-024-1-4 design note.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
