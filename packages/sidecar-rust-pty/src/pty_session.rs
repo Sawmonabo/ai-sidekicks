@@ -221,12 +221,16 @@ impl From<std::io::Error> for PtySessionError {
 ///
 /// Construction happens inside [`PtySessionRegistry::spawn`]. Removal
 /// from the registry map is driven from the waiter task at exit. The
-/// `JoinHandle` fields are NOT aborted on drop — Tokio's `JoinHandle`
-/// detaches the task on drop, it does not abort it. The reader task
-/// self-terminates on PTY EOF (child closed its slave end); the waiter
-/// task self-terminates on `Child::wait` return. A Phase 1 misbehaving
-/// child that ignores its eventual SIGHUP / SIGKILL could in principle
-/// keep both tasks alive indefinitely — acceptable for Phase 1 where
+/// reader and waiter tasks are spawned by [`PtySessionRegistry::spawn`]
+/// AFTER this handle has been inserted into `self.sessions`; their
+/// [`JoinHandle`]s are intentionally detached at the spawn site rather
+/// than parked on `SessionHandle` (Tokio's `JoinHandle` detaches the
+/// task on drop, it does not abort it — see Tokio
+/// `tokio::task::JoinHandle` rustdoc). The reader task self-terminates
+/// on PTY EOF (child closed its slave end); the waiter task self-
+/// terminates on `Child::wait` return. A Phase 1 misbehaving child
+/// that ignores its eventual SIGHUP / SIGKILL could in principle keep
+/// both tasks alive indefinitely — acceptable for Phase 1 where
 /// session cleanup is driven by daemon-layer
 /// [`PtySessionRegistry::kill`] requests; Phase 3 may add a forced-
 /// abort `Drop` impl if that proves insufficient.
@@ -305,19 +309,6 @@ struct SessionHandle {
     /// the cross-thread store, and the kill path needs read access via
     /// the registry's `Arc<SessionHandle>`.
     exited: Arc<std::sync::atomic::AtomicBool>,
-
-    /// Tokio `JoinHandle` for the reader pump.
-    ///
-    /// `JoinHandle::drop` DETACHES the task (does not abort it). The
-    /// reader task self-terminates on PTY EOF; we hold the handle
-    /// solely to keep the join-result reachable if a future Phase
-    /// wants to surface task panics. Underscore prefix silences the
-    /// unused-field lint while keeping the documentation visible.
-    _reader_task: JoinHandle<()>,
-
-    /// Same detach-on-drop discipline as `_reader_task`.
-    /// Self-terminates on `Child::wait` return.
-    _waiter_task: JoinHandle<()>,
 }
 
 /// The session-id-keyed registry the dispatcher consumes.
@@ -460,40 +451,55 @@ impl PtySessionRegistry {
         // See `SessionHandle::exited` rustdoc for the full discussion.
         let exited = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
-        // Spawn the stdout-pump background task. PTY semantics: one
-        // merged reader, all DataFrames stamped `stream: Stdout`.
-        let reader_task = spawn_reader_task(session_id.clone(), reader, self.outbound.clone());
-
-        // Spawn the waiter task. On child exit it emits
-        // `ExitCodeNotification` and removes the session from the registry.
-        let waiter_task = spawn_waiter_task(
-            session_id.clone(),
-            child,
-            Arc::clone(&exited),
-            self.outbound.clone(),
-            self.sessions.clone(),
-        );
-
-        // Stash the session in the registry. Drop the `slave` half here
-        // (the `PtyPair` destructured into `pair.master` keeps the master
-        // alive via `MasterPty::resize` etc., while the slave can be
-        // dropped now that the child holds its own end of the PTY).
+        // Build the session handle BEFORE spawning the reader / waiter
+        // tasks. Inserting the handle into `self.sessions` first
+        // establishes a happens-before edge from "session registered"
+        // to "waiter may run" — without it, a fast-exiting child (e.g.
+        // `sh -c 'exit 0'`) can drive the waiter's
+        // `sessions.lock().await; map.remove(&session_id)` to completion
+        // BEFORE this method's `insert(...)` lands, leaking a registry
+        // entry for an already-reaped session. Insert-first eliminates
+        // the race deterministically; the waiter's `map.remove` is then
+        // guaranteed to run strictly after the insert.
+        //
+        // `pair.slave` is dropped here when `pair` goes out of scope.
+        // The child already holds its own slave-side handles; dropping
+        // ours is correct PTY-cleanup hygiene.
         let handle = Arc::new(SessionHandle {
             master: Mutex::new(pair.master),
             writer: Mutex::new(Some(writer)),
             pid,
-            exited,
-            _reader_task: reader_task,
-            _waiter_task: waiter_task,
+            exited: Arc::clone(&exited),
         });
-        // `pair.slave` is dropped here when `pair` goes out of scope.
-        // The child already holds its own slave-side handles; dropping
-        // ours is correct PTY-cleanup hygiene.
 
         self.sessions
             .lock()
             .await
             .insert(session_id.clone(), handle);
+
+        // Spawn the stdout-pump background task. PTY semantics: one
+        // merged reader, all DataFrames stamped `stream: Stdout`. The
+        // returned `JoinHandle` is routed into the waiter (below) so
+        // the waiter can `await` reader EOF before emitting
+        // `ExitCodeNotification` — see [`READER_DRAIN_TIMEOUT`] +
+        // [`spawn_waiter_task`] for the ordering contract.
+        let reader_task = spawn_reader_task(session_id.clone(), reader, self.outbound.clone());
+
+        // Spawn the waiter task. On child exit it drains the reader
+        // (handle threaded through) then emits `ExitCodeNotification`
+        // and removes the session from the registry. The insert above
+        // is guaranteed to have completed before this task can run, so
+        // `map.remove(...)` never races the insert. `JoinHandle`
+        // detached on return (no abort needed — the waiter self-
+        // terminates on `Child::wait` return + drain completion).
+        let _waiter_task = spawn_waiter_task(
+            session_id.clone(),
+            child,
+            exited,
+            self.outbound.clone(),
+            self.sessions.clone(),
+            reader_task,
+        );
 
         Ok(SpawnResponse { session_id })
     }
@@ -734,22 +740,58 @@ fn spawn_reader_task(
 
 /// Spawn the per-session waiter task.
 ///
-/// Blocks on `Child::wait()` via `spawn_blocking`; on exit, emits one
-/// [`Envelope::ExitCodeNotification`] and removes the session from the
-/// registry. Idempotent — if the registry lock fails to acquire (e.g.,
-/// registry dropped during shutdown), the notification is still attempted
-/// on the outbound channel.
+/// Blocks on `Child::wait()` via `spawn_blocking`; on exit, awaits the
+/// reader task to natural PTY EOF so trailing `DataFrame`s arrive
+/// before [`Envelope::ExitCodeNotification`], emits one notification,
+/// and removes the session from the registry. Idempotent — if the
+/// registry lock fails to acquire (e.g., registry dropped during
+/// shutdown), the notification is still attempted on the outbound
+/// channel.
 ///
 /// The `exited` flag is set with [`Ordering::Release`] **inside the
 /// `spawn_blocking` closure**, on the same thread that just performed the
 /// kernel reap via `Child::wait()`. See [`SessionHandle::exited`] for the
 /// full race-closing rationale.
+///
+/// `reader_task` is the [`JoinHandle`] returned by [`spawn_reader_task`]
+/// for the same session. The waiter `await`s it WITHOUT a timeout before
+/// emitting the notification, so the Plan-024 §Implementation Step 5
+/// ordering contract — every `DataFrame` arrives before the
+/// `ExitCodeNotification` — is enforced by happens-before rather than
+/// scheduling luck.
+///
+/// ## Why no drain-timeout
+///
+/// An earlier shape capped the drain at 500 ms with a `tokio::time::
+/// timeout(...)` + `JoinHandle::abort()` on the reader. Per Tokio
+/// `tokio::task::JoinHandle::abort` rustdoc: aborting a task spawned
+/// via `tokio::task::spawn_blocking` has NO effect once the closure
+/// has started running on the blocking pool thread. The blocking
+/// `reader.read(&mut buf)` call therefore continues to completion even
+/// after the timeout fires — meaning the reader can still emit
+/// `DataFrame`s AFTER the waiter has sent `ExitCodeNotification`,
+/// reintroducing the exact ordering violation this fix is meant to
+/// close. The orphaned blocking thread also leaks a worker-pool slot.
+///
+/// The honest fix is to await the reader to its natural EOF. On
+/// well-behaved PTYs (child closes its slave end on exit, no
+/// co-process inherits it) the master-side EOF arrives within
+/// milliseconds of `Child::wait()` returning — typically microseconds
+/// on unix, tens of milliseconds on Windows ConPTY. On a pathological
+/// case (a surviving co-process holds the slave open) the waiter
+/// blocks until the slave is force-closed by some external event
+/// (e.g., the daemon-layer `KillRequest` flow). Phase 1 accepts that
+/// trade — correctness on the ordering contract takes priority over
+/// forward progress on a stuck PTY; Phase 3 may add a watchdog or a
+/// cooperative-cancel signal once production traces show whether the
+/// hang actually occurs.
 fn spawn_waiter_task(
     session_id: String,
     mut child: Box<dyn portable_pty::Child + Send + Sync>,
     exited: Arc<std::sync::atomic::AtomicBool>,
     outbound: mpsc::UnboundedSender<Envelope>,
     sessions: Arc<Mutex<HashMap<String, Arc<SessionHandle>>>>,
+    reader_task: JoinHandle<()>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         // The blocking wait happens on a dedicated thread; back on the
@@ -770,6 +812,31 @@ fn spawn_waiter_task(
             result
         })
         .await;
+
+        // Drain the reader pump BEFORE sending `ExitCodeNotification`.
+        //
+        // After `Child::wait()` returns the child has closed its slave
+        // end and the master-side `read()` will observe `Ok(0)` (EOF)
+        // on the next call — the reader's `loop { ... }` then exits
+        // and the `JoinHandle` resolves. Awaiting that resolution here
+        // forces a happens-before edge: every `DataFrame` the reader
+        // emitted (including any chunks the child wrote in its final
+        // moments) reaches the outbound channel before the waiter's
+        // notification can. Per Plan-024 §Implementation Step 5 the
+        // notification ordering MUST be DataFrame-first; the natural
+        // drain is how Phase 1 enforces it across both fast unix EOF
+        // and slower Windows ConPTY EOF.
+        //
+        // No timeout: aborting a `spawn_blocking` task via
+        // `JoinHandle::abort()` is a no-op once the closure has
+        // started, so a timeout-then-abort path leaks the blocking
+        // thread AND lets it keep emitting `DataFrame`s after the
+        // notification — exactly the violation we're closing. See the
+        // function rustdoc above for the full trade-off discussion.
+        // `Result<(), JoinError>` is ignored — a panicked reader task
+        // is logged via the runtime's default panic hook; no
+        // notification semantics depend on it.
+        let _ = reader_task.await;
 
         // Split the wait failure paths so the diagnostic distinguishes a
         // wait()-level I/O error (kernel surfaced one) from a

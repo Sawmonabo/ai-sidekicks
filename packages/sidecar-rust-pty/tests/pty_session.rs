@@ -613,3 +613,263 @@ async fn post_exit_kill_returns_unknown_session_not_recycled_pid() {
         ),
     }
 }
+
+/// Lifecycle smoke for the `PtySessionRegistry::spawn` insert-before-spawn
+/// ordering — the pre-fix shape spawned the reader + waiter tasks BEFORE
+/// inserting the handle into `self.sessions`. With a fast-exiting child
+/// (`sh -c 'exit 0'`) and the multi-threaded runtime used in production,
+/// the waiter could in principle drive its
+/// `sessions.lock().await; map.remove(&id)` to completion before
+/// `spawn()`'s own `insert` landed, leaking a stale entry for an
+/// already-reaped session.
+///
+/// The fix inserts the handle into `self.sessions` BEFORE spawning either
+/// task, so the waiter's `map.remove(&id)` is guaranteed to run after
+/// the entry exists. This test exercises the post-fix lifecycle and
+/// pins the load-bearing contract: spawning N fast-exiting children
+/// and draining all N `ExitCodeNotification`s must leave the registry
+/// at zero active sessions.
+///
+/// ## Scope and limits
+///
+/// This is a **positive-coverage smoke** for the lifecycle contract,
+/// not a deterministic bug reproducer. The pre-fix race fires only if
+/// the waiter task's `spawn_blocking → child.wait → notify → lock →
+/// remove` chain completes during the few microseconds between
+/// `spawn_waiter_task(...)` returning and `self.sessions.lock().await.
+/// insert(...)` completing on the calling thread. For
+/// `sh -c 'exit 0'` even with `multi_thread` + concurrent spawns the
+/// race window is too narrow to fire deterministically in CI — empirical
+/// validation against the buggy shape passes. The fix is enforced
+/// structurally by code review (insert MUST happen-before the spawn
+/// calls in `spawn()`); this test catches gross lifecycle regressions
+/// (e.g. a waiter that never removes, or a spawn that never inserts)
+/// that broadly break the contract.
+///
+/// ## Why `multi_thread` runtime
+///
+/// `#[tokio::test]` defaults to `flavor = "current_thread"`, which
+/// serializes spawn() through one executor thread and hides the
+/// scheduling shape that production uses. `main.rs` runs under a
+/// multi-threaded `#[tokio::main]`, where the waiter can land on a
+/// peer worker while spawn() is still on the calling thread. Pinning
+/// `flavor = "multi_thread"` here keeps the test's scheduler aligned
+/// with production so any future structural regression is exercised
+/// under the same conditions the bug originally arose under.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fast_exiting_child_lifecycle_returns_registry_to_zero() {
+    let (registry, mut rx) = PtySessionRegistry::new();
+
+    const N: usize = 16;
+    let mut session_ids: Vec<String> = Vec::with_capacity(N);
+    for _ in 0..N {
+        let resp = registry
+            .spawn(SpawnRequest {
+                command: "/bin/sh".to_string(),
+                args: vec!["-c".to_string(), "exit 0".to_string()],
+                env: empty_env(),
+                cwd: "/tmp".to_string(),
+                rows: 24,
+                cols: 80,
+            })
+            .await
+            .expect("spawn of `sh -c 'exit 0'` should succeed");
+        session_ids.push(resp.session_id);
+    }
+
+    // Drain envelopes until we observe one `ExitCodeNotification` per
+    // spawn. 10 s is generous; in practice all 16 finish within tens
+    // of milliseconds on every supported platform.
+    let mut exits_seen: std::collections::HashSet<String> =
+        std::collections::HashSet::with_capacity(N);
+    let _ = timeout(Duration::from_secs(10), async {
+        while exits_seen.len() < N {
+            match rx.recv().await {
+                Some(Envelope::ExitCodeNotification(n)) => {
+                    exits_seen.insert(n.session_id);
+                }
+                Some(_) => {}
+                None => return,
+            }
+        }
+    })
+    .await;
+
+    assert_eq!(
+        exits_seen.len(),
+        N,
+        "observed only {observed}/{N} ExitCodeNotifications within the 10 s budget — \
+         either the waiter task is not firing for every spawn (separate bug) or the \
+         envelope-drain loop is starved",
+        observed = exits_seen.len()
+    );
+
+    // The waiter's `map.remove(&id)` happens-after the
+    // `ExitCodeNotification` send (within microseconds in practice but
+    // the two operations are independent). Poll briefly so the test
+    // isn't flaky on slow CI; 2 s upper bound matches the lifecycle
+    // grace window used by `active_session_count_tracks_lifecycle`.
+    for _ in 0..40 {
+        if registry.active_session_count().await == 0 {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let final_count = registry.active_session_count().await;
+    panic!(
+        "registry leaked sessions: active_session_count() = {final_count} after every \
+         one of {N} fast-exit ExitCodeNotifications was observed. This indicates the \
+         spawn/exit lifecycle contract is broken — see `PtySessionRegistry::spawn` for \
+         the insert-before-spawn shape that closes the race the bug introduces."
+    );
+}
+
+/// Contract test for Plan-024 §Implementation Step 5 ordering: every
+/// `DataFrame` written by the child must arrive on the outbound
+/// channel BEFORE the `ExitCodeNotification` for the same session.
+///
+/// The pre-fix waiter emitted `ExitCodeNotification` immediately after
+/// `Child::wait()` returned, without waiting for the reader pump to
+/// observe PTY EOF. On a child that wrote substantial output and then
+/// exited, the waiter could overtake the reader's final chunk(s) —
+/// the consumer would see `ExitCodeNotification` before some trailing
+/// bytes the child wrote, violating the protocol ordering contract.
+///
+/// The fix awaits the reader task's `JoinHandle` (untimed) inside the
+/// waiter, so the notification cannot fire until the reader has read
+/// every byte the child wrote and observed PTY EOF. An earlier shape
+/// capped the drain with a `tokio::time::timeout(...)` +
+/// `JoinHandle::abort()` on the reader; per Tokio `JoinHandle::abort`
+/// rustdoc that abort is a no-op on `spawn_blocking` once started,
+/// which would let the reader keep emitting `DataFrame`s after the
+/// timed-out notification (reintroducing the bug). Phase 1 chooses
+/// correctness on the ordering contract over forward progress on a
+/// pathologically-stuck PTY — see `spawn_waiter_task` rustdoc.
+///
+/// ## Scope and limits — macOS vs Windows
+///
+/// On macOS + Linux PTY the writer and reader operate in lockstep
+/// through a small kernel buffer (~16 KiB on Darwin), so by the time
+/// `printf` finishes and the child exits, the reader has already
+/// consumed every byte. `Child::wait()` returns AFTER the reader has
+/// already drained the master-side buffer, leaving no trailing
+/// chunks for the waiter to overtake. Empirically this test passes
+/// on macOS even with the drain removed — the race is structurally
+/// possible but not observable through real PTY timing on Darwin.
+///
+/// The bug is much more readily observable on **Windows ConPTY**,
+/// where the master-side EOF can lag the child exit by tens of
+/// milliseconds (ConPTY buffers stdout through a separate kernel
+/// pipe with its own flush latency). On Windows the pre-fix shape
+/// would reliably emit `ExitCodeNotification` before the reader
+/// drained, producing the protocol violation. Phase 3 T-024-3-1
+/// brings the Windows test surface up, at which point this test
+/// (compiled and run on Windows) will be the load-bearing bite for
+/// the race. On macOS + Linux it is a positive-coverage contract
+/// pin: the byte-total assertion + last-envelope assertion together
+/// document and lock in the post-fix ordering invariant.
+///
+/// ## Why 256 KiB / 32 chunks
+///
+/// 32 chunks of 8 KiB each (`READ_CHUNK_BYTES`) gives the reader
+/// substantial work and exercises the multi-DataFrame ordering path
+/// alongside the single-chunk smoke. `drain_until_exit` returns on
+/// the first `ExitCodeNotification` it sees, so if the notification
+/// arrived early on a system whose PTY behavior permits the race,
+/// the collected byte total would fall short of 256 KiB — that's
+/// the test's bite.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn exit_notification_arrives_after_final_data_frame() {
+    let (registry, mut rx) = PtySessionRegistry::new();
+
+    // 256 KiB of 'A' (32 × 8 KiB chunks) followed by `exit 0`. Each
+    // `printf 'A%.0s' $(seq ...)` emits exactly 'A' once per seq arg
+    // — portable on macOS + Linux + (in MSYS-like) Windows shells.
+    const PAYLOAD_BYTES: usize = 256 * 1024;
+    let cmd = format!("printf 'A%.0s' $(seq 1 {PAYLOAD_BYTES}); exit 0");
+    let response = registry
+        .spawn(SpawnRequest {
+            command: "/bin/sh".to_string(),
+            args: vec!["-c".to_string(), cmd],
+            env: empty_env(),
+            cwd: "/tmp".to_string(),
+            rows: 24,
+            cols: 80,
+        })
+        .await
+        .expect("spawn should succeed");
+    let session_id = response.session_id.clone();
+
+    // Drain envelopes until the first `ExitCodeNotification`. With the
+    // drain in place the reader pumps every chunk before that
+    // notification can fire.
+    let envelopes = drain_until_exit(&mut rx).await;
+
+    // Load-bearing assertion: the ExitCodeNotification arrives LAST.
+    // Without the waiter's drain this would not hold for substantial
+    // output even when the test happens to win the race in CI — the
+    // shape pre-fix had no happens-before edge from reader-drain to
+    // notification-emit.
+    assert!(
+        matches!(envelopes.last(), Some(Envelope::ExitCodeNotification(_))),
+        "ExitCodeNotification must arrive after the final DataFrame; got envelopes: \
+         (count={count}, last variant: {last:?})",
+        count = envelopes.len(),
+        last = envelopes.last().map(|e| match e {
+            Envelope::DataFrame(_) => "DataFrame",
+            Envelope::ExitCodeNotification(_) => "ExitCodeNotification",
+            _ => "other",
+        })
+    );
+
+    // Load-bearing assertion: ALL 256 KiB of 'A' bytes arrived before
+    // the notification. `drain_until_exit` returns on the FIRST
+    // notification it sees, so if a chunk arrives AFTER the
+    // notification it never enters `envelopes` — the byte total
+    // would fall short. Counting bytes directly catches that.
+    let data_total: usize = envelopes
+        .iter()
+        .filter_map(|e| match e {
+            Envelope::DataFrame(df) => {
+                assert_eq!(
+                    df.session_id, session_id,
+                    "DataFrame must carry the spawned session_id"
+                );
+                assert_eq!(
+                    df.stream,
+                    DataStream::Stdout,
+                    "Phase 1 emits all DataFrames as Stdout (PTY merges streams)"
+                );
+                Some(df.bytes.len())
+            }
+            _ => None,
+        })
+        .sum();
+    assert_eq!(
+        data_total, PAYLOAD_BYTES,
+        "expected all {PAYLOAD_BYTES} bytes of 'A' before ExitCodeNotification, got \
+         data_total={data_total} (envelopes={count}). A shortfall indicates the waiter \
+         fired ExitCodeNotification before the reader finished pumping — see \
+         `READER_DRAIN_TIMEOUT` + `spawn_waiter_task` for the drain shape that pins \
+         this ordering.",
+        count = envelopes.len()
+    );
+
+    // Exactly one ExitCodeNotification, carrying the spawned id and
+    // exit_code 0 (printf + exit 0 → 0).
+    let exit_notifications: Vec<_> = envelopes
+        .iter()
+        .filter_map(|e| match e {
+            Envelope::ExitCodeNotification(n) => Some(n),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        exit_notifications.len(),
+        1,
+        "expected exactly one ExitCodeNotification, got envelopes: {envelopes:?}"
+    );
+    assert_eq!(exit_notifications[0].session_id, session_id);
+    assert_eq!(exit_notifications[0].exit_code, 0);
+    assert_eq!(exit_notifications[0].signal_code, None);
+}

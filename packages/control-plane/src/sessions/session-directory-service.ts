@@ -732,6 +732,20 @@ function hydrateMembershipSummary(row: MembershipRow): MembershipSummary {
  *     or ROLLBACK error itself. Without the `finally`, any throw between
  *     `connect()` and `release()` would leak the connection — the pool
  *     would slowly deplete under any sustained error rate.
+ *
+ *   * Broken-client detection. A `'error'` event listener is attached
+ *     at acquire-time; if the underlying socket breaks (ECONNRESET,
+ *     server disconnect) mid-transaction the listener trips a `tainted`
+ *     flag. The `finally` then calls `client.release(error)` instead of
+ *     `client.release()` — node-postgres treats a truthy first arg as
+ *     "disconnect and destroy" rather than "return to idle pool". The
+ *     swallowed ROLLBACK catch also taints, because a failed ROLLBACK
+ *     after a successful `fn` is invariably the connection dying
+ *     mid-`fn`. Statement-position classification alone (BEGIN/COMMIT
+ *     threw → tainted) is unreliable: a perfectly healthy client can
+ *     fail COMMIT on a deferred-constraint violation, and a broken
+ *     client can surface only via the listener after the in-flight
+ *     query rejected.
  */
 export function createPgPoolQuerier(pool: Pool): Querier {
   return {
@@ -769,6 +783,21 @@ export function createPgPoolQuerier(pool: Pool): Querier {
       // Hold ONE client across BEGIN/COMMIT — see method docstring for
       // the connection-affinity rationale.
       const client = await pool.connect();
+      // Connection-level fault detection. pg's `PoolClient` emits
+      // `'error'` when the underlying socket breaks (ECONNRESET, server
+      // disconnect, etc.). When that fires we must NOT return the
+      // client to the idle pool — node-postgres docs say `release(true)`
+      // disconnects+destroys instead. Statement-position-based
+      // classification (BEGIN/COMMIT/ROLLBACK threw) is unreliable:
+      // a healthy client can fail COMMIT on a deferred-constraint
+      // violation, and a broken client can surface only via the
+      // 'error' event after the in-flight query rejected. The
+      // listener pattern is the canonical broken-client signal.
+      let tainted = false;
+      const onError = (): void => {
+        tainted = true;
+      };
+      client.on("error", onError);
       try {
         await client.query("BEGIN");
         let result: T;
@@ -782,17 +811,30 @@ export function createPgPoolQuerier(pool: Pool): Querier {
           try {
             await client.query("ROLLBACK");
           } catch {
-            // Intentionally swallowed — the original error is what the
-            // caller needs to diagnose, not the ROLLBACK fallout.
+            // Original error is what the caller needs to diagnose; the
+            // ROLLBACK throw is suppressed. A ROLLBACK that fails after
+            // a successful `fn` invariably means the connection died
+            // mid-`fn` (the in-flight ROLLBACK couldn't reach the
+            // server), so taint the client even if the 'error' event
+            // hasn't propagated yet — belt-and-braces against the
+            // race between the rejected query and the listener fire.
+            tainted = true;
           }
           throw originalError;
         }
         await client.query("COMMIT");
         return result;
       } finally {
-        // Always release — see method docstring §"finally" for the
-        // connection-leak rationale this defends against.
-        client.release();
+        // Detach the listener BEFORE release so a late-arriving
+        // 'error' event doesn't leak a closure reference. Then
+        // release: destroy on tainted (truthy first arg per
+        // node-postgres docs), otherwise return to the idle pool.
+        client.removeListener("error", onError);
+        if (tainted) {
+          client.release(new Error("transaction client tainted by connection-level fault"));
+        } else {
+          client.release();
+        }
       }
     },
   };
