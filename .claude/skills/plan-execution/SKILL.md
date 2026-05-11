@@ -473,22 +473,22 @@ The phase has 8 steps in this exact order — DO NOT reorder; step 6 (shipment-m
    - exit code matches `script_exit_code`
    - `mechanical_edits.status_flip.to_line` contains `<TODO subagent prose>` literal placeholder string (subagent fills this)
    - `affected_files` is a superset (or exact match) of files actually edited by the script — declared list must cover every actual edit so any out-of-scope write is detected before subagent dispatch (per `references/post-merge-housekeeper-contract.md` §Validation invariants line 93)
-   - **Snapshot for step-5 baseline.** Copy the validated stage-1 manifest to a sidecar `.agents/tmp/housekeeper-stage1-PR<N>.json` BEFORE step 4 dispatches the subagent. Step 5's validator reads this sidecar as the untamperable baseline for preservation checks (#7/#9/#10/#11). Without it, step 5 falls back to `manifest._script_stage` (subagent-controlled) and emits a baseline-trust gap — non-fatal but reduces preservation coverage. The snapshot is a one-line `cp` ahead of dispatch; step 5 reads it via the `--stage1` flag on the validator wrapper.
+   - **Snapshot for step-5 baseline (REQUIRED — must run BEFORE step 4 dispatch).** Copy the validated stage-1 manifest to a sidecar `.agents/tmp/housekeeper-stage1-PR<N>.json` NOW, while the manifest is still in script-stage shape:
+
+     ```bash
+     cp .agents/tmp/housekeeper-manifest-PR<N>.json \
+        .agents/tmp/housekeeper-stage1-PR<N>.json
+     ```
+
+     Step 5's validator reads this sidecar as the untamperable baseline for preservation checks (#7/#9/#10/#11). **Step 5 cannot self-heal a missed snapshot** — by the time step 5 runs, the subagent has mutated the manifest in place; re-copying it then would alias the baseline to already-tampered state and silently disable the preservation checks (Codex PR #53 P1). Skipping the snapshot also forces step 5 into a round-trip loop: the validator surfaces a check #12 baseline-trust gap → exit 2 → no advance. If you discover at step 5 that this sidecar is missing, **halt Phase E and re-run from step 3** — do NOT manufacture the sidecar from the post-dispatch manifest.
 
 4. **Decide routing on `script_exit_code`, then dispatch xor halt** — call `decideHousekeeperRouting({ scriptExitCode })` from `lib/housekeeper-orchestrator-helpers.mjs`. That helper is the single source of truth for the dispatch/halt mapping; edit it (and its unit tests in `scripts/__tests__/post-merge-housekeeper-orchestrator-helpers.test.mjs`) when the contract's exit-code semantics change. The helper returns either `{ action: "dispatch", exitClass: "subagent-handled" }` (exits 0 / 2 / 3 / 5 — happy path, subagent-handled BLOCKED, no-checklist, schema-violation surfacing) or `{ action: "halt", exitClass, reason, surfacePromptTemplate }` (exits 1 / 4 — orchestrator misdispatch; exit ≥6 — script crash; defensive fallback for unrecognized codes).
    - `action === "halt"` → relay `surfacePromptTemplate` verbatim to the user, halt Phase E, do NOT dispatch the subagent. The manifest reflects a script-stage / orchestrator-stage failure that needs operator action; routing it through the subagent would force the LLM to interpret a malformed/absent manifest and emit a `RESULT:` tag based on hallucinated state.
    - `action === "dispatch"` → invoke the `plan-execution-housekeeper` subagent with the manifest path. The subagent reads the manifest, composes completion-prose for each `<TODO subagent prose>` placeholder using merged-commit context, then re-derives set-quantifier claims by reading ONLY `docs/architecture/cross-plan-dependencies.md` §6 prose (per Plan §Decisions-Locked D-2 — NOT the design spec §6, which is `## 6. Data flow`). Writes back via Edit tool. Returns one of the four canonical exit-states (DONE / DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED) — no new exit-state per Plan Invariant I-2.
 
-5. **Validate the subagent-stage manifest** — this step is MECHANICAL, not prose. Run the wrapper script and route on its exit code:
+5. **Validate the subagent-stage manifest** — this step is MECHANICAL, not prose. The `--stage1` sidecar MUST already exist from step 3 (created BEFORE subagent dispatch). Do NOT `cp` the manifest here as a fallback: by step 5 it has been mutated by the subagent, and aliasing the stage-1 baseline to that mutated state silently disables preservation checks #7/#9/#10/#11. If the sidecar is missing, halt and re-run from step 3.
 
    ```bash
-   # Optional but recommended: snapshot stage-1 manifest to a sidecar BEFORE step 4 so the
-   # validator can compare against an untamperable baseline. If you skipped this, drop
-   # `--stage1` below — the validator falls back to manifest._script_stage with a
-   # baseline-trust gap (non-fatal but signals reduced preservation coverage).
-   cp .agents/tmp/housekeeper-manifest-PR<N>.json \
-      .agents/tmp/housekeeper-stage1-PR<N>.json   # if not done already at step 3
-
    node --experimental-strip-types \
      .claude/skills/plan-execution/scripts/validate-subagent-manifest.mjs \
      .agents/tmp/housekeeper-manifest-PR<N>.json \
