@@ -1,31 +1,25 @@
-// PTY-host runtime-callable interface — daemon-side abstraction over the
+// Runtime-callable PTY-host interface — daemon-side abstraction over the
 // `pty-host-protocol.ts` wire envelope.
 //
-// Plan-024 splits the PTY surface into two contracts files per F-024-2-03:
+// The contracts package carries two PTY surfaces:
 //   • `pty-host-protocol.ts` — wire-format DTOs that mirror the Rust serde
-//     structs in `packages/sidecar-rust-pty/src/protocol.rs`. `bytes`
-//     fields are `string` carrying base64-encoded payloads; payload
-//     variants carry a `kind` discriminant. Cross-environment safe.
-//   • `pty-host.ts` (this file) — runtime-callable API for daemon-side
-//     consumers (`packages/runtime-daemon/src/pty/`). `bytes` fields are
-//     `Buffer` (decoded); methods take flat parameters rather than
-//     envelopes. Daemon-only (Node context).
+//     structs (`bytes` fields are base64-encoded `string`; payload
+//     variants carry a `kind` discriminant). Cross-environment safe.
+//   • `pty-host.ts` (this file) — runtime API for daemon-side consumers.
+//     `bytes` fields are `Uint8Array` (already decoded); methods take
+//     flat parameters rather than envelopes. Daemon-only (Node context).
 //
-// Two backends implement `PtyHost` per Plan-024:
-//   • `RustSidecarPtyHost` — spawns the Rust sidecar binary and marshals
-//     over Content-Length framing (Plan-024 Phase 3).
-//   • `NodePtyHost` — in-process `node-pty` fallback (Plan-024 Phase 2;
-//     also the Phase-5 Windows fallback when the sidecar is unreachable).
-//
-// Refs: Plan-024 T-024-2-1, ADR-019 §Decision item 1.
+// Two backends implement the contract: a Rust sidecar binary marshalled
+// over Content-Length framing, and an in-process `node-pty` fallback.
 
 import type { PtySignal, SpawnRequest, SpawnResponse } from "./pty-host-protocol.js";
 
 export interface PtyHost {
   /**
-   * Spawn a new PTY session. The daemon-layer `spawn-cwd-translator`
-   * (Plan-001 §CP-001-2) rewrites `spec.cwd` to a stable parent
-   * directory before this method runs, per I-024-5.
+   * Spawn a new PTY session. The daemon-layer cwd-translator rewrites
+   * `spec.cwd` to a stable parent directory before this method runs so
+   * sidecar reads observe a stable cwd even when the underlying worktree
+   * is torn down concurrently.
    */
   spawn(spec: SpawnRequest): Promise<SpawnResponse>;
 
@@ -33,12 +27,13 @@ export interface PtyHost {
   resize(sessionId: string, rows: number, cols: number): Promise<void>;
 
   /** Write a raw byte chunk to the PTY master fd. */
-  write(sessionId: string, bytes: Buffer): Promise<void>;
+  write(sessionId: string, bytes: Uint8Array): Promise<void>;
 
   /**
    * Send `signal` to the session's child process. Windows backends
-   * translate POSIX signals to console-control events + `taskkill`
-   * escalation per Plan-024 §Windows Implementation Gotchas (I-024-1).
+   * translate POSIX signals to console-control events
+   * (`GenerateConsoleCtrlEvent` for `SIGINT`) and escalate hard-stops
+   * via `taskkill /T /F`.
    */
   kill(sessionId: string, signal: PtySignal): Promise<void>;
 
@@ -50,12 +45,15 @@ export interface PtyHost {
    * named session. `chunk` is the base64-decoded payload of the
    * wire-side `DataFrame.bytes` from `pty-host-protocol.ts`.
    */
-  onData(sessionId: string, chunk: Buffer): void;
+  onData(sessionId: string, chunk: Uint8Array): void;
 
   /**
    * Invoked when the session's child process exits. `signalCode` is the
    * numeric signal that terminated the child, if any (e.g. `15` for
    * `SIGTERM`); absent when the child exited normally with `exitCode`.
+   * Adapters translate the wire-side `ExitCodeNotification.signal_code`
+   * (`number | null`) — wire `null` is passed by omitting the third
+   * argument.
    */
   onExit(sessionId: string, exitCode: number, signalCode?: number): void;
 }
