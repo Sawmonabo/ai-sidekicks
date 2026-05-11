@@ -144,18 +144,36 @@ function isPGlite(handle: PGlite | Transaction): handle is PGlite {
 // outer-Querier queries and miss every in-transaction query, including the
 // `SELECT ... FOR UPDATE` whose position we want to assert.
 //
+// Each capture entry is tagged with a `querierId` so callers can discriminate
+// WHICH Querier instance issued each statement (outer vs in-tx). The
+// `transaction(fn)` impl re-wraps the inner `tx` with a fresh tx-scoped id
+// (`${querierId}.tx-${n}`), so a regression that routes an in-tx statement
+// (e.g. `FOR UPDATE`) through the outer `this.#querier` instead of the
+// `tx` inside the transaction callback shows up as a wrong querierId on
+// that entry. Under pg.Pool semantics this distinction is load-bearing:
+// the outer Querier would check out a DIFFERENT pool client than the
+// transaction's held client, and the lock would land on the wrong
+// connection — failing to serialize concurrent createSession calls.
+//
 // `exec` is forwarded through the underlying querier without capture
 // because no test currently asserts on the exec stream and the migration
 // runner is the only `exec()` caller in PR #4. If a future test needs to
 // assert on multi-statement batches, extend the proxy to push `exec`
 // payloads as a sentinel entry.
-function wrapWithLog(inner: Querier, captured: string[]): Querier {
+interface CapturedQuery {
+  readonly querierId: string;
+  readonly sql: string;
+}
+
+let txCounter = 0;
+
+function wrapWithLog(inner: Querier, captured: CapturedQuery[], querierId: string): Querier {
   return {
     query: async <T>(
       sql: string,
       params?: ReadonlyArray<unknown>,
     ): Promise<{ rows: ReadonlyArray<T> }> => {
-      captured.push(sql);
+      captured.push({ querierId, sql });
       return inner.query<T>(sql, params);
     },
     exec: async (sql: string): Promise<void> => {
@@ -167,7 +185,18 @@ function wrapWithLog(inner: Querier, captured: string[]): Querier {
       // queries land in the same `captured` array. Without this the
       // FOR UPDATE inside `createSession`'s transaction callback would
       // never appear in the capture stream.
-      return inner.transaction((tx) => fn(wrapWithLog(tx, captured)));
+      //
+      // The tx-scoped querierId is derived from the outer id with a
+      // monotonic suffix so:
+      //   (a) it is GUARANTEED distinct from the outer id (load-bearing
+      //       for the R4 discriminator assertion);
+      //   (b) the `${querierId}.tx-` prefix is grep-friendly for tests
+      //       that want to assert "this came from inside a transaction";
+      //   (c) the counter ticks across all wrapWithLog instances — fine
+      //       because no test asserts on the exact suffix value, only on
+      //       the prefix / non-equality with the outer id.
+      const txId = `${querierId}.tx-${++txCounter}`;
+      return inner.transaction((tx) => fn(wrapWithLog(tx, captured, txId)));
     },
   };
 }
@@ -584,9 +613,14 @@ describe("SessionDirectoryService — P2 (idempotent re-create does not fork)", 
     // Wrap the test querier in a logging proxy that captures every SQL
     // statement issued — including queries inside `transaction(...)`
     // (the recursive wrapping mirrors `wrap()` above so in-tx queries are
-    // captured, not just outer-Querier queries).
-    const captured: string[] = [];
-    const loggingQuerier: Querier = wrapWithLog(ctx.querier, captured);
+    // captured, not just outer-Querier queries). Each capture entry is
+    // tagged with a `querierId` so the assertions below can discriminate
+    // outer-Querier statements from in-tx-Querier statements — see the
+    // "wrong-Querier regression" block at the bottom for why that
+    // discrimination is the load-bearing piece under pg.Pool (T5.5).
+    const OUTER_ID = "outer";
+    const captured: CapturedQuery[] = [];
+    const loggingQuerier: Querier = wrapWithLog(ctx.querier, captured, OUTER_ID);
     const service = new SessionDirectoryService(loggingQuerier);
 
     await service.createSession({
@@ -610,17 +644,17 @@ describe("SessionDirectoryService — P2 (idempotent re-create does not fork)", 
     // requiring `\s+` immediately after the table name (the FOR UPDATE
     // probe and its count-check at the bottom) are already safe because
     // an underscore-suffix would not satisfy the whitespace assertion.
-    const sessionUpsertIdx = captured.findIndex((sql) =>
-      /INSERT\s+INTO\s+sessions\b[\s\S]*ON\s+CONFLICT\s*\(\s*id\s*\)/i.test(sql),
+    const sessionUpsertIdx = captured.findIndex((entry) =>
+      /INSERT\s+INTO\s+sessions\b[\s\S]*ON\s+CONFLICT\s*\(\s*id\s*\)/i.test(entry.sql),
     );
-    const forUpdateIdx = captured.findIndex((sql) =>
-      /FROM\s+sessions\s+WHERE\s+id\s*=\s*\$1\s+FOR\s+UPDATE/i.test(sql),
+    const forUpdateIdx = captured.findIndex((entry) =>
+      /FROM\s+sessions\s+WHERE\s+id\s*=\s*\$1\s+FOR\s+UPDATE/i.test(entry.sql),
     );
-    const ownerProbeIdx = captured.findIndex((sql) =>
-      /FROM\s+session_memberships\b[\s\S]*role\s*=\s*'owner'/i.test(sql),
+    const ownerProbeIdx = captured.findIndex((entry) =>
+      /FROM\s+session_memberships\b[\s\S]*role\s*=\s*'owner'/i.test(entry.sql),
     );
-    const membershipUpsertIdx = captured.findIndex((sql) =>
-      /INSERT\s+INTO\s+session_memberships\b/i.test(sql),
+    const membershipUpsertIdx = captured.findIndex((entry) =>
+      /INSERT\s+INTO\s+session_memberships\b/i.test(entry.sql),
     );
 
     // All four statements MUST be present.
@@ -642,22 +676,72 @@ describe("SessionDirectoryService — P2 (idempotent re-create does not fork)", 
     // against a future regression that lifts the lock to the outer
     // Querier (where it would lock the wrong connection / no connection
     // at all under pg.Pool semantics) or that issues it twice.
-    //
-    // TODO(Plan-001 PR #5): once pg.Pool lands, strengthen this assertion to
-    // discriminate WHICH Querier instance issued each statement (e.g.,
-    // tag the proxy with an id and capture pairs of `(querier-id, sql)`).
-    // The current proxy wraps both `this.#querier` and the in-tx `tx`, so
-    // a regression that routes FOR UPDATE through `this.#querier` instead
-    // of `tx` inside the transaction body would still land in `captured[]`
-    // and pass this assertion — but pg.Pool would lock on the wrong
-    // connection (a different pool checkout, not the transaction's
-    // checkout) and fail to serialize concurrent createSession calls. The
-    // assertion below catches the count regression but cannot catch the
-    // wrong-Querier regression. Code-reviewer R4 finding CR#2.
-    const forUpdateCount = captured.filter((sql) =>
-      /FROM\s+sessions\s+WHERE\s+id\s*=\s*\$1\s+FOR\s+UPDATE/i.test(sql),
+    const forUpdateCount = captured.filter((entry) =>
+      /FROM\s+sessions\s+WHERE\s+id\s*=\s*\$1\s+FOR\s+UPDATE/i.test(entry.sql),
     ).length;
     expect(forUpdateCount).toBe(1);
+
+    // ----- Wrong-Querier regression discriminator (Plan-001 T5.6) -----
+    //
+    // Each of the four load-bearing statements MUST have been issued
+    // through the in-tx Querier (the `tx` passed to the `transaction(fn)`
+    // callback), NOT through the outer `this.#querier`. The wrapWithLog
+    // proxy assigns the outer Querier `querierId = "outer"` and re-wraps
+    // the in-tx Querier with a fresh `"outer.tx-<n>"` id, so the load-
+    // bearing assertion is `entry.querierId !== OUTER_ID`.
+    //
+    // Why this matters under pg.Pool (T5.5): the outer Querier checks
+    // out a one-shot connection from the pool per call; the
+    // `transaction(fn)` Querier holds a SPECIFIC client across BEGIN /
+    // inner statements / COMMIT. A regression that routes any of these
+    // statements through `this.#querier` instead of the in-tx `tx` —
+    // most dangerously the `FOR UPDATE` — would lock a row on a
+    // DIFFERENT pool client than the one running the transaction, and
+    // the lock would release on that side-client's return-to-pool
+    // instead of being held across the transaction's commit. Concurrent
+    // createSession calls would no longer serialize on the row lock.
+    //
+    // The pre-T5.6 assertions (presence + ordering + count) could not
+    // discriminate this case because the captured array was a flat
+    // string stream with no provenance. The tagged shape closes that
+    // residual.
+    const sessionUpsertEntry = captured[sessionUpsertIdx];
+    const forUpdateEntry = captured[forUpdateIdx];
+    const ownerProbeEntry = captured[ownerProbeIdx];
+    const membershipUpsertEntry = captured[membershipUpsertIdx];
+    expect(sessionUpsertEntry).toBeDefined();
+    expect(forUpdateEntry).toBeDefined();
+    expect(ownerProbeEntry).toBeDefined();
+    expect(membershipUpsertEntry).toBeDefined();
+    if (
+      sessionUpsertEntry === undefined ||
+      forUpdateEntry === undefined ||
+      ownerProbeEntry === undefined ||
+      membershipUpsertEntry === undefined
+    ) {
+      return;
+    }
+    // The FOR UPDATE is the most safety-critical of the four; it is the
+    // direct manifestation of I-001-1 (lock-ordering: sessions →
+    // session_memberships). Calling it out by name keeps the failure
+    // message diagnostic-friendly under regression.
+    expect(forUpdateEntry.querierId).not.toBe(OUTER_ID);
+    expect(forUpdateEntry.querierId).toMatch(/^outer\.tx-\d+$/);
+    // The remaining three transaction statements must ALSO run through
+    // the in-tx Querier — they share the transaction's atomicity and
+    // would suffer the same pool-checkout split-brain if any were
+    // routed through the outer Querier.
+    expect(sessionUpsertEntry.querierId).not.toBe(OUTER_ID);
+    expect(ownerProbeEntry.querierId).not.toBe(OUTER_ID);
+    expect(membershipUpsertEntry.querierId).not.toBe(OUTER_ID);
+    // All four statements must come from the SAME in-tx Querier
+    // (createSession only opens one transaction; emission across two
+    // distinct tx-scoped ids would mean either a nested or a sibling
+    // transaction was introduced, both of which would break the
+    // single-COMMIT atomicity guarantee asserted elsewhere).
+    expect(sessionUpsertEntry.querierId).toBe(forUpdateEntry.querierId);
+    expect(ownerProbeEntry.querierId).toBe(forUpdateEntry.querierId);
+    expect(membershipUpsertEntry.querierId).toBe(forUpdateEntry.querierId);
 
     // Final correctness check: exactly one owner-membership row exists
     // (the lock did not perturb the canonical write path).
@@ -1082,8 +1166,8 @@ describe("applyMigrations — idempotency", () => {
     // exercised.
     const pg = new PGlite();
     try {
-      const captured: string[] = [];
-      const querier = wrapWithLog(adaptPGlite(pg), captured);
+      const captured: CapturedQuery[] = [];
+      const querier = wrapWithLog(adaptPGlite(pg), captured, "migration");
 
       // Two concurrent calls. Both MUST resolve; neither MUST throw.
       await expect(
@@ -1111,7 +1195,7 @@ describe("applyMigrations — idempotency", () => {
       // lock SQL and the captured count is typically 2; but this is a
       // scheduler-timing detail. The load-bearing claim is that the lock
       // IS issued at least once, not how many times.
-      const lockCount = captured.filter((sql) => /pg_advisory_xact_lock/i.test(sql)).length;
+      const lockCount = captured.filter((entry) => /pg_advisory_xact_lock/i.test(entry.sql)).length;
       expect(lockCount).toBeGreaterThanOrEqual(1);
     } finally {
       await pg.close();
