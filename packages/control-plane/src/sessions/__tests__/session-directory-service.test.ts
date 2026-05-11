@@ -27,7 +27,8 @@
 // where the per-call connection checkout is automatic.
 
 import { PGlite, type Transaction } from "@electric-sql/pglite";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { Pool, PoolClient, QueryResult, QueryResultRow } from "pg";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
   MembershipId,
@@ -39,6 +40,8 @@ import type {
 import { applyMigrations, type Querier } from "../migration-runner.js";
 import {
   SessionDirectoryService,
+  createPgPoolQuerier,
+  createSessionDirectoryServiceFromPool,
   type CreateSessionInput,
   type JoinSessionInput,
 } from "../session-directory-service.js";
@@ -1129,5 +1132,851 @@ describe("applyMigrations — idempotency", () => {
         "not_a_real_state",
       ]),
     ).rejects.toThrow();
+  });
+});
+
+// ----------------------------------------------------------------------------
+// createPgPoolQuerier — pool-checkout-and-release path (Plan-001 T5.5)
+// ----------------------------------------------------------------------------
+//
+// Phase 4 shipped `SessionDirectoryService` typed against `Querier`, with the
+// PGlite-backed concretion exercised in the P1/P2/P3 blocks above. T5.5 lands
+// the `pg.Pool`-backed concretion that production wiring will use; this
+// describe block pins the adapter contract:
+//
+//   * `query()` and `exec()` route through `pool.query()` (one-shot
+//     auto-checkout-and-release), NOT through `pool.connect()`. Using
+//     `connect()` here would force the caller to manage release and leak
+//     connections on caller-side throws.
+//
+//   * `transaction(fn)` checks out ONE client via `pool.connect()`, holds
+//     it across BEGIN / inner statements / COMMIT, and releases on every
+//     exit path. Without a held client, each inner statement would land on
+//     a DIFFERENT pooled connection — BEGIN on one, the inner SQL on
+//     others, COMMIT on yet another — and the transaction would dissolve
+//     (advisory locks, FOR UPDATE row locks, server-side prepared
+//     statements all rely on per-connection state).
+//
+//   * The inner `Querier` passed to `fn` routes ALL three methods through
+//     the held client, not back through the pool. Recursive `transaction`
+//     throws — Postgres has no native nested transactions without
+//     SAVEPOINTs and Plan-001 has no SAVEPOINT requirement.
+//
+//   * `client.release()` runs in a `finally` so the connection returns to
+//     the pool whether the path terminated in COMMIT success, application
+//     error + ROLLBACK, COMMIT-time error, or ROLLBACK error itself. Pool
+//     leaks under any sustained error rate without the `finally`.
+//
+//   * On error inside `fn`, the adapter issues `ROLLBACK` and re-raises
+//     the underlying error. pg.Pool has no auto-rollback (unlike PGlite's
+//     `pg.transaction(fn)`); without manual ROLLBACK, the client returns
+//     to the pool in `25P02 current transaction is aborted` state and the
+//     next checkout receives a poisoned client.
+//
+// Test substrate choice — hand-rolled mock pool, not pg-mem or real PG:
+//
+//   The behavioral correctness of the service SQL (the `createSession`
+//   four-statement sequence, the join's two-statement sequence) is already
+//   proven in the PGlite path above. T5.5's load-bearing claim is the
+//   ADAPTER CONTRACT — that `transaction()` holds one connection across
+//   BEGIN/COMMIT and releases on every exit, that `query()`/`exec()` route
+//   through the pool's one-shot path, and that the in-transaction inner
+//   Querier routes through the held client. Mock spies prove this directly
+//   and precisely. A pg-mem swap would only PARTIALLY validate (pg-mem
+//   doesn't implement `pg_advisory_xact_lock` faithfully), and a real
+//   Postgres-in-CI substrate is out of scope for this PR (would require
+//   CI workflow changes).
+//
+//   The Spec-001 AC1 / AC2 / AC4 assertions are routed through the same
+//   mock substrate: the service body runs against `createPgPoolQuerier(
+//   mockPool)`, and we assert the AC-load-bearing behavior at the
+//   service-response shape level (one session id, one membership, COMMIT
+//   issued before resolve, idempotent membership id on rejoin).
+//
+//   If a future PR needs deeper validation against a real Postgres — in
+//   particular T5.6's lock-ordering strengthening — that PR adds the
+//   substrate. T5.5 lands the composer and the adapter-contract tests.
+
+// ----------------------------------------------------------------------------
+// MockPool / MockPoolClient — canned-response substrate
+// ----------------------------------------------------------------------------
+
+interface MockPoolCall {
+  readonly kind: "pool.query" | "client.query" | "client.release" | "pool.connect";
+  // `sql` / `params` are present on `query` calls and absent on `connect` /
+  // `release`. `exactOptionalPropertyTypes: true` (the repo's strict config)
+  // distinguishes "key missing" from "key present with value `undefined`";
+  // since the params array MAY be `undefined` at the Querier boundary
+  // (caller omits params), we explicitly admit the union here rather than
+  // relying on the implicit optional-as-`| undefined` widening.
+  readonly sql?: string | undefined;
+  readonly params?: ReadonlyArray<unknown> | undefined;
+}
+
+// A canned response can be either rows to return or an error to throw. Tests
+// queue responses in service-issue order; the mock pool/client dequeues on
+// each `query()` call. An empty queue signals an unexpected SQL statement —
+// the assertion failure points the reader at the off-by-one issue.
+type CannedResponse =
+  | { readonly kind: "rows"; readonly rows: ReadonlyArray<Record<string, unknown>> }
+  | { readonly kind: "error"; readonly error: Error };
+
+interface MockPool extends Pool {
+  readonly _calls: MockPoolCall[];
+  readonly _clients: MockPoolClient[];
+  _connectImpl?: () => Promise<MockPoolClient> | MockPoolClient;
+  _queryImpl?: CannedResponse[];
+}
+
+interface MockPoolClient extends PoolClient {
+  readonly _calls: MockPoolCall[];
+  _queryImpl?: CannedResponse[];
+  _released: boolean;
+}
+
+function makeMockPool(): MockPool {
+  const calls: MockPoolCall[] = [];
+  const clients: MockPoolClient[] = [];
+  // The `as unknown as MockPool` cast bypasses the `extends EventEmitter`
+  // surface of `pg.Pool` — the adapter never touches the event API and the
+  // tests assert on the routing/lifecycle methods only.
+  const pool = {
+    _calls: calls,
+    _clients: clients,
+    query: vi.fn(
+      async <R extends QueryResultRow>(
+        sql: string,
+        params?: ReadonlyArray<unknown>,
+      ): Promise<QueryResult<R>> => {
+        calls.push({ kind: "pool.query", sql, params });
+        const response = pool._queryImpl?.shift();
+        if (response === undefined) {
+          throw new Error(
+            `MockPool.query received unexpected statement (no canned response queued): ${sql}`,
+          );
+        }
+        if (response.kind === "error") {
+          throw response.error;
+        }
+        return {
+          rows: response.rows as R[],
+          command: "",
+          rowCount: response.rows.length,
+          oid: 0,
+          fields: [],
+        };
+      },
+    ),
+    connect: vi.fn(async (): Promise<MockPoolClient> => {
+      calls.push({ kind: "pool.connect" });
+      if (pool._connectImpl !== undefined) {
+        return await pool._connectImpl();
+      }
+      const client = makeMockPoolClient();
+      clients.push(client);
+      return client;
+    }),
+  } as unknown as MockPool;
+  return pool;
+}
+
+function makeMockPoolClient(): MockPoolClient {
+  const calls: MockPoolCall[] = [];
+  // Same EventEmitter-surface bypass as MockPool — the adapter only touches
+  // `query()` and `release()`. Default behavior: when `_queryImpl` is not
+  // set, every query returns empty rows (the "I only care about routing /
+  // lifecycle, not row contents" path). Tests that assert on specific
+  // canned rows (the AC tests + the ROLLBACK / COMMIT failure tests) set
+  // `_queryImpl` to a per-test FIFO queue.
+  const client = {
+    _calls: calls,
+    _released: false,
+    query: vi.fn(
+      async <R extends QueryResultRow>(
+        sql: string,
+        params?: ReadonlyArray<unknown>,
+      ): Promise<QueryResult<R>> => {
+        calls.push({ kind: "client.query", sql, params });
+        if (client._queryImpl !== undefined) {
+          const response = client._queryImpl.shift();
+          if (response === undefined) {
+            throw new Error(
+              `MockPoolClient.query received unexpected statement (no canned response queued): ${sql}`,
+            );
+          }
+          if (response.kind === "error") {
+            throw response.error;
+          }
+          return {
+            rows: response.rows as R[],
+            command: "",
+            rowCount: response.rows.length,
+            oid: 0,
+            fields: [],
+          };
+        }
+        // No canned responses queued — return empty rows. The lifecycle /
+        // routing assertions don't depend on row contents; queueing a
+        // FIFO for every test would be ceremony without payoff.
+        return {
+          rows: [] as R[],
+          command: "",
+          rowCount: 0,
+          oid: 0,
+          fields: [],
+        };
+      },
+    ),
+    release: vi.fn((): void => {
+      calls.push({ kind: "client.release" });
+      client._released = true;
+    }),
+  } as unknown as MockPoolClient;
+  return client;
+}
+
+// Canonical canned-response sequences. Each helper builds the canned rows
+// the service body will dequeue in order — the service's SQL stream for
+// each method is deterministic, so the queue position is stable.
+
+function cannedRowsForCreateSession(): CannedResponse[] {
+  // The service issues, inside the transaction (after BEGIN):
+  //   1. session upsert        -> 1 SessionRow
+  //   2. SELECT ... FOR UPDATE -> 1 row (id only)
+  //   3. owner-mismatch probe  -> 0 rows (no existing owner)
+  //   4. membership upsert     -> 1 MembershipRow
+  // Then COMMIT.
+  return [
+    {
+      kind: "rows",
+      rows: [
+        {
+          id: SESSION_ID,
+          state: "provisioning",
+          config: {},
+          metadata: {},
+          min_client_version: null,
+          created_at: new Date("2026-05-09T00:00:00Z"),
+          updated_at: new Date("2026-05-09T00:00:00Z"),
+        },
+      ],
+    },
+    { kind: "rows", rows: [{ id: SESSION_ID }] },
+    { kind: "rows", rows: [] },
+    {
+      kind: "rows",
+      rows: [
+        {
+          id: "01970000-0000-7000-8000-00000000c001",
+          session_id: SESSION_ID,
+          participant_id: OWNER_PARTICIPANT_ID,
+          role: "owner",
+          state: "active",
+          joined_at: new Date("2026-05-09T00:00:00Z"),
+          updated_at: new Date("2026-05-09T00:00:00Z"),
+        },
+      ],
+    },
+  ];
+}
+
+function cannedRowsForJoinSession(opts: {
+  readonly participantId: ParticipantId;
+  readonly membershipId: string;
+}): CannedResponse[] {
+  // The service issues, outside any transaction:
+  //   1. session probe      -> 1 SessionRow
+  //   2. membership upsert  -> 1 MembershipRow
+  return [
+    {
+      kind: "rows",
+      rows: [
+        {
+          id: SESSION_ID,
+          state: "provisioning",
+          config: {},
+          metadata: {},
+          min_client_version: null,
+          created_at: new Date("2026-05-09T00:00:00Z"),
+          updated_at: new Date("2026-05-09T00:00:00Z"),
+        },
+      ],
+    },
+    {
+      kind: "rows",
+      rows: [
+        {
+          id: opts.membershipId,
+          session_id: SESSION_ID,
+          participant_id: opts.participantId,
+          role: "collaborator",
+          state: "active",
+          joined_at: new Date("2026-05-09T00:00:00Z"),
+          updated_at: new Date("2026-05-09T00:00:00Z"),
+        },
+      ],
+    },
+  ];
+}
+
+describe("createPgPoolQuerier — pool-checkout-and-release path", () => {
+  // --------------------------------------------------------------------------
+  // Adapter-contract assertions
+  // --------------------------------------------------------------------------
+  //
+  // Pure-mock tests on the adapter directly (no service body). These pin the
+  // routing and lifecycle contract precisely — `query` lands on the pool's
+  // one-shot path, `transaction` checks out + releases, inner SQL routes
+  // through the held client, nested-transaction throws, ROLLBACK fires on
+  // error.
+
+  it("query() routes through pool.query() (one-shot auto-checkout) and not through pool.connect()", async () => {
+    // The Querier#query contract is "issue a single statement and return
+    // its rows". `pg.Pool#query()` internally connect()s + releases on each
+    // call; using `pool.connect()` here would force the adapter to manage
+    // release and leak connections on caller-side throws.
+    const pool = makeMockPool();
+    pool._queryImpl = [{ kind: "rows", rows: [{ count: "1" }] }];
+    const querier = createPgPoolQuerier(pool);
+
+    const result = await querier.query<{ count: string }>("SELECT 1 AS count", []);
+    expect(result.rows).toEqual([{ count: "1" }]);
+    expect(pool.query).toHaveBeenCalledTimes(1);
+    expect(pool.connect).not.toHaveBeenCalled();
+    expect(pool._clients).toHaveLength(0);
+  });
+
+  it("query() spreads ReadonlyArray params into a mutable array at the pg.Pool boundary", async () => {
+    // pg's `query()` parameter array is typed as `unknown[]` (mutable). The
+    // adapter spreads the ReadonlyArray to satisfy the mutability claim
+    // without copying values. A regression that passed the ReadonlyArray
+    // through unchanged would surface as a TS error on the next build, but
+    // we pin the runtime shape here too so a future refactor that bypasses
+    // the typecheck doesn't silently break parameter handling.
+    const pool = makeMockPool();
+    pool._queryImpl = [{ kind: "rows", rows: [] }];
+    const querier = createPgPoolQuerier(pool);
+    const params: ReadonlyArray<unknown> = Object.freeze(["alpha", 42]);
+
+    await querier.query<unknown>("SELECT $1, $2", params);
+
+    expect(pool.query).toHaveBeenCalledWith("SELECT $1, $2", ["alpha", 42]);
+    // The captured params array MUST NOT be the frozen input array — that
+    // would leak the immutability constraint into pg's serializer (which
+    // expects to be free to mutate the array internally on bind).
+    const captured = pool._calls.find((c) => c.kind === "pool.query")?.params;
+    expect(captured).not.toBe(params);
+    expect(Object.isFrozen(captured)).toBe(false);
+  });
+
+  it("exec() routes through pool.query(sql) with no params (simple query protocol)", async () => {
+    // Querier#exec is the multi-statement-batch path (simple query protocol).
+    // Without a values array, pg's Client#query() falls through to the simple
+    // protocol which permits `BEGIN; ...; COMMIT;` style batches — what the
+    // migration runner's INITIAL_MIGRATION_SQL body needs.
+    const pool = makeMockPool();
+    pool._queryImpl = [{ kind: "rows", rows: [] }];
+    const querier = createPgPoolQuerier(pool);
+
+    await querier.exec("CREATE TABLE t (id int); INSERT INTO t VALUES (1);");
+
+    expect(pool.query).toHaveBeenCalledTimes(1);
+    expect(pool.query).toHaveBeenCalledWith("CREATE TABLE t (id int); INSERT INTO t VALUES (1);");
+    expect(pool.connect).not.toHaveBeenCalled();
+  });
+
+  it("transaction(fn) checks out ONE client, holds it across BEGIN/inner/COMMIT, and releases on commit", async () => {
+    // The load-bearing claim: connection affinity across the transaction
+    // boundary. Without a held client, each inner statement would land on
+    // a DIFFERENT pooled connection — BEGIN on one, inner SQL on others,
+    // COMMIT on yet another — dissolving the transaction. Advisory locks
+    // (`pg_advisory_xact_lock`, used by the migration runner) and FOR
+    // UPDATE row locks (used by `createSession`'s lock-ordering pattern)
+    // would not survive across statements.
+    const pool = makeMockPool();
+    const querier = createPgPoolQuerier(pool);
+
+    const result = await querier.transaction(async (tx) => {
+      await tx.query("SELECT 1");
+      await tx.query("SELECT 2", [42]);
+      return "done";
+    });
+
+    expect(result).toBe("done");
+    // Exactly ONE pool.connect() — held across BEGIN/inner/COMMIT.
+    expect(pool.connect).toHaveBeenCalledTimes(1);
+    expect(pool._clients).toHaveLength(1);
+    const client = pool._clients[0];
+    expect(client).toBeDefined();
+    if (client === undefined) return;
+    // No pool.query() — all inner statements landed on the held client.
+    expect(pool.query).not.toHaveBeenCalled();
+    // BEGIN -> inner -> inner -> COMMIT, all on the same client.
+    const clientSql = client._calls.filter((c) => c.kind === "client.query").map((c) => c.sql);
+    expect(clientSql).toEqual(["BEGIN", "SELECT 1", "SELECT 2", "COMMIT"]);
+    // Release fires exactly once, AFTER COMMIT, in the `finally`.
+    expect(client.release).toHaveBeenCalledTimes(1);
+    const lastCall = client._calls[client._calls.length - 1];
+    expect(lastCall?.kind).toBe("client.release");
+  });
+
+  it("transaction(fn) inner Querier routes ALL statements through the held client, not the pool", async () => {
+    // The inner Querier passed to `fn` MUST route query() AND exec() through
+    // the same held client. A regression that routed inner query() through
+    // `pool.query()` (which checks out a different pooled client per call)
+    // would leave the inner SQL running OUTSIDE the BEGIN/COMMIT span — the
+    // transaction boundary would only enclose BEGIN and COMMIT themselves,
+    // and any FOR UPDATE / advisory lock acquired by inner SQL would land
+    // on the wrong connection. This is the central correctness concern
+    // T5.6's lock-ordering test (next PR) discriminates more aggressively.
+    const pool = makeMockPool();
+    const querier = createPgPoolQuerier(pool);
+
+    await querier.transaction(async (tx) => {
+      await tx.query("SELECT pg_advisory_xact_lock($1)", [9000000001n]);
+      await tx.exec("CREATE TEMP TABLE t (id int)");
+      return undefined;
+    });
+
+    expect(pool.query).not.toHaveBeenCalled();
+    expect(pool._clients).toHaveLength(1);
+    const client = pool._clients[0];
+    expect(client).toBeDefined();
+    if (client === undefined) return;
+    const clientSql = client._calls.filter((c) => c.kind === "client.query").map((c) => c.sql);
+    expect(clientSql).toEqual([
+      "BEGIN",
+      "SELECT pg_advisory_xact_lock($1)",
+      "CREATE TEMP TABLE t (id int)",
+      "COMMIT",
+    ]);
+  });
+
+  it("transaction(fn) inner Querier rejects nested transaction()", async () => {
+    // Postgres has no native nested transactions without SAVEPOINTs and
+    // Plan-001 has no SAVEPOINT requirement. The PGlite test adapter throws
+    // on nested call (see `wrap()` at the top of this file); the pg.Pool
+    // adapter matches — same failure mode across substrates.
+    const pool = makeMockPool();
+    const querier = createPgPoolQuerier(pool);
+
+    await expect(
+      querier.transaction(async (tx) => {
+        await tx.transaction(async () => undefined);
+      }),
+    ).rejects.toThrow(/nested transactions are not supported/);
+
+    // After the throw the outer transaction's catch block issues ROLLBACK
+    // and the `finally` releases — defense in depth: a regression that
+    // swallowed the nested-transaction throw would leave the connection
+    // checked out with BEGIN outstanding. Pin the lifecycle here so that
+    // failure mode surfaces too.
+    expect(pool._clients).toHaveLength(1);
+    const client = pool._clients[0];
+    expect(client).toBeDefined();
+    if (client === undefined) return;
+    expect(client.release).toHaveBeenCalledTimes(1);
+    const clientSql = client._calls.filter((c) => c.kind === "client.query").map((c) => c.sql);
+    // BEGIN issued, ROLLBACK issued (no COMMIT — fn threw), then release.
+    expect(clientSql).toEqual(["BEGIN", "ROLLBACK"]);
+  });
+
+  it("transaction(fn) issues ROLLBACK on application error and re-raises the original error", async () => {
+    // pg.Pool has no auto-rollback (unlike PGlite's `pg.transaction(fn)`).
+    // Without manual ROLLBACK, an aborted transaction would stay open on
+    // the client until release, the client would return to the pool in an
+    // aborted state, and the next checkout would receive a client stuck in
+    // `25P02 current transaction is aborted`. This test pins both the
+    // ROLLBACK emission AND the original-error preservation.
+    const pool = makeMockPool();
+    const querier = createPgPoolQuerier(pool);
+    const sentinel = new Error("application-level rejection");
+
+    await expect(
+      querier.transaction(async (tx) => {
+        await tx.query("SELECT 1");
+        throw sentinel;
+      }),
+    ).rejects.toBe(sentinel);
+
+    expect(pool._clients).toHaveLength(1);
+    const client = pool._clients[0];
+    expect(client).toBeDefined();
+    if (client === undefined) return;
+    const clientSql = client._calls.filter((c) => c.kind === "client.query").map((c) => c.sql);
+    // BEGIN -> inner -> ROLLBACK (no COMMIT — fn threw).
+    expect(clientSql).toEqual(["BEGIN", "SELECT 1", "ROLLBACK"]);
+    // Release fires in the outer `finally`, AFTER the ROLLBACK.
+    expect(client.release).toHaveBeenCalledTimes(1);
+  });
+
+  it("transaction(fn) re-raises the ORIGINAL error even if ROLLBACK itself throws (no masking)", async () => {
+    // If ROLLBACK fails (e.g., the underlying connection was already
+    // terminated), the caller still needs to see the ORIGINAL `fn` error
+    // — that is what they need to diagnose. A regression that bubbled the
+    // ROLLBACK error instead would mask the actual fault. The adapter's
+    // inner try/catch around ROLLBACK is what defends against this.
+    const pool = makeMockPool();
+    pool._connectImpl = async (): Promise<MockPoolClient> => {
+      const client = makeMockPoolClient();
+      pool._clients.push(client);
+      // First query is BEGIN (succeeds), second is the inner fn body
+      // (succeeds), third is ROLLBACK (throws). Canned responses:
+      client._queryImpl = [
+        { kind: "rows", rows: [] }, // BEGIN
+        { kind: "rows", rows: [] }, // inner
+        { kind: "error", error: new Error("ROLLBACK failed at the wire") },
+      ];
+      return client;
+    };
+    const querier = createPgPoolQuerier(pool);
+    const originalError = new Error("the error the caller actually wants");
+
+    await expect(
+      querier.transaction(async (tx) => {
+        await tx.query("SELECT 1");
+        throw originalError;
+      }),
+    ).rejects.toBe(originalError);
+
+    expect(pool._clients).toHaveLength(1);
+    const client = pool._clients[0];
+    expect(client).toBeDefined();
+    if (client === undefined) return;
+    // Release MUST still fire — the `finally` runs regardless of how the
+    // ROLLBACK path terminated. Without this guarantee, a connection leak
+    // accumulates under sustained error-then-rollback-failure rate.
+    expect(client.release).toHaveBeenCalledTimes(1);
+  });
+
+  it("transaction(fn) releases the client even when COMMIT itself throws", async () => {
+    // Postgres can defer constraint violations until COMMIT (e.g., DEFERRED
+    // constraints). On a COMMIT throw, the transaction has already been
+    // rolled back server-side by Postgres — no follow-up ROLLBACK is
+    // needed (one would itself error on a non-existent transaction). The
+    // adapter just re-raises the COMMIT error. But the `finally` MUST
+    // still release the client, or every deferred-constraint violation
+    // would leak a connection.
+    const pool = makeMockPool();
+    pool._connectImpl = async (): Promise<MockPoolClient> => {
+      const client = makeMockPoolClient();
+      pool._clients.push(client);
+      client._queryImpl = [
+        { kind: "rows", rows: [] }, // BEGIN
+        { kind: "rows", rows: [] }, // inner
+        { kind: "error", error: new Error("deferred constraint violation at COMMIT") },
+      ];
+      return client;
+    };
+    const querier = createPgPoolQuerier(pool);
+
+    await expect(
+      querier.transaction(async (tx) => {
+        await tx.query("SELECT 1");
+        return undefined;
+      }),
+    ).rejects.toThrow(/deferred constraint violation/);
+
+    expect(pool._clients).toHaveLength(1);
+    const client = pool._clients[0];
+    expect(client).toBeDefined();
+    if (client === undefined) return;
+    const clientSql = client._calls.filter((c) => c.kind === "client.query").map((c) => c.sql);
+    // BEGIN -> inner -> COMMIT (which threw). NO follow-up ROLLBACK —
+    // Postgres has already rolled the transaction back server-side in
+    // response to the failed COMMIT, and issuing ROLLBACK against a
+    // non-existent transaction would itself error.
+    expect(clientSql).toEqual(["BEGIN", "SELECT 1", "COMMIT"]);
+    // Release fires in `finally` — connection returns to pool.
+    expect(client.release).toHaveBeenCalledTimes(1);
+  });
+
+  it("transaction(fn) releases the client even when BEGIN itself throws", async () => {
+    // BEGIN can fail at the wire level (lost connection, server restart).
+    // The `finally` MUST release regardless — otherwise the connection
+    // leaks. We do NOT issue ROLLBACK because no transaction was ever
+    // opened.
+    const pool = makeMockPool();
+    pool._connectImpl = async (): Promise<MockPoolClient> => {
+      const client = makeMockPoolClient();
+      pool._clients.push(client);
+      client._queryImpl = [{ kind: "error", error: new Error("BEGIN failed at the wire") }];
+      return client;
+    };
+    const querier = createPgPoolQuerier(pool);
+
+    await expect(
+      querier.transaction(async () => {
+        // Never reached — BEGIN threw before fn ran.
+        return undefined;
+      }),
+    ).rejects.toThrow(/BEGIN failed/);
+
+    expect(pool._clients).toHaveLength(1);
+    const client = pool._clients[0];
+    expect(client).toBeDefined();
+    if (client === undefined) return;
+    // Release fires even though BEGIN threw before any inner statement.
+    expect(client.release).toHaveBeenCalledTimes(1);
+  });
+
+  // --------------------------------------------------------------------------
+  // Spec-001 AC1 — createSession through pg.Pool yields stable shape
+  // --------------------------------------------------------------------------
+
+  it("Spec-001 AC1: createSession through the pg.Pool-backed Querier yields one stable session id, one owner membership, one default channel (empty)", async () => {
+    // AC1 says "createSession yields one stable session id, one owner
+    // membership, one default channel". The behavioral correctness of the
+    // SQL itself is already proven in the PGlite path (P1 block above).
+    // What T5.5 needs to prove is that the SAME service code, when run
+    // against the pg.Pool-backed Querier, ROUTES through the right
+    // substrate (the held client for the transaction) and produces the
+    // contract-shape response. The control plane has no event log per
+    // ADR-017, so `channels` is the empty array (the canonical "no channel
+    // metadata here" signal); PR #5's SDK composition layer merges the
+    // daemon's projected channels with this empty list to produce the
+    // user-visible channel list.
+    const pool = makeMockPool();
+    pool._connectImpl = async (): Promise<MockPoolClient> => {
+      const client = makeMockPoolClient();
+      pool._clients.push(client);
+      client._queryImpl = [
+        { kind: "rows", rows: [] }, // BEGIN
+        ...cannedRowsForCreateSession(),
+        { kind: "rows", rows: [] }, // COMMIT
+      ];
+      return client;
+    };
+    const service = createSessionDirectoryServiceFromPool(pool);
+
+    const response = await service.createSession({
+      sessionId: SESSION_ID,
+      ownerParticipantId: OWNER_PARTICIPANT_ID,
+    });
+
+    // Contract-shape assertions: one stable id, one owner membership, one
+    // default (empty) channels array. Mirrors the PGlite-path P1 assertion
+    // surface — same response shape across both substrates.
+    expect(response.sessionId).toBe(SESSION_ID);
+    expect(response.state).toBe("provisioning");
+    expect(response.memberships).toHaveLength(1);
+    const ownerMembership = response.memberships[0];
+    expect(ownerMembership).toBeDefined();
+    if (ownerMembership === undefined) return;
+    expect(ownerMembership.participantId).toBe(OWNER_PARTICIPANT_ID);
+    expect(ownerMembership.role).toBe("owner");
+    expect(ownerMembership.state).toBe("active");
+    expect(response.channels).toEqual([]);
+
+    // Routing assertions: createSession opened a transaction. All four
+    // body statements MUST have landed on the held client, NOT on the
+    // pool's one-shot path. The pool.query mock was never called.
+    expect(pool.connect).toHaveBeenCalledTimes(1);
+    expect(pool.query).not.toHaveBeenCalled();
+    const client = pool._clients[0];
+    expect(client).toBeDefined();
+    if (client === undefined) return;
+    expect(client.release).toHaveBeenCalledTimes(1);
+  });
+
+  // --------------------------------------------------------------------------
+  // Spec-001 AC2 — durability (COMMIT before resolve)
+  // --------------------------------------------------------------------------
+
+  it("Spec-001 AC2: COMMIT is awaited before the createSession promise resolves (session is committed before caller observes the response)", async () => {
+    // AC2 says "session record is durable (committed) through the pg.Pool
+    // transaction substrate before any caller observes the response".
+    // The adapter contract guarantees this: `transaction(fn)` awaits
+    // `client.query("COMMIT")` BEFORE returning the result. A regression
+    // that issued COMMIT after the return — or fire-and-forgot the COMMIT
+    // — would let the caller observe the response with the row still
+    // sitting in the transaction's uncommitted snapshot; a concurrent
+    // reader (or a crash before the deferred COMMIT lands) would lose
+    // the row. This test pins the awaiting-COMMIT contract.
+    let commitCompleted = false;
+    // `commitResolvedAt` is written from inside the stamped `client.query`
+    // mock below (asynchronously, during `COMMIT`); `let ... | undefined`
+    // captures the "not-yet-written" state for the `expect(...).toBeDefined()`
+    // assertion. `createResolvedAt` is captured synchronously after the
+    // `await service.createSession(...)` completes; `const` is the right
+    // declaration for a write-once value at outer scope.
+    let commitResolvedAt: number | undefined;
+
+    const pool = makeMockPool();
+    pool._connectImpl = async (): Promise<MockPoolClient> => {
+      const client = makeMockPoolClient();
+      pool._clients.push(client);
+      const cannedResponses: CannedResponse[] = [
+        { kind: "rows", rows: [] }, // BEGIN
+        ...cannedRowsForCreateSession(),
+      ];
+      // Replace the client.query mock with a per-call stamped variant so
+      // we can pin the timestamp at which COMMIT resolved relative to the
+      // outer createSession resolution. `pg.PoolClient#query` is an
+      // overloaded surface (string + values, QueryConfig, QueryArrayConfig,
+      // callbacks); the cast through `unknown` is the canonical narrowing
+      // for a vitest mock that only needs to honor the string+values path
+      // the adapter actually uses.
+      const stampedQuery = vi.fn(
+        async (
+          sql: string,
+          params?: ReadonlyArray<unknown>,
+        ): Promise<QueryResult<Record<string, unknown>>> => {
+          client._calls.push({ kind: "client.query", sql, params });
+          if (sql === "COMMIT") {
+            // The COMMIT path: await a microtask so any race between
+            // COMMIT-await and the outer resolve surfaces — without
+            // awaiting COMMIT, the outer resolve would land before this
+            // microtask completes and `commitResolvedAt` would be unset
+            // when `createResolvedAt` is captured.
+            await Promise.resolve();
+            commitCompleted = true;
+            commitResolvedAt = performance.now();
+            return {
+              rows: [],
+              command: "",
+              rowCount: 0,
+              oid: 0,
+              fields: [],
+            };
+          }
+          const response = cannedResponses.shift();
+          if (response === undefined) {
+            throw new Error(`Unexpected client.query: ${sql}`);
+          }
+          if (response.kind === "error") throw response.error;
+          return {
+            rows: response.rows as Record<string, unknown>[],
+            command: "",
+            rowCount: response.rows.length,
+            oid: 0,
+            fields: [],
+          };
+        },
+      );
+      client.query = stampedQuery as unknown as typeof client.query;
+      return client;
+    };
+    const service = createSessionDirectoryServiceFromPool(pool);
+
+    await service.createSession({
+      sessionId: SESSION_ID,
+      ownerParticipantId: OWNER_PARTICIPANT_ID,
+    });
+    const createResolvedAt = performance.now();
+
+    // The load-bearing assertion: the caller observed the response AFTER
+    // COMMIT had fully resolved. A regression that returned the result
+    // before awaiting COMMIT would surface here as `commitCompleted ===
+    // false` at this point (the COMMIT microtask would still be pending).
+    expect(commitCompleted).toBe(true);
+    expect(commitResolvedAt).toBeDefined();
+    if (commitResolvedAt === undefined) return;
+    expect(commitResolvedAt).toBeLessThanOrEqual(createResolvedAt);
+
+    // Defense in depth: client.release fires after COMMIT, not after the
+    // service body's response composition. The `finally` block runs
+    // synchronously after COMMIT's await completes.
+    const client = pool._clients[0];
+    expect(client).toBeDefined();
+    if (client === undefined) return;
+    const clientCallKinds = client._calls.map((c) =>
+      c.kind === "client.query" ? `query:${c.sql}` : c.kind,
+    );
+    // COMMIT immediately followed by release — no callback runs between.
+    const commitIdx = clientCallKinds.indexOf("query:COMMIT");
+    const releaseIdx = clientCallKinds.indexOf("client.release");
+    expect(commitIdx).toBeGreaterThanOrEqual(0);
+    expect(releaseIdx).toBe(commitIdx + 1);
+  });
+
+  // --------------------------------------------------------------------------
+  // Spec-001 AC4 — second joinSession returns same membership id
+  // --------------------------------------------------------------------------
+
+  it("Spec-001 AC4: a second joinSession through the pg.Pool-backed Querier returns the same membership id (canonical, no fork) via the pool's one-shot path", async () => {
+    // AC4 says "second joinSession returns the same session id, existing
+    // membership state, and existing event history". The current
+    // `joinSession` implementation does NOT open a transaction — it issues
+    // two stateless queries (session probe + membership upsert). Both MUST
+    // route through `pool.query()` (one-shot auto-checkout), NOT through
+    // `pool.connect()`. The idempotency (same membership id on rejoin) is
+    // already proven in the PGlite-path P3 block; what T5.5 needs to pin
+    // is that the SAME response shape lands when the service runs against
+    // the pg.Pool-backed Querier, AND that the routing uses the one-shot
+    // path.
+    const MEMBERSHIP_ID = "01970000-0000-7000-8000-00000000c777";
+    const pool = makeMockPool();
+    // First call: 2 statements. Second call: same 2 statements. Total = 4
+    // canned responses through pool.query. The membership upsert canned
+    // row returns the SAME id both times, simulating the ON CONFLICT
+    // DO UPDATE upsert that the PGlite path proves end-to-end.
+    pool._queryImpl = [
+      ...cannedRowsForJoinSession({
+        participantId: SECOND_PARTICIPANT_ID,
+        membershipId: MEMBERSHIP_ID,
+      }),
+      ...cannedRowsForJoinSession({
+        participantId: SECOND_PARTICIPANT_ID,
+        membershipId: MEMBERSHIP_ID,
+      }),
+    ];
+    const service = createSessionDirectoryServiceFromPool(pool);
+
+    const firstJoin = await service.joinSession({
+      sessionId: SESSION_ID,
+      participantId: SECOND_PARTICIPANT_ID,
+      role: "collaborator",
+    });
+    expect(firstJoin).not.toBeNull();
+    if (firstJoin === null) return;
+    expect(firstJoin.membershipId).toBe(MEMBERSHIP_ID);
+
+    const secondJoin = await service.joinSession({
+      sessionId: SESSION_ID,
+      participantId: SECOND_PARTICIPANT_ID,
+      role: "collaborator",
+    });
+    expect(secondJoin).not.toBeNull();
+    if (secondJoin === null) return;
+    // Canonical membership id — no fork on rejoin. AC4 invariant.
+    expect(secondJoin.membershipId).toBe(firstJoin.membershipId);
+    expect(secondJoin.sessionId).toBe(SESSION_ID);
+
+    // Routing assertions: joinSession DOES NOT open a transaction. All
+    // four statements (2 per join) MUST land on the pool's one-shot path
+    // (`pool.query`), NOT on `pool.connect()` + held client. A regression
+    // that wrapped joinSession in `transaction()` would surface as
+    // `pool.connect` being called instead — and would unnecessarily hold
+    // a checked-out client across two stateless reads.
+    expect(pool.query).toHaveBeenCalledTimes(4);
+    expect(pool.connect).not.toHaveBeenCalled();
+    expect(pool._clients).toHaveLength(0);
+  });
+
+  // --------------------------------------------------------------------------
+  // createSessionDirectoryServiceFromPool — convenience factory shape
+  // --------------------------------------------------------------------------
+
+  it("createSessionDirectoryServiceFromPool returns a SessionDirectoryService instance backed by the pool", async () => {
+    // The factory is a one-liner over `new SessionDirectoryService(
+    // createPgPoolQuerier(pool))` — its only job is to spare consumers
+    // the two-step construction. This test pins the export shape (the
+    // returned object IS a SessionDirectoryService) and that it routes
+    // through the same adapter as the explicit composition would.
+    const pool = makeMockPool();
+    pool._queryImpl = [
+      { kind: "rows", rows: [] }, // readSession session probe -> not-found
+    ];
+    const service = createSessionDirectoryServiceFromPool(pool);
+
+    expect(service).toBeInstanceOf(SessionDirectoryService);
+    // Run a stateless read through the service to prove the factory
+    // composition actually wired the pool — the canned not-found
+    // response gives us a deterministic shape to assert on.
+    const result = await service.readSession(SESSION_ID);
+    expect(result).toBeNull();
+    expect(pool.query).toHaveBeenCalledTimes(1);
+    expect(pool.connect).not.toHaveBeenCalled();
   });
 });
