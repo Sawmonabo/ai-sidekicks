@@ -493,6 +493,70 @@ shipped:
       (`number | null`). Plan-024:89 + 296 amended in the same PR (Buffer
       → Uint8Array). Maintenance/refinement of the T-024-2-1 surface;
       not a new task ship.
+  - phase: 2
+    task:
+      - T-024-2-2
+      - T-024-2-3
+    pr: 51
+    sha: 1c4e75a
+    merged_at: 2026-05-11
+    files:
+      - packages/runtime-daemon/src/pty/node-pty-host.ts
+      - packages/runtime-daemon/src/pty/pty-host-selector.ts
+      - packages/runtime-daemon/src/pty/__tests__/_fakes.ts
+      - packages/runtime-daemon/src/pty/__tests__/node-pty-host.kill-translation.test.ts
+      - packages/runtime-daemon/src/pty/__tests__/node-pty-host.tree-kill.test.ts
+      - packages/runtime-daemon/src/pty/__tests__/selector.test.ts
+      - packages/runtime-daemon/package.json
+      - pnpm-workspace.yaml
+      - pnpm-lock.yaml
+    verifies_invariant:
+      - I-024-1
+      - I-024-2
+    spec_coverage:
+      - ADR-019 §Decision item 1
+      - ADR-019 §Failure Mode Analysis
+    notes: |
+      Phase 2 closeout — Plan-024 Phase 2 remainder shipped T-024-2-2 (in-process
+      `NodePtyHost` implementation with full Windows kill-translation per I-024-1
+      + I-024-2) and T-024-2-3 (`PtyHostSelector` + `AIS_PTY_BACKEND` env-var
+      grammar per F-024-2-07) together; T-024-2-1 (`PtyHost` interface) shipped
+      earlier in PR #45/#46. The Phase 2 invariants are now satisfied inside the
+      `node-pty` code path via Test K1 (`node-pty-host.kill-translation.test.ts`)
+      and Test K3 (`node-pty-host.tree-kill.test.ts`), closing the test-side
+      mirror gap named by F-024-2-05.
+
+      Implementation notes:
+      - Windows kill-translation FFI via `koffi` (added to optionalDependencies)
+        for `kernel32!GenerateConsoleCtrlEvent` to satisfy I-024-1; non-Windows
+        installs skip the .node prebuild gracefully.
+      - `node-pty@^1.2.0-beta.12` pinned per F-024-2-08; `useConptyDll: false`
+        retained per ADR-019 Tripwire 3 (until `microsoft/node-pty#894` closes).
+      - Default-Node-on-all-platforms posture (F-024-2-02) is live with the
+        selector throwing "not yet wired" on the `rust-sidecar` branch.
+      - `koffi` + `node-pty` postinstall build scripts allowlisted in
+        `pnpm-workspace.yaml`'s `allowBuilds:` block per pnpm v10
+        strict-dep-builds policy.
+
+      Review and round-trip context:
+      - Phase D round-1 surfaced 1 ACTIONABLE (synthetic onExit gate on
+        record.exitCode === null && sessions.has(id)) + 3 POLISH findings; all
+        absorbed in commit 847ffd2. The same commit rescued T-024-2-3 R2
+        selector polish (bracket-notation JSDoc, removed dead `void deps.platform`)
+        that had been stashed by lefthook's lint-staged stash/restore cycle in
+        commit 0ac0e02.
+      - Codex external-reviewer round-trip after Phase D.5 mark-ready: P1
+        (`close()` on Windows was bypassing the tree-kill cascade; now routes
+        through `invokeTaskkill` before sessions.delete on Windows, with POSIX
+        preserved) + P2 (SIGKILL was awaiting `invokeTaskkill` for up to 5s,
+        violating the `KillResponse` ack-on-cascade-begun contract from
+        `pty-host-protocol.ts`; now fires-and-forgets via `void`). Both fixes
+        landed in commit 68e29c5 with new tests covering the close-during-
+        SIGTERM-escalation race and SIGKILL non-blocking ordering proof.
+
+      Cross-plan cascade: NS-05 → completed unblocks NS-07 (Plan-024 Phase 3
+      RustSidecarPtyHost); NS-07 in turn is the last upstream NS-XX gate on
+      NS-09 + NS-10 (Plan-024 Phases 4 + 5).
 
 # Entry shape (illustrative — authoritative schema in lib/manifest.mjs):
 # - phase: 1
