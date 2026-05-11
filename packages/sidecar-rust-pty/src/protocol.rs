@@ -62,10 +62,10 @@ pub enum DataStream {
 
 /// Spawn a new PTY session.
 ///
-/// The daemon-layer [`spawn-cwd-translator`](../../../docs/plans/024-rust-pty-sidecar.md#5-spawn-locks-cwd-on-windows)
-/// rewrites `cwd` to a stable parent directory before this struct reaches
-/// the sidecar (per I-024-5); the sidecar forwards `cwd` verbatim to
-/// `portable-pty`.
+/// The daemon-layer `spawn-cwd-translator` (see
+/// `docs/plans/024-rust-pty-sidecar.md` §Gotcha 5 / I-024-5) rewrites
+/// `cwd` to a stable parent directory before this struct reaches the
+/// sidecar; the sidecar forwards `cwd` verbatim to `portable-pty`.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct SpawnRequest {
     pub command: String,

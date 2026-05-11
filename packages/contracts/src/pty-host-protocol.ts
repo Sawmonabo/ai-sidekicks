@@ -40,25 +40,29 @@
 // Shared discriminants
 // --------------------------------------------------------------------------
 
-/// POSIX signal names accepted by `KillRequest.signal`. On Windows the
-/// sidecar translates these to console-control events and `taskkill`
-/// invocations per Plan-024 §Windows Implementation Gotchas; this
-/// type is the on-wire shape only.
+/**
+ * POSIX signal names accepted by `KillRequest.signal`. On Windows the
+ * sidecar translates these to console-control events and `taskkill`
+ * invocations per Plan-024 §Windows Implementation Gotchas; this
+ * type is the on-wire shape only.
+ */
 export type PtySignal = "SIGINT" | "SIGTERM" | "SIGKILL" | "SIGHUP";
 
-/// Which standard stream a `DataFrame` carries.
+/** Which standard stream a `DataFrame` carries. */
 export type DataStream = "stdout" | "stderr";
 
 // --------------------------------------------------------------------------
 // Request / response payloads
 // --------------------------------------------------------------------------
 
-/// Spawn a new PTY session.
-///
-/// The daemon-layer `spawn-cwd-translator` (Plan-001 P5 CP-001-2)
-/// rewrites `cwd` to a stable parent directory before this payload
-/// reaches the sidecar (per I-024-5 / Plan-024 §Gotcha 5); the sidecar
-/// forwards `cwd` verbatim to `portable-pty`.
+/**
+ * Spawn a new PTY session.
+ *
+ * The daemon-layer `spawn-cwd-translator` (Plan-001 P5 CP-001-2)
+ * rewrites `cwd` to a stable parent directory before this payload
+ * reaches the sidecar (per I-024-5 / Plan-024 §Gotcha 5); the sidecar
+ * forwards `cwd` verbatim to `portable-pty`.
+ */
 export interface SpawnRequest {
   kind: "spawn_request";
   command: string;
@@ -74,13 +78,13 @@ export interface SpawnRequest {
   cols: number;
 }
 
-/// Reply to a `SpawnRequest` — carries the sidecar-minted session id.
+/** Reply to a `SpawnRequest` — carries the sidecar-minted session id. */
 export interface SpawnResponse {
   kind: "spawn_response";
   session_id: string;
 }
 
-/// Adjust the PTY window dimensions for an existing session.
+/** Adjust the PTY window dimensions for an existing session. */
 export interface ResizeRequest {
   kind: "resize_request";
   session_id: string;
@@ -88,18 +92,22 @@ export interface ResizeRequest {
   cols: number;
 }
 
-/// Acknowledgment of `ResizeRequest`. Explicit response per F-024-1-03
-/// so request-correlation is symmetric across every control-message
-/// kind.
+/**
+ * Acknowledgment of `ResizeRequest`. Explicit response per F-024-1-03
+ * so request-correlation is symmetric across every control-message
+ * kind.
+ */
 export interface ResizeResponse {
   kind: "resize_response";
   session_id: string;
 }
 
-/// Write payload to a session's stdin.
-///
-/// `bytes` is base64-encoded on the wire per F-024-1-01. Decode with
-/// `Buffer.from(bytes, "base64")` or equivalent.
+/**
+ * Write payload to a session's stdin.
+ *
+ * `bytes` is base64-encoded on the wire per F-024-1-01. Decode with
+ * `Buffer.from(bytes, "base64")` or equivalent.
+ */
 export interface WriteRequest {
   kind: "write_request";
   session_id: string;
@@ -107,36 +115,42 @@ export interface WriteRequest {
   bytes: string;
 }
 
-/// Acknowledgment of `WriteRequest`. Explicit response per F-024-1-03.
+/** Acknowledgment of `WriteRequest`. Explicit response per F-024-1-03. */
 export interface WriteResponse {
   kind: "write_response";
   session_id: string;
 }
 
-/// Signal a session's child process.
-///
-/// On Windows the sidecar translates per Plan-024 §Gotcha 1 + 2:
-/// `SIGINT` → `CTRL_C_EVENT`, `SIGTERM` → `CTRL_BREAK_EVENT` then
-/// `taskkill /T /F` on bounded timeout, `SIGKILL` → `taskkill /T /F`
-/// directly, `SIGHUP` → ditto-treat-as-hard-stop.
+/**
+ * Signal a session's child process.
+ *
+ * On Windows the sidecar translates per Plan-024 §Gotcha 1 + 2:
+ * `SIGINT` → `CTRL_C_EVENT`, `SIGTERM` → `CTRL_BREAK_EVENT` then
+ * `taskkill /T /F` on bounded timeout, `SIGKILL` → `taskkill /T /F`
+ * directly, `SIGHUP` → ditto-treat-as-hard-stop.
+ */
 export interface KillRequest {
   kind: "kill_request";
   session_id: string;
   signal: PtySignal;
 }
 
-/// Acknowledgment of `KillRequest`. Explicit response per F-024-1-03;
-/// the sidecar acks once it has begun the kill cascade, NOT when the
-/// child has actually exited — `ExitCodeNotification` carries the
-/// terminal status.
+/**
+ * Acknowledgment of `KillRequest`. Explicit response per F-024-1-03;
+ * the sidecar acks once it has begun the kill cascade, NOT when the
+ * child has actually exited — `ExitCodeNotification` carries the
+ * terminal status.
+ */
 export interface KillResponse {
   kind: "kill_response";
   session_id: string;
 }
 
-/// Terminal notification — emitted exactly once per session lifetime,
-/// when the child process exits or is reaped. After this is sent the
-/// sidecar drops the PTY pair and the session id is no longer valid.
+/**
+ * Terminal notification — emitted exactly once per session lifetime,
+ * when the child process exits or is reaped. After this is sent the
+ * sidecar drops the PTY pair and the session id is no longer valid.
+ */
 export interface ExitCodeNotification {
   kind: "exit_code_notification";
   session_id: string;
@@ -149,23 +163,27 @@ export interface ExitCodeNotification {
   signal_code: number | null;
 }
 
-/// Liveness probe. No correlation field at this layer — the dispatcher
-/// orders responses against requests on the single duplex stream.
+/**
+ * Liveness probe. No correlation field at this layer — the dispatcher
+ * orders responses against requests on the single duplex stream.
+ */
 export interface PingRequest {
   kind: "ping_request";
 }
 
-/// Reply to a `PingRequest`.
+/** Reply to a `PingRequest`. */
 export interface PingResponse {
   kind: "ping_response";
 }
 
-/// Asynchronous stdout/stderr chunk emitted by the sidecar.
-///
-/// `seq` is monotonically increasing per `(session_id, stream)` pair
-/// (per Plan-024 §Implementation Step 4); consumers reassemble a
-/// stream in `seq` order. `bytes` is base64-encoded on the wire per
-/// F-024-1-01.
+/**
+ * Asynchronous stdout/stderr chunk emitted by the sidecar.
+ *
+ * `seq` is monotonically increasing per `(session_id, stream)` pair
+ * (per Plan-024 §Implementation Step 4); consumers reassemble a
+ * stream in `seq` order. `bytes` is base64-encoded on the wire per
+ * F-024-1-01.
+ */
 export interface DataFrame {
   kind: "data_frame";
   session_id: string;

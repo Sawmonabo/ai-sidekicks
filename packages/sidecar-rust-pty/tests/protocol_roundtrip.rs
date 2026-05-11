@@ -46,6 +46,28 @@ fn round_trip_spawn_request() {
     assert_eq!(round_trip(&envelope), envelope);
 }
 
+/// Pins UTF-8 round-trip across every String field on SpawnRequest:
+/// `command` (BMP only — process spawn surfaces typically restrict to
+/// filesystem-encoded names), `args` (BMP + emoji / astral plane),
+/// `env` keys and values (locale-bearing values like LANG), and `cwd`
+/// (non-ASCII paths from localized HOME directories). Prevents a silent
+/// regression if the framing or JSON layer ever swaps codecs.
+#[test]
+fn round_trip_spawn_request_non_ascii_utf8() {
+    let envelope = Envelope::SpawnRequest(SpawnRequest {
+        command: "echo".to_string(),
+        args: vec!["こんにちは".to_string(), "🦀".to_string()],
+        env: vec![
+            ("LANG".to_string(), "ja_JP.UTF-8".to_string()),
+            ("USER".to_string(), "たろう".to_string()),
+        ],
+        cwd: "/home/たろう/projects".to_string(),
+        rows: 24,
+        cols: 80,
+    });
+    assert_eq!(round_trip(&envelope), envelope);
+}
+
 #[test]
 fn round_trip_spawn_response() {
     let envelope = Envelope::SpawnResponse(SpawnResponse {
@@ -136,6 +158,38 @@ fn round_trip_exit_code_notification_signal_terminated() {
         signal_code: Some(2),
     });
     assert_eq!(round_trip(&envelope), envelope);
+}
+
+/// Pins the on-wire shape of `signal_code: None`: it MUST serialize as a
+/// JSON `null`, not as an absent key. The TS mirror declares the field
+/// as `signal_code: number | null` (NOT `signal_code?: number`); a
+/// future `#[serde(skip_serializing_if = "Option::is_none")]` attribute
+/// would round-trip cleanly in Rust (Option deserializes both `null` and
+/// absent to None) yet silently break the TS consumer's narrowing — the
+/// field would become `undefined` on the wire, which the declared type
+/// cannot represent. Hold the line at the serializer.
+#[test]
+fn exit_code_notification_signal_code_none_serializes_as_json_null() {
+    let envelope = Envelope::ExitCodeNotification(ExitCodeNotification {
+        session_id: "s-1".to_string(),
+        exit_code: 0,
+        signal_code: None,
+    });
+    let json: Value = serde_json::to_value(&envelope).expect("serialize to value");
+    assert_eq!(
+        json["signal_code"],
+        Value::Null,
+        "signal_code None must serialize as JSON null, not absent (got {})",
+        json
+    );
+    // And the key must actually be present on the object (asserting
+    // `is_null()` alone wouldn't distinguish absent from null).
+    assert!(
+        json.as_object()
+            .expect("envelope must serialize as JSON object")
+            .contains_key("signal_code"),
+        "signal_code key must be present on the wire (got {json})"
+    );
 }
 
 #[test]
@@ -397,6 +451,28 @@ fn hand_rolled_data_frame_json_with_base64_bytes_deserializes() {
             assert_eq!(df.bytes, vec![0u8, 1, 255]);
         }
         other => panic!("expected DataFrame, got: {other:?}"),
+    }
+}
+
+#[test]
+fn hand_rolled_write_request_json_with_base64_bytes_deserializes() {
+    // Symmetric to `hand_rolled_data_frame_...`: WriteRequest.bytes is
+    // the OTHER base64-carrying field, and a TS-side producer building
+    // stdin payloads by hand is the realistic daemon-layer code path.
+    // Pins the on-wire field names (`kind`, `session_id`, `bytes`) and
+    // the base64 decode for the WriteRequest variant.
+    let raw = json!({
+        "kind": "write_request",
+        "session_id": "s-1",
+        "bytes": "AAH/",
+    });
+    let envelope: Envelope = serde_json::from_value(raw).expect("deserialize must succeed");
+    match envelope {
+        Envelope::WriteRequest(wr) => {
+            assert_eq!(wr.session_id, "s-1");
+            assert_eq!(wr.bytes, vec![0u8, 1, 255]);
+        }
+        other => panic!("expected WriteRequest, got: {other:?}"),
     }
 }
 
