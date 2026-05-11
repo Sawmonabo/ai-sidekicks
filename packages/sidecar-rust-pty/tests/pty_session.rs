@@ -31,16 +31,16 @@ use sidecar_rust_pty::pty_session::{PtySessionError, PtySessionRegistry};
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::time::timeout;
 
-/// One-second polling budget for the "child exits + ExitCodeNotification
+/// Two-second polling budget for the "child exits + ExitCodeNotification
 /// arrives" path. `echo hello; exit 0` typically finishes within a few
-/// milliseconds even under CI load; 1 s is two orders of magnitude of
+/// milliseconds even under CI load; 2 s is two orders of magnitude of
 /// headroom while still failing fast on a genuinely hung holder.
 const EXIT_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// Drain at most `n` envelopes from `rx` within `EXIT_TIMEOUT`, or return
-/// whatever arrived (possibly empty). Used so tests can assert on the
-/// arrival ordering of `DataFrame` + `ExitCodeNotification` without
-/// busy-waiting.
+/// Drain envelopes from `rx` until an `ExitCodeNotification` is observed
+/// or `EXIT_TIMEOUT` elapses, returning every envelope received during
+/// the wait. Used so tests can assert on the arrival ordering of
+/// `DataFrame` + `ExitCodeNotification` without busy-waiting.
 async fn drain_until_exit(rx: &mut UnboundedReceiver<Envelope>) -> Vec<Envelope> {
     let mut envelopes = Vec::new();
     let deadline_fut = timeout(EXIT_TIMEOUT, async {
@@ -403,9 +403,10 @@ async fn resize_on_active_session_succeeds() {
 
 #[tokio::test]
 async fn active_session_count_tracks_lifecycle() {
-    // Verifies the session-map invariant: insertion at spawn,
-    // removal at waiter-emitted exit. Uses the `#[cfg(test)]`-only
-    // `active_session_count` accessor.
+    // Verifies the session-map invariant: insertion at spawn, removal
+    // at waiter-emitted exit. Uses the `active_session_count()` accessor
+    // (a `pub` method also earmarked for the T-024-1-5 dispatcher
+    // health-check path).
     let (registry, mut rx) = PtySessionRegistry::new();
     assert_eq!(registry.active_session_count().await, 0);
 
@@ -436,7 +437,6 @@ async fn active_session_count_tracks_lifecycle() {
     // microseconds.
     for _ in 0..20 {
         if registry.active_session_count().await == 0 {
-            let _ = response.session_id; // silence unused warning if loop short-circuits
             return;
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -445,4 +445,172 @@ async fn active_session_count_tracks_lifecycle() {
         "session {:?} should have been removed from the registry within 1 s of exit",
         response.session_id
     );
+}
+
+#[tokio::test]
+async fn write_round_trips_through_cat() {
+    // Spawn `cat` (echoes stdin to stdout via PTY canonical mode),
+    // call `registry.write(b"hello\n")`, assert a subsequent DataFrame
+    // contains the literal "hello" payload. This is the happy-path
+    // coverage for the write surface — the existing
+    // `write_on_unknown_session_returns_unknown_session_error` test
+    // pins the negative path, but the success path had no coverage
+    // until this test (POLISH 13 from round-2 review).
+    //
+    // PTY canonical-mode echo: the slave-side line discipline echoes
+    // every input byte back through the master, so the daemon
+    // observes its own write as a DataFrame. Plus `cat` itself reads
+    // the line and writes it back — so we may see two echoes of
+    // "hello" (one from line discipline, one from cat's stdout).
+    // The assertion is just `.contains("hello")` so either case
+    // passes.
+    let (registry, mut rx) = PtySessionRegistry::new();
+
+    let response = registry
+        .spawn(SpawnRequest {
+            command: "/bin/sh".to_string(),
+            args: vec!["-c".to_string(), "cat".to_string()],
+            env: empty_env(),
+            cwd: "/tmp".to_string(),
+            rows: 24,
+            cols: 80,
+        })
+        .await
+        .expect("spawn should succeed");
+
+    // Give `cat` a beat to actually be reading from its stdin.
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let write_response = registry
+        .write(WriteRequest {
+            session_id: response.session_id.clone(),
+            bytes: b"hello\n".to_vec(),
+        })
+        .await
+        .expect("write should succeed");
+    assert_eq!(write_response.session_id, response.session_id);
+
+    // Collect DataFrames for up to 500 ms — long enough for line
+    // discipline + cat to both round-trip; short enough to keep the
+    // test fast.
+    let mut combined: Vec<u8> = Vec::new();
+    let collect_fut = timeout(Duration::from_millis(500), async {
+        while let Some(env) = rx.recv().await {
+            if let Envelope::DataFrame(df) = env {
+                combined.extend_from_slice(&df.bytes);
+                if String::from_utf8_lossy(&combined).contains("hello") {
+                    return;
+                }
+            }
+        }
+    });
+    let _ = collect_fut.await;
+
+    let s = String::from_utf8_lossy(&combined);
+    assert!(
+        s.contains("hello"),
+        "write should round-trip through the PTY; combined output: {s:?}"
+    );
+
+    // Clean up — kill cat so we don't leave a zombie test process.
+    let _ = registry
+        .kill(KillRequest {
+            session_id: response.session_id,
+            signal: PtySignal::Sigkill,
+        })
+        .await;
+}
+
+#[tokio::test]
+async fn post_exit_kill_returns_unknown_session_not_recycled_pid() {
+    // Pins the race-closing fix from round-2 review (ACTIONABLE):
+    // after a child has exited naturally, the `exited` flag set
+    // inside the waiter task's `spawn_blocking` closure must cause
+    // subsequent `kill()` calls to short-circuit with
+    // `UnknownSession` BEFORE `libc::kill` can fire at a pid the
+    // kernel may have already recycled.
+    //
+    // The test cannot deterministically exercise the recycled-pid
+    // failure mode (that requires concurrent fork+exec from another
+    // process), but it CAN pin the load-bearing behavior: a kill
+    // attempt after the waiter has observed exit returns
+    // `UnknownSession` (or `Io(ESRCH)` if the kill landed in the
+    // narrow post-store-pre-syscall window). The assertion accepts
+    // either: both are correct shapes — what is NOT acceptable is a
+    // silent `Ok(KillResponse)` reporting success against a recycled
+    // pid.
+    //
+    // To make the post-exit moment observable from the test, we
+    // await the `ExitCodeNotification` (which is emitted AFTER the
+    // `exited` store inside the spawn_blocking closure — the store
+    // happens-before the notification send). Once we see the
+    // notification, the flag is guaranteed to be `true`.
+    let (registry, mut rx) = PtySessionRegistry::new();
+
+    let response = registry
+        .spawn(SpawnRequest {
+            command: "/bin/sh".to_string(),
+            args: vec!["-c".to_string(), "exit 0".to_string()],
+            env: empty_env(),
+            cwd: "/tmp".to_string(),
+            rows: 24,
+            cols: 80,
+        })
+        .await
+        .expect("spawn should succeed");
+
+    let session_id = response.session_id.clone();
+
+    // Wait for the ExitCodeNotification — this is the moment the
+    // waiter task has gone past its `wait()` return + flag store.
+    let envelopes = drain_until_exit(&mut rx).await;
+    let saw_exit = envelopes
+        .iter()
+        .any(|e| matches!(e, Envelope::ExitCodeNotification(_)));
+    assert!(
+        saw_exit,
+        "expected ExitCodeNotification before testing post-exit kill, got: {envelopes:?}"
+    );
+
+    // The session may or may not have been removed from the registry
+    // map by now (the waiter's `map.remove(&session_id)` happens
+    // after the notification send). Either way, kill MUST NOT report
+    // success — either UnknownSession (flag-check short-circuit OR
+    // map-removed short-circuit) or Io (ESRCH from a no-longer-
+    // killable pid). The forbidden outcome is `Ok(KillResponse)`.
+    let result = registry
+        .kill(KillRequest {
+            session_id: session_id.clone(),
+            signal: PtySignal::Sigkill,
+        })
+        .await;
+
+    match result {
+        Err(PtySessionError::UnknownSession(_)) => {
+            // Expected: the `exited` flag short-circuited (or the
+            // waiter already removed the session from the map).
+        }
+        Err(PtySessionError::Io(io_err)) => {
+            // Acceptable: the flag race lost in this run; libc::kill
+            // landed with ESRCH ("no such process") because the
+            // kernel had already reaped the pid AND the pid happened
+            // not to be recycled yet. This is still a correctness-
+            // preserving outcome — we did not signal an unrelated
+            // process. The ESRCH error number is platform-specific
+            // (3 on Linux + macOS), but we don't assert on the raw
+            // value because libc::kill could in principle return EPERM
+            // or another error if the pid was recycled to a non-
+            // owned process; the load-bearing assertion is that the
+            // operation did NOT report success.
+            let _ = io_err; // silence unused-var if cfg keeps the binding alive
+        }
+        Ok(_) => panic!(
+            "post-exit kill MUST NOT return Ok — it could be signaling a recycled pid. \
+             session_id={session_id:?}, envelopes={envelopes:?}"
+        ),
+        Err(other) => panic!(
+            "unexpected error variant for post-exit kill: {other:?} \
+             (expected UnknownSession or Io); session_id={session_id:?}"
+        ),
+    }
 }

@@ -60,14 +60,16 @@
 //! blocking `Child::wait()`. We dispatch each on `tokio::task::spawn_blocking`
 //! so they do not block the runtime's async reactor.
 //!
-//! ### 5. Locking — `tokio::sync::Mutex` held briefly, never across `.await`
+//! ### 5. Locking — fine-grained `tokio::sync::Mutex` per surface
 //!
-//! The registry's session map and each [`SessionHandle`]'s writer /
-//! killer / master are guarded by `tokio::sync::Mutex`. Locks are
-//! acquired, the protected resource is moved or read briefly, and the
-//! lock is released. We never hold a lock across the `.await` that
-//! actually performs blocking I/O (instead we `clone_killer()`, take the
-//! writer once, etc.).
+//! Per-session writes serialize via the `writer` mutex held across the
+//! inner `spawn_blocking.await` — there is exactly one writer FD per
+//! session and partial writes must not interleave, so the lock-across-
+//! await pattern is intentional here. The `sessions` map and `master`
+//! mutexes are held only for the duration of map operations
+//! (`get`/`insert`/`remove`) and `MasterPty::resize` calls, never across
+//! blocking I/O. The `exited` flag is a lock-free `AtomicBool` so the
+//! kill path can short-circuit without contending for any mutex.
 //!
 //! ### 6. Exit-status `signal_code` is `None` at Phase 1
 //!
@@ -160,6 +162,21 @@ pub enum PtySessionError {
     /// `PtyBackendUnavailable` so the selector falls back to
     /// `NodePtyHost` until Phase 3 lands.
     WindowsKillNotImplemented,
+
+    /// The platform did not return a pid for the child process so kill
+    /// cannot proceed.
+    ///
+    /// `portable_pty::Child::process_id()` has return type
+    /// `Option<u32>`; the trait allows `None`. On Linux + macOS the
+    /// `std::process::Child`-backed impl always returns `Some` in
+    /// practice, but the trait contract requires us to surface the
+    /// `None` case as a distinct error rather than masquerading as
+    /// [`PtySessionError::UnknownSession`] (the session DOES exist —
+    /// we just cannot signal it through the pid path). Distinct
+    /// variant so the daemon-layer caller can shape its retry / fall-
+    /// back logic against this specific failure mode rather than
+    /// conflating it with the "session is gone" signal.
+    PidUnavailable(String),
 }
 
 impl std::fmt::Display for PtySessionError {
@@ -177,6 +194,10 @@ impl std::fmt::Display for PtySessionError {
             Self::WindowsKillNotImplemented => {
                 write!(f, "Windows kill-translation deferred to Phase 3 T-024-3-1")
             }
+            Self::PidUnavailable(id) => write!(
+                f,
+                "session_id {id:?} has no pid available; kill cannot proceed"
+            ),
         }
     }
 }
@@ -198,10 +219,17 @@ impl From<std::io::Error> for PtySessionError {
 
 /// Per-session resources held by the registry.
 ///
-/// Construction happens inside [`PtySessionRegistry::spawn`]. Drop is
-/// driven from the waiter task at exit (or registry drop on shutdown);
-/// the `JoinHandle` fields are aborted-on-drop, so a registry teardown
-/// during an active session cancels both the reader pump and the waiter.
+/// Construction happens inside [`PtySessionRegistry::spawn`]. Removal
+/// from the registry map is driven from the waiter task at exit. The
+/// `JoinHandle` fields are NOT aborted on drop — Tokio's `JoinHandle`
+/// detaches the task on drop, it does not abort it. The reader task
+/// self-terminates on PTY EOF (child closed its slave end); the waiter
+/// task self-terminates on `Child::wait` return. A Phase 1 misbehaving
+/// child that ignores its eventual SIGHUP / SIGKILL could in principle
+/// keep both tasks alive indefinitely — acceptable for Phase 1 where
+/// session cleanup is driven by daemon-layer
+/// [`PtySessionRegistry::kill`] requests; Phase 3 may add a forced-
+/// abort `Drop` impl if that proves insufficient.
 struct SessionHandle {
     /// Holds the `MasterPty` for `resize()` calls. The master also owns
     /// the underlying file descriptors / handles; dropping it after the
@@ -217,7 +245,7 @@ struct SessionHandle {
     /// Child process id. `None` on backends where portable-pty cannot
     /// recover the PID (theoretically possible per the trait's
     /// `Option<u32>` return). Phase 1 unix kill path requires `Some` —
-    /// returns [`PtySessionError::UnknownSession`]-style error if missing.
+    /// a missing pid surfaces as [`PtySessionError::PidUnavailable`].
     /// In practice on Linux / macOS this is always `Some` post-spawn.
     ///
     /// `#[cfg_attr(windows, allow(dead_code))]` because the Windows
@@ -228,11 +256,50 @@ struct SessionHandle {
     #[cfg_attr(windows, allow(dead_code))]
     pid: Option<u32>,
 
-    /// `JoinHandle::abort()` is invoked on drop (Tokio task semantics).
-    /// Held so an early registry teardown cancels in-flight reads.
+    /// "The waiter task has observed `Child::wait()` return" flag.
+    ///
+    /// **Race-closing invariant against pid recycling.** `std::process::
+    /// Child::wait()` reaps the zombie inside the call, which means the
+    /// kernel-level pid becomes recycle-eligible at the moment `wait`
+    /// returns. Between that moment and the waiter task's `map.remove()`
+    /// the session is still in the registry map; a concurrent
+    /// [`PtySessionRegistry::kill`] could otherwise call
+    /// `libc::kill(pid, …)` against a recycled pid belonging to an
+    /// unrelated process.
+    ///
+    /// To minimize that window the waiter sets `exited = true` with
+    /// [`Ordering::Release`] **inside the `spawn_blocking` closure**,
+    /// on the same thread that just performed the reap — there are
+    /// only a few CPU instructions between the `wait()` return and the
+    /// store. The kill path's `lookup(...).await?` followed by
+    /// `exited.load(Acquire)` check then short-circuits with
+    /// [`PtySessionError::UnknownSession`] if the waiter has already
+    /// observed the exit.
+    ///
+    /// This is **window-narrowing, not race-elimination**: a residual
+    /// race remains between the `Acquire` load and the `libc::kill`
+    /// syscall, but that window is single-digit CPU instructions and
+    /// is the best defense achievable without bypassing
+    /// `portable-pty`'s `Child::wait()` and implementing a custom
+    /// `waitpid`-without-reap pattern. Phase 3 may revisit if exposure
+    /// proves load-bearing in production.
+    ///
+    /// `Arc` because the waiter task needs an independent handle for
+    /// the cross-thread store, and the kill path needs read access via
+    /// the registry's `Arc<SessionHandle>`.
+    exited: Arc<std::sync::atomic::AtomicBool>,
+
+    /// Tokio `JoinHandle` for the reader pump.
+    ///
+    /// `JoinHandle::drop` DETACHES the task (does not abort it). The
+    /// reader task self-terminates on PTY EOF; we hold the handle
+    /// solely to keep the join-result reachable if a future Phase
+    /// wants to surface task panics. Underscore prefix silences the
+    /// unused-field lint while keeping the documentation visible.
     _reader_task: JoinHandle<()>,
 
-    /// Same abort-on-drop discipline as `_reader_task`.
+    /// Same detach-on-drop discipline as `_reader_task`.
+    /// Self-terminates on `Child::wait` return.
     _waiter_task: JoinHandle<()>,
 }
 
@@ -284,8 +351,10 @@ impl PtySessionRegistry {
     ///
     /// The receiver MUST be drained by the caller (the T-024-1-5
     /// dispatcher) — backpressure is not implemented at this layer. If
-    /// the dispatcher drops the receiver, background reader / waiter
-    /// tasks log a quiet [`PtySessionError::OutboundClosed`] and exit.
+    /// the dispatcher drops the receiver, the reader pump's next
+    /// `outbound.send(...)` fails and the task exits quietly; the
+    /// waiter task's send is fire-and-forget and follows the same
+    /// drop-and-exit discipline.
     pub fn new() -> (Self, mpsc::UnboundedReceiver<Envelope>) {
         let (outbound, rx) = mpsc::unbounded_channel();
         let registry = Self {
@@ -340,8 +409,8 @@ impl PtySessionRegistry {
 
         // Spawn the child against the slave end. The waiter task rebinds
         // this as `mut` internally when calling `Child::wait(&mut self)`;
-        // the outer binding does not need `mut` because `process_id` and
-        // `clone_killer` both take `&self`.
+        // the outer binding does not need `mut` because `process_id`
+        // takes `&self`.
         let child = pair
             .slave
             .spawn_command(cmd)
@@ -367,6 +436,13 @@ impl PtySessionRegistry {
             .try_clone_reader()
             .map_err(|e| PtySessionError::PortablePty(e.to_string()))?;
 
+        // Race-closing flag: the waiter sets this to true inside the
+        // `spawn_blocking` closure immediately after `Child::wait()`
+        // returns, so concurrent kills observe the post-exit state
+        // before the pid can be reused by the kernel.
+        // See `SessionHandle::exited` rustdoc for the full discussion.
+        let exited = Arc::new(std::sync::atomic::AtomicBool::new(false));
+
         // Spawn the stdout-pump background task. PTY semantics: one
         // merged reader, all DataFrames stamped `stream: Stdout`.
         let reader_task = spawn_reader_task(session_id.clone(), reader, self.outbound.clone());
@@ -376,6 +452,7 @@ impl PtySessionRegistry {
         let waiter_task = spawn_waiter_task(
             session_id.clone(),
             child,
+            Arc::clone(&exited),
             self.outbound.clone(),
             self.sessions.clone(),
         );
@@ -388,6 +465,7 @@ impl PtySessionRegistry {
             master: Mutex::new(pair.master),
             writer: Mutex::new(Some(writer)),
             pid,
+            exited,
             _reader_task: reader_task,
             _waiter_task: waiter_task,
         });
@@ -488,12 +566,31 @@ impl PtySessionRegistry {
     /// `ChildKiller` both hardcode SIGHUP on unix; we bypass that and
     /// call `libc::kill` directly so the caller's [`PtySignal`] choice
     /// reaches the child.
+    ///
+    /// **Pid-recycling defense.** After the registry lookup succeeds
+    /// we check the per-session [`SessionHandle::exited`] flag with
+    /// [`Ordering::Acquire`] and short-circuit with
+    /// [`PtySessionError::UnknownSession`] if the waiter task has
+    /// already observed `Child::wait()` returning. See the field's
+    /// rustdoc for the full race analysis — this is window-narrowing,
+    /// not a hard guarantee, but it closes the worst-case multi-
+    /// millisecond exposure to single-digit CPU instructions.
     #[cfg(unix)]
     pub async fn kill(&self, req: KillRequest) -> Result<KillResponse, PtySessionError> {
         let handle = self.lookup(&req.session_id).await?;
+
+        // Race-closing check: if the waiter task has already observed
+        // `wait()` returning, the pid may already be recycled. Treat
+        // the session as "no longer killable" — daemon will observe
+        // the `ExitCodeNotification` and remove the session id from
+        // its own state shortly. See [`SessionHandle::exited`].
+        if handle.exited.load(std::sync::atomic::Ordering::Acquire) {
+            return Err(PtySessionError::UnknownSession(req.session_id.clone()));
+        }
+
         let pid = handle
             .pid
-            .ok_or_else(|| PtySessionError::UnknownSession(req.session_id.clone()))?;
+            .ok_or_else(|| PtySessionError::PidUnavailable(req.session_id.clone()))?;
         let signal_num = posix_signal_number(req.signal);
 
         // `libc::kill` is non-blocking — it returns immediately after
@@ -625,31 +722,75 @@ fn spawn_reader_task(
 /// registry. Idempotent — if the registry lock fails to acquire (e.g.,
 /// registry dropped during shutdown), the notification is still attempted
 /// on the outbound channel.
+///
+/// The `exited` flag is set with [`Ordering::Release`] **inside the
+/// `spawn_blocking` closure**, on the same thread that just performed the
+/// kernel reap via `Child::wait()`. See [`SessionHandle::exited`] for the
+/// full race-closing rationale.
 fn spawn_waiter_task(
     session_id: String,
     mut child: Box<dyn portable_pty::Child + Send + Sync>,
+    exited: Arc<std::sync::atomic::AtomicBool>,
     outbound: mpsc::UnboundedSender<Envelope>,
     sessions: Arc<Mutex<HashMap<String, Arc<SessionHandle>>>>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         // The blocking wait happens on a dedicated thread; back on the
         // async runtime we synthesize the notification + clean up.
-        let exit_status = match tokio::task::spawn_blocking(move || child.wait()).await {
+        //
+        // Critical ordering inside the closure: set `exited = true`
+        // immediately after `wait()` returns and BEFORE the closure
+        // exits. `std::process::Child::wait()` reaps the zombie
+        // synchronously, which means the pid is recycle-eligible the
+        // moment `wait()` returns. Setting `exited` with
+        // [`Ordering::Release`] on the same thread minimizes the
+        // window during which a concurrent kill could fire `libc::kill`
+        // at a recycled pid (see [`SessionHandle::exited`]).
+        let exited_for_closure = Arc::clone(&exited);
+        let join_result = tokio::task::spawn_blocking(move || {
+            let result = child.wait();
+            exited_for_closure.store(true, std::sync::atomic::Ordering::Release);
+            result
+        })
+        .await;
+
+        // Split the wait failure paths so the diagnostic distinguishes a
+        // wait()-level I/O error (kernel surfaced one) from a
+        // spawn_blocking JoinError (the wait thread panicked). Both
+        // emit the same sentinel notification shape — exit_code: 1,
+        // signal_code: None — but the eprintln makes triage tractable.
+        // Phase 1 ships `eprintln!`; `tracing` is not yet a dep.
+        let exit_status = match join_result {
             Ok(Ok(status)) => status,
-            // wait() returned an I/O error OR the spawn_blocking task
-            // panicked. Either way, we cannot trust the exit code; emit
-            // a sentinel notification so the daemon knows the session
-            // is gone (`exit_code: 1, signal_code: None` is the
-            // portable-pty convention for "process is dead but exit
-            // status is unknown" — see ExitStatus::default-ish in
-            // portable-pty source).
-            _ => {
+            Ok(Err(io_err)) => {
+                eprintln!(
+                    "pty_session waiter ({session_id:?}): Child::wait() returned io::Error: {io_err}"
+                );
+                // Belt-and-braces: set `exited` defensively in case the
+                // closure failed before reaching its store (e.g., panic
+                // before `wait` returned). The closure's store is the
+                // load-bearing path; this is the fallback.
+                exited.store(true, std::sync::atomic::Ordering::Release);
                 let _ = outbound.send(Envelope::ExitCodeNotification(ExitCodeNotification {
                     session_id: session_id.clone(),
                     exit_code: 1,
                     signal_code: None,
                 }));
-                // Best-effort cleanup; drop the session if still present.
+                let mut map = sessions.lock().await;
+                map.remove(&session_id);
+                return;
+            }
+            Err(join_err) => {
+                eprintln!(
+                    "pty_session waiter ({session_id:?}): spawn_blocking join failed (wait thread panicked): {join_err}"
+                );
+                // Same defensive flag-set as above.
+                exited.store(true, std::sync::atomic::Ordering::Release);
+                let _ = outbound.send(Envelope::ExitCodeNotification(ExitCodeNotification {
+                    session_id: session_id.clone(),
+                    exit_code: 1,
+                    signal_code: None,
+                }));
                 let mut map = sessions.lock().await;
                 map.remove(&session_id);
                 return;
@@ -662,6 +803,12 @@ fn spawn_waiter_task(
         // signal number during `From<std::process::ExitStatus>` (see
         // module rustdoc §6). We emit `signal_code: None` for every
         // exit; Phase 3 T-024-3-1 may refine this via direct waitpid.
+        //
+        // `as i32` cast: portable-pty returns u32; the wire shape is
+        // i32. The wrap is intentional so Windows NTSTATUS-style
+        // high-bit exit codes (e.g., 0xC0000005 ACCESS_VIOLATION)
+        // round-trip as their conventional signed equivalent
+        // (-1073741819 in this example).
         let exit_code = exit_status.exit_code() as i32;
         let notification = ExitCodeNotification {
             session_id: session_id.clone(),

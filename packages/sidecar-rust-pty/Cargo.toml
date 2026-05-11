@@ -22,8 +22,8 @@ serde_json = "1.0"
 # code path itself does not depend on `time`, but enabling it crate-wide
 # is simpler than the alternative `[dev-dependencies] tokio` re-export
 # pattern and keeps a single tokio dep declaration. `rt` (single-thread
-# runtime constructor) is pulled in transitively by `rt-multi-thread` but
-# listed explicitly so the intent is visible at the manifest level.
+# runtime constructor) is pulled in transitively by `rt-multi-thread`; we
+# don't list it explicitly to keep the feature list compact.
 tokio = { version = "1.40", features = ["rt-multi-thread", "macros", "process", "io-util", "io-std", "sync", "time"] }
 clap = { version = "4.5", features = ["derive"] }
 
