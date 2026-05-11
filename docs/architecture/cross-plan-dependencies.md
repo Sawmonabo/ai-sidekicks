@@ -352,16 +352,16 @@ With NS-12 resolved 2026-05-03 (this commit — Plan-001 §Phase 5 Precondition 
 
 ### NS-02: Plan-001 Phase 5 Lane A — sessionClient + pg.Pool + I7 (T5.1, T5.5, T5.6)
 
-- Status: `in_progress` (last shipped: PR #30, 2026-05-05)
-- Type: code (recommended split into 3 atomic PRs)
+- Status: `in_progress` (last shipped: PR #36, 2026-05-11)
+- Type: code
 - Priority: `P1`
 - Upstream: none (NS-12 resolved 2026-05-03 — Plan-001 §Phase 5 Precondition four-lane split is at HEAD; Lane A is now actionable directly against the per-task `Files:` rows)
 - References: [Plan-001](../plans/001-shared-session-core.md):358-399, integration tests I1-I4 at Plan-001:200-203
-- Summary: Three independent code tasks comprising Plan-001 Phase 5 Lane A per the post-NS-12 four-lane split. **T5.1** (load-bearing for Plan-002+ consumers): `packages/client-sdk/src/sessionClient.ts` + integration tests verifying I1-I4 at `packages/client-sdk/test/sessionClient.integration.test.ts`. **T5.5**: `pg.Pool`-backed `Querier` composition for `SessionDirectoryService`. **T5.6**: strengthen `createSession` lock-ordering test, discharge the `TODO(Plan-001 Phase 5)` annotation. Recommended sequencing: T5.1 first, then T5.5/T5.6 in either order.
+- Summary: Three independent code tasks comprising Plan-001 Phase 5 Lane A per the post-NS-12 four-lane split. **T5.1** (load-bearing for Plan-002+ consumers): `packages/client-sdk/src/sessionClient.ts` + integration tests verifying I1-I4 at `packages/client-sdk/test/sessionClient.integration.test.ts`. **T5.5**: `pg.Pool`-backed `Querier` composition for `SessionDirectoryService` at `packages/control-plane/src/sessions/session-directory-service.ts` + pool-checkout-and-release tests at `packages/control-plane/src/sessions/__tests__/session-directory-service.test.ts`. **T5.6**: strengthen `createSession` lock-ordering test, discharge the `TODO(Plan-001 Phase 5)` annotation. Recommended sequencing: T5.1 first, then T5.5/T5.6 in either order.
 - Exit Criteria: T5.1 lands `sessionClient.ts` with I1-I4 green; T5.5 ships pg.Pool driver; T5.6 strengthens the lock-ordering regression test.
 - PRs:
   - [x] T5.1 — sessionClient + I1-I4 integration tests (PR #30, merged 2026-05-05)
-  - [ ] T5.5 — pg.Pool-backed Querier composition
+  - [x] T5.5 — pg.Pool-backed Querier composition (PR #36, merged 2026-05-11)
   - [ ] T5.6 — strengthen createSession lock-ordering test
 
 ### NS-03: Plan-023-partial Tier 1 — Electron + React skeleton
