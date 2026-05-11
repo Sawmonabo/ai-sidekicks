@@ -291,11 +291,11 @@ graph TB
   NS14[NS-14: Tier 2 plan-readiness audit<br/>Plan-002 alone]:::ready
   NS22[NS-22: sibling-doc staleness sweep<br/>0001-initial sql→ts + session.ts line cite]:::ready
   NS23[NS-23: §6 schema amendment<br/>multi-PR housekeeping]:::completed
-  NS05[NS-05: Plan-024 Phase 2 NodePtyHost]:::ready
+  NS05[NS-05: Plan-024 Phase 2 NodePtyHost]:::completed
+  NS07[NS-07: Plan-024 Phase 3 RustSidecarPtyHost]:::ready
 
   %% BLOCKED
   NS06[NS-06: Plan-001 T5.2 renderer wiring]:::blocked
-  NS07[NS-07: Plan-024 Phase 3 RustSidecarPtyHost]:::blocked
   NS08[NS-08: Plan-001 T5.3 sidecar-lifecycle]:::blocked
   NS09[NS-09: Plan-024 Phase 4 CI + signing]:::blocked
   NS10[NS-10: Plan-024 Phase 5 measurement]:::blocked
@@ -338,7 +338,7 @@ graph TB
 
 ### Recommended first wave
 
-With NS-01 + NS-02 + NS-04 completed 2026-05-11 (NS-01 via PR #42 — Plan-024 Phase 1 Rust scaffold; NS-02 via PR #38 — Plan-001 Phase 5 Lane A T5.1 + T5.5 + T5.6; NS-04 via PR #45 + PR #48 — `PtyHost` contract interface + `spawn-cwd-translator.ts` daemon-layer wrapper), the ready set is now NS-03, NS-05, NS-11, NS-13a, NS-14, NS-22 (6 items). NS-05 promotes from `blocked` to `ready` on NS-04 completion — its only two upstream NS-XX entries (NS-01 + NS-04) are both now `completed`. The set shares no code paths or governance files — re-derived from each entry's `Files:` / target_paths after NS-01 + NS-02 + NS-04's drop-out and NS-05's promotion. Suggested parallel dispatch: **NS-03 + NS-05** as two independent code lanes (NS-05 implements `NodePtyHost` at `packages/runtime-daemon/src/pty/` consuming the just-shipped cwd-translator; NS-03 ships the Electron desktop substrate at `apps/desktop/`); **NS-13a + NS-14 + NS-11 + NS-22** as concurrent governance / audit / cleanup lanes. The previous serialization of NS-22 behind NS-12 (resolved 2026-05-03) is dissolved — NS-22 targets distinct content (`0001-initial.sql` filename + `session.ts:388` cite occurrences in Plan-001 / Plan-022 / ADR-022 / Plan-008) from NS-12's edit scope (Plan-001 §Preconditions + §Phase 5 Precondition); NS-22 dispatches cleanly against the post-NS-12 HEAD without rebase churn. NS-07 (downstream Plan-024 Phase 3 RustSidecarPtyHost) advances one upstream-dep closer — remains gated on NS-05 (Plan-024 Phase 2) which now becomes the critical-path predecessor; NS-04 PR-row (b) shipping the cwd-translator was the last upstream item NS-07 inherited directly from the NS-04 lane.
+With NS-01 + NS-02 + NS-04 + NS-05 completed 2026-05-11 (NS-01 via PR #42 — Plan-024 Phase 1 Rust scaffold; NS-02 via PR #38 — Plan-001 Phase 5 Lane A T5.1 + T5.5 + T5.6; NS-04 via PR #45 + PR #48 — `PtyHost` contract interface + `spawn-cwd-translator.ts` daemon-layer wrapper; NS-05 via PR #51 — `NodePtyHost` + `PtyHostSelector` Phase 2 closeout), the ready set is now NS-03, NS-07, NS-11, NS-13a, NS-14, NS-22 (6 items). NS-07 promotes from `blocked` to `ready` on NS-05 completion — its only upstream NS-XX entry (NS-05) is now `completed`. The set shares no code paths or governance files — re-derived from each entry's `Files:` / target_paths after NS-05's drop-out and NS-07's promotion. Suggested parallel dispatch: **NS-03 + NS-07** as two independent code lanes (NS-07 implements `RustSidecarPtyHost` at `packages/runtime-daemon/src/pty/rust-sidecar-pty-host.ts` + the `packages/sidecar-rust-pty/` Rust crate kill-translation tests, building on the just-shipped `NodePtyHost` reference implementation and the `PtyHost` interface from NS-04; NS-03 ships the Electron desktop substrate at `apps/desktop/`); **NS-13a + NS-14 + NS-11 + NS-22** as concurrent governance / audit / cleanup lanes. The previous serialization of NS-22 behind NS-12 (resolved 2026-05-03) is dissolved — NS-22 targets distinct content (`0001-initial.sql` filename + `session.ts:388` cite occurrences in Plan-001 / Plan-022 / ADR-022 / Plan-008) from NS-12's edit scope (Plan-001 §Preconditions + §Phase 5 Precondition); NS-22 dispatches cleanly against the post-NS-12 HEAD without rebase churn. The NS-04 → NS-05 → NS-07 cascade is now exhausted on the Plan-024 critical path — NS-04 completion (PR #48 housekeeping) unblocked NS-05; NS-05 completion (this PR) unblocks NS-07; NS-07 in turn is the last gate on NS-09 + NS-10 (Plan-024 Phases 4 + 5).
 
 ### NS-01: Plan-024 Phase 1 — Rust crate scaffolding
 
@@ -389,7 +389,7 @@ With NS-01 + NS-02 + NS-04 completed 2026-05-11 (NS-01 via PR #42 — Plan-024 P
 
 ### NS-05: Plan-024 Phase 2 — NodePtyHost
 
-- Status: `ready` (both upstream cleared 2026-05-11: NS-01 via PR #42 — Plan-024 Phase 1 Rust scaffold; NS-04 via PR #45 + PR #48 — `PtyHost` interface + cwd-translator pair)
+- Status: `completed` (resolved 2026-05-11 via PR #51 — Plan-024 Phase 2 closeout shipped T-024-2-2 (`NodePtyHost` implementation with Windows kill-translation per I-024-1 + I-024-2) + T-024-2-3 (`PtyHostSelector` + `AIS_PTY_BACKEND` env-var grammar per F-024-2-07) together; T-024-2-1 (`PtyHost` interface) shipped earlier in PR #45. I-024-1 satisfaction via Test K1 (`node-pty-host.kill-translation.test.ts`); I-024-2 satisfaction via Test K3 (`node-pty-host.tree-kill.test.ts`); both close the test-side mirror gap named by F-024-2-05. Default-Node-on-all-platforms posture (F-024-2-02) is live with the selector; `useConptyDll: false` retained per ADR-019 Tripwire 3. Unblocks NS-07 (Plan-024 Phase 3 RustSidecarPtyHost) — its only upstream was NS-05.)
 - Type: code
 - Priority: `P1`
 - Upstream: NS-01 (Phase 1 scaffolding) + NS-04 (T5.4 cwd-translator)
