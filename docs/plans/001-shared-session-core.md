@@ -635,6 +635,17 @@ shipped:
     spec_coverage: ["Spec-001 AC1", "Spec-001 AC2", "Spec-001 AC4"]
     notes: |
       Phase 5 Lane A T5.5 — `pg.Pool`-backed `Querier` composition for `SessionDirectoryService`. Adds three factories: `createPgPoolQuerier(pool: Pool): Querier` (per-query auto-checkout/release), `createPoolClientQuerier(client: PoolClient): Querier` (in-tx held-client adapter that rejects nested transactions), and `createSessionDirectoryServiceFromPool(pool: Pool): SessionDirectoryService` (convenience factory). Transaction logic: `pool.connect()` + manual BEGIN/COMMIT/ROLLBACK with try/finally release; ROLLBACK errors swallowed but the original fn error always re-raises; no follow-up ROLLBACK after COMMIT failure (Postgres auto-rolls-back). 14 new tests in the `createPgPoolQuerier — pool-checkout-and-release path` describe block exercise query/exec routing, transaction connect-once + held-client routing, nested-tx rejection, ROLLBACK paths, COMMIT-throws + BEGIN-throws, and AC1/AC2/AC4 through pg.Pool. Cast comments document the substrate-vs-surface generic-shape mismatch (`pool.query<R extends QueryResultRow>` constrains R while the Querier surface is generic on free T). Driver-agnostic — no I-001-N invariant exercised at runtime.
+  - phase: 5
+    task: T5.6
+    pr: 38
+    sha: 2b230ea
+    merged_at: 2026-05-11
+    files:
+      - packages/control-plane/src/sessions/__tests__/session-directory-service.test.ts
+    verifies_invariant: [I-001-1]
+    spec_coverage: ["Spec-001 AC2", "Spec-001 AC4"]
+    notes: |
+      Phase 5 Lane A T5.6 — strengthens the `createSession` lock-ordering regression test (Codex R4) to discriminate WHICH Querier instance issued each in-transaction statement, discharging the `TODO(Plan-001 PR #5)` annotation that T5.5's pg.Pool adapter unlocked. The `wrapWithLog` test helper now captures `{querierId, sql}` pairs (was bare `string`) and re-wraps the in-tx Querier with a fresh `${outerId}.tx-<n>` id so a regression that routes any of the four load-bearing statements (session upsert, FOR UPDATE, owner-mismatch probe, membership upsert) through `this.#querier` instead of the transaction-bound `tx` is caught by `entry.querierId !== "outer"`. Under pg.Pool semantics that misroute would lock on a different pool checkout than the transaction's held client and fail to serialize concurrent createSession calls. Pre-T5.6 assertions (presence, ordering, count) preserved; strengthening is additive. Cross-equality assertion also catches a hypothetical regression that introduced a sibling transaction (different tx-scoped ids would split across four statements). Validated by mutating `session-directory-service.ts` to route FOR UPDATE through `this.#querier`, re-running the suite (R4 fails as expected), and reverting. Verifies I-001-1 (lock-ordering: sessions → session_memberships) as a regression discriminator. **Closes NS-02 Lane A** — Plan-001 Phase 5 Lane A complete with T5.1 (PR #30), T5.5 (PR #36), T5.6 (PR #38).
 ```
 
 ### Notes
