@@ -9,7 +9,6 @@ model=$(echo "$input"        | jq -r '.model.display_name // "Claude"')
 cwd=$(echo "$input"          | jq -r '.workspace.current_dir // .cwd // ""')
 used_pct=$(echo "$input"     | jq -r '.context_window.used_percentage // empty')
 remaining_pct=$(echo "$input"| jq -r '.context_window.remaining_percentage // empty')
-session_name=$(echo "$input" | jq -r '.session_name // empty')
 vim_mode=$(echo "$input"     | jq -r '.vim.mode // empty')
 git_worktree=$(echo "$input" | jq -r '.workspace.git_worktree // empty')
 five_h=$(echo "$input"       | jq -r '.rate_limits.five_hour.used_percentage // empty')
@@ -113,19 +112,14 @@ if [[ -n "$cwd" ]]; then
   fi
 fi
 
-# 5. Session name (if set)
-if [[ -n "$session_name" ]]; then
-  parts+=( "$(printf "%b\"%s\"%b" "$c_gold" "$session_name" "$reset")" )
-fi
-
-# 6. Context window
+# 5. Context window
 if [[ -n "$used_pct" && -n "$remaining_pct" ]]; then
   bar=$(context_bar "$(printf '%.0f' "$used_pct")")
   num=$(pct_color   "$(printf '%.0f' "$used_pct")")
   parts+=( "$(printf "%bctx%b %s %s" "$c_gray" "$reset" "$bar" "$num")" )
 fi
 
-# 7. Rate limits (only when data is present)
+# 6. Rate limits (only when data is present)
 if [[ -n "$five_h" || -n "$seven_d" ]]; then
   rl_parts=()
   [[ -n "$five_h"  ]] && rl_parts+=( "$(printf "5h:%s"    "$(pct_color "$(printf '%.0f' "$five_h")")")" )
@@ -134,7 +128,7 @@ if [[ -n "$five_h" || -n "$seven_d" ]]; then
   parts+=( "$(printf "%blimits%b %s" "$c_gray" "$reset" "$joined")" )
 fi
 
-# 8. Vim mode indicator
+# 7. Vim mode indicator
 if [[ -n "$vim_mode" ]]; then
   if [[ "$vim_mode" == "INSERT" ]]; then
     parts+=( "$(printf "%b%bINSERT%b" "$bold" "$c_lime" "$reset")" )
