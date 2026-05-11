@@ -121,6 +121,13 @@ async fn drain_until_exit(rx: &mut UnboundedReceiver<Envelope>) -> Vec<Envelope>
 /// Factored out so the unix and Windows arms share assertion code —
 /// the only platform-specific axis is the spawn shape, not the
 /// post-spawn observation contract.
+///
+/// `#[track_caller]` so a panic's reported location is the calling
+/// `#[tokio::test]` (unix vs Windows arm) rather than a line inside
+/// this helper. Without it, a regression triage from a stack trace
+/// alone could not distinguish which platform arm fired the
+/// assertion.
+#[track_caller]
 fn assert_spawn_smoke_envelopes(envelopes: &[Envelope], session_id: &str) {
     let data_frames: Vec<_> = envelopes
         .iter()
@@ -140,7 +147,7 @@ fn assert_spawn_smoke_envelopes(envelopes: &[Envelope], session_id: &str) {
     // Leg (a) — stdout chunk delivered with the spawned `hello`.
     assert!(
         !data_frames.is_empty(),
-        "expected at least one DataFrame from `echo hello`, got envelopes: {envelopes:?}"
+        "expected at least one DataFrame from the spawned echo, got envelopes: {envelopes:?}"
     );
     for df in &data_frames {
         assert_eq!(
@@ -153,7 +160,15 @@ fn assert_spawn_smoke_envelopes(envelopes: &[Envelope], session_id: &str) {
             "Phase 1 emits all DataFrames as Stdout (PTY merges stdout+stderr)"
         );
     }
-    let combined: Vec<u8> = data_frames.iter().flat_map(|df| df.bytes.clone()).collect();
+    // Match the `tests/pty_session.rs::spawn_echo_emits_data_frame_then_exit`
+    // idiom (lines 153-156) — `extend_from_slice` avoids the
+    // per-frame `Vec<u8>` clone that `flat_map(|df| df.bytes.clone())`
+    // would incur. Perf is irrelevant in test code; the win is local-
+    // file consistency with the neighbor integration tests.
+    let mut combined: Vec<u8> = Vec::new();
+    for df in &data_frames {
+        combined.extend_from_slice(&df.bytes);
+    }
     let combined_str = String::from_utf8_lossy(&combined);
     assert!(
         combined_str.contains("hello"),
@@ -176,7 +191,7 @@ fn assert_spawn_smoke_envelopes(envelopes: &[Envelope], session_id: &str) {
         exit.session_id, session_id,
         "ExitCodeNotification carries the spawned session_id"
     );
-    assert_eq!(exit.exit_code, 0, "`exit 0` must propagate as exit_code: 0");
+    assert_eq!(exit.exit_code, 0, "echo should propagate exit_code: 0");
     assert_eq!(
         exit.signal_code, None,
         "Phase 1 emits signal_code: None for every exit per pty_session.rs §6"
@@ -253,7 +268,13 @@ async fn spawn_smoke_cmd_exe_echo_hello_exits_zero() {
             command: r"C:\Windows\System32\cmd.exe".to_string(),
             args: vec!["/c".to_string(), "echo hello".to_string()],
             env: Vec::new(),
-            cwd: r"C:\".to_string(),
+            // `r#"C:\"#` rather than `r"C:\"` — both are valid Rust
+            // raw-string literals (the lexer reads `r#"`, body `C:\`,
+            // closing `"#`), but `r"C:\"` looks like an escaped quote
+            // at a glance. The `r#"..."#` form parallels the
+            // `.expect(r#"..."#)` literal a few lines below and
+            // removes the visual ambiguity.
+            cwd: r#"C:\"#.to_string(),
             rows: 24,
             cols: 80,
         })
