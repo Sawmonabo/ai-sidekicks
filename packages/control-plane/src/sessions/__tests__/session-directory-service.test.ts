@@ -1286,7 +1286,14 @@ describe("applyMigrations — idempotency", () => {
 // ----------------------------------------------------------------------------
 
 interface MockPoolCall {
-  readonly kind: "pool.query" | "client.query" | "client.release" | "pool.connect";
+  readonly kind:
+    | "pool.query"
+    | "client.query"
+    | "client.release"
+    | "client.release.destroy"
+    | "client.on.error"
+    | "client.removeListener.error"
+    | "pool.connect";
   // `sql` / `params` are present on `query` calls and absent on `connect` /
   // `release`. `exactOptionalPropertyTypes: true` (the repo's strict config)
   // distinguishes "key missing" from "key present with value `undefined`";
@@ -1316,6 +1323,12 @@ interface MockPoolClient extends PoolClient {
   readonly _calls: MockPoolCall[];
   _queryImpl?: CannedResponse[];
   _released: boolean;
+  // Captured 'error' listeners — the transaction adapter subscribes once
+  // at acquire to detect connection-level faults, then unsubscribes
+  // before `release()`. Tests fire `_emitError(err)` to simulate the
+  // socket-broke event the canonical broken-client pattern hinges on.
+  readonly _errorListeners: Array<(err: Error) => void>;
+  _emitError: (err: Error) => void;
 }
 
 function makeMockPool(): MockPool {
@@ -1366,15 +1379,17 @@ function makeMockPool(): MockPool {
 
 function makeMockPoolClient(): MockPoolClient {
   const calls: MockPoolCall[] = [];
-  // Same EventEmitter-surface bypass as MockPool — the adapter only touches
-  // `query()` and `release()`. Default behavior: when `_queryImpl` is not
-  // set, every query returns empty rows (the "I only care about routing /
-  // lifecycle, not row contents" path). Tests that assert on specific
-  // canned rows (the AC tests + the ROLLBACK / COMMIT failure tests) set
-  // `_queryImpl` to a per-test FIFO queue.
+  const errorListeners: Array<(err: Error) => void> = [];
+  // Same EventEmitter-surface bypass as MockPool — the adapter touches
+  // `query()`, `release()`, `on('error', ...)`, and the matching
+  // `removeListener('error', ...)`. Default behavior: when `_queryImpl`
+  // is not set, every query returns empty rows. Tests that assert on
+  // specific canned rows (the AC tests + the ROLLBACK / COMMIT failure
+  // tests) set `_queryImpl` to a per-test FIFO queue.
   const client = {
     _calls: calls,
     _released: false,
+    _errorListeners: errorListeners,
     query: vi.fn(
       async <R extends QueryResultRow>(
         sql: string,
@@ -1411,10 +1426,38 @@ function makeMockPoolClient(): MockPoolClient {
         };
       },
     ),
-    release: vi.fn((): void => {
-      calls.push({ kind: "client.release" });
+    release: vi.fn((destroy?: Error | boolean): void => {
+      // node-postgres `client.release(destroyArg)`: truthy first arg
+      // destroys the client. Tag the call so tests can assert on the
+      // destroy-vs-return-to-pool path without depending on argv shape.
+      calls.push({ kind: destroy ? "client.release.destroy" : "client.release" });
       client._released = true;
     }),
+    on: vi.fn((event: string, listener: (err: Error) => void): MockPoolClient => {
+      // Only the adapter's 'error' subscription is meaningful here; the
+      // other `on()` events (`notification`, `notice`, etc.) are not
+      // exercised. Capture for assertion + later replay via _emitError.
+      if (event === "error") {
+        errorListeners.push(listener);
+        calls.push({ kind: "client.on.error" });
+      }
+      return client;
+    }),
+    removeListener: vi.fn((event: string, listener: (err: Error) => void): MockPoolClient => {
+      if (event === "error") {
+        const i = errorListeners.indexOf(listener);
+        if (i >= 0) errorListeners.splice(i, 1);
+        calls.push({ kind: "client.removeListener.error" });
+      }
+      return client;
+    }),
+    _emitError: (err: Error): void => {
+      // Replay every captured 'error' listener once. node-postgres fires
+      // `'error'` on the client when the underlying socket breaks; the
+      // adapter's listener is what trips the `tainted` flag the canonical
+      // broken-client pattern hinges on.
+      for (const listener of errorListeners) listener(err);
+    },
   } as unknown as MockPoolClient;
   return client;
 }
@@ -1805,6 +1848,155 @@ describe("createPgPoolQuerier — pool-checkout-and-release path", () => {
   });
 
   // --------------------------------------------------------------------------
+  // Broken-client destruction — defends against pool poisoning when the
+  // underlying socket breaks mid-transaction. The adapter subscribes a
+  // `'error'` listener at acquire; the listener trips a `tainted` flag;
+  // the `finally` then calls `client.release(error)` (truthy first arg)
+  // instead of `client.release()`. node-postgres treats the truthy arg
+  // as "disconnect and destroy" rather than "return to idle pool", per
+  // https://github.com/brianc/node-postgres/blob/master/docs/pages/apis/pool.mdx
+  // §releasing clients. Statement-position classification alone is
+  // unreliable — a healthy client can fail COMMIT on a deferred-constraint
+  // violation, and a broken client can surface only via the listener
+  // after the in-flight query rejected.
+  // --------------------------------------------------------------------------
+
+  it("transaction(fn) destroys the client when the 'error' event fires mid-transaction", async () => {
+    // Simulate the socket breaking after BEGIN succeeded: the next
+    // client.query throws AND the client emits 'error' (real pg
+    // behavior on ECONNRESET — the in-flight query rejects and a
+    // socket-level error is emitted to listeners). The adapter's
+    // listener trips `tainted`; the `finally` MUST destroy via the
+    // truthy-arg path so the dead client doesn't poison the pool.
+    const pool = makeMockPool();
+    const sentinel = new Error("connection terminated unexpectedly (ECONNRESET simulation)");
+    pool._connectImpl = async (): Promise<MockPoolClient> => {
+      const client = makeMockPoolClient();
+      pool._clients.push(client);
+      client._queryImpl = [
+        { kind: "rows", rows: [] }, // BEGIN succeeds
+        { kind: "error", error: sentinel }, // inner query throws — socket gone
+        // The adapter then issues ROLLBACK on the application-error path;
+        // that ROLLBACK ALSO fails because the connection is dead.
+        { kind: "error", error: new Error("ROLLBACK failed — connection dead") },
+      ];
+      return client;
+    };
+    const querier = createPgPoolQuerier(pool);
+
+    await expect(
+      querier.transaction(async (tx) => {
+        // Inside fn: fire the synthetic 'error' event right before the
+        // inner query rejects. Real pg fires both — the listener flag
+        // is what the broken-client path is built on.
+        const client = pool._clients[0];
+        if (client !== undefined) client._emitError(sentinel);
+        await tx.query("SELECT 1");
+        return undefined;
+      }),
+    ).rejects.toBe(sentinel);
+
+    expect(pool._clients).toHaveLength(1);
+    const client = pool._clients[0];
+    expect(client).toBeDefined();
+    if (client === undefined) return;
+
+    // The adapter subscribed once at acquire and detached once before
+    // release. Asymmetric counts would mean a listener leak.
+    expect(client.on).toHaveBeenCalledWith("error", expect.any(Function));
+    expect(client.removeListener).toHaveBeenCalledWith("error", expect.any(Function));
+
+    // Crucially: `release()` was called with a TRUTHY first arg so the
+    // pool destroys this client instead of recycling it. Statement-
+    // position classification can't distinguish this from a healthy
+    // COMMIT-time failure — the listener-driven `tainted` flag does.
+    expect(client.release).toHaveBeenCalledTimes(1);
+    const lastReleaseKind = client._calls.filter((c) => c.kind.startsWith("client.release"));
+    expect(lastReleaseKind.at(-1)?.kind).toBe("client.release.destroy");
+  });
+
+  it("transaction(fn) destroys the client when ROLLBACK throws after a failed `fn` (connection-dead inference)", async () => {
+    // A successful application-error path that issues ROLLBACK and gets
+    // a throw back from the wire is invariably the connection dying
+    // mid-`fn` — the in-flight ROLLBACK couldn't reach the server. The
+    // 'error' event might race the rejected query, so the adapter also
+    // taints inside the swallowed ROLLBACK catch as belt-and-braces.
+    const pool = makeMockPool();
+    pool._connectImpl = async (): Promise<MockPoolClient> => {
+      const client = makeMockPoolClient();
+      pool._clients.push(client);
+      client._queryImpl = [
+        { kind: "rows", rows: [] }, // BEGIN succeeds
+        { kind: "rows", rows: [] }, // inner fn body succeeds
+        { kind: "error", error: new Error("ROLLBACK failed at the wire") },
+      ];
+      return client;
+    };
+    const querier = createPgPoolQuerier(pool);
+    const originalError = new Error("application rejection");
+
+    await expect(
+      querier.transaction(async (tx) => {
+        await tx.query("SELECT 1");
+        throw originalError;
+      }),
+    ).rejects.toBe(originalError);
+
+    expect(pool._clients).toHaveLength(1);
+    const client = pool._clients[0];
+    expect(client).toBeDefined();
+    if (client === undefined) return;
+
+    // Crucial difference vs the existing "ROLLBACK throws but release
+    // still runs" test (line ~1740): that test asserts release is
+    // called; this one asserts it is called with TRUTHY first arg
+    // (the destroy path). Without this, a sustained app-error-then-
+    // ROLLBACK-failure rate would slowly poison the pool with dead
+    // clients.
+    expect(client.release).toHaveBeenCalledTimes(1);
+    const lastReleaseKind = client._calls.filter((c) => c.kind.startsWith("client.release"));
+    expect(lastReleaseKind.at(-1)?.kind).toBe("client.release.destroy");
+  });
+
+  it("transaction(fn) returns the client to the pool (no destroy) when COMMIT fails on a deferred-constraint violation", async () => {
+    // The complement to the destroy-on-error tests above: a deferred-
+    // constraint COMMIT failure is NOT a connection-level fault. The
+    // 'error' event does not fire; the client is healthy and should
+    // return to the idle pool. Asserts the destroy path is NOT taken
+    // here — guards against over-destruction that would silently leak
+    // pool capacity under sustained deferred-constraint workloads.
+    const pool = makeMockPool();
+    pool._connectImpl = async (): Promise<MockPoolClient> => {
+      const client = makeMockPoolClient();
+      pool._clients.push(client);
+      client._queryImpl = [
+        { kind: "rows", rows: [] }, // BEGIN
+        { kind: "rows", rows: [] }, // inner
+        { kind: "error", error: new Error("deferred constraint violation at COMMIT") },
+      ];
+      return client;
+    };
+    const querier = createPgPoolQuerier(pool);
+
+    await expect(
+      querier.transaction(async (tx) => {
+        await tx.query("SELECT 1");
+        return undefined;
+      }),
+    ).rejects.toThrow(/deferred constraint violation/);
+
+    expect(pool._clients).toHaveLength(1);
+    const client = pool._clients[0];
+    expect(client).toBeDefined();
+    if (client === undefined) return;
+
+    expect(client.release).toHaveBeenCalledTimes(1);
+    // Healthy client — return to pool, not destroy.
+    const lastReleaseKind = client._calls.filter((c) => c.kind.startsWith("client.release"));
+    expect(lastReleaseKind.at(-1)?.kind).toBe("client.release");
+  });
+
+  // --------------------------------------------------------------------------
   // Spec-001 AC1 — createSession through pg.Pool yields stable shape
   // --------------------------------------------------------------------------
 
@@ -1967,11 +2159,20 @@ describe("createPgPoolQuerier — pool-checkout-and-release path", () => {
     const clientCallKinds = client._calls.map((c) =>
       c.kind === "client.query" ? `query:${c.sql}` : c.kind,
     );
-    // COMMIT immediately followed by release — no callback runs between.
+    // COMMIT precedes release, and the only call between them is the
+    // adapter's `removeListener('error', ...)` cleanup (the symmetric
+    // detach to the acquire-time `on('error', ...)` subscription that
+    // drives broken-client detection). Strict-adjacency would over-
+    // specify — what matters is that no application-side callback runs
+    // between COMMIT and release, which the explicit
+    // removeListener-only constraint captures without being brittle to
+    // future additions to the same cleanup window.
     const commitIdx = clientCallKinds.indexOf("query:COMMIT");
-    const releaseIdx = clientCallKinds.indexOf("client.release");
+    const releaseIdx = clientCallKinds.findIndex((k) => k.startsWith("client.release"));
     expect(commitIdx).toBeGreaterThanOrEqual(0);
-    expect(releaseIdx).toBe(commitIdx + 1);
+    expect(releaseIdx).toBeGreaterThan(commitIdx);
+    const between = clientCallKinds.slice(commitIdx + 1, releaseIdx);
+    expect(between).toEqual(["client.removeListener.error"]);
   });
 
   // --------------------------------------------------------------------------
