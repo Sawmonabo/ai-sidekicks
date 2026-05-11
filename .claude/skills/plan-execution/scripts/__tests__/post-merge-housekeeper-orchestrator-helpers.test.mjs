@@ -161,6 +161,302 @@ test("validateManifestSubagentStage: fail when pending item is unaddressed", () 
   assert.match(result.gaps[0], /addressing: "ready_set_re_derivation"/);
 });
 
+// ---------- check #13: narration_mode_detected ----------
+//
+// Documented failure mode from the PR #51 housekeeping post-mortem (TaskList #13):
+// the plan-execution-housekeeper subagent has historically emitted text-only
+// `Tool: Edit\n{...}` narration without invoking the tool API, leaving the
+// on-disk manifest in script-stage shape. Observed across PR #36/#42/#45/#51
+// dispatches — all with `totalToolUseCount: 0`. Each individual symptom
+// (result === null, semantic_edits empty, etc.) would fire one of the existing
+// gaps; the COMBINATION is the unmistakable narration signature and routes the
+// orchestrator directly to the SKILL.md Phase E auto-deviation fallback path
+// instead of wasting a re-dispatch on the same prompt.
+
+test("validateManifestSubagentStage: narration mode — script-stage manifest with pending work fires narration_mode_detected", () => {
+  // Verbatim replay of the PR #45 housekeeper-manifest-PR45.json on-disk shape after the
+  // narration-mode dispatch returned: result null, semantic_edits {}, concerns [],
+  // subagent_completed_at null, 6 pending items unaddressed.
+  const manifest = {
+    pr_number: 45,
+    script_exit_code: 3,
+    affected_files: [],
+    semantic_work_pending: [
+      "compose_status_completion_prose",
+      "ready_set_re_derivation",
+      "line_cite_sweep",
+      "set_quantifier_reverification",
+      "ns_auto_create_evaluation",
+      "unannotated_referenced_files_check",
+    ],
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [
+        "compose_status_completion_prose",
+        "ready_set_re_derivation",
+        "line_cite_sweep",
+        "set_quantifier_reverification",
+        "ns_auto_create_evaluation",
+        "unannotated_referenced_files_check",
+      ],
+    },
+    semantic_edits: {},
+    concerns: [],
+    subagent_completed_at: null,
+    result: null,
+  };
+  const r = validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) });
+  assert.equal(r.valid, false);
+  const narration = r.gaps.find((g) => g.startsWith("narration_mode_detected"));
+  assert.ok(narration, "expected narration_mode_detected gap to fire");
+  assert.match(narration, /6 pending item\(s\) remained per the trusted stage-1 baseline/);
+  assert.match(narration, /totalToolUseCount/);
+  assert.match(narration, /auto-deviation fallback/);
+  assert.match(narration, /orchestrator_applied_semantic_edits_due_to_subagent_narration/);
+});
+
+test("validateManifestSubagentStage: narration check does NOT fire when subagent completed work (semantic_edits populated)", () => {
+  const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: ["compose_status_completion_prose"],
+    },
+    semantic_work_pending: ["compose_status_completion_prose"],
+    semantic_edits: { compose_status_completion_prose: "Composed completion prose for NS-XX..." },
+    concerns: [],
+    affected_files: [],
+    subagent_completed_at: "2026-05-11T17:50:00Z",
+    result: "DONE",
+  };
+  const r = validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) });
+  assert.equal(r.valid, true);
+  // Sanity: no narration gap among any optional warnings
+  if (!r.valid) {
+    const narration = r.gaps.find((g) => g.startsWith("narration_mode_detected"));
+    assert.equal(narration, undefined);
+  }
+});
+
+test("validateManifestSubagentStage: narration check does NOT fire on legitimate BLOCKED halt (subagent ran but halted on schema_violations)", () => {
+  // When the subagent legitimately halts with BLOCKED (e.g., on schema_violations
+  // it cannot fix), semantic_edits stays empty by design — the per-item pairing
+  // waiver fires (check #2 halt-state waiver). The narration check must respect
+  // the same waiver: a BLOCKED return is a canonical exit-state (wroteResult: true),
+  // so the narration signature (!wroteResult) does NOT match.
+  const manifest = {
+    _script_stage: {
+      affected_files: ["docs/architecture/cross-plan-dependencies.md"],
+      schema_violations: [{ kind: "schema_violation", field: "PRs:", ns_id: "NS-04" }],
+      verification_failures: [],
+      semantic_work_pending: ["compose_status_completion_prose"],
+    },
+    schema_violations: [{ kind: "schema_violation", field: "PRs:", ns_id: "NS-04" }],
+    semantic_work_pending: ["compose_status_completion_prose"],
+    semantic_edits: {},
+    concerns: [
+      {
+        kind: "schema_violation",
+        field: "PRs:",
+        ns_id: "NS-04",
+        addressing: "schema_violation surfacing",
+      },
+    ],
+    affected_files: ["docs/architecture/cross-plan-dependencies.md"],
+    subagent_completed_at: "2026-05-11T17:50:00Z",
+    result: "BLOCKED",
+  };
+  // Use a tmpdir so the affected_files existence check doesn't fail and confuse the test.
+  const tmpRepo = mkdtempSync(join(tmpdir(), "validate-narration-blocked-"));
+  try {
+    mkdirSync(join(tmpRepo, "docs", "architecture"), { recursive: true });
+    writeFileSync(
+      join(tmpRepo, "docs", "architecture", "cross-plan-dependencies.md"),
+      "(content without placeholder)\n",
+    );
+    const r = validateManifestSubagentStage({
+      manifest,
+      repoRoot: tmpRepo,
+      ...stageOneFromManifest(manifest),
+    });
+    // BLOCKED is legitimate: schema_violations present + result === BLOCKED + per-entry concern.
+    // No narration gap should fire.
+    if (!r.valid) {
+      const narration = r.gaps.find((g) => g.startsWith("narration_mode_detected"));
+      assert.equal(
+        narration,
+        undefined,
+        `legitimate BLOCKED halt produced narration gap: ${narration}`,
+      );
+    }
+  } finally {
+    rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test("validateManifestSubagentStage: narration check does NOT fire when no pending work (vacuous case)", () => {
+  // If the script emitted no semantic_work_pending (rare — exit 0 happy path with
+  // all-mechanical-no-semantic edits), a subagent return that's a verbatim copy of
+  // the input plus `result: DONE` is correct, not narration. The narration check
+  // requires `hasPendingWork` so this case doesn't false-positive.
+  const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
+    semantic_work_pending: [],
+    semantic_edits: {},
+    concerns: [],
+    affected_files: [],
+    subagent_completed_at: null,
+    result: null, // even with non-canonical result, no pending work means no narration gap
+  };
+  const r = validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) });
+  // The result-canonicality gap (check #1) still fires, but the narration gap does not.
+  const narration = (r.valid ? [] : r.gaps).find((g) => g.startsWith("narration_mode_detected"));
+  assert.equal(narration, undefined);
+});
+
+test("validateManifestSubagentStage: narration check uses trusted stage-1 baseline, not subagent-emitted top-level semantic_work_pending (Codex PR #53 P2)", () => {
+  // Adversarial / partial-narration shape: subagent narrated EVERYTHING except
+  // clearing the top-level `manifest.semantic_work_pending` array to `[]`.
+  // `_script_stage.semantic_work_pending` is preserved (per contract; tampering
+  // there fires structural-tampering gaps instead). Before the fix, the
+  // narration check sourced `hasPendingWork` from the subagent-emitted top-level
+  // field — clearing it would demote the dedicated narration routing into the
+  // generic round-trip path, missing the auto-deviation fallback entirely.
+  const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: ["compose_status_completion_prose", "ready_set_re_derivation"],
+    },
+    semantic_work_pending: [], // subagent cleared this — adversarial
+    semantic_edits: {},
+    concerns: [],
+    affected_files: [],
+    subagent_completed_at: null,
+    result: null,
+  };
+  // Pass an explicit orchestrator-plumbed stage-1 baseline so the precedence
+  // chain (explicit > _script_stage > null) is exercised. Use a non-equal
+  // array to prove the explicit param wins over the embedded snapshot.
+  const r = validateManifestSubagentStage({
+    manifest,
+    scriptSemanticWorkPending: ["compose_status_completion_prose", "ready_set_re_derivation"],
+  });
+  assert.equal(r.valid, false);
+  const narration = r.gaps.find((g) => g.startsWith("narration_mode_detected"));
+  assert.ok(narration, "narration gap must fire even when subagent cleared top-level pending list");
+  assert.match(narration, /2 pending item\(s\) remained per the trusted stage-1 baseline/);
+});
+
+test("validateManifestSubagentStage: narration check fires even when result is a non-canonical truthy string", () => {
+  // Sanity: a subagent that emitted gibberish `result: "ok"` but didn't actually
+  // do the work should also fire narration_mode_detected — `wroteResult` checks
+  // the canonical Set membership, not just truthiness.
+  const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: ["compose_status_completion_prose"],
+    },
+    semantic_work_pending: ["compose_status_completion_prose"],
+    semantic_edits: {},
+    concerns: [],
+    affected_files: [],
+    subagent_completed_at: null,
+    result: "ok", // not in canonical set
+  };
+  const r = validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) });
+  assert.equal(r.valid, false);
+  const narration = r.gaps.find((g) => g.startsWith("narration_mode_detected"));
+  assert.ok(narration);
+});
+
+// CLI wrapper exit-code routing — narration alone returns 1, narration co-occurring
+// with any other gap returns 2 (auto-deviation requires trusted `_script_stage`;
+// any additional gap signals `_script_stage` itself may be untrusted). Codex PR #53 R4 P1.
+test("validate-subagent-manifest CLI: exit 1 fires only when narration is the sole gap", () => {
+  const tmpRepo = mkdtempSync(join(tmpdir(), "validate-cli-exit1-"));
+  try {
+    // Manifest that triggers narration alone — fully-honest stage-1 plumbing, no other
+    // integrity gaps. Stage-1 sidecar is identical to the manifest's _script_stage.
+    const narrationOnlyManifest = {
+      _script_stage: {
+        affected_files: [],
+        schema_violations: [],
+        verification_failures: [],
+        semantic_work_pending: ["compose_status_completion_prose"],
+      },
+      semantic_work_pending: ["compose_status_completion_prose"],
+      affected_files: [],
+      semantic_edits: {},
+      concerns: [],
+      subagent_completed_at: null,
+      result: null,
+    };
+    const manifestPath = join(tmpRepo, "manifest.json");
+    const stage1Path = join(tmpRepo, "stage1.json");
+    writeFileSync(manifestPath, JSON.stringify(narrationOnlyManifest));
+    writeFileSync(stage1Path, JSON.stringify(narrationOnlyManifest._script_stage));
+
+    const cliResolved = join(import.meta.dirname, "..", "validate-subagent-manifest.mjs");
+
+    const runCli = (extraArgs) => {
+      try {
+        const stdout = execSync(
+          `node --experimental-strip-types ${cliResolved} ${manifestPath}${extraArgs}`,
+          { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+        );
+        return { status: 0, stdout, stderr: "" };
+      } catch (e) {
+        return {
+          status: e.status,
+          stdout: e.stdout?.toString() ?? "",
+          stderr: e.stderr?.toString() ?? "",
+        };
+      }
+    };
+
+    // Narration-only invocation → expect exit 1 (every gap is "definitional" for narration:
+    // result non-canonical, narration_mode_detected, per-item unaddressed).
+    const narrationOnly = runCli(` --stage1 ${stage1Path}`);
+    assert.equal(
+      narrationOnly.status,
+      1,
+      `narration-only should exit 1; got ${narrationOnly.status}. stderr: ${narrationOnly.stderr}`,
+    );
+    const parsed = JSON.parse(narrationOnly.stdout);
+    assert.equal(parsed.narration_detected, true);
+
+    // Mixed-gap invocation — omit --stage1 so check #12 baseline-trust ALSO fires.
+    // narrationDetected is still true, but a non-definitional integrity gap is present,
+    // so exit should drop to 2.
+    const mixed = runCli("");
+    const parsedMixed = JSON.parse(mixed.stdout);
+    assert.equal(parsedMixed.narration_detected, true, "narration still fires");
+    assert.ok(
+      parsedMixed.gaps.some((g) => g.includes("subagent-emitted and may be tampered")),
+      `expected baseline-trust gap when --stage1 omitted; got ${JSON.stringify(parsedMixed.gaps)}`,
+    );
+    assert.equal(
+      mixed.status,
+      2,
+      `mixed-gap (narration + baseline-trust) must exit 2 so the orchestrator round-trips/halts rather than auto-deviating off untrusted _script_stage; got ${mixed.status}. stderr: ${mixed.stderr}`,
+    );
+  } finally {
+    rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
 test("validateManifestSubagentStage: fails when affected_files entry is missing from disk", () => {
   // Codex P1 (PR #33 R6 / Finding 10): the placeholder-scan loop's `if (existsSync(full))`
   // gate had no else-branch, so a subagent run that DELETED a declared affected_files entry

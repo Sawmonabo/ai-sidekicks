@@ -473,16 +473,70 @@ The phase has 8 steps in this exact order — DO NOT reorder; step 6 (shipment-m
    - exit code matches `script_exit_code`
    - `mechanical_edits.status_flip.to_line` contains `<TODO subagent prose>` literal placeholder string (subagent fills this)
    - `affected_files` is a superset (or exact match) of files actually edited by the script — declared list must cover every actual edit so any out-of-scope write is detected before subagent dispatch (per `references/post-merge-housekeeper-contract.md` §Validation invariants line 93)
+   - **Snapshot for step-5 baseline (REQUIRED — must run BEFORE step 4 dispatch).** Copy the validated stage-1 manifest to a sidecar `.agents/tmp/housekeeper-stage1-PR<N>.json` NOW, while the manifest is still in script-stage shape:
+
+     ```bash
+     cp .agents/tmp/housekeeper-manifest-PR<N>.json \
+        .agents/tmp/housekeeper-stage1-PR<N>.json
+     ```
+
+     Step 5's validator reads this sidecar as the untamperable baseline for preservation checks (#7/#9/#10/#11). **Step 5 cannot self-heal a missed snapshot** — by the time step 5 runs, the subagent has mutated the manifest in place; re-copying it then would alias the baseline to already-tampered state and silently disable the preservation checks (Codex PR #53 P1). Skipping the snapshot also forces step 5 into a round-trip loop: the validator surfaces a check #12 baseline-trust gap → exit 2 → no advance. If you discover at step 5 that this sidecar is missing, **halt Phase E and re-run from step 3** — do NOT manufacture the sidecar from the post-dispatch manifest.
 
 4. **Decide routing on `script_exit_code`, then dispatch xor halt** — call `decideHousekeeperRouting({ scriptExitCode })` from `lib/housekeeper-orchestrator-helpers.mjs`. That helper is the single source of truth for the dispatch/halt mapping; edit it (and its unit tests in `scripts/__tests__/post-merge-housekeeper-orchestrator-helpers.test.mjs`) when the contract's exit-code semantics change. The helper returns either `{ action: "dispatch", exitClass: "subagent-handled" }` (exits 0 / 2 / 3 / 5 — happy path, subagent-handled BLOCKED, no-checklist, schema-violation surfacing) or `{ action: "halt", exitClass, reason, surfacePromptTemplate }` (exits 1 / 4 — orchestrator misdispatch; exit ≥6 — script crash; defensive fallback for unrecognized codes).
    - `action === "halt"` → relay `surfacePromptTemplate` verbatim to the user, halt Phase E, do NOT dispatch the subagent. The manifest reflects a script-stage / orchestrator-stage failure that needs operator action; routing it through the subagent would force the LLM to interpret a malformed/absent manifest and emit a `RESULT:` tag based on hallucinated state.
    - `action === "dispatch"` → invoke the `plan-execution-housekeeper` subagent with the manifest path. The subagent reads the manifest, composes completion-prose for each `<TODO subagent prose>` placeholder using merged-commit context, then re-derives set-quantifier claims by reading ONLY `docs/architecture/cross-plan-dependencies.md` §6 prose (per Plan §Decisions-Locked D-2 — NOT the design spec §6, which is `## 6. Data flow`). Writes back via Edit tool. Returns one of the four canonical exit-states (DONE / DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED) — no new exit-state per Plan Invariant I-2.
 
-5. **Validate the subagent-stage manifest**:
-   - `<TODO subagent prose>` literal is GONE from every line the script touched
-   - subagent's edits are confined to `affected_files` (out-of-scope edits → round-trip re-dispatch per `references/failure-modes.md` rule 20: orchestrator offers (a) revert the sprawl OR (b) extend `affected_files` AND add a `concerns` entry of `kind: affected_files_extension` to justify; DONE_WITH_CONCERNS only fires if the subagent picks (b) with weak justification — not on first detection)
-   - schema_violations from script stage are reconciled (each one either fixed or surfaced in `concerns`)
-   - `manifest._script_stage` (script-embedded snapshot of `affected_files` / `schema_violations` / `verification_failures` / `semantic_work_pending`) is preserved verbatim — but **the orchestrator MUST plumb the stage-1 snapshot read in step 3 forward as the four `scriptXXX` params on `validateManifestSubagentStage`**. The orchestrator's own conversation-memory record of the stage-1 manifest is the untamperable baseline (frozen in context before subagent dispatch; the subagent runs in a separated context and cannot rewrite what the orchestrator already saw). `manifest._script_stage` on the subagent-emitted manifest is subagent-controlled — the contract treats it as READ-ONLY but a tampered subagent could still clear it; the validator's structural sub-checks (check #12 — removed key, non-object value, non-array fields) catch outright shape tampering as a secondary signal but cannot detect the narrower case where `_script_stage.{field}` is cleared to `[]` while the top-level emit field is also cleared. Omitting any `scriptXXX` param surfaces a `manifest._script_stage is subagent-emitted and may be tampered — orchestrator MUST plumb …` gap so Phase E re-routes through the explicit-plumbing path before a tampered snapshot bypasses preservation checks #7/#9/#10/#11. See `references/post-merge-housekeeper-contract.md` § `_script_stage` immutability.
+5. **Validate the subagent-stage manifest** — this step is MECHANICAL, not prose. The `--stage1` sidecar MUST already exist from step 3 (created BEFORE subagent dispatch). Do NOT `cp` the manifest here as a fallback: by step 5 it has been mutated by the subagent, and aliasing the stage-1 baseline to that mutated state silently disables preservation checks #7/#9/#10/#11. If the sidecar is missing, halt and re-run from step 3.
+
+   ```bash
+   node --experimental-strip-types \
+     .claude/skills/plan-execution/scripts/validate-subagent-manifest.mjs \
+     .agents/tmp/housekeeper-manifest-PR<N>.json \
+     --stage1 .agents/tmp/housekeeper-stage1-PR<N>.json
+   ```
+
+   Exit-code routing (single source of truth for what each code means):
+   - **0 — valid.** Advance to step 6. No round-trip needed.
+   - **1 — `narration_mode_detected`.** The subagent emitted text-only `Tool: Edit\n{...}` narration without invoking tools; the on-disk manifest matches the script-stage shape verbatim (observed across PR #36/#42/#45/#51 dispatches, all with `totalToolUseCount: 0`). Do NOT re-dispatch — the same prompt reproduces the failure because the root cause is the agent definition's analyst-style framing. Route through **§ Subagent narration auto-deviation fallback** below.
+   - **2 — generic validation gaps.** Round-trip the subagent with the verbatim gap list as the brief (out-of-scope edits, schema_violations not reconciled, preservation failures, etc.). After two consecutive rounds of generic gaps without narration mode, escalate to **§ Subagent narration auto-deviation fallback** (same playbook — the orchestrator's epistemic position is the same).
+   - **3 — invocation error** (missing manifest, malformed JSON). Halt Phase E and surface to user; the stage-1 → stage-2 transition broke.
+
+   What the validator checks (authoritative list in `lib/housekeeper-orchestrator-helpers.mjs` § `validateManifestSubagentStage`; SKILL.md does NOT restate the rules — read the source for additions):
+   - `<TODO subagent prose>` literal is GONE from every line the script touched (check #3)
+   - subagent's edits are confined to `affected_files` (check #7: superset; check on each path that exists + is a regular file). Out-of-scope edits → round-trip per `references/failure-modes.md` rule 20: orchestrator offers (a) revert the sprawl OR (b) extend `affected_files` AND add a `concerns` entry of `kind: affected_files_extension` to justify; DONE_WITH_CONCERNS only fires if the subagent picks (b) with weak justification — not on first detection
+   - schema_violations from script stage are reconciled (check #5: surfaced 1:1 in `concerns` matched by kind+field+ns_id; check #9: preserved — subagent MUST NOT clear script-stage entries)
+   - verification_failures preserved (check #10) and force `result === BLOCKED` when non-empty (check #8)
+   - **narration_mode_detected** (check #13 — added 2026-05-11 after PR #51 post-mortem): manifest matches the script-stage shape verbatim (result non-canonical, semantic_edits empty, concerns empty, subagent_completed_at unset) while pending items remained → the subagent never wrote the manifest. Routes to the auto-deviation fallback (do NOT re-dispatch).
+   - `manifest._script_stage` (script-embedded snapshot of `affected_files` / `schema_violations` / `verification_failures` / `semantic_work_pending`) is preserved verbatim — but **the orchestrator MUST plumb the stage-1 snapshot via `--stage1` (or as the four `scriptXXX` params if calling the validator directly)**. The orchestrator's own conversation-memory record of the stage-1 manifest is the untamperable baseline (frozen in context before subagent dispatch; the subagent runs in a separated context and cannot rewrite what the orchestrator already saw). `manifest._script_stage` on the subagent-emitted manifest is subagent-controlled — the contract treats it as READ-ONLY but a tampered subagent could still clear it; the validator's structural sub-checks (check #12 — removed key, non-object value, non-array fields) catch outright shape tampering as a secondary signal but cannot detect the narrower case where `_script_stage.{field}` is cleared to `[]` while the top-level emit field is also cleared. Omitting `--stage1` surfaces a `manifest._script_stage is subagent-emitted and may be tampered — orchestrator MUST plumb …` gap so Phase E re-routes through the explicit-plumbing path before a tampered snapshot bypasses preservation checks #7/#9/#10/#11. See `references/post-merge-housekeeper-contract.md` § `_script_stage` immutability.
+
+   ##### § Subagent narration auto-deviation fallback
+
+   Triggered when exit 1 (narration_mode_detected) fires, OR when exit 2 fires on two consecutive rounds without progress. The contract violation ("you orchestrate; you don't implement", hard rule line 41) is waived inside this fallback path because the subagent is structurally unable to complete the work — re-dispatching wastes a turn and the deterministic fix is for the orchestrator to apply the semantic edits directly.
+   1. **Apply the semantic edits directly.** Read each item in `_script_stage.semantic_work_pending`. For each one, perform the corresponding edit on the file(s) in `affected_files` using the orchestrator's own Edit tool. The composition rules are the same the subagent would have followed (NS-12 precedent shape for status prose, §6 ready-set re-derivation rules, etc.) — see `references/post-merge-housekeeper-contract.md` § canonical responsibilities for the per-item recipes.
+
+   2. **Rewrite the manifest.** Set `result` based on the halt-state arrays in `_script_stage`:
+      - If `_script_stage.schema_violations` OR `_script_stage.verification_failures` is non-empty → set `result: "BLOCKED"`. Validator check #8 enforces `result === "BLOCKED"` when either of those arrays carries entries; setting DONE_WITH_CONCERNS here would deterministically re-fail validation and trap the flow in retry loops (Codex PR #53 R4 P2).
+      - Otherwise → set `result: "DONE_WITH_CONCERNS"`.
+
+      Populate `semantic_edits` with one entry per pending item (each carrying a short `summary` of what changed + the file + line), and add a `concerns` entry of the form:
+
+      ```json
+      {
+        "kind": "orchestrator_applied_semantic_edits_due_to_subagent_narration",
+        "addressing": "subagent_dispatch_failure",
+        "summary": "The plan-execution-housekeeper subagent was dispatched <N> time(s) and returned RESULT: DONE / DONE_WITH_CONCERNS with totalToolUseCount: 0 each time (narration mode — emitted Tool: Edit\\n{...} as text content rather than invoking the tool API). The orchestrator applied the <N-items> semantic edits directly under the SKILL.md Phase E auto-deviation fallback. Tracking the agent-definition fix as a separate concern."
+      }
+      ```
+
+      When the result is BLOCKED, ALSO add a `concerns` entry per `_script_stage.schema_violations` / `_script_stage.verification_failures` entry per the standard reconciliation rules (kind+field+ns_id matched), so check #5 and check #10 are satisfied — auto-deviation does not waive halt-state surfacing, only the no-implement contract.
+
+      Preserve `_script_stage` verbatim. Set `subagent_completed_at` to the dispatch's wall-clock end time.
+
+   3. **Re-run the validator.** Confirm exit 0 against the rewritten manifest. If gaps remain (e.g., a per-item summary still has a `<TODO>` because the orchestrator's edit missed a placeholder), iterate on the orchestrator-applied edits, NOT on the subagent. The validator is the canonical signal that the manifest is internally consistent before commit.
+
+   4. **Advance to step 6** with the orchestrator-applied manifest. The housekeeping commit message can stay as the subagent suggested (or the orchestrator's preferred shape per §commit-msg conventions); the `concerns` entry above carries the auditable trail of why the deviation was necessary.
+
+   This fallback is the codified version of the manual workaround applied in PR #51 housekeeping (post-mortem: TaskList #13). The deviation does NOT require user authorization — the validator's exit-1 signal is the gate; the user sees the deviation surfaced via the `concerns` entry in the housekeeping PR description and can elect to revert if the orchestrator's composition is wrong.
 
 6. **Append the shipment-manifest entry** to the plan body's `## Progress Log` → `### Shipment Manifest` YAML block in `docs/plans/NNN-*.md`. This step explicitly MOVED from before-merge to after-housekeeping per spec §6.1 — the manifest entry records the squash-merge commit hash + audit-derived spec/invariant cites + any subagent concerns, so consumers (preflight Gate 3, future drift detectors) read "shipped + housekept" as one event.
    - Read the housekeeper manifest at `.agents/tmp/housekeeper-manifest-PR<N>.json` and call `buildFinalManifestEntry({ housekeeperManifestPath, dagTask, notesOverride })` from `lib/housekeeper-orchestrator-helpers.mjs`. The helper extracts the script-emitted `proposed_manifest_entry` (script-knowable fields: phase, task, pr, sha, merged_at, files; audit-derived fields left empty) and merges in the DAG task's `verifies_invariant` and `spec_coverage`. Pass any subagent concerns or partial-ship caveats as `notesOverride` (free-form per-PR commentary).
