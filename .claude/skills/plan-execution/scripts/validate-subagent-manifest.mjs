@@ -45,8 +45,18 @@ if (args.length === 0 || args[0] === "--help" || args[0] === "-h") {
 const manifestPath = args[0];
 let stage1Path = null;
 for (let i = 1; i < args.length; i++) {
-  if (args[i] === "--stage1" && args[i + 1]) {
-    stage1Path = args[i + 1];
+  if (args[i] === "--stage1") {
+    // Trailing `--stage1` with no path argument (or empty string) is a
+    // malformed invocation: silently ignoring it would route the orchestrator
+    // through the stage-1-absent fallback (validator uses subagent-emitted
+    // `manifest._script_stage` as the baseline), changing exit-code semantics
+    // from 3 (invocation error) to 1/2 (narration / round-trip). Fail fast.
+    const next = args[i + 1];
+    if (next == null || next === "") {
+      process.stderr.write("error: --stage1 requires a non-empty path argument\n");
+      process.exit(3);
+    }
+    stage1Path = next;
     i++;
   }
 }

@@ -399,8 +399,18 @@ export function validateManifestSubagentStage({
   const concernsIsEmpty = !Array.isArray(manifest.concerns) || manifest.concerns.length === 0;
   const noCompletionStamp =
     manifest.subagent_completed_at == null || manifest.subagent_completed_at === "";
+  // Base pending-work detection on the TRUSTED stage-1 baseline, not the
+  // subagent-emitted `manifest.semantic_work_pending` top-level field. The
+  // narration scenario is precisely "subagent never wrote the manifest" — but
+  // a worse adversarial / partial-narration shape is one where the subagent
+  // narrated everything EXCEPT clearing the top-level `semantic_work_pending`
+  // array to `[]`. With `cleanedSemanticWorkPending` (subagent-controlled),
+  // that nukes `hasPendingWork → false` and silently demotes the narration
+  // gap to the generic round-trip path. `effScriptSemanticWorkPending`
+  // (orchestrator-plumbed > `_script_stage.semantic_work_pending` > null) is
+  // the immutable contract surface and the only safe source for this check.
   const hasPendingWork =
-    Array.isArray(cleanedSemanticWorkPending) && cleanedSemanticWorkPending.length > 0;
+    Array.isArray(effScriptSemanticWorkPending) && effScriptSemanticWorkPending.length > 0;
   if (
     !wroteResult &&
     semanticEditsIsEmpty &&
@@ -409,7 +419,7 @@ export function validateManifestSubagentStage({
     hasPendingWork
   ) {
     gaps.push(
-      `narration_mode_detected — manifest matches the script-stage shape verbatim (result is non-canonical, semantic_edits empty, concerns empty, subagent_completed_at unset) while ${cleanedSemanticWorkPending.length} pending item(s) remained. The dispatched subagent never wrote the manifest; its response was text-only narration ("Tool: Edit\\n{...}") rather than actual tool invocations. Cross-check via the dispatch's totalToolUseCount field (expected > 0 for any genuine work). Re-dispatch typically reproduces the same failure (the bug is in the agent-definition framing, not the prompt). Route through SKILL.md Phase E § Subagent narration auto-deviation fallback — the orchestrator applies the semantic edits directly and records the deviation via concerns: [{kind: orchestrator_applied_semantic_edits_due_to_subagent_narration}].`,
+      `narration_mode_detected — manifest matches the script-stage shape verbatim (result is non-canonical, semantic_edits empty, concerns empty, subagent_completed_at unset) while ${effScriptSemanticWorkPending.length} pending item(s) remained per the trusted stage-1 baseline. The dispatched subagent never wrote the manifest; its response was text-only narration ("Tool: Edit\\n{...}") rather than actual tool invocations. Cross-check via the dispatch's totalToolUseCount field (expected > 0 for any genuine work). Re-dispatch typically reproduces the same failure (the bug is in the agent-definition framing, not the prompt). Route through SKILL.md Phase E § Subagent narration auto-deviation fallback — the orchestrator applies the semantic edits directly and records the deviation via concerns: [{kind: orchestrator_applied_semantic_edits_due_to_subagent_narration}].`,
     );
   }
 

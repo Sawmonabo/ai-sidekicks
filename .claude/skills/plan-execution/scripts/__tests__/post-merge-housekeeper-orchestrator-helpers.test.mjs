@@ -211,7 +211,7 @@ test("validateManifestSubagentStage: narration mode — script-stage manifest wi
   assert.equal(r.valid, false);
   const narration = r.gaps.find((g) => g.startsWith("narration_mode_detected"));
   assert.ok(narration, "expected narration_mode_detected gap to fire");
-  assert.match(narration, /6 pending item\(s\) remained/);
+  assert.match(narration, /6 pending item\(s\) remained per the trusted stage-1 baseline/);
   assert.match(narration, /totalToolUseCount/);
   assert.match(narration, /auto-deviation fallback/);
   assert.match(narration, /orchestrator_applied_semantic_edits_due_to_subagent_narration/);
@@ -320,6 +320,41 @@ test("validateManifestSubagentStage: narration check does NOT fire when no pendi
   // The result-canonicality gap (check #1) still fires, but the narration gap does not.
   const narration = (r.valid ? [] : r.gaps).find((g) => g.startsWith("narration_mode_detected"));
   assert.equal(narration, undefined);
+});
+
+test("validateManifestSubagentStage: narration check uses trusted stage-1 baseline, not subagent-emitted top-level semantic_work_pending (Codex PR #53 P2)", () => {
+  // Adversarial / partial-narration shape: subagent narrated EVERYTHING except
+  // clearing the top-level `manifest.semantic_work_pending` array to `[]`.
+  // `_script_stage.semantic_work_pending` is preserved (per contract; tampering
+  // there fires structural-tampering gaps instead). Before the fix, the
+  // narration check sourced `hasPendingWork` from the subagent-emitted top-level
+  // field — clearing it would demote the dedicated narration routing into the
+  // generic round-trip path, missing the auto-deviation fallback entirely.
+  const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: ["compose_status_completion_prose", "ready_set_re_derivation"],
+    },
+    semantic_work_pending: [], // subagent cleared this — adversarial
+    semantic_edits: {},
+    concerns: [],
+    affected_files: [],
+    subagent_completed_at: null,
+    result: null,
+  };
+  // Pass an explicit orchestrator-plumbed stage-1 baseline so the precedence
+  // chain (explicit > _script_stage > null) is exercised. Use a non-equal
+  // array to prove the explicit param wins over the embedded snapshot.
+  const r = validateManifestSubagentStage({
+    manifest,
+    scriptSemanticWorkPending: ["compose_status_completion_prose", "ready_set_re_derivation"],
+  });
+  assert.equal(r.valid, false);
+  const narration = r.gaps.find((g) => g.startsWith("narration_mode_detected"));
+  assert.ok(narration, "narration gap must fire even when subagent cleared top-level pending list");
+  assert.match(narration, /2 pending item\(s\) remained per the trusted stage-1 baseline/);
 });
 
 test("validateManifestSubagentStage: narration check fires even when result is a non-canonical truthy string", () => {
