@@ -371,6 +371,48 @@ export function validateManifestSubagentStage({
     );
   }
 
+  // Check #13 — narration-mode detection.
+  // Documented failure mode: a dispatched housekeeper subagent emits text-only
+  // "Tool: Edit\n{...}" narration without invoking the actual tool API (observed
+  // across PR #36/#42/#45/#51 dispatches, all with `totalToolUseCount: 0`). When
+  // this happens, the on-disk manifest stays in script-stage shape — the subagent
+  // never wrote it back. Each individual signal below would fire one of the
+  // existing gaps (check #1 on `result`, check #2 on per-item semantic_edits
+  // coverage); the COMBINATION is the unmistakable narration signature.
+  //
+  // Why a dedicated gap rather than relying on the individual ones: routing.
+  // A generic check-#1 + check-#2 fan-out invites the orchestrator to re-dispatch
+  // the subagent with a more prescriptive prompt — which fails the same way,
+  // because the bug is in the agent definition's analyst-style framing, not in
+  // the prompt. The narration gap routes the orchestrator straight to the
+  // SKILL.md Phase E § Subagent narration auto-deviation fallback path
+  // (orchestrator applies edits directly + records the deviation in concerns),
+  // skipping the wasted re-dispatch cycle.
+  const wroteResult = canonicalStates.has(manifest.result);
+  const semanticEdits = manifest.semantic_edits;
+  const semanticEditsIsEmpty =
+    semanticEdits == null ||
+    (Array.isArray(semanticEdits) && semanticEdits.length === 0) ||
+    (typeof semanticEdits === "object" &&
+      !Array.isArray(semanticEdits) &&
+      Object.keys(semanticEdits).length === 0);
+  const concernsIsEmpty = !Array.isArray(manifest.concerns) || manifest.concerns.length === 0;
+  const noCompletionStamp =
+    manifest.subagent_completed_at == null || manifest.subagent_completed_at === "";
+  const hasPendingWork =
+    Array.isArray(cleanedSemanticWorkPending) && cleanedSemanticWorkPending.length > 0;
+  if (
+    !wroteResult &&
+    semanticEditsIsEmpty &&
+    concernsIsEmpty &&
+    noCompletionStamp &&
+    hasPendingWork
+  ) {
+    gaps.push(
+      `narration_mode_detected — manifest matches the script-stage shape verbatim (result is non-canonical, semantic_edits empty, concerns empty, subagent_completed_at unset) while ${cleanedSemanticWorkPending.length} pending item(s) remained. The dispatched subagent never wrote the manifest; its response was text-only narration ("Tool: Edit\\n{...}") rather than actual tool invocations. Cross-check via the dispatch's totalToolUseCount field (expected > 0 for any genuine work). Re-dispatch typically reproduces the same failure (the bug is in the agent-definition framing, not the prompt). Route through SKILL.md Phase E § Subagent narration auto-deviation fallback — the orchestrator applies the semantic edits directly and records the deviation via concerns: [{kind: orchestrator_applied_semantic_edits_due_to_subagent_narration}].`,
+    );
+  }
+
   // Halt-state waiver: when subagent returns BLOCKED or NEEDS_CONTEXT, it stopped
   // before completing semantic work. The per-item semantic_work_pending pairing
   // would force false-gap round-trips. Other checks (placeholders,
