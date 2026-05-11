@@ -18,4 +18,5 @@ export * from "./jsonrpc-negotiation.js";
 export * from "./jsonrpc-registry.js";
 export * from "./jsonrpc-streaming.js";
 export * from "./pty-host-protocol.js";
+export * from "./pty-host.js";
 export * from "./session.js";
