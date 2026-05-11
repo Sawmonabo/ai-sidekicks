@@ -68,6 +68,7 @@ The sidecar's protocol-level `SpawnRequest.cwd` MUST always carry a stable, unmo
 
 - [x] ADR-019 accepted (Windows V1 GA + Rust PTY sidecar strategy)
 - [x] ADR-009 accepted (JSON-RPC + Content-Length IPC wire format — sidecar reuses the framing)
+- [x] **Plan-readiness audit complete per [`docs/operations/plan-implementation-readiness-audit-runbook.md`](../operations/plan-implementation-readiness-audit-runbook.md)** — Tier 1 audit landed via PR #15 (merged 2026-04-28); see [Status Promotion Gate §1](../operations/plan-implementation-readiness-audit-runbook.md#status-promotion-gate). Plan-024 amendments (42 findings: 2 critical, 18 major, 19 minor, 3 nit; stays `approved`) integrated inline as `F-024-*` references throughout the plan body; baseline tag `plan-readiness-audit-tier-1`.
 - [ ] Apple Developer Program enrollment + Developer ID Application certificate procured (same certificate Spec-023 uses for the Electron shell — procurement inherits; usage is additive). **Recording mechanism:** procurement evidence (cert thumbprint + team-ID + Apple Developer enrollment-confirmation email) attaches to [BL-108](../backlog.md#bl-108-plan-024-windows--macos-signing-procurement-evidence) (referenced from the Windows-signing row immediately below); identity reuse is recorded at Spec-023 §macOS.
 - [ ] Windows signing procurement track selected per publishing-entity eligibility (see §Windows Signing — Two Parallel Tracks). **Recording mechanism:** [BL-108](../backlog.md#bl-108-plan-024-windows--macos-signing-procurement-evidence) tracks: (a) Microsoft eligibility-determination response (Track A) OR vendor procurement contract + token-shipment confirmation (Track B); (b) signing-identity attestation matching Spec-023's Electron shell per ADR-019 §Decision item 8 + ADR-023 §Axis 5; (c) Plan-024 §Decision Log entry naming the chosen track + date; (d) macOS Developer ID cert procurement evidence as part of the same BL-108. BL-108 closes when all four artifacts attach; Plan-024 Phase 4 Precondition flips when BL-108 closes (per F-024-4-06).
 - [ ] Azure Artifact Signing **eligibility decision confirmed** for the publishing entity (Azure Artifact Signing FAQ — see [eligibility reference](https://learn.microsoft.com/en-us/azure/artifact-signing/faq)). **Recording mechanism:** decision attaches to the same [BL-108](../backlog.md#bl-108-plan-024-windows--macos-signing-procurement-evidence) as the Windows track-selection row above (single procurement BL covers both eligibility + track selection).
@@ -396,6 +397,35 @@ ADR-019 §Success Criteria row 4 names "SmartScreen telemetry" with no plan owne
 - **Apple notarization queue 24–120+ hour delays** (Spec-023 §macOS, [Apple Developer Forums 813441](https://developer.apple.com/forums/thread/813441)). Mitigated by async submit + poll release-pipeline pattern (step 12.4 above).
 - **Linux supply-chain gap — no OS-level signature check at sidecar spawn on Linux.** No Gatekeeper / SmartScreen equivalent exists for npm-distributed ELF binaries. A compromised `@ai-sidekicks/pty-sidecar-linux-*` npm package would execute unchecked. Accepted trade-off matching the esbuild / napi-rs security posture; mitigation rests on npm registry TUF + lockfile pinning + (post-V1) Sigstore provenance attestations at publish. V1.1 may add optional daemon-side pubkey verification per §Non-Goals as defense-in-depth.
 - **Azure Artifact Signing business-history threshold uncertainty** — no specific threshold is enumerated in the primary-source [Azure Artifact Signing FAQ](https://learn.microsoft.com/en-us/azure/artifact-signing/faq) as of 2026-04-17 research; confirm exact criteria with Microsoft at procurement time.
+
+## Progress Log
+
+### Shipment Manifest
+
+<!-- Machine-readable. Housekeeper-emitted, orchestrator-written, preflight-read.
+     Schema authoritative in:
+       .claude/skills/plan-execution/scripts/lib/manifest.mjs -->
+
+```yaml
+manifest_schema_version: 1
+shipped: []
+# Entry shape (illustrative — authoritative schema in lib/manifest.mjs):
+# - phase: 1
+#   task: T-024-1-1          # single string default; array allowed for legacy multi-task PRs
+#   pr: NN
+#   sha: <abbrev-sha>
+#   merged_at: YYYY-MM-DD
+#   files:
+#     - packages/sidecar-rust-pty/Cargo.toml
+#   verifies_invariant: []      # mirrors audit Tasks-block field name
+#   spec_coverage: ["ADR-019 §Decision item 1"]    # mirrors audit Tasks-block field name
+#   notes: |
+#     Optional free-form context (round-trips, lane, learnings).
+```
+
+### Notes
+
+<!-- Per-PR human-readable commentary appended by the orchestrator at Phase E. -->
 
 ## Done Checklist
 
