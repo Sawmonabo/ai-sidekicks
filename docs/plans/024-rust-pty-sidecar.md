@@ -408,7 +408,45 @@ ADR-019 §Success Criteria row 4 names "SmartScreen telemetry" with no plan owne
 
 ```yaml
 manifest_schema_version: 1
-shipped: []
+shipped:
+  - phase: 1
+    task:
+      - T-024-1-1
+      - T-024-1-2
+      - T-024-1-3
+      - T-024-1-4
+      - T-024-1-5
+    pr: 42
+    sha: 4b0a37e
+    merged_at: 2026-05-11
+    files:
+      - Cargo.toml
+      - Cargo.lock
+      - packages/sidecar-rust-pty/Cargo.toml
+      - packages/sidecar-rust-pty/src/main.rs
+      - packages/sidecar-rust-pty/src/lib.rs
+      - packages/sidecar-rust-pty/src/framing.rs
+      - packages/sidecar-rust-pty/src/protocol.rs
+      - packages/sidecar-rust-pty/src/pty_session.rs
+      - packages/sidecar-rust-pty/tests/framing_roundtrip.rs
+      - packages/sidecar-rust-pty/tests/protocol_roundtrip.rs
+      - packages/sidecar-rust-pty/tests/pty_session.rs
+      - packages/sidecar-rust-pty/tests/spawn_smoke.rs
+      - packages/contracts/src/pty-host-protocol.ts
+      - packages/contracts/src/index.ts
+      - .gitignore
+    verifies_invariant: []
+    spec_coverage:
+      - ADR-019 §Decision item 1
+      - ADR-009 §Decision
+    notes: |
+      Phase 1 scaffold-only PR: ships the Rust crate substrate (framing /
+      protocol / pty_session libraries + tests) and the TS protocol mirror.
+      All 5 tasks landed in one bundled PR per the audit Tasks-block; the
+      I-024-* invariants verify at the daemon ↔ sidecar boundary in Phase 3.
+      The main.rs dispatcher loop body is intentionally deferred — Phase 1
+      ships only the library substrate consumed by integration tests.
+
 # Entry shape (illustrative — authoritative schema in lib/manifest.mjs):
 # - phase: 1
 #   task: T-024-1-1          # single string default; array allowed for legacy multi-task PRs

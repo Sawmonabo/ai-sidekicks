@@ -282,7 +282,7 @@ This section tracks the actionable next steps the [plan-readiness-audit Tier 1](
 ```mermaid
 graph TB
   %% READY (no upstream NS-XX blockers, or all upstream satisfied)
-  NS01[NS-01: Plan-024 Phase 1<br/>Rust crate scaffolding]:::ready
+  NS01[NS-01: Plan-024 Phase 1<br/>Rust crate scaffolding]:::completed
   NS02[NS-02: Plan-001 Phase 5 Lane A<br/>T5.1 + T5.5 + T5.6]:::completed
   NS03[NS-03: Plan-023-partial Tier 1<br/>Electron + React skeleton]:::ready
   NS04[NS-04: Plan-001 T5.4 cwd-translator<br/>+ Plan-024 T-024-2-1 contracts pair]:::ready
@@ -338,11 +338,11 @@ graph TB
 
 ### Recommended first wave
 
-With NS-02 completed 2026-05-11 (PR #38 — Lane A T5.1 + T5.5 + T5.6 all shipped; see entry below), the ready set is now NS-01, NS-03, NS-04, NS-11, NS-13a, NS-14, NS-22 (7 items). The set shares no code paths or governance files — re-derived from each entry's `Files:` / target_paths after NS-02's drop-out. Suggested parallel dispatch: **NS-01 + NS-03 + NS-04** as three independent code lanes; **NS-13a + NS-14 + NS-11 + NS-22** as concurrent governance / audit / cleanup lanes. The previous serialization of NS-22 behind NS-12 (resolved 2026-05-03) is dissolved — NS-22 targets distinct content (`0001-initial.sql` filename + `session.ts:388` cite occurrences in Plan-001 / Plan-022 / ADR-022 / Plan-008) from NS-12's edit scope (Plan-001 §Preconditions + §Phase 5 Precondition); NS-22 dispatches cleanly against the post-NS-12 HEAD without rebase churn.
+With NS-01 + NS-02 both completed 2026-05-11 (NS-01 via PR #42 — Plan-024 Phase 1 Rust scaffold; NS-02 via PR #38 — Plan-001 Phase 5 Lane A T5.1 + T5.5 + T5.6; see entries below), the ready set is now NS-03, NS-04, NS-11, NS-13a, NS-14, NS-22 (6 items). The set shares no code paths or governance files — re-derived from each entry's `Files:` / target_paths after NS-01 + NS-02's drop-out. Suggested parallel dispatch: **NS-03 + NS-04** as two independent code lanes; **NS-13a + NS-14 + NS-11 + NS-22** as concurrent governance / audit / cleanup lanes. The previous serialization of NS-22 behind NS-12 (resolved 2026-05-03) is dissolved — NS-22 targets distinct content (`0001-initial.sql` filename + `session.ts:388` cite occurrences in Plan-001 / Plan-022 / ADR-022 / Plan-008) from NS-12's edit scope (Plan-001 §Preconditions + §Phase 5 Precondition); NS-22 dispatches cleanly against the post-NS-12 HEAD without rebase churn. With NS-01 now completed, NS-05 + NS-07 (downstream Plan-024 Phase 2 + Phase 3) advance one upstream-dep closer to ready — both still gated on Plan-001 T5.4 cwd-translator (NS-04) before promoting.
 
 ### NS-01: Plan-024 Phase 1 — Rust crate scaffolding
 
-- Status: `todo`
+- Status: `completed` (resolved 2026-05-11 via PR #42 — T-024-1-1..5 bundled and shipped: workspace-root `Cargo.toml` plus `packages/sidecar-rust-pty/` Rust crate scaffolded with pinned deps and MSRV 1.85; Content-Length framer at `src/framing.rs` with 8 MiB body cap; protocol envelope at `src/protocol.rs` + TS mirror at `packages/contracts/src/pty-host-protocol.ts` (internally-tagged `kind` discriminant, base64 bytes via `serde_with`, explicit `*Response` for resize/write/kill); per-session PTY holder at `src/pty_session.rs` keyed by `session_id` with stdout/stderr reader tasks + exit-code latch; spawn smoke test green on Linux and macOS (`cargo build --release` + `cargo test --release`). Phase 1 verifies no invariants — I-024-\* lands at the daemon ↔ sidecar boundary in Phase 3)
 - Type: code
 - Priority: `P1`
 - Upstream: none (Plan-024:267 — Phase 1 starts as soon as Plan-001 Phase 1 repo bootstrap is merged, which it is)
