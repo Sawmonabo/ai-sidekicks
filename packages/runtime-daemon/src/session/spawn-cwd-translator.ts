@@ -74,10 +74,14 @@ export type DriverStrategy = "cd-prefix" | "cwd-env";
  * - `posix` — uses `/bin/sh -c "cd <quoted> && exec <command>"` on
  *   Linux/macOS. `exec` replaces the shell with the target process
  *   so the PTY's child is the target, not a long-lived intermediate.
- * - `windows-cmd` — uses `cmd.exe /d /s /c "cd /d <quoted> && <command>"`.
- *   Windows lacks `exec`; the wrapping shell remains in the process
- *   tree, which is acceptable because the OS-level lock has already
- *   moved off the worktree directory by then.
+ * - `windows-cmd` — uses
+ *   `cmd.exe /d /s /v:off /c "cd /d <quoted> && <command>"`. Windows
+ *   lacks `exec`; the wrapping shell remains in the process tree,
+ *   which is acceptable because the OS-level lock has already moved
+ *   off the worktree directory by then. `/v:off` defends against the
+ *   registry-flippable DelayedExpansion default (HKLM\\Software\\
+ *   Microsoft\\Command Processor\\DelayedExpansion) so a literal `!`
+ *   in the command or worktree path never triggers variable expansion.
  *
  * Defaults to `posix` on non-Windows platforms and `windows-cmd` on
  * Windows when omitted in `TranslateSpawnCwdInput`.

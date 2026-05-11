@@ -40,7 +40,7 @@ import type { PtySignal, SpawnRequest, SpawnResponse } from "@ai-sidekicks/contr
 // TODO: replace with a real `NodePtyHost` instance once the
 // `node-pty` fallback backend ships. The assertion shape — translated
 // `SpawnRequest.cwd === stableParent`, worktree path recoverable from
-// args[3] cmd.exe script — is stable across backends because the
+// args[4] cmd.exe script — is stable across backends because the
 // translator is platform-agnostic (only the wrapping-shell flavor
 // differs, and we explicitly assert the `windows-cmd` shape here).
 
@@ -169,12 +169,12 @@ describe.skipIf(process.platform !== "win32")(
       expect(seen).toBeDefined();
       expect(seen?.cwd).toBe(ctx.stableParent);
       expect(seen?.command).toBe("cmd.exe");
-      expect(seen?.args.slice(0, 3)).toEqual(["/d", "/s", "/c"]);
+      expect(seen?.args.slice(0, 4)).toEqual(["/d", "/s", "/v:off", "/c"]);
 
       // The worktree path is recoverable from the wrapped cmd.exe
       // script — it lives in the command-string layer, not the
       // spawn-call cwd, per Plan-024 I-024-5.
-      expect(seen?.args[3]).toContain(`cd /d "${ctx.worktree}"`);
+      expect(seen?.args[4]).toContain(`cd /d "${ctx.worktree}"`);
     });
 
     it("worktree directory can be removed while the mock session is active (Windows teardown sim)", async () => {
