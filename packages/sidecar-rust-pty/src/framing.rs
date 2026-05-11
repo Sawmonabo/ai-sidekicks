@@ -22,12 +22,15 @@ pub const MAX_FRAME_BODY_BYTES: usize = 8 * 1024 * 1024;
 
 /// Maximum bytes per header line, including the trailing `\r\n`.
 ///
-/// Matches the 1 KiB header cap enforced by the TS sibling framer at
-/// `packages/runtime-daemon/src/ipc/local-ipc-gateway.ts` so a malicious or
-/// buggy peer cannot OOM the sidecar by streaming an unterminated header
-/// (e.g., `Content-Type: AAAAA…` for gigabytes). The sidecar's trust
-/// boundary includes the child process on the other side of stdio, so this
-/// cap is load-bearing.
+/// Numerically matches the 1 KiB header cap in the TS sibling framer at
+/// `packages/runtime-daemon/src/ipc/local-ipc-gateway.ts` (see the
+/// `separatorIndex` / `buffer.byteLength` checks around lines 275/283), but
+/// enforced PER-LINE here vs PER-SECTION there. Per-line is stricter against
+/// single-giant-line OOM (the threat this constant addresses — e.g.,
+/// `Content-Type: AAAAA…` for gigabytes); per-section is stricter against
+/// many-short-header CPU/handle pinning, which is mitigated at a higher
+/// layer via idle-peer timeouts. The sidecar's trust boundary includes the
+/// child process on the other side of stdio, so this cap is load-bearing.
 const MAX_HEADER_LINE_BYTES: usize = 1024;
 
 /// Header name used for content length (case-insensitive on read).
