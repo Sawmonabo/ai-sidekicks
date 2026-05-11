@@ -101,7 +101,6 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
 
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use tokio::sync::{mpsc, Mutex};
@@ -118,29 +117,6 @@ use crate::protocol::{
 /// chunks". Bound on the read-loop's stack buffer; matches the framing-layer
 /// headroom (8 MiB body cap ÷ 8 KiB chunks = 1024× margin per envelope).
 const READ_CHUNK_BYTES: usize = 8 * 1024;
-
-/// Upper bound on how long the waiter task waits for the reader pump
-/// to observe PTY EOF after `Child::wait()` returns, before emitting
-/// [`Envelope::ExitCodeNotification`].
-///
-/// Plan-024 §Implementation Step 5 ordering contract: the
-/// `ExitCodeNotification` for a session must arrive AFTER every
-/// `DataFrame` the child wrote before exiting. Without an explicit
-/// drain the notification could in principle race ahead of trailing
-/// chunks the reader pump had not yet read off the PTY master.
-///
-/// On unix the reader self-terminates on the master-side EOF that
-/// follows the child closing its slave end, typically within
-/// microseconds of `Child::wait()` returning. On Windows ConPTY the
-/// master-side EOF can lag the child exit by tens of milliseconds in
-/// pathological cases (ConPTY buffers stdout in a separate kernel
-/// pipe). 500 ms is two orders of magnitude over the worst observed
-/// Windows ConPTY EOF latency while still capping the waiter's
-/// blocking budget so a stuck reader can never indefinitely delay the
-/// notification — Phase 1 prefers forward progress on the exit
-/// signal over an unbounded wait. On timeout the waiter aborts the
-/// reader so the runtime cleans up promptly.
-const READER_DRAIN_TIMEOUT: Duration = Duration::from_millis(500);
 
 /// Error type returned by [`PtySessionRegistry`] methods.
 ///
@@ -764,13 +740,13 @@ fn spawn_reader_task(
 
 /// Spawn the per-session waiter task.
 ///
-/// Blocks on `Child::wait()` via `spawn_blocking`; on exit, drains the
-/// reader task (up to [`READER_DRAIN_TIMEOUT`]) so trailing
-/// `DataFrame`s arrive before [`Envelope::ExitCodeNotification`],
-/// emits one notification, and removes the session from the registry.
-/// Idempotent — if the registry lock fails to acquire (e.g., registry
-/// dropped during shutdown), the notification is still attempted on
-/// the outbound channel.
+/// Blocks on `Child::wait()` via `spawn_blocking`; on exit, awaits the
+/// reader task to natural PTY EOF so trailing `DataFrame`s arrive
+/// before [`Envelope::ExitCodeNotification`], emits one notification,
+/// and removes the session from the registry. Idempotent — if the
+/// registry lock fails to acquire (e.g., registry dropped during
+/// shutdown), the notification is still attempted on the outbound
+/// channel.
 ///
 /// The `exited` flag is set with [`Ordering::Release`] **inside the
 /// `spawn_blocking` closure**, on the same thread that just performed the
@@ -778,13 +754,37 @@ fn spawn_reader_task(
 /// full race-closing rationale.
 ///
 /// `reader_task` is the [`JoinHandle`] returned by [`spawn_reader_task`]
-/// for the same session. The waiter `await`s it (with a timeout) before
-/// emitting the notification so the Plan-024 §Implementation Step 5
+/// for the same session. The waiter `await`s it WITHOUT a timeout before
+/// emitting the notification, so the Plan-024 §Implementation Step 5
 /// ordering contract — every `DataFrame` arrives before the
 /// `ExitCodeNotification` — is enforced by happens-before rather than
-/// scheduling luck. On timeout the reader is aborted so the runtime
-/// reclaims its resources promptly (rationale: `READER_DRAIN_TIMEOUT`
-/// rustdoc).
+/// scheduling luck.
+///
+/// ## Why no drain-timeout
+///
+/// An earlier shape capped the drain at 500 ms with a `tokio::time::
+/// timeout(...)` + `JoinHandle::abort()` on the reader. Per Tokio
+/// `tokio::task::JoinHandle::abort` rustdoc: aborting a task spawned
+/// via `tokio::task::spawn_blocking` has NO effect once the closure
+/// has started running on the blocking pool thread. The blocking
+/// `reader.read(&mut buf)` call therefore continues to completion even
+/// after the timeout fires — meaning the reader can still emit
+/// `DataFrame`s AFTER the waiter has sent `ExitCodeNotification`,
+/// reintroducing the exact ordering violation this fix is meant to
+/// close. The orphaned blocking thread also leaks a worker-pool slot.
+///
+/// The honest fix is to await the reader to its natural EOF. On
+/// well-behaved PTYs (child closes its slave end on exit, no
+/// co-process inherits it) the master-side EOF arrives within
+/// milliseconds of `Child::wait()` returning — typically microseconds
+/// on unix, tens of milliseconds on Windows ConPTY. On a pathological
+/// case (a surviving co-process holds the slave open) the waiter
+/// blocks until the slave is force-closed by some external event
+/// (e.g., the daemon-layer `KillRequest` flow). Phase 1 accepts that
+/// trade — correctness on the ordering contract takes priority over
+/// forward progress on a stuck PTY; Phase 3 may add a watchdog or a
+/// cooperative-cancel signal once production traces show whether the
+/// hang actually occurs.
 fn spawn_waiter_task(
     session_id: String,
     mut child: Box<dyn portable_pty::Child + Send + Sync>,
@@ -823,24 +823,20 @@ fn spawn_waiter_task(
         // emitted (including any chunks the child wrote in its final
         // moments) reaches the outbound channel before the waiter's
         // notification can. Per Plan-024 §Implementation Step 5 the
-        // notification ordering MUST be DataFrame-first; the drain is
-        // how Phase 1 enforces it across both fast unix EOF and slower
-        // Windows ConPTY EOF.
+        // notification ordering MUST be DataFrame-first; the natural
+        // drain is how Phase 1 enforces it across both fast unix EOF
+        // and slower Windows ConPTY EOF.
         //
-        // Hold an `AbortHandle` separately because
-        // `tokio::time::timeout` consumes its future by ownership —
-        // on timeout the `JoinHandle` is dropped (detach, not abort),
-        // so the reader could in principle stay alive forever if the
-        // master-side EOF never arrives. `READER_DRAIN_TIMEOUT` caps
-        // the wait at 500 ms; on timeout we abort the reader so
-        // resources are reclaimed rather than detached-and-orphaned.
-        let reader_abort = reader_task.abort_handle();
-        if tokio::time::timeout(READER_DRAIN_TIMEOUT, reader_task)
-            .await
-            .is_err()
-        {
-            reader_abort.abort();
-        }
+        // No timeout: aborting a `spawn_blocking` task via
+        // `JoinHandle::abort()` is a no-op once the closure has
+        // started, so a timeout-then-abort path leaks the blocking
+        // thread AND lets it keep emitting `DataFrame`s after the
+        // notification — exactly the violation we're closing. See the
+        // function rustdoc above for the full trade-off discussion.
+        // `Result<(), JoinError>` is ignored — a panicked reader task
+        // is logged via the runtime's default panic hook; no
+        // notification semantics depend on it.
+        let _ = reader_task.await;
 
         // Split the wait failure paths so the diagnostic distinguishes a
         // wait()-level I/O error (kernel surfaced one) from a

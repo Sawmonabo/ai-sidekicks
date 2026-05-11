@@ -735,14 +735,16 @@ async fn fast_exiting_child_lifecycle_returns_registry_to_zero() {
 /// the consumer would see `ExitCodeNotification` before some trailing
 /// bytes the child wrote, violating the protocol ordering contract.
 ///
-/// The fix awaits the reader task's `JoinHandle` (with a 500 ms
-/// timeout) inside the waiter, so the notification cannot fire until
-/// either:
-///   (a) the reader has read every byte the child wrote and observed
-///       PTY EOF, or
-///   (b) the drain timeout elapses (in which case the reader is
-///       aborted — Phase 1 prefers forward progress on the exit
-///       notification over an unbounded wait).
+/// The fix awaits the reader task's `JoinHandle` (untimed) inside the
+/// waiter, so the notification cannot fire until the reader has read
+/// every byte the child wrote and observed PTY EOF. An earlier shape
+/// capped the drain with a `tokio::time::timeout(...)` +
+/// `JoinHandle::abort()` on the reader; per Tokio `JoinHandle::abort`
+/// rustdoc that abort is a no-op on `spawn_blocking` once started,
+/// which would let the reader keep emitting `DataFrame`s after the
+/// timed-out notification (reintroducing the bug). Phase 1 chooses
+/// correctness on the ordering contract over forward progress on a
+/// pathologically-stuck PTY — see `spawn_waiter_task` rustdoc.
 ///
 /// ## Scope and limits — macOS vs Windows
 ///
