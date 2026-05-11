@@ -84,9 +84,9 @@ test("buildHousekeeperPrompt: schema-violation mode wording for exit 5", () => {
 });
 
 test("validateManifestSubagentStage: entry guard surfaces structured gap (no TypeError) when manifest is null", () => {
-  // F-A24wj: a malformed subagent output (JSON literal `null`) would otherwise
-  // crash on the first `manifest.X` dereference before gap collection runs.
-  // The validator MUST surface this as a structured gap and short-circuit so
+  // A malformed subagent output (JSON literal `null`) would otherwise crash
+  // on the first `manifest.X` dereference before gap collection runs. The
+  // validator MUST surface this as a structured gap and short-circuit so
   // Phase E's contract-violation recovery path stays intact.
   const result = validateManifestSubagentStage({ manifest: null });
   assert.equal(result.valid, false);
