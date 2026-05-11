@@ -338,7 +338,7 @@ graph TB
 
 ### Recommended first wave
 
-With NS-01 + NS-02 both completed 2026-05-11 (NS-01 via PR #42 — Plan-024 Phase 1 Rust scaffold; NS-02 via PR #38 — Plan-001 Phase 5 Lane A T5.1 + T5.5 + T5.6; see entries below), the ready set is now NS-03, NS-04, NS-11, NS-13a, NS-14, NS-22 (6 items). The set shares no code paths or governance files — re-derived from each entry's `Files:` / target_paths after NS-01 + NS-02's drop-out. Suggested parallel dispatch: **NS-03 + NS-04** as two independent code lanes; **NS-13a + NS-14 + NS-11 + NS-22** as concurrent governance / audit / cleanup lanes. The previous serialization of NS-22 behind NS-12 (resolved 2026-05-03) is dissolved — NS-22 targets distinct content (`0001-initial.sql` filename + `session.ts:388` cite occurrences in Plan-001 / Plan-022 / ADR-022 / Plan-008) from NS-12's edit scope (Plan-001 §Preconditions + §Phase 5 Precondition); NS-22 dispatches cleanly against the post-NS-12 HEAD without rebase churn. With NS-01 now completed, NS-05 + NS-07 (downstream Plan-024 Phase 2 + Phase 3) advance one upstream-dep closer to ready — both still gated on Plan-001 T5.4 cwd-translator (NS-04) before promoting.
+With NS-01 + NS-02 completed 2026-05-11 (NS-01 via PR #42 — Plan-024 Phase 1 Rust scaffold; NS-02 via PR #38 — Plan-001 Phase 5 Lane A T5.1 + T5.5 + T5.6) and NS-04 PR-row (a) shipped 2026-05-11 (PR #45 — Plan-024 T-024-2-1 `PtyHost` contract interface; NS-04 now `in_progress` pending PR-row (b) Plan-001 T5.4 cwd-translator), the ready set is now NS-03, NS-11, NS-13a, NS-14, NS-22 (5 items). The set shares no code paths or governance files — re-derived from each entry's `Files:` / target_paths after NS-01 + NS-02 + NS-04 PR-A's drop-out. Suggested parallel dispatch: **NS-03 + NS-04 PR-row (b)** as two independent code lanes (NS-04 is no longer a fresh dispatch — its PR-row (b) consuming the new `PtyHost` interface is the active code work); **NS-13a + NS-14 + NS-11 + NS-22** as concurrent governance / audit / cleanup lanes. The previous serialization of NS-22 behind NS-12 (resolved 2026-05-03) is dissolved — NS-22 targets distinct content (`0001-initial.sql` filename + `session.ts:388` cite occurrences in Plan-001 / Plan-022 / ADR-022 / Plan-008) from NS-12's edit scope (Plan-001 §Preconditions + §Phase 5 Precondition); NS-22 dispatches cleanly against the post-NS-12 HEAD without rebase churn. NS-05 + NS-07 (downstream Plan-024 Phase 2 + Phase 3) remain gated on NS-04 completion (PR-row (b) T5.4) — PR-row (a) shipping the interface alone is not transitively unblocking.
 
 ### NS-01: Plan-024 Phase 1 — Rust crate scaffolding
 
@@ -376,15 +376,15 @@ With NS-01 + NS-02 both completed 2026-05-11 (NS-01 via PR #42 — Plan-024 Phas
 
 ### NS-04: Plan-001 T5.4 cwd-translator + Plan-024 T-024-2-1 contracts pair
 
-- Status: `todo`
-- Type: code (cross-plan PR pair, internally a 3-step sequence)
+- Status: `in_progress` (last shipped: PR #45, 2026-05-11)
+- Type: code
 - Priority: `P1`
 - Upstream: none (the 3-step sequence is internal: (a) `packages/contracts/src/pty-host.ts` interface-only PR for T-024-2-1 → (b) `packages/runtime-daemon/src/session/spawn-cwd-translator.ts` for T5.4 → (c) NodePtyHost impl T-024-2-2 lands as part of NS-05)
-- References: [Plan-001](../plans/001-shared-session-core.md):387-389, [Plan-024](../plans/024-rust-pty-sidecar.md):75, 284, 300
+- References: [Plan-001](../plans/001-shared-session-core.md):387-389, [Plan-024](../plans/024-rust-pty-sidecar.md):75, 284, 300, `packages/contracts/src/pty-host.ts`, `packages/runtime-daemon/src/session/spawn-cwd-translator.ts`
 - Summary: T5.4 wraps both `RustSidecarPtyHost` and `NodePtyHost` for OS-level cwd translation per I-024-5 to mitigate the Windows `ERROR_SHARING_VIOLATION` risk. F-024-2-04 binds T5.4 as a Precondition for **both** Plan-024 Phase 2 (NodePtyHost) **and** Phase 3 (RustSidecarPtyHost) — without it, Windows CI surfaces the sharing-violation regression. Clean sequence: ship the `PtyHost` contract interface alone, then T5.4 consumes it, then NS-05 consumes T5.4.
 - Exit Criteria: `spawn-cwd-translator.ts` + Linux/macOS unit tests + Windows-CI integration tests (I6 / W2 / W3) green; `PtyHost` interface live in contracts.
 - PRs:
-  - [ ] T-024-2-1 — packages/contracts/src/pty-host.ts contract interface
+  - [x] T-024-2-1 — packages/contracts/src/pty-host.ts contract interface (PR #45, merged 2026-05-11)
   - [ ] T5.4 — packages/runtime-daemon/src/session/spawn-cwd-translator.ts wiring + Windows-CI integration tests (I6/W2/W3)
 
 ### NS-05: Plan-024 Phase 2 — NodePtyHost

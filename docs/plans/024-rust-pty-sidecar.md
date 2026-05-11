@@ -446,6 +446,53 @@ shipped:
       I-024-* invariants verify at the daemon ↔ sidecar boundary in Phase 3.
       The main.rs dispatcher loop body is intentionally deferred — Phase 1
       ships only the library substrate consumed by integration tests.
+  - phase: 2
+    task: T-024-2-1
+    pr: 45
+    sha: ed71ee1
+    merged_at: 2026-05-11
+    files:
+      - packages/contracts/src/pty-host.ts
+      - packages/contracts/src/index.ts
+    verifies_invariant: []
+    spec_coverage:
+      - ADR-019 §Decision item 1
+    notes: |
+      Phase 2 interface-only PR — ships the runtime-callable `PtyHost`
+      contract (`spawn` / `resize` / `write` / `kill` / `close` + `onData`
+      / `onExit` callbacks) that both backends (`NodePtyHost` later in
+      Phase 2 + `RustSidecarPtyHost` in Phase 3) implement, and that
+      Plan-001 T5.4 `cwd-translator` wraps for OS-level cwd translation.
+      Byte payloads are `Uint8Array` (cross-environment) rather than
+      Node-specific `Buffer` to honor the `packages/contracts/` Node-free
+      convention; daemon-side Node code receives the same bytes (Buffer
+      extends Uint8Array). I-024-* invariants still verify at the daemon
+      ↔ sidecar boundary in Phase 3 — the interface alone doesn't bind
+      any invariant. NS-04 status flips `todo` → `in_progress` (PR-row
+      (b) Plan-001 T5.4 still owed before NS-04 → `completed`).
+  - phase: 2
+    task: T-024-2-1
+    pr: 46
+    sha: e4520f2
+    merged_at: 2026-05-11
+    files:
+      - packages/contracts/src/pty-host.ts
+      - docs/plans/024-rust-pty-sidecar.md
+    verifies_invariant: []
+    spec_coverage:
+      - ADR-019 §Decision item 1
+    notes: |
+      Immediate follow-up cleanup to PR #45 — refined the contract surface
+      after Codex review: stripped plan/task refs from JSDoc per the
+      global "no plan-ref hardcodes in code" rule (commit/PR description
+      carries refs, not source files); swapped `Buffer` → `Uint8Array`
+      in `write` / `onData` signatures to fix the `packages/contracts/`
+      Node-free violation flagged by the code-reviewer subagent; added
+      the wire-↔-runtime translation note on `onExit` documenting how
+      `signalCode?: number` maps to wire-side `ExitCodeNotification.signal_code`
+      (`number | null`). Plan-024:89 + 296 amended in the same PR (Buffer
+      → Uint8Array). Maintenance/refinement of the T-024-2-1 surface;
+      not a new task ship.
 
 # Entry shape (illustrative — authoritative schema in lib/manifest.mjs):
 # - phase: 1
