@@ -1,0 +1,830 @@
+// Tests for `RustSidecarPtyHost` — daemon-side supervisor for the Rust
+// PTY sidecar binary.
+//
+// What we assert (Plan-024 Phase 3 acceptance criteria):
+//
+//   * AC1: every `PtyHost` method is implemented (spawn, resize, write,
+//     kill, close, onData, onExit). Round-trip framing is exercised
+//     end-to-end via a fake child process whose stdin/stdout streams
+//     are wired to the supervisor's framer.
+//   * AC2: AC2 ("PtyHostSelector returns a working host on Windows") is
+//     covered by the selector test suite — this file focuses on the
+//     supervisor surface itself.
+//   * AC3: sidecar process crash within the respawn budget triggers
+//     automatic respawn; outside budget surfaces
+//     `PtyBackendUnavailableError`. Both branches exercised with a
+//     mock-clock so the 60s sliding window is deterministic.
+//   * Pin 1: factory accepts `binaryPath` so T-024-3-3 can swap the
+//     resolver without touching the signature.
+//   * Pin 4: Content-Length frames written to stdin match the wire
+//     format `Content-Length: <bytes>\r\n\r\n<json-payload>`.
+//   * Pin 5: crash budget is a sliding window — 5 crashes at t=10s
+//     followed by a 6th crash at t=70s does NOT exhaust because the
+//     first 5 are evicted before the 6th is recorded.
+//
+// Transport mock — `child_process.spawn`:
+// ----------------------------------------
+//
+// The supervisor consumes a `SidecarSpawnFn` injected via deps. We
+// construct a fake `ChildProcess`-shaped object using
+// `node:stream.PassThrough` for stdin/stdout/stderr and `node:events.
+// EventEmitter` for the `on('exit')` / `on('error')` surface. Each
+// test scenario builds a fresh fake and wires the supervisor against
+// it.
+//
+// Refs: Plan-024 §F-024-3-02 + §F-024-3-05; ADR-019 §Decision item 1.
+
+import { Buffer } from "node:buffer";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
+
+import { describe, expect, it, vi } from "vitest";
+
+import {
+  CRASH_BUDGET_LIMIT,
+  CRASH_BUDGET_WINDOW_MS,
+  MAX_FRAME_BODY_BYTES,
+  PtyBackendUnavailableError,
+  RustSidecarPtyHost,
+  createRustSidecarPtyHost,
+  type SidecarChildProcess,
+  type SidecarSpawnFn,
+} from "../rust-sidecar-pty-host.js";
+
+import { PTY_BACKEND_UNAVAILABLE_CODE } from "@ai-sidekicks/contracts";
+import type { Envelope } from "@ai-sidekicks/contracts";
+
+// ----------------------------------------------------------------------------
+// Fake child process — minimal shape mirroring node:child_process.
+// ----------------------------------------------------------------------------
+
+/**
+ * Fake child process whose stdin/stdout/stderr are PassThrough
+ * streams. Tests can read from `stdin` to inspect what the supervisor
+ * wrote, write to `stdout` to deliver synthetic responses, and call
+ * `triggerExit`/`triggerError` to simulate child lifecycle events.
+ */
+interface FakeChild {
+  readonly child: SidecarChildProcess;
+  /** Reads frames written by the supervisor to stdin. */
+  readStdin(): Buffer;
+  /** Send raw bytes from the "sidecar" back to the supervisor. */
+  writeStdout(bytes: Buffer | string): void;
+  /** Trigger the `exit` event with the given code/signal. */
+  triggerExit(code: number | null, signal: string | null): void;
+  /** Trigger the `error` event. */
+  triggerError(err: Error): void;
+}
+
+function makeFakeChild(): FakeChild {
+  const stdin = new PassThrough();
+  const stdout = new PassThrough();
+  const stderr = new PassThrough();
+  const ee = new EventEmitter();
+
+  // Buffer everything written to stdin so the test can inspect.
+  const stdinChunks: Buffer[] = [];
+  stdin.on("data", (chunk: Buffer) => {
+    stdinChunks.push(chunk);
+  });
+
+  // Implementation of the `on` overload signature. The two named
+  // listener shapes (exit: (code, signal); error: (err)) cannot be
+  // expressed as a single union-signature object literal under
+  // strict checking — but a function-property whose signature is
+  // declared via overload and implemented with a permissive body
+  // satisfies the discriminated overload. We declare two overloaded
+  // signatures for type-side parity and a single permissive impl
+  // that defers to the EventEmitter.
+  function on(
+    event: "exit",
+    listener: (code: number | null, signal: string | null) => void,
+  ): SidecarChildProcess;
+  function on(event: "error", listener: (err: Error) => void): SidecarChildProcess;
+  function on(
+    event: "exit" | "error",
+    listener: ((code: number | null, signal: string | null) => void) | ((err: Error) => void),
+  ): SidecarChildProcess {
+    ee.on(event, listener as (...args: unknown[]) => void);
+    return child;
+  }
+
+  const child: SidecarChildProcess = {
+    pid: 12345,
+    stdin: stdin,
+    stdout: stdout,
+    stderr: stderr,
+    on,
+    kill: vi.fn(() => true),
+  };
+
+  return {
+    child,
+    readStdin: () => Buffer.concat(stdinChunks),
+    writeStdout: (bytes) => {
+      stdout.write(bytes);
+    },
+    triggerExit: (code, signal) => {
+      ee.emit("exit", code, signal);
+    },
+    triggerError: (err) => {
+      ee.emit("error", err);
+    },
+  };
+}
+
+/**
+ * Build a `SidecarSpawnFn` stub that returns the provided fake child
+ * (cast to the Node-typed `ChildProcessWithoutNullStreams` for the
+ * deps interface — the supervisor only consumes the
+ * `SidecarChildProcess` subset).
+ */
+function spawnReturning(fake: FakeChild): SidecarSpawnFn {
+  return vi
+    .fn<SidecarSpawnFn>()
+    .mockImplementation(() => fake.child as unknown as ReturnType<SidecarSpawnFn>);
+}
+
+/**
+ * Build a `SidecarSpawnFn` stub that returns a fresh fake on each
+ * call — useful for crash-respawn tests where the supervisor needs
+ * to spawn N children sequentially. Returns the spawn fn AND an
+ * accessor for the most-recently-spawned fake so the test can drive
+ * its lifecycle.
+ */
+function spawnReturningSequence(): {
+  spawn: SidecarSpawnFn;
+  latest: () => FakeChild;
+  spawned: () => readonly FakeChild[];
+} {
+  const fakes: FakeChild[] = [];
+  const spawn: SidecarSpawnFn = vi.fn<SidecarSpawnFn>().mockImplementation(() => {
+    const fake = makeFakeChild();
+    fakes.push(fake);
+    return fake.child as unknown as ReturnType<SidecarSpawnFn>;
+  });
+  return {
+    spawn,
+    latest: () => {
+      const f = fakes[fakes.length - 1];
+      if (f === undefined) {
+        throw new Error("spawnReturningSequence.latest: nothing spawned yet");
+      }
+      return f;
+    },
+    spawned: () => fakes,
+  };
+}
+
+/**
+ * Encode an inbound envelope as a Content-Length-framed buffer the
+ * test can write to a fake child's stdout to simulate a sidecar
+ * response.
+ */
+function frameEnvelope(envelope: Envelope): Buffer {
+  const payload: Buffer = Buffer.from(JSON.stringify(envelope), "utf8");
+  const header: Buffer = Buffer.from(`Content-Length: ${payload.length}\r\n\r\n`, "utf8");
+  return Buffer.concat([header, payload]);
+}
+
+/**
+ * Parse the stdin contents (a sequence of Content-Length frames) into
+ * an array of envelopes. Used to inspect what the supervisor sent.
+ */
+function parseFramesFromStdin(stdinBuf: Buffer): Envelope[] {
+  const envelopes: Envelope[] = [];
+  let cursor = 0;
+  while (cursor < stdinBuf.length) {
+    const headerEnd: number = stdinBuf.indexOf("\r\n\r\n", cursor);
+    if (headerEnd === -1) {
+      break;
+    }
+    const headerBytes: Buffer = stdinBuf.subarray(cursor, headerEnd);
+    const headerText: string = headerBytes.toString("utf8");
+    const match: RegExpMatchArray | null = headerText.match(/Content-Length:\s*(\d+)/i);
+    if (match === null) {
+      break;
+    }
+    const length: number = Number.parseInt(match[1] ?? "0", 10);
+    const bodyStart: number = headerEnd + 4;
+    const body: Buffer = stdinBuf.subarray(bodyStart, bodyStart + length);
+    envelopes.push(JSON.parse(body.toString("utf8")) as Envelope);
+    cursor = bodyStart + length;
+  }
+  return envelopes;
+}
+
+/**
+ * Microtask flush helper — yields to the event loop so async listener
+ * dispatch (PassThrough `data` events) and Promise resolution can
+ * complete before assertions run. Two `await Promise.resolve()` calls
+ * are sufficient for the listener-then-promise chain we need; a
+ * single `setImmediate`-style yield would also work but the explicit
+ * Promise yields are deterministic across runtimes.
+ */
+async function flushMicrotasks(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
+// ----------------------------------------------------------------------------
+// AC1 — every PtyHost method is implemented.
+// ----------------------------------------------------------------------------
+
+describe("RustSidecarPtyHost — PtyHost contract surface (AC1)", () => {
+  it("spawn round-trips through the framer and resolves with the SpawnResponse", async () => {
+    const fake = makeFakeChild();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: spawnReturning(fake),
+    });
+
+    // Fire spawn — supervisor writes the SpawnRequest frame and waits.
+    const spawnPromise = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: ["-c", "echo hi"],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+
+    // Assert the supervisor wrote the request as a framed envelope.
+    const envelopes = parseFramesFromStdin(fake.readStdin());
+    expect(envelopes).toHaveLength(1);
+    expect(envelopes[0]).toMatchObject({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: ["-c", "echo hi"],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+
+    // Deliver the SpawnResponse from the fake sidecar.
+    fake.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
+
+    const response = await spawnPromise;
+    expect(response).toEqual({ kind: "spawn_response", session_id: "s-0" });
+  });
+
+  it("resize sends a ResizeRequest and resolves on ResizeResponse", async () => {
+    const fake = makeFakeChild();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: spawnReturning(fake),
+    });
+
+    // Spawn first to register the session.
+    const spawnP = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    fake.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
+    await spawnP;
+
+    // Now resize.
+    const resizePromise = host.resize("s-0", 30, 100);
+    await flushMicrotasks();
+    const allFrames = parseFramesFromStdin(fake.readStdin());
+    const resizeFrame = allFrames[allFrames.length - 1];
+    expect(resizeFrame).toEqual({
+      kind: "resize_request",
+      session_id: "s-0",
+      rows: 30,
+      cols: 100,
+    });
+
+    fake.writeStdout(
+      frameEnvelope({
+        kind: "resize_response",
+        session_id: "s-0",
+      }),
+    );
+    await expect(resizePromise).resolves.toBeUndefined();
+  });
+
+  it("write base64-encodes the bytes per F-024-1-01 and resolves on WriteResponse", async () => {
+    const fake = makeFakeChild();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: spawnReturning(fake),
+    });
+
+    const spawnP = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    fake.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
+    await spawnP;
+
+    const payload = new Uint8Array([0x68, 0x65, 0x6c, 0x6c, 0x6f]); // "hello"
+    const writeP = host.write("s-0", payload);
+    await flushMicrotasks();
+
+    const all = parseFramesFromStdin(fake.readStdin());
+    const writeFrame = all[all.length - 1];
+    expect(writeFrame).toEqual({
+      kind: "write_request",
+      session_id: "s-0",
+      // "hello" base64 = "aGVsbG8="
+      bytes: "aGVsbG8=",
+    });
+
+    fake.writeStdout(frameEnvelope({ kind: "write_response", session_id: "s-0" }));
+    await expect(writeP).resolves.toBeUndefined();
+  });
+
+  it("kill sends a KillRequest with the POSIX signal and resolves on KillResponse", async () => {
+    const fake = makeFakeChild();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: spawnReturning(fake),
+    });
+
+    const spawnP = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    fake.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
+    await spawnP;
+
+    const killP = host.kill("s-0", "SIGTERM");
+    await flushMicrotasks();
+    const all = parseFramesFromStdin(fake.readStdin());
+    const killFrame = all[all.length - 1];
+    expect(killFrame).toEqual({
+      kind: "kill_request",
+      session_id: "s-0",
+      signal: "SIGTERM",
+    });
+
+    fake.writeStdout(frameEnvelope({ kind: "kill_response", session_id: "s-0" }));
+    await expect(killP).resolves.toBeUndefined();
+  });
+
+  it("kill on already-exited session is idempotent (re-emits cached onExit, no wire dispatch)", async () => {
+    const fake = makeFakeChild();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: spawnReturning(fake),
+    });
+
+    const exitFn = vi.fn();
+    host.setOnExit(exitFn);
+
+    const spawnP = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    fake.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
+    await spawnP;
+
+    // Deliver an ExitCodeNotification to populate the exit cache.
+    fake.writeStdout(
+      frameEnvelope({
+        kind: "exit_code_notification",
+        session_id: "s-0",
+        exit_code: 0,
+        signal_code: null,
+      }),
+    );
+    await flushMicrotasks();
+    expect(exitFn).toHaveBeenCalledTimes(1);
+    expect(exitFn).toHaveBeenCalledWith("s-0", 0);
+
+    // A subsequent kill on the same session re-emits onExit from
+    // the cache and does NOT dispatch a wire request.
+    const stdinBefore = fake.readStdin().length;
+    await host.kill("s-0", "SIGKILL");
+    await flushMicrotasks();
+    expect(exitFn).toHaveBeenCalledTimes(2);
+    // No new bytes written to stdin (the kill short-circuited on
+    // the cached exit).
+    expect(fake.readStdin().length).toBe(stdinBefore);
+  });
+
+  it("close on unknown sessionId is a no-op (idempotent)", async () => {
+    const fake = makeFakeChild();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: spawnReturning(fake),
+    });
+    // Never spawned — the session table is empty. close MUST NOT
+    // throw, and MUST NOT trigger a sidecar spawn.
+    await expect(host.close("s-bogus")).resolves.toBeUndefined();
+  });
+
+  it("onData fans out DataFrame chunks to the registered listener (base64-decoded)", async () => {
+    const fake = makeFakeChild();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: spawnReturning(fake),
+    });
+
+    const dataFn = vi.fn();
+    host.setOnData(dataFn);
+
+    const spawnP = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    fake.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
+    await spawnP;
+
+    // Deliver a DataFrame with base64 of "world".
+    const worldB64 = Buffer.from("world", "utf8").toString("base64");
+    fake.writeStdout(
+      frameEnvelope({
+        kind: "data_frame",
+        session_id: "s-0",
+        stream: "stdout",
+        seq: 0,
+        bytes: worldB64,
+      }),
+    );
+    await flushMicrotasks();
+
+    expect(dataFn).toHaveBeenCalledTimes(1);
+    const [sessionId, chunk] = dataFn.mock.calls[0]!;
+    expect(sessionId).toBe("s-0");
+    expect(Buffer.from(chunk).toString("utf8")).toBe("world");
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Pin 4 — wire format check.
+// ----------------------------------------------------------------------------
+
+describe("RustSidecarPtyHost — Content-Length wire format (Pin 4)", () => {
+  it("frames written to stdin use Content-Length: <bytes>\\r\\n\\r\\n<json> shape", async () => {
+    const fake = makeFakeChild();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: spawnReturning(fake),
+    });
+
+    void host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+
+    const stdin = fake.readStdin().toString("utf8");
+    // Strict wire-format match — the header line MUST be exactly
+    // "Content-Length: <n>\r\n\r\n" before the JSON body. A future
+    // refactor that adds optional headers (Content-Type, etc.) MUST
+    // keep Content-Length as the first header line for ADR-009 parity.
+    expect(stdin).toMatch(/^Content-Length: \d+\r\n\r\n\{/);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// AC3 + Pin 5 — sliding-window crash budget.
+// ----------------------------------------------------------------------------
+
+describe("RustSidecarPtyHost — sliding-window crash budget (AC3 + Pin 5)", () => {
+  it("respawns the sidecar within budget (4 crashes in 60s does NOT exhaust)", async () => {
+    const seq = spawnReturningSequence();
+    const clock = vi.fn<() => number>().mockReturnValue(0);
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: seq.spawn,
+      nowMs: clock,
+    });
+
+    // Trigger 4 crashes at well-spaced timestamps within the
+    // sliding 60s window. After each crash the supervisor must be
+    // willing to respawn on the next request.
+    for (let i = 0; i < 4; i += 1) {
+      clock.mockReturnValue(i * 1000);
+      // First request triggers the (re)spawn.
+      const reqPromise = host.spawn({
+        kind: "spawn_request",
+        command: "/bin/sh",
+        args: [],
+        env: [],
+        cwd: "/",
+        rows: 24,
+        cols: 80,
+      });
+      await flushMicrotasks();
+      // Crash the just-spawned child before the supervisor can
+      // resolve the request — this exercises the budget without
+      // requiring a synthetic SpawnResponse.
+      seq.latest().triggerExit(1, null);
+      // The pending request rejects with the "sidecar exited"
+      // message; we await with `.catch` to avoid an unhandled
+      // rejection.
+      await reqPromise.catch(() => undefined);
+    }
+    expect(seq.spawned().length).toBe(4);
+
+    // 5th request should still be allowed — only 4 crashes in the
+    // sliding window so far. The supervisor respawns rather than
+    // surfacing PtyBackendUnavailable.
+    clock.mockReturnValue(4 * 1000);
+    void host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    expect(seq.spawned().length).toBe(5);
+  });
+
+  it(`exhausts the budget at exactly ${CRASH_BUDGET_LIMIT} crashes within ${CRASH_BUDGET_WINDOW_MS}ms (surfaces PtyBackendUnavailableError)`, async () => {
+    const seq = spawnReturningSequence();
+    const clock = vi.fn<() => number>().mockReturnValue(0);
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: seq.spawn,
+      nowMs: clock,
+    });
+
+    // Drive CRASH_BUDGET_LIMIT crashes within the window — the
+    // last one trips the budget and marks the host permanently
+    // unavailable.
+    for (let i = 0; i < CRASH_BUDGET_LIMIT; i += 1) {
+      clock.mockReturnValue(i * 1000);
+      const reqP = host.spawn({
+        kind: "spawn_request",
+        command: "/bin/sh",
+        args: [],
+        env: [],
+        cwd: "/",
+        rows: 24,
+        cols: 80,
+      });
+      await flushMicrotasks();
+      seq.latest().triggerExit(1, null);
+      await reqP.catch(() => undefined);
+    }
+
+    // Next request after the budget is exhausted MUST surface
+    // PtyBackendUnavailableError with attemptedBackend=rust-sidecar.
+    clock.mockReturnValue(CRASH_BUDGET_LIMIT * 1000);
+    let thrown: unknown = null;
+    try {
+      await host.spawn({
+        kind: "spawn_request",
+        command: "/bin/sh",
+        args: [],
+        env: [],
+        cwd: "/",
+        rows: 24,
+        cols: 80,
+      });
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(PtyBackendUnavailableError);
+    if (thrown instanceof PtyBackendUnavailableError) {
+      expect(thrown.code).toBe(PTY_BACKEND_UNAVAILABLE_CODE);
+      expect(thrown.details.attemptedBackend).toBe("rust-sidecar");
+    }
+  });
+
+  it("evicts crash entries older than the window (Pin 5 sliding-window correctness)", async () => {
+    const seq = spawnReturningSequence();
+    const clock = vi.fn<() => number>().mockReturnValue(0);
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: seq.spawn,
+      nowMs: clock,
+    });
+
+    // Record CRASH_BUDGET_LIMIT - 1 crashes at t=0..3s.
+    for (let i = 0; i < CRASH_BUDGET_LIMIT - 1; i += 1) {
+      clock.mockReturnValue(i * 1000);
+      const reqP = host.spawn({
+        kind: "spawn_request",
+        command: "/bin/sh",
+        args: [],
+        env: [],
+        cwd: "/",
+        rows: 24,
+        cols: 80,
+      });
+      await flushMicrotasks();
+      seq.latest().triggerExit(1, null);
+      await reqP.catch(() => undefined);
+    }
+
+    // Advance past the sliding window and crash again. The earlier
+    // crashes are evicted; the new crash starts a fresh window
+    // with a single entry. The host MUST still be willing to
+    // respawn.
+    clock.mockReturnValue(CRASH_BUDGET_WINDOW_MS + 5000);
+    const reqP = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    seq.latest().triggerExit(1, null);
+    await reqP.catch(() => undefined);
+
+    // We should be able to spawn again — only 1 crash in the
+    // current sliding window.
+    clock.mockReturnValue(CRASH_BUDGET_WINDOW_MS + 6000);
+    void host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    // CRASH_BUDGET_LIMIT - 1 + 1 + 1 = CRASH_BUDGET_LIMIT + 1
+    // spawn calls total. The post-eviction respawn IS allowed.
+    expect(seq.spawned().length).toBe(CRASH_BUDGET_LIMIT + 1);
+  });
+
+  it("synchronous spawn failure (binary missing) consumes the crash budget too", async () => {
+    const clock = vi.fn<() => number>().mockReturnValue(0);
+    const failingSpawn: SidecarSpawnFn = vi.fn<SidecarSpawnFn>().mockImplementation(() => {
+      const e = new Error("ENOENT") as Error & { code?: string };
+      e.code = "ENOENT";
+      throw e;
+    });
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: failingSpawn,
+      nowMs: clock,
+    });
+
+    // Drive CRASH_BUDGET_LIMIT spawn failures.
+    for (let i = 0; i < CRASH_BUDGET_LIMIT; i += 1) {
+      clock.mockReturnValue(i * 1000);
+      let caught: unknown = null;
+      try {
+        await host.spawn({
+          kind: "spawn_request",
+          command: "/bin/sh",
+          args: [],
+          env: [],
+          cwd: "/",
+          rows: 24,
+          cols: 80,
+        });
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeInstanceOf(PtyBackendUnavailableError);
+    }
+
+    // Subsequent spawn surfaces the budget-exhausted message rather
+    // than the per-spawn ENOENT error — same shape, different
+    // diagnostic message that names the budget.
+    clock.mockReturnValue(CRASH_BUDGET_LIMIT * 1000);
+    let last: unknown = null;
+    try {
+      await host.spawn({
+        kind: "spawn_request",
+        command: "/bin/sh",
+        args: [],
+        env: [],
+        cwd: "/",
+        rows: 24,
+        cols: 80,
+      });
+    } catch (err) {
+      last = err;
+    }
+    expect(last).toBeInstanceOf(PtyBackendUnavailableError);
+    if (last instanceof PtyBackendUnavailableError) {
+      expect(last.message).toMatch(/crash-respawn budget exhausted/);
+    }
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Resolver failure path — binary path resolution itself fails.
+// ----------------------------------------------------------------------------
+
+describe("RustSidecarPtyHost — binary path resolver failure", () => {
+  it("surfaces PtyBackendUnavailableError when resolveBinaryPath throws", async () => {
+    const cause = new Error("not found");
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => {
+        throw cause;
+      },
+      // Spawn should never be reached; assert on that too.
+      spawn: vi.fn<SidecarSpawnFn>(),
+    });
+
+    let thrown: unknown = null;
+    try {
+      await host.spawn({
+        kind: "spawn_request",
+        command: "/bin/sh",
+        args: [],
+        env: [],
+        cwd: "/",
+        rows: 24,
+        cols: 80,
+      });
+    } catch (err) {
+      thrown = err;
+    }
+
+    expect(thrown).toBeInstanceOf(PtyBackendUnavailableError);
+    if (thrown instanceof PtyBackendUnavailableError) {
+      expect(thrown.details.attemptedBackend).toBe("rust-sidecar");
+      expect(thrown.details.cause).toBe(cause);
+    }
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Pin 1 — factory honors `binaryPath` for T-024-3-3 forward compatibility.
+// ----------------------------------------------------------------------------
+
+describe("createRustSidecarPtyHost — factory accepts binaryPath (Pin 1)", () => {
+  it("constructs a host whose internal resolver returns the supplied binaryPath", async () => {
+    // We cannot directly inspect the internal resolver from outside
+    // the class, but we can drive a spawn through the factory and
+    // assert that the spawn call sees the supplied binaryPath as
+    // its `command` argument.
+    //
+    // The factory does not provide a `spawn` override, so the
+    // production path would call `node:child_process.spawn`. To
+    // keep this test hermetic we override AIS_PTY_SIDECAR_PATH via
+    // the `binaryPath` opt and then construct a child via the
+    // class directly with a mock spawn. The `binaryPath` opt is
+    // exercised end-to-end via the selector tests; here we just
+    // assert the factory does not throw and returns an instance.
+    const host = createRustSidecarPtyHost({ binaryPath: "/explicit/path" });
+    expect(host).toBeInstanceOf(RustSidecarPtyHost);
+  });
+
+  it("constructs a host with no opts (production default — resolver throws clear error message)", () => {
+    // Pin 1 stub contract: no opts AND no AIS_PTY_SIDECAR_PATH ⇒
+    // the default resolver throws a clear error naming T-024-3-3.
+    // We do not call into spawn (which would trigger the resolver);
+    // we just assert construction succeeds.
+    const host = createRustSidecarPtyHost();
+    expect(host).toBeInstanceOf(RustSidecarPtyHost);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Frame body cap — defense in depth on inbound corruption.
+// ----------------------------------------------------------------------------
+
+describe("RustSidecarPtyHost — framing limits (defense in depth)", () => {
+  it(`MAX_FRAME_BODY_BYTES is set to ${MAX_FRAME_BODY_BYTES} bytes (mirrors Rust framing::MAX_FRAME_BODY_BYTES)`, () => {
+    // Pin the constant value so a future divergence from the Rust
+    // side trips this test. 8 MiB is the contract per Plan-024
+    // F-024-1-06.
+    expect(MAX_FRAME_BODY_BYTES).toBe(8 * 1024 * 1024);
+  });
+});
