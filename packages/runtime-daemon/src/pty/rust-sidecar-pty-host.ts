@@ -894,8 +894,7 @@ export class RustSidecarPtyHost implements PtyHost {
    * from the old child's stream would otherwise still arrive at the
    * (now-stale) listener and be fed into the NEW parser — corrupting
    * its framing state and potentially forcing unnecessary kill/respawn
-   * cycles via `drainParserUntilIncomplete`'s error sentinel. Codex
-   * P2 finding on PR #56.
+   * cycles via `drainParserUntilIncomplete`'s error sentinel.
    *
    * Set in `attachChildListeners`; cleared in `handleChildExit` /
    * `handleChildError` immediately before the parser swap.
@@ -1196,8 +1195,7 @@ export class RustSidecarPtyHost implements PtyHost {
     // Retain a named listener reference (rather than an anonymous
     // arrow) so `handleChildExit` / `handleChildError` can detach it
     // before swapping in a fresh parser — see `childStdoutListener`
-    // rustdoc for the contamination scenario this prevents (Codex P2
-    // on PR #56).
+    // rustdoc for the contamination scenario this prevents.
     const stdoutListener = (chunk: Buffer): void => {
       this.parser.feed(chunk);
       this.drainParserUntilIncomplete();
@@ -1570,8 +1568,6 @@ export class RustSidecarPtyHost implements PtyHost {
    * is currently tracked (defensive against double-firing of
    * `exit`/`error` for the same child; the second invocation finds
    * `childStdoutListener` already null and exits cleanly).
-   *
-   * Codex P2 on PR #56.
    */
   private detachChildStdoutListener(child: SidecarChildProcess): void {
     if (this.childStdoutListener !== null) {
