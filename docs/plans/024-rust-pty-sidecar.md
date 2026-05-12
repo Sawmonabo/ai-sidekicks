@@ -610,6 +610,8 @@ shipped:
       - docs/plans/024-rust-pty-sidecar.md
       - docs/architecture/cross-plan-dependencies.md
       - docs/backlog.md
+      - .claude/skills/plan-execution/SKILL.md
+      - docs/superpowers/specs/2026-05-03-plan-execution-housekeeper-design.md
     verifies_invariant:
       - I-024-3
       - I-024-5
