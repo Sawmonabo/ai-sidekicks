@@ -46,6 +46,7 @@ import {
   CRASH_BUDGET_WINDOW_MS,
   ContentLengthParser,
   MAX_FRAME_BODY_BYTES,
+  MAX_HEADER_BYTES,
   PtyBackendUnavailableError,
   RustSidecarPtyHost,
   SidecarFrameDecodeError,
@@ -1059,6 +1060,64 @@ describe("ContentLengthParser — chunk-boundary reassembly + rejection paths", 
     if (result.kind === "error") {
       expect(result.message).toMatch(/exceeds MAX_FRAME_BODY_BYTES/);
     }
+  });
+
+  // ----------------------------------------------------------------------------
+  // Header-section MAX_HEADER_BYTES cap — defends the parser against
+  // unbounded header buffering when a peer (or a desync condition) never
+  // delivers `\r\n\r\n`. Without this cap, `feed()` would concatenate
+  // forever. Mirrors the per-section cap in the IPC sibling framer at
+  // `packages/runtime-daemon/src/ipc/local-ipc-gateway.ts` lines 274-288
+  // (`if (buffer.byteLength > 1024) throw FramingError("header_too_long"…)`).
+  // The Rust framer at `packages/sidecar-rust-pty/src/framing.rs:34`
+  // enforces a 1 KiB PER-LINE cap by contrast — deliberately different
+  // per the load-bearing comment at framing.rs:25-33. Phase 3 framer
+  // hardening; below the I-024-N invariants per Plan-024 §T-024-3-1
+  // ("framing layer below invariants").
+  // ----------------------------------------------------------------------------
+
+  it(`MAX_HEADER_BYTES is set to 1024 bytes (mirrors the TS IPC sibling per-section cap)`, () => {
+    // Pin the constant value so a future divergence from the canonical
+    // sibling pattern at local-ipc-gateway.ts:274-288 trips this test.
+    expect(MAX_HEADER_BYTES).toBe(1024);
+  });
+
+  it("returns error when buffered bytes exceed MAX_HEADER_BYTES without CRLF CRLF terminator", () => {
+    // Drive the worst case: a peer (or desync) starts spewing header
+    // bytes that never terminate. The parser MUST stop accumulating
+    // once the buffered prefix grows past MAX_HEADER_BYTES.
+    const parser = new ContentLengthParser();
+    parser.feed(Buffer.from("X".repeat(MAX_HEADER_BYTES + 1), "utf8"));
+    const result = parser.nextFrame();
+    expect(result.kind).toBe("error");
+    if (result.kind === "error") {
+      expect(result.message).toMatch(/header section exceeded 1024 bytes/);
+      expect(result.message).toMatch(/framing desync/i);
+    }
+  });
+
+  it("returns error when header section with delimiter exceeds MAX_HEADER_BYTES", () => {
+    // Symmetric path: the delimiter IS present, but the header section
+    // itself is oversized. Distinct diagnostic from the unterminated
+    // case so the two failure modes are distinguishable in logs.
+    const parser = new ContentLengthParser();
+    parser.feed(Buffer.from("X".repeat(2000) + "\r\n\r\n", "utf8"));
+    const result = parser.nextFrame();
+    expect(result.kind).toBe("error");
+    if (result.kind === "error") {
+      expect(result.message).toMatch(/exceeds 1024 byte cap/);
+      expect(result.message).toMatch(/with delimiter present/);
+    }
+  });
+
+  it("returns incomplete when buffer is under MAX_HEADER_BYTES and no CRLF yet (happy-path regression)", () => {
+    // Regression guard: the cap MUST NOT trip on a partial header that
+    // is still within the cap. Otherwise valid frames split across two
+    // feeds (the partial-read path) would be rejected.
+    const parser = new ContentLengthParser();
+    parser.feed(Buffer.from("Content-Length: 5", "utf8")); // 17 bytes, well under cap
+    const result = parser.nextFrame();
+    expect(result.kind).toBe("incomplete");
   });
 });
 
@@ -4189,6 +4248,181 @@ describe("RustSidecarPtyHost — fatal teardown on JSON-decode failure", () => {
     expect(writeErr).toBeInstanceOf(SidecarFrameDecodeError);
     if (writeErr instanceof SidecarFrameDecodeError) {
       expect(writeErr.decodeCause).toBe("unknown-kind");
+    }
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Fatal teardown on `data_frame.bytes` that is not strict RFC 4648 §4 base64.
+//
+// `Buffer.from(s, "base64")` is permissive — it silently drops characters
+// outside the canonical alphabet and tolerates misaligned padding. Without
+// strict validation the malformed payload would otherwise be delivered as
+// a corrupted byte stream to consumer `onData` callbacks with no decode-
+// error signal, breaking the wire contract silently. Symmetric in shape
+// with the json-parse / non-object-envelope / unknown-kind paths above:
+//
+//   (d) `bytes` contains an out-of-alphabet character (e.g., `"AAA@"`,
+//       which passes length-mod-4 but fails the regex). Pins the
+//       alphabet-check branch of `isStrictBase64`.
+//   (d) `bytes` length is not a multiple of 4 (e.g., `"abc"`, which
+//       fails the length check before the regex even runs). Pins the
+//       length-check branch of `isStrictBase64`.
+//
+// Both routes through `failFatallyOnDecodeError` with decodeCause =
+// "invalid-base64". `onData` MUST NOT fire — verified via a registered
+// spy that the test asserts was NEVER called.
+// ----------------------------------------------------------------------------
+
+describe("RustSidecarPtyHost — fatal teardown on data_frame base64 decode failure", () => {
+  it("(d) data_frame.bytes with invalid-alphabet character SIGKILLs the child, does NOT fire onData, and rejects outstanding with SidecarFrameDecodeError(cause='invalid-base64')", async () => {
+    const seq = spawnReturningSequence();
+    const clock = vi.fn<() => number>().mockReturnValue(0);
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: seq.spawn,
+      nowMs: clock,
+    });
+
+    // Register an onData spy BEFORE the data_frame lands so the
+    // assertion that the spy was NEVER called is meaningful.
+    const onDataSpy = vi.fn();
+    host.setOnData(onDataSpy);
+
+    // Spawn s-0 and complete the round-trip so the host has a session
+    // registered. The base64-validation runs BEFORE all three routing
+    // branches (alive, closed, unknown) — exercising the alive branch
+    // is the strictest test because the alive path is the one that
+    // would dispatch to onData if validation were absent.
+    const spawnP1 = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    seq.latest().writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
+    await spawnP1;
+
+    // Queue an outstanding request so the teardown rejection has
+    // something concrete to assert against.
+    const resizeP = host.resize("s-0", 30, 100);
+    await flushMicrotasks();
+
+    // Deliver a data_frame whose `bytes` field passes the length-mod-4
+    // check (4 chars) but contains an out-of-alphabet character (`@`).
+    // This pins the alphabet-check branch of `isStrictBase64`.
+    seq.latest().writeStdout(
+      frameEnvelope({
+        kind: "data_frame",
+        session_id: "s-0",
+        stream: "stdout",
+        seq: 0,
+        bytes: "AAA@",
+      }),
+    );
+    await flushMicrotasks();
+
+    // (i) child is killed via SIGKILL — symmetric with the json-parse,
+    // non-object-envelope, and unknown-kind paths above.
+    const killMock = seq.latest().child.kill as ReturnType<typeof vi.fn>;
+    expect(killMock).toHaveBeenCalledWith("SIGKILL");
+
+    // (ii) onData spy was NEVER invoked — the corrupted payload was
+    // intercepted before reaching the dispatch branches. This is the
+    // load-bearing assertion: without strict validation, `Buffer.from(
+    // "AAA@", "base64")` would silently drop the `@` and deliver the
+    // corrupted decoded prefix to the consumer.
+    expect(onDataSpy).not.toHaveBeenCalled();
+
+    // Drive the exit event so the supervisor consumes the budget and
+    // runs the canonical teardown chain.
+    clock.mockReturnValue(100);
+    seq.latest().triggerExit(137, "SIGKILL");
+    await flushMicrotasks();
+
+    // (iii) outstanding promise rejects with the typed decode error
+    // carrying decodeCause='invalid-base64'.
+    await expect(resizeP).rejects.toBeInstanceOf(SidecarFrameDecodeError);
+    await expect(resizeP).rejects.toThrow(/data_frame\.bytes is not strict base64/);
+    await expect(resizeP).rejects.toThrow(/session=s-0/);
+
+    const resizeErr: unknown = await resizeP.catch((e: unknown) => e);
+    expect(resizeErr).toBeInstanceOf(SidecarFrameDecodeError);
+    if (resizeErr instanceof SidecarFrameDecodeError) {
+      expect(resizeErr.decodeCause).toBe("invalid-base64");
+    }
+  });
+
+  it("(d) data_frame.bytes with bad padding (length not multiple of 4) SIGKILLs the child, does NOT fire onData, and rejects outstanding with SidecarFrameDecodeError(cause='invalid-base64')", async () => {
+    const seq = spawnReturningSequence();
+    const clock = vi.fn<() => number>().mockReturnValue(0);
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: seq.spawn,
+      nowMs: clock,
+    });
+
+    const onDataSpy = vi.fn();
+    host.setOnData(onDataSpy);
+
+    const spawnP1 = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    seq.latest().writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
+    await spawnP1;
+
+    // Queue an outstanding write so the teardown rejection has
+    // a concrete promise to assert against.
+    const writeP = host.write("s-0", new Uint8Array([0x68, 0x69])); // "hi"
+    await flushMicrotasks();
+
+    // Deliver a data_frame whose `bytes` length is 3 — fails the
+    // length-mod-4 check before the regex even runs. This pins the
+    // length-check branch of `isStrictBase64` (distinct from the
+    // alphabet-check branch covered by the prior test).
+    seq.latest().writeStdout(
+      frameEnvelope({
+        kind: "data_frame",
+        session_id: "s-0",
+        stream: "stdout",
+        seq: 0,
+        bytes: "abc",
+      }),
+    );
+    await flushMicrotasks();
+
+    const killMock = seq.latest().child.kill as ReturnType<typeof vi.fn>;
+    expect(killMock).toHaveBeenCalledWith("SIGKILL");
+
+    // Load-bearing: onData spy was NEVER invoked. `Buffer.from("abc",
+    // "base64")` would silently produce a 2-byte buffer (treating
+    // "abc" as if it were "abcA" with implicit pad) without strict
+    // validation — corrupting the consumer's byte stream invisibly.
+    expect(onDataSpy).not.toHaveBeenCalled();
+
+    clock.mockReturnValue(100);
+    seq.latest().triggerExit(137, "SIGKILL");
+    await flushMicrotasks();
+
+    await expect(writeP).rejects.toBeInstanceOf(SidecarFrameDecodeError);
+    await expect(writeP).rejects.toThrow(/data_frame\.bytes is not strict base64/);
+    await expect(writeP).rejects.toThrow(/length=3/);
+
+    const writeErr: unknown = await writeP.catch((e: unknown) => e);
+    expect(writeErr).toBeInstanceOf(SidecarFrameDecodeError);
+    if (writeErr instanceof SidecarFrameDecodeError) {
+      expect(writeErr.decodeCause).toBe("invalid-base64");
     }
   });
 });

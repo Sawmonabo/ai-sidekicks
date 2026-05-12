@@ -175,10 +175,14 @@ export class PtyBackendUnavailableError extends Error {
  * drainParserUntilIncomplete).
  */
 export class SidecarFrameDecodeError extends Error {
-  public readonly decodeCause: "json-parse" | "non-object-envelope" | "unknown-kind";
+  public readonly decodeCause:
+    | "json-parse"
+    | "non-object-envelope"
+    | "unknown-kind"
+    | "invalid-base64";
 
   public constructor(
-    decodeCause: "json-parse" | "non-object-envelope" | "unknown-kind",
+    decodeCause: "json-parse" | "non-object-envelope" | "unknown-kind" | "invalid-base64",
     message: string,
   ) {
     super(message);
@@ -712,6 +716,53 @@ function resolveDefaultDeps(partial: Partial<RustSidecarPtyHostDeps>): ResolvedD
 export const MAX_FRAME_BODY_BYTES: number = 8 * 1024 * 1024;
 
 /**
+ * Maximum bytes accumulated for the header section (before the
+ * `\r\n\r\n` delimiter) of a single Content-Length frame.
+ *
+ * Mirrors the per-section cap in the TS IPC sibling framer at
+ * `packages/runtime-daemon/src/ipc/local-ipc-gateway.ts` lines 274-288
+ * (`if (buffer.byteLength > 1024) throw FramingError("header_too_long"…)`).
+ * The Rust framer at `packages/sidecar-rust-pty/src/framing.rs:34`
+ * enforces a 1 KiB PER-LINE cap, deliberately different from this
+ * per-section strategy (see the load-bearing comment at framing.rs:25-33).
+ * The TS sibling parsers each maintain their own constant — the two
+ * parsers are independently maintained per the comment at lines 700-706.
+ *
+ * Without this cap, a peer (or a desync condition) that never delivers
+ * `\r\n\r\n` would pin the accumulator buffer indefinitely as `feed()`
+ * concatenates unboundedly — an in-flight OOM surface symmetric to the
+ * body-length cap above. Refs: Plan-024 §T-024-3-1 (framer hardening
+ * symmetric with body-length defense); ADR-009 (Content-Length framing).
+ */
+export const MAX_HEADER_BYTES: number = 1024;
+
+/**
+ * Strict base64 alphabet matcher. `Buffer.from(s, "base64")` is permissive —
+ * it silently drops characters outside the canonical alphabet and tolerates
+ * misaligned padding, which would let a malformed `DataFrame.bytes`
+ * payload corrupt the byte stream delivered to consumer `onData` callbacks
+ * without any decode-error signal. Validate the input strictly BEFORE
+ * decoding so any divergence from canonical base64 reroutes through the
+ * fatal decode-error teardown path (`failFatallyOnDecodeError`).
+ *
+ * Accepts canonical RFC 4648 §4 base64 ONLY:
+ *   - Alphabet: A-Z a-z 0-9 + /
+ *   - Padding: zero, one, or two trailing `=` characters
+ *   - Length: must be a multiple of 4
+ *
+ * Does NOT accept URL-safe base64 (`-`/`_` substitutions), embedded
+ * whitespace, or lone `=` characters — the Rust sidecar always emits
+ * canonical RFC 4648 §4 base64 via `base64::engine::general_purpose::STANDARD`
+ * (verified via grep of the Rust sidecar), so any deviation is a decode
+ * error. Refs: Plan-024 §T-024-3-1; ADR-009 (data-frame payload contract).
+ */
+const BASE64_PATTERN: RegExp = /^[A-Za-z0-9+/]*={0,2}$/;
+
+function isStrictBase64(s: string): boolean {
+  return s.length % 4 === 0 && BASE64_PATTERN.test(s);
+}
+
+/**
  * Stateful Content-Length frame parser. Feed buffered chunks via
  * `feed`; pull complete frame bodies via the iteration. Frames that
  * span chunk boundaries are correctly reassembled.
@@ -761,10 +812,37 @@ export class ContentLengthParser {
     | { kind: "incomplete" }
     | { kind: "error"; message: string } {
     // Locate the header terminator (CRLF CRLF). If absent, we either
-    // have a partial header or no header yet — return incomplete.
+    // have a partial header or no header yet — return incomplete UNLESS
+    // the accumulator has exceeded the MAX_HEADER_BYTES cap. Without
+    // this cap, a peer (or framing desync) that never delivers
+    // `\r\n\r\n` would pin the accumulator buffer indefinitely as
+    // `feed()` concatenates unboundedly — an in-flight OOM surface
+    // symmetric with the MAX_FRAME_BODY_BYTES rejection below. The
+    // sentinel `{ kind: "error" }` reroutes through the existing fatal
+    // teardown path the supervisor uses for body-length errors.
     const headerEnd: number = this.buffer.indexOf("\r\n\r\n");
     if (headerEnd === -1) {
+      if (this.buffer.length > MAX_HEADER_BYTES) {
+        return {
+          kind: "error",
+          message:
+            `header section exceeded ${MAX_HEADER_BYTES} bytes without ` +
+            `"\\r\\n\\r\\n" terminator (likely framing desync)`,
+        };
+      }
       return { kind: "incomplete" };
+    }
+    if (headerEnd > MAX_HEADER_BYTES) {
+      // The delimiter IS present but the header section before it is
+      // larger than the cap — reject with a distinct diagnostic so the
+      // distinction between "never-terminated header" (above) and
+      // "oversized terminated header" (here) is visible in logs.
+      return {
+        kind: "error",
+        message:
+          `header section is ${headerEnd} bytes (with delimiter present); ` +
+          `exceeds ${MAX_HEADER_BYTES} byte cap`,
+      };
     }
 
     const headerBytes: Buffer = this.buffer.subarray(0, headerEnd);
@@ -1708,6 +1786,27 @@ export class RustSidecarPtyHost implements PtyHost {
         //      legitimately arrive on the wire before the matching
         //      `SpawnResponse`. The buffer drains on the subsequent
         //      `SpawnResponse` via `replayPreSpawnEvents`.
+        //
+        // Strict-base64 validation runs BEFORE all three branches:
+        // corruption is a wire-level violation regardless of whether
+        // the session is alive, closed, or unknown. `Buffer.from(s,
+        // "base64")` is permissive — invalid characters are silently
+        // dropped — so the malformed payload would otherwise be
+        // delivered as a corrupted byte stream with no decode-error
+        // signal. Route any divergence from canonical RFC 4648 §4
+        // base64 through the same fatal teardown path used for JSON-
+        // decode failures above (symmetric in shape with json-parse,
+        // non-object-envelope, and unknown-kind teardowns).
+        if (!isStrictBase64(envelope.bytes)) {
+          const cause: SidecarFrameDecodeError = new SidecarFrameDecodeError(
+            "invalid-base64",
+            `RustSidecarPtyHost: data_frame.bytes is not strict base64 ` +
+              `(session=${envelope.session_id}, length=${envelope.bytes.length}); ` +
+              `tearing down child for respawn.`,
+          );
+          this.failFatallyOnDecodeError(cause);
+          break;
+        }
         const bytes: Uint8Array = Buffer.from(envelope.bytes, "base64");
         if (this.sessions.has(envelope.session_id)) {
           this.dataListener(envelope.session_id, bytes);
