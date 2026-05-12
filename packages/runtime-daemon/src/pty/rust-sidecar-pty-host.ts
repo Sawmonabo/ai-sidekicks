@@ -1045,18 +1045,24 @@ export class RustSidecarPtyHost implements PtyHost {
   }
 
   public async close(sessionId: string): Promise<void> {
-    // `close` removes the session record so subsequent re-emits cannot
-    // fire on a closed id. Wire dispatch: a `KillRequest(SIGTERM)` is
-    // the closest cascade the protocol exposes; we send it without
-    // awaiting the ExitCodeNotification because the contract says
-    // close MUST NOT block on the OS reap (matches `node-pty-host.ts`
-    // Phase 2).
+    // `close()` removes the session record SYNCHRONOUSLY before
+    // dispatching the wire-side `kill_request{SIGTERM}` so that any
+    // `ExitCodeNotification` arriving during the await falls into the
+    // unknown-session branch of `handleExitNotification` and is
+    // suppressed. This matches the post-`close()` onExit-suppression
+    // contract — `NodePtyHost` achieves the same suppression by
+    // disposing its `child.onExit` subscription BEFORE the kill
+    // dispatch (see `node-pty-host.ts:619-626` + `640-644`). The
+    // kind-keyed `outstanding` queue still correlates the
+    // `kill_response` independent of the session record, so the wire
+    // reply still resolves `close()` cleanly.
     const record: SessionRecord | undefined = this.sessions.get(sessionId);
     if (record === undefined) {
       // Idempotent close on an unknown session — not an error per the
       // PtyHost contract.
       return;
     }
+    this.sessions.delete(sessionId);
     if (record.exitCode === null) {
       // Best-effort kill via SIGTERM. We catch and swallow a wire-side
       // failure here because `close` must not throw on a child that
@@ -1071,7 +1077,6 @@ export class RustSidecarPtyHost implements PtyHost {
         // Swallow — best-effort close.
       }
     }
-    this.sessions.delete(sessionId);
   }
 
   // ---- PtyHost callback surface -----------------------------------------
@@ -1340,18 +1345,49 @@ export class RustSidecarPtyHost implements PtyHost {
   }
 
   /**
-   * Handle an inbound `ExitCodeNotification` — cache the exit code in
-   * the session record, fire the exit listener, and remove the session
-   * from tracking.
+   * Handle an inbound `ExitCodeNotification`.
+   *
+   * - Known session, no cached exitCode: cache the exit code on the
+   *   session record and fire the exit listener. The record is removed
+   *   when `close()` runs (synchronous delete-before-await) or when a
+   *   subsequent `close()` arrives.
+   * - Known session, exitCode already cached: drop as a duplicate (the
+   *   sidecar's contract is exactly-once per session, but defensively
+   *   dedupe).
+   * - Unknown session: the consumer has already called `close()`, which
+   *   removed the session record before dispatching the kill request.
+   *   Suppress the fan-out and log diagnostically — emitting onExit after
+   *   `close()` resolves breaks the post-`close()` onExit-suppression
+   *   contract that consumers rely on for substitutability with
+   *   NodePtyHost (see node-pty-host.ts:619-626 + 640-644).
    */
   private handleExitNotification(notification: ExitCodeNotification): void {
     const record: SessionRecord | undefined = this.sessions.get(notification.session_id);
     if (record === undefined) {
-      // ExitCodeNotification for a session we don't know about —
-      // could be a race (close already removed it) or a sidecar bug.
-      // Fan out the exit event regardless so the consumer sees it.
-      const sigCode: number | undefined = notification.signal_code ?? undefined;
-      this.fireExit(notification.session_id, notification.exit_code, sigCode);
+      // ExitCodeNotification for a session this host no longer tracks.
+      // Two causes converge here: (a) the consumer called `close()`,
+      // which removed the record synchronously before dispatching the
+      // kill request — every wire order (kill_response-first OR
+      // exit_code_notification-first relative to that await) lands
+      // here; or (b) the sidecar emitted on an unknown id (a sidecar
+      // bug). Suppress the fan-out in both cases — emitting onExit
+      // after close() breaks the post-close() onExit-suppression
+      // contract that consumers rely on for substitutability with
+      // NodePtyHost (see node-pty-host.ts:619-626 + 640-644 — its
+      // `child.onExit` subscription is disposed BEFORE the kill
+      // dispatch precisely so the same suppression holds there).
+      // TRIPWIRE: replace `console.warn` once a structured logger
+      // surfaces in the runtime-daemon. The routine close() lifecycle
+      // (close → SIGTERM → child exits → late ExitCodeNotification →
+      // this branch) makes this the warn most likely to fire under
+      // normal teardown; the structured-logger pass should demote it
+      // to debug/info while keeping case-(b) sidecar-bug emissions at
+      // a higher level.
+      console.warn(
+        `RustSidecarPtyHost: late ExitCodeNotification for unknown ` +
+          `session_id ${notification.session_id} (exit_code=` +
+          `${notification.exit_code}); suppressed.`,
+      );
       return;
     }
     if (record.exitCode !== null) {

@@ -54,6 +54,8 @@ export interface PtyHost {
    * Adapters translate the wire-side `ExitCodeNotification.signal_code`
    * (`number | null`) — wire `null` is passed by omitting the third
    * argument.
+   *
+   * MUST NOT fire after `close()` resolves for the same `sessionId`.
    */
   onExit(sessionId: string, exitCode: number, signalCode?: number): void;
 }

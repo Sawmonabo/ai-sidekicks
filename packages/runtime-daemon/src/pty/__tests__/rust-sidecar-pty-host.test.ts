@@ -1084,7 +1084,7 @@ describe("RustSidecarPtyHost — parser reset across respawn", () => {
     expect(response2).toEqual({ kind: "spawn_response", session_id: "s-1" });
   });
 
-  // Codex P2 regression on PR #56: the stdout `data` listener was an
+  // Stale-stdout-listener regression: the stdout `data` listener was an
   // anonymous closure that was never removed when a child exited or
   // errored. After `handleChildExit` swaps in a fresh parser, late-
   // buffered bytes emitted on the OLD child's stdout would still arrive
@@ -1175,7 +1175,7 @@ describe("RustSidecarPtyHost — parser reset across respawn", () => {
   // Same axis as above for the `error` event handler. `handleChildError`
   // shares the parser-reset + listener-detach contract with
   // `handleChildExit`; this test mirrors the structure so both teardown
-  // paths are pinned against the P2 regression.
+  // paths are pinned against the stale-stdout-listener regression.
   it("stale stdout from old child does NOT feed the fresh parser after handleChildError", async () => {
     const seq = spawnReturningSequence();
     const clock = vi.fn<() => number>().mockReturnValue(0);
@@ -1644,6 +1644,139 @@ describe("RustSidecarPtyHost — close() lifecycle", () => {
 
     // close MUST resolve even though the wire-side reply was an error.
     await expect(closeP).resolves.toBeUndefined();
+  });
+
+  it("close() suppresses subsequent onExit on late ExitCodeNotification (substitutability with NodePtyHost)", async () => {
+    // The race pinned here: the consumer calls close(sessionId), which
+    // dispatches a kill_request{SIGTERM} and removes the session record
+    // synchronously. The sidecar's `ExitCodeNotification` for the same
+    // session_id arrives later on the wire via the inbound dispatch
+    // loop. A late onExit fan-out after close() breaks substitutability
+    // with `NodePtyHost`, which disposes its `child.onExit` subscription
+    // BEFORE the kill dispatch (see node-pty-host.ts:619-626) AND gates
+    // its Windows synthetic onExit on `this.sessions.has(sessionId)`
+    // (see 640-644). Consumers treat close() as terminal; a duplicate
+    // teardown event after close() is a contract regression. The fix
+    // (handleExitNotification unknown-session branch) suppresses the
+    // late fan-out and logs diagnostically instead.
+    const fake = makeFakeChild();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: spawnReturning(fake),
+    });
+
+    const exitFn = vi.fn();
+    host.setOnExit(exitFn);
+
+    // Bring a session up.
+    const spawnP = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    fake.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
+    await spawnP;
+
+    // close() dispatches a kill_request{SIGTERM} and awaits the response.
+    // Resolve the kill_response from the mock so close() returns; the
+    // session record is removed synchronously after.
+    const closeP = host.close("s-0");
+    await flushMicrotasks();
+    fake.writeStdout(frameEnvelope({ kind: "kill_response", session_id: "s-0" }));
+    await expect(closeP).resolves.toBeUndefined();
+
+    // Sanity guard: no onExit fired during the close() round-trip
+    // itself — the late notification, not the close path, is the
+    // surface we're pinning.
+    expect(exitFn).not.toHaveBeenCalled();
+
+    // Now the sidecar's late ExitCodeNotification arrives — this is
+    // the wire-arrival the bug surfaces on. Under the bug, the
+    // unknown-session branch fired fireExit and the spy would record
+    // one call with the late exit code; with the fix it MUST be
+    // suppressed.
+    fake.writeStdout(
+      frameEnvelope({
+        kind: "exit_code_notification",
+        session_id: "s-0",
+        exit_code: 137,
+        signal_code: 9,
+      }),
+    );
+    await flushMicrotasks();
+
+    expect(exitFn).not.toHaveBeenCalled();
+  });
+
+  it("close() suppresses onExit when ExitCodeNotification arrives BEFORE kill_response (inverse wire order)", async () => {
+    // The KillResponse wire-protocol rustdoc explicitly documents that
+    // `exit_code_notification` CAN arrive before `kill_response` on the
+    // wire. This test pins the inverse of the kill-first case: the
+    // sidecar's exit notification lands WHILE close() is still awaiting
+    // the kill_response. Because close() deletes the session record
+    // synchronously before dispatching the kill_request, the late
+    // notification falls into the unknown-session branch and is
+    // suppressed (same as the kill-first ordering). Without the
+    // delete-before-await ordering the known-session branch would fire
+    // onExit mid-close, breaking the post-close() onExit-suppression
+    // contract.
+    const fake = makeFakeChild();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: spawnReturning(fake),
+    });
+
+    const exitFn = vi.fn();
+    host.setOnExit(exitFn);
+
+    const spawnP = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    fake.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
+    await spawnP;
+
+    // Start close() but do NOT yet write the kill_response. close()
+    // synchronously removes the session record from `this.sessions`,
+    // then awaits the wire-side kill_response.
+    const closeP = host.close("s-0");
+    await flushMicrotasks();
+
+    // Inverse-order arrival: the late ExitCodeNotification lands FIRST
+    // while close() is still pending. Under the bug (sessions.delete
+    // after await) this fell into the known-session branch and fired
+    // onExit; with the fix it falls into the unknown-session branch
+    // and is suppressed.
+    fake.writeStdout(
+      frameEnvelope({
+        kind: "exit_code_notification",
+        session_id: "s-0",
+        exit_code: 137,
+        signal_code: 9,
+      }),
+    );
+    await flushMicrotasks();
+
+    // No onExit fired yet — close() has not resolved.
+    expect(exitFn).not.toHaveBeenCalled();
+
+    // Now resolve the kill_response so close() returns.
+    fake.writeStdout(frameEnvelope({ kind: "kill_response", session_id: "s-0" }));
+    await expect(closeP).resolves.toBeUndefined();
+
+    // Final assertion: no onExit fired across the entire round-trip.
+    expect(exitFn).not.toHaveBeenCalled();
   });
 });
 
