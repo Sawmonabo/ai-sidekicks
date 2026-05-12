@@ -922,6 +922,26 @@ export class RustSidecarPtyHost implements PtyHost {
   private permanentlyUnavailable = false;
 
   /**
+   * Promise-memoized in-flight cold-start spawn attempt.
+   *
+   * `ensureChild` awaits `resolveSpawn()` before assigning `this.child`,
+   * so two near-simultaneous callers (e.g., concurrent `write` + `kill`
+   * while the host is cold) can both pass the `this.child === null`
+   * check, both yield, and both reach the synchronous spawn. The
+   * second assignment would overwrite `this.child`, orphaning the
+   * first child with listeners wired against the dead reference
+   * (misrouted frames, double crash-budget consumption).
+   *
+   * Promise-memoization rather than a mutex: the second caller does
+   * not need to spawn — it just needs the same promise the first
+   * caller is already awaiting. Cleared in a `.finally()` so the next
+   * call after success (short-circuits on `this.child !== null`) or
+   * failure (retries via the crash-budget semantics) re-enters
+   * cleanly. (Plan-024, T-024-3-1.)
+   */
+  private inflightSpawn: Promise<void> | null = null;
+
+  /**
    * FIFO queue of outstanding requests indexed by response kind.
    *
    * Per the supervisor's correlation contract (see `OutstandingRequest`
@@ -1127,59 +1147,99 @@ export class RustSidecarPtyHost implements PtyHost {
     if (this.child !== null) {
       return;
     }
-    const spawnFn: SidecarSpawnFn = await this.resolveSpawn();
-    let binaryPath: string;
-    try {
-      binaryPath = this.deps.resolveBinaryPath();
-    } catch (err: unknown) {
-      // Binary path resolution failure is the "binary missing"
-      // condition; surface as PtyBackendUnavailable. We do NOT
-      // consume the crash budget for path-resolution failures
-      // because they will deterministically fail on every retry —
-      // there is no pathological respawn loop to defend against.
-      //
-      // **Preserve the inner error if it's already a
-      // `PtyBackendUnavailableError`.** The default resolver
-      // (`resolveSidecarBinaryPath`) emits a tier-enumerated message
-      // and a tier-2 `details.cause` on the four-exhausted path —
-      // wrapping that in a NEW outer error with the generic
-      // "failed to resolve sidecar binary path" message would bury
-      // the operator-grade diagnostic two levels deep in
-      // `details.cause.message` + `details.cause.details.cause`.
-      // Mirror the `pty-host-selector.ts:251` re-throw guard so the
-      // original tier enumeration surfaces unchanged. Tests +
-      // ad-hoc resolvers that throw plain `Error` still take the
-      // wrap branch (preserving the prior behavior for them).
-      if (err instanceof PtyBackendUnavailableError) {
-        throw err;
-      }
-      throw new PtyBackendUnavailableError(
-        { attemptedBackend: "rust-sidecar", cause: err },
-        "RustSidecarPtyHost: failed to resolve sidecar binary path",
-      );
+    // Concurrent cold-start callers share the same in-flight spawn
+    // attempt — see the `inflightSpawn` field rustdoc for the race
+    // shape this closes (Plan-024, T-024-3-1).
+    if (this.inflightSpawn !== null) {
+      return this.inflightSpawn;
     }
 
-    let child: ChildProcessWithoutNullStreams;
-    try {
-      child = spawnFn(binaryPath, [], {
-        // Pipe all three streams. stdin/stdout for framing; stderr
-        // for sidecar diagnostics (forwarded to the daemon's logs).
-        stdio: ["pipe", "pipe", "pipe"],
-      });
-    } catch (err: unknown) {
-      // Synchronous spawn failure (immediate ENOENT, EACCES, etc).
-      // Consume the crash budget — repeated failures here look the
-      // same as repeated crashes from the supervisor's perspective.
-      if (this.crashBudget.recordAndIsExhausted()) {
-        this.permanentlyUnavailable = true;
+    this.inflightSpawn = (async (): Promise<void> => {
+      try {
+        const spawnFn: SidecarSpawnFn = await this.resolveSpawn();
+
+        // Defensive re-check of `permanentlyUnavailable` after the
+        // `await this.resolveSpawn()` yield. Under the current
+        // architecture this is structurally unreachable: the early
+        // check at the top of `ensureChild` already observes any
+        // budget mutation from a prior child's `handleChildExit` (a
+        // synchronous event handler), and Promise-memoization
+        // guarantees at most one in-flight IIFE per cold-start cycle.
+        // Kept as belt-and-suspenders against a future code path
+        // that adds another async write site to
+        // `permanentlyUnavailable` during the yield.
+        if (this.permanentlyUnavailable) {
+          throw new PtyBackendUnavailableError(
+            { attemptedBackend: "rust-sidecar" },
+            "RustSidecarPtyHost: crash-respawn budget exhausted " +
+              `(${CRASH_BUDGET_LIMIT} crashes within ${CRASH_BUDGET_WINDOW_MS}ms); ` +
+              "refusing to respawn.",
+          );
+        }
+
+        let binaryPath: string;
+        try {
+          binaryPath = this.deps.resolveBinaryPath();
+        } catch (err: unknown) {
+          // Binary path resolution failure is the "binary missing"
+          // condition; surface as PtyBackendUnavailable. We do NOT
+          // consume the crash budget for path-resolution failures
+          // because they will deterministically fail on every retry —
+          // there is no pathological respawn loop to defend against.
+          //
+          // **Preserve the inner error if it's already a
+          // `PtyBackendUnavailableError`.** The default resolver
+          // (`resolveSidecarBinaryPath`) emits a tier-enumerated message
+          // and a tier-2 `details.cause` on the four-exhausted path —
+          // wrapping that in a NEW outer error with the generic
+          // "failed to resolve sidecar binary path" message would bury
+          // the operator-grade diagnostic two levels deep in
+          // `details.cause.message` + `details.cause.details.cause`.
+          // Mirror the `pty-host-selector.ts:251` re-throw guard so the
+          // original tier enumeration surfaces unchanged. Tests +
+          // ad-hoc resolvers that throw plain `Error` still take the
+          // wrap branch (preserving the prior behavior for them).
+          if (err instanceof PtyBackendUnavailableError) {
+            throw err;
+          }
+          throw new PtyBackendUnavailableError(
+            { attemptedBackend: "rust-sidecar", cause: err },
+            "RustSidecarPtyHost: failed to resolve sidecar binary path",
+          );
+        }
+
+        let child: ChildProcessWithoutNullStreams;
+        try {
+          child = spawnFn(binaryPath, [], {
+            // Pipe all three streams. stdin/stdout for framing; stderr
+            // for sidecar diagnostics (forwarded to the daemon's logs).
+            stdio: ["pipe", "pipe", "pipe"],
+          });
+        } catch (err: unknown) {
+          // Synchronous spawn failure (immediate ENOENT, EACCES, etc).
+          // Consume the crash budget — repeated failures here look the
+          // same as repeated crashes from the supervisor's perspective.
+          if (this.crashBudget.recordAndIsExhausted()) {
+            this.permanentlyUnavailable = true;
+          }
+          throw new PtyBackendUnavailableError(
+            { attemptedBackend: "rust-sidecar", cause: err },
+            `RustSidecarPtyHost: spawn(${binaryPath}) failed`,
+          );
+        }
+        this.child = child;
+        this.attachChildListeners(child);
+      } finally {
+        // Clear unconditionally so the next call after success OR
+        // failure re-enters cleanly: success short-circuits on
+        // `this.child !== null`; failure retries via the existing
+        // crash-budget semantics (the budget consumption above is
+        // the load-bearing failure-rate gate, not this latch).
+        this.inflightSpawn = null;
       }
-      throw new PtyBackendUnavailableError(
-        { attemptedBackend: "rust-sidecar", cause: err },
-        `RustSidecarPtyHost: spawn(${binaryPath}) failed`,
-      );
-    }
-    this.child = child;
-    this.attachChildListeners(child);
+    })();
+
+    return this.inflightSpawn;
   }
 
   /**

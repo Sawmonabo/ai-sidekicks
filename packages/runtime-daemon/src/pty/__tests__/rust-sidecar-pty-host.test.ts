@@ -2343,3 +2343,226 @@ describe("RustSidecarPtyHost — ensureChild preserves resolver-thrown PtyBacken
     }
   });
 });
+
+// ----------------------------------------------------------------------------
+// ensureChild — concurrent cold-start callers serialize on a single spawn
+// (Plan-024, T-024-3-1).
+// ----------------------------------------------------------------------------
+
+describe("RustSidecarPtyHost — ensureChild concurrent-spawn serialization", () => {
+  it("serializes N parallel cold-start callers onto a single spawnFn invocation", async () => {
+    // Race shape: with a cold host, several PtyHost methods called in
+    // parallel (e.g., concurrent `spawn` requests, or `write` racing
+    // `kill`) each await `ensureChild`. Before the fix, each caller
+    // could pass the `this.child === null` check, yield on
+    // `resolveSpawn()`, and reach `spawnFn(...)` — orphaning all but
+    // the last-assigned child. The Promise-memoized in-flight spawn
+    // collapses all callers onto one attempt.
+    const fake = makeFakeChild();
+    const spawnFn = vi
+      .fn<SidecarSpawnFn>()
+      .mockImplementation(() => fake.child as unknown as ReturnType<SidecarSpawnFn>);
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: spawnFn,
+    });
+
+    // Fire 5 parallel spawn requests against the cold host. Each will
+    // call `ensureChild`; without the serialization fix, the spawn
+    // stub would be invoked once per caller.
+    const requests: Array<Promise<unknown>> = [];
+    for (let i = 0; i < 5; i += 1) {
+      requests.push(
+        host.spawn({
+          kind: "spawn_request",
+          command: "/bin/sh",
+          args: [],
+          env: [],
+          cwd: "/",
+          rows: 24,
+          cols: 80,
+        }),
+      );
+    }
+    await flushMicrotasks();
+
+    // The sidecar receives 5 framed SpawnRequests on the SAME stdin —
+    // one child, five session ids. Deliver matching SpawnResponses.
+    for (let i = 0; i < 5; i += 1) {
+      fake.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: `s-${i}` }));
+    }
+    const responses = await Promise.all(requests);
+
+    // Load-bearing assertion: spawnFn called exactly once across the 5
+    // concurrent cold-start callers. The pre-fix shape would record
+    // up to 5 invocations (one per caller that passed the null check).
+    expect(spawnFn).toHaveBeenCalledTimes(1);
+
+    // Every caller receives a valid SpawnResponse — none rejected
+    // because their child got orphaned by a later-assigned one.
+    expect(responses).toHaveLength(5);
+    for (const response of responses) {
+      expect(response).toMatchObject({ kind: "spawn_response" });
+    }
+
+    // Post-call sanity: the single live child accepts further wire
+    // traffic. Issuing a `write` against one of the returned session
+    // ids should frame onto the SAME stdin we just observed receiving
+    // the spawn requests. A pre-fix orphaned-child shape would route
+    // the write to a different stdin (or none, if the orphan's
+    // listeners were never wired against `this.child`).
+    const stdinBefore = fake.readStdin().length;
+    const writeP = host.write("s-0", new Uint8Array([0x61])); // "a"
+    await flushMicrotasks();
+    expect(fake.readStdin().length).toBeGreaterThan(stdinBefore);
+    fake.writeStdout(frameEnvelope({ kind: "write_response", session_id: "s-0" }));
+    await expect(writeP).resolves.toBeUndefined();
+  });
+
+  it("clears the in-flight latch on failure so the next call retries (crash budget consumed once)", async () => {
+    // After a failed cold-start, `this.inflightSpawn` MUST be cleared
+    // so the next caller can re-enter `ensureChild` and trigger a
+    // fresh spawn attempt. A latch that stuck on the rejected promise
+    // would either re-throw the cached failure (a stuck host) or
+    // double-charge the crash budget (a leaked retry). Neither is
+    // correct: the budget is the load-bearing failure-rate gate; the
+    // in-flight latch is purely for concurrent-caller deduplication.
+    let attempt = 0;
+    const fake = makeFakeChild();
+    const spawnFn = vi.fn<SidecarSpawnFn>().mockImplementation(() => {
+      attempt += 1;
+      if (attempt === 1) {
+        const e = new Error("ENOENT") as Error & { code?: string };
+        e.code = "ENOENT";
+        throw e;
+      }
+      return fake.child as unknown as ReturnType<SidecarSpawnFn>;
+    });
+    const clock = vi.fn<() => number>().mockReturnValue(0);
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: spawnFn,
+      nowMs: clock,
+    });
+
+    // First spawn fails synchronously (ENOENT) — the supervisor wraps
+    // it in PtyBackendUnavailableError and consumes ONE budget slot.
+    let firstThrown: unknown = null;
+    try {
+      await host.spawn({
+        kind: "spawn_request",
+        command: "/bin/sh",
+        args: [],
+        env: [],
+        cwd: "/",
+        rows: 24,
+        cols: 80,
+      });
+    } catch (err) {
+      firstThrown = err;
+    }
+    expect(firstThrown).toBeInstanceOf(PtyBackendUnavailableError);
+    expect(spawnFn).toHaveBeenCalledTimes(1);
+
+    // Second spawn — the in-flight latch MUST be cleared, allowing a
+    // fresh attempt. The stub returns the fake child on attempt 2.
+    // A stale `inflightSpawn` pointing at the rejected promise from
+    // attempt 1 would short-circuit this call into the cached
+    // failure, never invoking spawnFn a second time.
+    clock.mockReturnValue(1000);
+    const secondP = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    fake.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
+    const response = await secondP;
+    expect(response).toEqual({ kind: "spawn_response", session_id: "s-0" });
+    expect(spawnFn).toHaveBeenCalledTimes(2);
+
+    // Crash budget consumed exactly once across the failure + retry.
+    // We verify indirectly via the sliding-window arithmetic: with
+    // ONE slot consumed so far, the host should tolerate
+    // `CRASH_BUDGET_LIMIT - 1` more synchronous failures before
+    // surfacing the budget-exhausted message. If the in-flight latch
+    // had double-charged the budget on the first failure, the host
+    // would surface budget-exhausted one cycle early.
+    //
+    // The live sidecar from attempt 2 must exit first so the next
+    // request triggers a fresh spawn rather than reusing the child.
+    // That exit is itself a crash event — so it consumes one
+    // additional slot, bringing the total used to 2.
+    fake.triggerExit(1, null);
+    await flushMicrotasks();
+
+    // Re-arm the stub to throw ENOENT for the remaining attempts so
+    // every subsequent request consumes a synchronous-failure slot.
+    spawnFn.mockImplementation(() => {
+      const e = new Error("ENOENT") as Error & { code?: string };
+      e.code = "ENOENT";
+      throw e;
+    });
+
+    // Slots used so far: 1 (first synchronous ENOENT) + 1 (sidecar
+    // exit) = 2. Drive `CRASH_BUDGET_LIMIT - 2` more synchronous
+    // failures so the cumulative count reaches CRASH_BUDGET_LIMIT —
+    // the LAST one exhausts the budget. A double-charge regression
+    // on the first failure would have used 2 slots there, putting
+    // the cumulative at 3 by this point, and the exhaustion would
+    // hit on the (CRASH_BUDGET_LIMIT - 3)th iteration instead.
+    for (let i = 0; i < CRASH_BUDGET_LIMIT - 2; i += 1) {
+      clock.mockReturnValue(2000 + i * 1000);
+      let caught: unknown = null;
+      try {
+        await host.spawn({
+          kind: "spawn_request",
+          command: "/bin/sh",
+          args: [],
+          env: [],
+          cwd: "/",
+          rows: 24,
+          cols: 80,
+        });
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeInstanceOf(PtyBackendUnavailableError);
+      // None of these should yet be the budget-exhausted message —
+      // they should all be the per-spawn ENOENT wrap. The budget
+      // exhausts on the LAST iteration (cumulative == LIMIT), and
+      // the message-shape transition only kicks in on the NEXT call
+      // after that.
+      if (caught instanceof PtyBackendUnavailableError) {
+        expect(caught.message).not.toMatch(/crash-respawn budget exhausted/);
+      }
+    }
+
+    // The next request after the budget is exhausted MUST surface
+    // the budget-exhausted message specifically. A double-charge
+    // regression would have triggered this one cycle earlier.
+    clock.mockReturnValue(2000 + CRASH_BUDGET_LIMIT * 1000);
+    let exhaustedThrown: unknown = null;
+    try {
+      await host.spawn({
+        kind: "spawn_request",
+        command: "/bin/sh",
+        args: [],
+        env: [],
+        cwd: "/",
+        rows: 24,
+        cols: 80,
+      });
+    } catch (err) {
+      exhaustedThrown = err;
+    }
+    expect(exhaustedThrown).toBeInstanceOf(PtyBackendUnavailableError);
+    if (exhaustedThrown instanceof PtyBackendUnavailableError) {
+      expect(exhaustedThrown.message).toMatch(/crash-respawn budget exhausted/);
+    }
+  });
+});
