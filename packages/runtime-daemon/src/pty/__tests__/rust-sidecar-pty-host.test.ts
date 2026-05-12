@@ -827,9 +827,10 @@ describe("RustSidecarPtyHost — framing limits (defense in depth)", () => {
 
 // ----------------------------------------------------------------------------
 // `ContentLengthParser` direct-drive tests — depth coverage of the framer's
-// rejection paths and chunk-boundary reassembly. These tests would have
-// caught the Pair A parser-reset gap that surfaced in review by exercising
-// the framer surface that the supervisor's stdout `data` listener feeds.
+// rejection paths and chunk-boundary reassembly. These exercise the framer
+// surface that the supervisor's stdout `data` listener feeds; without this
+// coverage a parser-reset gap (residual bytes carried across a child crash)
+// would surface only as flaky downstream decode failures.
 // ----------------------------------------------------------------------------
 
 describe("ContentLengthParser — chunk-boundary reassembly + rejection paths", () => {
@@ -958,11 +959,11 @@ describe("ContentLengthParser — chunk-boundary reassembly + rejection paths", 
 });
 
 // ----------------------------------------------------------------------------
-// Pair A regression — parser is reset on child exit so the next sidecar
-// does not inherit corrupted buffer state.
+// Parser is reset on child exit so the next sidecar does not inherit
+// corrupted buffer state from the prior child's mid-frame death.
 // ----------------------------------------------------------------------------
 
-describe("RustSidecarPtyHost — parser reset across respawn (Pair A regression)", () => {
+describe("RustSidecarPtyHost — parser reset across respawn", () => {
   it("framing-error self-kill respawns with a fresh parser that decodes a fresh frame correctly", async () => {
     const seq = spawnReturningSequence();
     const clock = vi.fn<() => number>().mockReturnValue(0);
@@ -1059,8 +1060,9 @@ describe("RustSidecarPtyHost — parser reset across respawn (Pair A regression)
     seq.latest().writeStdout(Buffer.from("Content-Length: 27\r", "utf8"));
     await flushMicrotasks();
 
-    // Crash the child. handleChildExit MUST reset the parser (POLISH-
-    // adjacent fix from Pair A) so the residual bytes are discarded.
+    // Crash the child. handleChildExit MUST reset the parser so the
+    // residual bytes are discarded; otherwise the next sidecar would
+    // start decoding into the prior child's half-buffered header.
     clock.mockReturnValue(100);
     seq.latest().triggerExit(1, null);
     await flushMicrotasks();
@@ -1084,8 +1086,10 @@ describe("RustSidecarPtyHost — parser reset across respawn (Pair A regression)
 });
 
 // ----------------------------------------------------------------------------
-// Pair B regression — typed error response rejects the awaiting Promise
-// (no indefinite hang on the close-races-natural-exit shape).
+// Typed error response rejects the awaiting Promise — no indefinite hang
+// on the close-races-natural-exit shape (kill_request arrives after the
+// sidecar's child has already exited; sidecar replies with a typed error
+// rather than the success-shape the daemon was awaiting).
 // ----------------------------------------------------------------------------
 
 describe("RustSidecarPtyHost — sync throw on truly-unknown sessionId (NodePtyHost parity)", () => {
@@ -1129,16 +1133,15 @@ describe("RustSidecarPtyHost — sync throw on truly-unknown sessionId (NodePtyH
   });
 });
 
-describe("RustSidecarPtyHost — wire-side error response rejects awaiting Promise (Pair B regression)", () => {
+describe("RustSidecarPtyHost — wire-side error response rejects awaiting Promise", () => {
   it("kill on a known session that the sidecar has already removed rejects with a typed error (no indefinite hang)", async () => {
-    // The race the Pair B ACTIONABLE pinned: daemon issued a close()
-    // which dispatches a kill_request{SIGTERM}, sidecar's child
-    // exited naturally microseconds before the request arrived, the
-    // sidecar's registry returns UnknownSession, and the dispatcher
-    // emits a typed error response (kill_response with error: Some).
-    // The daemon-side resolveOutstanding MUST reject the awaiting
-    // Promise; without the fix the Promise would sit in `outstanding`
-    // forever.
+    // The race pinned here: daemon issued a close() which dispatches a
+    // kill_request{SIGTERM}, sidecar's child exited naturally
+    // microseconds before the request arrived, the sidecar's registry
+    // returns UnknownSession, and the dispatcher emits a typed error
+    // response (kill_response with error: Some). The daemon-side
+    // resolveOutstanding MUST reject the awaiting Promise; without the
+    // fix the Promise would sit in `outstanding` forever.
     const fake = makeFakeChild();
     const host = new RustSidecarPtyHost({
       resolveBinaryPath: () => "/fake/sidecar",
@@ -1362,10 +1365,12 @@ describe("RustSidecarPtyHost — close() lifecycle", () => {
 });
 
 // ----------------------------------------------------------------------------
-// POLISH 3 — data_frame fan-out is gated on session presence.
+// data_frame fan-out is gated on session presence — late frames for a
+// closed session are dropped silently rather than fanned out to a stale
+// listener (mirrors `node-pty-host.ts`'s close-time subscription disposal).
 // ----------------------------------------------------------------------------
 
-describe("RustSidecarPtyHost — data_frame fan-out gating (POLISH 3)", () => {
+describe("RustSidecarPtyHost — data_frame fan-out gating", () => {
   it("does NOT call the data listener for a session that has been close()d", async () => {
     // Mirrors `node-pty-host.ts`'s close-time subscription disposal.
     // A DataFrame for a closed session is consumer-meaningless; drop
@@ -1420,11 +1425,12 @@ describe("RustSidecarPtyHost — data_frame fan-out gating (POLISH 3)", () => {
 });
 
 // ----------------------------------------------------------------------------
-// POLISH 7 — dual error+exit events on the same child do not double-count
-// the crash budget.
+// Dual error+exit events on the same child do not double-count the crash
+// budget — Node's `child_process` can emit both signals for the same
+// failed child (rare spawn-then-crash-mid-init edge case).
 // ----------------------------------------------------------------------------
 
-describe("RustSidecarPtyHost — dual error+exit events do not double-charge the crash budget (POLISH 7)", () => {
+describe("RustSidecarPtyHost — dual error+exit events do not double-charge the crash budget", () => {
   it("emits both 'error' and 'exit' for the same child; budget is consumed exactly once", async () => {
     // Node's `child_process` can in rare edge cases emit BOTH error
     // and exit for the same failed child (spawn synchronously OK,
@@ -1744,9 +1750,9 @@ describe("resolveSidecarBinaryPath — four-tier binary resolution (F-024-3-03)"
   });
 
   it("tier 3/4 default paths land inside packages/sidecar-rust-pty/target/{release,debug}/ (pins workspaceTargetPath ascent depth)", () => {
-    // POLISH 1 regression — the prior nine resolver tests all hardcode
-    // `releasePath` / `debugPath` via `makeOpts`, which short-circuits
-    // the production-side `workspaceTargetPath` ascent (the four-up
+    // The other resolver tests hardcode `releasePath` / `debugPath` via
+    // `makeOpts`, which short-circuits the production-side
+    // `workspaceTargetPath` ascent (the four-up
     // `../../../sidecar-rust-pty/target/...` off `import.meta.url`).
     // A regression that miscounts the depth (e.g., "fixes" the post-
     // build `dist/` resolution and changes `../../../` to `../../`)
@@ -1808,14 +1814,15 @@ describe("resolveSidecarBinaryPath — four-tier binary resolution (F-024-3-03)"
 
 // ----------------------------------------------------------------------------
 // `RustSidecarPtyHost.ensureChild` — preserves resolver-thrown
-// PtyBackendUnavailableError instead of wrapping it (POLISH 2).
+// PtyBackendUnavailableError instead of wrapping it.
 //
 // The resolver emits a tier-enumerated `details.message` and a tier-2
 // `details.cause` on the four-exhausted path. `ensureChild`'s catch must
 // re-throw an instance of `PtyBackendUnavailableError` unchanged so the
 // operator-grade diagnostic surfaces directly — without the guard, the
 // original error would be buried two levels deep in `details.cause.message`
-// and `details.cause.details.cause`.
+// and `details.cause.details.cause`. Mirrors the canonical guard pattern
+// at `pty-host-selector.ts:251`.
 //
 // The existing test at the top of the file ("surfaces PtyBackendUnavailableError
 // when resolveBinaryPath throws") only stubs the resolver to throw a plain
@@ -1823,7 +1830,7 @@ describe("resolveSidecarBinaryPath — four-tier binary resolution (F-024-3-03)"
 // PASSTHROUGH branch.
 // ----------------------------------------------------------------------------
 
-describe("RustSidecarPtyHost — ensureChild preserves resolver-thrown PtyBackendUnavailableError (POLISH 2)", () => {
+describe("RustSidecarPtyHost — ensureChild preserves resolver-thrown PtyBackendUnavailableError", () => {
   it("re-throws the resolver's PtyBackendUnavailableError unchanged (same instance, original message intact)", async () => {
     // Build a resolver-thrown error with a recognizable tier-enumerated
     // shape. The supervisor's `ensureChild` MUST surface this instance

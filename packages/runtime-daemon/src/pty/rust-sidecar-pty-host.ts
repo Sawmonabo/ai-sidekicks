@@ -1176,9 +1176,8 @@ export class RustSidecarPtyHost implements PtyHost {
     // Exit: clear the child reference so the next request triggers a
     // respawn; consume the crash budget. Pass the child reference so
     // the handler can dedupe budget consumption when both `error` and
-    // `exit` fire for the same failed child (POLISH 7 — Node's
-    // `child_process` can emit both in rare spawn-then-crash-mid-init
-    // edge cases).
+    // `exit` fire for the same failed child — Node's `child_process`
+    // can emit both in rare spawn-then-crash-mid-init edge cases.
     child.on("exit", (code: number | null, signal: string | null) => {
       this.handleChildExit(child, code, signal);
     });
