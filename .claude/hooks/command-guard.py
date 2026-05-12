@@ -51,35 +51,11 @@ ASK_PATTERNS = [
 
 _WORKTREE_ALLOWED_DIR = ".worktrees"
 _WORKTREE_FLAGS_WITH_ARG = {"-b", "-B", "--reason"}
-
-# Git global options that go BEFORE the subcommand. `git -h` documents these
-# as accepted between `git` and `<command>`; we must skip them when scanning
-# for `worktree add|move`, otherwise `git -C <path> worktree add ...` bypasses
-# the guard.
-_GIT_GLOBAL_FLAGS_WITH_ARG = {
-    "-C",
-    "-c",
-    "--exec-path",
-    "--git-dir",
-    "--work-tree",
-    "--namespace",
-}
-_GIT_GLOBAL_BOOL_FLAGS = {
-    "-p",
-    "--paginate",
-    "--no-pager",
-    "--no-replace-objects",
-    "--bare",
-    "--html-path",
-    "--man-path",
-    "--info-path",
-    "--literal-pathspecs",
-    "--glob-pathspecs",
-    "--noglob-pathspecs",
-    "--icase-pathspecs",
-    "--no-optional-locks",
-}
-_SHELL_SEPARATORS = ("&&", "||", ";", "|")
+# Only `-C` and `-c` take a separate-token arg in git's documented globals;
+# every other global is either a bool or uses the `--flag=value` form (single
+# token after shlex.split).
+_GIT_GLOBAL_WITH_SEP_ARG = {"-C", "-c"}
+_SHELL_OPS = frozenset({"&&", "||", ";", "|", "&", "(", ")"})
 
 
 def _repo_root():
@@ -108,27 +84,81 @@ def _resolve_path(target, base_cwd):
     return os.path.normpath(os.path.join(base_cwd, target))
 
 
+def _normalize_shell_operators(command):
+    """Insert whitespace around shell control operators outside quoted strings,
+    so `shlex.split` tokenizes them as standalone separators. Without this,
+    `cd /tmp;git worktree add ...` produces a glued `/tmp;git` token."""
+    out = []
+    i = 0
+    in_single = False
+    in_double = False
+    n = len(command)
+    while i < n:
+        c = command[i]
+        if c == "'" and not in_double:
+            in_single = not in_single
+            out.append(c)
+            i += 1
+            continue
+        if c == '"' and not in_single:
+            in_double = not in_double
+            out.append(c)
+            i += 1
+            continue
+        if in_single or in_double:
+            out.append(c)
+            i += 1
+            continue
+        if command[i : i + 2] in ("&&", "||"):
+            out.append(" " + command[i : i + 2] + " ")
+            i += 2
+            continue
+        if c in ";|&()":
+            out.append(" " + c + " ")
+            i += 1
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
+def _has_unquoted_subshell(command):
+    """Detect `$(` or backtick outside quoted strings — both are command
+    substitution and indicate complex shell shape that we refuse to parse."""
+    in_single = False
+    in_double = False
+    i = 0
+    while i < len(command):
+        c = command[i]
+        if c == "'" and not in_double:
+            in_single = not in_single
+        elif c == '"' and not in_single:
+            in_double = not in_double
+        elif not in_single and not in_double:
+            if c == "`":
+                return True
+            if c == "$" and i + 1 < len(command) and command[i + 1] == "(":
+                return True
+        i += 1
+    return False
+
+
 def _consume_git_globals(tokens, start_idx):
-    """Skip git global options after `git`; return (next_idx, override_cwd or None)."""
+    """Consume git global options after `git`. Permissive about unknown flags:
+    any leading `-X` or `--flag[=value]` is treated as a no-arg global unless
+    it's a known with-separated-arg flag (`-C`, `-c`)."""
     i = start_idx
     override_cwd = None
     while i < len(tokens):
         tok = tokens[i]
-        if tok.startswith("--") and "=" in tok:
-            key = tok.split("=", 1)[0]
-            if key in _GIT_GLOBAL_FLAGS_WITH_ARG or key in _GIT_GLOBAL_BOOL_FLAGS:
-                i += 1
-                continue
+        if not tok.startswith("-"):
             break
-        if tok in _GIT_GLOBAL_FLAGS_WITH_ARG:
+        if tok in _GIT_GLOBAL_WITH_SEP_ARG:
             if tok == "-C" and i + 1 < len(tokens):
                 override_cwd = tokens[i + 1]
             i += 2
             continue
-        if tok in _GIT_GLOBAL_BOOL_FLAGS:
-            i += 1
-            continue
-        break
+        i += 1
     return i, override_cwd
 
 
@@ -140,8 +170,6 @@ def _extract_worktree_target(args, subcmd):
         if skip_next:
             skip_next = False
             continue
-        if tok in _SHELL_SEPARATORS:
-            break
         if tok in _WORKTREE_FLAGS_WITH_ARG:
             skip_next = True
             continue
@@ -157,84 +185,96 @@ def _extract_worktree_target(args, subcmd):
     return None
 
 
+def _build_shape_deny():
+    return (
+        "git worktree add/move must run directly from the repo root as a "
+        "single command — no leading commands, no chains (`;`, `&&`, `||`, `|`, `&`), "
+        "no subshells, no command substitution. "
+        "Retry with `git worktree add .worktrees/<name> -b worktree-<name>` "
+        "(or `git worktree move ...`) as the entire command."
+    )
+
+
 def _check_worktree_path(command):
     """
-    Mini-shell walker: track effective cwd through `cd <path>` and `git -C <path>`,
-    then check every `git worktree add|move` target against `<repo_root>/.worktrees/`.
+    Strict-shape check for `git worktree add|move`.
 
-    Fails open on parse errors and outside-git-repo invocations so a parser bug
-    never blocks an otherwise-legitimate Bash call.
+    Required shape (the whole command, no leading commands or chains):
+
+        git [-C <path>]? [other-globals]* worktree (add|move) <target> [flags]*
+
+    When the command mentions `worktree (add|move)` but doesn't match this
+    shape — chains, subshells, command substitution, leading commands —
+    DENY with a teaching message. The threat model is non-adversarial
+    (agent mistakes); forcing the simple shape eliminates whole classes
+    of bypass at once rather than chasing each parser edge case.
+
+    Containment check on <target>: must resolve under <repo_root>/.worktrees/<name>/.
+
+    Fails open on shlex parse errors and outside-git-repo invocations so a
+    parser bug never blocks an otherwise-legitimate Bash call.
     """
+    if not re.search(r"\bworktree\b", command, re.IGNORECASE):
+        return None
+
+    if _has_unquoted_subshell(command):
+        return _build_shape_deny()
+
+    normalized = _normalize_shell_operators(command)
     try:
-        tokens = shlex.split(command)
+        tokens = shlex.split(normalized)
     except ValueError:
         return None
+
+    has_worktree_op = False
+    for i in range(len(tokens) - 1):
+        if tokens[i].lower() == "worktree" and tokens[i + 1].lower() in ("add", "move"):
+            has_worktree_op = True
+            break
+    if not has_worktree_op:
+        return None
+
+    if any(t in _SHELL_OPS for t in tokens):
+        return _build_shape_deny()
+
+    if not tokens or tokens[0].lower() != "git":
+        return _build_shape_deny()
+
+    j, override_cwd = _consume_git_globals(tokens, 1)
+    if j >= len(tokens) or tokens[j].lower() != "worktree":
+        return _build_shape_deny()
+    if j + 1 >= len(tokens) or tokens[j + 1].lower() not in ("add", "move"):
+        return None  # git worktree list / lock / etc. — not our target
+
+    subcmd = tokens[j + 1].lower()
+    target = _extract_worktree_target(tokens[j + 2 :], subcmd)
+    if target is None:
+        return None  # git will reject malformed input itself
 
     repo_root = _repo_root()
     if repo_root is None:
         return None
 
     allowed = os.path.normpath(os.path.join(repo_root, _WORKTREE_ALLOWED_DIR))
-    effective_cwd = repo_root
+    effective_cwd = (
+        _resolve_path(override_cwd, repo_root) if override_cwd else repo_root
+    )
+    abs_target = _resolve_path(target, effective_cwd)
 
-    i = 0
-    while i < len(tokens):
-        tok = tokens[i]
-
-        # `cd <path>` updates effective cwd; bare `cd` is treated as no-op.
-        if (
-            tok == "cd"
-            and i + 1 < len(tokens)
-            and tokens[i + 1] not in _SHELL_SEPARATORS
-        ):
-            effective_cwd = _resolve_path(tokens[i + 1], effective_cwd)
-            i += 2
-            continue
-
-        if tok in _SHELL_SEPARATORS:
-            i += 1
-            continue
-
-        if tok == "git":
-            j, override_cwd = _consume_git_globals(tokens, i + 1)
-            git_cwd = (
-                _resolve_path(override_cwd, effective_cwd)
-                if override_cwd
-                else effective_cwd
-            )
-
-            if (
-                j + 1 < len(tokens)
-                and tokens[j].lower() == "worktree"
-                and tokens[j + 1].lower() in ("add", "move")
-            ):
-                subcmd = tokens[j + 1].lower()
-                target = _extract_worktree_target(tokens[j + 2 :], subcmd)
-                if target is not None:
-                    abs_target = _resolve_path(target, git_cwd)
-                    if abs_target == allowed:
-                        return (
-                            "Worktree path must include a <name> subdirectory; "
-                            "use `.worktrees/<name>` instead of `.worktrees`."
-                        )
-                    if not abs_target.startswith(allowed + os.sep):
-                        retry = f"git worktree {subcmd} .worktrees/<name>"
-                        if subcmd == "add":
-                            retry += " -b worktree-<name>"
-                        return (
-                            f"Worktrees must live under .worktrees/<name>/ at the repo root "
-                            f"(target '{target}' resolves outside .worktrees/). "
-                            f"Retry with `{retry}`."
-                        )
-
-            # Advance past this git invocation up to the next separator.
-            i = j + 1
-            while i < len(tokens) and tokens[i] not in _SHELL_SEPARATORS:
-                i += 1
-            continue
-
-        i += 1
-
+    if abs_target == allowed:
+        return (
+            "Worktree path must include a <name> subdirectory; "
+            "use `.worktrees/<name>` instead of `.worktrees`."
+        )
+    if not abs_target.startswith(allowed + os.sep):
+        retry = f"git worktree {subcmd} .worktrees/<name>"
+        if subcmd == "add":
+            retry += " -b worktree-<name>"
+        return (
+            f"Worktrees must live under .worktrees/<name>/ at the repo root "
+            f"(target '{target}' resolves outside .worktrees/). "
+            f"Retry with `{retry}`."
+        )
     return None
 
 
