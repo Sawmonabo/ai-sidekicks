@@ -6,8 +6,20 @@
 
 use std::io::ErrorKind;
 
-use sidecar_rust_pty::framing::{read_frame, write_frame, MAX_FRAME_BODY_BYTES};
+use sidecar_rust_pty::framing::{read_frame, write_frame, FrameReadOutcome, MAX_FRAME_BODY_BYTES};
 use tokio::io::BufReader;
+
+/// Helper: unwrap [`FrameReadOutcome::Frame`] or panic. Tests that want
+/// to inspect a `CleanEof` outcome should match on the variant directly
+/// rather than going through this helper.
+fn expect_frame(outcome: FrameReadOutcome) -> Vec<u8> {
+    match outcome {
+        FrameReadOutcome::Frame(body) => body,
+        FrameReadOutcome::CleanEof => {
+            panic!("expected FrameReadOutcome::Frame, got CleanEof")
+        }
+    }
+}
 
 /// Helper: write `body` via `write_frame` into a Vec, then read it back
 /// via `read_frame`. Returns the recovered body.
@@ -18,9 +30,10 @@ async fn round_trip(body: &[u8]) -> Vec<u8> {
         .expect("write_frame should succeed");
 
     let mut reader = BufReader::new(&buf[..]);
-    read_frame(&mut reader)
+    let outcome = read_frame(&mut reader)
         .await
-        .expect("read_frame should succeed")
+        .expect("read_frame should succeed");
+    expect_frame(outcome)
 }
 
 #[tokio::test]
@@ -167,9 +180,11 @@ async fn read_accepts_case_insensitive_content_length() {
     bytes.extend_from_slice(header);
     bytes.extend_from_slice(body);
     let mut reader = BufReader::new(&bytes[..]);
-    let recovered = read_frame(&mut reader)
-        .await
-        .expect("lowercase header should be accepted");
+    let recovered = expect_frame(
+        read_frame(&mut reader)
+            .await
+            .expect("lowercase header should be accepted"),
+    );
     assert_eq!(recovered, body);
 }
 
@@ -185,9 +200,11 @@ async fn read_accepts_extra_headers_and_ignores_them() {
     bytes.extend_from_slice(header);
     bytes.extend_from_slice(body);
     let mut reader = BufReader::new(&bytes[..]);
-    let recovered = read_frame(&mut reader)
-        .await
-        .expect("auxiliary headers should be ignored, not rejected");
+    let recovered = expect_frame(
+        read_frame(&mut reader)
+            .await
+            .expect("auxiliary headers should be ignored, not rejected"),
+    );
     assert_eq!(recovered, body);
 }
 
@@ -227,8 +244,8 @@ async fn read_two_back_to_back_frames() {
     write_frame(&mut buf, body_b).await.expect("write B");
 
     let mut reader = BufReader::new(&buf[..]);
-    let got_a = read_frame(&mut reader).await.expect("read A");
-    let got_b = read_frame(&mut reader).await.expect("read B");
+    let got_a = expect_frame(read_frame(&mut reader).await.expect("read A"));
+    let got_b = expect_frame(read_frame(&mut reader).await.expect("read B"));
     assert_eq!(got_a, body_a);
     assert_eq!(got_b, body_b);
 }
@@ -277,4 +294,133 @@ async fn read_rejects_over_cap_header_line() {
         .await
         .expect_err("read_frame should reject over-cap header line");
     assert_eq!(err.kind(), ErrorKind::InvalidData);
+}
+
+// --------------------------------------------------------------------------
+// `FrameReadOutcome::CleanEof` vs `Err(UnexpectedEof)` taxonomy.
+//
+// The dispatcher distinguishes "daemon closed stdin between frames"
+// (graceful shutdown — exit 0) from "stream truncated mid-frame"
+// (transport corruption — exit non-zero, trip crash budget). These
+// tests pin the boundary case-by-case so a regression that re-conflates
+// them surfaces immediately. See `framing::FrameReadOutcome` rustdoc
+// and `main.rs::run_dispatcher`'s error-handling philosophy block.
+// --------------------------------------------------------------------------
+
+#[tokio::test]
+async fn read_frame_returns_clean_eof_at_frame_boundary() {
+    // No bytes available at all — the stream closes before ANY header
+    // bytes are consumed for the next frame. This is the graceful-
+    // shutdown signal: the daemon closed stdin between frames.
+    let bytes: Vec<u8> = Vec::new();
+    let mut reader = BufReader::new(&bytes[..]);
+    let outcome = read_frame(&mut reader)
+        .await
+        .expect("empty reader at frame boundary must NOT be an error");
+    match outcome {
+        FrameReadOutcome::CleanEof => {}
+        FrameReadOutcome::Frame(body) => {
+            panic!("expected CleanEof at empty boundary, got Frame({body:?})")
+        }
+    }
+}
+
+#[tokio::test]
+async fn read_frame_returns_clean_eof_after_complete_frame() {
+    // First call returns a complete frame; second call (with the
+    // reader fully drained) returns CleanEof. This is the canonical
+    // shape of "daemon sent one frame, then closed cleanly."
+    let mut buf: Vec<u8> = Vec::new();
+    write_frame(&mut buf, b"hello").await.expect("write_frame");
+
+    let mut reader = BufReader::new(&buf[..]);
+    let first = read_frame(&mut reader).await.expect("first frame");
+    match first {
+        FrameReadOutcome::Frame(body) => assert_eq!(body, b"hello"),
+        FrameReadOutcome::CleanEof => {
+            panic!("expected Frame on first call, got CleanEof")
+        }
+    }
+    let second = read_frame(&mut reader)
+        .await
+        .expect("second read at frame boundary must NOT be an error");
+    match second {
+        FrameReadOutcome::CleanEof => {}
+        FrameReadOutcome::Frame(body) => {
+            panic!("expected CleanEof after complete frame, got Frame({body:?})")
+        }
+    }
+}
+
+#[tokio::test]
+async fn read_frame_returns_err_on_mid_header_truncation() {
+    // Stream supplies a Content-Length header line (n > 0 → boundary
+    // flipped to false) but closes before the empty CRLF terminator.
+    // This is the post-flip mid-header truncation path — distinct
+    // from the boundary-EOF clean-shutdown shape.
+    let bytes = b"Content-Length: 5\r\n".to_vec();
+    let mut reader = BufReader::new(&bytes[..]);
+    let err = read_frame(&mut reader)
+        .await
+        .expect_err("mid-header truncation must surface as Err, NOT CleanEof");
+    assert_eq!(err.kind(), ErrorKind::UnexpectedEof);
+    let msg = format!("{err}");
+    assert!(
+        msg.contains("mid-header-block"),
+        "error message should identify mid-header truncation, got: {msg}"
+    );
+}
+
+#[tokio::test]
+async fn read_frame_returns_err_on_mid_body_truncation() {
+    // Header advertises 10 bytes; only 5 are supplied. read_exact
+    // surfaces the truncation as UnexpectedEof. Distinct from the
+    // CleanEof case because we have already started consuming bytes
+    // for this frame.
+    //
+    // Additionally pin the diagnostic shape: the `read_exact` error is
+    // wrapped with declared-length context so an operator triaging a
+    // framing fault from sidecar stderr sees `mid-body (declared N
+    // bytes)` parity with the mid-header arm's `mid-header-block`
+    // message. Without the wrap, std would surface the bare "failed
+    // to fill whole buffer" message — actionable kind, opaque text.
+    let mut bytes = b"Content-Length: 10\r\n\r\n".to_vec();
+    bytes.extend_from_slice(b"short");
+    let mut reader = BufReader::new(&bytes[..]);
+    let err = read_frame(&mut reader)
+        .await
+        .expect_err("mid-body truncation must surface as Err, NOT CleanEof");
+    assert_eq!(err.kind(), ErrorKind::UnexpectedEof);
+    let msg = format!("{err}");
+    assert!(
+        msg.contains("mid-body"),
+        "error message should identify mid-body truncation, got: {msg}"
+    );
+    assert!(
+        msg.contains("10"),
+        "error message should include the declared body length (10), got: {msg}"
+    );
+}
+
+#[tokio::test]
+async fn read_frame_returns_err_on_partial_header_line_then_close() {
+    // Stream supplies partial bytes (no CRLF terminator on the line)
+    // and closes. The first `read_line` returns the partial line
+    // (n > 0 → boundary flipped to false), then the CRLF check fires
+    // and rejects with InvalidData. Importantly, this is NOT
+    // misclassified as CleanEof — the n > 0 path took us off the
+    // boundary even though the stream then ended on the next read.
+    let bytes = b"Content-Le".to_vec();
+    let mut reader = BufReader::new(&bytes[..]);
+    let err = read_frame(&mut reader)
+        .await
+        .expect_err("partial-header-line-then-close must NOT be CleanEof");
+    // The CRLF check fires before the boundary-EOF arm — InvalidData
+    // is the load-bearing assertion (we MUST NOT return CleanEof for
+    // this shape; the specific error kind is secondary).
+    assert!(
+        err.kind() == ErrorKind::InvalidData || err.kind() == ErrorKind::UnexpectedEof,
+        "partial-header-line-then-close must surface as InvalidData or UnexpectedEof, got {:?}: {err}",
+        err.kind(),
+    );
 }

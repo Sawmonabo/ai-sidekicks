@@ -72,8 +72,63 @@ fn round_trip_spawn_request_non_ascii_utf8() {
 fn round_trip_spawn_response() {
     let envelope = Envelope::SpawnResponse(SpawnResponse {
         session_id: "01900000-0000-7000-8000-000000000001".to_string(),
+        error: None,
     });
     assert_eq!(round_trip(&envelope), envelope);
+}
+
+/// Pins the populated-error round-trip path for `SpawnResponse`. On the
+/// failure path the dispatcher emits `session_id: ""` because no session
+/// was minted; the typed `error` carries the `portable-pty` failure
+/// message back to the daemon's awaiting Promise.
+#[test]
+fn round_trip_spawn_response_with_error() {
+    let envelope = Envelope::SpawnResponse(SpawnResponse {
+        session_id: String::new(),
+        error: Some("portable-pty error: No such file or directory (os error 2)".to_string()),
+    });
+    assert_eq!(round_trip(&envelope), envelope);
+}
+
+/// Symmetric to `kill_response_error_none_is_absent_on_wire`. Pins the
+/// same absent-on-wire shape for `SpawnResponse` — protects the TS
+/// mirror's `error?: string` narrowing under
+/// `exactOptionalPropertyTypes`.
+#[test]
+fn spawn_response_error_none_is_absent_on_wire() {
+    let envelope = Envelope::SpawnResponse(SpawnResponse {
+        session_id: "s-1".to_string(),
+        error: None,
+    });
+    let json: Value = serde_json::to_value(&envelope).expect("serialize to value");
+    assert!(
+        !json
+            .as_object()
+            .expect("envelope must serialize as JSON object")
+            .contains_key("error"),
+        "error key MUST be absent on the wire when None (got {json})"
+    );
+}
+
+/// Pins backward-compat deserialization for `SpawnResponse`: a payload
+/// OMITTING the `error` field (the wire shape an older sidecar would
+/// have emitted before the SpawnResponse contract bump) MUST deserialize
+/// to `error: None`. The `#[serde(default, ...)]` attribute provides
+/// this; the test guards against a future refactor that drops `default`.
+#[test]
+fn spawn_response_without_error_field_deserializes_to_none() {
+    let raw = json!({
+        "kind": "spawn_response",
+        "session_id": "s-1",
+    });
+    let envelope: Envelope = serde_json::from_value(raw).expect("deserialize must succeed");
+    match envelope {
+        Envelope::SpawnResponse(resp) => {
+            assert_eq!(resp.session_id, "s-1");
+            assert_eq!(resp.error, None);
+        }
+        other => panic!("expected SpawnResponse, got: {other:?}"),
+    }
 }
 
 #[test]
@@ -90,6 +145,19 @@ fn round_trip_resize_request() {
 fn round_trip_resize_response() {
     let envelope = Envelope::ResizeResponse(ResizeResponse {
         session_id: "s-1".to_string(),
+        error: None,
+    });
+    assert_eq!(round_trip(&envelope), envelope);
+}
+
+/// Pins the populated-error round-trip path. `error: Some(msg)` MUST
+/// serialize as a `"error": "<msg>"` JSON field (string, not null) and
+/// MUST round-trip back to the same `Some(msg)`.
+#[test]
+fn round_trip_resize_response_with_error() {
+    let envelope = Envelope::ResizeResponse(ResizeResponse {
+        session_id: "s-1".to_string(),
+        error: Some("session_id \"s-1\" is not active".to_string()),
     });
     assert_eq!(round_trip(&envelope), envelope);
 }
@@ -107,6 +175,16 @@ fn round_trip_write_request() {
 fn round_trip_write_response() {
     let envelope = Envelope::WriteResponse(WriteResponse {
         session_id: "s-1".to_string(),
+        error: None,
+    });
+    assert_eq!(round_trip(&envelope), envelope);
+}
+
+#[test]
+fn round_trip_write_response_with_error() {
+    let envelope = Envelope::WriteResponse(WriteResponse {
+        session_id: "s-1".to_string(),
+        error: Some("writer for session \"s-1\" has already been taken".to_string()),
     });
     assert_eq!(round_trip(&envelope), envelope);
 }
@@ -134,8 +212,115 @@ fn round_trip_kill_request_each_signal() {
 fn round_trip_kill_response() {
     let envelope = Envelope::KillResponse(KillResponse {
         session_id: "s-1".to_string(),
+        error: None,
     });
     assert_eq!(round_trip(&envelope), envelope);
+}
+
+#[test]
+fn round_trip_kill_response_with_error() {
+    let envelope = Envelope::KillResponse(KillResponse {
+        session_id: "s-1".to_string(),
+        error: Some("session_id \"s-1\" is not active".to_string()),
+    });
+    assert_eq!(round_trip(&envelope), envelope);
+}
+
+/// Pins the absent-on-wire shape of `error: None`. The TS mirror
+/// declares `error?: string` (optional property under
+/// `exactOptionalPropertyTypes`); a future change that flipped the
+/// serializer to emit `"error": null` would break the TS narrowing
+/// (`error !== undefined` becomes true even on success). The
+/// `#[serde(default, skip_serializing_if = "Option::is_none")]`
+/// attribute on the field is the load-bearing wire-shape pin.
+#[test]
+fn kill_response_error_none_is_absent_on_wire() {
+    let envelope = Envelope::KillResponse(KillResponse {
+        session_id: "s-1".to_string(),
+        error: None,
+    });
+    let json: Value = serde_json::to_value(&envelope).expect("serialize to value");
+    assert!(
+        !json
+            .as_object()
+            .expect("envelope must serialize as JSON object")
+            .contains_key("error"),
+        "error key MUST be absent on the wire when None (got {json})"
+    );
+}
+
+/// Symmetric to `kill_response_error_none_is_absent_on_wire`. Pins
+/// the same absent-on-wire shape for `WriteResponse`.
+#[test]
+fn write_response_error_none_is_absent_on_wire() {
+    let envelope = Envelope::WriteResponse(WriteResponse {
+        session_id: "s-1".to_string(),
+        error: None,
+    });
+    let json: Value = serde_json::to_value(&envelope).expect("serialize to value");
+    assert!(
+        !json
+            .as_object()
+            .expect("envelope must serialize as JSON object")
+            .contains_key("error"),
+        "error key MUST be absent on the wire when None (got {json})"
+    );
+}
+
+/// Symmetric to `kill_response_error_none_is_absent_on_wire`. Pins
+/// the same absent-on-wire shape for `ResizeResponse`.
+#[test]
+fn resize_response_error_none_is_absent_on_wire() {
+    let envelope = Envelope::ResizeResponse(ResizeResponse {
+        session_id: "s-1".to_string(),
+        error: None,
+    });
+    let json: Value = serde_json::to_value(&envelope).expect("serialize to value");
+    assert!(
+        !json
+            .as_object()
+            .expect("envelope must serialize as JSON object")
+            .contains_key("error"),
+        "error key MUST be absent on the wire when None (got {json})"
+    );
+}
+
+/// Pins the populated-on-wire shape: `error: Some(msg)` MUST emit
+/// `"error": "<msg>"` (string), not nested or escaped further.
+#[test]
+fn kill_response_error_some_serializes_as_string() {
+    let envelope = Envelope::KillResponse(KillResponse {
+        session_id: "s-1".to_string(),
+        error: Some("session_id \"s-1\" is not active".to_string()),
+    });
+    let json: Value = serde_json::to_value(&envelope).expect("serialize to value");
+    assert_eq!(
+        json["error"],
+        Value::String("session_id \"s-1\" is not active".to_string()),
+        "error Some(msg) must serialize as a JSON string (got {})",
+        json["error"]
+    );
+}
+
+/// Pins backward-compat deserialization: a payload OMITTING the
+/// `error` field (the wire shape an older sidecar would have emitted
+/// before the contract bump) MUST deserialize to `error: None`. The
+/// `#[serde(default, ...)]` attribute provides this; the test guards
+/// against a future refactor that drops `default`.
+#[test]
+fn kill_response_without_error_field_deserializes_to_none() {
+    let raw = json!({
+        "kind": "kill_response",
+        "session_id": "s-1",
+    });
+    let envelope: Envelope = serde_json::from_value(raw).expect("deserialize must succeed");
+    match envelope {
+        Envelope::KillResponse(resp) => {
+            assert_eq!(resp.session_id, "s-1");
+            assert_eq!(resp.error, None);
+        }
+        other => panic!("expected KillResponse, got: {other:?}"),
+    }
 }
 
 #[test]
@@ -324,6 +509,7 @@ fn envelope_kind_is_top_level_snake_case() {
         (
             Envelope::SpawnResponse(SpawnResponse {
                 session_id: "s-1".to_string(),
+                error: None,
             }),
             "spawn_response",
         ),
@@ -338,6 +524,7 @@ fn envelope_kind_is_top_level_snake_case() {
         (
             Envelope::ResizeResponse(ResizeResponse {
                 session_id: "s-1".to_string(),
+                error: None,
             }),
             "resize_response",
         ),
@@ -351,6 +538,7 @@ fn envelope_kind_is_top_level_snake_case() {
         (
             Envelope::WriteResponse(WriteResponse {
                 session_id: "s-1".to_string(),
+                error: None,
             }),
             "write_response",
         ),
@@ -364,6 +552,7 @@ fn envelope_kind_is_top_level_snake_case() {
         (
             Envelope::KillResponse(KillResponse {
                 session_id: "s-1".to_string(),
+                error: None,
             }),
             "kill_response",
         ),

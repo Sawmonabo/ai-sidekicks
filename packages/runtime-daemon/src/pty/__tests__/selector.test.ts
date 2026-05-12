@@ -1,17 +1,25 @@
 // Tests for `selectPtyHost` — `AIS_PTY_BACKEND` env-var grammar and
-// the Phase 2 platform-default contract.
+// the Phase 3 platform-default contract.
 //
 // What we assert (Plan-024 §Implementation Step 9 + F-024-2-07)
 // -------------------------------------------------------------
 //
 //   * Default platform (env unset) → `NodePtyHost` on every platform
-//     (win32 / darwin / linux). The Phase 2 contract is "always
-//     NodePtyHost regardless of platform" — the platform-branch flip
-//     is Phase 5 work.
+//     (win32 / darwin / linux). Phase 3 keeps the Phase 2 contract
+//     of "always NodePtyHost regardless of platform" — the platform-
+//     branch flip is Phase 5 work.
 //   * `AIS_PTY_BACKEND="node-pty"` → `NodePtyHost`, NO warn.
-//   * `AIS_PTY_BACKEND="rust-sidecar"` → throws `Error` whose message
-//     mentions "not yet wired" + Phase 3. NO warn (this is a hard
-//     error, not a fallback).
+//   * `AIS_PTY_BACKEND="rust-sidecar"` (Phase 3 wiring):
+//       - returns the `RustSidecarPtyHost` from
+//         `createRustSidecarPtyHost` factory when the factory
+//         resolves cleanly. NO warn (this is the explicit-opt-in
+//         path, not the fallback path).
+//       - rethrows `PtyBackendUnavailableError` when the factory
+//         throws `PtyBackendUnavailableError` directly (preserves
+//         original `details.cause`).
+//       - wraps an unknown thrown value as `PtyBackendUnavailableError`
+//         so the consumer always observes the structured shape rather
+//         than the raw spawn errno.
 //   * Unrecognized values (mixed-case `"Rust-Sidecar"`, typo
 //     `"sidecar"`, typo `"rust"`, empty string `""`, generic typo
 //     `"invalid"`) → fall back to platform default AND warn fires
@@ -20,11 +28,11 @@
 //
 // Why this runs on every platform — `selectPtyHost`'s production
 // dependencies (the env-var reader, the warn sink, the `NodePtyHost`
-// factory) are all reachable through `PtyHostSelectorDeps`. The test
-// injects `vi.fn()` doubles and a sentinel value for the
-// `createNodePtyHost` factory; no real `process.env` is mutated, no
-// real `console.warn` is invoked, and `NodePtyHost`'s lazy `node-pty`
-// loader is never reached.
+// factory, the `RustSidecarPtyHost` factory) are all reachable
+// through `PtyHostSelectorDeps`. The test injects `vi.fn()` doubles
+// and sentinel values for both factories; no real `process.env` is
+// mutated, no real `console.warn` is invoked, neither real backend's
+// lazy loaders are reached, and no real sidecar binary is spawned.
 //
 // Refs: Plan-024 §Implementation Step 9, §F-024-2-02, §F-024-2-07;
 // ADR-019 §Decision item 1.
@@ -34,8 +42,10 @@ import type { Mock } from "vitest";
 
 import { selectPtyHost } from "../pty-host-selector.js";
 import type { PtyHostSelectorDeps } from "../pty-host-selector.js";
+import { PtyBackendUnavailableError } from "../rust-sidecar-pty-host.js";
 
 import type { PtyHost } from "@ai-sidekicks/contracts";
+import { PTY_BACKEND_UNAVAILABLE_CODE } from "@ai-sidekicks/contracts";
 
 // ----------------------------------------------------------------------------
 // Test fixtures — sentinel host + deps factory
@@ -51,10 +61,22 @@ import type { PtyHost } from "@ai-sidekicks/contracts";
  */
 const NODE_PTY_SENTINEL: PtyHost = { kind: "NodePtyHost-mock" } as unknown as PtyHost;
 
+/**
+ * Sentinel value standing in for a real `RustSidecarPtyHost`. Same
+ * shape rationale as `NODE_PTY_SENTINEL` — identity test, no
+ * behavior. Avoids spawning a real sidecar binary in the selector
+ * tests; the supervisor itself has its own dedicated test suite at
+ * `rust-sidecar-pty-host.test.ts`.
+ */
+const RUST_SIDECAR_SENTINEL: PtyHost = {
+  kind: "RustSidecarPtyHost-mock",
+} as unknown as PtyHost;
+
 interface SelectorTestCtx {
   readEnv: Mock<() => string | undefined>;
   warn: Mock<(message: string) => void>;
   createNodePtyHost: Mock<() => PtyHost>;
+  createRustSidecarPtyHost: Mock<() => PtyHost>;
 }
 
 /**
@@ -65,11 +87,17 @@ interface SelectorTestCtx {
  *   * readEnv returns `undefined` (env not set).
  *   * warn is a recorded `vi.fn()`.
  *   * createNodePtyHost returns `NODE_PTY_SENTINEL`.
+ *   * createRustSidecarPtyHost returns `RUST_SIDECAR_SENTINEL`.
+ *
+ * `rustSidecarFactory` override (Phase 3 addition): tests that need
+ * the rust-sidecar factory to throw inject a custom function via
+ * this override instead of the default sentinel-returning stub.
  */
 function buildDeps(
   overrides: {
     readonly platform?: NodeJS.Platform;
     readonly envValue?: string | undefined;
+    readonly rustSidecarFactory?: () => PtyHost;
   } = {},
 ): { ctx: SelectorTestCtx; deps: Partial<PtyHostSelectorDeps> } {
   const readEnv: Mock<() => string | undefined> = vi
@@ -79,13 +107,23 @@ function buildDeps(
   const createNodePtyHost: Mock<() => PtyHost> = vi
     .fn<() => PtyHost>()
     .mockReturnValue(NODE_PTY_SENTINEL);
+  const createRustSidecarPtyHost: Mock<() => PtyHost> =
+    overrides.rustSidecarFactory !== undefined
+      ? vi.fn<() => PtyHost>().mockImplementation(overrides.rustSidecarFactory)
+      : vi.fn<() => PtyHost>().mockReturnValue(RUST_SIDECAR_SENTINEL);
 
-  const ctx: SelectorTestCtx = { readEnv, warn, createNodePtyHost };
+  const ctx: SelectorTestCtx = {
+    readEnv,
+    warn,
+    createNodePtyHost,
+    createRustSidecarPtyHost,
+  };
   const deps: Partial<PtyHostSelectorDeps> = {
     platform: overrides.platform ?? "linux",
     readEnv,
     warn,
     createNodePtyHost,
+    createRustSidecarPtyHost,
   };
   return { ctx, deps };
 }
@@ -160,40 +198,134 @@ describe("selectPtyHost — AIS_PTY_BACKEND=node-pty", () => {
   });
 });
 
-describe("selectPtyHost — AIS_PTY_BACKEND=rust-sidecar (Phase 2 unimplemented branch)", () => {
-  it("throws Error with 'not yet wired' message and does NOT warn", () => {
+describe("selectPtyHost — AIS_PTY_BACKEND=rust-sidecar (Phase 3 wiring)", () => {
+  it("returns the RustSidecarPtyHost from the factory and does NOT warn", () => {
+    // Phase 3 wiring (per Plan-024 §Implementation Step 9 lines 123–
+    // 126 + F-024-2-02): the env-var IS honored, and the
+    // rust-sidecar branch routes through the factory rather than
+    // throwing. The previous Phase 2 "not yet wired" assertion is
+    // replaced by this round-trip identity check.
     const { ctx, deps } = buildDeps({ envValue: "rust-sidecar" });
 
-    expect(() => selectPtyHost(deps)).toThrow(/not yet wired/);
+    const host = selectPtyHost(deps);
 
-    // The throw is the load-bearing assertion per F-024-2-02 and the
-    // T-024-2-3 brief — selecting `rust-sidecar` at Phase 2 must be a
-    // hard error, not a silent fallback. The warn sink is reserved for
-    // the unrecognized-value fallback path; it MUST NOT fire here.
+    expect(host).toBe(RUST_SIDECAR_SENTINEL);
+    expect(ctx.createRustSidecarPtyHost).toHaveBeenCalledTimes(1);
+    // Explicit recognized value — NO warn (this is the explicit-opt-
+    // in path, not the fallback path). Mirrors the node-pty arm.
     expect(ctx.warn).not.toHaveBeenCalled();
-    // We also MUST NOT have constructed a NodePtyHost — the throw
-    // happens before the factory is consulted.
+    // We also MUST NOT have constructed a NodePtyHost — the
+    // rust-sidecar branch is a hard explicit selection, not a
+    // fall-through.
     expect(ctx.createNodePtyHost).not.toHaveBeenCalled();
   });
 
-  it("error message mentions Phase 3 so consumers know when this becomes available", () => {
-    // The throw site has a TODO pointing to T-024-3-2 (Phase 3). The
-    // message itself documents the upgrade target so operators staring
-    // at the error in a daemon log know what to expect; verify the
-    // documented behavior so a future message change is deliberate.
-    const { deps } = buildDeps({ envValue: "rust-sidecar" });
-
-    expect(() => selectPtyHost(deps)).toThrow(/Phase 3/);
+  it("returns the RustSidecarPtyHost on every platform when env-var is rust-sidecar", () => {
+    // Explicit env-var selection is platform-agnostic — the platform
+    // branch governs the DEFAULT, not the explicit override. Cover
+    // every platform so a future regression that adds platform
+    // gating to the rust-sidecar arm fails this test.
+    for (const platform of ["linux", "darwin", "win32"] as const) {
+      const { ctx, deps } = buildDeps({ platform, envValue: "rust-sidecar" });
+      const host = selectPtyHost(deps);
+      expect(host).toBe(RUST_SIDECAR_SENTINEL);
+      expect(ctx.createRustSidecarPtyHost).toHaveBeenCalledTimes(1);
+      expect(ctx.warn).not.toHaveBeenCalled();
+    }
   });
 
-  it("throws on every platform — the unimplemented-throw is platform-agnostic", () => {
-    // Phase 2 brief: "AIS_PTY_BACKEND=rust-sidecar throws 'not yet
-    // wired'" — there's no per-platform exception. Cover all three
-    // platforms so a future Phase 5 PR that accidentally short-
-    // circuits the throw on win32 fails this test.
-    for (const platform of ["linux", "darwin", "win32"] as const) {
-      const { deps } = buildDeps({ platform, envValue: "rust-sidecar" });
-      expect(() => selectPtyHost(deps)).toThrow(/not yet wired/);
+  it("rethrows PtyBackendUnavailableError unchanged when the factory itself throws it", () => {
+    // The factory may throw `PtyBackendUnavailableError` directly
+    // (e.g., the binary-path resolver detected a missing sidecar
+    // binary at construction time). The selector must rethrow
+    // unchanged so the original `details.cause` (errno object,
+    // missing-path string, etc.) is preserved for the consumer.
+    const original = new PtyBackendUnavailableError(
+      { attemptedBackend: "rust-sidecar", cause: { errno: -2, code: "ENOENT" } },
+      "fake binary not found",
+    );
+    const { ctx, deps } = buildDeps({
+      envValue: "rust-sidecar",
+      rustSidecarFactory: () => {
+        throw original;
+      },
+    });
+
+    let thrown: unknown = null;
+    try {
+      selectPtyHost(deps);
+    } catch (err) {
+      thrown = err;
+    }
+
+    expect(thrown).toBe(original);
+    expect(thrown).toBeInstanceOf(PtyBackendUnavailableError);
+    if (thrown instanceof PtyBackendUnavailableError) {
+      expect(thrown.code).toBe(PTY_BACKEND_UNAVAILABLE_CODE);
+      expect(thrown.details.attemptedBackend).toBe("rust-sidecar");
+      expect(thrown.details.cause).toEqual({ errno: -2, code: "ENOENT" });
+    }
+    expect(ctx.warn).not.toHaveBeenCalled();
+    expect(ctx.createNodePtyHost).not.toHaveBeenCalled();
+  });
+
+  it("wraps an unknown thrown value as PtyBackendUnavailableError with attemptedBackend=rust-sidecar", () => {
+    // If the factory throws something that ISN'T a
+    // `PtyBackendUnavailableError` (e.g., a raw `Error` from the
+    // spawn-time crash-respawn path before the supervisor can wrap
+    // it, or a non-Error thrown value), the selector wraps it so
+    // the consumer always observes the structured shape.
+    const rawError = new Error("spawn EACCES");
+    const { ctx, deps } = buildDeps({
+      envValue: "rust-sidecar",
+      rustSidecarFactory: () => {
+        throw rawError;
+      },
+    });
+
+    let thrown: unknown = null;
+    try {
+      selectPtyHost(deps);
+    } catch (err) {
+      thrown = err;
+    }
+
+    expect(thrown).toBeInstanceOf(PtyBackendUnavailableError);
+    if (thrown instanceof PtyBackendUnavailableError) {
+      expect(thrown.code).toBe(PTY_BACKEND_UNAVAILABLE_CODE);
+      expect(thrown.details.attemptedBackend).toBe("rust-sidecar");
+      // The original error rides through as `details.cause` so the
+      // consumer can render it for diagnostics. The wrapper does
+      // not branch on cause's internal shape (it's `unknown` per
+      // the contracts schema).
+      expect(thrown.details.cause).toBe(rawError);
+    }
+    expect(ctx.warn).not.toHaveBeenCalled();
+    expect(ctx.createNodePtyHost).not.toHaveBeenCalled();
+  });
+
+  it("wraps a non-Error thrown value (e.g., a string) as PtyBackendUnavailableError too", () => {
+    // The contract is "any throw becomes structured" — the wrapper
+    // must not assume Error instances. JS allows `throw 42` /
+    // `throw "boom"`; a defensive wrapper preserves the value as
+    // `details.cause` for the consumer to render opaquely.
+    const { deps } = buildDeps({
+      envValue: "rust-sidecar",
+      rustSidecarFactory: () => {
+        throw "boom";
+      },
+    });
+
+    let thrown: unknown = null;
+    try {
+      selectPtyHost(deps);
+    } catch (err) {
+      thrown = err;
+    }
+
+    expect(thrown).toBeInstanceOf(PtyBackendUnavailableError);
+    if (thrown instanceof PtyBackendUnavailableError) {
+      expect(thrown.details.cause).toBe("boom");
     }
   });
 });

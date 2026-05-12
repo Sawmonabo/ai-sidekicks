@@ -873,3 +873,379 @@ async fn exit_notification_arrives_after_final_data_frame() {
     assert_eq!(exit_notifications[0].exit_code, 0);
     assert_eq!(exit_notifications[0].signal_code, None);
 }
+
+/// Regression — registry-drop must terminate idle children so the
+/// writer-task outbound channel closes (Plan-024 Phase 3).
+///
+/// Pins the deadlock-closing contract of [`PtySessionRegistry`]'s
+/// `Drop` impl: dropping the registry while at least one session is
+/// idle (no DataFrame writes, child still alive) MUST cause the
+/// outbound receiver to observe `None` within a bounded timeout. The
+/// receiver-observes-`None` outcome is what tells `main`'s writer
+/// task to drain and exit; without it, `main()` hangs on
+/// `writer_handle.await` because the reader and waiter tasks each
+/// hold an `outbound: UnboundedSender<Envelope>` clone that never
+/// drops.
+///
+/// **What the test exercises (the load-bearing chain).**
+///
+/// 1. Spawn a child that idles indefinitely (`sleep 30`). The reader
+///    task blocks in `read()` on the master-side PTY; the waiter
+///    task blocks in `Child::wait()`. Both hold outbound-sender
+///    clones. The PARENT also writes nothing in the spawn-time path,
+///    so no DataFrame transit either.
+/// 2. Drop the registry. The `Drop` impl walks the killers map and
+///    invokes `kill()` on the still-running child.
+/// 3. The kill chain: child exits → slave-end closes → master-side
+///    `read()` returns `Ok(0)` → reader exits its `Ok(0)` arm and
+///    drops its outbound clone → `Child::wait()` returns → waiter
+///    awaits the already-finished reader, emits one
+///    `ExitCodeNotification`, exits, drops its outbound clone.
+/// 4. With all three sender clones (registry + reader + waiter)
+///    dropped, the outbound channel closes. `rx.recv()` returns
+///    `None`.
+///
+/// **Why a 1-second budget.** The four hops above are each unix
+/// syscalls or tokio scheduling moments — sub-millisecond in
+/// expectation. 1 s is three orders of magnitude of headroom on Linux
+/// + macOS while still failing fast on a genuinely hung registry.
+///
+/// **Why we drain envelopes, not assert exactly one.** The waiter
+/// task emits a final `ExitCodeNotification` on its way out. Whether
+/// that envelope arrives before or after our `None` observation is a
+/// scheduling artifact — both are valid. The discriminating
+/// assertion is "`None` arrives within the budget", not "no
+/// envelopes arrived".
+///
+/// Under the BUG (no `Drop`, no killer-map): `kill()` is never called;
+/// the child sits in `sleep 30`; the reader and waiter never exit;
+/// `rx.recv()` blocks until the 30-second sleep naturally completes
+/// or the test framework's outer timeout fires. The 1 s timeout fires
+/// first → test fails with the assertion below.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn registry_drop_terminates_idle_session_and_closes_outbound_channel() {
+    let (registry, mut rx) = PtySessionRegistry::new();
+
+    // Spawn an idle child. `sleep 30` writes nothing to its PTY and
+    // does not exit on its own within the test window — exactly the
+    // shape that hangs the broken `main()`.
+    let _response = registry
+        .spawn(SpawnRequest {
+            command: "/bin/sh".to_string(),
+            args: vec!["-c".to_string(), "sleep 30".to_string()],
+            env: empty_env(),
+            cwd: "/tmp".to_string(),
+            rows: 24,
+            cols: 80,
+        })
+        .await
+        .expect("spawn should succeed");
+
+    // Give the child a beat to actually be sleeping before we drop
+    // the registry. Without this, the kill races the spawn and may
+    // hit an in-flight pre-exec stage on some platforms. 50 ms
+    // matches the precedent set by `kill_sigterm_terminates_long_running_child`.
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    // Drop the registry. Under FIX: the `Drop` impl kills the child,
+    // which closes the slave end, which surfaces as EOF on the
+    // reader, which lets all outbound-sender clones drop. Under BUG:
+    // no Drop / no kill / sleep continues / clones survive / receiver
+    // never closes.
+    drop(registry);
+
+    // Drain envelopes until `recv()` returns `None` OR the 1 s budget
+    // elapses. `None` is the load-bearing observation — it tells
+    // `main`'s writer task to exit.
+    let close_result = timeout(Duration::from_secs(1), async {
+        loop {
+            match rx.recv().await {
+                Some(_envelope) => {
+                    // The waiter task may emit a final
+                    // ExitCodeNotification on its way out. Drain
+                    // and keep looping until the channel actually
+                    // closes.
+                    continue;
+                }
+                None => return,
+            }
+        }
+    })
+    .await;
+
+    close_result.expect(
+        "registry-drop did not close the outbound channel within 1s: \
+         the reader + waiter tasks' UnboundedSender clones did not drop \
+         (registry-drop's kill-on-drop chain failed to terminate the idle \
+         child, so reader/waiter remain blocked). See \
+         `PtySessionRegistry::drop` for the deadlock-closing rationale.",
+    );
+}
+
+/// Regression — registry-drop must terminate **N idle children** so the
+/// writer-task outbound channel closes regardless of how many sessions
+/// are alive at drop time (Plan-024 Phase 3).
+///
+/// Sibling to `registry_drop_terminates_idle_session_and_closes_outbound_channel`
+/// (the N=1 case). N=2 exercises the [`PtySessionRegistry::drop`] map-
+/// drain loop's parallel-termination semantics — one child killed first,
+/// the other still pending; both kill chains must complete before the
+/// channel can close because each session contributes two
+/// `UnboundedSender<Envelope>` clones (reader + waiter) and ALL must
+/// drop for `rx.recv()` to observe `None`.
+///
+/// **Why N=2 specifically.** `HashMap` iteration order is randomized
+/// per-process (`RandomState`), so each test run exercises a
+/// representative `kill()` interleaving. A flaky N=2 outcome (one of
+/// two kill chains stalls) reveals an ordering or partial-drain bug
+/// that N=1 cannot detect.
+///
+/// **Why a 1-second budget.** Same reasoning as the N=1 test — each
+/// kill→EOF→reader-exit→waiter-exit chain is sub-millisecond on unix,
+/// so 1 s is three orders of magnitude of headroom for both chains
+/// running in parallel on a 4-thread runtime.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn registry_drop_terminates_two_idle_sessions_and_closes_outbound_channel() {
+    let (registry, mut rx) = PtySessionRegistry::new();
+
+    // Spawn two idle children. Each `sleep 30` writes nothing and does
+    // not exit on its own within the test window, so under the BUG path
+    // BOTH sessions' reader+waiter clones survive the registry drop.
+    for _ in 0..2 {
+        registry
+            .spawn(SpawnRequest {
+                command: "/bin/sh".to_string(),
+                args: vec!["-c".to_string(), "sleep 30".to_string()],
+                env: empty_env(),
+                cwd: "/tmp".to_string(),
+                rows: 24,
+                cols: 80,
+            })
+            .await
+            .expect("spawn should succeed");
+    }
+
+    // Same 50 ms settle window as the N=1 test — give both children a
+    // beat to actually be sleeping before we drop the registry, so the
+    // kill does not race spawn's pre-exec stage on either session.
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    // Drop the registry. Under FIX: `Drop` walks the killers map in
+    // randomized order, kills both children, both kill chains run in
+    // parallel on the multi-thread runtime, all four reader+waiter
+    // clones drop, channel closes. Under BUG: any single kill chain
+    // that fails to terminate its child leaves clones alive and the
+    // receiver never observes `None`.
+    drop(registry);
+
+    let close_result = timeout(Duration::from_secs(1), async {
+        loop {
+            match rx.recv().await {
+                Some(_envelope) => {
+                    // Drain any final ExitCodeNotifications from both
+                    // sessions; the load-bearing observation is `None`.
+                    continue;
+                }
+                None => return,
+            }
+        }
+    })
+    .await;
+
+    close_result.expect(
+        "registry-drop with two idle sessions did not close the outbound \
+         channel within 1s: one or both kill-on-drop chains failed to \
+         terminate the idle child, leaving reader/waiter UnboundedSender \
+         clones alive. HashMap drain order is randomized per-process; \
+         rerun a few times if this flakes to surface ordering bugs. See \
+         `PtySessionRegistry::drop` for the deadlock-closing rationale.",
+    );
+}
+
+/// Regression — well-behaved children honor SIGHUP within the
+/// natural-EOF window, so the SIGKILL escalation must NOT fire
+/// (Plan-024 Phase 3, F-024-3-01).
+///
+/// Sibling discriminator to
+/// `registry_drop_terminates_idle_session_and_closes_outbound_channel`:
+/// that test uses a 1 s budget which is ≥ `DROP_KILL_ESCALATION_DEADLINE`
+/// (the constant defined in `pty_session.rs`'s Drop block). It therefore
+/// cannot tell whether the channel closed via the natural Phase 1
+/// SIGHUP path or via the Phase 2 SIGKILL escalation — both would
+/// arrive within 1 s.
+///
+/// This test pins the (a) clause of F-024-3-01 AC6: with a budget of
+/// 300 ms — well under the 1000 ms escalation deadline — the channel
+/// MUST close via Phase 1 alone. A well-behaved `sleep 30` terminates
+/// on SIGHUP within milliseconds on Linux + macOS, so 300 ms is two
+/// orders of magnitude of headroom for the natural path while
+/// guaranteeing the escalation thread is still sleeping when the
+/// assertion fires.
+///
+/// **Under the BUG (escalation fires for ALL children).** If a
+/// future regression collapses the soft-kill arm and unconditionally
+/// schedules SIGKILL after 1000 ms, this test still passes because
+/// the natural SIGHUP path runs first. The test discriminates the
+/// inverse failure: if a regression breaks the Phase 1 soft kill
+/// (e.g., the `killer.kill()` call is accidentally removed), the
+/// channel will not close until the 1000 ms escalation fires —
+/// which exceeds this test's 300 ms budget and trips the assertion.
+///
+/// **Implementation note — budget vs. escalation deadline.** 300 ms
+/// is < 1000 ms by enough margin that scheduler jitter on CI runners
+/// will not push the natural-EOF latency past the budget. If this
+/// test ever flakes the right diagnostic is "is Phase 1 SIGHUP still
+/// terminating well-behaved children?", not "is 300 ms too tight?";
+/// raise the budget only after verifying the soft kill is still in
+/// the Phase 1 arm of [`PtySessionRegistry::drop`].
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn registry_drop_terminates_well_behaved_child_without_escalation() {
+    let (registry, mut rx) = PtySessionRegistry::new();
+
+    // A well-behaved `sleep 30` honors SIGHUP and exits within
+    // milliseconds — exactly the natural-EOF case Phase 1 was built
+    // for. This is the discriminator that ensures escalation does
+    // NOT fire on well-behaved children.
+    let _response = registry
+        .spawn(SpawnRequest {
+            command: "/bin/sh".to_string(),
+            args: vec!["-c".to_string(), "sleep 30".to_string()],
+            env: empty_env(),
+            cwd: "/tmp".to_string(),
+            rows: 24,
+            cols: 80,
+        })
+        .await
+        .expect("spawn should succeed");
+
+    // 50 ms settle window — same precedent as the sibling
+    // registry-drop tests above.
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    drop(registry);
+
+    // 300 ms budget — well below the 1000 ms escalation deadline.
+    // If this test fails, Phase 1 SIGHUP soft-kill has regressed.
+    let close_result = timeout(Duration::from_millis(300), async {
+        loop {
+            match rx.recv().await {
+                Some(_envelope) => continue,
+                None => return,
+            }
+        }
+    })
+    .await;
+
+    close_result.expect(
+        "registry-drop on a well-behaved sleep child did not close \
+         the outbound channel within 300ms (< DROP_KILL_ESCALATION_DEADLINE): \
+         Phase 1 SIGHUP soft-kill path appears broken. The Phase 2 SIGKILL \
+         escalation should NOT be reachable on this child within the \
+         budget. See `PtySessionRegistry::drop` Phase 1 arm.",
+    );
+}
+
+/// Regression — children that ignore SIGHUP must still terminate
+/// within the bounded SIGKILL escalation window so registry-drop
+/// completes (Plan-024 Phase 3, F-024-3-01).
+///
+/// Pins the (b) clause of F-024-3-01 AC6: with a child that installs
+/// `trap "" HUP` to swallow the Phase 1 soft kill, the registry's
+/// Drop impl must escalate to `libc::kill(pid, SIGKILL)` after
+/// `DROP_KILL_ESCALATION_DEADLINE` (1000 ms) elapses, and the
+/// outbound channel must close within the escalation budget plus a
+/// small jitter window for the actual SIGKILL → child-exit →
+/// EOF → reader-exit → waiter-exit chain.
+///
+/// **Test budget — 2× DROP_KILL_ESCALATION_DEADLINE.** The constant
+/// is 1000 ms; we wait up to 2000 ms. The expected timeline:
+///   - t=0: `drop(registry)` runs; Phase 1 SIGHUP fires (no effect —
+///     child has `trap "" HUP`); escalation thread spawned.
+///   - t=1000 ms: escalation thread wakes, calls `libc::kill(pid, 0)`,
+///     sees the child still alive, calls `libc::kill(pid, SIGKILL)`.
+///   - t=1000 ms + ε: kernel terminates child; slave-end closes;
+///     reader's blocked `read()` returns `Ok(0)`; reader-task exits;
+///     waiter's `Child::wait()` returns; waiter-task exits; both
+///     `UnboundedSender` clones drop; `rx.recv()` observes `None`.
+///
+/// The ε bound is the same sub-millisecond syscall chain as the
+/// well-behaved-child tests; 2000 ms total gives the escalation a
+/// full second to actually be scheduled by the OS plus 1000 ms of
+/// headroom on top. CI runners under heavy load can stretch the
+/// escalation-thread wake-up latency by a few hundred ms; 2× the
+/// deadline is the conservative bound.
+///
+/// **Under the BUG (no escalation).** Without Phase 2 the child
+/// keeps `sleep 60` running for the full minute. `rx.recv()` blocks
+/// past 2 s and the assertion fires — exactly the regression this
+/// test exists to catch.
+///
+/// **Shell compat.** `/bin/sh -c 'trap "" HUP; exec sleep 60'` uses
+/// POSIX shell syntax: empty-string trap argument means "ignore the
+/// signal" per `trap(1)`. Both bash (macOS `/bin/sh`) and dash
+/// (Linux `/bin/sh`) implement the empty-trap form identically — no
+/// shell-flavor dependency. The explicit `exec` removes dependence
+/// on the shell's implementation-defined last-command optimization
+/// — the PID portable-pty captured IS `sleep` with SIG_IGN
+/// inherited, not the shell parent. POSIX permits-but-does-not-
+/// require the optimization, so a future shell version that
+/// fork-and-waits would silently break this test diagnostically
+/// without the `exec`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn registry_drop_escalates_to_sigkill_for_sighup_ignoring_child() {
+    let (registry, mut rx) = PtySessionRegistry::new();
+
+    // The SIGHUP-ignoring child: `trap "" HUP` swallows the Phase 1
+    // soft kill, then `exec sleep 60` replaces the shell with the
+    // sleep binary in-place (sharing the shell's pid). Phase 2
+    // SIGKILL escalation is the only termination path within the
+    // test window. The explicit `exec` guarantees portable-pty's
+    // captured pid IS the sleep process with SIG_IGN inherited,
+    // regardless of the shell's implementation-defined last-command
+    // optimization.
+    let _response = registry
+        .spawn(SpawnRequest {
+            command: "/bin/sh".to_string(),
+            args: vec![
+                "-c".to_string(),
+                "trap '' HUP; exec sleep 60".to_string(),
+            ],
+            env: empty_env(),
+            cwd: "/tmp".to_string(),
+            rows: 24,
+            cols: 80,
+        })
+        .await
+        .expect("spawn should succeed");
+
+    // 100 ms settle window — the `trap` builtin runs before `sleep`
+    // starts, so we need the shell to have actually executed the
+    // trap line before we drop. 50 ms (matching the sibling tests)
+    // works in practice but 100 ms is slightly more conservative
+    // for CI; the absolute number is not load-bearing.
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    drop(registry);
+
+    // 2× DROP_KILL_ESCALATION_DEADLINE (2000 ms) — see rustdoc for
+    // the timeline breakdown.
+    let close_result = timeout(Duration::from_millis(2000), async {
+        loop {
+            match rx.recv().await {
+                Some(_envelope) => continue,
+                None => return,
+            }
+        }
+    })
+    .await;
+
+    close_result.expect(
+        "registry-drop on a SIGHUP-ignoring child did not close the \
+         outbound channel within 2× DROP_KILL_ESCALATION_DEADLINE (2s): \
+         Phase 2 SIGKILL escalation appears broken. The child has \
+         `trap \"\" HUP; sleep 60` so Phase 1 SIGHUP is a no-op; the \
+         escalation thread MUST fire SIGKILL after 1000 ms. See \
+         `PtySessionRegistry::drop` Phase 2 arm + the \
+         `DROP_KILL_ESCALATION_DEADLINE` constant.",
+    );
+}

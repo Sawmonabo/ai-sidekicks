@@ -44,6 +44,16 @@ export interface PtyHost {
    * Invoked when a data chunk arrives from `stdout` or `stderr` for the
    * named session. `chunk` is the base64-decoded payload of the
    * wire-side `DataFrame.bytes` from `pty-host-protocol.ts`.
+   *
+   * Ordering: MUST fire AFTER `spawn()` resolves for `sessionId` on the
+   * consumer's await chain. Out-of-process backends with separate wire
+   * channels for response dispatch vs. async events MUST buffer data
+   * chunks observed on the wire before the matching `SpawnResponse`
+   * frame and replay them on a separate I/O turn so the consumer's
+   * `await spawn()` continuation runs first (otherwise `onData(id, ...)`
+   * could fire before the consumer records `id` in its own state and
+   * the chunk would be dropped). See I-024-6 in Plan-024 for the
+   * `RustSidecarPtyHost` realization of this requirement.
    */
   onData(sessionId: string, chunk: Uint8Array): void;
 
@@ -54,6 +64,22 @@ export interface PtyHost {
    * Adapters translate the wire-side `ExitCodeNotification.signal_code`
    * (`number | null`) — wire `null` is passed by omitting the third
    * argument.
+   *
+   * MUST fire exactly once for every session where `spawn()` returned a
+   * successful `SpawnResponse`, regardless of how soon the child exits
+   * relative to spawn-response delivery — including sub-millisecond-
+   * lived children whose exit notification is observed on the wire
+   * BEFORE the spawn-response frame. Out-of-process backends with
+   * separate wire channels for response dispatch vs. async events MUST
+   * buffer pre-spawn exit notifications keyed by `sessionId` and replay
+   * them on a separate I/O turn after registering the session via
+   * spawn-response handling, so the consumer's `await spawn()`
+   * continuation runs first (otherwise `onExit(id, ...)` could fire
+   * before the consumer records `id` in its own state). See I-024-6 in
+   * Plan-024 for the `RustSidecarPtyHost` realization of this
+   * requirement.
+   *
+   * MUST NOT fire after `close()` resolves for the same `sessionId`.
    */
   onExit(sessionId: string, exitCode: number, signalCode?: number): void;
 }

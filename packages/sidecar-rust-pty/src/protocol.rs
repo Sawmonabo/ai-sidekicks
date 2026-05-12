@@ -28,6 +28,35 @@
 //!   internally-tagged enums require structs or newtypes (unit variants
 //!   would serialize as bare strings, not as `{"kind": "ping_request"}`).
 //!
+//! - **`SpawnResponse` / `ResizeResponse` / `WriteResponse` /
+//!   `KillResponse`** carry an `error: Option<String>` field with
+//!   `#[serde(default, skip_serializing_if = "Option::is_none")]`. The
+//!   field is genuinely absent on the wire when `None` — INTENTIONALLY
+//!   ASYMMETRIC with `ExitCodeNotification.signal_code` (which
+//!   serializes as JSON `null` because both the present and absent
+//!   states are semantically meaningful). Here the absent-vs-present
+//!   distinction IS the discrimination: `None` means "the handler
+//!   succeeded; daemon resolves the awaiting Promise" and `Some(msg)`
+//!   means "the handler failed (typically `UnknownSession` for a
+//!   request that lost a race against natural exit, or
+//!   `PortablePty(...)` for a `spawn_request` against a
+//!   nonexistent / non-executable command); daemon rejects the
+//!   awaiting Promise with `msg`". `null`-as-absent would be redundant
+//!   wire weight on every successful response. The TS mirror declares
+//!   `error?: string` to match the absent-on-wire contract.
+//!
+//!   `SpawnResponse` is the symmetric extension of the
+//!   resize/write/kill error path: prior to the contract bump, a
+//!   sidecar `spawn` failure logged to stderr and DROPPED the
+//!   request, so the daemon's awaiting Promise hung indefinitely
+//!   (the daemon-side `sendRequest` has no timeout — only sync-throw
+//!   on stdin.write or eventual rejection on child-exit). Symmetric
+//!   wire-side error response converts the otherwise-indefinite hang
+//!   into a prompt rejection. On the failure path the sidecar emits
+//!   `SpawnResponse { session_id: String::new(), error: Some(msg) }`
+//!   — the empty `session_id` signals "no session was minted" so the
+//!   daemon's supervisor MUST NOT register tracking on it.
+//!
 //! Plan-024 Phase 1 / T-024-1-3.
 
 use serde::{Deserialize, Serialize};
@@ -79,10 +108,29 @@ pub struct SpawnRequest {
     pub cols: u16,
 }
 
-/// Reply to a [`SpawnRequest`] — carries the sidecar-minted session id.
+/// Reply to a [`SpawnRequest`] — carries the sidecar-minted session id
+/// on the success path, or a typed `error` payload on the failure path.
+///
+/// `error` is set when the dispatcher's spawn handler returned
+/// `Err(...)` — typically
+/// [`crate::pty_session::PtySessionError::PortablePty`] for a
+/// `spawn_request` whose `command` is nonexistent / not executable, or
+/// any other `portable-pty` `openpty`/`spawn_command` failure. Without
+/// the typed error path the daemon's awaiting Promise hangs
+/// indefinitely (no per-request timeout in `sendRequest`); the
+/// symmetric wire-side error rejects the Promise promptly. Absent
+/// (`None`) on the success path. See module-level field-shape
+/// decisions for the asymmetry with `ExitCodeNotification.signal_code`.
+///
+/// On the failure path `session_id` is an empty string — no session
+/// was minted, so the daemon supervisor MUST NOT register tracking on
+/// it.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct SpawnResponse {
     pub session_id: String,
+    /// Failure message; absent on the success path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 /// Adjust the PTY window dimensions for an existing session.
@@ -96,9 +144,20 @@ pub struct ResizeRequest {
 /// Acknowledgment of [`ResizeRequest`]. Explicit response per F-024-1-03
 /// so request-correlation is symmetric across every control-message
 /// kind.
+///
+/// `error` is set when the dispatcher's resize handler returned
+/// `Err(...)` — most often [`crate::pty_session::PtySessionError::UnknownSession`]
+/// when the target session has exited (and been removed from the
+/// registry) between the daemon issuing the request and the sidecar
+/// dispatching it. Absent (`None`) on the success path. See module-
+/// level field-shape decisions for the asymmetry with
+/// `ExitCodeNotification.signal_code`.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct ResizeResponse {
     pub session_id: String,
+    /// Failure message; absent on the success path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 /// Write payload to a session's stdin.
@@ -115,9 +174,21 @@ pub struct WriteRequest {
 }
 
 /// Acknowledgment of [`WriteRequest`]. Explicit response per F-024-1-03.
+///
+/// `error` is set when the dispatcher's write handler returned
+/// `Err(...)` — typically
+/// [`crate::pty_session::PtySessionError::UnknownSession`] (target
+/// exited) or
+/// [`crate::pty_session::PtySessionError::WriterUnavailable`] (the
+/// per-session writer was already taken). Absent (`None`) on the
+/// success path. See module-level field-shape decisions for the
+/// asymmetry with `ExitCodeNotification.signal_code`.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct WriteResponse {
     pub session_id: String,
+    /// Failure message; absent on the success path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 /// Signal a session's child process.
@@ -136,9 +207,25 @@ pub struct KillRequest {
 /// the sidecar acks once it has begun the kill cascade, NOT when the
 /// child has actually exited — [`ExitCodeNotification`] carries the
 /// terminal status.
+///
+/// `error` is set when the dispatcher's kill handler returned
+/// `Err(...)` — most often
+/// [`crate::pty_session::PtySessionError::UnknownSession`] for a
+/// request against a session that exited (and was removed from the
+/// registry) milliseconds before the request arrived. The race is
+/// unavoidable on the daemon side (the `ExitCodeNotification` sits in
+/// the daemon's input pipe + parser buffer between the sidecar
+/// emitting it and the daemon observing it); a typed error response
+/// converts the otherwise-indefinite Promise hang into a prompt
+/// rejection. Absent (`None`) on the success path. See module-level
+/// field-shape decisions for the asymmetry with
+/// `ExitCodeNotification.signal_code`.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct KillResponse {
     pub session_id: String,
+    /// Failure message; absent on the success path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 /// Terminal notification — emitted exactly once per session lifetime,

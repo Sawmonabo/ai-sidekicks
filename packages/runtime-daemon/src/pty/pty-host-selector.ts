@@ -14,11 +14,11 @@
 //
 // The selector centralizes the "which backend do we instantiate?"
 // decision so the rest of the daemon stays oblivious to the platform
-// branch. Today (Phase 2) the answer is always `NodePtyHost`; the
-// Phase 5 PR will extend the `platformDefault()` branch to flip to
-// `RustSidecarPtyHost` on `win32` with a `NodePtyHost` fallback when
-// the sidecar binary is not resolvable. macOS/Linux remain on
-// `NodePtyHost` primary at Phase 5 and beyond.
+// branch. Today (Phase 3) the platform default is still `NodePtyHost`
+// on every platform; the Phase 5 PR will flip the `platformDefault()`
+// branch to `RustSidecarPtyHost` on `win32` with a `NodePtyHost`
+// fallback when the sidecar binary is not resolvable. macOS/Linux
+// remain on `NodePtyHost` primary at Phase 5 and beyond.
 //
 // Env-var override grammar (F-024-2-07 / Plan-024:126)
 // ----------------------------------------------------
@@ -27,11 +27,15 @@
 //
 //   * `undefined`    — env unset; return platform default silently
 //                       (the normal path, NOT a warn case).
-//   * `"rust-sidecar"` — Phase 2: THROWS `Error("...not yet wired...")`.
-//                       Phase 3+: returns RustSidecarPtyHost (requires
-//                       the optional sidecar package; throws
-//                       `PtyBackendUnavailable` if not resolvable on
-//                       macOS/Linux).
+//   * `"rust-sidecar"` — returns `RustSidecarPtyHost` via the factory.
+//                       If the factory throws (binary missing,
+//                       spawn-time crash, crash-budget exhausted),
+//                       the selector wraps the failure as
+//                       `PtyBackendUnavailableError` so the consumer
+//                       sees the structured shape rather than the
+//                       raw spawn errno. A factory that already
+//                       throws `PtyBackendUnavailableError` is
+//                       re-thrown unchanged.
 //   * `"node-pty"`    — return NodePtyHost unconditionally.
 //   * any other value (including empty string `""`, mixed case like
 //     `"Rust-Sidecar"`, typos like `"sidecar"`): fall back to platform
@@ -57,6 +61,7 @@
 import type { PtyHost } from "@ai-sidekicks/contracts";
 
 import { NodePtyHost } from "./node-pty-host.js";
+import { createRustSidecarPtyHost, PtyBackendUnavailableError } from "./rust-sidecar-pty-host.js";
 
 // --------------------------------------------------------------------------
 // Public types
@@ -118,14 +123,19 @@ export interface PtyHostSelectorDeps {
    */
   readonly createNodePtyHost: () => PtyHost;
   /**
-   * Factory for `RustSidecarPtyHost`. Phase 2: omitted by design —
-   * the `rust-sidecar` env-var branch throws `Error("not yet wired")`
-   * unconditionally and never calls this factory.
+   * Factory for `RustSidecarPtyHost`.
    *
-   * TODO(Phase 3 T-024-3-2): wire a real factory and replace the
-   * unconditional throw in `selectPtyHost` with a call to this. At
-   * that point, document that an injected factory takes precedence
-   * over the throw site (so tests can keep using injected sentinels).
+   * Phase 3: wired via `createRustSidecarPtyHost` from
+   * `rust-sidecar-pty-host.ts` (the production default). The factory
+   * is `optional` in the deps record because tests routinely override
+   * it with a sentinel-returning stub; production callers pass
+   * nothing and the resolver below wires the production factory in.
+   *
+   * Failure mode: when the factory itself throws (binary missing,
+   * spawn-time crash, sliding-window crash budget exhausted), the
+   * selector wraps the failure as `PtyBackendUnavailableError` so
+   * the consumer learns about the structured failure rather than
+   * the raw spawn errno. See `selectPtyHost` for the catch site.
    */
   readonly createRustSidecarPtyHost?: () => PtyHost;
 }
@@ -145,13 +155,34 @@ export interface PtyHostSelectorDeps {
  * into an optional field, so `createRustSidecarPtyHost` is added via
  * conditional spread only when the partial supplies it.
  */
-function resolveDefaultDeps(partial: Partial<PtyHostSelectorDeps>): PtyHostSelectorDeps {
-  const base: {
-    readonly platform: NodeJS.Platform;
-    readonly readEnv: () => string | undefined;
-    readonly warn: (message: string) => void;
-    readonly createNodePtyHost: () => PtyHost;
-  } = {
+/**
+ * Internal post-merge deps shape — `createRustSidecarPtyHost` is
+ * required here because the resolver now provides a production
+ * default. The public `PtyHostSelectorDeps` keeps the field optional
+ * so test overrides + production callers don't have to spell out the
+ * factory in their partial.
+ *
+ * Mirrors the `ResolvedNodePtyHostDeps` pattern in `node-pty-host.ts`:
+ * partial-in / fully-resolved-out, with the resolver translating
+ * "field absent" → "production default wired" so downstream code can
+ * read fields without optional-chaining.
+ */
+interface ResolvedPtyHostSelectorDeps {
+  readonly platform: NodeJS.Platform;
+  readonly readEnv: () => string | undefined;
+  readonly warn: (message: string) => void;
+  readonly createNodePtyHost: () => PtyHost;
+  readonly createRustSidecarPtyHost: () => PtyHost;
+}
+
+function resolveDefaultDeps(partial: Partial<PtyHostSelectorDeps>): ResolvedPtyHostSelectorDeps {
+  // Both factories now have production defaults at Phase 3, so the
+  // resolved record carries them unconditionally. Test overrides flow
+  // through the `??` chain; the conditional spread pattern that the
+  // Phase 2 shape used (only-include-when-defined) is no longer
+  // load-bearing because the field has gone from optional-in-deps to
+  // optional-with-default.
+  return {
     platform: partial.platform ?? process.platform,
     readEnv: partial.readEnv ?? (() => process.env["AIS_PTY_BACKEND"]),
     // TRIPWIRE: replace `console.warn` once a structured logger
@@ -160,12 +191,8 @@ function resolveDefaultDeps(partial: Partial<PtyHostSelectorDeps>): PtyHostSelec
     // `invokeTaskkill` use the same primitive for the same reason).
     warn: partial.warn ?? ((msg: string) => console.warn(msg)),
     createNodePtyHost: partial.createNodePtyHost ?? ((): PtyHost => new NodePtyHost()),
-  };
-  return {
-    ...base,
-    ...(partial.createRustSidecarPtyHost !== undefined
-      ? { createRustSidecarPtyHost: partial.createRustSidecarPtyHost }
-      : {}),
+    createRustSidecarPtyHost:
+      partial.createRustSidecarPtyHost ?? ((): PtyHost => createRustSidecarPtyHost()),
   };
 }
 
@@ -192,7 +219,7 @@ function resolveDefaultDeps(partial: Partial<PtyHostSelectorDeps>): PtyHostSelec
  *             the factories.
  */
 export function selectPtyHost(deps?: Partial<PtyHostSelectorDeps>): PtyHost {
-  const resolved: PtyHostSelectorDeps = resolveDefaultDeps(deps ?? {});
+  const resolved: ResolvedPtyHostSelectorDeps = resolveDefaultDeps(deps ?? {});
   const envValue: string | undefined = resolved.readEnv();
 
   // "env not set" — normal path. Silent platform-default. NO warn.
@@ -201,23 +228,35 @@ export function selectPtyHost(deps?: Partial<PtyHostSelectorDeps>): PtyHost {
   }
 
   if (envValue === "rust-sidecar") {
-    // Phase 2 caveat: `RustSidecarPtyHost` is unimplemented. Per
-    // F-024-2-02 the env-var IS honored (we don't silently fall back),
-    // and per Plan-024 §Step 9 lines 123–124 + the T-024-2-3 brief we
-    // throw a plain `Error` with "not yet wired" in the message so the
-    // caller learns immediately that the env-var is set but the
-    // backend is missing.
+    // Phase 3 wiring (per Plan-024 §Implementation Step 9 lines 123–
+    // 126 + F-024-2-02): the env-var IS honored (no silent fallback),
+    // and the rust-sidecar backend is now available. Failures inside
+    // the factory (binary missing, spawn-time error, sliding-window
+    // crash budget exhausted) are wrapped as
+    // `PtyBackendUnavailableError` so the consumer learns about the
+    // structured failure rather than the raw spawn errno.
     //
-    // TODO(Phase 3 T-024-3-2): replace this throw with a call to
-    //   resolved.createRustSidecarPtyHost?.() ?? throw PtyBackendUnavailable(...)
-    // The `PtyBackendUnavailable` error type is defined by T-024-3-2;
-    // until then a plain `Error` is the contract.
-    throw new Error(
-      "PtyHostSelector: AIS_PTY_BACKEND=rust-sidecar is not yet wired " +
-        "(Phase 3 work — see Plan-024 §Implementation Step 9 + " +
-        "T-024-3-2). Until then, use AIS_PTY_BACKEND=node-pty or leave " +
-        "the env-var unset.",
-    );
+    // The factory itself returning a `RustSidecarPtyHost` instance is
+    // not a guarantee of liveness — `RustSidecarPtyHost.spawn` is the
+    // first call that exercises the binary path. The selector wraps
+    // factory-throwing failures here; per-method failures inside
+    // `RustSidecarPtyHost` propagate as `PtyBackendUnavailableError`
+    // from those methods directly (see `rust-sidecar-pty-host.ts`).
+    try {
+      return resolved.createRustSidecarPtyHost();
+    } catch (err: unknown) {
+      // If the factory already threw a `PtyBackendUnavailableError`
+      // (e.g., the resolver itself raised it), re-throw unchanged so
+      // the original `details.cause` is preserved. Otherwise wrap.
+      if (err instanceof PtyBackendUnavailableError) {
+        throw err;
+      }
+      throw new PtyBackendUnavailableError(
+        { attemptedBackend: "rust-sidecar", cause: err },
+        "PtyHostSelector: createRustSidecarPtyHost factory threw; " +
+          "rust-sidecar backend is unavailable.",
+      );
+    }
   }
 
   if (envValue === "node-pty") {
@@ -244,6 +283,6 @@ export function selectPtyHost(deps?: Partial<PtyHostSelectorDeps>): PtyHost {
  * macOS/Linux MUST remain on `NodePtyHost` primary at Phase 5 and
  * beyond per Plan-024 §Step 9 lines 124–125.
  */
-function platformDefault(deps: PtyHostSelectorDeps): PtyHost {
+function platformDefault(deps: ResolvedPtyHostSelectorDeps): PtyHost {
   return deps.createNodePtyHost();
 }

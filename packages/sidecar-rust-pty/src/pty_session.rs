@@ -102,7 +102,7 @@ use std::io::{Read, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
+use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
 
@@ -110,6 +110,23 @@ use crate::protocol::{
     DataFrame, DataStream, Envelope, ExitCodeNotification, KillRequest, KillResponse, PtySignal,
     ResizeRequest, ResizeResponse, SpawnRequest, SpawnResponse, WriteRequest, WriteResponse,
 };
+
+/// Map-entry shape for [`PtySessionRegistry::killers`].
+///
+/// `(killer, pid)`: the [`ChildKiller`] clone delivers the Phase 1
+/// soft kill ([`portable_pty::ChildKiller::kill`] — SIGHUP on unix,
+/// `TerminateProcess` on Windows). The paired pid is consumed by the
+/// unix Phase 2 SIGKILL escalation in [`PtySessionRegistry::drop`].
+/// `Option<u32>` mirrors [`SessionHandle::pid`] — portable-pty's
+/// trait contract permits `None`; the escalation thread no-ops in
+/// that case.
+///
+/// Type alias rather than inline tuple so the
+/// `clippy::type_complexity` lint (which trips on nested generic
+/// depth ≥ 3) does not require a per-site `#[allow]`. Used by
+/// [`PtySessionRegistry::killers`] and the
+/// [`spawn_waiter_task`] parameter type.
+type KillerEntry = (Box<dyn ChildKiller + Send + Sync>, Option<u32>);
 
 /// Size of one [`DataFrame`] payload as emitted by the reader task.
 ///
@@ -228,12 +245,36 @@ impl From<std::io::Error> for PtySessionError {
 /// task on drop, it does not abort it — see Tokio
 /// `tokio::task::JoinHandle` rustdoc). The reader task self-terminates
 /// on PTY EOF (child closed its slave end); the waiter task self-
-/// terminates on `Child::wait` return. A Phase 1 misbehaving child
-/// that ignores its eventual SIGHUP / SIGKILL could in principle keep
-/// both tasks alive indefinitely — acceptable for Phase 1 where
-/// session cleanup is driven by daemon-layer
-/// [`PtySessionRegistry::kill`] requests; Phase 3 may add a forced-
-/// abort `Drop` impl if that proves insufficient.
+/// terminates on `Child::wait` return.
+///
+/// ## Registry-drop cleanup (Phase 3, T-024-3-1 — was the deferred TODO)
+///
+/// A Phase 1 misbehaving child that ignores its eventual SIGHUP /
+/// SIGKILL would in principle keep both tasks alive indefinitely
+/// because each holds an `outbound: UnboundedSender<Envelope>` clone
+/// (the reader inside its `spawn_blocking` closure; the waiter inside
+/// its async `tokio::spawn` body). Those clones survive past the
+/// registry's own clone — which means `merge_to_writer`'s `recv()` on
+/// the receiver half never returns `None`, the writer task never
+/// exits, and `main()` deadlocks waiting for the writer when stdin
+/// closes against an idle session (a `sleep 30`, an interactive shell
+/// at its prompt, etc.).
+///
+/// Phase 3 (this module's [`PtySessionRegistry`] `Drop` impl below)
+/// closes that hole by stashing a `ChildKiller` clone per session into
+/// a parallel `killers` map and walking it on drop. Killing the child
+/// closes its slave end, which surfaces as EOF on the master-side
+/// `read()`, which lets the reader task exit its `Ok(0)` arm and drop
+/// its outbound clone. The waiter's `Child::wait()` then returns, it
+/// awaits the (already-finished) reader, emits its
+/// `ExitCodeNotification`, and drops its own outbound clone. Channel
+/// closes; writer drains and exits; `main()` returns. The kill is
+/// "forced-abort" in the rustdoc's original sense — it forces the
+/// child to terminate, which forces the tasks to wind down through
+/// their natural EOF/exit paths. Aborting the tasks directly would
+/// not work for the reader because `tokio::task::JoinHandle::abort`
+/// is documented as a no-op on `spawn_blocking` tasks whose closures
+/// have already started running.
 struct SessionHandle {
     /// Holds the `MasterPty` for `resize()` calls. The master also owns
     /// the underlying file descriptors / handles; dropping it after the
@@ -351,6 +392,70 @@ pub struct PtySessionRegistry {
     /// Monotonic session-id source. Atomic so spawn calls are
     /// lock-independent.
     next_session_id: Arc<AtomicU64>,
+
+    /// Per-session `ChildKiller` clones (paired with the child's pid),
+    /// used by the [`Drop`] impl to terminate any still-running
+    /// children when the registry is dropped (e.g., `main()` is
+    /// winding down after stdin EOF).
+    ///
+    /// **Value shape — `(ChildKiller, Option<u32>)` tuple.** The pid
+    /// is needed alongside the killer because the unix [`Drop`] arm
+    /// escalates SIGHUP → SIGKILL when a child ignores the soft kill
+    /// (see [`DROP_KILL_ESCALATION_DEADLINE`] + the [`Drop`] impl
+    /// rustdoc). SIGKILL bypasses portable-pty's `ChildKiller`
+    /// (which hardcodes SIGHUP on unix) and is delivered directly via
+    /// `libc::kill(pid, SIGKILL)`. The pid lives on
+    /// [`SessionHandle::pid`] already, but `Drop` cannot reach
+    /// `SessionHandle` (it's behind the async [`Mutex`]); stashing the
+    /// pid here keeps the Drop-side escalation path fully synchronous.
+    /// `Option<u32>` mirrors `SessionHandle::pid` — portable-pty's
+    /// trait contract permits `None`, and the escalation thread
+    /// no-ops in that case.
+    ///
+    /// **Why a `std::sync::Mutex` and not `tokio::sync::Mutex`.** `Drop`
+    /// is synchronous — it cannot `.await`. Reaching the inner map
+    /// from `Drop` therefore needs a sync lock, and the natural choice
+    /// is `std::sync::Mutex` plumbed in alongside the existing async-
+    /// flavored `sessions` map. Mixing sync + async mutexes for two
+    /// different data structures avoids the `blocking_lock` trap
+    /// (which is a current-thread-runtime no-no per
+    /// `tokio::sync::Mutex::blocking_lock` rustdoc) and avoids the
+    /// `try_lock` race where the waiter task is mid-`map.remove` when
+    /// the drop fires.
+    ///
+    /// **Why parallel to `sessions` rather than a field on
+    /// `SessionHandle`.** Same `Drop`-needs-sync-lock argument applies
+    /// at the per-handle granularity, but additionally: the `sessions`
+    /// map itself is behind `tokio::sync::Mutex`, so the `Drop` impl
+    /// cannot even reach `SessionHandle` without holding the async
+    /// mutex synchronously. Keeping killers in a parallel `std::sync::
+    /// Mutex` map makes the `Drop` path completely independent of the
+    /// async mutex.
+    ///
+    /// **Lifecycle.** `spawn()` clones a killer via
+    /// [`portable_pty::ChildKiller::clone_killer`] BEFORE moving `child`
+    /// into the waiter task and inserts `(killer, pid)` into this map.
+    /// The waiter removes its entry from this map INSIDE its
+    /// `tokio::task::spawn_blocking` closure, on the same thread that
+    /// just performed `Child::wait()`'s reap — matching the
+    /// [`SessionHandle::exited`] flag's same-thread window-narrowing
+    /// pattern. The recycled-pid kill window for the **in-band**
+    /// [`PtySessionRegistry::kill`] path is bounded to single-digit
+    /// CPU instructions between `wait()` returning and the
+    /// `killers.lock()` acquisition. Three additional async-arm
+    /// `killers.remove(...)` calls in the waiter's outer body act as
+    /// defensive belt-and-braces (no-op on missing key). `Drop` walks
+    /// any remaining entries, soft-kills via [`ChildKiller::kill`],
+    /// then escalates per [`DROP_KILL_ESCALATION_DEADLINE`].
+    ///
+    /// **Why ignore soft-kill errors in `Drop`.** A child that has
+    /// already reaped (waiter has run to completion) but whose entry
+    /// survives due to a scheduling race will return `ESRCH` on
+    /// `libc::kill`. The `Drop` impl is best-effort cleanup —
+    /// propagating the error has no recipient because `Drop` cannot
+    /// return values. The escalation is also skipped on soft-kill
+    /// error (the child is already gone, by definition).
+    killers: Arc<std::sync::Mutex<HashMap<String, KillerEntry>>>,
 }
 
 impl PtySessionRegistry {
@@ -369,6 +474,7 @@ impl PtySessionRegistry {
             sessions: Arc::new(Mutex::new(HashMap::new())),
             outbound,
             next_session_id: Arc::new(AtomicU64::new(0)),
+            killers: Arc::new(std::sync::Mutex::new(HashMap::new())),
         };
         (registry, rx)
     }
@@ -432,6 +538,22 @@ impl PtySessionRegistry {
         // clone here for the Windows kill-translation arm.
         let pid = child.process_id();
 
+        // Clone a killer BEFORE moving `child` into the waiter. The
+        // killer is stashed in the registry's `killers` map and
+        // consulted by `Drop` to terminate any still-running child
+        // when `main()` winds down after stdin EOF. See the `killers`
+        // field rustdoc for the full deadlock-closing rationale.
+        //
+        // `portable_pty::ChildKiller::clone_killer` returns
+        // `Box<dyn ChildKiller + Send + Sync>` — Sync is required
+        // because the `std::sync::Mutex<HashMap<..., Box<...>>>` is
+        // `Arc`-shared across the spawn-time insert path and the
+        // Drop-time iterate path. Sync is provided by the
+        // `ProcessSignaller` impl on unix; on Windows the same trait
+        // method returns a Sync killer (it owns a `HANDLE` which the
+        // OS allows cross-thread access to).
+        let killer = child.clone_killer();
+
         // Take the writer once (per `MasterPty::take_writer` contract).
         let writer = pair
             .master
@@ -477,6 +599,26 @@ impl PtySessionRegistry {
             .await
             .insert(session_id.clone(), handle);
 
+        // Stash the (killer, pid) tuple in the registry's killers map.
+        // Insert AFTER `sessions.insert(...)` so the two-map invariant
+        // "if a session is in `killers`, it is also in `sessions` (or
+        // the waiter has run partial cleanup)" stays observable. The
+        // pid is paired with the killer so [`Drop`]'s SIGKILL
+        // escalation can call `libc::kill(pid, SIGKILL)` without
+        // reaching back through the (async-locked) `sessions` map.
+        //
+        // Unwrap on the std::sync::Mutex lock is safe in practice:
+        // the only writers are spawn() (this code path) and the waiter
+        // (post-exit cleanup); both are short critical sections with
+        // no panic risk inside the lock. A poisoned mutex here would
+        // indicate a panic inside a previous lock holder, which would
+        // be a bug worth surfacing as a process-level panic rather
+        // than swallowing.
+        self.killers
+            .lock()
+            .expect("killers mutex poisoned")
+            .insert(session_id.clone(), (killer, pid));
+
         // Spawn the stdout-pump background task. PTY semantics: one
         // merged reader, all DataFrames stamped `stream: Stdout`. The
         // returned `JoinHandle` is routed into the waiter (below) so
@@ -498,10 +640,18 @@ impl PtySessionRegistry {
             exited,
             self.outbound.clone(),
             self.sessions.clone(),
+            self.killers.clone(),
             reader_task,
         );
 
-        Ok(SpawnResponse { session_id })
+        // `error: None` on the success path — the field exists for
+        // wire-side error reporting from the dispatcher (see
+        // `protocol::SpawnResponse` rustdoc); successful spawns leave
+        // it unset so it serializes as absent on the wire.
+        Ok(SpawnResponse {
+            session_id,
+            error: None,
+        })
     }
 
     /// Resize an active session's PTY.
@@ -524,6 +674,9 @@ impl PtySessionRegistry {
             .map_err(|e| PtySessionError::PortablePty(e.to_string()))?;
         Ok(ResizeResponse {
             session_id: req.session_id,
+            // Success path — the dispatcher's failure arm carries the
+            // `error: Some(_)` shape (see `main.rs::dispatch_one`).
+            error: None,
         })
     }
 
@@ -563,6 +716,7 @@ impl PtySessionRegistry {
                 *writer_slot = Some(writer_returned);
                 Ok(WriteResponse {
                     session_id: req.session_id,
+                    error: None,
                 })
             }
             Err(e) => {
@@ -629,11 +783,15 @@ impl PtySessionRegistry {
 
         Ok(KillResponse {
             session_id: req.session_id,
+            error: None,
         })
     }
 
-    /// Windows kill stub — Phase 3 T-024-3-1 owns the real
-    /// implementation per Plan-024 §Invariants I-024-1 + I-024-2.
+    /// Windows kill stub — substrate-only ship per Plan-024 §Invariants
+    /// I-024-1 + I-024-2 and §Implementation Phase Sequence Phase 3 header;
+    /// end-to-end wire-through is deferred to a follow-up task.
+    /// Translator substrate is verified in `kill_translation::tests`
+    /// (I-024-1) and `tree_kill::tests` (I-024-2).
     #[cfg(windows)]
     pub async fn kill(&self, _req: KillRequest) -> Result<KillResponse, PtySessionError> {
         Err(PtySessionError::WindowsKillNotImplemented)
@@ -665,6 +823,323 @@ impl PtySessionRegistry {
     /// dispatcher's health-check / ping-response path.
     pub async fn active_session_count(&self) -> usize {
         self.sessions.lock().await.len()
+    }
+}
+
+/// Drop-time deadline before [`Drop`] escalates from a soft kill
+/// (SIGHUP via [`portable_pty::ChildKiller::kill`]) to a hard kill
+/// (`libc::kill(pid, SIGKILL)`).
+///
+/// 1 s balances two failure modes:
+///   - Too short ⇒ well-behaved children that legitimately need a
+///     handful of milliseconds to honor SIGHUP get force-killed,
+///     losing their cleanup hooks (atexit, trap handlers).
+///   - Too long ⇒ shutdown latency grows linearly with the number
+///     of SIGHUP-ignoring sessions; idle test runs spawning a
+///     handful of `sleep` children would noticeably stall.
+///
+/// 1 s is two orders of magnitude above the natural-EOF latency
+/// observed by the existing
+/// `registry_drop_terminates_idle_session_and_closes_outbound_channel`
+/// regression test (sub-millisecond on Linux / macOS for
+/// `sleep 30`), while remaining well below interactive perception
+/// thresholds for a daemon shutdown.
+///
+/// **Memory-cost note.** [`Drop`] spawns one detached OS thread per
+/// session that ignored the soft kill; peak shutdown VAS is
+/// `O(N × default_thread_stack)` (~8 MB Linux default
+/// `RLIMIT_STACK`, ~512 KB macOS). Acceptable for expected sidecar
+/// session counts (~50); a single shared escalation worker with a
+/// min-heap of `(deadline, pid)` is the structural fix if N grows
+/// substantially in future workloads.
+#[cfg(unix)]
+const DROP_KILL_ESCALATION_DEADLINE: std::time::Duration =
+    std::time::Duration::from_millis(1000);
+
+/// Forced-abort cleanup on registry drop — closes the dispatcher-
+/// shutdown deadlock that idle sessions otherwise cause, with a
+/// bounded SIGHUP → SIGKILL escalation for children that ignore the
+/// soft kill.
+///
+/// ## Closes the registry-drop / writer-task deadlock for idle sessions
+///
+/// `main()` (see `src/main.rs`) holds the registry for the lifetime of
+/// the dispatcher loop. When stdin EOFs, the dispatcher returns, `main`
+/// drops the registry, and awaits the writer task to drain. The writer
+/// task drains its outbound channel — and that channel only closes
+/// once **every** sender clone is dropped.
+///
+/// Without this `Drop`, the registry's own clone drops here on
+/// `drop(registry)`, but the per-session reader and waiter tasks
+/// (spawned by [`PtySessionRegistry::spawn`]) each carry their own
+/// outbound-sender clone. An idle session (e.g., a parent that
+/// `spawn`ed `sleep 30` and never wrote to its PTY) keeps both tasks
+/// alive: the reader blocks in `read()` waiting for the child to
+/// produce output, and the waiter blocks in `Child::wait()` waiting
+/// for the child to exit. Neither clone drops; the writer's `recv()`
+/// never returns `None`; `writer_handle.await` blocks forever; `main`
+/// hangs.
+///
+/// `Drop` here walks the `killers` map and:
+///   1. **Phase 1 — soft kill.** Calls
+///      [`portable_pty::ChildKiller::kill`] on every still-running
+///      child. On unix this delivers SIGHUP via portable-pty's
+///      `ProcessSignaller`; on Windows it invokes
+///      `TerminateProcess(handle, 127)` (already a hard kill — see
+///      the Windows note below).
+///   2. **Phase 2 — escalation (unix only).** Spawns a detached
+///      `std::thread::spawn` per session that sleeps for
+///      [`DROP_KILL_ESCALATION_DEADLINE`], then liveness-checks the
+///      pid via `libc::kill(pid, 0)` (signal 0 is "test only,
+///      deliver no signal" per `kill(2)`). If the process is still
+///      alive (kill returns 0, not ESRCH), the thread delivers
+///      `SIGKILL` directly. SIGKILL cannot be caught or ignored —
+///      the kernel terminates the process immediately, closing its
+///      slave-end of the PTY and unblocking the reader.
+///
+/// Killing the child triggers the natural termination chain:
+///
+/// 1. Child is signalled → child exits → kernel closes the child's
+///    side of the PTY (the slave end).
+/// 2. The slave-close surfaces as `Ok(0)` (EOF) on the reader task's
+///    next `read()` call. The reader exits its `loop { ... }` and
+///    drops its outbound-sender clone.
+/// 3. The waiter task's `Child::wait()` returns. It awaits the
+///    (already-finished) reader, sends one
+///    `ExitCodeNotification` (which the writer will write or drop
+///    depending on whether stdout is still open), and exits. Its
+///    outbound-sender clone drops.
+/// 4. The outbound channel is now closed (registry's clone + both
+///    per-session clones gone). The writer task's `recv()` returns
+///    `None`, the writer exits, `main` returns.
+///
+/// ## Why a detached `std::thread::spawn` for escalation, not Tokio
+///
+/// `Drop` is synchronous — it cannot `.await`, so a `tokio::time::
+/// sleep` followed by an in-process kill is not available. Even
+/// `tokio::task::spawn` is unsafe at this point: by the time `main`
+/// has dropped the registry, the Tokio runtime is itself winding down
+/// (the writer task is the only remaining drain step). Spawning new
+/// async work onto a runtime that is about to be dropped risks the
+/// task being silently cancelled before it sleeps the full deadline.
+///
+/// A `std::thread::spawn` is OS-managed; it survives the Tokio runtime
+/// shutdown and runs to completion independent of any async
+/// scheduling. The thread takes ownership of `pid` (a `u32`, `Copy`)
+/// and `session_id` via `move`, so there is no borrow back into the
+/// dropped registry.
+///
+/// ## PID-recycling trade-off accepted in Drop-time context
+///
+/// The in-band [`PtySessionRegistry::kill`] path defends against PID
+/// recycling by checking the per-session [`SessionHandle::exited`]
+/// flag with [`Ordering::Acquire`] BEFORE calling `libc::kill`. The
+/// flag is set with [`Ordering::Release`] on the same thread that
+/// just performed `Child::wait()`'s reap, narrowing the recycled-pid
+/// window to single-digit CPU instructions (see
+/// [`SessionHandle::exited`] for the full happens-before analysis).
+///
+/// The Drop-time escalation thread CANNOT use that defense, for two
+/// reasons:
+///   1. **`SessionHandle::exited` is unreachable from Drop.** The
+///      handle lives behind the async `sessions` Mutex; a detached
+///      OS thread has no Tokio context to `.lock().await` on.
+///   2. **`libc::kill(pid, 0)` itself is the existence check.** It
+///      returns OK if the pid is alive AND if the pid has been
+///      recycled to an unrelated process — kernel cannot distinguish
+///      these cases via signal 0. If `kill(pid, 0)` returns ESRCH
+///      (process gone), the escalation skips and we are safe; if it
+///      returns OK, we cannot tell whether the original child is
+///      still running or whether the kernel has reused the pid for
+///      an unrelated process.
+///
+/// **Accepted trade-off in Drop-time context.** The alternative to
+/// proceeding-on-OK is to never escalate — which reintroduces the
+/// shutdown-hangs-forever failure mode this fix exists to close. A
+/// SIGHUP-ignoring child (e.g., `bash -c 'trap "" HUP; sleep 60'`)
+/// would survive Phase 1 indefinitely and deadlock `main`. Between
+/// "rare misdirected SIGKILL to a recycled pid during shutdown" and
+/// "guaranteed hang on a real shutdown path", the recycled-pid risk
+/// is the better bet for these reasons:
+///   - The 1 s deadline is short on the system-clock scale but long
+///     on the pid-recycle scale — the kernel does not normally
+///     recycle a pid within 1 s of the previous reap (Linux
+///     `pid_max` defaults to 32768; macOS to 99999; pid allocation
+///     is monotonic-with-wraparound, not LIFO).
+///   - The misdirected kill targets a pid the sidecar's UID is
+///     allowed to signal; per `kill(2)`'s same-UID permission rule,
+///     the blast radius is at worst any process owned by the same
+///     user. The user already trusts their own process tree, so a
+///     one-time misdirected SIGKILL within a 1 s shutdown window
+///     stays inside their own remediation scope.
+///   - The only path that exercises this is sidecar shutdown; the
+///     in-band kill path (which runs during normal session
+///     lifetime) retains its full [`SessionHandle::exited`] defense.
+///
+/// Phase 4+ may add `pidfd_open(2)` on Linux for a kernel-level
+/// race-free liveness check, but it requires kernel ≥5.3 and
+/// platform-specific code; the simpler `libc::kill(pid, 0)` check
+/// is the right Phase 3 shape.
+///
+/// ## Why `kill` and not `JoinHandle::abort` / `JoinSet::abort_all`
+///
+/// Per Tokio `tokio::task::JoinHandle::abort` rustdoc (and as
+/// documented in [`spawn_waiter_task`]'s rustdoc above): aborting a
+/// task spawned via `tokio::task::spawn_blocking` is a no-op once the
+/// closure has started running on the blocking pool thread. The
+/// reader task IS such a `spawn_blocking`; aborting its JoinHandle
+/// would leave the blocking thread happily blocked in `read()` and
+/// the outbound-sender clone alive forever. The honest fix is to
+/// kill the child — that closes the PTY end the reader is blocked on,
+/// which lets the blocking closure exit through its existing `Ok(0)`
+/// arm. No abort needed; the existing natural-termination paths do
+/// the rest.
+///
+/// ## Why ignore soft-kill errors (no escalation on error)
+///
+/// `kill()` on an already-reaped child returns `ESRCH` (no such
+/// process). This is the expected case for any session whose waiter
+/// task has already run to completion AND whose `killers`-map removal
+/// happened to lose a scheduling race with the registry-drop on
+/// `main()` shutdown. `Drop` cannot return values, so propagating the
+/// error has no recipient; we log to stderr (operator-side triage)
+/// and `continue` to the next session WITHOUT spawning an escalation
+/// thread — the child is by definition already gone (the soft kill
+/// could not find it), so SIGKILL would either no-op (ESRCH) or hit a
+/// recycled pid (the exact case the in-band path's
+/// [`SessionHandle::exited`] flag is designed to prevent).
+///
+/// ## Per-platform `kill()` behavior
+///
+/// `portable_pty::ChildKiller::kill` delegates to platform-specific
+/// shutdown:
+///   - **unix:** `libc::kill(pid, SIGHUP)` via portable-pty's
+///     `ProcessSignaller`. SIGHUP's kernel default is "terminate"
+///     for programs without a signal handler — sufficient for the
+///     shells / utilities the sidecar typically hosts. A program
+///     that installs `trap '' HUP` survives this signal, which is
+///     why the Phase 2 SIGKILL escalation exists. The kernel reaps
+///     any orphaned grandchildren to PID 1 (init / launchd), which
+///     handles them.
+///   - **Windows:** `TerminateProcess(handle, 127)` via portable-pty's
+///     `ProcessSignaller`. This is **already a hard kill** — the
+///     process cannot install a TerminateProcess handler — so no
+///     Windows escalation is needed. The Phase 2 escalation block
+///     is gated with `#[cfg(unix)]` accordingly. Note that
+///     `TerminateProcess` is single-PID: session grandchildren that
+///     the child itself spawned will orphan when the sidecar exits
+///     cleanly. Plan-024 §Invariants I-024-4's daemon-side
+///     `taskkill /T /F /PID <sidecar-pid>` escalation fires only on
+///     sidecar-exit **timeout**, so a successful Drop here does NOT
+///     trigger that defense; the I-024-2 tree-kill structural intent
+///     is honored only on the in-band [`PtySessionRegistry::kill`]
+///     Windows arm (deferred to Phase 4 per the file header — the
+///     current Windows arm returns
+///     [`PtySessionError::WindowsKillNotImplemented`]). Acceptable for
+///     Phase 3 because this Drop's Windows compile arm is dead code
+///     on the current test matrix (`tests/pty_session.rs` is
+///     `#![cfg(unix)]`); when Phase 4 wires the Windows in-band kill
+///     path, this Drop arm should be reconsidered (likely a fire-and-
+///     forget `taskkill /T /F` matching the in-band cascade so
+///     grandchildren reap deterministically).
+impl Drop for PtySessionRegistry {
+    fn drop(&mut self) {
+        // Drain the killers map under the std::sync::Mutex. Using
+        // `drain` rather than `iter_mut` to consume the map by value
+        // — there is no point retaining the entries after the
+        // registry has been dropped.
+        //
+        // `unwrap_or_else` on the lock instead of `expect`: a
+        // poisoned mutex during `Drop` is a degenerate case (the
+        // process is already winding down), and `Drop` panicking
+        // would double-panic on top of whatever poisoned the mutex.
+        // We extract the inner map via `into_inner` after recovering
+        // from poisoning so the cleanup still runs in the panic-
+        // unwinding case.
+        let mut killers_guard = match self.killers.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        for (session_id, (mut killer, _pid)) in killers_guard.drain() {
+            // Phase 1: soft kill via portable-pty's ChildKiller. On
+            // unix this is SIGHUP; on Windows it is TerminateProcess
+            // (already a hard kill — no escalation needed).
+            if let Err(err) = killer.kill() {
+                // ESRCH on an already-reaped child is the expected
+                // case during normal shutdown — log at the same
+                // verbosity as the existing waiter-side eprintlns
+                // for triage parity. Skip the escalation: the child
+                // is by definition already gone, so SIGKILL would
+                // either no-op (ESRCH) or hit a recycled pid (the
+                // exact case the in-band path's `exited` flag is
+                // designed to prevent — see the rustdoc above).
+                eprintln!(
+                    "pty_session registry drop ({session_id:?}): soft kill on child failed: {err}"
+                );
+                continue;
+            }
+
+            // Phase 2: bounded escalation on unix. Windows already
+            // delivered TerminateProcess in Phase 1 so the
+            // escalation block compiles out on Windows.
+            //
+            // **Why `Builder::spawn`, not `std::thread::spawn`.**
+            // `std::thread::spawn`'s rustdoc states it panics when
+            // the OS fails to create a thread (RLIMIT_NPROC, OOM).
+            // Drop runs inside `main()`'s shutdown path at
+            // `src/main.rs::drop(registry)`; a panic there would
+            // skip the subsequent `writer_handle.await` and crash
+            // the process before the writer drains, breaking the
+            // `finalize_result` exit-status contract. `Builder::
+            // spawn` returns `io::Result<JoinHandle>` instead of
+            // panicking — we ignore the error (`let _ =`) so the
+            // per-session escalation is silently skipped on
+            // OS-failure (the child becomes a zombie reaped by
+            // init/launchd; tolerable degradation) and the rest of
+            // the killers map continues to iterate. The thread name
+            // is a useful operability bonus for `ps -eLf` triage
+            // but the Builder pattern is here for the
+            // OS-failure-tolerance semantics, not the name.
+            #[cfg(unix)]
+            if let Some(pid) = _pid {
+                let session_id_for_thread = session_id.clone();
+                let _ = std::thread::Builder::new()
+                    .name(format!("pty-drop-escalation-{session_id_for_thread}"))
+                    .spawn(move || {
+                        std::thread::sleep(DROP_KILL_ESCALATION_DEADLINE);
+                        // SAFETY: `libc::kill(pid, 0)` performs an
+                        // existence check without delivering a signal
+                        // (per `kill(2)`). It is async-signal-safe and
+                        // has no preconditions beyond a valid pid_t
+                        // range — which `u32 as i32` satisfies for any
+                        // pid Linux/macOS would mint.
+                        let alive = unsafe { libc::kill(pid as libc::pid_t, 0) } == 0;
+                        if alive {
+                            // SAFETY: same constraints as above; SIGKILL
+                            // is a libc constant. The PID-recycling
+                            // trade-off accepted by this code path is
+                            // documented in the `Drop` impl rustdoc
+                            // above (search "PID-recycling trade-off
+                            // accepted in Drop-time context").
+                            let rc = unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
+                            if rc != 0 {
+                                // ESRCH between the liveness check and
+                                // the SIGKILL is a tiny race; not
+                                // actionable for the operator beyond
+                                // "shutdown completed". Log for
+                                // triage parity with the soft-kill
+                                // failure arm above.
+                                eprintln!(
+                                    "pty_session registry drop ({session_id_for_thread:?}): \
+                                     SIGKILL escalation returned errno {} (likely ESRCH \
+                                     from a between-check-and-kill race; child is gone)",
+                                    std::io::Error::last_os_error()
+                                );
+                            }
+                        }
+                    });
+            }
+        }
     }
 }
 
@@ -791,6 +1266,7 @@ fn spawn_waiter_task(
     exited: Arc<std::sync::atomic::AtomicBool>,
     outbound: mpsc::UnboundedSender<Envelope>,
     sessions: Arc<Mutex<HashMap<String, Arc<SessionHandle>>>>,
+    killers: Arc<std::sync::Mutex<HashMap<String, KillerEntry>>>,
     reader_task: JoinHandle<()>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
@@ -806,9 +1282,24 @@ fn spawn_waiter_task(
         // window during which a concurrent kill could fire `libc::kill`
         // at a recycled pid (see [`SessionHandle::exited`]).
         let exited_for_closure = Arc::clone(&exited);
+        let killers_for_closure = Arc::clone(&killers);
+        let session_id_for_closure = session_id.clone();
         let join_result = tokio::task::spawn_blocking(move || {
             let result = child.wait();
             exited_for_closure.store(true, std::sync::atomic::Ordering::Release);
+            // Same-thread-as-the-reap window-narrowing for pid-recycle defense:
+            // remove from `killers` immediately so the registry's `Drop` impl
+            // cannot observe a stale killer for a recycled pid. Mirrors the
+            // `SessionHandle::exited` flag pattern (set with `Release` on the
+            // same thread that just performed `wait()`'s reap) — see that
+            // field's rustdoc for the full happens-before discussion. The
+            // three async-arm `killers.remove` sites below remain as
+            // defensive belt-and-braces for the closure-panic case; this
+            // same-thread removal is the load-bearing primary path.
+            let _ = killers_for_closure
+                .lock()
+                .expect("killers mutex poisoned")
+                .remove(&session_id_for_closure);
             result
         })
         .await;
@@ -855,13 +1346,34 @@ fn spawn_waiter_task(
                 // before `wait` returned). The closure's store is the
                 // load-bearing path; this is the fallback.
                 exited.store(true, std::sync::atomic::Ordering::Release);
-                let _ = outbound.send(Envelope::ExitCodeNotification(ExitCodeNotification {
+                let notification = ExitCodeNotification {
                     session_id: session_id.clone(),
                     exit_code: 1,
                     signal_code: None,
-                }));
+                };
+                // Per-session waiter tasks have NO escalation path back
+                // to `main()` (unlike `dispatch_one` which returns a
+                // `Result` the dispatcher loop `?`-propagates). If the
+                // writer is dead the exit notification is lost no
+                // matter what we do; log + continue cleanup so at least
+                // the local sessions/killers map gets purged and the
+                // operator can see the loss in stderr.
+                if let Err(send_err) = outbound.send(Envelope::ExitCodeNotification(notification)) {
+                    eprintln!(
+                        "pty_session waiter ({session_id:?}): outbound channel closed (writer dead); \
+                         lost exit notification: {send_err}"
+                    );
+                }
                 let mut map = sessions.lock().await;
                 map.remove(&session_id);
+                // Defensive belt-and-braces: the same-thread remove inside
+                // the `spawn_blocking` closure above is the primary pid-
+                // recycle defense; this redundant call is a no-op on a
+                // missing key (HashMap::remove returns None).
+                killers
+                    .lock()
+                    .expect("killers mutex poisoned")
+                    .remove(&session_id);
                 return;
             }
             Err(join_err) => {
@@ -870,13 +1382,33 @@ fn spawn_waiter_task(
                 );
                 // Same defensive flag-set as above.
                 exited.store(true, std::sync::atomic::Ordering::Release);
-                let _ = outbound.send(Envelope::ExitCodeNotification(ExitCodeNotification {
+                let notification = ExitCodeNotification {
                     session_id: session_id.clone(),
                     exit_code: 1,
                     signal_code: None,
-                }));
+                };
+                // See the sibling Ok(Err(io_err)) arm above for the
+                // log-and-continue rationale: per-session waiters have
+                // no escalation path back to main, so a closed outbound
+                // channel turns into a stderr line plus continued
+                // local-state cleanup.
+                if let Err(send_err) = outbound.send(Envelope::ExitCodeNotification(notification)) {
+                    eprintln!(
+                        "pty_session waiter ({session_id:?}): outbound channel closed (writer dead); \
+                         lost exit notification: {send_err}"
+                    );
+                }
                 let mut map = sessions.lock().await;
                 map.remove(&session_id);
+                // Defensive belt-and-braces: catches the closure-panic
+                // path specifically (the `spawn_blocking` join failed, so
+                // its same-thread `killers.remove` did NOT execute). This
+                // is the load-bearing fallback for the join-error arm,
+                // not pure redundancy.
+                killers
+                    .lock()
+                    .expect("killers mutex poisoned")
+                    .remove(&session_id);
                 return;
             }
         };
@@ -899,11 +1431,31 @@ fn spawn_waiter_task(
             exit_code,
             signal_code: None,
         };
-        let _ = outbound.send(Envelope::ExitCodeNotification(notification));
+        // Asymmetric with `dispatch_one`'s `?`-propagation: per-session
+        // waiter tasks cannot escalate to `main()`, so a closed
+        // outbound channel here means the daemon will never learn this
+        // child exited. Log + continue so the local sessions/killers
+        // map still gets cleaned up; the daemon supervisor's own
+        // child-exit detection (or stdin EOF on the sidecar) is the
+        // backstop.
+        if let Err(send_err) = outbound.send(Envelope::ExitCodeNotification(notification)) {
+            eprintln!(
+                "pty_session waiter ({session_id:?}): outbound channel closed (writer dead); \
+                 lost exit notification: {send_err}"
+            );
+        }
 
         // Remove the session — subsequent writes/resizes/kills on this
         // id will return `UnknownSession`.
         let mut map = sessions.lock().await;
         map.remove(&session_id);
+        // Defensive belt-and-braces: the same-thread remove inside the
+        // `spawn_blocking` closure above is the primary pid-recycle
+        // defense; this redundant call is a no-op on a missing key
+        // (HashMap::remove returns None).
+        killers
+            .lock()
+            .expect("killers mutex poisoned")
+            .remove(&session_id);
     })
 }
