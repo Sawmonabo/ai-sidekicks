@@ -3059,17 +3059,82 @@ describe("resolveSidecarBinaryPath — four-tier binary resolution (F-024-3-03)"
     return { opts, requireMock, existsMock };
   }
 
-  it("tier 1 hits when AIS_PTY_SIDECAR_BIN is set to an absolute path (tiers 2/3/4 NOT consulted)", () => {
-    const { opts, requireMock, existsMock } = makeOpts({
+  it("tier 1 hits when AIS_PTY_SIDECAR_BIN is set to an absolute path that exists (tiers 2/3/4 NOT consulted)", () => {
+    // The tier-1 happy path also probes existsSync to guard against a
+    // stale/typo'd env path silently passing resolution and bombing
+    // ensureChild()'s spawn budget. The probe counts as tier-1
+    // bookkeeping — tiers 2/3/4 still MUST NOT be consulted (proven by
+    // requireMock having zero invocations).
+    const existsMock = vi.fn<(p: string) => boolean>((p) => p === "/abs/path/to/sidecar");
+    const { opts, requireMock } = makeOpts({
       env: { AIS_PTY_SIDECAR_BIN: "/abs/path/to/sidecar" },
+      existsSync: existsMock,
     });
 
     const result: string = resolveSidecarBinaryPath(opts);
 
     expect(result).toBe("/abs/path/to/sidecar");
-    // First-hit-wins — later tiers MUST NOT be consulted. Pin 5 ordering.
+    // Tier 1's existsSync probe ran once, against the env value;
+    // tier 3/4 release/debug probes were NOT issued (pin 5 ordering).
+    expect(existsMock).toHaveBeenCalledTimes(1);
+    expect(existsMock).toHaveBeenCalledWith("/abs/path/to/sidecar");
     expect(requireMock).not.toHaveBeenCalled();
-    expect(existsMock).not.toHaveBeenCalled();
+  });
+
+  it("tier 1 rejects an absolute path that does not exist on disk and falls through to tier 2", () => {
+    // Stale/typo'd absolute env path — without the existsSync guard,
+    // the resolver would return the bad path and ensureChild()'s
+    // doomed spawn(...) would count each failure against the 5/60s
+    // crash budget, flipping the host to permanently unavailable
+    // after five attempts. The resolver instead rejects-and-falls-
+    // through so the next call resolves cleanly via the published
+    // package (tier 2). Mirrors the relative-path branch idiom.
+    const tier2Mock = vi.fn<(id: string) => string>(() => "/installed/pkg/bin/sidecar");
+    const existsMock = vi.fn<(p: string) => boolean>(() => false);
+    const { opts } = makeOpts({
+      env: { AIS_PTY_SIDECAR_BIN: "/tmp/path/that/does/not/exist" },
+      nodeRequire: { resolve: tier2Mock },
+      existsSync: existsMock,
+    });
+
+    const result: string = resolveSidecarBinaryPath(opts);
+
+    expect(result).toBe("/installed/pkg/bin/sidecar");
+    // Tier 1's existsSync probe ran against the env value, returned
+    // false, and the resolver continued to tier 2 — proves the env
+    // path was NOT returned verbatim.
+    expect(existsMock).toHaveBeenCalledWith("/tmp/path/that/does/not/exist");
+    expect(tier2Mock).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects-and-enumerates a non-existent absolute tier-1 attempt when all four tiers miss", () => {
+    // Same diagnostic-naming-the-rejected-value contract as the
+    // relative-path tier-1 attempt: when the operator's env path
+    // misses AND every other tier misses, the four-exhausted error
+    // names the exact typo'd value so they can see what to fix.
+    const requireMock = vi.fn<(id: string) => string>(() => {
+      throw new Error("not found");
+    });
+    const existsMock = vi.fn<(p: string) => boolean>(() => false);
+    const { opts } = makeOpts({
+      env: { AIS_PTY_SIDECAR_BIN: "/tmp/missing/sidecar" },
+      nodeRequire: { resolve: requireMock },
+      existsSync: existsMock,
+    });
+
+    let thrown: unknown = null;
+    try {
+      resolveSidecarBinaryPath(opts);
+    } catch (err) {
+      thrown = err;
+    }
+
+    expect(thrown).toBeInstanceOf(PtyBackendUnavailableError);
+    if (thrown instanceof PtyBackendUnavailableError) {
+      expect(thrown.message).toMatch(
+        /tier 1 \(env-var AIS_PTY_SIDECAR_BIN\): rejected \(path does not exist\): "\/tmp\/missing\/sidecar"/,
+      );
+    }
   });
 
   it("tier 1 rejects a relative path (NOT coerced to absolute) and falls through to tier 2", () => {

@@ -569,6 +569,19 @@ export function resolveSidecarBinaryPath(opts?: ResolveSidecarBinaryPathOptions)
       description: "env-var AIS_PTY_SIDECAR_BIN",
       outcome: `rejected (relative path; absolute required): ${JSON.stringify(fromEnv)}`,
     });
+  } else if (!existsSync(fromEnv)) {
+    // Stale/typo'd absolute path — reject deterministically rather
+    // than handing the bad path to `ensureChild()` and letting the
+    // doomed `spawn(...)` count against the sliding crash budget.
+    // Five such typo'd attempts would otherwise flip the host to
+    // permanently unavailable for the process lifetime. Same
+    // diagnostic shape as the relative-path branch above so the
+    // operator sees the exact value they typed wrong.
+    attempts.push({
+      tier: 1,
+      description: "env-var AIS_PTY_SIDECAR_BIN",
+      outcome: `rejected (path does not exist): ${JSON.stringify(fromEnv)}`,
+    });
   } else {
     return fromEnv;
   }
