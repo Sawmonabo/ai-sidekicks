@@ -48,6 +48,8 @@ import {
   PtyBackendUnavailableError,
   RustSidecarPtyHost,
   createRustSidecarPtyHost,
+  resolveSidecarBinaryPath,
+  type ResolveSidecarBinaryPathOptions,
   type SidecarChildProcess,
   type SidecarSpawnFn,
 } from "../rust-sidecar-pty-host.js";
@@ -786,32 +788,24 @@ describe("RustSidecarPtyHost — binary path resolver failure", () => {
 });
 
 // ----------------------------------------------------------------------------
-// Pin 1 — factory honors `binaryPath` for T-024-3-3 forward compatibility.
+// Factory — `createRustSidecarPtyHost` accepts an optional `binaryPath`.
 // ----------------------------------------------------------------------------
 
-describe("createRustSidecarPtyHost — factory accepts binaryPath (Pin 1)", () => {
+describe("createRustSidecarPtyHost — factory accepts binaryPath", () => {
   it("constructs a host whose internal resolver returns the supplied binaryPath", async () => {
     // We cannot directly inspect the internal resolver from outside
-    // the class, but we can drive a spawn through the factory and
-    // assert that the spawn call sees the supplied binaryPath as
-    // its `command` argument.
-    //
-    // The factory does not provide a `spawn` override, so the
-    // production path would call `node:child_process.spawn`. To
-    // keep this test hermetic we override AIS_PTY_SIDECAR_PATH via
-    // the `binaryPath` opt and then construct a child via the
-    // class directly with a mock spawn. The `binaryPath` opt is
-    // exercised end-to-end via the selector tests; here we just
-    // assert the factory does not throw and returns an instance.
+    // the class, but the factory's `binaryPath` opt is end-to-end
+    // exercised via the selector tests. Here we assert the factory
+    // does not throw and returns an instance.
     const host = createRustSidecarPtyHost({ binaryPath: "/explicit/path" });
     expect(host).toBeInstanceOf(RustSidecarPtyHost);
   });
 
-  it("constructs a host with no opts (production default — resolver throws clear error message)", () => {
-    // Pin 1 stub contract: no opts AND no AIS_PTY_SIDECAR_PATH ⇒
-    // the default resolver throws a clear error naming T-024-3-3.
-    // We do not call into spawn (which would trigger the resolver);
-    // we just assert construction succeeds.
+  it("constructs a host with no opts (production default — wires the four-tier resolver)", () => {
+    // No-opt construction wires `resolveSidecarBinaryPath` as the
+    // default `resolveBinaryPath` deps entry. The four-tier resolver's
+    // own behavior is exercised in the dedicated `resolveSidecarBinaryPath`
+    // describe block below; here we just assert construction succeeds.
     const host = createRustSidecarPtyHost();
     expect(host).toBeInstanceOf(RustSidecarPtyHost);
   });
@@ -1482,5 +1476,269 @@ describe("RustSidecarPtyHost — dual error+exit events do not double-charge the
     await flushMicrotasks();
     // The host accepted the spawn — budget had room.
     expect(seq.spawned().length).toBe(CRASH_BUDGET_LIMIT);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// `resolveSidecarBinaryPath` — four-tier binary resolution per F-024-3-03.
+//
+// What we assert (T-024-3-3 acceptance criteria, dispatch §pin 5 ordering,
+// dispatch §pin 4 four-exhausted enumeration):
+//
+//   * Tier 1 (env-var) hits → returns env value verbatim; tiers 2/3/4 NOT
+//     consulted.
+//   * Tier 1 relative-path → rejected (NOT coerced); tier 2 then consulted.
+//   * Tier 2 (require.resolve) hits → returns resolved path; tiers 3/4 NOT
+//     consulted.
+//   * Tier 3 (release build) hits → returns release path; tier 4 NOT
+//     consulted.
+//   * Tier 4 (debug build) hits → returns debug path.
+//   * All four exhausted → throws PtyBackendUnavailableError with
+//     attemptedBackend='rust-sidecar' AND a message enumerating every tier
+//     failure AND a `cause` carrying the tier-2 require.resolve error.
+//   * Platform binary name: 'sidecar' on POSIX, 'sidecar.exe' on Windows.
+// ----------------------------------------------------------------------------
+
+describe("resolveSidecarBinaryPath — four-tier binary resolution (F-024-3-03)", () => {
+  // Helper — build an injectable-deps record with the strict defaults each
+  // test overrides. The defaults (empty env, throwing nodeRequire, false-
+  // returning existsSync) ensure every test must opt-in to the tier it
+  // wants to exercise.
+  function makeOpts(over?: Partial<ResolveSidecarBinaryPathOptions>): {
+    opts: ResolveSidecarBinaryPathOptions;
+    requireMock: ReturnType<typeof vi.fn>;
+    existsMock: ReturnType<typeof vi.fn>;
+  } {
+    const requireMock = vi.fn<(id: string) => string>(() => {
+      throw new Error("require.resolve: not configured (test default)");
+    });
+    const existsMock = vi.fn<(p: string) => boolean>(() => false);
+    const opts: ResolveSidecarBinaryPathOptions = {
+      env: {},
+      nodeRequire: { resolve: requireMock },
+      existsSync: existsMock,
+      releasePath: "/fake/release/sidecar",
+      debugPath: "/fake/debug/sidecar",
+      platform: "linux",
+      ...over,
+    };
+    return { opts, requireMock, existsMock };
+  }
+
+  it("tier 1 hits when AIS_PTY_SIDECAR_BIN is set to an absolute path (tiers 2/3/4 NOT consulted)", () => {
+    const { opts, requireMock, existsMock } = makeOpts({
+      env: { AIS_PTY_SIDECAR_BIN: "/abs/path/to/sidecar" },
+    });
+
+    const result: string = resolveSidecarBinaryPath(opts);
+
+    expect(result).toBe("/abs/path/to/sidecar");
+    // First-hit-wins — later tiers MUST NOT be consulted. Pin 5 ordering.
+    expect(requireMock).not.toHaveBeenCalled();
+    expect(existsMock).not.toHaveBeenCalled();
+  });
+
+  it("tier 1 rejects a relative path (NOT coerced to absolute) and falls through to tier 2", () => {
+    // Per resolver rustdoc: relative paths couple to process.cwd() which
+    // is caller-dependent. The resolver rejects-and-falls-through rather
+    // than silently coerce. Tier 2 is then consulted.
+    const tier2Mock = vi.fn<(id: string) => string>(() => "/from/tier-2/sidecar");
+    const { opts } = makeOpts({
+      env: { AIS_PTY_SIDECAR_BIN: "./relative/sidecar" },
+      nodeRequire: { resolve: tier2Mock },
+    });
+
+    const result: string = resolveSidecarBinaryPath(opts);
+
+    expect(result).toBe("/from/tier-2/sidecar");
+    // Tier 2 was indeed consulted — proves tier 1 did NOT short-circuit
+    // by returning the relative path verbatim.
+    expect(tier2Mock).toHaveBeenCalledTimes(1);
+  });
+
+  it("tier 2 hits when require.resolve returns a path (tiers 3/4 NOT consulted)", () => {
+    const requireMock = vi.fn<(id: string) => string>(() => "/installed/pkg/bin/sidecar");
+    const { opts, existsMock } = makeOpts({
+      nodeRequire: { resolve: requireMock },
+    });
+
+    const result: string = resolveSidecarBinaryPath(opts);
+
+    expect(result).toBe("/installed/pkg/bin/sidecar");
+    // The id passed to require.resolve must match F-024-3-03's format.
+    expect(requireMock).toHaveBeenCalledTimes(1);
+    expect(requireMock).toHaveBeenCalledWith(
+      "@ai-sidekicks/pty-sidecar-linux-" + process.arch + "/bin/sidecar",
+    );
+    // Filesystem probes for tiers 3/4 MUST NOT have run.
+    expect(existsMock).not.toHaveBeenCalled();
+  });
+
+  it("tier 3 hits when require.resolve throws but the release binary exists on disk (tier 4 NOT consulted)", () => {
+    const requireMock = vi.fn<(id: string) => string>(() => {
+      throw new Error("Cannot find module '@ai-sidekicks/pty-sidecar-linux-x64'");
+    });
+    // Tier 3 returns true; tier 4 must NOT be probed.
+    const existsMock = vi.fn<(p: string) => boolean>((p) => p === "/fake/release/sidecar");
+    const { opts } = makeOpts({
+      nodeRequire: { resolve: requireMock },
+      existsSync: existsMock,
+    });
+
+    const result: string = resolveSidecarBinaryPath(opts);
+
+    expect(result).toBe("/fake/release/sidecar");
+    // existsSync was called exactly once for the release path; the debug
+    // path was NOT consulted (tier 4 short-circuited away).
+    expect(existsMock).toHaveBeenCalledTimes(1);
+    expect(existsMock).toHaveBeenCalledWith("/fake/release/sidecar");
+  });
+
+  it("tier 4 hits when only the debug binary exists on disk", () => {
+    const requireMock = vi.fn<(id: string) => string>(() => {
+      throw new Error("Cannot find module");
+    });
+    const existsMock = vi.fn<(p: string) => boolean>((p) => p === "/fake/debug/sidecar");
+    const { opts } = makeOpts({
+      nodeRequire: { resolve: requireMock },
+      existsSync: existsMock,
+    });
+
+    const result: string = resolveSidecarBinaryPath(opts);
+
+    expect(result).toBe("/fake/debug/sidecar");
+    // Both tiers 3 and 4 were probed before tier 4 hit; debug was last.
+    expect(existsMock).toHaveBeenCalledTimes(2);
+    expect(existsMock).toHaveBeenNthCalledWith(1, "/fake/release/sidecar");
+    expect(existsMock).toHaveBeenNthCalledWith(2, "/fake/debug/sidecar");
+  });
+
+  it("all four tiers exhausted → throws PtyBackendUnavailableError enumerating every tier failure", () => {
+    // No env-var; require.resolve throws; existsSync returns false for
+    // both release and debug. This is the canonical "fresh checkout, no
+    // cargo build, no install" failure mode the resolver mitigates.
+    const requireError = new Error("Cannot find module '@ai-sidekicks/pty-sidecar-linux-x64'");
+    const requireMock = vi.fn<(id: string) => string>(() => {
+      throw requireError;
+    });
+    const existsMock = vi.fn<(p: string) => boolean>(() => false);
+    const { opts } = makeOpts({
+      nodeRequire: { resolve: requireMock },
+      existsSync: existsMock,
+    });
+
+    let thrown: unknown = null;
+    try {
+      resolveSidecarBinaryPath(opts);
+    } catch (err) {
+      thrown = err;
+    }
+
+    expect(thrown).toBeInstanceOf(PtyBackendUnavailableError);
+    if (!(thrown instanceof PtyBackendUnavailableError)) {
+      return; // Type narrowing for the assertions below.
+    }
+    expect(thrown.code).toBe(PTY_BACKEND_UNAVAILABLE_CODE);
+    expect(thrown.details.attemptedBackend).toBe("rust-sidecar");
+
+    // Dispatch pin 4 — details.message enumerates every tier failure
+    // (operator-grade diagnostic, not just "binary not found").
+    expect(thrown.message).toMatch(/tier 1 \(env-var AIS_PTY_SIDECAR_BIN\): unset/);
+    expect(thrown.message).toMatch(/tier 2 \(require\.resolve.*\): threw:/);
+    expect(thrown.message).toMatch(
+      /tier 3 \(packages\/sidecar-rust-pty\/target\/release\/sidecar\): not found at \/fake\/release\/sidecar/,
+    );
+    expect(thrown.message).toMatch(
+      /tier 4 \(packages\/sidecar-rust-pty\/target\/debug\/sidecar\): not found at \/fake\/debug\/sidecar/,
+    );
+
+    // details.cause carries the tier-2 require.resolve error (closest
+    // production-path miss; tier 1 is a developer-explicit override,
+    // tiers 3/4 are workspace dev paths).
+    expect(thrown.details.cause).toBe(requireError);
+  });
+
+  it("rejects-and-enumerates a relative-path tier-1 attempt when all four tiers miss", () => {
+    // Strengthens the prior all-exhausted assertion — when tier 1 was
+    // explicitly tried-and-rejected (relative path), the diagnostic
+    // names the rejected value so the operator can see what they got
+    // wrong.
+    const requireMock = vi.fn<(id: string) => string>(() => {
+      throw new Error("not found");
+    });
+    const { opts } = makeOpts({
+      env: { AIS_PTY_SIDECAR_BIN: "./relative/path" },
+      nodeRequire: { resolve: requireMock },
+    });
+
+    let thrown: unknown = null;
+    try {
+      resolveSidecarBinaryPath(opts);
+    } catch (err) {
+      thrown = err;
+    }
+
+    expect(thrown).toBeInstanceOf(PtyBackendUnavailableError);
+    if (thrown instanceof PtyBackendUnavailableError) {
+      expect(thrown.message).toMatch(
+        /tier 1 \(env-var AIS_PTY_SIDECAR_BIN\): rejected \(relative path; absolute required\): "\.\/relative\/path"/,
+      );
+    }
+  });
+
+  it("on Windows, probes 'sidecar.exe' (not 'sidecar') for tier 2 and embeds .exe in tier 3/4 diagnostics", () => {
+    // ADR-019 §Decision item 1 names Windows as the primary sidecar
+    // target; the resolver MUST handle the .exe suffix or the
+    // entire failure-mode mitigation regresses on the platform that
+    // needs it most.
+    const requireMock = vi.fn<(id: string) => string>(() => {
+      throw new Error("not found");
+    });
+    const existsMock = vi.fn<(p: string) => boolean>(() => false);
+    const { opts } = makeOpts({
+      nodeRequire: { resolve: requireMock },
+      existsSync: existsMock,
+      platform: "win32",
+    });
+
+    let thrown: unknown = null;
+    try {
+      resolveSidecarBinaryPath(opts);
+    } catch (err) {
+      thrown = err;
+    }
+
+    // Tier 2 was called with the .exe-suffixed binary name.
+    expect(requireMock).toHaveBeenCalledWith(
+      "@ai-sidekicks/pty-sidecar-win32-" + process.arch + "/bin/sidecar.exe",
+    );
+    // The tier-3 / tier-4 diagnostics also show the .exe suffix.
+    expect(thrown).toBeInstanceOf(PtyBackendUnavailableError);
+    if (thrown instanceof PtyBackendUnavailableError) {
+      expect(thrown.message).toMatch(
+        /tier 3 \(packages\/sidecar-rust-pty\/target\/release\/sidecar\.exe\)/,
+      );
+      expect(thrown.message).toMatch(
+        /tier 4 \(packages\/sidecar-rust-pty\/target\/debug\/sidecar\.exe\)/,
+      );
+    }
+  });
+
+  it("treats an empty-string AIS_PTY_SIDECAR_BIN identically to unset (falls through to tier 2)", () => {
+    // Process-env values can be empty strings (e.g., `AIS_PTY_SIDECAR_BIN=`
+    // in a shell). The resolver's `length === 0` guard handles this; an
+    // empty-string env-var must NOT be returned as a valid binary path
+    // (would cause an ENOENT downstream that surfaces as a less-actionable
+    // error than "tier 1 unset").
+    const requireMock = vi.fn<(id: string) => string>(() => "/installed/pkg/bin/sidecar");
+    const { opts } = makeOpts({
+      env: { AIS_PTY_SIDECAR_BIN: "" },
+      nodeRequire: { resolve: requireMock },
+    });
+
+    const result: string = resolveSidecarBinaryPath(opts);
+
+    expect(result).toBe("/installed/pkg/bin/sidecar");
+    expect(requireMock).toHaveBeenCalledTimes(1);
   });
 });
