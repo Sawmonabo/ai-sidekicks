@@ -51,10 +51,27 @@ ASK_PATTERNS = [
 
 _WORKTREE_ALLOWED_DIR = ".worktrees"
 _WORKTREE_FLAGS_WITH_ARG = {"-b", "-B", "--reason"}
-# Only `-C` and `-c` take a separate-token arg in git's documented globals;
-# every other global is either a bool or uses the `--flag=value` form (single
-# token after shlex.split).
-_GIT_GLOBAL_WITH_SEP_ARG = {"-C", "-c"}
+# Git globals that accept a separate-token value (space-separated form, e.g.
+# `git -C path worktree add ...` or `git --namespace foo worktree add ...`).
+# Anything not in this set is treated as a no-arg/bool global. The
+# `--flag=value` form is one token after shlex.split so it doesn't need
+# separate handling. Enumerating value-takers is load-bearing: if we
+# under-consume (treat a value-taker as bool), the parser lands on the
+# value (e.g. `foo`) instead of the subcommand (`worktree`), misses the
+# invocation, and allows what should be a bypass. Over-consuming a real
+# bool global would shift detection in the opposite direction, also a
+# bypass — so we enumerate from `git --help` rather than guessing.
+_GIT_GLOBAL_WITH_SEP_ARG = {
+    "-C",
+    "-c",
+    "--git-dir",
+    "--work-tree",
+    "--namespace",
+    "--super-prefix",
+    "--config-env",
+    "--list-cmds",
+    "--attr-source",
+}
 _SHELL_OPS = frozenset({"&&", "||", ";", "|", "&", "(", ")"})
 
 
@@ -153,20 +170,25 @@ def _has_unquoted_subshell(command):
 def _consume_git_globals(tokens, start_idx):
     """Consume git global options after `git`. Permissive about unknown flags:
     any leading `-X` or `--flag[=value]` is treated as a no-arg global unless
-    it's a known with-separated-arg flag (`-C`, `-c`)."""
+    it's a known with-separated-arg flag (see _GIT_GLOBAL_WITH_SEP_ARG).
+
+    Returns (index_past_globals, c_paths) where c_paths is the ordered list
+    of `-C <path>` values — git applies them cumulatively against an evolving
+    cwd, so the caller must walk them in order rather than keeping only the
+    last one."""
     i = start_idx
-    override_cwd = None
+    c_paths = []
     while i < len(tokens):
         tok = tokens[i]
         if not tok.startswith("-"):
             break
         if tok in _GIT_GLOBAL_WITH_SEP_ARG:
             if tok == "-C" and i + 1 < len(tokens):
-                override_cwd = tokens[i + 1]
+                c_paths.append(tokens[i + 1])
             i += 2
             continue
         i += 1
-    return i, override_cwd
+    return i, c_paths
 
 
 def _extract_worktree_target(args, subcmd):
@@ -212,6 +234,32 @@ def _has_git_worktree_invocation(tokens):
     return False
 
 
+def _has_symlink_in_path(target_abs, allowed_abs):
+    """Walk path components of target_abs starting at allowed_abs. Return the
+    path of the first symlinked component encountered (including allowed_abs
+    itself), else None.
+
+    `normpath` + `startswith` is purely lexical, so a symlink anywhere along
+    the path (e.g., `.worktrees/link -> /tmp`) could redirect a worktree
+    outside the repo while still passing the prefix check. Non-existent
+    components return False from `islink`, so the not-yet-created leaf
+    doesn't trigger a false positive."""
+    if os.path.islink(allowed_abs):
+        return allowed_abs
+    try:
+        rel = os.path.relpath(target_abs, allowed_abs)
+    except ValueError:
+        return None
+    if rel == "." or rel.startswith(".."):
+        return None
+    cur = allowed_abs
+    for p in rel.split(os.sep):
+        cur = os.path.join(cur, p)
+        if os.path.islink(cur):
+            return cur
+    return None
+
+
 def _build_shape_deny():
     return (
         "git worktree add/move must run directly from the repo root as a "
@@ -241,9 +289,12 @@ def _check_worktree_path(command):
     once a real `git ... worktree (add|move)` invocation is detected.
 
     Containment check on <target>: must resolve under
-    <repo_root>/.worktrees/<name>/. Also denies when `.worktrees/` itself
-    is a symlink, since a lexical containment check would otherwise let a
-    symlinked `.worktrees/` redirect new worktrees outside the repo.
+    <repo_root>/.worktrees/<name>/. `-C <path>` flags are applied
+    cumulatively against an evolving cwd to match git's documented
+    semantics. Also denies when any path component under `.worktrees/`
+    (including `.worktrees/` itself) is a symlink, since a lexical
+    containment check would otherwise let a symlinked component redirect
+    new worktrees outside the repo.
 
     Fails open on shlex parse errors and outside-git-repo invocations so a
     parser bug never blocks an otherwise-legitimate Bash call.
@@ -278,7 +329,7 @@ def _check_worktree_path(command):
     if not tokens or tokens[0].lower() != "git":
         return _build_shape_deny()
 
-    j, override_cwd = _consume_git_globals(tokens, 1)
+    j, c_paths = _consume_git_globals(tokens, 1)
     if j >= len(tokens) or tokens[j].lower() != "worktree":
         return _build_shape_deny()
     if j + 1 >= len(tokens) or tokens[j + 1].lower() not in ("add", "move"):
@@ -295,16 +346,13 @@ def _check_worktree_path(command):
 
     allowed = os.path.normpath(os.path.join(repo_root, _WORKTREE_ALLOWED_DIR))
 
-    if os.path.islink(allowed):
-        return (
-            "`.worktrees/` at the repo root must be a real directory, not a "
-            "symlink — a symlinked `.worktrees/` would let new worktrees "
-            "resolve outside the repo. Remove the symlink and retry."
-        )
+    # Apply `-C` paths cumulatively (git semantics: each non-absolute -C is
+    # interpreted relative to the preceding one; absolute -C resets the chain;
+    # empty -C is a no-op).
+    effective_cwd = repo_root
+    for c_path in c_paths:
+        effective_cwd = _resolve_path(c_path, effective_cwd)
 
-    effective_cwd = (
-        _resolve_path(override_cwd, repo_root) if override_cwd else repo_root
-    )
     abs_target = _resolve_path(target, effective_cwd)
 
     if abs_target == allowed:
@@ -321,6 +369,15 @@ def _check_worktree_path(command):
             f"(target '{target}' resolves outside .worktrees/). "
             f"Retry with `{retry}`."
         )
+
+    symlink_component = _has_symlink_in_path(abs_target, allowed)
+    if symlink_component:
+        return (
+            f"Worktree path contains a symlinked component "
+            f"`{symlink_component}` that could redirect new worktrees "
+            f"outside `.worktrees/`. Remove the symlink and retry."
+        )
+
     return None
 
 
