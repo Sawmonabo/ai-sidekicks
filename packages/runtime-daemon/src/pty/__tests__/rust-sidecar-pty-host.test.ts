@@ -1246,6 +1246,132 @@ describe("RustSidecarPtyHost — wire-side error response rejects awaiting Promi
     await expect(resizeP).rejects.toThrow(/sidecar resize_response returned error/);
   });
 
+  it("rejects host.spawn() when the sidecar emits SpawnResponse{ error: ... } (instead of hanging)", async () => {
+    // Symmetric extension of the kill/write/resize error path. Prior
+    // to the SpawnResponse contract bump, a sidecar `spawn` failure
+    // (e.g., `command: "/nonexistent-binary"` against an alive,
+    // healthy sidecar) logged to stderr and DROPPED the request, so
+    // the daemon's awaiting Promise hung indefinitely (the
+    // supervisor's `sendRequest` has no per-request timeout — only
+    // sync-throw on stdin.write or eventual rejection on child-exit).
+    // The wire-side typed error path converts the otherwise-
+    // indefinite hang into a prompt rejection. The
+    // `await expect(...).rejects.toThrow(...)` assertion shape is
+    // load-bearing under vitest's default 5s timeout: a regression
+    // that reintroduces the hang would NOT surface as a passing test
+    // — vitest would fail the test with an explicit "exceeded timeout"
+    // diagnostic rather than silently passing.
+    const fake = makeFakeChild();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: spawnReturning(fake),
+    });
+
+    const spawnPromise = host.spawn({
+      kind: "spawn_request",
+      command: "/nonexistent-binary",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+
+    // Sidecar emits the typed error envelope (the post-fix wire shape):
+    // session_id: "" because no session was minted on the failure path;
+    // error carries the portable-pty diagnostic.
+    fake.writeStdout(
+      frameEnvelope({
+        kind: "spawn_response",
+        session_id: "",
+        error: "portable-pty error: No such file or directory (os error 2)",
+      }),
+    );
+
+    await expect(spawnPromise).rejects.toThrow(
+      /sidecar spawn_response returned error.*portable-pty/,
+    );
+  });
+
+  it("does NOT register session tracking when host.spawn() rejects via SpawnResponse error", async () => {
+    // Pins the supervisor invariant from `protocol::SpawnResponse`
+    // rustdoc: on the failure path session_id is empty, so the
+    // supervisor MUST NOT register tracking on it. After the
+    // rejection, a subsequent kill/resize/write on the empty session
+    // id MUST throw the synchronous `unknown sessionId ''` error
+    // (proving the session table never grew).
+    const fake = makeFakeChild();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: spawnReturning(fake),
+    });
+
+    const spawnPromise = host.spawn({
+      kind: "spawn_request",
+      command: "/nonexistent-binary",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    fake.writeStdout(
+      frameEnvelope({
+        kind: "spawn_response",
+        session_id: "",
+        error: "portable-pty error: No such file or directory (os error 2)",
+      }),
+    );
+    await expect(spawnPromise).rejects.toThrow();
+
+    // Session table MUST NOT contain the empty id — a resize on '' is
+    // the truly-unknown-sessionId throw shape from the supervisor.
+    await expect(host.resize("", 30, 100)).rejects.toThrow(/unknown sessionId ''/);
+  });
+
+  it("emits exactly one frame on the spawn-failure round-trip (the SpawnRequest only)", async () => {
+    // Pins the wire shape: the supervisor emits exactly one frame
+    // per spawn (the SpawnRequest), and the rejection arrives
+    // entirely via the inbound SpawnResponse — no second outbound
+    // frame is sent. Without this, a future regression that retried
+    // the spawn (or sent a follow-up close/kill) would silently
+    // change the wire shape.
+    const fake = makeFakeChild();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: spawnReturning(fake),
+    });
+
+    const spawnPromise = host.spawn({
+      kind: "spawn_request",
+      command: "/nonexistent-binary",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    fake.writeStdout(
+      frameEnvelope({
+        kind: "spawn_response",
+        session_id: "",
+        error: "portable-pty error: No such file or directory (os error 2)",
+      }),
+    );
+    await expect(spawnPromise).rejects.toThrow();
+
+    // Exactly one outbound envelope — the SpawnRequest itself.
+    const envelopes = parseFramesFromStdin(fake.readStdin());
+    expect(envelopes).toHaveLength(1);
+    expect(envelopes[0]).toMatchObject({
+      kind: "spawn_request",
+      command: "/nonexistent-binary",
+    });
+  });
+
   it("response with `error: undefined` (the success path) resolves normally and does NOT reject", async () => {
     // Pin the error-discrimination semantics. `error` absent on the
     // wire deserializes to `undefined`; the daemon MUST treat that

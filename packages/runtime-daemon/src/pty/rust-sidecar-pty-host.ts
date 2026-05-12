@@ -942,6 +942,14 @@ export class RustSidecarPtyHost implements PtyHost {
 
   public async spawn(spec: SpawnRequest): Promise<SpawnResponse> {
     await this.ensureChild();
+    // `sendRequest` rejects the Promise when the sidecar's
+    // `SpawnResponse` carries `error: Some(msg)` (the symmetric wire-
+    // side error path that converts an otherwise-indefinite hang into
+    // a prompt rejection — see `resolveOutstanding` rustdoc and
+    // `protocol::SpawnResponse` in `sidecar-rust-pty/src/protocol.rs`).
+    // On the rejection path no session was minted; the supervisor
+    // never registers tracking, so `sessions.set(...)` runs only on
+    // the success branch below.
     const response = await this.sendRequest(spec, "spawn_response");
     if (response.kind !== "spawn_response") {
       throw new Error(`RustSidecarPtyHost.spawn: unexpected response kind ${response.kind}`);
@@ -1328,17 +1336,24 @@ export class RustSidecarPtyHost implements PtyHost {
    * outstanding entry of the matching kind and either resolve or
    * reject its promise.
    *
-   * **Error-response branch.** `ResizeResponse` / `WriteResponse` /
-   * `KillResponse` all carry an optional `error?: string` per the
-   * Plan-024 contract. When `error` is present the sidecar's handler
-   * failed (most often `UnknownSession` for a request that lost a
-   * race against natural exit — see `KillResponse` rustdoc in
-   * `pty-host-protocol.ts`); we reject the awaiting Promise so the
-   * caller sees a prompt failure instead of an indefinite hang. The
-   * `close()` happy-path's existing try/catch swallows this rejection
-   * cleanly because the close-races-natural-exit shape is a normal
-   * lifecycle event from its perspective. Other callers (e.g., a
-   * direct `kill()` on an active session) propagate the rejection up.
+   * **Error-response branch.** `SpawnResponse` / `ResizeResponse` /
+   * `WriteResponse` / `KillResponse` all carry an optional
+   * `error?: string` per the Plan-024 contract. When `error` is
+   * present the sidecar's handler failed (most often `UnknownSession`
+   * for a request that lost a race against natural exit — see
+   * `KillResponse` rustdoc in `pty-host-protocol.ts` — or a
+   * `portable-pty` failure for a `spawn_request` against a
+   * nonexistent / non-executable command); we reject the awaiting
+   * Promise so the caller sees a prompt failure instead of an
+   * indefinite hang. The `close()` happy-path's existing try/catch
+   * swallows this rejection cleanly because the close-races-natural-
+   * exit shape is a normal lifecycle event from its perspective.
+   * Other callers (e.g., a direct `kill()` on an active session, or a
+   * `spawn()` against a nonexistent command) propagate the rejection
+   * up. For `spawn_response` rejections the supervisor's `spawn`
+   * method never reaches the `sessions.set(...)` call (the await
+   * throws), so no tracking is registered on the empty `session_id`
+   * the sidecar emits on the failure path.
    */
   private resolveOutstanding(envelope: Envelope): void {
     const queue: OutstandingRequest[] | undefined = this.outstanding.get(envelope.kind);
@@ -1355,10 +1370,11 @@ export class RustSidecarPtyHost implements PtyHost {
     if (head === undefined) {
       return;
     }
-    // Inspect error-bearing variants — only resize/write/kill responses
-    // carry the optional `error` field per the contract bump.
+    // Inspect error-bearing variants — spawn/resize/write/kill responses
+    // all carry the optional `error` field per the contract bump.
     if (
-      (envelope.kind === "resize_response" ||
+      (envelope.kind === "spawn_response" ||
+        envelope.kind === "resize_response" ||
         envelope.kind === "write_response" ||
         envelope.kind === "kill_response") &&
       envelope.error !== undefined

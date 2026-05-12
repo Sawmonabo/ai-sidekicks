@@ -91,7 +91,7 @@ use tokio::io::{AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
 
 use crate::framing::{read_frame, write_frame};
-use crate::protocol::{Envelope, KillResponse, ResizeResponse, WriteResponse};
+use crate::protocol::{Envelope, KillResponse, ResizeResponse, SpawnResponse, WriteResponse};
 use crate::pty_session::{PtySessionError, PtySessionRegistry};
 
 #[tokio::main]
@@ -251,21 +251,28 @@ async fn dispatch_one(
                     let _ = dispatch_tx.send(Envelope::SpawnResponse(resp));
                 }
                 Err(err) => {
-                    // Spawn failure surfaces to the daemon as a
-                    // diagnostic eprintln — there is no "spawn-failed"
-                    // wire variant in Phase 3, and adding one would
-                    // require a contract bump. The daemon side
-                    // observes the absence of a SpawnResponse and
-                    // routes the user-visible error through its own
-                    // `PtyBackendUnavailable` envelope instead.
-                    //
-                    // Phase 3 trade-off accepted: the daemon's
-                    // request/response correlation is sequential at
-                    // this layer (no `request_id`), so a missing
-                    // SpawnResponse can be inferred only by tracking
-                    // outstanding spawn requests. The daemon-side
-                    // `RustSidecarPtyHost` does this tracking.
+                    // Symmetric extension of the resize/write/kill
+                    // error path: a failed spawn handler MUST emit a
+                    // typed error response so the daemon's awaiting
+                    // Promise resolves promptly rather than hanging
+                    // indefinitely. The daemon's `sendRequest` has no
+                    // per-request timeout — only sync-throw on
+                    // stdin.write or eventual rejection on child-exit
+                    // — so without a wire-side rejection the Promise
+                    // would sit in `outstanding` forever for any
+                    // spawn against an alive, healthy sidecar whose
+                    // command turns out to be nonexistent or
+                    // non-executable. Diagnostic eprintln remains for
+                    // operator-side log triage. `session_id` is empty
+                    // because no session was minted; the daemon
+                    // supervisor's `resolveOutstanding` rejects
+                    // BEFORE registering tracking on the empty id
+                    // (see `rust-sidecar-pty-host.ts::spawn`).
                     log_dispatch_error("spawn", &err);
+                    let _ = dispatch_tx.send(Envelope::SpawnResponse(SpawnResponse {
+                        session_id: String::new(),
+                        error: Some(err.to_string()),
+                    }));
                 }
             }
         }

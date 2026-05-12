@@ -501,7 +501,14 @@ impl PtySessionRegistry {
             reader_task,
         );
 
-        Ok(SpawnResponse { session_id })
+        // `error: None` on the success path — the field exists for
+        // wire-side error reporting from the dispatcher (see
+        // `protocol::SpawnResponse` rustdoc); successful spawns leave
+        // it unset so it serializes as absent on the wire.
+        Ok(SpawnResponse {
+            session_id,
+            error: None,
+        })
     }
 
     /// Resize an active session's PTY.

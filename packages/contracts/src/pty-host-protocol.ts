@@ -27,12 +27,14 @@
 //   • `PingRequest` / `PingResponse` carry only the `kind` discriminant.
 //     The plan does not pin a correlation field at this layer.
 //
-//   • `ResizeResponse` / `WriteResponse` / `KillResponse` carry an
-//     optional `error?: string` field. Absent on the success path
-//     (the common case); present when the sidecar's per-request handler
-//     returned an error (e.g., `UnknownSession` for a `kill_request`
-//     against a session whose child exited milliseconds before the
-//     request arrived). The Rust mirror uses
+//   • `SpawnResponse` / `ResizeResponse` / `WriteResponse` /
+//     `KillResponse` carry an optional `error?: string` field. Absent
+//     on the success path (the common case); present when the sidecar's
+//     per-request handler returned an error (e.g., `UnknownSession`
+//     for a `kill_request` against a session whose child exited
+//     milliseconds before the request arrived; or a `portable-pty`
+//     failure for a `spawn_request` against a nonexistent command).
+//     The Rust mirror uses
 //     `#[serde(default, skip_serializing_if = "Option::is_none")]` so
 //     the field is genuinely absent on the wire when `None`. This is
 //     INTENTIONALLY ASYMMETRIC with `ExitCodeNotification.signal_code`
@@ -41,6 +43,17 @@
 //     `error` is exception-only and the absent-vs-present distinction
 //     IS the discrimination, so `null`-as-absent would be redundant
 //     wire weight on every successful response.
+//
+//     `SpawnResponse` is the symmetric extension of the
+//     resize/write/kill error path: prior to the contract bump, a
+//     sidecar `spawn` failure logged to stderr and DROPPED the
+//     request, so the daemon's awaiting Promise hung indefinitely
+//     (the daemon-side `sendRequest` has no timeout — only sync-throw
+//     on stdin.write or eventual rejection on child-exit). Symmetric
+//     wire-side error response converts the otherwise-indefinite hang
+//     into a prompt rejection. On the failure path `session_id` is
+//     an empty string — no session was minted, so the daemon
+//     supervisor MUST NOT register tracking on it.
 //
 // No Zod schemas live in this module: wire validation happens at the
 // daemon's framer layer (`packages/runtime-daemon/src/ipc/...`); the
@@ -93,10 +106,28 @@ export interface SpawnRequest {
   cols: number;
 }
 
-/** Reply to a `SpawnRequest` — carries the sidecar-minted session id. */
+/**
+ * Reply to a `SpawnRequest` — carries the sidecar-minted session id
+ * on the success path, or a typed `error` payload on the failure path.
+ *
+ * `error` is set when the sidecar's spawn handler failed — typically a
+ * `portable-pty` `openpty`/`spawn_command` failure (nonexistent
+ * command, exec permission denied, etc). Without the typed error path
+ * the daemon's awaiting Promise hangs indefinitely (no per-request
+ * timeout in `sendRequest`); the symmetric wire-side error rejects the
+ * Promise promptly. Absent on the success path. See module-level
+ * field-shape decisions for the asymmetry with
+ * `ExitCodeNotification.signal_code`.
+ *
+ * On the failure path `session_id` is an empty string — no session
+ * was minted, so the daemon supervisor MUST NOT register tracking on
+ * it.
+ */
 export interface SpawnResponse {
   kind: "spawn_response";
   session_id: string;
+  /** Present only when the sidecar's handler failed. Daemon rejects the awaiting Promise. */
+  error?: string;
 }
 
 /** Adjust the PTY window dimensions for an existing session. */

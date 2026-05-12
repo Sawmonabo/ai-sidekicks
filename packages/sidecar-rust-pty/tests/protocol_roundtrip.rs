@@ -72,8 +72,63 @@ fn round_trip_spawn_request_non_ascii_utf8() {
 fn round_trip_spawn_response() {
     let envelope = Envelope::SpawnResponse(SpawnResponse {
         session_id: "01900000-0000-7000-8000-000000000001".to_string(),
+        error: None,
     });
     assert_eq!(round_trip(&envelope), envelope);
+}
+
+/// Pins the populated-error round-trip path for `SpawnResponse`. On the
+/// failure path the dispatcher emits `session_id: ""` because no session
+/// was minted; the typed `error` carries the `portable-pty` failure
+/// message back to the daemon's awaiting Promise.
+#[test]
+fn round_trip_spawn_response_with_error() {
+    let envelope = Envelope::SpawnResponse(SpawnResponse {
+        session_id: String::new(),
+        error: Some("portable-pty error: No such file or directory (os error 2)".to_string()),
+    });
+    assert_eq!(round_trip(&envelope), envelope);
+}
+
+/// Symmetric to `kill_response_error_none_is_absent_on_wire`. Pins the
+/// same absent-on-wire shape for `SpawnResponse` — protects the TS
+/// mirror's `error?: string` narrowing under
+/// `exactOptionalPropertyTypes`.
+#[test]
+fn spawn_response_error_none_is_absent_on_wire() {
+    let envelope = Envelope::SpawnResponse(SpawnResponse {
+        session_id: "s-1".to_string(),
+        error: None,
+    });
+    let json: Value = serde_json::to_value(&envelope).expect("serialize to value");
+    assert!(
+        !json
+            .as_object()
+            .expect("envelope must serialize as JSON object")
+            .contains_key("error"),
+        "error key MUST be absent on the wire when None (got {json})"
+    );
+}
+
+/// Pins backward-compat deserialization for `SpawnResponse`: a payload
+/// OMITTING the `error` field (the wire shape an older sidecar would
+/// have emitted before the SpawnResponse contract bump) MUST deserialize
+/// to `error: None`. The `#[serde(default, ...)]` attribute provides
+/// this; the test guards against a future refactor that drops `default`.
+#[test]
+fn spawn_response_without_error_field_deserializes_to_none() {
+    let raw = json!({
+        "kind": "spawn_response",
+        "session_id": "s-1",
+    });
+    let envelope: Envelope = serde_json::from_value(raw).expect("deserialize must succeed");
+    match envelope {
+        Envelope::SpawnResponse(resp) => {
+            assert_eq!(resp.session_id, "s-1");
+            assert_eq!(resp.error, None);
+        }
+        other => panic!("expected SpawnResponse, got: {other:?}"),
+    }
 }
 
 #[test]
@@ -454,6 +509,7 @@ fn envelope_kind_is_top_level_snake_case() {
         (
             Envelope::SpawnResponse(SpawnResponse {
                 session_id: "s-1".to_string(),
+                error: None,
             }),
             "spawn_response",
         ),
