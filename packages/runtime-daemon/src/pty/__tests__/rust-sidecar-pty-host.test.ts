@@ -1592,6 +1592,49 @@ describe("RustSidecarPtyHost — wire-side error response rejects awaiting Promi
     await expect(host.resize("", 30, 100)).rejects.toThrow(/unknown sessionId ''/);
   });
 
+  it("does NOT register a session when SpawnResponse carries error (non-empty session_id)", async () => {
+    // Symmetric guard with the empty-session_id test above, but pinning
+    // the error-discrimination branch in `resolveOutstanding`: even
+    // when the sidecar emits a non-empty session_id alongside an
+    // `error` field, the daemon's rejection path MUST `return` BEFORE
+    // reaching the in-band registration site. Otherwise a sidecar bug
+    // (or contract drift) could mint a session_id on a failed spawn
+    // and leave the daemon tracking a session the sidecar never
+    // materialized. Post-rejection, a write to the would-be id MUST
+    // throw the synchronous `unknown sessionId` error (proving the
+    // session table never grew).
+    const fake = makeFakeChild();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: spawnReturning(fake),
+    });
+
+    const spawnPromise = host.spawn({
+      kind: "spawn_request",
+      command: "/nonexistent-binary",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    fake.writeStdout(
+      frameEnvelope({
+        kind: "spawn_response",
+        session_id: "s-failed",
+        error: "portable-pty error: command not found",
+      }),
+    );
+    await expect(spawnPromise).rejects.toThrow(/portable-pty error: command not found/);
+
+    // Post-rejection: a write to s-failed must reject (unknown session) —
+    // the error-branch s-failed id must NOT have been registered.
+    await expect(host.write("s-failed", new Uint8Array([0]))).rejects.toThrow(
+      /unknown sessionId 's-failed'/,
+    );
+  });
+
   it("emits exactly one frame on the spawn-failure round-trip (the SpawnRequest only)", async () => {
     // Pins the wire shape: the supervisor emits exactly one frame
     // per spawn (the SpawnRequest), and the rejection arrives
@@ -1941,6 +1984,185 @@ describe("RustSidecarPtyHost — data_frame fan-out gating", () => {
 
     // The data listener MUST NOT fire for the closed session.
     expect(dataFn).not.toHaveBeenCalled();
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Same-stdout-chunk frame coalescing — SpawnResponse + trailing
+// DataFrame / ExitCodeNotification frames delivered in one kernel pipe-
+// read chunk MUST observe sessions.has(session_id) === true when the
+// drain loop dispatches them, because the sidecar's spawn_reader_task
+// and spawn_waiter_task are spawned BEFORE the dispatcher queues
+// SpawnResponse and merge_to_writer's unbiased `tokio::select!` can
+// pick outbound_tx first. The fix is in `resolveOutstanding`: register
+// the session synchronously on spawn_response success, before
+// `head.resolve(envelope)` queues the awaiter's microtask. Without
+// this, the drain loop would dispatch trailing frames for a freshly-
+// minted session_id with sessions.has(id) === false and silently drop
+// them. (Plan-024 §T-024-3-1; ADR-019 §Failure Mode Analysis.)
+// ----------------------------------------------------------------------------
+
+describe("RustSidecarPtyHost — same-stdout-chunk frame coalescing (Plan-024 §T-024-3-1)", () => {
+  it("delivers DataFrame arriving same-chunk after SpawnResponse to onData", async () => {
+    // Setup: fake child, host attached, register onData listener BEFORE
+    // spawn. The race targets: the sidecar writer queues SpawnResponse
+    // and DataFrame on separate channels; merge_to_writer's unbiased
+    // select! can pick outbound first; even when SpawnResponse wins the
+    // writer race, the kernel pipe-read can deliver both frames in one
+    // chunk. The daemon's drain loop MUST dispatch DataFrame with
+    // sessions.has(id) === true (i.e., registration synchronous on
+    // spawn_response receipt, not post-await in spawn()).
+    const fake = makeFakeChild();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: spawnReturning(fake),
+    });
+
+    const dataChunks: Uint8Array[] = [];
+    host.setOnData((sessionId, bytes) => {
+      if (sessionId === "s-0") {
+        dataChunks.push(bytes);
+      }
+    });
+
+    const spawnP = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/echo",
+      args: ["hi"],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+
+    // Emit BOTH frames in one writeStdout to simulate kernel-pipe
+    // coalescing — the parser.feed receives them as one Buffer and the
+    // drain loop processes both synchronously without yielding.
+    const both = Buffer.concat([
+      frameEnvelope({ kind: "spawn_response", session_id: "s-0" }),
+      frameEnvelope({
+        kind: "data_frame",
+        session_id: "s-0",
+        stream: "stdout",
+        seq: 0,
+        bytes: Buffer.from("hi\n", "utf8").toString("base64"),
+      }),
+    ]);
+    fake.writeStdout(both);
+    const response = await spawnP;
+    expect(response).toEqual({ kind: "spawn_response", session_id: "s-0" });
+    expect(dataChunks).toHaveLength(1);
+    expect(Buffer.from(dataChunks[0]!).toString("utf8")).toBe("hi\n");
+  });
+
+  it("delivers ExitCodeNotification arriving same-chunk after SpawnResponse to onExit", async () => {
+    // Symmetric scenario for the short-lived-process case where the
+    // sidecar's spawn_waiter_task emits ExitCodeNotification on
+    // outbound_tx before merge_to_writer drains dispatch_tx's
+    // SpawnResponse. Even when SpawnResponse wins the writer race the
+    // kernel pipe-read can deliver both frames in one chunk; the
+    // daemon must register the session on spawn_response receipt so
+    // handleExitNotification observes the session as known.
+    const fake = makeFakeChild();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: spawnReturning(fake),
+    });
+
+    const exits: Array<{ sessionId: string; exitCode: number; signalCode: number | undefined }> =
+      [];
+    host.setOnExit((sessionId, exitCode, signalCode) => {
+      if (sessionId === "s-0") {
+        exits.push({ sessionId, exitCode, signalCode });
+      }
+    });
+
+    const spawnP = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/echo",
+      args: ["hi"],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+
+    const both = Buffer.concat([
+      frameEnvelope({ kind: "spawn_response", session_id: "s-0" }),
+      frameEnvelope({
+        kind: "exit_code_notification",
+        session_id: "s-0",
+        exit_code: 0,
+        signal_code: null,
+      }),
+    ]);
+    fake.writeStdout(both);
+    const response = await spawnP;
+    expect(response).toEqual({ kind: "spawn_response", session_id: "s-0" });
+    expect(exits).toEqual([{ sessionId: "s-0", exitCode: 0, signalCode: undefined }]);
+  });
+
+  it("delivers same-chunk DataFrame + ExitCodeNotification trailing SpawnResponse for short-lived process", async () => {
+    // The full short-lived-process scenario: the sidecar's
+    // spawn_reader_task drains the PTY's output and spawn_waiter_task
+    // observes the child exit, both queued on outbound_tx BEFORE the
+    // dispatcher queues SpawnResponse on dispatch_tx. The kernel pipe-
+    // read can return all three frames in a single chunk; the daemon's
+    // drain loop processes them synchronously and the trailing two
+    // must observe sessions.has(id) === true.
+    const fake = makeFakeChild();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: spawnReturning(fake),
+    });
+
+    const dataChunks: Uint8Array[] = [];
+    const exits: Array<{ sessionId: string; exitCode: number }> = [];
+    host.setOnData((sessionId, bytes) => {
+      if (sessionId === "s-0") {
+        dataChunks.push(bytes);
+      }
+    });
+    host.setOnExit((sessionId, exitCode) => {
+      if (sessionId === "s-0") {
+        exits.push({ sessionId, exitCode });
+      }
+    });
+
+    const spawnP = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/echo",
+      args: ["hi"],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+
+    const allThree = Buffer.concat([
+      frameEnvelope({ kind: "spawn_response", session_id: "s-0" }),
+      frameEnvelope({
+        kind: "data_frame",
+        session_id: "s-0",
+        stream: "stdout",
+        seq: 0,
+        bytes: Buffer.from("hi\n", "utf8").toString("base64"),
+      }),
+      frameEnvelope({
+        kind: "exit_code_notification",
+        session_id: "s-0",
+        exit_code: 0,
+        signal_code: null,
+      }),
+    ]);
+    fake.writeStdout(allThree);
+    await spawnP;
+    expect(dataChunks).toHaveLength(1);
+    expect(Buffer.from(dataChunks[0]!).toString("utf8")).toBe("hi\n");
+    expect(exits).toEqual([{ sessionId: "s-0", exitCode: 0 }]);
   });
 });
 

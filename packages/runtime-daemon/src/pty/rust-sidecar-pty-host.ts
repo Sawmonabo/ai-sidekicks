@@ -1131,19 +1131,26 @@ export class RustSidecarPtyHost implements PtyHost {
     // a prompt rejection — see `resolveOutstanding` rustdoc and
     // `protocol::SpawnResponse` in `sidecar-rust-pty/src/protocol.rs`).
     // On the rejection path no session was minted; the supervisor
-    // never registers tracking, so `sessions.set(...)` runs only on
-    // the success branch below.
+    // never registers tracking — registration happens synchronously in
+    // `resolveOutstanding` on the spawn_response success branch, which
+    // the error branch returns before reaching.
+    //
+    // Why registration is NOT here (post-await): the drain loop in
+    // `drainParserUntilIncomplete` dispatches frames synchronously
+    // without yielding to microtasks, so any DataFrame /
+    // ExitCodeNotification trailing this SpawnResponse in the same
+    // stdout chunk (the sidecar's spawn_reader_task and
+    // spawn_waiter_task are spawned BEFORE the dispatcher queues
+    // SpawnResponse on dispatch_tx, and merge_to_writer's unbiased
+    // select! can pick outbound_tx first) would observe
+    // sessions.has(id) === false and be silently dropped if
+    // registration waited for this post-await body to resume.
+    // See `resolveOutstanding` for the in-band registration site.
+    // (Plan-024 §T-024-3-1.)
     const response = await this.sendRequest(spec, "spawn_response");
     if (response.kind !== "spawn_response") {
       throw new Error(`RustSidecarPtyHost.spawn: unexpected response kind ${response.kind}`);
     }
-    // Initialize session record so subsequent close/kill on this id
-    // see a tracked entry. The Rust side mints the id; we treat it
-    // as opaque.
-    this.sessions.set(response.session_id, {
-      exitCode: null,
-      signalCode: undefined,
-    });
     return response;
   }
 
@@ -1764,10 +1771,12 @@ export class RustSidecarPtyHost implements PtyHost {
    * exit shape is a normal lifecycle event from its perspective.
    * Other callers (e.g., a direct `kill()` on an active session, or a
    * `spawn()` against a nonexistent command) propagate the rejection
-   * up. For `spawn_response` rejections the supervisor's `spawn`
-   * method never reaches the `sessions.set(...)` call (the await
-   * throws), so no tracking is registered on the empty `session_id`
-   * the sidecar emits on the failure path.
+   * up. For `spawn_response` rejections this method's error branch
+   * returns BEFORE reaching the in-band `sessions.set(...)` call below
+   * (and `spawn()`'s `await` throws on the caller side), so no
+   * tracking is registered on the failure path — neither on the empty
+   * `session_id` the sidecar emits per contract, nor on a non-empty
+   * `session_id` if a sidecar bug pairs one with an `error` field.
    */
   private resolveOutstanding(envelope: Envelope): void {
     const queue: OutstandingRequest[] | undefined = this.outstanding.get(envelope.kind);
@@ -1799,6 +1808,26 @@ export class RustSidecarPtyHost implements PtyHost {
         ),
       );
       return;
+    }
+    // Register the session synchronously here — NOT in spawn()'s
+    // post-await body — so that any DataFrame / ExitCodeNotification
+    // frames trailing this SpawnResponse in the same stdout chunk
+    // observe sessions.has(id) === true when the drain loop dispatches
+    // them. spawn()'s `await sendRequest` resumes on a microtask
+    // scheduled by Promise.resolve, but the drain loop processes frames
+    // synchronously without yielding; without this in-band registration,
+    // same-chunk frames for a freshly-minted session_id race past
+    // sessions.set and are silently dropped. Mirrors the sidecar's
+    // outbound-channel pre-emission of DataFrame / ExitCodeNotification
+    // by spawn_reader_task / spawn_waiter_task — both background tasks
+    // are spawned BEFORE the dispatcher queues SpawnResponse on
+    // dispatch_tx, and merge_to_writer's unbiased select! can pick
+    // outbound_tx first. (Plan-024 §T-024-3-1.)
+    if (envelope.kind === "spawn_response") {
+      this.sessions.set(envelope.session_id, {
+        exitCode: null,
+        signalCode: undefined,
+      });
     }
     head.resolve(envelope);
   }
