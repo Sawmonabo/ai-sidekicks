@@ -57,6 +57,26 @@
           }
         ]
       }
+    ],
+    "WorktreeCreate": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/worktree.sh create"
+          }
+        ]
+      }
+    ],
+    "WorktreeRemove": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/worktree.sh remove"
+          }
+        ]
+      }
     ]
   },
   "statusLine": {
