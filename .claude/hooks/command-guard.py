@@ -87,7 +87,10 @@ def _resolve_path(target, base_cwd):
 def _normalize_shell_operators(command):
     """Insert whitespace around shell control operators outside quoted strings,
     so `shlex.split` tokenizes them as standalone separators. Without this,
-    `cd /tmp;git worktree add ...` produces a glued `/tmp;git` token."""
+    `cd /tmp;git worktree add ...` produces a glued `/tmp;git` token. Also
+    converts unquoted newlines to `;` — shlex eats `\\n` as whitespace, which
+    would glue commands across lines into one token stream and let a second
+    `git worktree add` slip past the strict-shape check."""
     out = []
     i = 0
     in_single = False
@@ -107,6 +110,10 @@ def _normalize_shell_operators(command):
             continue
         if in_single or in_double:
             out.append(c)
+            i += 1
+            continue
+        if c == "\n":
+            out.append(" ; ")
             i += 1
             continue
         if command[i : i + 2] in ("&&", "||"):
@@ -185,6 +192,26 @@ def _extract_worktree_target(args, subcmd):
     return None
 
 
+def _has_git_worktree_invocation(tokens):
+    """Scan tokens for a real `git [globals]* worktree (add|move)` invocation.
+
+    Used to gate strict-shape enforcement so that commands which only *mention*
+    the word `worktree` as a data token (e.g., `echo worktree add`) are not
+    treated as worktree invocations and rejected for failing the shape."""
+    n = len(tokens)
+    for i in range(n):
+        if tokens[i].lower() != "git":
+            continue
+        j, _ = _consume_git_globals(tokens, i + 1)
+        if (
+            j + 1 < n
+            and tokens[j].lower() == "worktree"
+            and tokens[j + 1].lower() in ("add", "move")
+        ):
+            return True
+    return False
+
+
 def _build_shape_deny():
     return (
         "git worktree add/move must run directly from the repo root as a "
@@ -203,13 +230,20 @@ def _check_worktree_path(command):
 
         git [-C <path>]? [other-globals]* worktree (add|move) <target> [flags]*
 
-    When the command mentions `worktree (add|move)` but doesn't match this
-    shape — chains, subshells, command substitution, leading commands —
-    DENY with a teaching message. The threat model is non-adversarial
-    (agent mistakes); forcing the simple shape eliminates whole classes
-    of bypass at once rather than chasing each parser edge case.
+    When the command contains a real `git worktree add|move` invocation but
+    doesn't match this shape — chains, subshells, command substitution,
+    leading commands — DENY with a teaching message. The threat model is
+    non-adversarial (agent mistakes); forcing the simple shape eliminates
+    whole classes of bypass at once rather than chasing each parser edge case.
 
-    Containment check on <target>: must resolve under <repo_root>/.worktrees/<name>/.
+    Mere data tokens that happen to spell `worktree add` (e.g.,
+    `echo worktree add`) are NOT denied — the strict shape only kicks in
+    once a real `git ... worktree (add|move)` invocation is detected.
+
+    Containment check on <target>: must resolve under
+    <repo_root>/.worktrees/<name>/. Also denies when `.worktrees/` itself
+    is a symlink, since a lexical containment check would otherwise let a
+    symlinked `.worktrees/` redirect new worktrees outside the repo.
 
     Fails open on shlex parse errors and outside-git-repo invocations so a
     parser bug never blocks an otherwise-legitimate Bash call.
@@ -217,22 +251,26 @@ def _check_worktree_path(command):
     if not re.search(r"\bworktree\b", command, re.IGNORECASE):
         return None
 
-    if _has_unquoted_subshell(command):
-        return _build_shape_deny()
-
     normalized = _normalize_shell_operators(command)
     try:
         tokens = shlex.split(normalized)
     except ValueError:
         return None
 
-    has_worktree_op = False
-    for i in range(len(tokens) - 1):
-        if tokens[i].lower() == "worktree" and tokens[i + 1].lower() in ("add", "move"):
-            has_worktree_op = True
-            break
-    if not has_worktree_op:
+    has_subshell = _has_unquoted_subshell(command)
+    has_invocation = _has_git_worktree_invocation(tokens)
+
+    if not has_invocation:
+        # No actual `git worktree (add|move)` in the tokens. Only deny if a
+        # subshell could be hiding one we can't see (e.g., `$(git worktree
+        # add ../escape)`); otherwise this is a data mention like `echo
+        # worktree add` or a different subcommand like `git worktree list`.
+        if has_subshell:
+            return _build_shape_deny()
         return None
+
+    if has_subshell:
+        return _build_shape_deny()
 
     if any(t in _SHELL_OPS for t in tokens):
         return _build_shape_deny()
@@ -256,6 +294,14 @@ def _check_worktree_path(command):
         return None
 
     allowed = os.path.normpath(os.path.join(repo_root, _WORKTREE_ALLOWED_DIR))
+
+    if os.path.islink(allowed):
+        return (
+            "`.worktrees/` at the repo root must be a real directory, not a "
+            "symlink — a symlinked `.worktrees/` would let new worktrees "
+            "resolve outside the repo. Remove the symlink and retry."
+        )
+
     effective_cwd = (
         _resolve_path(override_cwd, repo_root) if override_cwd else repo_root
     )
