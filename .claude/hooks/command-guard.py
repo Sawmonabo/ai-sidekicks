@@ -5,6 +5,7 @@ import json
 import os
 import re
 import shlex
+import subprocess
 import sys
 
 # Hard block — irreversible or security-critical, no prompt.
@@ -51,67 +52,189 @@ ASK_PATTERNS = [
 _WORKTREE_ALLOWED_DIR = ".worktrees"
 _WORKTREE_FLAGS_WITH_ARG = {"-b", "-B", "--reason"}
 
+# Git global options that go BEFORE the subcommand. `git -h` documents these
+# as accepted between `git` and `<command>`; we must skip them when scanning
+# for `worktree add|move`, otherwise `git -C <path> worktree add ...` bypasses
+# the guard.
+_GIT_GLOBAL_FLAGS_WITH_ARG = {
+    "-C",
+    "-c",
+    "--exec-path",
+    "--git-dir",
+    "--work-tree",
+    "--namespace",
+}
+_GIT_GLOBAL_BOOL_FLAGS = {
+    "-p",
+    "--paginate",
+    "--no-pager",
+    "--no-replace-objects",
+    "--bare",
+    "--html-path",
+    "--man-path",
+    "--info-path",
+    "--literal-pathspecs",
+    "--glob-pathspecs",
+    "--noglob-pathspecs",
+    "--icase-pathspecs",
+    "--no-optional-locks",
+}
+_SHELL_SEPARATORS = ("&&", "||", ";", "|")
 
-def _extract_worktree_target(tokens):
-    """Scan tokens for `git worktree {add|move}`; return (subcmd, target) or (None, None)."""
-    for i in range(len(tokens) - 2):
-        if (
-            tokens[i].lower() == "git"
-            and tokens[i + 1].lower() == "worktree"
-            and tokens[i + 2].lower() in ("add", "move")
-        ):
-            subcmd = tokens[i + 2].lower()
-            rest = tokens[i + 3 :]
-            positionals = []
+
+def _repo_root():
+    """Absolute repo root, or None outside a git repo."""
+    project_dir = os.environ.get("CLAUDE_PROJECT_DIR")
+    if project_dir and os.path.isdir(project_dir):
+        return os.path.abspath(project_dir)
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return None
+
+
+def _resolve_path(target, base_cwd):
+    if os.path.isabs(target):
+        return os.path.normpath(target)
+    return os.path.normpath(os.path.join(base_cwd, target))
+
+
+def _consume_git_globals(tokens, start_idx):
+    """Skip git global options after `git`; return (next_idx, override_cwd or None)."""
+    i = start_idx
+    override_cwd = None
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok.startswith("--") and "=" in tok:
+            key = tok.split("=", 1)[0]
+            if key in _GIT_GLOBAL_FLAGS_WITH_ARG or key in _GIT_GLOBAL_BOOL_FLAGS:
+                i += 1
+                continue
+            break
+        if tok in _GIT_GLOBAL_FLAGS_WITH_ARG:
+            if tok == "-C" and i + 1 < len(tokens):
+                override_cwd = tokens[i + 1]
+            i += 2
+            continue
+        if tok in _GIT_GLOBAL_BOOL_FLAGS:
+            i += 1
+            continue
+        break
+    return i, override_cwd
+
+
+def _extract_worktree_target(args, subcmd):
+    """Walk tokens after `worktree add|move`; return target path or None."""
+    positionals = []
+    skip_next = False
+    for tok in args:
+        if skip_next:
             skip_next = False
-            for tok in rest:
-                if skip_next:
-                    skip_next = False
-                    continue
-                if tok in ("&&", "||", ";", "|"):
-                    break
-                if tok in _WORKTREE_FLAGS_WITH_ARG:
-                    skip_next = True
-                    continue
-                if tok == "--":
-                    continue
-                if tok.startswith("-"):
-                    continue
-                positionals.append(tok)
-            if subcmd == "add" and positionals:
-                return subcmd, positionals[0]
-            if subcmd == "move" and len(positionals) >= 2:
-                return subcmd, positionals[1]
-            return None, None
-    return None, None
+            continue
+        if tok in _SHELL_SEPARATORS:
+            break
+        if tok in _WORKTREE_FLAGS_WITH_ARG:
+            skip_next = True
+            continue
+        if tok == "--":
+            continue
+        if tok.startswith("-"):
+            continue
+        positionals.append(tok)
+    if subcmd == "add" and positionals:
+        return positionals[0]
+    if subcmd == "move" and len(positionals) >= 2:
+        return positionals[1]
+    return None
 
 
 def _check_worktree_path(command):
-    """Deny `git worktree add/move` outside .worktrees/. Fails open on parse errors."""
+    """
+    Mini-shell walker: track effective cwd through `cd <path>` and `git -C <path>`,
+    then check every `git worktree add|move` target against `<repo_root>/.worktrees/`.
+
+    Fails open on parse errors and outside-git-repo invocations so a parser bug
+    never blocks an otherwise-legitimate Bash call.
+    """
     try:
         tokens = shlex.split(command)
     except ValueError:
         return None
-    subcmd, target = _extract_worktree_target(tokens)
-    if target is None:
+
+    repo_root = _repo_root()
+    if repo_root is None:
         return None
-    cwd = os.getcwd()
-    allowed = os.path.normpath(os.path.join(cwd, _WORKTREE_ALLOWED_DIR))
-    abs_target = os.path.normpath(os.path.abspath(target))
-    if abs_target == allowed:
-        return (
-            "Worktree path must include a <name> subdirectory; "
-            "use `.worktrees/<name>` instead of `.worktrees`."
-        )
-    if not abs_target.startswith(allowed + os.sep):
-        retry = f"git worktree {subcmd} .worktrees/<name>"
-        if subcmd == "add":
-            retry += " -b worktree-<name>"
-        return (
-            f"Worktrees must live under .worktrees/<name>/ at the repo root "
-            f"(target '{target}' resolves outside .worktrees/). "
-            f"Retry with `{retry}`."
-        )
+
+    allowed = os.path.normpath(os.path.join(repo_root, _WORKTREE_ALLOWED_DIR))
+    effective_cwd = repo_root
+
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+
+        # `cd <path>` updates effective cwd; bare `cd` is treated as no-op.
+        if (
+            tok == "cd"
+            and i + 1 < len(tokens)
+            and tokens[i + 1] not in _SHELL_SEPARATORS
+        ):
+            effective_cwd = _resolve_path(tokens[i + 1], effective_cwd)
+            i += 2
+            continue
+
+        if tok in _SHELL_SEPARATORS:
+            i += 1
+            continue
+
+        if tok == "git":
+            j, override_cwd = _consume_git_globals(tokens, i + 1)
+            git_cwd = (
+                _resolve_path(override_cwd, effective_cwd)
+                if override_cwd
+                else effective_cwd
+            )
+
+            if (
+                j + 1 < len(tokens)
+                and tokens[j].lower() == "worktree"
+                and tokens[j + 1].lower() in ("add", "move")
+            ):
+                subcmd = tokens[j + 1].lower()
+                target = _extract_worktree_target(tokens[j + 2 :], subcmd)
+                if target is not None:
+                    abs_target = _resolve_path(target, git_cwd)
+                    if abs_target == allowed:
+                        return (
+                            "Worktree path must include a <name> subdirectory; "
+                            "use `.worktrees/<name>` instead of `.worktrees`."
+                        )
+                    if not abs_target.startswith(allowed + os.sep):
+                        retry = f"git worktree {subcmd} .worktrees/<name>"
+                        if subcmd == "add":
+                            retry += " -b worktree-<name>"
+                        return (
+                            f"Worktrees must live under .worktrees/<name>/ at the repo root "
+                            f"(target '{target}' resolves outside .worktrees/). "
+                            f"Retry with `{retry}`."
+                        )
+
+            # Advance past this git invocation up to the next separator.
+            i = j + 1
+            while i < len(tokens) and tokens[i] not in _SHELL_SEPARATORS:
+                i += 1
+            continue
+
+        i += 1
+
     return None
 
 
