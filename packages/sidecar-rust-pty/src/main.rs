@@ -402,37 +402,45 @@ async fn merge_to_writer(
 /// regression test can drive it against an in-memory buffer instead
 /// of `tokio::io::stdout()`. Keeping the production binding
 /// `merge_to_writer(...)` unchanged means callers in `main()` are
-/// undisturbed; the only purpose of this seam is testability for the
-/// P1 dispatcher-writer-spin regression.
+/// undisturbed; the testability seam exists because the writer loop
+/// has been the locus of two distinct select-fairness regressions —
+/// see below.
 ///
-/// ## Why the if-guard pattern, not the original `continue`
+/// ## Two writer-loop pathologies and why both are closed
 ///
-/// The previous shape was:
+/// **Pathology 1 — closed-arm hot-spin.** When one channel permanently
+/// closes (e.g., dispatcher shutdown closes `dispatch_rx`), its
+/// `recv()` returns `Ready(None)` on every poll forever. The earlier
+/// shape used a `continue` after observing `None` on one branch, so
+/// the loop would re-enter the select, immediately observe `Ready(None)`
+/// again on the closed arm, and never reach the still-open arm. Queued
+/// `DataFrame` / `ExitCodeNotification` envelopes on the open arm were
+/// stranded and `main()` hung waiting on `writer_handle`.
 ///
-/// ```ignore
-/// tokio::select! {
-///     biased;
-///     msg = dispatch_rx.recv() => msg,
-///     msg = outbound_rx.recv() => msg,
-/// }
-/// ```
+/// **Pathology 2 — live-channel starvation under bias.** A subsequent
+/// shape paired the `continue` fix with `biased;` to bound dispatcher
+/// response latency. But `biased;` polls top-to-bottom on every wakeup;
+/// while `dispatch_rx` is continuously Ready under sustained request
+/// pressure (both channels OPEN, dispatch never empty), the writer
+/// always picked dispatch and the outbound arm was never selected.
+/// `DataFrame` / `ExitCodeNotification` messages were delayed until
+/// dispatch traffic paused — terminal output stalled and exit
+/// notifications surfaced late.
 ///
-/// with a `continue` after observing `None` on one branch while the
-/// other was still open. Under `biased;` the dispatch arm is polled
-/// first; once `dispatch_rx` closes it permanently returns `None`
-/// immediately on every poll. The loop then hot-spins on
-/// `dispatch_rx.recv() -> None -> continue -> dispatch_rx.recv() -> ...`
-/// and never reaches the outbound arm — so queued `DataFrame` /
-/// `ExitCodeNotification` envelopes are stranded and `main()` can
-/// hang waiting on `writer_handle`.
+/// ## The current shape closes both
 ///
-/// The fix disables the closed arm via `tokio::select!`'s
-/// per-branch `if` guard (per the `tokio::select!` rustdoc — a
-/// false-valued guard makes the branch ineligible, so the random/biased
-/// poll order skips it entirely). The bias is still load-bearing while
-/// both channels are open: dispatcher responses still beat
-/// registry-pushed events to stdout so the daemon's request-correlation
-/// latency stays bounded by dispatch+ack rather than queue depth.
+/// 1. **`if`-guards on each arm** disable a branch whose receiver has
+///    permanently closed. Per the [`tokio::select!`] rustdoc, a
+///    false-valued guard makes the branch ineligible for polling, so
+///    the loop cannot hot-spin on `Ready(None)`. This closes the
+///    closed-arm hot-spin regression (Pathology 1).
+///
+/// 2. **No `biased;` directive.** `tokio::select!`'s default behavior
+///    is a random arm shuffle per poll, providing statistical fairness
+///    between both arms — neither starves under sustained pressure on
+///    the other. Outbound latency is bounded to roughly ~2× the
+///    dispatch rate statistically. This closes the live-channel
+///    starvation regression (Pathology 2).
 async fn write_merged<W>(
     writer: &mut W,
     mut outbound_rx: mpsc::UnboundedReceiver<Envelope>,
@@ -443,7 +451,7 @@ where
 {
     // Track which channel has observed permanent closure. Once an
     // observation has been made the corresponding branch is disabled
-    // via the `if` guard below so `biased;` does not re-poll a closed
+    // via the `if` guard below so the loop cannot re-poll a closed
     // receiver. Tokio's `mpsc::UnboundedReceiver::recv` returns `None`
     // permanently after the channel closes; the `is_closed()` /
     // `None`-observation combination is sufficient to gate the branch.
@@ -469,19 +477,14 @@ where
         }
 
         let next: Option<Envelope> = tokio::select! {
-            // Bias the order so dispatcher responses are not starved
-            // by a high-volume DataFrame stream from the registry.
-            // Per `tokio::select!` rustdoc: `biased;` removes the
-            // random branch shuffle. We want responses to flush
-            // promptly so the daemon's request-correlation latency
-            // stays bounded by the dispatch+ack round-trip rather
-            // than queue depth.
-            //
-            // The `if` guards on each arm disable a branch whose
-            // receiver has already returned `None`; without them the
-            // bias would hot-spin on the closed arm and starve the
-            // still-open one (the dispatcher-writer-spin regression).
-            biased;
+            // No `biased;` directive — `tokio::select!`'s default
+            // random arm shuffle provides statistical fairness so
+            // neither arm starves the other while both are live (see
+            // the live-channel starvation rationale in the function
+            // rustdoc). The `if` guards remain because they close the
+            // sibling pathology — a permanently-closed arm returns
+            // `Ready(None)` forever, and without the guard the
+            // closed-arm hot-spin regression resurfaces.
             msg = dispatch_rx.recv(), if !dispatch_closed => msg,
             msg = outbound_rx.recv(), if !outbound_closed => msg,
         };
@@ -489,9 +492,9 @@ where
         let Some(envelope) = next else {
             // The select picked a branch whose `recv` returned `None`
             // — that channel is permanently closed. Mark it so the
-            // next iteration's guard disables the branch. The bias
-            // remains in effect for the still-open channel until it
-            // closes too.
+            // next iteration's guard disables the branch. The still-
+            // open channel continues to be polled (fairly, via the
+            // default random shuffle) until it closes too.
             if !dispatch_closed && dispatch_rx.is_closed() {
                 dispatch_closed = true;
             }
@@ -850,5 +853,171 @@ mod tests {
         join_result
             .expect("writer task panicked")
             .expect("write_merged returned an I/O error to the in-memory buffer");
+    }
+
+    /// Parse a stream of `Content-Length`-framed JSON envelopes back
+    /// out of a writer buffer. Inline helper for the live-channel
+    /// starvation regression test below — the existing tests assert on
+    /// substring presence (`s.contains("\"data_frame\"")`), which is
+    /// sufficient to discriminate closed-arm hot-spin but cannot tell
+    /// us WHERE in the output sequence a frame appears. The starvation
+    /// test needs that position to discriminate "outbound was polled
+    /// fairly" from "outbound was polled only after dispatch drained."
+    ///
+    /// Only handles well-formed frames the writer emits — no error
+    /// recovery, no partial-frame handling. Panics on malformed input
+    /// because that would indicate a writer-side regression, not a
+    /// test-input issue.
+    fn parse_all_frames(buf: &[u8]) -> Vec<Envelope> {
+        let mut frames = Vec::new();
+        let mut cursor = 0usize;
+        while cursor < buf.len() {
+            // Header: `Content-Length: N\r\n\r\n`
+            let header_end = (cursor..buf.len())
+                .position(|i| buf.get(i..i + 4) == Some(b"\r\n\r\n"))
+                .map(|rel_idx| cursor + rel_idx)
+                .expect("frame header missing CRLFCRLF terminator");
+            let header =
+                std::str::from_utf8(&buf[cursor..header_end]).expect("header is not UTF-8");
+            let len_str = header
+                .strip_prefix("Content-Length: ")
+                .expect("frame header missing 'Content-Length: ' prefix");
+            let body_len: usize =
+                len_str.parse().expect("Content-Length value is not a usize");
+            let body_start = header_end + 4;
+            let body_end = body_start + body_len;
+            assert!(
+                body_end <= buf.len(),
+                "frame body extends past buffer end (body_end={body_end}, buf.len()={})",
+                buf.len()
+            );
+            let envelope: Envelope = serde_json::from_slice(&buf[body_start..body_end])
+                .expect("frame body did not deserialize as Envelope");
+            frames.push(envelope);
+            cursor = body_end;
+        }
+        frames
+    }
+
+    /// Live-channel starvation regression discriminator
+    /// (Plan-024 T-024-3-1): when `dispatch_rx` is continuously Ready
+    /// under sustained request pressure AND `outbound_rx` has a queued
+    /// `DataFrame`, the writer MUST poll outbound fairly — the
+    /// DataFrame must surface within the first ~few frames of writer
+    /// output, NOT after all queued PingResponses have drained.
+    ///
+    /// Under the previous shape with `biased;`, the dispatch arm was
+    /// always polled first; with dispatch continuously Ready, outbound
+    /// was never selected until dispatch traffic paused, stranding
+    /// `DataFrame` / `ExitCodeNotification` envelopes behind the
+    /// dispatcher's response queue.
+    ///
+    /// Under the current shape (no `biased;`, default random shuffle),
+    /// `tokio::select!` provides statistical fairness between the two
+    /// arms when both are continuously Ready — neither arm starves.
+    ///
+    /// Discriminator construction:
+    ///   1. Pre-fill `dispatch_rx` with 200 PingResponses so dispatch
+    ///      is already saturated when the writer starts. Under `biased;`
+    ///      the first select would pick dispatch and keep picking it.
+    ///   2. Queue one outbound DataFrame.
+    ///   3. Spawn the writer.
+    ///   4. Spawn a producer that keeps `dispatch_rx` continuously
+    ///      Ready (live-channel select path) — without sustained
+    ///      pressure the bug is unobservable because dispatch would
+    ///      drain and the writer would reach outbound naturally.
+    ///   5. Sleep 50ms to let the writer process frames.
+    ///   6. Stop the producer, drop outbound_tx, drain.
+    ///   7. Assert DataFrame's POSITION (not presence) in the parsed
+    ///      output. Under the fix the position is essentially geometric
+    ///      with p≈0.5 per poll, so values cluster in [0, ~10] and
+    ///      `position < 50` is a comfortable threshold. Under the bug
+    ///      the position would be ≥ 200 (all PingResponses drained
+    ///      first).
+    #[tokio::test(flavor = "current_thread")]
+    async fn write_merged_does_not_starve_outbound_under_dispatch_pressure() {
+        let (dispatch_tx, dispatch_rx) = mpsc::unbounded_channel::<Envelope>();
+        let (outbound_tx, outbound_rx) = mpsc::unbounded_channel::<Envelope>();
+
+        // Pre-fill dispatch_rx so it's already saturated when the
+        // writer starts. Under `biased;`, the writer's first poll
+        // would see dispatch Ready and never reach outbound until
+        // dispatch drained.
+        for _ in 0..200 {
+            dispatch_tx
+                .send(Envelope::PingResponse(PingResponse {}))
+                .expect("dispatch pre-fill send should succeed");
+        }
+        outbound_tx
+            .send(Envelope::DataFrame(DataFrame {
+                session_id: "s-starvation".to_string(),
+                stream: DataStream::Stdout,
+                seq: 0,
+                bytes: Vec::new(),
+            }))
+            .expect("outbound DataFrame send should succeed");
+
+        let shared = Arc::new(Mutex::new(Vec::<u8>::new()));
+        let shared_for_writer = shared.clone();
+        let writer_handle = tokio::spawn(async move {
+            let mut w = SharedBufWriter {
+                inner: shared_for_writer,
+            };
+            write_merged(&mut w, outbound_rx, dispatch_rx).await
+        });
+
+        // Producer: keep dispatch_rx continuously Ready while the
+        // writer runs. `is_err()` short-circuits the loop once the
+        // receiver closes (writer drops it on exit).
+        let producer = tokio::spawn(async move {
+            loop {
+                if dispatch_tx
+                    .send(Envelope::PingResponse(PingResponse {}))
+                    .is_err()
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        });
+
+        // Let the writer process frames under sustained dispatch
+        // pressure. 50ms is empirical headroom: under the fix the
+        // writer drains thousands of frames in this window; under the
+        // bug the DataFrame remains stranded past position 200.
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Tear down: stop the producer, drop outbound_tx so the writer
+        // can reach the both-closed exit branch.
+        producer.abort();
+        let _ = producer.await; // join the aborted task (ignore abort error)
+        drop(outbound_tx);
+
+        let _ = timeout(Duration::from_millis(200), writer_handle)
+            .await
+            .expect("writer did not exit within 200ms after teardown")
+            .expect("writer task panicked")
+            .expect("write_merged returned an I/O error to the in-memory buffer");
+
+        let snap = shared.lock().unwrap();
+        let frames = parse_all_frames(&snap);
+        let data_pos = frames
+            .iter()
+            .position(|f| matches!(f, Envelope::DataFrame(_)))
+            .expect("DataFrame missing from writer output");
+
+        // Position assertion: under fair-shuffle (fix), DataFrame
+        // appears in the first ~few frames; under dispatch-bias (bug)
+        // it appears AFTER all 200 pre-filled PingResponses
+        // (position >= 200). Threshold 50 is a safe cushion against
+        // scheduler variance — see the Discriminator construction note
+        // above.
+        assert!(
+            data_pos < 50,
+            "DataFrame at position {data_pos}: live-channel starvation regression \
+             (expected position < 50 under fair-shuffle; ~200+ under dispatch-bias). \
+             Total frames written: {}.",
+            frames.len()
+        );
     }
 }
