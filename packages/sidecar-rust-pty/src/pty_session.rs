@@ -1111,11 +1111,24 @@ fn spawn_waiter_task(
                 // before `wait` returned). The closure's store is the
                 // load-bearing path; this is the fallback.
                 exited.store(true, std::sync::atomic::Ordering::Release);
-                let _ = outbound.send(Envelope::ExitCodeNotification(ExitCodeNotification {
+                let notification = ExitCodeNotification {
                     session_id: session_id.clone(),
                     exit_code: 1,
                     signal_code: None,
-                }));
+                };
+                // Per-session waiter tasks have NO escalation path back
+                // to `main()` (unlike `dispatch_one` which returns a
+                // `Result` the dispatcher loop `?`-propagates). If the
+                // writer is dead the exit notification is lost no
+                // matter what we do; log + continue cleanup so at least
+                // the local sessions/killers map gets purged and the
+                // operator can see the loss in stderr.
+                if let Err(send_err) = outbound.send(Envelope::ExitCodeNotification(notification)) {
+                    eprintln!(
+                        "pty_session waiter ({session_id:?}): outbound channel closed (writer dead); \
+                         lost exit notification: {send_err}"
+                    );
+                }
                 let mut map = sessions.lock().await;
                 map.remove(&session_id);
                 // Defensive belt-and-braces: the same-thread remove inside
@@ -1134,11 +1147,22 @@ fn spawn_waiter_task(
                 );
                 // Same defensive flag-set as above.
                 exited.store(true, std::sync::atomic::Ordering::Release);
-                let _ = outbound.send(Envelope::ExitCodeNotification(ExitCodeNotification {
+                let notification = ExitCodeNotification {
                     session_id: session_id.clone(),
                     exit_code: 1,
                     signal_code: None,
-                }));
+                };
+                // See the sibling Ok(Err(io_err)) arm above for the
+                // log-and-continue rationale: per-session waiters have
+                // no escalation path back to main, so a closed outbound
+                // channel turns into a stderr line plus continued
+                // local-state cleanup.
+                if let Err(send_err) = outbound.send(Envelope::ExitCodeNotification(notification)) {
+                    eprintln!(
+                        "pty_session waiter ({session_id:?}): outbound channel closed (writer dead); \
+                         lost exit notification: {send_err}"
+                    );
+                }
                 let mut map = sessions.lock().await;
                 map.remove(&session_id);
                 // Defensive belt-and-braces: catches the closure-panic
@@ -1172,7 +1196,19 @@ fn spawn_waiter_task(
             exit_code,
             signal_code: None,
         };
-        let _ = outbound.send(Envelope::ExitCodeNotification(notification));
+        // Asymmetric with `dispatch_one`'s `?`-propagation: per-session
+        // waiter tasks cannot escalate to `main()`, so a closed
+        // outbound channel here means the daemon will never learn this
+        // child exited. Log + continue so the local sessions/killers
+        // map still gets cleaned up; the daemon supervisor's own
+        // child-exit detection (or stdin EOF on the sidecar) is the
+        // backstop.
+        if let Err(send_err) = outbound.send(Envelope::ExitCodeNotification(notification)) {
+            eprintln!(
+                "pty_session waiter ({session_id:?}): outbound channel closed (writer dead); \
+                 lost exit notification: {send_err}"
+            );
+        }
 
         // Remove the session — subsequent writes/resizes/kills on this
         // id will return `UnknownSession`.

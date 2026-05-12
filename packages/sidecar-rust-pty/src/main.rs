@@ -126,25 +126,16 @@ async fn main() -> std::io::Result<()> {
     // observes `recv()` returning `None` on both channels and exits.
     drop(registry);
 
-    // Wait for the writer to drain. If it errored (stdout closed), we
-    // surface that — but the dispatcher's own EOF / I/O error takes
-    // precedence (it is the most actionable diagnostic for the daemon
-    // operator).
+    // Wait for the writer to drain. If it errored (stdout closed, or
+    // the writer task panicked), we surface that — see
+    // `finalize_result` for the precedence contract.
     let writer_result = writer_handle.await.unwrap_or_else(|join_err| {
         Err(IoError::other(format!(
             "writer task join failed: {join_err}"
         )))
     });
 
-    match (dispatch_result, writer_result) {
-        // Clean EOF on stdin = clean shutdown. Writer cleanup error
-        // (e.g., stdout closed early) is a noisy log line at most;
-        // we do not propagate as a process-level failure because the
-        // operator already saw the clean stdin EOF.
-        (Ok(()), _) => Ok(()),
-        // Dispatcher error wins over writer error.
-        (Err(e), _) => Err(e),
-    }
+    finalize_result(dispatch_result, writer_result)
 }
 
 /// Inbound dispatcher loop.
@@ -214,7 +205,7 @@ async fn run_dispatcher(
             }
         };
 
-        dispatch_one(registry, envelope, &dispatch_tx).await;
+        dispatch_one(registry, envelope, &dispatch_tx).await?;
     }
 }
 
@@ -229,26 +220,29 @@ async fn run_dispatcher(
 /// notifications, `DataFrame`) are logged + skipped — see
 /// `run_dispatcher` rustdoc.
 ///
-/// ## Why not return `Result`?
+/// ## Return contract
 ///
-/// Per-request errors are wire-level (the daemon receives a typed
-/// failure response or none at all); they are NOT process-level.
-/// Returning `Result` here would invite the dispatcher loop to
-/// short-circuit on a single session's `UnknownSession` failure,
-/// which would tear down every other active session. Errors are
-/// handled in-band: log to stderr for diagnostics + push the
-/// appropriate response shape so the daemon synchronously learns of
-/// the failure.
+/// Returns `Ok(())` when the response was successfully queued,
+/// `Err(BrokenPipe)` when the outbound dispatch channel has closed
+/// (writer task died — fatal pipeline failure, propagate up to
+/// `main`).
+///
+/// Per-request errors (`UnknownSession`, kill failures, etc.) are
+/// intentionally NOT process-level: they map to typed error responses
+/// on the wire (e.g., `SpawnResponse { error: Some(...) }`) so a
+/// single bad request does NOT tear down every other active session.
+/// Only channel-closed errors propagate, because if the writer is
+/// dead the dispatcher has nowhere to send any future response anyway.
 async fn dispatch_one(
     registry: &PtySessionRegistry,
     envelope: Envelope,
     dispatch_tx: &mpsc::UnboundedSender<Envelope>,
-) {
+) -> std::io::Result<()> {
     match envelope {
         Envelope::SpawnRequest(req) => {
             match registry.spawn(req).await {
                 Ok(resp) => {
-                    let _ = dispatch_tx.send(Envelope::SpawnResponse(resp));
+                    try_send_envelope(dispatch_tx, Envelope::SpawnResponse(resp))?;
                 }
                 Err(err) => {
                     // Symmetric extension of the resize/write/kill
@@ -269,10 +263,13 @@ async fn dispatch_one(
                     // BEFORE registering tracking on the empty id
                     // (see `rust-sidecar-pty-host.ts::spawn`).
                     log_dispatch_error("spawn", &err);
-                    let _ = dispatch_tx.send(Envelope::SpawnResponse(SpawnResponse {
-                        session_id: String::new(),
-                        error: Some(err.to_string()),
-                    }));
+                    try_send_envelope(
+                        dispatch_tx,
+                        Envelope::SpawnResponse(SpawnResponse {
+                            session_id: String::new(),
+                            error: Some(err.to_string()),
+                        }),
+                    )?;
                 }
             }
         }
@@ -283,7 +280,7 @@ async fn dispatch_one(
             let sid = req.session_id.clone();
             match registry.resize(req).await {
                 Ok(resp) => {
-                    let _ = dispatch_tx.send(Envelope::ResizeResponse(resp));
+                    try_send_envelope(dispatch_tx, Envelope::ResizeResponse(resp))?;
                 }
                 Err(err) => {
                     // Per `KillResponse` rustdoc: a failed handler MUST
@@ -292,10 +289,13 @@ async fn dispatch_one(
                     // hanging indefinitely. Diagnostic eprintln remains
                     // for operator-side log triage.
                     log_dispatch_error_for_session("resize", &sid, &err);
-                    let _ = dispatch_tx.send(Envelope::ResizeResponse(ResizeResponse {
-                        session_id: sid,
-                        error: Some(err.to_string()),
-                    }));
+                    try_send_envelope(
+                        dispatch_tx,
+                        Envelope::ResizeResponse(ResizeResponse {
+                            session_id: sid,
+                            error: Some(err.to_string()),
+                        }),
+                    )?;
                 }
             }
         }
@@ -303,14 +303,17 @@ async fn dispatch_one(
             let sid = req.session_id.clone();
             match registry.write(req).await {
                 Ok(resp) => {
-                    let _ = dispatch_tx.send(Envelope::WriteResponse(resp));
+                    try_send_envelope(dispatch_tx, Envelope::WriteResponse(resp))?;
                 }
                 Err(err) => {
                     log_dispatch_error_for_session("write", &sid, &err);
-                    let _ = dispatch_tx.send(Envelope::WriteResponse(WriteResponse {
-                        session_id: sid,
-                        error: Some(err.to_string()),
-                    }));
+                    try_send_envelope(
+                        dispatch_tx,
+                        Envelope::WriteResponse(WriteResponse {
+                            session_id: sid,
+                            error: Some(err.to_string()),
+                        }),
+                    )?;
                 }
             }
         }
@@ -318,14 +321,17 @@ async fn dispatch_one(
             let sid = req.session_id.clone();
             match registry.kill(req).await {
                 Ok(resp) => {
-                    let _ = dispatch_tx.send(Envelope::KillResponse(resp));
+                    try_send_envelope(dispatch_tx, Envelope::KillResponse(resp))?;
                 }
                 Err(err) => {
                     log_dispatch_error_for_session("kill", &sid, &err);
-                    let _ = dispatch_tx.send(Envelope::KillResponse(KillResponse {
-                        session_id: sid,
-                        error: Some(err.to_string()),
-                    }));
+                    try_send_envelope(
+                        dispatch_tx,
+                        Envelope::KillResponse(KillResponse {
+                            session_id: sid,
+                            error: Some(err.to_string()),
+                        }),
+                    )?;
                 }
             }
         }
@@ -335,7 +341,10 @@ async fn dispatch_one(
             // load-bearing as a daemon-side health check (the
             // sidecar binary is alive AND its dispatcher loop is
             // making forward progress).
-            let _ = dispatch_tx.send(Envelope::PingResponse(crate::protocol::PingResponse {}));
+            try_send_envelope(
+                dispatch_tx,
+                Envelope::PingResponse(crate::protocol::PingResponse {}),
+            )?;
         }
         // Variants that should never be inbound — daemon → sidecar
         // is request-only at this layer. Log + skip per the
@@ -353,6 +362,7 @@ async fn dispatch_one(
             );
         }
     }
+    Ok(())
 }
 
 /// Outbound writer — drain `outbound_rx` (registry-pushed events) AND
@@ -470,7 +480,7 @@ where
             // The `if` guards on each arm disable a branch whose
             // receiver has already returned `None`; without them the
             // bias would hot-spin on the closed arm and starve the
-            // still-open one (Codex P1 regression on PR #56).
+            // still-open one (the dispatcher-writer-spin regression).
             biased;
             msg = dispatch_rx.recv(), if !dispatch_closed => msg,
             msg = outbound_rx.recv(), if !outbound_closed => msg,
@@ -545,6 +555,52 @@ fn log_dispatch_error_for_session(operation: &str, session_id: &str, err: &PtySe
     );
 }
 
+/// Reconcile dispatcher and writer task results into a single process
+/// exit status.
+///
+/// Dispatcher errors win because they're the most actionable
+/// diagnostic for the operator (a stdin parse error or unrecoverable
+/// framing-desync needs operator triage right now). Writer errors are
+/// surfaced (not dropped) when the dispatcher exited cleanly —
+/// stdout-closed-early or a writer-task panic must NOT be hidden
+/// behind a "dispatcher returned `Ok`" check, or the sidecar exits 0
+/// while its outbound pipeline is silently broken.
+fn finalize_result(
+    dispatch: std::io::Result<()>,
+    writer: std::io::Result<()>,
+) -> std::io::Result<()> {
+    match (dispatch, writer) {
+        (Err(e), _) => Err(e),
+        (Ok(()), Err(e)) => Err(e),
+        (Ok(()), Ok(())) => Ok(()),
+    }
+}
+
+/// Send an envelope on the dispatch channel, converting a closed-
+/// receiver `SendError` into a process-level `BrokenPipe`.
+///
+/// The receiver only closes when the writer task has dropped its
+/// `mpsc::UnboundedReceiver` — i.e., the writer task has panicked or
+/// exited. Continuing to push frames into a dead channel is silent
+/// data loss (every subsequent `dispatch_one` response vanishes into
+/// `/dev/null` until stdin EOF), so callers `?`-propagate this error
+/// up to `main()` and the dispatcher loop tears down promptly.
+///
+/// Name mirrors the sibling `write_envelope` helper. It is *not*
+/// named `send_or_abort` — abort is the caller's responsibility via
+/// `?`-propagation, not this helper's.
+fn try_send_envelope(
+    tx: &mpsc::UnboundedSender<Envelope>,
+    envelope: Envelope,
+) -> std::io::Result<()> {
+    tx.send(envelope).map_err(|send_err| {
+        IoError::new(
+            ErrorKind::BrokenPipe,
+            format!("dispatch channel closed (writer task died): {send_err}"),
+        )
+    })
+}
+
 // ============================================================================
 // Regression tests — inline because `write_merged` is private to the binary
 // crate and exposing it via `lib.rs` would broaden the public surface for
@@ -601,6 +657,65 @@ mod tests {
         ) -> Poll<std::io::Result<()>> {
             Poll::Ready(Ok(()))
         }
+    }
+
+    // ------------------------------------------------------------------
+    // `finalize_result` precedence tests — guard the contract that the
+    // dispatcher's exit status is the most actionable diagnostic for
+    // the operator, and that writer-side errors are NEVER silently
+    // dropped just because the dispatcher returned `Ok`.
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn finalize_result_dispatcher_error_wins_over_writer_error() {
+        let result = finalize_result(
+            Err(IoError::new(ErrorKind::Other, "dispatcher boom")),
+            Err(IoError::new(ErrorKind::Other, "writer boom")),
+        );
+        let err = result.expect_err("expected dispatcher Err");
+        assert!(err.to_string().contains("dispatcher"), "got: {err}");
+    }
+
+    #[test]
+    fn finalize_result_dispatcher_error_wins_over_writer_ok() {
+        let result = finalize_result(
+            Err(IoError::new(ErrorKind::Other, "dispatcher boom")),
+            Ok(()),
+        );
+        let err = result.expect_err("expected dispatcher Err");
+        assert!(err.to_string().contains("dispatcher"), "got: {err}");
+    }
+
+    #[test]
+    fn finalize_result_surfaces_writer_error_when_dispatcher_ok() {
+        let result = finalize_result(
+            Ok(()),
+            Err(IoError::new(ErrorKind::BrokenPipe, "writer boom")),
+        );
+        let err = result.expect_err(
+            "regression: writer error must NOT be silently dropped when dispatcher returns Ok",
+        );
+        assert_eq!(err.kind(), ErrorKind::BrokenPipe);
+    }
+
+    #[test]
+    fn finalize_result_ok_when_both_ok() {
+        finalize_result(Ok(()), Ok(())).expect("both-ok must return Ok");
+    }
+
+    // ------------------------------------------------------------------
+    // `try_send_envelope` — closed-receiver path must surface as
+    // `BrokenPipe` so the dispatcher loop bails out instead of
+    // silently dropping every subsequent response.
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn try_send_envelope_returns_broken_pipe_when_receiver_dropped() {
+        let (tx, rx) = mpsc::unbounded_channel::<Envelope>();
+        drop(rx);
+        let err = try_send_envelope(&tx, Envelope::PingResponse(PingResponse {}))
+            .expect_err("expected BrokenPipe after receiver dropped");
+        assert_eq!(err.kind(), ErrorKind::BrokenPipe);
     }
 
     /// Smoke: after both channels close with a single queued envelope
