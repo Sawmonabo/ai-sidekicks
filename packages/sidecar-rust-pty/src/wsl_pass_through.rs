@@ -186,6 +186,22 @@ mod tests {
     }
 
     #[test]
+    fn passes_through_path_with_embedded_nul() {
+        // Security-relevant: NUL bytes inside path strings can desync
+        // C-string consumers (the standard `path → CStr` boundary) and
+        // are commonly weaponized in path-injection attacks. The
+        // sidecar's contract is "forward verbatim" — the daemon's
+        // wire-validation layer (CP-001-2 cwd-translator + boundary
+        // schema) is responsible for rejecting NULs at the trust
+        // boundary. This test pins the pass-through behavior so a
+        // future "let's strip NULs in the sidecar" change has to
+        // explicitly update the contract.
+        let input = "\0before\0after";
+        assert_eq!(pass_through(input), input);
+        assert_eq!(pass_through(input).as_bytes(), input.as_bytes());
+    }
+
+    #[test]
     fn output_byte_length_matches_input() {
         // Stronger than equality: assert the bytes themselves,
         // not just the `==` impl. A future refactor that returns

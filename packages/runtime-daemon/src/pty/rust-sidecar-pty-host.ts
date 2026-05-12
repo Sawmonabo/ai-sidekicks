@@ -24,10 +24,19 @@
 //      `Content-Length: N\r\n\r\n<body>` on stdin/stdout per ADR-009.
 //      We build a minimal local framer here rather than reaching for
 //      the contracts package's `jsonrpc-streaming.ts` (which contains
-//      only subscription/notification types — confirmed via grep).
-//      The Rust side already has `framing.rs`; this is the TS side.
+//      only subscription/notification types — confirmed via grep) OR
+//      the runtime-daemon's `local-ipc-gateway.ts::parseFrame` (which
+//      DOES implement the LSP grammar but is hardened for the
+//      network-peer trust posture: 1024-byte header-section cap,
+//      structured `FramingError.code` taxonomy, oversized-body skip-
+//      and-resync). Reaching for the gateway framer here would import
+//      a network-peer-grade framer onto a local-trusted-child boundary
+//      — overweight surface and a bidirectional dependency we do not
+//      need. The Rust side has `framing.rs`; this is its TS sibling.
 //      Schema parity is hand-maintained on each side (no code-gen in
-//      V1 — Plan-024 §Implementation Step 3).
+//      V1 — Plan-024 §Implementation Step 3). A future hardening pass
+//      may add a header-section cap symmetric to the body cap; tracked
+//      as a follow-up.
 //
 //   2. Crash-respawn supervision with a sliding-window budget. ADR-019
 //      §Failure Mode Analysis row "Sidecar binary missing on user
@@ -347,8 +356,13 @@ export const MAX_FRAME_BODY_BYTES: number = 8 * 1024 * 1024;
  * down. Stream desync IS unrecoverable (we cannot tell where the next
  * frame starts), but the framer reports the desync rather than
  * panicking.
+ *
+ * Exported so the test surface can drive the parser directly without
+ * going through the supervisor — needed for the framer-depth tests
+ * that exercise the four `nextFrame()` rejection paths and the
+ * partial-read / multi-frame-coalescing reassembly paths.
  */
-class ContentLengthParser {
+export class ContentLengthParser {
   private buffer: Buffer = Buffer.alloc(0);
 
   /**
@@ -592,8 +606,20 @@ export class RustSidecarPtyHost implements PtyHost {
   /** The currently-running sidecar child, or `null` if not yet spawned. */
   private child: SidecarChildProcess | null = null;
 
-  /** Frame parser — fed by the child's stdout `data` listener. */
-  private readonly parser = new ContentLengthParser();
+  /**
+   * Frame parser — fed by the child's stdout `data` listener.
+   *
+   * NOT `readonly`: the supervisor MUST replace the parser instance
+   * with a fresh one on every child-exit / child-error path. Without
+   * the reset, partial-frame buffer state from a corrupted sidecar
+   * (the framing-error self-kill cascade) carries over to the next
+   * sidecar and produces a guaranteed desync — the stale bytes plus
+   * the next chunk would either spuriously match a CRLFCRLF mid-old-
+   * body or trip the framer's error sentinel, exhausting the
+   * crash-respawn budget in ~5 cycles for a transient single-frame
+   * upset on the first sidecar.
+   */
+  private parser: ContentLengthParser = new ContentLengthParser();
 
   /** Per-session state table keyed by sidecar-minted `s-{n}` ids. */
   private readonly sessions: Map<string, SessionRecord> = new Map();
@@ -619,6 +645,25 @@ export class RustSidecarPtyHost implements PtyHost {
    * future caller that violates that discipline.
    */
   private readonly outstanding: Map<Envelope["kind"], OutstandingRequest[]> = new Map();
+
+  /**
+   * Per-child guard — `WeakSet` of children that have already had their
+   * crash counted against the budget.
+   *
+   * Node's `child_process` can in rare edge cases emit BOTH `error` and
+   * `exit` for the same failed child (spawn synchronously OK, then
+   * crash mid-init); each handler would naively call
+   * `crashBudget.recordAndIsExhausted()` and double-consume the budget.
+   * The guard ensures the second event no-ops budget consumption while
+   * still running the cleanup (clearing `this.child`, rejecting
+   * outstanding, resetting the parser).
+   *
+   * `WeakSet` rather than a `Set` so the entries do not pin the
+   * `SidecarChildProcess` (Node's `ChildProcess` carries listener
+   * registrations and stream buffers; we let the GC reclaim the prior
+   * child once the next one is wired up).
+   */
+  private readonly crashCountedChildren: WeakSet<SidecarChildProcess> = new WeakSet();
 
   /** `onData` consumer callback. Set via `setOnData`. */
   private dataListener: (sessionId: string, chunk: Uint8Array) => void = () => undefined;
@@ -651,6 +696,18 @@ export class RustSidecarPtyHost implements PtyHost {
   }
 
   public async resize(sessionId: string, rows: number, cols: number): Promise<void> {
+    // Sync throw on truly-unknown sessionId — mirrors `NodePtyHost.kill`
+    // (which throws synchronously on the same condition). The contract
+    // matters: PtyHostSelector substitutes the two backends behind the
+    // same `PtyHost` interface; the substitution is honest only if the
+    // observable failure shape matches. The wire-side error response
+    // path covers the daemon-still-has-it-but-sidecar-removed-it race
+    // (where the daemon's `sessions.has(sessionId)` returns true, the
+    // request goes to the wire, and the sidecar replies with a typed
+    // `error: "..."` response that routes through the Promise rejection).
+    if (!this.sessions.has(sessionId)) {
+      throw new Error(`RustSidecarPtyHost.resize: unknown sessionId '${sessionId}'`);
+    }
     await this.ensureChild();
     await this.sendRequest(
       { kind: "resize_request", session_id: sessionId, rows, cols },
@@ -659,6 +716,9 @@ export class RustSidecarPtyHost implements PtyHost {
   }
 
   public async write(sessionId: string, bytes: Uint8Array): Promise<void> {
+    if (!this.sessions.has(sessionId)) {
+      throw new Error(`RustSidecarPtyHost.write: unknown sessionId '${sessionId}'`);
+    }
     await this.ensureChild();
     // Encode bytes as base64 per F-024-1-01 (sidecar protocol).
     const base64: string = Buffer.from(bytes).toString("base64");
@@ -670,10 +730,15 @@ export class RustSidecarPtyHost implements PtyHost {
 
   public async kill(sessionId: string, signal: PtySignal): Promise<void> {
     const record: SessionRecord | undefined = this.sessions.get(sessionId);
+    if (record === undefined) {
+      // Sync throw on truly-unknown sessionId — mirrors `NodePtyHost.
+      // kill`, see `resize` rustdoc for the parity rationale.
+      throw new Error(`RustSidecarPtyHost.kill: unknown sessionId '${sessionId}'`);
+    }
     // Idempotency clause (mirrors `node-pty-host.ts`): a kill on an
     // already-exited session re-emits onExit from the cached values
     // rather than dispatching a wire request.
-    if (record !== undefined && record.exitCode !== null) {
+    if (record.exitCode !== null) {
       this.fireExit(sessionId, record.exitCode, record.signalCode);
       return;
     }
@@ -832,15 +897,19 @@ export class RustSidecarPtyHost implements PtyHost {
     });
 
     // Exit: clear the child reference so the next request triggers a
-    // respawn; consume the crash budget.
+    // respawn; consume the crash budget. Pass the child reference so
+    // the handler can dedupe budget consumption when both `error` and
+    // `exit` fire for the same failed child (POLISH 7 — Node's
+    // `child_process` can emit both in rare spawn-then-crash-mid-init
+    // edge cases).
     child.on("exit", (code: number | null, signal: string | null) => {
-      this.handleChildExit(code, signal);
+      this.handleChildExit(child, code, signal);
     });
 
     // Error: async spawn failure (the OS surfaced the failure after
     // the synchronous spawn returned). Same accounting as a crash.
     child.on("error", (err: Error) => {
-      this.handleChildError(err);
+      this.handleChildError(child, err);
     });
   }
 
@@ -898,6 +967,23 @@ export class RustSidecarPtyHost implements PtyHost {
 
     switch (envelope.kind) {
       case "data_frame": {
+        // Gate fan-out on `sessions.has(envelope.session_id)` —
+        // mirrors `node-pty-host.ts`'s close-time subscription
+        // disposal (which prevents post-close data emission).
+        // A `DataFrame` arriving for a session the daemon has already
+        // closed is consumer-meaningless; the listener may be a stale
+        // closure from the prior session-id reuse cycle (Phase 5
+        // Plan-001 P5 may surface this when sidecar session-id reuse
+        // crosses daemon close boundaries). Drop silently.
+        //
+        // Asymmetry with `handleExitNotification`: the exit notification
+        // IS fanned out for unknown sessions because exit is a terminal
+        // event the consumer may need to observe even after a `close()`
+        // (lifecycle telemetry); a data chunk is just queued bytes that
+        // a closed session has no use for.
+        if (!this.sessions.has(envelope.session_id)) {
+          return;
+        }
         // Decode base64 to bytes and dispatch. The protocol guarantees
         // monotonic per-session seq; the listener is responsible for
         // reordering if it cares about ordering across multiple
@@ -963,7 +1049,20 @@ export class RustSidecarPtyHost implements PtyHost {
 
   /**
    * Match an inbound response envelope against the head-of-FIFO
-   * outstanding entry of the matching kind and resolve its promise.
+   * outstanding entry of the matching kind and either resolve or
+   * reject its promise.
+   *
+   * **Error-response branch.** `ResizeResponse` / `WriteResponse` /
+   * `KillResponse` all carry an optional `error?: string` per the
+   * Plan-024 contract. When `error` is present the sidecar's handler
+   * failed (most often `UnknownSession` for a request that lost a
+   * race against natural exit — see `KillResponse` rustdoc in
+   * `pty-host-protocol.ts`); we reject the awaiting Promise so the
+   * caller sees a prompt failure instead of an indefinite hang. The
+   * `close()` happy-path's existing try/catch swallows this rejection
+   * cleanly because the close-races-natural-exit shape is a normal
+   * lifecycle event from its perspective. Other callers (e.g., a
+   * direct `kill()` on an active session) propagate the rejection up.
    */
   private resolveOutstanding(envelope: Envelope): void {
     const queue: OutstandingRequest[] | undefined = this.outstanding.get(envelope.kind);
@@ -978,6 +1077,21 @@ export class RustSidecarPtyHost implements PtyHost {
     }
     const head: OutstandingRequest | undefined = queue.shift();
     if (head === undefined) {
+      return;
+    }
+    // Inspect error-bearing variants — only resize/write/kill responses
+    // carry the optional `error` field per the contract bump.
+    if (
+      (envelope.kind === "resize_response" ||
+        envelope.kind === "write_response" ||
+        envelope.kind === "kill_response") &&
+      envelope.error !== undefined
+    ) {
+      head.reject(
+        new Error(
+          `RustSidecarPtyHost: sidecar ${envelope.kind} returned error for session_id='${envelope.session_id}': ${envelope.error}`,
+        ),
+      );
       return;
     }
     head.resolve(envelope);
@@ -1067,11 +1181,32 @@ export class RustSidecarPtyHost implements PtyHost {
   }
 
   /**
-   * Handle a child-exit event — clear the child reference, reject any
-   * still-outstanding requests, consume the crash budget, mark
-   * permanently unavailable if exhausted.
+   * Handle a child-exit event — reset the framer, clear the child
+   * reference, reject any still-outstanding requests, consume the
+   * crash budget once per failed child, mark permanently unavailable
+   * if exhausted.
+   *
+   * **Parser-reset ordering.** Reset the framer FIRST, before the
+   * outstanding-rejection loop. If anything in the rejection path
+   * throws (defensive — listeners SHOULD NOT, but might), the parser
+   * is already known-clean and the next sidecar will not inherit
+   * partial-frame buffer state. Reset is idempotent so re-running it
+   * costs nothing.
+   *
+   * **Crash-budget dedupe.** Node's `child_process` can emit BOTH
+   * `error` and `exit` for the same failed child in rare edge cases
+   * (spawn synchronously OK, then crash mid-init). We track which
+   * children have already had their crash counted via
+   * `crashCountedChildren` and no-op the budget consumption on the
+   * second event — the cleanup steps still run, but the budget is not
+   * double-charged.
    */
-  private handleChildExit(code: number | null, signal: string | null): void {
+  private handleChildExit(
+    child: SidecarChildProcess,
+    code: number | null,
+    signal: string | null,
+  ): void {
+    this.parser = new ContentLengthParser();
     this.child = null;
     this.rejectAllOutstanding(
       new Error(
@@ -1079,13 +1214,15 @@ export class RustSidecarPtyHost implements PtyHost {
           "before response was received",
       ),
     );
-    if (this.crashBudget.recordAndIsExhausted()) {
-      this.permanentlyUnavailable = true;
-    }
+    this.recordCrashOncePerChild(child);
   }
 
-  /** Same as `handleChildExit` for async error events. */
-  private handleChildError(err: Error): void {
+  /**
+   * Same as `handleChildExit` for async error events. Same parser-
+   * reset and dedupe contract; see `handleChildExit` rustdoc.
+   */
+  private handleChildError(child: SidecarChildProcess, err: Error): void {
+    this.parser = new ContentLengthParser();
     this.child = null;
     this.rejectAllOutstanding(
       new Error(
@@ -1093,6 +1230,23 @@ export class RustSidecarPtyHost implements PtyHost {
           "rejecting outstanding requests",
       ),
     );
+    this.recordCrashOncePerChild(child);
+  }
+
+  /**
+   * Consume one crash budget slot for `child` if not already counted.
+   *
+   * Reads + writes `crashCountedChildren` so a same-child second event
+   * (Node's rare `error`-then-`exit` or `exit`-then-`error` pair) is
+   * a no-op for budget purposes. Marks `permanentlyUnavailable` when
+   * the budget is exhausted; downstream `ensureChild` then throws
+   * `PtyBackendUnavailableError` on the next request.
+   */
+  private recordCrashOncePerChild(child: SidecarChildProcess): void {
+    if (this.crashCountedChildren.has(child)) {
+      return;
+    }
+    this.crashCountedChildren.add(child);
     if (this.crashBudget.recordAndIsExhausted()) {
       this.permanentlyUnavailable = true;
     }

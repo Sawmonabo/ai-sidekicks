@@ -27,6 +27,21 @@
 //   • `PingRequest` / `PingResponse` carry only the `kind` discriminant.
 //     The plan does not pin a correlation field at this layer.
 //
+//   • `ResizeResponse` / `WriteResponse` / `KillResponse` carry an
+//     optional `error?: string` field. Absent on the success path
+//     (the common case); present when the sidecar's per-request handler
+//     returned an error (e.g., `UnknownSession` for a `kill_request`
+//     against a session whose child exited milliseconds before the
+//     request arrived). The Rust mirror uses
+//     `#[serde(default, skip_serializing_if = "Option::is_none")]` so
+//     the field is genuinely absent on the wire when `None`. This is
+//     INTENTIONALLY ASYMMETRIC with `ExitCodeNotification.signal_code`
+//     (which serializes as JSON `null` when absent because both states
+//     are meaningful semantically — see `signal_code` field comment);
+//     `error` is exception-only and the absent-vs-present distinction
+//     IS the discrimination, so `null`-as-absent would be redundant
+//     wire weight on every successful response.
+//
 // No Zod schemas live in this module: wire validation happens at the
 // daemon's framer layer (`packages/runtime-daemon/src/ipc/...`); the
 // contracts package declares the shape only. This matches the Plan-024
@@ -96,10 +111,19 @@ export interface ResizeRequest {
  * Acknowledgment of `ResizeRequest`. Explicit response per F-024-1-03
  * so request-correlation is symmetric across every control-message
  * kind.
+ *
+ * `error` is set when the sidecar's resize handler failed — most
+ * commonly `UnknownSession` when the target session has already exited
+ * (and been removed from the registry) between the daemon issuing the
+ * request and the sidecar dispatching it. Absent on the success path.
+ * See module-level field-shape decisions for the asymmetry with
+ * `ExitCodeNotification.signal_code`.
  */
 export interface ResizeResponse {
   kind: "resize_response";
   session_id: string;
+  /** Present only when the sidecar's handler failed. Daemon rejects the awaiting Promise. */
+  error?: string;
 }
 
 /**
@@ -115,10 +139,20 @@ export interface WriteRequest {
   bytes: string;
 }
 
-/** Acknowledgment of `WriteRequest`. Explicit response per F-024-1-03. */
+/**
+ * Acknowledgment of `WriteRequest`. Explicit response per F-024-1-03.
+ *
+ * `error` is set when the sidecar's write handler failed — typically
+ * `UnknownSession` (target session has exited) or `WriterUnavailable`
+ * (the per-session writer was already taken). Absent on the success
+ * path. See module-level field-shape decisions for the asymmetry with
+ * `ExitCodeNotification.signal_code`.
+ */
 export interface WriteResponse {
   kind: "write_response";
   session_id: string;
+  /** Present only when the sidecar's handler failed. Daemon rejects the awaiting Promise. */
+  error?: string;
 }
 
 /**
@@ -140,10 +174,23 @@ export interface KillRequest {
  * the sidecar acks once it has begun the kill cascade, NOT when the
  * child has actually exited — `ExitCodeNotification` carries the
  * terminal status.
+ *
+ * `error` is set when the sidecar's kill handler failed — most often
+ * `UnknownSession` for a request against a session that exited (and
+ * was removed from the registry) milliseconds before the request
+ * arrived. The race is unavoidable on the daemon side (the
+ * `ExitCodeNotification` sits in the daemon's input pipe + parser
+ * buffer between the sidecar emitting it and the daemon observing it);
+ * a typed error response converts the otherwise-indefinite Promise
+ * hang into a prompt rejection. Absent on the success path. See
+ * module-level field-shape decisions for the asymmetry with
+ * `ExitCodeNotification.signal_code`.
  */
 export interface KillResponse {
   kind: "kill_response";
   session_id: string;
+  /** Present only when the sidecar's handler failed. Daemon rejects the awaiting Promise. */
+  error?: string;
 }
 
 /**

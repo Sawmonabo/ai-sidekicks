@@ -91,7 +91,7 @@ use tokio::io::{AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
 
 use crate::framing::{read_frame, write_frame};
-use crate::protocol::Envelope;
+use crate::protocol::{Envelope, KillResponse, ResizeResponse, WriteResponse};
 use crate::pty_session::{PtySessionError, PtySessionRegistry};
 
 #[tokio::main]
@@ -270,15 +270,25 @@ async fn dispatch_one(
             }
         }
         Envelope::ResizeRequest(req) => {
-            // Capture the session id before the move so we can
-            // include it in the eprintln on failure.
+            // Capture the session id before the move so we can include
+            // it in both the typed error response and the eprintln on
+            // failure.
             let sid = req.session_id.clone();
             match registry.resize(req).await {
                 Ok(resp) => {
                     let _ = dispatch_tx.send(Envelope::ResizeResponse(resp));
                 }
                 Err(err) => {
+                    // Per `KillResponse` rustdoc: a failed handler MUST
+                    // emit a typed error response so the daemon's
+                    // awaiting Promise resolves promptly rather than
+                    // hanging indefinitely. Diagnostic eprintln remains
+                    // for operator-side log triage.
                     log_dispatch_error_for_session("resize", &sid, &err);
+                    let _ = dispatch_tx.send(Envelope::ResizeResponse(ResizeResponse {
+                        session_id: sid,
+                        error: Some(err.to_string()),
+                    }));
                 }
             }
         }
@@ -290,6 +300,10 @@ async fn dispatch_one(
                 }
                 Err(err) => {
                     log_dispatch_error_for_session("write", &sid, &err);
+                    let _ = dispatch_tx.send(Envelope::WriteResponse(WriteResponse {
+                        session_id: sid,
+                        error: Some(err.to_string()),
+                    }));
                 }
             }
         }
@@ -301,6 +315,10 @@ async fn dispatch_one(
                 }
                 Err(err) => {
                     log_dispatch_error_for_session("kill", &sid, &err);
+                    let _ = dispatch_tx.send(Envelope::KillResponse(KillResponse {
+                        session_id: sid,
+                        error: Some(err.to_string()),
+                    }));
                 }
             }
         }

@@ -43,6 +43,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   CRASH_BUDGET_LIMIT,
   CRASH_BUDGET_WINDOW_MS,
+  ContentLengthParser,
   MAX_FRAME_BODY_BYTES,
   PtyBackendUnavailableError,
   RustSidecarPtyHost,
@@ -826,5 +827,660 @@ describe("RustSidecarPtyHost — framing limits (defense in depth)", () => {
     // side trips this test. 8 MiB is the contract per Plan-024
     // F-024-1-06.
     expect(MAX_FRAME_BODY_BYTES).toBe(8 * 1024 * 1024);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// `ContentLengthParser` direct-drive tests — depth coverage of the framer's
+// rejection paths and chunk-boundary reassembly. These tests would have
+// caught the Pair A parser-reset gap that surfaced in review by exercising
+// the framer surface that the supervisor's stdout `data` listener feeds.
+// ----------------------------------------------------------------------------
+
+describe("ContentLengthParser — chunk-boundary reassembly + rejection paths", () => {
+  it("reassembles a frame split across two feed() calls (partial-read path)", () => {
+    const parser = new ContentLengthParser();
+    const body = Buffer.from('{"kind":"ping_response"}', "utf8");
+    const header = Buffer.from(`Content-Length: ${body.length}\r\n\r\n`, "utf8");
+    const full = Buffer.concat([header, body]);
+
+    // Split the buffer mid-header — the harshest split point because
+    // the parser cannot even locate the CRLFCRLF terminator on the
+    // first feed.
+    const splitAt = Math.floor(header.length / 2);
+    parser.feed(full.subarray(0, splitAt));
+    expect(parser.nextFrame()).toEqual({ kind: "incomplete" });
+
+    parser.feed(full.subarray(splitAt));
+    const result = parser.nextFrame();
+    expect(result.kind).toBe("frame");
+    if (result.kind === "frame") {
+      expect(result.body.toString("utf8")).toBe('{"kind":"ping_response"}');
+    }
+  });
+
+  it("reassembles a frame whose body is split across two feed() calls", () => {
+    const parser = new ContentLengthParser();
+    const body = Buffer.from('{"kind":"ping_response"}', "utf8");
+    const header = Buffer.from(`Content-Length: ${body.length}\r\n\r\n`, "utf8");
+    const full = Buffer.concat([header, body]);
+
+    // Split mid-body — the parser has the header but a short body and
+    // must return incomplete until the rest arrives.
+    const splitAt = header.length + Math.floor(body.length / 2);
+    parser.feed(full.subarray(0, splitAt));
+    expect(parser.nextFrame()).toEqual({ kind: "incomplete" });
+
+    parser.feed(full.subarray(splitAt));
+    const result = parser.nextFrame();
+    expect(result.kind).toBe("frame");
+    if (result.kind === "frame") {
+      expect(result.body.toString("utf8")).toBe('{"kind":"ping_response"}');
+    }
+  });
+
+  it("drains multiple frames coalesced into a single feed() call", () => {
+    // TCP coalescing can deliver many wire frames in one chunk. The
+    // supervisor's `drainParserUntilIncomplete` loops; the parser
+    // must hand them out one at a time without losing or merging
+    // any.
+    const parser = new ContentLengthParser();
+    const bodies = [
+      '{"kind":"ping_response"}',
+      '{"kind":"resize_response","session_id":"s-0"}',
+      '{"kind":"write_response","session_id":"s-1"}',
+    ];
+    const chunks = bodies.map((b) => {
+      const body = Buffer.from(b, "utf8");
+      const header = Buffer.from(`Content-Length: ${body.length}\r\n\r\n`, "utf8");
+      return Buffer.concat([header, body]);
+    });
+    parser.feed(Buffer.concat(chunks));
+
+    const decoded: string[] = [];
+    for (;;) {
+      const result = parser.nextFrame();
+      if (result.kind === "incomplete") {
+        break;
+      }
+      if (result.kind === "error") {
+        throw new Error(`unexpected parser error: ${result.message}`);
+      }
+      decoded.push(result.body.toString("utf8"));
+    }
+    expect(decoded).toEqual(bodies);
+  });
+
+  it("rejects a frame missing the Content-Length header", () => {
+    // The framer treats missing Content-Length as a fatal supervisor
+    // event because we cannot determine the body length. The error
+    // sentinel is the contract the supervisor uses to trigger a
+    // SIGKILL respawn.
+    const parser = new ContentLengthParser();
+    parser.feed(Buffer.from("Content-Type: text/plain\r\n\r\nbody", "utf8"));
+    const result = parser.nextFrame();
+    expect(result.kind).toBe("error");
+    if (result.kind === "error") {
+      expect(result.message).toMatch(/missing Content-Length header/i);
+    }
+  });
+
+  it("rejects a frame with duplicate Content-Length headers (request-smuggling shape)", () => {
+    // Two Content-Length values is the canonical request-smuggling
+    // attack shape. The Rust framer rejects this; the TS framer
+    // rejects it too for symmetric defense in depth.
+    const parser = new ContentLengthParser();
+    parser.feed(Buffer.from("Content-Length: 4\r\nContent-Length: 8\r\n\r\nbodybody", "utf8"));
+    const result = parser.nextFrame();
+    expect(result.kind).toBe("error");
+    if (result.kind === "error") {
+      expect(result.message).toMatch(/duplicate Content-Length/i);
+    }
+  });
+
+  it("rejects a Content-Length value that is not a non-negative integer", () => {
+    const parser = new ContentLengthParser();
+    parser.feed(Buffer.from("Content-Length: not-a-number\r\n\r\n", "utf8"));
+    const result = parser.nextFrame();
+    expect(result.kind).toBe("error");
+    if (result.kind === "error") {
+      expect(result.message).toMatch(/Content-Length value is not a valid non-negative integer/i);
+    }
+  });
+
+  it(`rejects a body length larger than MAX_FRAME_BODY_BYTES (${MAX_FRAME_BODY_BYTES})`, () => {
+    // We do NOT actually produce 8+ MiB of body here — the cap is
+    // checked after the header parse, before the body bytes have
+    // arrived. The parser MUST reject on the declared size alone.
+    const parser = new ContentLengthParser();
+    parser.feed(Buffer.from(`Content-Length: ${MAX_FRAME_BODY_BYTES + 1}\r\n\r\n`, "utf8"));
+    const result = parser.nextFrame();
+    expect(result.kind).toBe("error");
+    if (result.kind === "error") {
+      expect(result.message).toMatch(/exceeds MAX_FRAME_BODY_BYTES/);
+    }
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Pair A regression — parser is reset on child exit so the next sidecar
+// does not inherit corrupted buffer state.
+// ----------------------------------------------------------------------------
+
+describe("RustSidecarPtyHost — parser reset across respawn (Pair A regression)", () => {
+  it("framing-error self-kill respawns with a fresh parser that decodes a fresh frame correctly", async () => {
+    const seq = spawnReturningSequence();
+    const clock = vi.fn<() => number>().mockReturnValue(0);
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: seq.spawn,
+      nowMs: clock,
+    });
+
+    // Spawn s-0 on the first sidecar; deliver a partial frame +
+    // garbage that trips the framer's error sentinel.
+    const spawnP1 = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    seq.latest().writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
+    await spawnP1;
+
+    // Inject a corrupting payload — Content-Length value that is not
+    // a number. This hits the framer's error sentinel; the supervisor
+    // SIGKILLs the child and waits for the exit handler to fire.
+    const corruptHeader = Buffer.from("Content-Length: NOT_A_NUMBER\r\n\r\n", "utf8");
+    seq.latest().writeStdout(corruptHeader);
+    await flushMicrotasks();
+
+    // The supervisor's drainParserUntilIncomplete catches the framing
+    // error and calls child.kill("SIGKILL"). Verify on the fake.
+    const killMock = seq.latest().child.kill as ReturnType<typeof vi.fn>;
+    expect(killMock).toHaveBeenCalledWith("SIGKILL");
+
+    // Drive the exit event so the supervisor consumes the budget +
+    // resets the parser + clears the child reference.
+    clock.mockReturnValue(100);
+    seq.latest().triggerExit(137, "SIGKILL");
+    await flushMicrotasks();
+
+    // Now spawn again. The next request triggers ensureChild() which
+    // creates the second sidecar AND wires the (newly-reset) parser
+    // to its stdout. Deliver a fresh, well-formed SpawnResponse —
+    // the parser MUST NOT be confused by the corrupting bytes from
+    // the prior child.
+    clock.mockReturnValue(200);
+    const spawnP2 = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    expect(seq.spawned().length).toBe(2);
+
+    seq.latest().writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-1" }));
+    const response2 = await spawnP2;
+    expect(response2).toEqual({ kind: "spawn_response", session_id: "s-1" });
+  });
+
+  it("residual partial-frame bytes from the prior child do NOT desync the next sidecar's frames", async () => {
+    // Stronger version of the above. Inject a partial header on
+    // child A, then deliver a complete frame on child B that lands
+    // at byte offset 0 of a freshly-respawned parser. Without the
+    // reset the partial bytes would contaminate the second frame.
+    const seq = spawnReturningSequence();
+    const clock = vi.fn<() => number>().mockReturnValue(0);
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: seq.spawn,
+      nowMs: clock,
+    });
+
+    const spawnP1 = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    seq.latest().writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
+    await spawnP1;
+
+    // Deliver only the FIRST half of a Content-Length header. The
+    // parser holds these bytes in its internal buffer.
+    seq.latest().writeStdout(Buffer.from("Content-Length: 27\r", "utf8"));
+    await flushMicrotasks();
+
+    // Crash the child. handleChildExit MUST reset the parser (POLISH-
+    // adjacent fix from Pair A) so the residual bytes are discarded.
+    clock.mockReturnValue(100);
+    seq.latest().triggerExit(1, null);
+    await flushMicrotasks();
+
+    // Respawn + deliver a fresh well-formed frame.
+    clock.mockReturnValue(200);
+    const spawnP2 = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    seq.latest().writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-1" }));
+    const response2 = await spawnP2;
+    expect(response2).toEqual({ kind: "spawn_response", session_id: "s-1" });
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Pair B regression — typed error response rejects the awaiting Promise
+// (no indefinite hang on the close-races-natural-exit shape).
+// ----------------------------------------------------------------------------
+
+describe("RustSidecarPtyHost — sync throw on truly-unknown sessionId (NodePtyHost parity)", () => {
+  it("kill() throws synchronously on a never-spawned sessionId (mirrors NodePtyHost)", async () => {
+    const fake = makeFakeChild();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: spawnReturning(fake),
+    });
+
+    // Never spawned — session table is empty. kill MUST throw
+    // synchronously (rejects via async wrapper but with the
+    // never-have-touched-the-wire shape).
+    await expect(host.kill("s-bogus", "SIGTERM")).rejects.toThrow(/unknown sessionId 's-bogus'/);
+    // Stdin should be empty — no wire dispatch occurred.
+    expect(fake.readStdin().length).toBe(0);
+  });
+
+  it("resize() throws synchronously on a never-spawned sessionId", async () => {
+    const fake = makeFakeChild();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: spawnReturning(fake),
+    });
+
+    await expect(host.resize("s-bogus", 30, 100)).rejects.toThrow(/unknown sessionId 's-bogus'/);
+    expect(fake.readStdin().length).toBe(0);
+  });
+
+  it("write() throws synchronously on a never-spawned sessionId", async () => {
+    const fake = makeFakeChild();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: spawnReturning(fake),
+    });
+
+    await expect(host.write("s-bogus", new Uint8Array([1, 2, 3]))).rejects.toThrow(
+      /unknown sessionId 's-bogus'/,
+    );
+    expect(fake.readStdin().length).toBe(0);
+  });
+});
+
+describe("RustSidecarPtyHost — wire-side error response rejects awaiting Promise (Pair B regression)", () => {
+  it("kill on a known session that the sidecar has already removed rejects with a typed error (no indefinite hang)", async () => {
+    // The race the Pair B ACTIONABLE pinned: daemon issued a close()
+    // which dispatches a kill_request{SIGTERM}, sidecar's child
+    // exited naturally microseconds before the request arrived, the
+    // sidecar's registry returns UnknownSession, and the dispatcher
+    // emits a typed error response (kill_response with error: Some).
+    // The daemon-side resolveOutstanding MUST reject the awaiting
+    // Promise; without the fix the Promise would sit in `outstanding`
+    // forever.
+    const fake = makeFakeChild();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: spawnReturning(fake),
+    });
+
+    const spawnP = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    fake.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
+    await spawnP;
+
+    // Daemon has the session — issue an explicit kill (NOT close,
+    // close-swallow is exercised separately).
+    const killP = host.kill("s-0", "SIGKILL");
+    await flushMicrotasks();
+
+    // Sidecar replies with a typed error response.
+    fake.writeStdout(
+      frameEnvelope({
+        kind: "kill_response",
+        session_id: "s-0",
+        error: 'session_id "s-0" is not active',
+      }),
+    );
+
+    await expect(killP).rejects.toThrow(
+      /sidecar kill_response returned error.*session_id "s-0" is not active/,
+    );
+  });
+
+  it("write on a known session that the sidecar has writer-unavailable for rejects with a typed error", async () => {
+    const fake = makeFakeChild();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: spawnReturning(fake),
+    });
+
+    const spawnP = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    fake.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
+    await spawnP;
+
+    const writeP = host.write("s-0", new Uint8Array([1]));
+    await flushMicrotasks();
+    fake.writeStdout(
+      frameEnvelope({
+        kind: "write_response",
+        session_id: "s-0",
+        error: 'writer for session "s-0" has already been taken',
+      }),
+    );
+
+    await expect(writeP).rejects.toThrow(/sidecar write_response returned error/);
+  });
+
+  it("resize on a known session that the sidecar has unknown for rejects with a typed error", async () => {
+    const fake = makeFakeChild();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: spawnReturning(fake),
+    });
+
+    const spawnP = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    fake.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
+    await spawnP;
+
+    const resizeP = host.resize("s-0", 30, 100);
+    await flushMicrotasks();
+    fake.writeStdout(
+      frameEnvelope({
+        kind: "resize_response",
+        session_id: "s-0",
+        error: 'session_id "s-0" is not active',
+      }),
+    );
+
+    await expect(resizeP).rejects.toThrow(/sidecar resize_response returned error/);
+  });
+
+  it("response with `error: undefined` (the success path) resolves normally and does NOT reject", async () => {
+    // Pin the error-discrimination semantics. `error` absent on the
+    // wire deserializes to `undefined`; the daemon MUST treat that
+    // as success, not as a falsy-error.
+    const fake = makeFakeChild();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: spawnReturning(fake),
+    });
+
+    const spawnP = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    fake.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
+    await spawnP;
+
+    const killP = host.kill("s-0", "SIGTERM");
+    await flushMicrotasks();
+    // Deliver the success-path response — `error` field absent.
+    fake.writeStdout(frameEnvelope({ kind: "kill_response", session_id: "s-0" }));
+    await expect(killP).resolves.toBeUndefined();
+  });
+});
+
+// ----------------------------------------------------------------------------
+// `close()` happy-path + swallow-on-error contract.
+// ----------------------------------------------------------------------------
+
+describe("RustSidecarPtyHost — close() lifecycle", () => {
+  it("close() on a live session writes kill_request{SIGTERM} to stdin and resolves on the response", async () => {
+    const fake = makeFakeChild();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: spawnReturning(fake),
+    });
+
+    const spawnP = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    fake.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
+    await spawnP;
+
+    // Snapshot stdin so we can inspect ONLY the close-time bytes.
+    const stdinBefore = fake.readStdin().length;
+
+    const closeP = host.close("s-0");
+    await flushMicrotasks();
+
+    // Inspect the new bytes on stdin — must include a kill_request
+    // with the SIGTERM signal (close's chosen graceful-stop signal).
+    const allFrames = parseFramesFromStdin(fake.readStdin().subarray(stdinBefore));
+    expect(allFrames).toHaveLength(1);
+    expect(allFrames[0]).toEqual({
+      kind: "kill_request",
+      session_id: "s-0",
+      signal: "SIGTERM",
+    });
+
+    // Deliver the success response — close resolves.
+    fake.writeStdout(frameEnvelope({ kind: "kill_response", session_id: "s-0" }));
+    await expect(closeP).resolves.toBeUndefined();
+  });
+
+  it("close() swallows a wire-side error response (close MUST NOT throw on close-races-natural-exit)", async () => {
+    // Pins the catch-and-swallow contract: a close() that races the
+    // child's natural exit produces an UnknownSession on the sidecar
+    // side, the typed error response routes through resolveOutstanding's
+    // rejection branch, and close()'s try/catch swallows it. A
+    // regression that drops the try/catch (or changes the signal from
+    // SIGTERM) would trip this assertion.
+    const fake = makeFakeChild();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: spawnReturning(fake),
+    });
+
+    const spawnP = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    fake.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
+    await spawnP;
+
+    const closeP = host.close("s-0");
+    await flushMicrotasks();
+    fake.writeStdout(
+      frameEnvelope({
+        kind: "kill_response",
+        session_id: "s-0",
+        error: 'session_id "s-0" is not active',
+      }),
+    );
+
+    // close MUST resolve even though the wire-side reply was an error.
+    await expect(closeP).resolves.toBeUndefined();
+  });
+});
+
+// ----------------------------------------------------------------------------
+// POLISH 3 — data_frame fan-out is gated on session presence.
+// ----------------------------------------------------------------------------
+
+describe("RustSidecarPtyHost — data_frame fan-out gating (POLISH 3)", () => {
+  it("does NOT call the data listener for a session that has been close()d", async () => {
+    // Mirrors `node-pty-host.ts`'s close-time subscription disposal.
+    // A DataFrame for a closed session is consumer-meaningless; drop
+    // silently rather than fan out to a stale listener.
+    const fake = makeFakeChild();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: spawnReturning(fake),
+    });
+
+    const dataFn = vi.fn();
+    host.setOnData(dataFn);
+
+    const spawnP = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    fake.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
+    await spawnP;
+
+    // Close the session — sidecar-side will eventually deliver an
+    // ExitCodeNotification but in the race window the daemon may
+    // still receive late DataFrames.
+    void host.close("s-0");
+    await flushMicrotasks();
+    // Deliver the kill_response so close's promise resolves cleanly.
+    fake.writeStdout(frameEnvelope({ kind: "kill_response", session_id: "s-0" }));
+    await flushMicrotasks();
+
+    // Now deliver a late DataFrame for the closed session.
+    const payload = Buffer.from("late chunk", "utf8").toString("base64");
+    fake.writeStdout(
+      frameEnvelope({
+        kind: "data_frame",
+        session_id: "s-0",
+        stream: "stdout",
+        seq: 0,
+        bytes: payload,
+      }),
+    );
+    await flushMicrotasks();
+
+    // The data listener MUST NOT fire for the closed session.
+    expect(dataFn).not.toHaveBeenCalled();
+  });
+});
+
+// ----------------------------------------------------------------------------
+// POLISH 7 — dual error+exit events on the same child do not double-count
+// the crash budget.
+// ----------------------------------------------------------------------------
+
+describe("RustSidecarPtyHost — dual error+exit events do not double-charge the crash budget (POLISH 7)", () => {
+  it("emits both 'error' and 'exit' for the same child; budget is consumed exactly once", async () => {
+    // Node's `child_process` can in rare edge cases emit BOTH error
+    // and exit for the same failed child (spawn synchronously OK,
+    // then crash mid-init). Without the per-instance dedupe, each
+    // handler calls crashBudget.recordAndIsExhausted() and the
+    // budget exhausts at half the documented threshold. The
+    // crashCountedChildren WeakSet guards against this.
+    const seq = spawnReturningSequence();
+    const clock = vi.fn<() => number>().mockReturnValue(0);
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: seq.spawn,
+      nowMs: clock,
+    });
+
+    // Spawn CRASH_BUDGET_LIMIT children. Each one emits BOTH error
+    // and exit. Without the dedupe the budget exhausts after
+    // CRASH_BUDGET_LIMIT / 2 children; with the dedupe the host
+    // remains willing to respawn through CRASH_BUDGET_LIMIT - 1.
+    for (let i = 0; i < CRASH_BUDGET_LIMIT - 1; i += 1) {
+      clock.mockReturnValue(i * 1000);
+      const reqP = host.spawn({
+        kind: "spawn_request",
+        command: "/bin/sh",
+        args: [],
+        env: [],
+        cwd: "/",
+        rows: 24,
+        cols: 80,
+      });
+      await flushMicrotasks();
+      // Emit both events — order matters less than the dedupe guard.
+      seq.latest().triggerError(new Error("spawn-init crash"));
+      seq.latest().triggerExit(1, null);
+      await reqP.catch(() => undefined);
+    }
+
+    // Budget should NOT be exhausted yet — only CRASH_BUDGET_LIMIT-1
+    // crashes have been counted (each child counted once).
+    clock.mockReturnValue(CRASH_BUDGET_LIMIT * 1000);
+    void host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    // The host accepted the spawn — budget had room.
+    expect(seq.spawned().length).toBe(CRASH_BUDGET_LIMIT);
   });
 });

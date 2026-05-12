@@ -524,6 +524,9 @@ impl PtySessionRegistry {
             .map_err(|e| PtySessionError::PortablePty(e.to_string()))?;
         Ok(ResizeResponse {
             session_id: req.session_id,
+            // Success path — the dispatcher's failure arm carries the
+            // `error: Some(_)` shape (see `main.rs::dispatch_one`).
+            error: None,
         })
     }
 
@@ -563,6 +566,7 @@ impl PtySessionRegistry {
                 *writer_slot = Some(writer_returned);
                 Ok(WriteResponse {
                     session_id: req.session_id,
+                    error: None,
                 })
             }
             Err(e) => {
@@ -629,6 +633,7 @@ impl PtySessionRegistry {
 
         Ok(KillResponse {
             session_id: req.session_id,
+            error: None,
         })
     }
 
