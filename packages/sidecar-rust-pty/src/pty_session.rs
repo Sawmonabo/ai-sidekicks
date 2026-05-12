@@ -787,8 +787,11 @@ impl PtySessionRegistry {
         })
     }
 
-    /// Windows kill stub — Phase 3 T-024-3-1 owns the real
-    /// implementation per Plan-024 §Invariants I-024-1 + I-024-2.
+    /// Windows kill stub — substrate-only ship per Plan-024 §Invariants
+    /// I-024-1 + I-024-2 and §Implementation Phase Sequence Phase 3 header;
+    /// end-to-end wire-through is deferred to a follow-up task.
+    /// Translator substrate is verified in `kill_translation::tests`
+    /// (I-024-1) and `tree_kill::tests` (I-024-2).
     #[cfg(windows)]
     pub async fn kill(&self, _req: KillRequest) -> Result<KillResponse, PtySessionError> {
         Err(PtySessionError::WindowsKillNotImplemented)
