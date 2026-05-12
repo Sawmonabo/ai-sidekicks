@@ -873,3 +873,191 @@ async fn exit_notification_arrives_after_final_data_frame() {
     assert_eq!(exit_notifications[0].exit_code, 0);
     assert_eq!(exit_notifications[0].signal_code, None);
 }
+
+/// Regression — registry-drop must terminate idle children so the
+/// writer-task outbound channel closes (Plan-024 Phase 3).
+///
+/// Pins the deadlock-closing contract of [`PtySessionRegistry`]'s
+/// `Drop` impl: dropping the registry while at least one session is
+/// idle (no DataFrame writes, child still alive) MUST cause the
+/// outbound receiver to observe `None` within a bounded timeout. The
+/// receiver-observes-`None` outcome is what tells `main`'s writer
+/// task to drain and exit; without it, `main()` hangs on
+/// `writer_handle.await` because the reader and waiter tasks each
+/// hold an `outbound: UnboundedSender<Envelope>` clone that never
+/// drops.
+///
+/// **What the test exercises (the load-bearing chain).**
+///
+/// 1. Spawn a child that idles indefinitely (`sleep 30`). The reader
+///    task blocks in `read()` on the master-side PTY; the waiter
+///    task blocks in `Child::wait()`. Both hold outbound-sender
+///    clones. The PARENT also writes nothing in the spawn-time path,
+///    so no DataFrame transit either.
+/// 2. Drop the registry. The `Drop` impl walks the killers map and
+///    invokes `kill()` on the still-running child.
+/// 3. The kill chain: child exits → slave-end closes → master-side
+///    `read()` returns `Ok(0)` → reader exits its `Ok(0)` arm and
+///    drops its outbound clone → `Child::wait()` returns → waiter
+///    awaits the already-finished reader, emits one
+///    `ExitCodeNotification`, exits, drops its outbound clone.
+/// 4. With all three sender clones (registry + reader + waiter)
+///    dropped, the outbound channel closes. `rx.recv()` returns
+///    `None`.
+///
+/// **Why a 1-second budget.** The four hops above are each unix
+/// syscalls or tokio scheduling moments — sub-millisecond in
+/// expectation. 1 s is three orders of magnitude of headroom on Linux
+/// + macOS while still failing fast on a genuinely hung registry.
+///
+/// **Why we drain envelopes, not assert exactly one.** The waiter
+/// task emits a final `ExitCodeNotification` on its way out. Whether
+/// that envelope arrives before or after our `None` observation is a
+/// scheduling artifact — both are valid. The discriminating
+/// assertion is "`None` arrives within the budget", not "no
+/// envelopes arrived".
+///
+/// Under the BUG (no `Drop`, no killer-map): `kill()` is never called;
+/// the child sits in `sleep 30`; the reader and waiter never exit;
+/// `rx.recv()` blocks until the 30-second sleep naturally completes
+/// or the test framework's outer timeout fires. The 1 s timeout fires
+/// first → test fails with the assertion below.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn registry_drop_terminates_idle_session_and_closes_outbound_channel() {
+    let (registry, mut rx) = PtySessionRegistry::new();
+
+    // Spawn an idle child. `sleep 30` writes nothing to its PTY and
+    // does not exit on its own within the test window — exactly the
+    // shape that hangs the broken `main()`.
+    let _response = registry
+        .spawn(SpawnRequest {
+            command: "/bin/sh".to_string(),
+            args: vec!["-c".to_string(), "sleep 30".to_string()],
+            env: empty_env(),
+            cwd: "/tmp".to_string(),
+            rows: 24,
+            cols: 80,
+        })
+        .await
+        .expect("spawn should succeed");
+
+    // Give the child a beat to actually be sleeping before we drop
+    // the registry. Without this, the kill races the spawn and may
+    // hit an in-flight pre-exec stage on some platforms. 50 ms
+    // matches the precedent set by `kill_sigterm_terminates_long_running_child`.
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    // Drop the registry. Under FIX: the `Drop` impl kills the child,
+    // which closes the slave end, which surfaces as EOF on the
+    // reader, which lets all outbound-sender clones drop. Under BUG:
+    // no Drop / no kill / sleep continues / clones survive / receiver
+    // never closes.
+    drop(registry);
+
+    // Drain envelopes until `recv()` returns `None` OR the 1 s budget
+    // elapses. `None` is the load-bearing observation — it tells
+    // `main`'s writer task to exit.
+    let close_result = timeout(Duration::from_secs(1), async {
+        loop {
+            match rx.recv().await {
+                Some(_envelope) => {
+                    // The waiter task may emit a final
+                    // ExitCodeNotification on its way out. Drain
+                    // and keep looping until the channel actually
+                    // closes.
+                    continue;
+                }
+                None => return,
+            }
+        }
+    })
+    .await;
+
+    close_result.expect(
+        "registry-drop did not close the outbound channel within 1s: \
+         the reader + waiter tasks' UnboundedSender clones did not drop \
+         (registry-drop's kill-on-drop chain failed to terminate the idle \
+         child, so reader/waiter remain blocked). See \
+         `PtySessionRegistry::drop` for the deadlock-closing rationale.",
+    );
+}
+
+/// Regression — registry-drop must terminate **N idle children** so the
+/// writer-task outbound channel closes regardless of how many sessions
+/// are alive at drop time (Plan-024 Phase 3).
+///
+/// Sibling to `registry_drop_terminates_idle_session_and_closes_outbound_channel`
+/// (the N=1 case). N=2 exercises the [`PtySessionRegistry::drop`] map-
+/// drain loop's parallel-termination semantics — one child killed first,
+/// the other still pending; both kill chains must complete before the
+/// channel can close because each session contributes two
+/// `UnboundedSender<Envelope>` clones (reader + waiter) and ALL must
+/// drop for `rx.recv()` to observe `None`.
+///
+/// **Why N=2 specifically.** `HashMap` iteration order is randomized
+/// per-process (`RandomState`), so each test run exercises a
+/// representative `kill()` interleaving. A flaky N=2 outcome (one of
+/// two kill chains stalls) reveals an ordering or partial-drain bug
+/// that N=1 cannot detect.
+///
+/// **Why a 1-second budget.** Same reasoning as the N=1 test — each
+/// kill→EOF→reader-exit→waiter-exit chain is sub-millisecond on unix,
+/// so 1 s is three orders of magnitude of headroom for both chains
+/// running in parallel on a 4-thread runtime.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn registry_drop_terminates_two_idle_sessions_and_closes_outbound_channel() {
+    let (registry, mut rx) = PtySessionRegistry::new();
+
+    // Spawn two idle children. Each `sleep 30` writes nothing and does
+    // not exit on its own within the test window, so under the BUG path
+    // BOTH sessions' reader+waiter clones survive the registry drop.
+    for _ in 0..2 {
+        registry
+            .spawn(SpawnRequest {
+                command: "/bin/sh".to_string(),
+                args: vec!["-c".to_string(), "sleep 30".to_string()],
+                env: empty_env(),
+                cwd: "/tmp".to_string(),
+                rows: 24,
+                cols: 80,
+            })
+            .await
+            .expect("spawn should succeed");
+    }
+
+    // Same 50 ms settle window as the N=1 test — give both children a
+    // beat to actually be sleeping before we drop the registry, so the
+    // kill does not race spawn's pre-exec stage on either session.
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    // Drop the registry. Under FIX: `Drop` walks the killers map in
+    // randomized order, kills both children, both kill chains run in
+    // parallel on the multi-thread runtime, all four reader+waiter
+    // clones drop, channel closes. Under BUG: any single kill chain
+    // that fails to terminate its child leaves clones alive and the
+    // receiver never observes `None`.
+    drop(registry);
+
+    let close_result = timeout(Duration::from_secs(1), async {
+        loop {
+            match rx.recv().await {
+                Some(_envelope) => {
+                    // Drain any final ExitCodeNotifications from both
+                    // sessions; the load-bearing observation is `None`.
+                    continue;
+                }
+                None => return,
+            }
+        }
+    })
+    .await;
+
+    close_result.expect(
+        "registry-drop with two idle sessions did not close the outbound \
+         channel within 1s: one or both kill-on-drop chains failed to \
+         terminate the idle child, leaving reader/waiter UnboundedSender \
+         clones alive. HashMap drain order is randomized per-process; \
+         rerun a few times if this flakes to surface ordering bugs. See \
+         `PtySessionRegistry::drop` for the deadlock-closing rationale.",
+    );
+}
