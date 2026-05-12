@@ -2007,6 +2007,245 @@ describe("RustSidecarPtyHost — dual error+exit events do not double-charge the
 });
 
 // ----------------------------------------------------------------------------
+// Stale-event guard on handleChildExit / handleChildError.
+//
+// Node's `child_process` can emit BOTH `exit` and `error` for a single
+// spawn-then-crash-mid-init failure. The supervisor's `exit` / `error`
+// listeners are attached per-child in `attachChildListeners` and closed
+// over the child reference at attach time. After the first event runs the
+// canonical teardown chain (`this.child = null`) and `ensureChild()`
+// spawns a replacement, a LATE second event for the OLD child must NOT
+// mutate the new child's global state.
+//
+// Without the `if (this.child !== child) return` guard, the second event
+// would (a) wipe the new child via `this.child = null`, (b) detach a
+// stdout listener against the wrong stream, (c) reject every pending
+// outstanding request that was queued for the NEW child with an error
+// attributing the failure to the OLD child's exit/error.
+//
+// The pre-existing `crashCountedChildren` WeakSet (exercised in the
+// previous describe block) deduped BUDGET CONSUMPTION only — the
+// cleanup steps ran unconditionally above it. This is the gap closed
+// here.
+//
+// Refs: Local class invariant — see RustSidecarPtyHost class rustdoc
+// and handleChildExit rustdoc for the active-child-only teardown
+// contract. Plan-024 §T-024-3-1 governs the broader crash-respawn
+// supervision.
+// ----------------------------------------------------------------------------
+
+describe("RustSidecarPtyHost — stale child lifecycle events do not clobber the replacement child", () => {
+  it("stale 'exit' event for an old child after replacement does not clear the new child", async () => {
+    const seq = spawnReturningSequence();
+    const clock = vi.fn<() => number>().mockReturnValue(0);
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: seq.spawn,
+      nowMs: clock,
+    });
+
+    // Spawn child A and complete a round-trip so A is fully active.
+    const spawnP1 = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    const childA = seq.latest();
+    childA.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
+    await spawnP1;
+
+    // Fire A's `exit` event. The supervisor runs the canonical
+    // teardown (parser reset → `this.child = null` → reject outstanding
+    // → record crash) on the active-child path because `this.child ===
+    // childA` at this point.
+    clock.mockReturnValue(100);
+    childA.triggerExit(1, null);
+    await flushMicrotasks();
+
+    // Issue a fresh request — forces `ensureChild()` to spawn child B.
+    // We capture B (NOT via `seq.latest()` later — that helper returns
+    // the most-recently-spawned fake, which is what we want here but
+    // we MUST also keep the `childA` reference captured above for the
+    // stale fire below).
+    clock.mockReturnValue(200);
+    const spawnP2 = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    expect(seq.spawned().length).toBe(2);
+    const childB = seq.latest();
+
+    // Now fire a SECOND `exit` event for the OLD child A — the
+    // captured reference, NOT via `seq.latest()` (which is B). This
+    // simulates Node's rare `exit`-then-`exit` (or `error`-then-`exit`)
+    // pair where the second event arrives after `ensureChild()` has
+    // already spawned the replacement. Without the stale-event guard
+    // this would wipe `this.child = null` (clobbering B), detach a
+    // listener against A's stdout (no-op against B but the code path
+    // is still wrong), and reject B's pending `spawnP2` with a
+    // misleading "sidecar exited" error.
+    childA.triggerExit(1, null);
+    await flushMicrotasks();
+
+    // Assert (i): `this.child` still points at B (the replacement),
+    // NOT cleared back to null by the stale event. Cast through
+    // index-access because `child` is a private field.
+    const hostInternals: { child: SidecarChildProcess | null } = host as unknown as {
+      child: SidecarChildProcess | null;
+    };
+    expect(hostInternals.child).toBe(childB.child);
+
+    // Assert (ii): the pending `spawnP2` request — issued AFTER A's
+    // first exit but BEFORE the stale second exit — resolves via B's
+    // response, NOT rejected by the stale event's `rejectAllOutstanding`
+    // path. Deliver B's response now to drive `spawnP2` to resolution.
+    childB.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-1" }));
+    await expect(spawnP2).resolves.toEqual({ kind: "spawn_response", session_id: "s-1" });
+  });
+
+  it("stale 'error' event for an old child after replacement does not clear the new child", async () => {
+    // Mirrors the `exit`-event scenario above for the `error` listener.
+    // `handleChildError` shares the stale-event guard contract with
+    // `handleChildExit`; this test pins it for the async-error path.
+    const seq = spawnReturningSequence();
+    const clock = vi.fn<() => number>().mockReturnValue(0);
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: seq.spawn,
+      nowMs: clock,
+    });
+
+    const spawnP1 = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    const childA = seq.latest();
+    childA.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
+    await spawnP1;
+
+    // First event tears down A on the active-child path.
+    clock.mockReturnValue(100);
+    childA.triggerError(new Error("first error event"));
+    await flushMicrotasks();
+
+    // Force a replacement spawn.
+    clock.mockReturnValue(200);
+    const spawnP2 = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    expect(seq.spawned().length).toBe(2);
+    const childB = seq.latest();
+
+    // Stale second `error` for the OLD child A. Without the guard,
+    // this would clobber B and reject `spawnP2`.
+    childA.triggerError(new Error("late stale error event"));
+    await flushMicrotasks();
+
+    // (i) `this.child` still points at B.
+    const hostInternals: { child: SidecarChildProcess | null } = host as unknown as {
+      child: SidecarChildProcess | null;
+    };
+    expect(hostInternals.child).toBe(childB.child);
+
+    // (ii) `spawnP2` resolves via B's response — the stale error did
+    // not reject it.
+    childB.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-1" }));
+    await expect(spawnP2).resolves.toEqual({ kind: "spawn_response", session_id: "s-1" });
+  });
+
+  it("error after exit on the same child runs teardown only once (regression preservation)", async () => {
+    // Regression preservation: the previous describe block's
+    // `crashCountedChildren` WeakSet still pins single-source crash
+    // budget consumption when both `error` and `exit` fire for the
+    // same child. With the new stale-event guard, the second event
+    // now early-returns BEFORE reaching `recordCrashOncePerChild` —
+    // budget is consumed exactly once, but via a different mechanism
+    // (the guard, not the WeakSet). Test that the observable behavior
+    // (no double-charge, child reference cleared exactly once) is
+    // preserved.
+    //
+    // This complements (does not replace) the previous block's
+    // "emits both error and exit ... budget consumed exactly once"
+    // test, which drives the same axis across multiple children to
+    // exhaust-but-not-overrun the budget.
+    const seq = spawnReturningSequence();
+    const clock = vi.fn<() => number>().mockReturnValue(0);
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: seq.spawn,
+      nowMs: clock,
+    });
+
+    const spawnP = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    const childA = seq.latest();
+
+    // Fire BOTH events for the same child (no replacement spawned
+    // in between). First event takes the active-child path; second
+    // hits the stale-event guard because `this.child === null !==
+    // childA` after the first teardown.
+    clock.mockReturnValue(50);
+    childA.triggerExit(1, null);
+    await flushMicrotasks();
+    childA.triggerError(new Error("late error after exit"));
+    await flushMicrotasks();
+
+    // The first `exit` rejected `spawnP` via the canonical teardown.
+    await expect(spawnP).rejects.toThrow(/sidecar exited/);
+
+    // Now force a respawn — the second (stale) event must NOT have
+    // permanently latched the supervisor (no double-budget-charge),
+    // so the next request still spawns a fresh child.
+    clock.mockReturnValue(150);
+    const spawnP2 = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    expect(seq.spawned().length).toBe(2);
+    seq.latest().writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-1" }));
+    await expect(spawnP2).resolves.toEqual({ kind: "spawn_response", session_id: "s-1" });
+  });
+});
+
+// ----------------------------------------------------------------------------
 // `resolveSidecarBinaryPath` — four-tier binary resolution per F-024-3-03.
 //
 // What we assert (T-024-3-3 acceptance criteria, dispatch §pin 5 ordering,
@@ -2762,16 +3001,20 @@ describe("RustSidecarPtyHost — pipe error handlers (Plan-024, T-024-3-1)", () 
 });
 
 // ----------------------------------------------------------------------------
-// JSON-payload corruption is a fatal supervisor event identical in shape to
-// the framing-error path (Plan-024 §F-024-3-01 + Plan-024 §Invariants
-// I-024-1 substitutability + I-024-3 response correlation).
+// Payload-layer corruption is a fatal supervisor event identical in shape to
+// the framing-error path (Plan-024 §T-024-3-1 crash-respawn supervision;
+// ADR-019 §Failure Mode Analysis sidecar-originated failure → fallback
+// chain; local PtyHost contract substitutability lives in
+// packages/contracts/src/pty-host.ts).
 //
 // Three distinct decode-failure shapes converge on the same teardown chain:
 //
 //   (a) `{garbage`         — JSON.parse throws (token-level malformed).
+//                            decodeCause = "json-parse".
 //   (b) `null`             — JSON.parse succeeds but the value is not an
 //                            object envelope (downstream `.kind` access
 //                            would TypeError on null without the guard).
+//                            decodeCause = "non-object-envelope".
 //       `[1,2,3]`          — JSON.parse succeeds and yields an array;
 //                            `typeof [] === "object"` and `[] !== null`
 //                            so the typeof+null check alone misses it.
@@ -2779,15 +3022,24 @@ describe("RustSidecarPtyHost — pipe error handlers (Plan-024, T-024-3-1)", () 
 //                            `Array.isArray` guard the switch falls
 //                            through silently and outstanding promises
 //                            hang. Same failure mode as `null`,
-//                            different bypass.
-//
-// (c) `{"kind":"unknown_kind"}` is OUT OF SCOPE for handleInbound's
-// JSON-decode contract: the existing dispatch switch deliberately omits
-// a `default:` arm (see the `// No default:` comment at the bottom of
-// `handleInbound`'s envelope-kind switch — TypeScript exhaustiveness
-// over the discriminated union; runtime fallthrough is a silent no-op).
-// Hardening the runtime path against an unknown `envelope.kind` is a
-// separate concern — flagged in the DONE report, not widened here.
+//                            different bypass. decodeCause = "non-object-
+//                            envelope".
+//   (c) `{"kind":"future"}`— JSON.parse succeeds and yields a non-array
+//                            object whose `kind` discriminator does NOT
+//                            match any compile-time `Envelope` variant
+//                            (version skew between daemon and sidecar,
+//                            or a sidecar bug). The dispatch switch's
+//                            new `default:` arm intercepts so the
+//                            teardown shape is symmetric with (a)/(b);
+//                            without it, every queued outstanding
+//                            Promise would hang indefinitely.
+//                            decodeCause = "unknown-kind". Compile-time
+//                            exhaustiveness is preserved via the
+//                            `_exhaustive: never` assignment after the
+//                            named cases — adding a new `Envelope`
+//                            variant without a corresponding `case` arm
+//                            fails typecheck even though the runtime
+//                            arm exists.
 // ----------------------------------------------------------------------------
 
 /**
@@ -2803,7 +3055,7 @@ function frameRawBody(rawBody: string): Buffer {
   return Buffer.concat([header, payload]);
 }
 
-describe("RustSidecarPtyHost — fatal teardown on JSON-decode failure (F-024-3-01)", () => {
+describe("RustSidecarPtyHost — fatal teardown on JSON-decode failure", () => {
   it("(a) malformed JSON body `{garbage` SIGKILLs the child, rejects every outstanding pending-Promise with SidecarFrameDecodeError(cause='json-parse'), and records the crash exactly once", async () => {
     const seq = spawnReturningSequence();
     const clock = vi.fn<() => number>().mockReturnValue(0);
@@ -3100,5 +3352,134 @@ describe("RustSidecarPtyHost — fatal teardown on JSON-decode failure (F-024-3-
       (call: readonly unknown[]) => call[0] === "SIGKILL",
     );
     expect(sigkillCalls.length).toBe(1);
+  });
+
+  it("(c) unknown envelope kind triggers fatal teardown with decodeCause='unknown-kind'", async () => {
+    // A sidecar version skew or sidecar bug can emit a frame whose
+    // `kind` discriminator does not match any compile-time `Envelope`
+    // variant. JSON.parse succeeds, the non-object-envelope guards
+    // pass (it IS an object), but no `case` arm matches. The new
+    // `default:` arm in `handleInbound`'s switch intercepts so the
+    // teardown shape is symmetric with (a)/(b); without it, every
+    // queued outstanding Promise would hang indefinitely.
+    const seq = spawnReturningSequence();
+    const clock = vi.fn<() => number>().mockReturnValue(0);
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: seq.spawn,
+      nowMs: clock,
+    });
+
+    const spawnP1 = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    seq.latest().writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
+    await spawnP1;
+
+    // Queue an outstanding request that the unknown-kind teardown
+    // must reject with the typed error.
+    const resizeP = host.resize("s-0", 30, 100);
+    await flushMicrotasks();
+
+    // Deliver a frame whose JSON body is well-formed-as-object but
+    // carries a `kind` value the daemon's compile-time `Envelope`
+    // union does not know.
+    seq.latest().writeStdout(
+      frameRawBody(
+        JSON.stringify({
+          kind: "future_unknown_kind",
+          session_id: "s-0",
+          seq: 1,
+        }),
+      ),
+    );
+    await flushMicrotasks();
+
+    // (i) child is killed via SIGKILL — symmetric with the json-parse
+    // and non-object-envelope paths above.
+    const killMock = seq.latest().child.kill as ReturnType<typeof vi.fn>;
+    expect(killMock).toHaveBeenCalledWith("SIGKILL");
+
+    // Drive the exit event so the supervisor consumes the budget and
+    // runs the canonical teardown chain.
+    clock.mockReturnValue(100);
+    seq.latest().triggerExit(137, "SIGKILL");
+    await flushMicrotasks();
+
+    // (ii) the queued resize rejects with the typed error carrying
+    // decodeCause='unknown-kind' and a diagnostic naming the offending
+    // discriminator.
+    await expect(resizeP).rejects.toBeInstanceOf(SidecarFrameDecodeError);
+    await expect(resizeP).rejects.toThrow(/unknown inbound envelope kind "future_unknown_kind"/);
+
+    const resizeErr: unknown = await resizeP.catch((e: unknown) => e);
+    expect(resizeErr).toBeInstanceOf(SidecarFrameDecodeError);
+    if (resizeErr instanceof SidecarFrameDecodeError) {
+      expect(resizeErr.decodeCause).toBe("unknown-kind");
+    }
+  });
+
+  it("(c) unknown envelope kind with non-string kind field still triggers fatal teardown", async () => {
+    // Defends against the diagnostic-string degenerate case: a sidecar
+    // bug might emit a frame whose body is `{"kind": 42}` (numeric)
+    // or `{"kind": null}` (null). The body still satisfies the
+    // non-object-envelope guard (it IS an object), and no case arm of
+    // the switch matches a non-string kind, so the new `default:` arm
+    // intercepts. The diagnostic message uses the
+    // `<non-string:${typeof}>` substitute so the operator-grade error
+    // log still names a usable observed type without coercing the
+    // raw value into a stringified form.
+    const seq = spawnReturningSequence();
+    const clock = vi.fn<() => number>().mockReturnValue(0);
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: seq.spawn,
+      nowMs: clock,
+    });
+
+    const spawnP1 = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    seq.latest().writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
+    await spawnP1;
+
+    const writeP = host.write("s-0", new Uint8Array([0x68, 0x69])); // "hi"
+    await flushMicrotasks();
+
+    seq.latest().writeStdout(frameRawBody('{"kind":42}'));
+    await flushMicrotasks();
+
+    const killMock = seq.latest().child.kill as ReturnType<typeof vi.fn>;
+    expect(killMock).toHaveBeenCalledWith("SIGKILL");
+
+    clock.mockReturnValue(100);
+    seq.latest().triggerExit(137, "SIGKILL");
+    await flushMicrotasks();
+
+    // Diagnostic includes `<non-string:number>` so a future reader
+    // scanning logs can distinguish a non-string-kind sidecar bug
+    // from a normal version-skew unknown-string-kind.
+    await expect(writeP).rejects.toBeInstanceOf(SidecarFrameDecodeError);
+    await expect(writeP).rejects.toThrow(/<non-string:number>/);
+
+    const writeErr: unknown = await writeP.catch((e: unknown) => e);
+    expect(writeErr).toBeInstanceOf(SidecarFrameDecodeError);
+    if (writeErr instanceof SidecarFrameDecodeError) {
+      expect(writeErr.decodeCause).toBe("unknown-kind");
+    }
   });
 });

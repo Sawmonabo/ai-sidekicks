@@ -125,7 +125,7 @@ export class PtyBackendUnavailableError extends Error {
 
 /**
  * Typed error surfaced when the sidecar emits a frame whose body the
- * daemon cannot decode as a well-formed JSON envelope. Two cause-shapes
+ * daemon cannot decode as a well-formed JSON envelope. Three cause-shapes
  * land here, distinguished by `decodeCause`:
  *
  *   - `"json-parse"`: `JSON.parse` threw — the bytes are not valid JSON
@@ -145,6 +145,18 @@ export class PtyBackendUnavailableError extends Error {
  *     alone is insufficient); we intercept all three shapes here so
  *     the teardown shape is symmetric with the parse-throw case.
  *
+ *   - `"unknown-kind"`: `JSON.parse` succeeded and yielded a non-array
+ *     object whose `kind` discriminator does NOT match any compile-time
+ *     `Envelope` variant (version-skew between daemon and sidecar, or a
+ *     sidecar bug emitting a kind the daemon's contract does not know).
+ *     Structurally similar to `"non-object-envelope"` (payload-contract
+ *     violation at the JSON-decoded layer) but the JSON is well-formed
+ *     at the object level — the failure is purely in the discriminator.
+ *     Silent fall-through here would leave any queued outstanding-Promise
+ *     hanging indefinitely (the response that would have arrived in this
+ *     frame is gone, and no case-arm resolver can route it); treat as a
+ *     fatal supervisor event symmetric with the other two paths.
+ *
  * Mirrors `PtyBackendUnavailableError`'s pattern (typed-class wrapper
  * around a structured failure). Daemon-internal callers `instanceof`
  * this to surface the JSON-decode-specific rejection cause to consumers
@@ -155,14 +167,20 @@ export class PtyBackendUnavailableError extends Error {
  * `cause` chains errors with another `Error`/`unknown`; our field is a
  * compile-time string discriminator).
  *
- * Refs: Plan-024 §F-024-3-01 (substitutability invariant — JSON-payload
- * corruption is a fatal supervisor event identical in shape to the
- * framing-error path).
+ * Refs: Plan-024 §T-024-3-1 (RustSidecarPtyHost crash-respawn
+ * supervision per F-024-3-05); ADR-019 §Failure Mode Analysis
+ * (sidecar-originated Sev-1 / binary-missing → fallback chain).
+ * Payload-decode corruption is treated as a fatal supervisor event
+ * symmetric in shape with framing-error teardown (see
+ * drainParserUntilIncomplete).
  */
 export class SidecarFrameDecodeError extends Error {
-  public readonly decodeCause: "json-parse" | "non-object-envelope";
+  public readonly decodeCause: "json-parse" | "non-object-envelope" | "unknown-kind";
 
-  public constructor(decodeCause: "json-parse" | "non-object-envelope", message: string) {
+  public constructor(
+    decodeCause: "json-parse" | "non-object-envelope" | "unknown-kind",
+    message: string,
+  ) {
     super(message);
     this.name = "SidecarFrameDecodeError";
     this.decodeCause = decodeCause;
@@ -1081,9 +1099,13 @@ export class RustSidecarPtyHost implements PtyHost {
    * future contributors could trip over). The stash threads the
    * cause through the existing single-source teardown chain.
    *
-   * Refs: Plan-024 §F-024-3-01 + §Implementation Step 5 (response
-   * correlation contract — outstanding promises must not survive
-   * frame corruption).
+   * Refs: This is a LOCAL class invariant — the outstanding-Promise
+   * FIFO + single-source teardown chain are guarded only on the
+   * active-child exit/error path. See SidecarFrameDecodeError class
+   * rustdoc and handleChildExit rustdoc for the broader supervisor
+   * semantics; Plan-024 §T-024-3-1 governs the crash-respawn
+   * supervision; ADR-019 §Failure Mode Analysis governs the
+   * sidecar-originated failure → fallback chain.
    */
   private pendingTeardownCause: Error | null = null;
 
@@ -1467,7 +1489,7 @@ export class RustSidecarPtyHost implements PtyHost {
         // failures. A future hardening pass could symmetrically stash
         // a typed framing-cause here so awaiting callers see a
         // framing-specific rejection, but that's intentionally out of
-        // scope for the JSON-decode P1 fix.
+        // scope for the JSON-decode hardening pass.
         console.warn(
           `RustSidecarPtyHost: framing error on sidecar stdout (${result.message}); ` +
             "tearing down child for respawn.",
@@ -1601,8 +1623,69 @@ export class RustSidecarPtyHost implements PtyHost {
         );
         break;
       }
-      // No default: TypeScript exhaustiveness over the discriminated
-      // union ensures we cover every variant.
+      default: {
+        // Unknown envelope kind — version skew between daemon and
+        // sidecar, or a sidecar bug emitting a kind the daemon's
+        // compile-time `Envelope` discriminated union does not know.
+        // Symmetric with the JSON-parse and non-object-envelope fatal-
+        // supervisor paths above: the wire layer delivered a body that
+        // is well-formed JSON AND a non-array object, but the payload-
+        // contract `kind` discriminator is broken in a way we cannot
+        // recover from. A silent fall-through here would leave every
+        // queued outstanding-Promise hanging indefinitely (the response
+        // that would have arrived in this frame is gone, and no case-arm
+        // resolver can route it). Treat as fatal and respawn through
+        // the existing teardown chain.
+        //
+        // We BOTH preserve the compile-time exhaustiveness check (via
+        // the `_exhaustive: never` assignment at the tail) AND install
+        // a runtime arm here, because wire reality is broader than the
+        // compile-time union: a future sidecar version that emits
+        // tomorrow's-new-kind frames against today's daemon binary
+        // satisfies neither compile-time nor switch-time exhaustion,
+        // and we MUST close that gap defensively. The `_exhaustive`
+        // assignment narrows `envelope` to `never` after the named
+        // cases above; if a new variant is added to `Envelope` without
+        // a corresponding `case` arm, tsc will fail this assignment at
+        // compile time even though the runtime arm exists.
+        //
+        // The `kind` diagnostic is read through a non-narrowing cast
+        // to obtain a usable `unknown` value for the runtime error
+        // message — after the named cases, `envelope`'s type is
+        // `never`, and reading `.kind` directly would type-check as
+        // `never` rather than producing a diagnostic-friendly value.
+        // The cast is a runtime-value pattern; compile-time
+        // exhaustiveness is enforced by `const _exhaustive: never =
+        // envelope` at the tail of this arm.
+        //
+        // The string-branch diagnostic is run through `JSON.stringify`
+        // (mirroring lines ~517 / ~540 / ~736 / ~791) so embedded
+        // CRLF or control bytes from a sidecar bug / version-skew
+        // artifact cannot inject forged log lines into operator-grade
+        // logs; the non-string branch is fixed-enum `typeof` output
+        // and is safe to interpolate verbatim.
+        //
+        // Refs: Plan-024 §T-024-3-1 (RustSidecarPtyHost crash-respawn
+        // supervision per F-024-3-05); ADR-019 §Failure Mode Analysis
+        // (sidecar-originated failure → fallback chain).
+        const rawKind: unknown = (envelope as { kind?: unknown }).kind;
+        const unknownKind: string =
+          typeof rawKind === "string" ? JSON.stringify(rawKind) : `<non-string:${typeof rawKind}>`;
+        const cause: SidecarFrameDecodeError = new SidecarFrameDecodeError(
+          "unknown-kind",
+          `RustSidecarPtyHost: unknown inbound envelope kind ${unknownKind} ` +
+            `(version skew or sidecar bug); tearing down child for respawn.`,
+        );
+        this.failFatallyOnDecodeError(cause);
+        // Compile-time exhaustiveness gate: after every named case
+        // narrows `envelope`, this assignment compiles only while the
+        // switch covers every `Envelope` variant. Unreachable at
+        // runtime when a new variant has been added (the new case
+        // arm would intercept first); when a new variant is added
+        // WITHOUT a corresponding case arm, tsc fails here.
+        const _exhaustive: never = envelope;
+        return _exhaustive;
+      }
     }
   }
 
@@ -1829,6 +1912,46 @@ export class RustSidecarPtyHost implements PtyHost {
     code: number | null,
     signal: string | null,
   ): void {
+    if (this.child !== child) {
+      // Stale-event guard. The `exit` and `error` listeners are attached
+      // per-child in `attachChildListeners` and closed over the child
+      // reference at attach time. Node's `child_process` can emit BOTH
+      // `exit` and `error` for a single spawn-then-crash-mid-init
+      // failure; if `ensureChild()` has spawned a replacement child
+      // between the first event's teardown (`this.child = null`) and a
+      // late second event for the SAME old child, `this.child` now
+      // holds the replacement. Letting the second event run the
+      // canonical teardown chain would (a) wipe the new child reference
+      // (`this.child = null`), (b) detach the new child's stdout
+      // listener via `detachChildStdoutListener(child)` (no-op against
+      // the wrong stream, but still incorrect), and (c) reject every
+      // pending outstanding request that was queued for the NEW child
+      // with an error attributing the failure to the OLD child's exit.
+      //
+      // The guard covers both reachable interleavings:
+      //
+      //   (a) Same-child second event after the first event already
+      //       cleared `this.child` and no replacement has spawned yet:
+      //       `this.child === null !== child` → early-return ✓
+      //
+      //   (b) Same-child second event after `ensureChild()` already
+      //       spawned a replacement: `this.child === replacement !==
+      //       child` → early-return ✓
+      //
+      // The pre-existing `crashCountedChildren` WeakSet remains as
+      // belt-and-suspenders defense for the dual-event budget-dedupe
+      // contract — under the guard, the second event no longer reaches
+      // `recordCrashOncePerChild`, but the WeakSet still pins the
+      // single-source-teardown invariant in any future code path that
+      // might reach the recorder without passing through this guard.
+      //
+      // Refs: This is a LOCAL class invariant — the kind-keyed
+      // outstanding FIFO + crashCountedChildren budget are guarded
+      // only on the active-child path. See SidecarFrameDecodeError
+      // class rustdoc + Plan-024 §T-024-3-1 (crash-respawn
+      // supervision) for the broader supervisor semantics.
+      return;
+    }
     this.detachChildStdoutListener(child);
     this.parser = new ContentLengthParser();
     this.child = null;
@@ -1848,6 +1971,14 @@ export class RustSidecarPtyHost implements PtyHost {
    * reset and dedupe contract; see `handleChildExit` rustdoc.
    */
   private handleChildError(child: SidecarChildProcess, err: Error): void {
+    if (this.child !== child) {
+      // Stale-event guard — see `handleChildExit` for the full rationale.
+      // Symmetric: a late `error` for child A arriving after A's prior
+      // `exit` teardown (or after `ensureChild()` spawned a replacement)
+      // MUST NOT mutate the active child reference, the active parser,
+      // or the new child's outstanding queue.
+      return;
+    }
     this.detachChildStdoutListener(child);
     this.parser = new ContentLengthParser();
     this.child = null;
