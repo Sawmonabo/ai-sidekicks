@@ -49,12 +49,20 @@
 //!
 //! ## Termination
 //!
-//! Stdin EOF is the only termination signal — when the daemon closes
-//! its end of the pipe, `read_frame` returns `UnexpectedEof` and the
-//! dispatcher returns cleanly. The writer task drains any final
+//! Stdin EOF AT A FRAME BOUNDARY is the only graceful termination
+//! signal — when the daemon closes its end of the pipe between frames,
+//! `read_frame` returns [`FrameReadOutcome::CleanEof`] and the
+//! dispatcher returns `Ok(())`. The writer task drains any final
 //! outbound messages then exits when the registry's outbound sender
 //! drops (i.e., when all session reader/waiter tasks have completed
 //! AND the dispatcher's clone has been dropped).
+//!
+//! Stdin EOF MID-FRAME (truncated header line, truncated body) is a
+//! distinct shape: `read_frame` returns `Err(UnexpectedEof)` and the
+//! dispatcher exits non-zero. This is intentional — a truncated frame
+//! is protocol corruption that must surface to the supervisor's crash
+//! budget so the operator sees a framing-fault diagnostic instead of
+//! a silent `exit 0` that hides transport regressions.
 //!
 //! Refs: Plan-024 §Implementation Step 3 + 4 + 5 (dispatcher contract);
 //! ADR-009 (Content-Length framing); ADR-019 §Decision item 1.
@@ -90,7 +98,7 @@ use std::io::{Error as IoError, ErrorKind};
 use tokio::io::{AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
 
-use crate::framing::{read_frame, write_frame};
+use crate::framing::{read_frame, write_frame, FrameReadOutcome};
 use crate::protocol::{Envelope, KillResponse, ResizeResponse, SpawnResponse, WriteResponse};
 use crate::pty_session::{PtySessionError, PtySessionRegistry};
 
@@ -142,8 +150,9 @@ async fn main() -> std::io::Result<()> {
 ///
 /// Reads Content-Length frames from stdin, parses as [`Envelope`],
 /// dispatches by `kind`, pushes the response onto `dispatch_tx`. Returns
-/// `Ok(())` on a clean stdin EOF (the daemon closed its end of the
-/// pipe) and `Err` on any other I/O / parse error.
+/// `Ok(())` on a clean stdin EOF at a frame boundary (the daemon closed
+/// its end of the pipe between frames) and `Err` on any other I/O /
+/// parse error — INCLUDING `UnexpectedEof` from mid-frame truncation.
 ///
 /// `framing::read_frame` is NOT cancel-safe (see its rustdoc), so this
 /// loop drives every read to completion. The writer task is the only
@@ -151,8 +160,22 @@ async fn main() -> std::io::Result<()> {
 ///
 /// ## Error handling philosophy
 ///
-/// - Stdin EOF (`UnexpectedEof`) → return `Ok(())` — clean shutdown.
+/// - Clean stdin EOF at a frame boundary
+///   (`FrameReadOutcome::CleanEof`) → return `Ok(())` — graceful
+///   shutdown. The daemon closed its end of the pipe between frames;
+///   no bytes were lost.
+/// - Mid-frame stdin EOF (truncated header line, truncated body) →
+///   return `Err(UnexpectedEof)` — process exits non-zero so the
+///   supervisor's crash budget trips and the operator sees a framing-
+///   fault diagnostic. Conflating this with the clean-boundary case
+///   would let truncated-frame regressions silently exit `0` and hide
+///   transport corruption.
 /// - Other stdin I/O error → return `Err` — process exits non-zero.
+/// - Framing-level violation surfaced by `read_frame` (InvalidData) →
+///   return `Err` — desync on a Content-Length stream is unrecoverable
+///   (we cannot tell where the next frame starts without re-syncing
+///   on a header line, and the daemon's framer cannot be assumed to
+///   re-sync either).
 /// - Frame body that fails to deserialize as [`Envelope`] → log to
 ///   stderr and skip the frame. We do NOT tear down the dispatcher
 ///   for one malformed envelope because that would terminate every
@@ -174,18 +197,23 @@ async fn run_dispatcher(
 
     loop {
         let body = match read_frame(&mut reader).await {
-            Ok(body) => body,
-            Err(e) if e.kind() == ErrorKind::UnexpectedEof => {
-                // Daemon closed stdin. Clean shutdown.
+            Ok(FrameReadOutcome::Frame(body)) => body,
+            Ok(FrameReadOutcome::CleanEof) => {
+                // Daemon closed stdin at a frame boundary — graceful
+                // shutdown.
                 return Ok(());
             }
             Err(e) => {
-                // Real I/O error or framing-level violation. We do not
-                // try to recover — desync on a Content-Length stream
-                // is unrecoverable (we cannot tell where the next
-                // frame starts without re-syncing on a header line,
-                // and the daemon's framer cannot be assumed to
-                // re-sync either). Surface and exit.
+                // Real I/O error OR framing-level violation OR mid-
+                // frame EOF (truncated header / truncated body). Any
+                // of these is a transport regression we cannot recover
+                // from — desync on a Content-Length stream is
+                // unrecoverable (we cannot tell where the next frame
+                // starts without re-syncing on a header line, and the
+                // daemon's framer cannot be assumed to re-sync either).
+                // Surface and exit non-zero so the supervisor's crash
+                // budget trips and the operator sees a framing-fault
+                // diagnostic.
                 return Err(e);
             }
         };
