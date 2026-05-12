@@ -1098,6 +1098,22 @@ export class RustSidecarPtyHost implements PtyHost {
       // consume the crash budget for path-resolution failures
       // because they will deterministically fail on every retry —
       // there is no pathological respawn loop to defend against.
+      //
+      // **Preserve the inner error if it's already a
+      // `PtyBackendUnavailableError`.** The default resolver
+      // (`resolveSidecarBinaryPath`) emits a tier-enumerated message
+      // and a tier-2 `details.cause` on the four-exhausted path —
+      // wrapping that in a NEW outer error with the generic
+      // "failed to resolve sidecar binary path" message would bury
+      // the operator-grade diagnostic two levels deep in
+      // `details.cause.message` + `details.cause.details.cause`.
+      // Mirror the `pty-host-selector.ts:251` re-throw guard so the
+      // original tier enumeration surfaces unchanged. Tests +
+      // ad-hoc resolvers that throw plain `Error` still take the
+      // wrap branch (preserving the prior behavior for them).
+      if (err instanceof PtyBackendUnavailableError) {
+        throw err;
+      }
       throw new PtyBackendUnavailableError(
         { attemptedBackend: "rust-sidecar", cause: err },
         "RustSidecarPtyHost: failed to resolve sidecar binary path",

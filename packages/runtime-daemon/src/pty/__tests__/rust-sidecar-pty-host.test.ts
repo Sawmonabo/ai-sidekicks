@@ -36,6 +36,7 @@
 
 import { Buffer } from "node:buffer";
 import { EventEmitter } from "node:events";
+import { sep as pathSep } from "node:path";
 import { PassThrough } from "node:stream";
 
 import { describe, expect, it, vi } from "vitest";
@@ -1740,5 +1741,182 @@ describe("resolveSidecarBinaryPath — four-tier binary resolution (F-024-3-03)"
 
     expect(result).toBe("/installed/pkg/bin/sidecar");
     expect(requireMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("tier 3/4 default paths land inside packages/sidecar-rust-pty/target/{release,debug}/ (pins workspaceTargetPath ascent depth)", () => {
+    // POLISH 1 regression — the prior nine resolver tests all hardcode
+    // `releasePath` / `debugPath` via `makeOpts`, which short-circuits
+    // the production-side `workspaceTargetPath` ascent (the four-up
+    // `../../../sidecar-rust-pty/target/...` off `import.meta.url`).
+    // A regression that miscounts the depth (e.g., "fixes" the post-
+    // build `dist/` resolution and changes `../../../` to `../../`)
+    // would leave every other test green. This test calls the resolver
+    // WITHOUT path overrides so the real ascent runs, and asserts via
+    // existsSync invocation paths that the result lands inside the
+    // correct workspace subtree.
+    //
+    // We assert on `path.sep`-suffixed substrings so the test passes
+    // identically on POSIX (`/packages/sidecar-rust-pty/...`) and
+    // Windows (`\packages\sidecar-rust-pty\...`) — `fileURLToPath`
+    // returns a platform-native path separator.
+    const requireMock = vi.fn<(id: string) => string>(() => {
+      throw new Error("Cannot find module (tier-2 forced miss)");
+    });
+    const existsMock = vi.fn<(p: string) => boolean>(() => false);
+
+    let thrown: unknown = null;
+    try {
+      // Note: NO `releasePath` / `debugPath` overrides — the resolver
+      // computes both paths via `workspaceTargetPath`. We pin
+      // `platform: "linux"` to keep the binary-name stable (no `.exe`
+      // suffix complicating the substring assertions).
+      resolveSidecarBinaryPath({
+        env: {},
+        nodeRequire: { resolve: requireMock },
+        existsSync: existsMock,
+        platform: "linux",
+      });
+    } catch (err) {
+      thrown = err;
+    }
+
+    // Both tier 3 and tier 4 probe paths must land inside
+    // `packages/sidecar-rust-pty/target/{release,debug}/sidecar` —
+    // assert via the existsSync call arguments (the paths the resolver
+    // tried to probe).
+    expect(existsMock).toHaveBeenCalledTimes(2);
+    const releaseProbe: string = existsMock.mock.calls[0]?.[0] ?? "";
+    const debugProbe: string = existsMock.mock.calls[1]?.[0] ?? "";
+    const releaseSuffix: string =
+      pathSep + ["packages", "sidecar-rust-pty", "target", "release", "sidecar"].join(pathSep);
+    const debugSuffix: string =
+      pathSep + ["packages", "sidecar-rust-pty", "target", "debug", "sidecar"].join(pathSep);
+    expect(releaseProbe.endsWith(releaseSuffix)).toBe(true);
+    expect(debugProbe.endsWith(debugSuffix)).toBe(true);
+
+    // Belt-and-suspenders — also pin the diagnostic message contents
+    // so a future divergence between the probe path and the rendered
+    // diagnostic is caught (the resolver embeds the resolved path in
+    // the per-tier outcome string).
+    expect(thrown).toBeInstanceOf(PtyBackendUnavailableError);
+    if (thrown instanceof PtyBackendUnavailableError) {
+      expect(thrown.message).toContain(releaseSuffix);
+      expect(thrown.message).toContain(debugSuffix);
+    }
+  });
+});
+
+// ----------------------------------------------------------------------------
+// `RustSidecarPtyHost.ensureChild` — preserves resolver-thrown
+// PtyBackendUnavailableError instead of wrapping it (POLISH 2).
+//
+// The resolver emits a tier-enumerated `details.message` and a tier-2
+// `details.cause` on the four-exhausted path. `ensureChild`'s catch must
+// re-throw an instance of `PtyBackendUnavailableError` unchanged so the
+// operator-grade diagnostic surfaces directly — without the guard, the
+// original error would be buried two levels deep in `details.cause.message`
+// and `details.cause.details.cause`.
+//
+// The existing test at the top of the file ("surfaces PtyBackendUnavailableError
+// when resolveBinaryPath throws") only stubs the resolver to throw a plain
+// `Error`, which exercises the WRAP branch — these tests cover the
+// PASSTHROUGH branch.
+// ----------------------------------------------------------------------------
+
+describe("RustSidecarPtyHost — ensureChild preserves resolver-thrown PtyBackendUnavailableError (POLISH 2)", () => {
+  it("re-throws the resolver's PtyBackendUnavailableError unchanged (same instance, original message intact)", async () => {
+    // Build a resolver-thrown error with a recognizable tier-enumerated
+    // shape. The supervisor's `ensureChild` MUST surface this instance
+    // verbatim — not wrap it in a new error with the generic
+    // "failed to resolve sidecar binary path" message.
+    const innerCause: Error = new Error("Cannot find module '@ai-sidekicks/pty-sidecar-linux-x64'");
+    const resolverError: PtyBackendUnavailableError = new PtyBackendUnavailableError(
+      { attemptedBackend: "rust-sidecar", cause: innerCause },
+      "RustSidecarPtyHost: sidecar binary not found on any of the four resolution tiers " +
+        "(per Plan-024 §F-024-3-03). Attempts:\n" +
+        "  tier 1 (env-var AIS_PTY_SIDECAR_BIN): unset\n" +
+        "  tier 2 (require.resolve(...)): threw: Cannot find module\n" +
+        "  tier 3 (...): not found at /workspace/.../release/sidecar\n" +
+        "  tier 4 (...): not found at /workspace/.../debug/sidecar\n" +
+        "Set AIS_PTY_SIDECAR_BIN=...",
+    );
+
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => {
+        throw resolverError;
+      },
+      // Spawn should never be reached.
+      spawn: vi.fn<SidecarSpawnFn>(),
+    });
+
+    let thrown: unknown = null;
+    try {
+      await host.spawn({
+        kind: "spawn_request",
+        command: "/bin/sh",
+        args: [],
+        env: [],
+        cwd: "/",
+        rows: 24,
+        cols: 80,
+      });
+    } catch (err) {
+      thrown = err;
+    }
+
+    // SAME-INSTANCE check — pins the passthrough contract. A regression
+    // that wraps the inner error would fail `.toBe(resolverError)` even
+    // if the wrapper carries the original as `details.cause`.
+    expect(thrown).toBe(resolverError);
+    // Belt-and-suspenders — assert the operator-grade message survives
+    // verbatim. A future refactor that builds a NEW
+    // `PtyBackendUnavailableError` carrying the same `details.cause`
+    // would fail the same-instance check above but pass a generic
+    // "x instanceof PtyBackendUnavailableError" — this assertion catches
+    // that intermediate regression too.
+    if (thrown instanceof PtyBackendUnavailableError) {
+      expect(thrown.message).toContain("not found on any of the four resolution tiers");
+      expect(thrown.message).toContain("tier 1 (env-var AIS_PTY_SIDECAR_BIN): unset");
+      expect(thrown.details.cause).toBe(innerCause);
+    }
+  });
+
+  it("still wraps a plain Error from a custom resolver (preserves prior wrap-branch behavior)", async () => {
+    // The existing prior-PR test asserted this; we re-pin it here so a
+    // future refactor that broadens the passthrough guard (e.g.,
+    // `instanceof Error`) doesn't accidentally let plain errors through
+    // without the `attemptedBackend: "rust-sidecar"` tag. Custom resolvers
+    // that throw a plain `Error` still get the wrap.
+    const cause: Error = new Error("custom resolver failure");
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => {
+        throw cause;
+      },
+      spawn: vi.fn<SidecarSpawnFn>(),
+    });
+
+    let thrown: unknown = null;
+    try {
+      await host.spawn({
+        kind: "spawn_request",
+        command: "/bin/sh",
+        args: [],
+        env: [],
+        cwd: "/",
+        rows: 24,
+        cols: 80,
+      });
+    } catch (err) {
+      thrown = err;
+    }
+
+    expect(thrown).toBeInstanceOf(PtyBackendUnavailableError);
+    if (thrown instanceof PtyBackendUnavailableError) {
+      // NOT the same instance — wrapped by ensureChild's wrap branch.
+      expect(thrown).not.toBe(cause);
+      expect(thrown.details.attemptedBackend).toBe("rust-sidecar");
+      expect(thrown.details.cause).toBe(cause);
+      expect(thrown.message).toBe("RustSidecarPtyHost: failed to resolve sidecar binary path");
+    }
   });
 });
