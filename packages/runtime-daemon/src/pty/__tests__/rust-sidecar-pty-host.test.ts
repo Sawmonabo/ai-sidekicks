@@ -1083,6 +1083,163 @@ describe("RustSidecarPtyHost — parser reset across respawn", () => {
     const response2 = await spawnP2;
     expect(response2).toEqual({ kind: "spawn_response", session_id: "s-1" });
   });
+
+  // Codex P2 regression on PR #56: the stdout `data` listener was an
+  // anonymous closure that was never removed when a child exited or
+  // errored. After `handleChildExit` swaps in a fresh parser, late-
+  // buffered bytes emitted on the OLD child's stdout would still arrive
+  // at the (now-stale) listener and be fed into the NEW parser —
+  // corrupting framing state. The fix tracks the listener reference per
+  // child and detaches it during teardown before the parser swap.
+  it("stale stdout from old child does NOT feed the fresh parser after handleChildExit", async () => {
+    const seq = spawnReturningSequence();
+    const clock = vi.fn<() => number>().mockReturnValue(0);
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: seq.spawn,
+      nowMs: clock,
+    });
+
+    // Bring up child A and complete one spawn round-trip.
+    const spawnP1 = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    const childA = seq.latest();
+    childA.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
+    await spawnP1;
+
+    // Trigger exit on child A. The fix detaches the stdout listener
+    // before the parser swap; without it, the next stdout emission on
+    // childA below would still feed into the supervisor's now-fresh
+    // parser.
+    clock.mockReturnValue(100);
+    childA.triggerExit(0, null);
+    await flushMicrotasks();
+
+    // Emit LATE-buffered bytes on the OLD child's stdout. These would
+    // have been a contamination vector under the bug. We deliberately
+    // emit a payload that, if fed into the fresh parser, would
+    // PARSE — a full frame whose body is a valid Envelope-shaped
+    // JSON, so we can detect the contamination via
+    // `handleInbound` running for the stale frame on the supervisor
+    // side. The supervisor would either log a spurious "unmatched
+    // frame" warning OR (worse) attempt to resolve an outstanding
+    // request with stale data.
+    //
+    // To detect cleanly: queue an outstanding `spawn` request on the
+    // (next) child and observe whether it is resolved by the stale
+    // bytes OR by the fresh bytes we send through the new child.
+    clock.mockReturnValue(150);
+    const spawnP2 = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    expect(seq.spawned().length).toBe(2);
+
+    // Send a STALE response on the OLD child's stdout — with the
+    // session id "s-STALE-OLD-CHILD". If the listener were still
+    // attached, this would feed the fresh parser, produce a complete
+    // `spawn_response` frame, and resolve `spawnP2` with the stale
+    // session id.
+    childA.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-STALE-OLD-CHILD" }));
+    await flushMicrotasks();
+
+    // Send the legitimate response on the NEW child's stdout.
+    seq
+      .latest()
+      .writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-FRESH-NEW-CHILD" }));
+    const response2 = await spawnP2;
+
+    // The fresh response wins. If `s-STALE-OLD-CHILD` arrives instead,
+    // it proves the old listener is still wired through and the bug
+    // has regressed.
+    expect(response2).toEqual({
+      kind: "spawn_response",
+      session_id: "s-FRESH-NEW-CHILD",
+    });
+  });
+
+  // Same axis as above for the `error` event handler. `handleChildError`
+  // shares the parser-reset + listener-detach contract with
+  // `handleChildExit`; this test mirrors the structure so both teardown
+  // paths are pinned against the P2 regression.
+  it("stale stdout from old child does NOT feed the fresh parser after handleChildError", async () => {
+    const seq = spawnReturningSequence();
+    const clock = vi.fn<() => number>().mockReturnValue(0);
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: seq.spawn,
+      nowMs: clock,
+    });
+
+    const spawnP1 = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    const childA = seq.latest();
+    childA.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
+    await spawnP1;
+
+    // Async error path instead of exit.
+    clock.mockReturnValue(100);
+    childA.triggerError(new Error("ENOENT: async spawn failure"));
+    await flushMicrotasks();
+
+    // Queue a fresh request that the next child will need to serve.
+    clock.mockReturnValue(150);
+    const spawnP2 = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+
+    // Stale frame on the OLD child's stdout post-error.
+    childA.writeStdout(
+      frameEnvelope({
+        kind: "spawn_response",
+        session_id: "s-STALE-FROM-ERRORED-CHILD",
+      }),
+    );
+    await flushMicrotasks();
+
+    // Fresh frame on the NEW child.
+    seq.latest().writeStdout(
+      frameEnvelope({
+        kind: "spawn_response",
+        session_id: "s-FRESH-AFTER-ERROR",
+      }),
+    );
+    const response2 = await spawnP2;
+
+    expect(response2).toEqual({
+      kind: "spawn_response",
+      session_id: "s-FRESH-AFTER-ERROR",
+    });
+  });
 });
 
 // ----------------------------------------------------------------------------

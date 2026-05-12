@@ -882,6 +882,33 @@ export class RustSidecarPtyHost implements PtyHost {
    */
   private parser: ContentLengthParser = new ContentLengthParser();
 
+  /**
+   * Reference to the `data` listener attached to the CURRENT child's
+   * stdout, retained so `handleChildExit` / `handleChildError` can
+   * detach it via `child.stdout.off("data", ...)` before swapping in
+   * the fresh parser.
+   *
+   * Why this matters: the listener is a closure that captures `this`
+   * and feeds bytes into `this.parser`. After a child exits and the
+   * supervisor swaps in a fresh parser, late-buffered stdout bytes
+   * from the old child's stream would otherwise still arrive at the
+   * (now-stale) listener and be fed into the NEW parser — corrupting
+   * its framing state and potentially forcing unnecessary kill/respawn
+   * cycles via `drainParserUntilIncomplete`'s error sentinel. Codex
+   * P2 finding on PR #56.
+   *
+   * Set in `attachChildListeners`; cleared in `handleChildExit` /
+   * `handleChildError` immediately before the parser swap.
+   *
+   * Stdout is the only stream whose late delivery contaminates
+   * supervisor-visible state. `stderr` writes a `console.warn` —
+   * harmless if late. `exit` / `error` listeners capture `child` by
+   * reference and route through `recordCrashOncePerChild`, which
+   * dedupes on the child handle via `crashCountedChildren` — also
+   * harmless if a stale event arrives after respawn.
+   */
+  private childStdoutListener: ((chunk: Buffer) => void) | null = null;
+
   /** Per-session state table keyed by sidecar-minted `s-{n}` ids. */
   private readonly sessions: Map<string, SessionRecord> = new Map();
 
@@ -1165,10 +1192,18 @@ export class RustSidecarPtyHost implements PtyHost {
    */
   private attachChildListeners(child: SidecarChildProcess): void {
     // Stdout: parse Content-Length frames and dispatch.
-    child.stdout.on("data", (chunk: Buffer) => {
+    //
+    // Retain a named listener reference (rather than an anonymous
+    // arrow) so `handleChildExit` / `handleChildError` can detach it
+    // before swapping in a fresh parser — see `childStdoutListener`
+    // rustdoc for the contamination scenario this prevents (Codex P2
+    // on PR #56).
+    const stdoutListener = (chunk: Buffer): void => {
       this.parser.feed(chunk);
       this.drainParserUntilIncomplete();
-    });
+    };
+    child.stdout.on("data", stdoutListener);
+    this.childStdoutListener = stdoutListener;
 
     // Stderr: forward to the daemon's logs. Sidecar `eprintln!` goes
     // here; routing it through `console.warn` keeps the diagnostic
@@ -1498,6 +1533,7 @@ export class RustSidecarPtyHost implements PtyHost {
     code: number | null,
     signal: string | null,
   ): void {
+    this.detachChildStdoutListener(child);
     this.parser = new ContentLengthParser();
     this.child = null;
     this.rejectAllOutstanding(
@@ -1514,6 +1550,7 @@ export class RustSidecarPtyHost implements PtyHost {
    * reset and dedupe contract; see `handleChildExit` rustdoc.
    */
   private handleChildError(child: SidecarChildProcess, err: Error): void {
+    this.detachChildStdoutListener(child);
     this.parser = new ContentLengthParser();
     this.child = null;
     this.rejectAllOutstanding(
@@ -1523,6 +1560,28 @@ export class RustSidecarPtyHost implements PtyHost {
       ),
     );
     this.recordCrashOncePerChild(child);
+  }
+
+  /**
+   * Detach the stored stdout listener from `child.stdout` before
+   * swapping `this.parser`. Must run BEFORE the parser swap so late-
+   * buffered stdout chunks from the dying child do not leak into the
+   * fresh parser via the still-attached closure. No-op if no listener
+   * is currently tracked (defensive against double-firing of
+   * `exit`/`error` for the same child; the second invocation finds
+   * `childStdoutListener` already null and exits cleanly).
+   *
+   * Codex P2 on PR #56.
+   */
+  private detachChildStdoutListener(child: SidecarChildProcess): void {
+    if (this.childStdoutListener !== null) {
+      // `off("data", listener)` removes only the exact callback we
+      // attached — other consumers of the stream (if any future ones
+      // attach) are not affected. The stream itself is not destroyed;
+      // Node will GC it after the child reference is cleared.
+      child.stdout.off("data", this.childStdoutListener);
+      this.childStdoutListener = null;
+    }
   }
 
   /**

@@ -381,12 +381,83 @@ async fn dispatch_one(
 ///
 /// The two-channel select is the simplest shape and stays cancel-safe.
 async fn merge_to_writer(
-    mut outbound_rx: mpsc::UnboundedReceiver<Envelope>,
-    mut dispatch_rx: mpsc::UnboundedReceiver<Envelope>,
+    outbound_rx: mpsc::UnboundedReceiver<Envelope>,
+    dispatch_rx: mpsc::UnboundedReceiver<Envelope>,
 ) -> std::io::Result<()> {
     let mut stdout = tokio::io::stdout();
+    write_merged(&mut stdout, outbound_rx, dispatch_rx).await
+}
+
+/// Generic writer-loop body extracted from [`merge_to_writer`] so a
+/// regression test can drive it against an in-memory buffer instead
+/// of `tokio::io::stdout()`. Keeping the production binding
+/// `merge_to_writer(...)` unchanged means callers in `main()` are
+/// undisturbed; the only purpose of this seam is testability for the
+/// P1 dispatcher-writer-spin regression.
+///
+/// ## Why the if-guard pattern, not the original `continue`
+///
+/// The previous shape was:
+///
+/// ```ignore
+/// tokio::select! {
+///     biased;
+///     msg = dispatch_rx.recv() => msg,
+///     msg = outbound_rx.recv() => msg,
+/// }
+/// ```
+///
+/// with a `continue` after observing `None` on one branch while the
+/// other was still open. Under `biased;` the dispatch arm is polled
+/// first; once `dispatch_rx` closes it permanently returns `None`
+/// immediately on every poll. The loop then hot-spins on
+/// `dispatch_rx.recv() -> None -> continue -> dispatch_rx.recv() -> ...`
+/// and never reaches the outbound arm — so queued `DataFrame` /
+/// `ExitCodeNotification` envelopes are stranded and `main()` can
+/// hang waiting on `writer_handle`.
+///
+/// The fix disables the closed arm via `tokio::select!`'s
+/// per-branch `if` guard (per the `tokio::select!` rustdoc — a
+/// false-valued guard makes the branch ineligible, so the random/biased
+/// poll order skips it entirely). The bias is still load-bearing while
+/// both channels are open: dispatcher responses still beat
+/// registry-pushed events to stdout so the daemon's request-correlation
+/// latency stays bounded by dispatch+ack rather than queue depth.
+async fn write_merged<W>(
+    writer: &mut W,
+    mut outbound_rx: mpsc::UnboundedReceiver<Envelope>,
+    mut dispatch_rx: mpsc::UnboundedReceiver<Envelope>,
+) -> std::io::Result<()>
+where
+    W: AsyncWriteExt + Unpin,
+{
+    // Track which channel has observed permanent closure. Once an
+    // observation has been made the corresponding branch is disabled
+    // via the `if` guard below so `biased;` does not re-poll a closed
+    // receiver. Tokio's `mpsc::UnboundedReceiver::recv` returns `None`
+    // permanently after the channel closes; the `is_closed()` /
+    // `None`-observation combination is sufficient to gate the branch.
+    let mut dispatch_closed = false;
+    let mut outbound_closed = false;
 
     loop {
+        // Both channels closed: drain any straggler messages still
+        // queued in the receivers' internal buffers, then exit. `recv`
+        // returns `None` once the buffer is also empty, but `try_recv`
+        // gives us a synchronous, allocation-free drain. This belt-and-
+        // braces drain matches the previous behavior — under the
+        // previous `continue` loop, a final select would have picked
+        // these up before observing the second `None`.
+        if dispatch_closed && outbound_closed {
+            while let Ok(msg) = dispatch_rx.try_recv() {
+                write_envelope(writer, msg).await?;
+            }
+            while let Ok(msg) = outbound_rx.try_recv() {
+                write_envelope(writer, msg).await?;
+            }
+            return Ok(());
+        }
+
         let next: Option<Envelope> = tokio::select! {
             // Bias the order so dispatcher responses are not starved
             // by a high-volume DataFrame stream from the registry.
@@ -395,46 +466,32 @@ async fn merge_to_writer(
             // promptly so the daemon's request-correlation latency
             // stays bounded by the dispatch+ack round-trip rather
             // than queue depth.
+            //
+            // The `if` guards on each arm disable a branch whose
+            // receiver has already returned `None`; without them the
+            // bias would hot-spin on the closed arm and starve the
+            // still-open one (Codex P1 regression on PR #56).
             biased;
-            msg = dispatch_rx.recv() => msg,
-            msg = outbound_rx.recv() => msg,
+            msg = dispatch_rx.recv(), if !dispatch_closed => msg,
+            msg = outbound_rx.recv(), if !outbound_closed => msg,
         };
 
         let Some(envelope) = next else {
-            // Both channels CAN return None independently inside this
-            // single recv — we get here when the bias-favored branch
-            // returns None. Check the other; if it also has no more
-            // pending messages and is closed, we are done. Otherwise
-            // continue to drain.
-            //
-            // Tokio's `mpsc::UnboundedReceiver::recv` returns None
-            // permanently after the channel closes; subsequent calls
-            // continue to return None. So a single None observation
-            // is sufficient to mark THAT channel closed; we still
-            // need both closed to exit.
-            //
-            // Implementation: try one more read on the alternate
-            // channel via `try_recv`. If both `try_recv` calls return
-            // `Empty` AND `Disconnected`, we exit.
-            if dispatch_rx.is_closed() && outbound_rx.is_closed() {
-                // Belt-and-braces final drain — pull anything still
-                // queued before exiting. `try_recv` returns
-                // `Disconnected` once a closed channel is empty.
-                while let Ok(msg) = dispatch_rx.try_recv() {
-                    write_envelope(&mut stdout, msg).await?;
-                }
-                while let Ok(msg) = outbound_rx.try_recv() {
-                    write_envelope(&mut stdout, msg).await?;
-                }
-                return Ok(());
+            // The select picked a branch whose `recv` returned `None`
+            // — that channel is permanently closed. Mark it so the
+            // next iteration's guard disables the branch. The bias
+            // remains in effect for the still-open channel until it
+            // closes too.
+            if !dispatch_closed && dispatch_rx.is_closed() {
+                dispatch_closed = true;
             }
-            // One channel returned None but the other is still open.
-            // Loop back and select on both again — the open channel
-            // will eventually deliver or close.
+            if !outbound_closed && outbound_rx.is_closed() {
+                outbound_closed = true;
+            }
             continue;
         };
 
-        write_envelope(&mut stdout, envelope).await?;
+        write_envelope(writer, envelope).await?;
     }
 }
 
@@ -486,4 +543,197 @@ fn log_dispatch_error_for_session(operation: &str, session_id: &str, err: &PtySe
     eprintln!(
         "sidecar dispatcher: {operation} failed for session_id={session_id:?}: {err}"
     );
+}
+
+// ============================================================================
+// Regression tests — inline because `write_merged` is private to the binary
+// crate and exposing it via `lib.rs` would broaden the public surface for
+// what is purely a writer-task internal seam. Co-locating the test next to
+// the function it covers also keeps the diagnostic (P1 regression: dispatcher
+// writer hot-spins when one channel closes) within shouting distance of the
+// fix.
+// ============================================================================
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use std::pin::Pin;
+    use std::sync::{Arc, Mutex};
+    use std::task::{Context, Poll};
+    use std::time::Duration;
+
+    use crate::protocol::{DataFrame, DataStream, PingResponse};
+    use tokio::io::AsyncWrite;
+    use tokio::time::timeout;
+
+    /// `AsyncWrite` adapter that appends bytes to a shared `Vec<u8>` so
+    /// a regression test can inspect partial writer progress from the
+    /// outside of the writer task without consuming the buffer.
+    ///
+    /// Distinguishing-from-`Vec`-directly is required by the P1
+    /// discriminator test (`write_merged_drains_outbound_while_dispatch_closed_and_outbound_still_open`)
+    /// because that test inspects what the writer has produced while
+    /// the writer is still running. With a plain `&mut Vec<u8>` you
+    /// cannot peek without ending the borrow; the `Arc<Mutex<...>>`
+    /// indirection makes the buffer readable from a sibling task.
+    struct SharedBufWriter {
+        inner: Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl AsyncWrite for SharedBufWriter {
+        fn poll_write(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+            buf: &[u8],
+        ) -> Poll<std::io::Result<usize>> {
+            self.inner.lock().unwrap().extend_from_slice(buf);
+            Poll::Ready(Ok(buf.len()))
+        }
+        fn poll_flush(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+        ) -> Poll<std::io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+        fn poll_shutdown(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+        ) -> Poll<std::io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    /// Smoke: after both channels close with a single queued envelope
+    /// on outbound, the final `try_recv` drain delivers it and the
+    /// loop exits cleanly. NOTE: this test does NOT discriminate the
+    /// regression — under the broken spin code, both-closed is also
+    /// reached (because Tokio's cooperative budget yields and lets the
+    /// drop()s be observed); the `try_recv` drain at exit catches the
+    /// queued envelope. Kept as a happy-path sanity check; the
+    /// discriminator is the `_while_dispatch_closed_and_outbound_still_open`
+    /// test below.
+    #[tokio::test(flavor = "current_thread")]
+    async fn write_merged_drains_buffered_outbound_when_both_channels_already_closed() {
+        let (outbound_tx, outbound_rx) = mpsc::unbounded_channel::<Envelope>();
+        let (dispatch_tx, dispatch_rx) = mpsc::unbounded_channel::<Envelope>();
+
+        outbound_tx
+            .send(Envelope::PingResponse(PingResponse {}))
+            .expect("outbound send should succeed");
+        drop(dispatch_tx);
+        drop(outbound_tx);
+
+        let mut buf: Vec<u8> = Vec::new();
+        let result = timeout(
+            Duration::from_millis(100),
+            write_merged(&mut buf, outbound_rx, dispatch_rx),
+        )
+        .await;
+
+        result
+            .expect("write_merged did not exit within 100ms after both channels closed")
+            .expect("write_merged returned an I/O error to the in-memory buffer");
+        assert!(
+            std::str::from_utf8(&buf)
+                .map(|s| s.contains("\"ping_response\""))
+                .unwrap_or(false),
+            "writer output did not include the queued PingResponse envelope: {:?}",
+            String::from_utf8_lossy(&buf)
+        );
+    }
+
+    /// P1 regression discriminator: when `dispatch_rx` closes while
+    /// `outbound_rx` is STILL OPEN and has a queued envelope, the
+    /// writer MUST drain that envelope DURING the lifetime of
+    /// `outbound_tx` — not at exit via the both-closed `try_recv`
+    /// drain branch.
+    ///
+    /// This is what the broken `biased; + continue;` code cannot do:
+    /// it hot-spins on `dispatch_rx.recv() -> None -> continue` and
+    /// never polls outbound. Tokio's cooperative budget keeps the
+    /// task scheduled (no true hang under tokio's runtime), but the
+    /// queued envelope is stranded until either:
+    ///   (a) outbound_rx ALSO closes — at which point the try_recv
+    ///       drain catches it. Bypasses this test by keeping
+    ///       outbound_tx alive past the assertion window.
+    ///   (b) the spin runs forever — never reached because we keep
+    ///       sender alive only until after the assertion.
+    ///
+    /// Under the FIX: `dispatch_closed` flips to true on the first
+    /// `None` observation; the `if !dispatch_closed` guard disables
+    /// the dispatch arm; the next iteration polls outbound_rx; the
+    /// envelope is drained.
+    ///
+    /// We wait 20ms in real wall time before the assertion. The broken
+    /// code's spin yields via Tokio's cooperative budget on each
+    /// `recv() -> None`, so the runtime alternates between the writer
+    /// (busy-spinning) and the test driver (in `sleep(20ms)`). The
+    /// 20ms is empirical headroom — orders of magnitude larger than
+    /// the single-poll loop iteration cost — but FAR shorter than the
+    /// 100ms outer timeout that catches a true hang. (`start_paused`
+    /// would make this deterministic but requires tokio's `test-util`
+    /// feature, which lives in `Cargo.toml` and is outside this fix's
+    /// `target_paths`.)
+    #[tokio::test(flavor = "current_thread")]
+    async fn write_merged_drains_outbound_while_dispatch_closed_and_outbound_still_open() {
+        let (outbound_tx, outbound_rx) = mpsc::unbounded_channel::<Envelope>();
+        let (dispatch_tx, dispatch_rx) = mpsc::unbounded_channel::<Envelope>();
+
+        // Precondition: dispatch closed, outbound has a queued frame,
+        // outbound_tx INTENTIONALLY kept alive.
+        drop(dispatch_tx);
+        outbound_tx
+            .send(Envelope::DataFrame(DataFrame {
+                session_id: "s-test".to_string(),
+                stream: DataStream::Stdout,
+                seq: 0,
+                bytes: Vec::new(),
+            }))
+            .expect("outbound send should succeed");
+
+        let shared = Arc::new(Mutex::new(Vec::<u8>::new()));
+        let shared_for_writer = shared.clone();
+
+        let writer = tokio::spawn(async move {
+            let mut w = SharedBufWriter {
+                inner: shared_for_writer,
+            };
+            write_merged(&mut w, outbound_rx, dispatch_rx).await
+        });
+
+        // Let the writer run. Under FIX: drains outbound on iter 2
+        // (after dispatch_closed = true is set on iter 1). Under BUG:
+        // hot-spins on closed dispatch_rx and never polls outbound;
+        // outbound_tx is still alive so the both-closed exit branch
+        // is unreachable.
+        tokio::time::sleep(Duration::from_millis(20)).await;
+
+        // Discriminating assertion: the DataFrame MUST be in the
+        // buffer BEFORE we drop outbound_tx. The broken code's
+        // try_recv-on-exit drain cannot help here because the exit
+        // branch is gated on `outbound_closed && dispatch_closed` —
+        // and outbound is still open at this point.
+        {
+            let snap = shared.lock().unwrap();
+            assert!(
+                std::str::from_utf8(&snap)
+                    .map(|s| s.contains("\"data_frame\""))
+                    .unwrap_or(false),
+                "DataFrame was not drained while outbound_tx was alive (P1 regression: \
+                 writer hot-spun on closed dispatch_rx instead of polling outbound_rx). \
+                 Buffer contents: {:?}",
+                String::from_utf8_lossy(&snap),
+            );
+        }
+
+        // Now close outbound — the writer must reach the both-closed
+        // exit branch and the task must finish.
+        drop(outbound_tx);
+        let join_result = timeout(Duration::from_millis(100), writer)
+            .await
+            .expect("writer did not exit within 100ms after outbound_tx drop");
+        join_result
+            .expect("writer task panicked")
+            .expect("write_merged returned an I/O error to the in-memory buffer");
+    }
 }
