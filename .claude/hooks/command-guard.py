@@ -74,6 +74,29 @@ _GIT_GLOBAL_WITH_SEP_ARG = {
 }
 _SHELL_OPS = frozenset({"&&", "||", ";", "|", "&", "(", ")"})
 
+# Shell/scripting wrappers whose `-c` argument is a nested command we must
+# re-check. Without this, `bash -lc 'git worktree add ../escape'` slips past
+# the top-level invocation gate because the outer tokens are
+# `[bash, -lc, '...']` — no `git` token at the surface — so the strict-shape
+# check never fires. Recursion bounded by _MAX_WRAPPER_DEPTH (cf. advisor:
+# pathological `bash -c "bash -c '...'"` chains).
+_WRAPPER_SHELL_BIN_NAMES = frozenset({"bash", "sh", "zsh", "ksh", "dash", "ash"})
+_WRAPPER_SCRIPT_BIN_NAMES = frozenset(
+    {"python", "python3", "python2", "node", "perl", "ruby"}
+)
+_WRAPPER_SCRIPT_ARG_FLAGS = frozenset({"-c", "--command"})
+# perl/ruby `-e` is the script-language analogue of `-c`.
+_WRAPPER_SCRIPT_E_LANGS = frozenset({"perl", "ruby"})
+_ENV_BIN_NAME = "env"
+# env globals that take a separate-token value (so we can skip past them when
+# locating the wrapped binary). `man env`: -u/--unset, -S/--split-string,
+# -C/--chdir all consume the next token.
+_ENV_VALUE_FLAGS = frozenset(
+    {"-u", "--unset", "-S", "--split-string", "-C", "--chdir"}
+)
+_EVAL_KEYWORD = "eval"
+_MAX_WRAPPER_DEPTH = 4
+
 
 def _repo_root():
     """Absolute repo root, or None outside a git repo."""
@@ -234,6 +257,97 @@ def _has_git_worktree_invocation(tokens):
     return False
 
 
+def _strip_env_prefix(tokens):
+    """If tokens starts with `env` (matched on basename), advance past env's
+    own opts (`-i`, `-u VAR`, `--split-string`, etc.) and `VAR=value`
+    assignments, and return the sub-tokens beginning at the wrapped command.
+    Else return tokens unchanged.
+
+    `/usr/bin/env bash -c '...'` is a common shebang pattern an agent may
+    type literally; without this, the wrapper-extraction logic would see
+    `env` as tokens[0] and miss the inner bash."""
+    if not tokens or os.path.basename(tokens[0]) != _ENV_BIN_NAME:
+        return tokens
+    i = 1
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok in _ENV_VALUE_FLAGS and i + 1 < len(tokens):
+            i += 2
+            continue
+        if tok.startswith("-"):
+            i += 1
+            continue
+        if "=" in tok:
+            i += 1
+            continue
+        break
+    return tokens[i:]
+
+
+def _extract_wrapped_command(tokens):
+    """If `tokens` is a known shell/scripting wrapper invocation with an
+    inline command (`bash -c '...'`, `python -c '...'`, `eval '...'`),
+    return the inline command string. Else return None.
+
+    Handles:
+    - bash/sh/zsh/etc. `-c <cmd>` and combined short opts (`-lc`, `-ilc`):
+      bash short opts collapse, and any opt token containing `c` means
+      "command follows in the next argument" (advisor flag).
+    - python/node/perl/ruby `-c <cmd>` (and `-e <cmd>` for perl/ruby).
+    - `env [opts] [VAR=val]... <wrapped>` is stripped before matching.
+    - `eval <args...>` joins the args back into a command string.
+
+    Returns the inline command as a single string ready to re-feed into
+    `_check_worktree_path`. The caller is responsible for depth bounding."""
+    if not tokens:
+        return None
+
+    tokens = _strip_env_prefix(tokens)
+    if not tokens:
+        return None
+
+    base = os.path.basename(tokens[0])
+
+    if base == _EVAL_KEYWORD and len(tokens) >= 2:
+        return " ".join(tokens[1:])
+
+    if base in _WRAPPER_SHELL_BIN_NAMES:
+        i = 1
+        while i < len(tokens):
+            tok = tokens[i]
+            if tok == "--":
+                return tokens[i + 1] if i + 1 < len(tokens) else None
+            if tok.startswith("--"):
+                i += 1
+                continue
+            if tok.startswith("-") and len(tok) >= 2:
+                # Any short-opt cluster containing `c` (e.g., `-c`, `-lc`,
+                # `-ilc`) means "next arg is the command" per bash(1).
+                if "c" in tok[1:]:
+                    return tokens[i + 1] if i + 1 < len(tokens) else None
+                i += 1
+                continue
+            return None  # first positional → script file, not -c form
+        return None
+
+    if base in _WRAPPER_SCRIPT_BIN_NAMES:
+        i = 1
+        while i < len(tokens):
+            tok = tokens[i]
+            if tok in _WRAPPER_SCRIPT_ARG_FLAGS and i + 1 < len(tokens):
+                return tokens[i + 1]
+            if (
+                tok == "-e"
+                and i + 1 < len(tokens)
+                and base in _WRAPPER_SCRIPT_E_LANGS
+            ):
+                return tokens[i + 1]
+            i += 1
+        return None
+
+    return None
+
+
 def _has_symlink_in_path(target_abs, allowed_abs):
     """Walk path components of target_abs starting at allowed_abs. Return the
     path of the first symlinked component encountered (including allowed_abs
@@ -270,7 +384,7 @@ def _build_shape_deny():
     )
 
 
-def _check_worktree_path(command):
+def _check_worktree_path(command, _depth=0):
     """
     Strict-shape check for `git worktree add|move`.
 
@@ -280,13 +394,23 @@ def _check_worktree_path(command):
 
     When the command contains a real `git worktree add|move` invocation but
     doesn't match this shape — chains, subshells, command substitution,
-    leading commands — DENY with a teaching message. The threat model is
-    non-adversarial (agent mistakes); forcing the simple shape eliminates
-    whole classes of bypass at once rather than chasing each parser edge case.
+    leading commands, shell wrappers — DENY with a teaching message. The
+    threat model is non-adversarial (agent mistakes); forcing the simple
+    shape eliminates whole classes of bypass at once rather than chasing
+    each parser edge case.
 
     Mere data tokens that happen to spell `worktree add` (e.g.,
     `echo worktree add`) are NOT denied — the strict shape only kicks in
     once a real `git ... worktree (add|move)` invocation is detected.
+
+    Shell wrappers (`bash -c '...'`, `/usr/bin/env bash -c '...'`,
+    `python -c '...'`, `eval '...'`) are unwrapped and the inline command
+    is re-checked recursively, bounded by _MAX_WRAPPER_DEPTH. The nested
+    check runs the full pipeline (subshell + shell-op + symlink + cumulative
+    `-C` checks all fire inside the wrapper). Indirection through file
+    reads (`bash script.sh`), stdin pipes (`xargs git worktree …`), and
+    heredocs is out of scope for this Bash PreToolUse hook and accepted as
+    residual risk under the non-adversarial threat model.
 
     Containment check on <target>: must resolve under
     <repo_root>/.worktrees/<name>/. `-C <path>` flags are applied
@@ -299,6 +423,9 @@ def _check_worktree_path(command):
     Fails open on shlex parse errors and outside-git-repo invocations so a
     parser bug never blocks an otherwise-legitimate Bash call.
     """
+    if _depth > _MAX_WRAPPER_DEPTH:
+        return None
+
     if not re.search(r"\bworktree\b", command, re.IGNORECASE):
         return None
 
@@ -307,6 +434,15 @@ def _check_worktree_path(command):
         tokens = shlex.split(normalized)
     except ValueError:
         return None
+
+    nested = _extract_wrapped_command(tokens)
+    if nested is not None:
+        nested_deny = _check_worktree_path(nested, _depth + 1)
+        if nested_deny is not None:
+            return nested_deny
+        # Nested call is clean. Fall through to also evaluate the outer
+        # tokens — handles `bash -c 'echo ok' && git worktree add ../escape`
+        # where the wrapper hides nothing but the chained outer call does.
 
     has_subshell = _has_unquoted_subshell(command)
     has_invocation = _has_git_worktree_invocation(tokens)
