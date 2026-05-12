@@ -176,25 +176,62 @@ async fn main() -> std::io::Result<()> {
 ///   (we cannot tell where the next frame starts without re-syncing
 ///   on a header line, and the daemon's framer cannot be assumed to
 ///   re-sync either).
-/// - Frame body that fails to deserialize as [`Envelope`] → log to
-///   stderr and skip the frame. We do NOT tear down the dispatcher
-///   for one malformed envelope because that would terminate every
-///   active session. If the daemon is consistently sending malformed
-///   data the operator sees the per-frame log line; the recovery is
-///   theirs to drive.
+/// - Frame body that fails to deserialize as [`Envelope`] → return
+///   `Err(InvalidData)` so the dispatcher exits non-zero. Treated
+///   as fatal transport corruption rather than log + skip because
+///   the daemon's response-correlation layer is FIFO over the
+///   per-kind queue with NO request IDs and NO per-request timeout
+///   (see `packages/runtime-daemon/src/pty/rust-sidecar-pty-host.ts`).
+///   Silently skipping a malformed request would either leave its
+///   awaiting Promise unresolved forever or — worse — let a later
+///   same-kind response be matched to the wrong waiter. The
+///   recovery path is the supervisor's crash budget tripping; the
+///   operator sees an `InvalidData` framing-fault diagnostic and
+///   restart loop instead of indefinite Promise hangs.
 /// - A request for an unknown / non-existent session → push the
 ///   appropriate per-kind error response onto `dispatch_tx` so the
 ///   daemon learns about the failure synchronously.
 /// - Inbound variants that should never be inbound (Response /
-///   Notification / DataFrame kinds) → log + skip. Same rationale as
-///   the deserialize failure above.
+///   Notification / DataFrame kinds) → log + skip. Distinct
+///   rationale from the deserialize-failure arm above: a
+///   recognized-kind envelope arriving in the wrong direction is a
+///   wire-protocol contract violation by the peer, but it does
+///   NOT break FIFO correlation because the daemon never sent a
+///   request that would await this response — no Promise is hanging
+///   on it. The active sessions remain healthy; treating it as
+///   operator-noise (stderr log) is correct, and tearing down every
+///   in-flight session over peer misbehaviour that has no
+///   correctness impact on the dispatcher's request/response
+///   contract would be a worse outcome.
 async fn run_dispatcher(
     registry: &PtySessionRegistry,
     dispatch_tx: mpsc::UnboundedSender<Envelope>,
 ) -> std::io::Result<()> {
     let stdin = tokio::io::stdin();
-    let mut reader = BufReader::new(stdin);
+    let reader = BufReader::new(stdin);
+    run_dispatcher_with_reader(reader, registry, dispatch_tx).await
+}
 
+/// Generic dispatcher loop extracted from [`run_dispatcher`] so a
+/// regression test can drive it against an in-memory frame stream
+/// instead of `tokio::io::stdin()`. Keeping the production binding
+/// `run_dispatcher(...)` unchanged means `main()` is undisturbed; the
+/// testability seam exists because the deserialize-failure arm has a
+/// FIFO-correlation safety property that a unit test pins end-to-end
+/// (read frame → decode → fatal `Err` propagation) rather than only
+/// the decode step.
+///
+/// `R: AsyncBufRead + Unpin` matches what `framing::read_frame` already
+/// requires; tests pass `BufReader::new(&framed_bytes[..])` and
+/// production passes `BufReader::new(tokio::io::stdin())`.
+async fn run_dispatcher_with_reader<R>(
+    mut reader: R,
+    registry: &PtySessionRegistry,
+    dispatch_tx: mpsc::UnboundedSender<Envelope>,
+) -> std::io::Result<()>
+where
+    R: tokio::io::AsyncBufRead + Unpin,
+{
     loop {
         let body = match read_frame(&mut reader).await {
             Ok(FrameReadOutcome::Frame(body)) => body,
@@ -222,14 +259,26 @@ async fn run_dispatcher(
             Ok(env) => env,
             Err(parse_err) => {
                 // Deserialize failed — most likely an unknown `kind`
-                // or a malformed payload. Per the docstring above,
-                // log + skip rather than tear down. The frame itself
-                // was well-formed (read_frame returned the body); it
-                // is only the JSON decode that failed.
-                eprintln!(
-                    "sidecar dispatcher: failed to deserialize Envelope ({parse_err}); skipping frame"
-                );
-                continue;
+                // or a malformed payload. The frame itself was well-
+                // formed (read_frame returned the body); it is only
+                // the JSON decode that failed. Per the docstring
+                // above we now treat this as fatal transport
+                // corruption rather than log + skip: the daemon
+                // correlates responses by FIFO order on the per-kind
+                // queue with no request IDs, so silently skipping
+                // this frame would either leave the corresponding
+                // Promise unresolved forever or (worse) match a
+                // later same-kind response to the wrong waiter.
+                return Err(IoError::new(
+                    ErrorKind::InvalidData,
+                    format!(
+                        "sidecar dispatcher: failed to deserialize Envelope ({parse_err}); \
+                         aborting — daemon correlates responses by FIFO order with no request \
+                         IDs, so silently skipping a malformed inbound frame would either leave \
+                         the corresponding Promise unresolved or match a later response to the \
+                         wrong waiter."
+                    ),
+                ));
             }
         };
 
@@ -1046,6 +1095,85 @@ mod tests {
              (expected position < 50 under fair-shuffle; ~200+ under dispatch-bias). \
              Total frames written: {}.",
             frames.len()
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Dispatcher fatal-decode regression — when a well-framed frame
+    // carries an undecodable JSON body, `run_dispatcher_with_reader`
+    // MUST return `Err(InvalidData)` rather than logging and skipping.
+    //
+    // Why this is load-bearing: the daemon's `rust-sidecar-pty-host.ts`
+    // correlates responses by FIFO order on the per-kind queue with no
+    // request IDs and no per-request timeout. If the sidecar silently
+    // skipped a malformed inbound request, the daemon-side Promise
+    // would either (a) hang forever waiting for a response that will
+    // never arrive, or (b) be matched to a later same-kind response
+    // and produce a cross-wired result. Making this fatal trips the
+    // supervisor's crash budget instead — the operator sees an
+    // `InvalidData` framing-fault diagnostic and the restart loop
+    // re-establishes a clean FIFO state. Plan-024 + ADR-009.
+    // ------------------------------------------------------------------
+
+    /// Build a Content-Length frame around `body` using the same wire
+    /// shape the production `framing::write_frame` emits. Inline so the
+    /// fatal-decode regression test is self-contained — the test does
+    /// not need the writer-side framer, only a byte sequence the
+    /// reader-side framer will accept as a complete frame.
+    fn build_framed(body: &[u8]) -> Vec<u8> {
+        let header = format!("Content-Length: {}\r\n\r\n", body.len());
+        let mut out = Vec::with_capacity(header.len() + body.len());
+        out.extend_from_slice(header.as_bytes());
+        out.extend_from_slice(body);
+        out
+    }
+
+    /// When `serde_json::from_slice` fails on a well-framed frame,
+    /// the dispatcher MUST surface `Err(InvalidData)` so the process
+    /// exits non-zero and the supervisor restarts the sidecar with a
+    /// clean FIFO state.
+    #[tokio::test(flavor = "current_thread")]
+    async fn dispatcher_aborts_on_malformed_json_body() {
+        // Malformed JSON body: looks like an envelope shape but the
+        // key is unterminated, so serde_json bails before producing
+        // an `Envelope`. The framer accepts the frame because the
+        // Content-Length header matches the body byte count exactly;
+        // only the decode step inside the dispatcher fails.
+        let body = br#"{"kind": "spawn_request""#;
+        let framed = build_framed(body);
+        let reader = BufReader::new(&framed[..]);
+
+        let (registry, _outbound_rx) = PtySessionRegistry::new();
+        let (dispatch_tx, _dispatch_rx) = mpsc::unbounded_channel::<Envelope>();
+
+        let result = timeout(
+            Duration::from_millis(100),
+            run_dispatcher_with_reader(reader, &registry, dispatch_tx),
+        )
+        .await
+        .expect("dispatcher did not return within 100ms of receiving malformed frame");
+
+        let err = result.expect_err(
+            "regression: malformed JSON body MUST be fatal — \
+             daemon correlates responses by FIFO order with no request \
+             IDs, so silently skipping a malformed inbound frame would \
+             either leave the corresponding Promise unresolved or match \
+             a later response to the wrong waiter (Plan-024, ADR-009).",
+        );
+        assert_eq!(
+            err.kind(),
+            ErrorKind::InvalidData,
+            "expected InvalidData (fatal transport corruption); got kind {:?} with message: {err}",
+            err.kind()
+        );
+        // Loose substring match: pin that the original `serde_json`
+        // error context flows into the diagnostic so the operator can
+        // see what failed to decode, without pinning the exact wording
+        // (which would make the assertion brittle to wording tweaks).
+        let msg = err.to_string();
+        assert!(
+            msg.contains("deserialize") && msg.contains("Envelope"),
+            "diagnostic missing 'deserialize' / 'Envelope' substrings; got: {msg}"
         );
     }
 }
