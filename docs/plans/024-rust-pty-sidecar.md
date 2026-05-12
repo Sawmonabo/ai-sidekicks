@@ -576,6 +576,102 @@ shipped:
       Cross-plan cascade: NS-05 → completed unblocks NS-07 (Plan-024 Phase 3
       RustSidecarPtyHost); NS-07 in turn is the last upstream NS-XX gate on
       NS-09 + NS-10 (Plan-024 Phases 4 + 5).
+  - phase: 3
+    task:
+      - T-024-3-1
+      - T-024-3-2
+      - T-024-3-3
+      - T-024-3-4
+      - T-024-3-5
+    pr: 56
+    sha: be58baa
+    merged_at: 2026-05-12
+    files:
+      - packages/contracts/src/error.ts
+      - packages/contracts/src/__tests__/error.test.ts
+      - packages/contracts/src/pty-host.ts
+      - packages/contracts/src/pty-host-protocol.ts
+      - packages/runtime-daemon/src/pty/pty-host-selector.ts
+      - packages/runtime-daemon/src/pty/rust-sidecar-pty-host.ts
+      - packages/runtime-daemon/src/pty/__tests__/rust-sidecar-pty-host.test.ts
+      - packages/runtime-daemon/src/pty/__tests__/selector.test.ts
+      - packages/runtime-daemon/src/pty/__tests__/spawn-cwd-translation.test.ts
+      - packages/runtime-daemon/src/pty/__tests__/no-error-sharing-violation.test.ts
+      - packages/sidecar-rust-pty/src/main.rs
+      - packages/sidecar-rust-pty/src/framing.rs
+      - packages/sidecar-rust-pty/src/protocol.rs
+      - packages/sidecar-rust-pty/src/pty_session.rs
+      - packages/sidecar-rust-pty/src/kill_translation.rs
+      - packages/sidecar-rust-pty/src/tree_kill.rs
+      - packages/sidecar-rust-pty/src/wsl_pass_through.rs
+      - packages/sidecar-rust-pty/tests/framing_roundtrip.rs
+      - packages/sidecar-rust-pty/tests/protocol_roundtrip.rs
+      - packages/sidecar-rust-pty/tests/pty_session.rs
+      - docs/plans/024-rust-pty-sidecar.md
+      - docs/architecture/cross-plan-dependencies.md
+      - docs/backlog.md
+      - .claude/skills/plan-execution/SKILL.md
+      - docs/superpowers/specs/2026-05-03-plan-execution-housekeeper-design.md
+    verifies_invariant:
+      - I-024-3
+      - I-024-5
+      - I-024-6
+    spec_coverage:
+      - ADR-019 §Decision item 1
+      - ADR-019 §Failure Mode Analysis
+      - Plan-001 §Cross-Plan Obligations CP-001-1
+      - Plan-001 §Cross-Plan Obligations CP-001-2
+    notes: |
+      Phase 3 closeout. T-024-3-1 ships `RustSidecarPtyHost` (daemon-side
+      host with crash-respawn supervision 5/60s, Content-Length framer reuse,
+      pre-spawn event buffering + setImmediate-deferred replay verifying
+      I-024-6 across Tests PE1-PE5 + PE5b + PE6). T-024-3-2 ships
+      `PtyBackendUnavailableError` typed-error contract at
+      `packages/contracts/src/error.ts`. T-024-3-3 ships the 4-tier
+      `resolveSidecarBinaryPath` resolver (env-var → published-package →
+      release-build → debug-build); tier-1 also probes `existsSync` and
+      rejects-and-falls-through on stale/typo'd absolute paths (Codex
+      round-trip fix landed in the same PR). T-024-3-4 ships the I-024-5
+      cwd-translator integration tests (W2 + W3) on top of Plan-001
+      CP-001-2's `spawn-cwd-translator.ts`. T-024-3-5 is a record-only
+      Plan-001 Phase 5 T5.3 handoff for I-024-4 will-quit drain
+      orchestration — Phase 3 supplies `PtyHost.close` + sidecar
+      `KillRequest` primitives only.
+
+      Rust sidecar substrate at `packages/sidecar-rust-pty/src/` ships
+      `kill_translation` (POSIX → Win32 signal translator, Test K2 per
+      I-024-1), `tree_kill` (`taskkill /T /F /PID <pid>` argv builder,
+      Test K4 per I-024-2), and `wsl_pass_through` (byte-identity guard,
+      Test W1 satisfying I-024-3). I-024-1 + I-024-2 ship as substrate-
+      only — end-to-end `pty_session.rs::kill()` Windows-arm wire-through
+      is deferred to a follow-up task per the §Implementation Phase
+      Sequence Phase 3 header. The follow-up MUST land as part of Phase
+      5's default-flip work since real Windows users on the default path
+      can't have orphaned children.
+
+      Review and round-trip context:
+      - Phase D 3-reviewer pipeline (spec / code / code-quality) on the
+        full diff surfaced 1 ACTIONABLE + 4 POLISH; all absorbed before
+        Phase D.5 mark-ready.
+      - Codex external-reviewer round-trip after mark-ready surfaced
+        ~10 inline P1+P2+P3 findings across 8 review passes plus 2
+        review-body-only P1 findings; all 4 P1 inline threads resolved
+        with SHA+permalink replies (silent JSON-decode fatal-dispatch
+        per 56acdbd; pre-spawn event buffering per I-024-6 in cfdec03;
+        header buffer cap + base64 strict validation in 9c0d548;
+        ensureChild concurrent serialization). The Windows-kill review-
+        body P1 was engaged transparently with a top-level PR comment
+        citing the §Phase 3 header deferral and the rustdoc accuracy
+        fix in 0a5a75d. The `AIS_PTY_SIDECAR_BIN` stale-path P2 was
+        fixed in 7e2cfda.
+
+      Cross-plan cascade: NS-07 → completed; nothing new promotes —
+      NS-08 stays blocked on NS-03 (Plan-023-partial Electron substrate,
+      still `todo`); NS-09 stays blocked on BL-108 procurement; NS-10
+      stays blocked on NS-09 + BL-106. The NS-04 → NS-05 → NS-07
+      cascade is fully completed on the Plan-024 critical path;
+      remaining Plan-024 gates (Phase 4 + Phase 5) are procurement-
+      bound + calendar-window-bound, not code-lane-bound.
 
 # Entry shape (illustrative — authoritative schema in lib/manifest.mjs):
 # - phase: 1
