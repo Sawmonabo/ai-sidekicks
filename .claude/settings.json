@@ -101,6 +101,7 @@
   ],
   "plansDirectory": "./.claude/tmp/plans",
   "skipDangerousModePermissionPrompt": true,
+  "advisorModel": "opus",
   "env": {
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
     "ENABLE_LSP_TOOL": "1",
