@@ -48,6 +48,7 @@ import {
   MAX_FRAME_BODY_BYTES,
   PtyBackendUnavailableError,
   RustSidecarPtyHost,
+  SidecarFrameDecodeError,
   createRustSidecarPtyHost,
   resolveSidecarBinaryPath,
   type ResolveSidecarBinaryPathOptions,
@@ -2655,4 +2656,346 @@ describe("RustSidecarPtyHost — pipe error handlers (Plan-024, T-024-3-1)", () 
       }
     },
   );
+});
+
+// ----------------------------------------------------------------------------
+// JSON-payload corruption is a fatal supervisor event identical in shape to
+// the framing-error path (Plan-024 §F-024-3-01 + Plan-024 §Invariants
+// I-024-1 substitutability + I-024-3 response correlation).
+//
+// Three distinct decode-failure shapes converge on the same teardown chain:
+//
+//   (a) `{garbage`         — JSON.parse throws (token-level malformed).
+//   (b) `null`             — JSON.parse succeeds but the value is not an
+//                            object envelope (downstream `.kind` access
+//                            would TypeError on null without the guard).
+//       `[1,2,3]`          — JSON.parse succeeds and yields an array;
+//                            `typeof [] === "object"` and `[] !== null`
+//                            so the typeof+null check alone misses it.
+//                            Arrays have no `.kind`, so without the
+//                            `Array.isArray` guard the switch falls
+//                            through silently and outstanding promises
+//                            hang. Same failure mode as `null`,
+//                            different bypass.
+//
+// (c) `{"kind":"unknown_kind"}` is OUT OF SCOPE for handleInbound's
+// JSON-decode contract: the existing dispatch switch deliberately omits
+// a `default:` arm (see the `// No default:` comment at the bottom of
+// `handleInbound`'s envelope-kind switch — TypeScript exhaustiveness
+// over the discriminated union; runtime fallthrough is a silent no-op).
+// Hardening the runtime path against an unknown `envelope.kind` is a
+// separate concern — flagged in the DONE report, not widened here.
+// ----------------------------------------------------------------------------
+
+/**
+ * Encode a raw string body as a Content-Length frame so the test can
+ * deliver payloads that `frameEnvelope` (which `JSON.stringify`s a typed
+ * Envelope) cannot produce — specifically `{garbage` (not valid JSON),
+ * `null` (valid JSON, not an object), and `[1,2,3]` (valid JSON, valid
+ * object-ish-by-typeof but array-shaped).
+ */
+function frameRawBody(rawBody: string): Buffer {
+  const payload: Buffer = Buffer.from(rawBody, "utf8");
+  const header: Buffer = Buffer.from(`Content-Length: ${payload.length}\r\n\r\n`, "utf8");
+  return Buffer.concat([header, payload]);
+}
+
+describe("RustSidecarPtyHost — fatal teardown on JSON-decode failure (F-024-3-01)", () => {
+  it("(a) malformed JSON body `{garbage` SIGKILLs the child, rejects every outstanding pending-Promise with SidecarFrameDecodeError(cause='json-parse'), and records the crash exactly once", async () => {
+    const seq = spawnReturningSequence();
+    const clock = vi.fn<() => number>().mockReturnValue(0);
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: seq.spawn,
+      nowMs: clock,
+    });
+
+    // Spawn s-0 and complete the round-trip so the host has a session.
+    const spawnP1 = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    seq.latest().writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
+    await spawnP1;
+
+    // Issue two outstanding requests of distinct kinds so the test
+    // verifies "every outstanding pending-Promise across every response
+    // kind" — not just the head of a single FIFO. Both queue without
+    // a sidecar response.
+    const resizeP = host.resize("s-0", 30, 100);
+    const writeP = host.write("s-0", new Uint8Array([0x68, 0x69])); // "hi"
+    await flushMicrotasks();
+
+    // Deliver a frame body that is well-formed at the wire level but
+    // whose payload is not valid JSON.
+    seq.latest().writeStdout(frameRawBody("{garbage"));
+    await flushMicrotasks();
+
+    // (i) child is killed via SIGKILL — mirrors the framing-error path.
+    const killMock = seq.latest().child.kill as ReturnType<typeof vi.fn>;
+    expect(killMock).toHaveBeenCalledWith("SIGKILL");
+
+    // Drive the exit event so the supervisor consumes the budget and
+    // runs the canonical teardown chain.
+    clock.mockReturnValue(100);
+    seq.latest().triggerExit(137, "SIGKILL");
+    await flushMicrotasks();
+
+    // (ii) every queued request promise rejects with the typed error
+    // explaining the JSON-decode failure (NOT the generic "sidecar
+    // exited" message that would surface if the stash threading is
+    // broken).
+    await expect(resizeP).rejects.toBeInstanceOf(SidecarFrameDecodeError);
+    await expect(resizeP).rejects.toThrow(/failed to parse inbound JSON envelope/);
+    await expect(writeP).rejects.toBeInstanceOf(SidecarFrameDecodeError);
+    await expect(writeP).rejects.toThrow(/failed to parse inbound JSON envelope/);
+
+    // Cause-kind assertion — both rejections carry decodeCause='json-parse'.
+    // The upstream `expect(...).toBeInstanceOf(...)` is load-bearing: if it
+    // failed, the inner `if (instanceof)` narrowing would skip the
+    // `decodeCause` check silently (Vitest continues past failed
+    // assertions). Keep both.
+    const resizeErr: unknown = await resizeP.catch((e: unknown) => e);
+    const writeErr: unknown = await writeP.catch((e: unknown) => e);
+    expect(resizeErr).toBeInstanceOf(SidecarFrameDecodeError);
+    if (resizeErr instanceof SidecarFrameDecodeError) {
+      expect(resizeErr.decodeCause).toBe("json-parse");
+    }
+    expect(writeErr).toBeInstanceOf(SidecarFrameDecodeError);
+    if (writeErr instanceof SidecarFrameDecodeError) {
+      expect(writeErr.decodeCause).toBe("json-parse");
+    }
+
+    // (iii) handleChildExit downstream — the supervisor respawns
+    // cleanly on the next request (no permanent unavailability after
+    // a single crash).
+    clock.mockReturnValue(200);
+    const spawnP2 = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    expect(seq.spawned().length).toBe(2);
+    seq.latest().writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-1" }));
+    await expect(spawnP2).resolves.toEqual({ kind: "spawn_response", session_id: "s-1" });
+  });
+
+  it("(a) crash budget records the JSON-decode failure exactly once per child (no double-count when the SIGKILL ack drives a second event)", async () => {
+    // Drive 5 JSON-decode failures back-to-back; each respawn should
+    // consume one slot of CRASH_BUDGET_LIMIT. The 5th exhausts the
+    // budget and the next request surfaces PtyBackendUnavailableError.
+    // If the JSON-decode path were double-counting (e.g., counting the
+    // failure synchronously inside handleInbound AND again in the
+    // exit handler), the budget would exhaust at the 3rd failure, not
+    // the 5th. This locks in single-source crash accounting.
+    const seq = spawnReturningSequence();
+    const clock = vi.fn<() => number>().mockReturnValue(0);
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: seq.spawn,
+      nowMs: clock,
+    });
+
+    for (let i = 0; i < CRASH_BUDGET_LIMIT; i++) {
+      clock.mockReturnValue(i * 100);
+      // Each crash needs a request in flight; otherwise ensureChild
+      // wouldn't spawn a fresh child. A spawn is fine — the malformed
+      // JSON drops in before the sidecar gets to ack.
+      const spawnP = host.spawn({
+        kind: "spawn_request",
+        command: "/bin/sh",
+        args: [],
+        env: [],
+        cwd: "/",
+        rows: 24,
+        cols: 80,
+      });
+      await flushMicrotasks();
+      seq.latest().writeStdout(frameRawBody("{garbage"));
+      await flushMicrotasks();
+      seq.latest().triggerExit(137, "SIGKILL");
+      await flushMicrotasks();
+      await expect(spawnP).rejects.toBeInstanceOf(SidecarFrameDecodeError);
+    }
+
+    // Budget exhausted — the next spawn surfaces PtyBackendUnavailable.
+    clock.mockReturnValue(CRASH_BUDGET_LIMIT * 100);
+    const spawnExhausted = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await expect(spawnExhausted).rejects.toBeInstanceOf(PtyBackendUnavailableError);
+    await expect(spawnExhausted).rejects.toMatchObject({ code: PTY_BACKEND_UNAVAILABLE_CODE });
+  });
+
+  it("(b) JSON-valid but non-object payload (`null`) SIGKILLs the child and rejects outstanding with SidecarFrameDecodeError(cause='non-object-envelope')", async () => {
+    // `JSON.parse("null")` returns `null` — it does NOT throw. The
+    // post-parse type guard intercepts so the teardown shape is
+    // identical to the parse-throw case; without it the downstream
+    // `null.kind` access would TypeError out of handleInbound and
+    // bubble silently to the stdout listener.
+    const seq = spawnReturningSequence();
+    const clock = vi.fn<() => number>().mockReturnValue(0);
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: seq.spawn,
+      nowMs: clock,
+    });
+
+    const spawnP1 = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    seq.latest().writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
+    await spawnP1;
+
+    const resizeP = host.resize("s-0", 30, 100);
+    await flushMicrotasks();
+
+    seq.latest().writeStdout(frameRawBody("null"));
+    await flushMicrotasks();
+
+    const killMock = seq.latest().child.kill as ReturnType<typeof vi.fn>;
+    expect(killMock).toHaveBeenCalledWith("SIGKILL");
+
+    clock.mockReturnValue(100);
+    seq.latest().triggerExit(137, "SIGKILL");
+    await flushMicrotasks();
+
+    await expect(resizeP).rejects.toBeInstanceOf(SidecarFrameDecodeError);
+    await expect(resizeP).rejects.toThrow(/decoded payload is not an object envelope/);
+    await expect(resizeP).rejects.toThrow(/observedKind=null/);
+
+    const resizeErr: unknown = await resizeP.catch((e: unknown) => e);
+    expect(resizeErr).toBeInstanceOf(SidecarFrameDecodeError);
+    if (resizeErr instanceof SidecarFrameDecodeError) {
+      expect(resizeErr.decodeCause).toBe("non-object-envelope");
+    }
+  });
+
+  it("(b) JSON-valid but array payload (`[1,2,3]`) SIGKILLs the child and rejects outstanding with SidecarFrameDecodeError(cause='non-object-envelope')", async () => {
+    // Array bypass of the non-object guard. `typeof [] === "object"`
+    // is `true` and `[] !== null`, so the original `typeof !== "object"
+    // || === null` check did NOT trip on arrays — JSON.parse would
+    // happily yield `[1,2,3]`, the downstream `envelope.kind` read
+    // would return `undefined`, no `case` arm of the switch would
+    // match, `handleInbound` would return silently, and outstanding
+    // promises would hang. Distinguished from `(c) unknown_kind` by
+    // structure: arrays cannot syntactically satisfy the `Envelope`
+    // discriminated-union (no string-typed `.kind`), so this is a
+    // JSON-decode failure mode, not an unknown-variant mode.
+    //
+    // Test message asserts `observedKind=array` so a future reader
+    // scanning failures can distinguish array bypass from null bypass
+    // without re-running the test.
+    const seq = spawnReturningSequence();
+    const clock = vi.fn<() => number>().mockReturnValue(0);
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: seq.spawn,
+      nowMs: clock,
+    });
+
+    const spawnP1 = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    seq.latest().writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
+    await spawnP1;
+
+    const writeP = host.write("s-0", new Uint8Array([0x68, 0x69])); // "hi"
+    await flushMicrotasks();
+
+    seq.latest().writeStdout(frameRawBody("[1,2,3]"));
+    await flushMicrotasks();
+
+    const killMock = seq.latest().child.kill as ReturnType<typeof vi.fn>;
+    expect(killMock).toHaveBeenCalledWith("SIGKILL");
+
+    clock.mockReturnValue(100);
+    seq.latest().triggerExit(137, "SIGKILL");
+    await flushMicrotasks();
+
+    await expect(writeP).rejects.toBeInstanceOf(SidecarFrameDecodeError);
+    await expect(writeP).rejects.toThrow(/decoded payload is not an object envelope/);
+    await expect(writeP).rejects.toThrow(/observedKind=array/);
+
+    const writeErr: unknown = await writeP.catch((e: unknown) => e);
+    expect(writeErr).toBeInstanceOf(SidecarFrameDecodeError);
+    if (writeErr instanceof SidecarFrameDecodeError) {
+      expect(writeErr.decodeCause).toBe("non-object-envelope");
+    }
+  });
+
+  it("multiple decode failures in the same drain pass (back-to-back framed bodies) do not double-kill the child", async () => {
+    // Defends the `pendingTeardownCause !== null` early-return in
+    // failFatallyOnDecodeError. If two malformed frames land in a
+    // single chunk (the parser's drain loop processes them in order),
+    // the first triggers the kill + stash; the second must see the
+    // stash and skip the kill. Without the guard the second `child.kill`
+    // would fire on the same (already-killed) child — best-effort
+    // tolerates it, but the code-shape is the regression target.
+    const seq = spawnReturningSequence();
+    const clock = vi.fn<() => number>().mockReturnValue(0);
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: seq.spawn,
+      nowMs: clock,
+    });
+
+    const spawnP1 = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    seq.latest().writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
+    await spawnP1;
+
+    // Two malformed frames in a single write — the parser's drain
+    // loop processes both before yielding.
+    const twoBad: Buffer = Buffer.concat([frameRawBody("{garbage"), frameRawBody("null")]);
+    seq.latest().writeStdout(twoBad);
+    await flushMicrotasks();
+
+    const killMock = seq.latest().child.kill as ReturnType<typeof vi.fn>;
+    // Exactly one SIGKILL — the second decode-failure short-circuits
+    // on `pendingTeardownCause !== null`.
+    const sigkillCalls = killMock.mock.calls.filter(
+      (call: readonly unknown[]) => call[0] === "SIGKILL",
+    );
+    expect(sigkillCalls.length).toBe(1);
+  });
 });

@@ -124,6 +124,52 @@ export class PtyBackendUnavailableError extends Error {
 }
 
 /**
+ * Typed error surfaced when the sidecar emits a frame whose body the
+ * daemon cannot decode as a well-formed JSON envelope. Two cause-shapes
+ * land here, distinguished by `decodeCause`:
+ *
+ *   - `"json-parse"`: `JSON.parse` threw — the bytes are not valid JSON
+ *     (e.g., truncated payload, non-UTF-8 garbage). This is the
+ *     framing-equivalent failure at the payload layer: the framer
+ *     handed us a body it considered well-formed at the wire level,
+ *     but the body's JSON-decoding contract is broken.
+ *
+ *   - `"non-object-envelope"`: `JSON.parse` succeeded but returned a
+ *     value that is not a plain non-array object (e.g., `null`, a
+ *     primitive like `42`, an array — anything that does not satisfy
+ *     the discriminated-union shape of `Envelope`). Without these
+ *     guards a `null` body would slip past the try/catch and hit a
+ *     `TypeError` on the downstream `envelope.kind` access, and an
+ *     array body would silently fall through the switch (arrays have
+ *     no `.kind`, and `typeof [] === "object"` so the typeof check
+ *     alone is insufficient); we intercept all three shapes here so
+ *     the teardown shape is symmetric with the parse-throw case.
+ *
+ * Mirrors `PtyBackendUnavailableError`'s pattern (typed-class wrapper
+ * around a structured failure). Daemon-internal callers `instanceof`
+ * this to surface the JSON-decode-specific rejection cause to consumers
+ * awaiting a request that would have arrived in the corrupted frame.
+ *
+ * Field name `decodeCause` (not `cause`) avoids overriding the built-in
+ * `Error.cause` slot from ES2022 — different semantic (the standard
+ * `cause` chains errors with another `Error`/`unknown`; our field is a
+ * compile-time string discriminator).
+ *
+ * Refs: Plan-024 §F-024-3-01 (substitutability invariant — JSON-payload
+ * corruption is a fatal supervisor event identical in shape to the
+ * framing-error path).
+ */
+export class SidecarFrameDecodeError extends Error {
+  public readonly decodeCause: "json-parse" | "non-object-envelope";
+
+  public constructor(decodeCause: "json-parse" | "non-object-envelope", message: string) {
+    super(message);
+    this.name = "SidecarFrameDecodeError";
+    this.decodeCause = decodeCause;
+  }
+}
+
+/**
  * Subset of `node:child_process.ChildProcess` we actually consume.
  *
  * Declared locally rather than typed-imported so tests can construct a
@@ -972,6 +1018,36 @@ export class RustSidecarPtyHost implements PtyHost {
    */
   private readonly crashCountedChildren: WeakSet<SidecarChildProcess> = new WeakSet();
 
+  /**
+   * Pending fatal-teardown cause stashed by `handleInbound` (and any
+   * future fatal-supervisor site) before issuing `child.kill("SIGKILL")`,
+   * consumed by `handleChildExit` / `handleChildError` to drive
+   * `rejectAllOutstanding(cause)` with the JSON-decode-specific error
+   * rather than the generic "sidecar exited" message.
+   *
+   * The stash is consumed at most once per teardown via
+   * `consumePendingTeardownCause`. Node's `child_process` can fire
+   * BOTH `error` and `exit` for the same dying child (the same race the
+   * `crashCountedChildren` WeakSet defends against — see
+   * `recordCrashOncePerChild`); the first responder takes the cause,
+   * the second falls back to the generic message. The stash is null
+   * outside an active fatal-supervisor teardown.
+   *
+   * Why a stashed cause and not a synchronous reject-then-kill: the
+   * exit-driven teardown is the single canonical site for parser
+   * reset + outstanding rejection + crash-budget accounting; running
+   * `rejectAllOutstanding` synchronously inside `handleInbound` and
+   * again from the exit handler would double-reject (NoOp because
+   * `outstanding` would already be empty, but a code-shape risk
+   * future contributors could trip over). The stash threads the
+   * cause through the existing single-source teardown chain.
+   *
+   * Refs: Plan-024 §F-024-3-01 + §Implementation Step 5 (response
+   * correlation contract — outstanding promises must not survive
+   * frame corruption).
+   */
+  private pendingTeardownCause: Error | null = null;
+
   /** `onData` consumer callback. Set via `setOnData`. */
   private dataListener: (sessionId: string, chunk: Uint8Array) => void = () => undefined;
 
@@ -1344,6 +1420,15 @@ export class RustSidecarPtyHost implements PtyHost {
       if (result.kind === "error") {
         // Framing-level desync — the sidecar's stdout is corrupted.
         // We cannot recover; treat as a fatal supervisor event.
+        //
+        // Framing-error consumers intentionally receive the generic
+        // "sidecar exited" message via `handleChildExit`'s fallback
+        // arm; see `failFatallyOnDecodeError` for the typed-cause
+        // stash pattern reserved for payload-layer JSON-decode
+        // failures. A future hardening pass could symmetrically stash
+        // a typed framing-cause here so awaiting callers see a
+        // framing-specific rejection, but that's intentionally out of
+        // scope for the JSON-decode P1 fix.
         console.warn(
           `RustSidecarPtyHost: framing error on sidecar stdout (${result.message}); ` +
             "tearing down child for respawn.",
@@ -1369,16 +1454,61 @@ export class RustSidecarPtyHost implements PtyHost {
    * outstanding-request resolver, or to the data/exit fan-out.
    */
   private handleInbound(body: Buffer): void {
-    let envelope: Envelope;
+    let parsed: unknown;
     try {
-      envelope = JSON.parse(body.toString("utf8")) as Envelope;
+      parsed = JSON.parse(body.toString("utf8"));
     } catch (err: unknown) {
-      console.warn(
+      // JSON.parse threw — the bytes are not valid JSON. Symmetric
+      // with the framing-error fatal-supervisor path: the wire layer
+      // gave us a well-formed-by-frame body whose payload contract
+      // is broken, which we cannot recover from. A silent skip leaves
+      // every queued outstanding-Promise hanging indefinitely (the
+      // response that would have arrived in this frame is gone) and
+      // risks downstream frame-stream desync if the failure came
+      // from a length-mismatch artifact. Treat as fatal and
+      // respawn through the existing teardown chain.
+      const cause: SidecarFrameDecodeError = new SidecarFrameDecodeError(
+        "json-parse",
         `RustSidecarPtyHost: failed to parse inbound JSON envelope ` +
-          `(${(err as Error).message}); skipping frame.`,
+          `(${(err as Error).message}); tearing down child for respawn.`,
       );
+      this.failFatallyOnDecodeError(cause);
       return;
     }
+
+    // JSON.parse succeeded but the decoded value is not a non-array
+    // object envelope. Three shapes converge here, all structurally
+    // unable to satisfy the discriminated-union `Envelope` contract:
+    //
+    //   - `JSON.parse("null")` returns `null` (the typeof check alone
+    //     misses it because `typeof null === "object"`).
+    //   - `JSON.parse("[1,2,3]")` returns an array (arrays are objects
+    //     in JS — `typeof [] === "object"` and `[] !== null` — so both
+    //     prior checks pass; without the `Array.isArray` guard the
+    //     downstream `envelope.kind` read returns `undefined`, no
+    //     `case` arm matches, the switch falls through silently, and
+    //     every queued outstanding-Promise hangs indefinitely).
+    //   - `JSON.parse("42")` and other primitives — caught by the
+    //     `typeof !== "object"` arm.
+    //
+    // Without these guards the downstream `envelope.kind` access
+    // either TypeErrors out of this method (null) or silently no-ops
+    // (array) — both are the silent-drop failure mode this fatal-
+    // supervisor path exists to close. Intercept here so the teardown
+    // shape matches the parse-throw path above.
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      const observedKind: string =
+        parsed === null ? "null" : Array.isArray(parsed) ? "array" : typeof parsed;
+      const cause: SidecarFrameDecodeError = new SidecarFrameDecodeError(
+        "non-object-envelope",
+        `RustSidecarPtyHost: decoded payload is not an object envelope ` +
+          `(observedKind=${observedKind}); tearing down child for respawn.`,
+      );
+      this.failFatallyOnDecodeError(cause);
+      return;
+    }
+
+    const envelope: Envelope = parsed as Envelope;
 
     switch (envelope.kind) {
       case "data_frame": {
@@ -1663,11 +1793,13 @@ export class RustSidecarPtyHost implements PtyHost {
     this.detachChildStdoutListener(child);
     this.parser = new ContentLengthParser();
     this.child = null;
+    const stashed: Error | null = this.consumePendingTeardownCause();
     this.rejectAllOutstanding(
-      new Error(
-        `RustSidecarPtyHost: sidecar exited (code=${code ?? "null"}, signal=${signal ?? "null"}) ` +
-          "before response was received",
-      ),
+      stashed ??
+        new Error(
+          `RustSidecarPtyHost: sidecar exited (code=${code ?? "null"}, signal=${signal ?? "null"}) ` +
+            "before response was received",
+        ),
     );
     this.recordCrashOncePerChild(child);
   }
@@ -1680,13 +1812,74 @@ export class RustSidecarPtyHost implements PtyHost {
     this.detachChildStdoutListener(child);
     this.parser = new ContentLengthParser();
     this.child = null;
+    const stashed: Error | null = this.consumePendingTeardownCause();
     this.rejectAllOutstanding(
-      new Error(
-        `RustSidecarPtyHost: sidecar emitted 'error' event (${err.message}); ` +
-          "rejecting outstanding requests",
-      ),
+      stashed ??
+        new Error(
+          `RustSidecarPtyHost: sidecar emitted 'error' event (${err.message}); ` +
+            "rejecting outstanding requests",
+        ),
     );
     this.recordCrashOncePerChild(child);
+  }
+
+  /**
+   * Drive the fatal-supervisor teardown for a JSON-decode error.
+   *
+   * Mirrors the framing-error path at the call site in
+   * `drainParserUntilIncomplete`: stash a JSON-specific cause so the
+   * downstream exit/error handler rejects outstanding promises with
+   * the typed error, then SIGKILL the child to trigger the async
+   * exit handler that runs the canonical single-source teardown
+   * (parser reset → outstanding rejection → crash-budget accounting).
+   *
+   * Idempotency: if `pendingTeardownCause` is already non-null a
+   * previous fatal site in the same drain pass already scheduled
+   * teardown; we skip the second kill (best-effort `child.kill`
+   * tolerates double-fire too, but skipping is the explicit signal
+   * that we already cleaned up this drain pass).
+   *
+   * Stash + kill atomicity: the cause assignment is INSIDE the
+   * `this.child !== null` branch, so a future caller running with
+   * `this.child === null` is a no-op rather than a stash-leak. A
+   * leaked stash (set without a kill) would survive into the next
+   * child's lifecycle and reject the new child's outstanding
+   * requests with a JSON-decode error from a prior frame — defends
+   * the same single-source-teardown invariant as `crashCounted-
+   * Children`.
+   */
+  private failFatallyOnDecodeError(cause: SidecarFrameDecodeError): void {
+    console.warn(cause.message);
+    if (this.pendingTeardownCause !== null) {
+      // A prior fatal site in the same drain pass already stashed
+      // a cause + killed the child; do not double-kill.
+      return;
+    }
+    if (this.child !== null) {
+      // Stash + kill are issued atomically — if `this.child` were
+      // null at entry, stashing without killing would leak the
+      // cause into the next child's exit handler.
+      this.pendingTeardownCause = cause;
+      try {
+        this.child.kill("SIGKILL");
+      } catch {
+        // Best-effort — child may have already exited.
+      }
+    }
+  }
+
+  /**
+   * Take + clear the stashed teardown cause, returning it (or null if
+   * nothing is stashed). Used by `handleChildExit` / `handleChildError`
+   * to thread a JSON-decode-specific rejection through the canonical
+   * teardown chain. Clears so the next child's lifecycle does not
+   * inherit the stash from a prior teardown — see the `crashCounted-
+   * Children` WeakSet for the analogous dedupe pattern.
+   */
+  private consumePendingTeardownCause(): Error | null {
+    const cause: Error | null = this.pendingTeardownCause;
+    this.pendingTeardownCause = null;
+    return cause;
   }
 
   /**
