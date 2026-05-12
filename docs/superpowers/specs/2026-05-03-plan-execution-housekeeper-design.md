@@ -29,8 +29,8 @@ The schema is defined by what's actually on disk. The four entries below — pas
 - Status: `todo`
 - Type: code
 - Priority: `P1`
-- Upstream: none (Plan-024:267 — Phase 1 starts as soon as Plan-001 Phase 1 repo bootstrap is merged, which it is)
-- References: [Plan-024](../../plans/024-rust-pty-sidecar.md):267-282, [ADR-019](../../decisions/019-windows-v1-tier-and-pty-sidecar.md), this document §4 (Plan-024 standalone)
+- Upstream: none (Plan-024:285 — Phase 1 starts as soon as Plan-001 Phase 1 repo bootstrap is merged, which it is)
+- References: [Plan-024](../../plans/024-rust-pty-sidecar.md):285-300, [ADR-019](../../decisions/019-windows-v1-tier-and-pty-sidecar.md), this document §4 (Plan-024 standalone)
 - Summary: Scaffold the Rust PTY sidecar crate (T-024-1-1..5): workspace-root `Cargo.toml`, `packages/sidecar-rust-pty/{Cargo.toml,Cargo.lock,src/{main,framing,protocol,pty_session}.rs,tests/{framing_roundtrip,protocol_roundtrip,spawn_smoke}.rs}` + TS protocol mirror at `packages/contracts/src/pty-host-protocol.ts`. ~10 new files; no edits to existing TS source. Pins: `portable-pty 0.9`, `tokio 1.40`, `serde_with 3.7`, MSRV `1.85`, `cargo-zigbuild 0.22.2`. F-024-2-04 binds Phase 2/3 to Plan-001 T5.4 — Phase 1 itself is fully independent.
 - Exit Criteria: T-024-1-1..5 merged; Linux `cargo build --release` + `cargo test --release` green; Plan-024 Phase 1 Done Checklist flipped.
 ```
@@ -44,7 +44,7 @@ The schema is defined by what's actually on disk. The four entries below — pas
 - Type: code (cross-plan PR pair, internally a 3-step sequence)
 - Priority: `P1`
 - Upstream: none (the 3-step sequence is internal: (a) `packages/contracts/src/pty-host.ts` interface-only PR for T-024-2-1 → (b) `packages/runtime-daemon/src/session/spawn-cwd-translator.ts` for T5.4 → (c) NodePtyHost impl T-024-2-2 lands as part of NS-05)
-- References: [Plan-001](../../plans/001-shared-session-core.md):387-389, [Plan-024](../../plans/024-rust-pty-sidecar.md):75, 285, 301
+- References: [Plan-001](../../plans/001-shared-session-core.md):387-389, [Plan-024](../../plans/024-rust-pty-sidecar.md):93, 303, 319
 - Summary: T5.4 wraps both `RustSidecarPtyHost` and `NodePtyHost` for OS-level cwd translation per I-024-5 to mitigate the Windows `ERROR_SHARING_VIOLATION` risk. F-024-2-04 binds T5.4 as a Precondition for **both** Plan-024 Phase 2 (NodePtyHost) **and** Phase 3 (RustSidecarPtyHost) — without it, Windows CI surfaces the sharing-violation regression. Clean sequence: ship the `PtyHost` contract interface alone, then T5.4 consumes it, then NS-05 consumes T5.4.
 - Exit Criteria: `spawn-cwd-translator.ts` + Linux/macOS unit tests + Windows-CI integration tests (I6 / W2 / W3) green; `PtyHost` interface live in contracts.
 ```
@@ -86,7 +86,7 @@ The schema is defined by what's actually on disk. The four entries below — pas
 - Type: code + governance
 - Priority: `P1`
 - Upstream: NS-07 (Phase 3 working sidecar) + BL-108 (procurement evidence)
-- References: [Plan-024](../../plans/024-rust-pty-sidecar.md):319-331, [BL-108](../../backlog.md#bl-108-plan-024-windows--macos-signing-procurement-evidence)
+- References: [Plan-024](../../plans/024-rust-pty-sidecar.md):337-349, [BL-108](../../backlog.md#bl-108-plan-024-windows--macos-signing-procurement-evidence)
 - Summary: 5-target `cargo-zigbuild` matrix (Windows MSVC, macOS x86_64/aarch64, Linux x86_64/aarch64) + Authenticode + Apple notarization. Phase 4 publishes signed pre-release binaries.
 - Exit Criteria: All 5 targets build green; signed artifacts attached to release draft; Plan-024 §Decision Log records signing-track choice + date; BL-108 closes.
 ```
