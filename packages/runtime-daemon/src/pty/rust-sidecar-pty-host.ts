@@ -733,14 +733,53 @@ export class ContentLengthParser {
             message: "duplicate Content-Length header (request-smuggling shape)",
           };
         }
-        const parsed: number = Number.parseInt(value, 10);
-        if (!Number.isFinite(parsed) || parsed < 0) {
+        // Strict digit-only grammar — DELIBERATELY STRICTER than the
+        // Rust framer at packages/sidecar-rust-pty/src/framing.rs,
+        // which calls `value.trim().parse::<usize>()`. Rust's
+        // `<usize as FromStr>::from_str` delegates to
+        // `from_str_radix(s, 10)`, whose grammar is `^\+?[0-9]+$` —
+        // a leading `+` sign IS accepted for unsigned types (only
+        // `-` is rejected). See
+        // https://doc.rust-lang.org/std/primitive.usize.html#method.from_str_radix.
+        //
+        // The daemon-side regex rejects `+N` to align with HTTP/1.1
+        // RFC 7230 §3.3.2 (`Content-Length = 1*DIGIT` — no sign
+        // permitted; https://datatracker.ietf.org/doc/html/rfc7230#section-3.3.2)
+        // and as defense-in-depth against a hypothetical future
+        // relay attacker that funnels untrusted bytes through the
+        // Content-Length header before they reach the daemon. The
+        // current Rust sidecar never emits `+N` Content-Length
+        // headers (`framing.rs` formats via `Display` on `usize`,
+        // which never produces a leading `+`), so the
+        // daemon-rejects-while-Rust-would-accept asymmetry is safe:
+        // a `+N` frame dies at the daemon's boundary, the sidecar
+        // never sees it, and no smuggling vector exists under the
+        // current trust architecture (the sidecar is trusted to
+        // emit conforming Content-Length values; a compromised
+        // sidecar already has worse vectors — emit invalid JSON to
+        // trip the fatal-supervisor self-kill at
+        // `drainParserUntilIncomplete`).
+        //
+        // The original bug `Number.parseInt(value, 10)` accepted
+        // `"12junk"` as `12` and `"12.5"` as `12` — those ARE
+        // shapes Rust rejects, and lax parsing there would let a
+        // peer cause the daemon to slice a different body length
+        // than the sidecar parsed. The strict digit-only regex
+        // below forecloses that smuggling-shape vector while also
+        // tightening the `+N` boundary beyond Rust.
+        //
+        // Both sides trim outer whitespace before the strict check;
+        // both sides accept leading zeros (`"00000"` → `0`).
+        if (!/^\d+$/.test(value)) {
           return {
             kind: "error",
-            message: `Content-Length value is not a valid non-negative integer: ${JSON.stringify(value)}`,
+            message: `Content-Length value is not a strict non-negative integer: ${JSON.stringify(value)}`,
           };
         }
-        contentLength = parsed;
+        // `Number(value)` is safe here because the regex has already
+        // validated digit-only content. No `parseInt` semantics
+        // needed; `Number("0123")` → `123`, `Number("0")` → `0`.
+        contentLength = Number(value);
       }
       // Other headers (e.g., Content-Type) are accepted and ignored.
     }

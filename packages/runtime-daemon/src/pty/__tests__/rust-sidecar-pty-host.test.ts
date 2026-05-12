@@ -941,7 +941,110 @@ describe("ContentLengthParser — chunk-boundary reassembly + rejection paths", 
     const result = parser.nextFrame();
     expect(result.kind).toBe("error");
     if (result.kind === "error") {
-      expect(result.message).toMatch(/Content-Length value is not a valid non-negative integer/i);
+      expect(result.message).toMatch(/Content-Length value is not a strict non-negative integer/i);
+    }
+  });
+
+  // Strict digit-only Content-Length grammar — pins the daemon-side
+  // rejection surface. Phase 1 framing layer; below the I-024-N
+  // invariants per Plan-024 §T-024-1-2 ("Verifies invariant: none —
+  // framing layer below invariants").
+  //
+  // The daemon's `/^\d+$/` is DELIBERATELY STRICTER than the Rust
+  // framer at packages/sidecar-rust-pty/src/framing.rs, which calls
+  // `value.trim().parse::<usize>()`. Rust's `usize::from_str`
+  // delegates to `from_str_radix(s, 10)`, whose grammar is
+  // `^\+?[0-9]+$` — a leading `+` sign IS accepted for unsigned
+  // types (only `-` is rejected). See
+  // https://doc.rust-lang.org/std/primitive.usize.html#method.from_str_radix.
+  //
+  // The daemon side rejects `+N` to align with HTTP/1.1 RFC 7230
+  // §3.3.2 (`Content-Length = 1*DIGIT` — no sign permitted;
+  // https://datatracker.ietf.org/doc/html/rfc7230#section-3.3.2)
+  // and as defense-in-depth at the daemon ↔ sidecar boundary. The
+  // asymmetry is safe under the current trust architecture: a `+N`
+  // frame dies at the daemon's boundary, the sidecar never sees it,
+  // and the Rust sidecar never emits `+N` Content-Length values
+  // (formats via `Display` on `usize`, which never produces `+`).
+  //
+  // The `Number.parseInt(value, 10)` shapes — `"12junk"`, `"12.5"` —
+  // ARE genuine smuggling shapes the Rust side rejects and the prior
+  // daemon code lax-accepted; tightening to `^\d+$` forecloses them
+  // AND tightens the `+N` boundary beyond what Rust enforces.
+  //
+  // Both sides `.trim()` the value before the strict check, so
+  // outer-whitespace cases (`" 12"`, `"12 "`) are ACCEPTANCE cases —
+  // they normalize to `"12"` and pass the digit-only test.
+  describe.each([
+    ["empty string", ""],
+    ["embedded letters", "12junk"],
+    ["fractional", "12.0"],
+    ["fractional with trailing zero", "12.5"],
+    ["scientific notation", "12e1"],
+    ["negative sign", "-12"],
+    ["negative zero", "-0"],
+    ["positive sign", "+12"],
+    ["positive zero", "+0"],
+    ["hex literal", "0x12"],
+    ["hex prefix only", "0x"],
+    ["whitespace-only value", "   "],
+  ])("Content-Length strict-grammar rejection — %s (%j)", (_label, raw) => {
+    it("rejects with the strict-grammar error and echoes the offending value JSON-encoded", () => {
+      const parser = new ContentLengthParser();
+      parser.feed(Buffer.from(`Content-Length: ${raw}\r\n\r\n`, "utf8"));
+      const result = parser.nextFrame();
+      expect(result.kind).toBe("error");
+      if (result.kind === "error") {
+        expect(result.message).toMatch(
+          /Content-Length value is not a strict non-negative integer/i,
+        );
+        // The offending value is echoed as a JSON string literal so a
+        // peer cannot inject CRLF / control bytes into operator logs.
+        // After the value-trim at line 725, embedded whitespace is
+        // collapsed at the boundary; we assert the JSON-encoded
+        // post-trim shape that actually fails the regex.
+        expect(result.message).toContain(JSON.stringify(raw.trim()));
+      }
+    });
+  });
+
+  // Acceptance cases — pin the symmetric "is accepted" boundary so a
+  // future tightening doesn't accidentally reject canonical shapes the
+  // Rust side accepts (leading zeros + outer whitespace via trim).
+  describe.each([
+    ["zero", "0", 0],
+    ["small positive", "123", 123],
+    ["leading-zero canonical", "0123", 123],
+    ["all zeros", "00000", 0],
+    ["leading whitespace (trimmed)", " 12", 12],
+    ["trailing whitespace (trimmed)", "12 ", 12],
+    ["both-side whitespace (trimmed)", "  12  ", 12],
+  ])("Content-Length strict-grammar acceptance — %s (%j → %d)", (_label, raw, expectedLen) => {
+    it("accepts and decodes a body of the declared length", () => {
+      const body = Buffer.alloc(expectedLen, 0x61); // 'a' * expectedLen
+      const parser = new ContentLengthParser();
+      parser.feed(Buffer.concat([Buffer.from(`Content-Length: ${raw}\r\n\r\n`, "utf8"), body]));
+      const result = parser.nextFrame();
+      expect(result.kind).toBe("frame");
+      if (result.kind === "frame") {
+        expect(result.body.length).toBe(expectedLen);
+        expect(result.body.equals(body)).toBe(true);
+      }
+    });
+  });
+
+  it("preserves the duplicate-Content-Length defense ahead of the strict-grammar check", () => {
+    // Regression guard: AC5 — the new validator MUST run AFTER the
+    // duplicate-header check so the duplicate-shape error message is
+    // surfaced even when the second value would also fail the
+    // grammar. Without this ordering a peer could mask a smuggling
+    // attempt as a "lax parser" complaint.
+    const parser = new ContentLengthParser();
+    parser.feed(Buffer.from("Content-Length: 4\r\nContent-Length: 12junk\r\n\r\nbody", "utf8"));
+    const result = parser.nextFrame();
+    expect(result.kind).toBe("error");
+    if (result.kind === "error") {
+      expect(result.message).toMatch(/duplicate Content-Length/i);
     }
   });
 
