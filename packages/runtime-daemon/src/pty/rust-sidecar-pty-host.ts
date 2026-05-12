@@ -1255,6 +1255,39 @@ export class RustSidecarPtyHost implements PtyHost {
    * spawn failed). Treated identically to a crash.
    */
   private attachChildListeners(child: SidecarChildProcess): void {
+    // Stdin/stdout/stderr async errors (ERR_STREAM_DESTROYED / EPIPE /
+    // EIO) bypass any synchronous try/catch on the call site — Node's
+    // `Writable.write` throws synchronously only for misuse (encoding
+    // errors, write-after-end). The common broken-pipe failure modes
+    // fire as async `'error'` events on the stream objects. Without
+    // per-pipe listeners these escalate to `uncaughtException` and
+    // crash the daemon. Logging + SIGTERM triggers the existing
+    // `handleChildExit` path which already runs `rejectAllOutstanding`
+    // — that's the load-bearing cleanup; the listener's jobs are just
+    // (a) consume the error event, (b) ensure the child exits so the
+    // existing cleanup runs. The `child.on('error', ...)` listener
+    // attached at the bottom of this function catches errors on the
+    // child PROCESS (spawn failures), NOT pipe-level errors on the
+    // three stream objects. SIGTERM (not SIGKILL) matches the
+    // `close()` flow's escalation discipline — `drainParserUntilIncomplete`'s
+    // SIGKILL is intentional asymmetry for unrecoverable protocol
+    // corruption, which does not apply here. (Plan-024, T-024-3-1.)
+    const pipeErrorHandler =
+      (which: "stdin" | "stdout" | "stderr") =>
+      (err: Error): void => {
+        console.warn(
+          `RustSidecarPtyHost (${which}): ${err.message}; terminating child for respawn.`,
+        );
+        try {
+          child.kill("SIGTERM");
+        } catch {
+          // Best-effort — child may have already exited (ESRCH).
+        }
+      };
+    child.stdin.on("error", pipeErrorHandler("stdin"));
+    child.stdout.on("error", pipeErrorHandler("stdout"));
+    child.stderr.on("error", pipeErrorHandler("stderr"));
+
     // Stdout: parse Content-Length frames and dispatch.
     //
     // Retain a named listener reference (rather than an anonymous

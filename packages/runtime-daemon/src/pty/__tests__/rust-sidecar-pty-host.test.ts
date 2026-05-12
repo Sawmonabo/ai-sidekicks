@@ -2566,3 +2566,93 @@ describe("RustSidecarPtyHost — ensureChild concurrent-spawn serialization", ()
     }
   });
 });
+
+// ----------------------------------------------------------------------------
+// Pipe-error listeners on stdin / stdout / stderr (Plan-024, T-024-3-1).
+//
+// Async pipe errors (ERR_STREAM_DESTROYED, EPIPE, EIO) on the sidecar
+// child's three stream objects fire as `'error'` events — they bypass
+// any synchronous try/catch wrapping the `child.stdin.write(...)` call.
+// Without per-pipe listeners these escalate to `uncaughtException` and
+// crash the daemon. The supervisor attaches a handler on each of
+// stdin/stdout/stderr that (a) consumes the event so Node does not
+// escalate, (b) SIGTERMs the child so the existing `handleChildExit`
+// path runs `rejectAllOutstanding(...)` — that's the load-bearing
+// cleanup. The `child.on('error', ...)` listener attached in
+// `attachChildListeners` catches errors on the child PROCESS, NOT
+// pipe-level errors on the stream objects.
+// ----------------------------------------------------------------------------
+
+describe("RustSidecarPtyHost — pipe error handlers (Plan-024, T-024-3-1)", () => {
+  // Symmetry-cover stdin/stdout/stderr through a single test definition:
+  // the production handler is a shared factory across all three streams,
+  // so the assertion shape is identical and a regression that fixes
+  // only one stream would leave the others as latent crash sources.
+  // `it.each` keeps the assertion shape as a single source of truth.
+  it.each([
+    { which: "stdin" as const, errMsg: "write EPIPE" },
+    { which: "stdout" as const, errMsg: "read EIO" },
+    { which: "stderr" as const, errMsg: "read EIO" },
+  ])(
+    "consumes async error on child.$which and triggers SIGTERM-driven cleanup without escalating to uncaughtException",
+    async ({ which, errMsg }) => {
+      // Capture `uncaughtException` BEFORE the test body so we can
+      // prove the production code is consuming the error event.
+      // Without this capture, Node's uncaughtException would fire
+      // AFTER the test body completes — the test process exits cleanly
+      // and we miss the regression even when the listener is absent.
+      // This assertion is the load-bearing one; vitest also installs
+      // its own handler, but that behavior can be configured away.
+      const uncaught: Error[] = [];
+      const captureUncaught = (err: Error): void => {
+        uncaught.push(err);
+      };
+      process.on("uncaughtException", captureUncaught);
+
+      try {
+        const fake = makeFakeChild();
+        const host = new RustSidecarPtyHost({
+          resolveBinaryPath: () => "/fake/sidecar",
+          spawn: spawnReturning(fake),
+        });
+
+        // Start a spawn() request — enqueues an outstanding entry and
+        // wires the stream listeners via attachChildListeners.
+        const spawnP = host.spawn({
+          kind: "spawn_request",
+          command: "/bin/sh",
+          args: [],
+          env: [],
+          cwd: "/",
+          rows: 24,
+          cols: 80,
+        });
+        await flushMicrotasks();
+
+        // Emit the async pipe error on the target stream. Without the
+        // production-side listener this would escalate to
+        // `uncaughtException`.
+        fake.child[which].emit("error", new Error(errMsg));
+
+        // Simulate the child exit that follows the SIGTERM the handler
+        // dispatched; handleChildExit drains outstanding via
+        // rejectAllOutstanding(...).
+        fake.triggerExit(null, "SIGTERM");
+
+        // Outstanding request rejects (not a hang).
+        await expect(spawnP).rejects.toThrow(/sidecar exited/);
+
+        // No uncaughtException escalated — production listener
+        // consumed the error event.
+        expect(uncaught).toHaveLength(0);
+
+        // SIGTERM was dispatched, triggering the existing exit-driven
+        // cleanup path.
+        const killMock = fake.child.kill as ReturnType<typeof vi.fn>;
+        expect(killMock).toHaveBeenCalledWith("SIGTERM");
+      } finally {
+        process.off("uncaughtException", captureUncaught);
+      }
+    },
+  );
+});
