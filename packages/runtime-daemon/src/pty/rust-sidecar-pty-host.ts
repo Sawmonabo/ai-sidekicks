@@ -299,6 +299,52 @@ export interface RustSidecarPtyHostDeps {
 export const CRASH_BUDGET_WINDOW_MS = 60_000;
 export const CRASH_BUDGET_LIMIT = 5;
 
+/**
+ * Pre-spawn event buffer caps (Plan-024 §I-024-6).
+ *
+ * `RustSidecarPtyHost` buffers inbound `DataFrame` / `ExitCodeNotification`
+ * envelopes that arrive on the wire BEFORE the matching `SpawnResponse`
+ * (the race surfaces when `merge_to_writer`'s unbiased `tokio::select!`
+ * picks the sidecar's `outbound_tx` ahead of `dispatch_tx` for sub-ms
+ * exits or pre-response data). Buffers drain on the subsequent
+ * `SpawnResponse` arrival; under normal operation the race window is
+ * microseconds and per-session retention is brief.
+ *
+ * The caps below bound the worst-case memory footprint for a sidecar
+ * bug that emits events on a `session_id` no `SpawnResponse` ever
+ * resolves (the buffer entry would otherwise leak until supervisor
+ * teardown, which already clears it). They are deliberately not
+ * runtime-configurable: the values are policy from the plan, and
+ * exposing knobs would invite per-deployment tuning that drifts from
+ * the contract.
+ *
+ * Per-session data-chunk cap × per-chunk wire-size (≤ 8 KiB, the
+ * sidecar's stdout/stderr reader pump chunk size per Plan-024
+ * §T-024-1-4) × stale-session cap = worst-case ~32 MiB pre-spawn
+ * buffer footprint per supervisor lifetime.
+ */
+export const MAX_PRE_SPAWN_DATA_CHUNKS_PER_SESSION = 64;
+export const MAX_PRE_SPAWN_BUFFERED_SESSIONS = 64;
+
+/**
+ * Closed-session-id retention cap with FIFO eviction (Plan-024 §I-024-6).
+ *
+ * Tracks `session_id`s removed from `sessions` by `close()` (or by the
+ * fan-out paths' lifecycle equivalents) so a late `ExitCodeNotification`
+ * / `DataFrame` arriving after `close()` resolves is suppressed (per
+ * the `PtyHost.onExit` "MUST NOT fire after `close()` resolves"
+ * contract clause) rather than routed into the pre-spawn buffer.
+ *
+ * Bounded at 10 000 entries with insertion-order FIFO eviction (the
+ * supervisor's `Map`-iteration order is insertion order in JS, so
+ * `closedSessionIds.values().next().value` returns the oldest entry).
+ * Realistic upper bound: ~100 K sessions per long-running supervisor
+ * lifetime (worktree-heavy day of use); the 10 K cap absorbs typical
+ * bursts and bounds memory at ~80 KiB (entry size ≈ 8 bytes for a
+ * `s-{n}` string literal in V8).
+ */
+export const MAX_CLOSED_SESSION_IDS = 10_000;
+
 // --------------------------------------------------------------------------
 // Default deps resolution
 // --------------------------------------------------------------------------
@@ -1116,6 +1162,55 @@ export class RustSidecarPtyHost implements PtyHost {
   private exitListener: (sessionId: string, exitCode: number, signalCode?: number) => void = () =>
     undefined;
 
+  /**
+   * Pre-spawn `DataFrame` buffer (Plan-024 §I-024-6).
+   *
+   * Holds decoded `Uint8Array` chunks for a `session_id` whose
+   * `SpawnResponse` has not yet been received. Drains on the matching
+   * `SpawnResponse` arrival via `replayPreSpawnEvents`. Per-session
+   * entries are bounded by `MAX_PRE_SPAWN_DATA_CHUNKS_PER_SESSION`;
+   * the total number of buffered session_ids is bounded by
+   * `MAX_PRE_SPAWN_BUFFERED_SESSIONS`. Cleared on supervisor teardown
+   * (`handleChildExit` / `handleChildError`) — the sidecar's monotonic
+   * `session_id` counter resets on respawn, so stale-id retention
+   * would replay pre-respawn data against a fresh post-respawn session.
+   */
+  private readonly pendingDataFrames: Map<string, Uint8Array[]> = new Map();
+
+  /**
+   * Pre-spawn `ExitCodeNotification` buffer (Plan-024 §I-024-6).
+   *
+   * Holds at most one notification per `session_id` (the sidecar's
+   * exactly-once-per-session exit contract). Drains on the matching
+   * `SpawnResponse` arrival; cleared on supervisor teardown for the
+   * same reason as `pendingDataFrames`.
+   */
+  private readonly pendingExits: Map<string, ExitCodeNotification> = new Map();
+
+  /**
+   * Closed-session-id tracker (Plan-024 §I-024-6).
+   *
+   * `close(sessionId)` removes the session record from `sessions` AND
+   * adds the id here so a late inbound `ExitCodeNotification` /
+   * `DataFrame` for that id is suppressed (per the
+   * `PtyHost.onExit` "MUST NOT fire after `close()` resolves" contract)
+   * rather than routed into `pendingExits` / `pendingDataFrames` as a
+   * pre-spawn buffer entry that would leak until supervisor teardown.
+   *
+   * Bounded at `MAX_CLOSED_SESSION_IDS` with FIFO eviction (the Map's
+   * insertion order); evicted entries fall back to the pre-spawn-
+   * buffer branch, which is the same observable behavior as the
+   * pre-suppression state — a no-op when no matching `SpawnResponse`
+   * arrives, since the sidecar's `session_id` counter does not reuse
+   * ids within a supervisor lifetime. Cleared on supervisor teardown:
+   * the sidecar's `session_id` counter resets on respawn, so retention
+   * across supervisor lifetimes would suppress a fresh post-respawn
+   * session that happens to mint an id matching a pre-respawn closed
+   * one (the typical `s-0` reuse case after a crash + immediate
+   * respawn + first-session-id).
+   */
+  private readonly closedSessionIds: Set<string> = new Set();
+
   public constructor(deps?: Partial<RustSidecarPtyHostDeps>) {
     this.deps = resolveDefaultDeps(deps ?? {});
     this.crashBudget = new CrashBudget(this.deps.nowMs);
@@ -1147,6 +1242,13 @@ export class RustSidecarPtyHost implements PtyHost {
     // registration waited for this post-await body to resume.
     // See `resolveOutstanding` for the in-band registration site.
     // (Plan-024 §T-024-3-1.)
+    //
+    // The symmetric case where DataFrame / ExitCodeNotification
+    // arrives on the wire BEFORE the SpawnResponse (same race source,
+    // earlier wire offset) is covered by the pre-spawn buffer at
+    // `pendingDataFrames` + `pendingExits` — frames for an unknown
+    // session_id route into the buffer and drain after registration
+    // via `replayPreSpawnEvents`. (Plan-024 §I-024-6.)
     const response = await this.sendRequest(spec, "spawn_response");
     if (response.kind !== "spawn_response") {
       throw new Error(`RustSidecarPtyHost.spawn: unexpected response kind ${response.kind}`);
@@ -1210,14 +1312,16 @@ export class RustSidecarPtyHost implements PtyHost {
 
   public async close(sessionId: string): Promise<void> {
     // `close()` removes the session record SYNCHRONOUSLY before
-    // dispatching the wire-side `kill_request{SIGTERM}` so that any
-    // `ExitCodeNotification` arriving during the await falls into the
-    // unknown-session branch of `handleExitNotification` and is
-    // suppressed. This matches the post-`close()` onExit-suppression
-    // contract — `NodePtyHost` achieves the same suppression by
-    // disposing its `child.onExit` subscription BEFORE the kill
-    // dispatch (see `node-pty-host.ts:619-626` + `640-644`). The
-    // kind-keyed `outstanding` queue still correlates the
+    // dispatching the wire-side `kill_request{SIGTERM}` AND records
+    // the id in `closedSessionIds` so that any `ExitCodeNotification`
+    // / `DataFrame` arriving during the await falls into the
+    // closed-session suppression branch of `handleExitNotification` /
+    // `handleEnvelope` rather than the pre-spawn buffer branch (per
+    // Plan-024 §I-024-6). This matches the post-`close()`
+    // onExit-suppression contract — `NodePtyHost` achieves the same
+    // suppression by disposing its `child.onExit` subscription BEFORE
+    // the kill dispatch (see `node-pty-host.ts:619-626` + `640-644`).
+    // The kind-keyed `outstanding` queue still correlates the
     // `kill_response` independent of the session record, so the wire
     // reply still resolves `close()` cleanly.
     const record: SessionRecord | undefined = this.sessions.get(sessionId);
@@ -1227,6 +1331,7 @@ export class RustSidecarPtyHost implements PtyHost {
       return;
     }
     this.sessions.delete(sessionId);
+    this.recordClosedSessionId(sessionId);
     if (record.exitCode === null) {
       // Best-effort kill via SIGTERM. We catch and swallow a wire-side
       // failure here because `close` must not throw on a child that
@@ -1580,29 +1685,39 @@ export class RustSidecarPtyHost implements PtyHost {
 
     switch (envelope.kind) {
       case "data_frame": {
-        // Gate fan-out on `sessions.has(envelope.session_id)` —
-        // mirrors `node-pty-host.ts`'s close-time subscription
-        // disposal (which prevents post-close data emission).
-        // A `DataFrame` arriving for a session the daemon has already
-        // closed is consumer-meaningless; the listener may be a stale
-        // closure from the prior session-id reuse cycle (Phase 5
-        // Plan-001 P5 may surface this when sidecar session-id reuse
-        // crosses daemon close boundaries). Drop silently.
+        // Three branches per Plan-024 §I-024-6:
         //
-        // Asymmetry with `handleExitNotification`: the exit notification
-        // IS fanned out for unknown sessions because exit is a terminal
-        // event the consumer may need to observe even after a `close()`
-        // (lifecycle telemetry); a data chunk is just queued bytes that
-        // a closed session has no use for.
-        if (!this.sessions.has(envelope.session_id)) {
-          return;
-        }
-        // Decode base64 to bytes and dispatch. The protocol guarantees
-        // monotonic per-session seq; the listener is responsible for
-        // reordering if it cares about ordering across multiple
-        // sessions (this layer only fans out per-session).
+        //   1. Known + alive (`sessions.has(id)`): decode + fire onData.
+        //      Mirrors `node-pty-host.ts`'s active-subscription dispatch.
+        //
+        //   2. Known + closed (`closedSessionIds.has(id)`): suppress.
+        //      The consumer's `close()` removed the session record
+        //      synchronously before dispatching the kill request; a
+        //      late `DataFrame` arriving during the await is
+        //      consumer-meaningless. Mirrors `node-pty-host.ts`'s
+        //      close-time subscription disposal (see
+        //      `node-pty-host.ts:619-626` + `640-644`).
+        //
+        //   3. Unknown (neither alive nor closed): buffer as a
+        //      pre-spawn event. The sidecar's `spawn_reader_task` is
+        //      spawned BEFORE the dispatcher queues `SpawnResponse` on
+        //      `dispatch_tx` (per `packages/sidecar-rust-pty/src/
+        //      pty_session.rs::spawn()`), and `merge_to_writer`'s
+        //      unbiased `tokio::select!` can pick `outbound_tx` first,
+        //      so a `DataFrame` for a freshly-spawned session can
+        //      legitimately arrive on the wire before the matching
+        //      `SpawnResponse`. The buffer drains on the subsequent
+        //      `SpawnResponse` via `replayPreSpawnEvents`.
         const bytes: Uint8Array = Buffer.from(envelope.bytes, "base64");
-        this.dataListener(envelope.session_id, bytes);
+        if (this.sessions.has(envelope.session_id)) {
+          this.dataListener(envelope.session_id, bytes);
+          break;
+        }
+        if (this.closedSessionIds.has(envelope.session_id)) {
+          // Post-close() suppression — see branch (2) above.
+          break;
+        }
+        this.bufferPreSpawnData(envelope.session_id, bytes);
         break;
       }
       case "exit_code_notification": {
@@ -1699,57 +1814,66 @@ export class RustSidecarPtyHost implements PtyHost {
   /**
    * Handle an inbound `ExitCodeNotification`.
    *
-   * - Known session, no cached exitCode: cache the exit code on the
-   *   session record and fire the exit listener. The record is removed
-   *   when `close()` runs (synchronous delete-before-await) or when a
-   *   subsequent `close()` arrives.
-   * - Known session, exitCode already cached: drop as a duplicate (the
-   *   sidecar's contract is exactly-once per session, but defensively
-   *   dedupe).
-   * - Unknown session: the consumer has already called `close()`, which
-   *   removed the session record before dispatching the kill request.
-   *   Suppress the fan-out and log diagnostically — emitting onExit after
-   *   `close()` resolves breaks the post-`close()` onExit-suppression
-   *   contract that consumers rely on for substitutability with
-   *   NodePtyHost (see node-pty-host.ts:619-626 + 640-644).
+   * Four branches per Plan-024 §I-024-6:
+   *
+   * - **Known session, no cached exitCode:** cache the exit code on
+   *   the session record and fire the exit listener. The record is
+   *   removed when `close()` runs (synchronous delete-before-await)
+   *   or when a subsequent `close()` arrives.
+   * - **Known session, exitCode already cached:** drop as a duplicate
+   *   (the sidecar's contract is exactly-once per session, but
+   *   defensively dedupe).
+   * - **Known + closed (`closedSessionIds.has(id)`):** the consumer
+   *   has already called `close()`, which removed the session record
+   *   AND recorded the id in `closedSessionIds` before dispatching
+   *   the kill request. Suppress the fan-out and log diagnostically —
+   *   emitting onExit after `close()` resolves breaks the
+   *   post-`close()` onExit-suppression contract that consumers rely
+   *   on for substitutability with NodePtyHost (see
+   *   node-pty-host.ts:619-626 + 640-644 — its `child.onExit`
+   *   subscription is disposed BEFORE the kill dispatch precisely so
+   *   the same suppression holds there).
+   * - **Unknown (neither alive nor closed):** buffer as a pre-spawn
+   *   event. The sidecar's `spawn_waiter_task` is spawned BEFORE the
+   *   dispatcher queues `SpawnResponse` on `dispatch_tx` (per
+   *   `packages/sidecar-rust-pty/src/pty_session.rs::spawn()`), and
+   *   `merge_to_writer`'s unbiased `tokio::select!` can pick
+   *   `outbound_tx` first — so for a sub-millisecond-lived child
+   *   the `ExitCodeNotification` can legitimately arrive on the
+   *   wire before the matching `SpawnResponse`. The buffer drains
+   *   on the subsequent `SpawnResponse` via `replayPreSpawnEvents`.
    */
   private handleExitNotification(notification: ExitCodeNotification): void {
     const record: SessionRecord | undefined = this.sessions.get(notification.session_id);
-    if (record === undefined) {
-      // ExitCodeNotification for a session this host no longer tracks.
-      // Two causes converge here: (a) the consumer called `close()`,
-      // which removed the record synchronously before dispatching the
-      // kill request — every wire order (kill_response-first OR
-      // exit_code_notification-first relative to that await) lands
-      // here; or (b) the sidecar emitted on an unknown id (a sidecar
-      // bug). Suppress the fan-out in both cases — emitting onExit
-      // after close() breaks the post-close() onExit-suppression
-      // contract that consumers rely on for substitutability with
-      // NodePtyHost (see node-pty-host.ts:619-626 + 640-644 — its
-      // `child.onExit` subscription is disposed BEFORE the kill
-      // dispatch precisely so the same suppression holds there).
+    if (record !== undefined) {
+      if (record.exitCode !== null) {
+        // Duplicate exit notification — the sidecar's contract is
+        // exactly-once per session, but defensively dedupe.
+        return;
+      }
+      record.exitCode = notification.exit_code;
+      record.signalCode = notification.signal_code ?? undefined;
+      this.fireExit(notification.session_id, notification.exit_code, record.signalCode);
+      return;
+    }
+    if (this.closedSessionIds.has(notification.session_id)) {
+      // Post-close() suppression — see branch (3) above.
+      //
       // TRIPWIRE: replace `console.warn` once a structured logger
       // surfaces in the runtime-daemon. The routine close() lifecycle
       // (close → SIGTERM → child exits → late ExitCodeNotification →
       // this branch) makes this the warn most likely to fire under
       // normal teardown; the structured-logger pass should demote it
-      // to debug/info while keeping case-(b) sidecar-bug emissions at
-      // a higher level.
+      // to debug/info.
       console.warn(
-        `RustSidecarPtyHost: late ExitCodeNotification for unknown ` +
+        `RustSidecarPtyHost: late ExitCodeNotification for closed ` +
           `session_id ${notification.session_id} (exit_code=` +
           `${notification.exit_code}); suppressed.`,
       );
       return;
     }
-    if (record.exitCode !== null) {
-      // Duplicate exit notification — the sidecar's contract is
-      // exactly-once per session, but defensively dedupe.
-      return;
-    }
-    record.exitCode = notification.exit_code;
-    record.signalCode = notification.signal_code ?? undefined;
-    this.fireExit(notification.session_id, notification.exit_code, record.signalCode);
+    // Pre-spawn buffer — see branch (4) above.
+    this.bufferPreSpawnExit(notification);
   }
 
   /**
@@ -1823,11 +1947,22 @@ export class RustSidecarPtyHost implements PtyHost {
     // are spawned BEFORE the dispatcher queues SpawnResponse on
     // dispatch_tx, and merge_to_writer's unbiased select! can pick
     // outbound_tx first. (Plan-024 §T-024-3-1.)
+    //
+    // Pre-spawn-buffer replay (Plan-024 §I-024-6): for the symmetric
+    // ordering where DataFrame / ExitCodeNotification arrives on the
+    // wire BEFORE the matching SpawnResponse (same race source, just
+    // an earlier wire offset), `handleEnvelope` + `handleExitNotification`
+    // buffer the events keyed by session_id. After registering the
+    // session here we drain those buffers via `replayPreSpawnEvents`,
+    // which `setImmediate`-defers the listener fan-out so the consumer's
+    // `await spawn()` continuation runs first and records the session_id
+    // in consumer-side state BEFORE `onData` / `onExit` fires.
     if (envelope.kind === "spawn_response") {
       this.sessions.set(envelope.session_id, {
         exitCode: null,
         signalCode: undefined,
       });
+      this.replayPreSpawnEvents(envelope.session_id);
     }
     head.resolve(envelope);
   }
@@ -1843,6 +1978,224 @@ export class RustSidecarPtyHost implements PtyHost {
     } else {
       this.exitListener(sessionId, exitCode, signalCode);
     }
+  }
+
+  /**
+   * Append a pre-spawn `DataFrame` payload to the per-session buffer
+   * (Plan-024 §I-024-6).
+   *
+   * Bounded by `MAX_PRE_SPAWN_BUFFERED_SESSIONS` (total stale sessions)
+   * AND `MAX_PRE_SPAWN_DATA_CHUNKS_PER_SESSION` (chunks per session).
+   * Over-cap entries are logged + dropped — the caller's terminal
+   * effect is the same as if the sidecar had emitted the bytes after a
+   * session-id mismatch (which is the pathological case the cap
+   * defends against). Buffers drain on the matching `SpawnResponse`
+   * via `replayPreSpawnEvents`, or are cleared on supervisor teardown.
+   */
+  private bufferPreSpawnData(sessionId: string, bytes: Uint8Array): void {
+    const existing: Uint8Array[] | undefined = this.pendingDataFrames.get(sessionId);
+    if (existing === undefined) {
+      if (this.pendingDataFrames.size >= MAX_PRE_SPAWN_BUFFERED_SESSIONS) {
+        // Total-stale-session cap exhausted — a fresh session_id would
+        // expand the map past the cap. Drop with a warn; a future
+        // SpawnResponse for this id would arrive (if it ever does)
+        // and replay an empty buffer, matching the no-buffer-event
+        // baseline.
+        console.warn(
+          `RustSidecarPtyHost: pre-spawn buffer at capacity ` +
+            `(${MAX_PRE_SPAWN_BUFFERED_SESSIONS} stale sessions); ` +
+            `dropping DataFrame for session_id ${sessionId}.`,
+        );
+        return;
+      }
+      this.pendingDataFrames.set(sessionId, [bytes]);
+      return;
+    }
+    if (existing.length >= MAX_PRE_SPAWN_DATA_CHUNKS_PER_SESSION) {
+      console.warn(
+        `RustSidecarPtyHost: pre-spawn DataFrame buffer for session_id ` +
+          `${sessionId} at capacity ` +
+          `(${MAX_PRE_SPAWN_DATA_CHUNKS_PER_SESSION} chunks); ` +
+          `dropping further chunks until SpawnResponse arrives.`,
+      );
+      return;
+    }
+    existing.push(bytes);
+  }
+
+  /**
+   * Store the single pre-spawn `ExitCodeNotification` for a session
+   * (Plan-024 §I-024-6).
+   *
+   * The sidecar's exactly-once-per-session exit contract means at
+   * most one entry per session_id; a defensive duplicate drops with a
+   * warn rather than overwriting (overwrite would change observable
+   * behavior on a sidecar bug). Bounded by
+   * `MAX_PRE_SPAWN_BUFFERED_SESSIONS` for the same reason as
+   * `bufferPreSpawnData`.
+   */
+  private bufferPreSpawnExit(notification: ExitCodeNotification): void {
+    if (this.pendingExits.has(notification.session_id)) {
+      console.warn(
+        `RustSidecarPtyHost: duplicate pre-spawn ExitCodeNotification ` +
+          `for session_id ${notification.session_id} (exit_code=` +
+          `${notification.exit_code}); dropping (sidecar contract is ` +
+          `exactly-once-per-session).`,
+      );
+      return;
+    }
+    if (
+      !this.pendingDataFrames.has(notification.session_id) &&
+      this.pendingExits.size >= MAX_PRE_SPAWN_BUFFERED_SESSIONS
+    ) {
+      // Fresh session_id would expand the per-kind buffer past the cap.
+      // Drop with a warn; semantics match the over-cap data-buffer
+      // path.
+      console.warn(
+        `RustSidecarPtyHost: pre-spawn exit buffer at capacity ` +
+          `(${MAX_PRE_SPAWN_BUFFERED_SESSIONS} stale sessions); ` +
+          `dropping ExitCodeNotification for session_id ` +
+          `${notification.session_id}.`,
+      );
+      return;
+    }
+    this.pendingExits.set(notification.session_id, notification);
+  }
+
+  /**
+   * Drain any pre-spawn `DataFrame` / `ExitCodeNotification` buffers
+   * for `sessionId` after the supervisor's `resolveOutstanding`
+   * registers the session via `SpawnResponse` (Plan-024 §I-024-6).
+   *
+   * **Defer rationale.** The drain loop in `drainParserUntilIncomplete`
+   * dispatches frames synchronously without yielding to microtasks,
+   * so `resolveOutstanding`'s `head.resolve(envelope)` schedules the
+   * `spawn()`-caller's await continuation on the microtask queue —
+   * but the continuation does not actually run until the current
+   * synchronous block (the drain loop + its caller) completes. If
+   * `replayPreSpawnEvents` fired listeners synchronously inside the
+   * spawn-response branch of `resolveOutstanding`, the listener fan-
+   * out would happen BEFORE `spawn()`'s caller resumes — i.e., before
+   * the consumer records `sessionId` in its own state. Consumers that
+   * key off `await spawn()`'s returned `session_id` (the typical
+   * `await spawn(); sessions.set(id, ...);` pattern) would observe
+   * `onData(id, ...)` / `onExit(id, ...)` against a not-yet-recorded
+   * id.
+   *
+   * `setImmediate` schedules the replay on the I/O loop's Check phase,
+   * AFTER the current Poll phase's microtask queue drains — by which
+   * time `spawn()`'s caller continuation has resumed, the
+   * `SpawnResponse` has been returned to its caller, and the caller
+   * has run its post-await body. `.unref()` keeps the timer from
+   * pinning the daemon process alive during teardown (a corner case;
+   * the typical replay path runs within microseconds of scheduling).
+   *
+   * **Ordering inside the replay.** DataFrame chunks fire in arrival
+   * order (the buffer is an array, FIFO); ExitCodeNotification fires
+   * last per the sidecar's exit-is-terminal contract. A late
+   * `close()` arriving between the SpawnResponse and the
+   * `setImmediate` fire is honored — the replay re-checks
+   * `sessions.has(sessionId)` and `closedSessionIds.has(sessionId)`
+   * before firing each event so a same-tick close suppresses the
+   * fan-out per the post-`close()` onExit-suppression contract.
+   */
+  private replayPreSpawnEvents(sessionId: string): void {
+    const dataFrames: Uint8Array[] | undefined = this.pendingDataFrames.get(sessionId);
+    const exit: ExitCodeNotification | undefined = this.pendingExits.get(sessionId);
+    this.pendingDataFrames.delete(sessionId);
+    this.pendingExits.delete(sessionId);
+    if (dataFrames === undefined && exit === undefined) {
+      return;
+    }
+    const handle: NodeJS.Immediate = setImmediate(() => {
+      // Re-check at fire time — a `close(sessionId)` running between
+      // the SpawnResponse-handling and the setImmediate fire would
+      // have removed the session record AND added the id to
+      // closedSessionIds. Honor that by suppressing the fan-out, per
+      // the PtyHost contract's "MUST NOT fire after close() resolves"
+      // clause.
+      if (this.closedSessionIds.has(sessionId)) {
+        return;
+      }
+      if (dataFrames !== undefined && this.sessions.has(sessionId)) {
+        for (const bytes of dataFrames) {
+          this.dataListener(sessionId, bytes);
+        }
+      }
+      if (exit !== undefined) {
+        const record: SessionRecord | undefined = this.sessions.get(sessionId);
+        if (record === undefined || record.exitCode !== null) {
+          // Either close() ran between schedule and fire (record
+          // undefined; closedSessionIds branch above already covers
+          // most of that, but a same-tick handleChildExit-driven
+          // sessions.clear() would land here), or another
+          // ExitCodeNotification path already cached the exit (e.g.,
+          // a real-time post-spawn exit fired before this replay
+          // scheduled). Either way, suppress per the existing
+          // exactly-once-per-session + post-close contracts.
+          return;
+        }
+        record.exitCode = exit.exit_code;
+        record.signalCode = exit.signal_code ?? undefined;
+        this.fireExit(sessionId, exit.exit_code, record.signalCode);
+      }
+    });
+    handle.unref();
+  }
+
+  /**
+   * Append `sessionId` to `closedSessionIds` with FIFO eviction
+   * beyond `MAX_CLOSED_SESSION_IDS` (Plan-024 §I-024-6).
+   *
+   * The Map's insertion order is JS's natural FIFO; the oldest entry
+   * is the first value yielded by `values().next()`. Eviction is
+   * cheap (one map delete per recorded close beyond the cap) and the
+   * cap is reached only on long-running supervisors with extreme
+   * session churn (~10 K closes within a single supervisor lifetime).
+   * Evicted entries fall back to the pre-spawn-buffer branch — a
+   * no-op when no matching `SpawnResponse` arrives, since the
+   * sidecar does not reuse session_ids within a supervisor lifetime.
+   */
+  private recordClosedSessionId(sessionId: string): void {
+    if (this.closedSessionIds.has(sessionId)) {
+      // Defensive — close() is idempotent at the public surface and
+      // duplicates should not reach here, but re-adding would not
+      // refresh insertion order on a Set; explicit no-op clarifies.
+      return;
+    }
+    if (this.closedSessionIds.size >= MAX_CLOSED_SESSION_IDS) {
+      const oldest: string | undefined = this.closedSessionIds.values().next().value;
+      if (oldest !== undefined) {
+        this.closedSessionIds.delete(oldest);
+      }
+    }
+    this.closedSessionIds.add(sessionId);
+  }
+
+  /**
+   * Clear all pre-spawn buffers + closed-session-id retention on
+   * supervisor teardown (Plan-024 §I-024-6).
+   *
+   * Invoked from `handleChildExit` / `handleChildError` after the
+   * parser reset + outstanding rejection. The sidecar's monotonic
+   * `session_id` counter resets on respawn (per `packages/sidecar-
+   * rust-pty/src/pty_session.rs`), so retention of pre-respawn ids in
+   * either the pre-spawn buffer OR the closed-session-id set across a
+   * supervisor lifetime would (a) replay stale pre-respawn data
+   * against a fresh post-respawn session, OR (b) suppress legitimate
+   * events for a fresh post-respawn session whose id matches a
+   * pre-respawn closed one (the typical `s-0`-after-crash case).
+   *
+   * The `sessions` map is intentionally left untouched: existing
+   * pre-respawn entries are harmless cruft (their consumers received
+   * rejections via `rejectAllOutstanding`); a fresh post-respawn
+   * `SpawnResponse` for the same id overwrites the stale entry in
+   * `resolveOutstanding`'s `sessions.set(...)` call.
+   */
+  private clearPreSpawnState(): void {
+    this.pendingDataFrames.clear();
+    this.pendingExits.clear();
+    this.closedSessionIds.clear();
   }
 
   /**
@@ -1984,6 +2337,7 @@ export class RustSidecarPtyHost implements PtyHost {
     this.detachChildStdoutListener(child);
     this.parser = new ContentLengthParser();
     this.child = null;
+    this.clearPreSpawnState();
     const stashed: Error | null = this.consumePendingTeardownCause();
     this.rejectAllOutstanding(
       stashed ??
@@ -2011,6 +2365,7 @@ export class RustSidecarPtyHost implements PtyHost {
     this.detachChildStdoutListener(child);
     this.parser = new ContentLengthParser();
     this.child = null;
+    this.clearPreSpawnState();
     const stashed: Error | null = this.consumePendingTeardownCause();
     this.rejectAllOutstanding(
       stashed ??

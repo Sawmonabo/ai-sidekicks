@@ -2167,6 +2167,493 @@ describe("RustSidecarPtyHost — same-stdout-chunk frame coalescing (Plan-024 §
 });
 
 // ----------------------------------------------------------------------------
+// Pre-spawn event buffering — `DataFrame` / `ExitCodeNotification` arriving
+// on the wire BEFORE the matching `SpawnResponse` for a freshly-spawned
+// session.
+//
+// The sidecar's `spawn_reader_task` and `spawn_waiter_task` are spawned
+// (per `packages/sidecar-rust-pty/src/pty_session.rs::spawn()`) BEFORE
+// the dispatcher queues `SpawnResponse` on `dispatch_tx`. The merger at
+// `packages/sidecar-rust-pty/src/main.rs::merge_to_writer` selects
+// unbiased between `dispatch_tx` and `outbound_tx`, so for a sub-
+// millisecond-lived child the waiter's exit notification can land on
+// the wire BEFORE the dispatcher's spawn response. The daemon-side
+// `RustSidecarPtyHost` MUST:
+//
+//   1. Buffer the pre-spawn events keyed by `session_id` (the fifth-
+//      pass fix only covered events trailing `SpawnResponse` in the
+//      same I/O chunk; the symmetric pre-spawn ordering needs its own
+//      buffer).
+//   2. Replay the buffer after registering the session via
+//      `SpawnResponse` handling.
+//   3. Defer the replay to a separate I/O turn (`setImmediate`) so the
+//      consumer's `await spawn()` continuation runs BEFORE the buffered
+//      listener fan-out fires — otherwise `onData(id, ...)` / `onExit(
+//      id, ...)` would fire before the consumer records `id` in its
+//      own state, breaking substitutability with `NodePtyHost` (which
+//      cannot have this race — `pty.spawn()` is synchronous and the
+//      `child.onExit` subscription is wired atomically inside spawn()).
+//
+// (Plan-024 §T-024-3-1 + §I-024-6; ADR-019 §Failure Mode Analysis.)
+// ----------------------------------------------------------------------------
+
+describe("RustSidecarPtyHost — pre-spawn event buffering (Plan-024 §I-024-6)", () => {
+  /**
+   * Yield to the I/O loop's Check phase so any `setImmediate` callbacks
+   * scheduled during prior microtask + I/O work get a chance to run.
+   * Used as the deterministic "drain the replay's setImmediate" barrier
+   * after `await spawnP` resolves.
+   */
+  async function flushSetImmediate(): Promise<void> {
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+  }
+
+  it("PE1 — delivers DataFrame arriving same-chunk BEFORE SpawnResponse, after spawn() resolves", async () => {
+    const fake = makeFakeChild();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: spawnReturning(fake),
+    });
+
+    const events: Array<{ tag: "data" | "spawn-resolved"; text?: string }> = [];
+    host.setOnData((sessionId, bytes) => {
+      if (sessionId === "s-0") {
+        events.push({ tag: "data", text: Buffer.from(bytes).toString("utf8") });
+      }
+    });
+
+    const spawnP = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/echo",
+      args: ["hi"],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+
+    // Wire order: DataFrame FIRST, then SpawnResponse. Mirrors the
+    // sidecar's merge_to_writer race where outbound_tx (DataFrame) is
+    // selected ahead of dispatch_tx (SpawnResponse).
+    const dataBeforeSpawn = Buffer.concat([
+      frameEnvelope({
+        kind: "data_frame",
+        session_id: "s-0",
+        stream: "stdout",
+        seq: 0,
+        bytes: Buffer.from("hi\n", "utf8").toString("base64"),
+      }),
+      frameEnvelope({ kind: "spawn_response", session_id: "s-0" }),
+    ]);
+    fake.writeStdout(dataBeforeSpawn);
+
+    const response = await spawnP;
+    events.push({ tag: "spawn-resolved" });
+    expect(response).toEqual({ kind: "spawn_response", session_id: "s-0" });
+
+    // Drain the setImmediate-deferred replay.
+    await flushSetImmediate();
+
+    // Assertion: onData fires AFTER spawn() resolves (the buffered
+    // chunk is not lost; the consumer observes spawn-resolved BEFORE
+    // the data fan-out fires).
+    expect(events.map((e) => e.tag)).toEqual(["spawn-resolved", "data"]);
+    expect(events[1]).toMatchObject({ tag: "data", text: "hi\n" });
+  });
+
+  it("PE2 — delivers ExitCodeNotification arriving same-chunk BEFORE SpawnResponse, after spawn() resolves", async () => {
+    const fake = makeFakeChild();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: spawnReturning(fake),
+    });
+
+    const events: Array<{ tag: "exit" | "spawn-resolved"; exitCode?: number }> = [];
+    host.setOnExit((sessionId, exitCode) => {
+      if (sessionId === "s-0") {
+        events.push({ tag: "exit", exitCode });
+      }
+    });
+
+    const spawnP = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/true",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+
+    // Wire order: ExitCodeNotification FIRST (sub-ms-exit child where
+    // waiter_task wins the unbiased select), then SpawnResponse.
+    const exitBeforeSpawn = Buffer.concat([
+      frameEnvelope({
+        kind: "exit_code_notification",
+        session_id: "s-0",
+        exit_code: 0,
+        signal_code: null,
+      }),
+      frameEnvelope({ kind: "spawn_response", session_id: "s-0" }),
+    ]);
+    fake.writeStdout(exitBeforeSpawn);
+
+    const response = await spawnP;
+    events.push({ tag: "spawn-resolved" });
+    expect(response).toEqual({ kind: "spawn_response", session_id: "s-0" });
+
+    await flushSetImmediate();
+
+    expect(events.map((e) => e.tag)).toEqual(["spawn-resolved", "exit"]);
+    expect(events[1]).toMatchObject({ tag: "exit", exitCode: 0 });
+  });
+
+  it("PE3 — preserves wire order for DataFrame + ExitCodeNotification preceding SpawnResponse; both fire after spawn() resolves", async () => {
+    const fake = makeFakeChild();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: spawnReturning(fake),
+    });
+
+    const events: Array<{
+      tag: "data" | "exit" | "spawn-resolved";
+      text?: string;
+      exitCode?: number;
+    }> = [];
+    host.setOnData((sessionId, bytes) => {
+      if (sessionId === "s-0") {
+        events.push({ tag: "data", text: Buffer.from(bytes).toString("utf8") });
+      }
+    });
+    host.setOnExit((sessionId, exitCode) => {
+      if (sessionId === "s-0") {
+        events.push({ tag: "exit", exitCode });
+      }
+    });
+
+    const spawnP = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/echo",
+      args: ["hi"],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+
+    // Wire order: DataFrame → ExitCodeNotification → SpawnResponse.
+    // The pre-spawn buffer MUST preserve arrival order (data first,
+    // then exit) and the replay MUST fire both AFTER spawn() resolves.
+    const allThree = Buffer.concat([
+      frameEnvelope({
+        kind: "data_frame",
+        session_id: "s-0",
+        stream: "stdout",
+        seq: 0,
+        bytes: Buffer.from("hi\n", "utf8").toString("base64"),
+      }),
+      frameEnvelope({
+        kind: "exit_code_notification",
+        session_id: "s-0",
+        exit_code: 0,
+        signal_code: null,
+      }),
+      frameEnvelope({ kind: "spawn_response", session_id: "s-0" }),
+    ]);
+    fake.writeStdout(allThree);
+
+    await spawnP;
+    events.push({ tag: "spawn-resolved" });
+
+    await flushSetImmediate();
+
+    expect(events.map((e) => e.tag)).toEqual(["spawn-resolved", "data", "exit"]);
+    expect(events[1]).toMatchObject({ tag: "data", text: "hi\n" });
+    expect(events[2]).toMatchObject({ tag: "exit", exitCode: 0 });
+  });
+
+  it("PE4 — survives drain-cycle boundary: DataFrame in chunk N, SpawnResponse in chunk N+1, replay still fires", async () => {
+    const fake = makeFakeChild();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: spawnReturning(fake),
+    });
+
+    const events: Array<{ tag: "data" | "spawn-resolved"; text?: string }> = [];
+    host.setOnData((sessionId, bytes) => {
+      if (sessionId === "s-0") {
+        events.push({ tag: "data", text: Buffer.from(bytes).toString("utf8") });
+      }
+    });
+
+    const spawnP = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/echo",
+      args: ["hi"],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+
+    // Chunk 1: DataFrame alone — daemon's drain loop buffers it under
+    // the pre-spawn-buffer branch.
+    fake.writeStdout(
+      frameEnvelope({
+        kind: "data_frame",
+        session_id: "s-0",
+        stream: "stdout",
+        seq: 0,
+        bytes: Buffer.from("hi\n", "utf8").toString("base64"),
+      }),
+    );
+    // Give the drain loop a turn so the DataFrame settles into the
+    // pre-spawn buffer before SpawnResponse arrives in chunk 2.
+    await flushMicrotasks();
+
+    // Chunk 2: SpawnResponse alone — daemon registers the session and
+    // schedules a setImmediate replay of the buffered DataFrame.
+    fake.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
+
+    await spawnP;
+    events.push({ tag: "spawn-resolved" });
+
+    await flushSetImmediate();
+
+    expect(events.map((e) => e.tag)).toEqual(["spawn-resolved", "data"]);
+    expect(events[1]).toMatchObject({ tag: "data", text: "hi\n" });
+  });
+
+  it("PE5 — pre-spawn buffer cleared on supervisor teardown so pre-respawn events do not replay against fresh post-respawn session", async () => {
+    // The sidecar's session_id counter (`s-{n}`) resets on respawn.
+    // Without buffer-clear-on-teardown, a pre-respawn DataFrame for
+    // `s-0` that never received its SpawnResponse (because the
+    // sidecar crashed before emitting it) would sit in the
+    // pre-spawn buffer indefinitely — and the post-respawn fresh
+    // child's SpawnResponse for `s-0` (a different logical session
+    // but the same wire id) would replay the stale pre-respawn
+    // DataFrame against the new session. Verify the buffer is
+    // cleared on `handleChildExit` so only the new child's data
+    // reaches `onData`.
+    const seq = spawnReturningSequence();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: seq.spawn,
+    });
+
+    const observed: string[] = [];
+    host.setOnData((sessionId, bytes) => {
+      if (sessionId === "s-0") {
+        observed.push(Buffer.from(bytes).toString("utf8"));
+      }
+    });
+
+    // First spawn — pre-crash. Daemon issues spawn_request; we never
+    // deliver SpawnResponse. Instead the child emits a DataFrame for
+    // `s-0` (pre-spawn-buffer entry) and then crashes.
+    const preCrashSpawnP = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/echo",
+      args: ["stale"],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    seq.latest().writeStdout(
+      frameEnvelope({
+        kind: "data_frame",
+        session_id: "s-0",
+        stream: "stdout",
+        seq: 0,
+        bytes: Buffer.from("STALE\n", "utf8").toString("base64"),
+      }),
+    );
+    await flushMicrotasks();
+    // Crash the first child — handleChildExit clears the pre-spawn
+    // buffer per I-024-6.
+    seq.latest().triggerExit(1, null);
+    await preCrashSpawnP.catch(() => undefined);
+
+    // Post-respawn — issue a fresh spawn. Daemon respawns and the
+    // new child emits SpawnResponse(s-0) followed by a fresh
+    // DataFrame.
+    const postCrashSpawnP = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/echo",
+      args: ["fresh"],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    const newChild = seq.latest();
+    newChild.writeStdout(
+      Buffer.concat([
+        frameEnvelope({ kind: "spawn_response", session_id: "s-0" }),
+        frameEnvelope({
+          kind: "data_frame",
+          session_id: "s-0",
+          stream: "stdout",
+          seq: 0,
+          bytes: Buffer.from("FRESH\n", "utf8").toString("base64"),
+        }),
+      ]),
+    );
+    await postCrashSpawnP;
+    await flushSetImmediate();
+
+    // The stale pre-crash DataFrame MUST NOT have replayed — only the
+    // post-respawn fresh DataFrame should reach the consumer.
+    expect(observed).toEqual(["FRESH\n"]);
+  });
+
+  it("PE5b — closed-session-id retention cleared on supervisor teardown so post-respawn fresh session is not suppressed", async () => {
+    // Symmetric to PE5: if `closedSessionIds` retained pre-respawn
+    // ids across supervisor teardown, a fresh post-respawn session
+    // reusing an id that the pre-crash supervisor had `close()`d
+    // would have its DataFrame / ExitCodeNotification suppressed
+    // (instead of delivered via the alive-session branch). Verify
+    // closedSessionIds is cleared by `clearPreSpawnState` on
+    // `handleChildExit` per I-024-6.
+    const seq = spawnReturningSequence();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: seq.spawn,
+    });
+
+    const observed: string[] = [];
+    host.setOnData((sessionId, bytes) => {
+      if (sessionId === "s-0") {
+        observed.push(Buffer.from(bytes).toString("utf8"));
+      }
+    });
+
+    // Pre-crash: spawn → SpawnResponse → close() (records s-0 in
+    // closedSessionIds).
+    const preP = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    seq.latest().writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
+    await preP;
+    const closeP = host.close("s-0");
+    await flushMicrotasks();
+    seq.latest().writeStdout(frameEnvelope({ kind: "kill_response", session_id: "s-0" }));
+    await closeP;
+
+    // Crash the first child — handleChildExit clears
+    // closedSessionIds per I-024-6 so the post-respawn fresh `s-0`
+    // is not suppressed.
+    seq.latest().triggerExit(1, null);
+
+    // Post-respawn: fresh spawn for s-0 (same wire id, new logical
+    // session). Emit SpawnResponse + DataFrame.
+    const postP = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/echo",
+      args: ["fresh"],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    const newChild = seq.latest();
+    newChild.writeStdout(
+      Buffer.concat([
+        frameEnvelope({ kind: "spawn_response", session_id: "s-0" }),
+        frameEnvelope({
+          kind: "data_frame",
+          session_id: "s-0",
+          stream: "stdout",
+          seq: 0,
+          bytes: Buffer.from("FRESH\n", "utf8").toString("base64"),
+        }),
+      ]),
+    );
+    await postP;
+    await flushSetImmediate();
+
+    // The fresh DataFrame MUST reach the consumer — closedSessionIds
+    // was cleared on teardown so the post-respawn `s-0` is treated
+    // as alive, not suppressed.
+    expect(observed).toEqual(["FRESH\n"]);
+  });
+
+  it("PE6 — late ExitCodeNotification arriving after close() is suppressed (not buffered)", async () => {
+    // Regression guard on the close()-aware suppression branch: a
+    // session that was alive then closed MUST suppress a late
+    // ExitCodeNotification (the post-close() onExit-suppression
+    // contract clause). Without `closedSessionIds`, the unknown-
+    // session branch could mis-route the late notification into the
+    // pre-spawn buffer — where it would leak until supervisor
+    // teardown — instead of being suppressed.
+    const fake = makeFakeChild();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: spawnReturning(fake),
+    });
+
+    const exits: number[] = [];
+    host.setOnExit((sessionId, exitCode) => {
+      if (sessionId === "s-0") {
+        exits.push(exitCode);
+      }
+    });
+
+    const spawnP = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    fake.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
+    await spawnP;
+
+    // Close before the child exits — synchronous delete from sessions
+    // map + record in closedSessionIds.
+    const closeP = host.close("s-0");
+    await flushMicrotasks();
+    fake.writeStdout(frameEnvelope({ kind: "kill_response", session_id: "s-0" }));
+    await closeP;
+
+    // Late ExitCodeNotification — must be suppressed per the
+    // post-close() onExit-suppression contract.
+    fake.writeStdout(
+      frameEnvelope({
+        kind: "exit_code_notification",
+        session_id: "s-0",
+        exit_code: 0,
+        signal_code: null,
+      }),
+    );
+    await flushMicrotasks();
+    await flushSetImmediate();
+
+    expect(exits).toEqual([]);
+  });
+});
+
+// ----------------------------------------------------------------------------
 // Dual error+exit events on the same child do not double-count the crash
 // budget — Node's `child_process` can emit both signals for the same
 // failed child (rare spawn-then-crash-mid-init edge case).
