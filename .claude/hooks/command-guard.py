@@ -4,6 +4,8 @@
 import json
 import os
 import re
+import shlex
+import subprocess
 import sys
 
 # Hard block — irreversible or security-critical, no prompt.
@@ -47,6 +49,807 @@ ASK_PATTERNS = [
     ),
 ]
 
+_WORKTREE_ALLOWED_DIR = ".worktrees"
+_WORKTREE_FLAGS_WITH_ARG = {"-b", "-B", "--reason"}
+# Git globals that accept a separate-token value (space-separated form, e.g.
+# `git -C path worktree add ...` or `git --namespace foo worktree add ...`).
+# Anything not in this set is treated as a no-arg/bool global. The
+# `--flag=value` form is one token after shlex.split so it doesn't need
+# separate handling. Enumerating value-takers is load-bearing: if we
+# under-consume (treat a value-taker as bool), the parser lands on the
+# value (e.g. `foo`) instead of the subcommand (`worktree`), misses the
+# invocation, and allows what should be a bypass. Over-consuming a real
+# bool global would shift detection in the opposite direction, also a
+# bypass — so we enumerate from `git --help` rather than guessing.
+_GIT_GLOBAL_WITH_SEP_ARG = {
+    "-C",
+    "-c",
+    "--git-dir",
+    "--work-tree",
+    "--namespace",
+    "--super-prefix",
+    "--config-env",
+    "--list-cmds",
+    "--attr-source",
+    # `--exec-path` is bool-or-`=value` in git(1), not space-separated:
+    # `git --exec-path /tmp status` prints the exec-path and exits without
+    # running `status`. Including it here is defense-in-depth — it makes the
+    # parser recognize `git --exec-path /tmp worktree add ../escape` as a
+    # worktree invocation even though git itself would short-circuit.
+    "--exec-path",
+}
+_SHELL_OPS = frozenset({"&&", "||", ";", "|", "&", "(", ")"})
+
+# Shell/scripting wrappers whose `-c` argument is a nested command we must
+# re-check. Without this, `bash -lc 'git worktree add ../escape'` slips past
+# the top-level invocation gate because the outer tokens are
+# `[bash, -lc, '...']` — no `git` token at the surface — so the strict-shape
+# check never fires. Recursion bounded by _MAX_WRAPPER_DEPTH (cf. advisor:
+# pathological `bash -c "bash -c '...'"` chains).
+_WRAPPER_SHELL_BIN_NAMES = frozenset({"bash", "sh", "zsh", "ksh", "dash", "ash"})
+# Wrapper shell options that consume the next token as a value (bash(1)
+# `--rcfile FILE`, `-o option`, `-O shopt`; zsh shares -o/-O). Without
+# walking past the value, the parser would land on it as a "first
+# positional", treat the invocation as `bash <scriptfile>`, and return
+# None before reaching `-c`. The `--flag=value` one-token form is handled
+# by the generic `tok.startswith("--")` skip below.
+_WRAPPER_SHELL_OPTS_WITH_VALUE = frozenset(
+    {"--rcfile", "--init-file", "-o", "+o", "-O", "+O"}
+)
+_WRAPPER_SCRIPT_BIN_NAMES = frozenset(
+    {"python", "python3", "python2", "node", "perl", "ruby"}
+)
+# Cross-runtime "next token is code" flags. Kept as a single set because the
+# `-c <cmd>` form is the most common interpreter eval shape across languages
+# (python -c, node --command alternative aliases, etc.); the per-runtime
+# table below adds language-specific eval flags on top.
+_WRAPPER_SCRIPT_ARG_FLAGS = frozenset({"-c", "--command"})
+# Per-runtime eval flags. The flag's argument is the program body — not a
+# script-file path — so each runtime executes it directly. Without unwrapping,
+# `node -e "<inner>"` (or `perl -E '<inner>'`, etc.) hides `git worktree
+# add|move` from the strict-shape check because the outer tokens are
+# `[node, -e, "<inner>"]` with no `git` token at the surface. node also
+# supports `-p`/`--print` which evaluate-and-print; treated as eval here.
+_WRAPPER_SCRIPT_EVAL_FLAGS = {
+    "python": frozenset(),
+    "python3": frozenset(),
+    "python2": frozenset(),
+    "node": frozenset({"-e", "--eval", "-p", "--print"}),
+    "perl": frozenset({"-e", "-E"}),
+    "ruby": frozenset({"-e"}),
+}
+_ENV_BIN_NAME = "env"
+# env globals that take a separate-token value (so we can skip past them when
+# locating the wrapped binary). `man env`: -u/--unset, -S/--split-string,
+# -C/--chdir all consume the next token.
+_ENV_VALUE_FLAGS = frozenset(
+    {"-u", "--unset", "-S", "--split-string", "-C", "--chdir"}
+)
+_EVAL_KEYWORD = "eval"
+_MAX_WRAPPER_DEPTH = 4
+
+# Substring detector for `git ... worktree (add|move)` with intervening
+# characters. Used as a defense-in-depth fallback when the wrapper is an
+# interpreter-language runtime (`node -e`, `python -c`, `perl -e`, `ruby -e`):
+# shell-tokenization of the payload glues a quoted JS/Python string like
+# `'git worktree add ../escape'` into a single token, so `_has_git_worktree_
+# invocation` can't see the embedded call. The substring scan catches that.
+# Both gaps cap on length to keep false positives low (no newline / semicolon
+# separators allowed in the gap, so the pattern can't bridge across statement
+# boundaries). The second gap (worktree → add|move) is wider than pure
+# whitespace because Python/JS list literals separate them with `", "` —
+# e.g., `subprocess.run(["git", "worktree", "add", "../escape"])`. Not
+# applied to bash/sh wrapper payloads — those re-tokenize cleanly under
+# shell rules and the recursive check is authoritative.
+_GIT_WORKTREE_RE = re.compile(
+    r"\bgit\b[^\n;]{0,80}\bworktree\b[^\n;]{0,8}\b(?:add|move)\b",
+    re.IGNORECASE,
+)
+
+_GIT_BIN_NAME = "git"
+
+
+def _is_git_token(tok):
+    """True if `tok` invokes the git binary — basename match, case-insensitive.
+
+    `tokens[i].lower() == "git"` misses `/usr/bin/git`, `./git`, or
+    `~/bin/git`, all of which are valid ways to invoke git. The hook would
+    treat such invocations as "no git here" and skip the strict-shape +
+    containment check entirely (PR #58 Codex Round 8). Matching on basename
+    instead lets path-prefixed invocations land on the same gate. The
+    surrounding `_consume_git_globals` and target-extraction logic does not
+    depend on the literal token — only on its position after the matched
+    git — so the change is local to the gate."""
+    return os.path.basename(tok).lower() == _GIT_BIN_NAME
+
+
+_ALIAS_PREFIX = "alias."
+# Lazy, per-Python-process cache of configured git aliases whose body targets
+# `worktree (add|move)`. None = "not yet scanned"; an empty frozenset =
+# "scanned, none found". Tests override by setting this module attribute
+# before exercising the check.
+_configured_alias_cache = None
+
+
+def _repo_root():
+    """Absolute repo root, or None outside a git repo."""
+    project_dir = os.environ.get("CLAUDE_PROJECT_DIR")
+    if project_dir and os.path.isdir(project_dir):
+        return os.path.abspath(project_dir)
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return None
+
+
+def _resolve_path(target, base_cwd):
+    if os.path.isabs(target):
+        return os.path.normpath(target)
+    return os.path.normpath(os.path.join(base_cwd, target))
+
+
+def _normalize_shell_operators(command):
+    """Insert whitespace around shell control operators outside quoted strings,
+    so `shlex.split` tokenizes them as standalone separators. Without this,
+    `cd /tmp;git worktree add ...` produces a glued `/tmp;git` token. Also
+    converts unquoted newlines to `;` — shlex eats `\\n` as whitespace, which
+    would glue commands across lines into one token stream and let a second
+    `git worktree add` slip past the strict-shape check."""
+    out = []
+    i = 0
+    in_single = False
+    in_double = False
+    n = len(command)
+    while i < n:
+        c = command[i]
+        if c == "'" and not in_double:
+            in_single = not in_single
+            out.append(c)
+            i += 1
+            continue
+        if c == '"' and not in_single:
+            in_double = not in_double
+            out.append(c)
+            i += 1
+            continue
+        if in_single or in_double:
+            out.append(c)
+            i += 1
+            continue
+        if c == "\n":
+            out.append(" ; ")
+            i += 1
+            continue
+        if command[i : i + 2] in ("&&", "||"):
+            out.append(" " + command[i : i + 2] + " ")
+            i += 2
+            continue
+        if c in ";|&()":
+            out.append(" " + c + " ")
+            i += 1
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
+def _has_unquoted_subshell(command):
+    """Detect `$(` or backtick outside quoted strings — both are command
+    substitution and indicate complex shell shape that we refuse to parse."""
+    in_single = False
+    in_double = False
+    i = 0
+    while i < len(command):
+        c = command[i]
+        if c == "'" and not in_double:
+            in_single = not in_single
+        elif c == '"' and not in_single:
+            in_double = not in_double
+        elif not in_single and not in_double:
+            if c == "`":
+                return True
+            if c == "$" and i + 1 < len(command) and command[i + 1] == "(":
+                return True
+        i += 1
+    return False
+
+
+def _consume_git_globals(tokens, start_idx):
+    """Consume git global options after `git`. Permissive about unknown flags:
+    any leading `-X` or `--flag[=value]` is treated as a no-arg global unless
+    it's a known with-separated-arg flag (see _GIT_GLOBAL_WITH_SEP_ARG).
+
+    Returns (index_past_globals, c_paths, inline_aliases):
+    - c_paths is the ordered list of `-C <path>` values — git applies them
+      cumulatively against an evolving cwd, so the caller must walk them in
+      order rather than keeping only the last one.
+    - inline_aliases is the dict `NAME -> VALUE` of any `-c alias.NAME=VALUE`
+      globals — these define an alias usable later in the same command
+      (e.g., `git -c alias.wta='worktree add' wta ../escape`)."""
+    i = start_idx
+    c_paths = []
+    inline_aliases = {}
+    while i < len(tokens):
+        tok = tokens[i]
+        if not tok.startswith("-"):
+            break
+        if tok in _GIT_GLOBAL_WITH_SEP_ARG:
+            if tok == "-C" and i + 1 < len(tokens):
+                c_paths.append(tokens[i + 1])
+            elif tok == "-c" and i + 1 < len(tokens):
+                kv = tokens[i + 1]
+                if "=" in kv:
+                    key, val = kv.split("=", 1)
+                    if key.startswith(_ALIAS_PREFIX):
+                        inline_aliases[key[len(_ALIAS_PREFIX) :]] = val
+            i += 2
+            continue
+        i += 1
+    return i, c_paths, inline_aliases
+
+
+def _extract_worktree_target(args, subcmd):
+    """Walk tokens after `worktree add|move`; return target path or None."""
+    positionals = []
+    skip_next = False
+    for tok in args:
+        if skip_next:
+            skip_next = False
+            continue
+        if tok in _WORKTREE_FLAGS_WITH_ARG:
+            skip_next = True
+            continue
+        if tok == "--":
+            continue
+        if tok.startswith("-"):
+            continue
+        positionals.append(tok)
+    if subcmd == "add" and positionals:
+        return positionals[0]
+    if subcmd == "move" and len(positionals) >= 2:
+        return positionals[1]
+    return None
+
+
+def _alias_targets_worktree(expansion):
+    """Return True if a git alias's body expands into `worktree (add|move)`.
+
+    Two body shapes are recognized:
+    1. Plain body (`worktree add`, `-C path worktree add ...`): tokenize and
+       check for `worktree (add|move)` after any leading git globals.
+    2. Shell body (`!cmd ...` — git executes via shell): tokenize the inner
+       command and scan for a direct `git worktree (add|move)` invocation.
+
+    Residuals (intentional, under the non-adversarial threat model — see
+    PR #58 Round 6 §Residuals): chained aliases (A → B → worktree),
+    prefix-only aliases (`alias.wt = worktree`, with `add` supplied at the
+    use site), and nested shell wrappers inside a `!` alias body."""
+    expansion = expansion.strip()
+    # Strip one layer of outer matching quotes — nested quoting in the source
+    # command (`git -c "alias.x='...'" x`) may leave them on the value.
+    if (
+        len(expansion) >= 2
+        and expansion[0] == expansion[-1]
+        and expansion[0] in ("'", '"')
+    ):
+        expansion = expansion[1:-1]
+    try:
+        toks = shlex.split(expansion)
+    except ValueError:
+        return False
+    if not toks:
+        return False
+    if toks[0].startswith("!"):
+        body = expansion.lstrip()[1:]
+        try:
+            inner = shlex.split(body)
+        except ValueError:
+            return True  # malformed shell body — err toward denial
+        return _has_git_worktree_invocation(inner)
+    j, _, _ = _consume_git_globals(toks, 0)
+    return (
+        j + 1 < len(toks)
+        and toks[j].lower() == "worktree"
+        and toks[j + 1].lower() in ("add", "move")
+    )
+
+
+def _scan_configured_worktree_aliases():
+    """Subprocess `git config --get-regexp '^alias\\.'` and return the
+    frozenset of alias names whose body targets `worktree (add|move)`.
+
+    Pre-configured aliases (`git config --global alias.wta 'worktree add'`)
+    are invisible in the Bash tokens — only `wta` appears when an agent runs
+    `git wta ../escape`. Without this scan, the strict-shape check has no way
+    to know `wta` expands to a worktree call.
+
+    Bounded cost: one `git config` subprocess per hook invocation, gated by
+    the quick-exit logic in `_check_worktree_path` (only runs when the
+    command mentions `git` but not `worktree`). Fails open on error, matching
+    the rest of this hook."""
+    try:
+        result = subprocess.run(
+            ["git", "config", "--get-regexp", r"^alias\."],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return frozenset()
+    if result.returncode != 0:
+        return frozenset()
+    names = set()
+    for line in result.stdout.splitlines():
+        if not line.startswith(_ALIAS_PREFIX):
+            continue
+        parts = line.split(" ", 1)
+        if len(parts) != 2:
+            continue
+        key, value = parts
+        if _alias_targets_worktree(value):
+            names.add(key[len(_ALIAS_PREFIX) :])
+    return frozenset(names)
+
+
+def _get_configured_worktree_aliases():
+    """Lazy, memoized accessor for pre-configured worktree-targeting aliases.
+
+    Bootstrap guard: `_scan_configured_worktree_aliases` indirectly calls back
+    into this function (via `_alias_targets_worktree` → shell-alias body →
+    `_has_git_worktree_invocation` → cache lookup). Setting the cache to an
+    empty frozenset before the scan breaks the recursion. The cost is that
+    chained aliases (`alias.a = b`, `alias.b = 'worktree add'`) won't be
+    detected — accepted residual."""
+    global _configured_alias_cache
+    if _configured_alias_cache is None:
+        _configured_alias_cache = frozenset()
+        _configured_alias_cache = _scan_configured_worktree_aliases()
+    return _configured_alias_cache
+
+
+def _has_git_worktree_invocation(tokens):
+    """Scan tokens for a real `git ... worktree (add|move)` invocation,
+    including alias-mediated ones.
+
+    Three invocation shapes match:
+    1. Direct: `git [globals]* worktree (add|move)`.
+    2. Inline alias: `git -c alias.X='worktree add' X ...` — alias configured
+       in the same command, then invoked by name.
+    3. Pre-configured alias: `git X ...` where `X` appears in the lazy-loaded
+       configured-alias cache.
+
+    Used to gate strict-shape enforcement so commands that only *mention* the
+    word `worktree` as a data token (e.g., `echo worktree add`) are not
+    treated as worktree invocations and rejected for failing the shape."""
+    n = len(tokens)
+    configured_aliases = _get_configured_worktree_aliases()
+    for i in range(n):
+        if not _is_git_token(tokens[i]):
+            continue
+        j, _, inline_aliases = _consume_git_globals(tokens, i + 1)
+        if j >= n:
+            continue
+        head = tokens[j]
+        if head.lower() == "worktree":
+            if j + 1 < n and tokens[j + 1].lower() in ("add", "move"):
+                return True
+            continue
+        if head in inline_aliases and _alias_targets_worktree(
+            inline_aliases[head]
+        ):
+            return True
+        if head in configured_aliases:
+            return True
+    return False
+
+
+def _strip_env_prefix(tokens):
+    """If tokens starts with `env` (matched on basename), advance past env's
+    own opts (`-i`, `-u VAR`, `--split-string`, etc.) and `VAR=value`
+    assignments, and return the sub-tokens beginning at the wrapped command.
+    Else return tokens unchanged.
+
+    `/usr/bin/env bash -c '...'` is a common shebang pattern an agent may
+    type literally; without this, the wrapper-extraction logic would see
+    `env` as tokens[0] and miss the inner bash."""
+    if not tokens or os.path.basename(tokens[0]) != _ENV_BIN_NAME:
+        return tokens
+    i = 1
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok in _ENV_VALUE_FLAGS and i + 1 < len(tokens):
+            i += 2
+            continue
+        if tok.startswith("-"):
+            i += 1
+            continue
+        if "=" in tok:
+            i += 1
+            continue
+        break
+    return tokens[i:]
+
+
+def _extract_env_split_string(tokens):
+    """If `tokens` is `env [pre-opts]* (-S|--split-string)[ =]VALUE [...]`,
+    return VALUE. Else return None.
+
+    `env -S` splits VALUE into argv and execs it (env(1), GNU coreutils),
+    so VALUE itself is the wrapped command. `_strip_env_prefix` skips past
+    `-S` value-takers without re-parsing them, so without this helper an
+    `env -S 'git worktree add ../escape'` slips past the wrapper-recursion
+    gate. Three forms are recognized:
+
+    - `env -S VALUE` (two tokens)
+    - `env --split-string VALUE` (two tokens)
+    - `env --split-string=VALUE` (one token)
+
+    Pre-`-S` `-i`, `-u VAR`, `--chdir DIR`, and `VAR=val` assignments are
+    walked past so they don't shadow detection. Anything else means we're
+    looking at a regular env-wrapped binary, not `-S`."""
+    if not tokens or os.path.basename(tokens[0]) != _ENV_BIN_NAME:
+        return None
+    i = 1
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok in ("-S", "--split-string") and i + 1 < len(tokens):
+            return tokens[i + 1]
+        if tok.startswith("--split-string="):
+            return tok[len("--split-string=") :]
+        if tok in _ENV_VALUE_FLAGS and i + 1 < len(tokens):
+            i += 2
+            continue
+        if tok.startswith("-"):
+            i += 1
+            continue
+        if "=" in tok:
+            i += 1
+            continue
+        break  # first bare positional → wrapped binary, not -S
+    return None
+
+
+def _is_script_runtime_wrapper(tokens):
+    """True iff `tokens` (after env-prefix strip) invokes an interpreter-language
+    runtime from _WRAPPER_SCRIPT_BIN_NAMES — python, node, perl, ruby, etc.
+
+    Used to gate the substring-based defense-in-depth check in
+    `_check_worktree_path`: interpreter payloads can embed shell strings
+    that don't surface as discrete tokens (a JS literal
+    `'git worktree add ../escape'` becomes one quoted token after shell
+    tokenization). Shell wrappers (`bash -c`) re-tokenize cleanly and don't
+    need the fallback, so this helper returns False for them."""
+    stripped = _strip_env_prefix(tokens)
+    if not stripped:
+        return False
+    return os.path.basename(stripped[0]) in _WRAPPER_SCRIPT_BIN_NAMES
+
+
+def _extract_wrapped_command(tokens):
+    """If `tokens` is a known shell/scripting wrapper invocation with an
+    inline command (`bash -c '...'`, `python -c '...'`, `eval '...'`),
+    return the inline command string. Else return None.
+
+    Handles:
+    - bash/sh/zsh/etc. `-c <cmd>` and combined short opts (`-lc`, `-ilc`):
+      bash short opts collapse, and any opt token containing `c` means
+      "command follows in the next argument" (advisor flag).
+    - python/node/perl/ruby `-c <cmd>`; per-runtime eval flags
+      (`node -e/--eval/--eval=/-p/--print`, `perl -e/-E`, `ruby -e`).
+      Indexed by basename via `_WRAPPER_SCRIPT_EVAL_FLAGS`.
+    - `env -S VALUE` (split-string): VALUE is itself the wrapped command,
+      extracted before `_strip_env_prefix` runs (the strip walks past -S
+      without re-parsing the value).
+    - `env [opts] [VAR=val]... <wrapped>` is stripped before matching.
+    - `eval <args...>` joins the args back into a command string.
+
+    Returns the inline command as a single string ready to re-feed into
+    `_check_worktree_path`. The caller is responsible for depth bounding."""
+    if not tokens:
+        return None
+
+    env_split = _extract_env_split_string(tokens)
+    if env_split is not None:
+        return env_split
+
+    tokens = _strip_env_prefix(tokens)
+    if not tokens:
+        return None
+
+    base = os.path.basename(tokens[0])
+
+    if base == _EVAL_KEYWORD and len(tokens) >= 2:
+        return " ".join(tokens[1:])
+
+    if base in _WRAPPER_SHELL_BIN_NAMES:
+        i = 1
+        while i < len(tokens):
+            tok = tokens[i]
+            if tok == "--":
+                return tokens[i + 1] if i + 1 < len(tokens) else None
+            if tok in _WRAPPER_SHELL_OPTS_WITH_VALUE and i + 1 < len(tokens):
+                i += 2  # consume the option AND its value
+                continue
+            if tok.startswith("--"):
+                i += 1
+                continue
+            if tok.startswith("-") and len(tok) >= 2:
+                # Any short-opt cluster containing `c` (e.g., `-c`, `-lc`,
+                # `-ilc`) means "next arg is the command" per bash(1).
+                if "c" in tok[1:]:
+                    return tokens[i + 1] if i + 1 < len(tokens) else None
+                i += 1
+                continue
+            return None  # first positional → script file, not -c form
+        return None
+
+    if base in _WRAPPER_SCRIPT_BIN_NAMES:
+        eval_flags = _WRAPPER_SCRIPT_EVAL_FLAGS.get(base, frozenset())
+        i = 1
+        while i < len(tokens):
+            tok = tokens[i]
+            # Cross-runtime `-c <cmd>` / `--command <cmd>` next-token form.
+            if tok in _WRAPPER_SCRIPT_ARG_FLAGS and i + 1 < len(tokens):
+                return tokens[i + 1]
+            # Per-runtime eval flag, next-token form (`node -e <cmd>`,
+            # `perl -E <cmd>`, `node --eval <cmd>`).
+            if tok in eval_flags and i + 1 < len(tokens):
+                return tokens[i + 1]
+            # `--flag=value` one-token form (`node --eval=<cmd>`,
+            # `--command=<cmd>`). Split on the first `=` and match against
+            # the same flag tables.
+            if tok.startswith("--") and "=" in tok:
+                flag, _, val = tok.partition("=")
+                if flag in _WRAPPER_SCRIPT_ARG_FLAGS or flag in eval_flags:
+                    return val
+            i += 1
+        return None
+
+    return None
+
+
+def _has_symlink_in_path(target_abs, allowed_abs):
+    """Walk path components of target_abs starting at allowed_abs. Return the
+    path of the first symlinked component encountered (including allowed_abs
+    itself), else None.
+
+    `normpath` + `startswith` is purely lexical, so a symlink anywhere along
+    the path (e.g., `.worktrees/link -> /tmp`) could redirect a worktree
+    outside the repo while still passing the prefix check. Non-existent
+    components return False from `islink`, so the not-yet-created leaf
+    doesn't trigger a false positive."""
+    if os.path.islink(allowed_abs):
+        return allowed_abs
+    try:
+        rel = os.path.relpath(target_abs, allowed_abs)
+    except ValueError:
+        return None
+    if rel == "." or rel.startswith(".."):
+        return None
+    cur = allowed_abs
+    for p in rel.split(os.sep):
+        cur = os.path.join(cur, p)
+        if os.path.islink(cur):
+            return cur
+    return None
+
+
+def _build_shape_deny():
+    return (
+        "git worktree add/move must run directly from the repo root as a "
+        "single command — no leading commands, no chains (`;`, `&&`, `||`, `|`, `&`), "
+        "no subshells, no command substitution. "
+        "Retry with `git worktree add .worktrees/<name> -b worktree-<name>` "
+        "(or `git worktree move ...`) as the entire command."
+    )
+
+
+def _check_worktree_path(command, _depth=0):
+    """
+    Strict-shape check for `git worktree add|move`.
+
+    Required shape (the whole command, no leading commands or chains):
+
+        git [-C <path>]? [other-globals]* worktree (add|move) <target> [flags]*
+
+    When the command contains a real `git worktree add|move` invocation but
+    doesn't match this shape — chains, subshells, command substitution,
+    leading commands, shell wrappers — DENY with a teaching message. The
+    threat model is non-adversarial (agent mistakes); forcing the simple
+    shape eliminates whole classes of bypass at once rather than chasing
+    each parser edge case.
+
+    Mere data tokens that happen to spell `worktree add` (e.g.,
+    `echo worktree add`) are NOT denied — the strict shape only kicks in
+    once a real `git ... worktree (add|move)` invocation is detected.
+
+    Shell wrappers (`bash -c '...'`, `/usr/bin/env bash -c '...'`,
+    `python -c '...'`, `eval '...'`) are unwrapped and the inline command
+    is re-checked recursively, bounded by _MAX_WRAPPER_DEPTH. The nested
+    check runs the full pipeline (subshell + shell-op + symlink + cumulative
+    `-C` checks all fire inside the wrapper). Indirection through file
+    reads (`bash script.sh`), stdin pipes (`xargs git worktree …`), and
+    heredocs is out of scope for this Bash PreToolUse hook and accepted as
+    residual risk under the non-adversarial threat model.
+
+    Containment check on <target>: must resolve under
+    <repo_root>/.worktrees/<name>/. `-C <path>` flags are applied
+    cumulatively against an evolving cwd to match git's documented
+    semantics. Also denies when any path component under `.worktrees/`
+    (including `.worktrees/` itself) is a symlink, since a lexical
+    containment check would otherwise let a symlinked component redirect
+    new worktrees outside the repo.
+
+    Fails open on shlex parse errors and outside-git-repo invocations so a
+    parser bug never blocks an otherwise-legitimate Bash call.
+    """
+    if _depth > _MAX_WRAPPER_DEPTH:
+        return None
+
+    if not re.search(r"\bworktree\b", command, re.IGNORECASE):
+        # No literal `worktree` token. A pre-configured alias may still
+        # expand to one (`git wta ../escape` where the user's git config has
+        # `alias.wta = 'worktree add'`). Pay the lazy `git config` subprocess
+        # cost only when the command mentions `git` AND the cache is
+        # non-empty AND at least one cached alias name appears as a word in
+        # the command — otherwise skip parse.
+        if not re.search(r"\bgit\b", command, re.IGNORECASE):
+            return None
+        configured = _get_configured_worktree_aliases()
+        if not configured:
+            return None
+        alias_pattern = (
+            r"\b(?:" + "|".join(re.escape(n) for n in configured) + r")\b"
+        )
+        if not re.search(alias_pattern, command):
+            return None
+
+    normalized = _normalize_shell_operators(command)
+    try:
+        tokens = shlex.split(normalized)
+    except ValueError:
+        return None
+
+    nested = _extract_wrapped_command(tokens)
+    if nested is not None:
+        nested_deny = _check_worktree_path(nested, _depth + 1)
+        if nested_deny is not None:
+            return nested_deny
+        # Defense-in-depth for interpreter-language wrappers (`node -e`,
+        # `python -c`, `perl -e`, `ruby -e`): the recursive check tokenizes
+        # the payload under shell rules, so a JS/Python literal like
+        # `'git worktree add ../escape'` is glued into one token and
+        # `_has_git_worktree_invocation` can't see it. Fall back to a
+        # substring scan for `git ... worktree (add|move)` in the payload
+        # when the wrapper is a script-runtime. Skipped for shell wrappers
+        # (`bash -c`) because their payloads re-tokenize cleanly and the
+        # recursive check is authoritative — the substring scan would
+        # otherwise false-positive on data mentions like
+        # `bash -c "echo 'git worktree add as text'"`.
+        if _is_script_runtime_wrapper(tokens) and _GIT_WORKTREE_RE.search(
+            nested
+        ):
+            return _build_shape_deny()
+        # Nested call is clean. Fall through to also evaluate the outer
+        # tokens — handles `bash -c 'echo ok' && git worktree add ../escape`
+        # where the wrapper hides nothing but the chained outer call does.
+
+    has_subshell = _has_unquoted_subshell(command)
+    has_invocation = _has_git_worktree_invocation(tokens)
+
+    if not has_invocation:
+        # No actual `git worktree (add|move)` in the tokens. Only deny if a
+        # subshell could be hiding one we can't see (e.g., `$(git worktree
+        # add ../escape)`); otherwise this is a data mention like `echo
+        # worktree add` or a different subcommand like `git worktree list`.
+        if has_subshell:
+            return _build_shape_deny()
+        return None
+
+    if has_subshell:
+        return _build_shape_deny()
+
+    if any(t in _SHELL_OPS for t in tokens):
+        return _build_shape_deny()
+
+    if not tokens or not _is_git_token(tokens[0]):
+        return _build_shape_deny()
+
+    j, c_paths, _ = _consume_git_globals(tokens, 1)
+    if j >= len(tokens) or tokens[j].lower() != "worktree":
+        return _build_shape_deny()
+    if j + 1 >= len(tokens) or tokens[j + 1].lower() not in ("add", "move"):
+        return None  # git worktree list / lock / etc. — not our target
+
+    subcmd = tokens[j + 1].lower()
+    target = _extract_worktree_target(tokens[j + 2 :], subcmd)
+    if target is None:
+        return None  # git will reject malformed input itself
+
+    repo_root = _repo_root()
+    if repo_root is None:
+        return None
+
+    allowed = os.path.normpath(os.path.join(repo_root, _WORKTREE_ALLOWED_DIR))
+
+    # Apply `-C` paths cumulatively (git semantics: each non-absolute -C is
+    # interpreted relative to the preceding one; absolute -C resets the chain;
+    # empty -C is a no-op).
+    effective_cwd = repo_root
+    for c_path in c_paths:
+        effective_cwd = _resolve_path(c_path, effective_cwd)
+
+    abs_target = _resolve_path(target, effective_cwd)
+
+    if abs_target == allowed:
+        return (
+            "Worktree path must include a <name> subdirectory; "
+            "use `.worktrees/<name>` instead of `.worktrees`."
+        )
+
+    # Symlink walk on the lexical path FIRST. This denies (with a teaching
+    # message) when:
+    # - `allowed` (i.e. `.worktrees/`) is itself a symlink — any worktree
+    #   created under it would land wherever the symlink points
+    # - any user-supplied path component is a symlink — even if its target
+    #   happens to land back inside `.worktrees/`, the agent shouldn't be
+    #   relying on indirection through a symlinked path
+    # Running this before the containment startswith avoids ambiguity when
+    # the realpath check below sees a hostile `.worktrees -> /tmp` symlink
+    # collapse both sides into the same prefix.
+    symlink_component = _has_symlink_in_path(abs_target, allowed)
+    if symlink_component:
+        return (
+            f"Worktree path contains a symlinked component "
+            f"`{symlink_component}` that could redirect new worktrees "
+            f"outside `.worktrees/`. Remove the symlink and retry."
+        )
+
+    # Realpath-based containment. The lexical `os.path.normpath` collapses
+    # `..` segments BEFORE any symlink is followed, so
+    # `.worktrees/link/../wt` (where `link -> /tmp`) normpaths to
+    # `.worktrees/wt` and passes a lexical startswith — while git would
+    # actually create the worktree at `/tmp/../wt` = `/wt`. Realpath
+    # follows symlinks left-to-right and resolves `..` AFTER each symlink
+    # traversal, matching filesystem semantics. Both sides are realpath'd
+    # so platform symlinks (macOS `/var -> /private/var`, Linux `/tmp ->
+    # ...`) collapse symmetrically and don't cause false denies on
+    # legitimate paths. The symlink-walk above already vetoed
+    # user-supplied symlinks, so a hostile `.worktrees -> /tmp` can't
+    # widen the prefix here.
+    if os.path.isabs(target):
+        raw_target = target
+    else:
+        raw_target = os.path.join(effective_cwd, target)
+    abs_target_real = os.path.realpath(raw_target)
+    allowed_real = os.path.realpath(allowed)
+
+    if (
+        abs_target_real != allowed_real
+        and not abs_target_real.startswith(allowed_real + os.sep)
+    ):
+        retry = f"git worktree {subcmd} .worktrees/<name>"
+        if subcmd == "add":
+            retry += " -b worktree-<name>"
+        return (
+            f"Worktrees must live under .worktrees/<name>/ at the repo root "
+            f"(target '{target}' resolves outside .worktrees/). "
+            f"Retry with `{retry}`."
+        )
+
+    return None
+
+
 tool_input = os.environ.get("CLAUDE_TOOL_INPUT", "{}")
 try:
     data = json.loads(tool_input)
@@ -68,6 +871,21 @@ for pattern, reason in DENY_PATTERNS:
             )
         )
         sys.exit(0)
+
+_worktree_reason = _check_worktree_path(command)
+if _worktree_reason:
+    print(  # noqa: T201 — hook output to stdout is required
+        json.dumps(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": _worktree_reason,
+                }
+            }
+        )
+    )
+    sys.exit(0)
 
 _EXCLUDE_INDEX = 2
 
