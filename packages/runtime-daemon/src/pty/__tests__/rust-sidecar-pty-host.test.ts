@@ -3175,14 +3175,79 @@ describe("RustSidecarPtyHost — crash-time per-session onExit (ADR-019 §Decisi
     expect(exitFn).toHaveBeenCalledTimes(1);
     expect(exitFn).toHaveBeenCalledWith("s-0", 0);
 
-    // Crash the sidecar. BL-111 must skip s-0 (already cached) and
-    // fire only for s-1 — assert: total fires = 2 (the prior s-0,0 +
-    // the new s-1,-1), NOT 3.
+    // Crash the sidecar. BL-111 must skip the FIRE for s-0 (already
+    // cached) and fire only for s-1 — assert: total fires = 2 (the
+    // prior s-0,0 + the new s-1,-1), NOT 3. The DELETE runs
+    // unconditionally so `sessions.size === 0` holds for BOTH paths.
     fake.triggerExit(1, null);
     await flushMicrotasks();
 
     expect(exitFn).toHaveBeenCalledTimes(2);
     expect(exitFn).toHaveBeenNthCalledWith(2, "s-1", -1);
+    const internals: { sessions: Map<string, unknown> } = host as unknown as {
+      sessions: Map<string, unknown>;
+    };
+    expect(internals.sessions.size).toBe(0);
+  });
+
+  it("clears the session map for already-exited sessions so write/resize throw unknown sessionId after a crash", async () => {
+    // Regression: an early-`continue` on `record.exitCode !== null` in
+    // `fireCrashTimeOnExit` would leave the cached-exit session in
+    // `this.sessions`. `resize` / `write` only gate on
+    // `sessions.has(sessionId)`, so a stale id would then pass through,
+    // call `ensureChild()` (respawning the sidecar), and dispatch the
+    // request against the new sidecar with an id it has no record of.
+    // The fix is to always delete the session record on crash teardown.
+    const seq = spawnReturningSequence();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: seq.spawn,
+    });
+    host.setOnExit(vi.fn());
+
+    // Register s-0 on child A.
+    const spawnP = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    const childA = seq.latest();
+    childA.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
+    await spawnP;
+
+    // s-0 exits normally — record.exitCode is set to 0 but the record
+    // stays in the map (per the existing PtyHost contract; only
+    // close() deletes exited records under the normal path).
+    childA.writeStdout(
+      frameEnvelope({
+        kind: "exit_code_notification",
+        session_id: "s-0",
+        exit_code: 0,
+        signal_code: null,
+      }),
+    );
+    await flushMicrotasks();
+
+    // Crash child A. After teardown, s-0 must be GONE from the map
+    // (even though its exitCode was non-null pre-crash).
+    childA.triggerExit(1, null);
+    await flushMicrotasks();
+
+    await expect(host.resize("s-0", 24, 80)).rejects.toThrow(
+      /RustSidecarPtyHost\.resize: unknown sessionId 's-0'/,
+    );
+    await expect(host.write("s-0", new Uint8Array([0x68, 0x69]))).rejects.toThrow(
+      /RustSidecarPtyHost\.write: unknown sessionId 's-0'/,
+    );
+
+    // The sidecar must not have been respawned by either call (both
+    // were rejected before `ensureChild()`).
+    expect(seq.latest()).toBe(childA);
   });
 
   it("late ExitCodeNotification arriving on the respawned sidecar does NOT double-fire onExit", async () => {

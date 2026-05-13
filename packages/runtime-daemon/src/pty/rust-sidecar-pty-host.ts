@@ -2410,13 +2410,17 @@ export class RustSidecarPtyHost implements PtyHost {
    *   per-session `onExit` is the surface consumers rely on for
    *   cleanup, orthogonal to `recordCrashOncePerChild` accounting.
    *
-   * Dedupe: the in-loop `record.exitCode !== null` early-continue
-   * skips any session a normal-path `handleExitNotification` already
-   * fired in the same tick (that gate sets `record.exitCode` before
-   * fire, so a same-tick race resolves to no double-fire). After
-   * fire-then-delete, no further wire `ExitCodeNotification` can
-   * arrive for the old child's ids — the sidecar process is gone —
-   * so the dedupe story is closed.
+   * Dedupe: the in-loop `record.exitCode !== null` gate skips the
+   * `fireExit` call for any session a normal-path
+   * `handleExitNotification` already fired in the same tick (that gate
+   * sets `record.exitCode` before fire, so a same-tick race resolves
+   * to no double-fire). The `this.sessions.delete(sessionId)` call
+   * runs UNCONDITIONALLY — even for already-fired sessions — so the
+   * `sessions.size === 0` post-teardown invariant holds and stale ids
+   * cannot pass `sessions.has()` checks in `resize` / `write` after a
+   * respawn. After fire-then-delete, no further wire
+   * `ExitCodeNotification` can arrive for the old child's ids — the
+   * sidecar process is gone — so the wire-side dedupe story is closed.
    *
    * Listener-throw containment: each `fireExit` is wrapped in
    * `try/catch + console.warn` so a buggy listener cannot strand
@@ -2430,18 +2434,20 @@ export class RustSidecarPtyHost implements PtyHost {
     const sessionIds: string[] = Array.from(this.sessions.keys());
     for (const sessionId of sessionIds) {
       const record: SessionRecord | undefined = this.sessions.get(sessionId);
-      if (record === undefined || record.exitCode !== null) {
+      if (record === undefined) {
         continue;
       }
-      record.exitCode = -1;
-      record.signalCode = undefined;
-      try {
-        this.fireExit(sessionId, -1, undefined);
-      } catch (err: unknown) {
-        const message: string = err instanceof Error ? err.message : String(err);
-        console.warn(
-          `RustSidecarPtyHost: crash-time onExit listener threw for session ${sessionId}: ${message}; continuing teardown.`,
-        );
+      if (record.exitCode === null) {
+        record.exitCode = -1;
+        record.signalCode = undefined;
+        try {
+          this.fireExit(sessionId, -1, undefined);
+        } catch (err: unknown) {
+          const message: string = err instanceof Error ? err.message : String(err);
+          console.warn(
+            `RustSidecarPtyHost: crash-time onExit listener threw for session ${sessionId}: ${message}; continuing teardown.`,
+          );
+        }
       }
       this.sessions.delete(sessionId);
     }
