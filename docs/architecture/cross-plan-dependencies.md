@@ -440,12 +440,12 @@ With NS-01 + NS-02 + NS-04 + NS-05 completed 2026-05-11 (NS-01 via PR #42 — Pl
 ### NS-10: Plan-024 Phase 5 — measurement substrate
 
 - Status: `blocked`
-- Type: code + governance
+- Type: code
 - Priority: `P1`
-- Upstream: NS-09 (Phase 4 signed binaries) + BL-106 (calendar-window decoupling)
-- References: [Plan-024](../plans/024-rust-pty-sidecar.md):356-429, [BL-106](../backlog.md#bl-106-c-5--c-16--plan-024-calendar-window-decoupling-from-completed-status)
-- Summary: Codex `/resume` ≥ 99% green criterion + ≤ 0.01/1,000 sidecar crash-rate telemetry + SmartScreen reputation observation. The 6 `BLOCKED-ON-C5` markers in Plan-024 lines 257, 338, 346, 352, 353, 410 resolve via BL-106 path (a).
-- Exit Criteria: All Phase 5 `BLOCKED-ON-C5` markers resolved with ADR-019 citation; F-024-5-01 closed; Windows default-flip activated at the Plan-024 substrate-promotion gate per BL-106 path (a).
+- Upstream: NS-09 (Phase 4 signed binaries)
+- References: [Plan-024](../plans/024-rust-pty-sidecar.md) Phase 5 + §Cross-Plan Obligations CP-024-1/2/3, [ADR-019 §Substrate Promotion Window](../decisions/019-windows-v1-tier-and-pty-sidecar.md#substrate-promotion-window), [BL-106 archive](../archive/backlog-archive.md#bl-106-c-5--c-16--plan-024-calendar-window-decoupling-from-completed-status)
+- Summary: Plan-024 Phase 5 ships the default-flip primitive (T-024-5-2) + forward-declared measurement substrates (T-024-5-3 `codex-resume.smoke.test.ts`; T-024-5-4 crash-rate pipeline hand-off to Plan-020). The Codex `/resume` ≥ 99% measurement wires at Plan-005 wall-clock (Tier 4); the ≤ 0.01/1,000 crash-rate measurement wires at Plan-020 wall-clock (Tier 8); SmartScreen reputation is treated as external observation per ADR-019 §Success Criteria row 3. BL-106 (resolved 2026-05-13) carved out the 2-week monitoring window as a substrate-promotion gate, NOT a Plan-024 completion gate — Plan-024 `status: completed` flips when Phase 5 merges per §5 strict tier-completion rule; substrate-promotion close (env-var rollback authority retirement) lands separately when the §Success Criteria readings go green at their check dates.
+- Exit Criteria: Phase 5 primitives merged (T-024-5-1 publish; T-024-5-2 default-flip; T-024-5-3 + T-024-5-4 substrate forward-declarations); ADR-019 §Decision Log entries record green readings at the three check dates (2026-08-01, 2026-10-01, 2026-12-01); env-var rollback authority retires only after BOTH the last green reading lands AND the [ADR-019 §Substrate Promotion Window](../decisions/019-windows-v1-tier-and-pty-sidecar.md#substrate-promotion-window) monitoring window has elapsed (2 weeks from default-flip OR 2026-12-01, whichever is later — so if default-flip lands after 2026-11-17, the 2-week-from-default-flip date governs).
 
 ### NS-11: Plan-007-partial completion cleanup
 

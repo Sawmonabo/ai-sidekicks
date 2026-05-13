@@ -158,7 +158,21 @@ The antithesis is the correct default position for a team that is one major bug 
 - [x] Failure modes have detection mechanisms
 - [x] Point of no return is identified
 
+### Substrate Promotion Window
+
+The four §Success Criteria below are **substrate-promotion gates**, not Plan-024 completion gates. Plan-024's `status: completed` flip follows the [cross-plan-deps §5 strict tier-completion rule](../architecture/cross-plan-dependencies.md#5-canonical-build-order) and lands when Phases 1–5 merge — independent of any calendar-bound measurement window. This carve-out exists because the §Success Criteria readings are not measurable at Plan-024 Phase 5 wall-clock: the `≥ 99% Codex /resume` reading needs Plan-005 (Tier 4) to land, and the `≤ 0.01/1,000 crash rate` reading needs Plan-020 (Tier 8) to land. Coupling Plan-024 `completed` to a Tier-8-bound measurement would block all downstream Tier 2+ promotion until Plan-020 ships — a Tier 1 → Tier 8 circular wait. The carve-out separates _code-complete_ (Plan-024 status) from _operationally validated_ (this section's substrate-promotion gate).
+
+The substrate-promotion lifecycle has three stages:
+
+1. **Default-flip ships at Plan-024 Phase 5 T-024-5-2** (`packages/runtime-daemon/src/pty/pty-host-selector.ts` flips the Windows default from `NodePtyHost` to `RustSidecarPtyHost`). Plan-024 `status` flips to `completed` when Phase 5 merges; cross-plan-deps Tier 2 promotion is no longer gated on any subsequent measurement.
+2. **Monitoring window** (2 calendar weeks from default-flip merge, OR until the latest §Success Criteria check date — `2026-12-01` — whichever is later). During the window, the env-var rollback authority per Plan-024 §Rollback Or Fallback remains active: a regression on any §Success Criteria reading triggers a config-only revert (`AIS_PTY_SIDECAR_BIN=node-pty` or selector env override) without a code-revert PR.
+3. **Substrate-promotion close** when every §Success Criteria reading is green at its check date AND the window has elapsed. The env-var rollback authority retires (the selector ignores the override; `RustSidecarPtyHost` is the sole Windows path); a tripwire event per §Tripwires becomes the only path back. Substrate-promotion close is recorded as an ADR-019 §Decision Log entry citing the green readings; it does NOT modify Plan-024's `status`.
+
+Per [cross-plan-deps §6 NS-10](../architecture/cross-plan-dependencies.md#ns-10-plan-024-phase-5--measurement-substrate), the measurement substrate that produces the §Success Criteria readings is forward-declared at Plan-024 Phase 5 and wired at the owning plan's wall-clock (Plan-005 for `/resume` pass-rate; Plan-020 for crash rate). SmartScreen reputation is treated as an external observation, not an in-product telemetry feed — see §Success Criteria row 3 below.
+
 ### Success Criteria
+
+These metrics gate substrate-promotion close (per §Substrate Promotion Window above); they do NOT gate Plan-024 `status: completed`. Measurement substrate ownership: row 1 forward-declared at Plan-024 Phase 5 T-024-5-3, wired by Plan-005 at Tier 4; row 2 owned by Plan-024 Phase 4 T-024-4-2 (Criterion benchmark); row 3 external observation (query Microsoft Defender SmartScreen reputation API at release cadence); row 4 forward-declared at Plan-024 Phase 5 T-024-5-4, wired by Plan-020 at Tier 8.
 
 | Metric | Target | Measurement Method | Check Date |
 | --- | --- | --- | --- |
@@ -245,3 +259,4 @@ The antithesis is the correct default position for a team that is one major bug 
 | 2026-04-17 | Proposed | Drafted against BL-052 exit criteria |
 | 2026-04-17 | Accepted | ADR accepted as Windows V1 tier + PTY backend strategy |
 | 2026-05-13 | Amended (§Decision item 9 added) | Crash-time `onExit` contract for `RustSidecarPtyHost`: synthetic `(exitCode = -1, signalCode = undefined)` per VS Code `terminalProcessManager._onExit(-1)` precedent (sentinel distinct from `NodePtyHost.invokeTaskkill`'s `(exitCode = 1)`); per-session fire-then-delete BEFORE `rejectAllOutstanding`; dedupe via the existing `record.exitCode !== null` gate (no new state); runs orthogonal to `permanentlyUnavailable === true`; composes BELOW the existing stale-event guard (`this.child !== child`). Reversible — codifies behavior of an extension surface that has no prior emission convention. Closes [BL-111](../archive/backlog-archive.md#bl-111-emit-per-session-onexit-on-rustsidecarptyhost-sidecar-crash). |
+| 2026-05-13 | Amended (§Substrate Promotion Window added; §Success Criteria preamble added) | Carves out the 2-week post-default-flip monitoring window as a substrate-promotion gate (governs env-var rollback authority retirement), not a Plan-024 completion gate. Plan-024 `status: completed` follows the [cross-plan-deps §5 strict tier-completion rule](../architecture/cross-plan-dependencies.md#5-canonical-build-order) and flips when Phases 1–5 merge, independent of any calendar-bound measurement. Resolves the Tier 1 → Tier 8 circular-wait between Plan-024 `completed` and the Plan-005 (Tier 4) `/resume` + Plan-020 (Tier 8) crash-rate measurement substrates. Reversible — codifies a gate-scope distinction with no irreversible side effects. Closes [BL-106](../archive/backlog-archive.md#bl-106-c-5--c-16--plan-024-calendar-window-decoupling-from-completed-status). |
