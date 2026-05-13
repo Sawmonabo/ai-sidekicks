@@ -51,10 +51,11 @@ cmd_create() {
 }
 
 cmd_remove() {
-  # WorktreeRemove stdin schema is undocumented as of 2026-05-12;
-  # try .path, fall back to deriving from .name.
+  # WorktreeRemove stdin schema (docs.claude.com): `.worktree_path` is the
+  # canonical absolute-path field. Older / undocumented variants used
+  # `.path`; keep it as a fallback before deriving from `.name`.
   local path
-  path=$(jq -r '.path // empty' <<<"$payload")
+  path=$(jq -r '.worktree_path // .path // empty' <<<"$payload")
   if [[ -z "$path" ]]; then
     local name
     name=$(jq -r '.name // empty' <<<"$payload")

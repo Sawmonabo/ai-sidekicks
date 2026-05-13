@@ -71,6 +71,12 @@ _GIT_GLOBAL_WITH_SEP_ARG = {
     "--config-env",
     "--list-cmds",
     "--attr-source",
+    # `--exec-path` is bool-or-`=value` in git(1), not space-separated:
+    # `git --exec-path /tmp status` prints the exec-path and exits without
+    # running `status`. Including it here is defense-in-depth — it makes the
+    # parser recognize `git --exec-path /tmp worktree add ../escape` as a
+    # worktree invocation even though git itself would short-circuit.
+    "--exec-path",
 }
 _SHELL_OPS = frozenset({"&&", "||", ";", "|", "&", "(", ")"})
 
@@ -414,6 +420,45 @@ def _strip_env_prefix(tokens):
     return tokens[i:]
 
 
+def _extract_env_split_string(tokens):
+    """If `tokens` is `env [pre-opts]* (-S|--split-string)[ =]VALUE [...]`,
+    return VALUE. Else return None.
+
+    `env -S` splits VALUE into argv and execs it (env(1), GNU coreutils),
+    so VALUE itself is the wrapped command. `_strip_env_prefix` skips past
+    `-S` value-takers without re-parsing them, so without this helper an
+    `env -S 'git worktree add ../escape'` slips past the wrapper-recursion
+    gate. Three forms are recognized:
+
+    - `env -S VALUE` (two tokens)
+    - `env --split-string VALUE` (two tokens)
+    - `env --split-string=VALUE` (one token)
+
+    Pre-`-S` `-i`, `-u VAR`, `--chdir DIR`, and `VAR=val` assignments are
+    walked past so they don't shadow detection. Anything else means we're
+    looking at a regular env-wrapped binary, not `-S`."""
+    if not tokens or os.path.basename(tokens[0]) != _ENV_BIN_NAME:
+        return None
+    i = 1
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok in ("-S", "--split-string") and i + 1 < len(tokens):
+            return tokens[i + 1]
+        if tok.startswith("--split-string="):
+            return tok[len("--split-string=") :]
+        if tok in _ENV_VALUE_FLAGS and i + 1 < len(tokens):
+            i += 2
+            continue
+        if tok.startswith("-"):
+            i += 1
+            continue
+        if "=" in tok:
+            i += 1
+            continue
+        break  # first bare positional → wrapped binary, not -S
+    return None
+
+
 def _extract_wrapped_command(tokens):
     """If `tokens` is a known shell/scripting wrapper invocation with an
     inline command (`bash -c '...'`, `python -c '...'`, `eval '...'`),
@@ -424,6 +469,9 @@ def _extract_wrapped_command(tokens):
       bash short opts collapse, and any opt token containing `c` means
       "command follows in the next argument" (advisor flag).
     - python/node/perl/ruby `-c <cmd>` (and `-e <cmd>` for perl/ruby).
+    - `env -S VALUE` (split-string): VALUE is itself the wrapped command,
+      extracted before `_strip_env_prefix` runs (the strip walks past -S
+      without re-parsing the value).
     - `env [opts] [VAR=val]... <wrapped>` is stripped before matching.
     - `eval <args...>` joins the args back into a command string.
 
@@ -431,6 +479,10 @@ def _extract_wrapped_command(tokens):
     `_check_worktree_path`. The caller is responsible for depth bounding."""
     if not tokens:
         return None
+
+    env_split = _extract_env_split_string(tokens)
+    if env_split is not None:
+        return env_split
 
     tokens = _strip_env_prefix(tokens)
     if not tokens:
