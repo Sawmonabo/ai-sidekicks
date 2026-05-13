@@ -87,6 +87,15 @@ _SHELL_OPS = frozenset({"&&", "||", ";", "|", "&", "(", ")"})
 # check never fires. Recursion bounded by _MAX_WRAPPER_DEPTH (cf. advisor:
 # pathological `bash -c "bash -c '...'"` chains).
 _WRAPPER_SHELL_BIN_NAMES = frozenset({"bash", "sh", "zsh", "ksh", "dash", "ash"})
+# Wrapper shell options that consume the next token as a value (bash(1)
+# `--rcfile FILE`, `-o option`, `-O shopt`; zsh shares -o/-O). Without
+# walking past the value, the parser would land on it as a "first
+# positional", treat the invocation as `bash <scriptfile>`, and return
+# None before reaching `-c`. The `--flag=value` one-token form is handled
+# by the generic `tok.startswith("--")` skip below.
+_WRAPPER_SHELL_OPTS_WITH_VALUE = frozenset(
+    {"--rcfile", "--init-file", "-o", "+o", "-O", "+O"}
+)
 _WRAPPER_SCRIPT_BIN_NAMES = frozenset(
     {"python", "python3", "python2", "node", "perl", "ruby"}
 )
@@ -516,6 +525,9 @@ def _extract_wrapped_command(tokens):
             tok = tokens[i]
             if tok == "--":
                 return tokens[i + 1] if i + 1 < len(tokens) else None
+            if tok in _WRAPPER_SHELL_OPTS_WITH_VALUE and i + 1 < len(tokens):
+                i += 2  # consume the option AND its value
+                continue
             if tok.startswith("--"):
                 i += 1
                 continue
