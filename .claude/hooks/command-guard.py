@@ -796,7 +796,48 @@ def _check_worktree_path(command, _depth=0):
             "Worktree path must include a <name> subdirectory; "
             "use `.worktrees/<name>` instead of `.worktrees`."
         )
-    if not abs_target.startswith(allowed + os.sep):
+
+    # Symlink walk on the lexical path FIRST. This denies (with a teaching
+    # message) when:
+    # - `allowed` (i.e. `.worktrees/`) is itself a symlink — any worktree
+    #   created under it would land wherever the symlink points
+    # - any user-supplied path component is a symlink — even if its target
+    #   happens to land back inside `.worktrees/`, the agent shouldn't be
+    #   relying on indirection through a symlinked path
+    # Running this before the containment startswith avoids ambiguity when
+    # the realpath check below sees a hostile `.worktrees -> /tmp` symlink
+    # collapse both sides into the same prefix.
+    symlink_component = _has_symlink_in_path(abs_target, allowed)
+    if symlink_component:
+        return (
+            f"Worktree path contains a symlinked component "
+            f"`{symlink_component}` that could redirect new worktrees "
+            f"outside `.worktrees/`. Remove the symlink and retry."
+        )
+
+    # Realpath-based containment. The lexical `os.path.normpath` collapses
+    # `..` segments BEFORE any symlink is followed, so
+    # `.worktrees/link/../wt` (where `link -> /tmp`) normpaths to
+    # `.worktrees/wt` and passes a lexical startswith — while git would
+    # actually create the worktree at `/tmp/../wt` = `/wt`. Realpath
+    # follows symlinks left-to-right and resolves `..` AFTER each symlink
+    # traversal, matching filesystem semantics. Both sides are realpath'd
+    # so platform symlinks (macOS `/var -> /private/var`, Linux `/tmp ->
+    # ...`) collapse symmetrically and don't cause false denies on
+    # legitimate paths. The symlink-walk above already vetoed
+    # user-supplied symlinks, so a hostile `.worktrees -> /tmp` can't
+    # widen the prefix here.
+    if os.path.isabs(target):
+        raw_target = target
+    else:
+        raw_target = os.path.join(effective_cwd, target)
+    abs_target_real = os.path.realpath(raw_target)
+    allowed_real = os.path.realpath(allowed)
+
+    if (
+        abs_target_real != allowed_real
+        and not abs_target_real.startswith(allowed_real + os.sep)
+    ):
         retry = f"git worktree {subcmd} .worktrees/<name>"
         if subcmd == "add":
             retry += " -b worktree-<name>"
@@ -804,14 +845,6 @@ def _check_worktree_path(command, _depth=0):
             f"Worktrees must live under .worktrees/<name>/ at the repo root "
             f"(target '{target}' resolves outside .worktrees/). "
             f"Retry with `{retry}`."
-        )
-
-    symlink_component = _has_symlink_in_path(abs_target, allowed)
-    if symlink_component:
-        return (
-            f"Worktree path contains a symlinked component "
-            f"`{symlink_component}` that could redirect new worktrees "
-            f"outside `.worktrees/`. Remove the symlink and retry."
         )
 
     return None
