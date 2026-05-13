@@ -2381,10 +2381,77 @@ export class RustSidecarPtyHost implements PtyHost {
   }
 
   /**
+   * Per-session crash-time `onExit` fire-then-delete.
+   *
+   * Iterates `this.sessions`, marks each record with the synthetic
+   * (`exitCode = -1`, `signalCode = undefined`) pair, fires
+   * `exitListener` via `fireExit` (preserving the 2-arg call
+   * convention when `signalCode === undefined`), then removes the
+   * entry — so `sessions.size === 0` holds after teardown.
+   *
+   * The `-1` sentinel is outside the legal range of both POSIX
+   * `waitpid` (non-negative) and Win32 `GetExitCodeProcess`
+   * (non-negative DWORD), so it cannot collide with a real child
+   * exit; consumers branch on `exitCode === -1` to distinguish
+   * infrastructure failure from child failure. The value is
+   * intentionally distinct from `NodePtyHost.invokeTaskkill`'s
+   * synthetic `(1, undefined)`, which encodes a different failure
+   * mode (daemon-issued `taskkill /F`, OS reap unknown).
+   *
+   * Caller-side composition (see callers):
+   *
+   * - Sits BELOW the stale-event guard (`this.child !== child`) so a
+   *   late event from an old crashed child cannot fire `onExit`
+   *   against a freshly-spawned replacement's sessions.
+   * - Runs BEFORE `rejectAllOutstanding`, mirroring the normal-path
+   *   `handleExitNotification` ordering — consumers receive the
+   *   per-session `onExit` signal before per-RPC rejections.
+   * - Runs regardless of `permanentlyUnavailable === true`; the
+   *   per-session `onExit` is the surface consumers rely on for
+   *   cleanup, orthogonal to `recordCrashOncePerChild` accounting.
+   *
+   * Dedupe: the in-loop `record.exitCode !== null` early-continue
+   * skips any session a normal-path `handleExitNotification` already
+   * fired in the same tick (that gate sets `record.exitCode` before
+   * fire, so a same-tick race resolves to no double-fire). After
+   * fire-then-delete, no further wire `ExitCodeNotification` can
+   * arrive for the old child's ids — the sidecar process is gone —
+   * so the dedupe story is closed.
+   *
+   * Listener-throw containment: each `fireExit` is wrapped in
+   * `try/catch + console.warn` so a buggy listener cannot strand
+   * remaining sessions in the map (which would break the
+   * `sessions.size === 0` invariant) or block the downstream
+   * `rejectAllOutstanding` + `recordCrashOncePerChild` steps.
+   *
+   * Codified at ADR-019 §Decision item 9.
+   */
+  private fireCrashTimeOnExit(): void {
+    const sessionIds: string[] = Array.from(this.sessions.keys());
+    for (const sessionId of sessionIds) {
+      const record: SessionRecord | undefined = this.sessions.get(sessionId);
+      if (record === undefined || record.exitCode !== null) {
+        continue;
+      }
+      record.exitCode = -1;
+      record.signalCode = undefined;
+      try {
+        this.fireExit(sessionId, -1, undefined);
+      } catch (err: unknown) {
+        const message: string = err instanceof Error ? err.message : String(err);
+        console.warn(
+          `RustSidecarPtyHost: crash-time onExit listener threw for session ${sessionId}: ${message}; continuing teardown.`,
+        );
+      }
+      this.sessions.delete(sessionId);
+    }
+  }
+
+  /**
    * Handle a child-exit event — reset the framer, clear the child
-   * reference, reject any still-outstanding requests, consume the
-   * crash budget once per failed child, mark permanently unavailable
-   * if exhausted.
+   * reference, fire per-session crash-time `onExit`, reject any
+   * still-outstanding requests, consume the crash budget once per
+   * failed child, mark permanently unavailable if exhausted.
    *
    * **Parser-reset ordering.** Reset the framer FIRST, before the
    * outstanding-rejection loop. If anything in the rejection path
@@ -2450,6 +2517,7 @@ export class RustSidecarPtyHost implements PtyHost {
     this.parser = new ContentLengthParser();
     this.child = null;
     this.clearPreSpawnState();
+    this.fireCrashTimeOnExit();
     const stashed: Error | null = this.consumePendingTeardownCause();
     this.rejectAllOutstanding(
       stashed ??
@@ -2463,7 +2531,8 @@ export class RustSidecarPtyHost implements PtyHost {
 
   /**
    * Same as `handleChildExit` for async error events. Same parser-
-   * reset and dedupe contract; see `handleChildExit` rustdoc.
+   * reset, crash-time `onExit`, and dedupe contract; see
+   * `handleChildExit` rustdoc.
    */
   private handleChildError(child: SidecarChildProcess, err: Error): void {
     if (this.child !== child) {
@@ -2478,6 +2547,7 @@ export class RustSidecarPtyHost implements PtyHost {
     this.parser = new ContentLengthParser();
     this.child = null;
     this.clearPreSpawnState();
+    this.fireCrashTimeOnExit();
     const stashed: Error | null = this.consumePendingTeardownCause();
     this.rejectAllOutstanding(
       stashed ??

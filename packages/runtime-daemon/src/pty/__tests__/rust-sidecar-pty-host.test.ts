@@ -3014,6 +3014,360 @@ describe("RustSidecarPtyHost — stale child lifecycle events do not clobber the
 });
 
 // ----------------------------------------------------------------------------
+// Crash-time per-session `onExit` (ADR-019 §Decision item 9).
+//
+// What we assert (the contract surface a consumer relies on for cleanup
+// when the sidecar host dies abnormally):
+//
+//   * `handleChildExit` fires `onExit(sessionId, -1)` for every session
+//     in `this.sessions`, BEFORE `rejectAllOutstanding`, then deletes
+//     each entry — so `sessions.size === 0` after teardown.
+//   * `handleChildError` is symmetric.
+//   * Sessions whose `record.exitCode` was already set by a normal-path
+//     `handleExitNotification` earlier in the tick are NOT re-fired
+//     (dedupe via the existing `record.exitCode !== null` gate).
+//   * A listener that throws does NOT strand remaining sessions in the
+//     map (the loop continues; `sessions.size === 0` invariant holds).
+//   * After fire-then-delete, a late `ExitCodeNotification` arriving
+//     on a respawned sidecar's drain loop does NOT route to the
+//     exit listener (the record is gone; the buffer-fallback path
+//     never reaches `exitListener`).
+//   * BL-111 fire sits BELOW the stale-event guard — a late stale
+//     event for an old crashed child whose sessions were already
+//     crash-fired does NOT fire `onExit` against a freshly-spawned
+//     replacement's sessions.
+// ----------------------------------------------------------------------------
+
+describe("RustSidecarPtyHost — crash-time per-session onExit (ADR-019 §Decision item 9)", () => {
+  it("handleChildExit fires onExit(-1) for every active session and empties the session map", async () => {
+    const fake = makeFakeChild();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: spawnReturning(fake),
+    });
+
+    const exitFn = vi.fn();
+    host.setOnExit(exitFn);
+
+    // Register three sessions on the same child.
+    const sessionIds = ["s-0", "s-1", "s-2"] as const;
+    for (const sessionId of sessionIds) {
+      const spawnP = host.spawn({
+        kind: "spawn_request",
+        command: "/bin/sh",
+        args: [],
+        env: [],
+        cwd: "/",
+        rows: 24,
+        cols: 80,
+      });
+      await flushMicrotasks();
+      fake.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: sessionId }));
+      await spawnP;
+    }
+    // Internals access — pin the precondition (3 sessions registered).
+    const internals: { sessions: Map<string, unknown> } = host as unknown as {
+      sessions: Map<string, unknown>;
+    };
+    expect(internals.sessions.size).toBe(3);
+
+    // Crash the sidecar. BL-111 must fire onExit for all three sessions
+    // BEFORE `rejectAllOutstanding`, and leave the session map empty.
+    fake.triggerExit(1, null);
+    await flushMicrotasks();
+
+    expect(exitFn).toHaveBeenCalledTimes(3);
+    expect(exitFn.mock.calls).toEqual(
+      expect.arrayContaining([
+        ["s-0", -1],
+        ["s-1", -1],
+        ["s-2", -1],
+      ]),
+    );
+    // Each fire used the 2-arg call convention (signalCode omitted),
+    // matching the §Decision item 9 contract.
+    for (const call of exitFn.mock.calls) {
+      expect(call).toHaveLength(2);
+    }
+    expect(internals.sessions.size).toBe(0);
+  });
+
+  it("handleChildError fires onExit(-1) for every active session and empties the session map", async () => {
+    const fake = makeFakeChild();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: spawnReturning(fake),
+    });
+
+    const exitFn = vi.fn();
+    host.setOnExit(exitFn);
+
+    const sessionIds = ["s-0", "s-1"] as const;
+    for (const sessionId of sessionIds) {
+      const spawnP = host.spawn({
+        kind: "spawn_request",
+        command: "/bin/sh",
+        args: [],
+        env: [],
+        cwd: "/",
+        rows: 24,
+        cols: 80,
+      });
+      await flushMicrotasks();
+      fake.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: sessionId }));
+      await spawnP;
+    }
+    const internals: { sessions: Map<string, unknown> } = host as unknown as {
+      sessions: Map<string, unknown>;
+    };
+    expect(internals.sessions.size).toBe(2);
+
+    // Crash via the async-error path (mirrors handleChildExit semantics).
+    fake.triggerError(new Error("sidecar SIGABRT"));
+    await flushMicrotasks();
+
+    expect(exitFn).toHaveBeenCalledTimes(2);
+    expect(exitFn.mock.calls).toEqual(
+      expect.arrayContaining([
+        ["s-0", -1],
+        ["s-1", -1],
+      ]),
+    );
+    expect(internals.sessions.size).toBe(0);
+  });
+
+  it("does NOT re-fire onExit for a session whose normal-path exit already cached an exitCode", async () => {
+    const fake = makeFakeChild();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: spawnReturning(fake),
+    });
+
+    const exitFn = vi.fn();
+    host.setOnExit(exitFn);
+
+    // Register s-0 and s-1.
+    for (const sessionId of ["s-0", "s-1"] as const) {
+      const spawnP = host.spawn({
+        kind: "spawn_request",
+        command: "/bin/sh",
+        args: [],
+        env: [],
+        cwd: "/",
+        rows: 24,
+        cols: 80,
+      });
+      await flushMicrotasks();
+      fake.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: sessionId }));
+      await spawnP;
+    }
+
+    // s-0 exits normally — record.exitCode is set to 0; exitFn fires once.
+    fake.writeStdout(
+      frameEnvelope({
+        kind: "exit_code_notification",
+        session_id: "s-0",
+        exit_code: 0,
+        signal_code: null,
+      }),
+    );
+    await flushMicrotasks();
+    expect(exitFn).toHaveBeenCalledTimes(1);
+    expect(exitFn).toHaveBeenCalledWith("s-0", 0);
+
+    // Crash the sidecar. BL-111 must skip s-0 (already cached) and
+    // fire only for s-1 — assert: total fires = 2 (the prior s-0,0 +
+    // the new s-1,-1), NOT 3.
+    fake.triggerExit(1, null);
+    await flushMicrotasks();
+
+    expect(exitFn).toHaveBeenCalledTimes(2);
+    expect(exitFn).toHaveBeenNthCalledWith(2, "s-1", -1);
+  });
+
+  it("late ExitCodeNotification arriving on the respawned sidecar does NOT double-fire onExit", async () => {
+    const seq = spawnReturningSequence();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: seq.spawn,
+    });
+
+    const exitFn = vi.fn();
+    host.setOnExit(exitFn);
+
+    // Register s-0 on child A.
+    const spawnP1 = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    const childA = seq.latest();
+    childA.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
+    await spawnP1;
+
+    // Crash child A — BL-111 fires onExit("s-0", -1) once.
+    childA.triggerExit(1, null);
+    await flushMicrotasks();
+    expect(exitFn).toHaveBeenCalledTimes(1);
+    expect(exitFn).toHaveBeenCalledWith("s-0", -1);
+
+    // Force respawn (child B).
+    const spawnP2 = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    const childB = seq.latest();
+    expect(childB).not.toBe(childA);
+
+    // Deliver a stale ExitCodeNotification for the OLD session_id on
+    // child B's stdout. `handleExitNotification` finds no record
+    // (we deleted s-0 on the crash) and routes to the pre-spawn
+    // buffer — exitListener is NOT called again.
+    childB.writeStdout(
+      frameEnvelope({
+        kind: "exit_code_notification",
+        session_id: "s-0",
+        exit_code: 0,
+        signal_code: null,
+      }),
+    );
+    await flushMicrotasks();
+    expect(exitFn).toHaveBeenCalledTimes(1);
+
+    // Cleanup: resolve B's spawn (so the pending promise does not leak).
+    childB.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-1" }));
+    await spawnP2;
+  });
+
+  it("a listener that throws on one session does NOT strand remaining sessions in the map", async () => {
+    const fake = makeFakeChild();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: spawnReturning(fake),
+    });
+
+    // Suppress the console.warn emitted by the catch path so the test
+    // output stays clean. Restore in the cleanup tail.
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    const exitFn = vi.fn().mockImplementation((sessionId: string) => {
+      if (sessionId === "s-1") {
+        throw new Error("listener bug on s-1");
+      }
+    });
+    host.setOnExit(exitFn);
+
+    // Register three sessions.
+    for (const sessionId of ["s-0", "s-1", "s-2"] as const) {
+      const spawnP = host.spawn({
+        kind: "spawn_request",
+        command: "/bin/sh",
+        args: [],
+        env: [],
+        cwd: "/",
+        rows: 24,
+        cols: 80,
+      });
+      await flushMicrotasks();
+      fake.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: sessionId }));
+      await spawnP;
+    }
+
+    // Crash. The listener throws on s-1; the loop must continue and
+    // fire for s-0 and s-2, and `sessions.size === 0` must still hold.
+    fake.triggerExit(1, null);
+    await flushMicrotasks();
+
+    expect(exitFn).toHaveBeenCalledTimes(3);
+    const internals: { sessions: Map<string, unknown> } = host as unknown as {
+      sessions: Map<string, unknown>;
+    };
+    expect(internals.sessions.size).toBe(0);
+    // The throw was logged to console.warn for diagnosis.
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy.mock.calls[0]?.[0]).toMatch(/crash-time onExit listener threw for session s-1/);
+
+    warnSpy.mockRestore();
+  });
+
+  it("composes BELOW the stale-event guard — late stale exit for an old child does not re-fire onExit", async () => {
+    const seq = spawnReturningSequence();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: seq.spawn,
+    });
+
+    const exitFn = vi.fn();
+    host.setOnExit(exitFn);
+
+    // Spawn s-0 on child A and complete round-trip.
+    const spawnP1 = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    const childA = seq.latest();
+    childA.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
+    await spawnP1;
+
+    // Crash child A — BL-111 fires for s-0 once.
+    childA.triggerExit(1, null);
+    await flushMicrotasks();
+    expect(exitFn).toHaveBeenCalledTimes(1);
+    expect(exitFn).toHaveBeenCalledWith("s-0", -1);
+
+    // Respawn child B, register s-1.
+    const spawnP2 = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    const childB = seq.latest();
+    childB.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-1" }));
+    await spawnP2;
+
+    // Fire a STALE second exit event for the OLD child A. The
+    // stale-event guard (`this.child !== child`) must early-return
+    // BEFORE reaching `fireCrashTimeOnExit`, so s-1 (B's session) is
+    // NOT fired by the stale event.
+    childA.triggerExit(1, null);
+    await flushMicrotasks();
+
+    // exitFn was called exactly once (during A's real crash), NOT
+    // twice. s-1 remains in the map under child B's normal lifecycle.
+    expect(exitFn).toHaveBeenCalledTimes(1);
+    const internals: { sessions: Map<string, unknown>; child: unknown } = host as unknown as {
+      sessions: Map<string, unknown>;
+      child: unknown;
+    };
+    expect(internals.sessions.has("s-1")).toBe(true);
+    // Child B is still active — the stale event did not null it out.
+    expect(internals.child).toBe(childB.child);
+  });
+});
+
+// ----------------------------------------------------------------------------
 // `resolveSidecarBinaryPath` — four-tier binary resolution per F-024-3-03.
 //
 // What we assert (T-024-3-3 acceptance criteria, dispatch §pin 5 ordering,

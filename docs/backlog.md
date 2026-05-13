@@ -95,23 +95,6 @@ The items below were surfaced by the [plan-readiness-audit Tier 1](./operations/
 - Exit Criteria: One of (a)/(b)/(c) lands as the housekeeper invocation contract; ADR-023 §Axis 2 (or successor ADR) reclassifies the housekeeper from drift-detector to gate where applicable; the housekeeper's failure mode is "loud merge-block" rather than "silent post-merge drift" for any field that downstream tooling reads as authoritative; `--rebuild-from-git` recovery mode remains available as the escape hatch.
 - Revisit Trigger: Any one of — (1) second author joins the repo (multi-author race risk on the manifest file); (2) housekeeper fails in practice for the first time (concrete failure-mode signal); (3) V2 planning starts (good window for infrastructure refactor before adding new write paths); (4) shipment-manifest refactor (the larger Gate 3 architecture work surfaced post-PR-34) is sequenced for delivery — the manifest write path is the most critical new field that benefits from gate-class enforcement.
 
-### BL-111: Emit per-session `onExit` on `RustSidecarPtyHost` sidecar crash
-
-- Status: `todo`
-- Priority: `P1`
-- Owner: `unassigned`
-- References:
-  - [Plan-024](./plans/024-rust-pty-sidecar.md) Phase 3 (RustSidecarPtyHost wiring)
-  - [ADR-019](./decisions/019-windows-v1-tier-and-pty-sidecar.md) — Rust PTY sidecar / restart policy
-  - `packages/contracts/src/pty-host.ts` — canonical `PtyHost.onExit` contract surface (TypeScript interface; no governing spec doc currently — V1 surface lives in code)
-  - PR #56 commit `d0abe1a` Codex re-review finding (`packages/runtime-daemon/src/pty/rust-sidecar-pty-host.ts` — `handleChildExit` + `handleChildError`)
-- Summary: When the sidecar process exits unexpectedly, `handleChildExit` / `handleChildError` currently detach the stale stdout listener, reset the parser, null `this.child`, and `rejectAllOutstanding` for in-flight RPCs — but neither path iterates `this.sessions` nor fires `this.exitListener` for sessions that were active at crash time. Consumers awaiting `onExit` with no in-flight RPC (idle session waiting on emitted output) block indefinitely; stale session IDs persist until a later wire op surfaces an `UnknownSession` error and lazily cleans them. The normal-path `handleExitNotification` fires `onExit` per session correctly; only the crash path is silent. Deferred from PR #56 because: exit-code + signal-code semantics on a synthetic sidecar-crash exit are a contract decision (not a 30-second judgment call); shipping a `-1` / `null` placeholder now would commit V1 to that shape before [ADR-019](./decisions/019-windows-v1-tier-and-pty-sidecar.md) (or a successor ADR / new PTY-session spec) prescribes it. The PR-#56-scoped Codex P1 (writer-spin) + P2 (stale stdout listener) findings are independently fixed in `d0abe1a`; this is a separately latent gap surfaced on re-review.
-- Exit Criteria:
-  - [ADR-019](./decisions/019-windows-v1-tier-and-pty-sidecar.md) amendment (or successor ADR) codifying crash-time `onExit` semantics: synthetic exit code, synthetic signal code, drain-vs-fire ordering relative to `rejectAllOutstanding`, `this.sessions.delete` ordering relative to `exitListener` fire (open design question — fire-then-delete vs delete-then-fire affects whether a re-entrant `getSession` inside the listener observes the session), and dedupe contract for a `handleExitNotification` that races in after the crash-time fire.
-  - `permanentlyUnavailable === true` path (crash-budget exhausted) MUST still emit `onExit` for every active session — that is the surface consumers most rely on for cleanup, and the current code suppresses it together with the rest of the crash path.
-  - Implementation: `handleChildExit` and `handleChildError` iterate `this.sessions` and fire `exitListener` per session before the existing `rejectAllOutstanding` call; integration test: crash with N active sessions → `onExit` fires N times → `this.sessions.size === 0`.
-  - Regression test: a later `ExitCodeNotification` (or equivalent wire arrival) for the same session post-crash does NOT double-emit.
-
 ---
 
 _Closed items live in [Backlog Archive](./archive/backlog-archive.md)._
