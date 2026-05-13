@@ -97,6 +97,13 @@ _ENV_VALUE_FLAGS = frozenset(
 _EVAL_KEYWORD = "eval"
 _MAX_WRAPPER_DEPTH = 4
 
+_ALIAS_PREFIX = "alias."
+# Lazy, per-Python-process cache of configured git aliases whose body targets
+# `worktree (add|move)`. None = "not yet scanned"; an empty frozenset =
+# "scanned, none found". Tests override by setting this module attribute
+# before exercising the check.
+_configured_alias_cache = None
+
 
 def _repo_root():
     """Absolute repo root, or None outside a git repo."""
@@ -195,12 +202,16 @@ def _consume_git_globals(tokens, start_idx):
     any leading `-X` or `--flag[=value]` is treated as a no-arg global unless
     it's a known with-separated-arg flag (see _GIT_GLOBAL_WITH_SEP_ARG).
 
-    Returns (index_past_globals, c_paths) where c_paths is the ordered list
-    of `-C <path>` values — git applies them cumulatively against an evolving
-    cwd, so the caller must walk them in order rather than keeping only the
-    last one."""
+    Returns (index_past_globals, c_paths, inline_aliases):
+    - c_paths is the ordered list of `-C <path>` values — git applies them
+      cumulatively against an evolving cwd, so the caller must walk them in
+      order rather than keeping only the last one.
+    - inline_aliases is the dict `NAME -> VALUE` of any `-c alias.NAME=VALUE`
+      globals — these define an alias usable later in the same command
+      (e.g., `git -c alias.wta='worktree add' wta ../escape`)."""
     i = start_idx
     c_paths = []
+    inline_aliases = {}
     while i < len(tokens):
         tok = tokens[i]
         if not tok.startswith("-"):
@@ -208,10 +219,16 @@ def _consume_git_globals(tokens, start_idx):
         if tok in _GIT_GLOBAL_WITH_SEP_ARG:
             if tok == "-C" and i + 1 < len(tokens):
                 c_paths.append(tokens[i + 1])
+            elif tok == "-c" and i + 1 < len(tokens):
+                kv = tokens[i + 1]
+                if "=" in kv:
+                    key, val = kv.split("=", 1)
+                    if key.startswith(_ALIAS_PREFIX):
+                        inline_aliases[key[len(_ALIAS_PREFIX) :]] = val
             i += 2
             continue
         i += 1
-    return i, c_paths
+    return i, c_paths, inline_aliases
 
 
 def _extract_worktree_target(args, subcmd):
@@ -237,22 +254,135 @@ def _extract_worktree_target(args, subcmd):
     return None
 
 
-def _has_git_worktree_invocation(tokens):
-    """Scan tokens for a real `git [globals]* worktree (add|move)` invocation.
+def _alias_targets_worktree(expansion):
+    """Return True if a git alias's body expands into `worktree (add|move)`.
 
-    Used to gate strict-shape enforcement so that commands which only *mention*
-    the word `worktree` as a data token (e.g., `echo worktree add`) are not
+    Two body shapes are recognized:
+    1. Plain body (`worktree add`, `-C path worktree add ...`): tokenize and
+       check for `worktree (add|move)` after any leading git globals.
+    2. Shell body (`!cmd ...` — git executes via shell): tokenize the inner
+       command and scan for a direct `git worktree (add|move)` invocation.
+
+    Residuals (intentional, under the non-adversarial threat model — see
+    PR #58 Round 6 §Residuals): chained aliases (A → B → worktree),
+    prefix-only aliases (`alias.wt = worktree`, with `add` supplied at the
+    use site), and nested shell wrappers inside a `!` alias body."""
+    expansion = expansion.strip()
+    # Strip one layer of outer matching quotes — nested quoting in the source
+    # command (`git -c "alias.x='...'" x`) may leave them on the value.
+    if (
+        len(expansion) >= 2
+        and expansion[0] == expansion[-1]
+        and expansion[0] in ("'", '"')
+    ):
+        expansion = expansion[1:-1]
+    try:
+        toks = shlex.split(expansion)
+    except ValueError:
+        return False
+    if not toks:
+        return False
+    if toks[0].startswith("!"):
+        body = expansion.lstrip()[1:]
+        try:
+            inner = shlex.split(body)
+        except ValueError:
+            return True  # malformed shell body — err toward denial
+        return _has_git_worktree_invocation(inner)
+    j, _, _ = _consume_git_globals(toks, 0)
+    return (
+        j + 1 < len(toks)
+        and toks[j].lower() == "worktree"
+        and toks[j + 1].lower() in ("add", "move")
+    )
+
+
+def _scan_configured_worktree_aliases():
+    """Subprocess `git config --get-regexp '^alias\\.'` and return the
+    frozenset of alias names whose body targets `worktree (add|move)`.
+
+    Pre-configured aliases (`git config --global alias.wta 'worktree add'`)
+    are invisible in the Bash tokens — only `wta` appears when an agent runs
+    `git wta ../escape`. Without this scan, the strict-shape check has no way
+    to know `wta` expands to a worktree call.
+
+    Bounded cost: one `git config` subprocess per hook invocation, gated by
+    the quick-exit logic in `_check_worktree_path` (only runs when the
+    command mentions `git` but not `worktree`). Fails open on error, matching
+    the rest of this hook."""
+    try:
+        result = subprocess.run(
+            ["git", "config", "--get-regexp", r"^alias\."],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return frozenset()
+    if result.returncode != 0:
+        return frozenset()
+    names = set()
+    for line in result.stdout.splitlines():
+        if not line.startswith(_ALIAS_PREFIX):
+            continue
+        parts = line.split(" ", 1)
+        if len(parts) != 2:
+            continue
+        key, value = parts
+        if _alias_targets_worktree(value):
+            names.add(key[len(_ALIAS_PREFIX) :])
+    return frozenset(names)
+
+
+def _get_configured_worktree_aliases():
+    """Lazy, memoized accessor for pre-configured worktree-targeting aliases.
+
+    Bootstrap guard: `_scan_configured_worktree_aliases` indirectly calls back
+    into this function (via `_alias_targets_worktree` → shell-alias body →
+    `_has_git_worktree_invocation` → cache lookup). Setting the cache to an
+    empty frozenset before the scan breaks the recursion. The cost is that
+    chained aliases (`alias.a = b`, `alias.b = 'worktree add'`) won't be
+    detected — accepted residual."""
+    global _configured_alias_cache
+    if _configured_alias_cache is None:
+        _configured_alias_cache = frozenset()
+        _configured_alias_cache = _scan_configured_worktree_aliases()
+    return _configured_alias_cache
+
+
+def _has_git_worktree_invocation(tokens):
+    """Scan tokens for a real `git ... worktree (add|move)` invocation,
+    including alias-mediated ones.
+
+    Three invocation shapes match:
+    1. Direct: `git [globals]* worktree (add|move)`.
+    2. Inline alias: `git -c alias.X='worktree add' X ...` — alias configured
+       in the same command, then invoked by name.
+    3. Pre-configured alias: `git X ...` where `X` appears in the lazy-loaded
+       configured-alias cache.
+
+    Used to gate strict-shape enforcement so commands that only *mention* the
+    word `worktree` as a data token (e.g., `echo worktree add`) are not
     treated as worktree invocations and rejected for failing the shape."""
     n = len(tokens)
+    configured_aliases = _get_configured_worktree_aliases()
     for i in range(n):
         if tokens[i].lower() != "git":
             continue
-        j, _ = _consume_git_globals(tokens, i + 1)
-        if (
-            j + 1 < n
-            and tokens[j].lower() == "worktree"
-            and tokens[j + 1].lower() in ("add", "move")
+        j, _, inline_aliases = _consume_git_globals(tokens, i + 1)
+        if j >= n:
+            continue
+        head = tokens[j]
+        if head.lower() == "worktree":
+            if j + 1 < n and tokens[j + 1].lower() in ("add", "move"):
+                return True
+            continue
+        if head in inline_aliases and _alias_targets_worktree(
+            inline_aliases[head]
         ):
+            return True
+        if head in configured_aliases:
             return True
     return False
 
@@ -427,7 +557,22 @@ def _check_worktree_path(command, _depth=0):
         return None
 
     if not re.search(r"\bworktree\b", command, re.IGNORECASE):
-        return None
+        # No literal `worktree` token. A pre-configured alias may still
+        # expand to one (`git wta ../escape` where the user's git config has
+        # `alias.wta = 'worktree add'`). Pay the lazy `git config` subprocess
+        # cost only when the command mentions `git` AND the cache is
+        # non-empty AND at least one cached alias name appears as a word in
+        # the command — otherwise skip parse.
+        if not re.search(r"\bgit\b", command, re.IGNORECASE):
+            return None
+        configured = _get_configured_worktree_aliases()
+        if not configured:
+            return None
+        alias_pattern = (
+            r"\b(?:" + "|".join(re.escape(n) for n in configured) + r")\b"
+        )
+        if not re.search(alias_pattern, command):
+            return None
 
     normalized = _normalize_shell_operators(command)
     try:
@@ -465,7 +610,7 @@ def _check_worktree_path(command, _depth=0):
     if not tokens or tokens[0].lower() != "git":
         return _build_shape_deny()
 
-    j, c_paths = _consume_git_globals(tokens, 1)
+    j, c_paths, _ = _consume_git_globals(tokens, 1)
     if j >= len(tokens) or tokens[j].lower() != "worktree":
         return _build_shape_deny()
     if j + 1 >= len(tokens) or tokens[j + 1].lower() not in ("add", "move"):

@@ -70,10 +70,13 @@ cmd_remove() {
 
   git worktree remove "$path" >&2 || die "git worktree remove '$path' failed"
 
-  # Best-effort branch cleanup — never fail the hook on this.
+  # Best-effort branch cleanup — delete only fully-merged branches. `-d`
+  # refuses unmerged branches; `|| true` swallows the refusal so the hook
+  # never fails. Never force-delete here — a stale convention branch with
+  # unmerged commits shouldn't lose work when its worktree is removed.
   local branch="worktree-$(basename "$path")"
   if git show-ref --quiet "refs/heads/$branch"; then
-    git branch -D "$branch" >&2 2>/dev/null || true
+    git branch -d "$branch" >&2 2>/dev/null || true
   fi
 }
 
