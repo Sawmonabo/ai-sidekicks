@@ -1,5 +1,11 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
+    "ENABLE_LSP_TOOL": "1",
+    "CLAUDE_CODE_EFFORT_LEVEL": "max",
+    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "300000"
+  },
   "permissions": {
     "allow": [
       "Bash(uv run pytest:*)",
@@ -69,7 +75,9 @@
     "code-simplifier@claude-plugins-official": true,
     "ralph-loop@claude-plugins-official": true,
     "pr-review-toolkit@claude-plugins-official": true,
-    "claude-md-management@claude-plugins-official": true
+    "claude-md-management@claude-plugins-official": true,
+    "typescript-lsp@claude-plugins-official": true,
+    "rust-analyzer-lsp@claude-plugins-official": true
   },
   "spinnerVerbs": {
     "mode": "replace",
@@ -90,8 +98,8 @@
     ]
   },
   "alwaysThinkingEnabled": true,
-  "effortLevel": "max",
   "autoCompactWindow": 300000,
+  "advisorModel": "opus",
   "companyAnnouncements": [
     "Hey Sawbo, I can't fix bugs you haven't written yet. Get coding!",
     "Sawbo, today's mass hallucination brought to you by stochastic parrots everywhere.",
@@ -100,12 +108,5 @@
     "What's up Sawbo? Ready to mass ship some mass code?"
   ],
   "plansDirectory": "./.claude/tmp/plans",
-  "skipDangerousModePermissionPrompt": true,
-  "advisorModel": "opus",
-  "env": {
-    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
-    "ENABLE_LSP_TOOL": "1",
-    "CLAUDE_CODE_EFFORT_LEVEL": "max",
-    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "300000"
-  }
+  "skipDangerousModePermissionPrompt": true
 }
