@@ -103,6 +103,23 @@ _ENV_VALUE_FLAGS = frozenset(
 _EVAL_KEYWORD = "eval"
 _MAX_WRAPPER_DEPTH = 4
 
+_GIT_BIN_NAME = "git"
+
+
+def _is_git_token(tok):
+    """True if `tok` invokes the git binary — basename match, case-insensitive.
+
+    `tokens[i].lower() == "git"` misses `/usr/bin/git`, `./git`, or
+    `~/bin/git`, all of which are valid ways to invoke git. The hook would
+    treat such invocations as "no git here" and skip the strict-shape +
+    containment check entirely (PR #58 Codex Round 8). Matching on basename
+    instead lets path-prefixed invocations land on the same gate. The
+    surrounding `_consume_git_globals` and target-extraction logic does not
+    depend on the literal token — only on its position after the matched
+    git — so the change is local to the gate."""
+    return os.path.basename(tok).lower() == _GIT_BIN_NAME
+
+
 _ALIAS_PREFIX = "alias."
 # Lazy, per-Python-process cache of configured git aliases whose body targets
 # `worktree (add|move)`. None = "not yet scanned"; an empty frozenset =
@@ -374,7 +391,7 @@ def _has_git_worktree_invocation(tokens):
     n = len(tokens)
     configured_aliases = _get_configured_worktree_aliases()
     for i in range(n):
-        if tokens[i].lower() != "git":
+        if not _is_git_token(tokens[i]):
             continue
         j, _, inline_aliases = _consume_git_globals(tokens, i + 1)
         if j >= n:
@@ -659,7 +676,7 @@ def _check_worktree_path(command, _depth=0):
     if any(t in _SHELL_OPS for t in tokens):
         return _build_shape_deny()
 
-    if not tokens or tokens[0].lower() != "git":
+    if not tokens or not _is_git_token(tokens[0]):
         return _build_shape_deny()
 
     j, c_paths, _ = _consume_git_globals(tokens, 1)
