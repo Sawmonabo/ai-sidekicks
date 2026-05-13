@@ -77,7 +77,8 @@
     "pr-review-toolkit@claude-plugins-official": true,
     "claude-md-management@claude-plugins-official": true,
     "typescript-lsp@claude-plugins-official": true,
-    "rust-analyzer-lsp@claude-plugins-official": true
+    "rust-analyzer-lsp@claude-plugins-official": true,
+    "deep-research@sidekick-skills": true
   },
   "spinnerVerbs": {
     "mode": "replace",
