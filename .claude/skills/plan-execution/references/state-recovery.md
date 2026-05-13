@@ -171,10 +171,7 @@ git push origin --delete <PR-branch>-T3 2>/dev/null  # may fail if remote branch
 - TaskCreate task list.
 - Conversation context.
 - In-flight subagent dispatches (interrupted subagents don't resume; they're re-dispatched from scratch).
-- Anything in `.agents/tmp/` (gitignored, deleted at commit time per AGENTS.md).
-
-> **Note (deferred drift; tracked as BL-109):** the assertion above that `.agents/tmp/` is "deleted at commit time per AGENTS.md" describes intended behavior, NOT what `lefthook.yml` currently enforces — the pre-commit chain has no prune job. Reconciliation (add the lefthook job OR reword this doc) is tracked as [BL-109](../../../../docs/backlog.md#bl-109-reconcile-agentstmp-lifecycle-drift-between-state-recoverymd-and-lefthookyml). Per spec §9.3 this is explicitly out of the housekeeper plan's scope.
-
+- Anything in `.agents/tmp/` (gitignored; manually cleaned per AGENTS.md's [§Surface-Forward-Then-Delete Pattern](../../../../AGENTS.md#surface-forward-then-delete-pattern) — research files are deleted before the consuming-doc commit lands, by the agent that drafted them; no automated prune hook runs at commit time).
 - Working-tree changes not yet committed.
 
 When in doubt, commit. A `chore: WIP — implementer in flight` commit is cheap durability insurance and gets squashed at the end anyway. Do NOT use this pattern as a default — it's an emergency-only tool when a session is about to end mid-task.
