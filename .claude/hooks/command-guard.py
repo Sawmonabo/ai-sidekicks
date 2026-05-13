@@ -99,9 +99,25 @@ _WRAPPER_SHELL_OPTS_WITH_VALUE = frozenset(
 _WRAPPER_SCRIPT_BIN_NAMES = frozenset(
     {"python", "python3", "python2", "node", "perl", "ruby"}
 )
+# Cross-runtime "next token is code" flags. Kept as a single set because the
+# `-c <cmd>` form is the most common interpreter eval shape across languages
+# (python -c, node --command alternative aliases, etc.); the per-runtime
+# table below adds language-specific eval flags on top.
 _WRAPPER_SCRIPT_ARG_FLAGS = frozenset({"-c", "--command"})
-# perl/ruby `-e` is the script-language analogue of `-c`.
-_WRAPPER_SCRIPT_E_LANGS = frozenset({"perl", "ruby"})
+# Per-runtime eval flags. The flag's argument is the program body — not a
+# script-file path — so each runtime executes it directly. Without unwrapping,
+# `node -e "<inner>"` (or `perl -E '<inner>'`, etc.) hides `git worktree
+# add|move` from the strict-shape check because the outer tokens are
+# `[node, -e, "<inner>"]` with no `git` token at the surface. node also
+# supports `-p`/`--print` which evaluate-and-print; treated as eval here.
+_WRAPPER_SCRIPT_EVAL_FLAGS = {
+    "python": frozenset(),
+    "python3": frozenset(),
+    "python2": frozenset(),
+    "node": frozenset({"-e", "--eval", "-p", "--print"}),
+    "perl": frozenset({"-e", "-E"}),
+    "ruby": frozenset({"-e"}),
+}
 _ENV_BIN_NAME = "env"
 # env globals that take a separate-token value (so we can skip past them when
 # locating the wrapped binary). `man env`: -u/--unset, -S/--split-string,
@@ -111,6 +127,24 @@ _ENV_VALUE_FLAGS = frozenset(
 )
 _EVAL_KEYWORD = "eval"
 _MAX_WRAPPER_DEPTH = 4
+
+# Substring detector for `git ... worktree (add|move)` with intervening
+# characters. Used as a defense-in-depth fallback when the wrapper is an
+# interpreter-language runtime (`node -e`, `python -c`, `perl -e`, `ruby -e`):
+# shell-tokenization of the payload glues a quoted JS/Python string like
+# `'git worktree add ../escape'` into a single token, so `_has_git_worktree_
+# invocation` can't see the embedded call. The substring scan catches that.
+# Both gaps cap on length to keep false positives low (no newline / semicolon
+# separators allowed in the gap, so the pattern can't bridge across statement
+# boundaries). The second gap (worktree → add|move) is wider than pure
+# whitespace because Python/JS list literals separate them with `", "` —
+# e.g., `subprocess.run(["git", "worktree", "add", "../escape"])`. Not
+# applied to bash/sh wrapper payloads — those re-tokenize cleanly under
+# shell rules and the recursive check is authoritative.
+_GIT_WORKTREE_RE = re.compile(
+    r"\bgit\b[^\n;]{0,80}\bworktree\b[^\n;]{0,8}\b(?:add|move)\b",
+    re.IGNORECASE,
+)
 
 _GIT_BIN_NAME = "git"
 
@@ -485,6 +519,22 @@ def _extract_env_split_string(tokens):
     return None
 
 
+def _is_script_runtime_wrapper(tokens):
+    """True iff `tokens` (after env-prefix strip) invokes an interpreter-language
+    runtime from _WRAPPER_SCRIPT_BIN_NAMES — python, node, perl, ruby, etc.
+
+    Used to gate the substring-based defense-in-depth check in
+    `_check_worktree_path`: interpreter payloads can embed shell strings
+    that don't surface as discrete tokens (a JS literal
+    `'git worktree add ../escape'` becomes one quoted token after shell
+    tokenization). Shell wrappers (`bash -c`) re-tokenize cleanly and don't
+    need the fallback, so this helper returns False for them."""
+    stripped = _strip_env_prefix(tokens)
+    if not stripped:
+        return False
+    return os.path.basename(stripped[0]) in _WRAPPER_SCRIPT_BIN_NAMES
+
+
 def _extract_wrapped_command(tokens):
     """If `tokens` is a known shell/scripting wrapper invocation with an
     inline command (`bash -c '...'`, `python -c '...'`, `eval '...'`),
@@ -494,7 +544,9 @@ def _extract_wrapped_command(tokens):
     - bash/sh/zsh/etc. `-c <cmd>` and combined short opts (`-lc`, `-ilc`):
       bash short opts collapse, and any opt token containing `c` means
       "command follows in the next argument" (advisor flag).
-    - python/node/perl/ruby `-c <cmd>` (and `-e <cmd>` for perl/ruby).
+    - python/node/perl/ruby `-c <cmd>`; per-runtime eval flags
+      (`node -e/--eval/--eval=/-p/--print`, `perl -e/-E`, `ruby -e`).
+      Indexed by basename via `_WRAPPER_SCRIPT_EVAL_FLAGS`.
     - `env -S VALUE` (split-string): VALUE is itself the wrapped command,
       extracted before `_strip_env_prefix` runs (the strip walks past -S
       without re-parsing the value).
@@ -542,17 +594,24 @@ def _extract_wrapped_command(tokens):
         return None
 
     if base in _WRAPPER_SCRIPT_BIN_NAMES:
+        eval_flags = _WRAPPER_SCRIPT_EVAL_FLAGS.get(base, frozenset())
         i = 1
         while i < len(tokens):
             tok = tokens[i]
+            # Cross-runtime `-c <cmd>` / `--command <cmd>` next-token form.
             if tok in _WRAPPER_SCRIPT_ARG_FLAGS and i + 1 < len(tokens):
                 return tokens[i + 1]
-            if (
-                tok == "-e"
-                and i + 1 < len(tokens)
-                and base in _WRAPPER_SCRIPT_E_LANGS
-            ):
+            # Per-runtime eval flag, next-token form (`node -e <cmd>`,
+            # `perl -E <cmd>`, `node --eval <cmd>`).
+            if tok in eval_flags and i + 1 < len(tokens):
                 return tokens[i + 1]
+            # `--flag=value` one-token form (`node --eval=<cmd>`,
+            # `--command=<cmd>`). Split on the first `=` and match against
+            # the same flag tables.
+            if tok.startswith("--") and "=" in tok:
+                flag, _, val = tok.partition("=")
+                if flag in _WRAPPER_SCRIPT_ARG_FLAGS or flag in eval_flags:
+                    return val
             i += 1
         return None
 
@@ -666,6 +725,21 @@ def _check_worktree_path(command, _depth=0):
         nested_deny = _check_worktree_path(nested, _depth + 1)
         if nested_deny is not None:
             return nested_deny
+        # Defense-in-depth for interpreter-language wrappers (`node -e`,
+        # `python -c`, `perl -e`, `ruby -e`): the recursive check tokenizes
+        # the payload under shell rules, so a JS/Python literal like
+        # `'git worktree add ../escape'` is glued into one token and
+        # `_has_git_worktree_invocation` can't see it. Fall back to a
+        # substring scan for `git ... worktree (add|move)` in the payload
+        # when the wrapper is a script-runtime. Skipped for shell wrappers
+        # (`bash -c`) because their payloads re-tokenize cleanly and the
+        # recursive check is authoritative — the substring scan would
+        # otherwise false-positive on data mentions like
+        # `bash -c "echo 'git worktree add as text'"`.
+        if _is_script_runtime_wrapper(tokens) and _GIT_WORKTREE_RE.search(
+            nested
+        ):
+            return _build_shape_deny()
         # Nested call is clean. Fall through to also evaluate the outer
         # tokens — handles `bash -c 'echo ok' && git worktree add ../escape`
         # where the wrapper hides nothing but the chained outer call does.
