@@ -146,9 +146,10 @@ Plan-NNN implementation lands as a sequence of small PRs. Each PR exercises one 
 
 <!--
   Machine-readable preconditions (consumed by plan-execution preflight tool).
-  Supported types: pr_merged, adr_accepted, plan_phase, cross_plan_carve_out.
-  Required for plans authored from 2026-04-30 onward; legacy plans use prose
-  fallback parsing of the `**Precondition:**` line above.
+  Supported types: pr_merged, adr_accepted, plan_phase, cross_plan_carve_out,
+  audit_status. Required for plans authored from 2026-04-30 onward; legacy
+  plans use prose fallback parsing of the `**Precondition:**` line above
+  (audit_status and cross_plan_carve_out are YAML-only — no prose analog).
 -->
 
 ```yaml
@@ -156,6 +157,30 @@ preconditions:
   - { type: pr_merged, ref: 19 }
   - { type: adr_accepted, ref: 23 }
   - { type: plan_phase, plan: 1, phase: 5, status: merged }
+```
+
+For plans that ship across tiers via the substrate-vs-namespace decomposition pattern (Plan-007 / Plan-008 / Plan-023 carve-outs), use the `audit_status` precondition type. Two values are permitted (see [audit runbook §Per-Phase Audit Semantics](../operations/plan-implementation-readiness-audit-runbook.md)):
+
+```yaml
+# Phase already covered by the tier audit at its tier's place in the build order
+preconditions:
+  - {
+      type: audit_status,
+      status: complete,
+      evidence_pr: 15,
+      baseline_tag: "plan-readiness-audit-tier-1",
+    }
+```
+
+```yaml
+# Phase is a substrate slice of a §5 carve-out; ships before its tier-level audit
+preconditions:
+  - { type: cross_plan_carve_out, ref: "Plan-NNN Substrate-vs-Namespace Carve-Out" }
+  - {
+      type: audit_status,
+      status: substrate_exempt,
+      carve_out_ref: "Plan-NNN Substrate-vs-Namespace Carve-Out",
+    }
 ```
 
 **Goal:** {What tests go green; what behavior is delivered.}
