@@ -243,6 +243,15 @@ The Tier 1 partial slice lands as **1 small PR** following the Plan-008 bootstra
 
 **Precondition:** None at the plan level. Tier 1 entry point. The placeholder `apps/desktop/src/index.ts` shipped by Plan-001 Phase 1 (PR #6) is repositioned during this PR per its forward-declaration comment ("split into `apps/desktop/src/{main,preload,renderer}/` per the electron-vite zero-config convention").
 
+<!-- prettier-ignore -->
+```yaml
+preconditions:
+  - { type: cross_plan_carve_out, ref: "Plan-023 Substrate-vs-Namespace Carve-Out" }
+  - { type: audit_status, status: substrate_exempt, carve_out_ref: "Plan-023 Substrate-vs-Namespace Carve-Out" }
+```
+
+The `audit_status: substrate_exempt` declaration admits this phase for `/plan-execution` dispatch via the per-phase audit semantics introduced in [the readiness-audit runbook §Per-Phase Audit Semantics](../operations/plan-implementation-readiness-audit-runbook.md). Plan-023's plan-level audit checkbox stays unchecked until the Tier 8 remainder audit completes.
+
 - `apps/desktop/package.json` — minimal dependency set: `electron@^41.1.0`, `electron-vite@^5.0.0`, `react@^19`, `react-dom@^19`, `@ai-sidekicks/contracts` (workspace), `@ai-sidekicks/client-sdk` (workspace). Heavy deps (`electron-builder`, `electron-updater`, `@napi-rs/keyring`, `@sentry/electron`, `@electron/asar`, `@electron/fuses`, `electron-webauthn-mac`, `oauth4webapi`, `@playwright/test`) deferred to Tier 8 remainder.
 - `apps/desktop/electron.vite.config.ts` — `electron-vite` v5 config with three targets (`main` / `preload` / `renderer`); strict TypeScript; HMR on dev. (Implementation Step 3 substrate.)
 - `apps/desktop/src/main/index.ts` — minimal main entrypoint: `app.requestSingleInstanceLock()` + `app.whenReady()` → `createMainWindow()`. No Sentry init, no protocol handler, no daemon supervisor, no deep-link handler at Tier 1. (Implementation Step 1 substrate fragment.)
@@ -322,6 +331,23 @@ After Phase 1 merges, [Plan-001 Phase 5](./001-shared-session-core.md#phase-5--c
 - **`@napi-rs/keyring` ecosystem maturity.** `@napi-rs/keyring` v1.2.0 is the keytar successor path per Spec-023 §Implementation Notes §Native Keystore. It has not yet seen the battle-testing of `node-keytar` (archived 2022). **Mitigation**: the `keystore.ts` abstraction is backend-agnostic; if `@napi-rs/keyring` regresses, the abstraction can swap to `safeStorage` for all keys (with the accepted usability regression that `safeStorage` is a one-shot-blob API without per-key metadata). This swap is a code-only change, no schema migration.
 - **Renderer clipboard deprecation pitfall.** Electron 40+ deprecated direct `navigator.clipboard.*` from the renderer per Spec-023 §Implementation Notes §Renderer Bundle. The ESLint `no-restricted-imports` rule is the CI gate; a renderer file that imports `@capacitor/clipboard` or similar cross-platform clipboard library bypasses the rule. **Mitigation**: document in `apps/desktop/README.md` that clipboard access must route through `window.sidekicks.native.copyToClipboard`; add a runtime assertion (`expect(navigator.clipboard).toBeUndefined()` in renderer boot) that fails fast if a transitive dep re-introduces renderer-clipboard access.
 - **Single-instance-lock race with deep-link.** Spec-023 §Main Process Responsibilities requires `app.requestSingleInstanceLock()`. Without the lock, a `sidekicks://invite/<token>` URL arriving at a second instance would race with the first instance's daemon state. The lock + `second-instance` event handler is the correct pattern, but it introduces a subtle bug: if the first instance is mid-crash during URL arrival, the second instance gets the lock and may re-exchange the invite token. Accepted: Plan-007's invite-redemption API is idempotent on double-submission (same token → same session membership), so the race is a UX oddity not a security issue. Documented in `apps/desktop/RELEASE.md`.
+
+## Progress Log
+
+### Shipment Manifest
+
+<!-- Machine-readable. Housekeeper-emitted, orchestrator-written, preflight-read.
+     Schema authoritative in:
+       .claude/skills/plan-execution/scripts/lib/manifest.mjs -->
+
+```yaml
+manifest_schema_version: 1
+shipped: []
+```
+
+### Notes
+
+<!-- Per-PR human commentary (round-trips, learnings, partial-ship details). Append-only. -->
 
 ## Done Checklist
 

@@ -174,6 +174,17 @@ The Tier 1 bootstrap-deliverable (per §Execution Windows above) lands as **1 sm
 
 **Precondition:** [Plan-001](./001-shared-session-core.md) Phase 4 merged (the bootstrap wraps that PR's `packages/control-plane/src/sessions/session-directory-service.ts` — already shipped 2026-04-27 per [GitHub PR-#10](https://github.com/Sawmonabo/ai-sidekicks/pull/10)). Plan-001 Phase 2 schemas (`packages/contracts/src/session.ts` + `packages/contracts/src/event.ts`) merged. ADR-014 runtime authorization reconciled per §Preconditions (BL-104 resolved 2026-04-30 — Cloudflare Workers via `@trpc/server/adapters/fetch`).
 
+<!-- prettier-ignore -->
+```yaml
+preconditions:
+  - { type: pr_merged, ref: 10 }
+  - { type: adr_accepted, ref: 14 }
+  - { type: cross_plan_carve_out, ref: "Plan-008 Bootstrap-vs-Remainder Carve-Out" }
+  - { type: audit_status, status: substrate_exempt, carve_out_ref: "Plan-008 Bootstrap-vs-Remainder Carve-Out" }
+```
+
+The `audit_status: substrate_exempt` declaration is documentary — Phase 1 already shipped via PR #21 (2026-04-30) and preflight Gate 3 filters it. The YAML closes Plan-001:83's named governance debt for Plan-008 alongside the per-phase audit semantics introduced in [the readiness-audit runbook §Per-Phase Audit Semantics](../operations/plan-implementation-readiness-audit-runbook.md). Plan-008's plan-level audit checkbox stays unchecked until the Tier 5 remainder audit completes.
+
 - `packages/control-plane/src/server/` — host + tRPC v11 router registration scaffolding per [ADR-014](../decisions/014-trpc-control-plane-api.md). **Runtime: Cloudflare Workers via `@trpc/server/adapters/fetch`** (BL-104 resolved 2026-04-30 — see §Decision Log). Local development uses workerd (`wrangler dev`); production deploys to Cloudflare's edge. Skeleton only — relay broker / presence register / invite handlers ship in Plan-008-remainder at Tier 5. Per §Invariants I-008-1, the bootstrap MUST be gated behind a feature flag (e.g., `CONTROL_PLANE_BOOTSTRAP_ENABLED=1`) defaulting to off AND must enforce the approved-dev-environment allow-list gate (per I-008-1 verification gate #2 + F-008b-1-04 Workers reformulation + Codex PR #20 round 4 allow-list pivot — `env.ENVIRONMENT === 'development'`); deployable wrangler-config surfaces MUST NOT carry the flag NOR the `ENVIRONMENT=development` marker until Tier 5.
 - `packages/control-plane/src/sessions/session-router.ts` — typed tRPC procedures wrapping Plan-001 Phase 4's `session-directory-service.ts`. The router does NOT re-implement directory logic per §Invariants I-008-3 (constructor-injection enforcement). Per F-008b-1-03 resolution, the procedures are:
 
@@ -268,6 +279,66 @@ Substrate-only scope; no Spec-008 AC coverage at this tier (per F-008b-1-06 disc
 
 - Session-join traffic requirements for admin or recovery flows remain unresolved (operational sizing deferred; see parent [Spec-008](../specs/008-control-plane-relay-and-session-join.md))
 - Presence duplication is likely if reconnect association is not made authoritative early
+
+## Progress Log
+
+### Shipment Manifest
+
+<!-- Machine-readable. Housekeeper-emitted, orchestrator-written, preflight-read.
+     Schema authoritative in:
+       .claude/skills/plan-execution/scripts/lib/manifest.mjs -->
+
+```yaml
+manifest_schema_version: 1
+shipped:
+  - phase: 1
+    task: [T-008b-1-1, T-008b-1-2, T-008b-1-3, T-008b-1-4, T-008b-1-5]
+    pr: 21
+    sha: a362809
+    merged_at: 2026-04-30
+    files:
+      - .gitignore
+      - eslint.config.mjs
+      - packages/client-sdk/package.json
+      - packages/client-sdk/test/transport/sse-roundtrip.test.ts
+      - packages/client-sdk/tsconfig.test.json
+      - packages/client-sdk/vitest.config.ts
+      - packages/contracts/src/session.ts
+      - packages/control-plane/.dev.vars.example
+      - packages/control-plane/package.json
+      - packages/control-plane/src/index.ts
+      - packages/control-plane/src/server/__tests__/_helpers.ts
+      - packages/control-plane/src/server/__tests__/dev-environment-gate.test.ts
+      - packages/control-plane/src/server/__tests__/feature-flag-gate.test.ts
+      - packages/control-plane/src/server/dev-environment-gate.ts
+      - packages/control-plane/src/server/feature-flag-gate.ts
+      - packages/control-plane/src/server/host.ts
+      - packages/control-plane/src/sessions/__tests__/router-no-sql.test.ts
+      - packages/control-plane/src/sessions/__tests__/session-router.test.ts
+      - packages/control-plane/src/sessions/__tests__/session-subscribe-sse-heartbeat.test.ts
+      - packages/control-plane/src/sessions/__tests__/session-subscribe-sse.test.ts
+      - packages/control-plane/src/sessions/session-router.factory.ts
+      - packages/control-plane/src/sessions/session-router.ts
+      - packages/control-plane/src/sessions/session-subscribe-sse.factory.ts
+      - packages/control-plane/src/sessions/session-subscribe-sse.ts
+      - packages/control-plane/src/sessions/trpc.ts
+      - packages/control-plane/wrangler.toml
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+    verifies_invariant: [I-008-1, I-008-3]
+    spec_coverage: []
+    notes: |
+      Tier 1 bootstrap-deliverable per the substrate-vs-namespace decomposition
+      (cross-plan-dependencies.md §5 — Plan-008 Bootstrap-vs-Remainder Carve-Out).
+      Per F-008b-1-06, Phase 1 ships zero Spec-008 AC. Tier 5 remainder covers
+      Spec-008 §Acceptance Criteria (relay broker, presence register, invite
+      handoff). Manifest entry backfilled retroactively in the per-phase audit
+      semantics PR that introduced this section.
+```
+
+### Notes
+
+<!-- Per-PR human commentary (round-trips, learnings, partial-ship details). Append-only. -->
 
 ## Done Checklist
 
