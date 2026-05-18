@@ -3,9 +3,9 @@
 // At Tier 1 the renderer mounts ONLY this placeholder. The five Signature
 // Feature views (timeline, approvals, invites, runs, channels) plus the
 // top-level router and layout shell land at Plan-023 Tier 8 remainder
-// (see docs/plans/023-desktop-shell-and-renderer.md §Files In Scope lines
+// (see docs/plans/023-desktop-shell-and-renderer.md §Target Areas > Renderer lines
 // 107-111 — each feature view defers to Tier 8 per its "Tier 8 remainder"
-// annotation in §Phase 1 §Files In Scope line 261).
+// annotation in §Tier 1 Partial PR Sequence > Phase 1 line 261).
 //
 // Renderer is the untrusted process per Spec-023 §Trust Stance. At Tier 1
 // this file MUST NOT import:

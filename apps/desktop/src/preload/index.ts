@@ -22,7 +22,7 @@
 //
 // See:
 //   • docs/specs/023-desktop-shell-and-renderer.md §Preload Bridge Contract
-//   • docs/plans/023-desktop-shell-and-renderer.md §Files In Scope line 259
+//   • docs/plans/023-desktop-shell-and-renderer.md §Tier 1 Partial PR Sequence > Phase 1 line 259
 //   • packages/contracts/src/desktop-bridge.ts
 
 import { contextBridge } from "electron";

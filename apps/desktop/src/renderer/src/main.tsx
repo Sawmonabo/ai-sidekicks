@@ -6,7 +6,7 @@
 // `ReactDOM.render` API removed in React 18, see React 19 release notes).
 //
 // Tier 1 carve-outs (deferred to Tier 8 remainder per docs/plans/023-desktop-
-// shell-and-renderer.md §Files In Scope line 260):
+// shell-and-renderer.md §Tier 1 Partial PR Sequence > Phase 1 line 260):
 //   • No Sentry-renderer init (`@sentry/electron/renderer`). The Sentry SDK
 //     does not auto-initialize renderers in v7; explicit init lands at Tier 8
 //     when the dependency itself lands.

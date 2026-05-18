@@ -6,7 +6,7 @@
 // (`assert-webprefs.ts`) greps the factory for each value and fails the build
 // on drift."
 //
-// Spec-023 §Anti-Patterns lines 579-580: `nodeIntegration: true` or
+// Spec-023 §Pitfalls To Avoid line 579: `nodeIntegration: true` or
 // `sandbox: false` MUST be a build-time error.
 //
 // Regex-based matching (not literal-string) tolerates Prettier-driven
