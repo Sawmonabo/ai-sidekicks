@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      Renderer Tier 1 substrate entry HTML (Plan-023 Phase 1 T-023p-1-5).
+
+      Loaded by the Electron main process via the `sidekicks://` custom protocol
+      at Tier 8 remainder (see apps/desktop/src/main/window.ts §TODO line ~93).
+      At Tier 1 this file ships as the `electron-vite` renderer-target input
+      declared in apps/desktop/electron.vite.config.ts (renderer.rollupOptions.input).
+
+      The renderer is the UNTRUSTED process per Spec-023 §Trust Stance — every
+      capability reaches the renderer only through window.sidekicks (exposed by
+      the preload bridge at apps/desktop/src/preload/index.ts). No CSP meta tag
+      here: Spec-023 §Security Hardening Baseline places the Content-Security-
+      Policy on the response header served by the sidekicks:// protocol handler
+      (Tier 8 remainder), not on the document. A meta-tag CSP at Tier 1 would
+      be a substrate-vs-Tier-8 confusion; we author the HTML free of one so the
+      header-driven posture lands cleanly when the protocol handler ships.
+    -->
+    <title>AI Sidekicks</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./src/main.tsx"></script>
+  </body>
+</html>

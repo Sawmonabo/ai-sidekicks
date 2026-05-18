@@ -9,16 +9,23 @@
     "node": ">=22.12.0"
   },
   "scripts": {
-    "build": "tsc -b",
-    "typecheck": "tsc -b && tsc -p tsconfig.test.json",
-    "lint": "eslint src",
-    "test": "vitest run --passWithNoTests"
+    "build": "electron-vite build && node --experimental-strip-types build/assert-webprefs.ts",
+    "build:smoke": "electron-vite build --mode=smoke && node --experimental-strip-types build/assert-webprefs.ts",
+    "typecheck": "tsc -b && tsc -p tsconfig.test.json && tsc -p tsconfig.build.json",
+    "lint": "eslint src test",
+    "test": "pnpm run build:smoke && vitest run --passWithNoTests"
   },
   "dependencies": {
     "@ai-sidekicks/client-sdk": "workspace:*",
-    "@ai-sidekicks/contracts": "workspace:*"
+    "@ai-sidekicks/contracts": "workspace:*",
+    "react": "^19",
+    "react-dom": "^19"
   },
   "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "electron": "^41.1.0",
+    "electron-vite": "^5.0.0",
     "vitest": "catalog:testing"
   }
 }

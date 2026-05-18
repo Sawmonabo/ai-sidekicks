@@ -10,5 +10,11 @@
   // Test files are excluded from `tsc -b` so they don't ship in `dist/` (the
   // package's `files` array is `["dist"]`). Test type-validation runs separately
   // via `tsconfig.test.json` which includes tests with `noEmit: true`.
-  "exclude": ["dist", "node_modules", "src/**/__tests__/**"]
+  //
+  // `src/**/*.test-d.ts` (conditional-type tests sitting alongside the contract
+  // files they validate — e.g., `desktop-bridge.test-d.ts` next to
+  // `desktop-bridge.ts` per Plan-023 Phase 1 T-023p-1-4) is excluded by the
+  // same rule: the negative type-test runs under `tsconfig.test.json` (noEmit)
+  // and never emits to `dist/`.
+  "exclude": ["dist", "node_modules", "src/**/__tests__/**", "src/**/*.test-d.ts"]
 }

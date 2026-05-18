@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  // Electron renderer-process target — browser-context (React 19, no Node types).
+  // Extends `tsconfig.base.json` DIRECTLY (not tsconfig.node22.json) because the
+  // renderer runs in a Chromium V8 environment, not Node. DOM lib types are
+  // required; Node types are explicitly excluded (no `types: ["node"]`).
+  //
+  // `module: "esnext"` + `moduleResolution: "bundler"` is the idiomatic posture
+  // for a Vite-bundled renderer: relative imports do not require `.js` extensions
+  // and bundler-style resolution matches what vite/rollup actually do at build
+  // time. This overrides the `nodenext` defaults inherited from tsconfig.base.json.
+  //
+  // Authored at Plan-023 Phase 1 T-023p-1-2 as a design-intent stub. Source files
+  // (`src/main.tsx`, etc.) land at T-023p-1-5 and this config will be wired into
+  // `apps/desktop/tsconfig.json` references at that task.
+  "extends": "../../../../tsconfig.base.json",
+  "compilerOptions": {
+    "target": "es2023",
+    "lib": ["es2023", "dom", "dom.iterable"],
+    "types": [],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "outDir": "../../out/renderer",
+    "rootDir": ".",
+    "tsBuildInfoFile": "./.tsbuildinfo"
+  },
+  "include": ["**/*"],
+  "exclude": ["**/__tests__/**", "**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx"]
+}

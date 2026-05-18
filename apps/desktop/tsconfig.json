@@ -1,12 +1,26 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
+  // Plan-023 Phase 1: this is the Node-context entry for the desktop package and
+  // typechecks `src/main/**` + `src/preload/**`. The renderer lives in a separate
+  // composite project at `src/renderer/tsconfig.json` (browser context: DOM lib,
+  // JSX, no Node types) and is wired in via the `references` array below — so
+  // `tsc -b` walks into it and typechecks the .tsx files under their own config
+  // instead of dragging them into this Node-context compilation. The matching
+  // `src/renderer/**` exclude below prevents the `include: ["src/**/*"]` glob
+  // from double-counting the renderer files under this config's Node settings
+  // (which would re-trigger TS17004 / TS6142 / TS2584 by stripping the renderer
+  // of JSX + DOM lib).
   "extends": "../../tsconfig.node22.json",
   "compilerOptions": {
     "outDir": "./dist",
     "rootDir": "./src",
     "tsBuildInfoFile": "./.tsbuildinfo"
   },
-  "references": [{ "path": "../../packages/contracts" }, { "path": "../../packages/client-sdk" }],
+  "references": [
+    { "path": "../../packages/contracts" },
+    { "path": "../../packages/client-sdk" },
+    { "path": "./src/renderer" }
+  ],
   "include": ["src/**/*"],
-  "exclude": ["dist", "node_modules", "src/**/__tests__/**"]
+  "exclude": ["dist", "out", "node_modules", "src/**/__tests__/**", "src/renderer/**"]
 }

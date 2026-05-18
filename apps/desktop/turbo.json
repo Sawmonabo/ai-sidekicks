@@ -1,0 +1,30 @@
+{
+  "$schema": "../../node_modules/turbo/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "build": {
+      "inputs": ["src/**", "build/**", "electron.vite.config.ts", "tsconfig*.json", "package.json"],
+      "outputs": ["out/**", "dist/**", ".tsbuildinfo"]
+    },
+    "typecheck": {
+      "inputs": ["src/**", "test/**", "build/**", "tsconfig*.json", "package.json"],
+      "outputs": [".tsbuildinfo"]
+    },
+    "lint": {
+      "inputs": ["src/**", "test/**", "*.{ts,tsx,js,mjs,cjs,json}", "eslint.config.mjs"],
+      "outputs": []
+    },
+    "test": {
+      "inputs": [
+        "src/**",
+        "test/**",
+        "build/**",
+        "electron.vite.config.ts",
+        "vitest.config.*",
+        "tsconfig*.json",
+        "package.json"
+      ],
+      "outputs": []
+    }
+  }
+}

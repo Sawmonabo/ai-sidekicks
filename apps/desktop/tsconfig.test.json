@@ -3,10 +3,19 @@
   // Type-validates test files without emitting. The production `tsconfig.json`
   // excludes `src/**/__tests__/**` so test files don't ship in `dist/`; this
   // config covers them via a `noEmit` typecheck pass.
+  //
+  // Plan-023 Phase 1 T-023p-1-7 widens this config to also cover the
+  // package-root `test/` directory. The substrate-boots smoke test lives at
+  // `apps/desktop/test/launch.smoke.test.ts` (sibling to `src/`, per the
+  // Plan-023 §Tier 1 Partial PR Sequence > Phase 1 §Tasks T-023p-1-7
+  // declaration on line 273). To keep that file typechecked, we drop the
+  // `rootDir: ./src` constraint (which would error on files outside `src/`)
+  // and broaden `include` to also accept `test/**/*`. The narrower `dist`
+  // / `node_modules` excludes remain; `rootDir` is omitted so TS infers it
+  // as the longest common ancestor of the include set.
   "extends": "../../tsconfig.node22.json",
   "compilerOptions": {
     "noEmit": true,
-    "rootDir": "./src",
     // `isolatedDeclarations` (inherited from base) requires either `declaration`
     // or `composite`; we keep `declaration: true` paired with `noEmit: true` so
     // the typechecker honors `isolatedDeclarations` constraints without writing
@@ -17,6 +26,14 @@
     "declarationMap": false,
     "sourceMap": false
   },
-  "include": ["src/**/*"],
-  "exclude": ["dist", "node_modules"]
+  "include": ["src/**/*", "test/**/*"],
+  // `src/renderer/**` is excluded because the renderer is a separate composite
+  // project (browser context: JSX + DOM lib) wired in via the parent
+  // tsconfig.json `references`. This Node-context test config would otherwise
+  // drag renderer .tsx files into a JSX-less / DOM-less compilation and trip
+  // TS17004 / TS6142 / TS2584 — the same shape of structural blocker the
+  // parent tsconfig.json exclude resolves. Renderer-internal test files (when
+  // they land at T-023p-1-7+) are typechecked by the renderer composite
+  // project itself, not by this Node-context config.
+  "exclude": ["dist", "node_modules", "src/renderer/**"]
 }

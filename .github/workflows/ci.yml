@@ -72,6 +72,29 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Electron 41 on Ubuntu 24.04 GitHub Actions runners requires the
+      # SUID sandbox helper (`chrome-sandbox`) to be owned by root and have
+      # mode 4755 for the renderer's Linux namespace sandbox to initialize.
+      # pnpm install cannot run the Electron post-install step under root,
+      # so we chown/chmod the binary here. This preserves `webPreferences.sandbox: true`
+      # (Spec-023 §Security Hardening Baseline lines 104-116) — running
+      # Electron with `--no-sandbox` would defeat the very invariant
+      # apps/desktop/test/launch.smoke.test.ts asserts (the three-globals
+      # set: window.require / process / global all undefined per Spec-023
+      # §Acceptance Criteria line 602).
+      #
+      # The `find -print -quit` form returns the first match without
+      # walking the whole tree; the guard fails fast if the binary is
+      # missing (which would mean pnpm install changed the layout).
+      - name: Configure Electron SUID sandbox helper (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sandbox=$(find node_modules/.pnpm -name chrome-sandbox -path '*/electron/dist/*' -print -quit)
+          [ -n "$sandbox" ] || { echo "::error::chrome-sandbox not found under node_modules/.pnpm/.../electron/dist/ — pnpm layout drift?"; exit 1; }
+          sudo chown root:root "$sandbox"
+          sudo chmod 4755 "$sandbox"
+          ls -l "$sandbox"
+
       # ADR-023 §Axis 2 D-1: closure for `git commit --no-verify` bypass. Explicit
       # full-repo invocations (NOT `lefthook run pre-commit --all-files` — lint-staged
       # reads the git staging index, which is empty in the CI checkout, so that
