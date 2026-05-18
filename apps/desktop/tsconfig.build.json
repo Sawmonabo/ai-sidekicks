@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  // Type-validates the `build/` directory (Node-context scripts that run as
+  // part of `pnpm build`) without emitting. The production `tsconfig.json`
+  // has `rootDir: ./src` and does not cover `build/`; this sibling config
+  // mirrors the `tsconfig.test.json` pattern (noEmit + isolated buildinfo)
+  // so the build scripts are still typechecked without polluting the
+  // project-references graph or the production `dist/` layout.
+  //
+  // Authored at Plan-023 Phase 1 T-023p-1-3 alongside `build/assert-webprefs.ts`.
+  "extends": "../../tsconfig.node22.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "./build",
+    // `isolatedDeclarations` (inherited from base) requires either `declaration`
+    // or `composite`; we keep `declaration: true` paired with `noEmit: true` so
+    // the typechecker honors `isolatedDeclarations` constraints without writing
+    // files (see TS5069). `composite: false` and a null buildinfo prevent this
+    // config from polluting the project-references graph.
+    "composite": false,
+    "declaration": true,
+    "declarationMap": false,
+    "sourceMap": false
+  },
+  "include": ["build/**/*"],
+  "exclude": ["dist", "out", "node_modules"]
+}

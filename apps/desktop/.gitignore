@@ -1,0 +1,9 @@
+# Package-scoped exception to the repo-root `build/` ignore rule (.gitignore:57).
+#
+# `apps/desktop/build/` contains build-time TypeScript scripts (e.g.
+# `assert-webprefs.ts`) that ship with the source tree and run as part of
+# `pnpm build` to enforce Spec-023 §Security Hardening Baseline invariants.
+# These scripts are first-class source code, not generated artifacts, so they
+# must be tracked. The repo-root rule was authored before any package needed a
+# `build/` source dir; this narrow un-ignore re-admits the desktop one.
+!build/
