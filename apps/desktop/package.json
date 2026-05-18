@@ -16,9 +16,13 @@
   },
   "dependencies": {
     "@ai-sidekicks/client-sdk": "workspace:*",
-    "@ai-sidekicks/contracts": "workspace:*"
+    "@ai-sidekicks/contracts": "workspace:*",
+    "react": "^19",
+    "react-dom": "^19"
   },
   "devDependencies": {
+    "electron": "^41.1.0",
+    "electron-vite": "^5.0.0",
     "vitest": "catalog:testing"
   }
 }

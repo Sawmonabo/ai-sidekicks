@@ -44,6 +44,12 @@ allowBuilds:
   #   (Windows CI today, the Phase 5 sidecar fallback path later).
   node-pty: true
   koffi: true
+  # Plan-023 Phase 1 (T-023p-1-1) — apps/desktop Electron substrate:
+  # - electron: postinstall downloads the platform-specific Electron
+  #   binary into node_modules/electron/dist via @electron/get. Required
+  #   on every dev + CI platform that builds or runs the desktop shell;
+  #   without the binary `electron-vite` and `electron .` cannot launch.
+  electron: true
 
 # Workspace-wide dependency unification per ADR-022 §Decision row 1 (pnpm catalogs).
 # Catalogs eliminate per-package version drift for cross-cutting devDependencies (testing
