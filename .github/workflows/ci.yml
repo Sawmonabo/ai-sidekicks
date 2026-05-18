@@ -108,30 +108,32 @@ jobs:
       - name: Build (Node 22 tier — excluding control-plane)
         run: pnpm turbo run build --filter='!@ai-sidekicks/control-plane'
 
-      # Production-safety check: the smoke-probe path in
-      # apps/desktop/src/main/index.ts is gated by the compile-time-static
-      # `__SIDEKICKS_SMOKE_BUILD__` identifier (Vite `define` substitution per
+      # Production-safety check: the test-machinery probe paths in
+      # apps/desktop/src/main/index.ts (the smoke probe and the GC-reachability
+      # probe) are gated by the compile-time-static `__SIDEKICKS_SMOKE_BUILD__`
+      # identifier (Vite `define` substitution per
       # apps/desktop/electron.vite.config.ts). The default `electron-vite build`
       # substitutes `false`; Rollup's tree-shaker eliminates the entire
       # `if (false && expr) { ... }` body, physically stripping the probe
-      # markers (`SIDEKICKS_SMOKE_PROBE`, `executeJavaScript`, `about:blank`)
-      # from `apps/desktop/out/main/index.js`. This step asserts that
-      # guarantee by grepping the release artifact; any match means
+      # markers — `SIDEKICKS_SMOKE_PROBE`, `executeJavaScript`, `about:blank`
+      # (smoke probe) and `SIDEKICKS_GC_PROBE`, `queryObjects`, `runGcProbe`
+      # (GC probe) — from `apps/desktop/out/main/index.js`. This step asserts
+      # that guarantee by grepping the release artifact; any match means
       # dead-code-elimination silently regressed (Vite/Rollup version drift,
       # define-substitution change, or someone replaced the compile-time gate
       # with a runtime-only one). The "no test machinery in production
       # binaries" invariant derives from Spec-023 §Trust Stance + §Pitfalls
-      # To Avoid (renderer-untrusted; any reachable `executeJavaScript`
-      # weakens that posture).
-      - name: Assert release bundle excludes smoke-probe markers (apps/desktop)
+      # To Avoid (renderer-untrusted; any reachable `executeJavaScript` or
+      # `queryObjects` call weakens that posture).
+      - name: Assert release bundle excludes test-machinery markers (apps/desktop)
         run: |
           bundle=apps/desktop/out/main/index.js
           [ -f "$bundle" ] || { echo "::error::$bundle not found — release build skipped or output path drifted"; exit 1; }
           fail=0
-          for marker in "SIDEKICKS_SMOKE_PROBE" "executeJavaScript" "about:blank"; do
+          for marker in "SIDEKICKS_SMOKE_PROBE" "executeJavaScript" "about:blank" "SIDEKICKS_GC_PROBE" "queryObjects" "runGcProbe"; do
             count=$(grep -c -- "$marker" "$bundle" || true)
             if [ "$count" -ne 0 ]; then
-              echo "::error::release bundle contains smoke-probe marker '$marker' ($count occurrences in $bundle) — dead-code-elimination regressed"
+              echo "::error::release bundle contains test-machinery marker '$marker' ($count occurrences in $bundle) — dead-code-elimination regressed"
               fail=1
             fi
           done
@@ -139,7 +141,7 @@ jobs:
             echo "::error::compile-time-static gate __SIDEKICKS_SMOKE_BUILD__ should substitute to 'false' in release builds; check apps/desktop/electron.vite.config.ts define block"
             exit 1
           fi
-          echo "ok: release bundle excludes smoke-probe markers"
+          echo "ok: release bundle excludes test-machinery markers"
 
       - name: Typecheck (Node 22 tier — excluding control-plane)
         run: pnpm turbo run typecheck --filter='!@ai-sidekicks/control-plane'

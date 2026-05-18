@@ -7,7 +7,10 @@
 //
 // See docs/plans/023-desktop-shell-and-renderer.md §Tier 1 Partial PR Sequence > Phase 1 line 257.
 
-import { app, type BrowserWindow } from "electron";
+import { queryObjects } from "node:v8";
+import { setTimeout as wait } from "node:timers/promises";
+
+import { app, BrowserWindow } from "electron";
 import { createMainWindow } from "./window.js";
 
 // Compile-time-static flag. `electron-vite build --mode=smoke` substitutes
@@ -87,16 +90,93 @@ const gotTheLock = app.requestSingleInstanceLock();
 //   weaken those guarantees, and a test-probe path that calls
 //   `executeJavaScript` against the renderer is exactly such weakening.
 const SMOKE_PROBE_TAG = "[SIDEKICKS_SMOKE_PROBE]";
+const GC_PROBE_TAG = "[SIDEKICKS_GC_PROBE]";
 
-// Module-scope reference holds the BrowserWindow alive after the
-// `whenReady().then(...)` callback returns. Without this, V8 may
-// garbage-collect the only live handle once the callback's stack frame
-// unwinds, at which point Electron fires `window-all-closed` and the
-// app quits unexpectedly. The smoke-probe path masks this because
-// `app.exit(0)` runs before V8 reaches an idle GC. This is the
-// canonical Electron main-process retention pattern. The
-// `no-unused-vars` disable is load-bearing — the variable's "use" is
-// V8 reachability, which the linter cannot observe.
+// Plan-023 lifecycle-reachability probe. When the bundle is built with
+// `electron-vite build --mode=smoke` AND `SIDEKICKS_GC_PROBE=1`, this
+// function drives K iterations of GC pressure and samples
+// `v8.queryObjects(BrowserWindow)` after each cycle. It emits a single
+// summary line tagged `[SIDEKICKS_GC_PROBE]` that the regression test
+// at `apps/desktop/test/lifecycle.gc.test.ts` parses.
+//
+// The probe asserts the observable lifecycle contract (window stays
+// reachable across the `.then(...)` callback unwind; `window-all-closed`
+// does not fire mid-loop). Per ADR-024 §Antithesis, the load-bearing
+// reachability mechanism is Electron's native-side `BaseWindow::self_ref_`
+// (`v8::Global<v8::Value>` strong-rooted from `InitWith` to native
+// destruction) — the user-side module-scope `let mainWindow` is defensive
+// consistency with the canonical community pattern, not the GC anchor.
+// The probe therefore serves as a future-regression guard against
+// Electron internals shifting `self_ref_` semantics, not as proof that
+// removing `let mainWindow` would break a fix-state.
+//
+// Module-scope so the `setImmediate` callback's closure does not
+// capture the `.then(...)` arrow's local `browserWindow` const. A
+// closure that captured `browserWindow` would root the window for the
+// lifetime of the scheduled task — narrowing the probe's signal scope
+// to native-only retention regressions, which is the discriminating
+// behavior we want.
+//
+// Compile-time-static gate is shared with the smoke probe below: in
+// release builds Vite substitutes `__SIDEKICKS_SMOKE_BUILD__` to
+// `false` and Rollup strips this function body alongside the probe
+// branch.
+let windowAllClosedFiredDuringProbe = false;
+
+async function runGcProbe(): Promise<void> {
+  const iterations = 20;
+  const allocBytes = 8 * 1024 * 1024;
+  const counts: number[] = [];
+  const queryObjectsAvailable = typeof queryObjects === "function";
+  const globalGcAvailable = typeof globalThis.gc === "function";
+
+  for (let i = 0; i < iterations; i++) {
+    if (globalGcAvailable) {
+      globalThis.gc?.();
+      globalThis.gc?.();
+    }
+    const throwaway = new Uint8Array(allocBytes);
+    throwaway[0] = i & 0xff;
+    if (globalGcAvailable) {
+      globalThis.gc?.();
+      globalThis.gc?.();
+    }
+    await wait(50);
+    counts.push(queryObjects(BrowserWindow, { format: "count" }));
+  }
+
+  const min = counts.length > 0 ? Math.min(...counts) : 0;
+  const max = counts.length > 0 ? Math.max(...counts) : 0;
+
+  console.log(
+    `${GC_PROBE_TAG} ${JSON.stringify({
+      ok: true,
+      queryObjectsAvailable,
+      globalGcAvailable,
+      iterations,
+      counts,
+      min,
+      max,
+      allClosedFired: windowAllClosedFiredDuringProbe,
+    })}`,
+  );
+  app.exit(0);
+}
+
+// Module-scope handle for the BrowserWindow. Defensive consistency
+// with the canonical Electron main-process retention pattern. Per
+// ADR-024 §Antithesis, the load-bearing reachability mechanism is
+// Electron's native-side `BaseWindow::self_ref_`
+// (`v8::Global<v8::Value>` strong-rooted from `InitWith` to native
+// destruction) — a freshly constructed `BrowserWindow` is anchored
+// on the V8 root set without any user-side help. Keeping
+// `let mainWindow` is zero-cost insurance against future Electron
+// releases shifting `self_ref_` semantics (asymmetric risk: one
+// identifier vs. silent regression on a future Electron release).
+//
+// The `no-unused-vars` disable is intentional — eslint observes that
+// nothing reads the variable, but its role is being-assigned for
+// defensive pattern consistency, not being-read.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 let mainWindow: BrowserWindow | null = null;
 
@@ -162,6 +242,31 @@ if (!gotTheLock) {
         browserWindow.loadURL("about:blank").catch((err: unknown) => {
           console.error(`${SMOKE_PROBE_TAG} loadURL failed:`, err);
           app.exit(3);
+        });
+      } else if (__SIDEKICKS_SMOKE_BUILD__ && process.env["SIDEKICKS_GC_PROBE"] === "1") {
+        // Register a probe-scoped `window-all-closed` listener. The
+        // module-level `app.quit()` handler below registers at module-
+        // eval time (synchronously, before `whenReady` resolves), so
+        // this listener is invoked second. That is fine: `EventEmitter`
+        // invokes every registered listener synchronously within a
+        // single `emit()` call, so the flag is set during the same
+        // `emit()` pass as `app.quit()`'s synchronous return — Electron's
+        // `app.quit` only schedules the quit sequence (`before-quit` /
+        // `will-quit` / `quit`) on later ticks, so it cannot pre-empt
+        // the second listener. The flag is read in `runGcProbe`'s JSON
+        // payload and asserted false by
+        // `apps/desktop/test/lifecycle.gc.test.ts` — a true value means
+        // the BrowserWindow lifecycle invariant (per ADR-024) broke
+        // mid-probe.
+        app.on("window-all-closed", () => {
+          windowAllClosedFiredDuringProbe = true;
+        });
+        // Schedule on a fresh event-loop tick so the `.then(...)` arrow's
+        // locals can unwind before `runGcProbe` samples the heap. The
+        // arrow passed to `setImmediate` references only `runGcProbe`
+        // (module-scope), so its closure does not capture `browserWindow`.
+        setImmediate(() => {
+          void runGcProbe();
         });
       }
     })

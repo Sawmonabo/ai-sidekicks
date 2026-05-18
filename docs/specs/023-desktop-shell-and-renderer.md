@@ -600,6 +600,7 @@ React + Vite per ADR-016; TypeScript strict. Vite produces ES module output; the
 - [ ] Shell bundle size (post-asar, post-compression) is under the ADR-016 Success Criteria target of 150 MB — verified by CI artifact size check
 - [ ] The preload bridge surface has no `any`-typed escape hatch in its public type — verified by TypeScript strict-mode build
 - [ ] Renderer attempts to access `require`, `process`, or `global` return `undefined` — verified by runtime assertion in a sandbox test
+- [ ] The main-process `BrowserWindow` handle remains V8-reachable across the `app.whenReady().then(...)` callback unwind in a release-mode build, such that `window-all-closed` does not fire until the user closes the window — verified by a `--js-flags=--expose-gc` lifecycle probe asserting (a) `v8.queryObjects(BrowserWindow)` count `≥ 1` across repeated GC pressure cycles AND (b) `window-all-closed` does not fire during the probe iteration loop. Per ADR-024 §Antithesis, the load-bearing reachability mechanism is Electron's native-side `BaseWindow::self_ref_` (`v8::Global<v8::Value>` field declared at `electron_api_base_window.h:271`, set in `InitWith` at `electron_api_base_window.cc:155`, reset only at native-object destruction at `electron_api_base_window.cc:130`); user-side module-scope retention is defensive consistency with the canonical Electron community pattern, not the primary GC-anchor.
 
 ## ADR Triggers
 
