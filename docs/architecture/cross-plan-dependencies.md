@@ -378,7 +378,7 @@ With NS-01 + NS-02 + NS-04 + NS-05 completed 2026-05-11 (NS-01 via PR #42 — Pl
 
 ### NS-04: Plan-001 T5.4 cwd-translator + Plan-024 T-024-2-1 contracts pair
 
-- Status: `completed` (resolved 2026-05-11 via PR #48 — Plan-001 T5.4 `spawn-cwd-translator.ts` consumes the `PtyHost` interface shipped in PR #45; both PR-rows ticked. The cwd-translator + interface pair clears the I-024-5 OS-level cwd-translation precondition that previously gated NS-05 (Plan-024 Phase 2 NodePtyHost) and NS-07 (Plan-024 Phase 3 RustSidecarPtyHost); both now advance one upstream-dep closer to dispatch — NS-05 is unblocked (only upstream remaining was NS-01 + NS-04, both completed); NS-07 stays blocked on NS-05.)
+- Status: `completed` (resolved 2026-05-11 via PR #48 — Plan-001 T5.4 `spawn-cwd-translator.ts` consumes the `PtyHost` interface shipped in PR #45; both PR-rows ticked. The cwd-translator + interface pair clears the I-024-5 OS-level cwd-translation precondition that previously gated NS-05 (Plan-024 Phase 2 NodePtyHost) and NS-07 (Plan-024 Phase 3 RustSidecarPtyHost); both now advance one upstream-dep closer to dispatch — NS-05 is unblocked (only upstream remaining was NS-01 + NS-04, both completed); at NS-04's resolution time NS-07 remained blocked on NS-05 — NS-07 has since unblocked 2026-05-12 via PR #56.)
 - Type: code
 - Priority: `P1`
 - Upstream: none (the 3-step sequence is internal: (a) `packages/contracts/src/pty-host.ts` interface-only PR for T-024-2-1 → (b) `packages/runtime-daemon/src/session/spawn-cwd-translator.ts` for T5.4 → (c) NodePtyHost impl T-024-2-2 lands as part of NS-05)
@@ -391,7 +391,7 @@ With NS-01 + NS-02 + NS-04 + NS-05 completed 2026-05-11 (NS-01 via PR #42 — Pl
 
 ### NS-05: Plan-024 Phase 2 — NodePtyHost
 
-- Status: `completed` (resolved 2026-05-11 via PR #51 — Plan-024 Phase 2 closeout shipped T-024-2-2 (`NodePtyHost` implementation with Windows kill-translation per I-024-1 + I-024-2) + T-024-2-3 (`PtyHostSelector` + `AIS_PTY_BACKEND` env-var grammar per F-024-2-07) together; T-024-2-1 (`PtyHost` interface) shipped earlier in PR #45. I-024-1 satisfaction via Test K1 (`node-pty-host.kill-translation.test.ts`); I-024-2 satisfaction via Test K3 (`node-pty-host.tree-kill.test.ts`); both close the test-side mirror gap named by F-024-2-05. Default-Node-on-all-platforms posture (F-024-2-02) is live with the selector; `useConptyDll: false` retained per ADR-019 Tripwire 3. Unblocks NS-07 (Plan-024 Phase 3 RustSidecarPtyHost) — its only upstream was NS-05.)
+- Status: `completed` (resolved 2026-05-11 via PR #51 — Plan-024 Phase 2 closeout shipped T-024-2-2 (`NodePtyHost` implementation with Windows kill-translation per I-024-1 + I-024-2) + T-024-2-3 (`PtyHostSelector` + `AIS_PTY_BACKEND` env-var grammar per F-024-2-07) together; T-024-2-1 (`PtyHost` interface) shipped earlier in PR #45. I-024-1 satisfaction via Test K1 (`node-pty-host.kill-translation.test.ts`); I-024-2 satisfaction via Test K3 (`node-pty-host.tree-kill.test.ts`); both close the test-side mirror gap named by F-024-2-05. Default-Node-on-all-platforms posture (F-024-2-02) is live with the selector; `useConptyDll: false` retained per ADR-019 Tripwire 3. Unblocks NS-07 (Plan-024 Phase 3 RustSidecarPtyHost) — its last remaining upstream at NS-05's resolution time was NS-05 itself (NS-04 had cleared earlier the same day via PR #48).)
 - Type: code
 - Priority: `P1`
 - Upstream: NS-01 (Phase 1 scaffolding) + NS-04 (T5.4 cwd-translator)
