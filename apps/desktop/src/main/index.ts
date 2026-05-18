@@ -93,9 +93,8 @@ const SMOKE_PROBE_TAG = "[SIDEKICKS_SMOKE_PROBE]";
 // garbage-collect the only live handle once the callback's stack frame
 // unwinds, at which point Electron fires `window-all-closed` and the
 // app quits unexpectedly. The smoke-probe path masks this because
-// `app.exit(0)` runs before V8 reaches an idle GC. A non-smoke-mode
-// regression test against this assertion is a Tier 8 remainder; the
-// module-scope retention is the proportionate Tier 1 substrate. The
+// `app.exit(0)` runs before V8 reaches an idle GC. This is the
+// canonical Electron main-process retention pattern. The
 // `no-unused-vars` disable is load-bearing — the variable's "use" is
 // V8 reachability, which the linter cannot observe.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
