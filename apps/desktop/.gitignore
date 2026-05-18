@@ -7,3 +7,18 @@
 # must be tracked. The repo-root rule was authored before any package needed a
 # `build/` source dir; this narrow un-ignore re-admits the desktop one.
 !build/
+
+# Package-scoped build-artifact ignore for `apps/desktop/out/`.
+#
+# `out/` is the emit target for two generators wired in Plan-023 Phase 1:
+#   • The renderer composite project's `tsc -b` pass writes to `out/renderer/`
+#     (apps/desktop/src/renderer/tsconfig.json §compilerOptions.outDir).
+#   • electron-vite's renderer bundle and main/preload chunks land under
+#     `out/` per the electron-vite default layout.
+#
+# Leading slash anchors the rule to the package root (parallel to `!build/`
+# above) so a stray `out/` lower in the tree wouldn't accidentally match.
+# Repo-root .gitignore covers `dist/` and `node_modules/` but not `out/`, so
+# this package-scoped rule keeps the artifact-vs-source ignore policy local
+# to the package that produces the artifact.
+/out/

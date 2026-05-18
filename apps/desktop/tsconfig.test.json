@@ -18,5 +18,13 @@
     "sourceMap": false
   },
   "include": ["src/**/*"],
-  "exclude": ["dist", "node_modules"]
+  // `src/renderer/**` is excluded because the renderer is a separate composite
+  // project (browser context: JSX + DOM lib) wired in via the parent
+  // tsconfig.json `references`. This Node-context test config would otherwise
+  // drag renderer .tsx files into a JSX-less / DOM-less compilation and trip
+  // TS17004 / TS6142 / TS2584 — the same shape of structural blocker the
+  // parent tsconfig.json exclude resolves. Renderer-internal test files (when
+  // they land at T-023p-1-7+) are typechecked by the renderer composite
+  // project itself, not by this Node-context config.
+  "exclude": ["dist", "node_modules", "src/renderer/**"]
 }
