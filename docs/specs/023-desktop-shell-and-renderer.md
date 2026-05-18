@@ -600,6 +600,7 @@ React + Vite per ADR-016; TypeScript strict. Vite produces ES module output; the
 - [ ] Shell bundle size (post-asar, post-compression) is under the ADR-016 Success Criteria target of 150 MB — verified by CI artifact size check
 - [ ] The preload bridge surface has no `any`-typed escape hatch in its public type — verified by TypeScript strict-mode build
 - [ ] Renderer attempts to access `require`, `process`, or `global` return `undefined` — verified by runtime assertion in a sandbox test
+- [ ] The main-process `BrowserWindow` handle remains V8-reachable after the `app.whenReady().then(...)` callback returns in a release-mode build, such that `window-all-closed` does not fire until the user closes the window — verified by a `--js-flags=--expose-gc` lifecycle probe asserting (a) `v8.queryObjects(BrowserWindow)` count `≥ 1` across repeated GC pressure cycles AND (b) the probe completes its full iteration loop without premature host-process exit; the test must demonstrably FAIL when the module-scope retention reference is removed (ADR-024)
 
 ## ADR Triggers
 
