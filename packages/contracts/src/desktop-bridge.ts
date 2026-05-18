@@ -1,7 +1,11 @@
 // Spec-023 §Preload Bridge Contract — typed `window.sidekicks` surface.
 //
 // At Tier 1 this module ships:
-//   • `SidekicksBridge` — the verbatim interface from Spec-023 (lines 147-211)
+//   • `SidekicksBridge` — verbatim shape + `readonly` hardening from Spec-023
+//     §Preload Bridge Contract (lines 152-202). The structure matches the
+//     spec exactly; this implementation adds `readonly` modifiers to every
+//     capability group and `app` sub-property for defense-in-depth (prevents
+//     a compromised renderer from reassigning `bridge.daemon = …`).
 //   • Stub type imports for Plan-007 daemon / Plan-002+ control-plane / Electron
 //     dialog / DOM WebAuthn types — every Tier-8-or-later type lands here as a
 //     deliberate stub so the bridge shape is reviewable without those plans
@@ -150,7 +154,7 @@ export interface NotificationOptions {}
  * dereferencing internally. This is the structural enforcement of Spec-023
  * §Preload Bridge Contract line 210 ("arbitrary file paths as strings").
  */
-export type FilePathRef = string & { readonly __filePathRef__: never };
+export type FilePathRef = string & { readonly __brand: "FilePathRef" };
 
 // ---------------------------------------------------------------------------
 // WebAuthn DOM-type stubs.
@@ -219,16 +223,19 @@ export type UpdateState =
  * class (useful from the renderer where the error bubbles through `await`).
  */
 export class NotImplementedAtTier1Error extends Error {
-  public override readonly name: string = "NotImplementedAtTier1Error";
-
   public constructor(method: string) {
     super(`SidekicksBridge.${method} is not implemented at Tier 1 (Plan-023 Phase 1 stub).`);
+    this.name = "NotImplementedAtTier1Error";
   }
 }
 
 // ---------------------------------------------------------------------------
-// The bridge interface — verbatim from Spec-023 §Preload Bridge Contract
-// (lines 147-211 of docs/specs/023-desktop-shell-and-renderer.md).
+// The bridge interface — verbatim shape + `readonly` hardening from Spec-023
+// §Preload Bridge Contract (lines 152-202 of
+// docs/specs/023-desktop-shell-and-renderer.md). The structure matches the
+// spec exactly; `readonly` modifiers on every capability group and `app`
+// sub-property are local defense-in-depth (the spec block contains zero
+// `readonly` modifiers in lines 152-202).
 //
 // Every property name on this interface is enforced not to match
 // /token|dpop|prf|secret/i by the conditional-type test in
