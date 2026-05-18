@@ -163,15 +163,20 @@ async function runGcProbe(): Promise<void> {
   app.exit(0);
 }
 
-// Module-scope reference holds the BrowserWindow alive after the
-// `whenReady().then(...)` callback returns. Without this, V8 may
-// garbage-collect the only live handle once the callback's stack frame
-// unwinds, at which point Electron fires `window-all-closed` and the
-// app quits unexpectedly. The smoke-probe path masks this because
-// `app.exit(0)` runs before V8 reaches an idle GC. This is the
-// canonical Electron main-process retention pattern. The
-// `no-unused-vars` disable is load-bearing — the variable's "use" is
-// V8 reachability, which the linter cannot observe.
+// Module-scope handle for the BrowserWindow. Defensive consistency
+// with the canonical Electron main-process retention pattern. Per
+// ADR-024 §Antithesis, the load-bearing reachability mechanism is
+// Electron's native-side `BaseWindow::self_ref_`
+// (`v8::Global<v8::Value>` strong-rooted from `InitWith` to native
+// destruction) — a freshly constructed `BrowserWindow` is anchored
+// on the V8 root set without any user-side help. Keeping
+// `let mainWindow` is zero-cost insurance against future Electron
+// releases shifting `self_ref_` semantics (asymmetric risk: one
+// identifier vs. silent regression on a future Electron release).
+//
+// The `no-unused-vars` disable is intentional — eslint observes that
+// nothing reads the variable, but its role is being-assigned for
+// defensive pattern consistency, not being-read.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 let mainWindow: BrowserWindow | null = null;
 
@@ -239,14 +244,20 @@ if (!gotTheLock) {
           app.exit(3);
         });
       } else if (__SIDEKICKS_SMOKE_BUILD__ && process.env["SIDEKICKS_GC_PROBE"] === "1") {
-        // Register a probe-scoped `window-all-closed` listener BEFORE the
-        // existing `app.quit()` handler below. `EventEmitter.on` invokes
-        // listeners in registration order; the flag-setter runs first and
-        // captures the event even if `app.quit()` would otherwise pre-empt
-        // the probe's emit. The flag is read in `runGcProbe`'s JSON payload
-        // and asserted false by `apps/desktop/test/lifecycle.gc.test.ts`
-        // — a true value means the BrowserWindow lifecycle invariant (per
-        // ADR-024) broke mid-probe.
+        // Register a probe-scoped `window-all-closed` listener. The
+        // module-level `app.quit()` handler below registers at module-
+        // eval time (synchronously, before `whenReady` resolves), so
+        // this listener is invoked second. That is fine: `EventEmitter`
+        // invokes every registered listener synchronously within a
+        // single `emit()` call, so the flag is set during the same
+        // `emit()` pass as `app.quit()`'s synchronous return — Electron's
+        // `app.quit` only schedules the quit sequence (`before-quit` /
+        // `will-quit` / `quit`) on later ticks, so it cannot pre-empt
+        // the second listener. The flag is read in `runGcProbe`'s JSON
+        // payload and asserted false by
+        // `apps/desktop/test/lifecycle.gc.test.ts` — a true value means
+        // the BrowserWindow lifecycle invariant (per ADR-024) broke
+        // mid-probe.
         app.on("window-all-closed", () => {
           windowAllClosedFiredDuringProbe = true;
         });
