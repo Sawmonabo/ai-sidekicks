@@ -76,12 +76,30 @@ const CHECKS: readonly LockedCheck[] = [
   },
 ];
 
+// Strip TypeScript comments from the loaded source before applying the regex
+// set. The header documentation block in `window.ts` cites Spec-023's locked
+// values verbatim (e.g., `sandbox: true`, `nodeIntegration: false`) as part of
+// in-code references — without sanitization, the regex could match those
+// comment occurrences instead of the live `webPreferences` object literal,
+// defeating Spec-023 §Pitfalls To Avoid line 579.
+//
+// This handles `/* ... */` block comments (including multi-line) and `//` line
+// comments. Edge cases like comment markers inside string literals or regex
+// literals are NOT handled — `window.ts` is a small mechanical factory
+// authored under Spec-023's strict shape and contains no such constructs. If
+// `window.ts` ever introduces those constructs, switch to a TypeScript AST
+// parser (e.g., `@typescript-eslint/parser`).
+function stripComments(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*$/gm, "");
+}
+
 function assertWebPreferences(): void {
   const source = readFileSync(WINDOW_TS_PATH, "utf8");
+  const sanitized = stripComments(source);
   const failures: string[] = [];
 
   for (const check of CHECKS) {
-    if (!check.pattern.test(source)) {
+    if (!check.pattern.test(sanitized)) {
       failures.push(
         `  - ${check.key}: expected \`${check.key}: ${check.required}\` ` +
           `(pattern ${String(check.pattern)}) — drift detected.`,
