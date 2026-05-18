@@ -78,14 +78,32 @@ export default [
           ],
           patterns: [
             {
+              // Electron subpath entrypoints (`electron/renderer`,
+              // `electron/main`, `electron/common`, and any nested subpath)
+              // sit alongside the bare `electron` specifier banned in
+              // `paths` above. `no-restricted-imports` treats bare specifiers
+              // and subpaths as distinct, so the `paths: "electron"` entry
+              // does NOT cover `electron/renderer` et al. The `**` glob uses
+              // gitignore-style semantics (via the `ignore` package) and
+              // matches across slashes, so this catches every documented and
+              // future Electron subpath at once.
+              group: ["electron/**"],
+              message:
+                "Spec-023 §Trust Stance: renderer is untrusted — `electron` (and any `electron/*` subpath) must NEVER be imported from renderer source. Route through the preload bridge (`window.sidekicks`) instead. See apps/desktop/src/preload/index.ts.",
+            },
+            {
               // `no-restricted-imports` does NOT auto-cover `node:fs` from a
               // `fs` ban (nor vice versa) — the rule treats `fs` and
               // `node:fs` as distinct specifiers. We list both: `paths` for
               // the bare forms above, and this glob for the entire `node:*`
-              // protocol family.
-              group: ["node:*"],
+              // protocol family AND its subpaths. `**` matches across
+              // slashes (gitignore-style) so this single pattern catches
+              // both leaf imports (`node:fs`, `node:os`) and subpath imports
+              // (`node:fs/promises`, `node:stream/web`, `node:dns/promises`,
+              // `node:readline/promises`, `node:stream/consumers`).
+              group: ["node:**"],
               message:
-                "Spec-023 §Trust Stance: renderer is untrusted — `node:*` protocol imports are forbidden in renderer source. Route through the preload bridge.",
+                "Spec-023 §Trust Stance: renderer is untrusted — `node:*` protocol imports (and their subpaths, e.g. `node:fs/promises`) are forbidden in renderer source. Route through the preload bridge.",
             },
             {
               // Relative-path escape into the main/preload subtrees. `**`
