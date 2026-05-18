@@ -7,7 +7,10 @@
 //
 // See docs/plans/023-desktop-shell-and-renderer.md §Tier 1 Partial PR Sequence > Phase 1 line 257.
 
-import { app, type BrowserWindow } from "electron";
+import { queryObjects } from "node:v8";
+import { setTimeout as wait } from "node:timers/promises";
+
+import { app, BrowserWindow } from "electron";
 import { createMainWindow } from "./window.js";
 
 // Compile-time-static flag. `electron-vite build --mode=smoke` substitutes
@@ -87,6 +90,65 @@ const gotTheLock = app.requestSingleInstanceLock();
 //   weaken those guarantees, and a test-probe path that calls
 //   `executeJavaScript` against the renderer is exactly such weakening.
 const SMOKE_PROBE_TAG = "[SIDEKICKS_SMOKE_PROBE]";
+const GC_PROBE_TAG = "[SIDEKICKS_GC_PROBE]";
+
+// Plan-023 lifecycle-reachability probe. When the bundle is built with
+// `electron-vite build --mode=smoke` AND `SIDEKICKS_GC_PROBE=1`, this
+// function drives K iterations of GC pressure and samples
+// `v8.queryObjects(BrowserWindow)` after each cycle. It emits a single
+// summary line tagged `[SIDEKICKS_GC_PROBE]` that the regression test
+// at `apps/desktop/test/lifecycle.gc.test.ts` parses to verify the
+// module-scope retention pattern prevents premature collection of the
+// main `BrowserWindow` handle.
+//
+// Module-scope so the `setImmediate` callback's closure does not
+// capture the `.then(...)` arrow's local `browserWindow` const. A
+// closure that captured `browserWindow` would root the window for the
+// lifetime of the scheduled task — masking the very regression the
+// test must catch.
+//
+// Compile-time-static gate is shared with the smoke probe below: in
+// release builds Vite substitutes `__SIDEKICKS_SMOKE_BUILD__` to
+// `false` and Rollup strips this function body alongside the probe
+// branch.
+async function runGcProbe(): Promise<void> {
+  const iterations = 20;
+  const allocBytes = 8 * 1024 * 1024;
+  const counts: number[] = [];
+  const queryObjectsAvailable = typeof queryObjects === "function";
+  const globalGcAvailable = typeof globalThis.gc === "function";
+
+  for (let i = 0; i < iterations; i++) {
+    if (globalGcAvailable) {
+      globalThis.gc?.();
+      globalThis.gc?.();
+    }
+    const throwaway = new Uint8Array(allocBytes);
+    throwaway[0] = i & 0xff;
+    if (globalGcAvailable) {
+      globalThis.gc?.();
+      globalThis.gc?.();
+    }
+    await wait(50);
+    counts.push(queryObjects(BrowserWindow, { format: "count" }));
+  }
+
+  const min = counts.length > 0 ? Math.min(...counts) : 0;
+  const max = counts.length > 0 ? Math.max(...counts) : 0;
+
+  console.log(
+    `${GC_PROBE_TAG} ${JSON.stringify({
+      ok: true,
+      queryObjectsAvailable,
+      globalGcAvailable,
+      iterations,
+      counts,
+      min,
+      max,
+    })}`,
+  );
+  app.exit(0);
+}
 
 // Module-scope reference holds the BrowserWindow alive after the
 // `whenReady().then(...)` callback returns. Without this, V8 may
@@ -162,6 +224,14 @@ if (!gotTheLock) {
         browserWindow.loadURL("about:blank").catch((err: unknown) => {
           console.error(`${SMOKE_PROBE_TAG} loadURL failed:`, err);
           app.exit(3);
+        });
+      } else if (__SIDEKICKS_SMOKE_BUILD__ && process.env["SIDEKICKS_GC_PROBE"] === "1") {
+        // Schedule on a fresh event-loop tick so the `.then(...)` arrow's
+        // locals can unwind before `runGcProbe` samples the heap. The
+        // arrow passed to `setImmediate` references only `runGcProbe`
+        // (module-scope), so its closure does not capture `browserWindow`.
+        setImmediate(() => {
+          void runGcProbe();
         });
       }
     })
