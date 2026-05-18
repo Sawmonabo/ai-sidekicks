@@ -286,19 +286,19 @@ graph TB
   %% READY (no upstream NS-XX blockers, or all upstream satisfied)
   NS01[NS-01: Plan-024 Phase 1<br/>Rust crate scaffolding]:::completed
   NS02[NS-02: Plan-001 Phase 5 Lane A<br/>T5.1 + T5.5 + T5.6]:::completed
-  NS03[NS-03: Plan-023-partial Tier 1<br/>Electron + React skeleton]:::ready
+  NS03[NS-03: Plan-023-partial Tier 1<br/>Electron + React skeleton]:::completed
   NS04[NS-04: Plan-001 T5.4 cwd-translator<br/>+ Plan-024 T-024-2-1 contracts pair]:::completed
   NS11[NS-11: Plan-007-partial cleanup<br/>3 stale BLOCKED-ON-C9 comments]:::ready
   NS13a[NS-13a: spec-status promotion gate<br/>runbook/ADR amendment]:::ready
   NS14[NS-14: Tier 2 plan-readiness audit<br/>Plan-002 alone]:::ready
   NS22[NS-22: sibling-doc staleness sweep<br/>0001-initial sql→ts + session.ts line cite]:::ready
+  NS06[NS-06: Plan-001 T5.2 renderer wiring]:::ready
+  NS08[NS-08: Plan-001 T5.3 sidecar-lifecycle]:::ready
   NS23[NS-23: §6 schema amendment<br/>multi-PR housekeeping]:::completed
   NS05[NS-05: Plan-024 Phase 2 NodePtyHost]:::completed
   NS07[NS-07: Plan-024 Phase 3 RustSidecarPtyHost]:::completed
 
   %% BLOCKED
-  NS06[NS-06: Plan-001 T5.2 renderer wiring]:::blocked
-  NS08[NS-08: Plan-001 T5.3 sidecar-lifecycle]:::blocked
   NS09[NS-09: Plan-024 Phase 4 CI + signing]:::blocked
   NS10[NS-10: Plan-024 Phase 5 measurement]:::blocked
   NS13b[NS-13b: Spec-027 draft → approved]:::blocked
@@ -340,7 +340,7 @@ graph TB
 
 ### Recommended first wave
 
-With NS-01 + NS-02 + NS-04 + NS-05 completed 2026-05-11 (NS-01 via PR #42 — Plan-024 Phase 1 Rust scaffold; NS-02 via PR #38 — Plan-001 Phase 5 Lane A T5.1 + T5.5 + T5.6; NS-04 via PR #45 + PR #48 — `PtyHost` contract interface + `spawn-cwd-translator.ts` daemon-layer wrapper; NS-05 via PR #51 — `NodePtyHost` + `PtyHostSelector` Phase 2 closeout) and NS-07 completed 2026-05-12 (via PR #56 — Plan-024 Phase 3 `RustSidecarPtyHost` + Rust sidecar substrate + I-024-3/I-024-5/I-024-6 verification), the ready set is now NS-03, NS-11, NS-13a, NS-14, NS-22 (5 items). NS-07's completion drops it from the ready set; nothing new promotes — NS-08 stays blocked on NS-03 (Plan-023-partial Electron substrate, still `todo`); NS-09 stays blocked on BL-108 procurement evidence; NS-10 stays blocked on NS-09 + BL-106. The set shares no code paths or governance files — re-derived from each entry's `Files:` / target_paths after NS-07's drop-out. Suggested parallel dispatch: **NS-03** as the single remaining code lane (Electron desktop substrate at `apps/desktop/`); **NS-13a + NS-14 + NS-11 + NS-22** as concurrent governance / audit / cleanup lanes. The previous serialization of NS-22 behind NS-12 (resolved 2026-05-03) is dissolved — NS-22 targets distinct content (`0001-initial.sql` filename + `session.ts:388` cite occurrences in Plan-001 / Plan-022 / ADR-022 / Plan-008) from NS-12's edit scope (Plan-001 §Preconditions + §Phase 5 Precondition); NS-22 dispatches cleanly against the post-NS-12 HEAD without rebase churn. The NS-04 → NS-05 → NS-07 cascade is now fully completed on the Plan-024 critical path — NS-04 completion (PR #48 housekeeping) unblocked NS-05; NS-05 completion (PR #51) unblocked NS-07; NS-07 completion (this PR #56) leaves no NS-XX gate on NS-09 + NS-10. The remaining Plan-024 gates (NS-09 Phase 4 CI + signing, NS-10 Phase 5 measurement) are procurement-bound (BL-108) and calendar-window-bound (BL-106), not code-lane-bound — Plan-024 cannot resume on the §6 axis until BL-108 closes.
+With NS-01 + NS-02 + NS-04 + NS-05 completed 2026-05-11 (NS-01 via PR #42 — Plan-024 Phase 1 Rust scaffold; NS-02 via PR #38 — Plan-001 Phase 5 Lane A T5.1 + T5.5 + T5.6; NS-04 via PR #45 + PR #48 — `PtyHost` contract interface + `spawn-cwd-translator.ts` daemon-layer wrapper; NS-05 via PR #51 — `NodePtyHost` + `PtyHostSelector` Phase 2 closeout), NS-07 completed 2026-05-12 (via PR #56 — Plan-024 Phase 3 `RustSidecarPtyHost` + Rust sidecar substrate + I-024-3/I-024-5/I-024-6 verification), and NS-03 completed 2026-05-18 (via PR #70 — Plan-023-partial Tier 1 Electron + React skeleton + electron-vite v5 toolchain + Vitest launch smoke), the ready set is now NS-06, NS-08, NS-11, NS-13a, NS-14, NS-22 (6 items). NS-03's completion drops it from the ready set and promotes both NS-06 (only upstream NS-03 cleared) and NS-08 (both upstreams cleared — NS-07 cleared 2026-05-12, NS-03 cleared 2026-05-18) from `blocked` to `todo`. NS-09 stays blocked on BL-108 procurement evidence; NS-10 stays blocked on NS-09 + BL-106. The set shares no code paths or governance files — re-derived from each entry's `Files:` / target_paths after NS-03's drop-out and NS-06 + NS-08 promotion. Suggested parallel dispatch: **NS-06** (`apps/desktop/src/renderer/src/session-bootstrap/`) + **NS-08** (`apps/desktop/src/main/sidecar-lifecycle.ts`) as the two newly-promoted Plan-001 Phase 5 code lanes on top of the Plan-023-partial substrate; **NS-13a + NS-14 + NS-11 + NS-22** as concurrent governance / audit / cleanup lanes. The previous serialization of NS-22 behind NS-12 (resolved 2026-05-03) is dissolved — NS-22 targets distinct content (`0001-initial.sql` filename + `session.ts:388` cite occurrences in Plan-001 / Plan-022 / ADR-022 / Plan-008) from NS-12's edit scope (Plan-001 §Preconditions + §Phase 5 Precondition); NS-22 dispatches cleanly against the post-NS-12 HEAD without rebase churn. The NS-04 → NS-05 → NS-07 cascade is now fully completed on the Plan-024 critical path — NS-04 completion (PR #48 housekeeping) unblocked NS-05; NS-05 completion (PR #51) unblocked NS-07; NS-07 completion (PR #56) leaves no NS-XX gate on NS-09 + NS-10. The remaining Plan-024 gates (NS-09 Phase 4 CI + signing, NS-10 Phase 5 measurement) are procurement-bound (BL-108) and calendar-window-bound (BL-106), not code-lane-bound — Plan-024 cannot resume on the §6 axis until BL-108 closes.
 
 ### NS-01: Plan-024 Phase 1 — Rust crate scaffolding
 
@@ -368,8 +368,8 @@ With NS-01 + NS-02 + NS-04 + NS-05 completed 2026-05-11 (NS-01 via PR #42 — Pl
 
 ### NS-03: Plan-023-partial Tier 1 — Electron + React skeleton
 
-- Status: `todo`
-- Type: code (single cohesive PR, 7 tasks)
+- Status: `completed` (resolved 2026-05-18 via PR #70 — T-023p-1-1..7 shipped: Electron 41 + electron-vite v5 toolchain + minimal `apps/desktop/src/{main,preload,renderer}/` entrypoints + `SidekicksBridge` interface stub at `packages/contracts/src/desktop-bridge.ts` + Vitest launch smoke + ESLint flat-config renderer-import bans + webPreferences build-time assertion; in-PR T-023p-1-8 citation-correction sweep, T-023p-1-9 Phase B.5 amendments to Plan-023 + Spec-023, and T-023p-1-10 Phase D round-trip cite fixes treated as load-bearing governance. Downstream NS-06 + NS-08 unblocked.)
+- Type: code + governance
 - Priority: `P1`
 - Upstream: none. Plan-023 Phase 1 now declares `audit_status: substrate_exempt` (with `carve_out_ref: "Plan-023 Substrate-vs-Namespace Carve-Out"`) per [runbook §Per-Phase Audit Semantics](../operations/plan-implementation-readiness-audit-runbook.md#per-phase-audit-semantics); preflight admits the phase for /plan-execution dispatch via Gate 5 while the plan-level audit checkbox stays deferred to the Tier 8 remainder audit. Plan-023's earlier shape — "no audit-gate row, same as Plan-002" — is superseded; Plan-002 retains the no-row shape because it is not a substrate carve-out.
 - References: [Plan-023](../plans/023-desktop-shell-and-renderer.md):234-275, [Spec-023](../specs/023-desktop-shell-and-renderer.md):152, [ADR-016](../decisions/016-electron-desktop-shell.md), [BL-101 archive entry](../archive/backlog-archive.md)
@@ -401,10 +401,10 @@ With NS-01 + NS-02 + NS-04 + NS-05 completed 2026-05-11 (NS-01 via PR #42 — Pl
 
 ### NS-06: Plan-001 T5.2 — renderer session-bootstrap
 
-- Status: `blocked`
+- Status: `todo` (promoted 2026-05-18 — NS-03 completed via PR #70 cleared the only upstream)
 - Type: code
 - Priority: `P1`
-- Upstream: NS-03 (Plan-023-partial substrate — directory tree + electron-vite v5)
+- Upstream: NS-03 (Plan-023-partial substrate — directory tree + electron-vite v5) **[satisfied 2026-05-18 via PR #70]**
 - References: [Plan-001](../plans/001-shared-session-core.md):379-381
 - Summary: Author content for `apps/desktop/src/renderer/src/session-bootstrap/` — component invokes `sessionClient.create` on mount; uses the Plan-023-partial substrate.
 - Exit Criteria: Renderer session-bootstrap component renders + invokes `sessionClient.create`; Spec-001 AC coverage row updated.
@@ -421,10 +421,10 @@ With NS-01 + NS-02 + NS-04 + NS-05 completed 2026-05-11 (NS-01 via PR #42 — Pl
 
 ### NS-08: Plan-001 T5.3 — sidecar-lifecycle handler
 
-- Status: `blocked`
+- Status: `todo` (promoted 2026-05-18 — both upstreams satisfied: NS-07 completed 2026-05-12 via PR #56; NS-03 completed 2026-05-18 via PR #70)
 - Type: code
 - Priority: `P1`
-- Upstream: NS-03 (Plan-023-partial Electron substrate) + NS-07 (Plan-024 Phase 3 primitives)
+- Upstream: NS-03 (Plan-023-partial Electron substrate) + NS-07 (Plan-024 Phase 3 primitives) **[both satisfied — NS-07 via PR #56 on 2026-05-12; NS-03 via PR #70 on 2026-05-18]**
 - References: [Plan-001](../plans/001-shared-session-core.md):383-385, [Plan-024](../plans/024-rust-pty-sidecar.md):325
 - Summary: Author content for `apps/desktop/src/main/sidecar-lifecycle.ts` — registers BEFORE Electron `will-quit` (CP-001-1); orchestrates `PtyHost.close` + `KillRequest` primitives that Plan-024 Phase 3 supplies. Verifies I5 = CP-001-1 + I-024-4.
 - Exit Criteria: I5 integration test (`apps/desktop/src/main/__tests__/sidecar-lifecycle.integration.test.ts`) green against real `RustSidecarPtyHost`.

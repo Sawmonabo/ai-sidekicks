@@ -342,7 +342,56 @@ After Phase 1 merges, [Plan-001 Phase 5](./001-shared-session-core.md#phase-5--c
 
 ```yaml
 manifest_schema_version: 1
-shipped: []
+shipped:
+  - phase: 1
+    task:
+      [
+        T-023p-1-1,
+        T-023p-1-2,
+        T-023p-1-3,
+        T-023p-1-4,
+        T-023p-1-5,
+        T-023p-1-6,
+        T-023p-1-7,
+        T-023p-1-8,
+        T-023p-1-9,
+        T-023p-1-10,
+      ]
+    pr: 70
+    sha: dcb9644
+    merged_at: 2026-05-18
+    files:
+      - .github/workflows/ci.yml
+      - apps/desktop/.gitignore
+      - apps/desktop/build/assert-webprefs.ts
+      - apps/desktop/electron.vite.config.ts
+      - apps/desktop/eslint.config.mjs
+      - apps/desktop/package.json
+      - apps/desktop/src/index.ts
+      - apps/desktop/src/main/index.ts
+      - apps/desktop/src/main/tsconfig.json
+      - apps/desktop/src/main/window.ts
+      - apps/desktop/src/preload/index.ts
+      - apps/desktop/src/preload/tsconfig.json
+      - apps/desktop/src/renderer/index.html
+      - apps/desktop/src/renderer/src/App.tsx
+      - apps/desktop/src/renderer/src/main.tsx
+      - apps/desktop/src/renderer/tsconfig.json
+      - apps/desktop/test/launch.smoke.test.ts
+      - apps/desktop/tsconfig.build.json
+      - apps/desktop/tsconfig.json
+      - apps/desktop/tsconfig.test.json
+      - apps/desktop/turbo.json
+      - docs/plans/023-desktop-shell-and-renderer.md
+      - docs/specs/023-desktop-shell-and-renderer.md
+      - packages/contracts/src/desktop-bridge.test-d.ts
+      - packages/contracts/src/desktop-bridge.ts
+      - packages/contracts/src/index.ts
+      - packages/contracts/tsconfig.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+    verifies_invariant: []
+    spec_coverage: []
 ```
 
 ### Notes
