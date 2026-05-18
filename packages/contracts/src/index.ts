@@ -11,6 +11,7 @@
 // re-exported here is a stable cross-package contract — removing or
 // renaming requires the spec edit (api-payload-contracts.md / Spec-001 /
 // Spec-006 / error-contracts.md) FIRST per AGENTS.md "doc-first ordering".
+export * from "./desktop-bridge.js";
 export * from "./error.js";
 export * from "./event.js";
 export * from "./jsonrpc.js";
