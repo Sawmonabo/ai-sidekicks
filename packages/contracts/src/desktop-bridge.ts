@@ -14,7 +14,7 @@
 //   • `createTier1Bridge()` — factory the preload calls; every method throws
 //
 // Coverage:
-//   Spec-023 §Acceptance Criteria line 591 ("No auth material on
+//   Spec-023 §Acceptance Criteria line 592 ("No auth material on
 //   `window.sidekicks`") is enforced by the conditional-type negative test
 //   `desktop-bridge.test-d.ts` against the `SidekicksBridge` interface declared
 //   below. Any future edit that introduces a property name matching

@@ -14,7 +14,7 @@
 //     locked by `apps/desktop/src/main/window.ts`); the bridge is the only
 //     surface the renderer can reach.
 //
-// Spec-023 §Acceptance Criteria line 591 — "No auth material on
+// Spec-023 §Acceptance Criteria line 592 — "No auth material on
 // `window.sidekicks`" — is enforced TYPEWISE by the conditional-type test
 // `packages/contracts/src/desktop-bridge.test-d.ts`. The runtime side here is
 // trivial because the renderer can only consume what the static type contract

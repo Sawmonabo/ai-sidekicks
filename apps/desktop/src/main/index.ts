@@ -35,7 +35,7 @@ const gotTheLock = app.requestSingleInstanceLock();
 // actually executes and registers `window.sidekicks`), queries the
 // renderer for the Spec-023 §Security Hardening Baseline runtime invariants
 // (sidekicks defined; require / process / global all undefined — the full
-// Spec-023 §Acceptance Criteria line 601 set), prints a single-line JSON
+// Spec-023 §Acceptance Criteria line 602 set), prints a single-line JSON
 // probe to stdout tagged with `[SIDEKICKS_SMOKE_PROBE]`, and exits. The
 // smoke test at `apps/desktop/test/launch.smoke.test.ts` parses that line.
 //
@@ -43,7 +43,7 @@ const gotTheLock = app.requestSingleInstanceLock();
 //   • The Tier 1 `createMainWindow()` factory deliberately does NOT call
 //     `window.loadURL(...)` — the `sidekicks://` custom-protocol load is
 //     a Tier 8 remainder surface (see apps/desktop/src/main/window.ts TODO
-//     line ~58). But preload scripts only execute when the renderer process
+//     line ~93). But preload scripts only execute when the renderer process
 //     loads a document; an unloaded BrowserWindow never registers
 //     `window.sidekicks`. The smoke branch loads `about:blank` to trigger
 //     preload execution — this is the minimum content the renderer needs
@@ -110,7 +110,7 @@ if (!gotTheLock) {
           // runtime invariants (sandbox: true + nodeIntegration: false +
           // contextIsolation: true should produce: `sidekicks` typeof
           // "object"; `require` / `process` / `global` all typeof
-          // "undefined" — the full Spec-023 §Acceptance Criteria line 601
+          // "undefined" — the full Spec-023 §Acceptance Criteria line 602
           // set). `JSON.stringify` is `executeJavaScript`'s required
           // serialization shape — `executeJavaScript` returns a thenable
           // resolving to the expression's value, which we then println-tag
