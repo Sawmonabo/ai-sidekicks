@@ -49,8 +49,13 @@ export function parseFrontmatter(source) {
   return result;
 }
 
+// Accept "—" (em-dash, plan-template canonical), ":" (Plan-007/008/023 style),
+// or "-" (hyphen-minus) as the Phase-heading separator. Plan-007's mid-execution
+// status makes a corpus-wide rename out of scope; tolerating both forms in the
+// parser keeps the tool usable across the existing corpus without authorising
+// drift in new plans (plan-template still documents em-dash as the convention).
 export function walkPhases(planSource) {
-  const re = /^### Phase (\d+)\s*[—-]\s*(.+?)\s*$/gm;
+  const re = /^### Phase (\d+)\s*(?:—|:|-)\s*(.+?)\s*$/gm;
   const phases = [];
   let m;
   while ((m = re.exec(planSource)) !== null) {
@@ -60,7 +65,7 @@ export function walkPhases(planSource) {
 }
 
 export function extractPhaseSection(planSource, phaseNumber) {
-  const startRe = new RegExp(`^### Phase ${phaseNumber}\\s*[—-]\\s*.+$`, "m");
+  const startRe = new RegExp(`^### Phase ${phaseNumber}\\s*(?:—|:|-)\\s*.+$`, "m");
   const startMatch = startRe.exec(planSource);
   if (!startMatch) return null;
   const startIdx = startMatch.index;
@@ -205,6 +210,16 @@ export function extractAdrStatus(source) {
   return null;
 }
 
+// Extract the `#### Tasks` block content (without the heading) from a phase
+// section. Returns null when the phase has no Tasks block. Factored out so
+// extractDeclaredTaskIds and the audit_status:substrate_exempt resolver can
+// both slice the same region without re-implementing the heading boundary
+// logic.
+export function extractTasksBlock(phaseSection) {
+  const tasksMatch = phaseSection.match(/####\s*Tasks\s*\n([\s\S]*?)(?=\n####\s|\n###\s|$)/);
+  return tasksMatch ? tasksMatch[1] : null;
+}
+
 // Extract declared task ids from a phase's `#### Tasks` block. Returns a
 // sorted unique array. Handles both audit-Tasks-block layouts:
 //   Pattern A: sub-header form     `##### T1.1 — title`
@@ -213,13 +228,37 @@ export function extractAdrStatus(source) {
 // Plan-007 partial phases use B); the audit runbook treats them as
 // equivalent and Gate 3's set-comparison must accept both.
 export function extractDeclaredTaskIds(phaseSection) {
-  const tasksMatch = phaseSection.match(/####\s*Tasks\s*\n([\s\S]*?)(?=\n####\s|\n###\s|$)/);
-  if (!tasksMatch) return [];
-  const block = tasksMatch[1];
+  const block = extractTasksBlock(phaseSection);
+  if (block === null) return [];
   const ids = new Set();
   for (const m of block.matchAll(/^#####\s+(T[-a-zA-Z0-9.]+)\b/gm)) ids.add(m[1]);
   for (const m of block.matchAll(/^-\s+\*\*(T[-a-zA-Z0-9.]+)\*\*/gm)) ids.add(m[1]);
   return [...ids].sort();
+}
+
+// Extract §5 (Canonical Build Order) from cross-plan-dependencies.md. Used by
+// the cross_plan_carve_out and audit_status:substrate_exempt resolvers to
+// scope membership checks to §5 only — pre-fix cross_plan_carve_out used a
+// bare `source.includes(ref)` substring match, which passed when the ref
+// appeared anywhere in the file (e.g., §3 prose, §6 NS-rows) even if §5 had
+// no entry. Returns the §5 slice (from its heading line through the
+// character before the next `^## ` heading), or null when §5 is missing.
+//
+// Heading shape supports both `## 5. Canonical Build Order` (dot-then-space
+// form — the current shape) and `## Section 5 — ...` (defensive alternative).
+// The `\b` lives inside the `Section 5` alternative only: putting it after
+// `5\.` would look for a word boundary between `.` (non-word) and ` `
+// (non-word) and fail to match.
+export function extractSection5(xplanSource) {
+  const startRe = /^##\s+(?:5\.\s|Section\s+5\b).*$/m;
+  const startMatch = startRe.exec(xplanSource);
+  if (!startMatch) return null;
+  const startIdx = startMatch.index;
+  const after = xplanSource.slice(startIdx + startMatch[0].length);
+  const nextRe = /^##\s+/m;
+  const nextMatch = nextRe.exec(after);
+  const endIdx = nextMatch ? startIdx + startMatch[0].length + nextMatch.index : xplanSource.length;
+  return xplanSource.slice(startIdx, endIdx);
 }
 
 // Extract the set of task ids shipped for a given phase from the parsed
@@ -289,19 +328,61 @@ export function gateProjectLocality({ repoRoot = REPO_ROOT, skillMd = SKILL_MD }
   };
 }
 
+// Top-level audit-completeness gate. Lenient by design: passes when EITHER
+// the plan-level checkbox is ticked OR any phase declares per-phase
+// audit_status (the substrate-vs-namespace carve-out path). The strict
+// per-phase enforcement happens inside _checkPhase via gatePhaseAuditCheckbox
+// after the target phase is resolved — top-level lenience is what lets
+// Plan-023's Phase 1 dispatch even though Tier 8 remainder phases haven't
+// been authored with audit_status YAML yet. See docs/operations/
+// plan-implementation-readiness-audit-runbook.md §Per-Phase Audit Semantics.
 export function gateAuditCheckbox(planSource, planFile) {
   if (extractAuditCheckbox(planSource)) return { ok: true };
+  if (/type:\s*audit_status\b/.test(planSource)) return { ok: true };
   return {
     ok: false,
     halt: [
-      "## Preflight halt: audit-complete checkbox unchecked",
+      "## Preflight halt: audit-complete gate failed",
       "",
-      `Plan ${planFile} has not passed the plan-readiness audit. The Status`,
-      "Promotion Gate from docs/operations/plan-implementation-readiness-audit-runbook.md",
-      "blocks code-execution dispatch on un-audited plans.",
+      `Plan ${planFile} has no plan-level audit-complete checkbox AND no phase`,
+      `declares a per-phase \`audit_status\` precondition. The Status Promotion`,
+      `Gate from docs/operations/plan-implementation-readiness-audit-runbook.md`,
+      `blocks code-execution dispatch on un-audited plans.`,
       "",
-      "Run the audit first, or document an explicit waiver in the plan body",
-      "before re-running.",
+      "Either complete the plan-readiness audit (runbook procedure) and tick the",
+      "checkbox, OR declare an `audit_status` precondition entry on the phase",
+      "being dispatched (runbook §Per-Phase Audit Semantics).",
+    ].join("\n"),
+  };
+}
+
+// Strict per-phase audit gate, called inside _checkPhase after the target
+// phase has been resolved. Passes when EITHER the plan-level checkbox is
+// ticked OR THIS phase declares `type: audit_status` in its preconditions
+// block. Pre-this-PR Gate 2 was plan-scoped (any checkbox anywhere); after
+// the per-phase migration, a phase shipping under a substrate carve-out
+// must carry its own audit_status YAML to admit itself for dispatch — a
+// plan-level fail-open path would let Plan-023 Phase 2+ (Tier 8 remainder,
+// not yet authored) dispatch through the lenient top-level OR-check.
+export function gatePhaseAuditCheckbox(planSource, phaseSection, planFile, phaseNumber) {
+  if (extractAuditCheckbox(planSource)) return { ok: true };
+  if (/type:\s*audit_status\b/.test(phaseSection ?? "")) return { ok: true };
+  return {
+    ok: false,
+    halt: [
+      "## Preflight halt: per-phase audit declaration missing",
+      "",
+      `Plan ${planFile} has no plan-level audit-complete checkbox AND Phase`,
+      `${phaseNumber} declares no \`audit_status\` precondition entry. The Status`,
+      `Promotion Gate requires every dispatched phase to carry either the`,
+      `plan-level audit-complete checkbox OR an explicit per-phase`,
+      `\`audit_status\` declaration (runbook §Per-Phase Audit Semantics).`,
+      "",
+      "Either complete the plan-readiness audit and tick the plan-level checkbox,",
+      "OR declare an `audit_status` precondition entry on this phase. Two values",
+      "are permitted: `complete` (with evidence_pr + baseline_tag) or",
+      "`substrate_exempt` (with carve_out_ref pointing to a §5 carve-out entry in",
+      "docs/architecture/cross-plan-dependencies.md).",
     ].join("\n"),
   };
 }
@@ -458,7 +539,15 @@ export function gateTasksBlockCites(phaseSection, planNumber, phaseNumber) {
   };
 }
 
-export function resolvePrecondition(entry, { repoRoot = REPO_ROOT } = {}) {
+// resolvePrecondition signature is additive-backwards-compatible. The four
+// existing cases (pr_merged, adr_accepted, plan_phase, cross_plan_carve_out)
+// ignore the new params; the audit_status case introduced in this version
+// needs phaseSection + phaseNumber to evaluate the substrate_exempt criterion
+// (3) check (Spec-AC-empty sentinel + Tasks-block bracket-form conflict).
+export function resolvePrecondition(
+  entry,
+  { repoRoot = REPO_ROOT, phaseSection, phaseNumber } = {},
+) {
   switch (entry.type) {
     case "pr_merged": {
       const r = runGh(`gh pr view ${entry.ref} --json state`);
@@ -550,10 +639,91 @@ export function resolvePrecondition(entry, { repoRoot = REPO_ROOT } = {}) {
       } catch (e) {
         return { ok: false, halt: `cross-plan-dependencies.md unreadable: ${e.message}` };
       }
-      if (source.includes(String(entry.ref))) return { ok: true };
+      // Scope the membership check to §5 only. Pre-this-version the resolver
+      // used `source.includes(ref)` over the whole file, which passed when
+      // the ref appeared in §3 prose or §6 NS-rows even if §5 had no entry.
+      const section5 = extractSection5(source);
+      if (section5 === null) {
+        return {
+          ok: false,
+          halt: `cross-plan-dependencies.md has no §5 (Canonical Build Order) section; cannot evaluate cross_plan_carve_out`,
+        };
+      }
+      if (section5.includes(String(entry.ref))) return { ok: true };
       return {
         ok: false,
-        halt: `cross_plan_carve_out ref=${entry.ref} not present in cross-plan-dependencies.md`,
+        halt: `cross_plan_carve_out ref=${entry.ref} not present in cross-plan-dependencies.md §5`,
+      };
+    }
+    case "audit_status": {
+      // Two values per runbook §Per-Phase Audit Semantics:
+      //   - complete: the act of declaring `complete` is the load-bearing
+      //     assertion (matches the existing Gate 2 behavior of trusting the
+      //     human-set checkbox); evidence_pr + baseline_tag are documentary.
+      //   - substrate_exempt: requires three criteria. (1)+(2) are
+      //     human-judged at audit time and live in the §5 carve-out entry
+      //     itself; (3) is mechanically verified here — Spec coverage
+      //     declaration must be explicitly empty in the phase body, and the
+      //     Tasks block must not cite Spec coverage in bracketed-list form.
+      if (entry.status === "complete") return { ok: true };
+      if (entry.status === "substrate_exempt") {
+        const xplanPath = resolve(repoRoot, "docs", "architecture", "cross-plan-dependencies.md");
+        let xplanSource;
+        try {
+          xplanSource = readFileSync(xplanPath, "utf8");
+        } catch (e) {
+          return { ok: false, halt: `cross-plan-dependencies.md unreadable: ${e.message}` };
+        }
+        const section5 = extractSection5(xplanSource);
+        if (section5 === null) {
+          return {
+            ok: false,
+            halt: `cross-plan-dependencies.md has no §5 (Canonical Build Order) section; cannot evaluate audit_status: substrate_exempt`,
+          };
+        }
+        if (!entry.carve_out_ref || !section5.includes(entry.carve_out_ref)) {
+          return {
+            ok: false,
+            halt: `audit_status: substrate_exempt requires carve_out_ref present in cross-plan-dependencies.md §5; "${entry.carve_out_ref ?? "<missing>"}" not found within §5 scope`,
+          };
+        }
+        // Criterion (3) sentinel: phase body explicitly disclaims Spec AC
+        // coverage. Three canonical phrasings accepted.
+        const specAcSentinel =
+          /covers no Spec-\d+ acceptance criteri|covers NO Spec-\d+ AC|substrate is pre-behavior plumbing/i;
+        if (!specAcSentinel.test(phaseSection ?? "")) {
+          return {
+            ok: false,
+            halt: `audit_status: substrate_exempt requires phase body to declare 'covers no Spec-NNN acceptance criteria' (or equivalent sentinel: 'covers NO Spec-NNN AC', 'substrate is pre-behavior plumbing'); not found in Phase ${phaseNumber} section. If this phase ships any Spec AC, declare audit_status: complete and run the runbook audit instead.`,
+          };
+        }
+        // Criterion (3) sibling consistency: Tasks-block rows MUST NOT cite
+        // Spec coverage in bracketed-list form (`Spec coverage: [...]`).
+        // Bracket-form is the audit-runbook G4 traceability cite shape;
+        // prose-form mentions (e.g., `Spec coverage: per F-008b-1-06, NO
+        // Spec-008 AC at Tier 1`) are not in scope because they describe
+        // coverage *absence*. A bracketed value is the affirmative cite.
+        const tasksBlock = extractTasksBlock(phaseSection ?? "");
+        if (tasksBlock !== null) {
+          const specCoverageRe = /Spec coverage:\s*\[([^\]]+)\]/g;
+          const conflicts = [];
+          let m;
+          while ((m = specCoverageRe.exec(tasksBlock)) !== null) {
+            const inner = m[1].trim();
+            if (inner && inner.toLowerCase() !== "none") conflicts.push(inner);
+          }
+          if (conflicts.length > 0) {
+            return {
+              ok: false,
+              halt: `audit_status: substrate_exempt conflicts with Tasks-block Spec coverage cites in Phase ${phaseNumber}: ${conflicts.join("; ")}. Either remove the Spec coverage cites (phase is pure substrate) or declare audit_status: complete (phase ships Spec AC and requires full audit).`,
+            };
+          }
+        }
+        return { ok: true };
+      }
+      return {
+        ok: false,
+        halt: `audit_status.status must be 'complete' or 'substrate_exempt'; got '${entry.status}'`,
       };
     }
     default:
@@ -600,9 +770,30 @@ function _checkPhase(planSource, planNumber, phase, planFile, opts) {
       reason: "no-section",
       halt: `cannot extract phase ${phase.number} section`,
     };
-  const g4 = gateTasksBlockCites(sec, planNumber, phase.number);
-  if (!g4.ok) return { eligible: false, reason: "audit", halt: g4.halt };
-  const g5 = gatePreconditions(sec, planFile, phase.number, opts);
+  // Per-phase audit gate runs before Gate 4 + Gate 5 — substrate-exempt
+  // phases also use this to admit themselves before Gate 4 is skipped.
+  const gPhase = gatePhaseAuditCheckbox(planSource, sec, planFile, phase.number);
+  if (!gPhase.ok) return { eligible: false, reason: "audit", halt: gPhase.halt };
+  // Gate 4 (Tasks-block G4 cites) is skipped for phases declaring
+  // audit_status: substrate_exempt. By criterion (3) those phases ship pure
+  // pre-behavior plumbing with zero Spec AC coverage — Gate 4's `Spec
+  // coverage` substring requirement would halt them by design. The
+  // substrate_exempt YAML is the explicit opt-out; the Gate 5 resolver
+  // verifies the criterion (3) sentinel + Tasks-block-bracket-conflict
+  // check in lieu of Gate 4.
+  const entries = parsePreconditionsBlock(sec) ?? [];
+  const isSubstrateExempt = entries.some(
+    (e) => e.type === "audit_status" && e.status === "substrate_exempt",
+  );
+  if (!isSubstrateExempt) {
+    const g4 = gateTasksBlockCites(sec, planNumber, phase.number);
+    if (!g4.ok) return { eligible: false, reason: "audit", halt: g4.halt };
+  }
+  const g5 = gatePreconditions(sec, planFile, phase.number, {
+    ...opts,
+    phaseSection: sec,
+    phaseNumber: phase.number,
+  });
   if (!g5.ok) return { eligible: false, reason: "preconditions", halt: g5.halt };
   return { eligible: true };
 }
@@ -630,7 +821,10 @@ export function runPreflight(
 
   const phases = walkPhases(planSource);
   if (phases.length === 0)
-    return { exit: 2, stderr: `no \`### Phase N —\` headers found in ${planFile}` };
+    return {
+      exit: 2,
+      stderr: `no \`### Phase N\` headers found in ${planFile} (accepted separators: \`—\`, \`:\`, \`-\`)`,
+    };
 
   const opts = { repoRoot };
   if (phaseArg !== undefined && phaseArg !== null) {
