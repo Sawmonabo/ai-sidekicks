@@ -97,20 +97,32 @@ const GC_PROBE_TAG = "[SIDEKICKS_GC_PROBE]";
 // function drives K iterations of GC pressure and samples
 // `v8.queryObjects(BrowserWindow)` after each cycle. It emits a single
 // summary line tagged `[SIDEKICKS_GC_PROBE]` that the regression test
-// at `apps/desktop/test/lifecycle.gc.test.ts` parses to verify the
-// module-scope retention pattern prevents premature collection of the
-// main `BrowserWindow` handle.
+// at `apps/desktop/test/lifecycle.gc.test.ts` parses.
+//
+// The probe asserts the observable lifecycle contract (window stays
+// reachable across the `.then(...)` callback unwind; `window-all-closed`
+// does not fire mid-loop). Per ADR-024 §Antithesis, the load-bearing
+// reachability mechanism is Electron's native-side `BaseWindow::self_ref_`
+// (`v8::Global<v8::Value>` strong-rooted from `InitWith` to native
+// destruction) — the user-side module-scope `let mainWindow` is defensive
+// consistency with the canonical community pattern, not the GC anchor.
+// The probe therefore serves as a future-regression guard against
+// Electron internals shifting `self_ref_` semantics, not as proof that
+// removing `let mainWindow` would break a fix-state.
 //
 // Module-scope so the `setImmediate` callback's closure does not
 // capture the `.then(...)` arrow's local `browserWindow` const. A
 // closure that captured `browserWindow` would root the window for the
-// lifetime of the scheduled task — masking the very regression the
-// test must catch.
+// lifetime of the scheduled task — narrowing the probe's signal scope
+// to native-only retention regressions, which is the discriminating
+// behavior we want.
 //
 // Compile-time-static gate is shared with the smoke probe below: in
 // release builds Vite substitutes `__SIDEKICKS_SMOKE_BUILD__` to
 // `false` and Rollup strips this function body alongside the probe
 // branch.
+let windowAllClosedFiredDuringProbe = false;
+
 async function runGcProbe(): Promise<void> {
   const iterations = 20;
   const allocBytes = 8 * 1024 * 1024;
@@ -145,6 +157,7 @@ async function runGcProbe(): Promise<void> {
       counts,
       min,
       max,
+      allClosedFired: windowAllClosedFiredDuringProbe,
     })}`,
   );
   app.exit(0);
@@ -226,6 +239,17 @@ if (!gotTheLock) {
           app.exit(3);
         });
       } else if (__SIDEKICKS_SMOKE_BUILD__ && process.env["SIDEKICKS_GC_PROBE"] === "1") {
+        // Register a probe-scoped `window-all-closed` listener BEFORE the
+        // existing `app.quit()` handler below. `EventEmitter.on` invokes
+        // listeners in registration order; the flag-setter runs first and
+        // captures the event even if `app.quit()` would otherwise pre-empt
+        // the probe's emit. The flag is read in `runGcProbe`'s JSON payload
+        // and asserted false by `apps/desktop/test/lifecycle.gc.test.ts`
+        // — a true value means the BrowserWindow lifecycle invariant (per
+        // ADR-024) broke mid-probe.
+        app.on("window-all-closed", () => {
+          windowAllClosedFiredDuringProbe = true;
+        });
         // Schedule on a fresh event-loop tick so the `.then(...)` arrow's
         // locals can unwind before `runGcProbe` samples the heap. The
         // arrow passed to `setImmediate` references only `runGcProbe`
