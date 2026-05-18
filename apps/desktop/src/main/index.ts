@@ -7,7 +7,7 @@
 //
 // See docs/plans/023-desktop-shell-and-renderer.md §Tier 1 Partial PR Sequence > Phase 1 line 257.
 
-import { app } from "electron";
+import { app, type BrowserWindow } from "electron";
 import { createMainWindow } from "./window.js";
 
 // Compile-time-static flag. `electron-vite build --mode=smoke` substitutes
@@ -88,13 +88,30 @@ const gotTheLock = app.requestSingleInstanceLock();
 //   `executeJavaScript` against the renderer is exactly such weakening.
 const SMOKE_PROBE_TAG = "[SIDEKICKS_SMOKE_PROBE]";
 
+// Module-scope reference holds the BrowserWindow alive after the
+// `whenReady().then(...)` callback returns. Without this, V8 may
+// garbage-collect the only live handle once the callback's stack frame
+// unwinds, at which point Electron fires `window-all-closed` and the
+// app quits unexpectedly. The smoke-probe path masks this because
+// `app.exit(0)` runs before V8 reaches an idle GC. A non-smoke-mode
+// regression test against this assertion is a Tier 8 remainder; the
+// module-scope retention is the proportionate Tier 1 substrate. The
+// `no-unused-vars` disable is load-bearing — the variable's "use" is
+// V8 reachability, which the linter cannot observe.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+let mainWindow: BrowserWindow | null = null;
+
 if (!gotTheLock) {
   app.quit();
 } else {
   app
     .whenReady()
     .then(() => {
-      const mainWindow = createMainWindow();
+      const browserWindow = createMainWindow();
+      mainWindow = browserWindow;
+      browserWindow.on("closed", () => {
+        mainWindow = null;
+      });
 
       // Production-safety: the OUTER condition is the compile-time-static
       // gate (Vite substitutes `false` in release bundles → Rollup
@@ -104,7 +121,7 @@ if (!gotTheLock) {
       // to execute.
       if (__SIDEKICKS_SMOKE_BUILD__ && process.env["SIDEKICKS_SMOKE_PROBE"] === "1") {
         const t0 = Date.now();
-        mainWindow.webContents.once("did-finish-load", () => {
+        browserWindow.webContents.once("did-finish-load", () => {
           const tWindow = Date.now() - t0;
           // Probe the renderer for the Spec-023 §Security Hardening Baseline
           // runtime invariants (sandbox: true + nodeIntegration: false +
@@ -115,7 +132,7 @@ if (!gotTheLock) {
           // serialization shape — `executeJavaScript` returns a thenable
           // resolving to the expression's value, which we then println-tag
           // on stdout.
-          mainWindow.webContents
+          browserWindow.webContents
             .executeJavaScript(
               `JSON.stringify({
                 sidekicks: typeof window.sidekicks,
@@ -143,7 +160,7 @@ if (!gotTheLock) {
         // without a registered protocol handler. It triggers preload-script
         // execution (and the `did-finish-load` event) without depending on
         // the Tier 8 `sidekicks://` handler.
-        mainWindow.loadURL("about:blank").catch((err: unknown) => {
+        browserWindow.loadURL("about:blank").catch((err: unknown) => {
           console.error(`${SMOKE_PROBE_TAG} loadURL failed:`, err);
           app.exit(3);
         });
