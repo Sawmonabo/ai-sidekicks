@@ -9,10 +9,11 @@
     "node": ">=22.12.0"
   },
   "scripts": {
-    "build": "tsc -b && tsc -p tsconfig.build.json && node --experimental-strip-types build/assert-webprefs.ts",
+    "build": "electron-vite build && node --experimental-strip-types build/assert-webprefs.ts",
+    "build:smoke": "electron-vite build --mode=smoke && node --experimental-strip-types build/assert-webprefs.ts",
     "typecheck": "tsc -b && tsc -p tsconfig.test.json && tsc -p tsconfig.build.json",
-    "lint": "eslint src",
-    "test": "vitest run --passWithNoTests"
+    "lint": "eslint src test",
+    "test": "pnpm run build:smoke && vitest run --passWithNoTests"
   },
   "dependencies": {
     "@ai-sidekicks/client-sdk": "workspace:*",
