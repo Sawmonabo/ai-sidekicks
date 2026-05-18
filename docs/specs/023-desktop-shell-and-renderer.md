@@ -584,6 +584,7 @@ React + Vite per ADR-016; TypeScript strict. Vite produces ES module output; the
 - **Registering the `sidekicks://` protocol handler without conflict resolution.** On first run, if a prior installation already claims the handler, the new installation must either displace it explicitly or surface the conflict.
 - **Treating the auto-update signature key as if it were the code-signing certificate.** They are separate keys with separate rotation schedules; conflating them risks a rotation mishap invalidating installed binaries.
 - **Shipping renderer code that imports Node built-ins.** Vite's build must fail fast on accidental Node imports in the renderer bundle.
+- **Embedding test-only code paths in production binaries.** Test-machinery (smoke probes, debug-only branches, internal instrumentation hooks) must be eliminated from release bundles via a compile-time-static gate — e.g., a Vite `define`-substituted identifier (`__SIDEKICKS_SMOKE_BUILD__`-style) so Rollup's tree-shaker collapses `if (false && expr)` branches and physically strips the probe body from the shipped artifact. A runtime-only env-var check (`if (process.env.SOME_FLAG === '1')`) leaves the test code present in the bundle and weakens the §Trust Stance posture + earlier bullets in this section (every additional code path in a release binary is reachable surface). The runtime check is fine as defense-in-depth on the inner side of the compile-time gate, but never as the sole gate.
 
 ## Acceptance Criteria
 
