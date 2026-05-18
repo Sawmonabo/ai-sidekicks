@@ -212,6 +212,42 @@ A plan attempting promotion without audit fails the plan-template Preconditions 
 
 A `cross-plan-dependencies.md` §1 / §2 / §3 amendment affecting an already-`approved` plan triggers re-audit of the affected plan only (not the whole tier).
 
+## Per-Phase Audit Semantics
+
+Audit-completeness applies at phase granularity for plans that ship across tiers via the substrate-vs-namespace decomposition pattern (see [cross-plan-dependencies.md §5](../architecture/cross-plan-dependencies.md)). Each phase that opts into the per-phase mechanism declares its status via the `audit_status` precondition entry (see [preflight-contract.md](../../.claude/skills/plan-execution/references/preflight-contract.md) Gate 5); phases without a declaration fall back to the plan-level `Plan-readiness audit complete` checkbox via Gate 2's legacy path. Two values are permitted:
+
+| `status` | YAML shape | Meaning |
+| --- | --- | --- |
+| `complete` | `{ type: audit_status, status: complete, evidence_pr: <PR#>, baseline_tag: <git tag> }` | The phase was covered by the tier audit at its tier's place in the build order. `evidence_pr` + `baseline_tag` are documentary (preserved for downstream reviewers and archaeology) — the act of declaring `complete` is the load-bearing assertion. |
+| `substrate_exempt` | `{ type: audit_status, status: substrate_exempt, carve_out_ref: "<§5 carve-out heading>" }` | The phase is a substrate slice of a substrate-vs-namespace carve-out per cross-plan-dependencies.md §5. Three criteria below — criterion (3) is mechanically enforced. |
+
+### The `substrate_exempt` three-criterion predicate
+
+A phase qualifies as `substrate_exempt` only if ALL THREE hold:
+
+1. **Substrate is single-owned and load-bearing for an earlier-tier consumer** ([Plan-007 §Execution Windows](../plans/007-local-ipc-and-daemon-control.md) criterion (a)). The substrate phase ships infrastructure that a later-tier or sibling plan's behavioral phases depend on; no other plan owns it.
+2. **Namespaces have natural cohesion with their owning plans** ([Plan-007 §Execution Windows](../plans/007-local-ipc-and-daemon-control.md) criterion (b)). The carve-out doesn't fragment a well-scoped plan; it isolates a substrate from later-tier behavior.
+3. **The phase's Spec coverage declaration is explicitly empty.** Phase §Goal (or sibling block) MUST state "Phase N covers NO Spec-NNN AC at Tier N" (or canonical equivalent: "covers no Spec-NNN acceptance criteria", "substrate is pre-behavior plumbing"). The `#### Tasks` block MUST NOT cite Spec coverage in bracketed-list form (`Spec coverage: [Spec-NNN row M]`). **This criterion is grep-checkable.** A phase that claims any Spec AC coverage is by definition NOT pre-behavior plumbing.
+
+Criteria (1)+(2) are human-judged at audit time and load-bearing in the §5 carve-out entry itself; criterion (3) is mechanically verified by preflight at phase-dispatch time. If a future "substrate" phase claims any Spec AC, it does NOT qualify; the full audit applies regardless of how §5 describes the carve-out.
+
+**Canonical examples** (mechanically verified after the per-phase semantics ship):
+
+- **Plan-008 bootstrap Phase 1** declares "Phase 1 covers NO Spec-008 AC" (per F-008b-1-06) → qualifies under criterion (3). Carve-out ref: `"Plan-008 Bootstrap-vs-Remainder Carve-Out"`.
+- **Plan-023 Tier 1 Partial Phase 1** declares "Phase 1 covers no Spec-023 acceptance criteria — the substrate is pre-behavior plumbing" → qualifies under criterion (3). Carve-out ref: `"Plan-023 Substrate-vs-Namespace Carve-Out"`.
+
+**Non-qualifying example:**
+
+- **Plan-007 partial Phases 1-3** cover Spec-027 rows 4+10 (Phase 1), Spec-007 §Wire Format (Phase 2), and CP-007-1 + Spec-007 §Required Behavior (Phase 3). They are split via the substrate-vs-namespace decomposition rule but ship behavior — they do NOT qualify under criterion (3). Plan-007 partials are a legacy coverage gap (shipped pre-audit-framework via PRs #16/#17/#19), tracked as a follow-up BL to be filed before Plan-007 remainder Tier 4 execution begins; they are NOT precedent for `substrate_exempt`.
+
+### Status promotion under `substrate_exempt`
+
+A plan whose Tier 1 phase ships under `audit_status: substrate_exempt` does NOT receive a `[x]` on its plan-level audit checkbox. The checkbox flips to `[x]` only when the full plan-level audit completes at the plan's later-tier remainder (Plan-008 at Tier 5; Plan-023 at Tier 8; Plan-007 at Tier 4 — pending the follow-up BL above). Until then, the plan stays in `approved` status (no regression to `review`); only the audit checkbox remains `[ ]` with a footnote pointing to the deferred-audit work.
+
+### Per-tier inner-loop addition
+
+Every tier audit MUST enumerate the carve-out partials shipping in that tier and either (a) audit them or (b) confirm an `audit_status: substrate_exempt` declaration is in place on each affected phase. This step closes the Tier 1 pilot omission documented in §Lessons Learned (Tier 1 pilot scope was too narrow).
+
 ## Escalation
 
 Escalate to user direction when any of the following triggers fire:
@@ -389,6 +425,14 @@ Every tier swap presents a REVIEW.md to the user. Schema is non-negotiable
 <!-- Populated post-audit from SYNTHESIS.md after Tier 9 ships. Per-tier
      calibration metrics (B1-B6 actual values), dimension adjustments, and
      methodology revisions land here. -->
+
+### Tier 1 pilot scope was too narrow (2026-04-28)
+
+The Tier 1 audit pilot (PR #15) covered Plan-001 + Plan-024 only and excluded the carve-out partials (Plan-007 partial, Plan-008 bootstrap, Plan-023 partial) shipping at Tier 1 alongside them. The omission surfaced when Plan-023 Phase 1 hit preflight Gate 2 with no audit-complete checkbox and no per-phase mechanism to declare substrate-only status. Going forward, every tier audit MUST enumerate the carve-out partials shipping in that tier and either audit them or surface an `audit_status: substrate_exempt` declaration on each affected phase. See §Per-Phase Audit Semantics § Per-tier inner-loop addition.
+
+### Plan-007 partial is a coverage gap, not a substrate exemption (2026-05-17)
+
+Plan-007 partial Phases 1-3 (PRs #16/#17/#19) shipped without audit coverage AND without `substrate_exempt` declaration. They claim Spec AC coverage (Spec-027 rows 4+10, Spec-007 §Wire Format, CP-007-1 + Spec-007 §Required Behavior) — fail criterion (3) of the `substrate_exempt` predicate. They are a legacy coverage gap, not substrate exemption, and are NOT precedent for future `substrate_exempt` claims. Tracked as a follow-up BL to be filed before Plan-007 remainder Tier 4 execution begins.
 
 ## Related Architecture / Specs / Plans
 
