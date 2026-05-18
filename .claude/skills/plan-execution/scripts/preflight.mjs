@@ -49,8 +49,13 @@ export function parseFrontmatter(source) {
   return result;
 }
 
+// Accept "—" (em-dash, plan-template canonical), ":" (Plan-007/008/023 style),
+// or "-" (hyphen-minus) as the Phase-heading separator. Plan-007's mid-execution
+// status makes a corpus-wide rename out of scope; tolerating both forms in the
+// parser keeps the tool usable across the existing corpus without authorising
+// drift in new plans (plan-template still documents em-dash as the convention).
 export function walkPhases(planSource) {
-  const re = /^### Phase (\d+)\s*[—-]\s*(.+?)\s*$/gm;
+  const re = /^### Phase (\d+)\s*(?:—|:|-)\s*(.+?)\s*$/gm;
   const phases = [];
   let m;
   while ((m = re.exec(planSource)) !== null) {
@@ -60,7 +65,7 @@ export function walkPhases(planSource) {
 }
 
 export function extractPhaseSection(planSource, phaseNumber) {
-  const startRe = new RegExp(`^### Phase ${phaseNumber}\\s*[—-]\\s*.+$`, "m");
+  const startRe = new RegExp(`^### Phase ${phaseNumber}\\s*(?:—|:|-)\\s*.+$`, "m");
   const startMatch = startRe.exec(planSource);
   if (!startMatch) return null;
   const startIdx = startMatch.index;
@@ -816,7 +821,10 @@ export function runPreflight(
 
   const phases = walkPhases(planSource);
   if (phases.length === 0)
-    return { exit: 2, stderr: `no \`### Phase N —\` headers found in ${planFile}` };
+    return {
+      exit: 2,
+      stderr: `no \`### Phase N\` headers found in ${planFile} (accepted separators: \`—\`, \`:\`, \`-\`)`,
+    };
 
   const opts = { repoRoot };
   if (phaseArg !== undefined && phaseArg !== null) {

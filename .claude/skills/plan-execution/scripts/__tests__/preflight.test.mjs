@@ -81,6 +81,45 @@ test("extractPhaseSection returns null for missing phase", () => {
   assert.equal(extractPhaseSection("### Phase 1 — A\n", 99), null);
 });
 
+test("walkPhases accepts colon-form separators (Plan-007/008/023 shape)", () => {
+  const plan = `### Phase 1: SecureDefaults Bootstrap (loopback-bind validation only)
+content
+### Phase 2: Wire Substrate
+more content
+### Phase 3: \`session.*\` Handlers + SDK Zod Layer
+final`;
+  const phases = walkPhases(plan);
+  assert.equal(phases.length, 3);
+  assert.equal(phases[0].number, 1);
+  assert.equal(phases[0].title, "SecureDefaults Bootstrap (loopback-bind validation only)");
+  assert.equal(phases[1].title, "Wire Substrate");
+  assert.equal(phases[2].number, 3);
+});
+
+test("walkPhases accepts mixed separators in one corpus", () => {
+  const plan = `### Phase 1 — Em-dash phase
+em content
+### Phase 2: Colon phase
+colon content
+### Phase 3 - Hyphen phase
+hyphen content`;
+  const phases = walkPhases(plan);
+  assert.equal(phases.length, 3);
+  assert.equal(phases[0].title, "Em-dash phase");
+  assert.equal(phases[1].title, "Colon phase");
+  assert.equal(phases[2].title, "Hyphen phase");
+});
+
+test("extractPhaseSection accepts colon-form heading", () => {
+  const plan = `### Phase 1: Bootstrap
+phase 1 body
+### Phase 2: Wire Substrate
+phase 2 body`;
+  const sec = extractPhaseSection(plan, 1);
+  assert.match(sec, /phase 1 body/);
+  assert.doesNotMatch(sec, /phase 2 body/);
+});
+
 test("countCites counts substring occurrences", () => {
   const sec = `Spec coverage: row 1
 Spec coverage: row 2
