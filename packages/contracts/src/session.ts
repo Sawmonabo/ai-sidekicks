@@ -421,7 +421,7 @@ export const SessionJoinResponseSchema: z.ZodType<SessionJoinResponse> = z
 //
 // Why the response is a separate, minimal schema rather than embedding
 // `SessionEvent` directly: the handler's wire result MUST be JSON-
-// serializable AND Zod-parseable (per I-007-7); a `LocalSubscription<T>`
+// serializable AND Zod-parseable (per I-007-7); a `LocalSubscriptionProducer<T>`
 // is an in-process producer handle with closure-captured methods that
 // satisfies neither. The shape below carries only what the wire client
 // actually needs — the `subscriptionId` it uses to route subsequent
