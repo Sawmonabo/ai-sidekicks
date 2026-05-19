@@ -517,7 +517,7 @@ shipped:
     notes: |
       Tier 1 Phase 2 — Wire Substrate (JSON-RPC 2.0 + LSP framing + namespace registry + negotiation + streaming primitive). Multi-task PR predates NS-02. Backfilled 2026-05-10. Substrate-side I-007-1 (load-before-bind) is enforced at `local-ipc-gateway.ts:774` (gateway constructor refuses bind without prior `SecureDefaults.load` completion); the verifies_invariant array is amended retroactively to reflect this. `mapJsonRpcError` HEAD-revision behavior + BL-102/103/105 closures (2026-05-01) post-date the merge — see §Notes PR #17 paragraph for the cross-reference.
   - phase: 3
-    task: [T-007p-3-1, T-007p-3-2, T-007p-3-4]
+    task: [T-007p-3-1, T-007p-3-2, T-007p-3-3, T-007p-3-4]
     pr: 19
     sha: 0e5599d
     merged_at: 2026-04-30
@@ -603,8 +603,8 @@ Plan-007 partial Phases 1-3 shipped (PRs #16/#17/#19, merged 2026-04-29/2026-04-
 
 ### Tier 1 (Plan-007-Partial)
 
-- [ ] All Tier 1 W-007p-1-T1..T5 + W-007p-2-T1..T11 + I-007-3-T1..T5 tests pass
-- [ ] Invariants I-007-1 through I-007-9 enforced and individually tested at Tier 1 scope
+- [ ] All Tier 1 W-007p-1-T1..T5 + W-007p-2-T1..T11 + I-007-3-T1..T7 tests pass
+- [ ] Invariants I-007-1 through I-007-11 enforced and individually tested at Tier 1 scope (I-007-10 / I-007-11 promoted retroactively by the BL-113 audit; I-007-10 daemon-side covered by I-007-3-T6, I-007-10 SDK-side + I-007-11 covered by I-007-3-T7)
 - [ ] §Cross-Plan Obligations CP-007-1..5 surface ships verified (CP-007-1 `session.*` handlers + SDK; CP-007-3 `router.register` registry; CP-007-4 `transport/jsonRpcClient.ts` + `transport/types.ts`)
 - [x] BLOCKED-ON-C6 governance pickup tracked: JSON-RPC handshake `protocolVersion` type closed 2026-05-01 via BL-102 ratification at [api-payload-contracts.md §Tier 1 (cont.): Plan-007](../architecture/contracts/api-payload-contracts.md) — ISO 8601 `YYYY-MM-DD` date-string per MCP precedent; Spec-007:54 amended; substrate narrowed at `packages/contracts/src/jsonrpc.ts` + `packages/contracts/src/jsonrpc-negotiation.ts` + `packages/runtime-daemon/src/ipc/protocol-negotiation.ts`. [`MethodRegistry` + `LocalSubscription<T>` shapes closed 2026-04-30 via [BL-102](../backlog.md) no-mirror disposition — canonical sources: `packages/contracts/src/jsonrpc-registry.ts` + `packages/contracts/src/jsonrpc-streaming.ts`. Method-name format convention closed via [api-payload-contracts.md §Tier 1 (cont.): Plan-007](../architecture/contracts/api-payload-contracts.md).]
 - [x] BLOCKED-ON-C7 closed 2026-05-01 via [BL-103](../backlog.md) ratification: [error-contracts.md §JSON-RPC Wire Mapping](../architecture/contracts/error-contracts.md#json-rpc-wire-mapping) declares the numeric ↔ dotted-namespace two-layer envelope (JSON-RPC 2.0 §5.1 `code` + `data.type` + `data.fields`) per RFC 7807 + LSP 3.17 ResponseError precedent; `unknown_setting`, `transport.unavailable`, `transport.message_too_large`, and `transport.invalid_protocol_version` Tier-1 domain identifiers shipped with structured `data.fields` shapes (the transport-layer 413-semantic `transport.message_too_large` is registered distinct from Spec-001's domain-quota 429-semantic `resource.limit_exceeded` per the canonicalization round-trip closed 2026-05-01; the substrate-side `transport.invalid_protocol_version` envelope-level gate is registered distinct from registry-side `protocol.version_mismatch` NegotiationError to disambiguate Spec-007:54 wire-shape rejection from F-007p-2-10 negotiation-incompatibility rejection).
