@@ -100,7 +100,7 @@ export function SessionBootstrap(): React.JSX.Element {
         // `NotImplementedAtTier1Error` (see
         // `packages/contracts/src/desktop-bridge.ts` `createTier1Bridge`). We
         // do not narrow on instanceof — any `Error` shape is rendered the
-        // same way; the AC4 contract is "render the error envelope," not
+        // same way; the task AC T5.2(d) contract is "render the error envelope," not
         // "render a specific error class". Non-Error rejections (string,
         // plain object) are wrapped into an Error so the render branch is
         // always a real Error instance.
