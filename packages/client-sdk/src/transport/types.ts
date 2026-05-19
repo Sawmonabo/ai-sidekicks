@@ -14,8 +14,11 @@
 //   * Plan-007 §Cross-Plan Obligations CP-007-4 — `transport/jsonRpcClient.ts`
 //     + `transport/types.ts` CREATE.
 //   * Plan-007 lines 309-331 — task contract for the file pair (the
-//     `JsonRpcClient` class signature + `LocalSubscription<T>` /
-//     `Handler<Req, Res>` shapes).
+//     `JsonRpcClient` class signature + `LocalSubscriptionConsumer<T>` /
+//     `Handler<Req, Res>` shapes). The original plan body named the
+//     consumer interface `LocalSubscription<T>`; BL-115 (landed 2026-05-19)
+//     renamed it to `LocalSubscriptionConsumer<T>` to disambiguate from the
+//     server-side producer in `@ai-sidekicks/contracts`.
 //
 // What this file does NOT define (deferred to sibling files / phases):
 //   * The runtime `JsonRpcClient` class implementation — owned by
@@ -28,22 +31,25 @@
 //     (`packages/client-sdk/src/sessionClient.ts`, per F-007p-3-03 boundary
 //     resolution + CP-007-4).
 //
-// Naming-collision note (advisor-flagged):
-//   The CLIENT-side `LocalSubscription<T>` declared here is INTENTIONALLY
-//   distinct from the SERVER-side producer `LocalSubscription<T>` in
-//   `@ai-sidekicks/contracts/jsonrpc-streaming.ts` lines 352-403. The two
-//   are NOT structurally compatible:
-//     * Server producer: `next(value: T): void`, `complete(): void`,
-//       `cancel(): void` — the handler EMITS values into this handle.
-//     * Client consumer (this file): `next(): Promise<T | undefined>`,
-//       `cancel(): Promise<void>`, `[Symbol.asyncIterator](): AsyncIterator<T>`
-//       — the SDK caller CONSUMES values out of this handle.
-//   A future phase MAY rename one (e.g. `LocalSubscriptionConsumer<T>` here
-//   to disambiguate) per the Phase 2 streaming-primitive header comment
-//   (lines 312-322 of jsonrpc-streaming.ts). For Phase 3 each side follows
-//   its task-contract verbatim; SDK consumers import from this file (not
-//   from `@ai-sidekicks/contracts`) so the name resolves to the consumer
-//   shape at the call site.
+// Naming-collision history (resolved by BL-115, landed 2026-05-19):
+//   The CLIENT-side `LocalSubscriptionConsumer<T>` declared here is
+//   INTENTIONALLY distinct from the SERVER-side `LocalSubscriptionProducer<T>`
+//   in `@ai-sidekicks/contracts/jsonrpc-streaming.ts`. The two are NOT
+//   structurally compatible:
+//     * Server producer (`LocalSubscriptionProducer<T>`): `next(value: T): void`,
+//       `complete(): void`, `cancel(): void` — the handler EMITS values into
+//       this handle.
+//     * Client consumer (this file, `LocalSubscriptionConsumer<T>`):
+//       `next(): Promise<T | undefined>`, `cancel(): Promise<void>`,
+//       `[Symbol.asyncIterator](): AsyncIterator<T>` — the SDK caller
+//       CONSUMES values out of this handle.
+//   Both interfaces were originally declared as `LocalSubscription<T>` per
+//   the Plan-007 Phase 2 / Phase 3 task contracts verbatim (the advisor flag
+//   at PR #19 surfaced the collision). BL-115 resolved it with the
+//   producer/consumer suffix rename so call-site imports unambiguously
+//   select the correct shape: SDK consumers import `LocalSubscriptionConsumer`
+//   from this file; server-side primitives import `LocalSubscriptionProducer`
+//   from `@ai-sidekicks/contracts`.
 //
 // `protocolVersion` is an ISO 8601 `YYYY-MM-DD` date-string per
 // api-payload-contracts.md §Tier 1 (cont.): Plan-007 (BL-102 ratified
@@ -151,7 +157,7 @@ export interface ClientTransport {
 }
 
 // --------------------------------------------------------------------------
-// LocalSubscription<T> — client-side consumer handle
+// LocalSubscriptionConsumer<T> — client-side consumer handle
 // --------------------------------------------------------------------------
 
 /**
@@ -182,13 +188,15 @@ export interface ClientTransport {
  *   * Client `cancel()` → `next()` returns `undefined` once the queue
  *     drains; the cancel ack is awaited inside `cancel()`.
  *
- * Naming intentionally distinct from the SERVER-side `LocalSubscription<T>`
- * in `@ai-sidekicks/contracts/jsonrpc-streaming.ts` (see file header comment
- * for the rationale). Consumers MUST import from this file; importing from
+ * Naming intentionally distinct from the SERVER-side
+ * `LocalSubscriptionProducer<T>` in
+ * `@ai-sidekicks/contracts/jsonrpc-streaming.ts` (see file header comment
+ * for the rationale). Consumers MUST import `LocalSubscriptionConsumer`
+ * from this file; importing `LocalSubscriptionProducer` from
  * `@ai-sidekicks/contracts` would resolve to the producer shape and fail
  * the call-site type-check.
  */
-export interface LocalSubscription<T> {
+export interface LocalSubscriptionConsumer<T> {
   /**
    * The opaque subscription identifier issued by the daemon. Populated AFTER
    * the initial JSON-RPC response resolves; appears as the empty-string

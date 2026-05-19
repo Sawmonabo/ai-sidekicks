@@ -75,7 +75,7 @@ import {
 import { z } from "zod";
 import type { ZodType } from "zod";
 
-import type { ClientTransport, LocalSubscription } from "./types.js";
+import type { ClientTransport, LocalSubscriptionConsumer } from "./types.js";
 
 // --------------------------------------------------------------------------
 // Typed error classes
@@ -248,12 +248,12 @@ interface SubscriptionState<T> {
 }
 
 // --------------------------------------------------------------------------
-// LocalSubscription handle implementation
+// LocalSubscriptionConsumer handle implementation
 // --------------------------------------------------------------------------
 
 /**
- * Concrete implementation of the `LocalSubscription<T>` interface. Holds a
- * back-reference to its `SubscriptionState<T>` and to the parent client
+ * Concrete implementation of the `LocalSubscriptionConsumer<T>` interface.
+ * Holds a back-reference to its `SubscriptionState<T>` and to the parent client
  * (so `cancel()` can emit the cancel wire frame).
  *
  * Why a class rather than an object literal: `[Symbol.asyncIterator]()`
@@ -262,7 +262,7 @@ interface SubscriptionState<T> {
  * advisor's `subscriptionId` analysis — sync return, post-init mutation).
  * A class encapsulates the mutation behind a typed accessor.
  */
-class LocalSubscriptionHandle<T> implements LocalSubscription<T> {
+class LocalSubscriptionHandle<T> implements LocalSubscriptionConsumer<T> {
   readonly #state: SubscriptionState<T>;
   readonly #cancel: () => Promise<void>;
 
@@ -691,13 +691,13 @@ export class JsonRpcClient {
    * @param valueSchema - Zod schema for the per-notification `value` shape.
    *   Every inbound `$/subscription/notify` is validated against this
    *   schema before reaching the consumer queue.
-   * @returns A `LocalSubscription<T>` consumer handle.
+   * @returns A `LocalSubscriptionConsumer<T>` consumer handle.
    */
   public subscribe<T>(
     method: string,
     params: unknown,
     valueSchema: ZodType<T>,
-  ): LocalSubscription<T> {
+  ): LocalSubscriptionConsumer<T> {
     const state: SubscriptionState<T> = {
       status: "pending",
       subscriptionId: "",
@@ -1049,7 +1049,7 @@ export class JsonRpcClient {
    * `id`) per `jsonrpc-streaming.ts:252-257` — the client awaits the
    * `SubscriptionCancelResult` to confirm teardown.
    *
-   * Idempotency contract (per `LocalSubscription.cancel()` JSDoc in
+   * Idempotency contract (per `LocalSubscriptionConsumer.cancel()` JSDoc in
    * `types.ts:233-248` — "a second `cancel()` call resolves immediately
    * without re-emitting the wire frame"). Three guards, in order:
    *
