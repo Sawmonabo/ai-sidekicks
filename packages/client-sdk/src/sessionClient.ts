@@ -35,7 +35,7 @@
 //
 // Shape choice — TWO factories sharing one interface — vs. a single
 // union-typed constructor: `JsonRpcClient.subscribe()` returns a
-// `LocalSubscription<T>` with synchronous handle + post-init mutation,
+// `LocalSubscriptionConsumer<T>` with synchronous handle + post-init mutation,
 // whereas the control-plane SSE path returns an async generator built on
 // the raw fetch + SSE frame parser. A union constructor would force
 // runtime branching at every call site; per-transport factories let each
@@ -91,7 +91,7 @@ export interface SessionEventEnvelope {
  * the row strictly after the given cursor.
  *
  * `signal` lets the caller cancel the subscription early — wired through to
- * the underlying transport so both `LocalSubscription.cancel()` (daemon) and
+ * the underlying transport so both `LocalSubscriptionConsumer.cancel()` (daemon) and
  * the SSE producer's abort path (control-plane) drain cleanly.
  */
 export interface SessionSubscribeOptions {
@@ -182,11 +182,11 @@ export function createDaemonSessionClient(client: JsonRpcClient): SessionClient 
 
 /**
  * Daemon-side subscribe — wraps `JsonRpcClient.subscribe` and adapts its
- * `LocalSubscription<SessionEvent>` consumer handle into the unified
+ * `LocalSubscriptionConsumer<SessionEvent>` consumer handle into the unified
  * `AsyncIterable<SessionEventEnvelope>` shape. The async generator owns
  * cursor synthesis from `event.id` and signal-driven cancel (so
  * `for await ... break` releases the daemon's `StreamingPrimitive` entry
- * via `LocalSubscription.cancel()`).
+ * via `LocalSubscriptionConsumer.cancel()`).
  */
 async function* daemonSubscribe(
   client: JsonRpcClient,
@@ -221,7 +221,7 @@ async function* daemonSubscribe(
 
   // Wire the caller's AbortSignal through to the subscription's cancel.
   // We use `addEventListener("abort", ...)` rather than checking
-  // `signal.aborted` mid-loop because the underlying `LocalSubscription`
+  // `signal.aborted` mid-loop because the underlying `LocalSubscriptionConsumer`
   // parks on `next()` between value arrivals — a polling check inside
   // `for await` would only fire AFTER the next value lands. (The
   // pre-aborted case is handled above before `client.subscribe` runs.)
@@ -264,7 +264,7 @@ async function* daemonSubscribe(
     }
     // `for await ... return` already invoked the iterator's `return()`,
     // which calls `subscription.cancel()`. The post-loop cancel here is
-    // idempotent (per `LocalSubscription.cancel()`'s documented contract)
+    // idempotent (per `LocalSubscriptionConsumer.cancel()`'s documented contract)
     // and covers the early-throw case.
     await subscription.cancel().catch(() => undefined);
   }

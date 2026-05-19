@@ -391,7 +391,7 @@ describe("I-007-3-T3 — session.subscribe happy path + cancel idempotency", () 
 
   it("sub.cancel() (server-side, producer handle) drains BOTH `#subscriptions` AND `#subscriptionsByTransport` (T3 prong A)", () => {
     // Arrange — a fresh primitive-level subscription so we have a direct
-    // `LocalSubscription<T>` producer handle. The handler-binding path is
+    // `LocalSubscriptionProducer<T>` producer handle. The handler-binding path is
     // exercised in the first `it()` block above; here we need direct access
     // to `sub.cancel()` because that's the canonical AC text:
     //   "sub.cancel() removes from BOTH #subscriptions AND
@@ -413,7 +413,7 @@ describe("I-007-3-T3 — session.subscribe happy path + cancel idempotency", () 
     const primitive = new StreamingPrimitive({ registry, send });
 
     // Open a subscription via the primitive's direct API so we hold the
-    // LocalSubscription<SessionEvent> handle. We reuse SessionEventSchema
+    // LocalSubscriptionProducer<SessionEvent> handle. We reuse SessionEventSchema
     // because that's the schema the handler-binding wires into the
     // primitive at runtime — keeping the test schema consistent with the
     // handler avoids a divergence that could mask a regression.
@@ -877,7 +877,7 @@ describe("Phase D Round 4 F1 — replay-flush + live-tail crash guards (Codex P1
 // Phase 5 event-source detaches its watcher rather than leaking it for the
 // transport's lifetime. Codex flagged the discarded `unsubscribe` handle in
 // `session-subscribe.ts:273` as ACTIONABLE (Round 6); Path B (extend
-// `LocalSubscription<T>` with `onCancel`) closes the gap on the existing
+// `LocalSubscriptionProducer<T>` with `onCancel`) closes the gap on the existing
 // lifecycle interface.
 // ----------------------------------------------------------------------------
 
@@ -963,7 +963,7 @@ describe("PR #19 R6 F5 — session.subscribe wires upstream unsubscribe via sub.
   });
 
   it("complete() does NOT fire the upstream unsubscribe (natural producer-driven termination is silent)", async () => {
-    // Arrange — capture the `LocalSubscription` handle so the test can
+    // Arrange — capture the `LocalSubscriptionProducer` handle so the test can
     // call `complete()` on it directly. We do this by replacing the handler-
     // binding path with a direct primitive call (the handler returns the
     // subscription via `createSubscription`; we exercise the same producer

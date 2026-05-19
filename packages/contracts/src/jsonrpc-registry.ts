@@ -86,7 +86,7 @@ export type { ZodType };
  * Why this wins: an empty placeholder offers nothing, while the
  *   transport id is a real concept Phase 3 handlers will need to correlate
  *   subscriptions with the connection that opened them (T-5's
- *   `LocalSubscription` cleanup path keys off transport identity).
+ *   `LocalSubscriptionProducer` cleanup path keys off transport identity).
  *   `transportId` is `readonly` so handlers cannot rebind it; optional so
  *   non-wire callers (tests, future direct-bind consumers) can still
  *   dispatch.

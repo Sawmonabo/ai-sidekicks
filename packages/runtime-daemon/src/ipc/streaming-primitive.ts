@@ -1,4 +1,4 @@
-// Streaming primitive — `LocalSubscription<T>` server-side producer with
+// Streaming primitive — `LocalSubscriptionProducer<T>` server-side producer with
 // `$/subscription/notify` outbound emission and `$/subscription/cancel`
 // inbound handling (Plan-007 Phase 2, T-007p-2-5).
 //
@@ -29,7 +29,7 @@
 // What this module does NOT do (deferred to sibling tasks):
 //   * Cross-package wire-envelope schemas (`SubscriptionNotifyParamsSchema`,
 //     `SubscriptionCancelParamsSchema`, the branded `SubscriptionId`,
-//     and the `LocalSubscription<T>` interface) — owned by
+//     and the `LocalSubscriptionProducer<T>` interface) — owned by
 //     `packages/contracts/src/jsonrpc-streaming.ts`. The runtime-daemon's
 //     `package.json` deliberately does NOT depend on `zod`, so the Zod
 //     schemas live in the contracts package; this module IMPORTS them.
@@ -80,7 +80,7 @@
 import type {
   Handler,
   JsonRpcNotification,
-  LocalSubscription,
+  LocalSubscriptionProducer,
   MethodRegistry,
   SubscriptionCancelParams,
   SubscriptionCancelResult,
@@ -101,7 +101,7 @@ import {
 // --------------------------------------------------------------------------
 
 /**
- * Error thrown synchronously from `LocalSubscription<T>.next(value)` when
+ * Error thrown synchronously from `LocalSubscriptionProducer<T>.next(value)` when
  * the producer-supplied value fails the per-subscription `valueSchema`.
  *
  * This is a PROGRAMMER ERROR — the Phase 3 handler that registered the
@@ -239,7 +239,7 @@ export interface StreamingPrimitiveOptions {
 /**
  * Server-side streaming primitive. Phase 3 handlers (e.g.
  * `session.subscribe`) call `createSubscription<T>` synchronously and
- * receive a `LocalSubscription<T>` producer handle. The primitive owns:
+ * receive a `LocalSubscriptionProducer<T>` producer handle. The primitive owns:
  *
  *   * the per-subscription state map (`#subscriptions`) keyed by
  *     `subscriptionId`;
@@ -303,7 +303,10 @@ export class StreamingPrimitive {
    *   `value` argument to `subscription.next(value)` (I-007-7 streaming
    *   analog).
    */
-  createSubscription<T>(transportId: number, valueSchema: ZodType<T>): LocalSubscription<T> {
+  createSubscription<T>(
+    transportId: number,
+    valueSchema: ZodType<T>,
+  ): LocalSubscriptionProducer<T> {
     // Branding cast: `crypto.randomUUID()` returns `string`. The runtime
     // shape matches `SubscriptionIdSchema` (UUID); the cast asserts the
     // brand. Mirrors the assertion-cast pattern used at session-id
@@ -376,13 +379,13 @@ export class StreamingPrimitive {
       entry.onCancelHandlers.length = 0;
     };
 
-    const subscription: LocalSubscription<T> = {
+    const subscription: LocalSubscriptionProducer<T> = {
       subscriptionId,
       next(value: T): void {
         // Silent no-op contract: any non-`active` state collapses
         // (post-`complete()`, post-`cancel()`, or post-
         // `cleanupTransport(transportId)`). Documented in
-        // `LocalSubscription.next` JSDoc.
+        // `LocalSubscriptionProducer.next` JSDoc.
         if (entry.state !== "active") {
           return;
         }
@@ -394,7 +397,7 @@ export class StreamingPrimitive {
         if (!parsed.success) {
           throw new StreamingValidationError(
             subscriptionId,
-            `LocalSubscription.next: value validation failed for subscriptionId ${JSON.stringify(subscriptionId)} (programmer error — the producer returned a value that does not match the registered valueSchema; daemon refuses to emit malformed data on the wire)`,
+            `LocalSubscriptionProducer.next: value validation failed for subscriptionId ${JSON.stringify(subscriptionId)} (programmer error — the producer returned a value that does not match the registered valueSchema; daemon refuses to emit malformed data on the wire)`,
             parsed.error.issues,
           );
         }
@@ -425,7 +428,7 @@ export class StreamingPrimitive {
         // Does NOT fire `onCancel` handlers: natural producer-driven
         // termination is already known to the producer; firing the
         // hook here would be self-callback noise. The contract-level
-        // JSDoc on `LocalSubscription.onCancel` documents this.
+        // JSDoc on `LocalSubscriptionProducer.onCancel` documents this.
         //
         // Future phases MAY introduce a `$/subscription/complete`
         // (server→client) notification; until then `complete()` and

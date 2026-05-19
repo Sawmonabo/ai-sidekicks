@@ -1,5 +1,5 @@
 // JSON-RPC streaming primitive contracts — `$/subscription/notify` /
-// `$/subscription/cancel` wire envelopes + `LocalSubscription<T>` server-side
+// `$/subscription/cancel` wire envelopes + `LocalSubscriptionProducer<T>` server-side
 // producer interface for Plan-007 Phase 2 (T-007p-2-5).
 //
 // This file owns the CROSS-PACKAGE wire shape every streaming participant
@@ -18,7 +18,7 @@
 //     bidirectional stream of notifications a streaming subscription
 //     produces.
 //   * Plan-007 §Tier-1 Implementation Tasks line 271 (T-007p-2-5) —
-//     "Streaming primitive `LocalSubscription<T>` shipped on top of T-1's
+//     "Streaming primitive `LocalSubscriptionProducer<T>` shipped on top of T-1's
 //     wire substrate + T-3's registry."
 //   * F-007p-2-14 — Phase 2 ships the PRIMITIVE only; handler binding
 //     (`session.subscribe`) lands in Phase 3 (T-007p-3-1).
@@ -46,20 +46,19 @@
 //   * Concrete `session.subscribe`-style streaming handlers — owned by
 //     Phase 3 (T-007p-3-1). Phase 3 binds Phase 2's primitive into a
 //     domain-method handler that returns a `subscriptionId` and produces
-//     values into the `LocalSubscription<T>` returned by the primitive.
-//   * The CLIENT-SIDE `LocalSubscription<T>` shape (with `next(): Promise<T>`,
+//     values into the `LocalSubscriptionProducer<T>` returned by the primitive.
+//   * The CLIENT-SIDE `LocalSubscriptionConsumer<T>` shape (with `next(): Promise<T>`,
 //     `cancel(): Promise<void>`, `[Symbol.asyncIterator]`) — owned by
 //     Plan-007 Phase 3 client-sdk (lines 324-329 of plans/007). The
-//     SERVER-SIDE producer interface in this file is intentionally distinct;
-//     a future amendment may rename one or the other (e.g.
-//     `LocalSubscriptionProducer<T>` server-side) to disambiguate at the
-//     type level. For Phase 2 the server-side name follows the task
-//     contract verbatim.
+//     SERVER-SIDE producer interface (`LocalSubscriptionProducer<T>` in this
+//     file) is intentionally distinct from the CLIENT-SIDE consumer
+//     (`LocalSubscriptionConsumer<T>`) — BL-115 (landed 2026-05-19) renamed
+//     both to disambiguate at the type level.
 //
 // Streaming-primitive architecture summary:
 //   1. A Phase 3 handler (e.g. `session.subscribe`) calls
 //      `streamingPrimitive.createSubscription<T>(transportId, valueSchema)`
-//      synchronously and receives a `LocalSubscription<T>` producer
+//      synchronously and receives a `LocalSubscriptionProducer<T>` producer
 //      handle. The handler returns a typed result containing the
 //      `subscriptionId` to the wire client.
 //   2. The handler-side producer code calls `subscription.next(value)`
@@ -178,8 +177,8 @@ export const SubscriptionIdSchema: z.ZodType<SubscriptionId> = z
 /**
  * The `$/subscription/notify` notification's `params` payload. Carries the
  * `subscriptionId` (so the client can route the value to the matching
- * `LocalSubscription` it holds) plus the typed `value` produced by the
- * server-side producer.
+ * `LocalSubscriptionConsumer` it holds) plus the typed `value` produced by the
+ * server-side `LocalSubscriptionProducer`.
  *
  * `T` is the per-subscription value type; the runtime schema at the
  * substrate boundary is constructed via `SubscriptionNotifyParamsSchema(
@@ -304,7 +303,7 @@ export const SubscriptionCancelResultSchema: z.ZodType<SubscriptionCancelResult>
   .strict() as unknown as z.ZodType<SubscriptionCancelResult>;
 
 // --------------------------------------------------------------------------
-// LocalSubscription<T> — server-side producer interface
+// LocalSubscriptionProducer<T> — server-side producer interface
 // --------------------------------------------------------------------------
 
 /**
@@ -313,20 +312,17 @@ export const SubscriptionCancelResultSchema: z.ZodType<SubscriptionCancelResult>
  * created the subscription calls these methods to emit values, signal
  * natural completion, or unilaterally cancel from the server side.
  *
- * Naming note (advisor-flagged for Phase 3 amendment):
- *   The CLIENT-side `LocalSubscription<T>` declared in Plan-007 lines
- *   324-329 carries a different shape (`next(): Promise<T | undefined>`,
- *   `cancel(): Promise<void>`, `[Symbol.asyncIterator]`). The two
- *   interfaces are intentionally distinct — the SERVER-side is a value-
- *   producing handle, the CLIENT-side is a value-consuming handle. A
- *   future Phase 3 amendment MAY rename one (e.g.
- *   `LocalSubscriptionProducer<T>` server-side, `LocalSubscriptionConsumer<T>`
- *   client-side) to disambiguate at the type level. For Phase 2 the
- *   server-side name follows the T-007p-2-5 task contract verbatim;
- *   the disambiguation is deferred to Phase 3's planning surface.
+ * Naming note (BL-115 landed 2026-05-19):
+ *   The CLIENT-side consumer is declared as `LocalSubscriptionConsumer<T>` at
+ *   `packages/client-sdk/src/transport/types.ts` with shape
+ *   `next(): Promise<T | undefined>` / `cancel(): Promise<void>` /
+ *   `[Symbol.asyncIterator]`. The server-side producer (this interface) is
+ *   the value-producing handle (`next(value: T): void` / `complete()` /
+ *   `cancel()` / `onCancel(handler)`). The two are intentionally distinct
+ *   shapes; the rename eliminates the prior symbol collision per BL-115.
  *
  * Lifecycle:
- *   * `createSubscription` → returns a fresh `LocalSubscription<T>` with
+ *   * `createSubscription` → returns a fresh `LocalSubscriptionProducer<T>` with
  *     a unique `subscriptionId`. The primitive registers the subscription
  *     against the producer's `transportId` for cleanup-on-disconnect.
  *   * `next(value)` → validates against the per-subscription `valueSchema`
@@ -362,7 +358,7 @@ export const SubscriptionCancelResultSchema: z.ZodType<SubscriptionCancelResult>
  * differently. `onCancel` handlers fire on BOTH paths plus
  * `cleanupTransport`.
  */
-export interface LocalSubscription<T> {
+export interface LocalSubscriptionProducer<T> {
   /**
    * The opaque subscription identifier. The Phase 3 handler returns this
    * value to the client in its typed result; the client uses it to route

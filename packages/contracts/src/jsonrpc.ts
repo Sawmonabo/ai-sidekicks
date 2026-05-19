@@ -27,12 +27,17 @@
 //     (BL-103 ratified 2026-05-01).
 //   * `DaemonHello` / `DaemonHelloAck` — owned by T-007p-2-4
 //     (`protocol-negotiation.ts`).
-//   * `LocalSubscription<T>` / `$/subscription/notify` notification methods
-//     — owned by T-007p-2-5 (`streaming-primitive.ts`). The
-//     `JsonRpcNotification` shape here is the GENERIC notification envelope
-//     (any `method` string + `params`); the streaming primitive's
-//     `$/subscription/notify` is one specific instance T-5 will type
-//     against this generic shape.
+//   * `LocalSubscriptionProducer<T>` (server-side producer handle) /
+//     `$/subscription/notify` notification methods — owned by T-007p-2-5
+//     (`streaming-primitive.ts`). The `JsonRpcNotification` shape here is
+//     the GENERIC notification envelope (any `method` string + `params`);
+//     the streaming primitive's `$/subscription/notify` is one specific
+//     instance T-5 will type against this generic shape. The
+//     `LocalSubscriptionProducer<T>` interface is re-exported from
+//     `jsonrpc-streaming.ts` via `index.ts`; the corresponding CLIENT-side
+//     consumer is `LocalSubscriptionConsumer<T>` declared at
+//     `packages/client-sdk/src/transport/types.ts` (not re-exported here —
+//     the client-sdk owns its own consumer shape).
 //
 // `protocolVersion` field type ratified at api-payload-contracts.md
 // §Tier 1 (cont.): Plan-007 (BL-102 closed 2026-05-01) — ISO 8601

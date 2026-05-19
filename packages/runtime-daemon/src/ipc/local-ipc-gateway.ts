@@ -32,7 +32,7 @@
 // What this module does NOT do (deferred to sibling tasks):
 //   * `DaemonHello` / `DaemonHelloAck` version negotiation — T-007p-2-4
 //     owns `protocol-negotiation.ts`.
-//   * `LocalSubscription<T>` streaming primitive — T-007p-2-5 owns
+//   * `LocalSubscriptionProducer<T>` streaming primitive — T-007p-2-5 owns
 //     `streaming-primitive.ts`.
 //
 // What this module CONSUMES from sibling tasks:

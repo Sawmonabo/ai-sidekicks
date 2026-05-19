@@ -39,7 +39,7 @@
 //     canonical JSON-RPC error envelope.
 //
 // Why `mutating: false`: opening a subscription does not mutate domain
-// state — it allocates per-subscription IPC state (a `LocalSubscription`
+// state — it allocates per-subscription IPC state (a `LocalSubscriptionProducer`
 // entry on the streaming primitive's per-transport map) but does not
 // create / append / mutate any session-level row or event. The pre-
 // handshake mutating-op gate's predicate is `isMutating(method) ===
@@ -86,7 +86,7 @@ import type { StreamingPrimitive } from "../streaming-primitive.js";
  *     orchestrator constructed and shares across every streaming handler.
  *     The handler calls `createSubscription<SessionEvent>(transportId,
  *     SessionEventSchema)` synchronously at dispatch time and receives a
- *     `LocalSubscription<SessionEvent>` producer handle.
+ *     `LocalSubscriptionProducer<SessionEvent>` producer handle.
  *   * `subscribeToSession` — the upstream event-source callback. The
  *     handler invokes it with the request's `sessionId` + optional
  *     `afterCursor` and an `onEvent` lambda that calls
@@ -162,7 +162,7 @@ export interface SessionSubscribeDeps {
  *      transportId, SessionEventSchema)` to allocate the producer handle.
  *      The primitive generates a fresh `subscriptionId`, registers the
  *      entry on the per-transport reverse-index, and returns a
- *      `LocalSubscription<SessionEvent>`.
+ *      `LocalSubscriptionProducer<SessionEvent>`.
  *   3. Wire the upstream event-source callback to the producer handle:
  *      every `onEvent(event)` invocation routes to `sub.next(event)`,
  *      which validates against `SessionEventSchema` (I-007-7 streaming
