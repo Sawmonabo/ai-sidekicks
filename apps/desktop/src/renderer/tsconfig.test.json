@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  // Type-validates renderer test files without emitting. The production
+  // renderer `tsconfig.json` excludes `__tests__/**` so test files don't ship
+  // in `out/renderer/`; this config covers them via a `noEmit` typecheck pass.
+  //
+  // Why a separate config (not just widening tsconfig.json): adding
+  // `vitest/globals` to the production renderer config would leak `vi`,
+  // `expect`, `describe`, etc. into the renderer's production typegraph — a
+  // `vi.fn()` call in `SessionBootstrap.tsx` would typecheck and only fail at
+  // bundle time. Isolating the test types here keeps the production graph
+  // hermetic. Mirrors the shape of the sibling `apps/desktop/tsconfig.test.json`
+  // (Node-context tests) and `packages/runtime-daemon/tsconfig.test.json`.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    // `isolatedDeclarations` (inherited from base) requires either `declaration`
+    // or `composite`; we keep `declaration: true` paired with `noEmit: true` so
+    // the typechecker honors `isolatedDeclarations` constraints without writing
+    // files (see TS5069). `composite: false` and a null buildinfo prevent this
+    // config from polluting the project-references graph — `tsc -b` walks
+    // only composite refs, so it never picks this up. Only the explicit
+    // `tsc -p src/renderer/tsconfig.test.json` pass in the `typecheck` script
+    // exercises this config.
+    "composite": false,
+    "declaration": true,
+    "declarationMap": false,
+    "sourceMap": false,
+    "types": ["vitest/globals"]
+  },
+  "include": ["**/__tests__/**/*"],
+  "exclude": []
+}

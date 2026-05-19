@@ -9,12 +9,19 @@
   // for a Vite-bundled renderer: relative imports do not require `.js` extensions
   // and bundler-style resolution matches what vite/rollup actually do at build
   // time. This overrides the `nodenext` defaults inherited from tsconfig.base.json.
+  //
+  // Production-only graph: the `exclude` array drops every `__tests__/**` and
+  // `*.{test,spec}.{ts,tsx}` file so vitest globals (`vi`, `expect`, etc.) never
+  // leak into renderer production code's typegraph — a stray `vi.fn()` call in
+  // `SessionBootstrap.tsx` would now be a TS error (caught here at typecheck)
+  // instead of a runtime bundle failure. Renderer test files are typechecked by
+  // the sibling `tsconfig.test.json` (noEmit, `composite: false`, includes only
+  // `__tests__/**/*`) so they never enter the `tsc -b` composite-references walk.
   "extends": "../../../../tsconfig.base.json",
   "compilerOptions": {
     "target": "es2023",
     "lib": ["es2023", "dom", "dom.iterable"],
-    // vitest globals available because renderer tests are co-located under __tests__/
-    "types": ["vitest/globals"],
+    "types": [],
     "module": "esnext",
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
@@ -23,5 +30,5 @@
     "tsBuildInfoFile": "./.tsbuildinfo"
   },
   "include": ["**/*"],
-  "exclude": []
+  "exclude": ["**/__tests__/**", "**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx"]
 }

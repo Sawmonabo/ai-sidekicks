@@ -47,7 +47,10 @@ export default defineConfig({
           include: ["src/renderer/**/__tests__/**/*.test.{ts,tsx}"],
           // `globals: true` populates `vi`, `expect`, `describe`, `it`,
           // `afterEach` etc. on the global scope so the test file can rely
-          // on `vitest/globals` types (configured in `src/renderer/tsconfig.json`).
+          // on `vitest/globals` types (configured in
+          // `src/renderer/tsconfig.test.json` — kept separate from the
+          // production renderer `tsconfig.json` so vitest globals never leak
+          // into renderer production code's typegraph).
           globals: true,
         },
       },
