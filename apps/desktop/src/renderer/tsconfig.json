@@ -9,37 +9,11 @@
   // for a Vite-bundled renderer: relative imports do not require `.js` extensions
   // and bundler-style resolution matches what vite/rollup actually do at build
   // time. This overrides the `nodenext` defaults inherited from tsconfig.base.json.
-  //
-  // Authored at Plan-023 Phase 1 T-023p-1-2 as a design-intent stub. Source files
-  // (`src/main.tsx`, etc.) landed at T-023p-1-5; Plan-001 Phase 5 T5.2 widens
-  // this config so the renderer composite project now ALSO typechecks the
-  // co-located unit tests under `**/__tests__/**`.
-  //
-  // T5.2 (T-amend-002) substrate completion:
-  //   • The pre-T5.2 `exclude` block listed `**/__tests__/**` plus four
-  //     `**/*.{test,spec}.{ts,tsx}` patterns. With renderer unit tests
-  //     landing in this PR (the first happy-dom-context tests in the
-  //     workspace), the renderer composite project must include those
-  //     files in its typecheck graph so RTL + JSX usage is validated. We
-  //     drop ALL of the test-related excludes (the four `*.{test,spec}.*`
-  //     patterns AND `**/__tests__/**`) — leaving them in place would
-  //     produce a config that compiles fine but silently omits the test
-  //     file from the typecheck graph.
-  //   • `"vitest/globals"` is added to `compilerOptions.types` so the
-  //     `describe` / `it` / `expect` / `vi` symbols used by the test file
-  //     are typed without an explicit `import` at every test site (the
-  //     `vitest.config.ts` `globals: true` setting populates them at
-  //     runtime; this ambient module makes them visible to `tsc`).
-  //
-  // The production `tsconfig.build.json` (sibling of this file's parent
-  // `tsconfig.json`, see `apps/desktop/tsconfig.build.json`) still tree-
-  // shakes `__tests__/**` out of the emitted `dist/` so test files never
-  // ship in a production bundle — verified by the fact that the Vite
-  // bundler entry (`src/renderer/src/main.tsx`) does not import them.
   "extends": "../../../../tsconfig.base.json",
   "compilerOptions": {
     "target": "es2023",
     "lib": ["es2023", "dom", "dom.iterable"],
+    // vitest globals available because renderer tests are co-located under __tests__/
     "types": ["vitest/globals"],
     "module": "esnext",
     "moduleResolution": "bundler",

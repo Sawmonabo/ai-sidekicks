@@ -3,10 +3,10 @@
 // Spec-001 §Acceptance Criteria coverage:
 //   • AC1: invokes `session.create` against the daemon via the
 //     `window.sidekicks` preload bridge on mount.
-//   • AC4: surfaces the error envelope when the call rejects (Tier 1
-//     production branch — every Tier-1 daemon call rejects with
-//     `NotImplementedAtTier1Error` until Plan-007 lands the real IPC
-//     handlers; the renderer must render that branch deterministically).
+//   • AC4 (bridge-surface error envelope only — join semantics covered by
+//     T5.1's sessionClient.join). At Tier 1, every daemon call rejects with
+//     `NotImplementedAtTier1Error`; the renderer must render that branch
+//     deterministically. Real AC4 join behavior lands at Tier 8.
 //
 // Renderer-untrusted boundary (Spec-023 §Trust Stance) — this file imports
 // ONLY:
@@ -16,10 +16,13 @@
 //     runtime imports); the type-only form means no JS runtime import is
 //     emitted at all and only the type-graph view of the bridge surface
 //     reaches the renderer.
-// No `electron`, no `node:*`, no `./src/main/**`, no `./src/preload/**`,
-// and no `@ai-sidekicks/client-sdk` (renderer-untrusted). The eslint
-// `no-restricted-imports` rule (apps/desktop/eslint.config.mjs) enforces
-// this surface statically.
+// No `electron`, no `node:*`, no `./src/main/**`, no `./src/preload/**` —
+// statically enforced via the `no-restricted-imports` rule in
+// apps/desktop/eslint.config.mjs. The `@ai-sidekicks/client-sdk` ban is
+// by-convention at Tier 1 (the SDK package is Node-side; importing it
+// from the renderer would break Spec-023 §Trust Stance but lint will not
+// catch it until a renderer-targeted no-restricted-imports entry lands —
+// tracked as a Plan-023 Tier 8 hoist).
 
 import { useEffect, useState } from "react";
 
@@ -72,12 +75,25 @@ export function SessionBootstrap(): React.JSX.Element {
       params: unknown,
     ) => Promise<unknown>;
 
-    daemonCall("session.create", {})
-      .then((bridgeResponse) => {
+    // Sync-throw normalization for the Tier 1 stub-contract gap: the
+    // contract `daemon.call` returns `Promise<DaemonResult<M>>`, but the
+    // Tier 1 stub (`createTier1Bridge` in
+    // `packages/contracts/src/desktop-bridge.ts`) violates that by throwing
+    // synchronously — `() => tier1Throw("daemon.call")`. A bare
+    // `daemonCall(...).then(...).catch(...)` would evaluate `daemonCall(...)`
+    // first; the sync throw would propagate OUT before `.then` is reached,
+    // escape this `useEffect` callback (React 18+ does NOT catch errors
+    // thrown from effect callbacks), and leave the component pinned in
+    // `kind: "pending"` indefinitely. Wrapping the call in an async IIFE
+    // lets `await` normalise sync throws AND async rejections to the same
+    // `catch` branch. Plan-007 may fix the stub at a later point; until
+    // then the renderer defends against the gap.
+    void (async () => {
+      try {
+        const bridgeResponse = await daemonCall("session.create", {});
         if (cancelled) return;
         setState({ kind: "resolved", value: bridgeResponse as SessionCreateResponse });
-      })
-      .catch((bridgeError: unknown) => {
+      } catch (bridgeError: unknown) {
         if (cancelled) return;
         // Tier 1 production branch: every Tier-1 bridge method throws
         // `NotImplementedAtTier1Error` (see
@@ -90,7 +106,8 @@ export function SessionBootstrap(): React.JSX.Element {
         const normalised =
           bridgeError instanceof Error ? bridgeError : new Error(String(bridgeError));
         setState({ kind: "rejected", error: normalised });
-      });
+      }
+    })();
 
     return () => {
       cancelled = true;
@@ -113,13 +130,7 @@ export function SessionBootstrap(): React.JSX.Element {
     );
   }
 
-  // Rejected: render the error envelope. Tier 1 minimum-scope surface uses
-  // role="alert" so assistive tech announces the rejection, and shows
-  // name + message so a developer can diagnose without devtools. We render
-  // the generic `Error` shape (name + message) rather than narrowing on
-  // `NotImplementedAtTier1Error` specifically — the AC4 contract is "render
-  // the error envelope," and a name-prefixed message conveys the Tier 1
-  // stub status when that's the rejection class.
+  // role="alert" so assistive tech announces the rejection.
   return (
     <section aria-label="session-bootstrap-error" role="alert">
       <p>
