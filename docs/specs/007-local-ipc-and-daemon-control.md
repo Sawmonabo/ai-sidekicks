@@ -72,7 +72,7 @@ This spec covers transport choice, version negotiation, request and stream seman
 
 - `DaemonHello` and `DaemonHelloAck` must perform version negotiation.
 - `DaemonStatusRead`, `DaemonStart`, `DaemonStop`, and `DaemonRestart` must exist for supervised environments.
-- `LocalSubscription` must support replay-capable event streams where appropriate.
+- `LocalSubscriptionConsumer<T>` must support replay-capable event streams where appropriate.
 - The typed client SDK must expose the same semantic surface to Desktop Shell and CLI callers. The renderer consumes a narrower preload bridge API per [Spec-023 §Trust Stance](./023-desktop-shell-and-renderer.md), not this SDK directly.
 - See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
 - See [Error Contracts](../architecture/contracts/error-contracts.md) for error response schemas and error codes.
