@@ -2,11 +2,12 @@
 //
 // Spec-001 §Acceptance Criteria coverage:
 //   • AC1: invokes `session.create` against the daemon via the
-//     `window.sidekicks` preload bridge on mount.
-//   • AC4 (bridge-surface error envelope only — join semantics covered by
-//     T5.1's sessionClient.join). At Tier 1, every daemon call rejects with
-//     `NotImplementedAtTier1Error`; the renderer must render that branch
-//     deterministically. Real AC4 join behavior lands at Tier 8.
+//     `window.sidekicks` preload bridge on mount and renders the returned
+//     session id.
+// The reject-branch render is a task acceptance criterion (T5.2(d), per
+// `docs/plans/001-shared-session-core.md:383`), not a Spec-001 AC. Spec-001
+// AC4 (join semantics) is T5.1's `sessionClient.join` responsibility — see
+// the plan body's T5.1 row at line 379.
 //
 // Renderer-untrusted boundary (Spec-023 §Trust Stance) — this file imports
 // ONLY:

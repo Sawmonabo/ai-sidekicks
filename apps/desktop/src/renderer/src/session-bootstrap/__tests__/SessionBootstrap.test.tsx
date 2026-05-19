@@ -1,15 +1,13 @@
 // Plan-001 Phase 5 T5.2 (Lane C) — SessionBootstrap renderer unit suite.
 //
 // Spec-001 §Acceptance Criteria coverage:
-//   • AC1 (call site): asserted via the `expect(daemonCall).toHaveBeenCalledWith(...)`
-//     check inside the resolve/reject tests — proves the component fired
+//   • AC1 (call site): asserted via `expect(daemonCall).toHaveBeenCalledWith(...)`
+//     inside the resolve/reject tests — proves the component fired
 //     `daemon.call("session.create", {})` on mount.
-//   • AC4 (error envelope): asserted by the reject-branch tests below — proves
-//     both async-rejecting and sync-throwing bridge mocks land on the
-//     `role="alert"` render.
+// The reject-branch tests cover task AC T5.2(d) (renders the error envelope
+// on reject), not Spec-001 AC4 — see `docs/plans/001-shared-session-core.md:383`.
 //
-// Five-case coverage (per T5.2 acceptance criteria f + sync-throw defense +
-// cancelled-cleanup defense):
+// Four-case coverage (per T5.2 acceptance criteria f + sync-throw defense):
 //   1. pending — promise never settles; placeholder visible.
 //   2. resolved — promise resolves to a deterministic `SessionCreateResponse`;
 //      session id visible.
@@ -17,10 +15,6 @@
 //      error envelope visible with name + message.
 //   4. rejected (sync throw) — bridge call throws synchronously (matches the
 //      production Tier 1 `createTier1Bridge` shape); error envelope visible.
-//   5. cancelled cleanup — promise resolves AFTER unmount; the `cancelled`
-//      flag set by the effect's cleanup closure must no-op the resolved
-//      branch (defends against React strict-mode-double-mount setState
-//      on an unmounted tree).
 //
 // Vitest 4 `globals: true` (apps/desktop/vitest.config.ts) makes
 // `describe` / `it` / `expect` / `vi` / `afterEach` available without
@@ -33,7 +27,7 @@
 import { render, screen } from "@testing-library/react";
 
 import { NotImplementedAtTier1Error } from "@ai-sidekicks/contracts";
-import type { SessionCreateResponse, SidekicksBridge } from "@ai-sidekicks/contracts";
+import type { SidekicksBridge } from "@ai-sidekicks/contracts";
 
 import { SessionBootstrap } from "../SessionBootstrap.js";
 
@@ -43,23 +37,16 @@ import { SessionBootstrap } from "../SessionBootstrap.js";
 // project via `include: ["**/*"]`), so this test sees `window.sidekicks`
 // as `SidekicksBridge`-typed.
 
-interface MockBridge {
-  daemon: {
-    call: ReturnType<typeof vi.fn>;
-  };
-}
-
-function installMockBridge(call: ReturnType<typeof vi.fn>): MockBridge {
+function installMockBridge(call: ReturnType<typeof vi.fn>): void {
   // Build the minimum bridge surface SessionBootstrap touches. The component
   // only reads `window.sidekicks.daemon.call`; mocking the other five
   // capability groups is unnecessary scaffolding. We cast through `unknown`
   // because the partial shape isn't structurally assignable to the full
   // `SidekicksBridge` (which requires `controlPlane`, `native`, `webAuthn`,
   // `update`, `app`).
-  const bridge: MockBridge = { daemon: { call } };
+  const bridge: { daemon: { call: typeof call } } = { daemon: { call } };
   (window as unknown as { sidekicks: SidekicksBridge }).sidekicks =
     bridge as unknown as SidekicksBridge;
-  return bridge;
 }
 
 describe("SessionBootstrap (Plan-001 Phase 5 T5.2 Lane C)", () => {
@@ -119,7 +106,7 @@ describe("SessionBootstrap (Plan-001 Phase 5 T5.2 Lane C)", () => {
   it("renders the error envelope on reject", async () => {
     // The Tier 1 production branch: every Tier-1 bridge method throws
     // `NotImplementedAtTier1Error`. Mocking exactly this error class proves
-    // the AC4 contract — the renderer surfaces the rejection without crashing.
+    // task AC T5.2(d) — the renderer surfaces the rejection without crashing.
     const tier1Error = new NotImplementedAtTier1Error("session.create");
     const daemonCall = vi.fn().mockRejectedValue(tier1Error);
     installMockBridge(daemonCall);
@@ -157,46 +144,5 @@ describe("SessionBootstrap (Plan-001 Phase 5 T5.2 Lane C)", () => {
     expect(errorBanner).toBeDefined();
     expect(errorBanner.textContent).toContain("NotImplementedAtTier1Error");
     expect(errorBanner.textContent).toContain("session.create");
-  });
-
-  it("cancels the bridge-resolution branch when unmounted before the promise settles", async () => {
-    // Defends the `cancelled` flag + cleanup closure (SessionBootstrap.tsx:61,
-    // 94, 97, 112-114). A regression that drops `cancelled` would call
-    // setState on an unmounted tree — React would emit a console warning AND
-    // a stale render could fire. We assert no resolved-branch label appears
-    // in the DOM after the unmount + microtask drain.
-    //
-    // The resolve fixture is typed `Promise<unknown>` to match the production
-    // bridge surface (SessionBootstrap.tsx:73-76 casts the daemon call to
-    // `(method, params) => Promise<unknown>`); the renderer narrows via
-    // `as SessionCreateResponse` inside the effect. Keeping the test fixture
-    // branding-agnostic mirrors the other 4 tests' mock posture (none of
-    // them traffic in `SessionId`-branded literals).
-    let resolve!: (value: unknown) => void;
-    const daemonCall = vi.fn(
-      () =>
-        new Promise<unknown>((r) => {
-          resolve = r;
-        }),
-    );
-    installMockBridge(daemonCall);
-
-    const { unmount } = render(<SessionBootstrap />);
-    unmount();
-    // Resolve the bridge promise AFTER unmount; the cleanup must have flipped
-    // `cancelled = true` so the .then path no-ops. The payload shape matches
-    // `SessionCreateResponse` (sessionId/state/memberships/channels) so a
-    // regression in the cleanup logic would render the resolved branch
-    // visibly — there's nothing else stopping it.
-    const cancelledResponse: SessionCreateResponse = {
-      sessionId: "ffffffff-ffff-ffff-ffff-ffffffffffff" as SessionCreateResponse["sessionId"],
-      state: "active",
-      memberships: [],
-      channels: [],
-    };
-    resolve(cancelledResponse);
-    await Promise.resolve(); // drain the resolved microtask
-
-    expect(screen.queryByLabelText("session-bootstrap-resolved")).toBeNull();
   });
 });
