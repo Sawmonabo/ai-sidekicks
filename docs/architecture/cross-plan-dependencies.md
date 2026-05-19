@@ -455,7 +455,7 @@ With NS-01 + NS-02 + NS-04 + NS-05 completed 2026-05-11 (NS-01 via PR #42 — Pl
 - Type: cleanup
 - Priority: `P2`
 - Upstream: none
-- References: `packages/runtime-daemon/src/bootstrap/secure-defaults-events.ts:24,35,59`, [Plan-007](../plans/007-local-ipc-and-daemon-control.md):444 (BL-105 closed), [BL-105 archive entry](../archive/backlog-archive.md)
+- References: `packages/runtime-daemon/src/bootstrap/secure-defaults-events.ts:24,35,59`, [Plan-007](../plans/007-local-ipc-and-daemon-control.md):475 (Phase 1 shipment manifest `sha: 49f1116` — BL-105 closed), [BL-105 archive entry](../archive/backlog-archive.md)
 - Summary: 3 stale `BLOCKED-ON-C9` comments in `secure-defaults-events.ts` describe a Tier-1 deferral state, but the BL-105 ratification (2026-05-01) closed C9. Rewrite to drop the `BLOCKED-ON-C9` token + cite BL-105 closure. Single-file PR, no test changes, ~30 min.
 - Exit Criteria: All 3 stale comments rewritten; this PR gates the Plan-007-partial `approved → completed` flip per verify-not-recall hygiene (the partial plan should not flip while stale `BLOCKED-ON-CN` markers remain in committed code).
 
@@ -485,7 +485,7 @@ With NS-01 + NS-02 + NS-04 + NS-05 completed 2026-05-11 (NS-01 via PR #42 — Pl
 - Type: governance (load-bearing)
 - Priority: `P1`
 - Upstream: NS-13a (gate must exist before Spec-027 can clear it)
-- References: [Spec-027](../specs/027-self-host-secure-defaults.md):5, [Plan-007](../plans/007-local-ipc-and-daemon-control.md):14, 25, 87, 172, 174, 182, 184-187, 208, 210, 212, 224, 232, 245, 256-257, 372, 403, 454, 458, Plan-007 PR #16 / #17 / #19 squash commits
+- References: [Spec-027](../specs/027-self-host-secure-defaults.md):5, [Plan-007](../plans/007-local-ipc-and-daemon-control.md):14, 25, 87, 172, 174, 182, 184-187, 208, 210, 212, 224, 232, 245, 272-273, 372, 403, 458, 485, Plan-007 PR #16 / #17 / #19 squash commits
 - Summary: Spec-027 is the only `draft` spec in the corpus while Plan-007 PRs (merged 2026-04-28..30) shipped daemon-bootstrap code citing it heavily — a doc-first-before-coding violation surfaced by the next-steps investigation. Promote per the gate established in NS-13a, with a Plan-007 PR-row attestation that the spec body is still authoritative for the rows shipped.
 - Exit Criteria: Spec-027 status flipped to `approved`; Plan-007 cross-references re-validated against the post-promotion spec body; doc-first-before-coding invariant restored.
 
