@@ -15,7 +15,7 @@
 //     `StreamingValidationError` (programmer error).
 //
 // W-tests covered here (per Plan-007 §Phase 2 line 383):
-//   * W-007p-2-T11 — `LocalSubscription<T>` round-trip + cancel
+//   * W-007p-2-T11 — `LocalSubscriptionProducer<T>` round-trip + cancel
 //                    cleanup. Initial response carries
 //                    `subscriptionId`; N notifications correlate;
 //                    cancel cleans up server resources; transport
@@ -73,7 +73,7 @@ function makeFixture(): PrimitiveFixture {
 // W-007p-2-T11 — round-trip + cancel cleanup
 // ----------------------------------------------------------------------------
 
-describe("W-007p-2-T11 — LocalSubscription round-trip + cancel cleanup", () => {
+describe("W-007p-2-T11 — LocalSubscriptionProducer round-trip + cancel cleanup", () => {
   it("createSubscription returns a subscriptionId; subsequent next(value) emits a `$/subscription/notify` frame", () => {
     const { primitive, send } = makeFixture();
     const sub = primitive.createSubscription<{ tick: number }>(
@@ -276,14 +276,14 @@ describe("W-007p-2-T11 — LocalSubscription round-trip + cancel cleanup", () =>
 });
 
 // ----------------------------------------------------------------------------
-// LocalSubscription.onCancel lifecycle hook (Plan-007 PR #19 Round 6 F5
+// LocalSubscriptionProducer.onCancel lifecycle hook (Plan-007 PR #19 Round 6 F5
 // Path B — closes the upstream-watcher leak surfaced in Codex's review of
 // `session-subscribe.ts:273` where the discarded `unsubscribe` handle from
 // `subscribeToSession` left the upstream event-source consuming CPU/DB
 // resources after subscription teardown).
 // ----------------------------------------------------------------------------
 
-describe("LocalSubscription.onCancel lifecycle hook", () => {
+describe("LocalSubscriptionProducer.onCancel lifecycle hook", () => {
   it("fires registered handlers when cancel() is called", () => {
     const { primitive } = makeFixture();
     const sub = primitive.createSubscription<unknown>(1, passthroughSchema<unknown>());

@@ -654,7 +654,7 @@ describe("Phase D Round 4 F2 — malformed subscriptionId rejected at SDK bounda
 // Phase D Round 5 F3 — cancel() idempotency
 // ----------------------------------------------------------------------------
 //
-// Codex F3 (P2 ACTIONABLE): `LocalSubscription.cancel()` is documented as
+// Codex F3 (P2 ACTIONABLE): `LocalSubscriptionConsumer.cancel()` is documented as
 // idempotent (`types.ts:245-247` — "a second `cancel()` call resolves
 // immediately without re-emitting the wire frame"), but the prior
 // implementation only short-circuited after the state became
@@ -1049,7 +1049,7 @@ describe("Phase D Round 7 F6 — thenable transport.send rejection propagates (C
 //
 //   1. `call(method, params, ...)` request envelope.
 //   2. `subscribe(method, params, valueSchema)` init request envelope.
-//   3. The `$/subscription/cancel` envelope emitted by `LocalSubscription.cancel()`.
+//   3. The `$/subscription/cancel` envelope emitted by `LocalSubscriptionConsumer.cancel()`.
 //
 // Each test captures an outbound envelope and asserts it carries the
 // caller-advertised `protocolVersion` literal. A regression that

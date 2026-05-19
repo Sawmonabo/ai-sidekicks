@@ -1050,7 +1050,7 @@ export class JsonRpcClient {
    * `SubscriptionCancelResult` to confirm teardown.
    *
    * Idempotency contract (per `LocalSubscriptionConsumer.cancel()` JSDoc in
-   * `types.ts:233-248` — "a second `cancel()` call resolves immediately
+   * `types.ts:244-258` — "a second `cancel()` call resolves immediately
    * without re-emitting the wire frame"). Three guards, in order:
    *
    *   1. Terminal-status guard. If `state.status` is `completed` or
