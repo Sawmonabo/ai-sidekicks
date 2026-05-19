@@ -80,18 +80,19 @@ describe("SessionBootstrap (Plan-001 Phase 5 T5.2 Lane C)", () => {
   });
 
   it("renders the session id on resolve", async () => {
-    // Deterministic resolve payload. The component renders the session id
-    // ONLY (per T5.2 acceptance criterion c — minimum scope at Tier 1); the
-    // `state`, `memberships`, and `channels` fields are present in the shape
-    // for type validity but not asserted on the rendered tree.
+    // Deterministic resolve payload — `sessionId` is the only field T5.2
+    // renders (per acceptance criterion c, minimum scope at Tier 1). The
+    // remaining fields match the `SessionCreateResponse` contract shape (see
+    // `packages/contracts/src/session.ts` §SessionCreate) so the
+    // `as SessionCreateResponse` cast in `SessionBootstrap.tsx` is
+    // type-honest, not just type-suppressed: `state` is the bare
+    // `SessionState` string-union, NOT a nested `{ status, createdAt,
+    // updatedAt }` object — that latter shape belongs to `SessionSnapshot`,
+    // not the create-response surface.
     const knownSessionId = "11111111-2222-3333-4444-555555555555";
     const daemonCall = vi.fn().mockResolvedValue({
       sessionId: knownSessionId,
-      state: {
-        status: "active",
-        createdAt: new Date(0).toISOString(),
-        updatedAt: new Date(0).toISOString(),
-      },
+      state: "active",
       memberships: [],
       channels: [],
     });
