@@ -257,10 +257,10 @@ The Tier 1 partial slice (per §Execution Windows above) lands as **3 small PRs*
 <!-- prettier-ignore -->
 ```yaml
 preconditions:
-  - { type: audit_status, status: complete, evidence_pr: 0, baseline_tag: "plan-readiness-audit-tier-1-retroactive" }
+  - { type: audit_status, status: complete, evidence_pr: 75, baseline_tag: "plan-readiness-audit-tier-1-retroactive" }
 ```
 
-The `audit_status: complete` declaration backfills the per-phase audit semantics introduced in [the readiness-audit runbook §Per-Phase Audit Semantics](../operations/plan-implementation-readiness-audit-runbook.md) — Plan-007 partial Phases 1-3 shipped before per-phase audit YAML existed; the BL-113 retroactive audit closes the gap (see §Retroactive Audit Memo below). `evidence_pr` placeholder `0` is substituted with the BL-113 PR# at PR-open time.
+The `audit_status: complete` declaration backfills the per-phase audit semantics introduced in [the readiness-audit runbook §Per-Phase Audit Semantics](../operations/plan-implementation-readiness-audit-runbook.md) — Plan-007 partial Phases 1-3 shipped before per-phase audit YAML existed; the BL-113 retroactive audit closes the gap (see §Retroactive Audit Memo below). `evidence_pr: 75` references PR #75 (this PR), which carries the G1-G6 audit findings inline in the §Retroactive Audit Memo subsection below.
 
 - `packages/runtime-daemon/src/bootstrap/secure-defaults.ts` — `SecureDefaults.load(config)` + `effectiveSettings()` API, validation scope limited to the loopback OS-local socket bind path Tier 1 exposes (rows 4 + 10 of the §Secure Defaults table above).
 - `packages/runtime-daemon/src/bootstrap/secure-defaults-events.ts` — `security.default.override=*` audit event emitter (single emit per startup, not per request).
@@ -283,7 +283,7 @@ The `audit_status: complete` declaration backfills the per-phase audit semantics
 <!-- prettier-ignore -->
 ```yaml
 preconditions:
-  - { type: audit_status, status: complete, evidence_pr: 0, baseline_tag: "plan-readiness-audit-tier-1-retroactive" }
+  - { type: audit_status, status: complete, evidence_pr: 75, baseline_tag: "plan-readiness-audit-tier-1-retroactive" }
 ```
 
 - `packages/runtime-daemon/src/ipc/local-ipc-gateway.ts` — JSON-RPC 2.0 dispatcher with LSP-style Content-Length framing (`Content-Length: <byte-count>\r\n\r\n`), 1MB max-message-size enforcement, typed error model (`packages/contracts/src/error.ts` shapes), supervision hooks, and OS-local socket / Windows named-pipe transport (default) with gated loopback fallback per [Spec-007 §Wire Format](../specs/007-local-ipc-and-daemon-control.md#wire-format) and [Spec-007 §Fallback Behavior](../specs/007-local-ipc-and-daemon-control.md#fallback-behavior).
@@ -308,7 +308,7 @@ preconditions:
 <!-- prettier-ignore -->
 ```yaml
 preconditions:
-  - { type: audit_status, status: complete, evidence_pr: 0, baseline_tag: "plan-readiness-audit-tier-1-retroactive" }
+  - { type: audit_status, status: complete, evidence_pr: 75, baseline_tag: "plan-readiness-audit-tier-1-retroactive" }
 ```
 
 - `session.*` namespace handlers in the daemon — typed JSON-RPC handlers for `SessionCreate`, `SessionRead`, `SessionJoin`, `SessionSubscribe` (the Plan-001 vertical-slice contracts already in `packages/contracts/src/session.ts`). No `run.*` / `repo.*` / `artifact.*` / `settings.*` / `daemon.*` handlers — those ship in Plan-007-remainder at Tier 4.
