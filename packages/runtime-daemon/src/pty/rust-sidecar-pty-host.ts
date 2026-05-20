@@ -1655,6 +1655,61 @@ export class RustSidecarPtyHost implements PtyHost {
       } catch {
         // Swallow — best-effort escalation.
       }
+      // Synthetic `onExit` emission on the SIGKILL escalation path.
+      //
+      // The contract surface in `packages/contracts/src/pty-host.ts`
+      // (DrainResult.sessionsForcedKilled rustdoc, lines 173-180)
+      // requires that each forced-kill session's `onExit` listener
+      // fires — either from a late real `ExitCodeNotification` arriving
+      // post-SIGKILL, or from a synthetic emission here. Without this
+      // synthetic, the following sequence strands the listener:
+      //
+      //   (1) SIGKILL dispatched (line 1651-1654).
+      //   (2) Sidecar reaps the per-session child + exits cleanly
+      //       BEFORE the matching `ExitCodeNotification` reaches the
+      //       wire (e.g., the OS reaps the child between SIGKILL
+      //       dispatch and the sidecar's exit-event emission, or stdin
+      //       EOF in `drainSidecarHost` kills the sidecar mid-flight).
+      //   (3) `handleChildExit` runs `fireCrashTimeOnExit`, but
+      //       `isShutdown === true` SUPPRESSES the `-1` sentinel and
+      //       unconditionally deletes the session from `this.sessions`.
+      //   (4) No `onExit` ever fires → contract violation +
+      //       ADR-019 §Decision item 8 polymorphism break (consumers
+      //       see different observable behavior between backends).
+      //
+      // Mirrors `NodePtyHost.invokeTaskkill` (node-pty-host.ts:1117-
+      // 1127): synthetic exit-code `1` (non-zero) with `undefined`
+      // signal communicates "the daemon escalated to a hard-stop; OS
+      // reap status unknown." The `record.exitCode === null` gate
+      // matches NodePtyHost's `record.exitCode === null &&
+      // sessions.has(sessionId)` discipline — both guards prevent a
+      // double-fire when a real `ExitCodeNotification` is already in
+      // flight on a parallel path. Race-safety on a late real
+      // notification: `handleExitNotification` at lines 2291-2298
+      // already dedupes via `record.exitCode !== null` → it ticks the
+      // shutdown waiter but skips the `fireExit` call. The synthetic
+      // here sets `record.exitCode = 1`, so any subsequent real
+      // notification routes through the duplicate-dedupe branch.
+      //
+      // `notifyShutdownWaiter` is structurally a no-op here (the
+      // `Promise.race` above already settled on the timeout branch
+      // before we got to this code path), but we keep it for symmetry
+      // with NodePtyHost.invokeTaskkill's mirror call and as defensive
+      // future-proofing against re-architecture of the waiter map.
+      const record: SessionRecord | undefined = this.sessions.get(sessionId);
+      if (record !== undefined && record.exitCode === null) {
+        record.exitCode = 1;
+        record.signalCode = undefined;
+        try {
+          this.fireExit(sessionId, 1, undefined);
+        } catch (err: unknown) {
+          const message: string = err instanceof Error ? err.message : String(err);
+          console.warn(
+            `RustSidecarPtyHost: synthetic forced-kill onExit listener threw for session ${sessionId}: ${message}; continuing drain.`,
+          );
+        }
+        this.notifyShutdownWaiter(sessionId);
+      }
       return "forced";
     } finally {
       this.shutdownWaiters.delete(sessionId);
@@ -2412,6 +2467,54 @@ export class RustSidecarPtyHost implements PtyHost {
     // `await spawn()` continuation runs first and records the session_id
     // in consumer-side state BEFORE `onData` / `onExit` fires.
     if (envelope.kind === "spawn_response") {
+      // Pre-spawn race guard (Plan-001 §CP-001-1).
+      //
+      // Failure scenario this closes:
+      //   (1) Consumer calls `spawn(request)` → `ensureChild()`
+      //       observes `shuttingDown === false` and returns.
+      //   (2) `spawn()` proceeds to `await sendRequest(spec,
+      //       "spawn_response")` and yields on the microtask.
+      //   (3) A separate caller invokes `shutdown(...)` →
+      //       `runShutdown` flips `shuttingDown = true` and
+      //       synchronously snapshots `activeSessionIds` (EMPTY here
+      //       because the new session has not been registered yet).
+      //   (4) `drainSidecarHost` closes the sidecar's stdin; sidecar
+      //       processes the queued SpawnRequest and emits
+      //       SpawnResponse on stdout before EOF kills it.
+      //   (5) `resolveOutstanding` (this method) would register the
+      //       session into `this.sessions` post-snapshot.
+      //   (6) Sidecar exits → `handleChildExit` →
+      //       `fireCrashTimeOnExit` → `isShutdown === true`
+      //       SUPPRESSES the `-1` sentinel and deletes the orphan
+      //       from `this.sessions`.
+      //   (7) `spawn()` resumes and returns the session_id to the
+      //       caller — but the session no longer exists. Caller's
+      //       subsequent `kill()` / `write()` / `resize()` throws
+      //       "unknown sessionId".
+      //
+      // Fix: re-check `this.shuttingDown` BEFORE registering. If the
+      // flag has flipped during the in-flight spawn, reject with
+      // `PtyBackendUnavailableError` carrying the same shape as
+      // `ensureChild`'s pre-flag-flip rejection (lines 1811-1815) so
+      // the caller's observable failure mode is identical regardless
+      // of where the race lands.
+      //
+      // Skip `replayPreSpawnEvents` too: no consumer will await the
+      // rejected `spawn()` promise's continuation to receive
+      // listener fan-outs. Any buffered pre-spawn DataFrame /
+      // ExitCodeNotification for this session_id is cleaned up by
+      // `clearPreSpawnState()` when the sidecar exits (run from
+      // `handleChildExit`).
+      if (this.shuttingDown) {
+        head.reject(
+          new PtyBackendUnavailableError(
+            { attemptedBackend: "rust-sidecar" },
+            "RustSidecarPtyHost: shutdown() in progress or complete; " +
+              "the host is terminal — re-create a fresh instance for new sessions.",
+          ),
+        );
+        return;
+      }
       this.sessions.set(envelope.session_id, {
         exitCode: null,
         signalCode: undefined,

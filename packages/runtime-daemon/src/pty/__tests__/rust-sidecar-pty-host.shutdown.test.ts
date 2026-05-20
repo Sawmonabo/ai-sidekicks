@@ -445,7 +445,7 @@ describe("RustSidecarPtyHost.shutdown — Plan-001 CP-001-1 polymorphic drain", 
     }
   });
 
-  it("suppresses the -1 crash sentinel on the deliberate sidecar exit", async () => {
+  it("suppresses the -1 crash sentinel AND fires synthetic onExit(code=1) on the deliberate sidecar exit when the per-session timeout escalates to SIGKILL", async () => {
     vi.useFakeTimers();
     try {
       const fake = makeFakeSidecarChild();
@@ -488,9 +488,31 @@ describe("RustSidecarPtyHost.shutdown — Plan-001 CP-001-1 polymorphic drain", 
 
       await drainPromise;
 
-      // The -1 synthetic crash sentinel was NOT fired. No real
-      // ExitCodeNotification arrived either, so onExit should never
-      // have been called for s-0.
+      // Contract surface (`packages/contracts/src/pty-host.ts:173-180`):
+      // "The session's `onExit` listener still fires (either from the
+      // real exit notification arriving late or from a synthetic
+      // emission per the SIGKILL escalation path), but the drain was
+      // non-graceful."
+      //
+      // Per ADR-019 §Decision item 8 ("Consumers never see the
+      // backend choice"), the rust-sidecar backend MUST mirror
+      // `NodePtyHost.invokeTaskkill` (node-pty-host.ts:1117-1127),
+      // which synthesizes `onExit(sessionId, 1, undefined)` on the
+      // taskkill-escalation path. The synthetic uses exit code `1`
+      // (not the `-1` crash sentinel) — `-1` is reserved for
+      // unexpected-crash teardown via `fireCrashTimeOnExit`.
+      //
+      // Assert the synthetic emission contract:
+      //   (a) exactly one onExit fired for s-0;
+      //   (b) signature is (sessionId='s-0', exitCode=1) with
+      //       signalCode undefined (omitted by `fireExit`'s
+      //       branch — see rust-sidecar-pty-host.ts fireExit
+      //       rustdoc);
+      //   (c) the `-1` crash sentinel was NOT fired (complementary
+      //       assertion: the suppression of the crash teardown sentinel
+      //       still holds during shutdown).
+      expect(onExit).toHaveBeenCalledTimes(1);
+      expect(onExit).toHaveBeenCalledWith("s-0", 1);
       const negOneCalls = onExit.mock.calls.filter((call) => call[1] === -1);
       expect(negOneCalls).toHaveLength(0);
     } finally {
@@ -542,6 +564,117 @@ describe("RustSidecarPtyHost.shutdown — Plan-001 CP-001-1 polymorphic drain", 
     await flushMicrotasks();
     fake.triggerExit(0, null);
     await drainPromise;
+  });
+
+  it("rejects an in-flight spawn() whose SpawnResponse arrives AFTER shutdown() flips the shuttingDown flag (pre-spawn race)", async () => {
+    // Race shape this exercises (different from the previous test's
+    // post-flag-flip path):
+    //
+    //   (1) Consumer issues `spawn(spec)` BEFORE shutdown().
+    //       `ensureChild()` observes `shuttingDown === false` and
+    //       returns; `spawn()` proceeds to `await sendRequest(...,
+    //       "spawn_response")` and yields.
+    //   (2) `shutdown()` flips `shuttingDown = true` and snapshots
+    //       `activeSessionIds` — EMPTY because the new session has
+    //       not been registered yet.
+    //   (3) Fake sidecar emits `SpawnResponse` for the in-flight
+    //       request AFTER the flag flip (simulating a sidecar that
+    //       finished processing the queued SpawnRequest before its
+    //       stdin EOF kill landed).
+    //   (4) `resolveOutstanding`'s spawn_response branch re-checks
+    //       `this.shuttingDown` and rejects the awaiting
+    //       `spawn()` Promise with `PtyBackendUnavailableError`
+    //       carrying the same shape as `ensureChild`'s pre-flag-
+    //       flip rejection.
+    //
+    // Without the guard in `resolveOutstanding`, the session_id
+    // would be registered post-snapshot, then deleted by
+    // `fireCrashTimeOnExit` on sidecar exit (which suppresses the
+    // `-1` sentinel under `shuttingDown === true`), and the
+    // caller's subsequent `kill()` / `write()` / `resize()` would
+    // throw "unknown sessionId" — a contract break per
+    // ADR-019 §Decision item 8.
+    //
+    // Refs:
+    //   • Plan-001 §CP-001-1 sidecar-lifecycle drain.
+    //   • `PtyBackendUnavailableError` shape matches the existing
+    //     post-flag-flip path tested above.
+
+    const fake = makeFakeSidecarChild();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: spawnReturning(fake),
+    });
+
+    // Issue spawn() WITHOUT awaiting — capture the in-flight
+    // Promise so we can drive the race deterministically. The
+    // request reaches the wire after `ensureChild()` completes and
+    // `sendRequest` enqueues the outstanding entry.
+    const spawnPromise = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: ["-c", "sleep 10"],
+      env: [],
+      cwd: "/tmp",
+      rows: 24,
+      cols: 80,
+    });
+
+    // Yield enough microtasks for `ensureChild()` to complete and
+    // `sendRequest` to write the SpawnRequest envelope onto stdin.
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    // Confirm the SpawnRequest reached the wire — establishes that
+    // `ensureChild()` observed `shuttingDown === false` and the
+    // outstanding entry is parked awaiting its response.
+    const framesBeforeShutdown = parseFramesFromStdin(fake.readStdin());
+    expect(framesBeforeShutdown.some((envelope) => envelope.kind === "spawn_request")).toBe(true);
+
+    // Trigger `shutdown()` — flips `shuttingDown = true` and
+    // snapshots `activeSessionIds` (empty, because the in-flight
+    // spawn hasn't registered yet). The drain loop completes
+    // immediately because there are no sessions to drain.
+    const drainPromise = host.shutdown({
+      perSessionTimeoutMs: 2_000,
+      hostTimeoutMs: 2_000,
+    });
+    // Yield so the synchronous `shuttingDown = true` + activeSessionIds
+    // snapshot completes BEFORE the fake emits SpawnResponse.
+    await flushMicrotasks();
+
+    // Fake sidecar emits SpawnResponse AFTER the flag flip. This is
+    // the would-be orphan registration — the guard in
+    // `resolveOutstanding` must intercept and reject instead of
+    // calling `this.sessions.set(...)`.
+    fake.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-orphan" }));
+    await flushMicrotasks();
+
+    // Assert: the in-flight spawn() rejected with the same shape as
+    // `ensureChild()`'s pre-flag-flip rejection.
+    await expect(spawnPromise).rejects.toBeInstanceOf(PtyBackendUnavailableError);
+
+    // Externally observable invariant: subsequent kill() against the
+    // would-be session_id throws "unknown sessionId" — the orphan
+    // never landed in `this.sessions`. (`host.kill(sessionId, ...)`
+    // sync-throws on unknown ids per the RustSidecarPtyHost.kill
+    // rustdoc; this is the public probe for the private
+    // `sessions.has(sessionId) === false` invariant the guard
+    // enforces.)
+    await expect(host.kill("s-orphan", "SIGTERM")).rejects.toThrow(/unknown sessionId/);
+
+    // Complete the drain so the test cleans up. The sidecar exit
+    // closes out the host wind-down.
+    fake.triggerExit(0, null);
+    await flushMicrotasks();
+
+    const result = await drainPromise;
+    // Snapshot was empty → drain counters are zero.
+    expect(result.sessionsDrained).toBe(0);
+    expect(result.sessionsForcedKilled).toBe(0);
+    // Sidecar exited cleanly on stdin EOF; no taskkill escalation.
+    expect(result.sidecarExitedCleanly).toBe(true);
+    expect(result.taskkillEscalated).toBe(false);
   });
 
   it("is idempotent and re-entrant — a second shutdown() call returns the same in-flight Promise", async () => {
