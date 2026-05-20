@@ -1685,9 +1685,9 @@ export class RustSidecarPtyHost implements PtyHost {
       // sessions.has(sessionId)` discipline — both guards prevent a
       // double-fire when a real `ExitCodeNotification` is already in
       // flight on a parallel path. Race-safety on a late real
-      // notification: `handleExitNotification` at lines 2291-2298
-      // already dedupes via `record.exitCode !== null` → it ticks the
-      // shutdown waiter but skips the `fireExit` call. The synthetic
+      // notification: `handleExitNotification`'s `record.exitCode !== null`
+      // branch already dedupes → it ticks the shutdown waiter but skips
+      // the `fireExit` call. The synthetic
       // here sets `record.exitCode = 1`, so any subsequent real
       // notification routes through the duplicate-dedupe branch.
       //
@@ -2495,9 +2495,9 @@ export class RustSidecarPtyHost implements PtyHost {
       // Fix: re-check `this.shuttingDown` BEFORE registering. If the
       // flag has flipped during the in-flight spawn, reject with
       // `PtyBackendUnavailableError` carrying the same shape as
-      // `ensureChild`'s pre-flag-flip rejection (lines 1811-1815) so
-      // the caller's observable failure mode is identical regardless
-      // of where the race lands.
+      // `ensureChild`'s pre-flag-flip rejection (see `ensureChild`'s
+      // `shuttingDown` rejection) so the caller's observable failure
+      // mode is identical regardless of where the race lands.
       //
       // Skip `replayPreSpawnEvents` too: no consumer will await the
       // rejected `spawn()` promise's continuation to receive
