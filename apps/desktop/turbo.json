@@ -31,7 +31,8 @@
     },
     "test": {
       "dependsOn": ["build:smoke"],
-      "outputs": []
+      "outputs": [],
+      "cache": false
     }
   }
 }
