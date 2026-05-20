@@ -261,7 +261,7 @@ The Tier 1 partial slice lands as **1 small PR** following the Plan-007-partial 
 
 **Goal:** `packages/crypto-paseto/` workspace package compiles and exports the v4.public + v4.local primitive surface with `KeyRing` and full RFC conformance vectors green in CI. Plan-002 Phase 2 and Plan-018 can compile against the real package without waiting for the Tier 7 relay server. No relay-server code, no Fastify, no Docker, no operator surface — those stay at Tier 7 remainder. The package is the single substrate; downstream consumer plans (Plan-002 Phase 2, Plan-018) import directly from the workspace alias `@ai-sidekicks/crypto-paseto`.
 
-**Spec-025 AC coverage.** Phase 1 covers no Spec-025 §Acceptance Criteria — the substrate is pre-runtime primitive plumbing. Spec-025 §Acceptance Criteria coverage (protocol parity with Cloudflare backend, `/healthz` / `/readyz` / `/metrics`, rate-limiter wiring, graceful shutdown, supply-chain hardening) all require the Tier 7 remainder surfaces.
+**Spec-025 AC coverage.** Phase 1 covers no Spec-025 acceptance criteria — the substrate is pre-behavior plumbing. Spec-025 §Acceptance Criteria coverage (protocol parity with Cloudflare backend, `/healthz` / `/readyz` / `/metrics`, rate-limiter wiring, graceful shutdown, supply-chain hardening) all require the Tier 7 remainder surfaces.
 
 **ADR-010 AC coverage.** Phase 1 satisfies the [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md) acceptance criteria that name `packages/crypto-paseto/` by path: in-house library on `@noble/curves` (Ed25519) + `@noble/ciphers` (XChaCha20-Poly1305) + `@noble/hashes` (BLAKE2b), dual-primitive coverage (v4.public AND v4.local), RFC conformance vectors gating release.
 
