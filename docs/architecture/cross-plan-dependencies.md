@@ -109,7 +109,8 @@ Each dependency is annotated with its type:
 | --- | --- | --- |
 | Plan-001 | Plan-001 Phase 1–Phase 4: None. Plan-001 Phase 5 (`packages/client-sdk/src/sessionClient.ts` + `apps/desktop/src/{main/sidecar-lifecycle.ts,renderer/src/session-bootstrap/}`): Plan-007 partial-deliverable (Tier 1 IPC wire substrate + `session.*` namespace + SDK Zod layer per Spec-007 §Wire Format), Plan-008 bootstrap-deliverable (Tier 1 tRPC v11 server skeleton + `sessionRouter` HTTP handlers + SSE substrate for `SessionSubscribe`), and Plan-023 Tier 1 Partial substrate (Tier 1 `apps/desktop/src/{main,preload,renderer}/` workspace package + electron-vite v5 toolchain + minimal entrypoints — supplies the directory tree on which T5.2 + T5.3 author content per BL-101 (a) resolution). See Tier 1 carve-out rows in §5. | implementation-derived |
 | Plan-002 | Plan-001 (session tables, membership schema) | spec-declared |
-| Plan-002 | Plan-007-partial (Tier 1 — `presence.*` JSON-RPC method namespace registers under the Spec-007 §Wire Format substrate; Plan-002 owns the namespace registration and Zod handlers, but the substrate must exist), Plan-008-bootstrap (Tier 1 — tRPC router skeleton hosts Plan-002's invite/membership tRPC routes once Plan-002 ships at Tier 2) | implementation-derived |
+| Plan-002 | Plan-007-partial (Tier 1 — `presence.*` JSON-RPC method namespace registers under the Spec-007 §Wire Format substrate; Plan-002 owns the namespace registration and Zod handlers, but the substrate must exist), Plan-008-bootstrap (Tier 1 — tRPC router skeleton hosts Plan-002's invite/membership tRPC routes once Plan-002 ships at Tier 2), Plan-023-partial (Tier 1 — `apps/desktop/src/renderer/` substrate + preload-bridge `window.sidekicks` typed stub for Phase 6 renderer per CP-002-5) | implementation-derived |
+| Plan-002 | Plan-021 (Tier 6 — `rateLimitProcedure` middleware factory consumed by Phase 4 invite-endpoint wiring per CP-002-3; Phase 4 deferred to Tier 6 post-Plan-021), Plan-025 (Tier 5 — `crypto-paseto` primitive consumed by Phase 2 invite issuance per CP-002-4; carve-out vs. inline decision tracked via BL-119) | implementation-derived |
 | Plan-003 | Plan-001 (session model, node attachment to sessions) | spec-declared |
 | Plan-003 | Plan-006 (`runtime_node.*` event taxonomy — Plan-003 emits 7 events but does not author the `EventEnvelope` schema or the integrity-protocol semantics; per Spec-006 the taxonomy is registered at Tier 4. Tier 3 ships event-shape stubs only; full taxonomy registration lands in Plan-006 at Tier 4 as an additive follow-up), Plan-008-bootstrap (Tier 1 — control-plane attach contracts surfaced via tRPC sessionRouter substrate; Plan-003's runtime-node attach calls cross the same transport) | implementation-derived |
 | Plan-004 | Plan-001 (session core), Plan-005 (driver capability checks for steer/pause routing) | spec-declared, implementation-derived |
@@ -290,8 +291,9 @@ graph TB
   NS04[NS-04: Plan-001 T5.4 cwd-translator<br/>+ Plan-024 T-024-2-1 contracts pair]:::completed
   NS11[NS-11: Plan-007-partial cleanup<br/>3 stale BLOCKED-ON-C9 comments]:::ready
   NS13a[NS-13a: spec-status promotion gate<br/>runbook/ADR amendment]:::ready
-  NS14[NS-14: Tier 2 plan-readiness audit<br/>Plan-002 alone]:::ready
   NS22[NS-22: sibling-doc staleness sweep<br/>0001-initial sql→ts + session.ts line cite]:::ready
+  NS15[NS-15: Tier 3 plan-readiness audit<br/>(NS-16..NS-21 sequential)]:::ready
+  NS14[NS-14: Tier 2 plan-readiness audit<br/>Plan-002 alone]:::completed
   NS06[NS-06: Plan-001 T5.2 renderer wiring]:::completed
   NS08[NS-08: Plan-001 T5.3 sidecar-lifecycle]:::completed
   NS23[NS-23: §6 schema amendment<br/>multi-PR housekeeping]:::completed
@@ -302,7 +304,7 @@ graph TB
   NS09[NS-09: Plan-024 Phase 4 CI + signing]:::blocked
   NS10[NS-10: Plan-024 Phase 5 measurement]:::blocked
   NS13b[NS-13b: Spec-027 draft → approved]:::blocked
-  NS15[NS-15..NS-21: Tiers 3-9 audits<br/>1 PR per tier, sequential]:::blocked
+  NS16[NS-16..NS-21: Tiers 4-9 audits<br/>1 PR per tier, sequential]:::blocked
 
   %% COMPLETED
   NS12[NS-12: Plan-001 Phase 5 split + dep alignment]:::completed
@@ -331,6 +333,7 @@ graph TB
 
   %% Audit chain
   NS14 --> NS15
+  NS15 --> NS16
 
   classDef ready fill:#9f9,stroke:#0a0,color:#000
   classDef blocked fill:#fcc,stroke:#a00,color:#000
@@ -340,7 +343,7 @@ graph TB
 
 ### Recommended first wave
 
-With NS-01 + NS-02 + NS-04 + NS-05 completed 2026-05-11 (NS-01 via PR #42 — Plan-024 Phase 1 Rust scaffold; NS-02 via PR #38 — Plan-001 Phase 5 Lane A T5.1 + T5.5 + T5.6; NS-04 via PR #45 + PR #48 — `PtyHost` contract interface + `spawn-cwd-translator.ts` daemon-layer wrapper; NS-05 via PR #51 — `NodePtyHost` + `PtyHostSelector` Phase 2 closeout), NS-07 completed 2026-05-12 (via PR #56 — Plan-024 Phase 3 `RustSidecarPtyHost` + Rust sidecar substrate + I-024-3/I-024-5/I-024-6 verification), NS-03 completed 2026-05-18 (via PR #70 — Plan-023-partial Tier 1 Electron + React skeleton + electron-vite v5 toolchain + Vitest launch smoke), NS-06 completed 2026-05-19 (via PR #77 — Plan-001 Phase 5 Lane C T5.2 renderer session-bootstrap component on top of the Plan-023-partial preload bridge), and NS-08 completed 2026-05-20 (via PR #83 — Plan-001 Phase 5 Lane D T5.3 `apps/desktop/src/main/sidecar-lifecycle.ts` will-quit drain orchestration on top of the polymorphic `PtyHost.shutdown()` extension to both `NodePtyHost` + `RustSidecarPtyHost`; verifies I5 = CP-001-1 + I-024-4), the ready set is now NS-11, NS-13a, NS-14, NS-22 (4 items). NS-08's completion drops it from the ready set with no downstream NS-XX promotion (no §6 entry lists `Upstream: NS-08` — NS-08 is a leaf on the §6 graph); Plan-001 Phase 5 Lane D closes, retiring the last open T5.x lane — **Plan-001 Phase 5 is fully shipped (T5.1–T5.6 complete)** and Plan-001 has no remaining Phase 5 code-lane on the §6 axis. NS-09 stays blocked on BL-108 procurement evidence; NS-10 stays blocked on NS-09 + BL-106. The set shares no code paths or governance files — re-derived from each entry's `Files:` / target_paths after NS-08's drop-out (NS-11 targets `packages/runtime-daemon/src/bootstrap/secure-defaults-events.ts`; NS-13a targets the audit runbook + spec template; NS-14 targets `docs/plans/002-*.md`; NS-22 targets sibling-doc `0001-initial.sql` + `session.ts:388` cite occurrences in Plan-001 / Plan-022 / ADR-022 / Plan-008 — disjoint file-sets). Suggested parallel dispatch: **NS-13a + NS-14 + NS-11 + NS-22** as concurrent governance / audit / cleanup lanes — no code-lane remains on §6 until NS-09 unblocks via BL-108 procurement evidence. The previous serialization of NS-22 behind NS-12 (resolved 2026-05-03) is dissolved — NS-22 targets distinct content (`0001-initial.sql` filename + `session.ts:388` cite occurrences in Plan-001 / Plan-022 / ADR-022 / Plan-008) from NS-12's edit scope (Plan-001 §Preconditions + §Phase 5 Precondition); NS-22 dispatches cleanly against the post-NS-12 HEAD without rebase churn. The NS-04 → NS-05 → NS-07 cascade is now fully completed on the Plan-024 critical path — NS-04 completion (PR #48 housekeeping) unblocked NS-05; NS-05 completion (PR #51) unblocked NS-07; NS-07 completion (PR #56) leaves no NS-XX gate on NS-09 + NS-10. The remaining Plan-024 gates (NS-09 Phase 4 CI + signing, NS-10 Phase 5 measurement) are procurement-bound (BL-108) and calendar-window-bound (BL-106), not code-lane-bound — Plan-024 cannot resume on the §6 axis until BL-108 closes.
+With NS-01 + NS-02 + NS-04 + NS-05 completed 2026-05-11 (NS-01 via PR #42 — Plan-024 Phase 1 Rust scaffold; NS-02 via PR #38 — Plan-001 Phase 5 Lane A T5.1 + T5.5 + T5.6; NS-04 via PR #45 + PR #48 — `PtyHost` contract interface + `spawn-cwd-translator.ts` daemon-layer wrapper; NS-05 via PR #51 — `NodePtyHost` + `PtyHostSelector` Phase 2 closeout), NS-07 completed 2026-05-12 (via PR #56 — Plan-024 Phase 3 `RustSidecarPtyHost` + Rust sidecar substrate + I-024-3/I-024-5/I-024-6 verification), NS-03 completed 2026-05-18 (via PR #70 — Plan-023-partial Tier 1 Electron + React skeleton + electron-vite v5 toolchain + Vitest launch smoke), NS-06 completed 2026-05-19 (via PR #77 — Plan-001 Phase 5 Lane C T5.2 renderer session-bootstrap component on top of the Plan-023-partial preload bridge), NS-08 completed 2026-05-20 (via PR #83 — Plan-001 Phase 5 Lane D T5.3 `apps/desktop/src/main/sidecar-lifecycle.ts` will-quit drain orchestration on top of the polymorphic `PtyHost.shutdown()` extension to both `NodePtyHost` + `RustSidecarPtyHost`; verifies I5 = CP-001-1 + I-024-4), and NS-14 completed 2026-05-20 (via this PR — Plan-002 Tier 2 plan-readiness audit; 12 critical / 23 major / 19 minor / 4 nit findings discharged via in-PR amendments + BL-119/120/121 escalations; per CP-002-1..CP-002-5 cross-plan obligations newly declared), the ready set is now NS-11, NS-13a, NS-15, NS-22 (4 items). NS-14's completion drops it from the ready set and promotes NS-15 (Tier 3 plan-readiness audit) from `blocked` → `ready` per the audit-chain edge `NS-14 → NS-15` (the §6 audit chain remains strictly serialized: NS-15 → NS-16 → … → NS-21 per runbook §85-87, so NS-16..NS-21 stay blocked behind NS-15). NS-08's completion (2026-05-20) closed the last open T5.x lane — **Plan-001 Phase 5 is fully shipped (T5.1–T5.6 complete)** and Plan-001 has no remaining Phase 5 code-lane on the §6 axis. NS-09 stays blocked on BL-108 procurement evidence; NS-10 stays blocked on NS-09 + BL-106. The set shares no code paths or governance files — re-derived from each entry's `Files:` / target_paths after NS-14's drop-out + NS-15's promotion (NS-11 targets `packages/runtime-daemon/src/bootstrap/secure-defaults-events.ts`; NS-13a targets the audit runbook + spec template; NS-15 targets the next-tier plan-set under `docs/plans/` (Tier 3 plans per §5); NS-22 targets sibling-doc `0001-initial.sql` + `session.ts:388` cite occurrences in Plan-001 / Plan-022 / ADR-022 / Plan-008 — disjoint file-sets). Suggested parallel dispatch: **NS-13a + NS-15 + NS-11 + NS-22** as concurrent governance / audit / cleanup lanes — no code-lane remains on §6 until NS-09 unblocks via BL-108 procurement evidence. The previous serialization of NS-22 behind NS-12 (resolved 2026-05-03) is dissolved — NS-22 targets distinct content (`0001-initial.sql` filename + `session.ts:388` cite occurrences in Plan-001 / Plan-022 / ADR-022 / Plan-008) from NS-12's edit scope (Plan-001 §Preconditions + §Phase 5 Precondition); NS-22 dispatches cleanly against the post-NS-12 HEAD without rebase churn. The NS-04 → NS-05 → NS-07 cascade is now fully completed on the Plan-024 critical path — NS-04 completion (PR #48 housekeeping) unblocked NS-05; NS-05 completion (PR #51) unblocked NS-07; NS-07 completion (PR #56) leaves no NS-XX gate on NS-09 + NS-10. The remaining Plan-024 gates (NS-09 Phase 4 CI + signing, NS-10 Phase 5 measurement) are procurement-bound (BL-108) and calendar-window-bound (BL-106), not code-lane-bound — Plan-024 cannot resume on the §6 axis until BL-108 closes.
 
 ### NS-01: Plan-024 Phase 1 — Rust crate scaffolding
 
@@ -491,22 +494,22 @@ With NS-01 + NS-02 + NS-04 + NS-05 completed 2026-05-11 (NS-01 via PR #42 — Pl
 
 ### NS-14: Tier 2 plan-readiness audit — Plan-002
 
-- Status: `todo`
+- Status: `completed`
 - Type: audit (doc-only)
 - Priority: `P1`
 - Upstream: Tier 1 audit committed (✓ PR #15 / commit `05125dc`)
 - References: [audit runbook](../operations/plan-implementation-readiness-audit-runbook.md):37-87, [Plan-002](../plans/002-invite-membership-and-presence.md), this document §5 Tier 2 row
-- Summary: Audit Plan-002 (Tier 2's only plan) per the runbook's 10 completeness dimensions. Walks D1-D8 dep-trace + 6 parallel Phase subagents (one per Plan-002 Phase 1-6) + G1-G6 mechanical gates + diff bundle + REVIEW.md + USER-REVIEW PAUSE + single commit `docs(repo): resolve Tier-2 plan-readiness audit findings` + `git tag plan-readiness-audit-tier-2-complete`. Doc-only and parallel-safe with the Tier 1 code track (NS-01..NS-04) — the audit working-copy + skeleton-extract + 6-Phase parallel subagents + REVIEW.md + swap workflow is mechanical and shares no source files with the code lanes.
+- Summary: Audited Plan-002 (Tier 2's only plan) per the runbook's 10 completeness dimensions. 57 findings (12 critical, 23 major, 19 minor, 4 nit) clustered to ~6 amendment workstreams; criticals discharged via in-PR amendments (Plan-002 + this doc §3 Plan-002 row + runbook §Lessons Learned Tier 2 row) plus 3 BL-NNN escalations (BL-119 PASETO crypto carve-out, BL-120 Phase 4 Tier 6 deferral tracking, BL-121 Spec-002 `InviteRevoke` shape backfill).
 - Exit Criteria: Tier 2 audit PR merged into `develop`; `plan-readiness-audit-tier-2-complete` git tag pushed; Plan-002 Preconditions checklist gains the audit-gate row.
 
 ### NS-15..NS-21: Tier 3-9 plan-readiness audits
 
-- Status: `blocked`
+- Status: `ready` (NS-15 promoted 2026-05-20 via NS-14 closure); NS-16..NS-21 remain `blocked` per the strict-serialization rule
 - Type: audit (doc-only chain)
-- Priority: `P2` (each tier is `P1` when its turn comes)
-- Upstream: NS-14 → NS-15 (Tier 3) → NS-16 (Tier 4) → ... → NS-21 (Tier 9)
+- Priority: `P1` (NS-15, current ready entry); `P2` (each downstream tier promotes to `P1` when its turn comes)
+- Upstream: NS-14 → NS-15 (Tier 3, ready as of 2026-05-20) → NS-16 (Tier 4) → ... → NS-21 (Tier 9)
 - References: [audit runbook](../operations/plan-implementation-readiness-audit-runbook.md):85-87 ("Tiers: strictly serialized"), this document §5 (Tier 3-9 rows)
-- Summary: Tiers 3-9 audits run one PR per tier (per CLAUDE.md "8 tier-PRs of audit work owed before broad Tier 2+ code execution can resume"). Each tier-K audit PR commits the tier's plan amendments + tags `plan-readiness-audit-tier-K-complete`. Tier 8 includes Plan-017 — the only `review`-status plan, which must promote `review → approved` at its tier audit.
+- Summary: Tiers 3-9 audits run one PR per tier (per CLAUDE.md "8 tier-PRs of audit work owed before broad Tier 2+ code execution can resume"). Each tier-K audit PR commits the tier's plan amendments + tags `plan-readiness-audit-tier-K-complete`. Tier 8 includes Plan-017 — the only `review`-status plan, which must promote `review → approved` at its tier audit. NS-15 (Tier 3) is dispatchable now; NS-16..NS-21 sequentially unblock as each prior tier closes.
 - Exit Criteria: All 8 tier-PRs merged; all 27 plans cleared the audit; broad Tier 2+ code execution unblocked.
 - PRs:
   - [ ] tier-3 — Tier 3 plan-readiness audit

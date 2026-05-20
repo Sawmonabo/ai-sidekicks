@@ -68,6 +68,7 @@ Plan-002 transactional callers that mutate `session_memberships` while validatin
 - [x] Paired spec is approved
 - [x] Required ADRs are accepted
 - [x] Blocking open questions are resolved or explicitly deferred
+- [x] **Plan-readiness audit complete per [`docs/operations/plan-implementation-readiness-audit-runbook.md`](../operations/plan-implementation-readiness-audit-runbook.md)** — Tier 2 audit landed via NS-14 (merged 2026-05-20); see [Status Promotion Gate §1](../operations/plan-implementation-readiness-audit-runbook.md#status-promotion-gate). Audit findings amended in-PR; ACTIONABLE-class deferrals (PASETO `crypto-paseto` substrate carve-out, Phase 4 Tier 6 wiring) tracked via BL-119 + BL-120 + BL-121 per [runbook §Cross-Tier Amendment Contingency](../operations/plan-implementation-readiness-audit-runbook.md#cross-tier-amendment-contingency).
 
 Target paths below assume the canonical implementation topology defined in [Container Architecture](../architecture/container-architecture.md).
 
@@ -92,6 +93,14 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - Add invite CRUD endpoints, membership update endpoints, and presence heartbeat transport to the client SDK.
 - Add `ChannelList` read-only projection per [Spec-002 line 86](../specs/002-invite-membership-and-presence.md#interfaces-and-contracts). Request: `{sessionId: SessionId}`. Response: `{channels: Array<{id: ChannelId, name?: string, state: ChannelState, participantCount: number}>}`. Channels are bootstrapped at session create by Plan-001's `ChannelCreated` event (default channel); runtime channel creation (`ChannelCreate`) is owned by [Plan-016](./016-multi-agent-channels-and-orchestration.md) at Tier 6. `ChannelList` projects whatever channels currently exist regardless of who created them.
 - Register the `presence.*` JSON-RPC method namespace (`PresenceUpdate`, `PresenceRead`) under the Plan-007-partial wire substrate per [Spec-002 §Heartbeat Transport](../specs/002-invite-membership-and-presence.md#heartbeat-transport). Plan-002 owns the namespace handlers and Zod schemas; the substrate (framing, error model, supervision hooks) is owned by Plan-007-partial.
+
+## Cross-Plan Obligations
+
+- **CP-002-1 — `packages/control-plane/src/presence/`** is CREATED by Plan-002 Phase 3 (Tier 2); EXTENDED by [Plan-008-remainder](./008-control-plane-relay-and-session-join.md) (Tier 5) for hosted-relay fan-out and [Plan-018](./018-identity-and-participant-state.md) (Tier 5) for trusted-device presence trails. Plan-002 owns `presence-register-service.ts`; downstream extenders add sibling files under the same directory per [cross-plan-dependencies.md §2 row `packages/control-plane/src/presence/`](../architecture/cross-plan-dependencies.md#2-package-path-ownership-map).
+- **CP-002-2 — `presence.*` JSON-RPC namespace** registered by Plan-002 Phase 3 under the [Plan-007 partial](./007-local-ipc-and-daemon-control.md) wire substrate. Handlers land at `packages/runtime-daemon/src/ipc/handlers/presence-*.ts`; the substrate (framing, error envelope, method-name registry) is owned upstream by Plan-007-partial.
+- **CP-002-3 — Invite-endpoint rate-limit wiring** uses [Plan-021](./021-rate-limiting-policy.md) `rateLimitProcedure` middleware factory. Plan-021 ships the middleware at Tier 6; Plan-002 Phase 4 applies it to invite-endpoint procedures at Tier 6 (post-Plan-021). See Phase 4 below for the deferral declaration and [cross-plan-dependencies.md §3 Plan-002 ↔ Plan-021 edge](../architecture/cross-plan-dependencies.md#3-inter-plan-dependency-graph). Cross-tier deferral tracking: BL-120.
+- **CP-002-4 — PASETO v4.local token minting** depends on [Plan-025](./025-self-hostable-node-relay.md) `packages/crypto-paseto/`. Plan-025 ships at Tier 5; Plan-002 Phase 2 either (a) consumes a Tier 1 partial carve-out of `crypto-paseto` OR (b) inlines a minimal PASETO v4.local implementation with a TODO referencing Plan-025. Carve-out decision tracked via BL-119.
+- **CP-002-5 — Renderer surface (`apps/desktop/src/renderer/src/session-members/`)** consumes the [Plan-023 Tier 1 Partial](./023-desktop-shell-and-renderer.md#tier-1-partial-pr-sequence) preload-bridge `window.sidekicks` surface. The two-client end-to-end manual smoke acceptance criterion (Phase 6 Goal) is gated on the Plan-023 Tier 8 IPC dispatcher; until then, Phase 6 acceptance is component-test + single-client smoke. See Phase 6 below.
 
 ## Implementation Steps
 
@@ -170,62 +179,103 @@ Plan-002 implementation lands as a sequence of small PRs at Tier 2. Phases 1–5
 
 ### Phase 1 — Invite And Membership Contracts + Migration
 
-**Precondition:** Plan-001 complete (Tier 1 substrate carve-outs + session-directory-service + control-plane scaffolding in place).
+**Precondition:** Plan-001 Phase 3 (daemon migration substrate) merged; control-plane scaffolding in place via Plan-001 Phase 4.
 
 **Goal:** Tests C1–C5 go green; `session_invites` migration applies cleanly; contract types exported from `packages/contracts/src/invites.ts` and `packages/contracts/src/memberships.ts`.
 
-- `packages/contracts/src/invites.ts` — `InviteCreate`, `InviteAccept`, `InviteRevoke`, `InviteState` enum (4 states only; no `declined`)
+- `packages/contracts/src/invites.ts` — `InviteCreate`, `InviteAccept`, `InviteRevoke` (shape: `{sessionId: SessionId, inviteId: InviteId, reason?: string}`), `InviteState` enum (4 states only; no `declined`)
 - `packages/contracts/src/memberships.ts` — `MembershipUpdate` discriminated union + `MembershipRole` enum
 - `packages/contracts/src/presence.ts` — `PresenceHeartbeat` payload with the 5 required metadata fields, `PresenceUpdate`/`PresenceRead` JSON-RPC method shapes
 - `packages/contracts/src/channels.ts` — `ChannelList` request/response, `ChannelState` enum (channel creation contracts owned by Plan-016 are NOT shipped here)
 - Migration creates `session_invites` (Postgres); `session_memberships` is already created by Plan-001 (no ALTER needed at this PR)
 
+#### Tasks
+
+- T1.1 — Define `InviteCreate`, `InviteAccept`, `InviteRevoke`, `InviteState`, `InviteId` (branded) in `packages/contracts/src/invites.ts`; export via `packages/contracts/src/index.ts`.
+- T1.2 — Define `MembershipUpdate` discriminated union, `MembershipRole`, `MembershipState` enums in `packages/contracts/src/memberships.ts`.
+- T1.3 — Define `PresenceHeartbeat`, `PresenceUpdate`/`PresenceRead` shapes, `PresenceState` enum, `JoinMode` enum in `packages/contracts/src/presence.ts`.
+- T1.4 — Define `ChannelList` request/response + `ChannelState` enum in `packages/contracts/src/channels.ts` (no channel-creation contracts — owned by Plan-016).
+- T1.5 — Author Postgres migration creating `session_invites` table (no `session_memberships` ALTER — Plan-001 owns).
+- T1.6 — Wire Vitest tests C1–C5 + anti-leakage assertion (no `ChannelCreate` contracts shipped).
+
 ### Phase 2 — Control-Plane Invite And Membership Services
 
-**Precondition:** Phase 1 merged.
+**Precondition:** Phase 1 merged. PASETO v4.local minting depends on `packages/crypto-paseto/` from [Plan-025 Tier 5](./025-self-hostable-node-relay.md) — Phase 2 either consumes a Tier 1 partial carve-out of `crypto-paseto` OR inlines a minimal implementation marked TODO(Plan-025). See CP-002-4; carve-out decision tracked via BL-119.
 
 **Goal:** Tests P1–P10 go green.
 
-- `packages/control-plane/src/invites/invite-service.ts` — issuance (PASETO v4.local with 256-bit CSPRNG, jti, SHA-256 hash storage), acceptance (single-use enforcement), revocation, expiry validation
+- `packages/control-plane/src/invites/invite-service.ts` — issuance (PASETO v4.local with 256-bit CSPRNG, jti, SHA-256 hash storage per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md)), acceptance (single-use enforcement), revocation (owner-only per Spec-002 line 141), expiry validation
 - `packages/control-plane/src/memberships/membership-service.ts` — `MembershipUpdate` handler with owner-elevation check (I-002-1), last-owner-cannot-leave guard (I-002-2), role-change/suspend/revoke paths
 - Lock-ordering inheritance from Plan-001 (I-002-4) — every transactional caller follows `sessions` → `session_memberships`
-- Audit emission: revocation events emit to session history per Spec-002 line 140
+- Audit emission: revocation events emit to session history per Spec-002 line 140; integrity columns (`prev_hash`, `row_hash`, `daemon_signature`) follow the Plan-001 Phase 3 placeholder convention (`Buffer.alloc(32)`) until Plan-006 Tier 4 ships real event-taxonomy hashing/signing
+- Typed errors: `membership.permission_denied` (P6, I-002-1), `membership.last_owner` (P7, I-002-2), `invite.revoked` / `invite.expired` / `invite.already_accepted` (P2/P3/P4)
+
+#### Tasks
+
+- T2.1 — Implement `invite-service.ts` issuance with PASETO v4.local (depends on CP-002-4 decision).
+- T2.2 — Implement invite acceptance + single-use enforcement + revocation + expiry validation; emit revocation audit events.
+- T2.3 — Implement `membership-service.ts` with `MembershipUpdate` handler; enforce I-002-1 + I-002-2 with typed errors.
+- T2.4 — Wire transactional callers (owner-transfer, co-owner promotion, invite-accept) to the canonical lock-ordering test from Plan-001 (extend `packages/control-plane/src/memberships/__tests__/`).
+- T2.5 — Add P1–P9 + P10 (no-presence-table migration regression — coordinates with Phase 1 migration shape) test rows.
 
 ### Phase 3 — Presence Heartbeat + ChannelList Projection
 
-**Precondition:** Phase 2 merged.
+**Precondition:** Phase 1 + Phase 2 merged (Phase 1's `presence.ts` + `channels.ts` contracts and Phase 2's transactional infrastructure are both load-bearing).
 
-**Goal:** Tests Pr1–Pr4 + I3 go green.
+**Goal:** Tests Pr1–Pr4 + I3 go green; P10 (no-presence-table migration regression) re-verified after Phase 3 lands.
 
-- `packages/control-plane/src/presence/presence-register-service.ts` — Yjs Awareness state ingestion (in-memory only, I-002-3), Postgres LISTEN/NOTIFY fan-out
-- Local IPC bridge: `presence.*` JSON-RPC method namespace (`PresenceUpdate`, `PresenceRead`) registered under the Plan-007-partial wire substrate
-- `ChannelList` projection over the channels collection bootstrapped by Plan-001's `ChannelCreated`
-- Durable presence-state-change events emit via Plan-006 path (`presence.online`/`idle`/`reconnecting`/`offline`); presence rows themselves are never persisted
+- `packages/control-plane/src/presence/presence-register-service.ts` — Yjs Awareness state ingestion (in-memory only, I-002-3), Postgres LISTEN/NOTIFY fan-out (per [ADR-008](../decisions/008-default-transports-and-relay-boundaries.md) transport choice). Owned by Plan-002 per CP-002-1.
+- Local IPC bridge: `presence.*` JSON-RPC method namespace (`PresenceUpdate`, `PresenceRead`) registered under the Plan-007-partial wire substrate. Handlers at `packages/runtime-daemon/src/ipc/handlers/presence-update.ts` and `packages/runtime-daemon/src/ipc/handlers/presence-read.ts` per CP-002-2.
+- `ChannelList` projection over the channels collection bootstrapped by Plan-001's `ChannelCreated` (default-channel emission at session create).
+- Durable presence-state-change events emit via Plan-006 path (`presence.online`/`idle`/`reconnecting`/`offline`); presence rows themselves are never persisted.
 
-### Phase 4 — Rate Limiting Surface (Optional Slot)
+#### Tasks
 
-**Precondition:** Phase 2 merged. Phase 4 may slip to Plan-021's Tier 6 surface if the cross-plan rate-limiter contract isn't ready by Tier 2; in that case Plan-002 documents the deferral and Plan-021 adds the invite-rate-limit middleware when it ships.
+- T3.1 — Implement `presence-register-service.ts` with Yjs Awareness ingestion (in-memory only); add Pr1 schema-shape regression test asserting no SQLite/Postgres write occurs on heartbeat.
+- T3.2 — Wire Postgres LISTEN/NOTIFY fan-out for cross-node presence updates (Pr3); reconnect-grace window timer (Pr2).
+- T3.3 — Register `presence.*` JSON-RPC handlers under Plan-007-partial wire substrate; emit `presence.online/idle/reconnecting/offline` audit events to `session_events` per Plan-006 path (Pr4).
+- T3.4 — Implement `ChannelList` read-only projection consuming the channels collection bootstrapped by Plan-001's `ChannelCreated`; add I3 test asserting bootstrap projection returns the default channel.
 
-**Goal:** Invite rate limits per Spec-002 §Rate Limiting (20/session/hr, 50/participant/hr, 100 pending/session) are enforced; standard `RateLimitResponse` returned on threshold breach.
+### Phase 4 — Rate Limiting Surface (deferred to Tier 6)
 
-- Add rate-limit middleware to invite endpoints; defer rate-limiter implementation to [Plan-021](./021-rate-limiting-policy.md) if not yet shipped (cross-plan deferral note added here, contract stub in `packages/contracts/src/rate-limiter.ts` already owned by Plan-021)
+**Precondition:** Phase 2 merged AND [Plan-021](./021-rate-limiting-policy.md) Tier 6 ships the `rateLimitProcedure` middleware factory at `packages/control-plane/src/middleware/rate-limit.ts`. Phase 4 is structurally deferred to Tier 6 because Plan-021 ships at Tier 6 — Plan-002 owns the wiring (CP-002-3) but the substrate is unavailable at Tier 2. Cross-tier deferral tracked via BL-120.
+
+**Goal:** Invite rate limits per Spec-002 §Rate Limiting (20/session/hr, 50/participant/hr, 100 pending/session) are enforced; the canonical `RateLimitResponse` shape owned by Plan-021 (`packages/control-plane/src/middleware/rate-limit.ts`) is returned on threshold breach.
+
+#### Tasks
+
+- T4.1 — [Tier 6, post-Plan-021] Apply `rateLimitProcedure({endpoint: 'invite.create' | 'invite.accept' | 'invite.revoke' | …})` middleware to the invite tRPC procedures defined in Phase 2's `invite-service.ts` surface.
+- T4.2 — [Tier 6] Add rate-limit verification tests asserting threshold breach returns the canonical 429 + `RateLimitResponse` shape per Plan-021 §`RateLimitResponse` canonical shape.
 
 ### Phase 5 — Client SDK Membership Surface
 
-**Precondition:** Phase 1–Phase 3 merged.
+**Precondition:** Phase 1–Phase 3 merged. `membershipClient.ts` follows the dual-transport factory precedent established by [Plan-001 Phase 5 T5.1](./001-shared-session-core.md) (`packages/client-sdk/src/sessionClient.ts` shipped 2026-05-05 via PR #30).
 
 **Goal:** Tests I1–I3 go green; cross-client invite/accept/presence flows work end-to-end.
 
-- `packages/client-sdk/src/membershipClient.ts` — wraps invite/membership/presence/`ChannelList` over both daemon and control-plane transports
-- Integration tests for live-join non-disruption + membership/presence separation
+- `packages/client-sdk/src/membershipClient.ts` — two factories (`createDaemonMembershipClient(jsonRpcClient)` + `createControlPlaneMembershipClient({fetcher, baseUrl, endpoint?})`) sharing one `MembershipClient` interface; transport branching MUST happen at the factory boundary, not inside method bodies; subscribe paths use async generators wrapping each transport's native streaming primitive. Zod-validate at SDK boundary (mirror `sessionClient.ts:363` fail-fast).
+- Integration tests for live-join non-disruption (I1) + membership/presence separation (I2) + `ChannelList` bootstrap projection (I3).
+
+#### Tasks
+
+- T5.1 — Implement `membershipClient.ts` daemon factory wrapping `presence.*` JSON-RPC + invite/membership tRPC adapter.
+- T5.2 — Implement `membershipClient.ts` control-plane factory consuming Plan-008-remainder relay (when shipped at Tier 5; until then, control-plane factory throws `NotImplementedAtTier2Error`).
+- T5.3 — Add I1–I3 integration tests.
 
 ### Phase 6 — Renderer (Tier 2)
 
-**Precondition:** Phase 5 merged (consumes `membershipClient.ts` SDK) AND Plan-023 Tier 1 Partial complete (`apps/desktop/src/renderer/` substrate exists). Sequenced at Tier 2 per §Execution Windows above.
+**Precondition:** Phase 5 merged (consumes `membershipClient.ts` SDK) AND Plan-023 Tier 1 Partial complete (`apps/desktop/src/renderer/` substrate exists; preload-bridge `window.sidekicks` typed stub in place per [Plan-023 Tier 1 Partial](./023-desktop-shell-and-renderer.md#tier-1-partial-pr-sequence)). Sequenced at Tier 2 per §Execution Windows above.
 
-**Goal:** Step 4 ships; manual two-client invite/accept smoke passes.
+**Goal:** Phase 6 component tests + single-client smoke pass (invite acceptance UI renders; roster + presence indicators update via the preload bridge). The full two-client end-to-end smoke acceptance criterion is gated on the Plan-023 Tier 8 IPC dispatcher and ships at Tier 8 per CP-002-5; until then, the two-client smoke is a deferred manual verification step.
 
-- `apps/desktop/src/renderer/src/session-members/` — renderer views for invite acceptance, participant roster, presence indicators (thin projection over the Spec-023 preload-bridge `window.sidekicks` surface; MUST NOT bypass the bridge to reach daemon or control-plane state directly)
+- `apps/desktop/src/renderer/src/session-members/` — renderer views for invite acceptance, participant roster, presence indicators (thin projection over the Spec-023 preload-bridge `window.sidekicks` surface; MUST NOT bypass the bridge to reach daemon or control-plane state directly per CP-002-5).
+
+#### Tasks
+
+- T6.1 — Implement `session-members/invite-accept-view.tsx` consuming the preload-bridge `window.sidekicks.invites.accept` surface.
+- T6.2 — Implement `session-members/participant-roster.tsx` rendering presence indicators via `window.sidekicks.presence.subscribe` async iterator.
+- T6.3 — Add Vitest component tests (`@testing-library/react`) for invite-accept view + roster; assert renderer code paths never import from `packages/runtime-daemon/` or `packages/control-plane/` directly (bridge-projection invariant).
+- T6.4 — [Deferred to Tier 8] Two-client manual smoke verification after Plan-023 Tier 8 IPC dispatcher ships.
 
 After Phase 5 lands green at Tier 2, Plan-002's load-bearing semantics are complete. Phase 6 ships at Tier 2 after Phase 5 — the renderer substrate from Plan-023 Tier 1 Partial is independently in place from Tier 1, so the gating reduces to Plan-002's own SDK readiness.
 
@@ -233,9 +283,9 @@ After Phase 5 lands green at Tier 2, Plan-002's load-bearing semantics are compl
 
 1. Ship invite and membership APIs (Phase 1 + Phase 2)
 2. Add presence heartbeat, `ChannelList` projection, and participant roster (Phase 3)
-3. Enable rate-limit enforcement (Phase 4 — may slip to Plan-021's surface if deferred)
-4. Wire client SDK and integration paths (Phase 5)
-5. Enable desktop invite acceptance UI (Phase 6, Tier 2 — after Phase 5)
+3. Wire client SDK and integration paths (Phase 5; Phase 4 deferred to Tier 6 per CP-002-3)
+4. Enable desktop invite acceptance UI (Phase 6, Tier 2 — after Phase 5)
+5. [Tier 6] Apply Plan-021's `rateLimitProcedure` middleware to invite endpoints (Phase 4)
 
 ## Rollback Or Fallback
 
