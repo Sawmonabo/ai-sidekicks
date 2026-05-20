@@ -1,0 +1,261 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`0001-initial migration shape > pins the column shape of \`participant_keys\` 1`] = `
+[
+  {
+    "cid": 0,
+    "dflt_value": null,
+    "name": "participant_id",
+    "notnull": 1,
+    "pk": 1,
+    "type": "TEXT",
+  },
+  {
+    "cid": 1,
+    "dflt_value": null,
+    "name": "encrypted_key_blob",
+    "notnull": 1,
+    "pk": 0,
+    "type": "BLOB",
+  },
+  {
+    "cid": 2,
+    "dflt_value": "1",
+    "name": "key_version",
+    "notnull": 1,
+    "pk": 0,
+    "type": "INTEGER",
+  },
+  {
+    "cid": 3,
+    "dflt_value": null,
+    "name": "created_at",
+    "notnull": 1,
+    "pk": 0,
+    "type": "TEXT",
+  },
+  {
+    "cid": 4,
+    "dflt_value": null,
+    "name": "rotated_at",
+    "notnull": 0,
+    "pk": 0,
+    "type": "TEXT",
+  },
+]
+`;
+
+exports[`0001-initial migration shape > pins the column shape of \`schema_version\` 1`] = `
+[
+  {
+    "cid": 0,
+    "dflt_value": null,
+    "name": "version",
+    "notnull": 1,
+    "pk": 1,
+    "type": "INTEGER",
+  },
+  {
+    "cid": 1,
+    "dflt_value": null,
+    "name": "applied_at",
+    "notnull": 1,
+    "pk": 0,
+    "type": "TEXT",
+  },
+  {
+    "cid": 2,
+    "dflt_value": null,
+    "name": "description",
+    "notnull": 0,
+    "pk": 0,
+    "type": "TEXT",
+  },
+]
+`;
+
+exports[`0001-initial migration shape > pins the column shape of \`session_events\` 1`] = `
+[
+  {
+    "cid": 0,
+    "dflt_value": null,
+    "name": "id",
+    "notnull": 0,
+    "pk": 1,
+    "type": "TEXT",
+  },
+  {
+    "cid": 1,
+    "dflt_value": null,
+    "name": "session_id",
+    "notnull": 1,
+    "pk": 0,
+    "type": "TEXT",
+  },
+  {
+    "cid": 2,
+    "dflt_value": null,
+    "name": "sequence",
+    "notnull": 1,
+    "pk": 0,
+    "type": "INTEGER",
+  },
+  {
+    "cid": 3,
+    "dflt_value": null,
+    "name": "occurred_at",
+    "notnull": 1,
+    "pk": 0,
+    "type": "TEXT",
+  },
+  {
+    "cid": 4,
+    "dflt_value": null,
+    "name": "monotonic_ns",
+    "notnull": 1,
+    "pk": 0,
+    "type": "INTEGER",
+  },
+  {
+    "cid": 5,
+    "dflt_value": null,
+    "name": "category",
+    "notnull": 1,
+    "pk": 0,
+    "type": "TEXT",
+  },
+  {
+    "cid": 6,
+    "dflt_value": null,
+    "name": "type",
+    "notnull": 1,
+    "pk": 0,
+    "type": "TEXT",
+  },
+  {
+    "cid": 7,
+    "dflt_value": null,
+    "name": "actor",
+    "notnull": 0,
+    "pk": 0,
+    "type": "TEXT",
+  },
+  {
+    "cid": 8,
+    "dflt_value": "'{}'",
+    "name": "payload",
+    "notnull": 1,
+    "pk": 0,
+    "type": "TEXT",
+  },
+  {
+    "cid": 9,
+    "dflt_value": null,
+    "name": "pii_payload",
+    "notnull": 0,
+    "pk": 0,
+    "type": "BLOB",
+  },
+  {
+    "cid": 10,
+    "dflt_value": null,
+    "name": "correlation_id",
+    "notnull": 0,
+    "pk": 0,
+    "type": "TEXT",
+  },
+  {
+    "cid": 11,
+    "dflt_value": null,
+    "name": "causation_id",
+    "notnull": 0,
+    "pk": 0,
+    "type": "TEXT",
+  },
+  {
+    "cid": 12,
+    "dflt_value": "'1.0'",
+    "name": "version",
+    "notnull": 1,
+    "pk": 0,
+    "type": "TEXT",
+  },
+  {
+    "cid": 13,
+    "dflt_value": null,
+    "name": "prev_hash",
+    "notnull": 1,
+    "pk": 0,
+    "type": "BLOB",
+  },
+  {
+    "cid": 14,
+    "dflt_value": null,
+    "name": "row_hash",
+    "notnull": 1,
+    "pk": 0,
+    "type": "BLOB",
+  },
+  {
+    "cid": 15,
+    "dflt_value": null,
+    "name": "daemon_signature",
+    "notnull": 1,
+    "pk": 0,
+    "type": "BLOB",
+  },
+  {
+    "cid": 16,
+    "dflt_value": null,
+    "name": "participant_signature",
+    "notnull": 0,
+    "pk": 0,
+    "type": "BLOB",
+  },
+]
+`;
+
+exports[`0001-initial migration shape > pins the column shape of \`session_snapshots\` 1`] = `
+[
+  {
+    "cid": 0,
+    "dflt_value": null,
+    "name": "id",
+    "notnull": 0,
+    "pk": 1,
+    "type": "TEXT",
+  },
+  {
+    "cid": 1,
+    "dflt_value": null,
+    "name": "session_id",
+    "notnull": 1,
+    "pk": 0,
+    "type": "TEXT",
+  },
+  {
+    "cid": 2,
+    "dflt_value": null,
+    "name": "as_of_sequence",
+    "notnull": 1,
+    "pk": 0,
+    "type": "INTEGER",
+  },
+  {
+    "cid": 3,
+    "dflt_value": null,
+    "name": "state_blob",
+    "notnull": 1,
+    "pk": 0,
+    "type": "BLOB",
+  },
+  {
+    "cid": 4,
+    "dflt_value": null,
+    "name": "created_at",
+    "notnull": 1,
+    "pk": 0,
+    "type": "TEXT",
+  },
+]
+`;
