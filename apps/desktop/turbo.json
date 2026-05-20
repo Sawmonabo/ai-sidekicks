@@ -6,6 +6,11 @@
       "inputs": ["src/**", "build/**", "electron.vite.config.ts", "tsconfig*.json", "package.json"],
       "outputs": ["out/**", "dist/**", ".tsbuildinfo"]
     },
+    "build:smoke": {
+      "dependsOn": ["^build"],
+      "inputs": ["src/**", "build/**", "electron.vite.config.ts", "tsconfig*.json", "package.json"],
+      "outputs": ["out/**", "dist/**"]
+    },
     "typecheck": {
       "inputs": ["src/**", "test/**", "build/**", "tsconfig*.json", "package.json"],
       "outputs": [".tsbuildinfo"]
@@ -14,16 +19,18 @@
       "inputs": ["src/**", "test/**", "*.{ts,tsx,js,mjs,cjs,json}", "eslint.config.mjs"],
       "outputs": []
     },
+    "test:renderer": {
+      "dependsOn": ["^build"],
+      "inputs": ["src/renderer/**", "vitest.config.*", "tsconfig*.json", "package.json"],
+      "outputs": []
+    },
+    "test:smoke": {
+      "dependsOn": ["build:smoke"],
+      "inputs": ["test/**", "vitest.config.*", "tsconfig*.json", "package.json"],
+      "outputs": []
+    },
     "test": {
-      "inputs": [
-        "src/**",
-        "test/**",
-        "build/**",
-        "electron.vite.config.ts",
-        "vitest.config.*",
-        "tsconfig*.json",
-        "package.json"
-      ],
+      "dependsOn": ["build:smoke"],
       "outputs": []
     }
   }
