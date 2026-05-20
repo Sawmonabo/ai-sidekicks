@@ -20,9 +20,15 @@
 //   * Crash-budget suppression: the deliberate sidecar exit during
 //     `shutdown()` does NOT consume a slot of the sliding-window
 //     crash budget — Plan-001 §CP-001-1 hard constraint.
-//   * No `-1` crash sentinel: the deliberate sidecar exit does NOT
-//     fire the per-session `-1` synthetic onExit (the real
-//     `ExitCodeNotification` arrivals are the canonical source).
+//   * No spurious `-1` crash sentinel on clean wind-down: a
+//     deliberate sidecar exit AFTER real `ExitCodeNotification`s have
+//     been routed does NOT fire the per-session `-1` synthetic
+//     onExit (natural dedupe via `record.exitCode !== null`).
+//   * Fallback `-1` crash sentinel on shutdown × sidecar-crash: when
+//     the sidecar crashes mid-shutdown and some sessions' real
+//     `ExitCodeNotification`s were lost, `fireCrashTimeOnExit` MUST
+//     emit the `-1` synthetic for the lost sessions — exactly-once
+//     `onExit` contract on `PtyHost`.
 //   * Re-entrancy: a second `shutdown()` call returns the same Promise
 //     identity as the in-flight first call.
 //   * Concurrent spawn() during shutdown: rejected with
@@ -480,8 +486,10 @@ describe("RustSidecarPtyHost.shutdown — Plan-001 CP-001-1 polymorphic drain", 
       await Promise.resolve();
 
       // Sidecar exits — the canonical teardown chain runs (parser
-      // reset, fireCrashTimeOnExit, etc.) BUT with `shuttingDown ===
-      // true`, the -1 sentinel MUST be suppressed.
+      // reset, fireCrashTimeOnExit, etc.). The SIGKILL synthetic
+      // already set `record.exitCode = 1`, so the natural
+      // `record.exitCode === null` dedupe in `fireCrashTimeOnExit`
+      // skips s-0 — no spurious `-1` fires.
       fake.triggerExit(0, null);
       await Promise.resolve();
       await Promise.resolve();
@@ -515,6 +523,133 @@ describe("RustSidecarPtyHost.shutdown — Plan-001 CP-001-1 polymorphic drain", 
       expect(onExit).toHaveBeenCalledWith("s-0", 1);
       const negOneCalls = onExit.mock.calls.filter((call) => call[1] === -1);
       expect(negOneCalls).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("emits -1 onExit for sessions whose real ExitCodeNotification never arrived when sidecar crashes mid-shutdown", async () => {
+    // Case-3 contract pin: during `shutdown()`, if the sidecar process
+    // exits unexpectedly (crash, SIGSEGV, etc.) BEFORE every active
+    // session's real `ExitCodeNotification` has reached the wire,
+    // `fireCrashTimeOnExit` MUST emit the `-1` synthetic for the
+    // sessions whose real exit was lost. Suppressing it during
+    // shutdown leaves the consumer waiting forever and violates the
+    // exactly-once `PtyHost.onExit` contract.
+    //
+    // Dedupe is via `record.exitCode !== null`. The two real-exit
+    // setters (`handleExitNotification` and the SIGKILL synthetic)
+    // both set `record.exitCode` BEFORE calling `fireExit`, so any
+    // session that already saw a real or forced exit is skipped.
+    //
+    // Trace:
+    //   * s-A: real `ExitCodeNotification` arrives → `record.exitCode
+    //     = 0`, `onExit(s-A, 0)` fires. When the sidecar later crashes
+    //     and `fireCrashTimeOnExit` runs, A is skipped (non-null
+    //     record).
+    //   * s-B: NO real exit arrives. When the sidecar crashes,
+    //     `fireCrashTimeOnExit` sees `record.exitCode === null` and
+    //     fires `onExit(s-B, -1, undefined)`. B is then deleted from
+    //     `this.sessions`. B's `drainSingleSession` waiter falls
+    //     through to its per-session timeout → SIGKILL escalation;
+    //     the SIGKILL synthetic observes `record === undefined` (B
+    //     was already deleted) and no-ops. B counts under
+    //     `sessionsForcedKilled` (the drain returned `"forced"`).
+    //
+    // Refs:
+    //   • Plan-001 §CP-001-1 sidecar-lifecycle drain.
+    //   • `packages/contracts/src/pty-host.ts` PtyHost.onExit contract
+    //     (exactly-once per session terminal callback).
+
+    vi.useFakeTimers();
+    try {
+      const fake = makeFakeSidecarChild();
+      const host = new RustSidecarPtyHost({
+        resolveBinaryPath: () => "/fake/sidecar",
+        spawn: spawnReturning(fake),
+      });
+      const onExit = vi.fn();
+      host.setOnExit(onExit);
+
+      await spawnOneSession(host, fake, "s-A");
+      await spawnOneSession(host, fake, "s-B");
+
+      const drainPromise = host.shutdown({
+        perSessionTimeoutMs: 1_000,
+        hostTimeoutMs: 1_000,
+      });
+      // Yield so per-session SIGTERMs reach the wire.
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // Sidecar acks both SIGTERMs.
+      fake.writeStdout(frameEnvelope({ kind: "kill_response", session_id: "s-A" }));
+      fake.writeStdout(frameEnvelope({ kind: "kill_response", session_id: "s-B" }));
+      // s-A's real ExitCodeNotification arrives (simulating partial
+      // drain — sidecar processed A's kill but crashes before B's).
+      fake.writeStdout(
+        frameEnvelope({
+          kind: "exit_code_notification",
+          session_id: "s-A",
+          exit_code: 0,
+          signal_code: null,
+        }),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // Synthesize the sidecar crash — fires handleChildExit which
+      // runs fireCrashTimeOnExit. s-A is skipped via the natural
+      // dedupe (record.exitCode = 0), s-B receives the `-1` synthetic
+      // because its record.exitCode is still null.
+      fake.triggerExit(null, "SIGSEGV");
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // s-B's per-session drain waiter never resolved (no real exit,
+      // no SIGKILL synthetic because record was deleted by
+      // fireCrashTimeOnExit). Advance past the per-session timeout
+      // so drainSingleSession falls through to its SIGKILL
+      // escalation path and returns "forced".
+      await vi.advanceTimersByTimeAsync(1_001);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const result = await drainPromise;
+
+      // Assertion 1: s-A received exactly one onExit with the real
+      // exit code from the real ExitCodeNotification — NOT `-1`. The
+      // dedupe via record.exitCode !== null held.
+      const aCalls = onExit.mock.calls.filter((call) => call[0] === "s-A");
+      expect(aCalls).toHaveLength(1);
+      expect(aCalls[0]).toEqual(["s-A", 0]);
+
+      // Assertion 2: s-B received exactly one onExit with code -1.
+      // The `-1` synthetic fired because record.exitCode was null
+      // when fireCrashTimeOnExit ran. The signalCode argument was
+      // undefined per fireExit's branch behavior.
+      const bCalls = onExit.mock.calls.filter((call) => call[0] === "s-B");
+      expect(bCalls).toHaveLength(1);
+      expect(bCalls[0]).toEqual(["s-B", -1]);
+
+      // Assertion 3: total onExit count is exactly 2 (one per
+      // session). No spurious double-fire.
+      expect(onExit).toHaveBeenCalledTimes(2);
+
+      // Assertion 4: both sessions are gone from the host's internal
+      // map. Probe via the public `kill()` surface — it sync-throws
+      // "unknown sessionId" when the id is not in `this.sessions`
+      // (mirrors the public probe at line 664 above).
+      await expect(host.kill("s-A", "SIGTERM")).rejects.toThrow(/unknown sessionId/);
+      await expect(host.kill("s-B", "SIGTERM")).rejects.toThrow(/unknown sessionId/);
+
+      // Assertion 5: s-B counts under sessionsForcedKilled (its
+      // drainSingleSession waiter never resolved naturally; it fell
+      // through to the per-session timeout). s-A counts under
+      // sessionsDrained (its real ExitCodeNotification arrived in
+      // time).
+      expect(result.sessionsDrained).toBe(1);
+      expect(result.sessionsForcedKilled).toBe(1);
     } finally {
       vi.useRealTimers();
     }

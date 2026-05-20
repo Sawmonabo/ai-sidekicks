@@ -1611,10 +1611,15 @@ export class RustSidecarPtyHost implements PtyHost {
 
     try {
       // Best-effort graceful kill — swallow errors (kill_response may
-      // never arrive if the sidecar has already crashed; the waiter
-      // resolves via the supervisor's teardown chain in that case via
-      // `fireCrashTimeOnExit` being gated to no-op + the
-      // `handleExitNotification` `notifyShutdownWaiter` calls).
+      // never arrive if the sidecar has already crashed). On a sidecar
+      // crash mid-drain, `fireCrashTimeOnExit` fires the per-session
+      // `-1` synthetic onExit for any session without a real
+      // `ExitCodeNotification`; the drain waiter itself falls through
+      // its per-session timeout to the SIGKILL escalation path below
+      // (which observes `record === undefined` post-crash-deletion and
+      // no-ops), then returns `"forced"` so the session counts under
+      // `sessionsForcedKilled`. The terminal `onExit` contract is
+      // satisfied via the `-1` synthetic.
       try {
         await this.sendRequest(
           { kind: "kill_request", session_id: sessionId, signal: "SIGTERM" },
@@ -1660,22 +1665,16 @@ export class RustSidecarPtyHost implements PtyHost {
       // The contract surface in `packages/contracts/src/pty-host.ts`
       // (DrainResult.sessionsForcedKilled rustdoc, lines 173-180)
       // requires that each forced-kill session's `onExit` listener
-      // fires — either from a late real `ExitCodeNotification` arriving
-      // post-SIGKILL, or from a synthetic emission here. Without this
-      // synthetic, the following sequence strands the listener:
-      //
-      //   (1) SIGKILL dispatched (line 1651-1654).
-      //   (2) Sidecar reaps the per-session child + exits cleanly
-      //       BEFORE the matching `ExitCodeNotification` reaches the
-      //       wire (e.g., the OS reaps the child between SIGKILL
-      //       dispatch and the sidecar's exit-event emission, or stdin
-      //       EOF in `drainSidecarHost` kills the sidecar mid-flight).
-      //   (3) `handleChildExit` runs `fireCrashTimeOnExit`, but
-      //       `isShutdown === true` SUPPRESSES the `-1` sentinel and
-      //       unconditionally deletes the session from `this.sessions`.
-      //   (4) No `onExit` ever fires → contract violation +
-      //       ADR-019 §Decision item 8 polymorphism break (consumers
-      //       see different observable behavior between backends).
+      // fires with a forced-kill code (exit `1`, signal `undefined`)
+      // — NOT the `-1` crash sentinel that `fireCrashTimeOnExit`
+      // would otherwise emit if the sidecar later exits with this
+      // session still un-terminated. Without this synthetic the
+      // forced-kill semantics would degrade in the live-sidecar case
+      // (the sidecar acks SIGKILL, the per-session child is reaped,
+      // but the matching `ExitCodeNotification` never reaches the
+      // wire — yet the sidecar process itself stays alive serving
+      // other sessions, so `fireCrashTimeOnExit` does not run, and
+      // the consumer waits forever).
       //
       // Mirrors `NodePtyHost.invokeTaskkill` (node-pty-host.ts:1117-
       // 1127): synthetic exit-code `1` (non-zero) with `undefined`
@@ -2877,24 +2876,59 @@ export class RustSidecarPtyHost implements PtyHost {
    */
   private fireCrashTimeOnExit(): void {
     const sessionIds: string[] = Array.from(this.sessions.keys());
-    // Plan-001 §CP-001-1 sidecar-lifecycle drain: during a deliberate
-    // shutdown the per-session `onExit` signals arrive from the real
-    // `ExitCodeNotification` envelopes the supervisor emits as each
-    // session's child exits cleanly. The `-1` sentinel is reserved for
-    // crash teardown (the sidecar died unexpectedly before draining).
-    // Firing `-1` during a shutdown would emit a spurious crash-time
-    // exit AFTER the real exit has already fired, breaking the
-    // exactly-once `onExit` contract on `PtyHost`. Skip the synthetic
-    // emission during shutdown — the active drain waiters in
-    // `shutdownWaiters` are satisfied via `handleExitNotification`'s
-    // path instead.
-    const isShutdown: boolean = this.shuttingDown;
+    // Plan-001 §CP-001-1 sidecar-lifecycle drain: contract goal — every
+    // session live in `this.sessions` when this runs receives exactly
+    // one terminal `onExit`, either from a real `ExitCodeNotification`
+    // already routed through `handleExitNotification` (which sets
+    // `record.exitCode` BEFORE calling `fireExit`) or from this
+    // function's `-1` synthetic for sessions whose sidecar died before
+    // their real exit reached the wire.
+    //
+    // Dedupe is via `record.exitCode !== null`. Two callers set it
+    // before firing `onExit`:
+    //   (a) `handleExitNotification` on real exits — sets the real
+    //       `exit_code` then fires.
+    //   (b) `drainSingleSession`'s SIGKILL-escalation synthetic — sets
+    //       `record.exitCode = 1` then fires the forced-kill
+    //       `onExit(sessionId, 1, undefined)`.
+    //
+    // Trace per shutdown × sidecar-exit case:
+    //
+    //   * Pre-shutdown crash. Some sessions may have observed a real
+    //     `ExitCodeNotification` (skipped via the null check); the rest
+    //     get the `-1` synthetic here. This is the original crash-
+    //     teardown path.
+    //
+    //   * Deliberate shutdown, clean sidecar wind-down. Each session's
+    //     real `ExitCodeNotification` was consumed by
+    //     `handleExitNotification` BEFORE `drainSidecarHost` closed
+    //     stdin and waited for sidecar exit. So every
+    //     `record.exitCode` is already non-null when this runs —
+    //     natural dedupe skips them all. No `-1` fires.
+    //
+    //   * Deliberate shutdown, sidecar crashes mid-drain. The drain is
+    //     in-flight; some sessions' real notifications arrived before
+    //     the crash (skipped) but others did not — for those, this
+    //     `-1` synthetic is the consumer's ONLY terminal `onExit`. A
+    //     gate that suppressed `-1` during shutdown would leave the
+    //     consumer waiting forever and violate the exactly-once
+    //     contract on `PtyHost.onExit`.
+    //
+    //   * Deliberate shutdown, per-session SIGKILL escalation. The
+    //     SIGKILL synthetic already set `record.exitCode = 1` and
+    //     fired its forced-kill `onExit`. Natural dedupe skips here
+    //     too.
+    //
+    // The `sessions.delete(sessionId)` call runs UNCONDITIONALLY —
+    // even for already-fired sessions — so the `sessions.size === 0`
+    // post-teardown invariant holds and stale ids cannot pass
+    // `sessions.has()` checks in `resize` / `write` after a respawn.
     for (const sessionId of sessionIds) {
       const record: SessionRecord | undefined = this.sessions.get(sessionId);
       if (record === undefined) {
         continue;
       }
-      if (record.exitCode === null && !isShutdown) {
+      if (record.exitCode === null) {
         record.exitCode = -1;
         record.signalCode = undefined;
         try {
