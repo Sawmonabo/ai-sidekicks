@@ -289,7 +289,7 @@ graph TB
   NS02[NS-02: Plan-001 Phase 5 Lane A<br/>T5.1 + T5.5 + T5.6]:::completed
   NS03[NS-03: Plan-023-partial Tier 1<br/>Electron + React skeleton]:::completed
   NS04[NS-04: Plan-001 T5.4 cwd-translator<br/>+ Plan-024 T-024-2-1 contracts pair]:::completed
-  NS11[NS-11: Plan-007-partial cleanup<br/>3 stale BLOCKED-ON-C9 comments]:::ready
+  NS11[NS-11: Plan-007-partial cleanup<br/>3 stale BLOCKED-ON-C9 comments]:::completed
   NS13a[NS-13a: spec-status promotion gate<br/>runbook/ADR amendment]:::ready
   NS22[NS-22: sibling-doc staleness sweep<br/>0001-initial sql→ts + session.ts line cite]:::ready
   NS15[NS-15: Tier 3 plan-readiness audit<br/>(NS-16..NS-21 sequential)]:::ready
@@ -454,13 +454,13 @@ With NS-01 + NS-02 + NS-04 + NS-05 completed 2026-05-11 (NS-01 via PR #42 — Pl
 
 ### NS-11: Plan-007-partial completion cleanup
 
-- Status: `todo`
+- Status: `completed` (resolved 2026-05-\_ via this PR — 3 stale `BLOCKED-ON-C9` comments at `packages/runtime-daemon/src/bootstrap/secure-defaults-events.ts:24,35,59` rewritten to cite [BL-105](../archive/backlog-archive.md) closure (2026-05-01) and the Plan-006 / Spec-006 §Security Events taxonomy ownership of the `security.default.override` event-type; surrounding reviewer rationale preserved per `feedback_no_review_thread_tags_in_code`. Plan-007-partial's Tier 1 §Done Checklist line 614 ("CP-007-1..5 surface ships verified") is now flippable per `verify-not-recall hygiene` — the code-level marker drift is closed and the contract-level satisfaction at HEAD (Plan-007:182) is honest. Closes the Tier 1 closing audit A4 code-residual.)
 - Type: cleanup
 - Priority: `P2`
 - Upstream: none
-- References: `packages/runtime-daemon/src/bootstrap/secure-defaults-events.ts:24,35,59`, [Plan-007](../plans/007-local-ipc-and-daemon-control.md):481 (Phase 1 shipment manifest `sha: 49f1116` — BL-105 closed; line shifted +2 in PR #79 BL-117 Phase 3 expansion), [BL-105 archive entry](../archive/backlog-archive.md)
-- Summary: 3 stale `BLOCKED-ON-C9` comments in `secure-defaults-events.ts` describe a Tier-1 deferral state, but the BL-105 ratification (2026-05-01) closed C9. Rewrite to drop the `BLOCKED-ON-C9` token + cite BL-105 closure. Single-file PR, no test changes, ~30 min.
-- Exit Criteria: All 3 stale comments rewritten; this PR gates the Plan-007-partial `approved → completed` flip per verify-not-recall hygiene (the partial plan should not flip while stale `BLOCKED-ON-CN` markers remain in committed code).
+- References: `packages/runtime-daemon/src/bootstrap/secure-defaults-events.ts:24,35,59`, [Plan-007](../plans/007-local-ipc-and-daemon-control.md):481 (Phase 1 shipment manifest `sha: 49f1116` — BL-105 closed; line shifted +2 in PR #79 BL-117 Phase 3 expansion), [BL-105 archive entry](../archive/backlog-archive.md), Tier 1 closing audit A4
+- Summary: 3 stale `BLOCKED-ON-C9` comments in `secure-defaults-events.ts` described a Tier-1 deferral state, but the BL-105 ratification (2026-05-01) closed C9. Rewrote to drop the `BLOCKED-ON-C9` token + cite BL-105 closure + acknowledge the Plan-006 / Spec-006 §Security Events taxonomy row as the canonical contract owner. Reviewer rationale (spec-tension between Spec-027:81 `<behavior>` token framing and :138 integer schema; ownership boundary between Plan-007 emitter + Plan-006 taxonomy) preserved verbatim. Single-file PR, no test changes.
+- Exit Criteria: All 3 stale comments rewritten; this PR gates the Plan-007-partial Tier 1 §Done Checklist line 614 flip per verify-not-recall hygiene (the partial plan's Tier 1 sub-section should not flip while stale `BLOCKED-ON-CN` markers remain in committed code). **Met.**
 
 ### NS-12: Plan-001 Phase 5 split amendment + Phase 5 dep alignment
 
