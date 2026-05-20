@@ -39,6 +39,8 @@ The protocol-level invariant from Spec-025 §Required Behavior governs acceptanc
 
 ## Preconditions
 
+The ADR + Spec preconditions below gate **both** the Tier 1 Partial and the Tier 7 remainder. The Plan-008 / Plan-021 / Plan-018 preconditions gate **only the Tier 7 remainder** (the Fastify relay server consumes those plans' surfaces). The Tier 1 Partial has no upstream-plan preconditions per [§Tier 1 Partial PR Sequence — Substrate-vs-Namespace Carve-Out](#tier-1-partial-pr-sequence--substrate-vs-namespace-carve-out) — it is a standalone substrate slice authored against ADR-010 + Spec-025 alone.
+
 - [x] Spec-025 is approved and has settled the technology choices (Fastify v5, Caddy, Node 22, Postgres 17, in-house PASETO).
 - [x] ADR-020 is accepted — establishes the one-codebase-two-deployments contract this plan satisfies.
 - [x] ADR-008 is accepted — defines the transport family the relay hosts.
@@ -268,8 +270,8 @@ The Tier 1 partial slice lands as **1 small PR** following the Plan-007-partial 
 <!-- prettier-ignore -->
 ```yaml
 preconditions:
-  - { type: cross_plan_carve_out, ref: "Plan-025 Substrate-vs-Namespace Carve-Out (BL-119)" }
-  - { type: audit_status, status: substrate_exempt, carve_out_ref: "Plan-025 Substrate-vs-Namespace Carve-Out (BL-119)" }
+  - { type: cross_plan_carve_out, ref: "Plan-025 Substrate-vs-Namespace Carve-Out" }
+  - { type: audit_status, status: substrate_exempt, carve_out_ref: "Plan-025 Substrate-vs-Namespace Carve-Out" }
 ```
 
 The `audit_status: substrate_exempt` declaration admits this phase for `/plan-execution` dispatch via the per-phase audit semantics introduced in [the readiness-audit runbook §Per-Phase Audit Semantics](../operations/plan-implementation-readiness-audit-runbook.md). Plan-025's plan-level audit checkbox stays unchecked until the Tier 7 remainder audit completes.
