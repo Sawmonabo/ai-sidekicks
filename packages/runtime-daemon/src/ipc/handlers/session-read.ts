@@ -60,11 +60,19 @@ export interface SessionReadDeps {
   /**
    * Read a session's current snapshot + timeline cursor metadata per
    * the canonical `SessionReadRequest`. Returns the projection
-   * (`SessionReadResponse`) the wire client receives. Domain-side
-   * errors (session not found, permission denied, persistence failure)
-   * MUST surface as thrown `Error` instances — the registry's
-   * `dispatch()` wrapper catches them and applies `mapJsonRpcError`
-   * per I-007-8.
+   * (`SessionReadResponse`) the wire client receives.
+   *
+   * Domain-side errors MUST surface as thrown subclasses of `Error` so
+   * the registry's `dispatch()` wrapper applies `mapJsonRpcError` per
+   * I-007-8. Unknown sessionIds MUST throw `SessionNotFoundError` from
+   * `packages/runtime-daemon/src/ipc/session-errors.ts` so the
+   * discriminator chain produces the canonical wire envelope `-32602
+   * InvalidParams` + `data.type: "session.not_found"` per
+   * error-contracts.md §JSON-RPC Wire Mapping (Spec-007 AC-N2). Other
+   * domain failures (permission denied, persistence failure) without
+   * registered discriminator branches collapse to `-32603 InternalError`
+   * (catch-all) — register new typed subclasses as the V1 surface
+   * widens.
    */
   readonly readSession: (request: SessionReadRequest) => Promise<SessionReadResponse>;
 }
