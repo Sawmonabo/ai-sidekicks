@@ -11,9 +11,14 @@
 //   3. When `will-quit` fires with a `null` PtyHost (bootstrap-window
 //      case before the daemon has provisioned a host), the handler is a
 //      clean no-op — `event.preventDefault` is NOT called, and no drain
-//      is initiated. A subsequent re-emit on the no-op path also
-//      short-circuits (the closure-local `drainCompleted` guard flips
-//      on the null branch too).
+//      is initiated. The closure-local `drainCompleted` flag is
+//      DELIBERATELY NOT flipped on the null branch so a subsequent
+//      `will-quit` emit (e.g., after a peer listener `preventDefault`s
+//      the first quit and the daemon's PtyHost gets provisioned in the
+//      interim) re-checks the getter and runs the drain when a host is
+//      present. Permanently disabling the handler on a single null
+//      emit would let live PTY sessions bypass the drain and outlive
+//      app teardown.
 //   4. When `will-quit` fires with an active PtyHost, the handler
 //      intercepts the event (`event.preventDefault()` is called), calls
 //      `PtyHost.shutdown({ perSessionTimeoutMs, hostTimeoutMs })` with
@@ -243,11 +248,14 @@ describe("registerSidecarLifecycle — Plan-001 CP-001-1 / Plan-024 I-024-4", ()
     await flushAsyncQuitChain();
     expect(quit).not.toHaveBeenCalled();
 
-    // Re-entry guard on the no-op path: a second emit MUST also
-    // short-circuit (the closure-local `drainCompleted` flag flips
-    // even on the null branch, so a peer handler that calls
-    // `app.quit()` for its own reasons does not re-trigger another
-    // no-op log line). Filter for the bootstrap log substring so this
+    // No permanent disable on the null branch: a second emit with a
+    // still-null getter MUST also no-op cleanly AND re-log the
+    // bootstrap line. The closure-local `drainCompleted` flag is
+    // deliberately NOT flipped on the null branch — that branch
+    // issues no quit and runs no drain, so there is no re-entry to
+    // guard against, and flipping it would permanently disable the
+    // handler even when a later quit attempt finds a provisioned
+    // PtyHost. Filter for the bootstrap log substring so this
     // assertion remains stable if other info lines are added.
     const bootstrapLogCountAfterFirst = infos.filter((line) =>
       line.includes("no PtyHost provisioned"),
@@ -260,7 +268,7 @@ describe("registerSidecarLifecycle — Plan-001 CP-001-1 / Plan-024 I-024-4", ()
     const bootstrapLogCountAfterSecond = infos.filter((line) =>
       line.includes("no PtyHost provisioned"),
     ).length;
-    expect(bootstrapLogCountAfterSecond).toBe(1);
+    expect(bootstrapLogCountAfterSecond).toBe(2);
   });
 
   // -- Active-host drain: shutdown invoked + budgets passed through ------
@@ -404,6 +412,66 @@ describe("registerSidecarLifecycle — Plan-001 CP-001-1 / Plan-024 I-024-4", ()
     await flushAsyncQuitChain();
     expect(shutdown).toHaveBeenCalledTimes(1); // unchanged
     expect(quit).toHaveBeenCalledTimes(1); // unchanged
+  });
+
+  it("re-checks PtyHost on subsequent will-quit emits after a null-host bootstrap-window quit (no permanent disable)", async () => {
+    // Bug pin: a null-host emit MUST NOT permanently disable the
+    // handler. Failure trace:
+    //   1. App boots; daemon's PtyHost not yet provisioned.
+    //   2. User triggers quit; Electron emits `will-quit`. Our
+    //      handler hits the null-host branch and no-ops cleanly.
+    //   3. A peer `will-quit` listener (e.g., unsaved-work prompt)
+    //      calls `event.preventDefault()`. Electron aborts the quit.
+    //   4. App stays alive. Daemon finishes provisioning the
+    //      PtyHost. User starts sessions. PTY children spawn.
+    //   5. User triggers quit again. Electron re-emits `will-quit`.
+    //      This handler MUST re-check the getter, find the now-
+    //      provisioned PtyHost, and run the drain. If the null
+    //      branch had flipped `drainCompleted = true` on emit (2),
+    //      the top guard at emit (5) would short-circuit and PTY
+    //      children would outlive teardown.
+    //
+    // Stateful getter: returns null on the first call (bootstrap
+    // window) and the mock host on every subsequent call (daemon
+    // has provisioned the host before the next quit attempt).
+    const { app, quit, emitWillQuit } = makeFakeApp();
+    const { host, shutdown } = makeFakePtyHost();
+    let getterCalls = 0;
+    const getPtyHost: PtyHostGetter = () => {
+      getterCalls += 1;
+      return getterCalls === 1 ? null : host;
+    };
+
+    registerSidecarLifecycle(app, getPtyHost);
+
+    // First emit: bootstrap window — null host, clean no-op, no
+    // `preventDefault`, no `shutdown` call, no `app.quit()` re-issue.
+    const first = emitWillQuit();
+    expect(first.defaultPrevented).toBe(false);
+    await flushAsyncQuitChain();
+    expect(shutdown).not.toHaveBeenCalled();
+    expect(quit).not.toHaveBeenCalled();
+    expect(getterCalls).toBe(1);
+
+    // Second emit: daemon's PtyHost is now provisioned. The handler
+    // MUST re-enter, re-check the getter, find the host, call
+    // `event.preventDefault()`, and invoke the drain. This is the
+    // failure that the Codex finding pins: if `drainCompleted` had
+    // been flipped on the null branch, the top guard would
+    // short-circuit here and `shutdown` would never be called.
+    const second = emitWillQuit();
+    expect(second.defaultPrevented).toBe(true);
+    await flushAsyncQuitChain();
+    expect(shutdown).toHaveBeenCalledTimes(1);
+    expect(shutdown).toHaveBeenCalledWith({
+      perSessionTimeoutMs: 2_000,
+      hostTimeoutMs: 2_000,
+    });
+    expect(quit).toHaveBeenCalledTimes(1);
+    // Both emits re-checked the getter — proves the second emit did
+    // NOT short-circuit at the top guard. (getterCalls === 1 after
+    // emit 1 + getterCalls === 2 after emit 2.)
+    expect(getterCalls).toBe(2);
   });
 
   // -- Hard wall-clock cap: runaway shutdown() must not block quit -------

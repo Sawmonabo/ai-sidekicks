@@ -208,9 +208,17 @@ export interface SidecarLifecycleDeps {
  *      our own `app.quit()` re-issue) MUST short-circuit so the
  *      downstream chain proceeds without another drain pass. A
  *      closure-local `drainCompleted` flag flips to `true` once the
- *      drain (or the no-op branch) completes; subsequent emits return
- *      early without calling `event.preventDefault()`. See the module-
- *      level re-entry-guard comment for the load-bearing rationale.
+ *      drain branch completes (in the `finally` block of the async
+ *      IIFE, BEFORE `process.nextTick(app.quit)` re-issues the quit);
+ *      subsequent emits return early without calling
+ *      `event.preventDefault()`. The flag is NOT flipped on the
+ *      null-host branch — that branch issues no quit and runs no
+ *      drain, so there is no re-entry to guard against, and flipping
+ *      it would permanently disable the handler if a peer listener
+ *      `event.preventDefault()`s the first quit and the daemon's
+ *      PtyHost gets provisioned before the next quit attempt. See the
+ *      module-level re-entry-guard comment for the load-bearing
+ *      rationale.
  *
  * Backend polymorphism: the handler calls `shutdown()` on the
  * `PtyHost` interface — never on a backend-specific class. ADR-019
@@ -236,12 +244,17 @@ export function registerSidecarLifecycle(
   const logger: Pick<Console, "warn" | "error" | "info"> = deps.logger ?? console;
   const hardCapMs: number = deps.hardCapMs ?? HARD_QUIT_CAP_MS;
 
-  // Closure-local guard: flips to `true` once the drain (or the no-op
-  // branch) has completed. The will-quit handler short-circuits on
-  // re-entry so the second `app.quit()` issued from `process.nextTick`
-  // below does NOT trigger another drain pass — see module-level
-  // re-entry-guard comment for the Electron-docs citation that
-  // motivates this pattern.
+  // Closure-local guard: flips to `true` only inside the async drain
+  // branch's `finally` (BEFORE the `process.nextTick(app.quit)`
+  // re-issue), so the second `app.quit()` issued from that re-issue
+  // does NOT trigger another drain pass. The null-host branch does
+  // NOT flip this — that branch issues no quit and runs no drain, so
+  // there is no re-entry to guard against; flipping it there would
+  // permanently disable the handler across the full app lifetime,
+  // even if a peer `will-quit` listener `event.preventDefault()`s the
+  // first quit and the daemon's PtyHost gets provisioned before the
+  // next quit attempt. See module-level re-entry-guard comment for
+  // the Electron-docs citation that motivates this pattern.
   let drainCompleted = false;
 
   app.on("will-quit", (event) => {
@@ -254,16 +267,27 @@ export function registerSidecarLifecycle(
 
     const ptyHost: PtyHost | null = getPtyHost();
     if (ptyHost === null) {
-      // No daemon PtyHost has been provisioned yet — nothing to drain,
-      // nothing to wind down. The will-quit chain proceeds via the
-      // downstream handlers without interruption. This is the
-      // bootstrap-window case (Electron quits before the daemon has
-      // finished booting), which is benign. Flip `drainCompleted`
-      // anyway so any future re-emit (defensive — Electron wouldn't
-      // re-emit on its own without our `app.quit()` re-issue, but a
-      // peer handler could call `app.quit()` for its own reasons) also
-      // short-circuits cleanly.
-      drainCompleted = true;
+      // Bootstrap-window case (Plan-001 §CP-001-1): Electron's
+      // `will-quit` fires before the daemon has provisioned a
+      // PtyHost. Nothing to drain, nothing to wind down — no-op
+      // cleanly and return WITHOUT `event.preventDefault()` so the
+      // downstream `will-quit` chain proceeds normally (Electron docs
+      // https://www.electronjs.org/docs/latest/api/app#event-will-quit
+      // — "preventing the default behavior will cancel the quit").
+      //
+      // `drainCompleted` is DELIBERATELY NOT flipped here. The flag
+      // exists only to short-circuit re-entry from our own post-drain
+      // `process.nextTick(app.quit)` re-issue (see the drain branch
+      // below). This branch issues no quit and runs no drain, so
+      // there is no re-entry to guard against. Critically, a peer
+      // `will-quit` listener may call `event.preventDefault()` to
+      // cancel the first quit (e.g., an unsaved-work prompt); when
+      // the user then re-triggers quit later, the daemon may by then
+      // have provisioned the PtyHost, and this handler MUST get
+      // another chance to invoke the drain. Flipping the flag here
+      // would permanently disable the drain protocol across the full
+      // app lifetime — live PTY sessions would bypass the drain and
+      // outlive teardown.
       logger.info(
         "[sidecar-lifecycle] will-quit fired with no PtyHost provisioned; " + "no-op drain.",
       );
