@@ -719,8 +719,13 @@ describe("RustSidecarPtyHost.shutdown — Plan-001 CP-001-1 polymorphic drain", 
       // never coming).
       const framesAfterTerm = parseFramesFromStdin(fake.readStdin());
       const termFrames = framesAfterTerm.filter(
-        (envelope): envelope is { kind: "kill_request"; session_id: string; signal: string } =>
-          envelope.kind === "kill_request",
+        (
+          envelope,
+        ): envelope is {
+          kind: "kill_request";
+          session_id: string;
+          signal: "SIGTERM" | "SIGKILL";
+        } => envelope.kind === "kill_request",
       );
       expect(termFrames).toHaveLength(1);
       expect(termFrames[0]?.signal).toBe("SIGTERM");
@@ -753,8 +758,13 @@ describe("RustSidecarPtyHost.shutdown — Plan-001 CP-001-1 polymorphic drain", 
       // never enqueues a kill_response for it.
       const framesAfterKill = parseFramesFromStdin(fake.readStdin());
       const killFrames = framesAfterKill.filter(
-        (envelope): envelope is { kind: "kill_request"; session_id: string; signal: string } =>
-          envelope.kind === "kill_request",
+        (
+          envelope,
+        ): envelope is {
+          kind: "kill_request";
+          session_id: string;
+          signal: "SIGTERM" | "SIGKILL";
+        } => envelope.kind === "kill_request",
       );
       expect(killFrames).toHaveLength(2);
       expect(killFrames[1]?.signal).toBe("SIGKILL");
