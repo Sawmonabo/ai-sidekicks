@@ -215,7 +215,7 @@ The full `SidekicksBridge` interface from Spec-023 §Preload Bridge Contract liv
 16. **Author the update-feed hosting stubs.** `apps/desktop/release/manifest-sign.ts` — signs `latest-*.yml` files with an Ed25519 private key held by the release-engineering role (out-of-band key). Outputs `manifest.sig` alongside each `latest-*.yml`. The signing key is distinct from code-signing certs (per Spec-023 §Pitfalls To Avoid).
 17. **Author the renderer ESLint config.** `apps/desktop/eslint.config.mjs` — `no-restricted-imports` rule banning `electron` / `node:*` / `fs` / `child_process` / `net` / `os` / `path` / `process` / `keytar` / `@napi-rs/keyring` / `./src/main/**` / `./src/preload/**` from `apps/desktop/src/renderer/src/**`. CI runs this lint; any renderer-side Node import fails the build.
 18. **Author the Playwright `_electron` E2E suite.** `apps/desktop/test/e2e/*.spec.ts` per §Target Areas Test section. Playwright v1.58.x is the current line as of April 2026; the `_electron` namespace is still experimental per [Playwright class-electron docs](https://playwright.dev/docs/api/class-electron), but it is the only production-viable harness (Spectron archived in 2022 with no revival). Tests must tolerate minor API churn between Playwright releases.
-19. **Author the CI gate scripts.** `.github/workflows/desktop-build.yml` (or project-native CI format) — on every PR touching `apps/desktop/**` or `packages/contracts/src/desktop-bridge.ts`: run `pnpm lint` (ESLint) + `pnpm typecheck` (TS strict) + `pnpm test:unit` + `pnpm test:e2e` (Playwright in headless Electron mode) + `pnpm build:fuses --verify` (asserts the packaged-binary fuse wire matches the declared posture). A per-platform release job signs + notarizes on tag pushes.
+19. **Author the CI gate scripts.** `.github/workflows/desktop-build.yml` (or project-native CI format) — on every PR touching `apps/desktop/**` or `packages/contracts/src/desktop-bridge.ts`: run `pnpm lint` (ESLint) + `pnpm typecheck` (TS strict) + `turbo run test:renderer test:smoke --filter=@ai-sidekicks/desktop` (renderer + smoke split per the §Test Plan §Testing posture sub-section landed by BL-118; the Turbo task DAG handles `build:smoke` ordering + content-hash skip) + `pnpm test:e2e` (Playwright `_electron` E2E suite landed by step 18) + `pnpm build:fuses --verify` (asserts the packaged-binary fuse wire matches the declared posture). A per-platform release job signs + notarizes on tag pushes.
 20. **Document release runbook.** `apps/desktop/RELEASE.md` — per-platform signing prerequisites (Developer ID cert on macOS; Artifact Signing account on Windows OR EV cert + HSM token; GPG key on Linux), notarization retry procedure, rollback procedure, update-signing-key rotation procedure.
 
 ## Parallelization Notes
@@ -294,6 +294,17 @@ After Phase 1 merges, [Plan-001 Phase 5](./001-shared-session-core.md#phase-5--c
   - Auto-update download → signature-verify → stage → apply → daemon-handshake exercises end-to-end in a CI matrix job per platform.
 - **Bundle-size verification**:
   - `apps/desktop/build/size-check.ts` — asserts post-asar, post-compression bundle size is under the ADR-016 150 MB ceiling. Fails the CI build on regression.
+
+### Testing posture (BL-118 closure, 2026-05-20 via PR #81)
+
+The `@ai-sidekicks/desktop` package's test surface is split into two disjoint Vitest projects gated by Turbo:
+
+- **`test:renderer`** — happy-dom environment, includes `src/renderer/**/__tests__/**`. Exercises React components and renderer unit logic against plain TypeScript imports. Does NOT invoke `build:smoke`; ~3 s feedback loop. `dependsOn: ["^build"]` in `apps/desktop/turbo.json` covers workspace upstreams only.
+- **`test:smoke`** — node environment, includes `test/**/*.test.ts` (currently the sole `launch.smoke.test.ts`). Spawns the BUILT `electron-vite --mode=smoke` bundle and asserts Spec-023 §webPreferences-lock runtime invariants (`window.sidekicks` defined; `window.require`, `process`, `global` all `undefined`). `dependsOn: ["build:smoke"]` same-package — Turbo's content-hash cache restores `out/**` when `src/**` + `build/**` + `electron.vite.config.ts` are unchanged, so the build runs only when sources actually changed. Cache miss costs the full ~25-30 s electron-vite build + `assert-webprefs.ts` gate; cache hit is near-instant (Turbo restores `out/**` from `.turbo/cache/` without spawning electron-vite).
+
+The build-time `assert-webprefs.ts` gate (Spec-023 §Security Hardening Baseline) remains the load-bearing security check — it runs as part of every `build:smoke` invocation. The runtime smoke-test assertions in `launch.smoke.test.ts` run against the BUILT bundle; running smoke against unbuilt sources is not a supported configuration. The split only changes WHEN the build runs (gated by Turbo's content-hash cache), not the smoke gate's authority.
+
+At Tier 8, when the Playwright `_electron` E2E suite ships per Implementation Step 18, it should land as a third project (`test:e2e`) with its own `dependsOn: ["build:smoke"]` or `dependsOn: ["build"]` (depending on whether E2E runs against the smoke bundle or the release bundle); the renderer + smoke split established here is the substrate Playwright extends.
 
 ## Rollout Order
 
