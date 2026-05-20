@@ -64,6 +64,8 @@ import type {
   SpawnResponse,
 } from "@ai-sidekicks/contracts";
 
+import { PtyBackendUnavailableError } from "./rust-sidecar-pty-host.js";
+
 // --------------------------------------------------------------------------
 // `node-pty` minimal type surface
 // --------------------------------------------------------------------------
@@ -461,6 +463,20 @@ export class NodePtyHost implements PtyHost {
   private shutdownPromise: Promise<DrainResult> | null = null;
 
   /**
+   * `true` once `shutdown()` has been invoked — flips at entry so any
+   * concurrent (or post-resolution) `spawn()` rejects with
+   * `PtyBackendUnavailableError` rather than registering a session that
+   * would escape the `activeSessionIds` snapshot taken by `runShutdown`.
+   *
+   * The host instance is single-use post-shutdown per the
+   * `PtyHost.shutdown` contract surface — consumers MUST re-create a
+   * fresh host if a new session is needed after shutdown. Mirrors the
+   * equivalently-named flag in `RustSidecarPtyHost` (which gates
+   * `ensureChild` for the same terminal-host obligation).
+   */
+  private shuttingDown: boolean = false;
+
+  /**
    * Per-session drain-completion resolvers populated at `shutdown()`
    * entry. The `child.onExit` subscription set up in `spawn()` cannot
    * see these directly — instead `shutdown()` installs its own
@@ -485,7 +501,53 @@ export class NodePtyHost implements PtyHost {
   // ---- PtyHost methods --------------------------------------------------
 
   public async spawn(spec: SpawnRequest): Promise<SpawnResponse> {
+    if (this.shuttingDown) {
+      // Plan-001 §CP-001-1 sidecar-lifecycle drain: once `shutdown()`
+      // has flipped this flag, the host is terminal — refuse new spawn
+      // paths so a concurrent `spawn()` cannot register a session that
+      // escapes the `activeSessionIds` snapshot in `runShutdown` and
+      // leaves an orphaned PTY child running past `shutdown()`
+      // resolution. The `PtyHost.shutdown` contract surface declares
+      // the host single-use post-shutdown; consumers MUST re-create a
+      // fresh host if a new session is needed after shutdown.
+      throw new PtyBackendUnavailableError(
+        { attemptedBackend: "node-pty" },
+        "NodePtyHost: shutdown() in progress or complete; " +
+          "the host is terminal — re-create a fresh instance for new sessions.",
+      );
+    }
     const ptySpawn: NodePtySpawnFn = await this.resolvePtySpawn();
+    if (this.shuttingDown) {
+      // Post-await race guard (Plan-001 §CP-001-1).
+      //
+      // The top-of-method gate above closes the case where `shutdown()`
+      // started BEFORE this `spawn()` call entered the method. This
+      // re-check closes the mid-flight case: `shutdown()` may have
+      // flipped `this.shuttingDown` while we were awaiting
+      // `resolvePtySpawn()`, in which case the snapshot taken inside
+      // `runShutdown()` did NOT include the session we are about to
+      // register. Without this guard, `ptySpawn(...)` would create a
+      // PTY child, `this.sessions.set(...)` would register it, and the
+      // child would escape the drain — the orphan condition the
+      // `PtyHost.shutdown` contract surface forbids.
+      //
+      // Reject BEFORE invoking `ptySpawn(...)` so no orphan child
+      // process is created; the session was never registered, so no
+      // cleanup is needed. The error shape mirrors the entry-time
+      // rejection (byte-identical `PtyBackendUnavailableError` shape +
+      // `attemptedBackend: "node-pty"`) so consumers that
+      // `instanceof`-check + read `details.attemptedBackend` see
+      // uniform behavior regardless of where in `spawn()` the race
+      // landed. Mirrors `RustSidecarPtyHost`'s `resolveOutstanding`
+      // spawn_response re-check (the sister-backend precedent), which
+      // closes the structurally-equivalent in-flight race on the
+      // out-of-process backend.
+      throw new PtyBackendUnavailableError(
+        { attemptedBackend: "node-pty" },
+        "NodePtyHost: shutdown() in progress or complete; " +
+          "the host is terminal — re-create a fresh instance for new sessions.",
+      );
+    }
     const env: Record<string, string> = envTuplesToRecord(spec.env);
 
     const child: NodePtyChild = ptySpawn(spec.command, spec.args, {
@@ -729,6 +791,13 @@ export class NodePtyHost implements PtyHost {
    * Re-entrancy: a second `shutdown()` call returns the in-flight
    * Promise rather than initiating a second drain. Once resolved the
    * field stays populated — the instance is terminal post-shutdown.
+   *
+   * Terminal-host gate: once `shutdown()` has been invoked, `spawn()`
+   * rejects with `PtyBackendUnavailableError` (`attemptedBackend:
+   * "node-pty"`) per the `PtyHost.shutdown` contract surface, so a
+   * concurrent or post-resolution `spawn()` cannot register a session
+   * that escapes the `activeSessionIds` snapshot taken at the start of
+   * the drain.
    */
   public shutdown(options: {
     readonly perSessionTimeoutMs: number;
@@ -754,6 +823,14 @@ export class NodePtyHost implements PtyHost {
     // stdin-close + child-wait. The in-process backend has no sidecar,
     // so the budget is unused here.
     void options.hostTimeoutMs;
+
+    // Flip the shutdown flag FIRST — synchronously, before the
+    // `activeSessionIds` snapshot — so any `spawn()` racing the start
+    // of shutdown observes the flag at its top-of-method gate and
+    // rejects, rather than registering a session that would escape
+    // the snapshot. This single-direction flag stays `true` for the
+    // life of the instance per the terminal-host contract surface.
+    this.shuttingDown = true;
 
     const activeSessionIds: string[] = Array.from(this.sessions.keys()).filter((sessionId) => {
       const record: SessionRecord | undefined = this.sessions.get(sessionId);
