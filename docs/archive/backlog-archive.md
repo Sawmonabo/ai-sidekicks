@@ -974,6 +974,15 @@ Follow-up work identified during the Session F plan approval pass (BL-077). BL-0
 - Resolution: Option A chosen — substrate-vs-namespace decomposition of `packages/crypto-paseto/` at Tier 1 Partial (mirroring Plan-007-partial / Plan-008-bootstrap / Plan-023-partial precedent). Plan-025 main body expanded to declare BOTH v4.public AND v4.local primitives per ADR-010:129/136 — §Scope rewrite, §Target Areas adds `src/v4-local.ts` + `src/pae.ts` + split RFC vectors into `rfc-vectors-v4-public.test.ts` + `rfc-vectors-v4-local.test.ts`, §Implementation Steps expanded for both primitives with full PASETO RFC citations, §Done Checklist v4.local rows added, §Risks co-dep mitigation language updated to cite Plan-002 + Plan-018, §Tier Placement rewritten (Tier 5 + Tier 7) → (Tier 1 Partial + Tier 7). New `## Tier 1 Partial PR Sequence — Substrate-vs-Namespace Carve-Out` section mirrors Plan-023:234–275 shape verbatim with YAML admission-token block (`audit_status: substrate_exempt` + `cross_plan_carve_out` ref). Dep edge propagated through Plan-002 §CP-002-4 (Option A locked, Phase 2 §Precondition mandates Plan-025 Tier 1 Partial merged), Plan-018 §Dependencies row (Tier 5 v4.public → Tier 1 Partial v4.public + v4.local for refresh tokens per ADR-010:29), and cross-plan-dependencies.md §2 owner row + §3 Plan-002 row + §3 Plan-018 row + §5 Tier 1 row (added) + §5 Tier 5 row (removed) + §Symmetric Co-Dep narrative (Tier 5 → Tier 1 / Tier 7, substrate-vs-namespace framing). Adjacent `packages/node-relay/` → `packages/relay-node/` typo fixed in cross-plan-dependencies.md §5 Tier 7 row to match Plan-025 §Scope.
 - Resolved: 2026-05-20.
 
+#### BL-121: Spec-002 §Interfaces and Contracts — declare `InviteRevoke` payload shape
+
+- Status: `completed`
+- Priority: `P3`
+- Owner: `unassigned`
+- References: [Spec-002 §Interfaces and Contracts](../specs/002-invite-membership-and-presence.md), [Plan-002 Phase 1 contract bullet](../plans/002-invite-membership-and-presence.md) (`InviteRevoke` shape declared inline as NS-14 audit amendment), F-002-1-02 (audit critical finding)
+- Resolution: Backfilled Spec-002 §Interfaces and Contracts with an `InviteRevoke` payload bullet between `InviteAccept` and `MembershipUpdate` matching the Plan-002 Phase 1 inline shape — `{sessionId: SessionId, inviteId: InviteId, reason?: string}` — plus the session-owner-only invocation constraint per the [Security Architecture](../architecture/security-architecture.md) permission matrix and a forward reference to [Spec-002 §Invite Revocation](../specs/002-invite-membership-and-presence.md#invite-revocation) for revocation semantics and audit-log requirements. Resolves the C-2 cross-cutting authoring pattern (plan declared when spec was silent during NS-14 audit; this PR closes the spec-side backfill so Spec-002 is the canonical design contract going forward).
+- Resolved: 2026-05-20.
+
 #### BL-118: Decouple Electron smoke-bundle rebuild from per-package `pnpm test`
 
 - Status: `completed`

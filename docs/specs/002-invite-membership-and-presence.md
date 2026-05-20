@@ -79,6 +79,7 @@ Heartbeats piggyback on the existing event subscription connection. No separate 
 - Invite tokens use PASETO v4 (consistent with the control-plane auth stack per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md)). Token payload includes session id, inviter, proposed join mode, and expiry.
 - `InviteCreate` must include session id, inviter, proposed join mode, and expiry.
 - `InviteAccept` must create active membership and emit participant join events.
+- `InviteRevoke` must accept session id, invite id, and an optional reason. Request: `{sessionId: SessionId, inviteId: InviteId, reason?: string}`. Only the session owner may invoke (per the permission matrix in [Security Architecture](../architecture/security-architecture.md)); see [§Invite Revocation](#invite-revocation) below for revocation semantics and audit-log requirements.
 - `MembershipUpdate` must support role change, suspension, and revocation.
 - `PresenceHeartbeat` must accept participant id, device or client id, and last-known activity state. Presence metadata carried in heartbeats: `{deviceType, focusedSessionId, focusedChannelId, lastActivityAt, appVisible}`.
 - `PresenceUpdate` (JSON-RPC, local IPC) — daemon pushes serialized Yjs Awareness state to local clients.
