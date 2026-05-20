@@ -350,8 +350,8 @@ With NS-01 + NS-02 + NS-04 + NS-05 completed 2026-05-11 (NS-01 via PR #42 — Pl
 - Status: `completed` (resolved 2026-05-11 via PR #42 — T-024-1-1..5 bundled and shipped: workspace-root `Cargo.toml` plus `packages/sidecar-rust-pty/` Rust crate scaffolded with pinned deps and MSRV 1.85; Content-Length framer at `src/framing.rs` with 8 MiB body cap; protocol envelope at `src/protocol.rs` + TS mirror at `packages/contracts/src/pty-host-protocol.ts` (internally-tagged `kind` discriminant, base64 bytes via `serde_with`, explicit `*Response` for resize/write/kill); per-session PTY holder at `src/pty_session.rs` keyed by `session_id` with stdout/stderr reader tasks + exit-code latch; spawn smoke test green on Linux and macOS (`cargo build --release` + `cargo test --release`). Phase 1 verifies no invariants — I-024-\* lands at the daemon ↔ sidecar boundary in Phase 3)
 - Type: code
 - Priority: `P1`
-- Upstream: none (Plan-024:285 — Phase 1 starts as soon as Plan-001 Phase 1 repo bootstrap is merged, which it is)
-- References: [Plan-024](../plans/024-rust-pty-sidecar.md):285-300, [ADR-019](../decisions/019-windows-v1-tier-and-pty-sidecar.md), this document §4 (Plan-024 standalone)
+- Upstream: none (Plan-024:287 — Phase 1 starts as soon as Plan-001 Phase 1 repo bootstrap is merged, which it is)
+- References: [Plan-024](../plans/024-rust-pty-sidecar.md):287-302, [ADR-019](../decisions/019-windows-v1-tier-and-pty-sidecar.md), this document §4 (Plan-024 standalone)
 - Summary: Scaffold the Rust PTY sidecar crate (T-024-1-1..5): workspace-root `Cargo.toml`, `packages/sidecar-rust-pty/{Cargo.toml,Cargo.lock,src/{main,framing,protocol,pty_session}.rs,tests/{framing_roundtrip,protocol_roundtrip,spawn_smoke}.rs}` + TS protocol mirror at `packages/contracts/src/pty-host-protocol.ts`. ~10 new files; no edits to existing TS source. Pins: `portable-pty 0.9`, `tokio 1.40`, `serde_with 3.7`, MSRV `1.85`, `cargo-zigbuild 0.22.2`. F-024-2-04 binds Phase 2/3 to Plan-001 T5.4 — Phase 1 itself is fully independent.
 - Exit Criteria: T-024-1-1..5 merged; Linux `cargo build --release` + `cargo test --release` green; Plan-024 Phase 1 Done Checklist flipped.
 
@@ -385,7 +385,7 @@ With NS-01 + NS-02 + NS-04 + NS-05 completed 2026-05-11 (NS-01 via PR #42 — Pl
 - Type: code
 - Priority: `P1`
 - Upstream: none (the 3-step sequence is internal: (a) `packages/contracts/src/pty-host.ts` interface-only PR for T-024-2-1 → (b) `packages/runtime-daemon/src/session/spawn-cwd-translator.ts` for T5.4 → (c) NodePtyHost impl T-024-2-2 lands as part of NS-05)
-- References: [Plan-001](../plans/001-shared-session-core.md):389-391, [Plan-024](../plans/024-rust-pty-sidecar.md):93, 303, 319, `packages/contracts/src/pty-host.ts`, `packages/runtime-daemon/src/session/spawn-cwd-translator.ts`
+- References: [Plan-001](../plans/001-shared-session-core.md):389-391, [Plan-024](../plans/024-rust-pty-sidecar.md):93, 305, 321, `packages/contracts/src/pty-host.ts`, `packages/runtime-daemon/src/session/spawn-cwd-translator.ts`
 - Summary: T5.4 wraps both `RustSidecarPtyHost` and `NodePtyHost` for OS-level cwd translation per I-024-5 to mitigate the Windows `ERROR_SHARING_VIOLATION` risk. F-024-2-04 binds T5.4 as a Precondition for **both** Plan-024 Phase 2 (NodePtyHost) **and** Phase 3 (RustSidecarPtyHost) — without it, Windows CI surfaces the sharing-violation regression. Clean sequence: ship the `PtyHost` contract interface alone, then T5.4 consumes it, then NS-05 consumes T5.4.
 - Exit Criteria: `spawn-cwd-translator.ts` + Linux/macOS unit tests + Windows-CI integration tests (I6 / W2 / W3) green; `PtyHost` interface live in contracts.
 - PRs:
@@ -418,7 +418,7 @@ With NS-01 + NS-02 + NS-04 + NS-05 completed 2026-05-11 (NS-01 via PR #42 — Pl
 - Type: code
 - Priority: `P1`
 - Upstream: NS-05 (Phase 2 PtyHost contract) + NS-04 (T5.4 cwd-translator)
-- References: [Plan-024](../plans/024-rust-pty-sidecar.md):319-334
+- References: [Plan-024](../plans/024-rust-pty-sidecar.md):321-336
 - Summary: Implement `RustSidecarPtyHost` in `packages/runtime-daemon/src/pty/` consuming the Phase 2 contract + Phase 1 sidecar binary. Supplies `PtyHost.close(sessionId)` + sidecar `KillRequest` primitives that Plan-001 T5.3 orchestrates per F-024-3-01.
 - Exit Criteria: K2/K4/W1/W2/W3 tests green; sidecar respawn 5/60s window honored; dev-mode binary resolution order works.
 
@@ -428,7 +428,7 @@ With NS-01 + NS-02 + NS-04 + NS-05 completed 2026-05-11 (NS-01 via PR #42 — Pl
 - Type: code
 - Priority: `P1`
 - Upstream: NS-03 (Plan-023-partial Electron substrate) + NS-07 (Plan-024 Phase 3 primitives) **[both satisfied — NS-07 via PR #56 on 2026-05-12; NS-03 via PR #70 on 2026-05-18]**
-- References: [Plan-001](../plans/001-shared-session-core.md):383-385, [Plan-024](../plans/024-rust-pty-sidecar.md):325
+- References: [Plan-001](../plans/001-shared-session-core.md):383-385, [Plan-024](../plans/024-rust-pty-sidecar.md):327
 - Summary: Author content for `apps/desktop/src/main/sidecar-lifecycle.ts` — registers BEFORE Electron `will-quit` (CP-001-1); orchestrates `PtyHost.close` + `KillRequest` primitives that Plan-024 Phase 3 supplies. Verifies I5 = CP-001-1 + I-024-4.
 - Exit Criteria: I5 integration test (`apps/desktop/src/main/__tests__/sidecar-lifecycle.integration.test.ts`) green against real `RustSidecarPtyHost`.
 
