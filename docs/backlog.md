@@ -25,6 +25,7 @@ This file is the active development backlog for the product defined in [vision.m
 - `P0` — blocks all implementation or blocks a critical feature
 - `P1` — blocks a specific feature or must resolve before v1
 - `P2` — should resolve before v1 ship
+- `P3` — should resolve before v1 ship; lower urgency than `P2` (revisit-trigger BLs, post-v1-polish surfaces, deferred-but-tracked enhancements). Active P3 usage: BL-110 (housekeeper gate promotion); archive entries BL-115/116/117/119/120/121 all closed at P3. Uniform semantics: "tracked but not blocking" across every active and closed P3 entry.
 
 ---
 
@@ -91,6 +92,27 @@ The items below were surfaced by the [plan-readiness-audit Tier 1](./operations/
 - References: [Plan-002 §Cross-Plan Obligations CP-002-3](./plans/002-invite-membership-and-presence.md#cross-plan-obligations), [Plan-002 Phase 4](./plans/002-invite-membership-and-presence.md), [Plan-021 §tRPC middleware surface (Plan-008 consumer)](./plans/021-rate-limiting-policy.md), [cross-plan-dependencies.md §3 Plan-002 → Plan-021 edge](./architecture/cross-plan-dependencies.md#3-inter-plan-dependency-graph), F-002-4-02, F-002-4-04, F-002-4-05 (audit critical findings)
 - Summary: Plan-002 Phase 4 (invite-endpoint rate-limit wiring) is structurally deferred from Tier 2 to Tier 6 because Plan-021 ships the `rateLimitProcedure` middleware factory at Tier 6. At Tier 6, Plan-002 Phase 4 applies `rateLimitProcedure({endpoint: 'invite.create' | 'invite.accept' | 'invite.revoke' | …})` middleware to the invite tRPC procedures defined in Phase 2's `invite-service.ts` surface, plus adds rate-limit verification tests asserting threshold breach returns the canonical 429 + `RateLimitResponse` shape per Plan-021's canonical contract. The Tier 6 deliverable closes Spec-002 §Rate Limiting (20/session/hr, 50/participant/hr, 100 pending/session).
 - Exit Criteria: Plan-002 Phase 4 Tasks T4.1 + T4.2 executed at Tier 6; invite-endpoint rate-limit tests pass against Plan-021's middleware.
+
+### BL-122: Turborepo remote-cache wiring
+
+- Status: `todo`
+- Priority: `P3`
+- Owner: `unassigned`
+- References: [ADR-023 §Axis 2](./decisions/023-v1-ci-cd-and-release-automation.md); Tier 1 closing audit A10 G-2
+- Summary: ADR-023 §Axis 2 names Turborepo remote-cache as a future wall-clock-reduction lever but no BL tracks it. Wire a remote-cache provider so CI workers share build cache across PRs. The local Turbo cache works today; the remote-cache substrate is not yet configured.
+- Exit Criteria: (a) Provider chosen (Vercel Turborepo Remote Cache, self-hosted via the open-source spec, or alternative) + authenticated via `TURBO_TOKEN` GitHub Actions secret; (b) `turbo.json` remote-cache block sets `signature: true` so HMAC-signed entries reject poisoning; (c) Tier 2+ CI build wall-clock reduction validated against a >=5-PR baseline sample (>=30% to justify the third-party dependency); (d) ADR-023 §Decision Log entry records the chosen provider + cost rationale.
+- Revisit Trigger: Tier 2+ build wall-clock surfaces as a developer-experience pain point (PRs spending >10 minutes in CI on cache-cold builds), OR an ADR amendment promotes remote-cache to a required surface, OR a multi-author workflow appears where build-cache sharing has compounding payoff.
+
+### BL-123: Wire coverage tooling + pick V1.1 numerical bar
+
+- Status: `todo`
+- Priority: `P3`
+- Owner: `unassigned`
+- References: ADR-023 (silent on coverage); Tier 1 closing audit A11 R2 / DQ-5
+- Summary: No coverage tooling is configured (`@vitest/coverage-v8` not installed) and no governing ADR/plan mandates a numerical bar. Defer to V1.1 per criterion-gated discipline so the threshold anchors in empirical baseline rather than a folklore default (the "80% lines / 75% branches" arbitrary number would create compliance-theater pressure without project-specific justification). The Tier 1 substrate has 842 passing TS tests + 88 Cargo tests + 0 failures — the question is when to wire measurement, not whether the suite is healthy.
+- Exit Criteria: (a) `@vitest/coverage-v8` (or equivalent) installed in root `package.json` devDependencies; (b) baseline coverage sample collected from >=5 Tier 2/3 PRs with file:line citations for the per-package coverage data; (c) per-package threshold chosen with justification anchored in (b) sample (e.g., "control-plane: 80% lines because the sampled PRs averaged 84% with 4% variance; floor is one std-dev below mean"); (d) ADR-023 amendment (or new ADR-NNN) merged ratifying the threshold; §Decision Log entry recording choice + rationale.
+- Tracked-by: Plan-NNN (V1.1 coverage-quality plan, TBD when V1.1 scope is named).
+- Revisit Trigger: V1.1 planning starts; OR a test-debt regression surfaces (e.g., a release-blocker bug that a coverage gate would have caught at PR review).
 
 ---
 
