@@ -9,7 +9,7 @@
 | **Author(s)** | `Codex` |
 | **Spec** | [Spec-018: Identity And Participant State](../specs/018-identity-and-participant-state.md) |
 | **Required ADRs** | [ADR-001](../decisions/001-session-is-the-primary-domain-object.md), [ADR-007](../decisions/007-collaboration-trust-and-permission-model.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md) |
-| **Dependencies** | [Plan-002](./002-invite-membership-and-presence.md) (presence infrastructure); [Plan-025](./025-self-hostable-node-relay.md) steps 1–4 at Tier 5 (provides `packages/crypto-paseto/` PASETO v4.public primitives that Plan-018 imports as the issuer side — symmetric co-dep with Plan-025; see [cross-plan-dependencies.md §5 carve-out](../architecture/cross-plan-dependencies.md)) |
+| **Dependencies** | [Plan-002](./002-invite-membership-and-presence.md) (presence infrastructure); [Plan-025 Tier 1 Partial](./025-self-hostable-node-relay.md#tier-1-partial-pr-sequence--substrate-vs-namespace-carve-out) (provides `packages/crypto-paseto/` PASETO v4.public primitives for access-token issuance + v4.local primitives for refresh-token issuance per [ADR-010:29](../decisions/010-paseto-webauthn-mls-auth.md) — symmetric co-dep with Plan-025 resolves at Tier 1 Partial; see [cross-plan-dependencies.md §5 carve-out](../architecture/cross-plan-dependencies.md#5-canonical-build-order); BL-119 resolved 2026-05-20 via Option A) |
 | **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
 
 ## Goal
