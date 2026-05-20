@@ -91,6 +91,8 @@ import {
   type SpawnResponse,
 } from "@ai-sidekicks/contracts";
 
+import { defaultSpawnTaskkill, type TaskkillResult } from "./taskkill-windows.js";
+
 // --------------------------------------------------------------------------
 // Public types
 // --------------------------------------------------------------------------
@@ -276,6 +278,25 @@ export interface RustSidecarPtyHostDeps {
    * eviction can be exercised deterministically.
    */
   readonly nowMs: () => number;
+  /**
+   * Effective platform identifier — defaults to `process.platform`.
+   * Tests inject `"win32"` / `"linux"` / `"darwin"` verbatim to
+   * exercise the platform-branched host-timeout escalation path
+   * (`escalateHardKillTree`) deterministically. Production callers
+   * never override.
+   */
+  readonly platform?: NodeJS.Platform;
+  /**
+   * Windows `taskkill /T /F /PID` invocation factory — defaults to the
+   * shared `defaultSpawnTaskkill` substrate at `./taskkill-windows.ts`.
+   * Only consulted on the Windows host-timeout escalation branch (POSIX
+   * falls through to `child.kill("SIGKILL")` which the kernel then
+   * propagates as SIGHUP via PTY-master FD closure — see
+   * `escalateHardKillTree`). Tests inject a `vi.fn()` double to assert
+   * invocation + bound the 5 s wall-clock race deterministically under
+   * `vi.useFakeTimers()`.
+   */
+  readonly spawnTaskkill?: (pid: number) => Promise<TaskkillResult>;
 }
 
 /**
@@ -702,6 +723,8 @@ interface ResolvedDeps {
   readonly resolveBinaryPath: () => string;
   readonly spawn: SidecarSpawnFn | null;
   readonly nowMs: () => number;
+  readonly platform: NodeJS.Platform;
+  readonly spawnTaskkill: (pid: number) => Promise<TaskkillResult>;
 }
 
 function resolveDefaultDeps(partial: Partial<RustSidecarPtyHostDeps>): ResolvedDeps {
@@ -709,6 +732,8 @@ function resolveDefaultDeps(partial: Partial<RustSidecarPtyHostDeps>): ResolvedD
     resolveBinaryPath: partial.resolveBinaryPath ?? resolveSidecarBinaryPath,
     spawn: partial.spawn ?? null,
     nowMs: partial.nowMs ?? defaultNowMs,
+    platform: partial.platform ?? process.platform,
+    spawnTaskkill: partial.spawnTaskkill ?? defaultSpawnTaskkill,
   };
 }
 
@@ -1819,20 +1844,144 @@ export class RustSidecarPtyHost implements PtyHost {
       return { sidecarExitedCleanly: true, taskkillEscalated: false };
     }
 
-    // Host timeout fired — escalate. `child.kill("SIGKILL")` issues
-    // the platform-level hard-stop; on Windows Node's child_process
-    // maps SIGKILL to a `TerminateProcess` call which is the
-    // single-PID equivalent — the sidecar's own kill-translation path
-    // walks the descendant tree via `taskkill /T /F` per I-024-2 on
-    // the per-session axis. Best-effort: a child that already exited
-    // raises an error which we swallow.
+    // Host timeout fired — the sidecar process is wedged or unresponsive
+    // (it did not exit on stdin EOF within `hostTimeoutMs`). Escalate
+    // from OUTSIDE the sidecar process: a wedged sidecar by definition
+    // cannot translate kills internally, so the daemon MUST drive the
+    // tree-walk here.
+    //
+    // Platform branching is mandatory (Plan-024 §I-024-2 + Plan-001
+    // §CP-001-1):
+    //
+    //   * Windows: invoke `taskkill /T /F /PID <sidecar-pid>` so the
+    //     ToolHelp32 enumeration walks every descendant (PTY workers
+    //     and their shells) and terminates each one. Node's
+    //     `child.kill("SIGKILL")` on Windows maps to a single-PID
+    //     `TerminateProcess` call, which would leave descendants alive
+    //     as orphaned processes — a contract violation.
+    //
+    //   * POSIX: fall through to `child.kill("SIGKILL")`. portable-pty
+    //     calls `libc::setsid()` (unix.rs:257) inside `pre_exec` for
+    //     every PTY child, making each child its own session leader;
+    //     `TIOCSCTTY` at unix.rs:271 then acquires the controlling
+    //     terminal. Consequence: PTY-child PGIDs do NOT equal the
+    //     sidecar's PID, so daemon-side `process.kill(-pid)` would NOT
+    //     reach them either. POSIX cleanup is kernel-driven instead:
+    //     when the sidecar dies, its PTY-master FDs close, the kernel
+    //     sends SIGHUP to each PTY's foreground process group, and the
+    //     PTY children die via SIGHUP's default disposition
+    //     (portable-pty restores defaults for SIGCHLD/SIGHUP/SIGINT/
+    //     SIGQUIT/SIGTERM/SIGALRM at unix.rs:244-250). The single-PID
+    //     `child.kill("SIGKILL")` is structurally sufficient on POSIX
+    //     for this reason.
+    //
+    // Best-effort throughout: I-024-2 "MUST NOT block"; the 5 s
+    // wall-clock bound on the Windows path enforces this even if
+    // `taskkill.exe` stalls.
+    await this.escalateHardKillTree(child);
+    return { sidecarExitedCleanly: false, taskkillEscalated: true };
+  }
+
+  /**
+   * Hard-kill the sidecar process tree on host-shutdown escalation.
+   *
+   * Platform-branched:
+   *
+   *   * Windows: invokes `this.deps.spawnTaskkill(pid)` (the
+   *     `taskkill /T /F /PID` substrate at `./taskkill-windows.ts`),
+   *     bounded by 5 s wall-clock to satisfy I-024-2's "MUST NOT
+   *     block" floor. Mirrors `NodePtyHost.invokeTaskkill`'s race
+   *     shape (fire-and-forget the inner promise, race against a
+   *     native `setTimeout` — tests under `vi.useFakeTimers()`
+   *     intercept the native timer so the 5 s bound is observable
+   *     without wall-clock waits). A guard at `child.pid === undefined`
+   *     (pre-spawn race) falls through to single-PID `child.kill`
+   *     because we have no pid to hand to `taskkill`.
+   *
+   *   * POSIX: best-effort `child.kill("SIGKILL")`. Descendant cleanup
+   *     is kernel-driven via PTY-master FD closure → SIGHUP to PTY
+   *     foreground PGs, per the rationale in `drainSidecarHost` above.
+   *
+   * Errors are swallowed throughout (best-effort escalation per
+   * I-024-2). The caller returns `taskkillEscalated: true` regardless
+   * of the OS-level outcome so consumers can detect the non-graceful
+   * shutdown path.
+   */
+  private async escalateHardKillTree(child: SidecarChildProcess): Promise<void> {
+    if (this.deps.platform === "win32" && child.pid !== undefined) {
+      const pid: number = child.pid;
+      const spawnTaskkill = this.deps.spawnTaskkill;
+      // Wall-clock-bound `spawnTaskkill` so a stuck OS-level operation
+      // cannot hang the drain — the exact failure mode I-024-2
+      // forbids. 5 s is comfortably longer than realistic `taskkill`
+      // latency on a healthy Windows box (sub-second) and far shorter
+      // than "indefinitely". Native `setTimeout` (not an injected
+      // timer dep) matches the rest of `drainSidecarHost` (L1828) so
+      // tests under `vi.useFakeTimers()` advance both the host
+      // timeout and this bound through the same `vi.advanceTimersByTimeAsync`
+      // mechanism. If the inner timer wins, we proceed to return as
+      // normal — the OS-level reap is left to the operating system to
+      // clean up (best-effort).
+      await new Promise<void>((resolve) => {
+        let settled = false;
+        const fallbackHandle = setTimeout(() => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          resolve();
+        }, 5000);
+        const finish = (): void => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          clearTimeout(fallbackHandle);
+          resolve();
+        };
+        // Fire-and-forget the await chain — `finish()` resolves the
+        // outer Promise when `spawnTaskkill` settles (resolved or
+        // rejected), or when the fallback timer wins, whichever comes
+        // first.
+        void (async (): Promise<void> => {
+          try {
+            await spawnTaskkill(pid);
+          } catch (err: unknown) {
+            // Swallow — per I-024-2 we MUST NOT hang the drain even
+            // if reaping is incomplete (OS-level taskkill failures
+            // must not block). The outer fallback timer is a defense-
+            // in-depth backstop for the case where the promise itself
+            // never settles (kernel deadlock, suspended process, OS
+            // bug); a thrown rejection still reaches this catch and
+            // resolves the outer Promise on time.
+            //
+            // Surface the cause so a recurring failure (misconfigured
+            // PATH, AV-blocked taskkill.exe, etc.) is observable.
+            // TRIPWIRE: replace `console.warn` once a structured
+            // logger surfaces in the runtime-daemon.
+            console.warn(
+              `RustSidecarPtyHost: escalateHardKillTree: spawnTaskkill rejected for ` +
+                `sidecar pid=${pid}; drain will continue per I-024-2.`,
+              { cause: err },
+            );
+          }
+          finish();
+        })();
+      });
+      return;
+    }
+
+    // POSIX (or pre-spawn race on Windows where `child.pid === undefined`):
+    // best-effort `child.kill("SIGKILL")`. On POSIX, descendant cleanup
+    // is kernel-driven via PTY-master FD closure → SIGHUP. On Windows
+    // pre-spawn race, we have no pid to hand to `taskkill` so the
+    // single-PID signal is the best we can do.
     try {
       child.kill("SIGKILL");
     } catch {
       // Swallow — best-effort escalation; the `exit` event may have
       // already fired and cleared `this.child`.
     }
-    return { sidecarExitedCleanly: false, taskkillEscalated: true };
   }
 
   /**

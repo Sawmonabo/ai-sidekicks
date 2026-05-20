@@ -54,6 +54,7 @@ import {
   type SidecarChildProcess,
   type SidecarSpawnFn,
 } from "../rust-sidecar-pty-host.js";
+import type { TaskkillResult } from "../taskkill-windows.js";
 
 import type { DrainResult, Envelope } from "@ai-sidekicks/contracts";
 
@@ -400,9 +401,18 @@ describe("RustSidecarPtyHost.shutdown — Plan-001 CP-001-1 polymorphic drain", 
     vi.useFakeTimers();
     try {
       const fake = makeFakeSidecarChild();
+      // Pin `platform: "linux"` so the POSIX escalation branch is
+      // exercised deterministically regardless of the CI runner's
+      // platform. `RustSidecarPtyHost` now branches host-timeout
+      // escalation on `deps.platform`: Windows invokes `spawnTaskkill`
+      // (covered by the Windows-axis test below), POSIX falls through
+      // to `child.kill("SIGKILL")` (this test). Without the pin a
+      // future Windows runner would call `spawnTaskkill` here and the
+      // `fake.child.kill` assertion below would fail.
       const host = new RustSidecarPtyHost({
         resolveBinaryPath: () => "/fake/sidecar",
         spawn: spawnReturning(fake),
+        platform: "linux",
       });
 
       await spawnOneSession(host, fake, "s-0");
@@ -446,6 +456,175 @@ describe("RustSidecarPtyHost.shutdown — Plan-001 CP-001-1 polymorphic drain", 
       // Assert the supervisor called child.kill("SIGKILL") on the
       // host-timeout escalation path.
       expect(fake.child.kill).toHaveBeenCalledWith("SIGKILL");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("escalates via spawnTaskkill (Windows tree-kill) and reports taskkillEscalated:true when the sidecar does not exit within hostTimeoutMs", async () => {
+    // Windows-axis host-shutdown escalation pin. When `drainSidecarHost`
+    // host-timeout fires on Windows (sidecar wedged, no exit on stdin
+    // EOF within `hostTimeoutMs`), the supervisor MUST invoke
+    // `taskkill /T /F /PID <sidecar-pid>` rather than `child.kill(
+    // "SIGKILL")` — Node's SIGKILL maps to a single-PID
+    // `TerminateProcess` on Windows, leaving descendants alive as
+    // orphaned PTY workers (Plan-024 §I-024-2 + Plan-001 §CP-001-1
+    // contract violation).
+    //
+    // Refs:
+    //   • Plan-024 §I-024-2 (taskkill /T /F mandate).
+    //   • Plan-001 §CP-001-1 (daemon sidecar-cleanup contract).
+    //   • Codex Review P1 thread `PRRT_kwDOSCycWc6DY9b4` on PR #83.
+    vi.useFakeTimers();
+    try {
+      const fake = makeFakeSidecarChild();
+      const mockTaskkill: ReturnType<typeof vi.fn<(pid: number) => Promise<TaskkillResult>>> = vi
+        .fn<(pid: number) => Promise<TaskkillResult>>()
+        .mockResolvedValue({ exitCode: 0 });
+      const host = new RustSidecarPtyHost({
+        resolveBinaryPath: () => "/fake/sidecar",
+        spawn: spawnReturning(fake),
+        platform: "win32",
+        spawnTaskkill: mockTaskkill,
+      });
+
+      await spawnOneSession(host, fake, "s-0");
+
+      const drainPromise = host.shutdown({
+        perSessionTimeoutMs: 2_000,
+        hostTimeoutMs: 2_000,
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+      // Per-session drain succeeds — the sidecar still acks per-session
+      // SIGTERMs (only the host-level stdin EOF response is wedged).
+      fake.writeStdout(frameEnvelope({ kind: "kill_response", session_id: "s-0" }));
+      fake.writeStdout(
+        frameEnvelope({
+          kind: "exit_code_notification",
+          session_id: "s-0",
+          exit_code: 0,
+          signal_code: null,
+        }),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // Sidecar does NOT exit on stdin close — advance past the host
+      // timeout so `drainSidecarHost` enters the escalation branch.
+      await vi.advanceTimersByTimeAsync(2_001);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // Allow the (eventual) child exit so the synthetic teardown
+      // chain runs. The supervisor returns from the escalation as soon
+      // as `spawnTaskkill` resolves — the underlying child.exit may
+      // fire later or not at all (best-effort per I-024-2).
+      fake.triggerExit(0, null);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const result = await drainPromise;
+      expect(result.sidecarExitedCleanly).toBe(false);
+      expect(result.taskkillEscalated).toBe(true);
+
+      // Assert the supervisor invoked `taskkill /T /F /PID <sidecar-pid>`
+      // via `spawnTaskkill` — the load-bearing tree-walk per I-024-2.
+      // The fake child's pid is 67890 (see `makeFakeSidecarChild`).
+      expect(mockTaskkill).toHaveBeenCalledTimes(1);
+      expect(mockTaskkill).toHaveBeenCalledWith(67890);
+
+      // Assert the supervisor did NOT issue the single-PID
+      // `child.kill("SIGKILL")` fallback on the Windows branch — the
+      // taskkill substrate is the sole tree-kill mechanism.
+      expect(fake.child.kill).not.toHaveBeenCalledWith("SIGKILL");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("bounds the Windows tree-kill escalation by 5 s wall-clock when spawnTaskkill never settles", async () => {
+    // I-024-2 "MUST NOT block" floor: even if `taskkill.exe` stalls
+    // (kernel deadlock, suspended process, OS bug), the drain MUST
+    // resolve. `escalateHardKillTree` races `spawnTaskkill` against a
+    // 5 s native `setTimeout` so the bound holds regardless of the
+    // OS-level outcome.
+    //
+    // Discriminator: inject a never-resolving `spawnTaskkill` mock.
+    // Under the FIXED code, the 5 s fallback timer wins and the drain
+    // resolves; under a BUGGY shape that omits the bound (e.g.,
+    // `await spawnTaskkill(pid)` without a race), the test hangs past
+    // vitest's per-test timeout (5 s by default — which is exactly
+    // the bound this test asserts; we use the bound itself as the
+    // discriminator).
+    //
+    // Refs:
+    //   • Plan-024 §I-024-2 (MUST NOT block).
+    //   • Mature pattern: `NodePtyHost.invokeTaskkill` (node-pty-host.ts:
+    //     1103-1170 — the equivalent per-session-axis bound).
+    vi.useFakeTimers();
+    try {
+      const fake = makeFakeSidecarChild();
+      // A `spawnTaskkill` mock whose returned Promise NEVER resolves —
+      // simulates a stuck `taskkill.exe`. The `setTimeout(5000)` race
+      // inside `escalateHardKillTree` is the only path that lets the
+      // drain return.
+      const neverSettlingTaskkill: ReturnType<
+        typeof vi.fn<(pid: number) => Promise<TaskkillResult>>
+      > = vi
+        .fn<(pid: number) => Promise<TaskkillResult>>()
+        .mockImplementation(() => new Promise<TaskkillResult>(() => {}));
+      const host = new RustSidecarPtyHost({
+        resolveBinaryPath: () => "/fake/sidecar",
+        spawn: spawnReturning(fake),
+        platform: "win32",
+        spawnTaskkill: neverSettlingTaskkill,
+      });
+
+      await spawnOneSession(host, fake, "s-0");
+
+      const drainPromise = host.shutdown({
+        perSessionTimeoutMs: 2_000,
+        hostTimeoutMs: 2_000,
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+      // Per-session drain succeeds.
+      fake.writeStdout(frameEnvelope({ kind: "kill_response", session_id: "s-0" }));
+      fake.writeStdout(
+        frameEnvelope({
+          kind: "exit_code_notification",
+          session_id: "s-0",
+          exit_code: 0,
+          signal_code: null,
+        }),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // Advance past the host timeout — `drainSidecarHost` enters the
+      // escalation branch and calls `escalateHardKillTree`, which
+      // begins racing `neverSettlingTaskkill` against `setTimeout(5000)`.
+      await vi.advanceTimersByTimeAsync(2_001);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // Pre-condition: `spawnTaskkill` WAS invoked but its Promise has
+      // not settled (and never will under the mock). Without the 5 s
+      // bound, the drain would be parked here forever.
+      expect(neverSettlingTaskkill).toHaveBeenCalledTimes(1);
+      expect(neverSettlingTaskkill).toHaveBeenCalledWith(67890);
+
+      // Advance past the 5 s fallback timer — the race resolves on
+      // the fallback branch, `escalateHardKillTree` returns, and
+      // `drainSidecarHost` reports `taskkillEscalated: true`.
+      await vi.advanceTimersByTimeAsync(5_001);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const result = await drainPromise;
+      expect(result.sidecarExitedCleanly).toBe(false);
+      expect(result.taskkillEscalated).toBe(true);
     } finally {
       vi.useRealTimers();
     }
@@ -695,9 +874,16 @@ describe("RustSidecarPtyHost.shutdown — Plan-001 CP-001-1 polymorphic drain", 
     vi.useFakeTimers();
     try {
       const fake = makeFakeSidecarChild();
+      // Pin `platform: "linux"` for the same cross-platform CI safety
+      // rationale as the prior host-timeout test: this test asserts
+      // `fake.child.kill("SIGKILL")` at the end (the POSIX
+      // host-shutdown escalation shape), which would not fire on a
+      // Windows runner under `RustSidecarPtyHost`'s platform-branched
+      // `escalateHardKillTree`.
       const host = new RustSidecarPtyHost({
         resolveBinaryPath: () => "/fake/sidecar",
         spawn: spawnReturning(fake),
+        platform: "linux",
       });
       const onExit = vi.fn();
       host.setOnExit(onExit);
