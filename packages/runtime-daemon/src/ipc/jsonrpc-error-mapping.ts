@@ -84,6 +84,7 @@ import { SecureDefaultsValidationError } from "../bootstrap/secure-defaults.js";
 import { FramingError, redactPathsFromString, sanitizeErrorMessage } from "./local-ipc-gateway.js";
 import { NegotiationError } from "./protocol-negotiation.js";
 import { RegistryDispatchError } from "./registry.js";
+import { SessionNotFoundError } from "./session-errors.js";
 
 // --------------------------------------------------------------------------
 // FramingError code → JSON-RPC numeric mapping
@@ -307,6 +308,21 @@ function buildNegotiationErrorData(thrown: NegotiationError): JsonRpcErrorData {
 function buildSecureDefaultsValidationData(
   thrown: SecureDefaultsValidationError,
 ): JsonRpcErrorData {
+  if (thrown.fields !== undefined) {
+    return { type: thrown.code, fields: thrown.fields };
+  }
+  return { type: thrown.code };
+}
+
+/**
+ * Build the `data: JsonRpcErrorData` payload for a `SessionNotFoundError`.
+ * The class's `code` literal is the canonical project dotted-namespace
+ * identifier (`session.not_found`) per error-contracts.md §JSON-RPC Wire
+ * Mapping (line 114, HTTP 404 equivalent). The optional `fields` payload
+ * captured at the throw site (typically `{ sessionId }`) projects through
+ * to `data.fields`.
+ */
+function buildSessionNotFoundData(thrown: SessionNotFoundError): JsonRpcErrorData {
   if (thrown.fields !== undefined) {
     return { type: thrown.code, fields: thrown.fields };
   }
@@ -728,11 +744,19 @@ function capString(value: string): string {
  *      already the canonical dotted-namespace identifier and projects
  *      directly into `data.type`; `data.fields` carries throw-site detail
  *      (e.g. `{ reason }` for `protocol.version_mismatch`).
- *   4. `SecureDefaultsValidationError` — bootstrap config-validation
+ *   4. `SessionNotFoundError` — `session.*` handler unknown-id failure.
+ *      Maps to `-32602 InvalidParams` (the supplied sessionId is
+ *      structurally a malformed param); `data.type` is the class's
+ *      `code` literal `session.not_found` (HTTP 404 equivalent per
+ *      error-contracts.md §Session); `data.fields` carries throw-site
+ *      detail (typically `{ sessionId }`). Listed before
+ *      `SecureDefaultsValidationError` because both share `-32602` but
+ *      `SessionNotFoundError` is the more specific surface.
+ *   5. `SecureDefaultsValidationError` — bootstrap config-validation
  *      failure. `code` selects the JSON-RPC numeric (always `-32602`);
  *      `data.type` carries the validation code verbatim; `data.fields`
  *      carries `{ setting, value }` from the throw site.
- *   5. Anything else — handler-thrown `Error` / `string` / arbitrary
+ *   6. Anything else — handler-thrown `Error` / `string` / arbitrary
  *      thrown value. Collapses to `-32603 Internal Error` with no
  *      `data` field — the substrate has no canonical projection for an
  *      unregistered throw, and per BL-103 the absence of `data` is the
@@ -750,8 +774,11 @@ export function mapJsonRpcError(thrown: unknown, requestId: JsonRpcId): JsonRpcE
   // Step 1: discriminate the thrown value and select numeric code +
   // structured `data` payload. Order matters — the most specific
   // subclass first (RegistryDispatchError, FramingError) before the
-  // shared-shape subclasses (NegotiationError,
+  // shared-shape subclasses (NegotiationError, SessionNotFoundError,
   // SecureDefaultsValidationError) before the generic catch-all.
+  // SessionNotFoundError appears before SecureDefaultsValidationError
+  // because both map to -32602 but SessionNotFoundError is the more
+  // specific surface (per the discrimination-order JSDoc above).
   let numericCode: JsonRpcErrorCodeValue;
   let data: JsonRpcErrorData | undefined;
   if (thrown instanceof RegistryDispatchError) {
@@ -768,6 +795,19 @@ export function mapJsonRpcError(thrown: unknown, requestId: JsonRpcId): JsonRpcE
     // "the JSON sent is not a valid Request object" at the protocol layer.
     numericCode = JsonRpcErrorCode.InvalidRequest;
     data = buildNegotiationErrorData(thrown);
+  } else if (thrown instanceof SessionNotFoundError) {
+    // `session.not_found` is a registered project dotted-namespace
+    // identifier per error-contracts.md §Session (line 114) — HTTP 404
+    // equivalent. Maps to `-32602 InvalidParams` per the project
+    // convention that "requested resource does not exist" is
+    // structurally a param-shape failure (the supplied sessionId does
+    // not resolve), matching the SecureDefaultsValidationError
+    // "unknown setting" treatment. Listed BEFORE
+    // SecureDefaultsValidationError because both share -32602 but
+    // SessionNotFoundError is the more specific surface — discriminator
+    // order is most-specific first.
+    numericCode = JsonRpcErrorCode.InvalidParams;
+    data = buildSessionNotFoundData(thrown);
   } else if (thrown instanceof SecureDefaultsValidationError) {
     // Config-validation failures are `-32602 InvalidParams` per
     // error-contracts.md §Plan-007 Tier 1 Domain Identifiers — daemon

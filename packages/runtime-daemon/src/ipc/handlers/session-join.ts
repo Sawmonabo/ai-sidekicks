@@ -63,11 +63,19 @@ export interface SessionJoinDeps {
    * `SessionJoinRequest`. Returns the projection (`SessionJoinResponse`)
    * the wire client receives — the assigned `participantId` /
    * `membershipId` plus the session's `sharedMetadata` for client-side
-   * presence/awareness initialization. Domain-side errors (session not
-   * found, identity handle conflict, resource limits, persistence
-   * failure) MUST surface as thrown `Error` instances — the registry's
-   * `dispatch()` wrapper catches them and applies `mapJsonRpcError`
-   * per I-007-8.
+   * presence/awareness initialization.
+   *
+   * Domain-side errors MUST surface as thrown subclasses of `Error` so
+   * the registry's `dispatch()` wrapper applies `mapJsonRpcError` per
+   * I-007-8. Unknown sessionIds MUST throw `SessionNotFoundError` from
+   * `packages/runtime-daemon/src/ipc/session-errors.ts` so the
+   * discriminator chain produces the canonical wire envelope `-32602
+   * InvalidParams` + `data.type: "session.not_found"` per
+   * error-contracts.md §JSON-RPC Wire Mapping (Spec-007 AC-N3). Other
+   * domain failures (identity handle conflict, resource limits,
+   * persistence failure) without registered discriminator branches
+   * collapse to `-32603 InternalError` (catch-all) — register new typed
+   * subclasses as the V1 surface widens.
    */
   readonly joinSession: (request: SessionJoinRequest) => Promise<SessionJoinResponse>;
 }
