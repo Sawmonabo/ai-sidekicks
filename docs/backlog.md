@@ -98,7 +98,7 @@ The items below were surfaced by the [plan-readiness-audit Tier 1](./operations/
 - Owner: `unassigned`
 - References: [Plan-002 §Cross-Plan Obligations CP-002-3](./plans/002-invite-membership-and-presence.md#cross-plan-obligations), [Plan-002 Phase 4](./plans/002-invite-membership-and-presence.md), [Plan-021 §tRPC middleware surface (Plan-008 consumer)](./plans/021-rate-limiting-policy.md), [cross-plan-dependencies.md §3 Plan-002 → Plan-021 edge](./architecture/cross-plan-dependencies.md#3-inter-plan-dependency-graph), F-002-4-02, F-002-4-04, F-002-4-05 (audit critical findings)
 - Summary: Plan-002 Phase 4 (invite-endpoint rate-limit wiring) is structurally deferred from Tier 2 to Tier 6 because Plan-021 ships the `rateLimitProcedure` middleware factory at Tier 6. At Tier 6, Plan-002 Phase 4 applies `rateLimitProcedure({endpoint: 'invite.create' | 'invite.accept' | 'invite.revoke' | …})` middleware to the invite tRPC procedures defined in Phase 2's `invite-service.ts` surface, plus adds rate-limit verification tests asserting threshold breach returns the canonical 429 + `RateLimitResponse` shape per Plan-021's canonical contract. The Tier 6 deliverable closes Spec-002 §Rate Limiting (20/session/hr, 50/participant/hr, 100 pending/session).
-- Exit Criteria: Plan-002 Phase 4 Tasks T4.1 + T4.2 executed at Tier 6; invite-endpoint rate-limit tests pass against Plan-021's middleware; Plan-002 §Done Checklist Phase 4 row checked.
+- Exit Criteria: Plan-002 Phase 4 Tasks T4.1 + T4.2 executed at Tier 6; invite-endpoint rate-limit tests pass against Plan-021's middleware.
 
 ### BL-121: Spec-002 §Interfaces and Contracts — declare `InviteRevoke` payload shape
 
