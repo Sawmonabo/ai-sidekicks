@@ -1610,25 +1610,25 @@ export class RustSidecarPtyHost implements PtyHost {
     });
 
     try {
-      // Best-effort graceful kill — swallow errors (kill_response may
-      // never arrive if the sidecar has already crashed). On a sidecar
-      // crash mid-drain, `fireCrashTimeOnExit` fires the per-session
-      // `-1` synthetic onExit for any session without a real
-      // `ExitCodeNotification`; the drain waiter itself falls through
-      // its per-session timeout to the SIGKILL escalation path below
-      // (which observes `record === undefined` post-crash-deletion and
-      // no-ops), then returns `"forced"` so the session counts under
-      // `sessionsForcedKilled`. The terminal `onExit` contract is
-      // satisfied via the `-1` synthetic.
-      try {
-        await this.sendRequest(
-          { kind: "kill_request", session_id: sessionId, signal: "SIGTERM" },
-          "kill_response",
-        );
-      } catch {
-        // Swallow — best-effort graceful drain.
-      }
-
+      // ARM THE PER-SESSION TIMER FIRST — the per-session budget MUST
+      // cover both the SIGTERM IPC ack AND the wait for
+      // `ExitCodeNotification`, so a wedged sidecar (process alive, IPC
+      // handler unresponsive) cannot stall the drain.
+      //
+      // Wedge-scenario bug pin (Codex P1 on commit b3c984e, PR #83
+      // discussion r3271742909): the prior shape awaited `sendRequest`
+      // BEFORE arming the timer. If `kill_response` never arrived (and
+      // `sendRequest` did not reject — e.g., the sidecar process was
+      // alive but the IPC dispatcher loop was wedged), the per-session
+      // `setTimeout` was never armed, `drainSingleSession` never
+      // returned, `Promise.all` over `activeSessionIds.map(drainSingleSession,
+      // ...)` in `runShutdown` blocked forever, `drainSidecarHost`
+      // never ran, the outer `hardCap` in `sidecar-lifecycle.ts` fired
+      // while `shutdownPromise` (memoized at L1189) stayed pending
+      // forever, and every future `shutdown()` call was locked onto
+      // that dead promise. The fix wraps the SIGTERM IPC + drain wait
+      // in a single `gracefulDrain` Promise and races it against the
+      // per-session timer up front.
       let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
       const timeoutPromise: Promise<"timeout"> = new Promise<"timeout">((resolve) => {
         timeoutHandle = setTimeout(() => {
@@ -1636,10 +1636,47 @@ export class RustSidecarPtyHost implements PtyHost {
         }, timeoutMs);
       });
 
-      const outcome: "drained" | "timeout" = await Promise.race([
-        drainWaiter.then((): "drained" => "drained"),
-        timeoutPromise,
-      ]);
+      // Combined graceful-drain promise: send SIGTERM via IPC, then
+      // wait for `ExitCodeNotification` (which ticks `drainWaiter` via
+      // `handleExitNotification` → `notifyShutdownWaiter`). The whole
+      // pipeline races against the per-session timer — if `sendRequest`
+      // hangs (wedged sidecar), the timer fires and we escalate.
+      //
+      // f4b1ff5 crash-case preservation (existing shutdown test at
+      // ~L531 in `rust-sidecar-pty-host.shutdown.test.ts`): when the
+      // sidecar crashes mid-drain, `handleChildExit` runs
+      // `fireCrashTimeOnExit` (fires `-1` synthetic onExit for any
+      // session without a real `ExitCodeNotification`, deletes the
+      // session record) then `rejectAllOutstanding` (rejects the
+      // pending `sendRequest` here). The catch below swallows that
+      // rejection so we still proceed to `await drainWaiter`.
+      // `fireCrashTimeOnExit` does NOT itself tick the shutdown waiter
+      // — so `drainWaiter` only resolves on a real
+      // `ExitCodeNotification` (which the crash precluded) or via the
+      // SIGKILL synthetic below. In the single-session crash case,
+      // neither path ticks the waiter (record was deleted by
+      // `fireCrashTimeOnExit`, so the SIGKILL synthetic's
+      // `record !== undefined` gate skips). The per-session timer
+      // fires → outcome === "timeout" → we escalate (fire-and-forget,
+      // see below) → return `"forced"`. The session counts under
+      // `sessionsForcedKilled`; the `-1` synthetic from
+      // `fireCrashTimeOnExit` already satisfies the terminal `onExit`
+      // contract.
+      const gracefulDrain: Promise<"drained"> = (async (): Promise<"drained"> => {
+        try {
+          await this.sendRequest(
+            { kind: "kill_request", session_id: sessionId, signal: "SIGTERM" },
+            "kill_response",
+          );
+        } catch {
+          // Swallow — best-effort graceful drain. See f4b1ff5 crash-case
+          // comment above for the rejection trace.
+        }
+        await drainWaiter;
+        return "drained";
+      })();
+
+      const outcome: "drained" | "timeout" = await Promise.race([gracefulDrain, timeoutPromise]);
 
       if (timeoutHandle !== null) {
         clearTimeout(timeoutHandle);
@@ -1649,17 +1686,30 @@ export class RustSidecarPtyHost implements PtyHost {
         return "drained";
       }
 
-      // Timeout fired — escalate to SIGKILL. Best-effort; the
-      // ExitCodeNotification arrival (if it ever comes) will tick the
-      // waiter, but we have already counted this session as forced.
-      try {
-        await this.sendRequest(
-          { kind: "kill_request", session_id: sessionId, signal: "SIGKILL" },
-          "kill_response",
-        );
-      } catch {
-        // Swallow — best-effort escalation.
-      }
+      // Timeout fired — escalate to SIGKILL.
+      //
+      // Fire-and-forget on the IPC: a wedged sidecar that did not ack
+      // SIGTERM would hang an `await` on the SIGKILL `sendRequest` too
+      // (same bug shape, different code path) — and we have already
+      // counted this session under `sessionsForcedKilled` via the
+      // synthetic onExit emission below. The host-level drain
+      // (`drainSidecarHost`'s `child.kill("SIGKILL")` OS-signal path,
+      // already bounded by `hostTimeoutMs`) is the ultimate backstop
+      // if the sidecar is wedged enough to ignore the IPC SIGKILL too.
+      //
+      // Explicit `.catch(() => {})` (NOT bare `void` over a possibly-
+      // rejecting Promise) to prevent unhandled-rejection events:
+      // `sendRequest` can reject synchronously (no child reference) or
+      // via `rejectAllOutstanding` (sidecar crashed during the
+      // escalation), and we have no recovery path that needs the
+      // rejection signal — the synthetic onExit below is the
+      // consumer-facing terminal callback.
+      void this.sendRequest(
+        { kind: "kill_request", session_id: sessionId, signal: "SIGKILL" },
+        "kill_response",
+      ).catch(() => {
+        // Swallow — best-effort escalation, fire-and-forget.
+      });
       // Synthetic `onExit` emission on the SIGKILL escalation path.
       //
       // The contract surface in `packages/contracts/src/pty-host.ts`

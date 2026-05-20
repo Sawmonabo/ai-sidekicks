@@ -655,6 +655,257 @@ describe("RustSidecarPtyHost.shutdown — Plan-001 CP-001-1 polymorphic drain", 
     }
   });
 
+  it("forced-kills a session when sidecar IPC is wedged and kill_response never arrives within perSessionTimeoutMs", async () => {
+    // Wedge-scenario regression pin (Codex P1 on commit b3c984e of PR
+    // #83, discussion r3271742909): the prior shape in
+    // `drainSingleSession` awaited `sendRequest(SIGTERM kill_request)`
+    // BEFORE arming the per-session timer. A wedged sidecar (process
+    // alive, IPC dispatcher unresponsive) would never enqueue a
+    // `kill_response`, so the `await` hung forever, the per-session
+    // `setTimeout` was never armed, `drainSingleSession` never
+    // returned, `Promise.all(activeSessionIds.map(drainSingleSession,
+    // ...))` in `runShutdown` blocked forever, `drainSidecarHost`
+    // never ran, and the outer `hardCap` in `sidecar-lifecycle.ts`
+    // fired with `shutdownPromise` (memoized at L1189) stuck pending
+    // — locking every future `shutdown()` call onto that dead promise
+    // via the re-entrancy gate.
+    //
+    // Discriminator shape: drop the `kill_request` envelope entirely
+    // (the wedge IS unboundedness, NOT slowness — a delayed
+    // `kill_response` mock would still resolve the await eventually
+    // and miss the bug). The child process stays alive (no
+    // `triggerExit`). `shutdownWaiters` is never ticked. Under the
+    // FIXED code, the per-session timer is armed BEFORE the IPC
+    // await (the `gracefulDrain` wrapper races against
+    // `timeoutPromise` at the Promise.race level), so the timeout
+    // fires at `perSessionTimeoutMs` regardless of the wedge, the
+    // SIGKILL synthetic emits `onExit(session, 1, undefined)`, and
+    // `drainSingleSession` returns `"forced"`.
+    //
+    // Bug-revert verification: under the REVERTED code (await before
+    // timer arm), the test hangs past vitest's per-test timeout (5s
+    // by default) and fails with a timeout error. We do NOT modify
+    // production to verify — the test structure (drop `kill_request`,
+    // no `triggerExit`, single fake-timer advance past
+    // `perSessionTimeoutMs`) is the structural pin.
+    //
+    // Refs:
+    //   • Plan-001 §CP-001-1 sidecar-lifecycle drain.
+    //   • PR #83 discussion r3271742909 (Codex P1 finding).
+    vi.useFakeTimers();
+    try {
+      const fake = makeFakeSidecarChild();
+      const host = new RustSidecarPtyHost({
+        resolveBinaryPath: () => "/fake/sidecar",
+        spawn: spawnReturning(fake),
+      });
+      const onExit = vi.fn();
+      host.setOnExit(onExit);
+
+      await spawnOneSession(host, fake, "s-0");
+
+      const drainPromise = host.shutdown({
+        perSessionTimeoutMs: 50,
+        hostTimeoutMs: 500,
+      });
+      // Yield so `sendRequest(kill_request{SIGTERM})` reaches the
+      // wire and the `gracefulDrain` async wrapper parks on the
+      // outstanding-response queue.
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // Verify the SIGTERM kill_request reached the wire — establishes
+      // that the wedge scenario is mid-flight (request sent, response
+      // never coming).
+      const framesAfterTerm = parseFramesFromStdin(fake.readStdin());
+      const termFrames = framesAfterTerm.filter(
+        (envelope): envelope is { kind: "kill_request"; session_id: string; signal: string } =>
+          envelope.kind === "kill_request",
+      );
+      expect(termFrames).toHaveLength(1);
+      expect(termFrames[0]?.signal).toBe("SIGTERM");
+
+      // Pre-condition: synthetic onExit has NOT fired yet — the
+      // per-session timer has not been advanced.
+      expect(onExit).not.toHaveBeenCalled();
+
+      // Advance past the per-session timeout. Under the FIXED code,
+      // this fires the timer that `gracefulDrain` races against; the
+      // race resolves on "timeout"; the SIGKILL synthetic emits
+      // `onExit(s-0, 1, undefined)` and `drainSingleSession` returns
+      // `"forced"`. Under the BUGGY code (timer armed AFTER the IPC
+      // await), advancing this timer is a no-op because the timer was
+      // never armed; the test hangs at the awaiting `drainPromise`
+      // below.
+      await vi.advanceTimersByTimeAsync(51);
+
+      // The synthetic forced-kill onExit fired exactly once on the
+      // SIGKILL escalation path. Signature is `(sessionId, 1)` — the
+      // signalCode argument is undefined (omitted by `fireExit`'s
+      // branch) and `onExit(sessionId, exitCode, signalCode?)` is
+      // invoked with 2 args.
+      expect(onExit).toHaveBeenCalledTimes(1);
+      expect(onExit).toHaveBeenCalledWith("s-0", 1);
+
+      // The SIGKILL escalation reached the wire as a fire-and-forget
+      // `sendRequest` (the second kill_request frame after the dropped
+      // SIGTERM). The fake captures it on stdin even though the test
+      // never enqueues a kill_response for it.
+      const framesAfterKill = parseFramesFromStdin(fake.readStdin());
+      const killFrames = framesAfterKill.filter(
+        (envelope): envelope is { kind: "kill_request"; session_id: string; signal: string } =>
+          envelope.kind === "kill_request",
+      );
+      expect(killFrames).toHaveLength(2);
+      expect(killFrames[1]?.signal).toBe("SIGKILL");
+
+      // The per-session drain has now returned "forced", so
+      // `runShutdown` proceeds to `drainSidecarHost`. The sidecar is
+      // still alive (the wedge) and the host's `child.stdin.end()`
+      // call does not trigger an exit — advance past the host timeout
+      // so the host wind-down escalates via `child.kill("SIGKILL")`.
+      await vi.advanceTimersByTimeAsync(501);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const result = await drainPromise;
+
+      // The session counts under `sessionsForcedKilled`, NOT
+      // `sessionsDrained` — the SIGTERM IPC never acked, the real
+      // `ExitCodeNotification` never arrived, the drain returned
+      // "forced" via the per-session timer.
+      expect(result.sessionsDrained).toBe(0);
+      expect(result.sessionsForcedKilled).toBe(1);
+
+      // Host wind-down also escalated (the sidecar stayed wedged and
+      // ignored stdin EOF too). `child.kill("SIGKILL")` was the
+      // bounded OS-signal backstop per ADR-019 §Decision item 8.
+      expect(result.sidecarExitedCleanly).toBe(false);
+      expect(result.taskkillEscalated).toBe(true);
+      expect(fake.child.kill).toHaveBeenCalledWith("SIGKILL");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("forces a session when sidecar crashes mid-shutdown after SIGTERM IPC rejects via rejectAllOutstanding", async () => {
+    // f4b1ff5 crash-case regression check (single-session shape — the
+    // existing two-session crash test at ~L531 covers the multi-
+    // session interaction). When the sidecar crashes mid-drain
+    // BEFORE acking the SIGTERM `kill_request`, the trace is:
+    //
+    //   1. `drainSingleSession` enters, installs `shutdownWaiters[s-0]`,
+    //      starts `gracefulDrain` (which awaits SIGTERM `sendRequest`).
+    //   2. Fake sidecar receives `kill_request{SIGTERM}`. Before
+    //      enqueueing a `kill_response`, the sidecar process exits.
+    //   3. `handleChildExit` runs:
+    //        (a) `fireCrashTimeOnExit` — sees `s-0` with
+    //            `record.exitCode === null`, fires the `-1` synthetic
+    //            `onExit(s-0, -1, undefined)`, deletes the session
+    //            record.
+    //        (b) `rejectAllOutstanding` — rejects the pending
+    //            `sendRequest` with the crash-attribution error.
+    //        (c) `notifyHostExitWaiter` — no-op (drain not yet in
+    //            `drainSidecarHost`).
+    //   4. Back in `gracefulDrain`: the SIGTERM `sendRequest` rejected
+    //      → caught (swallowed) → await `drainWaiter`. But
+    //      `fireCrashTimeOnExit` does NOT itself call
+    //      `notifyShutdownWaiter` (verified at L1794-1799 + L2926-2944
+    //      of the production source) — so `drainWaiter` stays pending.
+    //   5. The per-session timer fires (armed BEFORE the await per
+    //      the b3c984e fix) → race resolves on "timeout" →
+    //      `gracefulDrain` is discarded.
+    //   6. SIGKILL escalation path: synthetic gate observes
+    //      `record === undefined` (deleted in step 3a) → skip both the
+    //      `fireExit(s-0, 1, ...)` and `notifyShutdownWaiter` calls.
+    //      `drainSingleSession` returns `"forced"`.
+    //   7. `drainSidecarHost`: `this.child === null` (cleared in step 3
+    //      pre-`fireCrashTimeOnExit`) → returns vacuous clean.
+    //
+    // Net consumer observation: exactly one `onExit(s-0, -1)` (from
+    // step 3a), `sessionsForcedKilled === 1` (the drain returned
+    // "forced"), `sessionsDrained === 0`, `sidecarExitedCleanly: true`
+    // (vacuous — the child was already gone by host wind-down). The
+    // `-1` sentinel is the CRASH signal, distinct from the `1`
+    // forced-kill synthetic emitted by the SIGKILL escalation on a
+    // LIVE sidecar (covered by the wedge test above).
+    //
+    // Refs:
+    //   • Plan-001 §CP-001-1 sidecar-lifecycle drain.
+    //   • Existing two-session crash test at ~L531 (this is the
+    //     single-session variant — same trace, no s-A drained path).
+    vi.useFakeTimers();
+    try {
+      const fake = makeFakeSidecarChild();
+      const host = new RustSidecarPtyHost({
+        resolveBinaryPath: () => "/fake/sidecar",
+        spawn: spawnReturning(fake),
+      });
+      const onExit = vi.fn();
+      host.setOnExit(onExit);
+
+      await spawnOneSession(host, fake, "s-0");
+
+      const drainPromise = host.shutdown({
+        perSessionTimeoutMs: 50,
+        hostTimeoutMs: 500,
+      });
+      // Yield so SIGTERM `kill_request` reaches the wire and the
+      // `gracefulDrain` async wrapper parks on the outstanding-
+      // response queue.
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // Simulate the sidecar process crashing BEFORE acking SIGTERM.
+      // This drives `handleChildExit` → `fireCrashTimeOnExit` (fires
+      // `-1` synthetic, deletes record) → `rejectAllOutstanding`
+      // (rejects the pending sendRequest).
+      fake.triggerExit(null, "SIGSEGV");
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // The `-1` crash synthetic already fired from
+      // `fireCrashTimeOnExit`. The SIGKILL escalation path has not
+      // yet been reached — the per-session timer is still pending.
+      expect(onExit).toHaveBeenCalledTimes(1);
+      expect(onExit).toHaveBeenCalledWith("s-0", -1);
+
+      // Advance past the per-session timeout — the gracefulDrain
+      // wrapper's await on `drainWaiter` is still pending (no
+      // ExitCodeNotification arrived, fireCrashTimeOnExit does not
+      // tick the waiter). Race resolves on "timeout" → SIGKILL
+      // escalation → synthetic gate sees `record === undefined` →
+      // skips → drain returns "forced".
+      await vi.advanceTimersByTimeAsync(51);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const result = await drainPromise;
+
+      // The session counts under `sessionsForcedKilled` (drain
+      // returned "forced" — its waiter never resolved naturally).
+      expect(result.sessionsDrained).toBe(0);
+      expect(result.sessionsForcedKilled).toBe(1);
+
+      // No DOUBLE-fire: the SIGKILL synthetic's `record !== undefined`
+      // gate skipped (record was deleted by `fireCrashTimeOnExit` in
+      // step 3a). The `-1` from the crash sentinel is the only
+      // `onExit` the consumer saw.
+      expect(onExit).toHaveBeenCalledTimes(1);
+      const calls = onExit.mock.calls;
+      expect(calls[0]).toEqual(["s-0", -1]);
+
+      // Host wind-down: `this.child` was cleared inside
+      // `handleChildExit` (BEFORE `fireCrashTimeOnExit`), so
+      // `drainSidecarHost`'s `child === null` early-return reports a
+      // vacuous clean wind-down with no escalation.
+      expect(result.sidecarExitedCleanly).toBe(true);
+      expect(result.taskkillEscalated).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("rejects concurrent spawn() during shutdown with PtyBackendUnavailableError", async () => {
     const fake = makeFakeSidecarChild();
     const host = new RustSidecarPtyHost({
