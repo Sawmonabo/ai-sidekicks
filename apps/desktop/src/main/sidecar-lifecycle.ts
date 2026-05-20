@@ -204,20 +204,27 @@ export interface SidecarLifecycleDeps {
  *      the next-iteration emit progresses past this handler. This is
  *      the canonical Electron pattern for async work in `will-quit` —
  *      see Electron's `will-quit` docs.
- *   3. Re-entry guard: the second emit of `will-quit` (triggered by
- *      our own `app.quit()` re-issue) MUST short-circuit so the
- *      downstream chain proceeds without another drain pass. A
- *      closure-local `drainCompleted` flag flips to `true` once the
- *      drain branch completes (in the `finally` block of the async
- *      IIFE, BEFORE `process.nextTick(app.quit)` re-issues the quit);
- *      subsequent emits return early without calling
- *      `event.preventDefault()`. The flag is NOT flipped on the
- *      null-host branch — that branch issues no quit and runs no
- *      drain, so there is no re-entry to guard against, and flipping
- *      it would permanently disable the handler if a peer listener
- *      `event.preventDefault()`s the first quit and the daemon's
- *      PtyHost gets provisioned before the next quit attempt. See the
- *      module-level re-entry-guard comment for the load-bearing
+ *   3. Re-entry guard (one-shot, consumed-on-next-emit): the second
+ *      emit of `will-quit` (triggered by our own `app.quit()`
+ *      re-issue) MUST short-circuit so the downstream chain proceeds
+ *      without another drain pass. A closure-local `drainCompleted`
+ *      flag flips to `true` once the drain branch completes (in the
+ *      `finally` block of the async IIFE, BEFORE
+ *      `process.nextTick(app.quit)` re-issues the quit). The very
+ *      next `will-quit` emit observes `drainCompleted === true`,
+ *      CLEARS it back to `false`, and returns without calling
+ *      `event.preventDefault()`. The clear-on-consume shape matters:
+ *      if a peer `will-quit` listener `event.preventDefault()`s the
+ *      re-issued quit (e.g., unsaved-work prompt), the app stays
+ *      alive with `drainCompleted === false`, so any future quit
+ *      attempt re-enters the drain path — which is safe because
+ *      `PtyHost.shutdown()` is memoized (returns the cached
+ *      `DrainResult` on every subsequent call). Without the
+ *      clear-on-consume, the handler would be permanently disabled
+ *      after the first drain completes — live PTY sessions could
+ *      outlive teardown on any re-attempted quit. The flag is also
+ *      NOT flipped on the null-host branch (which runs no drain and
+ *      issues no quit) — see the in-function comment block for that
  *      rationale.
  *
  * Backend polymorphism: the handler calls `shutdown()` on the
@@ -244,24 +251,48 @@ export function registerSidecarLifecycle(
   const logger: Pick<Console, "warn" | "error" | "info"> = deps.logger ?? console;
   const hardCapMs: number = deps.hardCapMs ?? HARD_QUIT_CAP_MS;
 
-  // Closure-local guard: flips to `true` only inside the async drain
-  // branch's `finally` (BEFORE the `process.nextTick(app.quit)`
-  // re-issue), so the second `app.quit()` issued from that re-issue
-  // does NOT trigger another drain pass. The null-host branch does
-  // NOT flip this — that branch issues no quit and runs no drain, so
-  // there is no re-entry to guard against; flipping it there would
-  // permanently disable the handler across the full app lifetime,
-  // even if a peer `will-quit` listener `event.preventDefault()`s the
-  // first quit and the daemon's PtyHost gets provisioned before the
-  // next quit attempt. See module-level re-entry-guard comment for
-  // the Electron-docs citation that motivates this pattern.
+  // Closure-local one-shot guard for the canonical re-entry case:
+  // the async-drain branch's `finally` flips `drainCompleted = true`
+  // BEFORE `process.nextTick(app.quit)` re-issues the quit, then the
+  // next `will-quit` emit observes the flag, CLEARS it back to
+  // `false`, and returns without `event.preventDefault()` — letting
+  // Electron's quit chain proceed past us exactly once.
+  //
+  // Clear-on-consume (NOT permanent latch): a downstream peer
+  // `will-quit` listener may `event.preventDefault()` the re-issued
+  // quit (e.g., unsaved-work confirmation, mid-frame asset flush);
+  // in that case the app stays alive and our flag is already cleared,
+  // so any future quit attempt re-enters the drain path. Re-entry is
+  // safe because `PtyHost.shutdown()` is memoized — both
+  // `NodePtyHost.shutdownPromise` and `RustSidecarPtyHost`'s
+  // equivalent return the cached `DrainResult` on every subsequent
+  // call (see the `shutdown()` jsdoc on each host for the
+  // single-use-instance contract). Without clear-on-consume, a
+  // canceled re-quit would permanently disable the drain protocol:
+  // any later quit would short-circuit at the top guard without
+  // calling `ptyHost.shutdown(...)`, and `PtyHost.shutdown` is
+  // terminal (the `shuttingDown` gate in `spawn`/`ensureChild`
+  // rejects new sessions), so the user would be stranded with a
+  // live app whose terminal sessions are dead. The null-host branch
+  // also does NOT flip this flag — see the in-function comment
+  // there for the bootstrap-window rationale.
   let drainCompleted = false;
 
   app.on("will-quit", (event) => {
     if (drainCompleted) {
-      // Re-entry from the post-drain `app.quit()` re-issue. Let
-      // Electron's quit chain proceed past our handler — no
-      // preventDefault, no shutdown call, no re-issued quit.
+      // Re-entry from the post-drain `process.nextTick(app.quit)`
+      // re-issue. Clear the flag (one-shot, consumed-on-this-emit)
+      // BEFORE returning so that if a downstream peer `will-quit`
+      // listener `event.preventDefault()`s this re-issued quit, the
+      // next quit attempt re-enters the drain path. Re-entry is safe
+      // because `PtyHost.shutdown()` is memoized (returns cached
+      // `DrainResult`). Without the clear, a canceled re-quit would
+      // permanently disable the handler — future quits would skip
+      // `ptyHost.shutdown(...)` and live PTY sessions could outlive
+      // teardown. No `event.preventDefault()`, no shutdown call, no
+      // re-issued quit on this branch — Electron's quit chain
+      // proceeds past us exactly once per drain cycle.
+      drainCompleted = false;
       return;
     }
 

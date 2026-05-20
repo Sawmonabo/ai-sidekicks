@@ -474,6 +474,142 @@ describe("registerSidecarLifecycle — Plan-001 CP-001-1 / Plan-024 I-024-4", ()
     expect(getterCalls).toBe(2);
   });
 
+  it("re-enters drain path on subsequent will-quit emits after a peer listener cancels the re-issued quit (drainCompleted is a one-shot, not a permanent latch)", async () => {
+    // Bug pin (Codex P1 on PR #83 commit 10043ea): the closure-local
+    // `drainCompleted` flag was a permanent latch — set to `true` in
+    // the async-drain `finally` and never cleared. If any peer
+    // `will-quit` listener `event.preventDefault()`s the re-issued
+    // `app.quit()` (e.g., unsaved-work prompt, mid-frame asset flush),
+    // the app keeps running but our handler is permanently disabled:
+    // the re-entry check at the top of the listener short-circuits
+    // forever, so any future quit attempt skips the drain path
+    // entirely and live PTY sessions outlive teardown.
+    //
+    // Fix: clear `drainCompleted = false` on the re-entry branch
+    // (consumed-on-this-emit). Re-entry is safe because
+    // `PtyHost.shutdown()` is memoized on both `NodePtyHost`
+    // (`shutdownPromise` field) and `RustSidecarPtyHost` (equivalent
+    // memoization) — a second `shutdown()` call returns the cached
+    // `DrainResult` instantly.
+    //
+    // Failure trace this test discriminates:
+    //   1. Emit 1: user triggers quit. Our handler calls
+    //      `event.preventDefault()`, awaits the drain, flips
+    //      `drainCompleted = true`, and re-issues `app.quit()` from
+    //      `finally`.
+    //   2. Emit 2 (re-issued by the mock's `app.quit` synchronously
+    //      mirroring Electron's `will-quit` re-fire): our handler
+    //      observes `drainCompleted === true`, clears it, returns
+    //      without `preventDefault`. A peer listener
+    //      `event.preventDefault()`s emit 2 — Electron aborts the
+    //      quit chain.
+    //   3. Emit 3: user retries quit later. Our handler observes
+    //      `drainCompleted === false` (cleared on emit 2) and
+    //      re-enters the drain path. Without the clear, our handler
+    //      would short-circuit at the top guard and `shutdown` would
+    //      never be called a second time — the discriminating
+    //      assertion is `shutdownMock` call count after emit 3.
+    //
+    // One-off inline app fake: this test needs `app.quit()` to
+    // synchronously re-emit `will-quit` (matching Electron's
+    // behavior). Other tests in this file rely on `quit` being a
+    // passive `vi.fn()` spy, so we build the fake inline rather than
+    // mutating `makeFakeApp()`.
+    const ee = new EventEmitter();
+    let emitCount = 0;
+    function emitWillQuit(): { defaultPrevented: boolean } {
+      emitCount += 1;
+      let defaultPrevented = false;
+      const event: { preventDefault: () => void } = {
+        preventDefault: () => {
+          defaultPrevented = true;
+        },
+      };
+      ee.emit("will-quit", event);
+      return { defaultPrevented };
+    }
+    // `app.quit` synchronously emits `will-quit` — mirrors Electron's
+    // re-fire behavior when `app.quit()` is called from inside a
+    // will-quit handler (per
+    // https://www.electronjs.org/docs/latest/api/app#appquit).
+    const quit = vi.fn(() => {
+      emitWillQuit();
+    });
+    const app = Object.assign(ee, { quit }) as unknown as import("electron").App;
+
+    const { host, shutdown: shutdownMock } = makeFakePtyHost();
+    const getPtyHost: PtyHostGetter = () => host;
+
+    // Register the sidecar lifecycle FIRST (FIFO position 0).
+    registerSidecarLifecycle(app, getPtyHost);
+
+    // Peer `will-quit` listener registered AFTER (FIFO position 1).
+    // It cancels ONLY the re-issued quit (the second emit) — a
+    // realistic scenario: an unsaved-work confirmation dialog that
+    // intervenes after the drain has already completed.
+    let peerCalls = 0;
+    const peerPreventedOn: number[] = [];
+    ee.on("will-quit", (event) => {
+      peerCalls += 1;
+      if (peerCalls === 2) {
+        event.preventDefault();
+        peerPreventedOn.push(peerCalls);
+      }
+    });
+
+    // --- Emit 1: user triggers quit ----------------------------------
+    const first = emitWillQuit();
+    expect(first.defaultPrevented).toBe(true); // our handler intercepted
+    expect(emitCount).toBe(1);
+
+    // Flush the async drain IIFE. The `finally` block flips
+    // `drainCompleted = true`, schedules `process.nextTick(app.quit)`,
+    // and on the nextTick the mock's `app.quit` synchronously emits
+    // `will-quit` (= emit 2). During that synchronous emit 2 our
+    // handler observes the flag, clears it, returns; the peer
+    // listener then runs (call #2) and `preventDefault`s. By the time
+    // this flush resolves, both emit 1 and emit 2 have happened.
+    await flushAsyncQuitChain();
+
+    expect(emitCount).toBe(2); // emit 2 was re-issued from `finally`
+    expect(shutdownMock).toHaveBeenCalledTimes(1);
+    expect(shutdownMock).toHaveBeenCalledWith({
+      perSessionTimeoutMs: 2_000,
+      hostTimeoutMs: 2_000,
+    });
+    expect(quit).toHaveBeenCalledTimes(1); // single re-issue from `finally`
+    expect(peerCalls).toBe(2); // peer saw emit 1 and emit 2
+    expect(peerPreventedOn).toStrictEqual([2]); // peer cancelled emit 2
+
+    // --- Emit 3: user retries quit later -----------------------------
+    // The peer cancelled emit 2, so the app is still alive. Our
+    // handler must re-enter the drain path because `drainCompleted`
+    // was cleared on emit 2's re-entry branch.
+    const third = emitWillQuit();
+    expect(third.defaultPrevented).toBe(true); // re-entered drain — preventDefault again
+    expect(emitCount).toBe(3);
+
+    await flushAsyncQuitChain();
+
+    // The discriminating assertion: a second `shutdown` call proves
+    // emit 3 re-entered the drain path. Without the
+    // `drainCompleted = false` clear at the re-entry branch, our
+    // handler would short-circuit at the top guard and `shutdownMock`
+    // would still be at 1. `PtyHost.shutdown()` memoization (both
+    // `NodePtyHost.shutdownPromise` and `RustSidecarPtyHost`'s
+    // equivalent) makes the second call cheap — returns the cached
+    // `DrainResult` instantly — so re-entry is safe by construction.
+    expect(shutdownMock).toHaveBeenCalledTimes(2);
+    // emit 4 was re-issued from emit 3's `finally`, bringing emit
+    // count to 4 and `app.quit` invocations to 2.
+    expect(emitCount).toBe(4);
+    expect(quit).toHaveBeenCalledTimes(2);
+    // The peer only `preventDefault`s on its second call — the
+    // counter has since advanced past that (call #4 on emit 4), so
+    // the second drain cycle proceeds unimpeded.
+    expect(peerPreventedOn).toStrictEqual([2]);
+  });
+
   // -- Hard wall-clock cap: runaway shutdown() must not block quit -------
 
   it("escalates to forced quit when PtyHost.shutdown() exceeds the hard wall-clock cap", async () => {
