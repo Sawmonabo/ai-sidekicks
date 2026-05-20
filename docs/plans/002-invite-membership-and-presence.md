@@ -170,7 +170,7 @@ The TDD test list below is enumerated and ordered by implementation dependency. 
 ### Verification
 
 - `pnpm turbo test` at workspace root green across all packages
-- Manual smoke: invite from one desktop client, accept from second client, verify roster + presence updates (after Phase 6 ships)
+- Manual smoke: single-client invite/accept smoke runs after Phase 6 ships (component tests + single-client smoke per Phase 6 §Goal). Full two-client end-to-end smoke (invite from one desktop client, accept from second client, verify roster + presence updates across both clients) is **deferred to Tier 8** per CP-002-5 — gated on the Plan-023 Tier 8 IPC dispatcher; tracked via Phase 6 task T6.4
 - All 22 enumerated tests above pass before Plan-002 is marked complete; renderer-step tests gate Phase 6 independently
 
 ## Implementation Phase Sequence
