@@ -35,6 +35,12 @@ import {
   RESOURCE_LABEL_MAX_LEN,
   RESOURCE_LIMIT_EXCEEDED_CODE,
   ResourceLimitExceededErrorSchema,
+  VERSION_CEILING_EXCEEDED_CODE,
+  VERSION_FLOOR_EXCEEDED_CODE,
+  VERSION_STRING_MAX_LEN,
+  VERSION_UPGRADE_PATH_MAX_LEN,
+  VersionCeilingExceededErrorSchema,
+  VersionFloorExceededErrorSchema,
 } from "../error.js";
 
 // `NUL` is a runtime-equivalent template-literal NUL byte for test fixtures.
@@ -355,5 +361,149 @@ describe("PtyBackendUnavailableSchema (Plan-024 §F-024-3-02 wire shape)", () =>
     const valid = { ...buildValidPtyError(), message: "x".repeat(ERROR_MESSAGE_MAX_LEN) };
     const result = PtyBackendUnavailableSchema.safeParse(valid);
     expect(result.success).toBe(true);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// VersionFloorExceededError + VersionCeilingExceededError (Plan-001 T2.3)
+// ----------------------------------------------------------------------------
+//
+// Floor and ceiling errors share `VersionBoundExceededDetails` — they are
+// the SAME shape with two different code literals (per ADR-018 §Decision
+// #10). The test suites here are deliberately parallel so a future
+// divergence (e.g. floor variant gaining an extra field) shows up as a
+// test-suite skew at PR review.
+
+const buildValidFloorError = () => ({
+  code: VERSION_FLOOR_EXCEEDED_CODE,
+  message: "Client protocol version 0.9 is below daemon's accepted floor 1.0.",
+  details: {
+    attemptedVersion: "0.9",
+    acceptedRange: { min: "1.0", max: "2.0" },
+    upgradePath: "Upgrade the client to 1.0 or higher: https://example.com/upgrade",
+  },
+});
+
+const buildValidCeilingError = () => ({
+  code: VERSION_CEILING_EXCEEDED_CODE,
+  message: "Client protocol version 3.0 is above daemon's accepted ceiling 2.0.",
+  details: {
+    attemptedVersion: "3.0",
+    acceptedRange: { min: "1.0", max: "2.0" },
+    upgradePath: "Downgrade the client to 2.0 or lower.",
+  },
+});
+
+describe("VersionFloorExceededErrorSchema", () => {
+  it("accepts the canonical floor-exceeded envelope round-trip", () => {
+    const valid = buildValidFloorError();
+    const parsed = VersionFloorExceededErrorSchema.parse(valid);
+    const serialized = JSON.stringify(parsed);
+    const reparsed = VersionFloorExceededErrorSchema.parse(JSON.parse(serialized));
+    expect(reparsed).toEqual(valid);
+  });
+
+  it("accepts the envelope without `upgradePath` (optional field)", () => {
+    const valid = buildValidFloorError();
+    delete (valid.details as { upgradePath?: string }).upgradePath;
+    const result = VersionFloorExceededErrorSchema.safeParse(valid);
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects a wrong `code` literal (ceiling code on floor schema)", () => {
+    const broken = { ...buildValidFloorError(), code: VERSION_CEILING_EXCEEDED_CODE };
+    const result = VersionFloorExceededErrorSchema.safeParse(broken);
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects an unrelated dotted-namespace code", () => {
+    const broken = { ...buildValidFloorError(), code: "version.something_else" as never };
+    const result = VersionFloorExceededErrorSchema.safeParse(broken);
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects an oversized `attemptedVersion`", () => {
+    const broken = buildValidFloorError();
+    broken.details.attemptedVersion = "x".repeat(VERSION_STRING_MAX_LEN + 1);
+    const result = VersionFloorExceededErrorSchema.safeParse(broken);
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a whitespace-only `attemptedVersion`", () => {
+    const broken = buildValidFloorError();
+    broken.details.attemptedVersion = "   ";
+    const result = VersionFloorExceededErrorSchema.safeParse(broken);
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects an oversized `upgradePath`", () => {
+    const broken = buildValidFloorError();
+    broken.details.upgradePath = "x".repeat(VERSION_UPGRADE_PATH_MAX_LEN + 1);
+    const result = VersionFloorExceededErrorSchema.safeParse(broken);
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects an unknown top-level key (strict mode)", () => {
+    const broken = { ...buildValidFloorError(), extra: "rejected" };
+    const result = VersionFloorExceededErrorSchema.safeParse(broken);
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects an unknown details key (strict mode)", () => {
+    const broken = buildValidFloorError();
+    (broken.details as { extra?: string }).extra = "rejected";
+    const result = VersionFloorExceededErrorSchema.safeParse(broken);
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects an unknown acceptedRange key (strict mode)", () => {
+    const broken = buildValidFloorError();
+    (broken.details.acceptedRange as { extra?: string }).extra = "rejected";
+    const result = VersionFloorExceededErrorSchema.safeParse(broken);
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a missing `acceptedRange.min`", () => {
+    const broken = buildValidFloorError();
+    delete (broken.details.acceptedRange as Partial<typeof broken.details.acceptedRange>).min;
+    const result = VersionFloorExceededErrorSchema.safeParse(broken);
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts boundary lengths (attemptedVersion + upgradePath at cap)", () => {
+    const valid = buildValidFloorError();
+    valid.details.attemptedVersion = "x".repeat(VERSION_STRING_MAX_LEN);
+    valid.details.upgradePath = "y".repeat(VERSION_UPGRADE_PATH_MAX_LEN);
+    const result = VersionFloorExceededErrorSchema.safeParse(valid);
+    expect(result.success).toBe(true);
+  });
+});
+
+describe("VersionCeilingExceededErrorSchema", () => {
+  it("accepts the canonical ceiling-exceeded envelope round-trip", () => {
+    const valid = buildValidCeilingError();
+    const parsed = VersionCeilingExceededErrorSchema.parse(valid);
+    const serialized = JSON.stringify(parsed);
+    const reparsed = VersionCeilingExceededErrorSchema.parse(JSON.parse(serialized));
+    expect(reparsed).toEqual(valid);
+  });
+
+  it("rejects a wrong `code` literal (floor code on ceiling schema)", () => {
+    const broken = { ...buildValidCeilingError(), code: VERSION_FLOOR_EXCEEDED_CODE };
+    const result = VersionCeilingExceededErrorSchema.safeParse(broken);
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects an oversized `acceptedRange.max`", () => {
+    const broken = buildValidCeilingError();
+    broken.details.acceptedRange.max = "x".repeat(VERSION_STRING_MAX_LEN + 1);
+    const result = VersionCeilingExceededErrorSchema.safeParse(broken);
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects NUL-byte in `message`", () => {
+    const broken = { ...buildValidCeilingError(), message: `bad${NUL}message` };
+    const result = VersionCeilingExceededErrorSchema.safeParse(broken);
+    expect(result.success).toBe(false);
   });
 });
