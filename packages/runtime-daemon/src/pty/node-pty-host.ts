@@ -56,7 +56,16 @@
 
 import { randomUUID } from "node:crypto";
 
-import type { PtyHost, PtySignal, SpawnRequest, SpawnResponse } from "@ai-sidekicks/contracts";
+import type {
+  DrainResult,
+  PtyHost,
+  PtySignal,
+  SpawnRequest,
+  SpawnResponse,
+} from "@ai-sidekicks/contracts";
+
+import { PtyBackendUnavailableError } from "./rust-sidecar-pty-host.js";
+import { defaultSpawnTaskkill, type TaskkillResult } from "./taskkill-windows.js";
 
 // --------------------------------------------------------------------------
 // `node-pty` minimal type surface
@@ -128,11 +137,13 @@ export type NodePtySpawnFn = (
 /** Windows console-control event codes per Win32 `GenerateConsoleCtrlEvent`. */
 export type ConsoleCtrlEvent = 0 | 1; // CTRL_C_EVENT | CTRL_BREAK_EVENT
 
-/** Result of a `taskkill` invocation. */
-export interface TaskkillResult {
-  /** Exit code of the `taskkill` process, or `null` if killed by signal. */
-  readonly exitCode: number | null;
-}
+// `TaskkillResult` (interface) + `defaultSpawnTaskkill` (function) moved
+// to `./taskkill-windows.ts` so the rust-sidecar backend can share the
+// same OS-level primitive without cross-importing this file. Re-exported
+// here as a `type` to preserve the public surface for downstream test
+// imports (`node-pty-host.tree-kill.test.ts`, `node-pty-host.shutdown.test.ts`,
+// `node-pty-host.kill-translation.test.ts`).
+export type { TaskkillResult };
 
 /**
  * Effectful primitives that `NodePtyHost` reaches through. Every field
@@ -212,6 +223,32 @@ interface SessionRecord {
   signalCode: number | undefined;
   /** Pending escalation timer, if `SIGTERM` is mid-flight on Windows. */
   pendingEscalation: NodeJS.Timeout | null;
+  /**
+   * `true` once `invokeTaskkill` has committed to the forced-kill
+   * escalation for this session (Windows taskkill cascade). Set inside
+   * `invokeTaskkill` AFTER the race-safe re-check inside the
+   * SIGTERM-armed escalation timer has gated us past the "child exited
+   * naturally before escalation" case — see `invokeTaskkill`'s
+   * commitment-point comment for the ordering rationale.
+   *
+   * Drives the DrainResult misclassification fix (P2 Codex finding on
+   * PR #83 thread `PRRT_kwDOSCycWc6DZEKP`): `drainSingleSession`
+   * previously routed Windows taskkill-escalated exits through
+   * `sessionsDrained` because the child.onExit subscription resolved
+   * the drainWaiter at L569 with no signal-channel to distinguish "the
+   * child exited gracefully on CTRL_BREAK" from "the 2s internal
+   * escalation timer fired taskkill, child died via taskkill, and
+   * onExit reported the kill". The `escalated` flag is the
+   * signal-channel: the `notifyShutdownWaiter` call at L569 reads
+   * `record.escalated` to resolve the drainWaiter with `"forced"`
+   * rather than `"drained"` when the SIGTERM escalation fired.
+   *
+   * Defaults to `false` at construction; flipped only inside
+   * `invokeTaskkill` (the sole commitment point). Never reset — once
+   * a session has been taskkill-escalated, the outcome is permanent
+   * for that session's drain accounting.
+   */
+  escalated: boolean;
 }
 
 // --------------------------------------------------------------------------
@@ -351,61 +388,10 @@ async function loadGenerateConsoleCtrlEvent(): Promise<
   };
 }
 
-/**
- * Spawn `taskkill /T /F /PID <pid>` and resolve with its exit-code.
- *
- * Uses `node:child_process` directly — no FFI involved. The /T flag
- * walks the descendant tree (the load-bearing piece for I-024-2); /F
- * forces termination of processes that ignore graceful signals.
- */
-async function defaultSpawnTaskkill(pid: number): Promise<TaskkillResult> {
-  // No `process.platform` guard here (R2 review POLISH-1): see the
-  // matching note in `loadGenerateConsoleCtrlEvent` above. Tests
-  // inject `spawnTaskkill` directly; the production Windows path
-  // never reaches this loader on non-Windows because the host's
-  // `killOnWindows` is gated on `deps.platform === "win32"`.
-  // Dynamic import so `node:child_process` is only paid for on the
-  // Windows path. Static `import` would be fine too — keeping the
-  // lazy-import pattern uniform with the other Windows-only loads.
-  //
-  // Wall-clock bounding for I-024-2 is enforced by the *caller*
-  // (`NodePtyHost.invokeTaskkill`), not here — see R2 review
-  // POLISH-4. Centralizing the timeout in the host means it applies
-  // regardless of which `spawnTaskkill` implementation (injected
-  // mock vs default loader) is in play, so the invariant is locally
-  // enforced and the matching regression test in
-  // `tree-kill.test.ts` can inject a never-resolving mock and still
-  // observe the synthetic onExit fire on schedule.
-  const cp: typeof import("node:child_process") = await import("node:child_process");
-  return await new Promise<TaskkillResult>((resolve) => {
-    const proc = cp.spawn("taskkill", ["/T", "/F", "/PID", String(pid)], {
-      stdio: "ignore",
-    });
-    proc.once("exit", (code: number | null) => {
-      resolve({ exitCode: code });
-    });
-    proc.once("error", (err: Error) => {
-      // `taskkill` itself failed to spawn (binary missing? PATH issue?).
-      // Treat as a non-zero outcome but still resolve so the kill path
-      // continues — `onExit` MUST fire per I-024-2.
-      //
-      // R3 review POLISH-2: surface the cause to operators. Without
-      // this breadcrumb a persistent misconfig (missing taskkill.exe,
-      // PATH stripped, AV-blocked binary) is indistinguishable from a
-      // healthy synthetic-exit fire from logs alone. `console.warn` is
-      // the interim primitive until Plan-001 ships a centralized
-      // daemon-logger; both call sites can be migrated then.
-      // TRIPWIRE: replace `console.warn` once a structured logger
-      // surfaces in the runtime-daemon.
-      console.warn(
-        `NodePtyHost: defaultSpawnTaskkill: taskkill spawn failed for pid=${pid}; ` +
-          `treating as exit=null so caller can fire synthetic exit.`,
-        { cause: err },
-      );
-      resolve({ exitCode: null });
-    });
-  });
-}
+// `defaultSpawnTaskkill` lives at `./taskkill-windows.ts` so the
+// rust-sidecar backend can share the same OS-level primitive (Plan-001
+// §CP-001-1 + Plan-024 §I-024-2). Imported above; the lazy-import
+// pattern for `node:child_process` is preserved inside that module.
 
 // --------------------------------------------------------------------------
 // `NodePtyHost` class
@@ -446,6 +432,56 @@ export class NodePtyHost implements PtyHost {
     () => {};
 
   /**
+   * Memoized `shutdown()` Promise. Mirrors `inflightSpawn` in
+   * `RustSidecarPtyHost` — a second `shutdown()` call awaits the same
+   * in-flight result rather than re-initiating a drain. Once resolved,
+   * the field stays populated; the instance is terminal after shutdown
+   * per the `PtyHost.shutdown` contract surface.
+   */
+  private shutdownPromise: Promise<DrainResult> | null = null;
+
+  /**
+   * `true` once `shutdown()` has been invoked — flips at entry so any
+   * concurrent (or post-resolution) `spawn()` rejects with
+   * `PtyBackendUnavailableError` rather than registering a session that
+   * would escape the `activeSessionIds` snapshot taken by `runShutdown`.
+   *
+   * The host instance is single-use post-shutdown per the
+   * `PtyHost.shutdown` contract surface — consumers MUST re-create a
+   * fresh host if a new session is needed after shutdown. Mirrors the
+   * equivalently-named flag in `RustSidecarPtyHost` (which gates
+   * `ensureChild` for the same terminal-host obligation).
+   */
+  private shuttingDown: boolean = false;
+
+  /**
+   * Per-session drain-completion resolvers populated at `shutdown()`
+   * entry. The `child.onExit` subscription set up in `spawn()` cannot
+   * see these directly — instead `shutdown()` installs its own
+   * one-shot `onExit` subscription per session that resolves the
+   * matching waiter without disturbing the original subscription
+   * (whose write-once cache discipline must hold). Cleared in a
+   * `finally` per session so the map does not retain references to
+   * resolved-or-timed-out sessions.
+   *
+   * The resolver carries the per-session drain outcome (`"drained"`
+   * vs `"forced"`) so the Windows taskkill-escalation path can
+   * distinguish a natural CTRL_BREAK-driven exit from a forced
+   * taskkill exit — Codex P2 (PR #83 thread `PRRT_kwDOSCycWc6DZEKP`):
+   * without this signal-channel, a SIGTERM escalation that fires the
+   * 2s internal taskkill timer would resolve the drainWaiter via the
+   * child.onExit subscription and be miscounted as `sessionsDrained`
+   * even though the child was force-killed by taskkill. The closure
+   * pass at L556 / L569 / L1155 in node-pty-host.ts is the
+   * commitment-point pattern recommended by the advisor: read
+   * `record.escalated` (the captured `SessionRecord` reference from
+   * `spawn()`) rather than the live `this.sessions` Map, so the
+   * resolver sees a consistent snapshot regardless of a concurrent
+   * `close()` or session-deletion.
+   */
+  private readonly shutdownWaiters: Map<string, (result: "drained" | "forced") => void> = new Map();
+
+  /**
    * @param deps Optional injected deps. Production callers pass nothing;
    *   tests inject the full record. Partial deps merge with defaults so
    *   a test that needs only `platform` + `generateConsoleCtrlEvent`
@@ -458,7 +494,53 @@ export class NodePtyHost implements PtyHost {
   // ---- PtyHost methods --------------------------------------------------
 
   public async spawn(spec: SpawnRequest): Promise<SpawnResponse> {
+    if (this.shuttingDown) {
+      // Plan-001 §CP-001-1 sidecar-lifecycle drain: once `shutdown()`
+      // has flipped this flag, the host is terminal — refuse new spawn
+      // paths so a concurrent `spawn()` cannot register a session that
+      // escapes the `activeSessionIds` snapshot in `runShutdown` and
+      // leaves an orphaned PTY child running past `shutdown()`
+      // resolution. The `PtyHost.shutdown` contract surface declares
+      // the host single-use post-shutdown; consumers MUST re-create a
+      // fresh host if a new session is needed after shutdown.
+      throw new PtyBackendUnavailableError(
+        { attemptedBackend: "node-pty" },
+        "NodePtyHost: shutdown() in progress or complete; " +
+          "the host is terminal — re-create a fresh instance for new sessions.",
+      );
+    }
     const ptySpawn: NodePtySpawnFn = await this.resolvePtySpawn();
+    if (this.shuttingDown) {
+      // Post-await race guard (Plan-001 §CP-001-1).
+      //
+      // The top-of-method gate above closes the case where `shutdown()`
+      // started BEFORE this `spawn()` call entered the method. This
+      // re-check closes the mid-flight case: `shutdown()` may have
+      // flipped `this.shuttingDown` while we were awaiting
+      // `resolvePtySpawn()`, in which case the snapshot taken inside
+      // `runShutdown()` did NOT include the session we are about to
+      // register. Without this guard, `ptySpawn(...)` would create a
+      // PTY child, `this.sessions.set(...)` would register it, and the
+      // child would escape the drain — the orphan condition the
+      // `PtyHost.shutdown` contract surface forbids.
+      //
+      // Reject BEFORE invoking `ptySpawn(...)` so no orphan child
+      // process is created; the session was never registered, so no
+      // cleanup is needed. The error shape mirrors the entry-time
+      // rejection (byte-identical `PtyBackendUnavailableError` shape +
+      // `attemptedBackend: "node-pty"`) so consumers that
+      // `instanceof`-check + read `details.attemptedBackend` see
+      // uniform behavior regardless of where in `spawn()` the race
+      // landed. Mirrors `RustSidecarPtyHost`'s `resolveOutstanding`
+      // spawn_response re-check (the sister-backend precedent), which
+      // closes the structurally-equivalent in-flight race on the
+      // out-of-process backend.
+      throw new PtyBackendUnavailableError(
+        { attemptedBackend: "node-pty" },
+        "NodePtyHost: shutdown() in progress or complete; " +
+          "the host is terminal — re-create a fresh instance for new sessions.",
+      );
+    }
     const env: Record<string, string> = envTuplesToRecord(spec.env);
 
     const child: NodePtyChild = ptySpawn(spec.command, spec.args, {
@@ -482,6 +564,7 @@ export class NodePtyHost implements PtyHost {
       exitCode: null,
       signalCode: undefined,
       pendingEscalation: null,
+      escalated: false,
     };
 
     record.subscriptions.push(
@@ -508,6 +591,16 @@ export class NodePtyHost implements PtyHost {
         // idempotency assertion and conflates the synthetic vs OS
         // exit channels.
         if (record.exitCode !== null) {
+          // Resolve any active shutdown waiter even on the de-dupe
+          // path so a `shutdown()` issued during an in-flight
+          // synthetic-exit emission (Windows SIGKILL escalation) still
+          // ticks the per-session drain budget. The de-dupe branch is
+          // reached only AFTER `invokeTaskkill` already fired the
+          // synthetic exit + flipped `record.escalated = true`, so we
+          // know unconditionally the outcome is `"forced"` — see the
+          // Codex P2 (PR #83 thread `PRRT_kwDOSCycWc6DZEKP`) +
+          // `notifyShutdownWaiter` call-site discipline rustdoc.
+          this.notifyShutdownWaiter(sessionId, "forced");
           return;
         }
         // Cache for idempotency: a subsequent `kill()` MUST re-emit
@@ -515,6 +608,27 @@ export class NodePtyHost implements PtyHost {
         record.exitCode = event.exitCode;
         record.signalCode = event.signal;
         this.fireExit(sessionId, event.exitCode, event.signal);
+        // Plan-001 §CP-001-1 sidecar-lifecycle drain: a `shutdown()`
+        // call waiting on this session's exit picks up here, after the
+        // record's exit-cache is populated. Ordering matches the
+        // `fireExit` call so a listener-observed exit precedes the
+        // drain-completion signal.
+        //
+        // Outcome is `record.escalated ? "forced" : "drained"` — Codex
+        // P2 (PR #83 thread `PRRT_kwDOSCycWc6DZEKP`): on Windows, the
+        // 2s SIGTERM-escalation timer in `killOnWindows` can fire
+        // taskkill BEFORE `perSessionTimeoutMs` elapses (when
+        // `perSessionTimeoutMs >= 2000` and the child ignores
+        // CTRL_BREAK_EVENT). The taskkill cascade kills the child, the
+        // OS reaps it, the child.onExit subscription fires here, and
+        // the drainWaiter wins the Promise.race vs `timeoutPromise` in
+        // `drainSingleSession`. Without the `escalated` signal-channel
+        // the outcome would be miscounted as `sessionsDrained` despite
+        // the child being force-killed. Read the closure-captured
+        // `record` (advisor-pinned: NOT a `this.sessions.get(sessionId)`
+        // lookup) so the resolver sees a consistent snapshot regardless
+        // of a concurrent `close()` / session-deletion.
+        this.notifyShutdownWaiter(sessionId, record.escalated ? "forced" : "drained");
       }),
     );
 
@@ -658,6 +772,229 @@ export class NodePtyHost implements PtyHost {
     }
     this.sessions.delete(sessionId);
     return await Promise.resolve();
+  }
+
+  /**
+   * Drain every active session in preparation for daemon shutdown.
+   *
+   * Per the `PtyHost.shutdown` contract surface, this is the
+   * polymorphic counterpart to `close(sessionId)` for the lifecycle
+   * level above the per-session axis. The in-process backend has no
+   * sidecar to wind down, so `hostTimeoutMs` is ignored and the host
+   * fields of the returned `DrainResult` are vacuous
+   * (`sidecarExitedCleanly: true`, `taskkillEscalated: false`).
+   *
+   * Per-session drain shape:
+   *   1. Snapshot the active session ids (sessions that already
+   *      exited do not contribute to either counter).
+   *   2. Install a one-shot drain waiter per session — a Promise that
+   *      resolves when the session's `child.onExit` subscription set
+   *      up in `spawn()` fires (whose write-once cache the waiter
+   *      observes after the fact).
+   *   3. Issue a graceful kill (`SIGTERM`) via the production `kill()`
+   *      path — on Windows this translates to `CTRL_BREAK_EVENT` with
+   *      a 2 s escalation timer; on POSIX it delegates to
+   *      `node-pty.kill('SIGTERM')`.
+   *   4. Wait up to `perSessionTimeoutMs` for the waiter — if the
+   *      timeout fires first, escalate to `SIGKILL` (which on Windows
+   *      invokes `taskkill /T /F /PID <pid>` directly per
+   *      `killOnWindows`) and count the session under
+   *      `sessionsForcedKilled`. Otherwise count under
+   *      `sessionsDrained`.
+   *
+   * Re-entrancy: a second `shutdown()` call returns the in-flight
+   * Promise rather than initiating a second drain. Once resolved the
+   * field stays populated — the instance is terminal post-shutdown.
+   *
+   * Terminal-host gate: once `shutdown()` has been invoked, `spawn()`
+   * rejects with `PtyBackendUnavailableError` (`attemptedBackend:
+   * "node-pty"`) per the `PtyHost.shutdown` contract surface, so a
+   * concurrent or post-resolution `spawn()` cannot register a session
+   * that escapes the `activeSessionIds` snapshot taken at the start of
+   * the drain.
+   */
+  public shutdown(options: {
+    readonly perSessionTimeoutMs: number;
+    readonly hostTimeoutMs: number;
+  }): Promise<DrainResult> {
+    if (this.shutdownPromise !== null) {
+      return this.shutdownPromise;
+    }
+    // Non-async wrapper so a second call returns the SAME Promise
+    // identity (an `async` wrapper would wrap the memoized inner
+    // Promise in a fresh outer Promise on each invocation — see
+    // Plan-001 §CP-001-1 re-entrancy clause).
+    this.shutdownPromise = this.runShutdown(options);
+    return this.shutdownPromise;
+  }
+
+  private async runShutdown(options: {
+    readonly perSessionTimeoutMs: number;
+    readonly hostTimeoutMs: number;
+  }): Promise<DrainResult> {
+    // `hostTimeoutMs` is part of the contract surface for backend
+    // polymorphism — `RustSidecarPtyHost` uses it to bound the sidecar
+    // stdin-close + child-wait. The in-process backend has no sidecar,
+    // so the budget is unused here.
+    void options.hostTimeoutMs;
+
+    // Flip the shutdown flag FIRST — synchronously, before the
+    // `activeSessionIds` snapshot — so any `spawn()` racing the start
+    // of shutdown observes the flag at its top-of-method gate and
+    // rejects, rather than registering a session that would escape
+    // the snapshot. This single-direction flag stays `true` for the
+    // life of the instance per the terminal-host contract surface.
+    this.shuttingDown = true;
+
+    const activeSessionIds: string[] = Array.from(this.sessions.keys()).filter((sessionId) => {
+      const record: SessionRecord | undefined = this.sessions.get(sessionId);
+      return record !== undefined && record.exitCode === null;
+    });
+
+    const perSessionOutcomes: Array<"drained" | "forced"> = await Promise.all(
+      activeSessionIds.map((sessionId) =>
+        this.drainSingleSession(sessionId, options.perSessionTimeoutMs),
+      ),
+    );
+
+    let sessionsDrained = 0;
+    let sessionsForcedKilled = 0;
+    for (const outcome of perSessionOutcomes) {
+      if (outcome === "drained") {
+        sessionsDrained++;
+      } else {
+        sessionsForcedKilled++;
+      }
+    }
+
+    return {
+      sessionsDrained,
+      sessionsForcedKilled,
+      // Vacuous: no sidecar process to drain in the in-process backend.
+      sidecarExitedCleanly: true,
+      taskkillEscalated: false,
+    };
+  }
+
+  /**
+   * Drain one session: install a waiter, issue `SIGTERM`, wait up to
+   * `timeoutMs`, escalate to `SIGKILL` on timeout. Returns the outcome
+   * label that the caller folds into `DrainResult` counters.
+   *
+   * The waiter is checked AFTER the kill is dispatched (race-safe):
+   * the `child.onExit` subscription set up in `spawn()` fires via
+   * `record.exitCode = ...` first; the shutdown waiter is invoked
+   * downstream via `notifyShutdownWaiter`. If the session has already
+   * exited at shutdown entry (`record.exitCode !== null` — caller
+   * filtered these out via `activeSessionIds`), this path is not
+   * reached.
+   */
+  private async drainSingleSession(
+    sessionId: string,
+    timeoutMs: number,
+  ): Promise<"drained" | "forced"> {
+    const drainWaiter: Promise<"drained" | "forced"> = new Promise<"drained" | "forced">(
+      (resolve) => {
+        this.shutdownWaiters.set(sessionId, resolve);
+      },
+    );
+
+    try {
+      // Issue graceful kill via the production `kill()` path so Windows
+      // kill-translation (CTRL_BREAK_EVENT + escalation, I-024-1) and
+      // POSIX behavior stay in one place. SIGTERM is the canonical
+      // graceful signal per Plan-024 §Implementation Steps 8.
+      try {
+        await this.kill(sessionId, "SIGTERM");
+      } catch {
+        // Swallow — `kill()` may throw on an already-exited session
+        // mid-flight (unknown sessionId path). The waiter still
+        // resolves via the child.onExit subscription regardless.
+      }
+
+      // Race the per-session drain waiter against a timer budgeted at
+      // `timeoutMs`. The injected `setTimer` / `clearTimer` honor
+      // `vi.useFakeTimers()` so tests can advance simulated time
+      // deterministically without wall-clock waits.
+      let timeoutHandle: NodeJS.Timeout | null = null;
+      const timeoutPromise: Promise<"timeout"> = new Promise<"timeout">((resolve) => {
+        timeoutHandle = this.deps.setTimer(() => {
+          resolve("timeout");
+        }, timeoutMs);
+      });
+
+      // The drain waiter now carries its own outcome (Codex P2 fix on
+      // PR #83 thread `PRRT_kwDOSCycWc6DZEKP`): the spawn-time
+      // child.onExit subscription resolves with `record.escalated ?
+      // "forced" : "drained"`, and `invokeTaskkill`'s synthetic-exit
+      // path resolves with `"forced"`. The Promise.race therefore
+      // observes the resolver's truth directly — no separate
+      // post-await query against the SessionRecord is needed.
+      const outcome: "drained" | "forced" | "timeout" = await Promise.race([
+        drainWaiter,
+        timeoutPromise,
+      ]);
+
+      if (timeoutHandle !== null) {
+        this.deps.clearTimer(timeoutHandle);
+      }
+
+      if (outcome !== "timeout") {
+        // `outcome` is the resolver's truth: `"drained"` (natural
+        // CTRL_BREAK or POSIX SIGTERM exit) or `"forced"` (Windows
+        // 2 s SIGTERM-escalation taskkill fired and won the race vs
+        // `timeoutPromise`). Returning here preserves the per-session
+        // DrainResult contract on a Windows taskkill-escalation race —
+        // the prior shape unconditionally returned `"drained"` here,
+        // miscounting taskkill-killed sessions as gracefully drained.
+        return outcome;
+      }
+
+      // Timeout fired — escalate to SIGKILL. The kill-cascade contract
+      // is fire-and-forget; the synthetic exit emission (Windows) or
+      // child.onExit (POSIX) eventually resolves the drainWaiter, but
+      // shutdown does NOT block on that — it has already counted this
+      // session as "forced."
+      try {
+        await this.kill(sessionId, "SIGKILL");
+      } catch {
+        // Swallow — best-effort escalation.
+      }
+      return "forced";
+    } finally {
+      this.shutdownWaiters.delete(sessionId);
+    }
+  }
+
+  /**
+   * Resolve the per-session shutdown waiter (if any) when the
+   * underlying `child.onExit` subscription set up in `spawn()` fires.
+   * Called from the spawn-time exit subscription closure below; no-op
+   * when no shutdown is in flight.
+   *
+   * The `result` argument carries the drain outcome (`"drained"` vs
+   * `"forced"`). Call-site discipline (per the Codex P2 fix on PR #83
+   * thread `PRRT_kwDOSCycWc6DZEKP`):
+   *
+   *   * Inside `invokeTaskkill` (L1155 area): always pass `"forced"` —
+   *     we are inside the forced-kill commitment point.
+   *   * Inside the spawn-time `child.onExit` de-dupe branch
+   *     (L556 area): always pass `"forced"` — `invokeTaskkill` has
+   *     already set `record.escalated = true` and fired the synthetic
+   *     exit, so the consumer here is the de-dupe of that forced
+   *     exit.
+   *   * Inside the spawn-time `child.onExit` natural-exit branch
+   *     (L569 area): pass `record.escalated ? "forced" : "drained"` —
+   *     reads the closure-captured `SessionRecord` reference (NOT a
+   *     Map lookup) so the resolver is stable against concurrent
+   *     `close()` / session-deletion.
+   */
+  private notifyShutdownWaiter(sessionId: string, result: "drained" | "forced"): void {
+    const resolver: ((result: "drained" | "forced") => void) | undefined =
+      this.shutdownWaiters.get(sessionId);
+    if (resolver !== undefined) {
+      resolver(result);
+    }
   }
 
   // ---- PtyHost callback surface (settable by the daemon) ----------------
@@ -817,6 +1154,24 @@ export class NodePtyHost implements PtyHost {
     pid: number,
   ): Promise<void> {
     record.pendingEscalation = null;
+    // Commitment point for the Windows forced-kill escalation —
+    // Codex P2 (PR #83 thread `PRRT_kwDOSCycWc6DZEKP`). Set BEFORE
+    // the `spawnTaskkill` await so the closure-captured `record`
+    // observed by the spawn-time child.onExit subscription
+    // (notifyShutdownWaiter call at L569-area) reads `escalated ===
+    // true` regardless of when the OS reaps the child relative to
+    // this Promise settling.
+    //
+    // The two reachable callers — `killOnWindows`'s SIGKILL branch
+    // (direct hard-stop) and the SIGTERM-armed escalation timer's
+    // race-safe re-check at L1018-1021 area — have both gated past
+    // the "child exited naturally before escalation" case. The
+    // SIGKILL branch only enters here when the consumer chose
+    // hard-stop; the SIGTERM-timer branch's L1018 re-check
+    // (`if (record.exitCode !== null) { ...; return; }`) guarantees
+    // we are not racing a natural exit. So the flag flip here is
+    // unambiguous.
+    record.escalated = true;
     const spawnTaskkill = this.deps.spawnTaskkill ?? ((p: number) => defaultSpawnTaskkill(p));
 
     // R2 review POLISH-4: wall-clock-bound `spawnTaskkill` so a stuck
@@ -906,6 +1261,18 @@ export class NodePtyHost implements PtyHost {
       record.exitCode = 1;
       record.signalCode = undefined;
       this.fireExit(sessionId, 1, undefined);
+      // Plan-001 §CP-001-1: a Windows SIGKILL-escalation path may fire
+      // the synthetic exit while a `shutdown()` drain waiter is
+      // outstanding. Notify the waiter so the drain budget can resolve
+      // without depending on the underlying `child.onExit` arriving
+      // (which is best-effort per I-024-2).
+      //
+      // Outcome is unconditionally `"forced"` — we are inside
+      // `invokeTaskkill`, the sole commitment point for the Windows
+      // forced-kill cascade. See Codex P2 (PR #83 thread
+      // `PRRT_kwDOSCycWc6DZEKP`) + `notifyShutdownWaiter` call-site
+      // discipline rustdoc.
+      this.notifyShutdownWaiter(sessionId, "forced");
     }
   }
 }

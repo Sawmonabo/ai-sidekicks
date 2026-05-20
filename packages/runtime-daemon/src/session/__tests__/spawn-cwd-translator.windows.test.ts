@@ -30,7 +30,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { translateSpawnCwd } from "../spawn-cwd-translator.js";
 import type { TranslateSpawnCwdInput } from "../spawn-cwd-translator.js";
-import type { PtyHost } from "@ai-sidekicks/contracts";
+import type { DrainResult, PtyHost } from "@ai-sidekicks/contracts";
 import type { PtySignal, SpawnRequest, SpawnResponse } from "@ai-sidekicks/contracts";
 
 // ----------------------------------------------------------------------------
@@ -71,6 +71,27 @@ class RecordingPtyHost implements PtyHost {
   async close(_sessionId: string): Promise<void> {
     this.closed = true;
     return await Promise.resolve();
+  }
+
+  /**
+   * Structural-conformance stub for the polymorphic `PtyHost.shutdown()`
+   * contract surface added by Plan-001 Phase 5 T5.3 (sidecar-lifecycle
+   * drain). The recording mock has no sessions to drain and no sidecar
+   * process to wind down — it returns the vacuous drain result so the
+   * `PtyHost` interface check holds. The translator's behavior is
+   * orthogonal to shutdown, so this method is never exercised by the
+   * tests in this file; the existence of the stub is the assertion.
+   */
+  async shutdown(_options: {
+    readonly perSessionTimeoutMs: number;
+    readonly hostTimeoutMs: number;
+  }): Promise<DrainResult> {
+    return await Promise.resolve({
+      sessionsDrained: 0,
+      sessionsForcedKilled: 0,
+      sidecarExitedCleanly: true,
+      taskkillEscalated: false,
+    });
   }
 
   onData(_sessionId: string, _chunk: Uint8Array): void {

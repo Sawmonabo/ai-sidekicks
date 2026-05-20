@@ -12,6 +12,7 @@ import { setTimeout as wait } from "node:timers/promises";
 
 import { app, BrowserWindow } from "electron";
 import { createMainWindow } from "./window.js";
+import { registerSidecarLifecycle } from "./sidecar-lifecycle.js";
 
 // Compile-time-static flag. `electron-vite build --mode=smoke` substitutes
 // this with the literal `true`; the default `electron-vite build` substitutes
@@ -183,6 +184,22 @@ let mainWindow: BrowserWindow | null = null;
 if (!gotTheLock) {
   app.quit();
 } else {
+  // Plan-001 §Cross-Plan Obligations CP-001-1 (Plan-024 §I-024-4):
+  // sidecar-cleanup handler MUST register BEFORE any other
+  // `app.on('will-quit', ...)` registration. Under Electron's
+  // EventEmitter semantics, listener invocation order equals
+  // registration order — late registration would let downstream
+  // handlers close resources the drain depends on, orphaning active
+  // PTY children to the global console (the `microsoft/node-pty#904`
+  // SIGABRT-on-exit failure mode).
+  //
+  // The PtyHost getter currently returns `null` (no daemon PtyHost is
+  // provisioned at Tier 1) — the registration still runs at position 0
+  // unconditionally so the FIFO-ordering invariant holds the moment a
+  // PtyHost lands in a later Tier. See `sidecar-lifecycle.ts`'s
+  // `PtyHostGetter` rustdoc for the lazy-getter rationale.
+  registerSidecarLifecycle(app, () => null);
+
   app
     .whenReady()
     .then(() => {
