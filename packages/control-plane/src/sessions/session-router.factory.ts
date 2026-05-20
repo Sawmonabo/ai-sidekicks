@@ -38,6 +38,7 @@ import {
   type SessionReadRequest,
   type SessionReadResponse,
 } from "@ai-sidekicks/contracts";
+import { ResourceLimitExceededException } from "./errors.js";
 import type { SessionRouterDeps } from "./session-router.js";
 import {
   createSessionSubscribeSse,
@@ -131,10 +132,32 @@ export function createSessionRouter(deps: SessionRouterDeps): SessionRouter {
               message: "auth.not_authorized: non-self joins deferred to Tier 5 invite/presence",
             });
           }
-          const result = await deps.directoryService.joinSession({
-            sessionId: input.sessionId,
-            participantId: resolved,
-          });
+          // AC8 (Spec-001 §Limit Enforcement): `joinSession` may throw
+          // `ResourceLimitExceededException` from
+          // `packages/control-plane/src/sessions/errors.ts` when the
+          // session has reached its participant-limit cap. Rethrow as
+          // tRPC `TOO_MANY_REQUESTS` (HTTP 429 — Spec-001
+          // §Limit Enforcement table maps the participants-per-session
+          // limit to the canonical 429 surface). The typed exception
+          // is preserved on `cause` so `trpc.ts`'s `errorFormatter`
+          // projects the wire-shaped payload onto
+          // `shape.data.aisError` for downstream SDK consumers.
+          let result;
+          try {
+            result = await deps.directoryService.joinSession({
+              sessionId: input.sessionId,
+              participantId: resolved,
+            });
+          } catch (err) {
+            if (err instanceof ResourceLimitExceededException) {
+              throw new TRPCError({
+                code: "TOO_MANY_REQUESTS",
+                message: err.message,
+                cause: err,
+              });
+            }
+            throw err;
+          }
           if (result === null) {
             throw new TRPCError({
               code: "NOT_FOUND",

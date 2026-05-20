@@ -68,7 +68,28 @@ import type {
 } from "@ai-sidekicks/contracts";
 import { EventCursorSchema } from "@ai-sidekicks/contracts";
 
+import { ResourceLimitExceededException } from "./errors.js";
 import type { Querier } from "./migration-runner.js";
+
+// --------------------------------------------------------------------------
+// Spec-001 §Resource Limits — participants-per-session default cap.
+//
+// Tier 1 enforces the hard default of 10 per Spec-001 §Resource Limits
+// row 1. Per-session override via session config (the spec's
+// "configurable per session via session config" clause) is post-V1 scope:
+// the `sessions` table has no `participant_limit` column today, and
+// adding one would require a coordinated migration + config-source
+// promotion across Plan-001 + Plan-002. The constant lives here as the
+// single source of truth — a future plan that adds per-session override
+// reads this constant as the fallback when the override is absent.
+// --------------------------------------------------------------------------
+
+const DEFAULT_PARTICIPANT_LIMIT = 10;
+
+// `details.resource` wire-string for the participants-per-session limit.
+// Verbatim per Spec-001 §Resource Limits row 1 ("Participants per session"
+// downcased) — SDK retry/backoff logic branches on this exact string.
+const PARTICIPANTS_RESOURCE_LABEL = "participants per session";
 
 // --------------------------------------------------------------------------
 // Placeholder cursor returned by `readSession`. See `readSession` docstring
@@ -548,37 +569,104 @@ export class SessionDirectoryService {
       );
     }
 
-    const sessionProbe = await this.#querier.query<SessionRow>(
-      "SELECT id, state, config, metadata, min_client_version, created_at, updated_at FROM sessions WHERE id = $1",
-      [input.sessionId],
-    );
-    const sessionRow: SessionRow | undefined = sessionProbe.rows[0];
-    if (sessionRow === undefined) {
-      return null;
-    }
-
-    const role: MembershipRole = input.role ?? "viewer";
-    const membershipUpsert = await this.#querier.query<MembershipRow>(
-      `INSERT INTO session_memberships (session_id, participant_id, role, state, joined_at)
-       VALUES ($1, $2, $3, 'active', now())
-       ON CONFLICT (session_id, participant_id)
-       DO UPDATE SET updated_at = session_memberships.updated_at
-       RETURNING id, session_id, participant_id, role, state, joined_at, updated_at`,
-      [input.sessionId, input.participantId, role],
-    );
-    const membershipRow: MembershipRow | undefined = membershipUpsert.rows[0];
-    if (membershipRow === undefined) {
-      throw new Error(
-        `SessionDirectoryService.joinSession: membership upsert returned no row for session=${String(input.sessionId)} participant=${String(input.participantId)}`,
+    // Wrap the entire join flow in a single transaction. Three reasons:
+    //
+    //   1. Lock-ordering invariant I-001-1 (sessions → session_memberships).
+    //      The `SELECT id FROM sessions ... FOR UPDATE` below mirrors
+    //      `createSession`'s lock-acquisition pattern (line 318 in this
+    //      file); both flows must hold the parent-session row lock before
+    //      writing membership rows to avoid cross-flow deadlocks with
+    //      Plan-002's ownership-transfer paths.
+    //
+    //   2. AC8 participant-limit enforcement requires a count-then-insert
+    //      sequence. Without a transaction, two concurrent joiners can
+    //      both observe `count < limit` and both succeed in INSERTing,
+    //      blowing past the cap. The `FOR UPDATE` row lock serializes
+    //      the count + insert pair so racers see committed state.
+    //
+    //   3. The pg.Pool adapter `query()` checks out a fresh pooled client
+    //      per call. Without `transaction(...)`, the count and the upsert
+    //      would land on different pooled connections — the `FOR UPDATE`
+    //      lock would be released between them by `client.release()` and
+    //      the serialization guarantee collapses.
+    //
+    // Rejoin path is idempotent: existing memberships short-circuit the
+    // count-check (rejoiners do not consume a new participant slot) and
+    // fall through to the existing `ON CONFLICT DO UPDATE` no-op upsert,
+    // preserving the rejoin contract from the original implementation.
+    return this.#querier.transaction(async (tx) => {
+      // Lock the parent session row first (I-001-1 lock-ordering invariant).
+      // Returns the snapshot fields the response needs so we don't repeat
+      // the SELECT after the upsert.
+      const sessionProbe = await tx.query<SessionRow>(
+        `SELECT id, state, config, metadata, min_client_version, created_at, updated_at
+           FROM sessions WHERE id = $1 FOR UPDATE`,
+        [input.sessionId],
       );
-    }
+      const sessionRow: SessionRow | undefined = sessionProbe.rows[0];
+      if (sessionRow === undefined) {
+        return null;
+      }
 
-    return {
-      sessionId: sessionRow.id as SessionId,
-      participantId: membershipRow.participant_id as ParticipantId,
-      membershipId: membershipRow.id as MembershipId,
-      sharedMetadata: sessionRow.metadata,
-    };
+      // Rejoin probe — does (session_id, participant_id) already exist?
+      // If yes, this caller does NOT consume a new participant slot. The
+      // existing `ON CONFLICT (session_id, participant_id) DO UPDATE`
+      // upsert below preserves rejoin idempotency (no role flip, no
+      // joined_at reset — same `membershipId` returned).
+      const rejoinProbe = await tx.query<{ exists: number }>(
+        `SELECT 1 AS exists FROM session_memberships
+          WHERE session_id = $1 AND participant_id = $2 LIMIT 1`,
+        [input.sessionId, input.participantId],
+      );
+      const isRejoin = rejoinProbe.rows.length > 0;
+
+      // AC8 enforcement — only checked for NEW participants. Rejoiners
+      // never trip the limit (their slot is already accounted for).
+      // Spec-001 §Limit Enforcement requires the standard
+      // `resource.limit_exceeded` envelope; the typed exception carries
+      // the wire-shaped payload that the tRPC errorFormatter projects
+      // onto `data.aisError`.
+      if (!isRejoin) {
+        const countProbe = await tx.query<{ n: number }>(
+          "SELECT COUNT(*)::int AS n FROM session_memberships WHERE session_id = $1",
+          [input.sessionId],
+        );
+        const current = countProbe.rows[0]?.n ?? 0;
+        if (current >= DEFAULT_PARTICIPANT_LIMIT) {
+          throw new ResourceLimitExceededException(
+            {
+              resource: PARTICIPANTS_RESOURCE_LABEL,
+              limit: DEFAULT_PARTICIPANT_LIMIT,
+              current,
+            },
+            `session ${String(input.sessionId)} has reached participants-per-session limit (${current}/${DEFAULT_PARTICIPANT_LIMIT})`,
+          );
+        }
+      }
+
+      const role: MembershipRole = input.role ?? "viewer";
+      const membershipUpsert = await tx.query<MembershipRow>(
+        `INSERT INTO session_memberships (session_id, participant_id, role, state, joined_at)
+         VALUES ($1, $2, $3, 'active', now())
+         ON CONFLICT (session_id, participant_id)
+         DO UPDATE SET updated_at = session_memberships.updated_at
+         RETURNING id, session_id, participant_id, role, state, joined_at, updated_at`,
+        [input.sessionId, input.participantId, role],
+      );
+      const membershipRow: MembershipRow | undefined = membershipUpsert.rows[0];
+      if (membershipRow === undefined) {
+        throw new Error(
+          `SessionDirectoryService.joinSession: membership upsert returned no row for session=${String(input.sessionId)} participant=${String(input.participantId)}`,
+        );
+      }
+
+      return {
+        sessionId: sessionRow.id as SessionId,
+        participantId: membershipRow.participant_id as ParticipantId,
+        membershipId: membershipRow.id as MembershipId,
+        sharedMetadata: sessionRow.metadata,
+      };
+    });
   }
 }
 
