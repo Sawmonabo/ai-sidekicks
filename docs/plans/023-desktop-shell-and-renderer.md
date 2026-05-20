@@ -295,7 +295,7 @@ After Phase 1 merges, [Plan-001 Phase 5](./001-shared-session-core.md#phase-5--c
 - **Bundle-size verification**:
   - `apps/desktop/build/size-check.ts` — asserts post-asar, post-compression bundle size is under the ADR-016 150 MB ceiling. Fails the CI build on regression.
 
-### Testing posture (BL-118 closure, 2026-05-20 via PR #<NN>)
+### Testing posture (BL-118 closure, 2026-05-20 via PR #81)
 
 The `@ai-sidekicks/desktop` package's test surface is split into two disjoint Vitest projects gated by Turbo:
 
