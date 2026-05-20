@@ -105,7 +105,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 ## Implementation Steps
 
 - Contracts: See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed schemas this plan consumes.
-- All four steps land at Tier 2 (Plan-002's canonical tier). The `apps/desktop/src/renderer/` substrate is created by [Plan-023 Tier 1 Partial](./023-desktop-shell-and-renderer.md#tier-1-partial-pr-sequence) per BL-101 (a) resolution, so step 4 (renderer integration) has no cross-tier blocker — it ships as the final PR in the Plan-002 sequence after step 3's SDK lands. See [cross-plan-dependencies.md §2 `apps/desktop/src/renderer/` row](../architecture/cross-plan-dependencies.md#2-package-path-ownership-map) and §Execution Windows below.
+- The four steps below land at Tier 2 (Plan-002's canonical tier). Phase 4 (invite rate-limit wiring) is **structurally deferred to Tier 6** because [Plan-021](./021-rate-limiting-policy.md)'s `rateLimitProcedure` middleware factory ships at Tier 6 — see [Phase 4 §Precondition](#phase-4--rate-limiting-surface-deferred-to-tier-6) and cross-tier deferral tracked via [BL-120](../backlog.md). The `apps/desktop/src/renderer/` substrate is created by [Plan-023 Tier 1 Partial](./023-desktop-shell-and-renderer.md#tier-1-partial-pr-sequence) per BL-101 (a) resolution, so step 4 (renderer integration) has no cross-tier blocker — it ships as the final PR in the Plan-002 sequence after step 3's SDK lands. See [cross-plan-dependencies.md §2 `apps/desktop/src/renderer/` row](../architecture/cross-plan-dependencies.md#2-package-path-ownership-map) and §Execution Windows below.
 
 1. **[Tier 2]** Implement invite and membership contracts plus migrations. Invite tokens use PASETO v4 (see ADR-010). Define the four invite lifecycle states: `pending`, `accepted`, `revoked`, `expired`. Declining is implicit in V1 (unopened invites expire); no explicit `declined` state is required.
 2. **[Tier 2]** Build control-plane services for invite issuance, acceptance, revocation, and role update. Owner-elevation and last-owner-cannot-leave checks (per §Invariants I-002-1, I-002-2) gate the `MembershipUpdate` paths. Lock-ordering inherits from Plan-001 (per §Invariants I-002-4).
@@ -114,7 +114,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 ## Execution Windows
 
-All Plan-002 steps land at Tier 2 (Plan-002's canonical tier). Phases ship as the sequence below over the Plan-007-partial + Plan-008-bootstrap Tier 1 substrate; surfaces all invite/membership/presence behavior and the `ChannelList` projection. The renderer subtree at `apps/desktop/src/renderer/src/session-members/` (Phase 6) ships after Phase 5's `membershipClient.ts` SDK lands — the `apps/desktop/src/renderer/` substrate is created independently by [Plan-023 Tier 1 Partial](./023-desktop-shell-and-renderer.md#tier-1-partial-pr-sequence) per BL-101 (a) resolution, so the renderer phase has no cross-tier blocker.
+Plan-002 Phases 1–3, 5, and 6 land at Tier 2 (Plan-002's canonical tier); Phase 4 (invite rate-limit wiring) is deferred to Tier 6 because [Plan-021](./021-rate-limiting-policy.md)'s `rateLimitProcedure` middleware factory ships at Tier 6 (see [Phase 4 §Precondition](#phase-4--rate-limiting-surface-deferred-to-tier-6); cross-tier deferral tracked via [BL-120](../backlog.md)). Phases ship as the sequence below over the Plan-007-partial + Plan-008-bootstrap Tier 1 substrate; surfaces all invite/membership/presence behavior and the `ChannelList` projection. The renderer subtree at `apps/desktop/src/renderer/src/session-members/` (Phase 6) ships after Phase 5's `membershipClient.ts` SDK lands — the `apps/desktop/src/renderer/` substrate is created independently by [Plan-023 Tier 1 Partial](./023-desktop-shell-and-renderer.md#tier-1-partial-pr-sequence) per BL-101 (a) resolution, so the renderer phase has no cross-tier blocker.
 
 ## Parallelization Notes
 
@@ -175,7 +175,7 @@ The TDD test list below is enumerated and ordered by implementation dependency. 
 
 ## Implementation Phase Sequence
 
-Plan-002 implementation lands as a sequence of small PRs at Tier 2. Phases 1–5 ship the contract/service/SDK layers; Phase 6 ships the renderer subtree after Phase 5 lands the SDK (the renderer substrate is created independently by Plan-023 Tier 1 Partial per BL-101 (a) resolution).
+Plan-002 implementation lands as a sequence of small PRs primarily at Tier 2 (Phases 1, 2, 3, 5, 6) with a single Tier 6 follow-up (Phase 4 — invite rate-limit wiring; see [Phase 4 §Precondition](#phase-4--rate-limiting-surface-deferred-to-tier-6); cross-tier deferral tracked via [BL-120](../backlog.md)). Phases 1–3 ship contracts/services/presence + ChannelList; Phase 5 ships the SDK; Phase 6 ships the renderer subtree after Phase 5 lands the SDK (the renderer substrate is created independently by Plan-023 Tier 1 Partial per BL-101 (a) resolution).
 
 ### Phase 1 — Invite And Membership Contracts + Migration
 
