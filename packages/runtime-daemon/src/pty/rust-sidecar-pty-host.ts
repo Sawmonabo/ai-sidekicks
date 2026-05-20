@@ -1239,6 +1239,34 @@ export class RustSidecarPtyHost implements PtyHost {
   private hostExitWaiter: (() => void) | null = null;
 
   /**
+   * Tracks whether `handleChildExit` / `handleChildError` ran on the
+   * active child before `drainSidecarHost` was reached. Set inside
+   * those handlers AFTER the stale-event guard (the guard returns
+   * early for a late event on a replaced child, which must NOT flip
+   * this flag — otherwise a stale event on a dead old child would
+   * false-positive `drainSidecarHost` as crashed while the active
+   * child is still alive). Cleared in `attachChildListeners` when a
+   * fresh child is wired up.
+   *
+   * Drives the Codex P2 fix on PR #83 thread
+   * `PRRT_kwDOSCycWc6DZ8wD`: `drainSidecarHost`'s early-return at the
+   * `this.child === null` guard previously reported
+   * `sidecarExitedCleanly: true` for two distinct host states — (a)
+   * a host that never spawned a child (vacuously clean), and (b) a
+   * host whose child exited / crashed BEFORE the drain phase
+   * (incorrectly clean). The flag is the signal-channel that
+   * distinguishes them: false → vacuous (no prior exit observed),
+   * true → child-exited-before-drain (report
+   * `sidecarExitedCleanly: false`).
+   *
+   * Ordering invariant: this flag MUST be set AFTER the stale-event
+   * guard inside the exit/error handlers. A stale event for a child
+   * that has already been replaced by the supervisor MUST NOT mark
+   * the current (still-live) child as exited.
+   */
+  private childExitedBeforeDrain: boolean = false;
+
+  /**
    * Promise-memoized in-flight cold-start spawn attempt.
    *
    * `ensureChild` awaits `resolveSpawn()` before assigning `this.child`,
@@ -1803,9 +1831,31 @@ export class RustSidecarPtyHost implements PtyHost {
   ): Promise<{ sidecarExitedCleanly: boolean; taskkillEscalated: boolean }> {
     const child: SidecarChildProcess | null = this.child;
     if (child === null) {
-      // No active sidecar — already drained, or never spawned. The
-      // contract vacuously reports clean exit with no escalation.
-      return { sidecarExitedCleanly: true, taskkillEscalated: false };
+      // No active sidecar — either never spawned (vacuously clean) or
+      // the child exited during the per-session drain loop (crashed-
+      // before-drain, NOT clean). Codex P2 fix on PR #83 thread
+      // `PRRT_kwDOSCycWc6DZ8wD`: the prior shape unconditionally
+      // reported `sidecarExitedCleanly: true` here, hiding a real
+      // crash from the DrainResult — desktop quit telemetry consumes
+      // this field per Plan-001 §CP-001-1, so a vacuous false-positive
+      // misreports a crashed sidecar as a clean shutdown.
+      //
+      // `childExitedBeforeDrain` is the signal-channel:
+      //   * false → vacuous-no-spawn (or no exit observed during the
+      //     drain phase) → `sidecarExitedCleanly: true`.
+      //   * true → handleChildExit / handleChildError ran on the
+      //     active child before this early-return → `sidecarExitedCleanly:
+      //     false`. The flag was set inside the exit/error handler
+      //     AFTER its stale-event guard, so a stale event on a
+      //     replaced (now-dead) child does NOT flip the flag for the
+      //     current host instance.
+      //
+      // `taskkillEscalated` stays `false` either way — we never
+      // reached the host-timeout escalation branch.
+      return {
+        sidecarExitedCleanly: !this.childExitedBeforeDrain,
+        taskkillEscalated: false,
+      };
     }
 
     const hostWaiter: Promise<void> = new Promise<void>((resolve) => {
@@ -2178,6 +2228,17 @@ export class RustSidecarPtyHost implements PtyHost {
    * spawn failed). Treated identically to a crash.
    */
   private attachChildListeners(child: SidecarChildProcess): void {
+    // P2 #2 (Codex PR #83 thread `PRRT_kwDOSCycWc6DZ8wD`): reset the
+    // child-exited-before-drain flag whenever we wire up a fresh
+    // child. The supervisor's crash-respawn flow drives this: when a
+    // child crashes and `ensureChild` later spawns a replacement,
+    // `attachChildListeners` runs on the new child — the new child
+    // has NOT exited (we're attaching listeners, not handling its
+    // exit), so a `drainSidecarHost` call on this new child should
+    // NOT see a stale `true` from the prior crashed child. The flag
+    // is per-active-child state, not per-host-instance state.
+    this.childExitedBeforeDrain = false;
+
     // Stdin/stdout/stderr async errors (ERR_STREAM_DESTROYED / EPIPE /
     // EIO) bypass any synchronous try/catch on the call site — Node's
     // `Writable.write` throws synchronously only for misuse (encoding
@@ -3209,6 +3270,14 @@ export class RustSidecarPtyHost implements PtyHost {
       // supervision) for the broader supervisor semantics.
       return;
     }
+    // P2 #2 (Codex PR #83 thread `PRRT_kwDOSCycWc6DZ8wD`): set
+    // AFTER the stale-event guard so a late event for a replaced
+    // child does NOT false-positive `drainSidecarHost` on the
+    // still-alive current child. Set BEFORE `this.child = null` so
+    // the flag is locked-in before the active-child reference is
+    // cleared. See `childExitedBeforeDrain` rustdoc for the full
+    // ordering invariant rationale.
+    this.childExitedBeforeDrain = true;
     this.detachChildStdoutListener(child);
     this.parser = new ContentLengthParser();
     this.child = null;
@@ -3245,6 +3314,12 @@ export class RustSidecarPtyHost implements PtyHost {
       // or the new child's outstanding queue.
       return;
     }
+    // P2 #2 (Codex PR #83 thread `PRRT_kwDOSCycWc6DZ8wD`): set AFTER
+    // the stale-event guard, BEFORE `this.child = null`. Symmetric
+    // with `handleChildExit` — see that handler's call-site comment
+    // and the `childExitedBeforeDrain` rustdoc for the ordering
+    // invariant rationale.
+    this.childExitedBeforeDrain = true;
     this.detachChildStdoutListener(child);
     this.parser = new ContentLengthParser();
     this.child = null;

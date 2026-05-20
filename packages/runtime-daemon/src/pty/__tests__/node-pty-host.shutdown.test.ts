@@ -474,3 +474,284 @@ describe("NodePtyHost.shutdown — Plan-001 CP-001-1 polymorphic drain", () => {
     expect(ctx.ptySpawnStub).toHaveBeenCalledTimes(1);
   });
 });
+
+// ----------------------------------------------------------------------------
+// Codex P2 (PR #83 thread `PRRT_kwDOSCycWc6DZEKP`):
+//   `NodePtyHost.drainSingleSession` Windows-only race where a
+//   `taskkill`-killed session was miscounted as `sessionsDrained`
+//   instead of `sessionsForcedKilled`.
+//
+// Trace (pre-fix):
+//   1. `drainSingleSession` sets `perSessionTimeoutMs = 5000`, installs
+//      the shutdownWaiter, calls `kill(s-0, "SIGTERM")`.
+//   2. On Windows, `killOnWindows` fires `CTRL_BREAK_EVENT` and arms a
+//      2 s internal escalation timer.
+//   3. The child IGNORES `CTRL_BREAK_EVENT` (stuck process or no
+//      console-control handler installed).
+//   4. At T+2s, the 2 s timer fires → `invokeTaskkill` runs →
+//      `spawnTaskkill(pid)` resolves → synthetic `fireExit(s-0, 1,
+//      undefined)` + `notifyShutdownWaiter("forced")`.
+//   5. Pre-fix: the drainWaiter resolved with UNCONDITIONAL `"drained"`
+//      → `Promise.race` won at "drained" → session counted under
+//      `sessionsDrained`, miscounting a force-killed session as a
+//      gracefully drained one.
+//   6. Post-fix: the drainWaiter carries the resolver's truth —
+//      `record.escalated ? "forced" : "drained"` — so the race observes
+//      `"forced"`, and `drainSingleSession` returns `"forced"` →
+//      session counted under `sessionsForcedKilled`.
+//
+// These tests use `platform: "win32"` and inject inline mocks (GCCE +
+// spawnTaskkill) instead of leaning on the shared `ctx` beforeEach
+// (which uses `platform: "linux"`). The discriminator across all three
+// tests is the cross-product of `mockTaskkill` invocation + drained vs
+// forced counter, NOT the `onExit` payload (which the existing
+// tree-kill tests pin).
+// ----------------------------------------------------------------------------
+
+describe("NodePtyHost.shutdown — Windows taskkill-escalation race (Codex P2 PRRT_kwDOSCycWc6DZEKP)", () => {
+  it("counts a session under sessionsForcedKilled when the 2 s SIGTERM-escalation timer fires before perSessionTimeoutMs", async () => {
+    // Headline regression: pre-fix this would assert
+    // `sessionsDrained === 1`, miscounting the taskkill-killed session.
+    // Post-fix the drainWaiter carries `"forced"` from the
+    // synthetic-exit path inside `invokeTaskkill`.
+    const winSpawn = makeFakeChild(70000);
+    const winPtySpawn: Mock<NodePtySpawnFn> = vi
+      .fn<NodePtySpawnFn>()
+      .mockReturnValue(winSpawn.child);
+    // GCCE that does NOTHING — the child ignores `CTRL_BREAK_EVENT`,
+    // so the only path that resolves the drainWaiter is the 2 s
+    // escalation timer firing taskkill.
+    const winGCCE: Mock<(event: ConsoleCtrlEvent, pid: number) => void> = vi.fn();
+    const winTaskkill: Mock<(pid: number) => Promise<TaskkillResult>> = vi
+      .fn<(pid: number) => Promise<TaskkillResult>>()
+      .mockResolvedValue({ exitCode: 0 });
+    const winExitRecorder: Mock<
+      (sessionId: string, exitCode: number, signalCode?: number) => void
+    > = vi.fn();
+
+    const winHost = new NodePtyHost({
+      platform: "win32",
+      ptySpawn: winPtySpawn,
+      generateConsoleCtrlEvent: winGCCE,
+      spawnTaskkill: winTaskkill,
+    });
+    winHost.setOnExit(winExitRecorder);
+
+    await winHost.spawn(SAMPLE_SPAWN);
+
+    // `perSessionTimeoutMs = 5000` is the load-bearing parameter:
+    // strictly greater than the 2 s internal escalation timer in
+    // `killOnWindows`, so the escalation MUST fire BEFORE the
+    // per-session timeout. Pre-fix this was the exact condition the
+    // race demanded to surface — `perSessionTimeoutMs < 2000` would
+    // route through the per-session timeout SIGKILL escalation path
+    // (a different code path, also fixed but covered separately by
+    // the existing "exceeds per-session timeout" test above).
+    const drainPromise = winHost.shutdown({
+      perSessionTimeoutMs: 5_000,
+      hostTimeoutMs: 10_000,
+    });
+
+    // Yield so `drainSingleSession`'s `kill()` await completes and
+    // `killOnWindows` arms the 2 s timer.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Pre-budget: CTRL_BREAK_EVENT fired, taskkill has NOT yet been
+    // invoked.
+    expect(winGCCE).toHaveBeenCalledTimes(1);
+    expect(winGCCE).toHaveBeenCalledWith(1, 70000);
+    expect(winTaskkill).not.toHaveBeenCalled();
+
+    // Cross the 2 s budget. The escalation timer fires → invokeTaskkill
+    // → spawnTaskkill resolves → synthetic exit + notifyShutdownWaiter
+    // → drainWaiter resolves with "forced" → Promise.race observes
+    // "forced" → drainSingleSession returns "forced".
+    await vi.advanceTimersByTimeAsync(2_001);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const result = await drainPromise;
+
+    // Discriminator: the session counts under `sessionsForcedKilled`,
+    // NOT `sessionsDrained`. Pre-fix the assertion below would be
+    // `sessionsDrained === 1` and `sessionsForcedKilled === 0` —
+    // miscounting the taskkill-killed child as a graceful drain.
+    expect(result.sessionsDrained).toBe(0);
+    expect(result.sessionsForcedKilled).toBe(1);
+
+    // Load-bearing complementary assertion: `taskkill` DID fire (the
+    // session was force-killed, not gracefully drained). Without
+    // this assertion, a future bug that flips the counters without
+    // actually invoking taskkill would pass the test above
+    // vacuously.
+    expect(winTaskkill).toHaveBeenCalledTimes(1);
+    expect(winTaskkill).toHaveBeenCalledWith(70000);
+
+    // The synthetic `onExit(s-0, 1, undefined)` fired exactly once —
+    // emitted by `invokeTaskkill` per I-024-2 even when the OS-level
+    // reap is opaque.
+    expect(winExitRecorder).toHaveBeenCalledTimes(1);
+    expect(winExitRecorder).toHaveBeenCalledWith(expect.any(String), 1);
+
+    // In-process backend: host fields vacuous regardless of session
+    // escalation outcome.
+    expect(result.sidecarExitedCleanly).toBe(true);
+    expect(result.taskkillEscalated).toBe(false);
+  });
+
+  it("does NOT double-count when child.onExit fires after the taskkill synthetic exit", async () => {
+    // Dedupe-path race regression: when the taskkill-reaped child's
+    // real `onExit` event reaches the spawn-time subscription AFTER
+    // the synthetic `fireExit(1, undefined)` already populated
+    // `record.exitCode`, the de-dupe branch at L593-605 of
+    // `node-pty-host.ts` runs. Pre-fix that branch did NOT call
+    // `notifyShutdownWaiter` at all (the waiter had already been
+    // resolved by the synthetic-exit path and deleted), but its
+    // outcome was "drained" — so post-fix the de-dupe path
+    // unconditionally passes `"forced"` per the call-site discipline
+    // rustdoc at L979-983. This test pins both halves: the synthetic
+    // exit fires, the natural exit then fires, and the session still
+    // counts under `sessionsForcedKilled` (NOT double-counted, NOT
+    // miscounted).
+    const winSpawn = makeFakeChild(70001);
+    const winPtySpawn: Mock<NodePtySpawnFn> = vi
+      .fn<NodePtySpawnFn>()
+      .mockReturnValue(winSpawn.child);
+    const winGCCE: Mock<(event: ConsoleCtrlEvent, pid: number) => void> = vi.fn();
+    const winTaskkill: Mock<(pid: number) => Promise<TaskkillResult>> = vi
+      .fn<(pid: number) => Promise<TaskkillResult>>()
+      .mockResolvedValue({ exitCode: 0 });
+    const winExitRecorder: Mock<
+      (sessionId: string, exitCode: number, signalCode?: number) => void
+    > = vi.fn();
+
+    const winHost = new NodePtyHost({
+      platform: "win32",
+      ptySpawn: winPtySpawn,
+      generateConsoleCtrlEvent: winGCCE,
+      spawnTaskkill: winTaskkill,
+    });
+    winHost.setOnExit(winExitRecorder);
+
+    await winHost.spawn(SAMPLE_SPAWN);
+
+    const drainPromise = winHost.shutdown({
+      perSessionTimeoutMs: 5_000,
+      hostTimeoutMs: 10_000,
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Fire the 2 s escalation timer → invokeTaskkill → synthetic exit
+    // + notifyShutdownWaiter.
+    await vi.advanceTimersByTimeAsync(2_001);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Pre-condition: the synthetic exit already fired exactly once.
+    expect(winExitRecorder).toHaveBeenCalledTimes(1);
+    expect(winExitRecorder).toHaveBeenCalledWith(expect.any(String), 1);
+
+    // NOW drive the underlying child's natural `onExit` event (the OS
+    // eventually reaped the child via taskkill; node-pty's
+    // subscription fires the listener). The de-dupe branch must NOT
+    // re-fire onExit (idempotency contract) — `record.exitCode !==
+    // null` short-circuits the fireExit path.
+    winSpawn.triggerExit(1, undefined);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const result = await drainPromise;
+
+    // Discriminator: still exactly ONE `onExit` emission (the
+    // synthetic). The de-dupe path did not double-fire.
+    expect(winExitRecorder).toHaveBeenCalledTimes(1);
+
+    // Discriminator: the session counts under `sessionsForcedKilled`,
+    // not double-counted (would imply `1 + 1 = 2` if the de-dupe
+    // path mis-routed) and not miscounted as "drained" (the original
+    // P2 #1 bug).
+    expect(result.sessionsDrained).toBe(0);
+    expect(result.sessionsForcedKilled).toBe(1);
+  });
+
+  it("counts a session under sessionsDrained when the child exits naturally on CTRL_BREAK_EVENT before the 2 s escalation timer fires", async () => {
+    // Sanity counterpart: the post-fix branch `record.escalated ?
+    // "forced" : "drained"` MUST NOT over-classify a genuine graceful
+    // drain as forced. Discriminator: `mockTaskkill` is NEVER called
+    // — the child exits in response to CTRL_BREAK_EVENT well within
+    // the 2 s budget, the escalation timer is cancelled by
+    // `clearPendingEscalation` in the spawn-time `child.onExit`
+    // closure, and the drainWaiter resolves with "drained" via the
+    // L631 call site.
+    const winSpawn = makeFakeChild(70002);
+    const winPtySpawn: Mock<NodePtySpawnFn> = vi
+      .fn<NodePtySpawnFn>()
+      .mockReturnValue(winSpawn.child);
+    // GCCE that synchronously fires the child's exit listener —
+    // simulating a child that responds to CTRL_BREAK_EVENT by exiting
+    // immediately (a well-behaved Win32 console process).
+    const winGCCE: Mock<(event: ConsoleCtrlEvent, pid: number) => void> = vi
+      .fn<(event: ConsoleCtrlEvent, pid: number) => void>()
+      .mockImplementation(() => {
+        winSpawn.triggerExit(0, undefined);
+      });
+    const winTaskkill: Mock<(pid: number) => Promise<TaskkillResult>> = vi
+      .fn<(pid: number) => Promise<TaskkillResult>>()
+      .mockResolvedValue({ exitCode: 0 });
+    const winExitRecorder: Mock<
+      (sessionId: string, exitCode: number, signalCode?: number) => void
+    > = vi.fn();
+
+    const winHost = new NodePtyHost({
+      platform: "win32",
+      ptySpawn: winPtySpawn,
+      generateConsoleCtrlEvent: winGCCE,
+      spawnTaskkill: winTaskkill,
+    });
+    winHost.setOnExit(winExitRecorder);
+
+    await winHost.spawn(SAMPLE_SPAWN);
+
+    const drainPromise = winHost.shutdown({
+      perSessionTimeoutMs: 5_000,
+      hostTimeoutMs: 10_000,
+    });
+
+    // Yield so the kill() → killOnWindows → GCCE(CTRL_BREAK, pid)
+    // chain runs. GCCE's implementation calls `triggerExit(0,
+    // undefined)` synchronously, which fires the child's onExit
+    // listener → cancels the escalation timer → resolves the
+    // drainWaiter with "drained" via L631 (record.escalated === false).
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Advance past the (now-cancelled) 2 s budget to confirm the
+    // escalation timer was actually cancelled (a buggy implementation
+    // that did NOT clear the timer would fire taskkill below).
+    await vi.advanceTimersByTimeAsync(2_001);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const result = await drainPromise;
+
+    // Discriminator: the session counts under `sessionsDrained` (the
+    // post-fix `escalated ? "forced" : "drained"` branch did NOT
+    // over-classify the natural exit as forced).
+    expect(result.sessionsDrained).toBe(1);
+    expect(result.sessionsForcedKilled).toBe(0);
+
+    // Load-bearing complement: `taskkill` was NEVER invoked. Without
+    // this assertion, a future bug that over-eagerly fires taskkill
+    // but still counts the natural exit as drained would pass above
+    // vacuously.
+    expect(winTaskkill).not.toHaveBeenCalled();
+
+    // The natural `onExit(s-0, 0)` fired exactly once — the real
+    // exit code, NOT the synthetic `1`.
+    expect(winExitRecorder).toHaveBeenCalledTimes(1);
+    expect(winExitRecorder).toHaveBeenCalledWith(expect.any(String), 0);
+  });
+});

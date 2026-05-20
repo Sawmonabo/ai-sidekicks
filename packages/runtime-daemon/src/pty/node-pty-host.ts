@@ -223,6 +223,32 @@ interface SessionRecord {
   signalCode: number | undefined;
   /** Pending escalation timer, if `SIGTERM` is mid-flight on Windows. */
   pendingEscalation: NodeJS.Timeout | null;
+  /**
+   * `true` once `invokeTaskkill` has committed to the forced-kill
+   * escalation for this session (Windows taskkill cascade). Set inside
+   * `invokeTaskkill` AFTER the race-safe re-check inside the
+   * SIGTERM-armed escalation timer has gated us past the "child exited
+   * naturally before escalation" case — see `invokeTaskkill`'s
+   * commitment-point comment for the ordering rationale.
+   *
+   * Drives the DrainResult misclassification fix (P2 Codex finding on
+   * PR #83 thread `PRRT_kwDOSCycWc6DZEKP`): `drainSingleSession`
+   * previously routed Windows taskkill-escalated exits through
+   * `sessionsDrained` because the child.onExit subscription resolved
+   * the drainWaiter at L569 with no signal-channel to distinguish "the
+   * child exited gracefully on CTRL_BREAK" from "the 2s internal
+   * escalation timer fired taskkill, child died via taskkill, and
+   * onExit reported the kill". The `escalated` flag is the
+   * signal-channel: the `notifyShutdownWaiter` call at L569 reads
+   * `record.escalated` to resolve the drainWaiter with `"forced"`
+   * rather than `"drained"` when the SIGTERM escalation fired.
+   *
+   * Defaults to `false` at construction; flipped only inside
+   * `invokeTaskkill` (the sole commitment point). Never reset — once
+   * a session has been taskkill-escalated, the outcome is permanent
+   * for that session's drain accounting.
+   */
+  escalated: boolean;
 }
 
 // --------------------------------------------------------------------------
@@ -437,8 +463,23 @@ export class NodePtyHost implements PtyHost {
    * (whose write-once cache discipline must hold). Cleared in a
    * `finally` per session so the map does not retain references to
    * resolved-or-timed-out sessions.
+   *
+   * The resolver carries the per-session drain outcome (`"drained"`
+   * vs `"forced"`) so the Windows taskkill-escalation path can
+   * distinguish a natural CTRL_BREAK-driven exit from a forced
+   * taskkill exit — Codex P2 (PR #83 thread `PRRT_kwDOSCycWc6DZEKP`):
+   * without this signal-channel, a SIGTERM escalation that fires the
+   * 2s internal taskkill timer would resolve the drainWaiter via the
+   * child.onExit subscription and be miscounted as `sessionsDrained`
+   * even though the child was force-killed by taskkill. The closure
+   * pass at L556 / L569 / L1155 in node-pty-host.ts is the
+   * commitment-point pattern recommended by the advisor: read
+   * `record.escalated` (the captured `SessionRecord` reference from
+   * `spawn()`) rather than the live `this.sessions` Map, so the
+   * resolver sees a consistent snapshot regardless of a concurrent
+   * `close()` or session-deletion.
    */
-  private readonly shutdownWaiters: Map<string, () => void> = new Map();
+  private readonly shutdownWaiters: Map<string, (result: "drained" | "forced") => void> = new Map();
 
   /**
    * @param deps Optional injected deps. Production callers pass nothing;
@@ -523,6 +564,7 @@ export class NodePtyHost implements PtyHost {
       exitCode: null,
       signalCode: undefined,
       pendingEscalation: null,
+      escalated: false,
     };
 
     record.subscriptions.push(
@@ -552,8 +594,13 @@ export class NodePtyHost implements PtyHost {
           // Resolve any active shutdown waiter even on the de-dupe
           // path so a `shutdown()` issued during an in-flight
           // synthetic-exit emission (Windows SIGKILL escalation) still
-          // ticks the per-session drain budget.
-          this.notifyShutdownWaiter(sessionId);
+          // ticks the per-session drain budget. The de-dupe branch is
+          // reached only AFTER `invokeTaskkill` already fired the
+          // synthetic exit + flipped `record.escalated = true`, so we
+          // know unconditionally the outcome is `"forced"` — see the
+          // Codex P2 (PR #83 thread `PRRT_kwDOSCycWc6DZEKP`) +
+          // `notifyShutdownWaiter` call-site discipline rustdoc.
+          this.notifyShutdownWaiter(sessionId, "forced");
           return;
         }
         // Cache for idempotency: a subsequent `kill()` MUST re-emit
@@ -566,7 +613,22 @@ export class NodePtyHost implements PtyHost {
         // record's exit-cache is populated. Ordering matches the
         // `fireExit` call so a listener-observed exit precedes the
         // drain-completion signal.
-        this.notifyShutdownWaiter(sessionId);
+        //
+        // Outcome is `record.escalated ? "forced" : "drained"` — Codex
+        // P2 (PR #83 thread `PRRT_kwDOSCycWc6DZEKP`): on Windows, the
+        // 2s SIGTERM-escalation timer in `killOnWindows` can fire
+        // taskkill BEFORE `perSessionTimeoutMs` elapses (when
+        // `perSessionTimeoutMs >= 2000` and the child ignores
+        // CTRL_BREAK_EVENT). The taskkill cascade kills the child, the
+        // OS reaps it, the child.onExit subscription fires here, and
+        // the drainWaiter wins the Promise.race vs `timeoutPromise` in
+        // `drainSingleSession`. Without the `escalated` signal-channel
+        // the outcome would be miscounted as `sessionsDrained` despite
+        // the child being force-killed. Read the closure-captured
+        // `record` (advisor-pinned: NOT a `this.sessions.get(sessionId)`
+        // lookup) so the resolver sees a consistent snapshot regardless
+        // of a concurrent `close()` / session-deletion.
+        this.notifyShutdownWaiter(sessionId, record.escalated ? "forced" : "drained");
       }),
     );
 
@@ -831,9 +893,11 @@ export class NodePtyHost implements PtyHost {
     sessionId: string,
     timeoutMs: number,
   ): Promise<"drained" | "forced"> {
-    const drainWaiter: Promise<void> = new Promise<void>((resolve) => {
-      this.shutdownWaiters.set(sessionId, resolve);
-    });
+    const drainWaiter: Promise<"drained" | "forced"> = new Promise<"drained" | "forced">(
+      (resolve) => {
+        this.shutdownWaiters.set(sessionId, resolve);
+      },
+    );
 
     try {
       // Issue graceful kill via the production `kill()` path so Windows
@@ -859,8 +923,15 @@ export class NodePtyHost implements PtyHost {
         }, timeoutMs);
       });
 
-      const outcome: "drained" | "timeout" = await Promise.race([
-        drainWaiter.then((): "drained" => "drained"),
+      // The drain waiter now carries its own outcome (Codex P2 fix on
+      // PR #83 thread `PRRT_kwDOSCycWc6DZEKP`): the spawn-time
+      // child.onExit subscription resolves with `record.escalated ?
+      // "forced" : "drained"`, and `invokeTaskkill`'s synthetic-exit
+      // path resolves with `"forced"`. The Promise.race therefore
+      // observes the resolver's truth directly — no separate
+      // post-await query against the SessionRecord is needed.
+      const outcome: "drained" | "forced" | "timeout" = await Promise.race([
+        drainWaiter,
         timeoutPromise,
       ]);
 
@@ -868,8 +939,15 @@ export class NodePtyHost implements PtyHost {
         this.deps.clearTimer(timeoutHandle);
       }
 
-      if (outcome === "drained") {
-        return "drained";
+      if (outcome !== "timeout") {
+        // `outcome` is the resolver's truth: `"drained"` (natural
+        // CTRL_BREAK or POSIX SIGTERM exit) or `"forced"` (Windows
+        // 2 s SIGTERM-escalation taskkill fired and won the race vs
+        // `timeoutPromise`). Returning here preserves the per-session
+        // DrainResult contract on a Windows taskkill-escalation race —
+        // the prior shape unconditionally returned `"drained"` here,
+        // miscounting taskkill-killed sessions as gracefully drained.
+        return outcome;
       }
 
       // Timeout fired — escalate to SIGKILL. The kill-cascade contract
@@ -893,11 +971,29 @@ export class NodePtyHost implements PtyHost {
    * underlying `child.onExit` subscription set up in `spawn()` fires.
    * Called from the spawn-time exit subscription closure below; no-op
    * when no shutdown is in flight.
+   *
+   * The `result` argument carries the drain outcome (`"drained"` vs
+   * `"forced"`). Call-site discipline (per the Codex P2 fix on PR #83
+   * thread `PRRT_kwDOSCycWc6DZEKP`):
+   *
+   *   * Inside `invokeTaskkill` (L1155 area): always pass `"forced"` —
+   *     we are inside the forced-kill commitment point.
+   *   * Inside the spawn-time `child.onExit` de-dupe branch
+   *     (L556 area): always pass `"forced"` — `invokeTaskkill` has
+   *     already set `record.escalated = true` and fired the synthetic
+   *     exit, so the consumer here is the de-dupe of that forced
+   *     exit.
+   *   * Inside the spawn-time `child.onExit` natural-exit branch
+   *     (L569 area): pass `record.escalated ? "forced" : "drained"` —
+   *     reads the closure-captured `SessionRecord` reference (NOT a
+   *     Map lookup) so the resolver is stable against concurrent
+   *     `close()` / session-deletion.
    */
-  private notifyShutdownWaiter(sessionId: string): void {
-    const resolver: (() => void) | undefined = this.shutdownWaiters.get(sessionId);
+  private notifyShutdownWaiter(sessionId: string, result: "drained" | "forced"): void {
+    const resolver: ((result: "drained" | "forced") => void) | undefined =
+      this.shutdownWaiters.get(sessionId);
     if (resolver !== undefined) {
-      resolver();
+      resolver(result);
     }
   }
 
@@ -1058,6 +1154,24 @@ export class NodePtyHost implements PtyHost {
     pid: number,
   ): Promise<void> {
     record.pendingEscalation = null;
+    // Commitment point for the Windows forced-kill escalation —
+    // Codex P2 (PR #83 thread `PRRT_kwDOSCycWc6DZEKP`). Set BEFORE
+    // the `spawnTaskkill` await so the closure-captured `record`
+    // observed by the spawn-time child.onExit subscription
+    // (notifyShutdownWaiter call at L569-area) reads `escalated ===
+    // true` regardless of when the OS reaps the child relative to
+    // this Promise settling.
+    //
+    // The two reachable callers — `killOnWindows`'s SIGKILL branch
+    // (direct hard-stop) and the SIGTERM-armed escalation timer's
+    // race-safe re-check at L1018-1021 area — have both gated past
+    // the "child exited naturally before escalation" case. The
+    // SIGKILL branch only enters here when the consumer chose
+    // hard-stop; the SIGTERM-timer branch's L1018 re-check
+    // (`if (record.exitCode !== null) { ...; return; }`) guarantees
+    // we are not racing a natural exit. So the flag flip here is
+    // unambiguous.
+    record.escalated = true;
     const spawnTaskkill = this.deps.spawnTaskkill ?? ((p: number) => defaultSpawnTaskkill(p));
 
     // R2 review POLISH-4: wall-clock-bound `spawnTaskkill` so a stuck
@@ -1152,7 +1266,13 @@ export class NodePtyHost implements PtyHost {
       // outstanding. Notify the waiter so the drain budget can resolve
       // without depending on the underlying `child.onExit` arriving
       // (which is best-effort per I-024-2).
-      this.notifyShutdownWaiter(sessionId);
+      //
+      // Outcome is unconditionally `"forced"` — we are inside
+      // `invokeTaskkill`, the sole commitment point for the Windows
+      // forced-kill cascade. See Codex P2 (PR #83 thread
+      // `PRRT_kwDOSCycWc6DZEKP`) + `notifyShutdownWaiter` call-site
+      // discipline rustdoc.
+      this.notifyShutdownWaiter(sessionId, "forced");
     }
   }
 }

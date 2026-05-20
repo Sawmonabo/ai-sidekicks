@@ -267,7 +267,27 @@ describe("RustSidecarPtyHost.shutdown — Plan-001 CP-001-1 polymorphic drain", 
         signal_code: null,
       }),
     );
+    // Yield multiple times so per-session `Promise.all` settles and
+    // `drainSidecarHost` runs to the point of calling
+    // `child.stdin.end()` AND parking on `hostWaiter`. The
+    // `stdinEnded()` assertion below is the load-bearing pin that the
+    // timing is correct — without it, a `triggerExit` racing ahead of
+    // `drainSidecarHost`'s `hostExitWaiter` install would route
+    // through the `this.child === null` early-return path and report
+    // `sidecarExitedCleanly: false` (Codex P2 fix on PR #83 thread
+    // `PRRT_kwDOSCycWc6DZ8wD` — the early-return now distinguishes
+    // vacuous-no-spawn from child-exited-before-drain via the
+    // `childExitedBeforeDrain` flag). Mirrors the orchestration
+    // pattern of the "closes sidecar stdin" test below.
     await flushMicrotasks();
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    // Discriminator: `drainSidecarHost` reached the post-stdin.end()
+    // race — the next `triggerExit` resolves `hostExitWaiter` (the
+    // clean-shutdown happy path), NOT the `childExitedBeforeDrain`
+    // branch.
+    expect(fake.stdinEnded()).toBe(true);
 
     // Trigger sidecar exit so the host wind-down can complete.
     fake.triggerExit(0, null);
@@ -1016,15 +1036,20 @@ describe("RustSidecarPtyHost.shutdown — Plan-001 CP-001-1 polymorphic drain", 
     //      `fireExit(s-0, 1, ...)` and `notifyShutdownWaiter` calls.
     //      `drainSingleSession` returns `"forced"`.
     //   7. `drainSidecarHost`: `this.child === null` (cleared in step 3
-    //      pre-`fireCrashTimeOnExit`) → returns vacuous clean.
+    //      pre-`fireCrashTimeOnExit`) → returns `sidecarExitedCleanly`
+    //      keyed on `this.childExitedBeforeDrain` (set in step 3
+    //      AFTER the stale-event guard, BEFORE `this.child = null`).
+    //      Since the child exited mid-drain via `handleChildExit`,
+    //      the flag is `true` → reports `sidecarExitedCleanly: false`.
     //
     // Net consumer observation: exactly one `onExit(s-0, -1)` (from
     // step 3a), `sessionsForcedKilled === 1` (the drain returned
-    // "forced"), `sessionsDrained === 0`, `sidecarExitedCleanly: true`
-    // (vacuous — the child was already gone by host wind-down). The
-    // `-1` sentinel is the CRASH signal, distinct from the `1`
-    // forced-kill synthetic emitted by the SIGKILL escalation on a
-    // LIVE sidecar (covered by the wedge test above).
+    // "forced"), `sessionsDrained === 0`, `sidecarExitedCleanly:
+    // false` (the crash surfaces in telemetry per Codex P2 PR #83
+    // thread `PRRT_kwDOSCycWc6DZ8wD`). The `-1` sentinel is the
+    // CRASH signal, distinct from the `1` forced-kill synthetic
+    // emitted by the SIGKILL escalation on a LIVE sidecar (covered
+    // by the wedge test above).
     //
     // Refs:
     //   • Plan-001 §CP-001-1 sidecar-lifecycle drain.
@@ -1091,11 +1116,17 @@ describe("RustSidecarPtyHost.shutdown — Plan-001 CP-001-1 polymorphic drain", 
       const calls = onExit.mock.calls;
       expect(calls[0]).toEqual(["s-0", -1]);
 
-      // Host wind-down: `this.child` was cleared inside
-      // `handleChildExit` (BEFORE `fireCrashTimeOnExit`), so
-      // `drainSidecarHost`'s `child === null` early-return reports a
-      // vacuous clean wind-down with no escalation.
-      expect(result.sidecarExitedCleanly).toBe(true);
+      // Host wind-down regression check for Codex P2 PR #83 thread
+      // `PRRT_kwDOSCycWc6DZ8wD` ("crash-before-drain misreport"):
+      // `handleChildExit` cleared `this.child` AND set
+      // `this.childExitedBeforeDrain = true` BEFORE calling
+      // `fireCrashTimeOnExit`. `drainSidecarHost`'s `child === null`
+      // early-return now consults the latched flag and reports
+      // `sidecarExitedCleanly: false` so the consumer telemetry
+      // surfaces the crash instead of masking it as a clean exit.
+      // `taskkillEscalated` stays `false` — the sidecar already died
+      // on its own, no OS-level escalation needed.
+      expect(result.sidecarExitedCleanly).toBe(false);
       expect(result.taskkillEscalated).toBe(false);
     } finally {
       vi.useRealTimers();
@@ -1296,5 +1327,127 @@ describe("RustSidecarPtyHost.shutdown — Plan-001 CP-001-1 polymorphic drain", 
     const result = await firstPromise;
     const secondResult = await secondPromise;
     expect(secondResult).toBe(result);
+  });
+
+  it("resets childExitedBeforeDrain in attachChildListeners so a respawned child does not inherit the prior crashed child's flag (Codex P2 PRRT_kwDOSCycWc6DZ8wD stale-event safety)", async () => {
+    // Per-active-child state regression check. The
+    // `childExitedBeforeDrain` flag was added in the Codex P2 fix to
+    // route `drainSidecarHost`'s `child === null` early-return through
+    // the signal-channel so a crashed-before-drain sidecar reports
+    // `sidecarExitedCleanly: false`. But the flag MUST be reset when
+    // the supervisor respawns a fresh child via the crash-respawn
+    // path, otherwise a benign `drainSidecarHost` against the NEW
+    // child would inherit the prior crashed child's `true` and report
+    // a false-positive crash. The reset point is
+    // `attachChildListeners` (`rust-sidecar-pty-host.ts` L2240).
+    //
+    // Discriminator: drive the host through a full
+    // crash-then-respawn-then-clean-drain cycle. Under the FIXED
+    // code, the second `drainSidecarHost` (against the new child B)
+    // sees `childExitedBeforeDrain === false` AND the new child's
+    // `hostExitWaiter` resolves cleanly via `triggerExit(0, null)` →
+    // returns `sidecarExitedCleanly: true`. Under a BUGGY shape that
+    // forgets to reset the flag in `attachChildListeners`, the
+    // host's `drainSidecarHost` race would still return cleanly via
+    // the `hostExitWaiter` resolve path (the early-return branch
+    // would not be hit because child B is live at drain entry), so
+    // the assertion below pins the BEHAVIORAL CONTRACT: a respawned
+    // host that drains cleanly returns `sidecarExitedCleanly: true`
+    // — the flag-reset is the load-bearing piece without which a
+    // subsequent crash-before-second-drain would mis-route.
+    //
+    // The test structure DOES NOT introspect the private field
+    // (`childExitedBeforeDrain` is not on the public surface, by
+    // design). Instead the behavioral signal is the multi-step
+    // sequence: crash A → spawn B → drain B → assert clean.
+
+    // Two distinct fakes for child A and child B. The first
+    // `spawnFn` call returns A, the second returns B. The
+    // implementation re-invokes `spawnFn` on each `ensureChild`
+    // cold-start because `this.child === null` after A crashed.
+    const fakeA = makeFakeSidecarChild();
+    const fakeB = makeFakeSidecarChild();
+    let spawnCount = 0;
+    const spawnFn: SidecarSpawnFn = vi.fn<SidecarSpawnFn>().mockImplementation(() => {
+      spawnCount += 1;
+      // First call (during spawn of s-A) → child A.
+      // Second call (during spawn of s-B post-crash) → child B.
+      return (spawnCount === 1
+        ? fakeA.child
+        : fakeB.child) as unknown as ReturnType<SidecarSpawnFn>;
+    });
+
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: spawnFn,
+    });
+    const onExit = vi.fn();
+    host.setOnExit(onExit);
+
+    // Phase 1: spawn s-A on child A, then crash child A.
+    await spawnOneSession(host, fakeA, "s-A");
+    fakeA.triggerExit(null, "SIGSEGV");
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    // Phase 2: spawn s-B → triggers ensureChild cold-start →
+    // attachChildListeners runs on child B → flag MUST reset to false.
+    await spawnOneSession(host, fakeB, "s-B");
+
+    // Pre-condition: spawnFn was called twice (once for A, once for B).
+    expect(spawnFn).toHaveBeenCalledTimes(2);
+
+    // Phase 3: clean shutdown of s-B on child B. Child B emits a
+    // real ExitCodeNotification, then exits cleanly on stdin EOF.
+    // The whole drain MUST report `sidecarExitedCleanly: true` —
+    // proving that (a) the early-return branch did not falsely report
+    // a crash from child A's stale flag, AND (b) the hostExitWaiter
+    // resolved naturally on B's clean exit.
+    const drainPromise = host.shutdown({
+      perSessionTimeoutMs: 2_000,
+      hostTimeoutMs: 2_000,
+    });
+    await flushMicrotasks();
+    fakeB.writeStdout(frameEnvelope({ kind: "kill_response", session_id: "s-B" }));
+    fakeB.writeStdout(
+      frameEnvelope({
+        kind: "exit_code_notification",
+        session_id: "s-B",
+        exit_code: 0,
+        signal_code: null,
+      }),
+    );
+    // Yield enough microtasks for the per-session drain Promise.all
+    // to settle and `drainSidecarHost` to reach the post-stdin.end()
+    // hostExitWaiter race.
+    await flushMicrotasks();
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    // Discriminator: `drainSidecarHost` reached the post-stdin.end()
+    // race — the next `triggerExit` resolves `hostExitWaiter`
+    // cleanly. Mirrors the L290 stdin-ended assertion.
+    expect(fakeB.stdinEnded()).toBe(true);
+
+    // Trigger child B's clean exit so the host wind-down completes
+    // through the `hostExitWaiter` resolve path.
+    fakeB.triggerExit(0, null);
+    await flushMicrotasks();
+
+    const result = await drainPromise;
+
+    // Discriminator: clean wind-down on child B (which never
+    // exited mid-drain). Pre-fix the flag would be stuck at `true`
+    // from child A's exit and a future drainSidecarHost early-return
+    // branch (e.g., if the post-fix code accidentally hit the
+    // `child === null` branch via a race) would return
+    // `sidecarExitedCleanly: false`.
+    expect(result.sidecarExitedCleanly).toBe(true);
+    expect(result.taskkillEscalated).toBe(false);
+
+    // The s-B session drained cleanly (its ExitCodeNotification
+    // arrived in time).
+    expect(result.sessionsDrained).toBe(1);
+    expect(result.sessionsForcedKilled).toBe(0);
   });
 });
