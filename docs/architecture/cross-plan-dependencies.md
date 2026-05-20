@@ -398,7 +398,7 @@ With NS-01 + NS-02 + NS-04 + NS-05 completed 2026-05-11 (NS-01 via PR #42 — Pl
 - Type: code
 - Priority: `P1`
 - Upstream: NS-01 (Phase 1 scaffolding) + NS-04 (T5.4 cwd-translator)
-- References: [Plan-024](../plans/024-rust-pty-sidecar.md):303-316
+- References: [Plan-024](../plans/024-rust-pty-sidecar.md):305-318
 - Summary: Implement `NodePtyHost` in `packages/runtime-daemon/src/pty/` consuming the Plan-001 cwd-translator. All platforms default to `NodePtyHost` in Phase 2; Windows default flips to `RustSidecarPtyHost` at Phase 5 per F-024-2-02 + BL-106.
 - Exit Criteria: K1/K3 kill-semantics tests green; `AIS_PTY_BACKEND` env-grammar parsed; `node-pty@^1.2.0-beta.12` pinned.
 
@@ -438,9 +438,9 @@ With NS-01 + NS-02 + NS-04 + NS-05 completed 2026-05-11 (NS-01 via PR #42 — Pl
 - Type: code + governance
 - Priority: `P1`
 - Upstream: NS-07 (Phase 3 working sidecar) + BL-108 (procurement evidence)
-- References: [Plan-024](../plans/024-rust-pty-sidecar.md):337-349, [BL-108](../backlog.md#bl-108-plan-024-windows--macos-signing-procurement-evidence)
+- References: [Plan-024](../plans/024-rust-pty-sidecar.md):339-351, [BL-108](../backlog.md#bl-108-plan-024-windows--macos-signing-procurement-evidence)
 - Summary: 5-target `cargo-zigbuild` matrix (Windows MSVC, macOS x86_64/aarch64, Linux x86_64/aarch64) + Authenticode + Apple notarization. Phase 4 publishes signed pre-release binaries.
-- Exit Criteria: All 5 targets build green; signed artifacts attached to release draft; Plan-024 §Decision Log records signing-track choice + date; BL-108 closes.
+- Exit Criteria: All 5 targets build green; signed artifacts attached to release draft; Plan-024 §Decision Log records signing-track choice + date; BL-108 closes. (**V1 Release Impact:** BL-108 closure does NOT gate V1 release per [BL-108 §V1 Release Impact](../backlog.md#bl-108-plan-024-windows--macos-signing-procurement-evidence) — the cross-compile substrate ships to GitHub Releases unsigned in V1; signing stages activate post-procurement.)
 
 ### NS-10: Plan-024 Phase 5 — measurement substrate
 

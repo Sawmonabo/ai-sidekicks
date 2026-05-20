@@ -93,6 +93,8 @@ Source: `packages/contracts/src/pty-host.ts` `onData` + `onExit` rustdoc (the co
 - [ ] Plan-007 (local IPC) and Plan-001 (shared session core) on track for Tier 1 completion — `PtyHost` contract lands in `packages/contracts/` ahead of Plan-005's consumption
 - [ ] Plan-001 Phase 5 CP-001-2 cwd-translator wrapper (`packages/runtime-daemon/src/session/spawn-cwd-translator.ts`) merged — Plan-024 Phase 2 Step 8 NodePtyHost AND Phase 3 Step 7 RustSidecarPtyHost both depend on the translator (per F-024-2-04). Without it I-024-5 cannot hold on Windows; both NodePtyHost and RustSidecarPtyHost would surface `ERROR_SHARING_VIOLATION` in CI.
 
+**V1 Release Impact:** The Apple Developer Program + Windows signing track + Azure Artifact Signing eligibility rows above attach to [BL-108](../backlog.md#bl-108-plan-024-windows--macos-signing-procurement-evidence), which is V1-release-exempt per its §V1 Release Impact field. V1 distributes the PTY sidecar binary via GitHub Releases without code-signing certificates per [ADR-019 Assumption row 3](../decisions/019-windows-v1-tier-and-pty-sidecar.md) ("Sidecar ships unsigned initially, triggering SmartScreen warnings; V1 ships with UX-banner mitigation while signing catches up") and [ADR-023 §Axis 5 reversibility item 1](../decisions/023-v1-ci-cd-and-release-automation.md) (Apple Organization enrollment post-V1). The Phase 4 signing stages (Windows Authenticode + macOS notarization) activate on top of the existing GitHub-Releases distribution once BL-108 closes; the Phase 4 cross-compile substrate (CI matrix + Linux strip/hash + benchmark harness) can ship to GitHub Releases unsigned in the interim. The Preconditions rows above remain procurement-gated for Phase 4 signing closure but do NOT gate V1 release.
+
 ## Target Areas
 
 - `Cargo.toml` (workspace-root) — adds `members = [..., "packages/sidecar-rust-pty"]` so the workspace compiles the sidecar; new file at repo root, owned by Plan-024 Phase 1 (per F-024-1-08; cross-plan-deps §2 declares `packages/sidecar-rust-pty/` ownership but is silent on the workspace-root Cargo.toml — this Plan-024 row is canonical).
@@ -336,7 +338,7 @@ Plan-024 implementation lands as five PRs that map the §Implementation Steps on
 
 ### Phase 4 — CI Cross-Compile Matrix + Signing Stages
 
-**Precondition:** Phase 3 merged (a working `RustSidecarPtyHost` is needed to validate the cross-compile artifacts); signing-track decision recorded in `## Preconditions` via the procurement [BL-108](../backlog.md#bl-108-plan-024-windows--macos-signing-procurement-evidence) per F-024-4-06.
+**Precondition:** Phase 3 merged (a working `RustSidecarPtyHost` is needed to validate the cross-compile artifacts); signing-track decision recorded in `## Preconditions` via the procurement [BL-108](../backlog.md#bl-108-plan-024-windows--macos-signing-procurement-evidence) per F-024-4-06. **V1 Release Impact:** BL-108 closure does NOT gate V1 release — see [BL-108 §V1 Release Impact](../backlog.md#bl-108-plan-024-windows--macos-signing-procurement-evidence). The Phase 4 cross-compile substrate (CI matrix + Linux strip/hash + benchmark harness) can ship to GitHub Releases unsigned in the interim; signing stages (Windows Authenticode + macOS notarization) activate post-procurement.
 
 **Goal:** All 5 platform targets build green in CI; macOS notarization pipeline green for `darwin-arm64` and `darwin-x64`; Windows signing pipeline green per the selected track (Track A or Track B). Matches §Rollout Order steps 3 and 4 (signing procurement + signed pre-release publish).
 
