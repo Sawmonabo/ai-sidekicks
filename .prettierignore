@@ -3,6 +3,7 @@
 **/coverage/**
 **/.turbo/**
 **/*.tsbuildinfo
+apps/desktop/out/**
 pnpm-lock.yaml
 .release-please-manifest.json
 LICENSE
