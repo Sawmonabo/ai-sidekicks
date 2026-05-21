@@ -1088,9 +1088,12 @@ describe("SessionDirectoryService — P3 (join is idempotent on canonical member
 //     `errorFormatter` projects the typed cause onto `data.aisError`;
 //     router rethrows as `TOO_MANY_REQUESTS` per HTTP 429 convention.
 //
-// Tier 1 enforces a hard default of 10 (no per-session config override).
-// Per-session override is post-V1 scope — the `sessions` table has no
-// `participant_limit` column today.
+// The cap is resolved from `sessions.config.participantLimit` per
+// Spec-001 §Limit Enforcement ("configurable per session via session
+// config"); a positive finite override is honored verbatim (after
+// flooring), and the default of 10 from §Resource Limits row 1 is the
+// fallback when the override is absent, non-numeric, non-finite, or
+// non-positive.
 
 describe("SessionDirectoryService — P5 (AC8 participant-limit enforcement)", () => {
   // 10 unique participant ids used to fill the session to the default cap.
@@ -1285,6 +1288,72 @@ describe("SessionDirectoryService — P5 (AC8 participant-limit enforcement)", (
       [SESSION_ID],
     );
     expect(Number.parseInt(probe.rows[0]?.count ?? "0", 10)).toBe(10);
+  });
+
+  it("honors per-session config.participantLimit override (Spec-001 §Limit Enforcement)", async () => {
+    // Spec-001 §Limit Enforcement: "Limits are configurable per session
+    // via session config. The values above are defaults." A session
+    // created with `config: { participantLimit: 3 }` must trip the cap
+    // at the 4th joiner, not the 11th — and the wire envelope's `limit`
+    // field must reflect the resolved override (3), not the default 10.
+    const COLLABORATOR_A: ParticipantId = "01970000-0000-7000-8000-000000000102" as ParticipantId;
+    const COLLABORATOR_B: ParticipantId = "01970000-0000-7000-8000-000000000103" as ParticipantId;
+    const OVER_CAP_CANDIDATE: ParticipantId =
+      "01970000-0000-7000-8000-000000000104" as ParticipantId;
+    const allIds: ParticipantId[] = [
+      OWNER_PARTICIPANT_ID,
+      COLLABORATOR_A,
+      COLLABORATOR_B,
+      OVER_CAP_CANDIDATE,
+    ];
+    for (const id of allIds) {
+      await ctx.querier.query("INSERT INTO participants (id) VALUES ($1)", [id]);
+    }
+    await ctx.service.createSession({
+      sessionId: SESSION_ID,
+      ownerParticipantId: OWNER_PARTICIPANT_ID,
+      config: { participantLimit: 3 },
+    });
+
+    // Owner consumes slot 1; A + B consume slots 2-3 at the override cap.
+    for (const id of [COLLABORATOR_A, COLLABORATOR_B]) {
+      const join = await ctx.service.joinSession({
+        sessionId: SESSION_ID,
+        participantId: id,
+        role: "collaborator",
+      });
+      expect(join).not.toBeNull();
+    }
+
+    // 4th joiner trips the override cap. The wire payload must carry
+    // `limit: 3` (the resolved override), not `limit: 10` (the default).
+    let caught: unknown = null;
+    try {
+      await ctx.service.joinSession({
+        sessionId: SESSION_ID,
+        participantId: OVER_CAP_CANDIDATE,
+        role: "collaborator",
+      });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(ResourceLimitExceededException);
+    if (!(caught instanceof ResourceLimitExceededException)) return;
+    expect(caught.code).toBe("resource.limit_exceeded");
+    expect(caught.details).toEqual({
+      resource: "participants per session",
+      limit: 3,
+      current: 3,
+    });
+    // Error message must also reflect the resolved cap, not the default.
+    expect(caught.message).toContain("(3/3)");
+
+    // Direct row probe: still exactly 3 memberships (the 4th rolled back).
+    const probe = await ctx.querier.query<{ count: string }>(
+      "SELECT COUNT(*)::text AS count FROM session_memberships WHERE session_id = $1",
+      [SESSION_ID],
+    );
+    expect(Number.parseInt(probe.rows[0]?.count ?? "0", 10)).toBe(3);
   });
 });
 

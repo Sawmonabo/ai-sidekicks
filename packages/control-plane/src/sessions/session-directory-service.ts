@@ -72,19 +72,38 @@ import { ResourceLimitExceededException } from "./errors.js";
 import type { Querier } from "./migration-runner.js";
 
 // --------------------------------------------------------------------------
-// Spec-001 §Resource Limits — participants-per-session default cap.
+// Spec-001 §Resource Limits — participants-per-session cap.
 //
-// Tier 1 enforces the hard default of 10 per Spec-001 §Resource Limits
-// row 1. Per-session override via session config (the spec's
-// "configurable per session via session config" clause) is post-V1 scope:
-// the `sessions` table has no `participant_limit` column today, and
-// adding one would require a coordinated migration + config-source
-// promotion across Plan-001 + Plan-002. The constant lives here as the
-// single source of truth — a future plan that adds per-session override
-// reads this constant as the fallback when the override is absent.
+// Spec-001 §Resource Limits row 1 names "Participants per session: 10
+// (Control plane on join)" and §Limit Enforcement adds: "Limits are
+// configurable per session via session config. The values above are
+// defaults." The `sessions` row carries a JSONB `config` column (set at
+// `createSession` time) which is the configured source; the constant
+// below is the fallback when `config.participantLimit` is absent or
+// non-positive.
 // --------------------------------------------------------------------------
 
 const DEFAULT_PARTICIPANT_LIMIT = 10;
+
+/**
+ * Resolve the participants-per-session cap from a session's JSONB
+ * `config`. Honors Spec-001's "configurable per session via session
+ * config" clause; falls back to the spec's default of 10 when the
+ * override is absent, non-numeric, non-finite, or non-positive.
+ *
+ * Floors fractional values (the cap is a participant count, not a
+ * fraction). A zero or negative override falls through to the default
+ * — Spec-001 does not define "disable joining" semantics, so we treat
+ * those values as malformed config rather than silently producing an
+ * unjoinable session.
+ */
+const resolveParticipantLimit = (config: Record<string, unknown> | null | undefined): number => {
+  const raw = config?.["participantLimit"];
+  if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0) {
+    return DEFAULT_PARTICIPANT_LIMIT;
+  }
+  return Math.floor(raw);
+};
 
 // `details.resource` wire-string for the participants-per-session limit.
 // Verbatim per Spec-001 §Resource Limits row 1 ("Participants per session"
@@ -625,21 +644,24 @@ export class SessionDirectoryService {
       // Spec-001 §Limit Enforcement requires the standard
       // `resource.limit_exceeded` envelope; the typed exception carries
       // the wire-shaped payload that the tRPC errorFormatter projects
-      // onto `data.aisError`.
+      // onto `data.aisError`. The cap is resolved from
+      // `sessions.config.participantLimit` (Spec-001's "configurable per
+      // session" clause) with the default-of-10 fallback.
       if (!isRejoin) {
+        const cap = resolveParticipantLimit(sessionRow.config);
         const countProbe = await tx.query<{ n: number }>(
           "SELECT COUNT(*)::int AS n FROM session_memberships WHERE session_id = $1",
           [input.sessionId],
         );
         const current = countProbe.rows[0]?.n ?? 0;
-        if (current >= DEFAULT_PARTICIPANT_LIMIT) {
+        if (current >= cap) {
           throw new ResourceLimitExceededException(
             {
               resource: PARTICIPANTS_RESOURCE_LABEL,
-              limit: DEFAULT_PARTICIPANT_LIMIT,
+              limit: cap,
               current,
             },
-            `session ${String(input.sessionId)} has reached participants-per-session limit (${current}/${DEFAULT_PARTICIPANT_LIMIT})`,
+            `session ${String(input.sessionId)} has reached participants-per-session limit (${current}/${cap})`,
           );
         }
       }
