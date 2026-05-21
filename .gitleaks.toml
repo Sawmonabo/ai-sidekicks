@@ -15,11 +15,28 @@ useDefault = true
 #
 # Allowlist by `regexTarget = "match"` so the suppression fires on the
 # matched substring itself rather than on the surrounding line context.
-[allowlist]
+#
+# Uses `[[allowlists]]` (plural array) form per gitleaks v8.25.0+ — the legacy
+# singular `[allowlist]` block was deprecated and gitleaks v8.30+ rejects
+# configs that mix the two forms. Each `[[allowlists]]` entry is evaluated
+# independently (OR semantics across entries), which keeps the AWS KMS
+# suppression decoupled from the PASETO fixture suppression below.
+[[allowlists]]
 description = "AWS KMS Ed25519 public-API enum constants are not secrets"
 regexTarget = "match"
 regexes = [
   '''ECC_NIST_EDWARDS25519''',
   '''ED25519_SHA_512''',
   '''ED25519_PH_SHA_512''',
+]
+
+# Vendored RFC test vectors carry deliberate test keys (hex Ed25519 secret keys
+# and PEM-encoded private keys) published in paseto-standard/test-vectors. They
+# are public, deterministic, and pinned by sha256 in PROVENANCE.md alongside an
+# upstream commit-SHA audit log. The `paths` field scopes this allowlist to the
+# fixture path only.
+[[allowlists]]
+description = "PASETO v4 RFC test vectors (hex keys are deliberate; vendored from paseto-standard/test-vectors)"
+paths = [
+  '''packages/crypto-paseto/src/__tests__/__fixtures__/v4\.json''',
 ]

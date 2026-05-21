@@ -7,3 +7,6 @@ pnpm-lock.yaml
 .release-please-manifest.json
 LICENSE
 docs/reference/**
+# Vendored upstream test vectors must remain byte-identical to upstream
+# (sha256 recorded in PROVENANCE.md is the source-of-truth integrity check).
+packages/crypto-paseto/src/__tests__/__fixtures__/v4.json
