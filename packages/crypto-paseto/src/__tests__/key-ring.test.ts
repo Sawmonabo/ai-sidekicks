@@ -116,4 +116,50 @@ describe("KeyRing", () => {
     expect(active.key[0]).toBe(originalFirstByte);
     expect(active.createdAt.getTime()).toBe(originalCreatedAt);
   });
+
+  // Symmetric defense-in-depth: accessors must also clone on the way out.
+  // If `active()` / `byId()` returned the internal reference, a caller
+  // could mutate `retiredAt` and break the "exactly one active" invariant,
+  // or mutate `key` bytes to corrupt verification. Cloning out closes the
+  // mutation surface alongside the clone-in path covered above.
+  //
+  // `readonly` on `KeyRingEntry` is a TypeScript-only guarantee — the
+  // emitted JS lets a caller write through the reference. These tests
+  // cast via `MutableEntry` to *exercise* that runtime surface and prove
+  // the ring stays isolated from it.
+  type MutableEntry = { -readonly [K in keyof KeyRingEntry]: KeyRingEntry[K] };
+
+  it("isolates the ring from mutation of values returned by active()", () => {
+    const original = entry("k_1");
+    const originalFirstByte = original.key[0];
+    const ring = new KeyRing([original]);
+
+    // Mutate the returned entry after the accessor call.
+    const first = ring.active();
+    first.key[0] = (originalFirstByte! + 1) & 0xff;
+    (first as MutableEntry).retiredAt = new Date("2026-01-01T00:00:00Z");
+
+    // Ring state must be unchanged on the next accessor call.
+    const second = ring.active();
+    expect(second.key[0]).toBe(originalFirstByte);
+    expect(second.retiredAt).toBeUndefined();
+  });
+
+  it("isolates the ring from mutation of values returned by byId()", () => {
+    const retired = entry("k_0", new Date("2026-04-01T00:00:00Z"));
+    const active = entry("k_1");
+    const ring = new KeyRing([retired, active]);
+
+    const looked = ring.byId("k_0")!;
+    const lookedFirstByte = looked.key[0];
+    // Mutate the returned entry.
+    looked.key[0] = (lookedFirstByte! + 1) & 0xff;
+    // Would break "exactly one active" if the ring shared its reference.
+    (looked as MutableEntry).retiredAt = undefined;
+
+    // Re-lookup must return an unmutated clone.
+    const again = ring.byId("k_0")!;
+    expect(again.key[0]).toBe(lookedFirstByte);
+    expect(again.retiredAt).toEqual(new Date("2026-04-01T00:00:00Z"));
+  });
 });

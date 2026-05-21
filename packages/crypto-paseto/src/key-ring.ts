@@ -45,28 +45,34 @@ export class KeyRing {
       }
       seenIds.add(e.id);
     }
-    // Deep clone each entry so callers can't mutate our backing array OR
-    // the entry objects (and their mutable `Uint8Array` / `Date` fields)
-    // after construction. The `readonly` annotations on `KeyRingEntry`
-    // only restrict reassignment at the type level — they do not stop
-    // a caller from writing to `entry.key[0]` or `entry.createdAt.setTime()`.
-    // Without deep-clone the ring's invariants drift out-of-band whenever
-    // a caller mutates an entry it still holds a reference to.
-    this.#entries = entries.map((e) => ({
+    // Deep clone each entry on intake so callers can't mutate our backing
+    // array OR the entry objects (and their mutable `Uint8Array` / `Date`
+    // fields) after construction. The `readonly` annotations on
+    // `KeyRingEntry` only restrict reassignment at the type level — they
+    // do not stop a caller from writing to `entry.key[0]` or
+    // `entry.createdAt.setTime()`. Accessors (`active()` / `byId()`) clone
+    // again on the way out so the immutability contract holds symmetrically
+    // for both inbound construction and outbound reads.
+    this.#entries = entries.map((e) => KeyRing.#cloneEntry(e));
+  }
+
+  static #cloneEntry(e: KeyRingEntry): KeyRingEntry {
+    return {
       id: e.id,
       key: new Uint8Array(e.key),
       createdAt: new Date(e.createdAt.getTime()),
       retiredAt: e.retiredAt === undefined ? undefined : new Date(e.retiredAt.getTime()),
-    }));
+    };
   }
 
   active(): KeyRingEntry {
     // Invariant guarantees exactly one match.
-    return this.#entries.find((e) => e.retiredAt === undefined)!;
+    return KeyRing.#cloneEntry(this.#entries.find((e) => e.retiredAt === undefined)!);
   }
 
   byId(id: string): KeyRingEntry | undefined {
-    return this.#entries.find((e) => e.id === id);
+    const e = this.#entries.find((entry) => entry.id === id);
+    return e === undefined ? undefined : KeyRing.#cloneEntry(e);
   }
 
   /**
