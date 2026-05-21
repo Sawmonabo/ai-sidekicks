@@ -21,44 +21,46 @@
 //     (rows 9a daemon / 9b relay) and is visible to Spec-006 event
 //     taxonomy.`
 //
-// BLOCKED-ON-C9. The event is marked-but-unregistered at Tier 1 — the
-// canonical `security.default.override` event-type registration in
-// Spec-006 §Event Type Summary and Plan-006 emitter table is owed by
-// CP-007-5 (governance pickup). The emitter contract here is therefore
-// "fire to whatever event sink the daemon bootstrap exposes"; this
-// module deliberately introduces NO event-name registry, NO Spec-006
-// taxonomy import, and NO new abstractions beyond the audit-cited
-// inline payload shape. When CP-007-5 lands, the consuming sink will
-// be the registered taxonomy emitter and the inline `Sink` shape here
-// stays unchanged.
+// CP-007-5 obligation pair (`security.*` event-type taxonomy registration
+// owed to Plan-006 / Spec-006) is satisfied at HEAD per BL-105 closure
+// (2026-05-01): the canonical `security.default.override` event-type
+// registration lives in [Spec-006 §Security Events](../../../../../docs/specs/006-session-event-taxonomy-and-audit-log.md#security-events-security_events)
+// and the Plan-006 emitter table lists Plan-007 as the originator. The
+// emitter contract here is "fire to whatever event sink the daemon
+// bootstrap exposes" via `setSink` (CP-007-5 governance + this module's
+// runtime stay decoupled). The inline `Sink` shape below is intentional
+// — Plan-007 owns the emitter; Plan-006 owns the taxonomy row; both can
+// evolve independently without coupling.
 //
-// Spec tension noted for the reviewer (BLOCKED-ON-C9): line 81 frames
-// the event as `security.default.override=<behavior>` (Example 5 emits
+// Spec tension noted for the reviewer: Spec-027 line 81 frames the
+// event as `security.default.override=<behavior>` (Example 5 emits
 // `security.default.override=insecure_bind`, suggesting `<behavior>`
 // is a string token), while line 138 declares `behavior` as integer
 // 1–10 in the structured payload schema. The audit cite explicitly
 // dictates the payload shape from line 138; this module honors that
 // tie-breaker. The string-token form is a stdout/log-line rendering
 // concern, not a structured-payload concern, and is owned by the
-// banner / log-format consumer (T-007p-1-3 / Plan-026 / Spec-006
-// taxonomy registration). When CP-007-5 lands the canonical taxonomy
-// row, the integer↔string-token mapping is recorded there.
+// banner / log-format consumer (T-007p-1-3 / Plan-026). The
+// integer↔string-token mapping is recorded in the Spec-006 §Security
+// Events taxonomy row.
 //
-// What this module does NOT do (deferred):
+// What this module does NOT do:
 //   * Define a sink implementation. The orchestrator (T-007p-1-3) wires
 //     the daemon's actual event sink into this module via `setSink`.
 //   * Format the override into a stdout banner. Spec-027 row 10 banner
 //     content is owned by the Plan-026 banner consumer.
-//   * Register the event type with Spec-006 taxonomy (CP-007-5 / C9).
 //   * Validate the payload shape. The inline types below are the
 //     compile-time contract; Tier 1 trusts the in-process caller. A
-//     future Zod-schema validation step lands once CP-007-5 declares
-//     the canonical envelope.
+//     future Zod-schema validation step can layer on top against the
+//     Spec-006 §Security Events taxonomy row (BL-105 closed 2026-05-01).
 
 // --------------------------------------------------------------------------
-// Inline payload + sink types (BLOCKED-ON-C9 — replace with imported
-// taxonomy types when Spec-006 §Event Type Summary registers
-// `security.default.override` per CP-007-5).
+// Inline payload + sink types. Plan-007 owns the emitter surface;
+// Plan-006 owns the canonical Spec-006 §Security Events taxonomy row
+// for `security.default.override` (BL-105 closed 2026-05-01). The two
+// can evolve independently — Zod-schema validation against the
+// taxonomy can layer on top in a follow-up without changing the call
+// surface here.
 // --------------------------------------------------------------------------
 
 /**
