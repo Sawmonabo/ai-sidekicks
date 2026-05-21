@@ -89,4 +89,33 @@ describe("v4.public sign / verify", () => {
       InvalidTokenError,
     );
   });
+
+  // Strict base64url canonicalization: non-canonical textual forms (padding,
+  // invalid chars) must be rejected even when Node's lenient decoder would
+  // otherwise produce bytes that pass the signature check. See v4-public.ts
+  // §base64UrlDecode for rationale (exact-string controls integrity).
+  it("rejects a token whose body base64url carries `=` padding", () => {
+    const { publicKey, secretKey } = generateV4PublicKeyPair();
+    const token = signV4Public(encoder.encode("payload"), secretKey);
+    // PASETO requires unpadded base64url; Node tolerates trailing `=`.
+    expect(() => verifyV4Public(`${token}=`, publicKey)).toThrow(InvalidTokenError);
+  });
+
+  it("rejects a token whose footer base64url carries `=` padding", () => {
+    const { publicKey, secretKey } = generateV4PublicKeyPair();
+    const footer = encoder.encode("kid:k_1");
+    const token = signV4Public(encoder.encode("payload"), secretKey, footer);
+    // token shape: "v4.public.<body>.<footer>" → append `=` to footer.
+    expect(() => verifyV4Public(`${token}=`, publicKey, footer)).toThrow(InvalidTokenError);
+  });
+
+  it("rejects a token whose body contains a non-base64url character", () => {
+    const { publicKey, secretKey } = generateV4PublicKeyPair();
+    const token = signV4Public(encoder.encode("payload"), secretKey);
+    const head = token.slice(0, "v4.public.".length);
+    const body = token.slice("v4.public.".length);
+    // Replace the first body char with `$` (outside the base64url alphabet).
+    const tampered = `${head}$${body.slice(1)}`;
+    expect(() => verifyV4Public(tampered, publicKey)).toThrow(InvalidTokenError);
+  });
 });

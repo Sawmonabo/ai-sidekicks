@@ -82,4 +82,17 @@ describe("KeyRing", () => {
     const ring = new KeyRing([entry("k_1")]);
     expect(() => ring.rotate(entry("k_1"))).toThrow(InvalidKeyError);
   });
+
+  it("throws InvalidKeyError when constructor receives duplicate ids (one active, one retired)", () => {
+    const retired = entry("k_1", new Date("2026-04-01T00:00:00Z"));
+    const active = entry("k_1"); // same id, active
+    expect(() => new KeyRing([retired, active])).toThrow(InvalidKeyError);
+  });
+
+  it("throws InvalidKeyError when constructor receives duplicate retired ids", () => {
+    const r1 = entry("k_1", new Date("2026-04-01T00:00:00Z"));
+    const r2 = entry("k_1", new Date("2026-05-01T00:00:00Z")); // same id, both retired
+    const active = entry("k_2");
+    expect(() => new KeyRing([r1, r2, active])).toThrow(InvalidKeyError);
+  });
 });

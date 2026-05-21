@@ -136,7 +136,23 @@ function base64UrlEncode(bytes: Uint8Array): string {
 }
 
 function base64UrlDecode(s: string): Uint8Array {
-  return new Uint8Array(Buffer.from(s, "base64url"));
+  // PASETO §2 requires strictly canonical base64url (RFC 4648 §5, unpadded):
+  // no `=` padding, no whitespace, no characters outside `[A-Za-z0-9_-]`.
+  // Node's `Buffer.from(s, "base64url")` is lenient — it tolerates `=`
+  // padding and silently ignores invalid characters — so two different
+  // textual strings can decode to the same bytes. That would let a tampered
+  // token re-verify and break exact-string controls layered on top (e.g.,
+  // replay/revocation caches keyed by token string).
+  //
+  // Round-trip canonicalization: decode, then re-encode with Node's canonical
+  // (no-padding) base64url, and require byte equality against the input.
+  // Any deviation (padding, whitespace, alternate alphabet, stray chars)
+  // fails this check.
+  const decoded = new Uint8Array(Buffer.from(s, "base64url"));
+  if (Buffer.from(decoded).toString("base64url") !== s) {
+    throw new InvalidTokenError("base64url input is not strictly canonical");
+  }
+  return decoded;
 }
 
 // Structural (non-secret) equality for footer comparison. Footer is public

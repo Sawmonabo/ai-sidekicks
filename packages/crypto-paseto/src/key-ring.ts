@@ -33,6 +33,18 @@ export class KeyRing {
     if (active.length > 1) {
       throw new InvalidKeyError("KeyRing requires at most one active entry");
     }
+    // Reject duplicate ids — `byId()` returns the first match, so duplicates
+    // would make lookup order-dependent and could return a retired entry
+    // when an active one with the same id exists (or vice versa). `rotate()`
+    // already enforces this for the next-entry path; mirror the invariant
+    // here so KeyRing instances are never constructable with id collisions.
+    const seenIds = new Set<string>();
+    for (const e of entries) {
+      if (seenIds.has(e.id)) {
+        throw new InvalidKeyError(`KeyRing rejects duplicate entry id: ${e.id}`);
+      }
+      seenIds.add(e.id);
+    }
     // Defensive copy so callers can't mutate our backing array.
     this.#entries = [...entries];
   }
