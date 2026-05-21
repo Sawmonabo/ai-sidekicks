@@ -209,7 +209,7 @@ Plan-002 implementation lands as a sequence of small PRs primarily at Tier 2 (Ph
 
 ##### T1.5 — Author Postgres migration creating `session_invites` table (no `session_memberships` ALTER — Plan-001 owns).
 
-**Files:** `packages/control-plane/src/migrations/0002-session-invites.ts` **Spec coverage:** Spec-002 §State And Data Implications line 155 (invite records durable until terminal state) + line 156-157 (presence ephemeral — no durable presence table) **Verifies invariant:** I-002-3 (verified-by-omission: migration creates `session_invites` only and does NOT create a presence-state table; P10 regression test in T2.5 asserts this)
+**Files:** `packages/control-plane/src/migrations/0002-session-invites.ts` **Spec coverage:** Spec-002 §State And Data Implications line 155 (invite records durable until terminal state) + line 157 (presence ephemeral — no durable presence table) **Verifies invariant:** I-002-3 (verified-by-omission: migration creates `session_invites` only and does NOT create a presence-state table; P10 regression test in T2.5 asserts this)
 
 ##### T1.6 — Wire Vitest tests C1–C5 + anti-leakage assertion (no `ChannelCreate` contracts shipped).
 
@@ -307,7 +307,7 @@ Plan-002 implementation lands as a sequence of small PRs primarily at Tier 2 (Ph
 
 ##### T5.1 — Implement `membershipClient.ts` daemon factory wrapping `presence.*` JSON-RPC + invite/membership tRPC adapter.
 
-**Files:** `packages/client-sdk/src/membershipClient.ts`, `packages/client-sdk/test/membershipClient.integration.test.ts` **Spec coverage:** Spec-002 AC1 (I1 live-join non-disruption — Plan-002:166), Spec-002 C5 + AC1 (I3 `ChannelList` bootstrap projection — Plan-002:168) **Verifies invariant:** none (SDK transport boundary; substrate invariants verified at services layer per Phase 2/Phase 3)
+**Files:** `packages/client-sdk/src/membershipClient.ts`, `packages/client-sdk/test/membershipClient.integration.test.ts` **Spec coverage:** Spec-002 AC1 (I1 live-join non-disruption — Plan-002:166), Spec-002 line 87 + AC1 (I3 `ChannelList` bootstrap projection — Plan-002:168) **Verifies invariant:** none (SDK transport boundary; substrate invariants verified at services layer per Phase 2/Phase 3)
 
 ##### T5.2 — Implement `membershipClient.ts` control-plane factory consuming Plan-008-remainder relay (when shipped at Tier 5; until then, control-plane factory throws `NotImplementedAtTier2Error`).
 
@@ -315,7 +315,7 @@ Plan-002 implementation lands as a sequence of small PRs primarily at Tier 2 (Ph
 
 ##### T5.3 — Add I1–I3 integration tests.
 
-**Files:** `packages/client-sdk/test/membershipClient.integration.test.ts` **Spec coverage:** Spec-002 AC1 (I1 — Plan-002:166), Spec-002 AC2 (I2 membership/presence separation — Plan-002:167), Spec-002 C5 + AC1 (I3 — Plan-002:168) **Verifies invariant:** none (SDK transport boundary; substrate invariants verified at services layer per Phase 2/Phase 3)
+**Files:** `packages/client-sdk/test/membershipClient.integration.test.ts` **Spec coverage:** Spec-002 AC1 (I1 — Plan-002:166), Spec-002 AC2 (I2 membership/presence separation — Plan-002:167), Spec-002 line 87 + AC1 (I3 — Plan-002:168) **Verifies invariant:** none (SDK transport boundary; substrate invariants verified at services layer per Phase 2/Phase 3)
 
 ### Phase 6 — Renderer (Tier 2)
 
