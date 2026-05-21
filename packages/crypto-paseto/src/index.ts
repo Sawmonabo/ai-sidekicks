@@ -1,3 +1,5 @@
-// Populated in Task 7 (Public barrel). Empty placeholder so the package
-// typechecks before Task 2-6 have landed.
-export {};
+export * from "./pae.js";
+export * from "./errors.js";
+export * from "./v4-public.js";
+export * from "./v4-local.js";
+export * from "./key-ring.js";
