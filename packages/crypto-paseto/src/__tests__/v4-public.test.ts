@@ -118,4 +118,14 @@ describe("v4.public sign / verify", () => {
     const tampered = `${head}$${body.slice(1)}`;
     expect(() => verifyV4Public(tampered, publicKey)).toThrow(InvalidTokenError);
   });
+
+  // PASETO §2 exact-string invariant: `header.payload.` (trailing dot, empty
+  // footer) is a third textual form that would otherwise verify against the
+  // same key as `header.payload`. Without this rejection, an attacker can
+  // bypass exact-string replay/revocation caches by appending `.`.
+  it("rejects a token with a trailing dot and empty footer segment", () => {
+    const { publicKey, secretKey } = generateV4PublicKeyPair();
+    const token = signV4Public(encoder.encode("payload"), secretKey);
+    expect(() => verifyV4Public(`${token}.`, publicKey)).toThrow(InvalidTokenError);
+  });
 });

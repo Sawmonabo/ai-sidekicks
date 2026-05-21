@@ -45,6 +45,14 @@ export function decryptV4Local(
   if (parts.length > 2) {
     throw new InvalidTokenError("v4.local token has too many segments");
   }
+  // PASETO §2: a token is exactly `header.payload` or `header.payload.footer`.
+  // A trailing dot with empty footer (`v4.local.<body>.`) is non-canonical —
+  // two distinct token strings would otherwise decode to the same secret, and
+  // exact-string controls (replay/revocation caches keyed by token text) would
+  // be defeatable by appending `.`.
+  if (parts.length === 2 && parts[1] === "") {
+    throw new InvalidTokenError("v4.local token has trailing dot with empty footer");
+  }
 
   // Footer canonicalization: undefined ≡ Uint8Array(0). Design spec §6.
   const expF = footer ?? new Uint8Array(0);

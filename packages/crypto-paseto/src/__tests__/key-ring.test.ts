@@ -96,6 +96,15 @@ describe("KeyRing", () => {
     expect(() => new KeyRing([r1, r2, active])).toThrow(InvalidKeyError);
   });
 
+  // v4.local mandates 32-byte symmetric keys. Without intake validation, a
+  // malformed entry would survive construction and only surface as a
+  // `v4.local key must be 32 bytes` error during the first encrypt/decrypt —
+  // far from the cause. Mirror the assert at the ring boundary.
+  it("throws InvalidKeyError when constructor receives an entry whose key is not 32 bytes", () => {
+    const malformed: KeyRingEntry = { ...entry("k_1"), key: randomBytes(31) };
+    expect(() => new KeyRing([malformed])).toThrow(InvalidKeyError);
+  });
+
   // Defense-in-depth against caller mutation: the constructor deep-clones
   // each entry so that subsequent mutation of caller-owned references does
   // not bleed into the ring. The `readonly` annotation on `KeyRingEntry`

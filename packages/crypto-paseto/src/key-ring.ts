@@ -38,8 +38,19 @@ export class KeyRing {
     // when an active one with the same id exists (or vice versa). `rotate()`
     // already enforces this for the next-entry path; mirror the invariant
     // here so KeyRing instances are never constructable with id collisions.
+    //
+    // Also enforce the v4.local 32-byte key invariant at intake. Without
+    // this, a malformed entry (e.g., 31 bytes) would survive construction
+    // and only blow up later in `encryptV4Local` / `decryptV4Local` —
+    // failing far from the cause. Mirrors `assertSecretKey` / `assertPublicKey`
+    // in the v4-public / v4-local modules.
     const seenIds = new Set<string>();
     for (const e of entries) {
+      if (e.key.length !== 32) {
+        throw new InvalidKeyError(
+          `KeyRing entry key must be 32 bytes (id: ${e.id}, got ${e.key.length})`,
+        );
+      }
       if (seenIds.has(e.id)) {
         throw new InvalidKeyError(`KeyRing rejects duplicate entry id: ${e.id}`);
       }

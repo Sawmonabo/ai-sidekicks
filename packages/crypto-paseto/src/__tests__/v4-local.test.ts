@@ -123,4 +123,14 @@ describe("v4.local encrypt / decrypt", () => {
     const tampered = `${head}$${body.slice(1)}`;
     expect(() => decryptV4Local(tampered, key)).toThrow(InvalidTokenError);
   });
+
+  // PASETO §2 exact-string invariant: `header.payload.` (trailing dot, empty
+  // footer) is a third textual form that would otherwise decrypt against the
+  // same key as `header.payload`. Without this rejection, an attacker can
+  // bypass exact-string replay/revocation caches by appending `.`.
+  it("rejects a token with a trailing dot and empty footer segment", () => {
+    const key = randomBytes(32);
+    const token = encryptV4Local(encoder.encode("payload"), key);
+    expect(() => decryptV4Local(`${token}.`, key)).toThrow(InvalidTokenError);
+  });
 });
