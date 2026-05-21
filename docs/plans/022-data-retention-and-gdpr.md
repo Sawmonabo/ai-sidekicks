@@ -19,7 +19,7 @@ Ship the V1 **schema and write-path** of the Spec-022 crypto-shredding model so 
 ## Scope
 
 - Create the `participant_keys` SQLite table (schema per Spec-022 §Participant Keys) owned by this plan, populated on first participant provisioning.
-- **Forward-declare** the `session_events.pii_payload BLOB` column onto Plan-001's initial SQLite migration `0001-initial.sql` so Tier 1 ships a schema already compatible with crypto-shredding. Plan-001's migration inherits this constraint at authoring time (Session 4 / post-BL-054 propagation).
+- **Forward-declare** the `session_events.pii_payload BLOB` column onto Plan-001's initial SQLite migration `0001-initial.ts` so Tier 1 ships a schema already compatible with crypto-shredding. Plan-001's migration inherits this constraint at authoring time (Session 4 / post-BL-054 propagation).
 - Daemon master-key bootstrap: OS keychain primary (macOS Keychain, Windows DPAPI/Credential Manager, Linux libsecret via `keytar`); file fallback at `${XDG_DATA_HOME:-~/.local/share}/ai-sidekicks/daemon/master-key` (mode `0600`, base64-encoded 32 bytes) when keychain is unavailable.
 - Per-participant key derivation: HKDF-SHA256 (RFC 5869) with `info = "ais.participant.v1" || participant_id`, `salt = null`, `ikm` = participant authentication material passed by Plan-018 at provisioning time; derived key is the AES-256 content key.
 - PII encryption format: AES-256-GCM with `AAD = participant_id || event_id`, 12-byte random nonce, wire format `iv || ciphertext || tag`. Written to `session_events.pii_payload` by every event writer that emits PII.
@@ -48,7 +48,7 @@ Ship the V1 **schema and write-path** of the Spec-022 crypto-shredding model so 
 - `packages/runtime-daemon/src/crypto/` — **created by this plan**: `master-key-source.ts`, `participant-key-deriver.ts`, `pii-codec.ts`, `wrap-codec.ts`
 - `packages/runtime-daemon/src/persistence/participant-keys/` — **created by this plan**: `participant-keys-store.ts`
 - `packages/runtime-daemon/src/persistence/session-events/` — **extended by this plan**: event-writer helper `write-with-pii.ts` that the Plan-001 writer path consumes
-- `packages/runtime-daemon/src/persistence/migrations/0001-initial.sql` — **forward-declared addition to Plan-001's migration**: `session_events.pii_payload BLOB` column + full `participant_keys` table
+- `packages/runtime-daemon/src/persistence/migrations/0001-initial.ts` — **forward-declared addition to Plan-001's migration**: `session_events.pii_payload BLOB` column + full `participant_keys` table
 - `packages/runtime-daemon/src/config/master-key-source.ts` — keychain bootstrap (via `keytar`), file fallback path resolution
 - `packages/runtime-daemon/src/http/gdpr-stub-routes.ts` — **created by this plan**: three 501 handlers registered by Plan-007's IPC host
 - `docs/architecture/contracts/error-contracts.md` — **extended**: new error code `gdpr.endpoint_not_v1` (HTTP 501)
@@ -104,7 +104,7 @@ CREATE TABLE participant_keys (
 
 ### SQLite: `session_events.pii_payload` (forward-declared onto Plan-001's migration)
 
-Plan-001's initial migration `0001-initial.sql` MUST include `pii_payload BLOB` on the `session_events` column list directly (not as a later ALTER). Rationale: Spec-022 §Schema Requirements is load-bearing — _"This schema separation must be present in the initial V1 schema to avoid costly migration later."_ BL-054's propagation pass verifies the forward-declaration has been accepted.
+Plan-001's initial migration `0001-initial.ts` MUST include `pii_payload BLOB` on the `session_events` column list directly (not as a later ALTER). Rationale: Spec-022 §Schema Requirements is load-bearing — _"This schema separation must be present in the initial V1 schema to avoid costly migration later."_ BL-054's propagation pass verifies the forward-declaration has been accepted.
 
 ### Filesystem: master-key bootstrap
 
@@ -156,7 +156,7 @@ Event rows carry an Ed25519 signature over canonical bytes per [Spec-006 §Integ
 5. Implement `packages/runtime-daemon/src/persistence/participant-keys/participant-keys-store.ts`: CRUD on `participant_keys` using `wrap-codec`; provides `ensureKeyFor(participantId, ikm)` idempotent provisioning.
 6. Implement `packages/runtime-daemon/src/crypto/pii-codec.ts`: AES-256-GCM with `AAD = participant_id || event_id`, 12-byte random nonce, wire format `iv || ciphertext || tag`.
 7. Implement `packages/runtime-daemon/src/persistence/session-events/write-with-pii.ts`: content-aware PII splitter with signature `splitPii({ payload, piiPayload }) → { payload: PayloadWithDigest, pii_payload: Buffer | null }`. The emitter partitions fields at the call site: non-PII fields go to `payload`, PII fields go to `piiPayload`. When `piiPayload` is non-null, the splitter encrypts it via `pii-codec.ts` (AES-256-GCM), computes `pii_ciphertext_digest = BLAKE3(pii_payload_ciphertext)`, and embeds the digest in the returned `payload` BEFORE the canonicalizer (owned by Plan-006) runs — so the canonical bytes carry the digest commitment but never the plaintext. This embed-before-canonicalize order is load-bearing for [§Signature Safety Under Shred](#signature-safety-under-shred) and matches Plan-006 §PII Columns 7-step Encrypt-Then-Digest-Then-Sign order exactly. Plan-022 owns the digest-embed on the write path; Plan-006's `pii-indirection.ts` is the sole canonicalization path. Consumed by Plan-001's event-writer helper on integration. The splitter never inspects a Spec-006 registry attribute — call-site classification is authoritative.
-8. Forward-declare schema: during Plan-001 authoring (Session 4), migration `0001-initial.sql` must include `pii_payload BLOB` on `session_events` and the full `participant_keys` CREATE TABLE. Capture this dependency in BL-054's propagation pass.
+8. Forward-declare schema: during Plan-001 authoring (Session 4), migration `0001-initial.ts` must include `pii_payload BLOB` on `session_events` and the full `participant_keys` CREATE TABLE. Capture this dependency in BL-054's propagation pass.
 9. Implement `packages/runtime-daemon/src/http/gdpr-stub-routes.ts`: three 501 handlers returning `gdpr.endpoint_not_v1`; registered via Plan-007's IPC host.
 10. Document the new error code in `docs/architecture/contracts/error-contracts.md` and the new schema elements in `docs/architecture/schemas/local-sqlite-schema.md`.
 11. **Reserve Shred Fan-Out Orchestration surface (V1.1+).** Plan-022 is the V1 schema + write-path surface; the real `DELETE /participants/{id}/data` handler is V1.1+ (per §Non-Goals — 501 stubs in V1). When the real handler ships in V1.1, it MUST execute these three paths in the order below before emitting `participant.purged`, per [Spec-022 §Shred Fan-Out](../specs/022-data-retention-and-gdpr.md#shred-fan-out):

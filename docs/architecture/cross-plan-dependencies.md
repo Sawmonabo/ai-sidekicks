@@ -291,7 +291,7 @@ graph TB
   NS04[NS-04: Plan-001 T5.4 cwd-translator<br/>+ Plan-024 T-024-2-1 contracts pair]:::completed
   NS11[NS-11: Plan-007-partial cleanup<br/>3 stale BLOCKED-ON-C9 comments]:::completed
   NS13a[NS-13a: spec-status promotion gate<br/>runbook/ADR amendment]:::ready
-  NS22[NS-22: sibling-doc staleness sweep<br/>0001-initial sql→ts + session.ts line cite]:::ready
+  NS22[NS-22: sibling-doc staleness sweep<br/>0001-initial sql→ts + session.ts line cite]:::completed
   NS15[NS-15: Tier 3 plan-readiness audit<br/>(NS-16..NS-21 sequential)]:::ready
   NS14[NS-14: Tier 2 plan-readiness audit<br/>Plan-002 alone]:::completed
   NS06[NS-06: Plan-001 T5.2 renderer wiring]:::completed
@@ -522,13 +522,13 @@ With NS-01 + NS-02 + NS-04 + NS-05 completed 2026-05-11 (NS-01 via PR #42 — Pl
 
 ### NS-22: Sibling-doc staleness sweep (cross-plan-deps audit propagation)
 
-- Status: `todo`
+- Status: `completed` (resolved 2026-05-20 via this PR — 11 `0001-initial.sql` → `0001-initial.ts` cite replacements landed across `docs/plans/001-shared-session-core.md` (lines 12, 55, 122, 184, 298, 307, 309, 329, 338, 340), `docs/plans/022-data-retention-and-gdpr.md` (lines 22, 51, 107, 159), `docs/decisions/022-v1-toolchain-selection.md` (lines 14, 299) — plus 3 `session.ts:388` → `session.ts:408` cite replacements across `docs/plans/001-shared-session-core.md` line 369 + `docs/plans/008-control-plane-relay-and-session-join.md` lines 28, 199. Also folded in the forward-reference `0002-*.sql` → `0002-*.ts` in Plan-001:298 since the migration-filename convention is now `.ts`. Archive (`backlog-archive.md`) is excluded per `docs/archive/` frozen-state invariant. The `cross-plan-dependencies.md:557` occurrence is out-of-scope per A7 carve-out — handled by Tier 1 closure PR-2 omnibus Commit 4.)
 - Type: cleanup (doc-only)
 - Priority: `P2`
 - Upstream: none (NS-12 resolved 2026-05-03 — the Plan-001 file co-ownership concern dissolves; NS-22's sweep targets at lines 12, 55, 121, 183, 297, 306, 308, 328, 337, 339 do not overlap with NS-12's edit ranges at lines 77-83 + 357-363)
-- References: [Plan-001](../plans/001-shared-session-core.md):12, 55, 122, 184, 298, 307, 309, 329, 338, 340 (line numbers post-NS-12 — `0001-initial.sql` cites); [Plan-022](../plans/022-data-retention-and-gdpr.md):22, 51, 107, 159; [ADR-022](../decisions/022-v1-toolchain-selection.md):14, 299; [Plan-001](../plans/001-shared-session-core.md):369 `session.ts:388` cite (post-NS-12 line); [Plan-008](../plans/008-control-plane-relay-and-session-join.md):28, 199 `session.ts:388` cite (line 188 → 199 post-Plan-008 Phase 1 YAML backfill)
+- References: [Plan-001](../plans/001-shared-session-core.md):12, 55, 122, 184, 298, 307, 309, 329, 338, 340 (line numbers post-NS-12 — `0001-initial.sql` cites); [Plan-022](../plans/022-data-retention-and-gdpr.md):22, 51, 107, 159; [ADR-022](../decisions/022-v1-toolchain-selection.md):14, 299; [Plan-001](../plans/001-shared-session-core.md):369 `session.ts:388` cite (post-NS-12 line); [Plan-008](../plans/008-control-plane-relay-and-session-join.md):28, 199 `session.ts:388` cite (line 188 → 199 post-Plan-008 Phase 1 YAML backfill); Tier 1 closing audit A1 G1 / A7 carve-out
 - Summary: The cross-plan-deps audit (this PR) corrected two repo-truth drifts already present in §1 + §2 + §3 + §5: (a) migration filename `0001-initial.sql` → `0001-initial.ts` (live files are TypeScript per `packages/{runtime-daemon,control-plane}/src/migrations/`), and (b) `packages/contracts/src/session.ts:388` → `:408` (the `SessionSubscribe` comment block moved to line 408 after Plan-001 Phase 2 contract evolution). Both drifts also appear in sibling docs that this audit's scope did not modify. Sweep Plan-001 (10 occurrences of `.sql` + 1 of `:388`), Plan-022 (4 occurrences of `.sql`), ADR-022 (2 occurrences of `.sql`), and Plan-008 (2 occurrences of `:388`). Single PR, doc-only, ~30 min. Archive (`backlog-archive.md`) is frozen and excluded from sweep.
-- Exit Criteria: All listed sibling-doc occurrences updated to current values; grep for `0001-initial\.sql` and `session\.ts:388` outside `docs/archive/` returns zero matches.
+- Exit Criteria: All listed sibling-doc occurrences updated to current values; grep for `0001-initial\.sql` and `session\.ts:388` in the sweep-target paths (`docs/plans/001-shared-session-core.md`, `docs/plans/022-data-retention-and-gdpr.md`, `docs/decisions/022-v1-toolchain-selection.md`, `docs/plans/008-control-plane-relay-and-session-join.md`) returns zero matches. (Self-references in this file's NS-22 narrative + the A7-carved §7:557 paragraph are intentional documentation of the sweep scope, NOT drift; `docs/archive/` is frozen-state-excluded per the §6 invariant.) **Met.**
 
 ### NS-23: §6 schema amendment for multi-PR housekeeping
 
