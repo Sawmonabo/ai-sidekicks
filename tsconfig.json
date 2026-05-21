@@ -6,6 +6,7 @@
     { "path": "./packages/client-sdk" },
     { "path": "./packages/runtime-daemon" },
     { "path": "./packages/control-plane" },
+    { "path": "./packages/crypto-paseto" },
     { "path": "./apps/desktop" }
   ]
 }
