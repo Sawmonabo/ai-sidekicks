@@ -100,7 +100,7 @@ The schema is defined by what's actually on disk. The four entries below — pas
 - Type: audit (doc-only chain)
 - Priority: `P2` (each tier is `P1` when its turn comes)
 - Upstream: NS-14 → NS-15 (Tier 3) → NS-16 (Tier 4) → ... → NS-21 (Tier 9)
-- References: [audit runbook](../../operations/plan-implementation-readiness-audit-runbook.md):85-87 ("Tiers: strictly serialized"), this document §5 (Tier 3-9 rows)
+- References: [audit runbook](../../operations/plan-implementation-readiness-audit-runbook.md):86-88 ("Tiers: strictly serialized"), this document §5 (Tier 3-9 rows)
 - Summary: Tiers 3-9 audits run one PR per tier (per CLAUDE.md "8 tier-PRs of audit work owed before broad Tier 2+ code execution can resume"). Each tier-K audit PR commits the tier's plan amendments + tags `plan-readiness-audit-tier-K-complete`. Tier 8 includes Plan-017 — the only `review`-status plan, which must promote `review → approved` at its tier audit.
 - Exit Criteria: All 8 tier-PRs merged; all 27 plans cleared the audit; broad Tier 2+ code execution unblocked.
 ```

@@ -44,6 +44,13 @@
 
 - {Relevant architecture docs and ADRs}
 
+## Preconditions
+
+- [ ] All declared `Depends On` specs are at `approved` status
+- [ ] All declared `Depends On` ADRs are at `accepted` status
+- [ ] Blocking open questions are resolved or explicitly deferred
+- [ ] **Spec-status promotion gate cleared per [`docs/operations/plan-implementation-readiness-audit-runbook.md#spec-status-promotion-gate`](../operations/plan-implementation-readiness-audit-runbook.md#spec-status-promotion-gate)**
+
 ## Required Behavior
 
 - {Behavior that must exist}

@@ -291,10 +291,12 @@ graph TB
   NS03[NS-03: Plan-023-partial Tier 1<br/>Electron + React skeleton]:::completed
   NS04[NS-04: Plan-001 T5.4 cwd-translator<br/>+ Plan-024 T-024-2-1 contracts pair]:::completed
   NS11[NS-11: Plan-007-partial cleanup<br/>3 stale BLOCKED-ON-C9 comments]:::completed
-  NS13a[NS-13a: spec-status promotion gate<br/>runbook/ADR amendment]:::ready
+  NS13a[NS-13a: spec-status promotion gate<br/>runbook/ADR amendment]:::completed
+  NS13b[NS-13b: Spec-027 draft → approved]:::ready
   NS22[NS-22: sibling-doc staleness sweep<br/>0001-initial sql→ts + session.ts line cite]:::completed
   NS15[NS-15: Tier 3 plan-readiness audit<br/>(NS-16..NS-21 sequential)]:::ready
   NS14[NS-14: Tier 2 plan-readiness audit<br/>Plan-002 alone]:::completed
+  NS24[NS-24: Plan-002 Phase 1<br/>invite + membership contracts + migration]:::ready
   NS06[NS-06: Plan-001 T5.2 renderer wiring]:::completed
   NS08[NS-08: Plan-001 T5.3 sidecar-lifecycle]:::completed
   NS23[NS-23: §6 schema amendment<br/>multi-PR housekeeping]:::completed
@@ -304,7 +306,8 @@ graph TB
   %% BLOCKED
   NS09[NS-09: Plan-024 Phase 4 CI + signing]:::blocked
   NS10[NS-10: Plan-024 Phase 5 measurement]:::blocked
-  NS13b[NS-13b: Spec-027 draft → approved]:::blocked
+  NS25[NS-25: Plan-002 Phase 2<br/>invite + membership services + PASETO v4.local consumer]:::blocked
+  NS26[NS-26: Plan-002 Phase 3<br/>presence heartbeat + ChannelList projection]:::blocked
   NS16[NS-16..NS-21: Tiers 4-9 audits<br/>1 PR per tier, sequential]:::blocked
 
   %% COMPLETED
@@ -326,6 +329,10 @@ graph TB
   NS07 --> NS09
   BL108 --> NS09
   NS09 --> NS10
+  NS14 --> NS24
+  NS24 --> NS25
+  NS24 --> NS26
+  NS25 --> NS26
 
   %% Governance chain
   NS13a --> NS13b
@@ -342,7 +349,7 @@ graph TB
 
 ### Recommended first wave
 
-With NS-01 + NS-02 + NS-04 + NS-05 completed 2026-05-11 (NS-01 via PR #42 — Plan-024 Phase 1 Rust scaffold; NS-02 via PR #38 — Plan-001 Phase 5 Lane A T5.1 + T5.5 + T5.6; NS-04 via PR #45 + PR #48 — `PtyHost` contract interface + `spawn-cwd-translator.ts` daemon-layer wrapper; NS-05 via PR #51 — `NodePtyHost` + `PtyHostSelector` Phase 2 closeout), NS-07 completed 2026-05-12 (via PR #56 — Plan-024 Phase 3 `RustSidecarPtyHost` + Rust sidecar substrate + I-024-3/I-024-5/I-024-6 verification), NS-03 completed 2026-05-18 (via PR #70 — Plan-023-partial Tier 1 Electron + React skeleton + electron-vite v5 toolchain + Vitest launch smoke), NS-06 completed 2026-05-19 (via PR #77 — Plan-001 Phase 5 Lane C T5.2 renderer session-bootstrap component on top of the Plan-023-partial preload bridge), NS-08 completed 2026-05-20 (via PR #83 — Plan-001 Phase 5 Lane D T5.3 `apps/desktop/src/main/sidecar-lifecycle.ts` will-quit drain orchestration on top of the polymorphic `PtyHost.shutdown()` extension to both `NodePtyHost` + `RustSidecarPtyHost`; verifies I5 = CP-001-1 + I-024-4), and NS-14 completed 2026-05-20 (via this PR — Plan-002 Tier 2 plan-readiness audit; 12 critical / 23 major / 19 minor / 4 nit findings discharged via in-PR amendments + BL-119/120/121 escalations; per CP-002-1..CP-002-5 cross-plan obligations newly declared), the ready set is now NS-11, NS-13a, NS-15, NS-22 (4 items). NS-14's completion drops it from the ready set and promotes NS-15 (Tier 3 plan-readiness audit) from `blocked` → `ready` per the audit-chain edge `NS-14 → NS-15` (the §6 audit chain remains strictly serialized: NS-15 → NS-16 → … → NS-21 per runbook §85-87, so NS-16..NS-21 stay blocked behind NS-15). NS-08's completion (2026-05-20) closed the last open T5.x lane — **Plan-001 Phase 5 is fully shipped (T5.1–T5.6 complete)** and Plan-001 has no remaining Phase 5 code-lane on the §6 axis. NS-09 stays blocked on BL-108 procurement evidence; NS-10 stays blocked on NS-09 alone (BL-106 was archived 2026-05-13 and its dependency on NS-10 was removed — see [BL-106 archive entry](../archive/backlog-archive.md#bl-106-c-5--c-16--plan-024-calendar-window-decoupling-from-completed-status); the substrate-promotion 2-week monitoring window now lives at [ADR-019 §Substrate Promotion Window](../decisions/019-windows-v1-tier-and-pty-sidecar.md#substrate-promotion-window), NOT as a Plan-024 completion gate). The set shares no code paths or governance files — re-derived from each entry's `Files:` / target_paths after NS-14's drop-out + NS-15's promotion (NS-11 targets `packages/runtime-daemon/src/bootstrap/secure-defaults-events.ts`; NS-13a targets the audit runbook + spec template; NS-15 targets the next-tier plan-set under `docs/plans/` (Tier 3 plans per §5); NS-22 targets sibling-doc `0001-initial.sql` + `session.ts:388` cite occurrences in Plan-001 / Plan-022 / ADR-022 / Plan-008 — disjoint file-sets). Suggested parallel dispatch: **NS-13a + NS-15 + NS-11 + NS-22** as concurrent governance / audit / cleanup lanes — no code-lane remains on §6 until NS-09 unblocks via BL-108 procurement evidence. The previous serialization of NS-22 behind NS-12 (resolved 2026-05-03) is dissolved — NS-22 targets distinct content (`0001-initial.sql` filename + `session.ts:388` cite occurrences in Plan-001 / Plan-022 / ADR-022 / Plan-008) from NS-12's edit scope (Plan-001 §Preconditions + §Phase 5 Precondition); NS-22 dispatches cleanly against the post-NS-12 HEAD without rebase churn. The NS-04 → NS-05 → NS-07 cascade is now fully completed on the Plan-024 critical path — NS-04 completion (PR #48 housekeeping) unblocked NS-05; NS-05 completion (PR #51) unblocked NS-07; NS-07 completion (PR #56) leaves no NS-XX gate on NS-09 + NS-10. The remaining Plan-024 gates (NS-09 Phase 4 CI + signing, NS-10 Phase 5 measurement) are procurement-bound (BL-108), not code-lane-bound — Plan-024 cannot resume on the §6 axis until BL-108 closes. The 2-week substrate-promotion monitoring window historically tracked via BL-106 was archived 2026-05-13 and now lives at [ADR-019 §Substrate Promotion Window](../decisions/019-windows-v1-tier-and-pty-sidecar.md#substrate-promotion-window) — it is a substrate-promotion gate (env-var rollback authority retirement), NOT a Plan-024 completion gate.
+With NS-01 + NS-02 + NS-04 + NS-05 completed 2026-05-11 (NS-01 via PR #42 — Plan-024 Phase 1 Rust scaffold; NS-02 via PR #38 — Plan-001 Phase 5 Lane A T5.1 + T5.5 + T5.6; NS-04 via PR #45 + PR #48 — `PtyHost` contract interface + `spawn-cwd-translator.ts` daemon-layer wrapper; NS-05 via PR #51 — `NodePtyHost` + `PtyHostSelector` Phase 2 closeout), NS-07 completed 2026-05-12 (via PR #56 — Plan-024 Phase 3 `RustSidecarPtyHost` + Rust sidecar substrate + I-024-3/I-024-5/I-024-6 verification), NS-03 completed 2026-05-18 (via PR #70 — Plan-023-partial Tier 1 Electron + React skeleton + electron-vite v5 toolchain + Vitest launch smoke), NS-06 completed 2026-05-19 (via PR #77 — Plan-001 Phase 5 Lane C T5.2 renderer session-bootstrap component on top of the Plan-023-partial preload bridge), NS-08 completed 2026-05-20 (via PR #83 — Plan-001 Phase 5 Lane D T5.3 `apps/desktop/src/main/sidecar-lifecycle.ts` will-quit drain orchestration on top of the polymorphic `PtyHost.shutdown()` extension to both `NodePtyHost` + `RustSidecarPtyHost`; verifies I5 = CP-001-1 + I-024-4), and NS-14 completed 2026-05-20 (via this PR — Plan-002 Tier 2 plan-readiness audit; 12 critical / 23 major / 19 minor / 4 nit findings discharged via in-PR amendments + BL-119/120/121 escalations; per CP-002-1..CP-002-5 cross-plan obligations newly declared), the ready set is now NS-11, NS-13a, NS-15, NS-22 (4 items). NS-14's completion drops it from the ready set and promotes NS-15 (Tier 3 plan-readiness audit) from `blocked` → `ready` per the audit-chain edge `NS-14 → NS-15` (the §6 audit chain remains strictly serialized: NS-15 → NS-16 → … → NS-21 per runbook §85-87, so NS-16..NS-21 stay blocked behind NS-15). NS-08's completion (2026-05-20) closed the last open T5.x lane — **Plan-001 Phase 5 is fully shipped (T5.1–T5.6 complete)** and Plan-001 has no remaining Phase 5 code-lane on the §6 axis. NS-09 stays blocked on BL-108 procurement evidence; NS-10 stays blocked on NS-09 alone (BL-106 was archived 2026-05-13 and its dependency on NS-10 was removed — see [BL-106 archive entry](../archive/backlog-archive.md#bl-106-c-5--c-16--plan-024-calendar-window-decoupling-from-completed-status); the substrate-promotion 2-week monitoring window now lives at [ADR-019 §Substrate Promotion Window](../decisions/019-windows-v1-tier-and-pty-sidecar.md#substrate-promotion-window), NOT as a Plan-024 completion gate). The set shares no code paths or governance files — re-derived from each entry's `Files:` / target_paths after NS-14's drop-out + NS-15's promotion (NS-11 targets `packages/runtime-daemon/src/bootstrap/secure-defaults-events.ts`; NS-13a targets the audit runbook + spec template; NS-15 targets the next-tier plan-set under `docs/plans/` (Tier 3 plans per §5); NS-22 targets sibling-doc `0001-initial.sql` + `session.ts:388` cite occurrences in Plan-001 / Plan-022 / ADR-022 / Plan-008 — disjoint file-sets). Suggested parallel dispatch: **NS-13a + NS-15 + NS-11 + NS-22** as concurrent governance / audit / cleanup lanes — no code-lane remained on §6 as of 2026-05-20 until NS-09 unblocks via BL-108 procurement evidence (superseded 2026-05-21 by PR #92 — see addendum below). The previous serialization of NS-22 behind NS-12 (resolved 2026-05-03) is dissolved — NS-22 targets distinct content (`0001-initial.sql` filename + `session.ts:388` cite occurrences in Plan-001 / Plan-022 / ADR-022 / Plan-008) from NS-12's edit scope (Plan-001 §Preconditions + §Phase 5 Precondition); NS-22 dispatches cleanly against the post-NS-12 HEAD without rebase churn. The NS-04 → NS-05 → NS-07 cascade is now fully completed on the Plan-024 critical path — NS-04 completion (PR #48 housekeeping) unblocked NS-05; NS-05 completion (PR #51) unblocked NS-07; NS-07 completion (PR #56) leaves no NS-XX gate on NS-09 + NS-10. The remaining Plan-024 gates (NS-09 Phase 4 CI + signing, NS-10 Phase 5 measurement) are procurement-bound (BL-108), not code-lane-bound — Plan-024 cannot resume on the §6 axis until BL-108 closes. The 2-week substrate-promotion monitoring window historically tracked via BL-106 was archived 2026-05-13 and now lives at [ADR-019 §Substrate Promotion Window](../decisions/019-windows-v1-tier-and-pty-sidecar.md#substrate-promotion-window) — it is a substrate-promotion gate (env-var rollback authority retirement), NOT a Plan-024 completion gate. **2026-05-21 amendment (PR #92):** Plan-025 Tier 1 Partial shipped `packages/crypto-paseto/` v4.public + v4.local primitives, satisfying CP-002-4 and unblocking Plan-002 Phase 2's invite-token issuance prerequisite. Combined with NS-14's 2026-05-20 audit closure, this opens NS-24 (Plan-002 Phase 1) as a net-new code-lane on the §6 axis — invalidating the "no code-lane remains" claim above. New ready set adds NS-24 (NS-25 + NS-26 remain blocked behind NS-24 → NS-25 sequencing per `docs/plans/002-invite-membership-and-presence.md:203,223`). Suggested next dispatch: **NS-24 + NS-13a + NS-15** as concurrent code / governance / audit lanes. NS-13a closes in this PR per its `:::completed` class flip; NS-13b auto-promotes from `:::blocked` → `:::ready` per the `NS-13a → NS-13b` edge, mirroring how NS-15 was promoted in NS-14's completion PR (see NS-15's §Status line below).
 
 ### NS-01: Plan-024 Phase 1 — Rust crate scaffolding
 
@@ -473,7 +480,7 @@ With NS-01 + NS-02 + NS-04 + NS-05 completed 2026-05-11 (NS-01 via PR #42 — Pl
 
 ### NS-13a: Spec-status promotion gate clarification
 
-- Status: `todo`
+- Status: `completed` (resolved 2026-05-21 via this PR — runbook gained sibling `## Spec-Status Promotion Gate` section (Option A); runbook §When To Invoke gained a spec-promotion bullet; spec-template `000-spec-template.md` gained a `## Preconditions` section between §Architectural Dependencies and §Required Behavior with four checkboxes mirroring plan-template lines 92-95. Gate enforces dep-closure (criterion 1), open-question discipline (criterion 2), the doc-first-before-coding invariant (criterion 3 — surfaced by the Spec-027 / Plan-007 case), and PR-description citation (criterion 4). Unblocks NS-13b — Spec-027 `draft` → `approved` promotion can now cite the gate; NS-13b PR will exercise criterion 3's post-hoc-attestation clause for the historical PRs #16/#17/#19 violation.)
 - Type: governance
 - Priority: `P1` (blocks NS-13b)
 - Upstream: none
@@ -483,7 +490,7 @@ With NS-01 + NS-02 + NS-04 + NS-05 completed 2026-05-11 (NS-01 via PR #42 — Pl
 
 ### NS-13b: Spec-027 `draft` → `approved` promotion
 
-- Status: `blocked`
+- Status: `ready` (NS-13b promoted 2026-05-21 via NS-13a closure in this PR — spec-status promotion gate now exists per runbook §Spec-Status Promotion Gate; Spec-027 promotion + post-hoc-attestation for PRs #16/#17/#19 can now proceed)
 - Type: governance (load-bearing)
 - Priority: `P1`
 - Upstream: NS-13a (gate must exist before Spec-027 can clear it)
@@ -497,7 +504,7 @@ With NS-01 + NS-02 + NS-04 + NS-05 completed 2026-05-11 (NS-01 via PR #42 — Pl
 - Type: audit (doc-only)
 - Priority: `P1`
 - Upstream: Tier 1 audit committed (✓ PR #15 / commit `05125dc`)
-- References: [audit runbook](../operations/plan-implementation-readiness-audit-runbook.md):37-87, [Plan-002](../plans/002-invite-membership-and-presence.md), this document §5 Tier 2 row
+- References: [audit runbook](../operations/plan-implementation-readiness-audit-runbook.md):38-88, [Plan-002](../plans/002-invite-membership-and-presence.md), this document §5 Tier 2 row
 - Summary: Audited Plan-002 (Tier 2's only plan) per the runbook's 10 completeness dimensions. 57 findings (12 critical, 23 major, 19 minor, 4 nit) clustered to ~6 amendment workstreams; criticals discharged via in-PR amendments (Plan-002 + this doc §3 Plan-002 row + runbook §Lessons Learned Tier 2 row) plus 3 BL-NNN escalations (BL-119 PASETO crypto carve-out, BL-120 Phase 4 Tier 6 deferral tracking, BL-121 Spec-002 `InviteRevoke` shape backfill).
 - Exit Criteria: Tier 2 audit PR merged into `develop`; `plan-readiness-audit-tier-2-complete` git tag pushed; Plan-002 Preconditions checklist gains the audit-gate row.
 
@@ -507,7 +514,7 @@ With NS-01 + NS-02 + NS-04 + NS-05 completed 2026-05-11 (NS-01 via PR #42 — Pl
 - Type: audit (doc-only chain)
 - Priority: `P1` (NS-15, current ready entry); `P2` (each downstream tier promotes to `P1` when its turn comes)
 - Upstream: NS-14 → NS-15 (Tier 3, ready as of 2026-05-20) → NS-16 (Tier 4) → ... → NS-21 (Tier 9)
-- References: [audit runbook](../operations/plan-implementation-readiness-audit-runbook.md):85-87 ("Tiers: strictly serialized"), this document §5 (Tier 3-9 rows)
+- References: [audit runbook](../operations/plan-implementation-readiness-audit-runbook.md):86-88 ("Tiers: strictly serialized"), this document §5 (Tier 3-9 rows)
 - Summary: Tiers 3-9 audits run one PR per tier (per CLAUDE.md "8 tier-PRs of audit work owed before broad Tier 2+ code execution can resume"). Each tier-K audit PR commits the tier's plan amendments + tags `plan-readiness-audit-tier-K-complete`. Tier 8 includes Plan-017 — the only `review`-status plan, which must promote `review → approved` at its tier audit. NS-15 (Tier 3) is dispatchable now; NS-16..NS-21 sequentially unblock as each prior tier closes.
 - Exit Criteria: All 8 tier-PRs merged; all 27 plans cleared the audit; broad Tier 2+ code execution unblocked.
 - PRs:
@@ -538,6 +545,36 @@ With NS-01 + NS-02 + NS-04 + NS-05 completed 2026-05-11 (NS-01 via PR #42 — Pl
 - References: [housekeeper design](../superpowers/specs/2026-05-03-plan-execution-housekeeper-design.md) §3a
 - Summary: Add structured `PRs:` sub-field to NS-02, NS-04, NS-15..NS-21 per the housekeeper design's §3a.1 grammar. Single-PR entries (NS-01, NS-03, NS-05..NS-10, NS-11, NS-13a, NS-13b, NS-14, NS-22) are unchanged. The amendment is the first dogfood for the housekeeper itself: NS-23's Status flips to `completed` MANUALLY when this PR merges (the housekeeper does not exist yet to auto-flip it). The next plan-execution PR after the housekeeper ships (PR 4 in §10.1) is the housekeeper's first auto-run.
 - Exit Criteria: §6 entries NS-02, NS-04, NS-15..NS-21 carry `PRs:` blocks per §3a.1 grammar; `- Status: \`completed\` (resolved YYYY-MM-DD via this commit — schema amendment landed; housekeeper design §3a in-scope)` recorded inline on this entry.
+
+### NS-24: Plan-002 Phase 1 — Invite And Membership Contracts + Migration
+
+- Status: `ready` (NS-24 promoted 2026-05-21 via NS-14 closure 2026-05-20 + `packages/crypto-paseto/` substrate shipped 2026-05-21 via PR #92 — both Plan-002 audit gate and the Phase 2 substrate dep now satisfied; Phase 1 has no remaining upstream blocker)
+- Type: code
+- Priority: `P1`
+- Upstream: NS-14 (Tier 2 plan-readiness audit completed 2026-05-20)
+- References: [Plan-002](../plans/002-invite-membership-and-presence.md):180-199 (Phase 1 + tasks T1.1–T1.6), [Spec-002](../specs/002-invite-membership-and-presence.md), [Plan-002 Preconditions](../plans/002-invite-membership-and-presence.md):66-71
+- Summary: Ship invite / membership / presence / channel contracts to `packages/contracts/src/invites.ts`, `memberships.ts`, `presence.ts`, `channels.ts`; author Postgres migration creating `session_invites` (no `session_memberships` ALTER — Plan-001 owns); wire C1–C5 Vitest tests including anti-leakage assertion (no `ChannelCreate` contracts shipped — Plan-016 owns channel creation).
+- Exit Criteria: T1.1–T1.6 merged; C1–C5 green; `session_invites` migration applies cleanly; contracts exported from `packages/contracts/src/index.ts`.
+
+### NS-25: Plan-002 Phase 2 — Control-Plane Invite And Membership Services
+
+- Status: `blocked`
+- Type: code
+- Priority: `P1` (first downstream consumer of `packages/crypto-paseto/` shipped by PR #92)
+- Upstream: NS-24 (Phase 1 contracts + migration must merge per [Plan-002 Phase 2 Precondition](../plans/002-invite-membership-and-presence.md):203); `packages/crypto-paseto/` substrate shipped 2026-05-21 via [PR #92](https://github.com/Sawmonabo/ai-sidekicks/pull/92) per CP-002-4 (BL-119 resolved 2026-05-20 via Option A)
+- References: [Plan-002](../plans/002-invite-membership-and-presence.md):201-219 (Phase 2 + tasks T2.1–T2.5), [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md) (PASETO v4 auth model), [CP-002-4](../plans/002-invite-membership-and-presence.md#cross-plan-obligations)
+- Summary: Implement `packages/control-plane/src/invites/invite-service.ts` consuming `@ai-sidekicks/crypto-paseto` v4.local `encrypt`/`decrypt` for invite-token issuance (SHA-256 hash storage, jti, 256-bit CSPRNG per ADR-010); single-use enforcement; owner-only revocation per Spec-002 §141; expiry validation. Implement `membership-service.ts` `MembershipUpdate` handler enforcing I-002-1 (owner-elevation check) + I-002-2 (last-owner-cannot-leave) with typed errors. Wire transactional callers to canonical lock-ordering (I-002-4).
+- Exit Criteria: T2.1–T2.5 merged; P1–P10 green; invite-token issuance validated end-to-end via PASETO v4.local from the just-shipped substrate (first real consumer validation of `packages/crypto-paseto/`).
+
+### NS-26: Plan-002 Phase 3 — Presence Heartbeat + ChannelList Projection
+
+- Status: `blocked`
+- Type: code
+- Priority: `P1`
+- Upstream: NS-24 + NS-25 (Phase 1 + Phase 2 merged per [Plan-002 Phase 3 Precondition](../plans/002-invite-membership-and-presence.md):223)
+- References: [Plan-002](../plans/002-invite-membership-and-presence.md):221-237 (Phase 3 + tasks T3.1–T3.4), [ADR-008](../decisions/008-default-transports-and-relay-boundaries.md) (transport choice — Yjs Awareness + Postgres LISTEN/NOTIFY), [CP-002-1](../plans/002-invite-membership-and-presence.md#cross-plan-obligations) (presence ownership), [CP-002-2](../plans/002-invite-membership-and-presence.md#cross-plan-obligations) (`presence.*` IPC namespace under Plan-007-partial wire substrate)
+- Summary: Implement `packages/control-plane/src/presence/presence-register-service.ts` with Yjs Awareness ingestion (in-memory only — I-002-3 forbids persistence); Postgres LISTEN/NOTIFY fan-out for cross-node updates; reconnect-grace window timer; durable presence-state-change events emit via Plan-006 path (`presence.online/idle/reconnecting/offline`). Register `presence.*` JSON-RPC handlers at `packages/runtime-daemon/src/ipc/handlers/presence-update.ts` and `presence-read.ts` per CP-002-2. Implement `ChannelList` read-only projection consuming Plan-001's `ChannelCreated` default-channel emission.
+- Exit Criteria: T3.1–T3.4 merged; Pr1–Pr4 + I3 green; P10 (no-presence-table migration regression) re-verified.
 
 ---
 
