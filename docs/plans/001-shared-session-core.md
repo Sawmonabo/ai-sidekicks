@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| **Status** | `approved` |
+| **Status** | `completed` |
 | **NNN** | `001` |
 | **Slug** | `shared-session-core` |
 | **Date** | `2026-04-14` |
@@ -681,6 +681,29 @@ shipped:
     spec_coverage: ["Spec-001 AC1"]
     notes: |
       Phase 5 Lane C T5.2 — `apps/desktop/src/renderer/src/session-bootstrap/` renderer wiring on top of the Plan-023-partial Tier 1 preload bridge. `SessionBootstrap.tsx` invokes `window.sidekicks.daemon.call("session.create", {})` on mount via a React `useEffect` async IIFE (the Tier 1 stub bridge — `createTier1Bridge` in `packages/contracts/src/desktop-bridge.ts` — throws synchronously, not via promise rejection; the async IIFE normalizes sync-throw and async-reject through a single `try`/`catch`); renders three branches (`pending` placeholder, `resolved` session-summary surfacing only the session id, `error` envelope surfacing the typed `NotImplementedAtTier1Error` per the Tier 1 stub). Net ~5 production lines wired into `App.tsx` swap the Plan-023 Tier 1 Partial T-023p-1-5 placeholder for `<SessionBootstrap/>`. 4-test happy-dom Vitest suite at `__tests__/SessionBootstrap.test.tsx` covers (a) pending render while the create promise is unresolved, (b) resolved render with a deterministic `SessionCreateResponse` payload, (c) error render on async rejection with `NotImplementedAtTier1Error`, (d) error render on synchronous throw (production-shape parity — the Tier 1 stub wires every method to `() => tier1Throw(...)`). Renderer test toolchain wired in the same PR: per-app `apps/desktop/vitest.config.ts` (vitest 4 `projects` API splits `main` (node env) from `renderer` (happy-dom env) discovery globs) + sibling `apps/desktop/src/renderer/tsconfig.test.json` (`composite: false`, `noEmit`, `vitest/globals` isolated) so renderer test types never leak into renderer production code's typegraph. **No I-NNN-N invariant verified** (renderer composition over the bridge surface). Two audit amendments preceded the code: T-amend-001 (commit `8827345`) reconciled the T5.2 Tasks-row Files list with the prose by adding `App.tsx`; T-amend-002 (commit `32a4b40`) widened the Files list to include the renderer-unit-test substrate (`apps/desktop/package.json`, `apps/desktop/vitest.config.ts`, `apps/desktop/src/renderer/tsconfig.json`) after attempt-1 surfaced the substrate gap. `Spec coverage` was narrowed from `Spec-001 AC1, AC4` to `Spec-001 AC1` in the Phase D round-trip (commit `6fb2513`) — AC4 governs `SessionJoin` semantics (T5.1's `sessionClient.join` responsibility), not T5.2's renderer-side `session.create` wiring; the reject-branch render is task AC T5.2(d), not a Spec-001 AC. **Closes NS-06** — Plan-001 Phase 5 Lane C complete on the single-PR shape. No downstream NS-XX promotion (no §6 entry lists `Upstream: NS-06`). Plan-001 Phase 5 has only Lane D (T5.3 — sidecar-lifecycle, NS-08) remaining.
+  - phase: 5
+    task: T5.3
+    pr: 83
+    sha: a70de3e
+    merged_at: 2026-05-20
+    files:
+      - .claude/skills/plan-execution/SKILL.md
+      - apps/desktop/src/main/index.ts
+      - apps/desktop/src/main/sidecar-lifecycle.ts
+      - apps/desktop/test/sidecar-lifecycle.test.ts
+      - docs/plans/001-shared-session-core.md
+      - docs/plans/024-rust-pty-sidecar.md
+      - packages/contracts/src/pty-host.ts
+      - packages/runtime-daemon/src/pty/__tests__/node-pty-host.shutdown.test.ts
+      - packages/runtime-daemon/src/pty/__tests__/rust-sidecar-pty-host.shutdown.test.ts
+      - packages/runtime-daemon/src/pty/node-pty-host.ts
+      - packages/runtime-daemon/src/pty/rust-sidecar-pty-host.ts
+      - packages/runtime-daemon/src/pty/taskkill-windows.ts
+      - packages/runtime-daemon/src/session/__tests__/spawn-cwd-translator.windows.test.ts
+    verifies_invariant: [I5]
+    spec_coverage: []
+    notes: |
+      Phase 5 Lane D T5.3 — polymorphic `PtyHost.shutdown({ perSessionTimeoutMs: 2000, hostTimeoutMs: 2000 })` extension on both backends + `apps/desktop/src/main/sidecar-lifecycle.ts` will-quit drain orchestration registered at index.ts FIFO position 0 (Shape A lazy PtyHostGetter per CP-001-1). NodePtyHost (in-process) drives SIGTERM→SIGKILL per-session escalation; RustSidecarPtyHost (out-of-process) drives stdin-close → child-exit wait → taskkill /T /F /PID escalation with `shuttingDown`-flag crash-budget suppression. 5 s hard wall-clock cap (`HARD_QUIT_CAP_MS`) + `drainCompleted` re-entry guard preserve Electron's `app.quit()` chain semantics. Verifies I5 (= CP-001-1 + Plan-024 I-024-4) end-to-end against the real RustSidecarPtyHost. Codex follow-ups in-PR: P1 #6 added cross-platform child-process tree-kill via `packages/runtime-daemon/src/pty/taskkill-windows.ts`; P2 #1 corrected `DrainResult.forced` count; P2 #2 fixed crash-before-drain `-1` sentinel misreport. **Closes NS-08** — Plan-001 Phase 5 fully shipped (T5.1–T5.6 complete); no downstream NS-XX promotion (NS-08 is a leaf — no §6 entry lists `Upstream: NS-08`).
 ```
 
 ### Notes
@@ -691,8 +714,17 @@ shipped:
 
 ## Done Checklist
 
-- [ ] Code changes implemented
-- [ ] Tests added or updated
-- [ ] Verification completed
-- [ ] Related docs updated
-- [ ] All `TODO(Plan-001 Phase N)` annotations in the source tree are discharged or migrated to a follow-up issue. Specifically: `TODO(Plan-001 Phase 5)` in `packages/control-plane/src/sessions/__tests__/session-directory-service.test.ts` (lock-ordering test strengthening — see Phase 5 §Implementation Phase Sequence). Grep `TODO(Plan-001 ` to confirm zero residual annotations before marking the plan `completed`.
+- [x] Code changes implemented — Phases 1–4 shipped via PRs #6 / #8 / #9 / #10 (2026-04-27); Phase 5 Lane A (T5.1 / T5.5 / T5.6) shipped via PRs #30 / #36 / #38; Phase 5 Lane B (T5.4) via PR #48; Phase 5 Lane C (T5.2) via PR #77; Phase 5 Lane D (T5.3) via PR #83 (sha `a70de3e`, merged 2026-05-20); Plan-001 residuals (D5 migration-shape test, T2.3 version-error envelopes, AC8 participant-limit enforcement) via this PR (Tier 1 closing audit Path A).
+- [x] Tests added or updated — full coverage chain: C1–C8 (PR #30 client-sdk transport hardening), D1–D5 (PR #9 daemon migration + projection + the D5 migration-shape snapshot test landed in this PR), P1–P5 (PR #10 control-plane directory + the P5 AC8 enforcement tests landed in this PR), I1–I7 (Phase 5 Lane A test files), 32 cross-platform unit tests + 2 platform-gated Windows-CI tests for T5.4 (PR #48), 4-test happy-dom suite for T5.2 (PR #77), per-backend shutdown tests + FIFO-position-0 lifecycle tests for T5.3 (PR #83).
+- [x] Verification completed — anchored in the §Decision Log entries below. Phase 5 ship-evidence is the I1–I7 unit/integration suite on merged `develop`; the §Phase 5:356 / §Verification:211 "manual two-client smoke test" line is Tier-8 deferred per the §Decision Log waiver (Plan-002:278 + Plan-023 Tier 8 IPC dispatcher milestone).
+- [x] Related docs updated — §Shipment Manifest T5.3 row appended (this commit); §Decision Log section added (this commit); §Status promoted to `completed` (this commit).
+- [x] All `TODO(Plan-001 Phase N)` annotations in the source tree are discharged or migrated to a follow-up issue. `rg "TODO\(Plan-001 " packages/ apps/` returns zero matches at HEAD (verified 2026-05-20). The lock-ordering test strengthening in `packages/control-plane/src/sessions/__tests__/session-directory-service.test.ts` shipped via PR #38 (T5.6); the `TODO(Plan-001 Phase 5)` annotation was discharged in that commit.
+
+## Decision Log
+
+| Date | Event | Notes |
+| --- | --- | --- |
+| 2026-05-20 | Plan-001 promoted `approved` → `completed` (Tier 1 closing audit Path A) | Bundled the audit's three scribe edits (§Status flip, T5.3 §Shipment Manifest row, §Done Checklist flips) with the three functional gaps the audit surfaced (A1 G2 / G3 / G4) in a single PR. Functional commits: feat(daemon) migration-shape snapshot test (D5); feat(contracts) version.floor_exceeded + version.ceiling_exceeded envelopes (T2.3); feat(control-plane) participant-limit enforcement at joinSession + tRPC aisError formatter (AC8). Promotion anchored by all six artifacts in this PR's diff. Closes Tier 1 closing audit DQ-1 (Path A) + A2 R1 + A2 R2 + A8 promotion. |
+| 2026-05-20 | D5 migration-shape test path correction (erratum) | Plan-001 T3.4 cited `migrations/test/migration-shape.test.ts` for the D5 regression test. The `packages/runtime-daemon/vitest.config.ts` discovery glob is `src/**/__tests__/**/*.test.ts` — the cited path would be silently skipped (no test discovery, no failure). The test ships at `packages/runtime-daemon/src/session/__tests__/migration-shape.test.ts` to match the glob; T3.4's acceptance is satisfied at the corrected path. Recorded as an erratum because the spec text (Plan-001:321) still cites the original path; future audits should reconcile the prose against the shipped reality. |
+| 2026-05-20 | Phase 5 manual two-client smoke attestation waiver (Tier 1 closing audit OQ-2, Path C) | Plan-001 §Phase 5:356 + §Verification:211 name a "manual two-client smoke test" gate for Lane B + Lane D. No manual attestation artifact is in the merged evidence chain (the audit could not find one). Per the audit's three-way option discipline + the user's "no deferrals except certs" directive, take Path C — waiver with §Decision Log anchor: Lane B (T5.4 cwd-translator) is mechanically verified by 32 cross-platform unit tests + 2 platform-gated Windows-CI integration tests in PR #48; Lane D (T5.3 sidecar-lifecycle) is mechanically verified by `apps/desktop/test/sidecar-lifecycle.test.ts` + `packages/runtime-daemon/src/pty/__tests__/{node-pty-host,rust-sidecar-pty-host}.shutdown.test.ts` in PR #83. Plan-002:278 already defers `manualTwoClientSmoke` to the Plan-023 Tier 8 IPC dispatcher milestone — that milestone is the live-multiplexer wall-clock where two-client semantics are observable end-to-end. Tier-1 ship-evidence is the unit/integration suite on merged `develop`; live two-client validation runs against the Plan-023 Tier 8 dispatcher when it ships. Criterion-gated deferral per `feedback_criterion_gated_deferrals`; criterion = Plan-023 Tier 8 dispatcher landing. |
+| 2026-05-20 | ErrorFormatter precedent for typed wire envelopes | Tier 1 closing audit A1 G3 (this PR's Commit 3) introduces the `errorFormatter` + `data.aisError` envelope pattern at `packages/control-plane/src/sessions/trpc.ts` and the catch-and-rethrow scaffolding at `session-router.factory.ts`. This pattern is the reference for Plan-002+ typed exceptions: each new typed error class (e.g. emit-site throws of the `VersionFloorExceededError` + `VersionCeilingExceededError` envelopes landed in this PR's Commit 2) reuses the formatter hook by adding one `instanceof` branch + one router catch arm. If 3+ typed exceptions accumulate, refactor the thrown classes into an `AisWireException` base class so the formatter matches a single `instanceof` per [error-contracts.md](../architecture/contracts/error-contracts.md) §Future Shape. |

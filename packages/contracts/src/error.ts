@@ -31,11 +31,37 @@
 //     (errno object, missing-binary path string, JSON-RPC error envelope —
 //     intentionally `unknown` because the producers are heterogeneous).
 //
+// Plan-001 T2.3 also ships the version-bound exception envelopes:
+//   • VersionFloorExceededError — fired when an attempted version is below
+//     a remote peer's accepted floor (ADR-018 §Decision #10). Wire code
+//     literal `version.floor_exceeded` is single-sourced from
+//     `jsonrpc-negotiation.ts` where it ALSO surfaces as the
+//     `DaemonHelloAck.reason` discriminator string — the two surfaces
+//     share the same canonical code per BL-103 closure (error-contracts
+//     §JSON-RPC Wire Mapping).
+//   • VersionCeilingExceededError — symmetric shape for the "attempted
+//     version above peer's accepted ceiling" case. Same payload as the
+//     floor variant; only the code literal differs.
+//
+// Both version envelopes share a single `VersionBoundExceededDetails`
+// payload: floor and ceiling carry identical fields (`attemptedVersion`
+// + `acceptedRange` + optional `upgradePath` guidance). The shared shape
+// avoids divergence; the only wire-level difference between the two
+// errors is the code literal. No emitter wiring lands in Plan-001 — T2.3
+// specifies "Phase 2 ships the wire-shape contracts only" (Plan-001:276);
+// Plan-002+ owns the emit sites where version-floor / version-ceiling
+// checks happen.
+//
 // Refs: Spec-001 §Resource Limits + §Limit Enforcement (AC8), error-contracts.md
 // § Resource (HTTP 429), § Rate Limiting; Plan-024 Phase 3 §F-024-3-02 +
-// ADR-019 §Failure Mode Analysis (row "Sidecar binary missing on user machine").
+// ADR-019 §Failure Mode Analysis (row "Sidecar binary missing on user machine");
+// ADR-018 §Decision #10 (version-error envelope shapes); Plan-001 T2.3.
 import { z } from "zod";
 
+import {
+  NEGOTIATION_REASON_CEILING_EXCEEDED,
+  NEGOTIATION_REASON_FLOOR_EXCEEDED,
+} from "./jsonrpc-negotiation.js";
 import { wireFreeFormString } from "./session.js";
 
 // --------------------------------------------------------------------------
@@ -57,6 +83,23 @@ export const RESOURCE_LIMIT_EXCEEDED_CODE: ResourceLimitExceededCode = "resource
 export type PtyBackendUnavailableCode = "PtyBackendUnavailable";
 export const PTY_BACKEND_UNAVAILABLE_CODE: PtyBackendUnavailableCode = "PtyBackendUnavailable";
 
+// Version-bound codes — single-sourced from `jsonrpc-negotiation.ts`
+// (lines 211-212), where the same strings ALSO surface as
+// `DaemonHelloAck.reason` discriminators. Re-exporting via aliases here
+// keeps the wire literal in one place — a future code-string change at
+// the negotiation site automatically propagates to the error envelope
+// schemas below.
+//
+// Both literals match ADR-018 §Decision #10 verbatim — these are the
+// load-bearing identifiers for downstream emitters (Plan-002+) and
+// downstream SDK consumers branching on the wire code.
+export type VersionFloorExceededCode = typeof NEGOTIATION_REASON_FLOOR_EXCEEDED;
+export const VERSION_FLOOR_EXCEEDED_CODE: VersionFloorExceededCode =
+  NEGOTIATION_REASON_FLOOR_EXCEEDED;
+export type VersionCeilingExceededCode = typeof NEGOTIATION_REASON_CEILING_EXCEEDED;
+export const VERSION_CEILING_EXCEEDED_CODE: VersionCeilingExceededCode =
+  NEGOTIATION_REASON_CEILING_EXCEEDED;
+
 // --------------------------------------------------------------------------
 // Per-field length caps — defense-in-depth bounds (see also event.ts header).
 // --------------------------------------------------------------------------
@@ -72,6 +115,16 @@ export const PTY_BACKEND_UNAVAILABLE_CODE: PtyBackendUnavailableCode = "PtyBacke
 
 export const RESOURCE_LABEL_MAX_LEN = 128;
 export const ERROR_MESSAGE_MAX_LEN = 8192;
+
+// Version-bound caps. SemVer-shaped strings comfortably fit in 64 chars
+// (longest realistic: "9999.9999.9999-rc.999+build.YYYYMMDDHHMMSS" is
+// ~42 chars); 64 leaves head-room for pre-release labels without giving
+// a malicious producer infinite-length space. `upgradePath` is the
+// human-readable guidance string per ADR-018 §Decision #10 ("...visit
+// https://example.com/upgrade") — 512 caps a one-line URL plus a short
+// imperative phrase without truncating canonical CDN links.
+export const VERSION_STRING_MAX_LEN = 64;
+export const VERSION_UPGRADE_PATH_MAX_LEN = 512;
 
 // --------------------------------------------------------------------------
 // resource.limit_exceeded shape
@@ -185,5 +238,102 @@ export const PtyBackendUnavailableSchema: z.ZodType<PtyBackendUnavailable> = z
     // non-HTTP callers (daemon-internal IPC, structured logs).
     message: wireFreeFormString(ERROR_MESSAGE_MAX_LEN, "PtyBackendUnavailable.message"),
     details: PtyBackendUnavailableDetailsSchema,
+  })
+  .strict();
+
+// --------------------------------------------------------------------------
+// Shared version-bound details (Plan-001 T2.3)
+// --------------------------------------------------------------------------
+//
+// Both `VersionFloorExceededError` and `VersionCeilingExceededError`
+// carry this same payload. The fields encode the negotiation context
+// the receiver needs to either present a useful UX message or attempt
+// a graceful retry against a different version.
+//
+//   * `attemptedVersion` — the version string the source side tried to
+//     negotiate. Wire-string, opaque to this layer (the negotiation
+//     surface owns format validation per ADR-018 §Decision #1
+//     "MAJOR.MINOR" semver).
+//   * `acceptedRange.{min,max}` — the inclusive range the receiver
+//     publishes. `min > attemptedVersion` for the floor variant;
+//     `max < attemptedVersion` for the ceiling variant. Both endpoints
+//     are wire-format strings (same opacity rationale).
+//   * `upgradePath` — optional human-readable guidance per ADR-018
+//     §Decision #10 ("...visit https://example.com/upgrade"). Producers
+//     SHOULD omit when no actionable upgrade path exists (e.g. a
+//     pre-release relay refusing a stable build); presence is not
+//     wire-required.
+//
+// Implementation note: the `.object().strict()` shape rejects unknown
+// extra keys — a future plan that wants to extend the payload MUST
+// declare a new code literal (and thus a new envelope) rather than
+// silently widening this shape. This preserves the wire contract's
+// closed-set guarantee for consumers branching on the code.
+
+export interface VersionBoundExceededDetails {
+  attemptedVersion: string;
+  acceptedRange: { min: string; max: string };
+  // `upgradePath?: string | undefined` — explicit `| undefined` is
+  // required by `exactOptionalPropertyTypes: true` (tsconfig.base.json).
+  // Without the union, zod's `ZodOptional` widening surfaces a TS2375
+  // assignment mismatch against the `VersionBoundExceededDetailsSchema`
+  // shape. The KEY remains omittable on the wire; the value's runtime
+  // contract is identical.
+  upgradePath?: string | undefined;
+}
+export const VersionBoundExceededDetailsSchema: z.ZodType<VersionBoundExceededDetails> = z
+  .object({
+    attemptedVersion: wireFreeFormString(VERSION_STRING_MAX_LEN, "details.attemptedVersion"),
+    acceptedRange: z
+      .object({
+        min: wireFreeFormString(VERSION_STRING_MAX_LEN, "details.acceptedRange.min"),
+        max: wireFreeFormString(VERSION_STRING_MAX_LEN, "details.acceptedRange.max"),
+      })
+      .strict(),
+    upgradePath: wireFreeFormString(VERSION_UPGRADE_PATH_MAX_LEN, "details.upgradePath").optional(),
+  })
+  .strict();
+
+// --------------------------------------------------------------------------
+// version.floor_exceeded shape (Plan-001 T2.3, ADR-018 §Decision #10)
+// --------------------------------------------------------------------------
+//
+// Fired by the receiver when the source's `attemptedVersion` is below
+// the receiver's accepted floor (`details.acceptedRange.min`). The
+// canonical emit site lives in Plan-002+ (e.g. invite-acceptance
+// validating a peer's client floor).
+
+export interface VersionFloorExceededError {
+  code: VersionFloorExceededCode;
+  message: string;
+  details: VersionBoundExceededDetails;
+}
+export const VersionFloorExceededErrorSchema: z.ZodType<VersionFloorExceededError> = z
+  .object({
+    code: z.literal(VERSION_FLOOR_EXCEEDED_CODE),
+    message: wireFreeFormString(ERROR_MESSAGE_MAX_LEN, "VersionFloorExceededError.message"),
+    details: VersionBoundExceededDetailsSchema,
+  })
+  .strict();
+
+// --------------------------------------------------------------------------
+// version.ceiling_exceeded shape (Plan-001 T2.3, ADR-018 §Decision #10)
+// --------------------------------------------------------------------------
+//
+// Symmetric to the floor variant — fired when the source's
+// `attemptedVersion` is above the receiver's accepted ceiling
+// (`details.acceptedRange.max`). Same payload semantics; the code
+// literal is the only wire-level difference between the two errors.
+
+export interface VersionCeilingExceededError {
+  code: VersionCeilingExceededCode;
+  message: string;
+  details: VersionBoundExceededDetails;
+}
+export const VersionCeilingExceededErrorSchema: z.ZodType<VersionCeilingExceededError> = z
+  .object({
+    code: z.literal(VERSION_CEILING_EXCEEDED_CODE),
+    message: wireFreeFormString(ERROR_MESSAGE_MAX_LEN, "VersionCeilingExceededError.message"),
+    details: VersionBoundExceededDetailsSchema,
   })
   .strict();
