@@ -126,6 +126,39 @@ The items below were surfaced by the [plan-readiness-audit Tier 1](./operations/
 - Tracked-by: ADR-023 §Axis 1 (Surface 1 npm-package publish flow) + §Axis 5 (production identity provisioning).
 - Revisit Trigger: Team capacity aligns with the §F-6 bootstrap ceremony window (one-time per-package 2FA cost across 7 packages, no automation possible per ADR-023 §Manual Setup Required); OR a downstream integrator requests npm-distributed access to `@ai-sidekicks/contracts` / `@ai-sidekicks/client-sdk` (signal that the SDK surface needs npm publication for ecosystem reach); OR V1.1 planning starts and npm publication is sequenced into V1.1 distribution scope.
 
+### BL-125: PASETO v4 RFC §4-F-\* failure-vector conformance suite
+
+- Status: `todo`
+- Priority: `P2`
+- Owner: `unassigned`
+- References: [Plan-025 Phase 1 Tier 1 Partial](./plans/025-self-hostable-node-relay.md#tier-1-partial-pr-sequence--substrate-vs-namespace-carve-out), [`packages/crypto-paseto/src/__tests__/rfc-vectors-v4-public.test.ts`](../packages/crypto-paseto/src/__tests__/rfc-vectors-v4-public.test.ts), [`packages/crypto-paseto/src/__tests__/rfc-vectors-v4-local.test.ts`](../packages/crypto-paseto/src/__tests__/rfc-vectors-v4-local.test.ts), [PASETO v4 spec §Test Vectors](https://github.com/paseto-standard/paseto-spec/blob/master/docs/01-Protocol-Versions/Version4.md), [ADR-010 §PASETO v4 Implementation Library](./decisions/010-paseto-webauthn-mls-auth.md#paseto-v4-implementation-library).
+- Summary: The shipped RFC conformance suites in `packages/crypto-paseto/` cover the PASETO v4 spec's **success vectors** (`4-S-1..N` for v4.public, `4-E-1..N` for v4.local) but do not yet exercise the **failure vectors** (`4-F-*`) — adversarial inputs the spec mandates implementations must reject (e.g., truncated tokens, header confusion, footer-injection at the encode boundary). The negative-case discipline currently lives in handwritten unit tests (`v4-public.test.ts`, `v4-local.test.ts`, `footer-canonicalization.test.ts`) which cover the most-likely tampering shapes but are not the canonical adversarial set from the spec.
+- Exit Criteria: (a) failure-vector JSON file(s) vendored from [paseto-standard/paseto-spec](https://github.com/paseto-standard/paseto-spec) into `packages/crypto-paseto/src/__tests__/vendor/` (or the next conformance-vector source the spec maintainers publish); (b) `rfc-vectors-v4-failure.test.ts` (or equivalent) iterating every `4-F-*` vector and asserting the documented rejection class (`InvalidTokenError` / `MacMismatchError` / `InvalidKeyError`); (c) suite gates CI on the `crypto-paseto` workspace.
+- Tracked-by: ADR-010 acceptance criteria for `packages/crypto-paseto/` (RFC conformance gating release) — current AC is satisfied by success-vector parity; this BL hardens to spec-mandated adversarial coverage.
+- Revisit Trigger: Plan-025 Tier 7 remainder begins (failure vectors should land before the Fastify relay-node ships); OR a downstream consumer plan (Plan-002 Phase 2, Plan-018) surfaces a tamper class that wasn't covered by the handwritten negative cases; OR PASETO spec maintainers publish an updated `4-F-*` vector set.
+
+### BL-126: Local gitleaks pin drift vs CI (8.30.1 local vs 8.24.3 CI)
+
+- Status: `todo`
+- Priority: `P3`
+- Owner: `unassigned`
+- References: [`.gitleaks.toml`](../.gitleaks.toml), [`lefthook.yml`](../lefthook.yml), [`.github/workflows/gitleaks.yml`](../.github/workflows/gitleaks.yml), [Plan-025 PR #92 commit `584aed4`](https://github.com/Sawmonabo/ai-sidekicks/commit/584aed4) (chore(repo): use singular `[allowlist]` for gitleaks v8.24.3 ci compat), [ADR-023 §Pre-Commit Hooks](./decisions/023-v1-ci-cd-and-release-automation.md).
+- Summary: Plan-025's pre-merge verification gates passed locally but the CI gitleaks job tripped on a v8.30.1 → v8.24.3 schema mismatch (plural `[[allowlists]]` block accepted by 8.30.1, rejected by 8.24.3). The fix landed in PR #92 (`584aed4`) by switching to the singular `[allowlist]` form. The root cause — local-vs-CI version drift — remains: `brew install gitleaks` ships the latest (8.30.1+) by default, while [`.github/workflows/gitleaks.yml`](../.github/workflows/gitleaks.yml) pins 8.24.3. Subsequent contributors will reproduce the same trip until either (a) the local version is documented as a pinned floor in CONTRIBUTING.md / a chezmoi-managed `Brewfile`, or (b) CI is bumped to a current version that matches what `brew install` yields.
+- Exit Criteria: (a) ADR-023 amended (or [CONTRIBUTING.md §Pre-Commit Hooks](../CONTRIBUTING.md) if Type 1 reversible) to declare a single canonical gitleaks version and the matching schema form (singular `[allowlist]` vs plural `[[allowlists]]`); (b) CI workflow pin + local hook + chezmoi-installed binary all reference the same version; (c) plan-template revision (per BL-127) ensures the next plan's verification-gate runbook names the **CI-pinned** gitleaks version explicitly so local-version drift is caught at plan-authoring time, not at PR push.
+- Tracked-by: Plan-template revision class — local-CI version drift surfaced as a verification-gate gap during Plan-025 Tier 1 Partial closeout.
+- Revisit Trigger: Any plan whose verification gates include `gitleaks ... --staged`; OR a fresh contributor onboarding flow exposes the drift; OR gitleaks 9.x publishes a config-schema migration that obsoletes the v8 form.
+
+### BL-127: Plan-template revision — verification-gate runbook precision
+
+- Status: `todo`
+- Priority: `P3`
+- Owner: `unassigned`
+- References: [Plan-025 PR #92](https://github.com/Sawmonabo/ai-sidekicks/pull/92) (three Codex review passes surfacing 8 findings: 2 + 3 + 3 across passes), [`docs/plans/000-plan-template.md`](./plans/000-plan-template.md), [Plan-025 §Decision Log](./plans/025-self-hostable-node-relay.md#decision-log), BL-126 (gitleaks version-drift class — concurrent lesson).
+- Summary: Plan-025 Tier 1 Partial PR (#92) cleared CI on its first push but went through three Codex review iterations (8 findings total) before merge. Each iteration was substantively useful — strict base64url canonicalization, duplicate-id rejection, symmetric clone-in/out, empty-footer rejection, 32-byte key validation — but the pattern suggests the plan-template's "Verification" section under-specifies what an adversarial-review-equivalent check looks like at plan-authoring time. The current template's verification block enumerates positive tests (round-trips, RFC vectors, success cases) but not the adversarial-tampering shapes a reviewer like Codex will probe (non-canonical encodings, defense-in-depth boundary mutations, intake validation parity with library-level asserts).
+- Exit Criteria: (a) `000-plan-template.md` §Verification gains a "Adversarial-Tampering Boundary" sub-bullet enumerating the per-substrate threat classes that should be tested before review (canonicalization round-trip; intake validation parity; mutation-isolation symmetry; empty-segment / trailing-separator rejection at every parser boundary); (b) the pattern is anchored to a published example (Plan-025 §Decision Log + the eight findings) so plan authors have a concrete reference; (c) plan-readiness-audit-runbook references the new sub-bullet as part of the pre-review checklist.
+- Tracked-by: Plan-template revision class — review-iteration-discipline gap surfaced during Plan-025 PR #92 cycle.
+- Revisit Trigger: Next time a Tier 1 Partial substrate plan opens a PR; OR a future Codex / external-reviewer iteration crosses the three-pass line again on a different plan; OR ADR-023 §Pre-Commit Hooks is amended (potential co-edit surface for the local-side counterpart to plan-authoring discipline).
+
 ---
 
 _Closed items live in [Backlog Archive](./archive/backlog-archive.md)._

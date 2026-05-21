@@ -128,7 +128,7 @@ Payload: {
   jti: <unique_token_id>,
   family: <rotation_family_id> // tracks rotation chain for reuse detection
 }
-Encrypted with: XChaCha20-Poly1305 (control plane's symmetric key)
+Encrypted with: PASETO v4.local (XChaCha20 stream + BLAKE2b-MAC, encrypt-then-MAC; **not** XChaCha20-Poly1305 AEAD) under the control plane's symmetric key — per [ADR-010 §PASETO v4 Implementation Library](../decisions/010-paseto-webauthn-mls-auth.md#paseto-v4-implementation-library).
 ```
 
 **Refresh token rotation:**

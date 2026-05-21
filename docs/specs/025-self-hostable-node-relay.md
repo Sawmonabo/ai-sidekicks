@@ -206,7 +206,7 @@ Out of scope (see Non-Goals for full list):
 | `panva/paseto` | Primary source | Archived 2025-03-29 by maintainer; no further security fixes | https://github.com/panva/paseto |
 | `paseto-ts` | Primary source | Actively maintained but single-maintainer (`miunau`); ~4.5k weekly downloads per npm on 2026-04-19; unaudited. Rejected as V1 dependency — see [ADR-010 §PASETO v4 Implementation Library](../decisions/010-paseto-webauthn-mls-auth.md) | https://github.com/auth70/paseto-ts |
 | `@noble/curves` | Primary source | Paul Miller's audited Ed25519/secp256k1/X25519 primitives; multiple production deployments | https://github.com/paulmillr/noble-curves |
-| `@noble/ciphers` | Primary source | Paul Miller's audited AEAD primitives (XChaCha20-Poly1305, AES-GCM) | https://github.com/paulmillr/noble-ciphers |
+| `@noble/ciphers` | Primary source | Paul Miller's audited cipher primitives — XChaCha20 stream cipher (used by PASETO v4.local — encrypt-then-MAC with BLAKE2b-MAC, not Poly1305 AEAD) and XChaCha20-Poly1305 AEAD (used by the relay E2EE layer per ADR-010 and the Plan-022 master-wrap envelope); AES-GCM also available | https://github.com/paulmillr/noble-ciphers |
 | PASETO v4 RFC | Primary source | v4.public structure and conformance test vectors | https://github.com/paseto-standard/paseto-spec |
 | Postgres 17 release notes | Documentation | V1 Postgres minimum; GA 2024-09-26; active support | https://www.postgresql.org/docs/17/release-17.html |
 | Caddy v2 | Documentation | Default reverse proxy; automatic Let's Encrypt; HTTP/2 + HTTP/3 defaults | https://caddyserver.com/docs/ |

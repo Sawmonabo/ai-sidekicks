@@ -126,7 +126,7 @@ Three-tier authentication:
 
 ## PASETO v4 Implementation Library
 
-PASETO v4 tokens in Decision §2 (control plane) are produced and verified by an in-house library at `packages/crypto-paseto/`, built on `@noble/curves` (Ed25519 for v4.public) and `@noble/ciphers` (XChaCha20-Poly1305 for v4.local). The package is owned by [Plan-025: Self-Hostable Node Relay](../plans/025-self-hostable-node-relay.md) because the relay consumes the verifier and the control plane consumes the issuer (symmetric co-dependency with Plan-018).
+PASETO v4 tokens in Decision §2 (control plane) are produced and verified by an in-house library at `packages/crypto-paseto/`, built on `@noble/curves` (Ed25519 for v4.public) and `@noble/ciphers` (XChaCha20 stream cipher) + `@noble/hashes` (BLAKE2b-MAC + BLAKE2b-KDF) for v4.local. v4.local is an **encrypt-then-MAC** construction (XChaCha20 stream encryption followed by BLAKE2b-MAC over the PAE), **not** XChaCha20-Poly1305 AEAD — this matches the PASETO v4 spec ([Version4.md §v4.local](https://github.com/paseto-standard/paseto-spec/blob/master/docs/01-Protocol-Versions/Version4.md#v4local)), which deliberately replaces Poly1305 with keyed BLAKE2b. The package is owned by [Plan-025: Self-Hostable Node Relay](../plans/025-self-hostable-node-relay.md) because the relay consumes the verifier and the control plane consumes the issuer (symmetric co-dependency with Plan-018).
 
 Two third-party TypeScript PASETO libraries were evaluated as of 2026-04-19 and rejected:
 
