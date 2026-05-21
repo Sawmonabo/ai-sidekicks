@@ -5,38 +5,44 @@ title = "ai-sidekicks gitleaks config"
 [extend]
 useDefault = true
 
-# AWS KMS public-API enum constants are not secrets — they are documented
-# algorithm/keyspec enum values published in the AWS KMS API reference
-# (https://docs.aws.amazon.com/kms/latest/APIReference/API_Sign.html and
-# https://docs.aws.amazon.com/kms/latest/APIReference/API_CreateKey.html).
-# The gitleaks generic-api-key heuristic flags `KEY = VALUE` assignments
-# where VALUE is a long uppercase identifier with high entropy; the AWS
-# KMS Ed25519 enum names satisfy that shape but carry no secret material.
+# Single global [allowlist] block (singular form) — backward-compatible across
+# all gitleaks v8.x binaries. The top-level [[allowlists]] (plural array) form
+# was added in v8.25.0 (release 2025-04-29 — "feat(config): define multiple
+# global allowlists (#1777)"); gitleaks-action @ff98106e (v2.3.9) bundles
+# gitleaks v8.24.3 (2025-04-11), which silently ignores the plural form. ADR-023
+# §Axis 4 mandates gitleaks v8.30+ for local pre-commit, so the singular form
+# is the only shape both the local lefthook (v8.30.1) and the CI action
+# (v8.24.3) honor identically.
 #
-# Allowlist by `regexTarget = "match"` so the suppression fires on the
-# matched substring itself rather than on the surrounding line context.
+# condition = "OR" unifies two distinct suppressions under one block; each
+# criterion fires independently (a finding is allowlisted if its match string
+# matches `regexes` OR its file path matches `paths`):
 #
-# Uses `[[allowlists]]` (plural array) form per gitleaks v8.25.0+ — the legacy
-# singular `[allowlist]` block was deprecated and gitleaks v8.30+ rejects
-# configs that mix the two forms. Each `[[allowlists]]` entry is evaluated
-# independently (OR semantics across entries), which keeps the AWS KMS
-# suppression decoupled from the PASETO fixture suppression below.
-[[allowlists]]
-description = "AWS KMS Ed25519 public-API enum constants are not secrets"
+# 1. AWS KMS public-API enum constants — not secrets; they are documented
+#    algorithm/keyspec enum values published in the AWS KMS API reference
+#    (https://docs.aws.amazon.com/kms/latest/APIReference/API_Sign.html and
+#    https://docs.aws.amazon.com/kms/latest/APIReference/API_CreateKey.html).
+#    The gitleaks generic-api-key heuristic flags `KEY = VALUE` assignments
+#    where VALUE is a long uppercase identifier with high entropy; the AWS
+#    KMS Ed25519 enum names satisfy that shape but carry no secret material.
+#    `regexTarget = "match"` so the suppression fires on the matched
+#    substring rather than the surrounding line context (governs `regexes`
+#    only — `paths` is matched against file paths regardless).
+#
+# 2. PASETO v4 RFC test vectors — deliberate test keys (hex Ed25519 secret
+#    keys and PEM-encoded private keys) published in
+#    paseto-standard/test-vectors. Public, deterministic, pinned by sha256
+#    in PROVENANCE.md alongside an upstream commit-SHA audit log. Path-only
+#    suppression scopes this allowlist to the fixture file.
+[allowlist]
+description = "AWS KMS Ed25519 enum constants + PASETO v4 RFC test vectors"
+condition = "OR"
 regexTarget = "match"
 regexes = [
   '''ECC_NIST_EDWARDS25519''',
   '''ED25519_SHA_512''',
   '''ED25519_PH_SHA_512''',
 ]
-
-# Vendored RFC test vectors carry deliberate test keys (hex Ed25519 secret keys
-# and PEM-encoded private keys) published in paseto-standard/test-vectors. They
-# are public, deterministic, and pinned by sha256 in PROVENANCE.md alongside an
-# upstream commit-SHA audit log. The `paths` field scopes this allowlist to the
-# fixture path only.
-[[allowlists]]
-description = "PASETO v4 RFC test vectors (hex keys are deliberate; vendored from paseto-standard/test-vectors)"
 paths = [
   '''packages/crypto-paseto/src/__tests__/__fixtures__/v4\.json''',
 ]
