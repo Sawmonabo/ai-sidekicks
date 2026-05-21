@@ -91,7 +91,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 ## API And Transport Changes
 
 - Add invite CRUD endpoints, membership update endpoints, and presence heartbeat transport to the client SDK.
-- Add `ChannelList` read-only projection per [Spec-002 line 86](../specs/002-invite-membership-and-presence.md#interfaces-and-contracts). Request: `{sessionId: SessionId}`. Response: `{channels: Array<{id: ChannelId, name?: string, state: ChannelState, participantCount: number}>}`. Channels are bootstrapped at session create by Plan-001's `ChannelCreated` event (default channel); runtime channel creation (`ChannelCreate`) is owned by [Plan-016](./016-multi-agent-channels-and-orchestration.md) at Tier 6. `ChannelList` projects whatever channels currently exist regardless of who created them.
+- Add `ChannelList` read-only projection per [Spec-002 line 87](../specs/002-invite-membership-and-presence.md#interfaces-and-contracts). Request: `{sessionId: SessionId}`. Response: `{channels: Array<{id: ChannelId, name?: string, state: ChannelState, participantCount: number}>}`. Channels are bootstrapped at session create by Plan-001's `ChannelCreated` event (default channel); runtime channel creation (`ChannelCreate`) is owned by [Plan-016](./016-multi-agent-channels-and-orchestration.md) at Tier 6. `ChannelList` projects whatever channels currently exist regardless of who created them.
 - Register the `presence.*` JSON-RPC method namespace (`PresenceUpdate`, `PresenceRead`) under the Plan-007-partial wire substrate per [Spec-002 §Heartbeat Transport](../specs/002-invite-membership-and-presence.md#heartbeat-transport). Plan-002 owns the namespace handlers and Zod schemas; the substrate (framing, error model, supervision hooks) is owned by Plan-007-partial.
 
 ## Cross-Plan Obligations
@@ -131,9 +131,9 @@ The TDD test list below is enumerated and ordered by implementation dependency. 
 | --- | --- | --- | --- |
 | C1 | `InviteCreate payload validates required fields (sessionId, inviter, joinMode)` | request schema | line 80 |
 | C2 | `Invite lifecycle states enum is exactly {pending, accepted, revoked, expired}` | no `declined` state in V1 | line 43 |
-| C3 | `MembershipUpdate.action discriminated union covers role-change/suspend/revoke` | mutation contract | line 82 |
-| C4 | `PresenceHeartbeat payload carries the 5 required metadata fields` | `{deviceType, focusedSessionId, focusedChannelId, lastActivityAt, appVisible}` | line 83 |
-| C5 | `ChannelList response shape matches Spec-002:86 projection` | read-only projection contract | line 86 |
+| C3 | `MembershipUpdate.action discriminated union covers role-change/suspend/revoke` | mutation contract | line 83 |
+| C4 | `PresenceHeartbeat payload carries the 5 required metadata fields` | `{deviceType, focusedSessionId, focusedChannelId, lastActivityAt, appVisible}` | line 84 |
+| C5 | `ChannelList response shape matches Spec-002:87 projection` | read-only projection contract | line 87 |
 
 ### Control Plane Layer (`packages/control-plane/`)
 
@@ -197,15 +197,15 @@ Plan-002 implementation lands as a sequence of small PRs primarily at Tier 2 (Ph
 
 ##### T1.2 — Define `MembershipUpdate` discriminated union, `MembershipRole`, `MembershipState` enums in `packages/contracts/src/memberships.ts`.
 
-**Files:** `packages/contracts/src/memberships.ts`, `packages/contracts/test/memberships.test.ts` **Spec coverage:** C3 (Spec-002 line 82 — `MembershipUpdate.action` discriminated union covers role-change / suspend / revoke) **Verifies invariant:** none (contract layer)
+**Files:** `packages/contracts/src/memberships.ts`, `packages/contracts/test/memberships.test.ts` **Spec coverage:** C3 (Spec-002 line 83 — `MembershipUpdate.action` discriminated union covers role-change / suspend / revoke) **Verifies invariant:** none (contract layer)
 
 ##### T1.3 — Define `PresenceHeartbeat`, `PresenceUpdate`/`PresenceRead` shapes, `PresenceState` enum, `JoinMode` enum in `packages/contracts/src/presence.ts`.
 
-**Files:** `packages/contracts/src/presence.ts`, `packages/contracts/test/presence.test.ts` **Spec coverage:** C4 (Spec-002 line 83 — `PresenceHeartbeat` carries 5 required metadata fields `{deviceType, focusedSessionId, focusedChannelId, lastActivityAt, appVisible}`) **Verifies invariant:** none (contract layer)
+**Files:** `packages/contracts/src/presence.ts`, `packages/contracts/test/presence.test.ts` **Spec coverage:** C4 (Spec-002 line 84 — `PresenceHeartbeat` carries 5 required metadata fields `{deviceType, focusedSessionId, focusedChannelId, lastActivityAt, appVisible}`) **Verifies invariant:** none (contract layer)
 
 ##### T1.4 — Define `ChannelList` request/response + `ChannelState` enum in `packages/contracts/src/channels.ts` (no channel-creation contracts — owned by Plan-016).
 
-**Files:** `packages/contracts/src/channels.ts`, `packages/contracts/test/channels.test.ts` **Spec coverage:** C5 (Spec-002 line 86 — `ChannelList` read-only projection request/response shape) **Verifies invariant:** none (contract layer)
+**Files:** `packages/contracts/src/channels.ts`, `packages/contracts/test/channels.test.ts` **Spec coverage:** C5 (Spec-002 line 87 — `ChannelList` read-only projection request/response shape) **Verifies invariant:** none (contract layer)
 
 ##### T1.5 — Author Postgres migration creating `session_invites` table (no `session_memberships` ALTER — Plan-001 owns).
 
@@ -213,7 +213,7 @@ Plan-002 implementation lands as a sequence of small PRs primarily at Tier 2 (Ph
 
 ##### T1.6 — Wire Vitest tests C1–C5 + anti-leakage assertion (no `ChannelCreate` contracts shipped).
 
-**Files:** `packages/contracts/test/anti-leakage.test.ts` **Spec coverage:** Plan-002:189 cross-plan ownership boundary (no `ChannelCreate` contract exported from `packages/contracts/src/channels.ts`; Plan-016 owns runtime channel-creation contracts per Plan-002 §API And Transport Changes line 94) **Verifies invariant:** none (cross-plan ownership boundary)
+**Files:** `packages/contracts/test/anti-leakage.test.ts` **Spec coverage:** Spec-002 line 87 (`ChannelList` is the only channel surface contracted in Spec-002; `ChannelList` request/response shape ships here, while `ChannelCreate` is explicitly handled by Plan-016 per Spec-002) **Verifies invariant:** none (cross-plan ownership boundary)
 
 ### Phase 2 — Control-Plane Invite And Membership Services
 
@@ -221,10 +221,10 @@ Plan-002 implementation lands as a sequence of small PRs primarily at Tier 2 (Ph
 
 **Goal:** Tests P1–P10 go green.
 
-- `packages/control-plane/src/invites/invite-service.ts` — issuance (PASETO v4.local with 256-bit CSPRNG, jti, SHA-256 hash storage per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md)), acceptance (single-use enforcement), revocation (owner-only per Spec-002 line 141), expiry validation
+- `packages/control-plane/src/invites/invite-service.ts` — issuance (PASETO v4.local with 256-bit CSPRNG, jti, SHA-256 hash storage per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md)), acceptance (single-use enforcement), revocation (owner-only per Spec-002 line 142), expiry validation
 - `packages/control-plane/src/memberships/membership-service.ts` — `MembershipUpdate` handler with owner-elevation check (I-002-1), last-owner-cannot-leave guard (I-002-2), role-change/suspend/revoke paths
 - Lock-ordering inheritance from Plan-001 (I-002-4) — every transactional caller follows `sessions` → `session_memberships`
-- Audit emission: revocation events emit to session history per Spec-002 line 140; integrity columns (`prev_hash`, `row_hash`, `daemon_signature`) follow the Plan-001 Phase 3 placeholder convention (`Buffer.alloc(32)`) until Plan-006 Tier 4 ships real event-taxonomy hashing/signing
+- Audit emission: revocation events emit to session history per Spec-002 line 141; integrity columns (`prev_hash`, `row_hash`, `daemon_signature`) follow the Plan-001 Phase 3 placeholder convention (`Buffer.alloc(32)`) until Plan-006 Tier 4 ships real event-taxonomy hashing/signing
 - Typed errors: `membership.permission_denied` (P6, I-002-1), `membership.last_owner` (P7, I-002-2), `invite.revoked` / `invite.expired` / `invite.already_accepted` (P2/P3/P4)
 
 #### Tasks
@@ -235,7 +235,7 @@ Plan-002 implementation lands as a sequence of small PRs primarily at Tier 2 (Ph
 
 ##### T2.2 — Implement invite acceptance + single-use enforcement + revocation + expiry validation; emit revocation audit events.
 
-**Files:** `packages/control-plane/src/invites/invite-service.ts`, `packages/control-plane/src/invites/__tests__/invite-service.test.ts` **Spec coverage:** Spec-002 AC1, AC3, §Token Security Properties lines 108, 111, §Invite Revocation lines 138, 140; P1, P2, P3, P4, P8 **Verifies invariant:** none (issuance/acceptance path; revocation durability verified by P8)
+**Files:** `packages/control-plane/src/invites/invite-service.ts`, `packages/control-plane/src/invites/__tests__/invite-service.test.ts` **Spec coverage:** Spec-002 AC1, AC3, §Token Security Properties lines 109, 111, §Invite Revocation lines 138, 141; P1, P2, P3, P4, P8 **Verifies invariant:** none (issuance/acceptance path; revocation durability verified by P8)
 
 ##### T2.3 — Implement `membership-service.ts` with `MembershipUpdate` handler; enforce I-002-1 + I-002-2 with typed errors.
 
@@ -264,7 +264,7 @@ Plan-002 implementation lands as a sequence of small PRs primarily at Tier 2 (Ph
 
 ##### T3.1 — Implement `presence-register-service.ts` with Yjs Awareness ingestion (in-memory only); add Pr1 schema-shape regression test asserting no SQLite/Postgres write occurs on heartbeat.
 
-**Files:** `packages/control-plane/src/presence/presence-register-service.ts`, `packages/control-plane/src/presence/__tests__/presence-register-service.test.ts` **Spec coverage:** Spec-002 §Default Behavior line 58, §State And Data Implications line 156 (Pr1) **Verifies invariant:** I-002-3 (ephemeral presence — Pr1 schema-shape regression test directly verifies no presence-state table is created)
+**Files:** `packages/control-plane/src/presence/presence-register-service.ts`, `packages/control-plane/src/presence/__tests__/presence-register-service.test.ts` **Spec coverage:** Spec-002 §Default Behavior line 58, §State And Data Implications line 157 (Pr1) **Verifies invariant:** I-002-3 (ephemeral presence — Pr1 schema-shape regression test directly verifies no presence-state table is created)
 
 ##### T3.2 — Wire Postgres LISTEN/NOTIFY fan-out for cross-node presence updates (Pr3); reconnect-grace window timer (Pr2).
 
@@ -272,7 +272,7 @@ Plan-002 implementation lands as a sequence of small PRs primarily at Tier 2 (Ph
 
 ##### T3.3 — Register `presence.*` JSON-RPC handlers under Plan-007-partial wire substrate; emit `presence.online/idle/reconnecting/offline` audit events to `session_events` per Plan-006 path (Pr4).
 
-**Files:** `packages/runtime-daemon/src/ipc/handlers/presence-update.ts`, `packages/runtime-daemon/src/ipc/handlers/presence-read.ts`, `packages/runtime-daemon/src/ipc/handlers/__tests__/presence-update.test.ts`, `packages/runtime-daemon/src/ipc/handlers/__tests__/presence-read.test.ts` **Spec coverage:** Spec-002 §State And Data Implications line 156, §Interfaces And Contracts lines 85–86 (Pr4 — durable presence state-change events; `PresenceUpdate`/`PresenceRead` JSON-RPC surface) **Verifies invariant:** none (transport surface + audit-event emission; I-002-3 is preserved by routing only state-change events — not presence rows — to `session_events`)
+**Files:** `packages/runtime-daemon/src/ipc/handlers/presence-update.ts`, `packages/runtime-daemon/src/ipc/handlers/presence-read.ts`, `packages/runtime-daemon/src/ipc/handlers/__tests__/presence-update.test.ts`, `packages/runtime-daemon/src/ipc/handlers/__tests__/presence-read.test.ts` **Spec coverage:** Spec-002 §State And Data Implications line 157, §Interfaces And Contracts lines 85–86 (Pr4 — durable presence state-change events; `PresenceUpdate`/`PresenceRead` JSON-RPC surface) **Verifies invariant:** none (transport surface + audit-event emission; I-002-3 is preserved by routing only state-change events — not presence rows — to `session_events`)
 
 ##### T3.4 — Implement `ChannelList` read-only projection consuming the channels collection bootstrapped by Plan-001's `ChannelCreated`; add I3 test asserting bootstrap projection returns the default channel.
 

@@ -552,7 +552,7 @@ With NS-01 + NS-02 + NS-04 + NS-05 completed 2026-05-11 (NS-01 via PR #42 — Pl
 - Type: code
 - Priority: `P1`
 - Upstream: NS-14 (Tier 2 plan-readiness audit completed 2026-05-20)
-- References: [Plan-002](../plans/002-invite-membership-and-presence.md):180-199 (Phase 1 + tasks T1.1–T1.6), [Spec-002](../specs/002-invite-membership-and-presence.md), [Plan-002 Preconditions](../plans/002-invite-membership-and-presence.md):66-71
+- References: [Plan-002](../plans/002-invite-membership-and-presence.md):180-216 (Phase 1 + tasks T1.1–T1.6), [Spec-002](../specs/002-invite-membership-and-presence.md), [Plan-002 Preconditions](../plans/002-invite-membership-and-presence.md):66-71
 - Summary: Ship invite / membership / presence / channel contracts to `packages/contracts/src/invites.ts`, `memberships.ts`, `presence.ts`, `channels.ts`; author Postgres migration creating `session_invites` (no `session_memberships` ALTER — Plan-001 owns); wire C1–C5 Vitest tests including anti-leakage assertion (no `ChannelCreate` contracts shipped — Plan-016 owns channel creation).
 - Exit Criteria: T1.1–T1.6 merged; C1–C5 green; `session_invites` migration applies cleanly; contracts exported from `packages/contracts/src/index.ts`.
 
@@ -561,9 +561,9 @@ With NS-01 + NS-02 + NS-04 + NS-05 completed 2026-05-11 (NS-01 via PR #42 — Pl
 - Status: `blocked`
 - Type: code
 - Priority: `P1` (first downstream consumer of `packages/crypto-paseto/` shipped by PR #92)
-- Upstream: NS-24 (Phase 1 contracts + migration must merge per [Plan-002 Phase 2 Precondition](../plans/002-invite-membership-and-presence.md):203); `packages/crypto-paseto/` substrate shipped 2026-05-21 via [PR #92](https://github.com/Sawmonabo/ai-sidekicks/pull/92) per CP-002-4 (BL-119 resolved 2026-05-20 via Option A)
-- References: [Plan-002](../plans/002-invite-membership-and-presence.md):201-219 (Phase 2 + tasks T2.1–T2.5), [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md) (PASETO v4 auth model), [CP-002-4](../plans/002-invite-membership-and-presence.md#cross-plan-obligations)
-- Summary: Implement `packages/control-plane/src/invites/invite-service.ts` consuming `@ai-sidekicks/crypto-paseto` v4.local `encrypt`/`decrypt` for invite-token issuance (SHA-256 hash storage, jti, 256-bit CSPRNG per ADR-010); single-use enforcement; owner-only revocation per Spec-002 §141; expiry validation. Implement `membership-service.ts` `MembershipUpdate` handler enforcing I-002-1 (owner-elevation check) + I-002-2 (last-owner-cannot-leave) with typed errors. Wire transactional callers to canonical lock-ordering (I-002-4).
+- Upstream: NS-24 (Phase 1 contracts + migration must merge per [Plan-002 Phase 2 Precondition](../plans/002-invite-membership-and-presence.md):220); `packages/crypto-paseto/` substrate shipped 2026-05-21 via [PR #92](https://github.com/Sawmonabo/ai-sidekicks/pull/92) per CP-002-4 (BL-119 resolved 2026-05-20 via Option A)
+- References: [Plan-002](../plans/002-invite-membership-and-presence.md):218-250 (Phase 2 + tasks T2.1–T2.5), [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md) (PASETO v4 auth model), [CP-002-4](../plans/002-invite-membership-and-presence.md#cross-plan-obligations)
+- Summary: Implement `packages/control-plane/src/invites/invite-service.ts` consuming `@ai-sidekicks/crypto-paseto` v4.local `encrypt`/`decrypt` for invite-token issuance (SHA-256 hash storage, jti, 256-bit CSPRNG per ADR-010); single-use enforcement; owner-only revocation per Spec-002 §142; expiry validation. Implement `membership-service.ts` `MembershipUpdate` handler enforcing I-002-1 (owner-elevation check) + I-002-2 (last-owner-cannot-leave) with typed errors. Wire transactional callers to canonical lock-ordering (I-002-4).
 - Exit Criteria: T2.1–T2.5 merged; P1–P10 green; invite-token issuance validated end-to-end via PASETO v4.local from the just-shipped substrate (first real consumer validation of `packages/crypto-paseto/`).
 
 ### NS-26: Plan-002 Phase 3 — Presence Heartbeat + ChannelList Projection
@@ -571,8 +571,8 @@ With NS-01 + NS-02 + NS-04 + NS-05 completed 2026-05-11 (NS-01 via PR #42 — Pl
 - Status: `blocked`
 - Type: code
 - Priority: `P1`
-- Upstream: NS-24 + NS-25 (Phase 1 + Phase 2 merged per [Plan-002 Phase 3 Precondition](../plans/002-invite-membership-and-presence.md):223)
-- References: [Plan-002](../plans/002-invite-membership-and-presence.md):221-237 (Phase 3 + tasks T3.1–T3.4), [ADR-008](../decisions/008-default-transports-and-relay-boundaries.md) (transport choice — Yjs Awareness + Postgres LISTEN/NOTIFY), [CP-002-1](../plans/002-invite-membership-and-presence.md#cross-plan-obligations) (presence ownership), [CP-002-2](../plans/002-invite-membership-and-presence.md#cross-plan-obligations) (`presence.*` IPC namespace under Plan-007-partial wire substrate)
+- Upstream: NS-24 + NS-25 (Phase 1 + Phase 2 merged per [Plan-002 Phase 3 Precondition](../plans/002-invite-membership-and-presence.md):254)
+- References: [Plan-002](../plans/002-invite-membership-and-presence.md):252-279 (Phase 3 + tasks T3.1–T3.4), [ADR-008](../decisions/008-default-transports-and-relay-boundaries.md) (transport choice — Yjs Awareness + Postgres LISTEN/NOTIFY), [CP-002-1](../plans/002-invite-membership-and-presence.md#cross-plan-obligations) (presence ownership), [CP-002-2](../plans/002-invite-membership-and-presence.md#cross-plan-obligations) (`presence.*` IPC namespace under Plan-007-partial wire substrate)
 - Summary: Implement `packages/control-plane/src/presence/presence-register-service.ts` with Yjs Awareness ingestion (in-memory only — I-002-3 forbids persistence); Postgres LISTEN/NOTIFY fan-out for cross-node updates; reconnect-grace window timer; durable presence-state-change events emit via Plan-006 path (`presence.online/idle/reconnecting/offline`). Register `presence.*` JSON-RPC handlers at `packages/runtime-daemon/src/ipc/handlers/presence-update.ts` and `presence-read.ts` per CP-002-2. Implement `ChannelList` read-only projection consuming Plan-001's `ChannelCreated` default-channel emission.
 - Exit Criteria: T3.1–T3.4 merged; Pr1–Pr4 + I3 green; P10 (no-presence-table migration regression) re-verified.
 
