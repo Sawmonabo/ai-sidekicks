@@ -17,6 +17,7 @@ The audit runs once per tier across the V1 build order (Tiers 1 → 9). After th
 
 Invoke this runbook in any of the following situations:
 
+- **Before promoting a spec from `draft`/`review` → `approved`** (the spec-template Precondition gate per §Spec-Status Promotion Gate below). The promotion PR description must cite the spec's doc-first-before-coding attestation.
 - **Before promoting a plan from `review` → `approved`** (the plan-template Precondition gate). The promotion PR description must cite the audit's REVIEW.md.
 - **Before any plan's first code-execution PR opens.** A plan whose `approved` state predates this runbook (e.g., Plans 001-027 at runbook adoption time) must clear the audit before its first code PR.
 - **When `cross-plan-dependencies.md` §1 / §2 / §3 gains an edge or row affecting an already-`approved` plan.** Re-audit only the affected plan; do not re-walk the whole tier.
@@ -211,6 +212,21 @@ A plan cannot transition `review → approved` (or open its first code-execution
 A plan attempting promotion without audit fails the plan-template Preconditions checklist. The audit-complete checkbox is added at template-copy time, so future plans inherit the gate without action.
 
 A `cross-plan-dependencies.md` §1 / §2 / §3 amendment affecting an already-`approved` plan triggers re-audit of the affected plan only (not the whole tier).
+
+## Spec-Status Promotion Gate
+
+A spec cannot transition `draft → review → approved` without:
+
+1. All declared `Depends On` specs and ADRs being at terminal status (`approved` for specs; `accepted` for ADRs). Forward-declared draft deps fail this gate.
+2. All blocking `## Open Questions` resolved or explicitly deferred (referencing a BL-NNN follow-up). Open questions that gate Required Behavior MUST be resolved, not deferred.
+3. **Doc-first-before-coding attestation.** No downstream plan PR has shipped code citing this spec's Required Behavior, Default Behavior, Fallback Behavior, or Acceptance Criteria rows while the spec was in `draft` or `review`. If a violation exists (the Spec-027 / Plan-007 PRs #16/#17/#19 historical case), the promotion PR description MUST enumerate the violating PRs and attest that the spec body as promoted remains authoritative for the rows already shipped (a _post-hoc affirmation_, not a _retroactive approval_).
+4. The promotion-PR description citing this runbook §Spec-Status Promotion Gate by name.
+
+A spec attempting promotion without clearing these checks fails the spec-template Preconditions checklist. The Preconditions section is added at template-copy time, so future specs inherit the gate without action.
+
+This gate is **lighter-weight than the plan-readiness audit**: no `#### Tasks` block authoring, no per-Phase subagent dispatch, no REVIEW.md schema. The spec gate enforces only (a) dependency-graph closure (criterion 1), (b) open-question discipline (criterion 2), and (c) the doc-first invariant (criterion 3) — the structural properties that make the spec a stable contract for downstream plan-readiness audits to consume. Specs do not have phases, invariants-of-implementation, or cross-plan obligations of their own; the heavy machinery lives at the plan tier.
+
+A spec-body amendment after promotion (typo, citation, narrowing) does NOT re-trigger this gate. Amendments that change Required Behavior, Acceptance Criteria, or `Depends On` flip the spec back to `review` (mirrors the plan §Status Flip Rule) and re-trigger the gate at the next promotion attempt.
 
 ## Per-Phase Audit Semantics
 
