@@ -95,4 +95,25 @@ describe("KeyRing", () => {
     const active = entry("k_2");
     expect(() => new KeyRing([r1, r2, active])).toThrow(InvalidKeyError);
   });
+
+  // Defense-in-depth against caller mutation: the constructor deep-clones
+  // each entry so that subsequent mutation of caller-owned references does
+  // not bleed into the ring. The `readonly` annotation on `KeyRingEntry`
+  // only constrains TypeScript reassignment — it does not stop a caller
+  // from writing to `entry.key[0]` or `entry.createdAt.setTime()`.
+  it("isolates the ring from post-construction mutation of caller-owned entries", () => {
+    const original = entry("k_1");
+    const originalFirstByte = original.key[0];
+    const originalCreatedAt = original.createdAt.getTime();
+    const ring = new KeyRing([original]);
+
+    // Mutate the caller's reference after construction.
+    original.key[0] = (originalFirstByte! + 1) & 0xff;
+    original.createdAt.setTime(0);
+
+    // Ring state must be unchanged.
+    const active = ring.active();
+    expect(active.key[0]).toBe(originalFirstByte);
+    expect(active.createdAt.getTime()).toBe(originalCreatedAt);
+  });
 });

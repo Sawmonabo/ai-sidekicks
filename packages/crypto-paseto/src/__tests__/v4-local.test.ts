@@ -96,4 +96,31 @@ describe("v4.local encrypt / decrypt", () => {
     const recovered = decryptV4Local(t1, key);
     expect(decoder.decode(recovered)).toBe("payload");
   });
+
+  // Strict base64url canonicalization: non-canonical textual forms (padding,
+  // invalid chars) must be rejected even when Node's lenient decoder would
+  // otherwise produce bytes that pass MAC verification. Mirrors the v4.public
+  // canonicalization suite — same rationale, same exact-string controls.
+  it("rejects a token whose body base64url carries `=` padding", () => {
+    const key = randomBytes(32);
+    const token = encryptV4Local(encoder.encode("payload"), key);
+    expect(() => decryptV4Local(`${token}=`, key)).toThrow(InvalidTokenError);
+  });
+
+  it("rejects a token whose footer base64url carries `=` padding", () => {
+    const key = randomBytes(32);
+    const footer = encoder.encode("kid:k_1");
+    const token = encryptV4Local(encoder.encode("payload"), key, footer);
+    expect(() => decryptV4Local(`${token}=`, key, footer)).toThrow(InvalidTokenError);
+  });
+
+  it("rejects a token whose body contains a non-base64url character", () => {
+    const key = randomBytes(32);
+    const token = encryptV4Local(encoder.encode("payload"), key);
+    const head = token.slice(0, "v4.local.".length);
+    const body = token.slice("v4.local.".length);
+    // Replace the first body char with `$` (outside the base64url alphabet).
+    const tampered = `${head}$${body.slice(1)}`;
+    expect(() => decryptV4Local(tampered, key)).toThrow(InvalidTokenError);
+  });
 });

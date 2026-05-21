@@ -45,8 +45,19 @@ export class KeyRing {
       }
       seenIds.add(e.id);
     }
-    // Defensive copy so callers can't mutate our backing array.
-    this.#entries = [...entries];
+    // Deep clone each entry so callers can't mutate our backing array OR
+    // the entry objects (and their mutable `Uint8Array` / `Date` fields)
+    // after construction. The `readonly` annotations on `KeyRingEntry`
+    // only restrict reassignment at the type level — they do not stop
+    // a caller from writing to `entry.key[0]` or `entry.createdAt.setTime()`.
+    // Without deep-clone the ring's invariants drift out-of-band whenever
+    // a caller mutates an entry it still holds a reference to.
+    this.#entries = entries.map((e) => ({
+      id: e.id,
+      key: new Uint8Array(e.key),
+      createdAt: new Date(e.createdAt.getTime()),
+      retiredAt: e.retiredAt === undefined ? undefined : new Date(e.retiredAt.getTime()),
+    }));
   }
 
   active(): KeyRingEntry {
