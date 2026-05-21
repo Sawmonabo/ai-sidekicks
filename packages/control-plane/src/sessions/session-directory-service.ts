@@ -89,17 +89,20 @@ const DEFAULT_PARTICIPANT_LIMIT = 10;
  * Resolve the participants-per-session cap from a session's JSONB
  * `config`. Honors Spec-001's "configurable per session via session
  * config" clause; falls back to the spec's default of 10 when the
- * override is absent, non-numeric, non-finite, or non-positive.
+ * override is absent, non-numeric, non-finite, or below 1.
  *
- * Floors fractional values (the cap is a participant count, not a
- * fraction). A zero or negative override falls through to the default
- * — Spec-001 does not define "disable joining" semantics, so we treat
- * those values as malformed config rather than silently producing an
- * unjoinable session.
+ * The predicate is `raw < 1` (not `raw <= 0`) so fractional values in
+ * the open interval `(0, 1)` — which `Math.floor` would collapse to 0
+ * — also route to the fallback. A floored cap of 0 would make every
+ * `current >= cap` check trip on the very first joiner, producing an
+ * unjoinable session from a malformed-but-typed config value;
+ * Spec-001 does not define "disable joining" semantics, so the
+ * fallback treats sub-1 inputs as malformed config. `raw === 1` is
+ * preserved (solo-owner session is a valid spec interpretation).
  */
 const resolveParticipantLimit = (config: Record<string, unknown> | null | undefined): number => {
   const raw = config?.["participantLimit"];
-  if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0) {
+  if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 1) {
     return DEFAULT_PARTICIPANT_LIMIT;
   }
   return Math.floor(raw);

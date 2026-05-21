@@ -1355,6 +1355,108 @@ describe("SessionDirectoryService — P5 (AC8 participant-limit enforcement)", (
     );
     expect(Number.parseInt(probe.rows[0]?.count ?? "0", 10)).toBe(3);
   });
+
+  it("fractional config.participantLimit in (0, 1) falls back to the default (no unjoinable session)", async () => {
+    // Regression: a typed-but-malformed override like `participantLimit: 0.5`
+    // floors to 0. Without the `raw < 1` guard on `resolveParticipantLimit`,
+    // the cap would resolve to 0 and `current >= 0` would trip on the very
+    // first joiner — every join rejected, session unjoinable. Spec-001 does
+    // not define "disable joining" semantics, so the fallback to the
+    // default-of-10 is the correct treatment of malformed config.
+    const COLLABORATOR: ParticipantId = "01970000-0000-7000-8000-000000000202" as ParticipantId;
+    await ctx.querier.query("INSERT INTO participants (id) VALUES ($1)", [OWNER_PARTICIPANT_ID]);
+    await ctx.querier.query("INSERT INTO participants (id) VALUES ($1)", [COLLABORATOR]);
+    await ctx.service.createSession({
+      sessionId: SESSION_ID,
+      ownerParticipantId: OWNER_PARTICIPANT_ID,
+      config: { participantLimit: 0.5 },
+    });
+
+    // First joiner MUST succeed — proves the session is joinable.
+    const join = await ctx.service.joinSession({
+      sessionId: SESSION_ID,
+      participantId: COLLABORATOR,
+      role: "collaborator",
+    });
+    expect(join).not.toBeNull();
+
+    // The cap reverted to the default of 10. Fill the session to 10 + try
+    // an 11th joiner; the 11th must trip the cap with `limit: 10`, proving
+    // the fallback resolved to the default (not the floored-to-0 ghost).
+    const EIGHT_MORE_IDS: ReadonlyArray<ParticipantId> = [
+      "01970000-0000-7000-8000-000000000203" as ParticipantId,
+      "01970000-0000-7000-8000-000000000204" as ParticipantId,
+      "01970000-0000-7000-8000-000000000205" as ParticipantId,
+      "01970000-0000-7000-8000-000000000206" as ParticipantId,
+      "01970000-0000-7000-8000-000000000207" as ParticipantId,
+      "01970000-0000-7000-8000-000000000208" as ParticipantId,
+      "01970000-0000-7000-8000-000000000209" as ParticipantId,
+      "01970000-0000-7000-8000-00000000020a" as ParticipantId,
+    ];
+    const OVER_CAP: ParticipantId = "01970000-0000-7000-8000-00000000020b" as ParticipantId;
+    for (const id of [...EIGHT_MORE_IDS, OVER_CAP]) {
+      await ctx.querier.query("INSERT INTO participants (id) VALUES ($1)", [id]);
+    }
+    for (const id of EIGHT_MORE_IDS) {
+      const j = await ctx.service.joinSession({
+        sessionId: SESSION_ID,
+        participantId: id,
+        role: "collaborator",
+      });
+      expect(j).not.toBeNull();
+    }
+    let caught: unknown = null;
+    try {
+      await ctx.service.joinSession({
+        sessionId: SESSION_ID,
+        participantId: OVER_CAP,
+        role: "collaborator",
+      });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(ResourceLimitExceededException);
+    if (!(caught instanceof ResourceLimitExceededException)) return;
+    expect(caught.details).toEqual({
+      resource: "participants per session",
+      limit: 10,
+      current: 10,
+    });
+  });
+
+  it("config.participantLimit === 1 is honored verbatim (solo-owner session boundary)", async () => {
+    // Boundary case: `participantLimit: 1` is a valid spec interpretation
+    // (a session that only the owner can occupy). The `raw < 1` predicate
+    // must NOT swallow this — it must resolve to 1, and the very first
+    // additional joiner must trip the cap.
+    const COLLABORATOR: ParticipantId = "01970000-0000-7000-8000-000000000302" as ParticipantId;
+    await ctx.querier.query("INSERT INTO participants (id) VALUES ($1)", [OWNER_PARTICIPANT_ID]);
+    await ctx.querier.query("INSERT INTO participants (id) VALUES ($1)", [COLLABORATOR]);
+    await ctx.service.createSession({
+      sessionId: SESSION_ID,
+      ownerParticipantId: OWNER_PARTICIPANT_ID,
+      config: { participantLimit: 1 },
+    });
+
+    let caught: unknown = null;
+    try {
+      await ctx.service.joinSession({
+        sessionId: SESSION_ID,
+        participantId: COLLABORATOR,
+        role: "collaborator",
+      });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(ResourceLimitExceededException);
+    if (!(caught instanceof ResourceLimitExceededException)) return;
+    expect(caught.details).toEqual({
+      resource: "participants per session",
+      limit: 1,
+      current: 1,
+    });
+    expect(caught.message).toContain("(1/1)");
+  });
 });
 
 // ----------------------------------------------------------------------------
