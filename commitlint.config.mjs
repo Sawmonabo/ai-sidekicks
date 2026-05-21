@@ -6,8 +6,8 @@
 //
 // scope-enum: required, lowercase, hyphen-only. Mirrors the package + cross-cutting nouns
 // the workspace owns:
-//   - per-package nouns: `contracts`, `client-sdk`, `daemon`, `control-plane`, `desktop`,
-//     `sidecar-rust-pty`, `pty-sidecar-publishing`
+//   - per-package nouns: `contracts`, `crypto-paseto`, `client-sdk`, `daemon`, `control-plane`,
+//     `desktop`, `sidecar-rust-pty`, `pty-sidecar-publishing`
 //   - cross-cutting nouns: `repo` (workspace-root scaffolding), `deps` (dependency bumps),
 //     `ci` (workflow files), `format` (manual format passes), `release` (release tooling)
 //
@@ -32,6 +32,7 @@ export default {
       [
         // Per-package nouns
         "contracts",
+        "crypto-paseto",
         "client-sdk",
         "daemon",
         "control-plane",

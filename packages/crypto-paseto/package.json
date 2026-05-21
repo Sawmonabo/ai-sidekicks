@@ -1,0 +1,35 @@
+{
+  "name": "@ai-sidekicks/crypto-paseto",
+  "version": "0.0.0",
+  "type": "module",
+  "license": "Apache-2.0",
+  "description": "PASETO v4.public + v4.local primitives for AI Sidekicks (substrate for Plan-002 / Plan-018 auth).",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b && tsc -p tsconfig.test.json",
+    "lint": "eslint src",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@noble/curves": "^2",
+    "@noble/ciphers": "^2",
+    "@noble/hashes": "^2"
+  },
+  "devDependencies": {
+    "vitest": "catalog:testing"
+  }
+}
