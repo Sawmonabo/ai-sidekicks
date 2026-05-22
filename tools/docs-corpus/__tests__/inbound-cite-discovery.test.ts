@@ -198,13 +198,12 @@ describe("inbound-cite-discovery — governance-corpus inbound expansion", () =>
     }
   });
 
-  it("excludes untracked private WIP files from the candidate set (Codex PR #98 P2)", () => {
-    // Codex review on PR #98 flagged that the original readdirSync walker
-    // would scan untracked governance drafts and could block a commit on a
-    // stale cite that exists only in a private WIP file (not in the index,
-    // not in CI). The enumerator now bounds itself via `git ls-files` —
-    // index-only, so tracked + staged-new are included, untracked + ignored
-    // are excluded. This test pins the exclusion.
+  it("excludes untracked private WIP files from the candidate set", () => {
+    // A raw filesystem walk would scan untracked governance drafts and could
+    // block a commit on a stale cite that exists only in a private WIP file
+    // (not in the index, not in CI). The enumerator bounds itself via
+    // `git ls-files` — index-only, so tracked + staged-new are included,
+    // untracked + ignored are excluded. This test pins the exclusion.
     const { root, cleanup } = setupRepo({
       "docs/plans/002-foo.md": "# Plan-002\n\nline two\n",
       "docs/architecture/cross-plan-deps.md":
