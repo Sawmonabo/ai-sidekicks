@@ -14,6 +14,10 @@ function setupRepo(files: Record<string, string>): { root: string; cleanup: () =
     mkdirSync(resolve(full, ".."), { recursive: true });
     writeFileSync(full, content);
   }
+  // Stage the fixture set so `git ls-files` enumerates them — the discovery
+  // enumerator now uses git ls-files to exclude untracked WIP drafts (Codex
+  // review on PR #98). Tests that need untracked behavior write AFTER setupRepo.
+  execSync("git add -A", { cwd: root });
   return { root, cleanup: () => rmSync(root, { recursive: true }) };
 }
 
@@ -189,6 +193,43 @@ describe("inbound-cite-discovery — governance-corpus inbound expansion", () =>
       );
       expect(expanded).toHaveLength(1);
       expect(expanded[0]).toBe(resolve(root, "docs/plans/002-foo.md"));
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("excludes untracked private WIP files from the candidate set (Codex PR #98 P2)", () => {
+    // Codex review on PR #98 flagged that the original readdirSync walker
+    // would scan untracked governance drafts and could block a commit on a
+    // stale cite that exists only in a private WIP file (not in the index,
+    // not in CI). The enumerator now bounds itself via `git ls-files` —
+    // index-only, so tracked + staged-new are included, untracked + ignored
+    // are excluded. This test pins the exclusion.
+    const { root, cleanup } = setupRepo({
+      "docs/plans/002-foo.md": "# Plan-002\n\nline two\n",
+      "docs/architecture/cross-plan-deps.md":
+        "Real tracked cite: [Plan-002](../plans/002-foo.md):2.\n",
+    });
+    try {
+      // setupRepo has already `git add`-ed the fixture set. Write an UNTRACKED
+      // private draft AFTER setupRepo — simulating a developer's local WIP
+      // file. It is on disk but not in the index. Under the old readdirSync
+      // walker, its broken cite would surface here. Under git ls-files, it
+      // must not appear in `expanded`.
+      writeFileSync(
+        resolve(root, "docs/plans/999-private-wip.md"),
+        "WIP draft with a deliberately broken inbound cite: [Plan-002](../plans/002-foo.md):2.\n",
+      );
+      const expanded = withRepoRoot(root, () =>
+        expandToInboundCiteCorpus([resolve(root, "docs/plans/002-foo.md")]),
+      );
+      expect(new Set(expanded)).toEqual(
+        new Set([
+          resolve(root, "docs/plans/002-foo.md"),
+          resolve(root, "docs/architecture/cross-plan-deps.md"),
+        ]),
+      );
+      expect(expanded).not.toContain(resolve(root, "docs/plans/999-private-wip.md"));
     } finally {
       cleanup();
     }

@@ -15,6 +15,9 @@ function setupRepo(files: Record<string, string>): { root: string; cleanup: () =
     mkdirSync(resolve(full, ".."), { recursive: true });
     writeFileSync(full, content);
   }
+  // Stage the fixture set so `git ls-files` enumerates them — the inbound-cite
+  // discovery uses git ls-files to exclude untracked WIP drafts.
+  execSync("git add -A", { cwd: root });
   return { root, cleanup: () => rmSync(root, { recursive: true }) };
 }
 

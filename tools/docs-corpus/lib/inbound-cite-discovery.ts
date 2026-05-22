@@ -9,9 +9,14 @@
 // docs cite by `:NNN`. Excludes docs/archive/ (frozen history), docs/reference/
 // (external excerpts), docs/vision.md (no inbound :NNN cites), and
 // docs/superpowers/ (transient research drafts).
+//
+// Enumeration uses `git ls-files` so the candidate set is bounded to tracked
+// + staged-new files — untracked private drafts must not block a commit on
+// cites that do not exist in CI.
 
-import { readdirSync, existsSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { resolve, relative, dirname, sep } from "node:path";
+import { spawnSync } from "node:child_process";
 
 import { extractCites } from "./cite-target-existence.ts";
 
@@ -51,31 +56,21 @@ function isInGovernanceCorpus(repoRoot: string, absolutePath: string): boolean {
   return GOVERNANCE_CORPUS_DIRS.some((dir) => rel.startsWith(`${dir}/`));
 }
 
-function walkMarkdownFiles(dir: string): string[] {
-  const out: string[] = [];
-  let entries;
-  try {
-    entries = readdirSync(dir, { withFileTypes: true });
-  } catch {
-    return out;
-  }
-  for (const entry of entries) {
-    const full = resolve(dir, entry.name);
-    if (entry.isDirectory()) {
-      out.push(...walkMarkdownFiles(full));
-    } else if (entry.isFile() && entry.name.endsWith(".md")) {
-      out.push(full);
-    }
-  }
-  return out;
-}
-
 function enumerateGovernanceCorpus(repoRoot: string): string[] {
-  const out: string[] = [];
-  for (const subdir of GOVERNANCE_CORPUS_DIRS) {
-    out.push(...walkMarkdownFiles(resolve(repoRoot, subdir)));
-  }
-  return out;
+  // Use `git ls-files` (index-only by default — tracked + staged-new, excludes
+  // untracked + ignored). A raw filesystem walk would scan untracked WIP and
+  // could block a developer's commit on a stale cite in a private draft that
+  // does not exist in CI. Graceful fallback: return [] on spawn/status error
+  // — the new inbound expansion is lost but pre-existing per-file coverage
+  // is preserved, and CI's repo-wide sweep remains the backstop.
+  const result = spawnSync("git", ["-C", repoRoot, "ls-files", "--", ...GOVERNANCE_CORPUS_DIRS], {
+    encoding: "utf8",
+  });
+  if (result.status !== 0) return [];
+  return result.stdout
+    .split("\n")
+    .filter((line) => line.endsWith(".md"))
+    .map((line) => resolve(repoRoot, line));
 }
 
 export function expandToInboundCiteCorpus(stagedFiles: string[], repoRoot?: string): string[] {
