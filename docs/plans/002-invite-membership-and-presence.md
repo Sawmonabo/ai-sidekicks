@@ -239,7 +239,7 @@ Plan-002 implementation lands as a sequence of small PRs primarily at Tier 2 (Ph
 
 ##### T2.3 — Implement `membership-service.ts` with `MembershipUpdate` handler; enforce I-002-1 + I-002-2 with typed errors.
 
-**Files:** `packages/control-plane/src/memberships/membership-service.ts`, `packages/control-plane/src/memberships/__tests__/membership-service.test.ts` **Spec coverage:** Spec-002 §Required Behavior lines 49, 50; AC3; P6, P7 **Verifies invariant:** I-002-1, I-002-2
+**Files:** `packages/control-plane/src/memberships/membership-service.ts`, `packages/control-plane/src/memberships/__tests__/membership-service.test.ts` **Spec coverage:** Spec-002 §Required Behavior lines 49, 50; Spec-002 AC3; P6, P7 **Verifies invariant:** I-002-1, I-002-2
 
 ##### T2.4 — Wire transactional callers (owner-transfer, co-owner promotion, invite-accept) to the canonical lock-ordering test from Plan-001 (extend `packages/control-plane/src/memberships/__tests__/`).
 

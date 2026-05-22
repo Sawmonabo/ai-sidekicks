@@ -515,3 +515,61 @@ test("PASS 34: real §Section + line passes when section exists in spec", () => 
   assert.equal(parseFailures.length, 0);
   assert.equal(verifyFailures.length, 0);
 });
+
+// Corpus regressions surfaced by sweeping `node preflight.mjs` across every
+// approved plan after the Codex iteration (Codex P1 on PR #96 line 873).
+// Each shape below was already on develop pre-PR and must parse without
+// halting.
+
+test("PASS 35: TS-object-literal descriptor doesn't break sub-anchor splitting", () => {
+  // Plan-002 T1.3 shape: braces inside a Plan-local-ID descriptor that
+  // wraps a Spec-NNN cite. Pre-fix, the splitter treated commas inside
+  // `{deviceType, focusedSessionId, ...}` as sub-anchor separators.
+  const { anchors, parseFailures, verifyFailures } = verifyAll(
+    "C4 (Spec-002 line 12 — `PresenceHeartbeat` carries 5 required metadata fields `{deviceType, focusedSessionId, focusedChannelId, lastActivityAt, appVisible}`)",
+  );
+  // 1 plan-local-id + 1 nested Spec-002 line anchor.
+  assert.equal(parseFailures.length, 0);
+  assert.equal(verifyFailures.length, 0);
+  assert.equal(anchors.filter((a) => a.type === "line").length, 1);
+});
+
+test("PASS 36: §Section lines N1 (desc1), N2 (desc2), N3 (desc3) per-line descriptors", () => {
+  // Plan-002 T2.1 shape. Fixture line 39 = `HS256`, line 40 = `1-hour
+  // expiry`, line 41 = `keychain storage`. Use those three to validate
+  // the parser emits 3 anchors with section=Token Security Properties.
+  const { anchors, parseFailures, verifyFailures } = verifyAll(
+    "Spec-002 §Token Security Properties lines 39 (HS256), 40 (expiry), 41 (keychain)",
+  );
+  assert.equal(parseFailures.length, 0);
+  assert.equal(verifyFailures.length, 0);
+  const lineAnchors = anchors.filter((a) => a.type === "line");
+  assert.equal(lineAnchors.length, 3);
+  assert.ok(lineAnchors.every((a) => a.section === "Token Security Properties"));
+});
+
+test("PASS 37: multi-§Section with bare-digit continuations (T2.2-shape)", () => {
+  // Plan-002 T2.2 shape: AC anchors + §A lines list + §B lines list,
+  // each list using per-line descriptors and bare-digit continuations.
+  // Fixture has §Acceptance Criteria (3 ACs at lines 45-47) and we
+  // re-use §Token Security Properties for both §A and §B (one section
+  // is enough to assert the section-context-tracking works).
+  const { anchors, parseFailures, verifyFailures } = verifyAll(
+    "Spec-002 AC1, AC3, §Token Security Properties lines 39 (HS256), 40 (expiry), 41 (keychain)",
+  );
+  assert.equal(parseFailures.length, 0);
+  assert.equal(verifyFailures.length, 0);
+  assert.equal(anchors.filter((a) => a.type === "ac").length, 2);
+  assert.equal(anchors.filter((a) => a.type === "line").length, 3);
+});
+
+test("FAIL 38: AC line-hint outside §Acceptance Criteria rejects", () => {
+  // Fixture line 10 = `InviteCreate` payload bullet. AC1 maps to fixture
+  // line 45. A hint pointing at line 10 (`(line 10)`) sits in §Interfaces
+  // and Contracts, not §Acceptance Criteria — pre-fix this passed
+  // because line 10 starts with `- ` (a checkbox-ish bullet shape in the
+  // looser regex match). Now rejects with `ac-line-hint-outside-section`.
+  const { verifyFailures } = verifyAll("Spec-002 AC1 (line 10)");
+  assert.equal(verifyFailures.length, 1);
+  assert.equal(verifyFailures[0].result.reason, "ac-line-hint-outside-section");
+});

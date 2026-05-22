@@ -616,17 +616,27 @@ function nonPlanLocalSubjects(text) {
 //     This shape is real in approved plans (Plan-002 T5.1/T5.3 repeat the
 //     `Spec-NNN` prefix to disambiguate `(line N + AC M)` sub-anchor groups).
 const TOP_LEVEL_NS_LOOKAHEAD = /^,\s+(?:Spec-\d+|ADR-\d+|[a-z][\w-]*\.md|cross-plan-deps)\b/;
+
+// Depth tracking covers parens, square brackets, AND curly braces. The brace
+// case is load-bearing because TS-object-literal descriptors like
+// `{deviceType, focusedSessionId, lastActivityAt}` carry top-level commas
+// that would otherwise be treated as anchor separators (Codex P1 on PR #96
+// line 873; Plan-002 T1.3 regression).
+function bracketDelta(ch) {
+  if (ch === "(" || ch === "[" || ch === "{") return 1;
+  if (ch === ")" || ch === "]" || ch === "}") return -1;
+  return 0;
+}
+
 function splitOnSemicolon(payload) {
   const out = [];
   let depth = 0;
   let buf = "";
   for (let i = 0; i < payload.length; i++) {
     const ch = payload[i];
-    if (ch === "(") {
-      depth++;
-      buf += ch;
-    } else if (ch === ")") {
-      depth--;
+    const d = bracketDelta(ch);
+    if (d !== 0) {
+      depth += d;
       buf += ch;
     } else if (depth === 0 && ch === ";") {
       if (buf.trim()) out.push(buf.trim());
@@ -642,21 +652,21 @@ function splitOnSemicolon(payload) {
   return out;
 }
 
-// Paren-aware split on `,` and whitespace-bounded ` + ` at depth 0. Applied
-// after the namespace prefix is stripped so commas/pluses inside the
-// remainder become sub-anchor separators (`AC1 (line 178), AC2 (line 179)`
-// → two anchors; `line 87 + AC1` → two anchors).
+// Bracket-aware split on `,` and whitespace-bounded ` + ` at depth 0. Tracks
+// `()`, `[]`, AND `{}` so TS-object-literal descriptors (`{deviceType, ...}`)
+// don't break sub-anchor splitting. Applied after the namespace prefix is
+// stripped so commas/pluses inside the remainder become sub-anchor
+// separators (`AC1 (line 178), AC2 (line 179)` → two anchors; `line 87 +
+// AC1` → two anchors).
 function splitWithinNamespace(text) {
   const out = [];
   let depth = 0;
   let buf = "";
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
-    if (ch === "(") {
-      depth++;
-      buf += ch;
-    } else if (ch === ")") {
-      depth--;
+    const d = bracketDelta(ch);
+    if (d !== 0) {
+      depth += d;
       buf += ch;
     } else if (depth === 0 && ch === ",") {
       if (buf.trim()) out.push(buf.trim());
@@ -784,13 +794,15 @@ function parseSpecSegment(segment) {
     return { anchors: [], failures };
   }
 
-  // Multi-line list under §Section: `lines N1, N2, N3 (descriptor?)`.
-  // Detect before the generic comma-split so we keep the `lines` keyword
-  // attached to each emitted anchor.
-  const multiLineMatch = body.match(/^lines\s+(\d+(?:\s*,\s*\d+)+)\s*(?:\((.*)\))?$/);
-  if (multiLineMatch) {
-    const lineNums = multiLineMatch[1].split(/\s*,\s*/).map((n) => Number(n));
-    const descriptor = multiLineMatch[2] ?? "";
+  // Multi-line list (bare with optional shared trailing descriptor):
+  // `lines N1, N2, N3` or `lines N1, N2, N3 (shared-descriptor)`. Detected
+  // before the generic comma-split so we keep the `lines` keyword attached
+  // to each emitted anchor and preserve the shared-descriptor semantics
+  // for `RateLimitResponse canonical shape` and friends.
+  const bareMultiLineMatch = body.match(/^lines\s+(\d+(?:\s*,\s*\d+)+)\s*(?:\((.*)\))?$/);
+  if (bareMultiLineMatch) {
+    const lineNums = bareMultiLineMatch[1].split(/\s*,\s*/).map((n) => Number(n));
+    const descriptor = bareMultiLineMatch[2] ?? "";
     const subjects = nonPlanLocalSubjects(descriptor);
     const anchors = lineNums.map((line) => ({
       type: "line",
@@ -802,6 +814,45 @@ function parseSpecSegment(segment) {
       raw: segment,
     }));
     return { anchors, failures };
+  }
+
+  // Multi-line list with per-line descriptors: `lines N1 (desc1), N2
+  // (desc2), N3 (desc3)`. Required to accept Plan-002 T2.1 / T2.2 shapes
+  // already on develop — `Spec-002 §Token Security Properties lines 110
+  // (Entropy/CSPRNG), 111 (hash storage), 113 (Token payload structure)`
+  // (Codex P1 on PR #96 line 873). Brace-aware splitWithinNamespace
+  // handles TS-object-literal descriptors. Requires ≥2 entries so we
+  // don't conflict with `lines N (subject)` typo cases for single lines.
+  const linesKeywordMatch = body.match(/^lines\s+(.+)$/);
+  if (linesKeywordMatch) {
+    const tailTokens = splitWithinNamespace(linesKeywordMatch[1].trim());
+    if (tailTokens.length >= 2) {
+      const entries = [];
+      let allParseable = true;
+      for (const tok of tailTokens) {
+        const m = tok.match(/^(\d+)(?:\s*\((.*)\))?\s*$/);
+        if (!m) {
+          allParseable = false;
+          break;
+        }
+        entries.push({ line: Number(m[1]), descriptor: (m[2] ?? "").trim() });
+      }
+      if (allParseable) {
+        const anchors = entries.map(({ line, descriptor }) => {
+          const subjects = nonPlanLocalSubjects(descriptor);
+          return {
+            type: "line",
+            spec,
+            line,
+            section,
+            subject: subjects[0] ?? null,
+            descriptor,
+            raw: segment,
+          };
+        });
+        return { anchors, failures };
+      }
+    }
   }
 
   // Range form: `lines N1-N2 (descriptor)`. Reject when descriptor names
@@ -845,8 +896,17 @@ function parseSpecSegment(segment) {
   // appears inside nested plan-local-id paren wrappers like `C5 (Spec-002
   // line 15 — ChannelList)` where the inner em-dash normalizes to `-` and
   // the wrapping paren is already consumed by the plan-local-id parser).
+  //
+  // Section context tracking: `currentSection` starts at the top-level
+  // `section` (from `§<Heading>` prefix before the keyword) and updates
+  // whenever a sub-token begins with its own `§<Section>` qualifier.
+  // `inLinesList` admits bare-digit continuation tokens (`111 (hash
+  // storage)`) immediately after a `§Section lines <N> (desc)` sub-token —
+  // required for Plan-002 T2.2-shape cites (Codex P1 on PR #96 line 873).
   const subTokens = splitWithinNamespace(body);
   const anchors = [];
+  let currentSection = section;
+  let inLinesList = false;
   for (const token of subTokens) {
     const acMatch = token.match(/^AC(\d+)(?:\s*\((.+)\)|\s+-\s+(.+?))?\s*$/);
     if (acMatch) {
@@ -859,12 +919,13 @@ function parseSpecSegment(segment) {
         spec,
         ac,
         lineHint: lineHint ? Number(lineHint[1]) : null,
-        section,
+        section: currentSection,
         subject: subjects.length === 1 ? subjects[0] : null,
         descriptor,
         warn: lineHint ? null : "line hint recommended (`AC-X (line NN)`)",
         raw: segment,
       });
+      inLinesList = false;
       continue;
     }
     const lineMatch = token.match(/^line\s+(\d+)(?:\s*\((.+)\)|\s+-\s+(.+?))?\s*$/);
@@ -876,30 +937,54 @@ function parseSpecSegment(segment) {
         type: "line",
         spec,
         line,
-        section,
+        section: currentSection,
         subject: subjects[0] ?? null,
         descriptor,
         raw: segment,
       });
+      inLinesList = false;
       continue;
     }
-    // Re-section sub-anchor: `§<Section> line YY[ (descriptor)]` inside a
+    // Re-section sub-anchor: `§<Section> line[s] YY[ (descriptor)]` inside a
     // comma-separated multi-section Spec cite (e.g., `Spec-002 §A line 12,
-    // §B line 13`). Without this branch the second sub-token falls through
-    // to the warn-only fallback below and Gate 4 false-greens the cite.
+    // §B line 13` or `Spec-002 §A lines 12 (x), 13 (y), §B lines 20 (z)`).
+    // Without this branch the second sub-token falls into the unparseable
+    // fallback and the gate halts on shapes already in approved plans.
     const reSectionLineMatch = token.match(
-      /^§([^()]+?)\s+line\s+(\d+)(?:\s*\((.+)\)|\s+-\s+(.+?))?\s*$/,
+      /^§([^()]+?)\s+(lines?)\s+(\d+)(?:\s*\((.+)\)|\s+-\s+(.+?))?\s*$/,
     );
     if (reSectionLineMatch) {
-      const subSection = reSectionLineMatch[1].trim();
-      const line = Number(reSectionLineMatch[2]);
-      const descriptor = (reSectionLineMatch[3] ?? reSectionLineMatch[4] ?? "").trim();
+      currentSection = reSectionLineMatch[1].trim();
+      const keyword = reSectionLineMatch[2];
+      const line = Number(reSectionLineMatch[3]);
+      const descriptor = (reSectionLineMatch[4] ?? reSectionLineMatch[5] ?? "").trim();
       const subjects = nonPlanLocalSubjects(descriptor);
       anchors.push({
         type: "line",
         spec,
         line,
-        section: subSection,
+        section: currentSection,
+        subject: subjects[0] ?? null,
+        descriptor,
+        raw: segment,
+      });
+      inLinesList = keyword === "lines";
+      continue;
+    }
+    // Bare-digit list continuation: only valid immediately after a
+    // `§Section lines <N>` sub-token (`inLinesList === true`). Emits a line
+    // anchor under the current section context. Without this, T2.2-shape
+    // `§A lines 109 (x), 111 (y), 112 (z)` halts on the trailing entries.
+    const bareLineMatch = token.match(/^(\d+)(?:\s*\((.+)\)|\s+-\s+(.+?))?\s*$/);
+    if (inLinesList && bareLineMatch) {
+      const line = Number(bareLineMatch[1]);
+      const descriptor = (bareLineMatch[2] ?? bareLineMatch[3] ?? "").trim();
+      const subjects = nonPlanLocalSubjects(descriptor);
+      anchors.push({
+        type: "line",
+        spec,
+        line,
+        section: currentSection,
         subject: subjects[0] ?? null,
         descriptor,
         raw: segment,
@@ -1429,14 +1514,27 @@ function verifyAcAnchor(anchor, source, specLines) {
       evidence: `Spec has ${bullets.length} AC bullets; cited AC${anchor.ac} does not exist.`,
     };
   }
-  // Best-effort line-hint verification: if hint given, confirm the hinted
-  // line falls in the AC section AND matches an AC bullet shape.
+  // Best-effort line-hint verification: if hint given, the hinted line must
+  // (1) be in range, (2) sit INSIDE the §Acceptance Criteria section, and
+  // (3) match an AC bullet shape. Without the section bound, a checkbox
+  // bullet anywhere else in the spec would false-pass (Codex P2 on PR #96
+  // line 1444).
   if (anchor.lineHint) {
     if (anchor.lineHint < 1 || anchor.lineHint > specLines.length) {
       return {
         valid: false,
         reason: "ac-line-hint-out-of-range",
         evidence: `Line hint ${anchor.lineHint} past EOF.`,
+      };
+    }
+    const acHeadingLineNum = source.slice(0, acHeadingMatch.index).split("\n").length;
+    const acEndCharIdx = nextSection ? acStart + nextSection.index : source.length;
+    const acLastLineNum = source.slice(0, acEndCharIdx).split("\n").length;
+    if (anchor.lineHint <= acHeadingLineNum || anchor.lineHint > acLastLineNum) {
+      return {
+        valid: false,
+        reason: "ac-line-hint-outside-section",
+        evidence: `Line ${anchor.lineHint} is outside §Acceptance Criteria (section spans lines ${acHeadingLineNum + 1}-${acLastLineNum}).`,
       };
     }
     const hintContent = specLines[anchor.lineHint - 1] ?? "";
