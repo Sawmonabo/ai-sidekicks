@@ -84,6 +84,30 @@ describe("pre-commit-runner — inbound cite ripple expansion", () => {
     }
   });
 
+  it("does not flag an unstaged citer whose WIP working-tree edit introduces a broken cite", () => {
+    // Companion to the inbound-cite-discovery dirty-skip test: confirm the
+    // end-to-end runner exits 0 when a citer has unstaged WIP that would
+    // otherwise look like a target-line-empty violation. Without the dirty
+    // filter, `extractCites` reads the WIP working-tree content and the
+    // runner blocks the unrelated plan-staging commit.
+    const { root, cleanup } = setupRepo({
+      "docs/plans/002-test.md": "# Plan-002\n\npreconds\n",
+      "docs/architecture/cross-plan-dependencies.md":
+        "Clean: [Plan-002](../plans/002-test.md):3.\n",
+    });
+    try {
+      writeFileSync(
+        resolve(root, "docs/architecture/cross-plan-dependencies.md"),
+        "WIP edit: [Plan-002](../plans/002-test.md):9999.\n",
+      );
+      const result = withRepoRoot(root, () => runChecks([resolve(root, "docs/plans/002-test.md")]));
+      expect(result.exitCode).toBe(0);
+      expect(result.messages).toEqual([]);
+    } finally {
+      cleanup();
+    }
+  });
+
   it("passes cleanly when a staged plan's referenced lines are all populated", () => {
     // The happy path: staging a plan whose inbound citers reference real,
     // non-empty lines. Confirms ripple-mode doesn't introduce false positives

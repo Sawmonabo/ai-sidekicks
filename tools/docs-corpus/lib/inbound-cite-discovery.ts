@@ -69,13 +69,29 @@ function enumerateGovernanceCorpus(repoRoot: string): string[] {
   // delete: `git ls-files --cached` (the default) still lists it, but the
   // downstream `readFileSync` in `extractCites` would throw ENOENT and crash
   // the pre-commit runner.
-  const result = spawnSync("git", ["-C", repoRoot, "ls-files", "--", ...GOVERNANCE_CORPUS_DIRS], {
+  //
+  // The dirty-set filter (`git diff --name-only` = working-tree-vs-index)
+  // skips citers with unstaged WIP. Without it, `extractCites` reads the
+  // working tree and leaks the developer's unstaged edits into the validation
+  // set — a developer mid-editing one governance doc would be blocked while
+  // staging an unrelated change. Skipped citers will be validated whenever
+  // they themselves get staged + committed, and CI's repo-wide sweep remains
+  // the backstop for the residual Scenario-Y case (unstaged WIP would have
+  // fixed a HEAD-stale cite that this commit's line-shift now exposes).
+  const lsFiles = spawnSync("git", ["-C", repoRoot, "ls-files", "--", ...GOVERNANCE_CORPUS_DIRS], {
     encoding: "utf8",
   });
-  if (result.status !== 0) return [];
-  return result.stdout
+  if (lsFiles.status !== 0) return [];
+
+  const diff = spawnSync("git", ["-C", repoRoot, "diff", "--name-only"], {
+    encoding: "utf8",
+  });
+  const dirty = new Set<string>(diff.status === 0 ? diff.stdout.split("\n").filter(Boolean) : []);
+
+  return lsFiles.stdout
     .split("\n")
     .filter((line) => line.endsWith(".md"))
+    .filter((line) => !dirty.has(line))
     .map((line) => resolve(repoRoot, line))
     .filter((absolute) => existsSync(absolute));
 }

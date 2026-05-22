@@ -234,6 +234,42 @@ describe("inbound-cite-discovery — governance-corpus inbound expansion", () =>
     }
   });
 
+  it("skips citers with unstaged working-tree modifications (dirty WIP)", () => {
+    // A developer mid-editing one governance doc must not be blocked while
+    // staging an unrelated change. `extractCites` reads the working tree, so
+    // an unstaged broken cite in a citer would propagate into the validation
+    // set and surface as a violation against an unrelated commit. The
+    // enumerator's `git diff --name-only` filter skips dirty citers; they get
+    // validated whenever they themselves are staged + committed, and CI is
+    // the backstop for the residual cross-edit case.
+    const { root, cleanup } = setupRepo({
+      "docs/plans/002-foo.md": "# Plan-002\n\nline two\n",
+      "docs/architecture/cross-plan-deps.md":
+        "Initially clean: [Plan-002](../plans/002-foo.md):2.\n",
+    });
+    try {
+      // Setup has staged the clean citer. Introduce an unstaged WIP edit that
+      // adds a deliberately broken inbound cite — under the previous code,
+      // this would surface as `target-line-empty` (or `line-out-of-range`)
+      // and block the unrelated plan-staging commit. With the dirty-skip,
+      // the citer is absent from `expanded`.
+      writeFileSync(
+        resolve(root, "docs/architecture/cross-plan-deps.md"),
+        "WIP edit with deliberately broken inbound cite: [Plan-002](../plans/002-foo.md):9999.\n",
+      );
+      const expanded = withRepoRoot(root, () =>
+        expandToInboundCiteCorpus([resolve(root, "docs/plans/002-foo.md")]),
+      );
+      // The citer must NOT appear in expanded — proves "skip" rather than
+      // "scan but happen-to-pass." (The latter could pass if the WIP edit
+      // happened to add a valid cite — we want the structural exclusion.)
+      expect(expanded).not.toContain(resolve(root, "docs/architecture/cross-plan-deps.md"));
+      expect(new Set(expanded)).toEqual(new Set([resolve(root, "docs/plans/002-foo.md")]));
+    } finally {
+      cleanup();
+    }
+  });
+
   it("skips candidates deleted from the worktree but still tracked in the index", () => {
     // `git ls-files --cached` (the default) lists files that are in the index
     // even when the worktree copy has been deleted (an unstaged `rm`). Without
