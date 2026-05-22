@@ -166,7 +166,7 @@ export function parsePreconditionsBlock(phaseSection) {
   return entries;
 }
 
-export function regexParsePreconditionsLine(line) {
+export function regexParsePreconditionsLine(line, localPlanNumber) {
   const entries = [];
   for (const m of line.matchAll(/PR\s*#(\d+)\s+merged/gi)) {
     entries.push({ type: "pr_merged", ref: Number(m[1]) });
@@ -176,6 +176,24 @@ export function regexParsePreconditionsLine(line) {
   }
   for (const m of line.matchAll(/Plan-(\d{3})\s+Phase\s*(\d+)\s+(?:approved|merged)/gi)) {
     entries.push({ type: "plan_phase", plan: Number(m[1]), phase: Number(m[2]), status: "merged" });
+  }
+  // Bare-form `Phase N merged` resolves to the local plan. The corpus convention
+  // for same-plan precondition prose is the bare form (Plan-001/003/007/024
+  // all use it); without this branch the Gate 5 regex drops the dependency
+  // and `gatePreconditions` falls to "unparseable prose; treat as legacy
+  // free-form" → silent pass. Negative lookbehind prevents double-counting
+  // the `Phase N merged` inside a `Plan-NNN Phase N merged` already captured
+  // by the regex above. Callers that omit `localPlanNumber` get the
+  // pre-extension behavior (used by the legacy unit-test surface).
+  if (Number.isInteger(localPlanNumber)) {
+    for (const m of line.matchAll(/(?<!Plan-\d{3}\s+)\bPhase\s*(\d+)\s+(?:approved|merged)/gi)) {
+      entries.push({
+        type: "plan_phase",
+        plan: localPlanNumber,
+        phase: Number(m[1]),
+        status: "merged",
+      });
+    }
   }
   return entries;
 }
@@ -1918,7 +1936,11 @@ export function gatePreconditions(phaseSection, planFile, phaseNumber, opts = {}
   if (entries === null) {
     const lineMatch = phaseSection.match(/\*\*Precondition:\*\*\s*([^\n]+)/);
     if (!lineMatch) return { ok: true }; // no precondition declared; legacy plan, accept
-    entries = regexParsePreconditionsLine(lineMatch[1]);
+    // Pass the local plan number so bare `Phase N merged` resolves to
+    // `{type: plan_phase, plan: <local>, phase: N}`. Without this thread,
+    // same-plan precondition prose drops below the regex and the function
+    // silently treats the line as legacy free-form.
+    entries = regexParsePreconditionsLine(lineMatch[1], extractPlanNumber(planFile));
     if (entries.length === 0) return { ok: true }; // unparseable prose; treat as legacy free-form
   }
   for (const entry of entries) {
@@ -2029,11 +2051,24 @@ export function runPreflight(
     // silenced in auto-walk mode (Codex P1 finding on PR #35 round 9). The
     // explicit list — not a default — guarantees future strict-halt kinds
     // also surface unless they're explicitly added as silent-skip.
+    //
+    // `audit` is in the strict-halt set: an upstream phase failing Gate 2
+    // (per-phase audit checkbox) or Gate 4 (Tasks-block G4 cites) signals an
+    // author defect that author-defect clustering says will almost certainly
+    // affect later phases as well, and the previous auto-walk semantics
+    // could resolve to a later phase that passed its own gates while the
+    // earlier audit-failed phase went unsurfaced. Authors who need to
+    // execute a downstream phase ahead of an audit-failing earlier one can
+    // pass the explicit `<phase-number>` argument to override.
     if (r.reason === "fully_shipped") continue;
-    if (r.reason === "manifest_unparseable" || r.reason === "manifest_invalid_entries") {
+    if (
+      r.reason === "manifest_unparseable" ||
+      r.reason === "manifest_invalid_entries" ||
+      r.reason === "audit"
+    ) {
       return { exit: 1, stdout: r.halt };
     }
-    // no-section / audit / preconditions — per-phase issues, try next phase.
+    // no-section / preconditions — per-phase issues, try next phase.
     skipped.push(`Phase ${p.number} (${r.reason}): ${r.halt.split("\n")[0]}`);
   }
   const reasonsText = skipped.length

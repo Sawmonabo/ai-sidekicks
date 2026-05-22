@@ -148,8 +148,30 @@ Plan-NNN implementation lands as a sequence of small PRs. Each PR exercises one 
   Machine-readable preconditions (consumed by plan-execution preflight tool).
   Supported types: pr_merged, adr_accepted, plan_phase, cross_plan_carve_out,
   audit_status. Required for plans authored from 2026-04-30 onward; legacy
-  plans use prose fallback parsing of the `**Precondition:**` line above
-  (audit_status and cross_plan_carve_out are YAML-only — no prose analog).
+  plans use prose fallback parsing of the `**Precondition:**` line above.
+
+  Prose-parseable forms (case-insensitive, regex-matched on the single
+  `**Precondition:**` line):
+    - `PR #N merged`            → {type: pr_merged, ref: N}
+    - `ADR-NNN accepted`        → {type: adr_accepted, ref: NNN}
+    - `Plan-NNN Phase K merged` → {type: plan_phase, plan: NNN, phase: K, ...}
+    - `Phase K merged` (bare)   → {type: plan_phase, plan: <local plan>, phase: K, ...}
+      The bare form resolves to the plan the precondition lives in
+      (convention across Plan-001/003/007/024). A negative lookbehind in
+      the regex prevents double-counting the bare-form segment inside an
+      already-matched `Plan-NNN Phase K merged`.
+
+  YAML-only (no prose analog — declare in the block below):
+    - cross_plan_carve_out
+    - audit_status: complete | substrate_exempt
+    - Any dependency whose prose form interpolates link-text or other
+      tokens between `Phase K` and `merged` (e.g.,
+      `[Plan-NNN Tier K Partial](...) merged`,
+      `Plan-001 Phase 5 CP-001-2 cwd-translator merged`) — neither the
+      explicit-prefix nor bare-form regex matches these shapes, so the
+      dependency drops to "unparseable prose; legacy free-form silent
+      pass" and is NOT machine-enforced. Express it as a YAML
+      `cross_plan_carve_out` + `pr_merged` pair so the gate enforces.
 -->
 
 ```yaml

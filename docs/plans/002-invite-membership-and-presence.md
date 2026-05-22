@@ -193,7 +193,7 @@ Plan-002 implementation lands as a sequence of small PRs primarily at Tier 2 (Ph
 
 ##### T1.1 — Define `InviteCreate`, `InviteAccept`, `InviteRevoke`, `InviteState`, `InviteId` (branded) in `packages/contracts/src/invites.ts`; export via `packages/contracts/src/index.ts`.
 
-**Files:** `packages/contracts/src/invites.ts`, `packages/contracts/src/index.ts`, `packages/contracts/test/invites.test.ts` **Spec coverage:** C1 (Spec-002 line 80 — `InviteCreate` required fields), C2 (Spec-002 line 43 — invite lifecycle states `{pending, accepted, revoked, expired}`, no `declined` in V1) **Verifies invariant:** none (contract layer)
+**Files:** `packages/contracts/src/invites.ts`, `packages/contracts/src/index.ts`, `packages/contracts/test/invites.test.ts` **Spec coverage:** C1 (Spec-002 line 80 — `InviteCreate` required fields), C2 (Spec-002 line 43 — invite lifecycle states `{pending, accepted, revoked, expired}` (no `declined` in V1)) **Verifies invariant:** none (contract layer)
 
 ##### T1.2 — Define `MembershipUpdate` discriminated union, `MembershipRole`, `MembershipState` enums in `packages/contracts/src/memberships.ts`.
 
@@ -218,6 +218,13 @@ Plan-002 implementation lands as a sequence of small PRs primarily at Tier 2 (Ph
 ### Phase 2 — Control-Plane Invite And Membership Services
 
 **Precondition:** Phase 1 merged AND [Plan-025 Tier 1 Partial](./025-self-hostable-node-relay.md#tier-1-partial-pr-sequence--substrate-vs-namespace-carve-out) merged (`packages/crypto-paseto/` v4.public + v4.local primitives available as workspace dep `@ai-sidekicks/crypto-paseto`). Phase 2 consumes the v4.local `encrypt`/`decrypt` surface for invite-token minting per [CP-002-4](#cross-plan-obligations); BL-119 resolved 2026-05-20 via Option A.
+
+```yaml
+preconditions:
+  - { type: plan_phase, plan: 2, phase: 1, status: merged }
+  - { type: pr_merged, ref: 92 }
+  - { type: cross_plan_carve_out, ref: "Plan-025 Substrate-vs-Namespace Carve-Out" }
+```
 
 **Goal:** Tests P1–P10 go green.
 
