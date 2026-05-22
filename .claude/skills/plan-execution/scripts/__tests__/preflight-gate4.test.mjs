@@ -615,6 +615,46 @@ test("FAIL 40: adr-file-ambiguous when two NNN-*.md ADR files share a prefix", (
   assert.match(result.evidence, /099-adr-two\.md/);
 });
 
+test("PASS 38b: comma-separated plan-local-ids split into N anchors at top level", () => {
+  // Pre-fix the top-level splitter only recognized `, Spec-`/`, ADR-`/
+  // `, <file>.md`/`, cross-plan-deps` as boundaries, so `I-024-1, I-024-2,
+  // I-024-3` folded into one anchor with the trailing IDs swallowed into
+  // the descriptor (Codex P1 on PR #96 line 620). Now `, I-` is a
+  // recognized boundary and the payload yields 5 separate plan-local-id
+  // anchors.
+  const { anchors, parseFailures, verifyFailures } = verifyAll(
+    "I-024-1, I-024-2, I-024-3, I-024-4, I-024-5 (inherited from Phase 3 sidecar)",
+  );
+  assert.equal(parseFailures.length, 0);
+  assert.equal(verifyFailures.length, 0);
+  assert.equal(anchors.length, 5);
+  assert.deepEqual(
+    anchors.map((a) => a.id),
+    ["I-024-1", "I-024-2", "I-024-3", "I-024-4", "I-024-5"],
+  );
+});
+
+test("FAIL 43: plan-local-id-malformed-trailer rejects `I-024-3, typo`", () => {
+  // Pre-fix this passed because parsePlanLocalIdSegment greedily accepted
+  // the comma-prefixed trailer as a descriptor (Codex P1 on PR #96 line
+  // 620). Now the trailer must be empty / parenthetical / whitespace-
+  // prefixed, so a bare comma trailer fails closed.
+  const { parseFailures } = verifyAll("I-024-3, typo");
+  assert.equal(parseFailures.length, 1);
+  assert.equal(parseFailures[0].kind, "plan-local-id-malformed-trailer");
+  assert.match(parseFailures[0].message, /malformed trailing text/);
+});
+
+test("FAIL 44: phantom §-prefix rejects when only a heading substring matches", () => {
+  // Pre-fix findSectionHeading used `.includes()` so `§Token` matched the
+  // real heading `Token Security Properties` and the cite false-passed
+  // (Codex P2 on PR #96 line 1435). Exact-after-normalize equality now
+  // rejects the partial heading.
+  const { verifyFailures } = verifyAll("Spec-002 §Token line 39");
+  assert.equal(verifyFailures.length, 1);
+  assert.equal(verifyFailures[0].result.reason, "section-not-found");
+});
+
 test("FAIL 42: ac-line-hint-wrong-bullet binds the hint to the cited AC-N", () => {
   // Fixture AC bullets sit at lines 45 (AC1), 46 (AC2), 47 (AC3). A cite
   // like `AC3 (line 45)` is the false-green class Codex flagged on PR #96

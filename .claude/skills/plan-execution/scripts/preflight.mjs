@@ -613,11 +613,17 @@ function nonPlanLocalSubjects(text) {
 // Paren-aware split on top-level segment boundaries. Two boundaries:
 //   - `;` at depth 0 (canonical cross-namespace separator,
 //     `Spec-001 AC8; ADR-018 §Decision #4`)
-//   - `,` at depth 0 followed by another recognized namespace prefix
-//     (`Spec-002 AC1, Spec-002 line 87 + AC1` → two top-level segments).
-//     This shape is real in approved plans (Plan-002 T5.1/T5.3 repeat the
-//     `Spec-NNN` prefix to disambiguate `(line N + AC M)` sub-anchor groups).
-const TOP_LEVEL_NS_LOOKAHEAD = /^,\s+(?:Spec-\d+|ADR-\d+|[a-z][\w-]*\.md|cross-plan-deps)\b/;
+//   - `,` at depth 0 followed by another recognized namespace prefix.
+//     Recognized starts: `Spec-NNN`, `ADR-NNN`, plan-local-id (`Cn`/`Pn`/
+//     `Pr-n`/`In` or structured `I-NNN-N`), `none` literal, `<file>.md`,
+//     `cross-plan-deps`. Without the plan-local-id branch, comma-separated
+//     invariant lists (`Verifies invariant: I-024-1, I-024-2, ...` or
+//     `; P1, P2, P3`) fold into a single anchor whose descriptor swallows
+//     the trailing IDs and silently passes the gate (Codex P1 on PR #96
+//     line 620). Longer alternations precede shorter ones so `Pr` is
+//     tried before `P`.
+const TOP_LEVEL_NS_LOOKAHEAD =
+  /^,\s+(?:Spec-\d+|ADR-\d+|(?:Pr|C|P|I)-?\d+|none\b|[a-z][\w-]*\.md|cross-plan-deps)\b/;
 
 // Depth tracking covers parens, square brackets, AND curly braces. The brace
 // case is load-bearing because TS-object-literal descriptors like
@@ -1155,6 +1161,27 @@ function parsePlanLocalIdSegment(segment) {
     };
   }
   const id = m[1];
+  // Legitimate trailers are empty, whitespace-prefixed prose, or a paren
+  // descriptor. A leading `,` / `;` / `+` means the segment-splitter did
+  // not detect a boundary AND the trailer is not a descriptor — common
+  // shape is `I-024-3, typo` (a malformed trailing cite) or `I-024-1,
+  // I-024-2` when the splitter lookahead failed to recognize the
+  // following plan-local-id prefix. Fail closed so the gate surfaces the
+  // defect instead of swallowing the trailer as a descriptor (Codex P1
+  // on PR #96 line 620).
+  if (/^[,;+]/.test(m[2])) {
+    return {
+      anchors: [],
+      failures: [
+        makeFailure(
+          "plan-local-id-malformed-trailer",
+          segment,
+          `Plan-local-id cite '${segment}' has malformed trailing text after id '${id}': '${m[2].trim()}'. Trailing text must be empty, a parenthetical descriptor, or whitespace-prefixed prose.`,
+          "Separate multiple plan-local-ids with `, ` ensuring each is a valid id (Cn / Pn / Pr-n / In or I-NNN-N), or wrap a descriptor in parentheses.",
+        ),
+      ],
+    };
+  }
   const rest = m[2].trim();
   const parenMatch = rest.match(/^\(([^)]*)\)/);
   const descriptor = parenMatch ? parenMatch[1] : rest;
@@ -1428,11 +1455,16 @@ function normalizeTokenForMatch(tok) {
 // Without this, `Spec-002 §NotARealSection line 13` accepts as long as line
 // 13 exists (Codex P2 on PR #96 line 1301).
 function findSectionHeading(sectionName, specLines) {
+  // Exact-after-normalize match. The earlier `.includes()` form let
+  // `§Token line 39` pass when the actual heading was `Token Security
+  // Properties` because the substring check accepted any heading-prefix
+  // (Codex P2 on PR #96 line 1435). Anchored equality binds the cite to
+  // one heading specifically.
   const target = normalizeTokenForMatch(sectionName);
   for (const line of specLines) {
     if (/^#+\s+/.test(line)) {
       const headingText = line.replace(/^#+\s+/, "");
-      if (normalizeTokenForMatch(headingText).includes(target)) {
+      if (normalizeTokenForMatch(headingText) === target) {
         return { found: true, headingLine: line.trim() };
       }
     }
