@@ -11,7 +11,7 @@
 //   - [Plan-001](../plans/001-shared-session-core.md):12, 55, 121
 //   - `session.ts:408`                                            (inline-code with :N)
 
-import { readFileSync, statSync, existsSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { dirname, resolve, isAbsolute } from "node:path";
 
 export interface Cite {
@@ -27,6 +27,16 @@ export interface CiteViolation {
   reason: "missing-target-file" | "line-out-of-range" | "target-line-empty";
   detail: string;
 }
+
+// FileContentReader abstracts the source-of-truth for file content so callers
+// can choose between the working tree (the default — what the developer sees)
+// and the git index (what would land if the staged set were committed). The
+// pre-commit runner uses an index-aware reader for auto-expanded scope so
+// unstaged WIP in a citer does not leak into the validation set; see
+// `inbound-cite-discovery.ts` makeIndexAwareReader.
+export type FileContentReader = (absolutePath: string) => string;
+
+const defaultReader: FileContentReader = (absolutePath) => readFileSync(absolutePath, "utf8");
 
 function findRepoRoot(): string {
   // Termination via parent-equals-current rather than `dir !== "/"` so the walk
@@ -49,8 +59,11 @@ function getRepoRoot(): string {
   return process.env.REPO_ROOT ?? findRepoRoot();
 }
 
-export function extractCites(citingFile: string): Cite[] {
-  const content = readFileSync(citingFile, "utf8");
+export function extractCites(
+  citingFile: string,
+  reader: FileContentReader = defaultReader,
+): Cite[] {
+  const content = reader(citingFile);
   const cites: Cite[] = [];
   const baseDir = dirname(citingFile);
   const linkRe = /\]\(([^)]+\.md)\)\s*:\s*([\d,\s-]+)/g;
@@ -111,24 +124,19 @@ export function extractCites(citingFile: string): Cite[] {
   return cites;
 }
 
-export function checkCite(c: Cite): CiteViolation | null {
-  if (!existsSync(c.targetPath)) {
-    return { cite: c, reason: "missing-target-file", detail: c.targetPath };
-  }
-  let stat;
+export function checkCite(
+  c: Cite,
+  reader: FileContentReader = defaultReader,
+): CiteViolation | null {
+  let content: string;
   try {
-    stat = statSync(c.targetPath);
+    content = reader(c.targetPath);
   } catch {
+    // Single failure mode for both the default reader (ENOENT, EISDIR) and
+    // the index-aware reader (`git show :path` exit 128 on untracked path) —
+    // the cite target is not a readable file from this reader's perspective.
     return { cite: c, reason: "missing-target-file", detail: c.targetPath };
   }
-  if (!stat.isFile()) {
-    return {
-      cite: c,
-      reason: "missing-target-file",
-      detail: `${c.targetPath} (not a file)`,
-    };
-  }
-  const content = readFileSync(c.targetPath, "utf8");
   const lines = content.split("\n");
   if (c.targetLine > lines.length) {
     return {
@@ -148,11 +156,14 @@ export function checkCite(c: Cite): CiteViolation | null {
   return null;
 }
 
-export function checkCiteTargetExistence(files: string[]): CiteViolation[] {
+export function checkCiteTargetExistence(
+  files: string[],
+  reader: FileContentReader = defaultReader,
+): CiteViolation[] {
   const violations: CiteViolation[] = [];
   for (const f of files) {
-    for (const c of extractCites(f)) {
-      const v = checkCite(c);
+    for (const c of extractCites(f, reader)) {
+      const v = checkCite(c, reader);
       if (v) violations.push(v);
     }
   }

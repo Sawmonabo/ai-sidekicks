@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { execSync } from "node:child_process";
 
-import { expandToInboundCiteCorpus } from "../lib/inbound-cite-discovery.ts";
+import { expandToInboundCiteCorpus, makeIndexAwareReader } from "../lib/inbound-cite-discovery.ts";
+import { extractCites } from "../lib/cite-target-existence.ts";
 
 function setupRepo(files: Record<string, string>): { root: string; cleanup: () => void } {
   const root = mkdtempSync(resolve(tmpdir(), "icd-"));
@@ -234,14 +235,12 @@ describe("inbound-cite-discovery — governance-corpus inbound expansion", () =>
     }
   });
 
-  it("skips citers with unstaged working-tree modifications (dirty WIP)", () => {
+  it("reads citer content from the index, ignoring unstaged worktree edits", () => {
     // A developer mid-editing one governance doc must not be blocked while
-    // staging an unrelated change. `extractCites` reads the working tree, so
-    // an unstaged broken cite in a citer would propagate into the validation
-    // set and surface as a violation against an unrelated commit. The
-    // enumerator's `git diff --name-only` filter skips dirty citers; they get
-    // validated whenever they themselves are staged + committed, and CI is
-    // the backstop for the residual cross-edit case.
+    // staging an unrelated change. The index-aware reader returns the staged
+    // blob for citers, so a WIP-broken cite in the working tree is structurally
+    // invisible to validation — and a WIP-introduced cite that points into the
+    // staged set does NOT propagate either (only the index version is read).
     const { root, cleanup } = setupRepo({
       "docs/plans/002-foo.md": "# Plan-002\n\nline two\n",
       "docs/architecture/cross-plan-deps.md":
@@ -249,56 +248,91 @@ describe("inbound-cite-discovery — governance-corpus inbound expansion", () =>
     });
     try {
       // Setup has staged the clean citer. Introduce an unstaged WIP edit that
-      // adds a deliberately broken inbound cite — under the previous code,
-      // this would surface as `target-line-empty` (or `line-out-of-range`)
-      // and block the unrelated plan-staging commit. With the dirty-skip,
-      // the citer is absent from `expanded`.
+      // replaces the real cite with a deliberately broken inbound cite. Under
+      // the old working-tree reader, this would surface as a violation; under
+      // the index-aware reader, the citer's STAGED content (the clean cite at
+      // :2) is what extractCites sees, so the citer still ends up in expanded.
       writeFileSync(
         resolve(root, "docs/architecture/cross-plan-deps.md"),
         "WIP edit with deliberately broken inbound cite: [Plan-002](../plans/002-foo.md):9999.\n",
       );
+      const reader = makeIndexAwareReader(root, new Set([resolve(root, "docs/plans/002-foo.md")]));
       const expanded = withRepoRoot(root, () =>
-        expandToInboundCiteCorpus([resolve(root, "docs/plans/002-foo.md")]),
+        expandToInboundCiteCorpus([resolve(root, "docs/plans/002-foo.md")], root, reader),
       );
-      // The citer must NOT appear in expanded — proves "skip" rather than
-      // "scan but happen-to-pass." (The latter could pass if the WIP edit
-      // happened to add a valid cite — we want the structural exclusion.)
-      expect(expanded).not.toContain(resolve(root, "docs/architecture/cross-plan-deps.md"));
-      expect(new Set(expanded)).toEqual(new Set([resolve(root, "docs/plans/002-foo.md")]));
-    } finally {
-      cleanup();
-    }
-  });
-
-  it("skips candidates deleted from the worktree but still tracked in the index", () => {
-    // `git ls-files --cached` (the default) lists files that are in the index
-    // even when the worktree copy has been deleted (an unstaged `rm`). Without
-    // an existsSync filter, the downstream `readFileSync` in extractCites
-    // throws ENOENT and crashes the pre-commit runner. This is a common
-    // local state: developer rm's a doc, then runs pre-commit on an unrelated
-    // change before staging the delete. Verify the enumerator silently skips
-    // the missing path instead of propagating an exception.
-    const { root, cleanup } = setupRepo({
-      "docs/plans/002-foo.md": "# Plan-002\n\nline two\n",
-      "docs/architecture/cross-plan-deps.md":
-        "Surviving citer: [Plan-002](../plans/002-foo.md):2.\n",
-      "docs/decisions/010-to-be-deleted.md":
-        "Stale citer about to vanish: [Plan-002](../plans/002-foo.md):2.\n",
-    });
-    try {
-      // Delete the ADR from the worktree AFTER setupRepo's `git add -A`. The
-      // path stays in the index; `git ls-files` will still return it.
-      rmSync(resolve(root, "docs/decisions/010-to-be-deleted.md"));
-      const expanded = withRepoRoot(root, () =>
-        expandToInboundCiteCorpus([resolve(root, "docs/plans/002-foo.md")]),
-      );
+      // Citer IS in expanded — proves the index content (the clean cite at :2)
+      // resolves into the staged plan, irrespective of the broken WIP cite.
       expect(new Set(expanded)).toEqual(
         new Set([
           resolve(root, "docs/plans/002-foo.md"),
           resolve(root, "docs/architecture/cross-plan-deps.md"),
         ]),
       );
-      expect(expanded).not.toContain(resolve(root, "docs/decisions/010-to-be-deleted.md"));
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("reads citer content from the index when the worktree copy has been deleted", () => {
+    // `git ls-files --cached` (the default) lists files that remain in the
+    // index after an unstaged worktree `rm`. Reading the working tree would
+    // throw ENOENT and crash the pre-commit runner; reading via `git show :`
+    // returns the staged blob and the citer is processed normally.
+    const { root, cleanup } = setupRepo({
+      "docs/plans/002-foo.md": "# Plan-002\n\nline two\n",
+      "docs/architecture/cross-plan-deps.md":
+        "Surviving citer: [Plan-002](../plans/002-foo.md):2.\n",
+      "docs/decisions/010-only-in-index.md":
+        "Citer cited from index after worktree rm: [Plan-002](../plans/002-foo.md):2.\n",
+    });
+    try {
+      // Delete the ADR from the worktree AFTER setupRepo's `git add -A`. The
+      // path stays in the index; the index-aware reader returns its blob.
+      rmSync(resolve(root, "docs/decisions/010-only-in-index.md"));
+      const reader = makeIndexAwareReader(root, new Set([resolve(root, "docs/plans/002-foo.md")]));
+      const expanded = withRepoRoot(root, () =>
+        expandToInboundCiteCorpus([resolve(root, "docs/plans/002-foo.md")], root, reader),
+      );
+      // Both citers IN expanded — the worktree-only deletion is invisible
+      // because the reader serves the staged blob.
+      expect(new Set(expanded)).toEqual(
+        new Set([
+          resolve(root, "docs/plans/002-foo.md"),
+          resolve(root, "docs/architecture/cross-plan-deps.md"),
+          resolve(root, "docs/decisions/010-only-in-index.md"),
+        ]),
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("ignores a stage-then-worktree-edit on the citer — index content is structurally authoritative", () => {
+    // Belt-and-suspenders for the dirty-skip test: a citer that was staged
+    // with a clean inbound cite, then mutated in the worktree to ADD a second
+    // (broken) cite — the new cite must be structurally absent from the
+    // expansion path, not merely "happen to be harmless." extractCites is
+    // called with the index reader; only the index's cite list (one clean
+    // cite) is observed.
+    const { root, cleanup } = setupRepo({
+      "docs/plans/002-foo.md": "# Plan-002\n\nline two\n",
+      "docs/architecture/cross-plan-deps.md": "Clean staged: [Plan-002](../plans/002-foo.md):2.\n",
+    });
+    try {
+      // WIP mutation: KEEPS the clean cite AND adds a broken one. Under the
+      // old working-tree reader, the broken cite would surface as a
+      // line-out-of-range violation downstream. Under the index-aware reader,
+      // extractCites only sees the index content (the single clean cite).
+      writeFileSync(
+        resolve(root, "docs/architecture/cross-plan-deps.md"),
+        "Clean staged: [Plan-002](../plans/002-foo.md):2.\nWIP added: [Plan-002](../plans/002-foo.md):9999.\n",
+      );
+      const reader = makeIndexAwareReader(root, new Set([resolve(root, "docs/plans/002-foo.md")]));
+      const cites = extractCites(resolve(root, "docs/architecture/cross-plan-deps.md"), reader);
+      // Index content has exactly one cite at :2 — the WIP-added :9999 cite
+      // is not in the index and so is invisible to extractCites.
+      expect(cites).toHaveLength(1);
+      expect(cites[0].targetLine).toBe(2);
     } finally {
       cleanup();
     }

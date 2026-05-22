@@ -15,10 +15,24 @@ function setupRepo(files: Record<string, string>): { root: string; cleanup: () =
     mkdirSync(resolve(full, ".."), { recursive: true });
     writeFileSync(full, content);
   }
-  // Stage the fixture set so `git ls-files` enumerates them — the inbound-cite
-  // discovery uses git ls-files to exclude untracked WIP drafts.
+  // Stage the fixture set so `git ls-files` enumerates them. The index-aware
+  // reader returns the staged blob for any path not in the argv-staged set —
+  // tests that exercise that branch need at least these `git add -A` blobs.
   execSync("git add -A", { cwd: root });
   return { root, cleanup: () => rmSync(root, { recursive: true }) };
+}
+
+// setupRepoCommitted extends setupRepo with an initial commit so HEAD exists.
+// Required only by Scenario-Y, which verifies the runner catches a stale cite
+// in a citer's HEAD content while the worktree carries a WIP fix — `git show
+// :<relpath>` on a tracked-clean path returns the HEAD blob, so the runner
+// validates HEAD content against the (just-staged) plan's new line layout.
+function setupRepoCommitted(files: Record<string, string>): { root: string; cleanup: () => void } {
+  const { root, cleanup } = setupRepo(files);
+  execSync(`git -c user.email=test@example.com -c user.name=test commit -q -m "init"`, {
+    cwd: root,
+  });
+  return { root, cleanup };
 }
 
 function withRepoRoot<T>(root: string, fn: () => T): T {
@@ -85,11 +99,13 @@ describe("pre-commit-runner — inbound cite ripple expansion", () => {
   });
 
   it("does not flag an unstaged citer whose WIP working-tree edit introduces a broken cite", () => {
-    // Companion to the inbound-cite-discovery dirty-skip test: confirm the
-    // end-to-end runner exits 0 when a citer has unstaged WIP that would
-    // otherwise look like a target-line-empty violation. Without the dirty
-    // filter, `extractCites` reads the WIP working-tree content and the
-    // runner blocks the unrelated plan-staging commit.
+    // End-to-end companion to the inbound-cite-discovery index-read tests:
+    // the runner exits 0 when a citer has unstaged WIP that would otherwise
+    // look like a line-out-of-range violation. The index-aware reader returns
+    // the citer's STAGED content (the clean cite at :3), so the WIP-introduced
+    // broken cite is structurally invisible to validation. A developer mid-
+    // editing one governance doc is never blocked while staging an unrelated
+    // change.
     const { root, cleanup } = setupRepo({
       "docs/plans/002-test.md": "# Plan-002\n\npreconds\n",
       "docs/architecture/cross-plan-dependencies.md":
@@ -103,6 +119,54 @@ describe("pre-commit-runner — inbound cite ripple expansion", () => {
       const result = withRepoRoot(root, () => runChecks([resolve(root, "docs/plans/002-test.md")]));
       expect(result.exitCode).toBe(0);
       expect(result.messages).toEqual([]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("catches a HEAD-stale citer cite when the staged plan's line shift exposes it (Scenario Y)", () => {
+    // Scenario Y is the residual case that the prior dirty-skip filter
+    // deferred to CI: a citer at HEAD cites a stable line in a plan, the
+    // developer's UNSTAGED worktree edit fixes the citer to the plan's new
+    // line, and the developer stages the plan (alone) intending to follow
+    // with the citer fix in a separate commit. Under the dirty-skip filter
+    // the citer was excluded from pre-commit and CI caught it post-push.
+    // Under the index-aware reader, `git show :<citer>` returns the HEAD
+    // blob (the stale cite), validation runs against it, and the runner
+    // catches the inbound break locally.
+    //
+    // Fixture shape: HEAD plan has 3 lines ("# Plan-002", blank, "preconds")
+    // and the HEAD citer cites :3. The developer's staged plan shrinks to 2
+    // lines (drops preconds entirely), so :3 is out of range in the staged
+    // blob. Worktree WIP on the citer "fixes" it to :2 (still wrong but
+    // irrelevant — the reader returns HEAD).
+    const { root, cleanup } = setupRepoCommitted({
+      "docs/plans/002-test.md": "# Plan-002\n\npreconds\n",
+      "docs/architecture/cross-plan-dependencies.md":
+        "See [Plan-002](../plans/002-test.md):3 for preconds.\n",
+    });
+    try {
+      // Staged edit on the plan: drop the preconds line so the file is 2
+      // lines long. Citer's HEAD cite of :3 is now out of range.
+      writeFileSync(resolve(root, "docs/plans/002-test.md"), "# Plan-002\n\n");
+      execSync("git add docs/plans/002-test.md", { cwd: root });
+      // Worktree-only WIP on the citer — not staged, not in HEAD. Index-aware
+      // reader serves HEAD's :3 cite, NOT this WIP value.
+      writeFileSync(
+        resolve(root, "docs/architecture/cross-plan-dependencies.md"),
+        "See [Plan-002](../plans/002-test.md):2 for preconds.\n",
+      );
+      const result = withRepoRoot(root, () => runChecks([resolve(root, "docs/plans/002-test.md")]));
+      expect(result.exitCode).toBe(1);
+      const joined = result.messages.join("\n");
+      expect(joined).toContain("cite-target-existence");
+      expect(joined).toContain("cross-plan-dependencies.md");
+      // Either CAT-06 sub-reason proves the validation ran against HEAD: the
+      // staged plan's 3rd line is empty (trailing newline → split yields a
+      // bare-empty element) so this fires as target-line-empty. If a future
+      // fixture shape lands the cite past the file length, line-out-of-range
+      // is equally valid evidence.
+      expect(joined).toMatch(/target-line-empty|line-out-of-range/);
     } finally {
       cleanup();
     }

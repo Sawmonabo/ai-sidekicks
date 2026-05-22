@@ -12,13 +12,16 @@
 //
 // Enumeration uses `git ls-files` so the candidate set is bounded to tracked
 // + staged-new files — untracked private drafts must not block a commit on
-// cites that do not exist in CI.
+// cites that do not exist in CI. Content reads route through an index-aware
+// reader (`makeIndexAwareReader`) so unstaged WIP in citers and worktree-only
+// deletions do not influence the validation set — only the index (the
+// would-be-committed state) is consulted for non-argv-staged paths.
 
-import { existsSync } from "node:fs";
-import { resolve, relative, dirname, sep } from "node:path";
+import { readFileSync, existsSync } from "node:fs";
+import { resolve, relative, dirname, sep, basename } from "node:path";
 import { spawnSync } from "node:child_process";
 
-import { extractCites } from "./cite-target-existence.ts";
+import { extractCites, type FileContentReader } from "./cite-target-existence.ts";
 
 const GOVERNANCE_CORPUS_DIRS = [
   "docs/plans",
@@ -42,7 +45,7 @@ function findRepoRoot(): string {
   }
 }
 
-function getRepoRoot(): string {
+export function getRepoRoot(): string {
   return process.env.REPO_ROOT ?? findRepoRoot();
 }
 
@@ -56,47 +59,110 @@ function isInGovernanceCorpus(repoRoot: string, absolutePath: string): boolean {
   return GOVERNANCE_CORPUS_DIRS.some((dir) => rel.startsWith(`${dir}/`));
 }
 
-function enumerateGovernanceCorpus(repoRoot: string): string[] {
-  // Use `git ls-files` (index-only by default — tracked + staged-new, excludes
-  // untracked + ignored). A raw filesystem walk would scan untracked WIP and
-  // could block a developer's commit on a stale cite in a private draft that
-  // does not exist in CI. Graceful fallback: return [] on spawn/status error
-  // — the new inbound expansion is lost but pre-existing per-file coverage
-  // is preserved, and CI's repo-wide sweep remains the backstop.
+function enumerateGovernanceCorpus(repoRoot: string, stagedBasenames: string[]): string[] {
+  // Two-pass enumeration:
   //
-  // The `existsSync` filter handles the common local state where a tracked
-  // governance file has been deleted from the worktree without staging the
-  // delete: `git ls-files --cached` (the default) still lists it, but the
-  // downstream `readFileSync` in `extractCites` would throw ENOENT and crash
-  // the pre-commit runner.
+  // 1. `git ls-files` (index-only — tracked + staged-new, excludes untracked
+  //    + ignored) bounds the candidate set to what exists in CI.
+  // 2. `git grep --cached -l -F` narrows that set to citers whose staged
+  //    blob mentions any staged file's BASENAME — a necessary substring of
+  //    every cite shape we recognize (`[label](path/to/file.md):NNN` or
+  //    `path/to/file.md:NNN` in code spans). Without this narrowing every
+  //    governance file becomes a `git show :path` subprocess (~20ms each on
+  //    macOS), turning a single-file stage into a 2-3s pre-commit on the
+  //    real repo (~120 governance files). Substring-only false positives
+  //    (e.g., a citer that mentions the basename without a `:NNN` cite) are
+  //    cheap — extractCites simply finds no cite and the candidate falls
+  //    out of the union.
   //
-  // The dirty-set filter (`git diff --name-only` = working-tree-vs-index)
-  // skips citers with unstaged WIP. Without it, `extractCites` reads the
-  // working tree and leaks the developer's unstaged edits into the validation
-  // set — a developer mid-editing one governance doc would be blocked while
-  // staging an unrelated change. Skipped citers will be validated whenever
-  // they themselves get staged + committed, and CI's repo-wide sweep remains
-  // the backstop for the residual Scenario-Y case (unstaged WIP would have
-  // fixed a HEAD-stale cite that this commit's line-shift now exposes).
+  // Graceful fallback: return [] on spawn error for either pass — the
+  // inbound expansion is lost but pre-existing per-file coverage is
+  // preserved, and CI's repo-wide sweep remains the backstop. `git grep`
+  // exits 1 on "no matches" (not an error); treat 0 and 1 as success.
   const lsFiles = spawnSync("git", ["-C", repoRoot, "ls-files", "--", ...GOVERNANCE_CORPUS_DIRS], {
     encoding: "utf8",
   });
   if (lsFiles.status !== 0) return [];
+  const allTracked = lsFiles.stdout.split("\n").filter((line) => line.endsWith(".md"));
+  if (stagedBasenames.length === 0) return allTracked.map((line) => resolve(repoRoot, line));
 
-  const diff = spawnSync("git", ["-C", repoRoot, "diff", "--name-only"], {
-    encoding: "utf8",
-  });
-  const dirty = new Set<string>(diff.status === 0 ? diff.stdout.split("\n").filter(Boolean) : []);
-
-  return lsFiles.stdout
-    .split("\n")
-    .filter((line) => line.endsWith(".md"))
-    .filter((line) => !dirty.has(line))
-    .map((line) => resolve(repoRoot, line))
-    .filter((absolute) => existsSync(absolute));
+  const grepArgs = ["-C", repoRoot, "grep", "--cached", "-l", "-F"];
+  for (const b of stagedBasenames) grepArgs.push("-e", b);
+  grepArgs.push("--", ...GOVERNANCE_CORPUS_DIRS);
+  const grep = spawnSync("git", grepArgs, { encoding: "utf8" });
+  // git grep status: 0 = matches, 1 = no matches, 128 = error.
+  if (grep.status !== 0 && grep.status !== 1) {
+    return allTracked.map((line) => resolve(repoRoot, line));
+  }
+  const candidates = new Set(grep.stdout.split("\n").filter(Boolean));
+  return allTracked.filter((line) => candidates.has(line)).map((line) => resolve(repoRoot, line));
 }
 
-export function expandToInboundCiteCorpus(stagedFiles: string[], repoRoot?: string): string[] {
+// makeIndexAwareReader builds a FileContentReader that distinguishes the
+// developer's explicit opt-in (argv-staged paths → working tree) from
+// auto-expanded scope (everything else → git index via `git show :path`).
+// The returned reader memoizes by absolute path so each file is fetched at
+// most once across the corpus walk + cite-target checks — without this,
+// the redundant re-reads turn ~50 governance files into ~50 + ~hundreds of
+// subprocesses (extractCites runs twice per citer; cite-targets are looked
+// up per-cite). Pre-commit p99 with memoization: ~250ms vs ~3.5s without.
+//
+// Why two semantics:
+// - argv-staged is the convention: developers stage, sometimes continue
+//   editing, and the runner validates the working tree as a close-enough
+//   proxy for the index. Switching argv-staged paths to index-only would
+//   surprise developers ("I just fixed that").
+// - Auto-expanded scope was NOT opted in. Reading the working tree leaks
+//   unstaged WIP into the validation set — a developer mid-editing one
+//   governance doc gets blocked staging an unrelated change. Reading the
+//   index instead matches what CI would see post-merge.
+//
+// Errors from `git show :path` (exit 128 on untracked / outside-repo path)
+// surface as a thrown Error so checkCite's catch maps them to
+// `missing-target-file` — semantically equivalent to ENOENT under the
+// default reader. Memoization caches errors too so a failed lookup costs
+// the same as a successful one on the second hit.
+export function makeIndexAwareReader(
+  repoRoot: string,
+  stagedPaths: Set<string>,
+): FileContentReader {
+  const cache = new Map<string, { ok: true; content: string } | { ok: false; error: Error }>();
+  return (absolutePath) => {
+    const cached = cache.get(absolutePath);
+    if (cached !== undefined) {
+      if (cached.ok) return cached.content;
+      throw cached.error;
+    }
+    try {
+      const content = stagedPaths.has(absolutePath)
+        ? readFileSync(absolutePath, "utf8")
+        : (() => {
+            const relPath = toRepoRelative(repoRoot, absolutePath);
+            const result = spawnSync("git", ["-C", repoRoot, "show", `:${relPath}`], {
+              encoding: "utf8",
+            });
+            if (result.status !== 0) {
+              throw new Error(
+                `git show :${relPath} failed (status ${result.status}): ${result.stderr.trim()}`,
+              );
+            }
+            return result.stdout;
+          })();
+      cache.set(absolutePath, { ok: true, content });
+      return content;
+    } catch (error) {
+      const e = error instanceof Error ? error : new Error(String(error));
+      cache.set(absolutePath, { ok: false, error: e });
+      throw e;
+    }
+  };
+}
+
+export function expandToInboundCiteCorpus(
+  stagedFiles: string[],
+  repoRoot?: string,
+  reader?: FileContentReader,
+): string[] {
   const root = repoRoot ?? getRepoRoot();
   const stagedAbsolute = new Set<string>(stagedFiles.map((f) => resolve(f)));
   // Expand only when at least one staged file lives inside the governance
@@ -111,12 +177,13 @@ export function expandToInboundCiteCorpus(stagedFiles: string[], repoRoot?: stri
   }
   if (!hasGovernanceStaged) return [...stagedAbsolute];
 
+  const stagedBasenames = [...stagedAbsolute].map((p) => basename(p));
   const expanded = new Set<string>(stagedAbsolute);
-  const candidates = enumerateGovernanceCorpus(root).filter(
+  const candidates = enumerateGovernanceCorpus(root, stagedBasenames).filter(
     (candidate) => !stagedAbsolute.has(candidate),
   );
   for (const candidate of candidates) {
-    const cites = extractCites(candidate);
+    const cites = extractCites(candidate, reader);
     for (const cite of cites) {
       if (stagedAbsolute.has(resolve(cite.targetPath))) {
         expanded.add(candidate);
