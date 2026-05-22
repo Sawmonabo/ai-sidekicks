@@ -65,6 +65,8 @@ The token-presence floor above ran alone until 2026-05-21, when post-mortem `51c
 
 Per-payload parsing runs as `extractCiteAnchors(phaseSection)` → `parseCitePayload(rawPayload)` → `parseSegment(seg)`. Tokenization is paren-aware (commas, semicolons, and `+` inside `(...)` are not anchor separators) and dash-normalized (`–` U+2013 and `—` U+2014 fold to ASCII `-`) BEFORE pattern-match — without normalization the load-bearing en-dash compound-range defect (post-mortem class 2) is silently missed.
 
+Top-level segment boundaries (depth-0): `;` is canonical (cross-namespace, e.g. `Spec-001 AC8; ADR-018 §Decision #4`); `,` is also a segment boundary when followed by another recognized namespace prefix (`Spec-NNN`, `ADR-NNN`, `<doc>.md`, `cross-plan-deps`). The latter shape (`Spec-002 AC1 (line 178), Spec-002 line 87 + AC1 (I3)`) appears in approved plans (Plan-002 T5.1/T5.3) to disambiguate `(line N + AC M)` sub-anchor groups. A comma followed by a sub-anchor keyword (`AC`, `line`, `lines`, `§`) stays inside the current namespace.
+
 Accepted shapes (each emits one or more anchors with `severity: info|warn`; `severity: error` is rejection-only):
 
 - `Spec-NNN AC-X` — single bare AC. `severity: info` (line-hint recommended).
@@ -74,6 +76,7 @@ Accepted shapes (each emits one or more anchors with `severity: info|warn`; `sev
 - `Spec-NNN §Section line YY[, line ZZ[, line WW]][ (descriptor)]` — comma-separated multi-line under one §Section. Splits into N anchors.
 - `Spec-NNN §Section line YY[ (Subject)]` — single §Section + line + optional descriptor.
 - `Spec-NNN line YY + AC-X[ (Subject)]` — `+`-combined line + AC. Splits into two anchors.
+- `Spec-NNN §A line YY, §B line ZZ` — comma-separated re-section sub-anchors. Each `§<Section> line N` token inside a single `Spec-NNN` namespace switches the active section and emits one line anchor.
 - `Spec-NNN §Section` (no line) — bare §-cite. `severity: warn` (line-anchor recommended; non-blocking by design).
 - `Spec-NNN lines YY-ZZ (single-subject descriptor)` — multi-line block with one identifier-token subject in descriptor (e.g., `RateLimitResponse lines 127-133`). One anchor.
 - `ADR-NNN §Section[ (row|item) M[ (descriptor)]]` — ADR-namespaced anchor. Parser verifies ADR file glob; section verification is documentary not mechanical.
@@ -92,7 +95,7 @@ Rejected shapes (each emits one failure with `severity: error`; **blocks Gate 4*
 - **`out-of-range-line`** — `Spec-NNN line YY` where YY is blank or past EOF.
 - **`subject-mismatch`** — `Spec-NNN line YY (Subject)` where the identifier-token `Subject` does not appear on line YY of the spec (tolerant of separator variants: `PresenceHeartbeat` ↔ `presence.heartbeat` ↔ `presenceHeartbeat`).
 
-`unparseable-*` failures (the parser could not match any accepted shape and could not pin a rejection class) emit at `severity: warn` so they surface in the report without blocking Gate 4 — the warn floor lets the gate fail-open on the unknown-shape long tail while the rejection classes above stay strict.
+`unparseable-spec-subanchor` (Spec-NNN sub-token that didn't match any sub-shape) and `unparseable-cite` (top-level token that matched no namespace pattern) emit at `severity: error` and block the gate — both close false-green paths Codex flagged on the original Gate 4 patch (PR #96): a malformed second sub-anchor would silently warn-pass, and a top-level token like `xyz junk` would silently warn-pass despite §Pre-3 implication 6 mandating error reporting. Namespace-recognized but shape-malformed cites (`adr-unparseable`, `arch-doc-unparseable`, `cross-plan-deps-unparseable`, `plan-local-id-unparseable`) stay at `severity: warn` to fail-open on unknown shape variants the parser doesn't yet recognize.
 
 #### Semantic anchor check — verifier rules
 
@@ -101,7 +104,12 @@ Each emitted anchor is verified by `verifyAnchorAgainstSpec(anchor, repoRoot)`:
 - `type: line` — read line `anchor.line` from `docs/specs/NNN-*.md`. Fail with `out-of-range-line` if blank or past EOF. If `subject` present, lowercase + strip-punctuation both sides; verify subject tokens appear on the cited line. Fail with `subject-mismatch` if not.
 - `type: ac` — find `^## Acceptance Criteria` heading; count `^- \[[ x]\]` bullets in the section; assert the X-th exists. If `lineHint` present, assert that line matches the AC checkbox shape.
 - `type: section` — verify named section heading exists in the spec.
-- `type: adr-section` / `type: arch-doc` / `type: cross-plan-deps` / `type: none-literal` / `type: plan-local-id` — file-existence check only (sections + rows are not mechanically verified; they are documentary).
+- `type: adr-section` — file-existence check against `docs/decisions/NNN-*.md` (via `findPaddedFile`). Fail with `adr-file-not-found` if no match. Section + item/row are not mechanically verified (they are documentary).
+- `type: arch-doc` — file-existence check against `docs/architecture/**/<filename>` (recursive via `findArchDocFile`, handling the `contracts/` and `schemas/` subdirs). Fail with `arch-doc-not-found` if no match. Section is documentary.
+- `type: cross-plan-deps` — file-existence check against `docs/architecture/cross-plan-dependencies.md`. Fail with `cross-plan-deps-file-not-found` if missing. Section + row are documentary.
+- `type: none-literal` / `type: plan-local-id` — trivial pass (no external doc to verify). Reason: `no-external-doc-to-verify`.
+
+The existence checks above are gated by orchestrator-supplied paths (`adrsDir`, `archDocsDir`, `crossPlanDepsFile` in `verifyAnchorAgainstSpec` opts). When a path is omitted (e.g. unit tests that only exercise Spec verification) the verifier returns `valid: true, reason: <namespace>-dir-unconfigured` — anchors pass instead of false-failing the test. `gateTasksBlockCites` resolves all paths from `repoRoot` so production runs always exercise existence checks.
 
 #### Gate 4 aggregation
 

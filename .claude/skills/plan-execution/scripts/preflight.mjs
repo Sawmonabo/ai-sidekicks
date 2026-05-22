@@ -199,6 +199,26 @@ export function findPaddedFile(dir, ref) {
   }
 }
 
+// Recursive lookup for an arch-doc filename anywhere under `dir`.
+// `docs/architecture/` has two subdir conventions (`contracts/`, `schemas/`)
+// in addition to top-level files; cites omit the subdir.
+export function findArchDocFile(dir, filename) {
+  try {
+    const entries = readdirSync(dir, { withFileTypes: true });
+    for (const e of entries) {
+      if (e.isDirectory()) {
+        const nested = findArchDocFile(resolve(dir, e.name), filename);
+        if (nested) return nested;
+      } else if (e.name === filename) {
+        return resolve(dir, e.name);
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export function extractAdrStatus(source) {
   // Markdown table cell:  | **Status** | accepted |  (or `accepted`)
   const tableMatch = source.match(/\|\s*\*?\*?Status\*?\*?\s*\|\s*`?([\w-]+)`?\s*\|/i);
@@ -588,8 +608,14 @@ function nonPlanLocalSubjects(text) {
   return extractIdentifierTokens(stripped).filter((t) => !PLAN_LOCAL_ID_RE.test(t));
 }
 
-// Paren-aware split on `;` at depth 0. `;` is the top-level
-// different-namespace separator (`Spec-001 AC8; ADR-018 §Decision #4`).
+// Paren-aware split on top-level segment boundaries. Two boundaries:
+//   - `;` at depth 0 (canonical cross-namespace separator,
+//     `Spec-001 AC8; ADR-018 §Decision #4`)
+//   - `,` at depth 0 followed by another recognized namespace prefix
+//     (`Spec-002 AC1, Spec-002 line 87 + AC1` → two top-level segments).
+//     This shape is real in approved plans (Plan-002 T5.1/T5.3 repeat the
+//     `Spec-NNN` prefix to disambiguate `(line N + AC M)` sub-anchor groups).
+const TOP_LEVEL_NS_LOOKAHEAD = /^,\s+(?:Spec-\d+|ADR-\d+|[a-z][\w-]*\.md|cross-plan-deps)\b/;
 function splitOnSemicolon(payload) {
   const out = [];
   let depth = 0;
@@ -603,6 +629,9 @@ function splitOnSemicolon(payload) {
       depth--;
       buf += ch;
     } else if (depth === 0 && ch === ";") {
+      if (buf.trim()) out.push(buf.trim());
+      buf = "";
+    } else if (depth === 0 && ch === "," && TOP_LEVEL_NS_LOOKAHEAD.test(payload.slice(i))) {
       if (buf.trim()) out.push(buf.trim());
       buf = "";
     } else {
@@ -854,13 +883,36 @@ function parseSpecSegment(segment) {
       });
       continue;
     }
+    // Re-section sub-anchor: `§<Section> line YY[ (descriptor)]` inside a
+    // comma-separated multi-section Spec cite (e.g., `Spec-002 §A line 12,
+    // §B line 13`). Without this branch the second sub-token falls through
+    // to the warn-only fallback below and Gate 4 false-greens the cite.
+    const reSectionLineMatch = token.match(
+      /^§([^()]+?)\s+line\s+(\d+)(?:\s*\((.+)\)|\s+-\s+(.+?))?\s*$/,
+    );
+    if (reSectionLineMatch) {
+      const subSection = reSectionLineMatch[1].trim();
+      const line = Number(reSectionLineMatch[2]);
+      const descriptor = (reSectionLineMatch[3] ?? reSectionLineMatch[4] ?? "").trim();
+      const subjects = nonPlanLocalSubjects(descriptor);
+      anchors.push({
+        type: "line",
+        spec,
+        line,
+        section: subSection,
+        subject: subjects[0] ?? null,
+        descriptor,
+        raw: segment,
+      });
+      continue;
+    }
     failures.push(
       makeFailure(
         "unparseable-spec-subanchor",
         token,
         `Cannot parse '${token}' as a Spec-${spec} sub-anchor.`,
-        "Accepted sub-shapes: `AC-N`, `AC-N (line MM)`, `line N`, `line N (subject)`, `line N - subject`, `lines N1, N2, N3`, `lines N1-N2 (single-subject)`.",
-        "warn",
+        "Accepted sub-shapes: `AC-N`, `AC-N (line MM)`, `line N`, `line N (subject)`, `line N - subject`, `lines N1, N2, N3`, `lines N1-N2 (single-subject)`, `§Section line N`.",
+        "error",
       ),
     );
   }
@@ -1054,7 +1106,7 @@ function parseSegment(segment) {
         trimmed,
         `Token '${trimmed}' matches no namespace pattern after dash normalization.`,
         "Cite must start with `Spec-NNN`, `ADR-NNN`, `<doc>.md`, `cross-plan-deps`, `none`, or a Plan-local ID (Cn/Pn/Pr-n/I).",
-        "warn",
+        "error",
       ),
     ],
   };
@@ -1169,20 +1221,59 @@ export function extractCiteAnchors(phaseSection) {
 // section exists. For `type: line-range`, confirm the range is in bounds.
 // For `type: section-only`, confirm the named section heading exists.
 // Returns {valid, reason, evidence}.
-export function verifyAnchorAgainstSpec(anchor, { specsDir }) {
-  // Anchor types that don't reference a Spec file pass trivially —
-  // verification of ADR / arch-doc / cross-plan-deps / none / plan-local-id
-  // is out-of-scope for Gate 4's Spec-anchor semantic check. Future work
-  // can extend per-type verification; the runbook §Subagent Prompt Template
-  // mechanism clauses target Spec anchors first.
-  if (
-    anchor.type === "adr-section" ||
-    anchor.type === "arch-doc" ||
-    anchor.type === "cross-plan-deps" ||
-    anchor.type === "none-literal" ||
-    anchor.type === "plan-local-id"
-  ) {
-    return { valid: true, reason: "out-of-scope-for-gate-4", evidence: anchor.raw };
+export function verifyAnchorAgainstSpec(
+  anchor,
+  { specsDir, adrsDir, archDocsDir, crossPlanDepsFile },
+) {
+  // `none` and `plan-local-id` have no external document to verify;
+  // they pass trivially. The three file-bearing namespaces (ADR /
+  // arch-doc / cross-plan-deps) get file-existence checks below so
+  // typos like `ADR-999 §Whatever` or `missing-doc.md` don't silently
+  // pass Gate 4. Section-internal verification within those docs is
+  // out-of-scope (different heading conventions per namespace).
+  if (anchor.type === "none-literal" || anchor.type === "plan-local-id") {
+    return { valid: true, reason: "no-external-doc-to-verify", evidence: anchor.raw };
+  }
+  if (anchor.type === "adr-section") {
+    if (!adrsDir) {
+      return { valid: true, reason: "adrs-dir-unconfigured", evidence: anchor.raw };
+    }
+    const adrFile = findPaddedFile(adrsDir, anchor.adr);
+    if (!adrFile) {
+      return {
+        valid: false,
+        reason: "adr-file-not-found",
+        evidence: `No file matched ${adrsDir}/${String(anchor.adr).padStart(3, "0")}-*.md`,
+      };
+    }
+    return { valid: true, reason: "adr-file-exists", evidence: adrFile };
+  }
+  if (anchor.type === "arch-doc") {
+    if (!archDocsDir) {
+      return { valid: true, reason: "arch-docs-dir-unconfigured", evidence: anchor.raw };
+    }
+    const archFile = findArchDocFile(archDocsDir, anchor.file);
+    if (!archFile) {
+      return {
+        valid: false,
+        reason: "arch-doc-not-found",
+        evidence: `No file named ${anchor.file} found under ${archDocsDir} (recursive search).`,
+      };
+    }
+    return { valid: true, reason: "arch-doc-exists", evidence: archFile };
+  }
+  if (anchor.type === "cross-plan-deps") {
+    if (!crossPlanDepsFile) {
+      return { valid: true, reason: "cross-plan-deps-file-unconfigured", evidence: anchor.raw };
+    }
+    if (!existsSync(crossPlanDepsFile)) {
+      return {
+        valid: false,
+        reason: "cross-plan-deps-file-not-found",
+        evidence: `cross-plan-deps file does not exist at ${crossPlanDepsFile}.`,
+      };
+    }
+    return { valid: true, reason: "cross-plan-deps-file-exists", evidence: crossPlanDepsFile };
   }
   const specFile = findPaddedFile(specsDir, anchor.spec);
   if (!specFile) {
@@ -1358,13 +1449,24 @@ export function gateTasksBlockCites(phaseSection, planNumber, phaseNumber, opts 
     };
   }
   // Semantic anchor check (additive on top of token presence). The repoRoot
-  // path is threaded from runPreflight options; specs live under docs/specs/.
+  // path is threaded from runPreflight options; specs live under docs/specs/,
+  // ADRs under docs/decisions/, arch-docs under docs/architecture/ (recursive),
+  // and cross-plan-deps is a single canonical file at
+  // docs/architecture/cross-plan-dependencies.md.
   const repoRoot = opts.repoRoot ?? REPO_ROOT;
   const specsDir = resolve(repoRoot, "docs", "specs");
+  const adrsDir = resolve(repoRoot, "docs", "decisions");
+  const archDocsDir = resolve(repoRoot, "docs", "architecture");
+  const crossPlanDepsFile = resolve(archDocsDir, "cross-plan-dependencies.md");
   const { anchors, failures: parseFailures } = extractCiteAnchors(phaseSection);
   const verifyFailures = [];
   for (const anchor of anchors) {
-    const v = verifyAnchorAgainstSpec(anchor, { specsDir });
+    const v = verifyAnchorAgainstSpec(anchor, {
+      specsDir,
+      adrsDir,
+      archDocsDir,
+      crossPlanDepsFile,
+    });
     if (!v.valid) {
       verifyFailures.push({
         kind: v.reason,

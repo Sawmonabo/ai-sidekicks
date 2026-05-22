@@ -17,11 +17,20 @@ import {
 } from "../preflight.mjs";
 
 const FIXTURE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "preflight-gate4-fixtures");
+const FIXTURE_CROSS_PLAN_DEPS = resolve(FIXTURE_DIR, "cross-plan-dependencies.md");
 
 function verifyAll(payload) {
   const { anchors, failures } = parseCitePayload(payload);
   const verifyFailures = anchors
-    .map((a) => ({ anchor: a, result: verifyAnchorAgainstSpec(a, { specsDir: FIXTURE_DIR }) }))
+    .map((a) => ({
+      anchor: a,
+      result: verifyAnchorAgainstSpec(a, {
+        specsDir: FIXTURE_DIR,
+        adrsDir: FIXTURE_DIR,
+        archDocsDir: FIXTURE_DIR,
+        crossPlanDepsFile: FIXTURE_CROSS_PLAN_DEPS,
+      }),
+    }))
     .filter(({ result }) => !result.valid);
   return { anchors, parseFailures: failures, verifyFailures };
 }
@@ -258,6 +267,95 @@ test("FAIL 20: spec file missing (Spec-999 line 10)", () => {
   const { verifyFailures } = verifyAll("Spec-999 line 10");
   assert.equal(verifyFailures.length, 1);
   assert.equal(verifyFailures[0].result.reason, "spec-file-not-found");
+});
+
+test("PASS 21: comma-separated sub-anchors with re-section emit one anchor per section", () => {
+  // Regression for Codex P1 (PR #96 review): pre-fix, the second `§B line ZZ`
+  // sub-token fell through to a warn-only fallback and Gate 4 false-greened.
+  // Post-fix: re-section sub-anchor pattern emits a second line anchor with
+  // the new section attached.
+  const { anchors, parseFailures, verifyFailures } = verifyAll(
+    "Spec-002 §Interfaces and Contracts line 13, §Rate Limiting line 21",
+  );
+  assert.equal(parseFailures.length, 0);
+  assert.equal(verifyFailures.length, 0);
+  assert.equal(anchors.length, 2);
+  assert.equal(anchors[0].section, "Interfaces and Contracts");
+  assert.equal(anchors[0].line, 13);
+  assert.equal(anchors[1].section, "Rate Limiting");
+  assert.equal(anchors[1].line, 21);
+});
+
+test("FAIL 22: unparseable Spec sub-anchor now blocks the gate (error severity)", () => {
+  // Regression for Codex P1: warn-only severity false-greened malformed
+  // second sub-anchors. Post-fix the failure is error-severity and blocks.
+  const { parseFailures } = verifyAll("Spec-002 §A line 12, §B junk");
+  const blocking = parseFailures.filter((f) => f.kind === "unparseable-spec-subanchor");
+  assert.equal(blocking.length, 1);
+  assert.equal(blocking[0].severity, "error");
+});
+
+test("FAIL 23: top-level unparseable cite now blocks the gate (error severity)", () => {
+  // Regression for the anti-spiral sweep: §Pre-3 implication 6 mandates
+  // error-severity reporting for tokens matching no namespace pattern.
+  // Pre-fix severity was warn (false-green); post-fix is error.
+  const { parseFailures } = verifyAll("xyz random junk");
+  const blocking = parseFailures.filter((f) => f.kind === "unparseable-cite");
+  assert.equal(blocking.length, 1);
+  assert.equal(blocking[0].severity, "error");
+});
+
+test("PASS 24: ADR anchor with existing file passes (adr-file-exists)", () => {
+  // Fixture file: preflight-gate4-fixtures/019-test-adr.md.
+  const { verifyFailures } = verifyAll("ADR-019 §Decision item 1");
+  assert.equal(verifyFailures.length, 0);
+});
+
+test("FAIL 25: ADR anchor with missing file (ADR-999) fails with adr-file-not-found", () => {
+  // Regression for Codex P2: ADR file existence is now enforced.
+  const { verifyFailures } = verifyAll("ADR-999 §Decision item 1");
+  assert.equal(verifyFailures.length, 1);
+  assert.equal(verifyFailures[0].result.reason, "adr-file-not-found");
+});
+
+test("FAIL 26: arch-doc with missing filename fails with arch-doc-not-found", () => {
+  // Regression for Codex P2: typo like `missing-doc.md` no longer silently
+  // passes. Existing fixture: error-contracts.md (PASS path); this one fails.
+  const { verifyFailures } = verifyAll("missing-doc.md (descriptor)");
+  assert.equal(verifyFailures.length, 1);
+  assert.equal(verifyFailures[0].result.reason, "arch-doc-not-found");
+});
+
+test("PASS 27: arch-doc with existing filename passes (arch-doc-exists)", () => {
+  // Fixture file: preflight-gate4-fixtures/error-contracts.md.
+  const { verifyFailures } = verifyAll("error-contracts.md (cross-cutting C-7 channel)");
+  assert.equal(verifyFailures.length, 0);
+});
+
+test("PASS 28: cross-plan-deps anchor against existing file passes", () => {
+  // Fixture file: preflight-gate4-fixtures/cross-plan-dependencies.md.
+  const { verifyFailures } = verifyAll("cross-plan-deps §3 row 113");
+  assert.equal(verifyFailures.length, 0);
+});
+
+test("PASS 29: repeated-namespace shape splits into independent top-level segments", () => {
+  // Plan-002 T5.1/T5.3 use `Spec-NNN X, Spec-NNN Y` to disambiguate
+  // `(line N + AC M)` sub-anchor groups. The top-level splitter sees
+  // `, Spec-NNN` as a segment boundary so each clause parses against
+  // its own namespace context.
+  const { anchors, parseFailures, verifyFailures } = verifyAll(
+    "Spec-002 AC1 (line 45), Spec-002 line 15 + AC2",
+  );
+  assert.equal(parseFailures.length, 0);
+  assert.equal(verifyFailures.length, 0);
+  // Three anchors: AC1 with line hint, then line 15 + AC2 expand into 2.
+  assert.equal(anchors.length, 3);
+  assert.equal(anchors[0].type, "ac");
+  assert.equal(anchors[0].ac, 1);
+  assert.equal(anchors[1].type, "line");
+  assert.equal(anchors[1].line, 15);
+  assert.equal(anchors[2].type, "ac");
+  assert.equal(anchors[2].ac, 2);
 });
 
 // ============================================================
