@@ -1755,7 +1755,7 @@ function _checkPhase(planSource, planNumber, phase, planFile, opts) {
     (e) => e.type === "audit_status" && e.status === "substrate_exempt",
   );
   if (!isSubstrateExempt) {
-    const g4 = gateTasksBlockCites(sec, planNumber, phase.number);
+    const g4 = gateTasksBlockCites(sec, planNumber, phase.number, opts);
     if (!g4.ok) return { eligible: false, reason: "audit", halt: g4.halt };
   }
   const g5 = gatePreconditions(sec, planFile, phase.number, {

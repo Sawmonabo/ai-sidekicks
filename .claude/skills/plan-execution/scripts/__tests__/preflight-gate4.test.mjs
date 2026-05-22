@@ -5,7 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { mkdtempSync, mkdirSync, symlinkSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, symlinkSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import {
   normalizeCitePayload,
@@ -14,6 +14,7 @@ import {
   extractCiteAnchors,
   verifyAnchorAgainstSpec,
   gateTasksBlockCites,
+  runPreflight,
 } from "../preflight.mjs";
 
 const FIXTURE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "preflight-gate4-fixtures");
@@ -426,3 +427,59 @@ function resolveFixtureRepoRoot() {
   _cachedFixtureRepoRoot = root;
   return root;
 }
+
+// Regression for the `_checkPhase → gateTasksBlockCites` opts-threading bug
+// (Codex P2 on PR #96 line 1456): without threading, runPreflight's repoRoot
+// silently falls back to REPO_ROOT, so Gate 4 file-existence checks hit the
+// wrong tree. The Spec-100 cite below resolves only in FIXTURE_DIR — real
+// REPO_ROOT/docs/specs has no 100-*.md — so the assertion fails closed if
+// threading regresses.
+test("PASS 30: runPreflight threads opts.repoRoot into Gate 4 file lookups", () => {
+  const fixtureRoot = mkdtempSync(resolve(tmpdir(), "preflight-runPreflight-"));
+  const docsSpecs = resolve(fixtureRoot, "docs", "specs");
+  mkdirSync(dirname(docsSpecs), { recursive: true });
+  symlinkSync(FIXTURE_DIR, docsSpecs);
+
+  const fakeSkillMd = resolve(fixtureRoot, "fake-skill.md");
+  writeFileSync(fakeSkillMd, "---\nname: fake-skill\n---\n\nNo requires_files frontmatter.\n");
+
+  const planDir = resolve(fixtureRoot, "docs", "plans");
+  mkdirSync(planDir, { recursive: true });
+  const planFile = resolve(planDir, "100-fixture-plan.md");
+  writeFileSync(
+    planFile,
+    [
+      "---",
+      "status: approved",
+      "audit_complete: true",
+      "---",
+      "",
+      "# Plan-100 fixture",
+      "",
+      "## Status Promotion",
+      "",
+      "- [x] **Plan-readiness audit complete**",
+      "",
+      "### Shipment Manifest",
+      "",
+      "```yaml",
+      "manifest_schema_version: 1",
+      "shipped: []",
+      "```",
+      "",
+      "### Phase 1 — Fixture phase",
+      "",
+      "#### Tasks",
+      "",
+      "- **T-100-1.1** — Identifier surface",
+      "  - **Spec coverage:** Spec-100 line 10 (FixtureIdentifier)",
+      "  - **Verifies invariant:** I-100-1",
+      "",
+      "",
+    ].join("\n"),
+  );
+
+  const r = runPreflight(planFile, 1, { repoRoot: fixtureRoot, skillMd: fakeSkillMd });
+  assert.equal(r.exit, 0, `runPreflight should pass with threaded opts; got halt:\n${r.stdout}`);
+  assert.equal(r.stdout, "1");
+});
