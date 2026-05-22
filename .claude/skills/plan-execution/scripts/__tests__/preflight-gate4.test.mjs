@@ -615,6 +615,19 @@ test("FAIL 40: adr-file-ambiguous when two NNN-*.md ADR files share a prefix", (
   assert.match(result.evidence, /099-adr-two\.md/);
 });
 
+test("FAIL 42: ac-line-hint-wrong-bullet binds the hint to the cited AC-N", () => {
+  // Fixture AC bullets sit at lines 45 (AC1), 46 (AC2), 47 (AC3). A cite
+  // like `AC3 (line 45)` is the false-green class Codex flagged on PR #96
+  // line 1571 — the hint is an AC bullet (passes ac-line-hint-not-bullet)
+  // and sits inside §Acceptance Criteria (passes ac-line-hint-outside-
+  // section), but it does not point at AC3. The new check now ties the
+  // hint to the specific AC-N index so traceability is per-anchor.
+  const { verifyFailures } = verifyAll("Spec-002 AC3 (line 45)");
+  assert.equal(verifyFailures.length, 1);
+  assert.equal(verifyFailures[0].result.reason, "ac-line-hint-wrong-bullet");
+  assert.match(verifyFailures[0].result.evidence, /AC3 sits at line 47/);
+});
+
 test("FAIL 41: arch-doc-ambiguous when filename collides across subdirs", () => {
   const tmp = mkdtempSync(resolve(tmpdir(), "preflight-arch-ambiguous-"));
   mkdirSync(resolve(tmp, "contracts"));

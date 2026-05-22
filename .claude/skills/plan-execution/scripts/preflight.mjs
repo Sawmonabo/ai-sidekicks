@@ -1569,6 +1569,19 @@ function verifyAcAnchor(anchor, source, specLines) {
         evidence: `Line ${anchor.lineHint} is not an AC bullet. Content: ${hintContent.trim()}`,
       };
     }
+    // Bind the hint to the specific AC-N index: the hinted line must be the
+    // N-th `- [ ]` bullet within §Acceptance Criteria. Without this check
+    // `Spec-002 AC3 (line 45)` false-passes when line 45 is actually AC1
+    // (Codex P2 on PR #96 line 1571).
+    const targetBulletAbsIdx = acStart + bullets[anchor.ac - 1].index;
+    const targetBulletLineNum = source.slice(0, targetBulletAbsIdx).split("\n").length;
+    if (anchor.lineHint !== targetBulletLineNum) {
+      return {
+        valid: false,
+        reason: "ac-line-hint-wrong-bullet",
+        evidence: `Line ${anchor.lineHint} is an AC bullet but not AC${anchor.ac}; AC${anchor.ac} sits at line ${targetBulletLineNum}.`,
+      };
+    }
   }
   return { valid: true, reason: "ac-bullet-exists", evidence: `AC${anchor.ac} bullet found.` };
 }
