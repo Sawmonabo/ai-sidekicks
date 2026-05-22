@@ -15,13 +15,18 @@
 // match the inbound-ripple class CI's `custom-checks` repo-wide sweep catches.
 
 import { realpathSync, statSync } from "node:fs";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
   checkCiteTargetExistence,
   formatCiteTargetViolations,
 } from "../lib/cite-target-existence.ts";
-import { expandToInboundCiteCorpus } from "../lib/inbound-cite-discovery.ts";
+import {
+  expandToInboundCiteCorpus,
+  getRepoRoot,
+  makeIndexAwareReader,
+} from "../lib/inbound-cite-discovery.ts";
 import { checkMermaidSetCoherence, formatMermaidViolations } from "../lib/mermaid-set-coherence.ts";
 import {
   checkPathCanonicalRipple,
@@ -72,8 +77,15 @@ export function runChecks(args: string[]): RunChecksResult {
       messages.push(formatMermaidViolations(mermaidHits));
       exitCode = 1;
     }
-    const expanded = expandToInboundCiteCorpus(stagedMd);
-    const citeHits = checkCiteTargetExistence(expanded);
+    // Argv-staged paths read the working tree (the developer's explicit
+    // opt-in); auto-expanded citers read the git index (`git show :path`) so
+    // unstaged WIP and worktree-only deletions do not leak into validation.
+    // Build the reader once and share it across expansion + cite-checking.
+    const repoRoot = getRepoRoot();
+    const stagedAbsolute = new Set(stagedMd.map((p) => resolve(p)));
+    const reader = makeIndexAwareReader(repoRoot, stagedAbsolute);
+    const expanded = expandToInboundCiteCorpus(stagedMd, repoRoot, reader);
+    const citeHits = checkCiteTargetExistence(expanded, reader);
     if (citeHits.length > 0) {
       messages.push(formatCiteTargetViolations(citeHits));
       exitCode = 1;
