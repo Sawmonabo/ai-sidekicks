@@ -363,26 +363,105 @@ SEVERITY RUBRIC:
 - minor — Implementer can proceed but loses time/precision. Inline amendment.
 - nit — Stylistic, cosmetic, low-value-add. Skip or batch into single cosmetic-cleanup amendment.
 
+CITE ANCHOR DISCIPLINE (HARD RULES):
+
+- **Per-anchor verification.** For each `Spec-NNN AC-X` or `Spec-NNN line NN` you emit, Read `docs/specs/NNN-*.md` and confirm the cited line / AC contains the cited behavior. Do not emit the cite until verified.
+- **One anchor per behavior.** When a Task closes multiple Spec behaviors (compound contract claims), emit one anchor per behavior, never a range. Write `line 85 (PresenceUpdate), line 86 (PresenceRead)`, not `lines 85-86`.
+- **Plan-NNN ≠ Spec-NNN namespace.** Plan-NNN line numbers, Plan-NNN section headings, and Plan-local row IDs (`Cn`, `Pr-n`, `In`) are NOT Spec-NNN anchors. Spec-NNN anchors are line numbers and section headings in `docs/specs/NNN-*.md` only. Do not co-locate `Plan-NNN:LLL` parentheticals inside the `**Spec coverage:**` field.
+- **Return-DONE self-verification.** Before returning DONE, enumerate each anchor you cited in this Phase's output and confirm — by grep/Read — each exists at the cited line. Append a `## Self-Verification` block with one row per cite confirming the spec line content matches.
+
 HARD RULE (anti-fabrication): If the spec doesn't tell you what assertion to write in Step 1, you do NOT invent one. You file a finding (severity: critical, dimension: 5) instead.
 
 WRITING-PLANS FORMAT (Tasks block authoring): For unstarted Phases (no code merged for this Phase yet), author a `#### Tasks` subsection nested under the existing Phase header. Existing Phase prose (Precondition, Goal, scope bullets) is preserved verbatim. Each Task carries two extra fields beyond raw writing-plans format:
 
-- **Spec coverage:** Spec-NNN AC-X (closes Dimension 9 loop)
+- **Spec coverage:** Spec-NNN AC-X (line NN), AC-Y (line MM) (closes Dimension 9 loop; line-anchored shape preferred. AC-only (`Spec-NNN AC-X`) is the fallback when an AC has no canonical line in the spec.)
 - **Verifies invariant:** I-NNN-M (closes Dimension 7 loop, when applicable)
 
 If you cannot author a Task concretely from source materials, file a Finding instead (per the hard rule above).
 
-````
+`````
+
+## Cite-Amendment Subagent Prompt Template
+
+This template is for **cite-fix** dispatches (backfilling or correcting `**Spec coverage:**` and `**Verifies invariant:**` annotations on already-shipped Tasks), not full Phase audits. Use §Subagent Prompt Template above when authoring net-new Tasks; use this template when the Tasks are already present and only the cite annotations need amendment.
+
+````text
+ROLE: You are a cite-amendment auditor for an AI Sidekicks V1 implementation
+plan. You correct or backfill `**Spec coverage:**` and `**Verifies invariant:**`
+annotations on existing `#### Tasks` rows. You DO NOT author new Tasks; you
+DO NOT modify Files / Goal / Implementation Notes / Precondition prose.
+
+MODEL: You must run as Opus 4.7. Refuse if other model.
+
+SCOPE: Plan-NNN, Tasks in scope (the orchestrator names specific Task IDs).
+
+INPUTS YOU MUST READ:
+- docs/plans/NNN-*.md (the target plan body — Tasks block only)
+- docs/specs/NNN-*.md (the paired spec — source of truth for anchors)
+
+DO NOT READ:
+- Other plans' bodies. Reading them primes Plan-NNN-as-Spec-NNN confusion;
+  use docs/architecture/cross-plan-dependencies.md for context only if
+  explicitly asked.
+
+OUTPUT FILE:
+{orchestrator-supplied path under .agents/tmp/research/}
+
+OUTPUT FORMAT: one block per Task row, in this exact shape:
+
+# Plan-NNN Cite Amendment
+
+## T-NN.M
+**Spec coverage:** {new cite or "(unchanged)"}
+**Verifies invariant:** {new cite or "(unchanged)"}
+Rationale: {one sentence pointing at the spec line(s) you verified}
+
+## Self-Verification
+
+| Cite emitted | Spec file:line | Line content (quoted) | Match? |
+| ------------ | -------------- | --------------------- | ------ |
+| Spec-NNN line YY (Subject) | docs/specs/NNN-*.md:YY | "…" | ✓ |
+| ...                        | ...                    | ... | ✓ |
+
+CITE ANCHOR DISCIPLINE (HARD RULES — same as §Subagent Prompt Template above):
+
+- **Per-anchor verification.** For each `Spec-NNN AC-X` or `Spec-NNN line NN`
+  you emit, Read `docs/specs/NNN-*.md` and confirm the cited line / AC
+  contains the cited behavior. Do not emit the cite until verified.
+- **One anchor per behavior.** When a Task closes multiple Spec behaviors
+  (compound contract claims), emit one anchor per behavior, never a range.
+  Write `line 85 (PresenceUpdate), line 86 (PresenceRead)`, not `lines 85-86`.
+- **Plan-NNN ≠ Spec-NNN namespace.** Plan-NNN line numbers, Plan-NNN section
+  headings, and Plan-local row IDs (`Cn`, `Pr-n`, `In`) are NOT Spec-NNN
+  anchors. Spec-NNN anchors are line numbers and section headings in
+  `docs/specs/NNN-*.md` only. Do not co-locate `Plan-NNN:LLL` parentheticals
+  inside the `**Spec coverage:**` field.
+- **Return-DONE self-verification.** Before returning DONE, populate the
+  `## Self-Verification` table above. Each row must quote the spec line
+  content verifying the cite. If you cannot quote the matching content, the
+  cite is unverified — do not emit it.
+
+HARD RULE (anti-fabrication): If the spec doesn't contain a line anchor for
+the behavior, emit `(unchanged)` and surface a separate finding requesting
+spec amendment. NO FABRICATION.
+
+CROSS-REFERENCE TO VERIFIER: Your output is verified by preflight Gate 4
+(`extractCiteAnchors` + `verifyAnchorAgainstSpec` in
+`.claude/skills/plan-execution/scripts/preflight.mjs`; see
+`.claude/skills/plan-execution/references/preflight-contract.md`
+§Gate 4 — Cite Anchor Semantic Check). The `## Self-Verification` block is
+the authoring discipline; Gate 4 is the orchestrator-side enforcement. If
+Gate 4 fails on a cite you emitted, the orchestrator returns the failing
+cite + spec evidence to you for re-amendment.
+`````
 
 ## Main-Agent Dep-Trace Dimensions
 
-The main agent walks the 8 dep-ordering dimensions per Phase of each plan
-in tier scope. These complement the 10 completeness dimensions handled by
-subagents.
+The main agent walks the 8 dep-ordering dimensions per Phase of each plan in tier scope. These complement the 10 completeness dimensions handled by subagents.
 
 | ID | Dimension | Question |
-|----|-----------|----------|
-| D1 | Phase-level import surface | What files does Phase-N create or modify? What does each file import from outside this plan? *For unstarted Phases (no code yet), the auditor reads the plan body's declared file list (Target Areas + Phase scope bullets) and infers imports from the spec/contracts the plan cites — not actual source.* |
+| --- | --- | --- |
+| D1 | Phase-level import surface | What files does Phase-N create or modify? What does each file import from outside this plan? _For unstarted Phases (no code yet), the auditor reads the plan body's declared file list (Target Areas + Phase scope bullets) and infers imports from the spec/contracts the plan cites — not actual source._ |
 | D2 | Upstream Phase sufficiency | For each external import, is the source shipped by an upstream Plan/Phase in a strictly lower Tier (or earlier Phase within the same plan)? |
 | D3 | Plan-header dep accuracy | Does the plan's `Dependencies` row enumerate every plan whose code Phase-N imports from? |
 | D4 | Cross-plan-deps §3 alignment | Does §3 of `cross-plan-dependencies.md` show every edge Phase-N needs? Are edges typed correctly? |
@@ -391,50 +470,57 @@ subagents.
 | D7 | Cross-plan ownership consistency | Does Phase-N create or modify a path/table that another plan claims ownership of in §1 / §2? |
 | D8 | Substrate-vs-namespace pattern | If Phase-N depends on a substrate-deliverable from a later-tier plan, is the carve-out documented in §5? |
 
-**Output:**
-`.agents/tmp/research/plan-readiness-audit/plan-NNN/main-agent-dep-trace.md`
+**Output:** `.agents/tmp/research/plan-readiness-audit/plan-NNN/main-agent-dep-trace.md`
 
 ## REVIEW.md Schema
 
-Every tier swap presents a REVIEW.md to the user. Schema is non-negotiable
-(the runbook's mechanical verification depends on the headings).
+Every tier swap presents a REVIEW.md to the user. Schema is non-negotiable (the runbook's mechanical verification depends on the headings).
 
 ```markdown
 # Tier-K Audit Review — YYYY-MM-DD
 
 ## Plans Audited In This Tier
+
 - Plan-XXX (X findings: A critical, B major, C minor)
 
 ## Per-Plan Diffs
+
 ### Plan-XXX
+
 - Lines added: NN
 - Lines removed: NN
 - Structural anchors preserved: ✅ (count/count)
 - Status flip: stays approved | flip to review
 
 #### Findings → Amendments Mapping
+
 | Finding ID | Severity | Dimension | Amendment Target | Diff Hunk |
-|------------|----------|-----------|------------------|-----------|
-| F-XXX-1-01 | critical | 10 | dep-map §3 | line NNN |
+| ---------- | -------- | --------- | ---------------- | --------- |
+| F-XXX-1-01 | critical | 10        | dep-map §3       | line NNN  |
 
 #### Diff Preview
+
 [link to working/tier-K/diff-plan-XXX.patch]
 
 ## Cross-Cutting Findings This Tier
+
 - C-K-01: ...
 
 ## Upstream-Tier Amendments Required
+
 - (omit section if none; populated when Tier-N audit surfaces a Tier-K, K<N, amendment)
 
 ## Findings Escalated to Backlog (proposed BL-NNN)
+
 - BL-XXX: ...
 
 ## Decision Required
+
 - [ ] Approve all → swap + commit
 - [ ] Approve subset: ...
 - [ ] Reject → adjust
 - [ ] Escalate item(s) to backlog: ...
-````
+```
 
 ## Lessons Learned
 

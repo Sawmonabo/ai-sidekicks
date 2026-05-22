@@ -548,11 +548,11 @@ sed -n '3p' .claude/skills/plan-execution/scripts/preflight.mjs
 
 Expected: `// Authoritative contract: ../references/preflight-contract.md.`
 
-### Task 2.3: Update path reference at `preflight.mjs` line 544
+### Task 2.3: Update path reference at `preflight.mjs` line 2009
 
 **Files:**
 
-- Modify: `.claude/skills/plan-execution/scripts/preflight.mjs:544` (usage-error message body)
+- Modify: `.claude/skills/plan-execution/scripts/preflight.mjs:2009` (usage-error message body)
 
 The current line is a JS string literal embedded in an error message. The bare filename `preflight-contract.md` (no relative-path qualifier) is the actual substring; after the move, replace it with `../references/preflight-contract.md` to give the user a path that resolves from the script's own directory.
 
@@ -644,7 +644,7 @@ The housekeeper subagent ticks these boxes in Phase E after PR 2 squash-merges. 
 
 - [ ] Task 2.1 — `git mv scripts/preflight-contract.md → references/preflight-contract.md`
 - [ ] Task 2.2 — `preflight.mjs:3` path reference updated
-- [ ] Task 2.3 — `preflight.mjs:544` path reference updated
+- [ ] Task 2.3 — `preflight.mjs:2009` path reference updated
 - [ ] Task 2.4 — `SKILL.md` lines 142/507/518 path references updated
 - [ ] Task 2.5 — repo-wide grep confirms zero remaining `scripts/preflight-contract.md` references outside spec quote blocks; commit + PR opened + merged
 
