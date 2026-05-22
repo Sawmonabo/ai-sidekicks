@@ -231,11 +231,11 @@ Plan-002 implementation lands as a sequence of small PRs primarily at Tier 2 (Ph
 
 ##### T2.1 — Implement `invite-service.ts` issuance with PASETO v4.local (consumes `@ai-sidekicks/crypto-paseto` v4.local `encrypt` surface from Plan-025 Tier 1 Partial per CP-002-4 — BL-119 resolved via Option A).
 
-**Files:** `packages/control-plane/src/invites/invite-service.ts` **Spec coverage:** Spec-002 §Token Security Properties lines 110, 113; P5 **Verifies invariant:** none (issuance path; hash-storage invariant verified by P5)
+**Files:** `packages/control-plane/src/invites/invite-service.ts` **Spec coverage:** Spec-002 §Token Security Properties lines 110 (Entropy/CSPRNG), 111 (hash storage), 113 (Token payload structure); P5 **Verifies invariant:** none (issuance path; hash-storage invariant verified by P5)
 
 ##### T2.2 — Implement invite acceptance + single-use enforcement + revocation + expiry validation; emit revocation audit events.
 
-**Files:** `packages/control-plane/src/invites/invite-service.ts`, `packages/control-plane/src/invites/__tests__/invite-service.test.ts` **Spec coverage:** Spec-002 AC1, AC3, §Token Security Properties lines 109, 111, §Invite Revocation lines 138, 141; P1, P2, P3, P4, P8 **Verifies invariant:** none (issuance/acceptance path; revocation durability verified by P8)
+**Files:** `packages/control-plane/src/invites/invite-service.ts`, `packages/control-plane/src/invites/__tests__/invite-service.test.ts` **Spec coverage:** Spec-002 AC1, AC3, §Token Security Properties lines 109, 111, §Invite Revocation lines 138 (immediacy), 141 (audit emission), 142 (owner-authorization); P1, P2, P3, P4, P8 **Verifies invariant:** none (issuance/acceptance path; revocation durability verified by P8)
 
 ##### T2.3 — Implement `membership-service.ts` with `MembershipUpdate` handler; enforce I-002-1 + I-002-2 with typed errors.
 
