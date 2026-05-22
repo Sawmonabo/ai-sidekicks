@@ -1,0 +1,110 @@
+// inbound-cite-discovery — given staged files, returns the union of the staged
+// set PLUS every governance-corpus markdown file whose outbound `:NNN` cites
+// resolve into any of the staged files. Used by the pre-commit runner to widen
+// cite-target validation when a governance doc is staged with a line-shifting
+// edit — catches CAT-06 inbound ripple before push instead of after CI.
+//
+// "Governance corpus" = docs/{plans,specs,decisions,architecture,domain,
+// operations}/*.md — the design-contract surfaces whose line numbers other
+// docs cite by `:NNN`. Excludes docs/archive/ (frozen history), docs/reference/
+// (external excerpts), docs/vision.md (no inbound :NNN cites), and
+// docs/superpowers/ (transient research drafts).
+
+import { readdirSync, existsSync } from "node:fs";
+import { resolve, relative, dirname, sep } from "node:path";
+
+import { extractCites } from "./cite-target-existence.ts";
+
+const GOVERNANCE_CORPUS_DIRS = [
+  "docs/plans",
+  "docs/specs",
+  "docs/decisions",
+  "docs/architecture",
+  "docs/domain",
+  "docs/operations",
+];
+
+function findRepoRoot(): string {
+  // Termination via parent-equals-current matches cite-target-existence.ts so
+  // the walk completes on Windows drive roots too. Falls back to process.cwd()
+  // when no .git ancestor exists.
+  let dir = process.cwd();
+  for (;;) {
+    if (existsSync(resolve(dir, ".git"))) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) return process.cwd();
+    dir = parent;
+  }
+}
+
+function getRepoRoot(): string {
+  return process.env.REPO_ROOT ?? findRepoRoot();
+}
+
+function toRepoRelative(repoRoot: string, absolutePath: string): string {
+  return relative(repoRoot, absolutePath).split(sep).join("/");
+}
+
+function isInGovernanceCorpus(repoRoot: string, absolutePath: string): boolean {
+  if (!absolutePath.endsWith(".md")) return false;
+  const rel = toRepoRelative(repoRoot, absolutePath);
+  return GOVERNANCE_CORPUS_DIRS.some((dir) => rel.startsWith(`${dir}/`));
+}
+
+function walkMarkdownFiles(dir: string): string[] {
+  const out: string[] = [];
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return out;
+  }
+  for (const entry of entries) {
+    const full = resolve(dir, entry.name);
+    if (entry.isDirectory()) {
+      out.push(...walkMarkdownFiles(full));
+    } else if (entry.isFile() && entry.name.endsWith(".md")) {
+      out.push(full);
+    }
+  }
+  return out;
+}
+
+function enumerateGovernanceCorpus(repoRoot: string): string[] {
+  const out: string[] = [];
+  for (const subdir of GOVERNANCE_CORPUS_DIRS) {
+    out.push(...walkMarkdownFiles(resolve(repoRoot, subdir)));
+  }
+  return out;
+}
+
+export function expandToInboundCiteCorpus(stagedFiles: string[], repoRoot?: string): string[] {
+  const root = repoRoot ?? getRepoRoot();
+  const stagedAbsolute = new Set<string>(stagedFiles.map((f) => resolve(f)));
+  // Expand only when at least one staged file lives inside the governance
+  // corpus — otherwise the corpus walk is wasted work, and a non-governance
+  // staged file (README.md, docs/vision.md) can't trigger inbound ripple.
+  let hasGovernanceStaged = false;
+  for (const staged of stagedAbsolute) {
+    if (isInGovernanceCorpus(root, staged)) {
+      hasGovernanceStaged = true;
+      break;
+    }
+  }
+  if (!hasGovernanceStaged) return [...stagedAbsolute];
+
+  const expanded = new Set<string>(stagedAbsolute);
+  const candidates = enumerateGovernanceCorpus(root).filter(
+    (candidate) => !stagedAbsolute.has(candidate),
+  );
+  for (const candidate of candidates) {
+    const cites = extractCites(candidate);
+    for (const cite of cites) {
+      if (stagedAbsolute.has(resolve(cite.targetPath))) {
+        expanded.add(candidate);
+        break;
+      }
+    }
+  }
+  return [...expanded];
+}
