@@ -63,6 +63,12 @@ function enumerateGovernanceCorpus(repoRoot: string): string[] {
   // does not exist in CI. Graceful fallback: return [] on spawn/status error
   // — the new inbound expansion is lost but pre-existing per-file coverage
   // is preserved, and CI's repo-wide sweep remains the backstop.
+  //
+  // The `existsSync` filter handles the common local state where a tracked
+  // governance file has been deleted from the worktree without staging the
+  // delete: `git ls-files --cached` (the default) still lists it, but the
+  // downstream `readFileSync` in `extractCites` would throw ENOENT and crash
+  // the pre-commit runner.
   const result = spawnSync("git", ["-C", repoRoot, "ls-files", "--", ...GOVERNANCE_CORPUS_DIRS], {
     encoding: "utf8",
   });
@@ -70,7 +76,8 @@ function enumerateGovernanceCorpus(repoRoot: string): string[] {
   return result.stdout
     .split("\n")
     .filter((line) => line.endsWith(".md"))
-    .map((line) => resolve(repoRoot, line));
+    .map((line) => resolve(repoRoot, line))
+    .filter((absolute) => existsSync(absolute));
 }
 
 export function expandToInboundCiteCorpus(stagedFiles: string[], repoRoot?: string): string[] {

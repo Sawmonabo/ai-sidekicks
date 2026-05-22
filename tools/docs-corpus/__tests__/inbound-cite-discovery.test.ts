@@ -233,4 +233,38 @@ describe("inbound-cite-discovery — governance-corpus inbound expansion", () =>
       cleanup();
     }
   });
+
+  it("skips candidates deleted from the worktree but still tracked in the index", () => {
+    // `git ls-files --cached` (the default) lists files that are in the index
+    // even when the worktree copy has been deleted (an unstaged `rm`). Without
+    // an existsSync filter, the downstream `readFileSync` in extractCites
+    // throws ENOENT and crashes the pre-commit runner. This is a common
+    // local state: developer rm's a doc, then runs pre-commit on an unrelated
+    // change before staging the delete. Verify the enumerator silently skips
+    // the missing path instead of propagating an exception.
+    const { root, cleanup } = setupRepo({
+      "docs/plans/002-foo.md": "# Plan-002\n\nline two\n",
+      "docs/architecture/cross-plan-deps.md":
+        "Surviving citer: [Plan-002](../plans/002-foo.md):2.\n",
+      "docs/decisions/010-to-be-deleted.md":
+        "Stale citer about to vanish: [Plan-002](../plans/002-foo.md):2.\n",
+    });
+    try {
+      // Delete the ADR from the worktree AFTER setupRepo's `git add -A`. The
+      // path stays in the index; `git ls-files` will still return it.
+      rmSync(resolve(root, "docs/decisions/010-to-be-deleted.md"));
+      const expanded = withRepoRoot(root, () =>
+        expandToInboundCiteCorpus([resolve(root, "docs/plans/002-foo.md")]),
+      );
+      expect(new Set(expanded)).toEqual(
+        new Set([
+          resolve(root, "docs/plans/002-foo.md"),
+          resolve(root, "docs/architecture/cross-plan-deps.md"),
+        ]),
+      );
+      expect(expanded).not.toContain(resolve(root, "docs/decisions/010-to-be-deleted.md"));
+    } finally {
+      cleanup();
+    }
+  });
 });
