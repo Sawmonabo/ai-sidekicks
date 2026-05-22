@@ -314,6 +314,37 @@ test("regexParsePreconditionsLine extracts patterns", () => {
   ]);
 });
 
+test("regexParsePreconditionsLine resolves bare 'Phase N merged' against localPlanNumber", () => {
+  // Corpus convention for same-plan precondition prose is the bare form
+  // (Plan-001/003/007/024 all use it). Without the bare-form branch the
+  // regex emits [] and gatePreconditions silently treats the line as legacy
+  // free-form. With `localPlanNumber=3` the bare form resolves to a
+  // machine-enforceable plan_phase entry against Plan-3.
+  const line = `Phase 1 merged (workspace + CI surface in place).`;
+  assert.deepEqual(regexParsePreconditionsLine(line, 3), [
+    { type: "plan_phase", plan: 3, phase: 1, status: "merged" },
+  ]);
+});
+
+test("regexParsePreconditionsLine does not double-count Plan-NNN Phase N when localPlanNumber set", () => {
+  // The Plan-NNN form is already matched by the explicit-prefix regex. The
+  // bare-form regex's negative lookbehind `(?<!Plan-\\d{3}\\s+)` excludes the
+  // `Phase N merged` segment inside `Plan-NNN Phase N merged`, so passing a
+  // different localPlanNumber must not duplicate the entry against the local
+  // plan. This is the load-bearing invariant for the extension.
+  const line = `Plan-001 Phase 5 merged AND something irrelevant.`;
+  assert.deepEqual(regexParsePreconditionsLine(line, 24), [
+    { type: "plan_phase", plan: 1, phase: 5, status: "merged" },
+  ]);
+});
+
+test("regexParsePreconditionsLine omits bare-form when localPlanNumber is undefined", () => {
+  // Backward-compat: legacy callers that omit localPlanNumber (and tests that
+  // assert pre-extension behavior) must not see bare-form entries materialize.
+  const line = `Phase 1 merged.`;
+  assert.deepEqual(regexParsePreconditionsLine(line), []);
+});
+
 test("extractPlanNumber pulls leading number from filename", () => {
   assert.equal(extractPlanNumber("/abs/docs/plans/001-shared-session-core.md"), 1);
   assert.equal(extractPlanNumber("007-foo.md"), 7);
@@ -1407,6 +1438,70 @@ test("runPreflight halts loudly in auto-walk mode when shipped[] entries fail va
   assert.equal(r.exit, 1);
   assert.match(r.stdout, /entries fail schema validation/);
   assert.doesNotMatch(r.stdout, /no eligible un-shipped phase/);
+});
+
+test("runPreflight halts loudly in auto-walk mode when an earlier phase fails G4 cites", () => {
+  // Audit-class failures (Gate 2 per-phase checkbox, Gate 4 cite-format)
+  // reflect upstream author defects. Pre-fix, `reason: "audit"` was in the
+  // silent-skip set: the loop pushed the phase onto `skipped[]` and tried
+  // the next phase, which could land on a later phase that passed its own
+  // gates — masking the earlier defect (this is exactly how Plan-002 Phase
+  // 2 became eligible on develop while Phase 1's T1.1 cite was malformed).
+  // Post-fix, `audit` is in the strict-halt set alongside manifest-class
+  // failures; auto-walk surfaces the first audit-failed phase verbatim.
+  const repo = makeTempRepo();
+  const skillMd = join(repo, ".claude", "skills", "plan-execution", "SKILL.md");
+  writeFileSync(skillMd, `---\nname: test\nrequires_files: []\n---\n\nbody`);
+  const planFile = join(repo, "docs", "plans", "001-test.md");
+  writeFileSync(
+    planFile,
+    `# Plan-001
+
+## Preconditions
+
+- [x] **Plan-readiness audit complete per runbook.
+
+### Phase 1 — Missing Cites
+
+(this phase has no Tasks block at all — Gate 4 halts on missing cites)
+
+### Phase 2 — Would Otherwise Pass
+
+**Precondition:** None.
+
+\`\`\`yaml
+preconditions: []
+\`\`\`
+
+#### Tasks
+
+##### T2.1 — desc
+**Spec coverage:** Spec-001 line 1 **Verifies invariant:** I-001-2
+
+## Progress Log
+
+### Shipment Manifest
+
+\`\`\`yaml
+manifest_schema_version: 1
+shipped: []
+\`\`\`
+
+### Notes
+`,
+  );
+  const r = runPreflight(planFile, undefined, { repoRoot: repo, skillMd });
+  assert.equal(
+    r.exit,
+    1,
+    `auto-walk must halt on Phase 1's G4 failure rather than skip to Phase 2 (got exit=${r.exit}, stdout=${r.stdout})`,
+  );
+  assert.match(r.stdout, /missing G4 cites/, "halt message must surface the G4 failure verbatim");
+  assert.doesNotMatch(
+    r.stdout,
+    /no eligible un-shipped phase/,
+    "auto-walk must not fall through to the terminal no-eligible message",
+  );
 });
 
 // ---------- extractTasksBlock (factored from extractDeclaredTaskIds) ----------
