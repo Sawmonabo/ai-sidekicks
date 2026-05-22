@@ -186,37 +186,39 @@ export function extractPlanNumber(planFile) {
   return match ? Number(match[1]) : null;
 }
 
-export function findPaddedFile(dir, ref) {
+// Returns ALL files matching `NNN-*.md`. Callers fail-closed when a numeric
+// prefix collides (botched rename / bad merge / duplicate doc). Sorted by
+// filename for deterministic test output (Codex P2 on PR #96 line 1364).
+export function findPaddedFiles(dir, ref) {
   const padded = String(ref).padStart(3, "0");
   try {
-    const files = readdirSync(dir);
-    for (const f of files) {
-      if (f.startsWith(`${padded}-`) && f.endsWith(".md")) return resolve(dir, f);
-    }
-    return null;
+    return readdirSync(dir)
+      .filter((f) => f.startsWith(`${padded}-`) && f.endsWith(".md"))
+      .sort()
+      .map((f) => resolve(dir, f));
   } catch {
-    return null;
+    return [];
   }
 }
 
-// Recursive lookup for an arch-doc filename anywhere under `dir`.
-// `docs/architecture/` has two subdir conventions (`contracts/`, `schemas/`)
-// in addition to top-level files; cites omit the subdir.
-export function findArchDocFile(dir, filename) {
-  try {
-    const entries = readdirSync(dir, { withFileTypes: true });
-    for (const e of entries) {
-      if (e.isDirectory()) {
-        const nested = findArchDocFile(resolve(dir, e.name), filename);
-        if (nested) return nested;
-      } else if (e.name === filename) {
-        return resolve(dir, e.name);
+// Returns ALL paths under `dir` whose basename matches `filename`, recursing
+// through `contracts/` / `schemas/` subdirs the cites omit. Callers fail-closed
+// when a filename collides across subdirs (Codex P2 on PR #96 line 1364).
+export function findArchDocFiles(dir, filename) {
+  const out = [];
+  function walk(d) {
+    try {
+      const entries = readdirSync(d, { withFileTypes: true });
+      for (const e of entries) {
+        if (e.isDirectory()) walk(resolve(d, e.name));
+        else if (e.name === filename) out.push(resolve(d, e.name));
       }
+    } catch {
+      /* ignore unreadable subdirs */
     }
-    return null;
-  } catch {
-    return null;
   }
+  walk(dir);
+  return out.sort();
 }
 
 export function extractAdrStatus(source) {
@@ -1323,29 +1325,43 @@ export function verifyAnchorAgainstSpec(
     if (!adrsDir) {
       return { valid: true, reason: "adrs-dir-unconfigured", evidence: anchor.raw };
     }
-    const adrFile = findPaddedFile(adrsDir, anchor.adr);
-    if (!adrFile) {
+    const adrMatches = findPaddedFiles(adrsDir, anchor.adr);
+    if (adrMatches.length === 0) {
       return {
         valid: false,
         reason: "adr-file-not-found",
         evidence: `No file matched ${adrsDir}/${String(anchor.adr).padStart(3, "0")}-*.md`,
       };
     }
-    return { valid: true, reason: "adr-file-exists", evidence: adrFile };
+    if (adrMatches.length > 1) {
+      return {
+        valid: false,
+        reason: "adr-file-ambiguous",
+        evidence: `Multiple files matched ${adrsDir}/${String(anchor.adr).padStart(3, "0")}-*.md: ${adrMatches.map((p) => basename(p)).join(", ")}. Rename or remove the duplicate so the ADR number resolves uniquely.`,
+      };
+    }
+    return { valid: true, reason: "adr-file-exists", evidence: adrMatches[0] };
   }
   if (anchor.type === "arch-doc") {
     if (!archDocsDir) {
       return { valid: true, reason: "arch-docs-dir-unconfigured", evidence: anchor.raw };
     }
-    const archFile = findArchDocFile(archDocsDir, anchor.file);
-    if (!archFile) {
+    const archMatches = findArchDocFiles(archDocsDir, anchor.file);
+    if (archMatches.length === 0) {
       return {
         valid: false,
         reason: "arch-doc-not-found",
         evidence: `No file named ${anchor.file} found under ${archDocsDir} (recursive search).`,
       };
     }
-    return { valid: true, reason: "arch-doc-exists", evidence: archFile };
+    if (archMatches.length > 1) {
+      return {
+        valid: false,
+        reason: "arch-doc-ambiguous",
+        evidence: `Multiple files named ${anchor.file} found under ${archDocsDir}: ${archMatches.join(", ")}. Disambiguate by directory path or remove the duplicate.`,
+      };
+    }
+    return { valid: true, reason: "arch-doc-exists", evidence: archMatches[0] };
   }
   if (anchor.type === "cross-plan-deps") {
     if (!crossPlanDepsFile) {
@@ -1360,14 +1376,22 @@ export function verifyAnchorAgainstSpec(
     }
     return { valid: true, reason: "cross-plan-deps-file-exists", evidence: crossPlanDepsFile };
   }
-  const specFile = findPaddedFile(specsDir, anchor.spec);
-  if (!specFile) {
+  const specMatches = findPaddedFiles(specsDir, anchor.spec);
+  if (specMatches.length === 0) {
     return {
       valid: false,
       reason: "spec-file-not-found",
       evidence: `No file matched ${specsDir}/${String(anchor.spec).padStart(3, "0")}-*.md`,
     };
   }
+  if (specMatches.length > 1) {
+    return {
+      valid: false,
+      reason: "spec-file-ambiguous",
+      evidence: `Multiple files matched ${specsDir}/${String(anchor.spec).padStart(3, "0")}-*.md: ${specMatches.map((p) => basename(p)).join(", ")}. Rename or remove the duplicate so the spec number resolves uniquely.`,
+    };
+  }
+  const specFile = specMatches[0];
   let source;
   try {
     source = readFileSync(specFile, "utf8");
@@ -1659,9 +1683,18 @@ export function resolvePrecondition(
       return { ok: false, halt: `pr_merged ref=${entry.ref} state=${data.state}, expected MERGED` };
     }
     case "adr_accepted": {
-      const adrFile = findPaddedFile(resolve(repoRoot, "docs", "decisions"), entry.ref);
-      if (!adrFile) return { ok: false, halt: `ADR-${entry.ref} not found in docs/decisions/` };
-      const source = readFileSync(adrFile, "utf8");
+      const adrDir = resolve(repoRoot, "docs", "decisions");
+      const adrMatches = findPaddedFiles(adrDir, entry.ref);
+      if (adrMatches.length === 0) {
+        return { ok: false, halt: `ADR-${entry.ref} not found in docs/decisions/` };
+      }
+      if (adrMatches.length > 1) {
+        return {
+          ok: false,
+          halt: `ADR-${entry.ref} resolves to multiple files in docs/decisions/: ${adrMatches.map((p) => basename(p)).join(", ")}. Rename or remove the duplicate.`,
+        };
+      }
+      const source = readFileSync(adrMatches[0], "utf8");
       const status = extractAdrStatus(source);
       if (status === "accepted") return { ok: true };
       return {
@@ -1670,8 +1703,18 @@ export function resolvePrecondition(
       };
     }
     case "plan_phase": {
-      const planFile = findPaddedFile(resolve(repoRoot, "docs", "plans"), entry.plan);
-      if (!planFile) return { ok: false, halt: `Plan-${entry.plan} not found in docs/plans/` };
+      const planDir = resolve(repoRoot, "docs", "plans");
+      const planMatches = findPaddedFiles(planDir, entry.plan);
+      if (planMatches.length === 0) {
+        return { ok: false, halt: `Plan-${entry.plan} not found in docs/plans/` };
+      }
+      if (planMatches.length > 1) {
+        return {
+          ok: false,
+          halt: `Plan-${entry.plan} resolves to multiple files in docs/plans/: ${planMatches.map((p) => basename(p)).join(", ")}. Rename or remove the duplicate.`,
+        };
+      }
+      const planFile = planMatches[0];
       const source = readFileSync(planFile, "utf8");
       // Mirror Gate 3's set-comparison via the shared classifier. Pre-round-7
       // the resolver matched any phase entry (`some(e.phase === entry.phase)`),

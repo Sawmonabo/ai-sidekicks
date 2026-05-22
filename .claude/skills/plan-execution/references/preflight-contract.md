@@ -101,11 +101,11 @@ Rejected shapes (each emits one failure with `severity: error`; **blocks Gate 4*
 
 Each emitted anchor is verified by `verifyAnchorAgainstSpec(anchor, repoRoot)`:
 
-- `type: line` — read line `anchor.line` from `docs/specs/NNN-*.md`. Fail with `out-of-range-line` if blank or past EOF. If `subject` present, lowercase + strip-punctuation both sides; verify subject tokens appear on the cited line. Fail with `subject-mismatch` if not.
+- `type: line` — locate the spec file via `findPaddedFiles(specsDir, anchor.spec)`. Fail with `spec-file-not-found` if no match, or `spec-file-ambiguous` if multiple files share the same numeric prefix. Then read line `anchor.line`; fail with `out-of-range-line` if blank or past EOF. If `subject` present, lowercase + strip-punctuation both sides and verify subject tokens appear on the cited line. Fail with `subject-mismatch` if not.
 - `type: ac` — find `^## Acceptance Criteria` heading; count `^- \[[ x]\]` bullets in the section; assert the X-th exists. If `lineHint` present, assert that line matches the AC checkbox shape.
 - `type: section` — verify named section heading exists in the spec.
-- `type: adr-section` — file-existence check against `docs/decisions/NNN-*.md` (via `findPaddedFile`). Fail with `adr-file-not-found` if no match. Section + item/row are not mechanically verified (they are documentary).
-- `type: arch-doc` — file-existence check against `docs/architecture/**/<filename>` (recursive via `findArchDocFile`, handling the `contracts/` and `schemas/` subdirs). Fail with `arch-doc-not-found` if no match. Section is documentary.
+- `type: adr-section` — file-existence check against `docs/decisions/NNN-*.md` (via `findPaddedFiles`). Fail with `adr-file-not-found` if no match, or `adr-file-ambiguous` if multiple files share the same numeric prefix. Section + item/row are not mechanically verified (they are documentary).
+- `type: arch-doc` — file-existence check against `docs/architecture/**/<filename>` (recursive via `findArchDocFiles`, handling the `contracts/` and `schemas/` subdirs). Fail with `arch-doc-not-found` if no match, or `arch-doc-ambiguous` if the filename collides across subdirs. Section is documentary.
 - `type: cross-plan-deps` — file-existence check against `docs/architecture/cross-plan-dependencies.md`. Fail with `cross-plan-deps-file-not-found` if missing. Section + row are documentary.
 - `type: none-literal` / `type: plan-local-id` — trivial pass (no external doc to verify). Reason: `no-external-doc-to-verify`.
 

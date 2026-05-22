@@ -573,3 +573,60 @@ test("FAIL 38: AC line-hint outside §Acceptance Criteria rejects", () => {
   assert.equal(verifyFailures.length, 1);
   assert.equal(verifyFailures[0].result.reason, "ac-line-hint-outside-section");
 });
+
+// ============================================================
+// Multi-match fail-closed regressions (Codex P2 on PR #96 line 1364)
+// ============================================================
+// Each test builds a temp directory containing two `NNN-*.md` siblings
+// that share the same numeric prefix (or in the arch-doc case, two
+// `<filename>.md` files at different paths) and asserts the verifier
+// fails-closed with the `*-ambiguous` reason rather than silently
+// picking the first match — the original Codex flag was that the
+// prior singular helpers (`findPaddedFile` / `findArchDocFile`)
+// returned whichever entry the filesystem listed first, masking a
+// botched rename / bad merge. Those singular helpers are now deleted
+// (zero callers); only the plural fail-closed variants remain.
+
+test("FAIL 39: spec-file-ambiguous when two NNN-*.md files share a prefix", () => {
+  const tmp = mkdtempSync(resolve(tmpdir(), "preflight-spec-ambiguous-"));
+  writeFileSync(resolve(tmp, "100-spec-one.md"), "# stub one\n");
+  writeFileSync(resolve(tmp, "100-spec-two.md"), "# stub two\n");
+  const result = verifyAnchorAgainstSpec(
+    { type: "line", spec: 100, line: 1, raw: "Spec-100 line 1" },
+    { specsDir: tmp },
+  );
+  assert.equal(result.valid, false);
+  assert.equal(result.reason, "spec-file-ambiguous");
+  assert.match(result.evidence, /100-spec-one\.md/);
+  assert.match(result.evidence, /100-spec-two\.md/);
+});
+
+test("FAIL 40: adr-file-ambiguous when two NNN-*.md ADR files share a prefix", () => {
+  const tmp = mkdtempSync(resolve(tmpdir(), "preflight-adr-ambiguous-"));
+  writeFileSync(resolve(tmp, "099-adr-one.md"), "# stub one\n");
+  writeFileSync(resolve(tmp, "099-adr-two.md"), "# stub two\n");
+  const result = verifyAnchorAgainstSpec(
+    { type: "adr-section", adr: 99, section: "Decision", raw: "ADR-099 §Decision" },
+    { adrsDir: tmp },
+  );
+  assert.equal(result.valid, false);
+  assert.equal(result.reason, "adr-file-ambiguous");
+  assert.match(result.evidence, /099-adr-one\.md/);
+  assert.match(result.evidence, /099-adr-two\.md/);
+});
+
+test("FAIL 41: arch-doc-ambiguous when filename collides across subdirs", () => {
+  const tmp = mkdtempSync(resolve(tmpdir(), "preflight-arch-ambiguous-"));
+  mkdirSync(resolve(tmp, "contracts"));
+  mkdirSync(resolve(tmp, "schemas"));
+  writeFileSync(resolve(tmp, "contracts", "duplicate.md"), "# contracts version\n");
+  writeFileSync(resolve(tmp, "schemas", "duplicate.md"), "# schemas version\n");
+  const result = verifyAnchorAgainstSpec(
+    { type: "arch-doc", file: "duplicate.md", raw: "duplicate.md" },
+    { archDocsDir: tmp },
+  );
+  assert.equal(result.valid, false);
+  assert.equal(result.reason, "arch-doc-ambiguous");
+  assert.match(result.evidence, /contracts\/duplicate\.md/);
+  assert.match(result.evidence, /schemas\/duplicate\.md/);
+});
