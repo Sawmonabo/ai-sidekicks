@@ -159,6 +159,17 @@ The items below were surfaced by the [plan-readiness-audit Tier 1](./operations/
 - Tracked-by: Plan-template revision class — review-iteration-discipline gap surfaced during Plan-025 PR #92 cycle.
 - Revisit Trigger: Next time a Tier 1 Partial substrate plan opens a PR; OR a future Codex / external-reviewer iteration crosses the three-pass line again on a different plan; OR ADR-023 §Pre-Commit Hooks is amended (potential co-edit surface for the local-side counterpart to plan-authoring discipline).
 
+### BL-128: Preflight Gate 4 ambient-window subject match (intro-above-block pattern)
+
+- Status: `todo`
+- Priority: `P3`
+- Owner: `unassigned`
+- References: [Plan-002 §Phase 4 T4.2](./plans/002-invite-membership-and-presence.md), [`preflight.mjs` `verifyLineRangeAnchor`](../.claude/skills/plan-execution/scripts/preflight.mjs), [`preflight-contract.md` §Gate 4 — Cite Anchor Semantic Check](../.claude/skills/plan-execution/references/preflight-contract.md), post-mortem `51ca5f3d` follow-up (surfaced during Plan-002 cite sweep dogfood, 2026-05-21).
+- Summary: Gate 4's `verifyLineRangeAnchor` requires the subject identifier to appear within the cited line-range. This over-rejects the common Spec pattern where a contract's identifier sits on an intro line (`When a rate limit is exceeded, the API returns the standard \`RateLimitResponse\` contract`) immediately above the canonical-shape code block (`lines 127-133`). The Plan-002 T4.2 sweep worked around this by extending the cite to `lines 125-133` (intro included), but the underlying gate behavior remains: every future plan citing a "named-intro-then-shape-block" Spec contract will hit the same friction. Gate 4 should accept a subject match when the identifier appears on the line immediately preceding the cited range OR within a configurable ambient window (default ±2 lines).
+- Exit Criteria: (a) `verifyLineRangeAnchor` extended to accept subject matches within an ambient window (default ±2 lines around the cited range); (b) `preflight-contract.md` §Gate 4 — Cite Anchor Semantic Check updated to document the ambient-window rule + its rationale (intro-above-block pattern); (c) `preflight-gate4.test.mjs` test case 13 fixture rewritten so the identifier appears on the intro line ABOVE the cited code block (current fixture has identifier inside the range — contrived shape that hides the bug this BL fixes); (d) new test case asserting ambient-window subject match passes; (e) Plan-002 T4.2 cite re-tightened to `lines 127-133` (the shape itself, not including the intro) to validate the new rule against a real case.
+- Tracked-by: Gate 4 implementation precision — over-rejection class. Detected during the post-mortem 51ca5f3d remediation eat-your-own-dogfood validation.
+- Revisit Trigger: Next time a plan cites a "named-intro-then-shape-block" Spec contract and the cite-amendment subagent needs to dodge the gate with a wider range than the actual shape; OR a future plan-readiness audit pass surfaces a Gate 4 false-positive on multi-line range cites.
+
 ---
 
 _Closed items live in [Backlog Archive](./archive/backlog-archive.md)._

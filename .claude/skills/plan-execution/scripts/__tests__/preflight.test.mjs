@@ -1137,7 +1137,7 @@ preconditions: []
 ${tasks
   .map(
     (t) => `##### ${t} — desc
-**Spec coverage:** Spec-001 row ${n} **Verifies invariant:** I-001-${n}`,
+**Spec coverage:** none (test placeholder) **Verifies invariant:** I-001-${n}`,
   )
   .join("\n")}
 `,
@@ -1360,7 +1360,7 @@ preconditions: []
 #### Tasks
 
 ##### T1.1 — desc
-**Spec coverage:** Spec-001 row 1 **Verifies invariant:** I-001-1
+**Spec coverage:** none (test placeholder) **Verifies invariant:** I-001-1
 
 ### Phase 2 — Next
 
@@ -1373,7 +1373,7 @@ preconditions: []
 #### Tasks
 
 ##### T2.1 — desc
-**Spec coverage:** Spec-001 row 2 **Verifies invariant:** I-001-2
+**Spec coverage:** none (test placeholder) **Verifies invariant:** I-001-2
 `,
   );
   const r = runPreflight(planFile, undefined, { repoRoot: repo, skillMd });

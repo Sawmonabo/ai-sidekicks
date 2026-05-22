@@ -520,23 +520,890 @@ export function gatePhaseUnshipped(planSource, planNumber, phase) {
   return { ok: true };
 }
 
-export function gateTasksBlockCites(phaseSection, planNumber, phaseNumber) {
-  const counts = countCites(phaseSection);
-  if (counts.spec_coverage > 0 && counts.verifies_invariant > 0) return { ok: true };
+// ---------- Gate 4 cite-anchor semantic verification ----------
+//
+// Layered on top of the existing token-presence Gate 4. The token check
+// remains the floor (counts.spec_coverage / counts.verifies_invariant must
+// each be ≥ 1); when present, the semantic check then parses each emitted
+// cite and verifies its anchor against the named spec. Closes the
+// verification side of the cite-discipline contract authored on the
+// dispatch side in `docs/operations/plan-implementation-readiness-audit-runbook.md`
+// §Subagent Prompt Template (post-mortem 51ca5f3d).
+//
+// Pipeline order is load-bearing: Unicode dashes (en-dash U+2013 `–`,
+// em-dash U+2014 `—`) are normalised to ASCII `-` BEFORE tokenisation or
+// pattern-match. Without this the compound-range rejection rule misses
+// `lines 85–86`-shape defects (Plan-002 T3.3 form).
+
+const UNICODE_DASH_RE = /[–—]/g;
+
+export function normalizeCitePayload(text) {
+  return text.replace(UNICODE_DASH_RE, "-");
+}
+
+// Identifier-token: CamelCase (`PresenceUpdate`), dotted (`presence.heartbeat`),
+// or all-caps acronym joined via hyphen (`JSON-RPC` is matched as two tokens
+// `JSON` + `RPC`, which is fine for compound-range multi-subject detection
+// because we count distinct CamelCase identifiers, not acronym fragments).
+const IDENTIFIER_TOKEN_RE =
+  /\b([A-Z][a-zA-Z]+(?:[A-Z][a-zA-Z]*)*|[a-z][a-zA-Z]+\.[a-zA-Z][a-zA-Z.]*)\b/g;
+
+// Plan-local row IDs span simple (`C5`, `P1`, `I1`), structured
+// (`I-024-3`, `Pr-1`), and multi-invariant range (`I-024-1..5`) forms per
+// Pre-3 implication 6 of the post-mortem fix plan. Used both for detecting
+// Plan-local-ID-as-Spec-anchor defects AND for filtering subject candidates
+// extracted from descriptors.
+const PLAN_LOCAL_ID_RE = /^(?:C|P|Pr|I)-?\d+(?:\.\.\d+)?(?:-\d+(?:\.\.\d+)?)*$/;
+
+// Plan-NNN:LLL — colon-line-number form. The discriminator from Pre-3
+// implication 3: this shape is the namespace-violation defect when it
+// appears inside a Spec-NNN parenthetical. `Plan-NNN §Section` (no colon)
+// is the legitimate cross-plan-context shape and is NOT flagged.
+const PLAN_LINE_CITE_RE = /\bPlan-\d+:\d+\b/;
+
+export function extractIdentifierTokens(text) {
+  const seen = new Set();
+  const out = [];
+  for (const m of text.matchAll(IDENTIFIER_TOKEN_RE)) {
+    if (!seen.has(m[1])) {
+      seen.add(m[1]);
+      out.push(m[1]);
+    }
+  }
+  return out;
+}
+
+// Namespace prefixes (`Plan-021`, `Spec-002`, `ADR-018`) are cross-reference
+// markers, not contract subjects. Strip them before identifier extraction so
+// `Plan` doesn't surface as a false-positive subject when a descriptor cites
+// another doc (e.g., `... per Plan-021 §RateLimitResponse canonical shape`).
+const NAMESPACE_PREFIX_RE = /\b(?:Plan|Spec|ADR)-\d+\b/g;
+
+// Subject tokens are identifier-tokens with namespace-prefix markers stripped
+// (Plan-NNN/Spec-NNN/ADR-NNN) and Plan-local row IDs filtered out. Used to
+// pick the "what does this anchor point at" subject from a paren descriptor
+// like `(I3 — ChannelList bootstrap projection)` → ChannelList.
+function nonPlanLocalSubjects(text) {
+  const stripped = text.replace(NAMESPACE_PREFIX_RE, "");
+  return extractIdentifierTokens(stripped).filter((t) => !PLAN_LOCAL_ID_RE.test(t));
+}
+
+// Paren-aware split on `;` at depth 0. `;` is the top-level
+// different-namespace separator (`Spec-001 AC8; ADR-018 §Decision #4`).
+function splitOnSemicolon(payload) {
+  const out = [];
+  let depth = 0;
+  let buf = "";
+  for (let i = 0; i < payload.length; i++) {
+    const ch = payload[i];
+    if (ch === "(") {
+      depth++;
+      buf += ch;
+    } else if (ch === ")") {
+      depth--;
+      buf += ch;
+    } else if (depth === 0 && ch === ";") {
+      if (buf.trim()) out.push(buf.trim());
+      buf = "";
+    } else {
+      buf += ch;
+    }
+  }
+  if (buf.trim()) out.push(buf.trim());
+  return out;
+}
+
+// Paren-aware split on `,` and whitespace-bounded ` + ` at depth 0. Applied
+// after the namespace prefix is stripped so commas/pluses inside the
+// remainder become sub-anchor separators (`AC1 (line 178), AC2 (line 179)`
+// → two anchors; `line 87 + AC1` → two anchors).
+function splitWithinNamespace(text) {
+  const out = [];
+  let depth = 0;
+  let buf = "";
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === "(") {
+      depth++;
+      buf += ch;
+    } else if (ch === ")") {
+      depth--;
+      buf += ch;
+    } else if (depth === 0 && ch === ",") {
+      if (buf.trim()) out.push(buf.trim());
+      buf = "";
+    } else if (depth === 0 && ch === "+") {
+      const prev = i > 0 ? text[i - 1] : "";
+      const next = i + 1 < text.length ? text[i + 1] : "";
+      if (/\s/.test(prev) || /\s/.test(next)) {
+        if (buf.trim()) out.push(buf.trim());
+        buf = "";
+      } else {
+        buf += ch;
+      }
+    } else {
+      buf += ch;
+    }
+  }
+  if (buf.trim()) out.push(buf.trim());
+  return out;
+}
+
+// Gate 4 failures carry a severity. `error` blocks the gate (the seven
+// post-mortem defect classes — subject mismatch, compound-range, namespace
+// violation, Plan-local-ID-as-Spec-anchor, phantom section, file missing,
+// out-of-range line). `warn` is informational and never blocks; it covers
+// shapes the parser cannot recognize without falsely rejecting legitimate
+// cite shapes in already-approved plans. The mandate is to catch the seven
+// known defect classes, not to police every cite shape.
+function makeFailure(kind, raw, message, remediation, severity = "error") {
+  return { kind, raw, message, remediation, severity };
+}
+
+// Parse one Spec-NNN segment (after the top-level `;` split). Returns
+// {anchors: [...], failures: [...]}. The segment may contain a §Section
+// prefix, multiple sub-anchors (line / AC / line+AC / lines-range /
+// lines-list), and trailing descriptors in parens. The four mechanism
+// rejection classes from the runbook strengthened template fire here:
+// compound-range with multi-subject descriptor, Plan-NNN:LLL inside
+// descriptor, Plan-local-ID at first anchor position, phantom-section
+// (verified later by verifyAnchorAgainstSpec).
+function parseSpecSegment(segment) {
+  const nsMatch = segment.match(/^Spec-(\d+)\b\s*(.*)$/s);
+  if (!nsMatch) {
+    return {
+      anchors: [],
+      failures: [
+        makeFailure(
+          "spec-namespace-malformed",
+          segment,
+          `Spec namespace prefix malformed in '${segment}'.`,
+          "Use the shape `Spec-NNN ...` where NNN is the 3-digit spec id.",
+        ),
+      ],
+    };
+  }
+  const spec = Number(nsMatch[1]);
+  const rest = nsMatch[2].trim();
+
+  // Sweep the entire segment for the namespace-violation defect (Plan-NNN:LLL
+  // inside any descriptor or position). Applies regardless of which sub-anchor
+  // the violation sits within.
+  const failures = [];
+  if (PLAN_LINE_CITE_RE.test(segment)) {
+    const match = segment.match(/\bPlan-\d+:\d+\b/);
+    failures.push(
+      makeFailure(
+        "namespace-violation",
+        segment,
+        `'${match[0]}' is a Plan-NNN line cite inside a Spec-${spec} cite. Cross-plan line-anchors do not belong in Spec coverage.`,
+        "Move cross-plan context into Files / Goal / Implementation Notes. Plan-NNN §Section (no colon-line-number) is the legitimate cross-plan parenthetical shape.",
+      ),
+    );
+  }
+
+  // Section-prefix detection. `§<Heading>` after the namespace and before the
+  // first `line/lines/AC` keyword. The greedy boundary makes the section
+  // capture stop at the keyword.
+  let section = null;
+  let body = rest;
+  const sectionMatch = body.match(/^§([^,;+]+?)(?=\s+(?:lines?|AC\d)|\s*$|\s*\()/);
+  if (sectionMatch) {
+    section = sectionMatch[1].trim();
+    body = body.slice(sectionMatch[0].length).trim();
+  }
+
+  // Section-only form: `Spec-NNN §Section` (no lines / AC after).
+  // Optionally followed by `(<descriptor>)`. Pass with a WARN — line anchor
+  // is recommended but not required.
+  if (section && (body === "" || /^\(/.test(body))) {
+    return {
+      anchors: [
+        {
+          type: "section-only",
+          spec,
+          section,
+          descriptor: body,
+          warn: "line anchor recommended for §Section-only cite",
+          raw: segment,
+        },
+      ],
+      failures,
+    };
+  }
+
+  // First-anchor-position Plan-local-ID defect: bare token immediately after
+  // `Spec-NNN ` (no `line`/`lines`/`AC`/`§` keyword) that matches a Plan-local
+  // pattern (Cn / Pn / Pr-n / In). Discriminator vs pass case 10 (C5 (Spec-002 ...)):
+  // here the Plan-local-ID sits in the namespace-prefix position; in pass case
+  // 10 the segment STARTS with the Plan-local-ID and Spec lives inside a paren.
+  const firstToken = body.match(/^([\w-]+)\b/);
+  if (
+    !section &&
+    firstToken &&
+    PLAN_LOCAL_ID_RE.test(firstToken[1]) &&
+    !/^(AC\d|line|lines)/.test(body)
+  ) {
+    failures.push(
+      makeFailure(
+        "plan-local-id-as-spec-anchor",
+        segment,
+        `Plan-local row ID '${firstToken[1]}' cited as a Spec-${spec} anchor.`,
+        `Reverse the framing: '${firstToken[1]} (Spec-${spec} line YY — descriptor)'. Plan-local row IDs (Cn / Pn / Pr-n / In) are not Spec anchors.`,
+      ),
+    );
+    return { anchors: [], failures };
+  }
+
+  // Multi-line list under §Section: `lines N1, N2, N3 (descriptor?)`.
+  // Detect before the generic comma-split so we keep the `lines` keyword
+  // attached to each emitted anchor.
+  const multiLineMatch = body.match(/^lines\s+(\d+(?:\s*,\s*\d+)+)\s*(?:\((.*)\))?$/);
+  if (multiLineMatch) {
+    const lineNums = multiLineMatch[1].split(/\s*,\s*/).map((n) => Number(n));
+    const descriptor = multiLineMatch[2] ?? "";
+    const subjects = nonPlanLocalSubjects(descriptor);
+    const anchors = lineNums.map((line) => ({
+      type: "line",
+      spec,
+      line,
+      section,
+      subject: subjects.length === 1 ? subjects[0] : null,
+      descriptor,
+      raw: segment,
+    }));
+    return { anchors, failures };
+  }
+
+  // Range form: `lines N1-N2 (descriptor)`. Reject when descriptor names
+  // ≥2 distinct identifier-tokens (compound-range under-enumeration).
+  const rangeMatch = body.match(/^lines\s+(\d+)\s*-\s*(\d+)\s*(?:\((.*)\))?$/);
+  if (rangeMatch) {
+    const start = Number(rangeMatch[1]);
+    const end = Number(rangeMatch[2]);
+    const descriptor = rangeMatch[3] ?? "";
+    const subjects = nonPlanLocalSubjects(descriptor);
+    if (subjects.length >= 2) {
+      failures.push(
+        makeFailure(
+          "compound-range-multi-subject",
+          segment,
+          `Compound range 'lines ${start}-${end}' covers distinct subjects (${subjects.join(", ")}); one-anchor-per-behavior is required.`,
+          `Write 'line ${start} (${subjects[0]}), line ${end} (${subjects[1]})' instead of a range. Each Spec line that names a distinct contract gets its own anchor.`,
+        ),
+      );
+      return { anchors: [], failures };
+    }
+    return {
+      anchors: [
+        {
+          type: "line-range",
+          spec,
+          start,
+          end,
+          section,
+          subject: subjects[0] ?? null,
+          descriptor,
+          raw: segment,
+        },
+      ],
+      failures,
+    };
+  }
+
+  // General split on `,` and ` + ` for everything else (AC, line, line+AC).
+  // Descriptor forms accepted: `(parens)` OR ` - dash-separated` (the latter
+  // appears inside nested plan-local-id paren wrappers like `C5 (Spec-002
+  // line 15 — ChannelList)` where the inner em-dash normalizes to `-` and
+  // the wrapping paren is already consumed by the plan-local-id parser).
+  const subTokens = splitWithinNamespace(body);
+  const anchors = [];
+  for (const token of subTokens) {
+    const acMatch = token.match(/^AC(\d+)(?:\s*\((.+)\)|\s+-\s+(.+?))?\s*$/);
+    if (acMatch) {
+      const ac = Number(acMatch[1]);
+      const descriptor = (acMatch[2] ?? acMatch[3] ?? "").trim();
+      const lineHint = descriptor.match(/\bline\s+(\d+)\b/);
+      const subjects = nonPlanLocalSubjects(descriptor);
+      anchors.push({
+        type: "ac",
+        spec,
+        ac,
+        lineHint: lineHint ? Number(lineHint[1]) : null,
+        section,
+        subject: subjects.length === 1 ? subjects[0] : null,
+        descriptor,
+        warn: lineHint ? null : "line hint recommended (`AC-X (line NN)`)",
+        raw: segment,
+      });
+      continue;
+    }
+    const lineMatch = token.match(/^line\s+(\d+)(?:\s*\((.+)\)|\s+-\s+(.+?))?\s*$/);
+    if (lineMatch) {
+      const line = Number(lineMatch[1]);
+      const descriptor = (lineMatch[2] ?? lineMatch[3] ?? "").trim();
+      const subjects = nonPlanLocalSubjects(descriptor);
+      anchors.push({
+        type: "line",
+        spec,
+        line,
+        section,
+        subject: subjects[0] ?? null,
+        descriptor,
+        raw: segment,
+      });
+      continue;
+    }
+    failures.push(
+      makeFailure(
+        "unparseable-spec-subanchor",
+        token,
+        `Cannot parse '${token}' as a Spec-${spec} sub-anchor.`,
+        "Accepted sub-shapes: `AC-N`, `AC-N (line MM)`, `line N`, `line N (subject)`, `line N - subject`, `lines N1, N2, N3`, `lines N1-N2 (single-subject)`.",
+        "warn",
+      ),
+    );
+  }
+  return { anchors, failures };
+}
+
+// ADR cite parser. Accepts `ADR-NNN`, `ADR-NNN §Section`, `ADR-NNN §Section
+// item N`, `ADR-NNN §Section row N`, and any of these followed by a paren
+// descriptor and/or trailing prose. Trailing prose is captured as-is; the
+// recognized portion is the namespace + §Section + (optional) row/item.
+function parseAdrSegment(segment) {
+  // Capture: ADR-N, optional §Section (up to first `(` / EOL / row|item keyword),
+  // optional row/item N, optional paren descriptor, ignore trailing prose.
+  const m = segment.match(
+    /^ADR-(\d+)\b(?:\s+§([^()]+?))?(?:\s+(?:row|item)\s+(\d+))?(?:\s*\(([^)]*)\))?(.*)$/,
+  );
+  if (!m) {
+    return {
+      anchors: [],
+      failures: [
+        makeFailure(
+          "adr-unparseable",
+          segment,
+          `Cannot parse ADR cite '${segment}'.`,
+          "Accepted: `ADR-NNN`, `ADR-NNN §Section`, `ADR-NNN §Section row N`, `ADR-NNN §Section item N`.",
+          "warn",
+        ),
+      ],
+    };
+  }
+  let section = (m[2] ?? "").trim() || null;
+  // Strip the row|item phrase off the section capture if the section regex
+  // absorbed it (e.g. `§Success Criteria row 2` may match the section as
+  // `Success Criteria row 2` if the inner alternation didn't take effect).
+  if (section) {
+    const rowOrItem = section.match(/^(.+?)\s+(row|item)\s+(\d+)\s*$/);
+    if (rowOrItem) section = rowOrItem[1].trim();
+  }
   return {
-    ok: false,
-    halt: [
-      "## Preflight halt: tasks-block missing G4 cites",
-      "",
-      `Plan-${planNumber} Phase ${phaseNumber}'s \`#### Tasks\` block is missing`,
-      `\`Spec coverage:\` (${counts.spec_coverage}) or \`Verifies invariant:\``,
-      `(${counts.verifies_invariant}) cites. The audit's G4 traceability gate did`,
-      `not produce content — re-run the audit before dispatch.`,
-      "",
-      "Re-deriving task structure from prose discards cites downstream reviewers",
-      "depend on (anti-pattern: SKILL.md § Anti-Patterns).",
-    ].join("\n"),
+    anchors: [
+      {
+        type: "adr-section",
+        adr: Number(m[1]),
+        section,
+        row: m[3] ?? null,
+        descriptor: m[4] ?? "",
+        trailingProse: m[5]?.trim() ?? "",
+        raw: segment,
+      },
+    ],
+    failures: [],
   };
+}
+
+function parseArchDocSegment(segment) {
+  // Accept trailing prose after the closing paren — legitimate descriptors
+  // in approved plans include sentences after the anchor.
+  const m = segment.match(/^([\w-]+\.md)(?:\s+§([^()]+?))?(?:\s*\(([^)]*)\))?(.*)$/);
+  if (!m) {
+    return {
+      anchors: [],
+      failures: [
+        makeFailure(
+          "arch-doc-unparseable",
+          segment,
+          `Cannot parse architecture-doc cite '${segment}'.`,
+          "Accepted: `<file>.md`, `<file>.md §Section`, `<file>.md (descriptor)`.",
+          "warn",
+        ),
+      ],
+    };
+  }
+  const section = (m[2] ?? "").trim() || null;
+  return {
+    anchors: [
+      {
+        type: "arch-doc",
+        file: m[1],
+        section,
+        descriptor: m[3] ?? "",
+        trailingProse: m[4]?.trim() ?? "",
+        warn: section ? null : "section anchor recommended",
+        raw: segment,
+      },
+    ],
+    failures: [],
+  };
+}
+
+function parseCrossPlanDepsSegment(segment) {
+  // Accept multi-row form: `cross-plan-deps §N row M + §K row L` (Plan-024
+  // T-024-5-5 uses this for joint cross-plan-deps anchors). The base
+  // namespace prefix `cross-plan-deps` appears once; subsequent §-clauses
+  // join via `+` and may carry their own row.
+  const m = segment.match(
+    /^cross-plan-deps\s+§(\d+)(?:\s+row\s+(\d+))?((?:\s*\+\s*§\d+(?:\s+row\s+\d+)?)*)(?:\s*\(([^)]*)\))?(.*)$/,
+  );
+  if (!m) {
+    return {
+      anchors: [],
+      failures: [
+        makeFailure(
+          "cross-plan-deps-unparseable",
+          segment,
+          `Cannot parse cross-plan-deps cite '${segment}'.`,
+          "Accepted: `cross-plan-deps §N`, `cross-plan-deps §N row M`, `cross-plan-deps §N row M + §K row L`.",
+          "warn",
+        ),
+      ],
+    };
+  }
+  const anchors = [
+    {
+      type: "cross-plan-deps",
+      section: m[1],
+      row: m[2] ?? null,
+      descriptor: m[4] ?? "",
+      raw: segment,
+    },
+  ];
+  // Parse any joined § / row clauses.
+  for (const joinMatch of (m[3] ?? "").matchAll(/§(\d+)(?:\s+row\s+(\d+))?/g)) {
+    anchors.push({
+      type: "cross-plan-deps",
+      section: joinMatch[1],
+      row: joinMatch[2] ?? null,
+      descriptor: m[4] ?? "",
+      raw: segment,
+    });
+  }
+  return { anchors, failures: [] };
+}
+
+function parsePlanLocalIdSegment(segment) {
+  // The plan-local-ID prefix is the cite target; the rest is descriptor
+  // (which may be parenthesised, dash-separated, or bare prose). We accept
+  // any trailing form because legitimate plans use all three. Embedded
+  // Spec/ADR cites inside the descriptor are still parsed recursively as
+  // defense-in-depth against Plan-local-ID-wrap smuggling.
+  const m = segment.match(/^([\w.-]+)(.*)$/s);
+  if (!m || !PLAN_LOCAL_ID_RE.test(m[1])) {
+    return {
+      anchors: [],
+      failures: [
+        makeFailure(
+          "plan-local-id-unparseable",
+          segment,
+          `Cannot parse plan-local-id cite '${segment}'.`,
+          "Accepted plan-local-id shapes: Cn / Pn / Pr-n / In or I-NNN-N or I-NNN-N..M (structured invariant range).",
+          "warn",
+        ),
+      ],
+    };
+  }
+  const id = m[1];
+  const rest = m[2].trim();
+  const parenMatch = rest.match(/^\(([^)]*)\)/);
+  const descriptor = parenMatch ? parenMatch[1] : rest;
+  const anchors = [{ type: "plan-local-id", id, descriptor, raw: segment }];
+  const failures = [];
+  if (descriptor && /\bSpec-\d+\b|\bADR-\d+\b/.test(descriptor)) {
+    const nested = parseCitePayload(descriptor);
+    anchors.push(...nested.anchors);
+    failures.push(...nested.failures);
+  }
+  return { anchors, failures };
+}
+
+function parseSegment(segment) {
+  const trimmed = segment.trim();
+  if (/^Spec-\d+\b/.test(trimmed)) return parseSpecSegment(trimmed);
+  if (/^ADR-\d+\b/.test(trimmed)) return parseAdrSegment(trimmed);
+  if (/^[\w-]+\.md\b/.test(trimmed)) return parseArchDocSegment(trimmed);
+  if (/^cross-plan-deps\b/.test(trimmed)) return parseCrossPlanDepsSegment(trimmed);
+  if (/^none\b/i.test(trimmed)) {
+    return {
+      anchors: [{ type: "none-literal", raw: trimmed }],
+      failures: [],
+    };
+  }
+  // Plan-local-ID at top-level position (legitimate when not inside a
+  // Spec-NNN prefix).
+  if (/^(?:C|P|Pr|I)-?\d+\b/.test(trimmed)) {
+    return parsePlanLocalIdSegment(trimmed);
+  }
+  return {
+    anchors: [],
+    failures: [
+      makeFailure(
+        "unparseable-cite",
+        trimmed,
+        `Token '${trimmed}' matches no namespace pattern after dash normalization.`,
+        "Cite must start with `Spec-NNN`, `ADR-NNN`, `<doc>.md`, `cross-plan-deps`, `none`, or a Plan-local ID (Cn/Pn/Pr-n/I).",
+        "warn",
+      ),
+    ],
+  };
+}
+
+// Parse one **Spec coverage:** or **Verifies invariant:** payload (the
+// value after the bold key). Returns {anchors[], failures[]} aggregated
+// across all top-level segments.
+//
+// Defense-in-depth: after per-segment parsing, scan the normalized payload
+// for the compound-range defect class (`lines NN-MM (X/Y …)` where X and Y
+// are distinct identifier-tokens). This catches the T3.3-shape (post-mortem
+// defect class 2) even when the surrounding shape (multi-§Section, prose
+// continuation, mixed-namespace) means parseSpecSegment didn't reach the
+// range branch. Falsely accepting a compound-range defect is the load-
+// bearing failure the en-dash normalization + this scan exist to prevent.
+export function parseCitePayload(rawPayload) {
+  const normalized = normalizeCitePayload(rawPayload);
+  const segments = splitOnSemicolon(normalized);
+  const anchors = [];
+  const failures = [];
+  for (const seg of segments) {
+    const { anchors: a, failures: f } = parseSegment(seg);
+    anchors.push(...a);
+    failures.push(...f);
+  }
+  // Payload-level compound-range defense-in-depth scan.
+  const compoundRangeRe = /\blines\s+(\d+)\s*-\s*(\d+)\s*\(([^)]+)\)/g;
+  for (const m of normalized.matchAll(compoundRangeRe)) {
+    const start = Number(m[1]);
+    const end = Number(m[2]);
+    const descriptor = m[3];
+    const subjects = nonPlanLocalSubjects(descriptor);
+    if (subjects.length >= 2) {
+      // Don't re-emit if the per-segment parser already caught this one.
+      const dup = failures.some(
+        (f) => f.kind === "compound-range-multi-subject" && f.raw.includes(`lines ${start}-${end}`),
+      );
+      if (!dup) {
+        failures.push(
+          makeFailure(
+            "compound-range-multi-subject",
+            m[0],
+            `Compound range 'lines ${start}-${end}' covers distinct subjects (${subjects.join(", ")}); one-anchor-per-behavior is required.`,
+            `Write 'line ${start} (${subjects[0]}), line ${end} (${subjects[1]})' instead of a range. Each Spec line that names a distinct contract gets its own anchor.`,
+          ),
+        );
+      }
+    }
+  }
+  return { anchors, failures };
+}
+
+// Extract every cite payload (Spec coverage / Verifies invariant) from a
+// phase section and return the aggregated parse result. Each finding
+// carries the field name and the originating task-row id (if discoverable
+// from the surrounding bullet structure) for actionable failure messages.
+//
+// Payload termination: the value after a Spec coverage / Verifies invariant
+// marker extends until the FIRST of:
+//   (a) the next `**Word:**` bold-labeled marker (`**Spec coverage:**`,
+//       `**Verifies invariant:**`, `**Note:**`, `**Files:**`, `**Wires:**`,
+//       etc. — Plan-024 task bullets pack multiple labeled clauses on one
+//       line),
+//   (b) the next newline (canonical per-bullet shape from
+//       docs/plans/000-plan-template.md).
+// Trailing punctuation (`.`, `,`) is stripped from the payload after
+// termination so the per-namespace parser regexes can anchor cleanly.
+export function extractCiteAnchors(phaseSection) {
+  const anchors = [];
+  const failures = [];
+  const targetMarkerRe = /\*\*(Spec coverage|Verifies invariant):\*\*/g;
+  const anyMarkerRe = /\*\*[A-Z][\w ]*:\*\*/g;
+  const targetMarkers = [...phaseSection.matchAll(targetMarkerRe)];
+  const anyMarkers = [...phaseSection.matchAll(anyMarkerRe)];
+  for (const marker of targetMarkers) {
+    const field = marker[1];
+    const startIdx = marker.index + marker[0].length;
+    const nextAnyMarker = anyMarkers.find((m) => m.index > marker.index);
+    const nextMarkerIdx = nextAnyMarker ? nextAnyMarker.index : phaseSection.length;
+    const nextNewlineIdx = phaseSection.indexOf("\n", startIdx);
+    const endIdx = Math.min(
+      nextMarkerIdx,
+      nextNewlineIdx === -1 ? phaseSection.length : nextNewlineIdx,
+    );
+    let payload = phaseSection.slice(startIdx, endIdx).trim();
+    // Strip trailing sentence-end punctuation that follows the closing paren
+    // of the last cite descriptor (`(...).` → `(...)`).
+    payload = payload.replace(/[.,;:]+\s*$/, "");
+    if (!payload) continue;
+    const prefix = phaseSection.slice(0, marker.index);
+    const taskMatch =
+      [...prefix.matchAll(/^#####\s+(T[-\w.]+)/gm)].pop() ??
+      [...prefix.matchAll(/^-\s+\*\*(T[-\w.]+)\*\*/gm)].pop();
+    const taskId = taskMatch ? taskMatch[1] : null;
+    const lineNo = prefix.split("\n").length;
+    const { anchors: a, failures: f } = parseCitePayload(payload);
+    for (const anchor of a) {
+      anchors.push({ ...anchor, field, taskId, lineNo });
+    }
+    for (const failure of f) {
+      failures.push({ ...failure, field, taskId, lineNo });
+    }
+  }
+  return { anchors, failures };
+}
+
+// Verify one anchor against the spec file it cites. For `type: line`,
+// confirm the cited line is non-blank, in-range, and (if a subject is
+// present) contains identifier-tokens matching the subject. For `type: ac`,
+// confirm the N-th `- [ ]` / `- [x]` bullet inside the §Acceptance Criteria
+// section exists. For `type: line-range`, confirm the range is in bounds.
+// For `type: section-only`, confirm the named section heading exists.
+// Returns {valid, reason, evidence}.
+export function verifyAnchorAgainstSpec(anchor, { specsDir }) {
+  // Anchor types that don't reference a Spec file pass trivially —
+  // verification of ADR / arch-doc / cross-plan-deps / none / plan-local-id
+  // is out-of-scope for Gate 4's Spec-anchor semantic check. Future work
+  // can extend per-type verification; the runbook §Subagent Prompt Template
+  // mechanism clauses target Spec anchors first.
+  if (
+    anchor.type === "adr-section" ||
+    anchor.type === "arch-doc" ||
+    anchor.type === "cross-plan-deps" ||
+    anchor.type === "none-literal" ||
+    anchor.type === "plan-local-id"
+  ) {
+    return { valid: true, reason: "out-of-scope-for-gate-4", evidence: anchor.raw };
+  }
+  const specFile = findPaddedFile(specsDir, anchor.spec);
+  if (!specFile) {
+    return {
+      valid: false,
+      reason: "spec-file-not-found",
+      evidence: `No file matched ${specsDir}/${String(anchor.spec).padStart(3, "0")}-*.md`,
+    };
+  }
+  let source;
+  try {
+    source = readFileSync(specFile, "utf8");
+  } catch (e) {
+    return {
+      valid: false,
+      reason: "spec-file-unreadable",
+      evidence: `${specFile}: ${e.message}`,
+    };
+  }
+  const specLines = source.split("\n");
+  if (anchor.type === "line") {
+    return verifyLineAnchor(anchor, specLines);
+  }
+  if (anchor.type === "line-range") {
+    return verifyLineRangeAnchor(anchor, specLines);
+  }
+  if (anchor.type === "ac") {
+    return verifyAcAnchor(anchor, source, specLines);
+  }
+  if (anchor.type === "section-only") {
+    return verifySectionAnchor(anchor, specLines);
+  }
+  return { valid: true, reason: "no-spec-type", evidence: anchor.raw };
+}
+
+function normalizeTokenForMatch(tok) {
+  return tok.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function verifyLineAnchor(anchor, specLines) {
+  if (anchor.line < 1 || anchor.line > specLines.length) {
+    return {
+      valid: false,
+      reason: "line-out-of-range",
+      evidence: `Spec has ${specLines.length} lines; cited line ${anchor.line} is past EOF.`,
+    };
+  }
+  const content = specLines[anchor.line - 1];
+  if (!content || !content.trim()) {
+    return {
+      valid: false,
+      reason: "line-blank",
+      evidence: `Line ${anchor.line} is blank.`,
+    };
+  }
+  if (anchor.subject) {
+    const needle = normalizeTokenForMatch(anchor.subject);
+    const haystack = normalizeTokenForMatch(content);
+    if (!haystack.includes(needle)) {
+      return {
+        valid: false,
+        reason: "subject-mismatch",
+        evidence: `Line ${anchor.line} does not contain '${anchor.subject}'. Line content: ${content.trim()}`,
+      };
+    }
+  }
+  return { valid: true, reason: "line-content-matches", evidence: content.trim() };
+}
+
+function verifyLineRangeAnchor(anchor, specLines) {
+  if (anchor.start < 1 || anchor.end > specLines.length || anchor.start > anchor.end) {
+    return {
+      valid: false,
+      reason: "line-range-out-of-bounds",
+      evidence: `Range ${anchor.start}-${anchor.end} invalid for spec with ${specLines.length} lines.`,
+    };
+  }
+  const block = specLines.slice(anchor.start - 1, anchor.end).join("\n");
+  if (anchor.subject) {
+    const needle = normalizeTokenForMatch(anchor.subject);
+    const haystack = normalizeTokenForMatch(block);
+    if (!haystack.includes(needle)) {
+      return {
+        valid: false,
+        reason: "subject-mismatch-in-range",
+        evidence: `Lines ${anchor.start}-${anchor.end} do not contain '${anchor.subject}'.`,
+      };
+    }
+  }
+  return {
+    valid: true,
+    reason: "line-range-content-matches",
+    evidence: block.slice(0, 200),
+  };
+}
+
+function verifyAcAnchor(anchor, source, specLines) {
+  const acHeadingMatch = source.match(/^#+\s+Acceptance Criteria\s*$/m);
+  if (!acHeadingMatch) {
+    return {
+      valid: false,
+      reason: "ac-section-missing",
+      evidence: "No §Acceptance Criteria heading in spec.",
+    };
+  }
+  const acStart = acHeadingMatch.index + acHeadingMatch[0].length;
+  const after = source.slice(acStart);
+  const nextSection = after.match(/^#+\s+\S/m);
+  const acBody = nextSection ? after.slice(0, nextSection.index) : after;
+  const bullets = [...acBody.matchAll(/^- \[[ x]\]/gm)];
+  if (anchor.ac < 1 || anchor.ac > bullets.length) {
+    return {
+      valid: false,
+      reason: "ac-index-out-of-range",
+      evidence: `Spec has ${bullets.length} AC bullets; cited AC${anchor.ac} does not exist.`,
+    };
+  }
+  // Best-effort line-hint verification: if hint given, confirm the hinted
+  // line falls in the AC section AND matches an AC bullet shape.
+  if (anchor.lineHint) {
+    if (anchor.lineHint < 1 || anchor.lineHint > specLines.length) {
+      return {
+        valid: false,
+        reason: "ac-line-hint-out-of-range",
+        evidence: `Line hint ${anchor.lineHint} past EOF.`,
+      };
+    }
+    const hintContent = specLines[anchor.lineHint - 1] ?? "";
+    if (!/^- \[[ x]\]/.test(hintContent)) {
+      return {
+        valid: false,
+        reason: "ac-line-hint-not-bullet",
+        evidence: `Line ${anchor.lineHint} is not an AC bullet. Content: ${hintContent.trim()}`,
+      };
+    }
+  }
+  return { valid: true, reason: "ac-bullet-exists", evidence: `AC${anchor.ac} bullet found.` };
+}
+
+function verifySectionAnchor(anchor, specLines) {
+  const target = normalizeTokenForMatch(anchor.section);
+  for (const line of specLines) {
+    if (/^#+\s+/.test(line)) {
+      const headingText = line.replace(/^#+\s+/, "");
+      if (normalizeTokenForMatch(headingText).includes(target)) {
+        return { valid: true, reason: "section-found", evidence: line.trim() };
+      }
+    }
+  }
+  return {
+    valid: false,
+    reason: "section-not-found",
+    evidence: `Section heading '${anchor.section}' not present in spec.`,
+  };
+}
+
+export function gateTasksBlockCites(phaseSection, planNumber, phaseNumber, opts = {}) {
+  const counts = countCites(phaseSection);
+  if (!(counts.spec_coverage > 0 && counts.verifies_invariant > 0)) {
+    return {
+      ok: false,
+      halt: [
+        "## Preflight halt: tasks-block missing G4 cites",
+        "",
+        `Plan-${planNumber} Phase ${phaseNumber}'s \`#### Tasks\` block is missing`,
+        `\`Spec coverage:\` (${counts.spec_coverage}) or \`Verifies invariant:\``,
+        `(${counts.verifies_invariant}) cites. The audit's G4 traceability gate did`,
+        `not produce content — re-run the audit before dispatch.`,
+        "",
+        "Re-deriving task structure from prose discards cites downstream reviewers",
+        "depend on (anti-pattern: SKILL.md § Anti-Patterns).",
+      ].join("\n"),
+    };
+  }
+  // Semantic anchor check (additive on top of token presence). The repoRoot
+  // path is threaded from runPreflight options; specs live under docs/specs/.
+  const repoRoot = opts.repoRoot ?? REPO_ROOT;
+  const specsDir = resolve(repoRoot, "docs", "specs");
+  const { anchors, failures: parseFailures } = extractCiteAnchors(phaseSection);
+  const verifyFailures = [];
+  for (const anchor of anchors) {
+    const v = verifyAnchorAgainstSpec(anchor, { specsDir });
+    if (!v.valid) {
+      verifyFailures.push({
+        kind: v.reason,
+        raw: anchor.raw,
+        field: anchor.field,
+        taskId: anchor.taskId,
+        message: v.evidence,
+        remediation:
+          "Re-run the cite-amendment subagent per docs/operations/plan-implementation-readiness-audit-runbook.md §Cite-Amendment Subagent Prompt Template, applying per-anchor verification.",
+        // Verifier failures are always errors — they map directly onto the
+        // seven post-mortem defect classes (subject mismatch, phantom
+        // section, file missing, out-of-range line).
+        severity: "error",
+      });
+    }
+  }
+  const allFailures = [...parseFailures, ...verifyFailures];
+  const blockingFailures = allFailures.filter((f) => (f.severity ?? "error") === "error");
+  if (blockingFailures.length === 0) return { ok: true };
+  const lines = [
+    "## Preflight halt: Gate 4 cite-anchor semantic check failed",
+    "",
+    `Plan-${planNumber} Phase ${phaseNumber} has ${blockingFailures.length} cite-anchor defect(s).`,
+    "Each finding maps to a mechanism clause from the runbook §Subagent Prompt Template",
+    "(per-anchor verify / one-per-behavior / Plan-vs-Spec namespace / return-DONE self-verify).",
+    "",
+  ];
+  for (const f of blockingFailures) {
+    const where = f.taskId ? `${f.taskId} (${f.field})` : f.field;
+    lines.push(`- [${f.kind}] ${where}: ${f.message}`);
+    lines.push(`  cite: ${f.raw}`);
+    if (f.remediation) lines.push(`  fix:  ${f.remediation}`);
+  }
+  lines.push("");
+  lines.push("Authoring contract: docs/operations/plan-implementation-readiness-audit-runbook.md");
+  lines.push(
+    "Verifier contract:  .claude/skills/plan-execution/references/preflight-contract.md §Gate 4 — Cite Anchor Semantic Check",
+  );
+  return { ok: false, halt: lines.join("\n") };
 }
 
 // resolvePrecondition signature is additive-backwards-compatible. The four

@@ -272,7 +272,7 @@ Plan-002 implementation lands as a sequence of small PRs primarily at Tier 2 (Ph
 
 ##### T3.3 — Register `presence.*` JSON-RPC handlers under Plan-007-partial wire substrate; emit `presence.online/idle/reconnecting/offline` audit events to `session_events` per Plan-006 path (Pr4).
 
-**Files:** `packages/runtime-daemon/src/ipc/handlers/presence-update.ts`, `packages/runtime-daemon/src/ipc/handlers/presence-read.ts`, `packages/runtime-daemon/src/ipc/handlers/__tests__/presence-update.test.ts`, `packages/runtime-daemon/src/ipc/handlers/__tests__/presence-read.test.ts` **Spec coverage:** Spec-002 §State And Data Implications line 157, §Interfaces And Contracts lines 85–86 (Pr4 — durable presence state-change events; `PresenceUpdate`/`PresenceRead` JSON-RPC surface) **Verifies invariant:** none (transport surface + audit-event emission; I-002-3 is preserved by routing only state-change events — not presence rows — to `session_events`)
+**Files:** `packages/runtime-daemon/src/ipc/handlers/presence-update.ts`, `packages/runtime-daemon/src/ipc/handlers/presence-read.ts`, `packages/runtime-daemon/src/ipc/handlers/__tests__/presence-update.test.ts`, `packages/runtime-daemon/src/ipc/handlers/__tests__/presence-read.test.ts` **Spec coverage:** Spec-002 §State And Data Implications line 157 (Pr4 — durable presence state-change events), §Interfaces And Contracts line 85 (`PresenceUpdate` JSON-RPC surface), line 86 (`PresenceRead` JSON-RPC surface) **Verifies invariant:** none (transport surface + audit-event emission; I-002-3 is preserved by routing only state-change events — not presence rows — to `session_events`)
 
 ##### T3.4 — Implement `ChannelList` read-only projection consuming the channels collection bootstrapped by Plan-001's `ChannelCreated`; add I3 test asserting bootstrap projection returns the default channel.
 
@@ -288,11 +288,11 @@ Plan-002 implementation lands as a sequence of small PRs primarily at Tier 2 (Ph
 
 ##### T4.1 — [Tier 6, post-Plan-021] Apply `rateLimitProcedure({endpoint: 'invite.create' | 'invite.accept' | 'invite.revoke' | …})` middleware to the invite tRPC procedures defined in Phase 2's `invite-service.ts` surface.
 
-**Files:** `packages/control-plane/src/invites/invite-service.ts` (extends Phase 2 surface; wires Plan-021 middleware from `packages/control-plane/src/middleware/rate-limit.ts`) **Spec coverage:** Spec-002 §Rate Limiting (20/session/hr, 50/participant/hr, 100 pending/session) **Verifies invariant:** none (Plan-021 substrate wiring; no Plan-002 invariant)
+**Files:** `packages/control-plane/src/invites/invite-service.ts` (extends Phase 2 surface; wires Plan-021 middleware from `packages/control-plane/src/middleware/rate-limit.ts`) **Spec coverage:** Spec-002 §Rate Limiting line 121 (20/session/hr), line 122 (50/participant/hr), line 123 (100 pending/session) **Verifies invariant:** none (Plan-021 substrate wiring; no Plan-002 invariant)
 
 ##### T4.2 — [Tier 6] Add rate-limit verification tests asserting threshold breach returns the canonical 429 + `RateLimitResponse` shape per Plan-021 §`RateLimitResponse` canonical shape.
 
-**Files:** `packages/control-plane/src/invites/__tests__/`, `packages/control-plane/src/invites/invite-service.ts` (service under test) **Spec coverage:** Spec-002 §Rate Limiting (429 + canonical 5-field `RateLimitResponse` per Plan-021 §`RateLimitResponse` canonical shape) **Verifies invariant:** none (Plan-021 substrate wiring; no Plan-002 invariant)
+**Files:** `packages/control-plane/src/invites/__tests__/`, `packages/control-plane/src/invites/invite-service.ts` (service under test) **Spec coverage:** Spec-002 §Rate Limiting lines 125-133 (`RateLimitResponse` canonical shape; returned with 429 per Plan-021 §`RateLimitResponse` canonical shape) **Verifies invariant:** none (Plan-021 substrate wiring; no Plan-002 invariant)
 
 ### Phase 5 — Client SDK Membership Surface
 
@@ -307,7 +307,7 @@ Plan-002 implementation lands as a sequence of small PRs primarily at Tier 2 (Ph
 
 ##### T5.1 — Implement `membershipClient.ts` daemon factory wrapping `presence.*` JSON-RPC + invite/membership tRPC adapter.
 
-**Files:** `packages/client-sdk/src/membershipClient.ts`, `packages/client-sdk/test/membershipClient.integration.test.ts` **Spec coverage:** Spec-002 AC1 (I1 live-join non-disruption — Plan-002:166), Spec-002 line 87 + AC1 (I3 `ChannelList` bootstrap projection — Plan-002:168) **Verifies invariant:** none (SDK transport boundary; substrate invariants verified at services layer per Phase 2/Phase 3)
+**Files:** `packages/client-sdk/src/membershipClient.ts`, `packages/client-sdk/test/membershipClient.integration.test.ts` **Spec coverage:** Spec-002 AC1 (line 178 — I1 live-join non-disruption), Spec-002 line 87 + AC1 (I3 `ChannelList` bootstrap projection) **Verifies invariant:** none (SDK transport boundary; substrate invariants verified at services layer per Phase 2/Phase 3)
 
 ##### T5.2 — Implement `membershipClient.ts` control-plane factory consuming Plan-008-remainder relay (when shipped at Tier 5; until then, control-plane factory throws `NotImplementedAtTier2Error`).
 
@@ -315,7 +315,7 @@ Plan-002 implementation lands as a sequence of small PRs primarily at Tier 2 (Ph
 
 ##### T5.3 — Add I1–I3 integration tests.
 
-**Files:** `packages/client-sdk/test/membershipClient.integration.test.ts` **Spec coverage:** Spec-002 AC1 (I1 — Plan-002:166), Spec-002 AC2 (I2 membership/presence separation — Plan-002:167), Spec-002 line 87 + AC1 (I3 — Plan-002:168) **Verifies invariant:** none (SDK transport boundary; substrate invariants verified at services layer per Phase 2/Phase 3)
+**Files:** `packages/client-sdk/test/membershipClient.integration.test.ts` **Spec coverage:** Spec-002 AC1 (line 178 — I1), Spec-002 AC2 (line 179 — I2 membership/presence separation), Spec-002 line 87 + AC1 (I3) **Verifies invariant:** none (SDK transport boundary; substrate invariants verified at services layer per Phase 2/Phase 3)
 
 ### Phase 6 — Renderer (Tier 2)
 
@@ -329,19 +329,19 @@ Plan-002 implementation lands as a sequence of small PRs primarily at Tier 2 (Ph
 
 ##### T6.1 — Implement `session-members/invite-accept-view.tsx` consuming the preload-bridge `window.sidekicks.invites.accept` surface.
 
-**Files:** `apps/desktop/src/renderer/src/session-members/invite-accept-view.tsx` **Spec coverage:** Spec-002 AC1 (invited participant joins active session without resetting active runs) **Verifies invariant:** none (renderer surface)
+**Files:** `apps/desktop/src/renderer/src/session-members/invite-accept-view.tsx` **Spec coverage:** Spec-002 AC1 (line 178 — invited participant joins active session without resetting active runs) **Verifies invariant:** none (renderer surface)
 
 ##### T6.2 — Implement `session-members/participant-roster.tsx` rendering presence indicators via `window.sidekicks.presence.subscribe` async iterator.
 
-**Files:** `apps/desktop/src/renderer/src/session-members/participant-roster.tsx` **Spec coverage:** Spec-002 AC1 (joined-membership surface), AC2 (membership durable across presence offline → online cycle) **Verifies invariant:** none (renderer surface)
+**Files:** `apps/desktop/src/renderer/src/session-members/participant-roster.tsx` **Spec coverage:** Spec-002 AC1 (line 178 — joined-membership surface), AC2 (line 179 — membership durable across presence offline → online cycle) **Verifies invariant:** none (renderer surface)
 
 ##### T6.3 — Add Vitest component tests (`@testing-library/react`) for invite-accept view + roster; assert renderer code paths never import from `packages/runtime-daemon/` or `packages/control-plane/` directly (bridge-projection invariant).
 
-**Files:** `apps/desktop/src/renderer/src/session-members/__tests__/invite-accept-view.test.tsx`, `apps/desktop/src/renderer/src/session-members/__tests__/participant-roster.test.tsx` **Spec coverage:** Spec-002 AC1, AC2 + §Manual Verification (Plan-002:173) single-client component smoke **Verifies invariant:** none (renderer surface; CP-002-5 bridge-projection cross-plan obligation is enforced by the import-restriction assertion in this task's tests)
+**Files:** `apps/desktop/src/renderer/src/session-members/__tests__/invite-accept-view.test.tsx`, `apps/desktop/src/renderer/src/session-members/__tests__/participant-roster.test.tsx` **Spec coverage:** Spec-002 AC1 (line 178), AC2 (line 179) (single-client component smoke per Plan-002 §Verification) **Verifies invariant:** none (renderer surface; CP-002-5 bridge-projection cross-plan obligation is enforced by the import-restriction assertion in this task's tests)
 
 ##### T6.4 — [Deferred to Tier 8] Two-client manual smoke verification after Plan-023 Tier 8 IPC dispatcher ships.
 
-**Files:** none (manual two-client verification gated on Plan-023 Tier 8 IPC dispatcher; no Plan-002 code deliverable) **Spec coverage:** Spec-002 AC1, AC2 (two-client end-to-end realization) + §Manual Verification (Plan-002:173) — verification deferred to Tier 8 per CP-002-5 **Verifies invariant:** none (deferred manual verification; no automated invariant in this PR)
+**Files:** none (manual two-client verification gated on Plan-023 Tier 8 IPC dispatcher; no Plan-002 code deliverable) **Spec coverage:** Spec-002 AC1 (line 178), AC2 (line 179) (two-client end-to-end realization per Plan-002 §Verification — verification deferred to Tier 8 per CP-002-5) **Verifies invariant:** none (deferred manual verification; no automated invariant in this PR)
 
 After Phase 5 lands green at Tier 2, Plan-002's load-bearing semantics are complete. Phase 6 ships at Tier 2 after Phase 5 — the renderer substrate from Plan-023 Tier 1 Partial is independently in place from Tier 1, so the gating reduces to Plan-002's own SDK readiness.
 

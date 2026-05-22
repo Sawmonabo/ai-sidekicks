@@ -59,6 +59,62 @@ When phase is auto-selected, the tool just skips already-shipped phases; the exp
 
 Extracts the selected phase's section (between `### Phase N —` and the next `### Phase` header). Counts `Spec coverage` and `Verifies invariant` substring matches. Each must be ≥ 1. Failure means the audit's G4 traceability gate did not produce content; user must re-run the audit.
 
+The token-presence floor above ran alone until 2026-05-21, when post-mortem `51ca5f3d` revealed it false-greened on seven distinct cite-anchor defect classes that the audit subagent prompt did not operationalize against (DP-1 in the post-mortem; PR #95's nine latent defects on `develop` @ `7d3abb3`). Gate 4 now also runs a **semantic anchor check** that parses each `**Spec coverage:**` and `**Verifies invariant:**` payload, verifies each anchor exists in the cited spec, and surfaces structured failures. The two-layer split exists so audit-output that lacks G4 content (the original false-negative) and audit-output whose G4 content is semantically incorrect (the post-mortem defect class) both halt — neither subsumes the other.
+
+#### Semantic anchor check — parser grammar
+
+Per-payload parsing runs as `extractCiteAnchors(phaseSection)` → `parseCitePayload(rawPayload)` → `parseSegment(seg)`. Tokenization is paren-aware (commas, semicolons, and `+` inside `(...)` are not anchor separators) and dash-normalized (`–` U+2013 and `—` U+2014 fold to ASCII `-`) BEFORE pattern-match — without normalization the load-bearing en-dash compound-range defect (post-mortem class 2) is silently missed.
+
+Accepted shapes (each emits one or more anchors with `severity: info|warn`; `severity: error` is rejection-only):
+
+- `Spec-NNN AC-X` — single bare AC. `severity: info` (line-hint recommended).
+- `Spec-NNN AC-X (line YY[ — Subject])` — AC with explicit line + optional identifier-token subject.
+- `Spec-NNN AC-X (descriptor)` — AC with prose descriptor (no identifier-token subject). `severity: info`.
+- `Spec-NNN line YY[ (Subject)]` — line with optional descriptor.
+- `Spec-NNN §Section line YY[, line ZZ[, line WW]][ (descriptor)]` — comma-separated multi-line under one §Section. Splits into N anchors.
+- `Spec-NNN §Section line YY[ (Subject)]` — single §Section + line + optional descriptor.
+- `Spec-NNN line YY + AC-X[ (Subject)]` — `+`-combined line + AC. Splits into two anchors.
+- `Spec-NNN §Section` (no line) — bare §-cite. `severity: warn` (line-anchor recommended; non-blocking by design).
+- `Spec-NNN lines YY-ZZ (single-subject descriptor)` — multi-line block with one identifier-token subject in descriptor (e.g., `RateLimitResponse lines 127-133`). One anchor.
+- `ADR-NNN §Section[ (row|item) M[ (descriptor)]]` — ADR-namespaced anchor. Parser verifies ADR file glob; section verification is documentary not mechanical.
+- `<doc>.md[ §Section][ (descriptor)]` — architecture-doc cite (e.g., `error-contracts.md`, `cross-plan-deps`). `severity: warn` if §Section absent.
+- `cross-plan-deps §N[ row M][ + §K row M][ (descriptor)]` — cross-plan-deps multi-row form.
+- Literal `none[ (descriptor)]` — forward-compat scaffold or no-spec rationale. `severity: info`.
+- Bare Plan-local IDs (`Cn` / `Pn` / `Pr-n` / `In` / `I-NNN-N` and ranges `I-NNN-N..M`) outside any `Spec-NNN` namespace prefix. Pattern: `^(?:C|P|Pr|I)-?\d+(?:\.\.\d+)?(?:-\d+(?:\.\.\d+)?)*$`. `severity: warn` in `**Spec coverage:**`; canonical (no warn) in `**Verifies invariant:**`.
+
+Rejected shapes (each emits one failure with `severity: error`; **blocks Gate 4**):
+
+- **`compound-range-multi-subject`** — `Spec-NNN lines YY-ZZ (...)` where the descriptor names ≥ 2 distinct identifier-token subjects (e.g., `PresenceUpdate/PresenceRead`). One-anchor-per-behavior rule. Defense-in-depth: a payload-level scan runs after per-segment parsing and re-fires this rule when the surrounding shape (multi-§Section, mixed-namespace continuation) prevented `parseSpecSegment` from reaching the range branch.
+- **`namespace-violation`** — `Plan-NNN:LLL` (colon-line-number) inside any `Spec-NNN ... (... Plan-NNN:LLL ...)` parenthetical. Plan-NNN line cites do not belong in `**Spec coverage:**`. Discriminator: `Plan-NNN §Section` (no colon-line-number) inside the same parenthetical is accepted as legitimate cross-plan context.
+- **`plan-local-id-as-spec-anchor`** — `Spec-NNN <PlanLocalID>` (e.g., `Spec-002 C5`) at first anchor position. Plan-local row IDs are not Spec-NNN anchors. Discriminator: `<PlanLocalID> (Spec-NNN line YY — descriptor)` (Plan-local-ID outside Spec namespace prefix) is accepted.
+- **`phantom-section`** — `Spec-NNN §<section>` where the section heading does not exist in `docs/specs/NNN-*.md` (case-insensitive substring match against `^#{1,6}\s+<section>\s*$`).
+- **`spec-file-not-found`** — `Spec-NNN ...` where `docs/specs/NNN-*.md` glob has zero matches or multiple matches.
+- **`out-of-range-line`** — `Spec-NNN line YY` where YY is blank or past EOF.
+- **`subject-mismatch`** — `Spec-NNN line YY (Subject)` where the identifier-token `Subject` does not appear on line YY of the spec (tolerant of separator variants: `PresenceHeartbeat` ↔ `presence.heartbeat` ↔ `presenceHeartbeat`).
+
+`unparseable-*` failures (the parser could not match any accepted shape and could not pin a rejection class) emit at `severity: warn` so they surface in the report without blocking Gate 4 — the warn floor lets the gate fail-open on the unknown-shape long tail while the rejection classes above stay strict.
+
+#### Semantic anchor check — verifier rules
+
+Each emitted anchor is verified by `verifyAnchorAgainstSpec(anchor, repoRoot)`:
+
+- `type: line` — read line `anchor.line` from `docs/specs/NNN-*.md`. Fail with `out-of-range-line` if blank or past EOF. If `subject` present, lowercase + strip-punctuation both sides; verify subject tokens appear on the cited line. Fail with `subject-mismatch` if not.
+- `type: ac` — find `^## Acceptance Criteria` heading; count `^- \[[ x]\]` bullets in the section; assert the X-th exists. If `lineHint` present, assert that line matches the AC checkbox shape.
+- `type: section` — verify named section heading exists in the spec.
+- `type: adr-section` / `type: arch-doc` / `type: cross-plan-deps` / `type: none-literal` / `type: plan-local-id` — file-existence check only (sections + rows are not mechanically verified; they are documentary).
+
+#### Gate 4 aggregation
+
+`gateTasksBlockCites(phaseSection, planNumber, phaseNumber)` collects (a) the token-presence floor result and (b) the semantic-anchor failures across every cite in the phase. The gate halts when any failure has `severity: error`; `severity: warn` failures surface in the report but do not block. The halt message lists each blocking failure with `[kind] T-N.M (field): message` + `cite: <raw>` + `fix: <remediation>`, and cross-links the authoring contract (`docs/operations/plan-implementation-readiness-audit-runbook.md` §Subagent Prompt Template) and this verifier contract.
+
+#### Why error vs warn
+
+The seven rejection classes above correspond 1:1 to defect classes the post-mortem named — each one shipped a load-bearing semantic regression to `develop` that Codex would have caught had Phases 3-6 reached non-draft review. Treating them as `error` is the verification-side half of the root-cause fix; the authoring-side half is the four mechanism clauses in the runbook §Subagent Prompt Template (per-anchor verify / one-per-behavior / Plan-vs-Spec namespace / return-DONE self-verify). `warn`-level findings (bare §-cites, bare ACs, unknown-shape long tail) surface for human review without forcing a re-audit on every plan that pre-dates the new contract — the gate is additive, not retroactively destructive.
+
+#### Cross-link
+
+The cite-amendment subagent template (`docs/operations/plan-implementation-readiness-audit-runbook.md` §Cite-Amendment Subagent Prompt Template) names Gate 4 as its orchestrator-side verifier: subagent self-verification is authoring discipline; Gate 4 is enforcement. Both layers must be present — neither alone closes the post-mortem root cause.
+
 ### Gate 5 — Phase preconditions
 
 Parses the phase's `preconditions:` YAML block (see plan template § Implementation Phase Sequence). For each entry:
