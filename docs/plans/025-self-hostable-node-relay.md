@@ -221,6 +221,60 @@ Spec-027 rows NOT owned by Plan-025: **Row 6** (SQLite backup — Plan-001 + BL-
 - **Supply-chain posture not enforced at install time.** `npm ci --ignore-scripts` + `npm audit signatures` live in CI, but operators who run `npm install` locally may not get the same guarantees. Mitigation: operator runbook tells operators NOT to `npm install`; they deploy via container image. The in-repo `package-lock.json` pins exact versions so any rebuilds use audited trees.
 - **Compose Spec `depends_on.restart: true` requires Docker Compose v2.20+.** Older Compose versions silently ignore the key and fail to restart the relay on Postgres recovery. Mitigation: operator runbook states "Docker Compose v2.20+" as a prerequisite; the `docker compose up` CI smoke test runs on a current Compose version.
 
+## Progress Log
+
+### Shipment Manifest
+
+<!-- Machine-readable. Housekeeper-emitted, orchestrator-written, preflight-read.
+     Schema authoritative in:
+       .claude/skills/plan-execution/scripts/lib/manifest.mjs -->
+
+```yaml
+manifest_schema_version: 1
+shipped:
+  - phase: 1
+    task: [T-025p-1-1, T-025p-1-2, T-025p-1-3, T-025p-1-4, T-025p-1-5]
+    pr: 92
+    sha: 540bbb7
+    merged_at: 2026-05-21
+    files:
+      - .gitleaks.toml
+      - .prettierignore
+      - commitlint.config.mjs
+      - docs/superpowers/plans/2026-05-20-crypto-paseto-substrate.md
+      - docs/superpowers/specs/2026-05-20-crypto-paseto-substrate-design.md
+      - packages/crypto-paseto/package.json
+      - packages/crypto-paseto/src/__tests__/__fixtures__/PROVENANCE.md
+      - packages/crypto-paseto/src/__tests__/__fixtures__/v4.json
+      - packages/crypto-paseto/src/__tests__/footer-canonicalization.test.ts
+      - packages/crypto-paseto/src/__tests__/key-ring.test.ts
+      - packages/crypto-paseto/src/__tests__/pae.test.ts
+      - packages/crypto-paseto/src/__tests__/rfc-vectors-v4-local.test.ts
+      - packages/crypto-paseto/src/__tests__/rfc-vectors-v4-public.test.ts
+      - packages/crypto-paseto/src/__tests__/v4-local.test.ts
+      - packages/crypto-paseto/src/__tests__/v4-public.test.ts
+      - packages/crypto-paseto/src/errors.ts
+      - packages/crypto-paseto/src/index.ts
+      - packages/crypto-paseto/src/internal/v4-local-deterministic.ts
+      - packages/crypto-paseto/src/key-ring.ts
+      - packages/crypto-paseto/src/pae.ts
+      - packages/crypto-paseto/src/v4-local.ts
+      - packages/crypto-paseto/src/v4-public.ts
+      - packages/crypto-paseto/tsconfig.json
+      - packages/crypto-paseto/tsconfig.test.json
+      - packages/crypto-paseto/vitest.config.ts
+      - pnpm-lock.yaml
+      - tsconfig.json
+    verifies_invariant: []
+    spec_coverage: []
+    notes: |
+      Tier 1 Partial — `packages/crypto-paseto/` substrate per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md). v4.public (`sign` / `verify` / `generateKeyPair` on `@noble/curves` Ed25519) + v4.local (XChaCha20 stream + BLAKE2b-MAC encrypt-then-MAC — not AEAD; BLAKE2b-KDF derives `ek` / `n2` / `ak`) + `KeyRing` for parallel asymmetric/symmetric entries. RFC conformance vectors green: `4-S-*` (v4.public) + `4-E-*` (v4.local); `4-F-*` failure vectors tracked as BL-125. Phase 1 covers no Spec-025 acceptance criteria (substrate is pre-behavior plumbing per §Phase 1 ADR-010 AC coverage); ADR-010 ACs verified: in-house impl, dual-primitive v4.public + v4.local, audited `@noble/*@^2` deps, RFC conformance gating release. Unblocks [Plan-002 Phase 2](./002-invite-membership-and-presence.md) (invite tokens via v4.local per CP-002-4) and [Plan-018](./018-identity-and-participant-state.md) (access + refresh tokens per ADR-010). Manifest entry backfilled by this PR (BL-129) — orchestrator Phase E housekeeper missed scaffold creation at original ship.
+```
+
+### Notes
+
+<!-- Per-PR human commentary (round-trips, learnings, partial-ship details). -->
+
 ## Done Checklist
 
 - [x] `packages/crypto-paseto/` ships with PASETO v4.public `sign` / `verify` and v4.local `encrypt` / `decrypt` / `KeyRing` implementations on `@noble/curves` (Ed25519) and `@noble/ciphers` (XChaCha20 stream) + `@noble/hashes` (BLAKE2b-MAC + BLAKE2b-KDF) — v4.local is XChaCha20 + BLAKE2b-MAC encrypt-then-MAC, **not** XChaCha20-Poly1305 AEAD — and both PASETO RFC conformance vector test suites (`rfc-vectors-v4-public.test.ts` + `rfc-vectors-v4-local.test.ts`) are green in CI. (Shipped 2026-05-21 via PR #92.)
