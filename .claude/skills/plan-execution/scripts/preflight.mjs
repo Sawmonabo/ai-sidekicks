@@ -1313,7 +1313,37 @@ function normalizeTokenForMatch(tok) {
   return tok.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
+// `Spec-NNN §Section line N` / `§Section lines N1, N2` / `§Section AC-X` —
+// the parser attaches `.section` to line / line-range / AC anchors so the
+// verifier can reject phantom-section names alongside the line / AC check.
+// Without this, `Spec-002 §NotARealSection line 13` accepts as long as line
+// 13 exists (Codex P2 on PR #96 line 1301).
+function findSectionHeading(sectionName, specLines) {
+  const target = normalizeTokenForMatch(sectionName);
+  for (const line of specLines) {
+    if (/^#+\s+/.test(line)) {
+      const headingText = line.replace(/^#+\s+/, "");
+      if (normalizeTokenForMatch(headingText).includes(target)) {
+        return { found: true, headingLine: line.trim() };
+      }
+    }
+  }
+  return { found: false };
+}
+
+function sectionNotFoundFailure(sectionName) {
+  return {
+    valid: false,
+    reason: "section-not-found",
+    evidence: `Section heading '${sectionName}' not present in spec.`,
+  };
+}
+
 function verifyLineAnchor(anchor, specLines) {
+  if (anchor.section) {
+    const sec = findSectionHeading(anchor.section, specLines);
+    if (!sec.found) return sectionNotFoundFailure(anchor.section);
+  }
   if (anchor.line < 1 || anchor.line > specLines.length) {
     return {
       valid: false,
@@ -1344,6 +1374,10 @@ function verifyLineAnchor(anchor, specLines) {
 }
 
 function verifyLineRangeAnchor(anchor, specLines) {
+  if (anchor.section) {
+    const sec = findSectionHeading(anchor.section, specLines);
+    if (!sec.found) return sectionNotFoundFailure(anchor.section);
+  }
   if (anchor.start < 1 || anchor.end > specLines.length || anchor.start > anchor.end) {
     return {
       valid: false,
@@ -1371,6 +1405,10 @@ function verifyLineRangeAnchor(anchor, specLines) {
 }
 
 function verifyAcAnchor(anchor, source, specLines) {
+  if (anchor.section) {
+    const sec = findSectionHeading(anchor.section, specLines);
+    if (!sec.found) return sectionNotFoundFailure(anchor.section);
+  }
   const acHeadingMatch = source.match(/^#+\s+Acceptance Criteria\s*$/m);
   if (!acHeadingMatch) {
     return {
@@ -1414,20 +1452,9 @@ function verifyAcAnchor(anchor, source, specLines) {
 }
 
 function verifySectionAnchor(anchor, specLines) {
-  const target = normalizeTokenForMatch(anchor.section);
-  for (const line of specLines) {
-    if (/^#+\s+/.test(line)) {
-      const headingText = line.replace(/^#+\s+/, "");
-      if (normalizeTokenForMatch(headingText).includes(target)) {
-        return { valid: true, reason: "section-found", evidence: line.trim() };
-      }
-    }
-  }
-  return {
-    valid: false,
-    reason: "section-not-found",
-    evidence: `Section heading '${anchor.section}' not present in spec.`,
-  };
+  const sec = findSectionHeading(anchor.section, specLines);
+  if (sec.found) return { valid: true, reason: "section-found", evidence: sec.headingLine };
+  return sectionNotFoundFailure(anchor.section);
 }
 
 export function gateTasksBlockCites(phaseSection, planNumber, phaseNumber, opts = {}) {

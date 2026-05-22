@@ -483,3 +483,35 @@ test("PASS 30: runPreflight threads opts.repoRoot into Gate 4 file lookups", () 
   assert.equal(r.exit, 0, `runPreflight should pass with threaded opts; got halt:\n${r.stdout}`);
   assert.equal(r.stdout, "1");
 });
+
+// Phantom-section-on-line / -line-range / -AC false-green guards
+// (Codex P2 on PR #96 line 1301). The parser attaches `.section` to line /
+// line-range / AC anchors; the verifier now rejects when that section
+// heading is not present in the spec, instead of routing straight to the
+// line / AC content check.
+
+test("FAIL 31: §NotARealSection line N rejects with section-not-found", () => {
+  const { verifyFailures } = verifyAll("Spec-002 §NotARealSection line 11 (MembershipUpdate)");
+  assert.equal(verifyFailures.length, 1);
+  assert.equal(verifyFailures[0].result.reason, "section-not-found");
+});
+
+test("FAIL 32: §NotARealSection lines N-M rejects with section-not-found", () => {
+  const { verifyFailures } = verifyAll("Spec-002 §NotARealSection lines 27-35 (RateLimitResponse)");
+  assert.equal(verifyFailures.length, 1);
+  assert.equal(verifyFailures[0].result.reason, "section-not-found");
+});
+
+test("FAIL 33: §NotARealSection AC-N rejects with section-not-found", () => {
+  const { verifyFailures } = verifyAll("Spec-002 §NotARealSection AC1 (line 45)");
+  assert.equal(verifyFailures.length, 1);
+  assert.equal(verifyFailures[0].result.reason, "section-not-found");
+});
+
+test("PASS 34: real §Section + line passes when section exists in spec", () => {
+  const { verifyFailures, parseFailures } = verifyAll(
+    "Spec-002 §Token Security Properties line 39 (HS256)",
+  );
+  assert.equal(parseFailures.length, 0);
+  assert.equal(verifyFailures.length, 0);
+});
