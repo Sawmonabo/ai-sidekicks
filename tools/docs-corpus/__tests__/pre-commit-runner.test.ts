@@ -1,8 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { writeFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { resolve } from "node:path";
-import { execSync } from "node:child_process";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { execSync, spawnSync } from "node:child_process";
 
 import { runChecks } from "../bin/pre-commit-runner.ts";
 
@@ -99,6 +100,34 @@ describe("pre-commit-runner — inbound cite ripple expansion", () => {
       expect(result.messages).toEqual([]);
     } finally {
       cleanup();
+    }
+  });
+});
+
+describe("pre-commit-runner — bin-script direct-invocation guard", () => {
+  // Existing tests import `runChecks` so they bypass the direct-invocation
+  // guard entirely. The guard's failure mode is hostile: it exits 0 silently,
+  // indistinguishable from "no violations." This spawn-based test verifies
+  // that the script's `main()` actually runs when invoked as a bin script —
+  // catching guard regressions before they ship.
+  it("spawning the bin script with a markdown file containing a missing cite target exits 1", () => {
+    const binPath = resolve(dirname(fileURLToPath(import.meta.url)), "../bin/pre-commit-runner.ts");
+    const fixtureDir = mkdtempSync(resolve(tmpdir(), "pcr-spawn-"));
+    const badFile = resolve(fixtureDir, "bad.md");
+    writeFileSync(badFile, "See [missing](./does-not-exist.md):42 for context.\n");
+
+    try {
+      const result = spawnSync(
+        process.execPath,
+        ["--experimental-strip-types", "--no-warnings", binPath, badFile],
+        { encoding: "utf8" },
+      );
+      expect(result.status).toBe(1);
+      const combined = `${result.stdout}\n${result.stderr}`;
+      expect(combined).toContain("cite-target-existence");
+      expect(combined).toContain("missing-target-file");
+    } finally {
+      rmSync(fixtureDir, { recursive: true });
     }
   });
 });

@@ -14,7 +14,8 @@
 // `../lib/inbound-cite-discovery.ts`. This widens local pre-commit coverage to
 // match the inbound-ripple class CI's `custom-checks` repo-wide sweep catches.
 
-import { statSync } from "node:fs";
+import { realpathSync, statSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 import {
   checkCiteTargetExistence,
@@ -91,11 +92,21 @@ function main(): number {
 }
 
 // Direct-invocation guard so `import { runChecks } from "..."` in tests
-// doesn't trigger `process.exit`. `import.meta.url` is a file:// URL; argv[1]
-// is the script path the runtime invoked. Match the resolved file paths so
-// symlinked test layouts also bypass cleanly.
-const invokedDirectly =
-  typeof process.argv[1] === "string" && import.meta.url === `file://${process.argv[1]}`;
-if (invokedDirectly) {
+// doesn't trigger `process.exit`. Compare via `realpathSync` so symlinked
+// invocations match (string-comparing `file://${argv[1]}` against
+// `import.meta.url` fails on macOS `/tmp` → `/private/tmp` and any repo
+// checked out under a symlink — the URL resolves symlinks, raw argv[1] does
+// not). Silent guard misfire would disable every pre-commit check.
+function isDirectlyInvoked(): boolean {
+  const arg = process.argv[1];
+  if (typeof arg !== "string") return false;
+  try {
+    return realpathSync(arg) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (isDirectlyInvoked()) {
   process.exit(main());
 }
