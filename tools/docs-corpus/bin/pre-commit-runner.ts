@@ -8,13 +8,20 @@
 // argv: zero or more file paths. Files are filtered to staged `.md` for the
 // per-file checks (mermaid + cite); path-canonical-ripple runs unconditionally
 // (it does its own whole-repo grep via the registry's `scope` globs).
+//
+// Cite-target-existence runs against the staged files PLUS any governance-
+// corpus file whose outbound `:NNN` cites resolve into the staged set — see
+// `../lib/inbound-cite-discovery.ts`. This widens local pre-commit coverage to
+// match the inbound-ripple class CI's `custom-checks` repo-wide sweep catches.
 
-import { statSync } from "node:fs";
+import { realpathSync, statSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 import {
   checkCiteTargetExistence,
   formatCiteTargetViolations,
 } from "../lib/cite-target-existence.ts";
+import { expandToInboundCiteCorpus } from "../lib/inbound-cite-discovery.ts";
 import { checkMermaidSetCoherence, formatMermaidViolations } from "../lib/mermaid-set-coherence.ts";
 import {
   checkPathCanonicalRipple,
@@ -43,8 +50,13 @@ function isInGovernanceCorpus(p: string): boolean {
   return !PER_FILE_CHECK_EXCLUDED_PREFIXES.some((prefix) => p.startsWith(prefix));
 }
 
-function main(): number {
-  const stagedMd = process.argv.slice(2).filter(isMdFile).filter(isInGovernanceCorpus);
+export interface RunChecksResult {
+  exitCode: number;
+  messages: string[];
+}
+
+export function runChecks(args: string[]): RunChecksResult {
+  const stagedMd = args.filter(isMdFile).filter(isInGovernanceCorpus);
   const messages: string[] = [];
   let exitCode = 0;
 
@@ -60,17 +72,41 @@ function main(): number {
       messages.push(formatMermaidViolations(mermaidHits));
       exitCode = 1;
     }
-    const citeHits = checkCiteTargetExistence(stagedMd);
+    const expanded = expandToInboundCiteCorpus(stagedMd);
+    const citeHits = checkCiteTargetExistence(expanded);
     if (citeHits.length > 0) {
       messages.push(formatCiteTargetViolations(citeHits));
       exitCode = 1;
     }
   }
 
+  return { exitCode, messages };
+}
+
+function main(): number {
+  const { exitCode, messages } = runChecks(process.argv.slice(2));
   if (messages.length > 0) {
     console.error(messages.join("\n\n"));
   }
   return exitCode;
 }
 
-process.exit(main());
+// Direct-invocation guard so `import { runChecks } from "..."` in tests
+// doesn't trigger `process.exit`. Compare via `realpathSync` so symlinked
+// invocations match (string-comparing `file://${argv[1]}` against
+// `import.meta.url` fails on macOS `/tmp` → `/private/tmp` and any repo
+// checked out under a symlink — the URL resolves symlinks, raw argv[1] does
+// not). Silent guard misfire would disable every pre-commit check.
+function isDirectlyInvoked(): boolean {
+  const arg = process.argv[1];
+  if (typeof arg !== "string") return false;
+  try {
+    return realpathSync(arg) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (isDirectlyInvoked()) {
+  process.exit(main());
+}
