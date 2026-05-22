@@ -16,7 +16,7 @@ import {
   gateTasksBlockCites,
 } from "../preflight.mjs";
 
-const FIXTURE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "fixtures", "preflight-gate4");
+const FIXTURE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "preflight-gate4-fixtures");
 
 function verifyAll(payload) {
   const { anchors, failures } = parseCitePayload(payload);
