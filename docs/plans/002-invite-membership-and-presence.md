@@ -213,7 +213,7 @@ To avoid replicating local-cast workarounds across T1.1 / T1.2 / T1.4 and every 
 
 ##### T1.2 — Define `MembershipUpdate` discriminated union, `MembershipRole`, `MembershipState` enums in `packages/contracts/src/memberships.ts`.
 
-**Files:** `packages/contracts/src/memberships.ts`, `packages/contracts/src/index.ts`, `packages/contracts/src/__tests__/memberships.test.ts` **Spec coverage:** C3 (Spec-002 line 83 — `MembershipUpdate.action` discriminated union covers role-change / suspend / revoke) **Verifies invariant:** none (contract layer)
+**Files:** `packages/contracts/src/memberships.ts`, `packages/contracts/src/index.ts`, `packages/contracts/src/__tests__/memberships.test.ts` **Spec coverage:** C3 (Spec-002 line 83 — `MembershipUpdate.action` discriminated union covers {change_role, suspend, revoke, reactivate}) **Verifies invariant:** none (contract layer)
 
 ##### T1.3 — Define `PresenceHeartbeat`, `PresenceUpdate`/`PresenceRead` shapes, `PresenceState` enum, `JoinMode` enum in `packages/contracts/src/presence.ts`.
 
@@ -245,7 +245,7 @@ preconditions:
 **Goal:** Tests P1–P10 go green.
 
 - `packages/control-plane/src/invites/invite-service.ts` — issuance (PASETO v4.local with 256-bit CSPRNG, jti, SHA-256 hash storage per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md)), acceptance (single-use enforcement), revocation (owner-only per Spec-002 line 142), expiry validation
-- `packages/control-plane/src/memberships/membership-service.ts` — `MembershipUpdate` handler with owner-elevation check (I-002-1), last-owner-cannot-leave guard (I-002-2), role-change/suspend/revoke paths
+- `packages/control-plane/src/memberships/membership-service.ts` — `MembershipUpdate` handler with owner-elevation check (I-002-1), last-owner-cannot-leave guard (I-002-2), change_role/suspend/revoke/reactivate paths
 - Lock-ordering inheritance from Plan-001 (I-002-4) — every transactional caller follows `sessions` → `session_memberships`
 - Audit emission: revocation events emit to session history per Spec-002 line 141; integrity columns (`prev_hash`, `row_hash`, `daemon_signature`) follow the Plan-001 Phase 3 placeholder convention (`Buffer.alloc(32)`) until Plan-006 Tier 4 ships real event-taxonomy hashing/signing
 - Typed errors: `membership.permission_denied` (P6, I-002-1), `membership.last_owner` (P7, I-002-2), `invite.revoked` / `invite.expired` / `invite.already_accepted` (P2/P3/P4)

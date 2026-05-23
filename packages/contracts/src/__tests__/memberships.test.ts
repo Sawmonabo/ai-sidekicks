@@ -8,9 +8,12 @@
 // Test surface enumerated (the "what" each block pins):
 //   * Action discriminant pin — exactly 4 canonical snake_case literals
 //     (`change_role`, `suspend`, `revoke`, `reactivate`); kebab-case and
-//     camelCase variants rejected. This is the regression test for the
-//     orchestrator-dispatch transcription drift that nearly shipped a
-//     3-action kebab-case form (see file header of memberships.ts).
+//     camelCase variants rejected. Regression backstop — kebab-case
+//     `role-change` is NOT the canonical wire form; the canonical 4-action
+//     snake_case set per api-payload-contracts.md:402 is
+//     `{change_role, suspend, revoke, reactivate}`. Tests below fail
+//     loudly if a future edit silently widens or renames the discriminant
+//     set.
 //   * MembershipUpdateSchema happy paths — one `it()` per action variant.
 //   * Change-role variant — `newRole` required; admits `owner` (owner-
 //     elevation guard is service-layer per I-002-1, not schema).
@@ -192,10 +195,10 @@ describe("MembershipStateSchema (re-exported; lifecycle states per session.ts:18
 // request body). `newRole` is REQUIRED on `change_role`, FORBIDDEN on the
 // other three variants (the `.strict()` guard on each enforces).
 //
-// The discriminant transcription regression — orchestrator's first dispatch
-// dropped `reactivate` and used kebab-case `role-change` — is caught by the
-// explicit literal-rejection tests below. If a future edit ever silently
-// re-introduces kebab-case or drops `reactivate`, these tests fail loudly.
+// Regression backstop — pin canonical four-action snake_case set; rejects
+// kebab-case `role-change` and camelCase `changeRole` shapes. If a future
+// edit ever silently re-introduces kebab-case or drops `reactivate`, the
+// explicit literal-rejection tests below fail loudly.
 
 describe("MembershipUpdateSchema (C3: discriminated union per Spec-002 line 83)", () => {
   // ----------------------------------------------------------------------
@@ -257,10 +260,12 @@ describe("MembershipUpdateSchema (C3: discriminated union per Spec-002 line 83)"
   // Action-discriminant pin — exactly the four snake_case literals.
   // ----------------------------------------------------------------------
   //
-  // Regression backstop for the orchestrator's dispatch transcription
-  // drift: the canonical wire form uses snake_case `change_role` (NOT
+  // Regression backstop — the canonical wire form per
+  // api-payload-contracts.md:402 uses snake_case `change_role` (NOT
   // kebab-case `role-change` or camelCase `changeRole`), and the union
-  // has FOUR variants (not three — `reactivate` is canonical).
+  // has FOUR variants (not three — `reactivate` is canonical). The
+  // explicit literal-rejection tests below fail loudly if a future edit
+  // ever silently widens, narrows, or renames the discriminant set.
 
   it.each(["change_role", "suspend", "revoke", "reactivate"] as const)(
     "accepts canonical snake_case action literal: %s",
@@ -274,9 +279,9 @@ describe("MembershipUpdateSchema (C3: discriminated union per Spec-002 line 83)"
   );
 
   it("rejects kebab-case 'role-change' (canonical wire is snake_case 'change_role')", () => {
-    // The exact transcription drift the orchestrator caught — kebab-case
-    // is NOT the wire form. This test fails loudly if a future edit
-    // silently widens the discriminant set.
+    // Regression backstop — kebab-case `role-change` is NOT the wire
+    // form per api-payload-contracts.md:402. This test fails loudly if a
+    // future edit silently widens the discriminant set.
     const broken = { membershipId: MEMBERSHIP_ID, action: "role-change", newRole: "collaborator" };
     expect(MembershipUpdateSchema.safeParse(broken).success).toBe(false);
   });
@@ -359,12 +364,12 @@ describe("MembershipUpdateSchema (C3: discriminated union per Spec-002 line 83)"
   // Absent-from-wire field guards — sessionId and reason.
   // ----------------------------------------------------------------------
   //
-  // The canonical wire form omits both `sessionId` (membershipId is globally
-  // unique) and `reason` (Spec-002:48 routes audit detail to session-event
-  // payloads owned by Plan-006). The orchestrator's original dispatch
-  // included both; the `.strict()` guard rejects them. These tests pin the
-  // canonical surface — if a future edit ever drops `.strict()`, these
-  // tests fail loudly.
+  // The canonical wire form per api-payload-contracts.md:400-410 omits both
+  // `sessionId` (membershipId is globally unique) and `reason` (Spec-002:48
+  // routes audit detail to session-event payloads owned by Plan-006). The
+  // `.strict()` guard on each variant rejects them at parse time. These
+  // tests pin the canonical surface — if a future edit ever drops
+  // `.strict()` or expands the wire body, they fail loudly.
 
   it.each([
     ["change_role", buildChangeRolePayload()],

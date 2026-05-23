@@ -63,8 +63,16 @@
 // `as unknown as z.ZodType<T, T>` cast pattern that bridges Zod v4's
 // internal discriminated-union output type to the double-T shape required
 // for Standard-Schema-V1 input inference in tRPC v11 consumers (per
-// ADR-014). The `MembershipUpdate` type alias is `z.infer<...>` to keep
-// the type and schema in sync from a single source of truth.
+// ADR-014). `MembershipUpdate` is hand-declared as an explicit 4-arm
+// discriminated union (NOT `z.infer<typeof MembershipUpdateSchema>`); the
+// `_ActionPin` compile-time assertion below provides the type↔schema
+// cross-check via mutual `extends`. `z.infer` was rejected because (a) it
+// creates a TS9010 reference cycle with the
+// `z.ZodType<MembershipUpdate, MembershipUpdate>` schema annotation that
+// `isolatedDeclarations: true` cannot resolve, and (b) it erases the
+// literal-typed `action` discriminator at the consumption site, defeating
+// the bidirectional drift check that `_ActionPin` and the test backstops
+// rely on.
 //
 // Refs: Spec-002 §Interfaces And Contracts (line 83) + §Required Behavior
 // (line 49), Plan-002 §Phase 1 (C3), Plan-002 §I-002-1 (owner-elevation
@@ -133,14 +141,15 @@ export { MembershipIdSchema, MembershipRoleSchema, MembershipStateSchema } from 
 // parse time rather than service time.
 
 /**
- * Defense-in-depth helper — assert at compile time that the four action
- * literals are exactly the canonical set. If a future edit adds, removes,
- * or renames a variant in `MembershipUpdate` below, the `Exact<...>`
- * comparison fails to typecheck. This catches the same class of
- * transcription-drift bug that motivated this entire file's existence
- * (the orchestrator's original dispatch dropped `reactivate` and used
- * kebab-case for the discriminant; both would now be caught at compile
- * time).
+ * Defense-in-depth — this pin catches transcription-drift bugs that add,
+ * remove, or rename a discriminant literal. The mutual `extends` check
+ * below collapses `_ActionPin` to `never` (failing compilation) under
+ * three drift modes: subset shrinkage (a variant is dropped), superset
+ * growth (an extra variant is added), or a rename (e.g.,
+ * `change_role` → `changeRole`). The pin's correctness is the load-
+ * bearing guarantee that `MembershipUpdate["action"]` cannot silently
+ * diverge from the four canonical snake_case literals enumerated in
+ * `ExpectedMembershipUpdateAction` below.
  */
 type ExpectedMembershipUpdateAction = "change_role" | "suspend" | "revoke" | "reactivate";
 
