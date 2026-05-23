@@ -37,7 +37,7 @@
 //                       shared-postgres-schema.md §Migration-order invariant.
 //
 // Plus the schema_migrations anchor row consumed by the migration runner
-// (`(version, description) = (2, 'session_invites table')`).
+// (`(version, description) = (2, 'Session invites table')`).
 //
 // ----------------------------------------------------------------------------
 // Cross-plan boundary — NOT modified by this migration
@@ -120,5 +120,5 @@ CREATE INDEX idx_session_invites_session ON session_invites(session_id);
 CREATE INDEX idx_session_invites_state ON session_invites(state) WHERE state = 'pending';
 
 INSERT INTO schema_migrations (version, description)
-VALUES (2, 'session_invites table');
+VALUES (2, 'Session invites table');
 `;

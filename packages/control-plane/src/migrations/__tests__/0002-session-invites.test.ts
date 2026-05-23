@@ -1,10 +1,10 @@
 // Plan-002 Phase 1 T1.5 — `0002-session-invites.ts` migration shape regression.
 //
 // Phase 1 acceptance criterion: "`session_invites` migration applies cleanly".
-// This file pins seven load-bearing properties of `SESSION_INVITES_MIGRATION_SQL`:
+// This file pins eight load-bearing properties of `SESSION_INVITES_MIGRATION_SQL`:
 //
 //   T1 — table exists after applying v1 + v2 (probe `information_schema.tables`).
-//   T2 — `schema_migrations` carries both (1, ...) and (2, 'session_invites table').
+//   T2 — `schema_migrations` carries both (1, ...) and (2, 'Session invites table').
 //   T3 — `join_mode` CHECK rejects snake_case `runtime_contributor` and accepts
 //        the SPACED canonical wire form `runtime contributor` (Spec-002 line 45,
 //        canonical `MembershipRole`/`InviteJoinMode` in
@@ -21,6 +21,10 @@
 //   T7 — `applyMigrations` (hardcoded to v1) called on an already-fully-
 //        migrated handle is idempotent — no throw, no duplicate
 //        `schema_migrations` rows.
+//   T8 — `token_hash` UNIQUE constraint rejects a duplicate-`token_hash`
+//        INSERT — the storage-layer enforcement of single-use semantics
+//        (Spec-002 line 109 / migration file `Token trust boundary` section
+//        at lines 81-90).
 //
 // ----------------------------------------------------------------------------
 // Why the migration runner is NOT used for v2 here
@@ -231,11 +235,12 @@ describe("0002-session-invites migration (T2 — schema_migrations anchor rows)"
     if (v1Row === undefined || v2Row === undefined) return;
     expect(v1Row.version).toBe(1);
     expect(v2Row.version).toBe(2);
-    // The exact description string is load-bearing — `applyMigrations` (or a
-    // future per-version-loop variant) keys on this row's existence to decide
-    // whether v2 has been applied. A regression that changed the description
-    // would not break the inserts but would force a per-version probe rewrite.
-    expect(v2Row.description).toBe("session_invites table");
+    // The description string is pinned defensively — `hasMigrationApplied`
+    // (`sessions/migration-runner.ts` lines 244-256) keys on `version`
+    // alone, but the description is human-readable operational metadata
+    // (manual migration debugging, audit logs). A regression that quietly
+    // changed it would slip past version-only probes yet confuse operators.
+    expect(v2Row.description).toBe("Session invites table");
   });
 });
 
@@ -246,8 +251,8 @@ describe("0002-session-invites migration (T2 — schema_migrations anchor rows)"
 describe("0002-session-invites migration (T3 — join_mode CHECK pins canonical wire form)", () => {
   // The SPACED `runtime contributor` literal is the canonical wire form per
   // Spec-002 line 45, `MembershipRole` in `packages/contracts/src/session.ts`,
-  // and `InviteJoinMode` in `packages/contracts/src/invites.ts`. This was a
-  // major correction in T1.1's POLISH round (commit 7b5f1d6) — the migration
+  // and `InviteJoinMode` in `packages/contracts/src/invites.ts`. The SPACED
+  // canonical wire form is also pinned at the contract layer; the migration
   // is the second place it has to be right. A regression that swapped the
   // CHECK list to snake_case would be silently accepted at INSERT time and
   // only surface as a wire-shape mismatch much later.
@@ -426,6 +431,62 @@ describe("0002-session-invites migration (T7 — applyMigrations idempotency pos
     const v2Row = v2Probe.rows[0];
     expect(v2Row).toBeDefined();
     if (v2Row === undefined) return;
-    expect(v2Row.description).toBe("session_invites table");
+    expect(v2Row.description).toBe("Session invites table");
+  });
+});
+
+// ----------------------------------------------------------------------------
+// T8 — token_hash UNIQUE pins single-use semantics
+// ----------------------------------------------------------------------------
+
+describe("0002-session-invites migration (T8 — token_hash UNIQUE pins single-use semantics)", () => {
+  // Spec-002 §Token Security Properties line 109: "A token is consumed on
+  // first successful accept... The control plane sets the invite state to
+  // `accepted` atomically." The `token_hash TEXT NOT NULL UNIQUE` constraint
+  // (`0002-session-invites.ts` line 110, `Token trust boundary` section at
+  // lines 81-90) is the STORAGE-LAYER enforcement of that single-use
+  // semantics: a second invite row carrying the same `token_hash` MUST be
+  // rejected at INSERT time, not merely flagged by service-layer logic. A
+  // regression that dropped UNIQUE (or flipped it to a non-unique index)
+  // would silently break the spec's single-use guarantee — service-layer
+  // tests would still pass against happy-path single-use callers, and the
+  // first observable failure would be a duplicate-accept race in
+  // production. This test pins the constraint at the migration layer so the
+  // regression surfaces immediately.
+  beforeEach(async () => {
+    await applySessionInvitesMigration(ctx.querier);
+    await seedSessionAndInviter(ctx.querier);
+  });
+
+  it("rejects a second INSERT with a duplicate token_hash value (UNIQUE violation)", async () => {
+    // Use a FIXED token_hash literal (not `uniqueTokenHash(...)`) — the
+    // whole point of this test is to force a collision. Different `id`
+    // values are provided implicitly by gen_random_uuid() so the failure
+    // mode is unambiguously the token_hash UNIQUE, not the primary key.
+    // Postgres UNIQUE violations surface with SQLSTATE `23505`
+    // (unique_violation); assert on substring or code for portability
+    // across PGlite/pg driver error-shape variations.
+    const COLLIDING_TOKEN_HASH = "sha256:t8-collision-fixed-literal";
+
+    // First INSERT — must succeed.
+    await expect(
+      ctx.querier.query(
+        `INSERT INTO session_invites
+           (session_id, inviter_id, token_hash, join_mode, expires_at)
+         VALUES ($1, $2, $3, 'viewer', now() + interval '7 days')`,
+        [SESSION_ID, INVITER_ID, COLLIDING_TOKEN_HASH],
+      ),
+    ).resolves.toBeDefined();
+
+    // Second INSERT with the SAME token_hash — must be rejected by the
+    // UNIQUE constraint regardless of the (auto-generated) `id`.
+    await expect(
+      ctx.querier.query(
+        `INSERT INTO session_invites
+           (session_id, inviter_id, token_hash, join_mode, expires_at)
+         VALUES ($1, $2, $3, 'viewer', now() + interval '7 days')`,
+        [SESSION_ID, INVITER_ID, COLLIDING_TOKEN_HASH],
+      ),
+    ).rejects.toThrow(/unique|duplicate key|23505/i);
   });
 });
