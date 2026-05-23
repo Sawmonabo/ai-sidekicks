@@ -36,6 +36,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   ChannelIdSchema,
+  DEVICE_ID_MAX_LEN,
+  DEVICE_TYPE_MAX_LEN,
   JoinModeSchema,
   ParticipantIdSchema,
   PresenceHeartbeatSchema,
@@ -212,13 +214,14 @@ describe("JoinModeSchema (canonical wire form is SPACED 'runtime contributor')",
 // Spec-002:59 ("must include at minimum") and Spec-002:84 (canonical 5-field
 // list). The no-focus case is serialized as `null` on the wire; an absent
 // key is REJECTED. `undefined` is also rejected to pin against future drift
-// to `.nullish()` (which would re-admit the absent-key shape we explicitly
-// rejected).
+// to `.nullish()` (which would re-admit the absent-key shape the schema
+// explicitly rejects — Spec-002:59 binds the FIELD SET, the floor, so the
+// nullable-on-no-focus encoding is the spec-faithful interpretation).
 //
-// Resolved 2026-05-23 against Spec-002:59 + :84 literal reading. Earlier
-// draft used the `.optional()` (absent-key) shape; the spec text binds the
-// FIELD SET (the floor) so nullable-on-no-focus is the spec-faithful
-// encoding.
+// `deviceId` and `metadata.deviceType` compose `wireFreeFormString` (NUL-byte
+// rejection / whitespace-only rejection) per the package wire-trust-boundary
+// convention. Explicit NUL-byte regression tests live near the boundary
+// checks below.
 
 describe("PresenceHeartbeatSchema (C4: 5 metadata fields per Spec-002 line 84)", () => {
   // ----------------------------------------------------------------------
@@ -343,8 +346,8 @@ describe("PresenceHeartbeatSchema (C4: 5 metadata fields per Spec-002 line 84)",
 
   it("rejects heartbeat with focusedSessionId: undefined (.nullable() admits null but NOT undefined)", () => {
     // Pin against future drift to `.nullish()` — that shape would re-admit
-    // the absent-key case (zod treats `undefined` as "absent" semantically)
-    // we explicitly rejected per the 2026-05-23 resolution.
+    // the absent-key case (zod treats `undefined` as "absent" semantically),
+    // which the schema explicitly rejects per the Spec-002:59 field-set floor.
     const valid = buildHeartbeatPayload();
     const broken = {
       ...valid,
@@ -415,6 +418,73 @@ describe("PresenceHeartbeatSchema (C4: 5 metadata fields per Spec-002 line 84)",
   it("rejects heartbeat with empty metadata.deviceType", () => {
     const valid = buildHeartbeatPayload();
     const broken = { ...valid, metadata: { ...valid.metadata, deviceType: "" } };
+    expect(PresenceHeartbeatSchema.safeParse(broken).success).toBe(false);
+  });
+
+  // ----------------------------------------------------------------------
+  // Length-cap boundaries — DEVICE_ID_MAX_LEN / DEVICE_TYPE_MAX_LEN
+  // ----------------------------------------------------------------------
+  //
+  // Pin both the inclusive accept (= MAX_LEN) and the strict reject
+  // (= MAX_LEN + 1) for each cap. Mirrors the convention in
+  // invites.test.ts:217-222 and session-create.test.ts:207-216. Guards
+  // against silent widening — a future PR that bumps either constant
+  // without intent will fail these tests.
+
+  it("accepts a heartbeat with deviceId at DEVICE_ID_MAX_LEN (boundary)", () => {
+    const valid = buildHeartbeatPayload();
+    const ok = { ...valid, deviceId: "x".repeat(DEVICE_ID_MAX_LEN) };
+    expect(PresenceHeartbeatSchema.safeParse(ok).success).toBe(true);
+  });
+
+  it("rejects a heartbeat with deviceId at DEVICE_ID_MAX_LEN + 1 (boundary)", () => {
+    const valid = buildHeartbeatPayload();
+    const broken = { ...valid, deviceId: "x".repeat(DEVICE_ID_MAX_LEN + 1) };
+    expect(PresenceHeartbeatSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("accepts a heartbeat with metadata.deviceType at DEVICE_TYPE_MAX_LEN (boundary)", () => {
+    const valid = buildHeartbeatPayload();
+    const ok = {
+      ...valid,
+      metadata: { ...valid.metadata, deviceType: "x".repeat(DEVICE_TYPE_MAX_LEN) },
+    };
+    expect(PresenceHeartbeatSchema.safeParse(ok).success).toBe(true);
+  });
+
+  it("rejects a heartbeat with metadata.deviceType at DEVICE_TYPE_MAX_LEN + 1 (boundary)", () => {
+    const valid = buildHeartbeatPayload();
+    const broken = {
+      ...valid,
+      metadata: { ...valid.metadata, deviceType: "x".repeat(DEVICE_TYPE_MAX_LEN + 1) },
+    };
+    expect(PresenceHeartbeatSchema.safeParse(broken).success).toBe(false);
+  });
+
+  // ----------------------------------------------------------------------
+  // wireFreeFormString composition — NUL-byte log-injection guard
+  // ----------------------------------------------------------------------
+  //
+  // `deviceId` and `metadata.deviceType` compose `wireFreeFormString` (see
+  // session.ts:118), which rejects NUL bytes as an OpenTelemetry log-
+  // injection guard. A buggy or hostile client emitting
+  // `deviceId: "ios-\0-injection"` would otherwise corrupt structured log
+  // lines / OTel traces (NUL terminates string serialization at the
+  // observability layer). These tests pin the composition; removing the
+  // helper would re-open the injection vector.
+
+  it("rejects a heartbeat with NUL byte in deviceId (wireFreeFormString log-injection guard)", () => {
+    const valid = buildHeartbeatPayload();
+    const broken = { ...valid, deviceId: "ios-\0-injection" };
+    expect(PresenceHeartbeatSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("rejects a heartbeat with NUL byte in metadata.deviceType (wireFreeFormString log-injection guard)", () => {
+    const valid = buildHeartbeatPayload();
+    const broken = {
+      ...valid,
+      metadata: { ...valid.metadata, deviceType: "desk\0top" },
+    };
     expect(PresenceHeartbeatSchema.safeParse(broken).success).toBe(false);
   });
 

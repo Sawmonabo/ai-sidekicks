@@ -32,15 +32,12 @@
 //   focused without omitting the wire key. The no-focus case is serialized as
 //   `null` on the wire, preserving the "5 keys always present" floor.
 //
-//   Resolved 2026-05-23 against Spec-002:59 + :84 literal reading; ships
-//   5-required-nullable shape. Earlier draft used `?` optional shape; the
-//   spec text binds the field SET (not "candidate fields some of which may
-//   be absent") so nullable-on-no-focus is the spec-faithful encoding.
-//
 //   `api-payload-contracts.md:413-417` is INCOMPLETE relative to Spec-002 line
-//   59 + line 84 — a follow-up doc edit to align the wire form is queued
-//   (out of scope for this PR; broad-impact governance file). The queued doc
-//   PR will populate the wire form with the same 5-required-nullable shape.
+//   59 + line 84 — the canonical wire doc lacks the metadata sub-object
+//   entirely. A follow-up doc edit to align the wire form is recommended
+//   (out of scope here; broad-impact governance file). The aligned wire
+//   form should match this file: 5-required keys, focusedSessionId and
+//   focusedChannelId nullable on the value branch.
 //
 // Canonical `JoinMode` name:
 //
@@ -91,6 +88,7 @@ import {
   ChannelIdSchema,
   ParticipantIdSchema,
   SessionIdSchema,
+  wireFreeFormString,
   type ChannelId,
   type ParticipantId,
   type SessionId,
@@ -164,6 +162,15 @@ export const JoinModeSchema: z.ZodType<JoinMode, JoinMode> = z.enum([
 //
 // `DEVICE_TYPE_MAX_LEN` — short categorical string ("desktop", "mobile",
 // "cli", "ios", etc.). 64 chars matches `IDENTITY_HANDLE_MAX_LEN` order.
+//
+// Both caps are composed with `wireFreeFormString` at the schema layer (see
+// the `PresenceHeartbeatSchema` definition below), which layers on the
+// canonical wire-trust-boundary guards from session.ts:118: `.min(1)`,
+// NUL-byte rejection (OpenTelemetry log-injection guard), and whitespace-
+// only rejection. The fields are wire input from cross-process / cross-node
+// callers — even though clients EMIT these values (rather than humans
+// TYPING them), schema-level guards are required because client trust is
+// not the wire layer's to assume.
 
 export const DEVICE_ID_MAX_LEN = 256;
 export const DEVICE_TYPE_MAX_LEN = 64;
@@ -230,11 +237,14 @@ export interface PresenceHeartbeat {
 export const PresenceHeartbeatSchema: z.ZodType<PresenceHeartbeat, PresenceHeartbeat> = z
   .object({
     participantId: ParticipantIdSchema,
-    deviceId: z.string().min(1).max(DEVICE_ID_MAX_LEN),
+    deviceId: wireFreeFormString(DEVICE_ID_MAX_LEN, "PresenceHeartbeat.deviceId"),
     activityState: PresenceStateSchema,
     metadata: z
       .object({
-        deviceType: z.string().min(1).max(DEVICE_TYPE_MAX_LEN),
+        deviceType: wireFreeFormString(
+          DEVICE_TYPE_MAX_LEN,
+          "PresenceHeartbeat.metadata.deviceType",
+        ),
         focusedSessionId: SessionIdSchema.nullable(),
         focusedChannelId: ChannelIdSchema.nullable(),
         lastActivityAt: z.iso.datetime({ offset: true }),
