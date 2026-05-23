@@ -504,7 +504,7 @@ With NS-01 + NS-02 + NS-04 + NS-05 completed 2026-05-11 (NS-01 via PR #42 — Pl
 - Type: audit (doc-only)
 - Priority: `P1`
 - Upstream: Tier 1 audit committed (✓ PR #15 / commit `05125dc`)
-- References: [audit runbook](../operations/plan-implementation-readiness-audit-runbook.md):38-88, [Plan-002](../plans/002-invite-membership-and-presence.md), this document §5 Tier 2 row
+- References: [audit runbook](../operations/plan-implementation-readiness-audit-runbook.md):38-91, [Plan-002](../plans/002-invite-membership-and-presence.md), this document §5 Tier 2 row
 - Summary: Audited Plan-002 (Tier 2's only plan) per the runbook's 10 completeness dimensions. 57 findings (12 critical, 23 major, 19 minor, 4 nit) clustered to ~6 amendment workstreams; criticals discharged via in-PR amendments (Plan-002 + this doc §3 Plan-002 row + runbook §Lessons Learned Tier 2 row) plus 3 BL-NNN escalations (BL-119 PASETO crypto carve-out, BL-120 Phase 4 Tier 6 deferral tracking, BL-121 Spec-002 `InviteRevoke` shape backfill).
 - Exit Criteria: Tier 2 audit PR merged into `develop`; `plan-readiness-audit-tier-2-complete` git tag pushed; Plan-002 Preconditions checklist gains the audit-gate row.
 
@@ -514,7 +514,7 @@ With NS-01 + NS-02 + NS-04 + NS-05 completed 2026-05-11 (NS-01 via PR #42 — Pl
 - Type: audit (doc-only chain)
 - Priority: `P1` (NS-15, current ready entry); `P2` (each downstream tier promotes to `P1` when its turn comes)
 - Upstream: NS-14 → NS-15 (Tier 3, ready as of 2026-05-20) → NS-16 (Tier 4) → ... → NS-21 (Tier 9)
-- References: [audit runbook](../operations/plan-implementation-readiness-audit-runbook.md):86-88 ("Tiers: strictly serialized"), this document §5 (Tier 3-9 rows)
+- References: [audit runbook](../operations/plan-implementation-readiness-audit-runbook.md):89-91 ("Tiers: strictly serialized"), this document §5 (Tier 3-9 rows)
 - Summary: Tiers 3-9 audits run one PR per tier (per CLAUDE.md "8 tier-PRs of audit work owed before broad Tier 2+ code execution can resume"). Each tier-K audit PR commits the tier's plan amendments + tags `plan-readiness-audit-tier-K-complete`. Tier 8 includes Plan-017 — the only `review`-status plan, which must promote `review → approved` at its tier audit. NS-15 (Tier 3) is dispatchable now; NS-16..NS-21 sequentially unblock as each prior tier closes.
 - Exit Criteria: All 8 tier-PRs merged; all 27 plans cleared the audit; broad Tier 2+ code execution unblocked.
 - PRs:

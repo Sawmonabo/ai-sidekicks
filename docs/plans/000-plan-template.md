@@ -123,6 +123,13 @@ Plan-NNN declares the following obligations on adjacent plans (or inherits oblig
 - {Unit tests}
 - {Integration tests}
 - {Manual verification}
+<!--
+  The two bullets below were added 2026-05-22 (BL-127) and apply to plans
+  authored after this template revision. Existing Plans 001-027 are not
+  retroactively required to amend their § Test And Verification Plan.
+-->
+- {Adversarial-Tampering Boundary — enumerate per-substrate threat classes the verification suite exercises: canonicalization round-trip; intake validation parity with library-level asserts; mutation-isolation symmetry (clone-in / clone-out); empty-segment / trailing-separator rejection at every parser boundary. Anchored example: [Plan-025 §Decision Log](./025-self-hostable-node-relay.md#decision-log) — 8 Codex findings across 3 review passes on PR #92.}
+- {CI-Pinned Tool Versions — verification commands name CI-pinned tool versions explicitly (e.g., `gitleaks v8.30.1` per [ADR-023 §Axis 4](../decisions/023-v1-ci-cd-and-release-automation.md)) so local-version drift surfaces at plan-authoring time, not at PR push.}
 
 <!--
   Implementation Phase Sequence section (recommended for plans of ≥3 PRs;

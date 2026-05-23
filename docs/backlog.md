@@ -148,17 +148,6 @@ The items below were surfaced by the [plan-readiness-audit Tier 1](./operations/
 - Tracked-by: Plan-template revision class — local-CI version drift surfaced as a verification-gate gap during Plan-025 Tier 1 Partial closeout.
 - Revisit Trigger: Any plan whose verification gates include `gitleaks ... --staged`; OR a fresh contributor onboarding flow exposes the drift; OR gitleaks 9.x publishes a config-schema migration that obsoletes the v8 form.
 
-### BL-127: Plan-template revision — verification-gate runbook precision
-
-- Status: `todo`
-- Priority: `P3`
-- Owner: `unassigned`
-- References: [Plan-025 PR #92](https://github.com/Sawmonabo/ai-sidekicks/pull/92) (three Codex review passes surfacing 8 findings: 2 + 3 + 3 across passes), [`docs/plans/000-plan-template.md`](./plans/000-plan-template.md), [Plan-025 §Decision Log](./plans/025-self-hostable-node-relay.md#decision-log), BL-126 (gitleaks version-drift class — concurrent lesson).
-- Summary: Plan-025 Tier 1 Partial PR (#92) cleared CI on its first push but went through three Codex review iterations (8 findings total) before merge. Each iteration was substantively useful — strict base64url canonicalization, duplicate-id rejection, symmetric clone-in/out, empty-footer rejection, 32-byte key validation — but the pattern suggests the plan-template's "Verification" section under-specifies what an adversarial-review-equivalent check looks like at plan-authoring time. The current template's verification block enumerates positive tests (round-trips, RFC vectors, success cases) but not the adversarial-tampering shapes a reviewer like Codex will probe (non-canonical encodings, defense-in-depth boundary mutations, intake validation parity with library-level asserts).
-- Exit Criteria: (a) `000-plan-template.md` §Verification gains a "Adversarial-Tampering Boundary" sub-bullet enumerating the per-substrate threat classes that should be tested before review (canonicalization round-trip; intake validation parity; mutation-isolation symmetry; empty-segment / trailing-separator rejection at every parser boundary); (b) the pattern is anchored to a published example (Plan-025 §Decision Log + the eight findings) so plan authors have a concrete reference; (c) plan-readiness-audit-runbook references the new sub-bullet as part of the pre-review checklist.
-- Tracked-by: Plan-template revision class — review-iteration-discipline gap surfaced during Plan-025 PR #92 cycle.
-- Revisit Trigger: Next time a Tier 1 Partial substrate plan opens a PR; OR a future Codex / external-reviewer iteration crosses the three-pass line again on a different plan; OR ADR-023 §Pre-Commit Hooks is amended (potential co-edit surface for the local-side counterpart to plan-authoring discipline).
-
 ### BL-128: Preflight Gate 4 ambient-window subject match (intro-above-block pattern)
 
 - Status: `todo`
