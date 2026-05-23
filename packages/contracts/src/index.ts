@@ -11,13 +11,17 @@
 // re-exported here is a stable cross-package contract — removing or
 // renaming requires the spec edit (api-payload-contracts.md / Spec-001 /
 // Spec-006 / error-contracts.md) FIRST per AGENTS.md "doc-first ordering".
+export * from "./channels.js";
 export * from "./desktop-bridge.js";
 export * from "./error.js";
 export * from "./event.js";
+export * from "./invites.js";
 export * from "./jsonrpc.js";
 export * from "./jsonrpc-negotiation.js";
 export * from "./jsonrpc-registry.js";
 export * from "./jsonrpc-streaming.js";
+export * from "./memberships.js";
+export * from "./presence.js";
 export * from "./pty-host-protocol.js";
 export * from "./pty-host.js";
 export * from "./session.js";

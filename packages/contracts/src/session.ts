@@ -19,6 +19,7 @@
 // (toolchain — Zod 4.x).
 import { z } from "zod";
 
+import { brandedUuidIdSchema } from "./internal/branded.js";
 import { SubscriptionIdSchema, type SubscriptionId } from "./jsonrpc-streaming.js";
 
 // --------------------------------------------------------------------------
@@ -29,48 +30,39 @@ import { SubscriptionIdSchema, type SubscriptionId } from "./jsonrpc-streaming.j
 // § Branded ID Types verbatim:
 //   `type SessionId = string & { readonly __brand: "SessionId" };`
 // This is a TypeScript-only nominal type — runtime is a plain UUID string.
-// Two reasons we keep our own brand symbol rather than using `z.core.$brand`:
-//
-//   1. The spec's documented brand symbol is the structural shape we want
-//      cross-package consumers to see (`packages/runtime-daemon`, `packages/
-//      control-plane`, etc. read api-payload-contracts.md to verify their
-//      type imports — making the consuming type structurally identical to
-//      the doc's declaration eliminates a foot-gun).
-//   2. Zod's `.brand<>()` produces a `$ZodBranded<>` schema whose `_output`
-//      is the bare base type plus an internal symbol marker. That marker is
-//      not structurally compatible with our `__brand` field, so we cast the
-//      constructed schema to the public `z.ZodType<OurBrand>` shape — the
-//      runtime parser remains correct, the public type stays nominal.
+// We keep our own `__brand` field rather than using `z.core.$brand` because
+// the spec's documented brand symbol is the structural shape we want cross-
+// package consumers to see (`packages/runtime-daemon`, `packages/control-plane`
+// etc. read api-payload-contracts.md to verify their type imports — making the
+// consuming type structurally identical to the doc's declaration eliminates a
+// foot-gun).
 //
 // All exported schemas are annotated to satisfy `isolatedDeclarations: true`
 // from tsconfig.base.json (TS9010 — exported values must have explicit type
 // annotations so downstream packages can type-emit without re-running
 // whole-program inference).
+//
+// UUID-based IDs use the `brandedUuidIdSchema` helper from `./internal/branded`
+// which encapsulates the `z.uuid().brand().as unknown as z.ZodType<T, T>` cast
+// pattern that bridges Zod's single-T `$ZodBranded` output to the double-T
+// shape required for Standard-Schema-V1 input inference in tRPC v11 (ADR-014).
+// Non-UUID branded scalars (see EventCursorSchema below) keep the inline cast.
 
 export type SessionId = string & { readonly __brand: "SessionId" };
-// `z.ZodType<T, T>` (vs. `z.ZodType<T>` whose Input slot defaults to `unknown`)
-// preserves Standard-Schema-V1 input inference when this schema appears inside
-// request schemas consumed by tRPC v11. The cast already discards Zod's
-// internal branding details — extending the destination to carry both Output
-// and Input is the same nominal-shape coercion.
-export const SessionIdSchema: z.ZodType<SessionId, SessionId> = z
-  .uuid()
-  .brand<"SessionId">() as unknown as z.ZodType<SessionId, SessionId>;
+export const SessionIdSchema: z.ZodType<SessionId, SessionId> =
+  brandedUuidIdSchema<SessionId>("SessionId");
 
 export type ParticipantId = string & { readonly __brand: "ParticipantId" };
-export const ParticipantIdSchema: z.ZodType<ParticipantId> = z
-  .uuid()
-  .brand<"ParticipantId">() as unknown as z.ZodType<ParticipantId>;
+export const ParticipantIdSchema: z.ZodType<ParticipantId, ParticipantId> =
+  brandedUuidIdSchema<ParticipantId>("ParticipantId");
 
 export type MembershipId = string & { readonly __brand: "MembershipId" };
-export const MembershipIdSchema: z.ZodType<MembershipId> = z
-  .uuid()
-  .brand<"MembershipId">() as unknown as z.ZodType<MembershipId>;
+export const MembershipIdSchema: z.ZodType<MembershipId, MembershipId> =
+  brandedUuidIdSchema<MembershipId>("MembershipId");
 
 export type ChannelId = string & { readonly __brand: "ChannelId" };
-export const ChannelIdSchema: z.ZodType<ChannelId> = z
-  .uuid()
-  .brand<"ChannelId">() as unknown as z.ZodType<ChannelId>;
+export const ChannelIdSchema: z.ZodType<ChannelId, ChannelId> =
+  brandedUuidIdSchema<ChannelId>("ChannelId");
 
 // EventCursor is opaque — wire form is a string but its internal structure
 // (sequence + monotonic_ns) is owned by Plan-006. Plan-001 only needs to
@@ -85,7 +77,12 @@ export const ChannelIdSchema: z.ZodType<ChannelId> = z
 // then, any non-empty bounded string is accepted.
 export const EVENT_CURSOR_MAX_LEN = 256;
 export type EventCursor = string & { readonly __brand: "EventCursor" };
-// `z.ZodType<T, T>` — see SessionIdSchema for rationale.
+// Non-UUID branded scalar — inline cast (not the `brandedUuidIdSchema` helper)
+// because the underlying parser is `z.string().min(1).max(EVENT_CURSOR_MAX_LEN)`,
+// not `z.string().uuid()`. The `as unknown as z.ZodType<T, T>` cast matches the
+// helper's pattern (see `./internal/branded.ts` for the load-bearing rationale:
+// bridging single-T `$ZodBranded` output to the double-T shape required for
+// Standard-Schema-V1 input inference in tRPC v11 per ADR-014).
 export const EventCursorSchema: z.ZodType<EventCursor, EventCursor> = z
   .string()
   .min(1)
@@ -201,8 +198,8 @@ export const ChannelStateSchema: z.ZodType<ChannelState> = z.enum(["active", "mu
 // (the `.strict()` modifier rejects unknown keys at parse time, surfacing
 // schema drift early).
 
-// `z.ZodType<T, T>` — see SessionIdSchema for rationale (preserves Input
-// inference when this helper composes into tRPC-consumed request schemas).
+// `z.ZodType<T, T>` — see `./internal/branded.ts` for rationale (preserves
+// Input inference when this helper composes into tRPC-consumed request schemas).
 const RecordOfUnknownSchema: z.ZodType<Record<string, unknown>, Record<string, unknown>> = z.record(
   z.string(),
   z.unknown(),

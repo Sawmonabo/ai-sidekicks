@@ -131,7 +131,7 @@ The TDD test list below is enumerated and ordered by implementation dependency. 
 | --- | --- | --- | --- |
 | C1 | `InviteCreate payload validates required fields (sessionId, inviter, joinMode)` | request schema | line 80 |
 | C2 | `Invite lifecycle states enum is exactly {pending, accepted, revoked, expired}` | no `declined` state in V1 | line 43 |
-| C3 | `MembershipUpdate.action discriminated union covers role-change/suspend/revoke` | mutation contract | line 83 |
+| C3 | `MembershipUpdate.action discriminated union covers {change_role, suspend, revoke, reactivate}` | mutation contract | line 83 |
 | C4 | `PresenceHeartbeat payload carries the 5 required metadata fields` | `{deviceType, focusedSessionId, focusedChannelId, lastActivityAt, appVisible}` | line 84 |
 | C5 | `ChannelList response shape matches Spec-002:87 projection` | read-only projection contract | line 87 |
 
@@ -189,23 +189,54 @@ Plan-002 implementation lands as a sequence of small PRs primarily at Tier 2 (Ph
 - `packages/contracts/src/channels.ts` — `ChannelList` request/response, `ChannelState` enum (channel creation contracts owned by Plan-016 are NOT shipped here)
 - Migration creates `session_invites` (Postgres); `session_memberships` is already created by Plan-001 (no ALTER needed at this PR)
 
+#### Cross-Plan Amendments
+
+**PR #102 (2026-05-22) — `packages/contracts/src/internal/branded.ts` introduction + `packages/contracts/src/session.ts` brand-schema refactor.**
+
+T1.1's implementation surfaced a pre-existing typing inconsistency in `packages/contracts/src/session.ts` (owned by Plan-001 Phase 2 per [cross-plan-dependencies.md §2 `packages/contracts/src/`](../architecture/cross-plan-dependencies.md#2-package-path-ownership-map)): `ParticipantIdSchema` / `MembershipIdSchema` / `ChannelIdSchema` were declared `z.ZodType<T>` (single-T) while sibling `SessionIdSchema` / `EventCursorSchema` followed the double-T `z.ZodType<T, T>` form required for Standard-Schema-V1 input inference in tRPC v11 consumers (per [ADR-014](../decisions/014-trpc-control-plane-api.md)). Composing any single-T branded ID inside an outer double-T request schema fails typecheck.
+
+To avoid replicating local-cast workarounds across T1.1 / T1.2 / T1.4 and every future V1 branded ID, this PR:
+
+1. **Adds `packages/contracts/src/internal/branded.ts`** — exports `brandedUuidIdSchema<T>(brandName)` helper encapsulating the Zod-v4 brand cast idiom in a single fix-point. The helper lives under `src/internal/` (not re-exported from `index.ts`) following the convention established by `packages/crypto-paseto/src/internal/v4-local-deterministic.ts` — internal modules imported relatively by sibling files in the same package, never exposed to consumers.
+2. **Refactors `packages/contracts/src/session.ts`** — the 4 UUID-based branded ID schemas (`SessionIdSchema`, `ParticipantIdSchema`, `MembershipIdSchema`, `ChannelIdSchema`) switch to the helper. `EventCursorSchema` retains its inline cast because its parser is `z.string().min(1).max(EVENT_CURSOR_MAX_LEN)` (Plan-006-owned opaque cursor form, not a UUID); substituting the helper would silently narrow runtime validation. Type-level only; zero runtime change.
+3. **Declares `InviteIdSchema` in T1.1's new `invites.ts`** using the helper (no local cast).
+
+**Cross-plan touch rationale.** `packages/contracts/src/session.ts` is normally Plan-001 Phase 2-owned per the cross-plan ownership map. The literal "no two plans edit the same file" rule would have routed this fix through a precursor Plan-001 housekeeping PR. We applied a fix-in-place housekeeping exception because: (a) the fix is type-level only (zero runtime change, zero behavioral risk), (b) the defect is pre-existing and only discoverable via downstream composition (Plan-002 was the first composer), (c) the helper avoids ~12 lines of cast-boilerplate repeated across T1.1 / T1.2 / T1.4 plus every future V1 branded ID, and (d) bundling the housekeeping in the surfacing PR avoids cross-plan PR coordination ceremony for a sub-30-LOC fix. This is one-time correction, not Plan-002 claiming ongoing edit rights on Plan-001-owned files. A separate governance amendment to `cross-plan-dependencies.md:90` is queued to encode this housekeeping-exception convention.
+
+**Refs:** Plan-001 Phase 2 (`packages/contracts/src/session.ts` original ship), [ADR-014](../decisions/014-trpc-control-plane-api.md) (tRPC v11 / Standard Schema V1).
+
+**PR #102 (2026-05-23) — Amendment 2: `applyMigrations()` per-version loop wires v2 (cross-plan touch on Plan-001 Phase 4-owned `migration-runner.ts`).**
+
+Phase D code-reviewer surfaced that T1.5 shipped `SESSION_INVITES_MIGRATION_SQL` (the v2 migration constant) while `applyMigrations()` in `packages/control-plane/src/sessions/migration-runner.ts` (owned by Plan-001 Phase 4 per PR #10) was hardcoded to probe-and-apply v1 only. Any deployer pulling `develop` would have received an orphan v2 migration file that the runner never executed until Plan-002 Phase 2's service-layer PR wired it. The originally-planned deferral (per the `0002-session-invites.ts` file-level "Cross-plan boundary" header) postponed the runner wiring to Phase 2; the user explicitly chose to fix-in-place during Phase D round-trip rather than defer.
+
+1. **Restructures `applyMigrations()`** — replaces the hardcoded `version: 1` outer/inner probes with a `for ({ version, sql } of MIGRATIONS)` loop over a new module-scope `MIGRATIONS` array `[{version: 1, sql: INITIAL_MIGRATION_SQL}, {version: 2, sql: SESSION_INVITES_MIGRATION_SQL}]`. Per-version transaction + advisory lock + outer probe + re-probe-in-lock are all preserved unchanged; the SQL atomicity boundary, race-defense pattern, and `MIGRATION_LOCK_ID` constant are untouched. Each migration version goes through its own transaction so concurrent racers on different versions interleave correctly through the shared advisory lock.
+2. **Updates the `applyMigrations()` JSDoc + file-level header** — generalizes the v1-specific tone to describe per-version iteration; removes the now-stale "Multi-version expansion" TODO; explains why each version takes its own transaction boundary (DDL blast-radius minimization + per-version racer interleaving).
+3. **Adds `packages/control-plane/src/sessions/__tests__/migration-runner.test.ts`** — new test file pinning two canonical-path properties: R1 (`applyMigrations()` on a fresh database applies BOTH v1 AND v2, materializing `session_invites`); R2 (`applyMigrations()` is idempotent at the runner-loop layer — re-call on a fully-migrated DB is a no-op).
+4. **Updates two existing test files transitively** as a mechanical consequence of the runner change:
+   - `packages/control-plane/src/sessions/__tests__/session-directory-service.test.ts` (Plan-001 Phase 4-owned) — the two `expect(probe.rows).toEqual([{ version: 1 }])` assertions become `[{ version: 1 }, { version: 2 }]`; Codex-R8 concurrency-test narration around the single-row claim updates to match. The composition-level coverage that the runner is idempotent when run through the directory-service test fixture is preserved.
+   - `packages/control-plane/src/migrations/__tests__/0002-session-invites.test.ts` (this plan's own T1.5 file) — `beforeEach` switches from `applyMigrations(querier)` to direct `tx.exec(INITIAL_MIGRATION_SQL)` so v2 isn't pre-applied (the file exercises v2 SQL semantics in isolation); the `applySessionInvitesMigration` local helper is preserved unchanged; file-level header, T7 docstring, and `beforeEach` docstring update to reflect the new framing. T7's runtime behavior is preserved — it now reads as a SQL-direct-exec idempotency test complementary to the new `migration-runner.test.ts` R2 canonical-path idempotency test.
+
+**Cross-plan touch rationale.** `packages/control-plane/src/sessions/migration-runner.ts` and `packages/control-plane/src/sessions/__tests__/session-directory-service.test.ts` are normally Plan-001 Phase 4-owned per the cross-plan ownership map. We applied the same fix-in-place housekeeping exception established by Amendment 1 above because: (a) the defect surfaced only via downstream composition (T1.5 shipped the v2 SQL; the orphan-migration gap was only visible once the v2 constant existed), (b) the fix is structural-only (no semantic change to v1 application, no new public surface, no spec change), (c) wiring v2 now empties the original Plan-002 Phase 2 T2.1 sub-scope (which was originally going to wire the runner), removing a cross-plan dependency, (d) sub-30 LOC for the runner change itself; the transitive test updates are mechanical assertion + narration changes that follow as a direct consequence (assertion shape `[{v:1}]` → `[{v:1},{v:2}]`; `beforeEach` bootstrap path switch from `applyMigrations` to direct-exec to preserve in-isolation v2 SQL testing), and (e) this is one-time correction, NOT Plan-002 claiming ongoing edit rights on Plan-001-owned `migration-runner.ts` or `session-directory-service.test.ts`. The new `migration-runner.test.ts` file lives at a Plan-001-adjacent path (`packages/control-plane/src/sessions/__tests__/`) but is authored by Plan-002 to pin the per-version-loop properties Plan-002 just added; future canonical-path runner tests owned by Plan-001 can compose alongside it.
+
+**Refs:** Plan-001 Phase 4 (`migration-runner.ts` original ship PR #10), `packages/control-plane/src/migrations/0002-session-invites.ts` (the v2 migration SQL T1.5 ships in this PR), Phase D code-reviewer round-1 review.
+
 #### Tasks
 
 ##### T1.1 — Define `InviteCreate`, `InviteAccept`, `InviteRevoke`, `InviteState`, `InviteId` (branded) in `packages/contracts/src/invites.ts`; export via `packages/contracts/src/index.ts`.
 
-**Files:** `packages/contracts/src/invites.ts`, `packages/contracts/src/index.ts`, `packages/contracts/test/invites.test.ts` **Spec coverage:** C1 (Spec-002 line 80 — `InviteCreate` required fields), C2 (Spec-002 line 43 — invite lifecycle states `{pending, accepted, revoked, expired}` (no `declined` in V1)) **Verifies invariant:** none (contract layer)
+**Files:** `packages/contracts/src/invites.ts`, `packages/contracts/src/index.ts`, `packages/contracts/src/__tests__/invites.test.ts`, `packages/contracts/src/internal/branded.ts` (cross-plan amendment — internal helper, not re-exported from `index.ts`), `packages/contracts/src/session.ts` (cross-plan amendment — refactor 4 existing UUID ID schemas to use the helper) **Spec coverage:** C1 (Spec-002 line 80 — `InviteCreate` required fields), C2 (Spec-002 line 43 — invite lifecycle states `{pending, accepted, revoked, expired}` (no `declined` in V1)) **Verifies invariant:** none (contract layer)
 
 ##### T1.2 — Define `MembershipUpdate` discriminated union, `MembershipRole`, `MembershipState` enums in `packages/contracts/src/memberships.ts`.
 
-**Files:** `packages/contracts/src/memberships.ts`, `packages/contracts/test/memberships.test.ts` **Spec coverage:** C3 (Spec-002 line 83 — `MembershipUpdate.action` discriminated union covers role-change / suspend / revoke) **Verifies invariant:** none (contract layer)
+**Files:** `packages/contracts/src/memberships.ts`, `packages/contracts/src/index.ts`, `packages/contracts/src/__tests__/memberships.test.ts` **Spec coverage:** C3 (Spec-002 line 83 — `MembershipUpdate.action` discriminated union covers {change_role, suspend, revoke, reactivate}) **Verifies invariant:** none (contract layer)
 
 ##### T1.3 — Define `PresenceHeartbeat`, `PresenceUpdate`/`PresenceRead` shapes, `PresenceState` enum, `JoinMode` enum in `packages/contracts/src/presence.ts`.
 
-**Files:** `packages/contracts/src/presence.ts`, `packages/contracts/test/presence.test.ts` **Spec coverage:** C4 (Spec-002 line 84 — `PresenceHeartbeat` carries 5 required metadata fields `{deviceType, focusedSessionId, focusedChannelId, lastActivityAt, appVisible}`) **Verifies invariant:** none (contract layer)
+**Files:** `packages/contracts/src/presence.ts`, `packages/contracts/src/index.ts`, `packages/contracts/src/__tests__/presence.test.ts` **Spec coverage:** C4 (Spec-002 line 84 — `PresenceHeartbeat` carries 5 required metadata fields `{deviceType, focusedSessionId, focusedChannelId, lastActivityAt, appVisible}`) **Verifies invariant:** none (contract layer)
 
 ##### T1.4 — Define `ChannelList` request/response + `ChannelState` enum in `packages/contracts/src/channels.ts` (no channel-creation contracts — owned by Plan-016).
 
-**Files:** `packages/contracts/src/channels.ts`, `packages/contracts/test/channels.test.ts` **Spec coverage:** C5 (Spec-002 line 87 — `ChannelList` read-only projection request/response shape) **Verifies invariant:** none (contract layer)
+**Files:** `packages/contracts/src/channels.ts`, `packages/contracts/src/index.ts`, `packages/contracts/src/__tests__/channels.test.ts` **Spec coverage:** C5 (Spec-002 line 87 — `ChannelList` read-only projection request/response shape) **Verifies invariant:** none (contract layer)
 
 ##### T1.5 — Author Postgres migration creating `session_invites` table (no `session_memberships` ALTER — Plan-001 owns).
 
@@ -213,7 +244,7 @@ Plan-002 implementation lands as a sequence of small PRs primarily at Tier 2 (Ph
 
 ##### T1.6 — Wire Vitest tests C1–C5 + anti-leakage assertion (no `ChannelCreate` contracts shipped).
 
-**Files:** `packages/contracts/test/anti-leakage.test.ts` **Spec coverage:** Spec-002 line 87 (`ChannelList` is the only channel surface contracted in Spec-002; `ChannelList` request/response shape ships here, while `ChannelCreate` is explicitly handled by Plan-016 per Spec-002) **Verifies invariant:** none (cross-plan ownership boundary)
+**Files:** `packages/contracts/src/__tests__/anti-leakage.test.ts` **Spec coverage:** Spec-002 line 87 (`ChannelList` is the only channel surface contracted in Spec-002; `ChannelList` request/response shape ships here, while `ChannelCreate` is explicitly handled by Plan-016 per Spec-002) **Verifies invariant:** none (cross-plan ownership boundary)
 
 ### Phase 2 — Control-Plane Invite And Membership Services
 
@@ -229,7 +260,7 @@ preconditions:
 **Goal:** Tests P1–P10 go green.
 
 - `packages/control-plane/src/invites/invite-service.ts` — issuance (PASETO v4.local with 256-bit CSPRNG, jti, SHA-256 hash storage per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md)), acceptance (single-use enforcement), revocation (owner-only per Spec-002 line 142), expiry validation
-- `packages/control-plane/src/memberships/membership-service.ts` — `MembershipUpdate` handler with owner-elevation check (I-002-1), last-owner-cannot-leave guard (I-002-2), role-change/suspend/revoke paths
+- `packages/control-plane/src/memberships/membership-service.ts` — `MembershipUpdate` handler with owner-elevation check (I-002-1), last-owner-cannot-leave guard (I-002-2), change_role/suspend/revoke/reactivate paths
 - Lock-ordering inheritance from Plan-001 (I-002-4) — every transactional caller follows `sessions` → `session_memberships`
 - Audit emission: revocation events emit to session history per Spec-002 line 141; integrity columns (`prev_hash`, `row_hash`, `daemon_signature`) follow the Plan-001 Phase 3 placeholder convention (`Buffer.alloc(32)`) until Plan-006 Tier 4 ships real event-taxonomy hashing/signing
 - Typed errors: `membership.permission_denied` (P6, I-002-1), `membership.last_owner` (P7, I-002-2), `invite.revoked` / `invite.expired` / `invite.already_accepted` (P2/P3/P4)
