@@ -19,13 +19,16 @@ pre-commit:
       stage_fixed: true
 
     - name: gitleaks
-      # `gitleaks protect --staged` was hidden in v8.19+ help and replaced by
-      # `gitleaks git --pre-commit --staged`. ADR-023 mandates v8.30+, so use the
-      # supported invocation. Sustains identical detection semantics on staged files.
-      # Local install is required per CONTRIBUTING.md "Toolchain Setup" — emit
-      # the install hint to stderr with a `WARNING:` prefix so missing-tool drift is
-      # visible in pre-commit output without blocking the commit (CI gitleaks job is
-      # the authoritative gate).
+      # Canonical gitleaks version is v8.30.1 per ADR-023 §Axis 4 sub-axis 4,
+      # pinned identically here (local fast-feedback) and in
+      # `.github/workflows/gitleaks.yml` (`env.GITLEAKS_VERSION`, authoritative
+      # CI gate). `gitleaks protect --staged` was hidden in v8.19+ help and
+      # replaced by `gitleaks git --pre-commit --staged`; use the supported
+      # invocation. Sustains identical detection semantics on staged files.
+      # Local install is required per CONTRIBUTING.md §Pre-Commit Hooks — emit
+      # the install hint to stderr with a `WARNING:` prefix so missing-tool
+      # state is visible in pre-commit output without blocking the commit (CI
+      # gitleaks job is the authoritative gate).
       run: |
         if command -v gitleaks >/dev/null 2>&1; then
           gitleaks git --pre-commit --staged --no-banner --redact

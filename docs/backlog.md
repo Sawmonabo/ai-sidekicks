@@ -137,17 +137,6 @@ The items below were surfaced by the [plan-readiness-audit Tier 1](./operations/
 - Tracked-by: ADR-010 acceptance criteria for `packages/crypto-paseto/` (RFC conformance gating release) — current AC is satisfied by success-vector parity; this BL hardens to spec-mandated adversarial coverage.
 - Revisit Trigger: Plan-025 Tier 7 remainder begins (failure vectors should land before the Fastify relay-node ships); OR a downstream consumer plan (Plan-002 Phase 2, Plan-018) surfaces a tamper class that wasn't covered by the handwritten negative cases; OR PASETO spec maintainers publish an updated `4-F-*` vector set.
 
-### BL-126: Local gitleaks pin drift vs CI (8.30.1 local vs 8.24.3 CI)
-
-- Status: `todo`
-- Priority: `P3`
-- Owner: `unassigned`
-- References: [`.gitleaks.toml`](../.gitleaks.toml), [`lefthook.yml`](../lefthook.yml), [`.github/workflows/gitleaks.yml`](../.github/workflows/gitleaks.yml), [Plan-025 PR #92 commit `584aed4`](https://github.com/Sawmonabo/ai-sidekicks/commit/584aed4) (chore(repo): use singular `[allowlist]` for gitleaks v8.24.3 ci compat), [ADR-023 §Pre-Commit Hooks](./decisions/023-v1-ci-cd-and-release-automation.md).
-- Summary: Plan-025's pre-merge verification gates passed locally but the CI gitleaks job tripped on a v8.30.1 → v8.24.3 schema mismatch (plural `[[allowlists]]` block accepted by 8.30.1, rejected by 8.24.3). The fix landed in PR #92 (`584aed4`) by switching to the singular `[allowlist]` form. The root cause — local-vs-CI version drift — remains: `brew install gitleaks` ships the latest (8.30.1+) by default, while [`.github/workflows/gitleaks.yml`](../.github/workflows/gitleaks.yml) pins 8.24.3. Subsequent contributors will reproduce the same trip until either (a) the local version is documented as a pinned floor in CONTRIBUTING.md / a chezmoi-managed `Brewfile`, or (b) CI is bumped to a current version that matches what `brew install` yields.
-- Exit Criteria: (a) ADR-023 amended (or [CONTRIBUTING.md §Pre-Commit Hooks](../CONTRIBUTING.md) if Type 1 reversible) to declare a single canonical gitleaks version and the matching schema form (singular `[allowlist]` vs plural `[[allowlists]]`); (b) CI workflow pin + local hook + chezmoi-installed binary all reference the same version; (c) plan-template revision (per BL-127) ensures the next plan's verification-gate runbook names the **CI-pinned** gitleaks version explicitly so local-version drift is caught at plan-authoring time, not at PR push.
-- Tracked-by: Plan-template revision class — local-CI version drift surfaced as a verification-gate gap during Plan-025 Tier 1 Partial closeout.
-- Revisit Trigger: Any plan whose verification gates include `gitleaks ... --staged`; OR a fresh contributor onboarding flow exposes the drift; OR gitleaks 9.x publishes a config-schema migration that obsoletes the v8 form.
-
 ---
 
 _Closed items live in [Backlog Archive](./archive/backlog-archive.md)._
