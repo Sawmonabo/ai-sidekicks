@@ -1546,13 +1546,20 @@ function verifyLineRangeAnchor(anchor, specLines) {
   }
   const block = specLines.slice(anchor.start - 1, anchor.end).join("\n");
   if (anchor.subject) {
+    // Subject search uses ±2 ambient lines around the cited range so cites
+    // pointing at a fenced shape block don't have to widen artificially to
+    // include the intro line naming the contract (intro-above-block pattern).
+    const ambient = 2;
+    const ambientStart = Math.max(1, anchor.start - ambient);
+    const ambientEnd = Math.min(specLines.length, anchor.end + ambient);
+    const haystackBlock = specLines.slice(ambientStart - 1, ambientEnd).join("\n");
     const needle = normalizeTokenForMatch(anchor.subject);
-    const haystack = normalizeTokenForMatch(block);
+    const haystack = normalizeTokenForMatch(haystackBlock);
     if (!haystack.includes(needle)) {
       return {
         valid: false,
         reason: "subject-mismatch-in-range",
-        evidence: `Lines ${anchor.start}-${anchor.end} do not contain '${anchor.subject}'.`,
+        evidence: `Lines ${anchor.start}-${anchor.end} (±2 ambient = ${ambientStart}-${ambientEnd}) do not contain '${anchor.subject}'.`,
       };
     }
   }
