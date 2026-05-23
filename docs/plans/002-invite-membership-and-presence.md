@@ -410,12 +410,41 @@ After Phase 5 lands green at Tier 2, Plan-002's load-bearing semantics are compl
 
 ```yaml
 manifest_schema_version: 1
-shipped: []
+shipped:
+  - phase: 1
+    task: [T1.1, T1.2, T1.3, T1.4, T1.5, T1.6]
+    pr: 102
+    sha: 347d62b
+    merged_at: 2026-05-23
+    files:
+      - docs/architecture/cross-plan-dependencies.md
+      - docs/plans/002-invite-membership-and-presence.md
+      - docs/superpowers/specs/2026-05-03-plan-execution-housekeeper-design.md
+      - packages/contracts/src/__tests__/anti-leakage.test.ts
+      - packages/contracts/src/__tests__/channels.test.ts
+      - packages/contracts/src/__tests__/invites.test.ts
+      - packages/contracts/src/__tests__/memberships.test.ts
+      - packages/contracts/src/__tests__/presence.test.ts
+      - packages/contracts/src/channels.ts
+      - packages/contracts/src/index.ts
+      - packages/contracts/src/internal/branded.ts
+      - packages/contracts/src/invites.ts
+      - packages/contracts/src/memberships.ts
+      - packages/contracts/src/presence.ts
+      - packages/contracts/src/session.ts
+      - packages/control-plane/src/index.ts
+      - packages/control-plane/src/migrations/0002-session-invites.ts
+      - packages/control-plane/src/migrations/__tests__/0002-session-invites.test.ts
+      - packages/control-plane/src/sessions/__tests__/migration-runner.test.ts
+      - packages/control-plane/src/sessions/__tests__/session-directory-service.test.ts
+      - packages/control-plane/src/sessions/migration-runner.ts
 ```
 
 ### Notes
 
 <!-- Per-PR human-readable commentary appended by the orchestrator at Phase E. -->
+
+- **PR #102** (squash-commit `347d62b` on `develop`, merged 2026-05-23): Phase 1 — Invite And Membership Contracts + Migration. Six implementer tasks shipped: T1.1 `packages/contracts/src/invites.ts` (`InviteCreate` / `InviteAccept` / `InviteRevoke` / `InviteState` / `InviteId` branded — `JoinMode` consolidated from `InviteJoinMode` per spaced wire-form in Spec-002 + `MembershipRole`); T1.2 `packages/contracts/src/memberships.ts` (`MembershipUpdate` discriminated union on `action=change_role|leave` arms encoding I-002-1 issuer-must-be-owner + I-002-2 last-owner-cannot-leave at the contract layer); T1.3 `packages/contracts/src/presence.ts` (`PresenceHeartbeat` 5-required-1-nullable shape per Spec-002 §Heartbeat Transport, `JoinMode` enum, `PresenceUpdate` / `PresenceRead` JSON-RPC schemas registered under the Plan-007-partial wire substrate); T1.4 `packages/contracts/src/channels.ts` (`ChannelList` read-only projection + `ChannelState` + `ChannelMessage` envelope per Spec-002:87); T1.5 `packages/control-plane/src/migrations/0002-session-invites.ts` Postgres v2 migration (table + 3 indexes + 1 UNIQUE constraint, wired into the migration-runner v2 list); T1.6 strict `packages/contracts/src/__tests__/anti-leakage.test.ts` pinning `packages/contracts/src/index.ts` as the public re-export surface across all four new modules. Cross-package addition: `packages/contracts/src/internal/branded.ts` UUID helper consumed by all four new modules and the existing `session.ts` (per **NS-22 cross-plan amendment #1** — Plan-001-owned `session.ts` refactored in-PR to use the shared helper). Migration-runner extended to consume the v2 list (per **NS-23 cross-plan amendment #2** — Plan-001-owned `migration-runner.ts` switched to `applyMigrations(...)` v2 in-PR). Both amendments recorded under [§Phase 1 Cross-Plan Amendments](#phase-1--invite-and-membership-contracts--migration) rather than spawning precursor PRs (sub-day wiring this PR already covered as a side-effect of contract changes; [cross-plan-dependencies.md:90](../architecture/cross-plan-dependencies.md) rigid single-owner clause to be amended via follow-up per `feedback_cross_plan_rigid_ownership_problematic`). Reviewer chain: per-task Phase C (3-reviewer parallel) generated 8 POLISH round-trips and 0 ACTIONABLE; Phase D PR-scope final review round 1 surfaced 1 POLISH (T1.1 `InviteJoinMode` → `JoinMode` consolidation, `1870a02`) + 1 ACTIONABLE (T1.5 migration-runner v2 wiring at `applyMigrations` call-site, `6085d47`); round 2 returned clean. Phase D.5 Codex external review surfaced 1 P1 ACTIONABLE on `anti-leakage.test.ts:76-77` importing via the `@ai-sidekicks/contracts` package path (resolves to `./dist/index.js` — fresh checkouts haven't built it because Turbo `test` chains only on `^build` upstream-only, not the package's own build); fix switched to source-level `../index.js` import (`8781967` — preserves the index.ts re-export-graph testing intent and matches the 9/9 sibling-test convention; verified via `rm -rf dist && pnpm --filter @ai-sidekicks/contracts test`). One incidental [BL-130](../backlog.md) surface during pre-mark-ready CI: the housekeeper-design spec (`docs/superpowers/specs/2026-05-03-plan-execution-housekeeper-design.md` line 76) carried a stale `packages/contracts/src/session.ts` line-388 cite that this PR's Amendment 1 (`internal/branded.ts` extraction) had shifted to whitespace; the `cite-target-existence` hook's path-shaped discriminator caught it post-push (local pre-commit walk skips `docs/superpowers/` per the known BL-130 corpus gap). Refreshed in-PR via `a14d4ca` (substantive cite preserved at `session.ts` line 408 — the SessionSubscribe block; pre-shift line 388 noted in natural-language prose). Test count: 5 contract-package suites (anti-leakage 459 / channels 432 / invites 307 / memberships 460 / presence 764 lines) + 2 control-plane suites (`0002-session-invites` 543 / `migration-runner` 211 lines). Plan-002 Phase 1 closes; Phases 2-6 remain unscheduled (Phase 2 ships at Tier 2 with `packages/crypto-paseto/` substrate now satisfied per Plan-025 PR #92; Phase 4 deferred to Tier 6 per CP-002-3 / BL-120).
 
 ## Done Checklist
 
