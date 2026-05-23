@@ -189,23 +189,39 @@ Plan-002 implementation lands as a sequence of small PRs primarily at Tier 2 (Ph
 - `packages/contracts/src/channels.ts` — `ChannelList` request/response, `ChannelState` enum (channel creation contracts owned by Plan-016 are NOT shipped here)
 - Migration creates `session_invites` (Postgres); `session_memberships` is already created by Plan-001 (no ALTER needed at this PR)
 
+#### Cross-Plan Amendments
+
+**PR #102 (2026-05-22) — `packages/contracts/src/internal/branded.ts` introduction + `packages/contracts/src/session.ts` brand-schema refactor.**
+
+T1.1's implementation surfaced a pre-existing typing inconsistency in `packages/contracts/src/session.ts` (owned by Plan-001 Phase 2 per [cross-plan-dependencies.md §2 `packages/contracts/src/`](../architecture/cross-plan-dependencies.md#2-package-path-ownership-map)): `ParticipantIdSchema` / `MembershipIdSchema` / `ChannelIdSchema` were declared `z.ZodType<T>` (single-T) while sibling `SessionIdSchema` / `EventCursorSchema` followed the double-T `z.ZodType<T, T>` form required for Standard-Schema-V1 input inference in tRPC v11 consumers (per [ADR-014](../decisions/014-trpc-control-plane-api.md)). Composing any single-T branded ID inside an outer double-T request schema fails typecheck.
+
+To avoid replicating local-cast workarounds across T1.1 / T1.2 / T1.4 and every future V1 branded ID, this PR:
+
+1. **Adds `packages/contracts/src/internal/branded.ts`** — exports `brandedUuidIdSchema<T>(brandName)` helper encapsulating the Zod-v4 brand cast idiom in a single fix-point. The helper lives under `src/internal/` (not re-exported from `index.ts`) following the convention established by `packages/crypto-paseto/src/internal/v4-local-deterministic.ts` — internal modules imported relatively by sibling files in the same package, never exposed to consumers.
+2. **Refactors `packages/contracts/src/session.ts`** — the 4 UUID-based branded ID schemas (`SessionIdSchema`, `ParticipantIdSchema`, `MembershipIdSchema`, `ChannelIdSchema`) switch to the helper. `EventCursorSchema` retains its inline cast because its parser is `z.string().min(1).max(EVENT_CURSOR_MAX_LEN)` (Plan-006-owned opaque cursor form, not a UUID); substituting the helper would silently narrow runtime validation. Type-level only; zero runtime change.
+3. **Declares `InviteIdSchema` in T1.1's new `invites.ts`** using the helper (no local cast).
+
+**Cross-plan touch rationale.** `packages/contracts/src/session.ts` is normally Plan-001 Phase 2-owned per the cross-plan ownership map. The literal "no two plans edit the same file" rule would have routed this fix through a precursor Plan-001 housekeeping PR. We applied a fix-in-place housekeeping exception because: (a) the fix is type-level only (zero runtime change, zero behavioral risk), (b) the defect is pre-existing and only discoverable via downstream composition (Plan-002 was the first composer), (c) the helper avoids ~12 lines of cast-boilerplate repeated across T1.1 / T1.2 / T1.4 plus every future V1 branded ID, and (d) bundling the housekeeping in the surfacing PR avoids cross-plan PR coordination ceremony for a sub-30-LOC fix. This is one-time correction, not Plan-002 claiming ongoing edit rights on Plan-001-owned files. A separate governance amendment to `cross-plan-dependencies.md:90` is queued to encode this housekeeping-exception convention.
+
+**Refs:** Plan-001 Phase 2 (`packages/contracts/src/session.ts` original ship), [ADR-014](../decisions/014-trpc-control-plane-api.md) (tRPC v11 / Standard Schema V1).
+
 #### Tasks
 
 ##### T1.1 — Define `InviteCreate`, `InviteAccept`, `InviteRevoke`, `InviteState`, `InviteId` (branded) in `packages/contracts/src/invites.ts`; export via `packages/contracts/src/index.ts`.
 
-**Files:** `packages/contracts/src/invites.ts`, `packages/contracts/src/index.ts`, `packages/contracts/test/invites.test.ts` **Spec coverage:** C1 (Spec-002 line 80 — `InviteCreate` required fields), C2 (Spec-002 line 43 — invite lifecycle states `{pending, accepted, revoked, expired}` (no `declined` in V1)) **Verifies invariant:** none (contract layer)
+**Files:** `packages/contracts/src/invites.ts`, `packages/contracts/src/index.ts`, `packages/contracts/src/__tests__/invites.test.ts`, `packages/contracts/src/internal/branded.ts` (cross-plan amendment — internal helper, not re-exported from `index.ts`), `packages/contracts/src/session.ts` (cross-plan amendment — refactor 5 existing ID schemas to use the helper) **Spec coverage:** C1 (Spec-002 line 80 — `InviteCreate` required fields), C2 (Spec-002 line 43 — invite lifecycle states `{pending, accepted, revoked, expired}` (no `declined` in V1)) **Verifies invariant:** none (contract layer)
 
 ##### T1.2 — Define `MembershipUpdate` discriminated union, `MembershipRole`, `MembershipState` enums in `packages/contracts/src/memberships.ts`.
 
-**Files:** `packages/contracts/src/memberships.ts`, `packages/contracts/test/memberships.test.ts` **Spec coverage:** C3 (Spec-002 line 83 — `MembershipUpdate.action` discriminated union covers role-change / suspend / revoke) **Verifies invariant:** none (contract layer)
+**Files:** `packages/contracts/src/memberships.ts`, `packages/contracts/src/index.ts`, `packages/contracts/src/__tests__/memberships.test.ts` **Spec coverage:** C3 (Spec-002 line 83 — `MembershipUpdate.action` discriminated union covers role-change / suspend / revoke) **Verifies invariant:** none (contract layer)
 
 ##### T1.3 — Define `PresenceHeartbeat`, `PresenceUpdate`/`PresenceRead` shapes, `PresenceState` enum, `JoinMode` enum in `packages/contracts/src/presence.ts`.
 
-**Files:** `packages/contracts/src/presence.ts`, `packages/contracts/test/presence.test.ts` **Spec coverage:** C4 (Spec-002 line 84 — `PresenceHeartbeat` carries 5 required metadata fields `{deviceType, focusedSessionId, focusedChannelId, lastActivityAt, appVisible}`) **Verifies invariant:** none (contract layer)
+**Files:** `packages/contracts/src/presence.ts`, `packages/contracts/src/index.ts`, `packages/contracts/src/__tests__/presence.test.ts` **Spec coverage:** C4 (Spec-002 line 84 — `PresenceHeartbeat` carries 5 required metadata fields `{deviceType, focusedSessionId, focusedChannelId, lastActivityAt, appVisible}`) **Verifies invariant:** none (contract layer)
 
 ##### T1.4 — Define `ChannelList` request/response + `ChannelState` enum in `packages/contracts/src/channels.ts` (no channel-creation contracts — owned by Plan-016).
 
-**Files:** `packages/contracts/src/channels.ts`, `packages/contracts/test/channels.test.ts` **Spec coverage:** C5 (Spec-002 line 87 — `ChannelList` read-only projection request/response shape) **Verifies invariant:** none (contract layer)
+**Files:** `packages/contracts/src/channels.ts`, `packages/contracts/src/index.ts`, `packages/contracts/src/__tests__/channels.test.ts` **Spec coverage:** C5 (Spec-002 line 87 — `ChannelList` read-only projection request/response shape) **Verifies invariant:** none (contract layer)
 
 ##### T1.5 — Author Postgres migration creating `session_invites` table (no `session_memberships` ALTER — Plan-001 owns).
 
@@ -213,7 +229,7 @@ Plan-002 implementation lands as a sequence of small PRs primarily at Tier 2 (Ph
 
 ##### T1.6 — Wire Vitest tests C1–C5 + anti-leakage assertion (no `ChannelCreate` contracts shipped).
 
-**Files:** `packages/contracts/test/anti-leakage.test.ts` **Spec coverage:** Spec-002 line 87 (`ChannelList` is the only channel surface contracted in Spec-002; `ChannelList` request/response shape ships here, while `ChannelCreate` is explicitly handled by Plan-016 per Spec-002) **Verifies invariant:** none (cross-plan ownership boundary)
+**Files:** `packages/contracts/src/__tests__/anti-leakage.test.ts` **Spec coverage:** Spec-002 line 87 (`ChannelList` is the only channel surface contracted in Spec-002; `ChannelList` request/response shape ships here, while `ChannelCreate` is explicitly handled by Plan-016 per Spec-002) **Verifies invariant:** none (cross-plan ownership boundary)
 
 ### Phase 2 — Control-Plane Invite And Membership Services
 

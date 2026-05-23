@@ -14,6 +14,7 @@
 export * from "./desktop-bridge.js";
 export * from "./error.js";
 export * from "./event.js";
+export * from "./invites.js";
 export * from "./jsonrpc.js";
 export * from "./jsonrpc-negotiation.js";
 export * from "./jsonrpc-registry.js";
