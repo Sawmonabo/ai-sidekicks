@@ -299,7 +299,7 @@ preconditions:
 
 ##### T4.2 — [Tier 6] Add rate-limit verification tests asserting threshold breach returns the canonical 429 + `RateLimitResponse` shape per Plan-021 §`RateLimitResponse` canonical shape.
 
-**Files:** `packages/control-plane/src/invites/__tests__/`, `packages/control-plane/src/invites/invite-service.ts` (service under test) **Spec coverage:** Spec-002 §Rate Limiting lines 125-133 (`RateLimitResponse` canonical shape; returned with 429 per Plan-021 §`RateLimitResponse` canonical shape) **Verifies invariant:** none (Plan-021 substrate wiring; no Plan-002 invariant)
+**Files:** `packages/control-plane/src/invites/__tests__/`, `packages/control-plane/src/invites/invite-service.ts` (service under test) **Spec coverage:** Spec-002 §Rate Limiting lines 127-133 (`RateLimitResponse` canonical shape; returned with 429 per Plan-021 §`RateLimitResponse` canonical shape) **Verifies invariant:** none (Plan-021 substrate wiring; no Plan-002 invariant)
 
 ### Phase 5 — Client SDK Membership Surface
 

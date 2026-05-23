@@ -70,7 +70,10 @@ After all plans in Tier:
   10. advisor() sanity check on tier diff bundle.
 
   11. USER-REVIEW PAUSE: present REVIEW.md; user decides
-      approve/reject/escalate per plan.
+      approve/reject/escalate per plan. REVIEW.md MUST confirm each
+      Phase exercises the §Adversarial-Tampering Boundary threat classes
+      from `000-plan-template.md` §Test And Verification Plan; surface
+      gaps as findings (not amendments — subagent-fabrication risk).
 
   12. SWAP: cp working copy → corpus location.
 

@@ -19,19 +19,33 @@ pre-commit:
       stage_fixed: true
 
     - name: gitleaks
+      # Canonical gitleaks version is v8.30.1 per ADR-023 §Axis 4 sub-axis 4,
+      # pinned identically here (local fast-feedback) and in
+      # `.github/workflows/gitleaks.yml` (`env.GITLEAKS_VERSION`, authoritative
+      # CI gate). The floor check below surfaces local-vs-CI drift loudly when
+      # the installed binary is below v8.30.1 — v8.25-v8.30 added rules +
+      # generic-api-key heuristics older binaries don't catch, so silently
+      # running an older version would defeat the hook's fast-feedback purpose
+      # (BL-126 closure). Floor (not exact-match) so future minor/patch bumps
+      # work without lockstep config; majors trigger a coordinated bump of
+      # workflow `env.GITLEAKS_VERSION` + ADR-023 + this floor + CONTRIBUTING.md.
       # `gitleaks protect --staged` was hidden in v8.19+ help and replaced by
-      # `gitleaks git --pre-commit --staged`. ADR-023 mandates v8.30+, so use the
-      # supported invocation. Sustains identical detection semantics on staged files.
-      # Local install is required per CONTRIBUTING.md "Toolchain Setup" — emit
-      # the install hint to stderr with a `WARNING:` prefix so missing-tool drift is
-      # visible in pre-commit output without blocking the commit (CI gitleaks job is
-      # the authoritative gate).
+      # `gitleaks git --pre-commit --staged`; use the supported invocation.
+      # The hook surfaces drift via `WARNING:` (not exit-1) — CI is the
+      # authoritative gate, so local drift becomes visible without blocking
+      # the developer mid-flow.
       run: |
         if command -v gitleaks >/dev/null 2>&1; then
+          required="8.30.1"
+          installed=$(gitleaks version 2>/dev/null | sed 's/^v//' | head -1)
+          if [ -n "$installed" ] && [ "$(printf '%s\n%s\n' "$required" "$installed" | sort -V | head -1)" != "$required" ]; then
+            echo "WARNING: gitleaks v$installed is below canonical v$required (CI runs v$required)." >&2
+            echo "WARNING: Per CONTRIBUTING.md §Pre-Commit Hooks: brew upgrade gitleaks" >&2
+          fi
           gitleaks git --pre-commit --staged --no-banner --redact
         else
           echo "WARNING: gitleaks not installed locally; CI gitleaks job is the authoritative gate." >&2
-          echo "WARNING: Install per CONTRIBUTING.md or https://github.com/gitleaks/gitleaks" >&2
+          echo "WARNING: Install per CONTRIBUTING.md §Pre-Commit Hooks or https://github.com/gitleaks/gitleaks" >&2
         fi
 
     # Doc-corpus regression checks (extends ADR-023 §Axis 2 pre-commit chain).

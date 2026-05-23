@@ -137,39 +137,6 @@ The items below were surfaced by the [plan-readiness-audit Tier 1](./operations/
 - Tracked-by: ADR-010 acceptance criteria for `packages/crypto-paseto/` (RFC conformance gating release) — current AC is satisfied by success-vector parity; this BL hardens to spec-mandated adversarial coverage.
 - Revisit Trigger: Plan-025 Tier 7 remainder begins (failure vectors should land before the Fastify relay-node ships); OR a downstream consumer plan (Plan-002 Phase 2, Plan-018) surfaces a tamper class that wasn't covered by the handwritten negative cases; OR PASETO spec maintainers publish an updated `4-F-*` vector set.
 
-### BL-126: Local gitleaks pin drift vs CI (8.30.1 local vs 8.24.3 CI)
-
-- Status: `todo`
-- Priority: `P3`
-- Owner: `unassigned`
-- References: [`.gitleaks.toml`](../.gitleaks.toml), [`lefthook.yml`](../lefthook.yml), [`.github/workflows/gitleaks.yml`](../.github/workflows/gitleaks.yml), [Plan-025 PR #92 commit `584aed4`](https://github.com/Sawmonabo/ai-sidekicks/commit/584aed4) (chore(repo): use singular `[allowlist]` for gitleaks v8.24.3 ci compat), [ADR-023 §Pre-Commit Hooks](./decisions/023-v1-ci-cd-and-release-automation.md).
-- Summary: Plan-025's pre-merge verification gates passed locally but the CI gitleaks job tripped on a v8.30.1 → v8.24.3 schema mismatch (plural `[[allowlists]]` block accepted by 8.30.1, rejected by 8.24.3). The fix landed in PR #92 (`584aed4`) by switching to the singular `[allowlist]` form. The root cause — local-vs-CI version drift — remains: `brew install gitleaks` ships the latest (8.30.1+) by default, while [`.github/workflows/gitleaks.yml`](../.github/workflows/gitleaks.yml) pins 8.24.3. Subsequent contributors will reproduce the same trip until either (a) the local version is documented as a pinned floor in CONTRIBUTING.md / a chezmoi-managed `Brewfile`, or (b) CI is bumped to a current version that matches what `brew install` yields.
-- Exit Criteria: (a) ADR-023 amended (or [CONTRIBUTING.md §Pre-Commit Hooks](../CONTRIBUTING.md) if Type 1 reversible) to declare a single canonical gitleaks version and the matching schema form (singular `[allowlist]` vs plural `[[allowlists]]`); (b) CI workflow pin + local hook + chezmoi-installed binary all reference the same version; (c) plan-template revision (per BL-127) ensures the next plan's verification-gate runbook names the **CI-pinned** gitleaks version explicitly so local-version drift is caught at plan-authoring time, not at PR push.
-- Tracked-by: Plan-template revision class — local-CI version drift surfaced as a verification-gate gap during Plan-025 Tier 1 Partial closeout.
-- Revisit Trigger: Any plan whose verification gates include `gitleaks ... --staged`; OR a fresh contributor onboarding flow exposes the drift; OR gitleaks 9.x publishes a config-schema migration that obsoletes the v8 form.
-
-### BL-127: Plan-template revision — verification-gate runbook precision
-
-- Status: `todo`
-- Priority: `P3`
-- Owner: `unassigned`
-- References: [Plan-025 PR #92](https://github.com/Sawmonabo/ai-sidekicks/pull/92) (three Codex review passes surfacing 8 findings: 2 + 3 + 3 across passes), [`docs/plans/000-plan-template.md`](./plans/000-plan-template.md), [Plan-025 §Decision Log](./plans/025-self-hostable-node-relay.md#decision-log), BL-126 (gitleaks version-drift class — concurrent lesson).
-- Summary: Plan-025 Tier 1 Partial PR (#92) cleared CI on its first push but went through three Codex review iterations (8 findings total) before merge. Each iteration was substantively useful — strict base64url canonicalization, duplicate-id rejection, symmetric clone-in/out, empty-footer rejection, 32-byte key validation — but the pattern suggests the plan-template's "Verification" section under-specifies what an adversarial-review-equivalent check looks like at plan-authoring time. The current template's verification block enumerates positive tests (round-trips, RFC vectors, success cases) but not the adversarial-tampering shapes a reviewer like Codex will probe (non-canonical encodings, defense-in-depth boundary mutations, intake validation parity with library-level asserts).
-- Exit Criteria: (a) `000-plan-template.md` §Verification gains a "Adversarial-Tampering Boundary" sub-bullet enumerating the per-substrate threat classes that should be tested before review (canonicalization round-trip; intake validation parity; mutation-isolation symmetry; empty-segment / trailing-separator rejection at every parser boundary); (b) the pattern is anchored to a published example (Plan-025 §Decision Log + the eight findings) so plan authors have a concrete reference; (c) plan-readiness-audit-runbook references the new sub-bullet as part of the pre-review checklist.
-- Tracked-by: Plan-template revision class — review-iteration-discipline gap surfaced during Plan-025 PR #92 cycle.
-- Revisit Trigger: Next time a Tier 1 Partial substrate plan opens a PR; OR a future Codex / external-reviewer iteration crosses the three-pass line again on a different plan; OR ADR-023 §Pre-Commit Hooks is amended (potential co-edit surface for the local-side counterpart to plan-authoring discipline).
-
-### BL-128: Preflight Gate 4 ambient-window subject match (intro-above-block pattern)
-
-- Status: `todo`
-- Priority: `P3`
-- Owner: `unassigned`
-- References: [Plan-002 §Phase 4 T4.2](./plans/002-invite-membership-and-presence.md), [`preflight.mjs` `verifyLineRangeAnchor`](../.claude/skills/plan-execution/scripts/preflight.mjs), [`preflight-contract.md` §Gate 4 — Cite Anchor Semantic Check](../.claude/skills/plan-execution/references/preflight-contract.md), post-mortem `51ca5f3d` follow-up (surfaced during Plan-002 cite sweep dogfood, 2026-05-21).
-- Summary: Gate 4's `verifyLineRangeAnchor` requires the subject identifier to appear within the cited line-range. This over-rejects the common Spec pattern where a contract's identifier sits on an intro line (`When a rate limit is exceeded, the API returns the standard \`RateLimitResponse\` contract`) immediately above the canonical-shape code block (`lines 127-133`). The Plan-002 T4.2 sweep worked around this by extending the cite to `lines 125-133` (intro included), but the underlying gate behavior remains: every future plan citing a "named-intro-then-shape-block" Spec contract will hit the same friction. Gate 4 should accept a subject match when the identifier appears on the line immediately preceding the cited range OR within a configurable ambient window (default ±2 lines).
-- Exit Criteria: (a) `verifyLineRangeAnchor` extended to accept subject matches within an ambient window (default ±2 lines around the cited range); (b) `preflight-contract.md` §Gate 4 — Cite Anchor Semantic Check updated to document the ambient-window rule + its rationale (intro-above-block pattern); (c) `preflight-gate4.test.mjs` test case 13 fixture rewritten so the identifier appears on the intro line ABOVE the cited code block (current fixture has identifier inside the range — contrived shape that hides the bug this BL fixes); (d) new test case asserting ambient-window subject match passes; (e) Plan-002 T4.2 cite re-tightened to `lines 127-133` (the shape itself, not including the intro) to validate the new rule against a real case.
-- Tracked-by: Gate 4 implementation precision — over-rejection class. Detected during the post-mortem 51ca5f3d remediation eat-your-own-dogfood validation.
-- Revisit Trigger: Next time a plan cites a "named-intro-then-shape-block" Spec contract and the cite-amendment subagent needs to dodge the gate with a wider range than the actual shape; OR a future plan-readiness audit pass surfaces a Gate 4 false-positive on multi-line range cites.
-
 ---
 
 _Closed items live in [Backlog Archive](./archive/backlog-archive.md)._

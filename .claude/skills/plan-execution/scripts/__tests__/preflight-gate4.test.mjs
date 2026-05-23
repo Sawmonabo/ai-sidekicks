@@ -182,16 +182,33 @@ test("PASS 12: Plan-NNN §Section (no colon-line-number) inside Spec-NNN paren i
   assert.equal(anchors[0].section, "Rate Limiting");
 });
 
-test("PASS 13: single-subject line-range emits one anchor (no compound-range fail)", () => {
+test("PASS 13: identifier on intro line within ±2 ambient window passes (intro-above-block authoring pattern)", () => {
+  // Fixture 003-test-spec.md has `RateLimitResponse` on line 16; cite range
+  // is 18-25 (the fenced shape block). Identifier sits exactly 2 lines above
+  // start — at the lower ambient-window boundary. Mirrors real Spec-002
+  // §Rate Limiting line 125 above lines 127-133 (the Plan-002 T4.2 shape).
   const { anchors, parseFailures, verifyFailures } = verifyAll(
-    "Spec-002 lines 27-35 (RateLimitResponse canonical shape)",
+    "Spec-003 §Rate Limiting lines 18-25 (RateLimitResponse canonical shape)",
   );
   assert.equal(parseFailures.length, 0);
   assert.equal(verifyFailures.length, 0);
   assert.equal(anchors[0].type, "line-range");
-  assert.equal(anchors[0].start, 27);
-  assert.equal(anchors[0].end, 35);
+  assert.equal(anchors[0].start, 18);
+  assert.equal(anchors[0].end, 25);
   assert.equal(anchors[0].subject, "RateLimitResponse");
+});
+
+test("PASS 13b: identifier within ±2 ambient AFTER cited range passes (post-range ambient coverage)", () => {
+  // Same fixture + cite range as PASS 13; subject `PostAmbient` lives on
+  // line 27 — exactly 2 lines below the cited range end (25), at the upper
+  // ambient-window boundary. Proves the rule is symmetric.
+  const { anchors, parseFailures, verifyFailures } = verifyAll(
+    "Spec-003 §Rate Limiting lines 18-25 (PostAmbient post-range identifier)",
+  );
+  assert.equal(parseFailures.length, 0);
+  assert.equal(verifyFailures.length, 0);
+  assert.equal(anchors[0].type, "line-range");
+  assert.equal(anchors[0].subject, "PostAmbient");
 });
 
 test("PASS 14: structured plan-local invariant ID (I-024-3) parses as plan-local-id", () => {
@@ -230,6 +247,19 @@ test("FAIL 15: subject mismatch (Spec-002 line 12 (PresenceUpdate) — line 12 =
   assert.equal(verifyFailures.length, 1);
   assert.equal(verifyFailures[0].result.reason, "subject-mismatch");
   assert.match(verifyFailures[0].result.evidence, /PresenceHeartbeat/);
+});
+
+test("FAIL 13c: identifier outside ±2 ambient window fails subject-mismatch-in-range (regression guard)", () => {
+  // Fixture 003-test-spec.md has `OutOfWindow` on line 12. Cite range 18-25
+  // with ambient ±2 covers lines 16-27, so line 12 is 4 lines below the
+  // lower ambient bound — must still reject. Guards the ±2 bound from
+  // accidentally inflating to over-permissive on future edits.
+  const { verifyFailures } = verifyAll(
+    "Spec-003 §Rate Limiting lines 18-25 (OutOfWindow distant identifier)",
+  );
+  assert.equal(verifyFailures.length, 1);
+  assert.equal(verifyFailures[0].result.reason, "subject-mismatch-in-range");
+  assert.match(verifyFailures[0].result.evidence, /±2 ambient = 16-27/);
 });
 
 test("FAIL 16: compound-range with distinct subjects (en-dash forces normalization)", () => {

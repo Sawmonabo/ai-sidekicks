@@ -103,6 +103,25 @@ BREAKING CHANGE: clients must update Session.id references.
 
 Either form drives a major-version bump in [`release-please-action`](https://github.com/googleapis/release-please-action) per [ADR-023 §Axis 3](docs/decisions/023-v1-ci-cd-and-release-automation.md#axis-3--release-automation).
 
+## Pre-Commit Hooks
+
+`pnpm install` provisions the [lefthook](https://github.com/evilmartians/lefthook) chain (`lefthook install` runs via `prepare` script). The chain runs in parallel: `lint-staged` + `gitleaks` + `docs-anchor-check` + `docs-corpus-checks`, then `commitlint` on the message. CI re-runs the same checks as the authoritative gate per [ADR-023 §Axis 2](docs/decisions/023-v1-ci-cd-and-release-automation.md#axis-2--pre-commit-hook-framework).
+
+**Gitleaks (canonical version v8.30.1)** per [ADR-023 §Axis 4 sub-axis 4](docs/decisions/023-v1-ci-cd-and-release-automation.md#axis-4--supply-chain-hygiene). Install locally:
+
+```bash
+# macOS (Homebrew currently ships ≥ v8.30):
+brew install gitleaks
+
+# Linux / other — download the v8.30.1 release tarball directly:
+# https://github.com/gitleaks/gitleaks/releases/tag/v8.30.1
+
+# Verify:
+gitleaks version   # → 8.30.1
+```
+
+If the binary is missing, the lefthook hook emits a `WARNING:` to stderr and lets the commit through — CI is the authoritative gate. Skipping the local hook (`git commit --no-verify`) is rejected at CI time anyway.
+
 ## PR Workflow
 
 1. **Branch off `develop`.** `git switch develop && git pull && git switch -c feat/plan-001-monorepo-scaffold`
