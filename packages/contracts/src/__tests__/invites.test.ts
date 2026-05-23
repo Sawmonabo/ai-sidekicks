@@ -280,7 +280,7 @@ describe("InviteRevokeSchema (exact shape per Spec-002 line 82)", () => {
   });
 
   it("rejects a NUL-byte in reason (wireFreeFormString guard)", () => {
-    const broken = { ...buildValidInviteRevoke(), reason: "revoked injected" };
+    const broken = { ...buildValidInviteRevoke(), reason: "revoked\u0000injected" };
     expect(InviteRevokeSchema.safeParse(broken).success).toBe(false);
   });
 

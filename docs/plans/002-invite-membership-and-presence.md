@@ -209,7 +209,7 @@ To avoid replicating local-cast workarounds across T1.1 / T1.2 / T1.4 and every 
 
 ##### T1.1 — Define `InviteCreate`, `InviteAccept`, `InviteRevoke`, `InviteState`, `InviteId` (branded) in `packages/contracts/src/invites.ts`; export via `packages/contracts/src/index.ts`.
 
-**Files:** `packages/contracts/src/invites.ts`, `packages/contracts/src/index.ts`, `packages/contracts/src/__tests__/invites.test.ts`, `packages/contracts/src/internal/branded.ts` (cross-plan amendment — internal helper, not re-exported from `index.ts`), `packages/contracts/src/session.ts` (cross-plan amendment — refactor 5 existing ID schemas to use the helper) **Spec coverage:** C1 (Spec-002 line 80 — `InviteCreate` required fields), C2 (Spec-002 line 43 — invite lifecycle states `{pending, accepted, revoked, expired}` (no `declined` in V1)) **Verifies invariant:** none (contract layer)
+**Files:** `packages/contracts/src/invites.ts`, `packages/contracts/src/index.ts`, `packages/contracts/src/__tests__/invites.test.ts`, `packages/contracts/src/internal/branded.ts` (cross-plan amendment — internal helper, not re-exported from `index.ts`), `packages/contracts/src/session.ts` (cross-plan amendment — refactor 4 existing UUID ID schemas to use the helper) **Spec coverage:** C1 (Spec-002 line 80 — `InviteCreate` required fields), C2 (Spec-002 line 43 — invite lifecycle states `{pending, accepted, revoked, expired}` (no `declined` in V1)) **Verifies invariant:** none (contract layer)
 
 ##### T1.2 — Define `MembershipUpdate` discriminated union, `MembershipRole`, `MembershipState` enums in `packages/contracts/src/memberships.ts`.
 
