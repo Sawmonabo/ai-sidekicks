@@ -61,8 +61,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   ChannelListRequestSchema,
+  ChannelListResponseChannelSchema,
   ChannelListResponseSchema,
+  InviteAcceptSchema,
   InviteCreateSchema,
+  InviteRevokeSchema,
   MembershipUpdateSchema,
   PresenceHeartbeatSchema,
   PresenceReadRequestSchema,
@@ -89,6 +92,7 @@ const INVITER_PARTICIPANT_ID = "660e8400-e29b-41d4-a716-446655440001";
 const MEMBERSHIP_ID = "770e8400-e29b-41d4-a716-446655440002";
 const PARTICIPANT_ID = "660e8400-e29b-41d4-a716-446655440003";
 const CHANNEL_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f02";
+const INVITE_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f00";
 const EXPIRES_AT = "2026-06-15T12:30:00.000Z";
 const LAST_ACTIVITY_AT = "2026-05-22T14:30:00.000Z";
 const LAST_SEEN = "2026-05-22T14:29:45.000Z";
@@ -100,6 +104,25 @@ const buildValidInviteCreate = () => ({
   inviter: INVITER_PARTICIPANT_ID,
   joinMode: "collaborator" as const,
   expiresAt: EXPIRES_AT,
+});
+
+// InviteAcceptSchema accepts an opaque token string (1..INVITE_TOKEN_MAX_LEN
+// chars) per invites.ts:167-171. A representative PASETO v4.local prefix is
+// the natural minimum-valid wire value — the contract layer does NOT decode
+// the token (Spec-002:107-113 routes signature verification to the service
+// layer); a non-empty string is all the schema asks for.
+const buildValidInviteAccept = () => ({
+  token: "v4.local.opaque-token-payload",
+});
+
+// InviteRevokeSchema requires `{sessionId, inviteId}` and admits an
+// optional `reason` (Spec-002:82 verbatim). The minimum-valid fixture
+// omits `reason` to keep the .strict() reject-extra-key test focused on
+// the BASE shape rather than a populated-optional shape — extraneous-key
+// rejection is the only property under test in Section 3.
+const buildValidInviteRevoke = () => ({
+  sessionId: SESSION_ID,
+  inviteId: INVITE_ID,
 });
 
 const buildValidMembershipUpdate = () => ({
@@ -141,6 +164,19 @@ const buildValidPresenceReadResponse = () => ({
 
 const buildValidChannelListRequest = () => ({
   sessionId: SESSION_ID,
+});
+
+// Minimum-valid PER-ELEMENT shape per channels.ts:185-232. `name` is
+// optional (Spec-002:87 verbatim — the bootstrap default channel may be
+// unnamed); omitting it keeps the .strict() reject-extra-key test focused
+// on the REQUIRED base shape, matching the pattern used for the other
+// optional-bearing fixtures (buildValidInviteRevoke omits `reason`).
+// `participantCount: 0` is the canonical empty-channel value (per
+// channels.test.ts:259-262).
+const buildValidChannelListResponseChannel = () => ({
+  id: CHANNEL_ID,
+  state: "active" as ChannelState,
+  participantCount: 0,
 });
 
 const buildValidChannelListResponse = () => ({
@@ -328,28 +364,42 @@ describe("Plan-002 export inventory — required schemas re-exported from @ai-si
 });
 
 // =============================================================================
-// Section 3 — Cross-contract .strict() posture sanity check
+// SECTION 3 — Cross-contract `.strict()` posture sanity check
 // =============================================================================
 //
-// Every Plan-002 object schema applies `.strict()` at the top level to reject
-// extraneous keys (anti-leakage matching the package convention from
-// session.ts). The per-task tests (invites/memberships/presence/channels) each
-// pin this for their own variants; this file picks ONE representative per
-// surface and exercises the cross-contract guarantee at the package boundary.
+// Every Plan-002 top-level `.strict()` object schema is exercised here at the
+// package boundary. Per-task test files (invites.test.ts / memberships.test.ts
+// / presence.test.ts / channels.test.ts) already pin `.strict()` rejection at
+// the schema-internal level; this section is the CROSS-CONTRACT backstop —
+// catches a regression where `.strict()` is dropped from a Plan-002 schema
+// during a refactor and the per-task test happens to be updated in lockstep
+// (e.g., schema-and-test edited in the same PR with the test relaxed to
+// match). The package-boundary assertion exercises each schema through its
+// re-exported binding from `@ai-sidekicks/contracts`, so a removed `.strict()`
+// fails here even if the per-task suite was edited to admit the change.
 //
-// If a future PR ever drops `.strict()` from a Plan-002 schema during a
-// refactor, ONE of the eight assertions below fires, identifying the
-// regression at the package level rather than leaving consumers to discover
-// the silently-widened surface at runtime.
+// Coverage: 11 Plan-002 top-level `.strict()` schemas (3 invites + 1
+// MembershipUpdate union + 4 presence + 3 channels).
 //
-// The chosen representatives are the simplest valid fixture for each surface
-// (no discriminated-union variant selection needed); the per-task tests cover
-// the variant-specific edge cases.
+// MembershipUpdate is a `z.discriminatedUnion`; the union dispatches a
+// single parse to ONE variant by `action`, so exercising the union as a
+// whole (with the representative `suspend` variant fixture) suffices —
+// per-variant `.strict()` exhaustivity is covered by memberships.test.ts.
 
 describe("Plan-002 anti-leakage — cross-contract .strict() posture", () => {
   it("InviteCreateSchema rejects extraneous keys (.strict() guard)", () => {
     const broken = { ...buildValidInviteCreate(), extra: "leak" };
     expect(InviteCreateSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("InviteAcceptSchema rejects extra wire keys via .strict()", () => {
+    const broken = { ...buildValidInviteAccept(), extra: "leak" };
+    expect(InviteAcceptSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("InviteRevokeSchema rejects extra wire keys via .strict()", () => {
+    const broken = { ...buildValidInviteRevoke(), extra: "leak" };
+    expect(InviteRevokeSchema.safeParse(broken).success).toBe(false);
   });
 
   it("MembershipUpdateSchema rejects extraneous keys on its representative variant (.strict() guard)", () => {
@@ -388,5 +438,10 @@ describe("Plan-002 anti-leakage — cross-contract .strict() posture", () => {
   it("ChannelListResponseSchema rejects extraneous TOP-LEVEL keys (.strict() outer guard)", () => {
     const broken = { ...buildValidChannelListResponse(), extra: "leak" };
     expect(ChannelListResponseSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("ChannelListResponseChannelSchema rejects extra wire keys via .strict()", () => {
+    const broken = { ...buildValidChannelListResponseChannel(), extra: "leak" };
+    expect(ChannelListResponseChannelSchema.safeParse(broken).success).toBe(false);
   });
 });
