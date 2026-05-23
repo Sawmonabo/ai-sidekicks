@@ -7,8 +7,8 @@
 //   T2 — `schema_migrations` carries both (1, ...) and (2, 'Session invites table').
 //   T3 — `join_mode` CHECK rejects snake_case `runtime_contributor` and accepts
 //        the SPACED canonical wire form `runtime contributor` (Spec-002 line 45,
-//        canonical `MembershipRole`/`InviteJoinMode` in
-//        `packages/contracts/src/{session,invites}.ts`).
+//        canonical `MembershipRole`/`JoinMode` in
+//        `packages/contracts/src/{session,presence}.ts`).
 //   T4 — `state` CHECK accepts EXACTLY the four V1 lifecycle states
 //        `{pending, accepted, revoked, expired}` and rejects `declined`
 //        (Spec-002 line 43; pinned at the contract layer by
@@ -251,7 +251,7 @@ describe("0002-session-invites migration (T2 — schema_migrations anchor rows)"
 describe("0002-session-invites migration (T3 — join_mode CHECK pins canonical wire form)", () => {
   // The SPACED `runtime contributor` literal is the canonical wire form per
   // Spec-002 line 45, `MembershipRole` in `packages/contracts/src/session.ts`,
-  // and `InviteJoinMode` in `packages/contracts/src/invites.ts`. The SPACED
+  // and `JoinMode` in `packages/contracts/src/presence.ts`. The SPACED
   // canonical wire form is also pinned at the contract layer; the migration
   // is the second place it has to be right. A regression that swapped the
   // CHECK list to snake_case would be silently accepted at INSERT time and

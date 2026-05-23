@@ -39,16 +39,16 @@
 //   form should match this file: 5-required keys, focusedSessionId and
 //   focusedChannelId nullable on the value branch.
 //
-// Canonical `JoinMode` name:
+// Canonical `JoinMode` home:
 //
 //   `api-payload-contracts.md:120` binds `JoinMode` as the canonical enum
 //   (also used by `InviteCreateRequest.joinMode: JoinMode` at
-//   api-payload-contracts.md:379). T1.1's `invites.ts` shipped
-//   `InviteJoinMode` as a package-local alias with the same string set
-//   (see invites.ts:77-93 for the forward-looking reconciliation note).
-//   T1.3 is the right home for the canonical `JoinMode` export per the DAG
-//   `contract_provides` listing. A future PR may collapse `InviteJoinMode`
-//   into a re-export of `JoinMode`; out of scope here (no cross-task touch).
+//   api-payload-contracts.md:379). This file owns the canonical
+//   declaration; `InviteCreate.joinMode` in `invites.ts` consumes
+//   `JoinMode` / `JoinModeSchema` via direct import. The canonical home
+//   is presence.ts because the wire-doc authority for `JoinMode` lives
+//   in `api-payload-contracts.md` §Presence (line 120) adjacent to the
+//   `JoinMode` definition.
 //
 // Naming convention — Request/Response vs Params/Result:
 //
@@ -132,16 +132,16 @@ export const PresenceStateSchema: z.ZodType<PresenceState, PresenceState> = z.en
 //
 // Canonical name per api-payload-contracts.md:120; also referenced by
 // `InviteCreateRequest.joinMode: JoinMode` at api-payload-contracts.md:379.
-// T1.1's `InviteJoinMode` in invites.ts is a package-local alias with the
-// same string set; future PRs may reconcile (out of scope here).
+// This file owns the canonical declaration; `InviteCreate.joinMode` in
+// `invites.ts` consumes `JoinMode` / `JoinModeSchema` via direct import.
 //
 // "runtime contributor" includes the SPACE — preserved verbatim from the
 // canonical enum. Editing to "runtime_contributor" / "runtimeContributor"
 // is a contract break and requires the spec edit FIRST.
 //
-// Why double-T here even though `JoinMode` is currently presence-internal?
-// `JoinMode` composes into request schemas at the invite layer (T1.1) and
-// future Phase 2 service-layer types; the double-T annotation preserves
+// Why double-T: `JoinMode` composes into request schemas at the invite
+// layer (`InviteCreateSchema` in invites.ts) and future Phase 2
+// service-layer types; the double-T annotation preserves
 // Standard-Schema-V1 input inference for any tRPC v11 consumer per ADR-014.
 
 export type JoinMode = "viewer" | "collaborator" | "runtime contributor";

@@ -13,20 +13,21 @@
 // shape required for Standard-Schema-V1 input inference in tRPC v11 (ADR-014)
 // is encapsulated in `./internal/branded.ts` (`brandedUuidIdSchema<T>`).
 //
-// JoinMode — local-inline form (NOT canonical):
-//   T1.3 (Phase 1 presence task) will ship the canonical `JoinModeSchema`
-//   in `presence.ts`. T1.1 cannot import from `presence.ts` (it does not
-//   exist on this branch yet), so we declare a LOCAL inline enum here
-//   matching the SPACED wire form from Spec-002 line 45 and the canonical
-//   `MembershipRole` enum in session.ts:153 (api-payload-contracts.md:117).
-//   A later Phase-2 service-layer task will reconcile by having
-//   `InviteCreate` reference the canonical `JoinModeSchema` instead.
+// JoinMode — canonical enum imported from presence.ts:
+//   `JoinMode` / `JoinModeSchema` is the canonical enum consumed by
+//   `InviteCreate.joinMode` (this file). It is declared in presence.ts
+//   because the canonical wire-doc authority for `JoinMode` lives in
+//   `api-payload-contracts.md` §Presence (line 120) adjacent to the
+//   `JoinMode` definition; the spec reference is Spec-002 line 45. The
+//   SPACED wire form `"runtime contributor"` is preserved verbatim from
+//   api-payload-contracts.md line 117, mirroring the `MembershipRole`
+//   enum in session.ts:153. Editing to `runtime_contributor` /
+//   `runtimeContributor` is a contract break and requires the spec edit
+//   FIRST per AGENTS.md "doc-first ordering".
 //
-//   Forward-looking reconciliation note (out of scope for this PR):
 //   `docs/specs/024-cross-node-dispatch-and-approval.md:96` independently
-//   uses a snake_case form for `session_role`. That spec is owned by
-//   Plan-027 (cross-node dispatch) and the namespace collision should be
-//   reconciled there, not in Plan-002.
+//   uses a snake_case form for `session_role`; that spec is owned by Plan-027
+//   (cross-node dispatch) and the namespace collision is reconciled there.
 //
 // Refs: Spec-002 §Interfaces And Contracts (lines 78-89), §Token Security
 // Properties (lines 107-113), Plan-002 Phase 1, ADR-018 (versioning),
@@ -34,6 +35,7 @@
 import { z } from "zod";
 
 import { brandedUuidIdSchema } from "./internal/branded.js";
+import { JoinModeSchema, type JoinMode } from "./presence.js";
 import {
   ParticipantIdSchema,
   SessionIdSchema,
@@ -74,25 +76,6 @@ export const InviteStateSchema: z.ZodType<InviteState> = z.enum([
 ]);
 
 // --------------------------------------------------------------------------
-// InviteJoinMode (local-inline; see file header for T1.3 reconciliation note)
-// --------------------------------------------------------------------------
-//
-// Spaced wire form matches the canonical `MembershipRole` enum in
-// session.ts (line 153) and the prose phrase in Spec-002 line 45. The
-// spaced literal is preserved verbatim from api-payload-contracts.md
-// line 117 — see session.ts header for the contract-break rationale.
-
-export type InviteJoinMode = "viewer" | "collaborator" | "runtime contributor";
-// `z.ZodType<T, T>` (double-T) — preserves Standard-Schema-V1 input inference
-// when composed inside `InviteCreateSchema` (a tRPC v11 request schema per
-// ADR-014). Non-transforming `z.enum(...)` has Input ≡ Output ≡ T at runtime.
-const InviteJoinModeSchema: z.ZodType<InviteJoinMode, InviteJoinMode> = z.enum([
-  "viewer",
-  "collaborator",
-  "runtime contributor",
-]);
-
-// --------------------------------------------------------------------------
 // Defense-in-depth length caps
 // --------------------------------------------------------------------------
 //
@@ -117,7 +100,7 @@ export const INVITE_TOKEN_MAX_LEN = 4096;
 // expiry." — Spec-002 line 80. The four required fields are:
 //   * sessionId — the session being invited into
 //   * inviter   — the participant issuing the invite
-//   * joinMode  — proposed join mode (see InviteJoinModeSchema above)
+//   * joinMode  — proposed join mode (see JoinModeSchema, imported from presence.ts)
 //   * expiresAt — invite expiry timestamp (default `7d`, per Spec-002 line 56)
 //
 // `expiresAt` matches the ISO 8601 convention from session.ts
@@ -129,7 +112,7 @@ export const INVITE_TOKEN_MAX_LEN = 4096;
 export interface InviteCreate {
   sessionId: SessionId;
   inviter: ParticipantId;
-  joinMode: InviteJoinMode;
+  joinMode: JoinMode;
   expiresAt: string;
 }
 // `z.ZodType<T, T>` — see SessionCreateRequestSchema in session.ts.
@@ -137,7 +120,7 @@ export const InviteCreateSchema: z.ZodType<InviteCreate, InviteCreate> = z
   .object({
     sessionId: SessionIdSchema,
     inviter: ParticipantIdSchema,
-    joinMode: InviteJoinModeSchema,
+    joinMode: JoinModeSchema,
     expiresAt: z.iso.datetime({ offset: true }),
   })
   .strict();
