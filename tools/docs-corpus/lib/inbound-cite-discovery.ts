@@ -4,11 +4,15 @@
 // cite-target validation when a governance doc is staged with a line-shifting
 // edit — catches CAT-06 inbound ripple before push instead of after CI.
 //
-// "Governance corpus" = docs/{plans,specs,decisions,architecture,domain,
-// operations}/*.md — the design-contract surfaces whose line numbers other
-// docs cite by `:NNN`. Excludes docs/archive/ (frozen history), docs/reference/
-// (external excerpts), docs/vision.md (no inbound :NNN cites), and
-// docs/superpowers/ (transient research drafts).
+// Inbound-cite corpus = docs/{plans,specs,decisions,architecture,domain,
+// operations,superpowers/plans,superpowers/specs}/*.md — every tracked tree
+// that participates in the `file.md:NNN` cite graph. The six governance
+// subtrees are design-contract surfaces (both citers and citees); the two
+// docs/superpowers/ subtrees are governance-adjacent stable design docs that
+// cite governance line numbers (skill specs + plans), so a governance line
+// shift must trigger inbound-cite re-validation against them. Excludes
+// docs/archive/ (frozen history), docs/reference/ (external excerpts), and
+// docs/vision.md (no `:NNN` cites).
 //
 // Enumeration uses `git ls-files` so the candidate set is bounded to tracked
 // + staged-new files — untracked private drafts must not block a commit on
@@ -30,6 +34,8 @@ const GOVERNANCE_CORPUS_DIRS = [
   "docs/architecture",
   "docs/domain",
   "docs/operations",
+  "docs/superpowers/plans",
+  "docs/superpowers/specs",
 ];
 
 function findRepoRoot(): string {
