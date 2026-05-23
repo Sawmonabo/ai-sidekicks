@@ -45,12 +45,24 @@
 // `noPropertyAccessFromIndexSignature` so the negative assertion can be
 // authored at all. Removing the cast would silently neuter the guard.
 //
-// Why import from `@ai-sidekicks/contracts` (the package public path) and
-// NOT relative paths like `../channels.js`: the test must exercise the
-// package public surface as a downstream consumer would see it. A missing
-// re-export in `src/index.ts` is the exact drift mode this file guards;
-// importing from relative module paths would bypass the `index.ts` re-export
-// layer that the assertion is designed to backstop.
+// Why import from `../index.js` (the source-level re-export surface) and
+// NOT from per-module relative paths like `../channels.js`: the test must
+// exercise the `index.ts` re-export layer, which is the exact drift mode
+// this file guards. Per-module imports would bypass it; importing through
+// `../index.js` goes through the same re-export graph that downstream
+// consumers see via the `@ai-sidekicks/contracts` package map.
+//
+// Why `../index.js` rather than the `@ai-sidekicks/contracts` package path:
+// the package map at `packages/contracts/package.json` resolves `.` to
+// `./dist/index.js`, but the package-local `test` script (`vitest run`)
+// does NOT depend on the package's own `build` (Turbo's `test` task chains
+// only on `^build` — upstream packages, not the package itself). In a
+// clean checkout where `dist/` has not yet been built, a `@ai-sidekicks/
+// contracts` import would fail at module resolution before any assertion
+// runs. Sibling contract tests (`invites.test.ts`, `memberships.test.ts`,
+// etc.) all use relative source imports for the same reason. The package-
+// map resolution path itself is exercised transitively by consumer-package
+// typechecks (e.g. `pnpm --filter @ai-sidekicks/runtime-daemon typecheck`).
 //
 // Refs: Spec-002 §Interfaces And Contracts (line 87 — `ChannelList` is the
 // only channel surface contracted in Spec-002; channel creation belongs to
@@ -73,8 +85,8 @@ import {
   PresenceUpdateSchema,
   type ChannelState,
   type PresenceState,
-} from "@ai-sidekicks/contracts";
-import * as contracts from "@ai-sidekicks/contracts";
+} from "../index.js";
+import * as contracts from "../index.js";
 
 // =============================================================================
 // Test fixtures — minimal-valid wire shapes mirroring the per-task test files
