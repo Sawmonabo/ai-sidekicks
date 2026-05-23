@@ -99,6 +99,64 @@ describe("inbound-cite-discovery — governance-corpus inbound expansion", () =>
     }
   });
 
+  it("includes an unstaged docs/superpowers/specs/ citer whose cite points into a staged operations runbook", () => {
+    // docs/superpowers/{plans,specs}/ are governance-adjacent design docs
+    // (skill specs + plans) that cite operations / spec / plan / ADR line
+    // numbers. PR #100 Commit 1 shifted a runbook by +3 lines and a
+    // superpowers spec's `:NNN` cite landed on whitespace — the failure
+    // surfaced only in CI because the pre-commit walker (this function's
+    // original scope) excluded docs/superpowers/. Pin the inclusion.
+    const { root, cleanup } = setupRepo({
+      "docs/operations/runbook.md": "# Runbook\n\nline two\nline three\nline four\n",
+      "docs/superpowers/specs/2026-05-design.md":
+        "Cite into runbook: [runbook](../../operations/runbook.md):3.\n",
+      "docs/superpowers/plans/2026-05-plan.md":
+        "Plan cite into runbook: [runbook](../../operations/runbook.md):4.\n",
+    });
+    try {
+      const expanded = withRepoRoot(root, () =>
+        expandToInboundCiteCorpus([resolve(root, "docs/operations/runbook.md")]),
+      );
+      expect(new Set(expanded)).toEqual(
+        new Set([
+          resolve(root, "docs/operations/runbook.md"),
+          resolve(root, "docs/superpowers/specs/2026-05-design.md"),
+          resolve(root, "docs/superpowers/plans/2026-05-plan.md"),
+        ]),
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("fires the corpus walk when a staged file is in docs/superpowers/{plans,specs}/ (symmetry: superpowers can be citee too)", () => {
+    // Bidirectional participation: docs/superpowers/{plans,specs}/ are not
+    // only citers of governance — they CAN also be citees if a governance
+    // doc cites a superpowers spec by `:NNN` (e.g., an audit runbook cites
+    // a skill-spec line number). No such cites exist today, but the trigger
+    // semantic must hold for future graph growth. Without this trigger,
+    // staging an edit to a superpowers spec would not surface stale governance
+    // citers — the same bug class PR #100 hit, but in reverse.
+    const { root, cleanup } = setupRepo({
+      "docs/superpowers/specs/2026-05-design.md": "# Design\n\nline two\n",
+      "docs/operations/runbook.md":
+        "Cite into superpowers spec: [design](../superpowers/specs/2026-05-design.md):2.\n",
+    });
+    try {
+      const expanded = withRepoRoot(root, () =>
+        expandToInboundCiteCorpus([resolve(root, "docs/superpowers/specs/2026-05-design.md")]),
+      );
+      expect(new Set(expanded)).toEqual(
+        new Set([
+          resolve(root, "docs/superpowers/specs/2026-05-design.md"),
+          resolve(root, "docs/operations/runbook.md"),
+        ]),
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
   it("excludes citers in docs/archive/ (frozen historical content)", () => {
     // Archive entries may cite by `:NNN` into current plans, but the archive
     // is frozen by convention (CLAUDE.md §Documentation Corpus) and not in
