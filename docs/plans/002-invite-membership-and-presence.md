@@ -131,7 +131,7 @@ The TDD test list below is enumerated and ordered by implementation dependency. 
 | --- | --- | --- | --- |
 | C1 | `InviteCreate payload validates required fields (sessionId, inviter, joinMode)` | request schema | line 80 |
 | C2 | `Invite lifecycle states enum is exactly {pending, accepted, revoked, expired}` | no `declined` state in V1 | line 43 |
-| C3 | `MembershipUpdate.action discriminated union covers role-change/suspend/revoke` | mutation contract | line 83 |
+| C3 | `MembershipUpdate.action discriminated union covers {change_role, suspend, revoke, reactivate}` | mutation contract | line 83 |
 | C4 | `PresenceHeartbeat payload carries the 5 required metadata fields` | `{deviceType, focusedSessionId, focusedChannelId, lastActivityAt, appVisible}` | line 84 |
 | C5 | `ChannelList response shape matches Spec-002:87 projection` | read-only projection contract | line 87 |
 
