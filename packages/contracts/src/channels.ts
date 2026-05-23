@@ -50,11 +50,34 @@
 //   active memberships projected into the channel scope. Counts are
 //   non-negative integers by definition; `number` in the wire-form gloss is
 //   imprecise about the integer/float distinction (JSON has no integer
-//   type), so the contract layer enforces both `.int()` (rejects `1.5`) and
-//   `.nonnegative()` (rejects `-1`). `NaN` and `±Infinity` are rejected
-//   transitively because Zod's number guard excludes them. Pinning the wire
-//   shape here forestalls a class of consumer bugs where a stale projection
-//   underflow could ship `-1` and confuse downstream UI counters.
+//   type), so the contract layer composes three guards: `z.number()`,
+//   `.int()`, and `.nonnegative()`. Pinning the wire shape here forestalls
+//   a class of consumer bugs where a stale projection underflow could ship
+//   `-1` and confuse downstream UI counters.
+//
+//   Zod v4 number-guard attribution (anti-confusion):
+//
+//     * `z.number()` is the PRIMARY guard for NaN and ±Infinity — in Zod
+//       v4, `z.number()` validates FINITE numbers only and rejects BOTH
+//       `NaN` AND `±Infinity` by default. This is a behavior change from
+//       Zod v3 (where `z.number()` admitted `NaN` and required `.finite()`
+//       to reject `±Infinity`); maintainers carrying a Zod v3 mental model
+//       repeatedly mis-attribute the rejection to `.int()` or `.finite()`.
+//       Two independent code reviewers fell into this trap on the T1.4
+//       round — the truth is `z.number()` is the load-bearing guard for
+//       non-finite-number rejection in Zod v4.
+//     * `.int()` is defense-in-depth — it rejects non-integer floats like
+//       `1.5`, AND would catch any non-finite that hypothetically slipped
+//       past `z.number()` (NaN/Infinity are not integers).
+//     * `.nonnegative()` is defense-in-depth — it rejects `-1` and other
+//       negatives, AND rejects `-0` (which is a valid integer but not a
+//       valid count cardinality).
+//
+//   Together: `z.number()` excludes NaN/±Infinity, `.int()` excludes
+//   floats, `.nonnegative()` excludes negatives + `-0`. Dropping ANY of
+//   the three weakens the "non-negative integer" semantic the canonical
+//   wire form glosses as `participantCount: number`. The triple is
+//   belt-and-suspenders by design.
 //
 // No channel creation contracts here:
 //
@@ -192,11 +215,18 @@ export const ChannelListResponseChannelSchema: z.ZodType<
     // length cap). Two surfaces, one canonical shape.
     name: wireFreeFormString(CHANNEL_NAME_MAX_LEN, "ChannelListResponseChannel.name").optional(),
     state: ChannelStateSchema,
-    // `.int()` rejects floats (e.g. `1.5`); `.nonnegative()` rejects
-    // negatives (e.g. `-1`). NaN and ±Infinity are transitively rejected
-    // by the underlying `z.number()` guard. See file header for the
-    // load-bearing rationale (counts are non-negative integers; the
-    // canonical wire-form gloss `number` is imprecise).
+    // NaN and ±Infinity are rejected by `z.number()` itself — in Zod v4,
+    // `z.number()` validates FINITE numbers only (rejecting both NaN and
+    // ±Infinity by default). This differs from Zod v3, where `z.number()`
+    // admitted NaN and required `.finite()` to reject ±Infinity; a Zod v3
+    // mental model leads maintainers to wrongly attribute the rejection
+    // to `.int()` or `.finite()`. The `.int()` and `.nonnegative()`
+    // guards below are defense-in-depth: `.int()` rejects non-integer
+    // floats (e.g. `1.5`) and would catch any non-finite that slipped
+    // past `z.number()`; `.nonnegative()` rejects `-1` (and `-0`).
+    // Together they enforce the "non-negative integer" semantic that the
+    // canonical wire form glosses as `participantCount: number`. See the
+    // file header for the full Zod v4 attribution rationale.
     participantCount: z.number().int().nonnegative(),
   })
   .strict() as unknown as z.ZodType<ChannelListResponseChannel, ChannelListResponseChannel>;

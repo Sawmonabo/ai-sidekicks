@@ -281,10 +281,20 @@ describe("ChannelListResponseChannelSchema (per-element projection)", () => {
     expect(ChannelListResponseChannelSchema.safeParse(broken).success).toBe(false);
   });
 
-  it("rejects +Infinity participantCount (z.number().int() excludes ±Infinity)", () => {
-    const broken = { ...buildValidChannelElement(), participantCount: Number.POSITIVE_INFINITY };
-    expect(ChannelListResponseChannelSchema.safeParse(broken).success).toBe(false);
-  });
+  // ±Infinity rejection — in Zod v4, `z.number()` validates FINITE numbers
+  // only and rejects both `+Infinity` and `-Infinity` by default (NOT
+  // `.int()`, which is a common Zod v3 mental-model trap — see channels.ts
+  // file header for the full attribution rationale).
+  it.each([
+    ["+Infinity", Number.POSITIVE_INFINITY],
+    ["-Infinity", Number.NEGATIVE_INFINITY],
+  ])(
+    "rejects %s participantCount (z.number() rejects non-finite numbers)",
+    (_label, infinityValue) => {
+      const broken = { ...buildValidChannelElement(), participantCount: infinityValue };
+      expect(ChannelListResponseChannelSchema.safeParse(broken).success).toBe(false);
+    },
+  );
 
   it("rejects string participantCount: '5' (no implicit coercion at the wire layer)", () => {
     const broken = { ...buildValidChannelElement(), participantCount: "5" };
