@@ -15,10 +15,15 @@
 //
 // Migration-runner coverage: matches the runtime-daemon test shape for
 // `applyMigrations` idempotency (re-call on a migrated handle is a no-op,
-// schema_migrations row stays singleton). Postgres has a different
-// concurrency model from SQLite, so there's no analogue to runtime-daemon's
-// `worker_threads`-driven `BEGIN IMMEDIATE` race test — see the migration-
-// runner header for the full rationale.
+// schema_migrations rows stay stable at the registered MIGRATIONS set).
+// Post Plan-002 Amendment 2 (PR #102) the canonical-path applies BOTH v1
+// and v2; the dedicated `migration-runner.test.ts` test file pins the R1+R2
+// canonical-path properties directly, while THIS file's idempotency block
+// proves the composition-level integration (running the migration runner
+// through the directory-service test fixture preserves the same shape).
+// Postgres has a different concurrency model from SQLite, so there's no
+// analogue to runtime-daemon's `worker_threads`-driven `BEGIN IMMEDIATE`
+// race test — see the migration-runner header for the full rationale.
 //
 // Database lifecycle: each test gets a fresh ephemeral PGlite instance
 // (in-memory mode — no tmpdir cleanup needed). PGlite is single-connection
@@ -1475,15 +1480,24 @@ describe("SessionDirectoryService — P5 (AC8 participant-limit enforcement)", (
 describe("applyMigrations — idempotency", () => {
   it("re-running applyMigrations on a migrated database is a no-op", async () => {
     // beforeEach already ran applyMigrations once. Re-running it MUST NOT
-    // throw and MUST NOT duplicate the schema_migrations row. A
+    // throw and MUST NOT duplicate the schema_migrations rows. A
     // regression that bypassed the `hasMigrationApplied` short-circuit
     // would surface as a `42P07 relation already exists` error.
+    //
+    // Post Plan-002 Amendment 2 (PR #102), `applyMigrations` iterates the
+    // `MIGRATIONS` array `[v1, v2]` — the canonical-path bootstrap leaves
+    // BOTH version anchor rows in schema_migrations, so the assertion
+    // shape transitively updated from `[{v:1}]` to `[{v:1},{v:2}]`. The
+    // expanded canonical-path coverage (R1+R2) lives in the dedicated
+    // `migration-runner.test.ts` test file; this assertion remains the
+    // composition-level proof that running the migration runner through
+    // the directory-service test fixture preserves the same idempotency.
     await applyMigrations(ctx.querier);
     await applyMigrations(ctx.querier);
     const probe = await ctx.querier.query<{ version: number }>(
       "SELECT version FROM schema_migrations ORDER BY version",
     );
-    expect(probe.rows).toEqual([{ version: 1 }]);
+    expect(probe.rows).toEqual([{ version: 1 }, { version: 2 }]);
   });
 
   it("applyMigrations is concurrency-safe — concurrent calls on the same fresh database serialize via advisory lock (Codex R8)", async () => {
@@ -1522,21 +1536,21 @@ describe("applyMigrations — idempotency", () => {
     // behind A's transaction completing) rather than at the lock level
     // — but the IN-TRANSACTION re-probe still sees A's committed
     // `schema_migrations` row and short-circuits, so the observable
-    // outcome (no `42P07`, single migration row, lock SQL emitted) is
-    // identical to the `pg.Pool` substrate.
+    // outcome (no `42P07`, both migration rows present, lock SQL emitted)
+    // is identical to the `pg.Pool` substrate.
     //
     // We pin two assertions against PGlite, both load-bearing here:
     //
     //   (a) End-state correctness — `Promise.all([apply, apply])` on a
-    //       fresh DB resolves with no throw; the migration lands
-    //       exactly once (`schema_migrations` row count = 1,
-    //       `participants` table exists). This IS load-bearing on
-    //       PGlite: empirically, the pre-R8 broken shape (no advisory
-    //       lock around the transaction) DOES throw `relation
-    //       "participants" already exists` on PGlite under
-    //       `Promise.all`, because both outer probes race to false and
-    //       both transactions execute the unguarded `CREATE TABLE`.
-    //       Removing the lock would crash this assertion.
+    //       fresh DB resolves with no throw; each migration lands
+    //       exactly once (`schema_migrations` carries v1 + v2 anchor
+    //       rows post Amendment 2; `participants` table exists from v1).
+    //       This IS load-bearing on PGlite: empirically, the pre-R8
+    //       broken shape (no advisory lock around the transaction) DOES
+    //       throw `relation "participants" already exists` on PGlite
+    //       under `Promise.all`, because both outer probes race to
+    //       false and both transactions execute the unguarded
+    //       `CREATE TABLE`. Removing the lock would crash this assertion.
     //
     //   (b) Lock-query presence — the captured SQL stream MUST contain
     //       `pg_advisory_xact_lock(...)`. This is the explicit-emission
@@ -1565,11 +1579,14 @@ describe("applyMigrations — idempotency", () => {
         Promise.all([applyMigrations(querier), applyMigrations(querier)]),
       ).resolves.toEqual([undefined, undefined]);
 
-      // (a) End-state correctness: migration landed exactly once.
+      // (a) End-state correctness: each migration landed exactly once.
+      // Post Amendment 2 the runner iterates `[v1, v2]`, so BOTH anchor
+      // rows must be present (regression that drops v2 would surface
+      // here as `toEqual([{version:1}])`).
       const migrationsProbe = await pg.query<{ version: number }>(
         "SELECT version FROM schema_migrations ORDER BY version",
       );
-      expect(migrationsProbe.rows).toEqual([{ version: 1 }]);
+      expect(migrationsProbe.rows).toEqual([{ version: 1 }, { version: 2 }]);
 
       const participantsProbe = await pg.query<{ exists: boolean }>(
         `SELECT EXISTS (
@@ -1579,13 +1596,15 @@ describe("applyMigrations — idempotency", () => {
       );
       expect(participantsProbe.rows[0]?.exists).toBe(true);
 
-      // (b) Lock-query presence: the runner that entered the transaction
-      // issued the advisory lock. Assert "at least one" rather than
-      // "exactly one" — empirically both outer probes race to false on
-      // PGlite (see docstring), so both runners reach the in-transaction
-      // lock SQL and the captured count is typically 2; but this is a
-      // scheduler-timing detail. The load-bearing claim is that the lock
-      // IS issued at least once, not how many times.
+      // (b) Lock-query presence: the runner that entered each version's
+      // transaction issued the advisory lock. Assert "at least one"
+      // rather than "exactly one" — empirically both outer probes race
+      // to false on PGlite (see docstring), so both runners reach the
+      // in-transaction lock SQL; post Amendment 2 the per-version loop
+      // takes a fresh lock per version, so the captured count scales
+      // with `MIGRATIONS.length` and is no longer bounded by 2. The
+      // load-bearing claim is that the lock IS issued at least once, not
+      // how many times.
       const lockCount = captured.filter((entry) => /pg_advisory_xact_lock/i.test(entry.sql)).length;
       expect(lockCount).toBeGreaterThanOrEqual(1);
     } finally {

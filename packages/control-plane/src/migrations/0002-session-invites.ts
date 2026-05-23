@@ -51,16 +51,18 @@
 //     ALTERs it. Plan-002's invite-driven membership flows mutate
 //     session_memberships at the service layer via INSERT/UPDATE, not via
 //     DDL.
-//   * `sessions/migration-runner.ts` — Plan-001 owns the runner. Its
-//     docstring at lines 151-158 anticipates v2 expansion via a per-version
-//     loop, BUT wiring v2 into the runner is deferred to a downstream
-//     Plan-002 PR (the service-layer PR where the table is actually read /
-//     written). Adding v2 to the runner here would force a third commit on
-//     Plan-001-owned code in this PR with no service-layer consumer to
-//     justify it. The co-located test
-//     (`__tests__/0002-session-invites.test.ts`) verifies the v2 SQL applies
-//     cleanly via direct `tx.exec()` after v1 is applied via the runner,
-//     proving the SQL is correct without forcing the runner-wiring rollout.
+//   * `sessions/migration-runner.ts` — Plan-001 owns the runner. Per
+//     Plan-002 §Cross-Plan Amendments Amendment 2, this SQL is wired
+//     into the canonical `applyMigrations()` per-version loop via
+//     `SESSION_INVITES_MIGRATION_SQL` (exported below) so deployers
+//     pulling `develop` apply both v1 and v2 automatically. Coverage is
+//     split: the new `sessions/__tests__/migration-runner.test.ts`
+//     pins canonical-path behavior (fresh-DB apply both + idempotency
+//     on re-call via outer-probe short-circuit); the co-located test
+//     `__tests__/0002-session-invites.test.ts` continues to exercise
+//     the v2 SQL via direct `tx.exec()` (`applySessionInvitesMigration`
+//     helper) as a SQL-layer regression backstop distinct from the
+//     runner-pipeline assertions.
 //
 // ----------------------------------------------------------------------------
 // I-002-3 — Presence is ephemeral, verified by omission

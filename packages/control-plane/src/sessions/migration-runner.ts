@@ -1,12 +1,13 @@
 // Schema migration runner for the Collaboration Control Plane Postgres
 // database.
 //
-// Plan-001 PR #4 owns migration version 1 — see `migrations/0001-initial.ts`.
-// The runner is intentionally minimal: probe `information_schema.tables` for
-// `schema_migrations`; if absent, run the migration SQL inside a single
-// transaction. Subsequent plans (002, 003, 006, 015, 022...) will register
-// additional migrations by appending to the migration list below and bumping
-// the version counter.
+// Plan-001 PR #4 ships migration version 1 (`migrations/0001-initial.ts`);
+// Plan-002 PR #102 ships migration version 2 (`migrations/0002-session-invites.ts`)
+// via cross-plan Amendment 2 (see `docs/plans/002-invite-membership-and-presence.md`
+// §Cross-Plan Amendments). The runner iterates the `MIGRATIONS` array declared
+// below — to register a v3+ migration, add `{ version: N, sql: ... }` in
+// ascending version order. Subsequent plans (003, 006, 015, 022...) will
+// register additional migrations the same way.
 //
 // SQL is sourced as a TypeScript string constant (not a sibling .sql file)
 // because `tsc -b` does not copy non-TS assets into `dist/` and `package.json`
@@ -46,6 +47,39 @@
 // avoid the race externally — the runner now closes it at the source.
 
 import { INITIAL_MIGRATION_SQL } from "../migrations/0001-initial.js";
+import { SESSION_INVITES_MIGRATION_SQL } from "../migrations/0002-session-invites.js";
+
+// Ordered registry of every migration the control-plane is responsible for
+// applying. Iteration order is the apply order — the runner walks this array
+// in declaration order, probes whether each version is already present, and
+// applies any that are missing inside a per-version transaction guarded by
+// the shared advisory lock. To register a new migration:
+//
+//   1. Add the SQL file under `src/migrations/NNNN-description.ts` with an
+//      `INSERT INTO schema_migrations (version, description) VALUES (N, ...)`
+//      as its last statement (so the version anchor commits atomically with
+//      the DDL — see the head-of-file docstring on `0001-initial.ts`).
+//   2. Import the SQL constant here and append `{ version: N, sql: ... }`
+//      to `MIGRATIONS` in ascending version order. Do NOT reorder existing
+//      entries — production databases will have applied them in the order
+//      shown.
+//
+// Plan-002 Amendment 2 added v2 (`SESSION_INVITES_MIGRATION_SQL`); prior to
+// Amendment 2 the runner was hardcoded to v1 only and `0002-session-invites`
+// would have shipped as an orphan migration on `develop` until Plan-002
+// Phase 2's service-layer wiring landed. Wiring v2 into the runner at the
+// same commit as the SQL file removes that gap.
+//
+// Version values are plain `number` (not `bigint`): the `schema_migrations.version`
+// column is `integer` (see `migrations/0001-initial.ts`), version values are
+// small monotone integers (1, 2, 3, ...), and `hasMigrationApplied` takes
+// `version: number`. The `MIGRATION_LOCK_ID` constant below is `bigint`
+// because `pg_advisory_xact_lock($1)` takes a Postgres `bigint`; that is the
+// only place BigInt is load-bearing in this module.
+const MIGRATIONS: ReadonlyArray<{ readonly version: number; readonly sql: string }> = [
+  { version: 1, sql: INITIAL_MIGRATION_SQL },
+  { version: 2, sql: SESSION_INVITES_MIGRATION_SQL },
+];
 
 // Stable advisory-lock ID for ai-sidekicks control-plane migrations.
 // `pg_advisory_xact_lock` takes a bigint; the value must be unique
@@ -116,25 +150,29 @@ export interface Querier {
 /**
  * Apply all pending migrations against a `Querier`.
  *
- * Idempotent + concurrency-safe via the canonical Postgres "lock-and-
- * re-probe" pattern:
+ * Iterates the `MIGRATIONS` array in declaration order. Each version goes
+ * through the canonical Postgres "lock-and-re-probe" pattern in its OWN
+ * transaction; the runner walks every version on every call, so a partial
+ * deploy (v1 applied, v2 missing) catches up cleanly on the next boot.
  *
- *   1. Outer probe — fast path. `hasMigrationApplied` queries
- *      `information_schema.tables` for `schema_migrations`; if the version
- *      row already exists the call short-circuits without taking the
- *      lock. This is the overwhelmingly common case at runtime (booted
- *      daemon hitting an already-migrated database).
+ *   1. Outer probe — fast path. `hasMigrationApplied(querier, version)`
+ *      queries `information_schema.tables` for `schema_migrations` and
+ *      then `COUNT(*)` for the version anchor row; if the version is
+ *      already applied the loop iteration short-circuits without taking
+ *      the lock. This is the overwhelmingly common case at runtime
+ *      (booted daemon hitting an already-migrated database).
  *   2. Transaction + advisory lock — slow path. On a probe miss we open
- *      the transaction, acquire `pg_advisory_xact_lock(MIGRATION_LOCK_ID)`,
- *      and re-probe inside the lock. Concurrent racers that both passed
- *      the outer probe BLOCK on the lock acquisition; the first runner
- *      executes the migration SQL and commits, releasing the lock. The
- *      blocked racer then re-probes to a populated `schema_migrations`
- *      row and short-circuits without re-running the DDL.
+ *      a transaction for THAT version, acquire
+ *      `pg_advisory_xact_lock(MIGRATION_LOCK_ID)`, and re-probe inside
+ *      the lock. Concurrent racers that both passed the outer probe
+ *      BLOCK on the lock acquisition; the first runner executes the
+ *      migration SQL and commits, releasing the lock. The blocked racer
+ *      then re-probes to a populated `schema_migrations` row and
+ *      short-circuits without re-running the DDL.
  *   3. Migration body — only the runner that wins the lock AND fails the
- *      re-probe runs `INITIAL_MIGRATION_SQL`. The migration SQL itself
- *      contains the INSERT into `schema_migrations` as its tail, so the
- *      version anchor row is committed atomically with the table CREATEs.
+ *      re-probe runs the version's SQL. The migration SQL itself
+ *      contains the `INSERT INTO schema_migrations` as its tail, so the
+ *      version anchor row is committed atomically with the DDL.
  *
  * Without the inside-transaction lock + re-probe, two concurrent calls on
  * a fresh database would both observe "not applied" at the outer probe,
@@ -143,19 +181,23 @@ export interface Querier {
  * surfacing the concurrent boot as a startup failure rather than the
  * idempotent no-op the API contract promises.
  *
- * Atomicity: the lock + re-probe + migration SQL share one transaction
- * boundary. A torn write (process crash mid-migration) leaves the
- * database fully unmigrated, never half-migrated, AND releases the
- * advisory lock at ROLLBACK so the next runner can retry cleanly.
+ * Atomicity: each version's lock + re-probe + migration SQL share ONE
+ * transaction boundary. A torn write (process crash mid-migration) leaves
+ * THAT version fully unmigrated (never half-migrated) AND releases the
+ * advisory lock at ROLLBACK so the next runner can retry cleanly. Versions
+ * applied BEFORE the crash remain committed because each prior version had
+ * its own transaction.
  *
- * Multi-version expansion: when Plan-NNN adds version N+1, replace the
- * hardcoded `version: 1` outer/inner probes with a per-version loop
- * (iterate the migration list, probe each version, run the body for any
- * that miss). The single advisory lock still serializes correctly because
- * all migration runners contend for the same lock ID — they just check
- * more versions inside the locked region. The lock-and-re-probe pattern
- * is extensible; the current single-version branch is the minimal V1
- * shape, not a forever template.
+ * Per-version transaction choice: every version takes its own `transaction()`
+ * boundary rather than wrapping the whole loop in one outer transaction.
+ * Two reasons: (a) DDL transactions can grow expensive (catalog locks,
+ * relcache bloat) — keeping each version's transaction small minimizes the
+ * blast radius if a future migration is large, and (b) concurrent racers on
+ * DIFFERENT-version starting points (e.g., one already at v1 racing with one
+ * at v0) interleave correctly through the shared advisory lock because each
+ * version's lock is taken-and-released independently. A single outer
+ * transaction would deadlock if both racers held the lock through different
+ * iterations.
  *
  * Wire-protocol choice: the multi-statement migration body goes through
  * `tx.exec()` (simple query protocol). The extended-query path (`query()`
@@ -182,42 +224,44 @@ export interface Querier {
  * already exists`, not as `25P02 current transaction is aborted`).
  */
 export async function applyMigrations(querier: Querier): Promise<void> {
-  // Outer probe — fast path. Avoids taking a lock on the (overwhelmingly
-  // common) already-migrated case; see method docstring §1.
-  if (await hasMigrationApplied(querier, 1)) {
-    return;
-  }
-  await querier.transaction(async (tx) => {
-    // Acquire a transactional advisory lock so only ONE migration runner
-    // enters the body at a time. Released automatically at COMMIT or
-    // ROLLBACK. Concurrent racers that both passed the outer probe BLOCK
-    // on this call until the first runner commits, then re-probe and
-    // short-circuit. See method docstring §2 for the full failure mode
-    // this defends against.
-    //
-    // BigInt parameter is accepted by both PGlite (verified empirically
-    // 2026-04-27 against @electric-sql/pglite 0.4.4) and `pg` (driver's
-    // documented bigint binding). If a future substrate rejects BigInt
-    // for the bigint-typed parameter, fall back to the string form
-    // (`"9000000001"`) — Postgres accepts the textual representation
-    // and parses it as bigint server-side.
-    await tx.query("SELECT pg_advisory_xact_lock($1)", [MIGRATION_LOCK_ID]);
-
-    // Re-probe inside the lock. A racer that BLOCKED on the lock above
-    // reaches this re-probe AFTER the original runner committed; the
-    // re-probe sees the just-committed `schema_migrations` row and
-    // short-circuits without re-running the DDL.
-    if (await hasMigrationApplied(tx, 1)) {
-      return;
+  for (const { version, sql } of MIGRATIONS) {
+    // Outer probe — fast path. Avoids taking a lock on the (overwhelmingly
+    // common) already-applied case; see method docstring §1.
+    if (await hasMigrationApplied(querier, version)) {
+      continue;
     }
+    await querier.transaction(async (tx) => {
+      // Acquire a transactional advisory lock so only ONE migration runner
+      // enters this version's body at a time. Released automatically at
+      // COMMIT or ROLLBACK. Concurrent racers that both passed the outer
+      // probe BLOCK on this call until the first runner commits, then
+      // re-probe and short-circuit. See method docstring §2 for the full
+      // failure mode this defends against.
+      //
+      // BigInt parameter is accepted by both PGlite (verified empirically
+      // 2026-04-27 against @electric-sql/pglite 0.4.4) and `pg` (driver's
+      // documented bigint binding). If a future substrate rejects BigInt
+      // for the bigint-typed parameter, fall back to the string form
+      // (`"9000000001"`) — Postgres accepts the textual representation
+      // and parses it as bigint server-side.
+      await tx.query("SELECT pg_advisory_xact_lock($1)", [MIGRATION_LOCK_ID]);
 
-    // The migration SQL includes the INSERT into schema_migrations as its
-    // last statement, so the version anchor row is committed atomically
-    // with the table CREATEs. Routed through `exec()` (simple query
-    // protocol) because the extended-query path is one-statement-per-call
-    // by Postgres protocol contract — see the Querier docstring.
-    await tx.exec(INITIAL_MIGRATION_SQL);
-  });
+      // Re-probe inside the lock. A racer that BLOCKED on the lock above
+      // reaches this re-probe AFTER the original runner committed; the
+      // re-probe sees the just-committed `schema_migrations` row and
+      // short-circuits without re-running the DDL.
+      if (await hasMigrationApplied(tx, version)) {
+        return;
+      }
+
+      // The migration SQL includes the INSERT into schema_migrations as its
+      // last statement, so the version anchor row is committed atomically
+      // with the table CREATEs. Routed through `exec()` (simple query
+      // protocol) because the extended-query path is one-statement-per-call
+      // by Postgres protocol contract — see the Querier docstring.
+      await tx.exec(sql);
+    });
+  }
 }
 
 // --------------------------------------------------------------------------

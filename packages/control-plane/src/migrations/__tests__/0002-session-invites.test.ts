@@ -18,38 +18,67 @@
 //   T6 — I-002-3 verification-by-omission: no presence-state table is created
 //        anywhere in the schema after v1 + v2 apply (defense for THIS
 //        migration; T2.5 ships the broader P10 regression).
-//   T7 — `applyMigrations` (hardcoded to v1) called on an already-fully-
-//        migrated handle is idempotent — no throw, no duplicate
-//        `schema_migrations` rows.
+//   T7 — `applyMigrations` called on an already-fully-migrated handle (v1
+//        bootstrapped via `beforeEach` direct-exec, v2 applied via
+//        `applySessionInvitesMigration`) is idempotent — no throw, no
+//        duplicate `schema_migrations` rows. Distinct from the
+//        canonical-path runner-loop idempotency in
+//        `sessions/__tests__/migration-runner.test.ts` R2: that test
+//        proves `applyMigrations` itself is idempotent at the loop layer,
+//        while THIS test proves the runner short-circuits cleanly even
+//        when both versions were applied via the SQL-level direct-exec
+//        path (catches a regression where the runner's per-version
+//        outer probe stopped recognizing pre-applied versions).
 //   T8 — `token_hash` UNIQUE constraint rejects a duplicate-`token_hash`
 //        INSERT — the storage-layer enforcement of single-use semantics
 //        (Spec-002 line 109 / migration file `Token trust boundary` section
 //        at lines 81-90).
 //
 // ----------------------------------------------------------------------------
-// Why the migration runner is NOT used for v2 here
+// Why this file uses direct-exec v1 bootstrap + direct-exec v2 application
 // ----------------------------------------------------------------------------
 //
-// `applyMigrations` (`sessions/migration-runner.ts`) is hardcoded to probe v1
-// only — its docstring at lines 151-158 anticipates per-version-loop
-// expansion, but wiring v2 into the runner is deferred to the downstream
-// Plan-002 service-layer PR (where the table is actually read/written). See
-// the `0002-session-invites.ts` header (`Cross-plan boundary` section) for the
-// rationale; this test verifies the v2 SQL applies cleanly via direct
-// `tx.exec()` to satisfy Phase 1's acceptance criterion without forcing a
-// runner-wiring change on Plan-001-owned code.
+// This file exercises `SESSION_INVITES_MIGRATION_SQL` semantics in isolation
+// at the SQL layer — column shape, CHECK clauses, FK enforcement, UNIQUE
+// constraint, idempotency on repeated direct exec. Post Plan-002 Amendment 2
+// (PR #102), `applyMigrations()` iterates `MIGRATIONS = [v1, v2]` and
+// applies BOTH in one call, so using `applyMigrations()` in this file's
+// `beforeEach` would pre-apply v2 — defeating the point of every test
+// below (T1's "session_invites should not yet exist" probe, T2-T8's
+// "apply v2 cleanly, then probe" structure, T7's "re-exec v2 SQL stays
+// idempotent at the SQL layer" assertion).
+//
+// Instead, `beforeEach` direct-execs `INITIAL_MIGRATION_SQL` (v1 only) so
+// each test starts with v1 schema present and `session_invites` absent.
+// The local `applySessionInvitesMigration` helper then applies v2 SQL
+// directly via the same `tx.exec()` primitive — wrapping it in a single
+// transaction so the migration body and its `INSERT INTO schema_migrations`
+// commit atomically (the same shape the canonical `applyMigrations`
+// transaction uses, just inlined here so the test substrate matches the
+// production atomicity boundary).
+//
+// Canonical-path runner coverage (R1: applyMigrations applies both v1+v2;
+// R2: applyMigrations is idempotent at the runner-loop layer) lives in the
+// dedicated `sessions/__tests__/migration-runner.test.ts` test file. T7
+// below is the COMPLEMENTARY SQL-level idempotency assertion: after both
+// versions are present, re-calling `applyMigrations` MUST short-circuit
+// without re-running the SQL — a regression in the runner's outer-probe
+// recognition of pre-applied versions would surface here even if the
+// SQL itself is unchanged.
 //
 // ----------------------------------------------------------------------------
 // PGlite -> Querier adapter (local copy)
 // ----------------------------------------------------------------------------
 //
 // The `adaptPGlite` helper duplicated below mirrors the shape used in
-// `sessions/__tests__/session-directory-service.test.ts` lines 84-135. We
-// inline a local copy here rather than extracting a shared package-level
-// fixture because (a) the dispatch contract forbids exporting a new test
-// fixture from `packages/control-plane/`, and (b) the helper is small enough
-// that an `internal/` extraction would add more indirection than it removes
-// for a two-call-site footprint.
+// `sessions/__tests__/session-directory-service.test.ts` and
+// `sessions/__tests__/migration-runner.test.ts`. We inline a local copy
+// here rather than extracting a shared package-level fixture because (a)
+// the dispatch contract forbids exporting a new test fixture from
+// `packages/control-plane/`, and (b) the helper is small enough that an
+// `internal/` extraction would add more indirection than it removes; if
+// the call-site count grows beyond the current three, revisit the
+// extraction trade-off.
 //
 // Refs: Plan-002 Phase 1 T1.5, Spec-002 §Required Behavior line 43, §State
 // And Data Implications lines 155-157, Plan-002 §Invariants I-002-3.
@@ -57,6 +86,7 @@
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { INITIAL_MIGRATION_SQL } from "../0001-initial.js";
 import { SESSION_INVITES_MIGRATION_SQL } from "../0002-session-invites.js";
 import { applyMigrations, type Querier } from "../../sessions/migration-runner.js";
 
@@ -135,12 +165,18 @@ interface TestContext {
 let ctx: TestContext;
 
 beforeEach(async () => {
-  // Fresh in-memory PGlite per test — no tmpdir cleanup needed. The first
-  // `applyMigrations` call serves as both the readiness checkpoint and the
-  // v1 schema bootstrap.
+  // Fresh in-memory PGlite per test — no tmpdir cleanup needed. Bootstraps
+  // ONLY v1 schema via direct `tx.exec(INITIAL_MIGRATION_SQL)`. Using
+  // `applyMigrations(querier)` here would pre-apply v2 post Plan-002
+  // Amendment 2 (PR #102) — see the file-level "Why this file uses
+  // direct-exec v1 bootstrap" header for the full rationale. The
+  // transaction wrapper mirrors the canonical `applyMigrations` atomicity
+  // boundary so a torn write in the bootstrap leaves the DB cleanly empty.
   const pg: PGlite = new PGlite();
   const querier: Querier = adaptPGlite(pg);
-  await applyMigrations(querier);
+  await querier.transaction(async (tx) => {
+    await tx.exec(INITIAL_MIGRATION_SQL);
+  });
   ctx = { pg, querier };
 });
 
@@ -151,11 +187,15 @@ afterEach(async () => {
   await ctx.pg.close();
 });
 
-// Local helper — apply v2 inside a transaction so the migration body and the
-// schema_migrations INSERT commit atomically. Mirrors how `applyMigrations`
-// wraps v1 (`querier.transaction(...) -> tx.exec(INITIAL_MIGRATION_SQL)`);
-// the migration runner is hardcoded to v1 (per the file-level comment above),
-// so the test applies v2 via the same atomicity primitive directly.
+// Local helper — apply v2 SQL directly inside a transaction so the migration
+// body and the schema_migrations INSERT commit atomically. Mirrors how the
+// canonical `applyMigrations()` wraps each version
+// (`querier.transaction(...) -> tx.exec(SQL)`); inlined here so this file's
+// tests exercise the v2 SQL semantics in isolation without going through the
+// canonical runner-loop (which post Amendment 2 would apply v2 in `beforeEach`
+// via the v1+v2 iteration, pre-applying it before each test could probe
+// "session_invites not yet present"). Canonical-path runner coverage lives in
+// `sessions/__tests__/migration-runner.test.ts`.
 async function applySessionInvitesMigration(querier: Querier): Promise<void> {
   await querier.transaction(async (tx) => {
     await tx.exec(SESSION_INVITES_MIGRATION_SQL);
@@ -400,14 +440,25 @@ describe("0002-session-invites migration (T6 — I-002-3 ephemeral-presence by o
 
 describe("0002-session-invites migration (T7 — applyMigrations idempotency post-v2)", () => {
   it("re-calling applyMigrations after v2 is applied is a no-op (no throw, no duplicate rows)", async () => {
-    // `applyMigrations` (`sessions/migration-runner.ts`) is hardcoded to
-    // probe v1 only — its outer probe short-circuits as soon as the v1
-    // anchor row exists. After v2 is applied via direct tx.exec, a second
-    // `applyMigrations` call MUST NOT throw and MUST NOT perturb the v2
-    // anchor row. A regression that lost the outer-probe short-circuit
-    // would surface here as either a re-run of v1's DDL (`42P07 relation
-    // already exists`) or a duplicate-row insert into `schema_migrations`
-    // (PK violation on `version`).
+    // `applyMigrations` (`sessions/migration-runner.ts`) iterates
+    // `MIGRATIONS = [v1, v2]` post Plan-002 Amendment 2 (PR #102), with a
+    // per-version `hasMigrationApplied` outer probe that short-circuits
+    // when the version's anchor row exists. This test pre-applies v1
+    // (via `beforeEach` direct-exec) AND v2 (via the local
+    // `applySessionInvitesMigration` direct-exec helper), then calls
+    // `applyMigrations` and asserts it's a no-op — both per-version outer
+    // probes MUST recognize the pre-applied versions, regardless of which
+    // codepath ran the original migration SQL. A regression that lost
+    // the outer-probe short-circuit would surface here as either a re-run
+    // of v1's DDL (`42P07 relation already exists`) or a duplicate-row
+    // insert into `schema_migrations` (PK violation on `version`).
+    //
+    // Complementary to `sessions/__tests__/migration-runner.test.ts` R2,
+    // which asserts canonical-path idempotency (apply via runner, re-call
+    // via runner). This test asserts cross-path idempotency (apply via
+    // direct-exec, re-call via runner) — important because production
+    // migration paths (CI-driven runner) and operational debugging paths
+    // (manual SQL exec) might diverge over time.
     await applySessionInvitesMigration(ctx.querier);
 
     // Second call — must be a no-op.
