@@ -523,8 +523,17 @@ describe("InviteService — P5 (hash storage: token_hash == SHA-256(token), plai
   it("persists only the SHA-256 hash of the token", async () => {
     await seedParticipant(ctx.querier, OWNER_PARTICIPANT_ID);
     await seedSession(ctx.querier, SESSION_ID);
+    // The issuer must be an active OWNER of the session (security-architecture.md
+    // §Permission Matrix row 299, Spec-002 line 142). Seed that membership so
+    // the issuance gate admits the call.
+    await seedMembership(ctx.querier, {
+      sessionId: SESSION_ID,
+      participantId: OWNER_PARTICIPANT_ID,
+      role: "owner",
+      state: "active",
+    });
 
-    const created = await ctx.service.createInvite({
+    const created = await ctx.service.createInvite(OWNER_PARTICIPANT_ID, {
       sessionId: SESSION_ID,
       inviter: OWNER_PARTICIPANT_ID,
       joinMode: DEFAULT_JOIN_MODE,
@@ -566,6 +575,117 @@ describe("InviteService — P5 (hash storage: token_hash == SHA-256(token), plai
       [`%${created.token}%`],
     );
     expect(plaintextSearch.rows[0]?.n).toBe(0);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// createInvite owner-authorization (security-architecture.md §Permission Matrix
+// row 299, Spec-002 line 142 — "Invite participants" is owner-only)
+// ----------------------------------------------------------------------------
+//
+// Issuance is gated on the AUTHENTICATED actor, not the body. The body
+// `inviter` field is informational and attacker-controllable, so a non-owner
+// member cannot mint a token by naming their own participant id. Each denial
+// asserts BOTH the typed throw (InvitePermissionDeniedException + its stable
+// code) AND the no-row side effect (no session_invites row written for the
+// session). Each test fails for exactly ONE reason: the non-owner / non-member
+// cases hold `inviter === actor` (only the owner gate trips), and the mismatch
+// case seeds the actor as a valid active owner (only the equality check trips).
+
+// Count session_invites rows for a session — used to assert a denied issuance
+// wrote NO row (the gate throws inside the transaction, before the INSERT, so
+// the transaction rolls back to zero rows).
+async function countInvitesForSession(querier: Querier, sessionId: string): Promise<number> {
+  const probe = await querier.query<{ n: number }>(
+    "SELECT COUNT(*)::int AS n FROM session_invites WHERE session_id = $1",
+    [sessionId],
+  );
+  return probe.rows[0]?.n ?? -1;
+}
+
+describe("InviteService.createInvite — owner-authorization (Spec-002 line 142, Permission Matrix row 299)", () => {
+  it("a non-owner ACTIVE member issuing for themselves throws invite.permission_denied and writes no invite row", async () => {
+    await seedParticipant(ctx.querier, OWNER_PARTICIPANT_ID);
+    await seedParticipant(ctx.querier, NON_OWNER_PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID);
+    // An active OWNER exists, but the ACTOR is a different active member with a
+    // non-owner role (collaborator). The actor names themselves as inviter, so
+    // the equality check passes and ONLY the owner gate trips.
+    await seedMembership(ctx.querier, {
+      sessionId: SESSION_ID,
+      participantId: OWNER_PARTICIPANT_ID,
+      role: "owner",
+      state: "active",
+    });
+    await seedMembership(ctx.querier, {
+      sessionId: SESSION_ID,
+      participantId: NON_OWNER_PARTICIPANT_ID,
+      role: "collaborator",
+      state: "active",
+    });
+
+    const error = await ctx.service
+      .createInvite(NON_OWNER_PARTICIPANT_ID, {
+        sessionId: SESSION_ID,
+        inviter: NON_OWNER_PARTICIPANT_ID,
+        joinMode: DEFAULT_JOIN_MODE,
+        expiresAt: isoOffset(24 * 60 * 60 * 1000),
+      })
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(InvitePermissionDeniedException);
+    expect(error).toMatchObject({ code: INVITE_PERMISSION_DENIED_CODE });
+
+    // No-row: the denied issuance wrote nothing (gate throws before the INSERT).
+    expect(await countInvitesForSession(ctx.querier, SESSION_ID)).toBe(0);
+  });
+
+  it("a NON-member actor issuing for themselves throws invite.permission_denied and writes no invite row", async () => {
+    await seedParticipant(ctx.querier, NON_OWNER_PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID);
+    // The actor has NO session_memberships row at all. inviter === actor, so
+    // the equality check passes and ONLY the owner gate (no row) trips.
+
+    const error = await ctx.service
+      .createInvite(NON_OWNER_PARTICIPANT_ID, {
+        sessionId: SESSION_ID,
+        inviter: NON_OWNER_PARTICIPANT_ID,
+        joinMode: DEFAULT_JOIN_MODE,
+        expiresAt: isoOffset(24 * 60 * 60 * 1000),
+      })
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(InvitePermissionDeniedException);
+    expect(error).toMatchObject({ code: INVITE_PERMISSION_DENIED_CODE });
+
+    expect(await countInvitesForSession(ctx.querier, SESSION_ID)).toBe(0);
+  });
+
+  it("an active OWNER actor naming a DIFFERENT inviter throws invite.permission_denied and writes no invite row", async () => {
+    await seedParticipant(ctx.querier, OWNER_PARTICIPANT_ID);
+    await seedParticipant(ctx.querier, NON_OWNER_PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID);
+    // The ACTOR is a valid active owner, so the owner gate passes. The body
+    // names a DIFFERENT participant as inviter, so ONLY the equality check trips
+    // (no issuing-on-behalf-of-another in V1). The named inviter is itself a
+    // real participant, so nothing but the equality check can fail.
+    await seedMembership(ctx.querier, {
+      sessionId: SESSION_ID,
+      participantId: OWNER_PARTICIPANT_ID,
+      role: "owner",
+      state: "active",
+    });
+
+    const error = await ctx.service
+      .createInvite(OWNER_PARTICIPANT_ID, {
+        sessionId: SESSION_ID,
+        inviter: NON_OWNER_PARTICIPANT_ID,
+        joinMode: DEFAULT_JOIN_MODE,
+        expiresAt: isoOffset(24 * 60 * 60 * 1000),
+      })
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(InvitePermissionDeniedException);
+    expect(error).toMatchObject({ code: INVITE_PERMISSION_DENIED_CODE });
+
+    expect(await countInvitesForSession(ctx.querier, SESSION_ID)).toBe(0);
   });
 });
 

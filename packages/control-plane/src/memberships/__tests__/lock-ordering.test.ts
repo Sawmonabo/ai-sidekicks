@@ -183,6 +183,15 @@ function wrapWithLog(inner: Querier, captured: CapturedQuery[], querierId: strin
 const SESSIONS_ROW_LOCK = /FROM\s+sessions\s+WHERE\s+id\s*=\s*\$1\s+FOR\s+UPDATE/i;
 const MEMBERSHIP_UPSERT = /INSERT\s+INTO\s+session_memberships\b/i;
 const MEMBERSHIP_MUTATE = /UPDATE\s+session_memberships\b/i;
+// `createInvite`'s authorization step reads membership rather than writing it:
+// its load-bearing `session_memberships` touch is the active-owner PROBE
+// `SELECT role, state FROM session_memberships WHERE session_id = $1 AND
+// participant_id = $2`. Block C asserts the sessions FOR UPDATE precedes THIS
+// probe (session-before-ownership-read, I-002-4), so the matcher is pinned to
+// the `role, state` projection — narrow enough NOT to collide with
+// `updateMembership`'s pre-lock `SELECT session_id FROM session_memberships`
+// step-1 probe (block B's carve-out) or with any INSERT/UPDATE above.
+const MEMBERSHIP_OWNER_PROBE = /SELECT\s+role,\s*state\s+FROM\s+session_memberships\b/i;
 
 // ----------------------------------------------------------------------------
 // Seed helpers (mirror invite-service.test.ts / membership-service.test.ts).
@@ -289,7 +298,7 @@ describe("InviteService.acceptInvite — lock-ordering (P9, I-002-4)", () => {
     const loggingQuerier: Querier = wrapWithLog(ctx.querier, captured, OUTER_ID);
     const service = new InviteService(loggingQuerier, ctx.keyRing);
 
-    const created = await service.createInvite({
+    const created = await service.createInvite(OWNER_PARTICIPANT_ID, {
       sessionId: SESSION_ID,
       inviter: OWNER_PARTICIPANT_ID,
       joinMode: DEFAULT_JOIN_MODE,
@@ -478,5 +487,90 @@ describe("MembershipService.updateMembership — lock-ordering (P9, I-002-4)", (
     expect(sessionsLockEntry.querierId).toMatch(/^outer\.tx-\d+$/);
     expect(membershipMutateEntry.querierId).not.toBe(OUTER_ID);
     expect(membershipMutateEntry.querierId).toBe(sessionsLockEntry.querierId);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// (C) InviteService.createInvite — issuance caller (I-002-4).
+// ----------------------------------------------------------------------------
+//
+// The owner-only issuance gate (security-architecture.md §Permission Matrix
+// row 299, Spec-002 line 142) reads `session_memberships` to authorize the
+// actor INSIDE the issuance transaction. That read must run UNDER the parent
+// session lock so a concurrent ownership change cannot race the gate (the same
+// TOCTOU the accept/revoke paths close). Unlike block A (where createInvite is
+// only setup and its statements are discarded), this block exercises
+// createInvite as the SUBJECT and asserts the sessions FOR UPDATE precedes the
+// active-owner PROBE — pinning createInvite's own session-before-ownership-read
+// order. Its own capture buffer + service instance keep it isolated from
+// block A's `forUpdateCount` assertion.
+
+describe("InviteService.createInvite — lock-ordering (P9, I-002-4)", () => {
+  it("acquires the sessions row lock before the active-owner session_memberships probe, through the in-tx Querier", async () => {
+    // Seed the parent session + an active OWNER so the issuance gate admits the
+    // call (the actor IS that owner, and names themselves as inviter).
+    await seedParticipant(ctx.querier, OWNER_PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID);
+    await seedMembership(ctx.querier, {
+      sessionId: SESSION_ID,
+      participantId: OWNER_PARTICIPANT_ID,
+      role: "owner",
+      state: "active",
+    });
+
+    const OUTER_ID = "outer";
+    const captured: CapturedQuery[] = [];
+    const loggingQuerier: Querier = wrapWithLog(ctx.querier, captured, OUTER_ID);
+    const service = new InviteService(loggingQuerier, ctx.keyRing);
+
+    await service.createInvite(OWNER_PARTICIPANT_ID, {
+      sessionId: SESSION_ID,
+      inviter: OWNER_PARTICIPANT_ID,
+      joinMode: DEFAULT_JOIN_MODE,
+      expiresAt: isoOffset(24 * 60 * 60 * 1000),
+    });
+
+    // The two load-bearing statements inside createInvite's transaction:
+    //   1. sessions row lock      — `SELECT id FROM sessions WHERE id = $1 FOR UPDATE`
+    //   2. active-owner probe     — `SELECT role, state FROM session_memberships ...`
+    // The probe is a READ (it authorizes the actor); I-002-4 requires it to run
+    // under the session lock, so the FOR UPDATE must precede it.
+    const sessionsLockIdx = captured.findIndex((entry) => SESSIONS_ROW_LOCK.test(entry.sql));
+    const ownerProbeIdx = captured.findIndex((entry) => MEMBERSHIP_OWNER_PROBE.test(entry.sql));
+
+    // Both MUST be present (presence pins that the lock was actually issued
+    // before the gate read membership).
+    expect(sessionsLockIdx).toBeGreaterThanOrEqual(0);
+    expect(ownerProbeIdx).toBeGreaterThanOrEqual(0);
+
+    // Canonical order (I-002-4): the sessions row lock precedes the
+    // active-owner probe.
+    expect(sessionsLockIdx).toBeLessThan(ownerProbeIdx);
+
+    // Exactly one FOR UPDATE — guards against a regression that lifts the lock
+    // to the outer Querier (wrong connection under pg.Pool) or issues it twice.
+    // createInvite is the ONLY call here, so the single issuance lock is all
+    // that should appear (no setup call to discard, unlike block A).
+    const forUpdateCount = captured.filter((entry) => SESSIONS_ROW_LOCK.test(entry.sql)).length;
+    expect(forUpdateCount).toBe(1);
+
+    // Both statements ran through the in-tx Querier (NOT the outer `"outer"`),
+    // so under pg.Pool the lock grips the transaction's held client across the
+    // same commit boundary as the gate read + INSERT — the load-bearing
+    // property (Plan-001 T5.6). The tx-scoped id matches `outer.tx-<n>`.
+    const sessionsLockEntry = captured[sessionsLockIdx];
+    const ownerProbeEntry = captured[ownerProbeIdx];
+    expect(sessionsLockEntry).toBeDefined();
+    expect(ownerProbeEntry).toBeDefined();
+    if (sessionsLockEntry === undefined || ownerProbeEntry === undefined) {
+      return;
+    }
+    expect(sessionsLockEntry.querierId).not.toBe(OUTER_ID);
+    expect(sessionsLockEntry.querierId).toMatch(/^outer\.tx-\d+$/);
+    expect(ownerProbeEntry.querierId).not.toBe(OUTER_ID);
+    // Both come from the SAME in-tx Querier — createInvite opens one
+    // transaction, so emission across two tx-scoped ids would mean a sibling /
+    // nested transaction broke the single-COMMIT boundary.
+    expect(ownerProbeEntry.querierId).toBe(sessionsLockEntry.querierId);
   });
 });

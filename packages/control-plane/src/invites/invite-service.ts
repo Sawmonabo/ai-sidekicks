@@ -450,8 +450,33 @@ export class InviteService {
    * claim assembly, never in a SQL parameter. The `session_invites.token_hash`
    * UNIQUE constraint (Plan-002 Phase 1 migration) backs single-use semantics
    * that T2.2 enforces on accept.
+   *
+   * Owner-authorization (security-architecture.md §Permission Matrix row 299,
+   * Spec-002 line 142 — "Invite participants" is owner-only): issuance is
+   * gated on the AUTHENTICATED actor, NOT the body. The actor must hold an
+   * active `owner` membership in the target session — the same active-owner
+   * predicate `revokeInvite` / `MembershipService.updateMembership` use — so a
+   * non-owner member (or non-member) cannot mint a token by supplying their
+   * own participant id. The check runs inside the issuance transaction under
+   * the parent session lock, BEFORE the INSERT, so a denied caller writes no
+   * row. The body `inviter` field is informational (Spec-002 line 80) and must
+   * EQUAL the authenticated actor: Spec-002 §Interfaces And Contracts defines
+   * no delegated-issuance contract, so V1 binds the body `inviter` to the
+   * authenticated actor and a mismatch is denied (this is distinct from the
+   * owner-only authority above — it is an absence-of-delegation rule, not the
+   * Permission Matrix). Once equality holds the existing claim / INSERT binding
+   * already records the authenticated active owner, so both are left unchanged.
+   *
+   * @param actorParticipantId the AUTHENTICATED participant issuing the invite.
+   *   `InviteCreate` carries an `inviter` field (Spec-002 line 80), but that
+   *   field is attacker-controllable, so the issuing identity is passed
+   *   explicitly and gated here, mirroring `revokeInvite` /
+   *   `MembershipService.updateMembership`'s actor-as-parameter convention.
    */
-  async createInvite(input: InviteCreate): Promise<InviteCreateResponse> {
+  async createInvite(
+    actorParticipantId: ParticipantId,
+    input: InviteCreate,
+  ): Promise<InviteCreateResponse> {
     // (1) Trust-boundary validation. Parse rather than trust the caller —
     // a service-layer fail-fast that surfaces schema drift before any token
     // material is generated or any row is written.
@@ -484,6 +509,49 @@ export class InviteService {
     const tokenHash: string = createHash("sha256").update(token).digest("hex");
 
     const inviteRow: InviteRow = await this.#querier.transaction(async (tx) => {
+      // Lock the parent session row FIRST (I-002-4 canonical order
+      // `sessions` -> `session_invites`/`session_memberships`). Held across the
+      // ownership check and the INSERT so a concurrent ownership change cannot
+      // race the authorization gate (same TOCTOU the revoke/accept paths
+      // close). This MUST be the first statement in the transaction body; the
+      // createInvite lock-ordering regression in
+      // memberships/__tests__/lock-ordering.test.ts ("InviteService.createInvite
+      // — lock-ordering") pins this session-before-ownership-probe order and
+      // must not be inverted.
+      await tx.query("SELECT id FROM sessions WHERE id = $1 FOR UPDATE", [validated.sessionId]);
+
+      // Owner-authorization (security-architecture.md §Permission Matrix row
+      // 299, Spec-002 line 142 — "Invite participants" is owner-only). Same
+      // active-owner predicate revokeInvite / MembershipService.updateMembership
+      // use: the actor must hold a `session_memberships` row in THIS session
+      // with role 'owner' and state 'active'. The body `inviter` is
+      // informational and attacker-controllable, so it is NOT trusted for
+      // authorization; the AUTHENTICATED actor is. A non-owner (or non-member)
+      // is denied before any row is written.
+      const actorProbe = await tx.query<{ role: string; state: string }>(
+        `SELECT role, state FROM session_memberships
+          WHERE session_id = $1 AND participant_id = $2`,
+        [validated.sessionId, actorParticipantId],
+      );
+      const actorRow: { role: string; state: string } | undefined = actorProbe.rows[0];
+      const actorIsActiveOwner: boolean =
+        actorRow !== undefined && actorRow.role === "owner" && actorRow.state === "active";
+      if (!actorIsActiveOwner) {
+        throw new InvitePermissionDeniedException(
+          `InviteService.createInvite: participant ${String(actorParticipantId)} is not an active owner of session ${String(validated.sessionId)}; only the session owner may invite participants (security-architecture.md §Permission Matrix row 299, Spec-002 line 142).`,
+        );
+      }
+
+      // Bind the claimed inviter to the AUTHENTICATED actor. The body `inviter`
+      // is informational; V1 has no issuing-on-behalf-of-another, so it must
+      // equal the actor. Once this holds, the claim assembly + INSERT binding
+      // already record the authenticated active owner (left unchanged below).
+      if (validated.inviter !== actorParticipantId) {
+        throw new InvitePermissionDeniedException(
+          `InviteService.createInvite: body inviter ${String(validated.inviter)} must equal the authenticated actor ${String(actorParticipantId)}; issuing an invite on behalf of another participant is not permitted in V1 (no delegated-issuance contract in Spec-002 §Interfaces And Contracts; V1 binds the body inviter to the authenticated actor).`,
+        );
+      }
+
       const insertResult = await tx.query<InviteRow>(
         `INSERT INTO session_invites (session_id, inviter_id, token_hash, join_mode, state, expires_at)
          VALUES ($1, $2, $3, $4, 'pending', $5)
