@@ -263,7 +263,7 @@ preconditions:
 - `packages/control-plane/src/invites/invite-service.ts` — issuance (PASETO v4.local with 256-bit CSPRNG, jti, SHA-256 hash storage per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md)), acceptance (single-use enforcement), revocation (owner-only per Spec-002 line 142), expiry validation
 - `packages/control-plane/src/memberships/membership-service.ts` — `MembershipUpdate` handler with owner-elevation check (I-002-1), last-owner-cannot-leave guard (I-002-2), change_role/suspend/revoke/reactivate paths
 - Lock-ordering inheritance from Plan-001 (I-002-4) — every transactional caller follows `sessions` → `session_memberships`
-- Audit emission: revocation events emit to session history per Spec-002 line 141; integrity columns (`prev_hash`, `row_hash`, `daemon_signature`) follow the Plan-001 Phase 3 placeholder convention (`Buffer.alloc(32)`) until Plan-006 Tier 4 ships real event-taxonomy hashing/signing
+- Audit emission is **deferred** — Phase 2 control-plane services do **not** emit invite/membership lifecycle events and write no `session_events` integrity columns (no `prev_hash` / `row_hash` / `daemon_signature`, no `Buffer.alloc(32)` placeholder — that is a runtime-daemon convention, and per [ADR-017](../decisions/017-shared-event-sourcing-scope.md) the control plane has no event log). The `membership_change` emission surface is daemon-side and lands at Plan-006 Tier 4 gated on Plan-008-remainder Tier 5 per [CP-002-6](#cross-plan-obligations); Spec-002 line 141 (revocation audit events in session history) is satisfied at Tier 4, not Tier 2. The Phase 2 deliverable is the authoritative coordination-state transition (`session_invites.state → 'revoked'`), not the event
 - Typed errors: `membership.permission_denied` (P6, I-002-1), `membership.last_owner` (P7, I-002-2), `invite.revoked` / `invite.expired` / `invite.already_accepted` (P2/P3/P4)
 
 #### Tasks
@@ -272,9 +272,9 @@ preconditions:
 
 **Files:** `packages/control-plane/src/invites/invite-service.ts` **Spec coverage:** Spec-002 §Token Security Properties lines 110 (Entropy/CSPRNG), 111 (hash storage), 113 (Token payload structure); P5 **Verifies invariant:** none (issuance path; hash-storage invariant verified by P5)
 
-##### T2.2 — Implement invite acceptance + single-use enforcement + revocation + expiry validation; emit revocation audit events.
+##### T2.2 — Implement invite acceptance + single-use enforcement + owner-authorized revocation (state-only: `session_invites.state → 'revoked'`) + expiry validation. Does **not** emit audit events — deferred to Plan-006 Tier 4 per [CP-002-6](#cross-plan-obligations) (the control plane has no event log per ADR-017).
 
-**Files:** `packages/control-plane/src/invites/invite-service.ts`, `packages/control-plane/src/invites/__tests__/invite-service.test.ts` **Spec coverage:** Spec-002 AC1, AC3, §Token Security Properties lines 109 (single-use enforcement), 111 (hash storage), 112 (expiry enforcement), §Invite Revocation lines 138 (immediacy), 141 (audit emission), 142 (owner-authorization); P1, P2, P3, P4, P8 **Verifies invariant:** none (issuance/acceptance path; revocation durability verified by P8)
+**Files:** `packages/control-plane/src/invites/invite-service.ts`, `packages/control-plane/src/invites/__tests__/invite-service.test.ts` **Spec coverage:** Spec-002 AC1, AC3, §Token Security Properties lines 109 (single-use enforcement), 111 (hash storage), 112 (expiry enforcement), §Invite Revocation lines 138 (immediacy), 141 (audit emission — **deferred to Tier 4 per [CP-002-6](#cross-plan-obligations)**, not emitted in Phase 2), 142 (owner-authorization); P1, P2, P3, P4, P8 **Verifies invariant:** none (issuance/acceptance path; revocation durability verified by P8)
 
 ##### T2.3 — Implement `membership-service.ts` with `MembershipUpdate` handler; enforce I-002-1 + I-002-2 with typed errors.
 
