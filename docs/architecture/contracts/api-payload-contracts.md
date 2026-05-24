@@ -376,6 +376,7 @@ const ProtocolVersionSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 // InviteCreate
 interface InviteCreateRequest {
   sessionId: SessionId;
+  inviter: ParticipantId;
   joinMode: JoinMode;
   expiresAt: string; // ISO 8601
 }
@@ -414,6 +415,13 @@ interface PresenceHeartbeatRequest {
   participantId: ParticipantId;
   deviceId: string;
   activityState: PresenceState;
+  metadata: {
+    deviceType: string;
+    focusedSessionId: SessionId | null;
+    focusedChannelId: ChannelId | null;
+    lastActivityAt: string;
+    appVisible: boolean;
+  };
 }
 // Response: 204 No Content (fire-and-forget)
 
