@@ -49,7 +49,7 @@ The system MUST prevent the last remaining owner from leaving a session (Spec-00
 
 ### I-002-3 — Presence is ephemeral, never persisted
 
-Presence state (Yjs Awareness CRDT) MUST live in memory only and MUST be garbage-collected on disconnect (Spec-002 §Default Behavior line 58, §State And Data Implications line 156). Plan-002 MUST NOT add a SQLite or Postgres table that stores presence rows.
+Presence state (Yjs Awareness CRDT) MUST live in memory only and MUST be garbage-collected on disconnect (Spec-002 §Default Behavior line 58, §State And Data Implications line 157). Plan-002 MUST NOT add a SQLite or Postgres table that stores presence rows.
 
 **Why load-bearing.** Persisting presence creates a stale-state surface (rows survive the disconnect that should have garbage-collected them) and conflates ephemeral CRDT state with durable membership. Audit-relevant presence transitions (`presence.online`, `presence.idle`, `presence.reconnecting`, `presence.offline`) are emitted as `session_events` per Spec-006 — that event log is the durable surface; the live CRDT state is not.
 
@@ -149,16 +149,16 @@ The TDD test list below is enumerated and ordered by implementation dependency. 
 | P7 | `Sole-owner self-leave returns typed error and owner row remains unchanged` | I-002-2 last-owner-cannot-leave invariant | I-002-2, line 50 |
 | P8 | `Membership revocation persists; revoked participant cannot re-join without new invite` | revocation durability | AC3 |
 | P9 | `Lock-ordering test: owner-transfer caller acquires sessions then session_memberships` | I-002-4 lock-ordering invariant | I-002-4 |
-| P10 | `Migration shape regression: no presence-state table is created by Plan-002 migrations` | I-002-3 ephemeral-presence invariant | I-002-3, line 156 |
+| P10 | `Migration shape regression: no presence-state table is created by Plan-002 migrations` | I-002-3 ephemeral-presence invariant | I-002-3, line 157 |
 
 ### Presence Layer (`packages/control-plane/src/presence/`)
 
 | ID | Test | Asserts | Spec-002 AC / MUST |
 | --- | --- | --- | --- |
-| Pr1 | `Yjs Awareness state is in-memory only — no SQLite or Postgres write occurs on heartbeat` | I-002-3 ephemeral-presence invariant | I-002-3, line 156 |
+| Pr1 | `Yjs Awareness state is in-memory only — no SQLite or Postgres write occurs on heartbeat` | I-002-3 ephemeral-presence invariant | I-002-3, line 157 |
 | Pr2 | `Missed heartbeat moves participant to reconnecting before offline (45s grace)` | reconnect grace window | line 73 |
 | Pr3 | `Postgres LISTEN/NOTIFY fan-out delivers presence updates to subscribed clients` | cross-node fan-out | line 61 |
-| Pr4 | `Durable presence state-change events (presence.online/idle/reconnecting/offline) emit` | audit trail per Spec-006 §Presence | line 156 |
+| Pr4 | `Durable presence state-change events (presence.online/idle/reconnecting/offline) emit` | audit trail per Spec-006 §Presence | line 157 |
 
 ### SDK And Integration Layer (`packages/client-sdk/`, integration)
 
@@ -439,6 +439,36 @@ shipped:
       - packages/control-plane/src/sessions/__tests__/migration-runner.test.ts
       - packages/control-plane/src/sessions/__tests__/session-directory-service.test.ts
       - packages/control-plane/src/sessions/migration-runner.ts
+  - phase: 2
+    task: [T2.1, T2.2, T2.3, T2.4, T2.5]
+    pr: 105
+    sha: a0b224f
+    merged_at: 2026-05-24
+    files:
+      - packages/control-plane/package.json
+      - packages/control-plane/src/invites/__tests__/invite-service.test.ts
+      - packages/control-plane/src/invites/invite-service.ts
+      - packages/control-plane/src/memberships/__tests__/lock-ordering.test.ts
+      - packages/control-plane/src/memberships/__tests__/membership-service.test.ts
+      - packages/control-plane/src/memberships/membership-service.ts
+      - packages/control-plane/src/migrations/__tests__/migration-shape.test.ts
+      - pnpm-lock.yaml
+    verifies_invariant: [I-002-1, I-002-2, I-002-3, I-002-4]
+    spec_coverage:
+      [
+        "Spec-002 AC1",
+        "Spec-002 AC3",
+        "Spec-002 §Required Behavior line 49",
+        "Spec-002 §Required Behavior line 50",
+        "Spec-002 §Token Security Properties line 109 (single-use enforcement)",
+        "Spec-002 §Token Security Properties line 110 (Entropy/CSPRNG)",
+        "Spec-002 §Token Security Properties line 111 (hash storage)",
+        "Spec-002 §Token Security Properties line 112 (expiry enforcement)",
+        "Spec-002 §Token Security Properties line 113 (Token payload structure)",
+        "Spec-002 §Invite Revocation line 138 (immediacy)",
+        "Spec-002 §Invite Revocation line 141 (audit emission — DEFERRED to Plan-006 Tier 4 per CP-002-6; NOT emitted in Phase 2 — control plane has no event log per ADR-017)",
+        "Spec-002 §Invite Revocation line 142 (owner-authorization)",
+      ]
 ```
 
 ### Notes
@@ -446,6 +476,7 @@ shipped:
 <!-- Per-PR human-readable commentary appended by the orchestrator at Phase E. -->
 
 - **PR #102** (squash-commit `347d62b` on `develop`, merged 2026-05-23): Phase 1 — Invite And Membership Contracts + Migration. Six implementer tasks shipped: T1.1 `packages/contracts/src/invites.ts` (`InviteCreate` / `InviteAccept` / `InviteRevoke` / `InviteState` / `InviteId` branded — `JoinMode` consolidated from `InviteJoinMode` per spaced wire-form in Spec-002 + `MembershipRole`); T1.2 `packages/contracts/src/memberships.ts` (`MembershipUpdate` discriminated union on `action=change_role|leave` arms encoding I-002-1 issuer-must-be-owner + I-002-2 last-owner-cannot-leave at the contract layer); T1.3 `packages/contracts/src/presence.ts` (`PresenceHeartbeat` 5-required-1-nullable shape per Spec-002 §Heartbeat Transport, `JoinMode` enum, `PresenceUpdate` / `PresenceRead` JSON-RPC schemas registered under the Plan-007-partial wire substrate); T1.4 `packages/contracts/src/channels.ts` (`ChannelList` read-only projection + `ChannelState` + `ChannelMessage` envelope per Spec-002:87); T1.5 `packages/control-plane/src/migrations/0002-session-invites.ts` Postgres v2 migration (table + 3 indexes + 1 UNIQUE constraint, wired into the migration-runner v2 list); T1.6 strict `packages/contracts/src/__tests__/anti-leakage.test.ts` pinning `packages/contracts/src/index.ts` as the public re-export surface across all four new modules. Cross-package addition: `packages/contracts/src/internal/branded.ts` UUID helper consumed by all four new modules and the existing `session.ts` (per **NS-22 cross-plan amendment #1** — Plan-001-owned `session.ts` refactored in-PR to use the shared helper). Migration-runner extended to consume the v2 list (per **NS-23 cross-plan amendment #2** — Plan-001-owned `migration-runner.ts` switched to `applyMigrations(...)` v2 in-PR). Both amendments recorded under [§Phase 1 Cross-Plan Amendments](#phase-1--invite-and-membership-contracts--migration) rather than spawning precursor PRs (sub-day wiring this PR already covered as a side-effect of contract changes; [cross-plan-dependencies.md:90](../architecture/cross-plan-dependencies.md) rigid single-owner clause to be amended via follow-up per `feedback_cross_plan_rigid_ownership_problematic`). Reviewer chain: per-task Phase C (3-reviewer parallel) generated 8 POLISH round-trips and 0 ACTIONABLE; Phase D PR-scope final review round 1 surfaced 1 POLISH (T1.1 `InviteJoinMode` → `JoinMode` consolidation, `1870a02`) + 1 ACTIONABLE (T1.5 migration-runner v2 wiring at `applyMigrations` call-site, `6085d47`); round 2 returned clean. Phase D.5 Codex external review surfaced 1 P1 ACTIONABLE on `anti-leakage.test.ts:76-77` importing via the `@ai-sidekicks/contracts` package path (resolves to `./dist/index.js` — fresh checkouts haven't built it because Turbo `test` chains only on `^build` upstream-only, not the package's own build); fix switched to source-level `../index.js` import (`8781967` — preserves the index.ts re-export-graph testing intent and matches the 9/9 sibling-test convention; verified via `rm -rf dist && pnpm --filter @ai-sidekicks/contracts test`). One incidental [BL-130](../backlog.md) surface during pre-mark-ready CI: the housekeeper-design spec (`docs/superpowers/specs/2026-05-03-plan-execution-housekeeper-design.md` line 76) carried a stale `packages/contracts/src/session.ts` line-388 cite that this PR's Amendment 1 (`internal/branded.ts` extraction) had shifted to whitespace; the `cite-target-existence` hook's path-shaped discriminator caught it post-push (local pre-commit walk skips `docs/superpowers/` per the known BL-130 corpus gap). Refreshed in-PR via `a14d4ca` (substantive cite preserved at `session.ts` line 408 — the SessionSubscribe block; pre-shift line 388 noted in natural-language prose). Test count: 5 contract-package suites (anti-leakage 459 / channels 432 / invites 307 / memberships 460 / presence 764 lines) + 2 control-plane suites (`0002-session-invites` 543 / `migration-runner` 211 lines). Plan-002 Phase 1 closes; Phases 2-6 remain unscheduled (Phase 2 ships at Tier 2 with `packages/crypto-paseto/` substrate now satisfied per Plan-025 PR #92; Phase 4 deferred to Tier 6 per CP-002-3 / BL-120).
+- **PR #105** (squash-commit `a0b224f` on `develop`, merged 2026-05-24): Phase 2 — Control-Plane Invite And Membership Services, **state-only per ADR-017** (the control plane has no event log). Five implementer tasks shipped: T2.1 + T2.2 `packages/control-plane/src/invites/invite-service.ts` (PASETO v4.local invite-token issuance via `@ai-sidekicks/crypto-paseto` — 256-bit CSPRNG + `jti` + SHA-256 hash storage, plaintext never persisted per ADR-010; single-use accept creating a membership in one transaction; owner-only revoke guarded on `state = 'pending'` so a revoke never overwrites a durable terminal state per Spec-002:155; expiry validation → `invite.expired`; typed errors `invite.revoked` / `invite.expired` / `invite.already_accepted`); T2.3 `membership-service.ts` (`MembershipUpdate` handler enforcing I-002-1 issuer-must-be-owner + I-002-2 last-owner-cannot-leave, typed errors `membership.permission_denied` / `membership.last_owner`); T2.4 `lock-ordering.test.ts` (transactional callers — owner-transfer, co-owner promotion, invite-accept — pinned to the canonical `sessions` → `session_memberships` lock order, I-002-4); T2.5 `invite-service.test.ts` + `membership-service.test.ts` + new `migrations/__tests__/migration-shape.test.ts` (P1–P10; P10 migration-shape regression asserts no presence-state table is created by Plan-002 migrations, I-002-3). Control-plane suite green (143 tests). **Scope-widening recorded** (the immutable T2.1 audit `spec_coverage` is NOT retroactively edited per `feedback_no_unauthorized_scaffolding`; the widening is journaled here): in response to Codex round-trip 1, `createInvite` gained an active-owner-membership authorization gate and now binds the body `inviter` to the authenticated actor — the body `inviter` was previously trusted for authorization (a "supply your own participant id" bypass), closed per the security-architecture Permission Matrix (owner-only "Invite participants", row 299) + Spec-002:142. Reviewer chain: per-task Phase C (3-reviewer parallel) + Phase D PR-scope final review (clean); Phase D.5 Codex external review produced two round-trips — (1) `createInvite` owner-authorization (`bc748b5`); (2) revoke terminal-state guard (`AND state = 'pending'` so a revoke never clobbers a durable `accepted` row, which would mask single-use) + inviter case-insensitivity (RFC 9562 §4 — `.toLowerCase()` on the JS comparison; the owner-probe SQL is already case-insensitive via the `uuid` column) (`a19b943`). **State-only**: no `session_events` rows and no audit emission — Spec-002:141 audit emission deferred to Plan-006 Tier 4 per CP-002-6; the Plan-002↔Plan-006 emission seam was closed by governance precursor PR #106 (`926e7c8`) before this PR shipped. Plan-002 Phase 2 closes (NS-25 → `completed`); NS-26 (Phase 3 — presence heartbeat + ChannelList projection) promoted `blocked` → `ready` (the Plan-007-partial IPC wire substrate its `presence.*` handlers consume is shipped). Phases 3-6 remain: Phase 3 dispatchable at Tier 2; Phase 4 deferred to Tier 6 per CP-002-3 / BL-120.
 
 ## Done Checklist
 
