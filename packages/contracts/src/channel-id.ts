@@ -44,10 +44,16 @@ import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 
 import type { ChannelId } from "./session.js";
 
-// Suffix mixed into the deterministic id derivation so a session id and its
-// derived channel id never collide as raw hash inputs. Matches the daemon's and
-// control-plane's prior `${sessionId}:main` name composition.
-const MAIN_CHANNEL_NAME = "main";
+// THE canonical name of the bootstrap `main` channel — the single source of
+// truth used both as the derivation-input discriminator AND as the channel's
+// display name on every surface (daemon projection + control-plane
+// `ChannelList`). It is mixed into the deterministic id derivation as the
+// `${sessionId}:main` suffix so a session id and its derived channel id never
+// collide as raw hash inputs. Deliberate coupling: because the canonical name
+// feeds the hash, changing it is a BREAKING id change — the golden-vector test
+// (`__tests__/channel-id.test.ts`) catches any drift loudly, which is the
+// intended safety for a structural identifier, not a footgun.
+export const MAIN_CHANNEL_NAME = "main";
 
 /**
  * Derive the deterministic bootstrap "main" channel id for a session.
@@ -66,8 +72,8 @@ const MAIN_CHANNEL_NAME = "main";
  * `internal/branded.ts:25` `z.string().uuid()`); that validator accepts any
  * RFC 9562 UUID including v8 (rationale: session.ts:8-11). The
  * return is a cast: the unit tests in `__tests__/channel-id.test.ts` prove the
- * output is a valid lowercase canonical v8 UUID (same `as ChannelId` pattern as
- * the prior control-plane derivation at channel-list-projection.ts:233).
+ * output is a valid lowercase canonical v8 UUID (the `as ChannelId` cast in
+ * `deriveMainChannelId`'s return below).
  *
  * `sessionId` is a plain `string`, not a branded `SessionId`: the daemon passes
  * its unbranded internal session id, and a branded `SessionId` (which is

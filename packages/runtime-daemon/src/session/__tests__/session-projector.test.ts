@@ -9,7 +9,9 @@
 
 import { describe, expect, it } from "vitest";
 
-import { deriveMainChannelId, projectEvent, replay } from "../session-projector.js";
+import { deriveMainChannelId } from "@ai-sidekicks/contracts";
+
+import { projectEvent, replay } from "../session-projector.js";
 import type { DaemonSessionSnapshot, StoredEvent } from "../types.js";
 
 const SESSION_ID: string = "01J0SE5510NN5J5J5J5J5J5J5J";
@@ -55,10 +57,10 @@ describe("session-projector — D1 (bootstrap projection)", () => {
       joinedAt: OCCURRED_AT,
     });
 
-    // The main channel id is a deterministic UUIDv5 — the contracts
-    // `ChannelIdSchema = z.uuid().brand<"ChannelId">()` validates this
-    // shape at PR #5's mapping seam, so a non-UUID id would be rejected
-    // there.
+    // The main channel id is the shared deterministic `deriveMainChannelId`
+    // (`@ai-sidekicks/contracts`, RFC 9562 §5.8 UUIDv8). The contracts
+    // `ChannelIdSchema = z.uuid().brand<"ChannelId">()` validates this shape
+    // at PR #5's mapping seam, so a non-UUID id would be rejected there.
     expect(snapshot.channels).toHaveLength(1);
     const expectedMainChannelId: string = deriveMainChannelId(SESSION_ID);
     expect(snapshot.channels[0]).toEqual({
@@ -309,19 +311,14 @@ describe("session-projector — main-channel projection invariants", () => {
     );
   });
 
-  it("derives the same main-channel id across calls (deterministic UUIDv5)", () => {
-    const a: string = deriveMainChannelId(SESSION_ID);
-    const b: string = deriveMainChannelId(SESSION_ID);
-    expect(a).toBe(b);
-
-    // RFC 9562 UUIDv5 format: 8-4-4-4-12 lowercase hex with version
-    // nibble = 5 and variant bits = 10.
-    expect(a).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
-
-    // Different session id → different channel id.
-    const otherSession: string = "01J0SE9999NN5J5J5J5J5J5J5J";
-    expect(deriveMainChannelId(otherSession)).not.toBe(a);
-  });
+  // The shared `deriveMainChannelId` derivation itself (determinism,
+  // lowercase canonical v8 format, version/variant nibbles, distinct ids per
+  // session) is pinned authoritatively by the golden-vector suite in
+  // `packages/contracts/src/__tests__/channel-id.test.ts`. The daemon-side
+  // coverage that the projector USES that shared derivation is provided by the
+  // bootstrap-projection assertions above (each compares the projected
+  // main-channel id against `deriveMainChannelId(SESSION_ID)`), so this file
+  // does not re-test the contracts function.
 });
 
 // --------------------------------------------------------------------------
