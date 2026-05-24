@@ -28,6 +28,7 @@
   },
   "dependencies": {
     "@ai-sidekicks/contracts": "workspace:*",
+    "@ai-sidekicks/crypto-paseto": "workspace:*",
     "@trpc/server": "^11.17.0",
     "pg": "^8.20.0",
     "zod": "^4.3.6"

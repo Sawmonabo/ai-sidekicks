@@ -128,6 +128,9 @@ importers:
       '@ai-sidekicks/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@ai-sidekicks/crypto-paseto':
+        specifier: workspace:*
+        version: link:../crypto-paseto
       '@trpc/server':
         specifier: ^11.17.0
         version: 11.17.0(typescript@5.9.3)
