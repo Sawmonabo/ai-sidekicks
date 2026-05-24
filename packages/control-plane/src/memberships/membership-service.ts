@@ -24,10 +24,10 @@
 // Spec-002 lines 49-50 name only two guards explicitly: owner-elevation
 // (line 49) and last-owner-cannot-leave (line 50). The row-level authority
 // for WHO may apply each action is the Permission Matrix in
-// docs/architecture/security-architecture.md §Permission Matrix — which
-// Spec-002 line 82 designates as the membership-permission authority. That
-// matrix scopes `Elevate member role` (line 300) and `Suspend/revoke member`
-// (line 301) to `owner` only — every non-owner column is `No`. ADR-007's
+// docs/architecture/security-architecture.md §Permission Matrix (rows 300-301,
+// the per-action owner-only authority). That matrix scopes `Elevate member
+// role` (line 300) and `Suspend/revoke member` (line 301) to `owner` only —
+// every non-owner column is `No`. ADR-007's
 // owner-centric layered-trust model is the frame; the matrix is the per-action
 // source. This service adopts that OWNER-ONLY-DEFAULT reading: every
 // `MembershipUpdate` requires the actor to hold active `owner` membership in

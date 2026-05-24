@@ -416,6 +416,52 @@ describe("InviteService.acceptInvite — P3 (expired -> invite.expired regardles
     const membership = await readMembership(ctx.querier, SESSION_ID, INVITEE_PARTICIPANT_ID);
     expect(membership).toBeUndefined();
   });
+
+  // Reclassification completeness — DISTINCT from the claim-authoritative path
+  // above. Here the token claim's expires_at is in the FUTURE (so the line-112
+  // claim check does NOT fire), but the persisted `session_invites.state` is
+  // 'expired' (the CHECK admits it — migrations/0002-session-invites.ts). The
+  // single-use UPDATE matches zero rows and the zero-row reclassification must
+  // surface invite.expired, NOT invite.already_accepted. This path is latent in
+  // Phase-2 runtime (no path writes 'expired'); it goes live when a DB-side
+  // expiry sweep lands.
+  it("reclassifies a PERSISTED expired-state row to invite.expired (not already_accepted) even with a future claim", async () => {
+    await seedParticipant(ctx.querier, OWNER_PARTICIPANT_ID);
+    await seedParticipant(ctx.querier, INVITEE_PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID);
+
+    // Future claim expiry -> the claim-authoritative check passes; the seeded
+    // row carries state='expired' so the reclassification branch is exercised.
+    const futureExpiry: string = isoOffset(24 * 60 * 60 * 1000);
+    const minted: MintedInvite = mintInviteToken(ctx.keyRing, {
+      sessionId: SESSION_ID,
+      inviterId: OWNER_PARTICIPANT_ID,
+      joinMode: DEFAULT_JOIN_MODE,
+      expiresAt: futureExpiry,
+    });
+    // Seed the row directly with state='expired' (bypassing the service, which
+    // never writes 'expired' in Phase 2; the CHECK constraint admits it).
+    const inviteId: InviteId = await seedInvite(ctx.querier, {
+      sessionId: SESSION_ID,
+      inviterId: OWNER_PARTICIPANT_ID,
+      tokenHash: minted.tokenHash,
+      joinMode: DEFAULT_JOIN_MODE,
+      state: "expired",
+      expiresAt: futureExpiry,
+    });
+
+    const error = await ctx.service
+      .acceptInvite(INVITEE_PARTICIPANT_ID, { token: minted.token })
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(InviteExpiredException);
+    expect(error).toMatchObject({ code: INVITE_EXPIRED_CODE });
+
+    // No-mutation: the row stays 'expired', and no membership row was created.
+    const afterInvite = await readInviteRow(ctx.querier, inviteId);
+    expect(afterInvite?.state).toBe("expired");
+    const membership = await readMembership(ctx.querier, SESSION_ID, INVITEE_PARTICIPANT_ID);
+    expect(membership).toBeUndefined();
+  });
 });
 
 // ----------------------------------------------------------------------------

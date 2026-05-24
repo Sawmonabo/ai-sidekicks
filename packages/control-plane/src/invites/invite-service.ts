@@ -676,6 +676,18 @@ export class InviteService {
             `InviteService.acceptInvite: invite ${inviteRow.id} has been revoked (Spec-002 line 139).`,
           );
         }
+        // A persisted `expired` row reclassifies to expiry, not already-accepted
+        // (the `session_invites.state` CHECK admits 'expired' — see
+        // migrations/0002-session-invites.ts). This branch is LATENT until a
+        // DB-side expiry sweep lands: today the claim-authoritative expiry check
+        // above (Spec-002 line 112) fires first, so no `expired` row is reachable
+        // at runtime. It exists so the reclassification stays complete — an
+        // expired row surfaces invite.expired, never invite.already_accepted.
+        if (inviteRow.state === "expired") {
+          throw new InviteExpiredException(
+            `InviteService.acceptInvite: invite ${inviteRow.id} is in a persisted expired state (Spec-002 line 112).`,
+          );
+        }
         throw new InviteAlreadyAcceptedException(
           `InviteService.acceptInvite: invite ${inviteRow.id} has already been accepted (Spec-002 line 109).`,
         );
