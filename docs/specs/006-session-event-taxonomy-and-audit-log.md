@@ -111,7 +111,9 @@ Payload shape: `{sessionId, previousState?, newState, actor?}`
 
 ### Invite and Membership (`membership_change`)
 
-Payload shape: `{sessionId, participantId, inviteId?, previousRole?, newRole?, actor}`
+Payload shape: `{sessionId, participantId, inviteId?, previousRole?, newRole?, actor, reason?}`
+
+`reason?` is an optional free-form audit string carried on the revocation-class types — populated today on `invite.revoked` from `InviteRevoke.reason` (the contract captures it for the audit log per [Spec-002 §Invite Revocation](002-invite-membership-and-presence.md) line 141), and available to the other revocation types as their originating contracts supply one. Mirrors the `reason?` field on `runtime_node.revoked` (§Runtime Node Lifecycle).
 
 | Type | Description |
 | --- | --- |
