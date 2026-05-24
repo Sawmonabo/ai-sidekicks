@@ -96,6 +96,18 @@ These directories or files are targeted by multiple plans. The owning plan creat
 
 The owning plan creates the directory structure and any shared types or base services. Extending plans add new files but must not modify files owned by the creating plan without an explicit contract (interface, type export, or extension point).
 
+**Housekeeping Exception.** An extending plan MAY fix-in-place an owned file in the surfacing PR (rather than serializing through a precursor PR owned by the creating plan) IFF:
+
+- (a) the defect is type-level or structural-only with zero runtime or behavioral change,
+- (b) the defect was first discoverable via the extending plan's composition (the extender is the first surfacer),
+- (c) the fix is sub-30-LOC + sub-day in scope,
+- (d) the change is one-time correction — not an ongoing edit claim on the owned file, AND
+- (e) the exception is documented inline in the extending plan's `§Cross-Plan Amendments` section, with rationale citing which of (a)–(d) apply.
+
+The intent is to avoid cross-plan PR-coordination ceremony for sub-day, low-risk fixes that the extender's own work surfaced. Rigid serialization through a precursor PR remains the default for behavioral changes, multi-day fixes, or anything that claims ongoing edit rights on the owned file. A §6 NS-XX cross-reference entry is RECOMMENDED when the cross-plan touch is load-bearing for downstream dependency planning, but is not required for purely tactical type-fix amendments.
+
+**Precedent.** [Plan-002 §Cross-Plan Amendments](../plans/002-invite-membership-and-presence.md#cross-plan-amendments) records PR #102's Amendment 1 (`packages/contracts/src/internal/branded.ts` extraction + `packages/contracts/src/session.ts` refactor — type-level only, surfaced during T1.1 implementation, sub-30-LOC) and Amendment 2 (`packages/control-plane/src/sessions/migration-runner.ts` per-version-loop wiring — structural-only, surfaced during Phase D code review, sub-30-LOC).
+
 ---
 
 ## 3. Inter-Plan Dependency Graph
@@ -575,6 +587,16 @@ With NS-01 + NS-02 + NS-04 + NS-05 completed 2026-05-11 (NS-01 via PR #42 — Pl
 - References: [Plan-002](../plans/002-invite-membership-and-presence.md):290-317 (Phase 3 + tasks T3.1–T3.4), [ADR-008](../decisions/008-default-transports-and-relay-boundaries.md) (transport choice — Yjs Awareness + Postgres LISTEN/NOTIFY), [CP-002-1](../plans/002-invite-membership-and-presence.md#cross-plan-obligations) (presence ownership), [CP-002-2](../plans/002-invite-membership-and-presence.md#cross-plan-obligations) (`presence.*` IPC namespace under Plan-007-partial wire substrate)
 - Summary: Implement `packages/control-plane/src/presence/presence-register-service.ts` with Yjs Awareness ingestion (in-memory only — I-002-3 forbids persistence); Postgres LISTEN/NOTIFY fan-out for cross-node updates; reconnect-grace window timer; durable presence-state-change events emit via Plan-006 path (`presence.online/idle/reconnecting/offline`). Register `presence.*` JSON-RPC handlers at `packages/runtime-daemon/src/ipc/handlers/presence-update.ts` and `presence-read.ts` per CP-002-2. Implement `ChannelList` read-only projection consuming Plan-001's `ChannelCreated` default-channel emission.
 - Exit Criteria: T3.1–T3.4 merged; Pr1–Pr4 + I3 green; P10 (no-presence-table migration regression) re-verified.
+
+### NS-27: §3 Ownership Rule — Housekeeping Exception clause
+
+- Status: `completed` (resolved 2026-05-23 via this commit — Housekeeping Exception clause appended to §3 §Ownership Rule with (a)–(e) criteria distilled from PR #102's Amendment 1 + Amendment 2; row-90 last cell unchanged; `api-payload-contracts.md` `InviteCreate.inviter` + `PresenceHeartbeat.metadata` doc-drift fixes bundled in the same PR)
+- Type: governance (doc-only)
+- Priority: `P2`
+- Upstream: none — encodes the convention PR #102's two Plan-002 cross-plan amendments implicitly relied on; backfill of §6 NS-XX entries for PR #102's amendments is NOT required (criterion (e) makes §6 cross-reference optional)
+- References: [Plan-002 §Cross-Plan Amendments](../plans/002-invite-membership-and-presence.md#cross-plan-amendments) (PR #102 Amendments 1+2 — the precedent that motivated this carve-out); Plan-002 line 204 explicitly queued this governance amendment ("A separate governance amendment to `cross-plan-dependencies.md:90` is queued to encode this housekeeping-exception convention" — `:90` was a placeholder line reference; the actual landing site is §3 §Ownership Rule at line 97+ because the original Plan-002 wording predated the discovery that the global Ownership Rule, not the row-90 last cell, is the rigid clause the carve-out needs to qualify).
+- Summary: §3 Ownership Rule line 97 gets a `**Housekeeping Exception**` follow-up paragraph stating that extending plans MAY fix-in-place owned files in the surfacing PR IFF (a) type-level/structural-only with zero runtime change, (b) first-discoverable via extender's composition, (c) sub-30-LOC + sub-day, (d) one-time correction, and (e) documented in the extending plan's `§Cross-Plan Amendments` section with rationale citing which of (a)–(d) apply. §6 NS-XX cross-reference is RECOMMENDED for load-bearing dependency events but not required for tactical type-fix amendments. Row 90's last cell ("No two plans edit the same file, so no shared-resource conflict exists.") remains unchanged — it's still factually accurate for `packages/contracts/src/` steady-state ownership. PR #102's Amendment 1 (`branded.ts`+`session.ts`) and Amendment 2 (`migration-runner.ts`) are cited as the precedent.
+- Exit Criteria: §3 §Ownership Rule has the `**Housekeeping Exception**` paragraph; the (a)–(e) criteria are explicit; Plan-002 §Cross-Plan Amendments is cited as the precedent; no row 90 last-cell edit; the queued amendment cited in Plan-002 line 204 is now landed. **Met.**
 
 ---
 
