@@ -687,6 +687,38 @@ describe("InviteService.createInvite — owner-authorization (Spec-002 line 142,
 
     expect(await countInvitesForSession(ctx.querier, SESSION_ID)).toBe(0);
   });
+
+  it("an active OWNER naming the body inviter in DIFFERENT UUID casing succeeds (RFC 9562 §4)", async () => {
+    await seedParticipant(ctx.querier, OWNER_PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID);
+    // The ACTOR is a valid active owner (canonical lowercase). The body names
+    // the SAME logical owner UUID but UPPERCASED. RFC 9562 §4 admits both cases
+    // and the `ParticipantId` brand has no runtime case-validator, so without
+    // the `.toLowerCase()` normalization on both sides of the inviter-equality
+    // check this call would wrongly throw InvitePermissionDeniedException.
+    // Contrast the inviter!=actor denial above (a DIFFERENT participant, which
+    // still throws + writes 0 rows).
+    await seedMembership(ctx.querier, {
+      sessionId: SESSION_ID,
+      participantId: OWNER_PARTICIPANT_ID,
+      role: "owner",
+      state: "active",
+    });
+
+    const uppercaseInviter: ParticipantId = OWNER_PARTICIPANT_ID.toUpperCase() as ParticipantId;
+    await expect(
+      ctx.service.createInvite(OWNER_PARTICIPANT_ID, {
+        sessionId: SESSION_ID,
+        inviter: uppercaseInviter,
+        joinMode: DEFAULT_JOIN_MODE,
+        expiresAt: isoOffset(24 * 60 * 60 * 1000),
+      }),
+    ).resolves.toBeDefined();
+
+    // The issuance wrote exactly ONE invite row — the casing-only difference
+    // did not trip the owner-binding gate.
+    expect(await countInvitesForSession(ctx.querier, SESSION_ID)).toBe(1);
+  });
 });
 
 // ----------------------------------------------------------------------------
@@ -744,6 +776,82 @@ describe("InviteService — P8 (revoked invite cannot be accepted: no re-join wi
     expect(membership).toBeUndefined();
     const afterInvite = await readInviteRow(ctx.querier, inviteId);
     expect(afterInvite?.state).toBe("revoked");
+  });
+});
+
+// ----------------------------------------------------------------------------
+// revoke must not overwrite a TERMINAL invite state (Spec-002 lines 109, 155)
+// ----------------------------------------------------------------------------
+//
+// Drives the REAL accept -> revoke -> reuse round-trip through the service
+// (not a direct DB poke). After a token is consumed (invite `accepted`,
+// single-use per line 109), an owner revoke MUST be a no-op: `accepted` is a
+// TERMINAL, durable state (line 155). The load-bearing assertion is the
+// SECOND accept (token reuse) — it must classify as `invite.already_accepted`,
+// NOT `invite.revoked`. With the revoke guard missing, the revoke would clobber
+// `accepted -> revoked`, the durable single-use record would be lost, and the
+// reuse would surface `invite.revoked` — masking that a membership was already
+// created.
+
+describe("InviteService.revokeInvite — does not overwrite an accepted (terminal) invite (Spec-002 lines 109, 155)", () => {
+  it("accept -> revoke (no-op) -> reuse still classifies as invite.already_accepted, not invite.revoked", async () => {
+    await seedParticipant(ctx.querier, OWNER_PARTICIPANT_ID);
+    await seedParticipant(ctx.querier, INVITEE_PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID);
+    await seedMembership(ctx.querier, {
+      sessionId: SESSION_ID,
+      participantId: OWNER_PARTICIPANT_ID,
+      role: "owner",
+      state: "active",
+    });
+
+    const minted: MintedInvite = mintInviteToken(ctx.keyRing, {
+      sessionId: SESSION_ID,
+      inviterId: OWNER_PARTICIPANT_ID,
+      joinMode: DEFAULT_JOIN_MODE,
+      expiresAt: isoOffset(24 * 60 * 60 * 1000),
+    });
+    const inviteId: InviteId = await seedInvite(ctx.querier, {
+      sessionId: SESSION_ID,
+      inviterId: OWNER_PARTICIPANT_ID,
+      tokenHash: minted.tokenHash,
+      joinMode: DEFAULT_JOIN_MODE,
+      state: "pending",
+      expiresAt: isoOffset(24 * 60 * 60 * 1000),
+    });
+
+    // (1) The invitee accepts: invite `pending -> accepted` and an ACTIVE
+    // membership is created in the same transaction (Spec-002 line 81).
+    const accepted = await ctx.service.acceptInvite(INVITEE_PARTICIPANT_ID, {
+      token: minted.token,
+    });
+    expect(accepted.participantId).toBe(INVITEE_PARTICIPANT_ID);
+    const membership = await readMembership(ctx.querier, SESSION_ID, INVITEE_PARTICIPANT_ID);
+    expect(membership?.state).toBe("active");
+    const afterAccept = await readInviteRow(ctx.querier, inviteId);
+    expect(afterAccept?.state).toBe("accepted");
+
+    // (2) The owner now revokes the SAME invite. The `state = 'pending'` guard
+    // means the now-`accepted` row matches 0 rows, so revoke is a no-op: it
+    // returns `null` (the not-found wire mapping) and MUST NOT clobber the
+    // durable terminal `accepted` state back to `revoked` (Spec-002 line 155).
+    const revokeResult = await ctx.service.revokeInvite(OWNER_PARTICIPANT_ID, {
+      sessionId: SESSION_ID,
+      inviteId,
+    });
+    expect(revokeResult).toBeNull();
+    const afterRevoke = await readInviteRow(ctx.querier, inviteId);
+    expect(afterRevoke?.state).toBe("accepted");
+
+    // (3) Token reuse: a SECOND accept of the same token. This is the
+    // load-bearing assertion — the single-use record survived the revoke
+    // attempt, so reuse classifies as `invite.already_accepted` (Spec-002 line
+    // 109), NOT `invite.revoked`. A clobbered row would surface the wrong code.
+    const error = await ctx.service
+      .acceptInvite(INVITEE_PARTICIPANT_ID, { token: minted.token })
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(InviteAlreadyAcceptedException);
+    expect(error).toMatchObject({ code: INVITE_ALREADY_ACCEPTED_CODE });
   });
 });
 

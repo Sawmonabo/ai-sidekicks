@@ -546,7 +546,16 @@ export class InviteService {
       // is informational; V1 has no issuing-on-behalf-of-another, so it must
       // equal the actor. Once this holds, the claim assembly + INSERT binding
       // already record the authenticated active owner (left unchanged below).
-      if (validated.inviter !== actorParticipantId) {
+      //
+      // UUID casing is normalized on BOTH sides of this JS comparison because
+      // the `ParticipantId` brand has no runtime case-validator and admits
+      // either case (RFC 9562 §4) — the same normalization MembershipService
+      // and SessionDirectoryService apply to their owner-mismatch guards.
+      // (The owner-probe SELECT above is ALREADY case-insensitive: its
+      // `participant_id = $2` predicate hits a Postgres `uuid` column, which
+      // canonicalizes to lowercase at the type level — only this string
+      // compare needs the explicit `.toLowerCase()`.)
+      if (validated.inviter.toLowerCase() !== actorParticipantId.toLowerCase()) {
         throw new InvitePermissionDeniedException(
           `InviteService.createInvite: body inviter ${String(validated.inviter)} must equal the authenticated actor ${String(actorParticipantId)}; issuing an invite on behalf of another participant is not permitted in V1 (no delegated-issuance contract in Spec-002 §Interfaces And Contracts; V1 binds the body inviter to the authenticated actor).`,
         );
@@ -841,10 +850,15 @@ export class InviteService {
    *      owner-only — same active-owner gate
    *      `MembershipService.updateMembership` uses), then
    *      `UPDATE session_invites SET state = 'revoked' WHERE id = $1 AND
-   *      session_id = $2` (line 138, immediacy). The `session_id` predicate
-   *      ties the invite to the session whose ownership was just checked, so a
-   *      caller cannot revoke an invite from a session they do not own by
-   *      naming a mismatched `sessionId`.
+   *      session_id = $2 AND state = 'pending'` (line 138, immediacy). The
+   *      `session_id` predicate ties the invite to the session whose ownership
+   *      was just checked, so a caller cannot revoke an invite from a session
+   *      they do not own by naming a mismatched `sessionId`. The
+   *      `state = 'pending'` predicate makes revoke a no-op on a row already in
+   *      a TERMINAL state (accepted/revoked/expired, Spec-002 line 155) — a
+   *      revoke can never overwrite a durable terminal state (e.g. clobber an
+   *      `accepted` row back to `revoked`, which would mask a created
+   *      membership and mis-classify a token reuse as `invite.revoked`).
    *
    * STATE-ONLY, emit NOTHING: per ADR-017 the control plane has no event log.
    * The `invite.revoked` audit event is deferred to Plan-006 Tier 4 per
@@ -898,20 +912,27 @@ export class InviteService {
       }
 
       // STATE-ONLY transition (line 138, immediacy). The `session_id` predicate
-      // ties the invite to the just-authorized session. No `reason` column is
-      // written; no event is emitted (ADR-017).
+      // ties the invite to the just-authorized session. The `state = 'pending'`
+      // predicate (mirroring acceptInvite's single-use guard) makes revoke a
+      // no-op on a TERMINAL row, so it can never overwrite a durable
+      // accepted/revoked/expired state (Spec-002 line 155). No `reason` column
+      // is written; no event is emitted (ADR-017).
       const revokeUpdate = await transaction.query<{ id: string; state: string }>(
         `UPDATE session_invites
             SET state = 'revoked'
-          WHERE id = $1 AND session_id = $2
+          WHERE id = $1 AND session_id = $2 AND state = 'pending'
         RETURNING id, state`,
         [validated.inviteId, validated.sessionId],
       );
       const revokedRow: { id: string; state: string } | undefined = revokeUpdate.rows[0];
       if (revokedRow === undefined) {
-        // No invite with this id in this session. The wire layer maps `null`
-        // to a typed not-found; an owner revoking a non-existent / cross-session
-        // invite id is not an authorization failure.
+        // Zero rows matched: either no invite with this id in this session, or
+        // an invite no longer in the revocable `pending` state (already
+        // accepted/revoked/expired — those are TERMINAL and durable per
+        // Spec-002 line 155, so revoke leaves them untouched). The wire layer
+        // maps `null` to a typed not-found; an owner revoking a non-existent /
+        // cross-session / already-terminal invite id is not an authorization
+        // failure.
         return null;
       }
 
