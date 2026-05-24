@@ -89,4 +89,46 @@ export default tseslint.config(
       ],
     },
   },
+  // Plan-002 Phase 3 — `@ai-sidekicks/contracts` isomorphism guard. Contracts
+  // ships to Node, Cloudflare Workers, AND the browser (it is the shared wire
+  // surface), so it must stay free of Node-only builtins. The shared
+  // `deriveMainChannelId` derivation uses `@noble/hashes` (isomorphic) rather
+  // than `node:crypto` / `Buffer` precisely so contracts can run on Workers.
+  // This rule catches a regression at lint time. Its scope is the SHIPPED
+  // surface only: `contracts` compiles non-test `src/*.ts` into `dist/`
+  // (package.json `files: ["dist"]`), and `dist` is what runs on Workers /
+  // browser. Test files are never shipped and run on Node via vitest, where
+  // `Buffer` legitimately exists — `presence.test.ts` deliberately asserts that
+  // `PresenceUpdateSchema` (`z.instanceof(Uint8Array)`) accepts a Node `Buffer`
+  // (real coverage of the daemon→contracts Yjs-awareness producer path, since
+  // `Buffer extends Uint8Array`). So `__tests__/**` is excluded: the production
+  // isomorphism guarantee (R4) is unaffected by Node-only globals in tests.
+  // (The `ignores` key alongside `files` is a LOCAL exclusion for this block,
+  // not a global ignore.)
+  {
+    files: ["packages/contracts/src/**/*.ts"],
+    ignores: ["packages/contracts/src/**/__tests__/**"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["node:*"],
+              message:
+                "@ai-sidekicks/contracts must stay isomorphic (Node + Cloudflare Workers + browser): node: builtins are forbidden. Use @noble/hashes for hashing/hex. See Plan-002 Phase 3 shared channel-id derivation.",
+            },
+          ],
+        },
+      ],
+      "no-restricted-globals": [
+        "error",
+        {
+          name: "Buffer",
+          message:
+            "@ai-sidekicks/contracts must stay isomorphic: Buffer is Node-only. Use Uint8Array + @noble/hashes/utils bytesToHex.",
+        },
+      ],
+    },
+  },
 );

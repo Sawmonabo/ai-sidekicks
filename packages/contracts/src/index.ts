@@ -11,6 +11,7 @@
 // re-exported here is a stable cross-package contract — removing or
 // renaming requires the spec edit (api-payload-contracts.md / Spec-001 /
 // Spec-006 / error-contracts.md) FIRST per AGENTS.md "doc-first ordering".
+export { deriveMainChannelId } from "./channel-id.js";
 export * from "./channels.js";
 export * from "./desktop-bridge.js";
 export * from "./error.js";
