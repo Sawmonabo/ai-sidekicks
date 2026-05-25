@@ -78,15 +78,25 @@ export const MAIN_CHANNEL_NAME = "main";
  * `sessionId` is a plain `string`, not a branded `SessionId`: the daemon passes
  * its unbranded internal session id, and a branded `SessionId` (which is
  * `string & {...}`) is assignable to `string`, so both callers type-check. No
- * input validation is performed — callers pass trusted session ids (consistent
+ * input VALIDATION is performed — callers pass trusted session ids (consistent
  * with the prior daemon/control-plane derivations' documented no-validation
- * stance).
+ * stance). The id is, however, CANONICALIZED before hashing: the hex case is
+ * lowercased (`sessionId.toLowerCase()`). RFC 9562 §4 makes UUID hex
+ * case-INSENSITIVE while the canonical text representation is lowercase, and
+ * `SessionIdSchema` (`z.string().uuid()`, internal/branded.ts:24) therefore
+ * ACCEPTS an uppercase or mixed-case UUID. Hashing the raw string would then
+ * derive a DIFFERENT channel id for the same logical session — breaking the
+ * byte-identical cross-surface invariant this shared helper exists to guarantee
+ * (daemon projector vs control-plane `ChannelList`). Lowercasing first makes the
+ * id depend only on the session's IDENTITY, not its hex case. The daemon +
+ * control-plane callers pass lowercase UUIDs today, so this is a no-op for them
+ * and a correctness fix for any schema-accepted case-variant of the same id.
  *
  * THE single source of truth: consumed by both the daemon projector and the
  * control-plane `ChannelList` projection (see module header).
  */
 export function deriveMainChannelId(sessionId: string): ChannelId {
-  const digest = sha256(utf8ToBytes(`${sessionId}:${MAIN_CHANNEL_NAME}`));
+  const digest = sha256(utf8ToBytes(`${sessionId.toLowerCase()}:${MAIN_CHANNEL_NAME}`));
   const bytes = digest.subarray(0, 16);
   // Version 8 (RFC 9562 §5.8 — custom/deterministic): clear the high nibble of
   // byte 6 and set it to 1000.

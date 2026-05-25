@@ -28,6 +28,7 @@
 import { describe, expect, it } from "vitest";
 
 import { deriveMainChannelId } from "../channel-id.js";
+import { SessionIdSchema } from "../session.js";
 
 // Documented fixed session id used by the golden vector. The value shape is a
 // UUIDv7 (the daemon's session-id format) but ANY string would do — the
@@ -90,5 +91,29 @@ describe("deriveMainChannelId", () => {
     const first = deriveMainChannelId("01970000-0000-7000-8000-0000000d4001");
     const second = deriveMainChannelId("01970000-0000-7000-8000-0000000d4002");
     expect(first).not.toBe(second);
+  });
+
+  // An uppercase/mixed-case UUID used only to exercise hex-case canonicalization.
+  // RFC 9562 §4 makes UUID hex case-insensitive; the canonical form is lowercase.
+  const UPPERCASE_SESSION_ID = "0197F00D-0000-7000-8000-0000000000AA";
+
+  it("GATING PREMISE — SessionIdSchema accepts an uppercase UUID (so case divergence is reachable)", () => {
+    // The whole point of the lowercase-normalize fix is that `SessionIdSchema`
+    // (`z.string().uuid()`, case-INSENSITIVE) admits an uppercase UUID. If this
+    // were false the schema would already reject non-canonical case and the
+    // normalize would be dead code — so this assertion gates the fix below.
+    expect(SessionIdSchema.safeParse(UPPERCASE_SESSION_ID).success).toBe(true);
+  });
+
+  it("canonicalizes hex case — an uppercase UUID derives the SAME id as its lowercase form (byte-identical invariant)", () => {
+    // Because the channel id is the byte-identical cross-surface key (daemon
+    // projector vs control-plane `ChannelList`), the derivation must depend on
+    // the session's IDENTITY, not its hex case. A schema-accepted uppercase id
+    // and its canonical lowercase form MUST derive the same channel id; without
+    // the `.toLowerCase()` normalize they hash differently and the invariant
+    // breaks.
+    expect(deriveMainChannelId(UPPERCASE_SESSION_ID)).toBe(
+      deriveMainChannelId(UPPERCASE_SESSION_ID.toLowerCase()),
+    );
   });
 });
