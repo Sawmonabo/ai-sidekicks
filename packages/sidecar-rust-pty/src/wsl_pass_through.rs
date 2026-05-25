@@ -25,7 +25,7 @@
 //!
 //! ## Lint complement
 //!
-//! Plan-024 line 57 mentions a `clippy::ban_path_translation` lint as
+//! Plan-024 §I-024-3 mentions a `clippy::ban_path_translation` lint as
 //! a complementary defense. That lint is a separate follow-up; this
 //! module ships the executable test.
 //!

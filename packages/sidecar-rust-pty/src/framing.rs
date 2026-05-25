@@ -24,7 +24,7 @@ pub const MAX_FRAME_BODY_BYTES: usize = 8 * 1024 * 1024;
 ///
 /// Numerically matches the 1 KiB header cap in the TS sibling framer at
 /// `packages/runtime-daemon/src/ipc/local-ipc-gateway.ts` (see the
-/// `separatorIndex` / `buffer.byteLength` checks around lines 275/283), but
+/// `separatorIndex` / `buffer.byteLength` checks in `parseFrame`), but
 /// enforced PER-LINE here vs PER-SECTION there. Per-line is stricter against
 /// single-giant-line OOM (the threat this constant addresses — e.g.,
 /// `Content-Type: AAAAA…` for gigabytes); per-section is stricter against
@@ -183,7 +183,7 @@ where
         if name.trim().eq_ignore_ascii_case(CONTENT_LENGTH_HEADER) {
             // Reject duplicate Content-Length headers per the strict-grammar
             // contract enforced by the TS sibling framer
-            // (packages/runtime-daemon/src/ipc/local-ipc-gateway.ts ~line 411).
+            // (packages/runtime-daemon/src/ipc/local-ipc-gateway.ts `extractContentLength`).
             // A peer sending two Content-Length headers is the request-
             // smuggling shape — silently last-wins would let the parser slice
             // a body of one length from a buffer carrying the other, leaving

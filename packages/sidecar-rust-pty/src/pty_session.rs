@@ -130,7 +130,7 @@ type KillerEntry = (Box<dyn ChildKiller + Send + Sync>, Option<u32>);
 
 /// Size of one [`DataFrame`] payload as emitted by the reader task.
 ///
-/// Plan-024 §Implementation Step 4 + §Target Areas line 86 pin "8 KiB
+/// Plan-024 §Implementation Step 4 + §Target Areas pin "8 KiB
 /// chunks". Bound on the read-loop's stack buffer; matches the framing-layer
 /// headroom (8 MiB body cap ÷ 8 KiB chunks = 1024× margin per envelope).
 const READ_CHUNK_BYTES: usize = 8 * 1024;
@@ -188,8 +188,14 @@ pub enum PtySessionError {
     /// Windows; this variant is dead *off* it. `#[allow]`, not `#[expect]` —
     /// under the lib + bin double-compile the library build sees this `pub`
     /// variant as live, so `#[expect(dead_code)]` would fire
-    /// `unfulfilled_lint_expectations` there. Interim hygiene only: Phase 3
-    /// T-024-3-1 constructs it on Windows and the allow becomes inert.
+    /// `unfulfilled_lint_expectations` there. Interim hygiene only: the variant is
+    /// *already* constructed on Windows today, in the `#[cfg(windows)]`
+    /// [`PtySessionRegistry::kill`] stub. Phase 3 T-024-3-1 replaces that stub with
+    /// the real translation, removing the sole construction site — at which point the
+    /// variant and this attribute are removed together. Because T-024-3-1 edits the
+    /// `#[cfg(windows)]` arm (not the non-Windows build), it does **not** render this
+    /// `not(windows)` allow inert; the allow stays load-bearing off Windows until the
+    /// variant itself is removed.
     #[cfg_attr(not(windows), allow(dead_code))]
     WindowsKillNotImplemented,
 
@@ -855,8 +861,7 @@ impl PtySessionRegistry {
 /// min-heap of `(deadline, pid)` is the structural fix if N grows
 /// substantially in future workloads.
 #[cfg(unix)]
-const DROP_KILL_ESCALATION_DEADLINE: std::time::Duration =
-    std::time::Duration::from_millis(1000);
+const DROP_KILL_ESCALATION_DEADLINE: std::time::Duration = std::time::Duration::from_millis(1000);
 
 /// Forced-abort cleanup on registry drop — closes the dispatcher-
 /// shutdown deadlock that idle sessions otherwise cause, with a

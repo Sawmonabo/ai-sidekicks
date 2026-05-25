@@ -595,9 +595,8 @@ async fn write_envelope<W>(stdout: &mut W, envelope: Envelope) -> std::io::Resul
 where
     W: AsyncWriteExt + Unpin,
 {
-    let body = serde_json::to_vec(&envelope).map_err(|e| {
-        IoError::other(format!("failed to serialize Envelope to JSON: {e}"))
-    })?;
+    let body = serde_json::to_vec(&envelope)
+        .map_err(|e| IoError::other(format!("failed to serialize Envelope to JSON: {e}")))?;
     write_frame(stdout, &body).await
 }
 
@@ -630,9 +629,7 @@ fn log_dispatch_error(operation: &str, err: &PtySessionError) {
 
 /// Log a dispatch error with the session id the request targeted.
 fn log_dispatch_error_for_session(operation: &str, session_id: &str, err: &PtySessionError) {
-    eprintln!(
-        "sidecar dispatcher: {operation} failed for session_id={session_id:?}: {err}"
-    );
+    eprintln!("sidecar dispatcher: {operation} failed for session_id={session_id:?}: {err}");
 }
 
 /// Reconcile dispatcher and writer task results into a single process
@@ -725,16 +722,10 @@ mod tests {
             self.inner.lock().unwrap().extend_from_slice(buf);
             Poll::Ready(Ok(buf.len()))
         }
-        fn poll_flush(
-            self: Pin<&mut Self>,
-            _cx: &mut Context<'_>,
-        ) -> Poll<std::io::Result<()>> {
+        fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
             Poll::Ready(Ok(()))
         }
-        fn poll_shutdown(
-            self: Pin<&mut Self>,
-            _cx: &mut Context<'_>,
-        ) -> Poll<std::io::Result<()>> {
+        fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
             Poll::Ready(Ok(()))
         }
     }
@@ -749,8 +740,8 @@ mod tests {
     #[test]
     fn finalize_result_dispatcher_error_wins_over_writer_error() {
         let result = finalize_result(
-            Err(IoError::new(ErrorKind::Other, "dispatcher boom")),
-            Err(IoError::new(ErrorKind::Other, "writer boom")),
+            Err(IoError::other("dispatcher boom")),
+            Err(IoError::other("writer boom")),
         );
         let err = result.expect_err("expected dispatcher Err");
         assert!(err.to_string().contains("dispatcher"), "got: {err}");
@@ -758,10 +749,7 @@ mod tests {
 
     #[test]
     fn finalize_result_dispatcher_error_wins_over_writer_ok() {
-        let result = finalize_result(
-            Err(IoError::new(ErrorKind::Other, "dispatcher boom")),
-            Ok(()),
-        );
+        let result = finalize_result(Err(IoError::other("dispatcher boom")), Ok(()));
         let err = result.expect_err("expected dispatcher Err");
         assert!(err.to_string().contains("dispatcher"), "got: {err}");
     }
@@ -959,8 +947,9 @@ mod tests {
             let len_str = header
                 .strip_prefix("Content-Length: ")
                 .expect("frame header missing 'Content-Length: ' prefix");
-            let body_len: usize =
-                len_str.parse().expect("Content-Length value is not a usize");
+            let body_len: usize = len_str
+                .parse()
+                .expect("Content-Length value is not a usize");
             let body_start = header_end + 4;
             let body_end = body_start + body_len;
             assert!(
@@ -1070,7 +1059,7 @@ mod tests {
         let _ = producer.await; // join the aborted task (ignore abort error)
         drop(outbound_tx);
 
-        let _ = timeout(Duration::from_millis(200), writer_handle)
+        timeout(Duration::from_millis(200), writer_handle)
             .await
             .expect("writer did not exit within 200ms after teardown")
             .expect("writer task panicked")
