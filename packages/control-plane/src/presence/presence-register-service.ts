@@ -109,19 +109,25 @@
 //   serializes `lastSeenAtMs` as the wire `lastSeen`. Presence is advisory, not
 //   an ordering authority, so bounded skew is acceptable.
 //
-//   PEER-SLOT ORDERING CAVEAT (documented, accepted): peer state is stored as a
-//   decoded `PresenceLocalState` snapshot (not a live per-peer Awareness), so
-//   it does NOT carry Awareness's built-in clock-based last-writer-wins for the
-//   SAME source device. If two NOTIFY messages from one source device arrived
-//   out of publish-order, the later-arriving (older) snapshot would overwrite
-//   the newer. In practice Postgres `LISTEN/NOTIFY` preserves per-connection
-//   commit order, so single-source out-of-order delivery does not occur on the
-//   production transport. Storing decoded snapshots (rather than one live
-//   Awareness per remote device) is the deliberate choice: a live Awareness per
-//   peer device would spin up an unbounded number of `Y.Doc` + `Awareness`
-//   pairs, each with its own 30s `_checkInterval` — a real per-device timer/
-//   memory cost. The CRDT round-trip that I-002-3 and the "uses Yjs Awareness"
-//   test pin is still exercised: the origin serializes via
+//   PEER-SLOT ORDERING (guarded by the same `isMoreRecent` recency rule): peer
+//   state is stored as a decoded `PresenceLocalState` snapshot (not a live
+//   per-peer Awareness), so it does NOT carry Awareness's built-in clock-based
+//   last-writer-wins for the SAME source device. The fan-out upsert
+//   (`#onFanoutMessage`) therefore applies, BEFORE replacing a peer holder, the
+//   SAME `isMoreRecent` comparator `readPresence` uses to collapse devices: a
+//   later-arriving snapshot replaces the stored one ONLY if it is strictly more
+//   recent. This handles both single-source out-of-order delivery (two NOTIFY
+//   messages from one source device reordered in flight) and cross-source
+//   device-migration reorders — the older snapshot is dropped on receive rather
+//   than clobbering the newer. (Postgres `LISTEN/NOTIFY` already preserves
+//   per-connection commit order, so single-source reordering is rare on the
+//   production transport; the guard makes correctness independent of that
+//   delivery property rather than relying on it.) Storing decoded snapshots
+//   (rather than one live Awareness per remote device) remains the deliberate
+//   choice: a live Awareness per peer device would spin up an unbounded number
+//   of `Y.Doc` + `Awareness` pairs, each with its own 30s `_checkInterval` — a
+//   real per-device timer/memory cost. The CRDT round-trip that I-002-3 and the
+//   "uses Yjs Awareness" test pin is still exercised: the origin serializes via
 //   `encodeAwarenessUpdate` and the receiver applies via `applyAwarenessUpdate`
 //   into a scratch Awareness before extracting the snapshot.
 //
@@ -322,7 +328,7 @@ type ChannelIdOrNull = PresenceHeartbeat["metadata"]["focusedChannelId"];
 // `Y.Doc` + `Awareness` (Shape B; see file header). A PEER client (one whose
 // state arrived via the cross-node fan-out) holds the decoded, fully-validated
 // `PresenceLocalState` snapshot — NOT a live Awareness, for the resource and
-// ordering reasons documented in the file header §PEER-SLOT ORDERING CAVEAT.
+// ordering reasons documented in the file header §PEER-SLOT ORDERING.
 // Both variants carry an optional grace-timer handle; only LOCAL clients arm a
 // grace timer (peer clients are driven by their own origin node's timer and
 // surface its transitions through the fan-out).
@@ -634,9 +640,12 @@ export class PresenceRegisterService {
    * presence — the explicit hard-disconnect entry point. Handles BOTH local
    * (CRDT-backed) and peer (snapshot) holders.
    *
-   * For a local holder: clears the client's Awareness slot
-   * (`setLocalState(null)`), clears its grace timer, then destroys the
-   * `Awareness` and its backing `Y.Doc`. For a peer holder: drops the snapshot.
+   * For a local holder: first publishes a final `offline` tombstone to peers
+   * (so the cross-node fan-out reflects the disconnect rather than a stale
+   * `online`/`reconnecting` state), then clears the client's Awareness slot
+   * (`setLocalState(null)`), clears its grace timer, and destroys the
+   * `Awareness` and its backing `Y.Doc`. For a peer holder: drops the snapshot
+   * (peer holders publish nothing — their origin node owns their fan-out).
    * In both cases the map entry is removed; an emptied session map is removed
    * too so a churned session leaves no residual key.
    *
@@ -656,7 +665,7 @@ export class PresenceRegisterService {
     if (client === undefined) {
       return false;
     }
-    this.#teardownClient(client);
+    this.#teardownClient(sessionId, client);
     clients.delete(key);
     if (clients.size === 0) {
       this.#sessions.delete(sessionId);
@@ -666,18 +675,27 @@ export class PresenceRegisterService {
 
   /**
    * Release EVERY tracked client across all sessions and unsubscribe from the
-   * cross-node fan-out — leak-free shutdown. Clears every grace timer, destroys
-   * every local Awareness/Y.Doc, drops every peer snapshot, and closes the
-   * transport if it exposes `close()`. After `destroy()` the service holds no
-   * timers and no CRDT instances.
+   * cross-node fan-out — leak-free shutdown. Publishes a best-effort final
+   * `offline` tombstone per LOCAL holder (fire-and-forget — not awaited, since
+   * an ungraceful shutdown cannot guarantee delivery; peer holders publish
+   * nothing), clears every grace timer, destroys every local Awareness/Y.Doc,
+   * drops every peer snapshot, and closes the transport if it exposes
+   * `close()`. After `destroy()` the service holds no timers and no CRDT
+   * instances.
    *
    * Returns a promise so callers can await transport teardown; the in-memory
    * state is released synchronously before the (optional) async close.
    */
   async destroy(): Promise<void> {
-    for (const clients of this.#sessions.values()) {
+    for (const [sessionId, clients] of this.#sessions.entries()) {
       for (const client of clients.values()) {
-        this.#teardownClient(client);
+        // BEST-EFFORT FIRE-AND-FORGET tombstones: `#teardownClient` publishes a
+        // final `offline` snapshot for each LOCAL holder via `#publish` (which
+        // is itself fire-and-forget). We do NOT collect or await those publish
+        // promises before `close()` below — an ungraceful shutdown can't send
+        // them anyway, and durable last-gasp delivery is the deferred Tier-5
+        // durability layer, not this service's job.
+        this.#teardownClient(sessionId, client);
       }
       clients.clear();
     }
@@ -724,6 +742,15 @@ export class PresenceRegisterService {
     }
 
     const clients: Map<string, ClientPresence> = this.#clientsFor(message.sessionId);
+    // This loop iterates only the NON-null states `applyAwarenessUpdate` left in
+    // the scratch instance — so it has no "null removal" case to handle, and that
+    // is BY DESIGN. Cross-node teardown does NOT propagate a disconnect as a null
+    // Awareness removal; it propagates an explicit `offline` STATE snapshot (see
+    // `#teardownClient`), which the upsert below stores and `readPresence`
+    // surfaces truthfully as `state:"offline"`. (Reaping the lingering offline
+    // peer holder via TTL and detecting ungraceful node death are
+    // Plan-008-remainder Tier-5 durability work — explicitly out of scope here;
+    // no TTL or per-peer timer is added.)
     for (const [clientId, rawState] of scratch.getStates()) {
       if (clientId === scratchDoc.clientID) {
         continue; // scratch's own empty slot — never a foreign client.
@@ -746,6 +773,21 @@ export class PresenceRegisterService {
       if (existing !== undefined && existing.origin === "local") {
         // A live LOCAL holder for this exact tuple outranks a peer snapshot
         // (this node is the authoritative origin for a device it ingests).
+        continue;
+      }
+      if (
+        existing !== undefined &&
+        existing.origin === "peer" &&
+        isMoreRecent(existing.state, validated)
+      ) {
+        // Recency guard: apply the SAME `isMoreRecent` rule `readPresence` uses,
+        // dropping only when the EXISTING peer holder strictly dominates. This
+        // expresses the intent "an older arrival must not clobber a newer peer
+        // holder" (covering single-source out-of-order delivery and cross-source
+        // device-migration reorders) while still letting an equal-recency
+        // `#transition` (which deliberately reuses lastSeenAtMs + ingestSequence,
+        // changing only `state`) propagate. The FIX-2 offline tombstone bumps
+        // recency, so it is strictly newer and is always accepted.
         continue;
       }
       const peer: PeerClientPresence = { origin: "peer", state: validated };
@@ -920,14 +962,51 @@ export class PresenceRegisterService {
     return clients;
   }
 
-  // Tear down a single holder: clear its grace timer (local only) and release
-  // any CRDT resources. Does NOT touch the owning session map (callers do).
-  #teardownClient(client: ClientPresence): void {
+  // Tear down a single holder: for a LOCAL holder, fan out a final `offline`
+  // tombstone (so peers don't keep the last non-null snapshot indefinitely),
+  // clear its grace timer, and release its CRDT resources; for a PEER holder,
+  // nothing to release. Does NOT touch the owning session map (callers do).
+  #teardownClient(sessionId: SessionId, client: ClientPresence): void {
     if (client.origin === "local") {
       if (client.graceTimer !== undefined) {
         clearTimeout(client.graceTimer);
         client.graceTimer = undefined;
       }
+      // Publish a final `offline` snapshot to peers BEFORE clearing the slot.
+      // Without it, a LOCAL holder that hard-disconnects leaves peers holding
+      // the last non-null state (e.g. `online`) forever — there is no
+      // `awareness.on('update')` observer wiring a null fan-out, and the
+      // `setLocalState(null)` below is purely local teardown. The offline
+      // snapshot is stamped strictly MORE recent than the prior state (a fresh
+      // `lastSeenAtMs`/`ingestSequence`) so it wins `isMoreRecent` and survives
+      // the peer-side recency guard in `#onFanoutMessage`. Skipped when the
+      // client is ALREADY `offline` (re-publishing offline would be redundant).
+      const last: PresenceLocalState | undefined = validatePresenceLocalState(
+        client.awareness.getLocalState(),
+      );
+      if (last !== undefined && last.state !== "offline") {
+        const offlineSnapshot: PresenceLocalState = {
+          participantId: last.participantId,
+          deviceId: last.deviceId,
+          state: "offline",
+          deviceType: last.deviceType,
+          focusedSessionId: last.focusedSessionId,
+          focusedChannelId: last.focusedChannelId,
+          lastSeenAtMs: Date.now(),
+          originNodeId: this.#nodeId,
+          // Pre-increment (matches `recordHeartbeat`): strictly greater than the
+          // prior state's sequence so the tombstone is decisively more recent
+          // even when `Date.now()` ties the prior heartbeat's `lastSeenAtMs`.
+          ingestSequence: ++this.#ingestSequence,
+          lastActivityAt: last.lastActivityAt,
+          appVisible: last.appVisible,
+        };
+        client.awareness.setLocalState(offlineSnapshot);
+        // Best-effort: `#publish` no-ops in single-node mode and swallows
+        // rejections, so this never throws into a teardown/`destroy` path.
+        this.#publish(sessionId, client.awareness, client.doc.clientID);
+      }
+
       // Mark this client offline in the CRDT (null local state) before tearing
       // down — the y-protocols-documented "propagate a null state before
       // disconnect" convention — then destroy the Awareness (releasing its

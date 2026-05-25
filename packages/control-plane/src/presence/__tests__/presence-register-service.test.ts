@@ -1229,6 +1229,185 @@ describe("PresenceRegisterService — Pr3 cross-node fan-out (LISTEN/NOTIFY, in-
     }
   });
 
+  it("does NOT let a later-arriving but OLDER peer snapshot clobber a newer one for the same tuple (recency guard)", () => {
+    // Out-of-order fan-out delivery: three updates for the SAME (participant,
+    // device) tuple from node-a arrive at node B. The third arrives LAST but is
+    // OLDER (smaller `lastSeenAtMs`) than the second. The receive-side recency
+    // guard (`isMoreRecent`, the SAME comparator `readPresence` uses) must keep
+    // the NEWER snapshot — the stale tail-arrival is dropped, not stored. Without
+    // the guard the unconditional upsert would regress B to the older state.
+    const bus = new InMemoryPresencePubSub();
+    const nodeB = new PresenceRegisterService({ pubSub: bus, nodeId: "node-b" });
+
+    const baseMs = Date.parse("2026-05-24T00:00:00.000Z");
+
+    // (1) online @ baseMs (seq 1) — the initial peer snapshot.
+    void bus.publish({
+      sessionId: SESSION_ID,
+      update: encodeForeignState({
+        participantId: PARTICIPANT_A,
+        deviceId: DEVICE_LAPTOP,
+        state: "online",
+        deviceType: "desktop",
+        focusedSessionId: null,
+        focusedChannelId: null,
+        lastSeenAtMs: baseMs,
+        originNodeId: "node-a",
+        ingestSequence: 1,
+        lastActivityAt: new Date(baseMs).toISOString(),
+        appVisible: true,
+      }),
+      originNodeId: "node-a",
+    });
+    expect(nodeB.readPresence(SESSION_ID).participants[0]?.state).toBe("online");
+
+    // (2) reconnecting @ baseMs + 1000 (seq 2) — strictly NEWER; B updates.
+    void bus.publish({
+      sessionId: SESSION_ID,
+      update: encodeForeignState({
+        participantId: PARTICIPANT_A,
+        deviceId: DEVICE_LAPTOP,
+        state: "reconnecting",
+        deviceType: "desktop",
+        focusedSessionId: null,
+        focusedChannelId: null,
+        lastSeenAtMs: baseMs + 1000,
+        originNodeId: "node-a",
+        ingestSequence: 2,
+        lastActivityAt: new Date(baseMs + 1000).toISOString(),
+        appVisible: true,
+      }),
+      originNodeId: "node-a",
+    });
+    expect(nodeB.readPresence(SESSION_ID).participants[0]?.state).toBe("reconnecting");
+
+    // (3) idle @ baseMs - 1000 (seq 1) — arrives LAST but is OLDER. The recency
+    // guard must REJECT it: B stays on the newer `reconnecting`.
+    void bus.publish({
+      sessionId: SESSION_ID,
+      update: encodeForeignState({
+        participantId: PARTICIPANT_A,
+        deviceId: DEVICE_LAPTOP,
+        state: "idle",
+        deviceType: "desktop",
+        focusedSessionId: null,
+        focusedChannelId: null,
+        lastSeenAtMs: baseMs - 1000,
+        originNodeId: "node-a",
+        ingestSequence: 1,
+        lastActivityAt: new Date(baseMs - 1000).toISOString(),
+        appVisible: true,
+      }),
+      originNodeId: "node-a",
+    });
+    // Load-bearing: the older tail-arrival did NOT clobber the newer snapshot.
+    const presence = nodeB.readPresence(SESSION_ID);
+    expect(presence.participants).toHaveLength(1);
+    expect(presence.participants[0]?.state).toBe("reconnecting");
+  });
+
+  it("DOES let a strictly newer peer snapshot replace an older peer holder for the same tuple (recency guard converse)", () => {
+    // Converse of the guard: an in-order, strictly-newer snapshot for the same
+    // tuple MUST replace the older peer holder (the guard rejects only OLDER-or-
+    // equal arrivals, never a genuine update). Pins that the guard did not
+    // over-reach into a freeze-first-write.
+    const bus = new InMemoryPresencePubSub();
+    const nodeB = new PresenceRegisterService({ pubSub: bus, nodeId: "node-b" });
+
+    const baseMs = Date.parse("2026-05-24T00:00:00.000Z");
+
+    void bus.publish({
+      sessionId: SESSION_ID,
+      update: encodeForeignState({
+        participantId: PARTICIPANT_A,
+        deviceId: DEVICE_LAPTOP,
+        state: "online",
+        deviceType: "desktop",
+        focusedSessionId: null,
+        focusedChannelId: null,
+        lastSeenAtMs: baseMs,
+        originNodeId: "node-a",
+        ingestSequence: 1,
+        lastActivityAt: new Date(baseMs).toISOString(),
+        appVisible: true,
+      }),
+      originNodeId: "node-a",
+    });
+    expect(nodeB.readPresence(SESSION_ID).participants[0]?.state).toBe("online");
+
+    // Strictly newer (greater `lastSeenAtMs`) — must replace the older holder.
+    void bus.publish({
+      sessionId: SESSION_ID,
+      update: encodeForeignState({
+        participantId: PARTICIPANT_A,
+        deviceId: DEVICE_LAPTOP,
+        state: "idle",
+        deviceType: "desktop",
+        focusedSessionId: null,
+        focusedChannelId: null,
+        lastSeenAtMs: baseMs + 1000,
+        originNodeId: "node-a",
+        ingestSequence: 2,
+        lastActivityAt: new Date(baseMs + 1000).toISOString(),
+        appVisible: true,
+      }),
+      originNodeId: "node-a",
+    });
+    expect(nodeB.readPresence(SESSION_ID).participants[0]?.state).toBe("idle");
+  });
+
+  it("fans out an offline tombstone when a LOCAL client is forgotten, so the peer node sees offline (not stale online)", () => {
+    // FIX @936: a hard disconnect on node A must propagate an explicit `offline`
+    // snapshot to peers — otherwise B keeps A's last `online` snapshot forever
+    // (there is no `awareness.on('update')` observer fanning out a null). A
+    // ingests online (B sees online), then A.forgetClient(...) — B must flip to
+    // `offline`, surfaced truthfully by `readPresence` (no state filter).
+    const bus = new InMemoryPresencePubSub();
+    const nodeA = new PresenceRegisterService({ pubSub: bus, nodeId: "node-a" });
+    const nodeB = new PresenceRegisterService({ pubSub: bus, nodeId: "node-b" });
+
+    nodeA.recordHeartbeat(
+      SESSION_ID,
+      heartbeat({ participantId: PARTICIPANT_A, deviceId: DEVICE_LAPTOP, activityState: "online" }),
+    );
+    expect(nodeB.readPresence(SESSION_ID).participants[0]?.state).toBe("online");
+
+    // Hard-disconnect the local client on A. The InMemory bus dispatches the
+    // offline tombstone synchronously, so B observes it immediately.
+    expect(nodeA.forgetClient(SESSION_ID, PARTICIPANT_A, DEVICE_LAPTOP)).toBe(true);
+
+    const onB = nodeB.readPresence(SESSION_ID);
+    expect(onB.participants).toHaveLength(1);
+    expect(onB.participants[0]?.participantId).toBe(PARTICIPANT_A);
+    // Load-bearing: B sees `offline`, NOT a stale `online`.
+    expect(onB.participants[0]?.state).toBe("offline");
+  });
+
+  it("fans out an offline tombstone on destroy(), so a peer node sees the local client go offline", async () => {
+    // The destroy() analog of the forgetClient tombstone: a node shutting down
+    // its tracked LOCAL clients publishes a final `offline` snapshot for each
+    // (best-effort fire-and-forget). The InMemory bus dispatches synchronously,
+    // so B's projection reflects the offline by the time destroy()'s teardown
+    // loop runs (before the eventual `close()`).
+    const bus = new InMemoryPresencePubSub();
+    const nodeA = new PresenceRegisterService({ pubSub: bus, nodeId: "node-a" });
+    const nodeB = new PresenceRegisterService({ pubSub: bus, nodeId: "node-b" });
+
+    nodeA.recordHeartbeat(
+      SESSION_ID,
+      heartbeat({ participantId: PARTICIPANT_A, deviceId: DEVICE_LAPTOP, activityState: "online" }),
+    );
+    expect(nodeB.readPresence(SESSION_ID).participants[0]?.state).toBe("online");
+
+    await nodeA.destroy();
+
+    const onB = nodeB.readPresence(SESSION_ID);
+    expect(onB.participants).toHaveLength(1);
+    expect(onB.participants[0]?.state).toBe("offline");
+
+    await nodeB.destroy();
+  });
+
   it("the published fan-out update carries the full validated state and does not mutate it on transition", () => {
     // Capture what node A actually puts on the wire. The heartbeat publish and
     // the timer-driven transition publish must BOTH carry a fully-revalidatable
