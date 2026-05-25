@@ -206,8 +206,9 @@ export function registerSessionSubscribe(
     //     analog (validation failure throws StreamingValidationError);
     //   * emits a `$/subscription/notify` frame on this transport.
     //
-    // Wire-ordering invariant — `{ subscriptionId }` MUST land on the wire
-    // BEFORE any `$/subscription/notify` for that subscription. The SDK
+    // Wire-ordering invariant (I-007-10 — subscribe-init response precedes
+    // the first notification frame) — `{ subscriptionId }` MUST land on the
+    // wire BEFORE any `$/subscription/notify` for that subscription. The SDK
     // (`packages/client-sdk/src/transport/jsonRpcClient.ts`) registers the
     // subscription in its inbound dispatcher map only AFTER the init
     // response settles; any pre-response notify hits the unknown-id

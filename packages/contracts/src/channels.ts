@@ -34,11 +34,16 @@
 // Why `name?` is optional and what it encodes:
 //
 //   Spec-002:87 explicitly writes `name?: string` (the `?` is verbatim).
-//   The bootstrap default channel created by Plan-001's `ChannelCreated`
-//   event payload (event.ts:285 — `name: wireFreeFormString(...).optional()`)
-//   may legitimately have no friendly label; the wire signal for "this
-//   channel has no display name" is KEY ABSENT (not `name: ""` and not
-//   `name: null`). This matches the `ChannelSummary` shape on the
+//   The bootstrap "main" channel itself is NOT born from a `ChannelCreated`
+//   event — it is a projected structural invariant, derived deterministically
+//   from the session (id = `deriveMainChannelId(sessionId)`, channel-id.ts),
+//   and the projector always labels it "main" (never unnamed). The `name?`
+//   optionality exists for Plan-016 *user* channels, which DO flow through the
+//   `ChannelCreated` event payload (event.ts:285 — `name:
+//   wireFreeFormString(...).optional()`) and may legitimately have no friendly
+//   label; for those, the wire signal for "this channel has no display name" is
+//   KEY ABSENT (not `name: ""` and not `name: null`). This matches the
+//   `ChannelSummary` shape on the
 //   `SessionCreateResponse` projection (session.ts:265-269). Producers MUST
 //   omit the key when no name is set; consumers MUST handle the absent-key
 //   case in UI rendering ("Default channel" / "Main" / similar UI fallback,

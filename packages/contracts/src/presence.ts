@@ -84,6 +84,7 @@
 // Standard Schema V1), ADR-022 (toolchain — Zod 4.x).
 import { z } from "zod";
 
+import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
 import {
   ChannelIdSchema,
   ParticipantIdSchema,
@@ -346,3 +347,77 @@ export const PresenceReadResponseSchema: z.ZodType<PresenceReadResponse, Presenc
     participants: z.array(PresenceReadResponseParticipantSchema),
   })
   .strict();
+
+// --------------------------------------------------------------------------
+// PresenceSubscribe — JSON-RPC local IPC subscribe-init
+// --------------------------------------------------------------------------
+//
+// `presence.subscribe` is the streaming subscribe-init surface for the
+// daemon → client presence push (Spec-002 §Interfaces And Contracts line 85;
+// Spec-007 §Wire Format lines 50-56 streaming subscribe primitive). The
+// handler returns a `{subscriptionId}` ack synchronously; live Yjs Awareness
+// CRDT deltas then flow as `$/subscription/notify` frames carrying
+// `PresenceUpdate` values.
+//
+// Plan-002 owns the `presence.*` namespace wire contract (Plan-002 §Phase 3,
+// CP-002-2). Per BL-102 no-mirror disposition, `api-payload-contracts.md`
+// does not maintain a doc-side mirror of this code-side typed surface.
+
+/**
+ * The `presence.subscribe` request — carries only `{sessionId}`.
+ *
+ * Structurally identical to `PresenceReadRequest` today, but a DISTINCT
+ * semantic type: a subscribe is not a read. Keeping them separate lets the
+ * two surfaces diverge independently if either request later gains a field,
+ * with zero churn on the other.
+ *
+ * Carries NO replay cursors — unlike `SessionSubscribeRequest`, which carries
+ * `afterCursor` / `lastEventId` for durable event-log replay. Presence pushes
+ * live in-memory CRDT state (Plan-002 §Invariants I-002-3: presence is
+ * in-memory only); there is no durable cursor to replay, so the request stays
+ * minimal.
+ */
+export interface PresenceSubscribeRequest {
+  sessionId: SessionId;
+}
+
+// Double-T per this file's uniform annotation convention (header lines 73-77;
+// cf. `PresenceReadRequestSchema`). Note: `presence.subscribe` is a
+// runtime-daemon local-IPC JSON-RPC method today, NOT a tRPC procedure — the
+// double-T is for file-wide annotation uniformity, not a live tRPC-input
+// requirement.
+export const PresenceSubscribeRequestSchema: z.ZodType<
+  PresenceSubscribeRequest,
+  PresenceSubscribeRequest
+> = z
+  .object({
+    sessionId: SessionIdSchema,
+  })
+  .strict();
+
+/**
+ * The `presence.subscribe` init ack — an ALIAS SEAM over the canonical
+ * generic `SubscribeAckResponse` (jsonrpc-streaming.ts), mirroring
+ * `SessionSubscribeResponse`. Today it is EXACTLY `{subscriptionId}`,
+ * identical to every other `*.subscribe` method's ack.
+ *
+ * Minting a named presence symbol (rather than borrowing `session`'s) gives
+ * `presence.subscribe` its own wire contract and symmetry with the session
+ * surface. If presence's ack ever diverges, this seam becomes
+ * `export interface PresenceSubscribeResponse extends SubscribeAckResponse { … }`
+ * plus its own schema — localized here, zero consumer churn, and additive per
+ * ADR-018 §Decision #1 (MINOR widening, the `subscriptionId` floor preserved).
+ */
+export type PresenceSubscribeResponse = SubscribeAckResponse;
+
+// SINGLE-T annotation here, deviating from this file's double-T norm:
+// `SubscribeAckResponseSchema` is typed `z.ZodType<SubscribeAckResponse>`
+// (single-T, Input = unknown). Under Zod 4's `class ZodType<out Output, out
+// Input>`, assigning that single-T schema to a double-T annotation
+// (`z.ZodType<X, X>`) fails the covariant `out Input` check (`unknown` is not
+// assignable to `X`). Single-T is also semantically correct: a response is an
+// alias of a single-T generic and is NOT a tRPC procedure input, so it does
+// not need the double-T input-inference form (the session response schema is
+// single-T for the same reason).
+export const PresenceSubscribeResponseSchema: z.ZodType<PresenceSubscribeResponse> =
+  SubscribeAckResponseSchema;

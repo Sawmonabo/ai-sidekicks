@@ -5,19 +5,22 @@
 //
 // V1 event coverage (mirrors @ai-sidekicks/contracts §V1 SessionEvent):
 //   * session.created       — bootstrap session + owner membership +
-//                             main channel (synthesized from defaults)
+//                             main channel (a projected structural
+//                             invariant; see below)
 //   * membership.created     — append membership row
-//   * channel.created       — append channel row
+//   * channel.created       — append channel row (Plan-016 user channels)
 //
 // D1 contract: a single `session.created` event MUST yield a snapshot
 // with the owner membership row (derived from the envelope's `actor`)
-// AND the main channel (synthesized with deterministic UUIDv5 id). This
-// matches the Spec-001 §Acceptance Criteria AC1 invariant — every newly-
-// created session has a stable id, an owner membership, and a default
-// channel. Per Plan-001 plan-line-129 the bootstrap is "single
+// AND the bootstrap main channel, whose id is derived via the shared
+// `deriveMainChannelId` from `@ai-sidekicks/contracts` (RFC 9562 §5.8
+// UUIDv8). This matches the Spec-001 §Acceptance Criteria AC1 invariant —
+// every newly-created session has a stable id, an owner membership, and a
+// default channel. Per Plan-001 plan-line-129 the bootstrap is "single
 // SessionCreated event yields snapshot with owner membership and main
 // channel" — the projector synthesizes both rather than waiting for a
-// separate `channel.created` envelope.
+// separate `channel.created` envelope. The main channel is a PROJECTED
+// STRUCTURAL INVARIANT (1:1 with the session), NOT an event-sourced row.
 //
 // D2/D3 contract: `replay()` consumes events in the exact order it
 // receives them. The service layer is responsible for sorting by
@@ -26,7 +29,7 @@
 // the sequence-not-monotonic_ns invariant without contaminating
 // projector logic.
 
-import { createHash } from "node:crypto";
+import { deriveMainChannelId, MAIN_CHANNEL_NAME } from "@ai-sidekicks/contracts";
 
 import type {
   ChannelProjection,
@@ -35,75 +38,6 @@ import type {
   MembershipRole,
   StoredEvent,
 } from "./types.js";
-
-// --------------------------------------------------------------------------
-// Main-channel id derivation
-// --------------------------------------------------------------------------
-//
-// Every newly-created session has an implicit "main" channel. The wire-
-// layer `ChannelIdSchema` from `@ai-sidekicks/contracts` brands a
-// `z.uuid()`, so the channel id MUST be a valid UUID by the time it
-// crosses the IPC seam (Plan-001 PR #5).
-//
-// The id is derived deterministically as UUIDv5 over a daemon-local
-// namespace + the session id. This guarantees:
-//   * same session_id → same channel_id across all daemon processes
-//     (the snapshot is reproducible — D2/D4 stay green),
-//   * the id is a valid UUID (passes `z.uuid()` validation),
-//   * no DB write is needed at session-create time to mint a channel id
-//     (preserving the "single event yields bootstrap" Plan-001 invariant
-//     — see plan-line-129 D1).
-//
-// The namespace UUID is a one-time mint, frozen here. Changing it
-// invalidates every existing main-channel id, so it lives as a const.
-//
-// Per Plan-001 PR #3 scope: this derivation is daemon-internal. PR #5
-// will reconcile with the contracts brand at the IPC mapping layer; until
-// then the daemon's `ChannelProjection.channelId: string` is the surface.
-
-const MAIN_CHANNEL_NAMESPACE: string = "5b8c3f0a-7e2d-4b41-9b7c-1f6c0a5b2d3e";
-const MAIN_CHANNEL_NAME: string = "main";
-
-/**
- * Derive the deterministic UUIDv5 channel id for the implicit "main"
- * channel of a session. Same `sessionId` → byte-identical UUID across
- * processes / restarts.
- *
- * Implements RFC 9562 §5.5 directly (Node has no built-in `uuidv5`):
- *   1. SHA-1 over (namespace bytes || name bytes)
- *   2. Take the first 16 bytes
- *   3. Set version nibble = 5 (high nibble of byte 6)
- *   4. Set variant bits = 10 (high two bits of byte 8)
- *   5. Format as 8-4-4-4-12 lowercase hex
- *
- * Exported for unit-testability: D6 (deterministic UUIDv5 derivation)
- * pins this exact derivation across calls with the same input.
- */
-export function deriveMainChannelId(sessionId: string): string {
-  const namespaceBytes: Buffer = uuidStringToBytes(MAIN_CHANNEL_NAMESPACE);
-  const nameBytes: Buffer = Buffer.from(`${sessionId}:${MAIN_CHANNEL_NAME}`, "utf8");
-  const hash: Buffer = createHash("sha1").update(namespaceBytes).update(nameBytes).digest();
-  const bytes: Buffer = hash.subarray(0, 16);
-  // Version 5: clear high 4 bits of byte 6, set them to 0101.
-  bytes[6] = (bytes[6]! & 0x0f) | 0x50;
-  // Variant 10 (RFC 4122 / RFC 9562): clear high 2 bits of byte 8, set them to 10.
-  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
-  return formatUuid(bytes);
-}
-
-function uuidStringToBytes(uuid: string): Buffer {
-  // 36-char canonical form: 8-4-4-4-12 with hyphens. Strip hyphens and
-  // hex-decode. The namespace const above is well-formed by construction;
-  // this helper does no defensive validation because there is no
-  // user-supplied UUID input on the call path.
-  const hex: string = uuid.replace(/-/g, "");
-  return Buffer.from(hex, "hex");
-}
-
-function formatUuid(bytes: Buffer): string {
-  const hex: string = bytes.toString("hex");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
-}
 
 // --------------------------------------------------------------------------
 // Replay

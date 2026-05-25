@@ -37,8 +37,9 @@ import Database from "better-sqlite3";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { deriveMainChannelId } from "@ai-sidekicks/contracts";
+
 import { applyMigrations, applyPragmas, openDatabase } from "../migration-runner.js";
-import { deriveMainChannelId } from "../session-projector.js";
 import { SessionService } from "../session-service.js";
 import type { AppendableEvent } from "../types.js";
 
@@ -180,7 +181,8 @@ describe("SessionService — D2 (replay reads events by sequence ASC)", () => {
     expect(snapshot.memberships.map((m) => m.participantId).sort()).toEqual(
       [OWNER_ID, SECOND_PARTICIPANT_ID].sort(),
     );
-    // Channels: synthesized "main" (UUIDv5-derived) + the explicit one above.
+    // Channels: synthesized "main" (id from the shared `deriveMainChannelId`)
+    // + the explicit one above.
     expect(snapshot.channels).toHaveLength(2);
     expect(snapshot.channels.map((c) => c.channelId).sort()).toEqual(
       ["01970000-0000-7000-8000-000000000001", deriveMainChannelId(SESSION_ID)].sort(),

@@ -20,7 +20,7 @@
 import { z } from "zod";
 
 import { brandedUuidIdSchema } from "./internal/branded.js";
-import { SubscriptionIdSchema, type SubscriptionId } from "./jsonrpc-streaming.js";
+import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
 
 // --------------------------------------------------------------------------
 // Branded ID schemas
@@ -467,19 +467,31 @@ export const SessionSubscribeRequestSchema: z.ZodType<
   })
   .strict();
 
-// Canonical source: this file. Per BL-102 no-mirror disposition,
-// `api-payload-contracts.md` does not maintain a doc-side mirror of
-// code-side typed surfaces unless prose context for non-code readers
-// is required. Today's conservative inline schema carries only the
-// `subscriptionId`; if the shape later adds fields (e.g. an initial
-// cursor echo, a server-replay-state marker) it widens additively
-// per ADR-018 §Decision #1 (MINOR widening), so a response accepted
-// today remains accepted under any future evolution.
-export interface SessionSubscribeResponse {
-  subscriptionId: SubscriptionId;
-}
-export const SessionSubscribeResponseSchema: z.ZodType<SessionSubscribeResponse> = z
-  .object({
-    subscriptionId: SubscriptionIdSchema,
-  })
-  .strict();
+// `session.subscribe`'s init ack is an ALIAS SEAM over the canonical generic
+// `SubscribeAckResponse` (jsonrpc-streaming.ts): today `SessionSubscribeResponse`
+// is EXACTLY `{ subscriptionId }`, identical to every other `*.subscribe`
+// method's ack. The seam exists so a future divergence stays localized here.
+//
+// Divergence escape hatch: if `session.subscribe`'s response later gains
+// session-specific fields (e.g. an initial cursor echo, a server-replay-state
+// marker), this seam becomes a per-method extension —
+//   `export interface SessionSubscribeResponse extends SubscribeAckResponse { …new fields }`
+// plus its own `z.object({ subscriptionId: SubscriptionIdSchema, …new fields }).strict()`
+// schema — rather than widening the shared generic. The change is confined to
+// these two declarations: zero consumer import churn (the symbol names are
+// unchanged), and because the `subscriptionId` floor is preserved it is a
+// MINOR widening per ADR-018 §Decision #1, so a response accepted today
+// remains accepted under any future evolution.
+//
+// Canonical source: this file (the SESSION binding). The generic ack itself
+// is owned by jsonrpc-streaming.ts. Per BL-102 no-mirror disposition,
+// `api-payload-contracts.md` does not maintain a doc-side mirror of either
+// code-side typed surface.
+//
+// The explicit `z.ZodType<SessionSubscribeResponse>` annotation (identical to
+// `z.ZodType<SubscribeAckResponse>`, since the alias is type-transparent)
+// satisfies `isolatedDeclarations: true` and matches this file's
+// explicit-annotation convention.
+export type SessionSubscribeResponse = SubscribeAckResponse;
+export const SessionSubscribeResponseSchema: z.ZodType<SessionSubscribeResponse> =
+  SubscribeAckResponseSchema;
