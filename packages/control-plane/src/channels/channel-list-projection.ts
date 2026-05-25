@@ -45,6 +45,8 @@ import type {
   ChannelListRequest,
   ChannelListResponse,
   ChannelListResponseChannel,
+  ChannelState,
+  MembershipState,
 } from "@ai-sidekicks/contracts";
 
 import type { Querier } from "../sessions/migration-runner.js";
@@ -65,7 +67,10 @@ import type { Querier } from "../sessions/migration-runner.js";
 // `ChannelState` is `"active" | "muted" | "archived"` (contracts session.ts:189
 // / api-payload-contracts.md:166); "muted"/"archived" are runtime mutations
 // owned by Plan-016, never the bootstrap default.
-const MAIN_CHANNEL_STATE = "active" as const;
+// The `: ChannelState` annotation is a compile-time tripwire — a typo or a
+// future 4th channel state fails compile at this declaration (mirroring the
+// `PRESENCE_STATES` rationale in the presence service).
+const MAIN_CHANNEL_STATE: ChannelState = "active";
 
 // The bootstrap channel's id is the shared `deriveMainChannelId(sessionId)`
 // from `@ai-sidekicks/contracts` — the single source of truth for the main
@@ -91,7 +96,7 @@ const MAIN_CHANNEL_STATE = "active" as const;
  * member would inflate the live participant count); `state = 'active'` is the
  * correct "currently present" predicate.
  */
-const ACTIVE_MEMBERSHIP_STATE = "active";
+const ACTIVE_MEMBERSHIP_STATE: MembershipState = "active";
 
 // --------------------------------------------------------------------------
 // Internal row shapes
