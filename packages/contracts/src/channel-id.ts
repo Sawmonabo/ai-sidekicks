@@ -43,6 +43,7 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 
 import type { ChannelId } from "./session.js";
+import { canonicalizeUuid } from "./uuid-canonical.js";
 
 // THE canonical name of the bootstrap `main` channel — the single source of
 // truth used both as the derivation-input discriminator AND as the channel's
@@ -80,8 +81,9 @@ export const MAIN_CHANNEL_NAME = "main";
  * `string & {...}`) is assignable to `string`, so both callers type-check. No
  * input VALIDATION is performed — callers pass trusted session ids (consistent
  * with the prior daemon/control-plane derivations' documented no-validation
- * stance). The id is, however, CANONICALIZED before hashing: the hex case is
- * lowercased (`sessionId.toLowerCase()`). RFC 9562 §4 makes UUID hex
+ * stance). The id is, however, CANONICALIZED before hashing via the shared
+ * `canonicalizeUuid` helper (uuid-canonical.ts): the hex case is lowercased.
+ * RFC 9562 §4 makes UUID hex
  * case-INSENSITIVE while the canonical text representation is lowercase, and
  * `SessionIdSchema` (`z.string().uuid()`, internal/branded.ts:24) therefore
  * ACCEPTS an uppercase or mixed-case UUID. Hashing the raw string would then
@@ -96,7 +98,7 @@ export const MAIN_CHANNEL_NAME = "main";
  * control-plane `ChannelList` projection (see module header).
  */
 export function deriveMainChannelId(sessionId: string): ChannelId {
-  const digest = sha256(utf8ToBytes(`${sessionId.toLowerCase()}:${MAIN_CHANNEL_NAME}`));
+  const digest = sha256(utf8ToBytes(`${canonicalizeUuid(sessionId)}:${MAIN_CHANNEL_NAME}`));
   const bytes = digest.subarray(0, 16);
   // Version 8 (RFC 9562 §5.8 — custom/deterministic): clear the high nibble of
   // byte 6 and set it to 1000.
