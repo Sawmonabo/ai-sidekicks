@@ -13,4 +13,13 @@ export default defineConfig({
     passWithNoTests: false,
     reporters: ["default"],
   },
+  // Resolve workspace deps to TS source (not stale dist/) under test via the
+  // providers' `@ai-sidekicks/source` export condition. Node env = Vite SSR
+  // pipeline → `ssr.resolve.conditions`; conditions replace vitest's defaults,
+  // so `import`/`default` are re-listed.
+  ssr: {
+    resolve: {
+      conditions: ["@ai-sidekicks/source", "import", "default"],
+    },
+  },
 });

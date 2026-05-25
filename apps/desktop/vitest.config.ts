@@ -37,6 +37,22 @@ export default defineConfig({
         },
       },
       {
+        // Resolve workspace *value* imports (e.g. `NotImplementedAtTier1Error`
+        // from @ai-sidekicks/contracts in SessionBootstrap.test.tsx) to TS source,
+        // not stale dist/, via the provider's `@ai-sidekicks/source` export
+        // condition. happy-dom is Vite's *client* environment → the knob is
+        // `resolve.conditions`; per vitest-dev/vitest#8431 (Vite 6 can wrongly apply
+        // node conditions in happy-dom resolution passes) we set `ssr.resolve.*` too.
+        // Conditions replace vitest's defaults, so `import`/`default` are re-listed.
+        // (The node `main` project imports contracts type-only → erased → needs none.)
+        resolve: {
+          conditions: ["@ai-sidekicks/source", "import", "default"],
+        },
+        ssr: {
+          resolve: {
+            conditions: ["@ai-sidekicks/source", "import", "default"],
+          },
+        },
         test: {
           name: "renderer",
           environment: "happy-dom",
