@@ -171,6 +171,60 @@ export const SubscriptionIdSchema: z.ZodType<SubscriptionId> = z
   .brand<"SubscriptionId">() as unknown as z.ZodType<SubscriptionId>;
 
 // --------------------------------------------------------------------------
+// SubscribeAckResponse — canonical subscribe-init ack
+// --------------------------------------------------------------------------
+
+/**
+ * The canonical subscribe-init acknowledgement returned by EVERY registered
+ * `*.subscribe` method (`session.subscribe`, `presence.subscribe`, and any
+ * future streaming subscribe handler). It carries ONLY the `subscriptionId`
+ * the server allocated at `createSubscription` time.
+ *
+ * Why a single field: the actual streamed values do NOT travel in this ack —
+ * they flow over `$/subscription/notify` frames (see
+ * `SubscriptionNotifyParams` below). The client uses the `subscriptionId`
+ * returned here to register the subscription in its inbound dispatcher map
+ * and route those notify frames to the matching consumer-side handle. The
+ * wire-ordering invariant (init ack settles BEFORE any notify for that id)
+ * is the handler's responsibility, not this type's.
+ *
+ * Forward-compat contract: a method whose ack legitimately needs additional
+ * fields EXTENDS this interface rather than widening the generic — e.g.
+ * `interface XSubscribeResponse extends SubscribeAckResponse { … }` plus its
+ * own schema. The shared `SubscribeAckResponse` stays minimal so the
+ * cross-method floor never carries per-method baggage. Such a per-method
+ * extension is additive (the `subscriptionId` floor is preserved), so it is
+ * a MINOR widening per ADR-018 §Decision #1 — an ack accepted today remains
+ * accepted under any future evolution.
+ *
+ * Canonical source: this file. Per BL-102 no-mirror disposition,
+ * `api-payload-contracts.md` does not maintain a doc-side mirror of this
+ * code-side typed surface.
+ *
+ * `readonly` on the field matches this file's interface convention (cf.
+ * `SubscriptionCancelParams`, `SubscriptionCancelResult`).
+ */
+export interface SubscribeAckResponse {
+  readonly subscriptionId: SubscriptionId;
+}
+
+/**
+ * Zod schema for `SubscribeAckResponse`. `.strict()` rejects unknown fields
+ * per the same posture as the cancel envelopes above. The branded
+ * `SubscriptionIdSchema` types cleanly here, so no cast-through-`unknown` is
+ * needed (mirrors the existing `session.ts` `SessionSubscribeResponseSchema`,
+ * which this generalizes).
+ *
+ * Single-T annotation `z.ZodType<SubscribeAckResponse>` per this file's
+ * convention (cf. `SubscriptionCancelResultSchema`) — a response payload is
+ * not a tRPC procedure input, so it does not need the double-T input-inference
+ * form.
+ */
+export const SubscribeAckResponseSchema: z.ZodType<SubscribeAckResponse> = z
+  .object({ subscriptionId: SubscriptionIdSchema })
+  .strict();
+
+// --------------------------------------------------------------------------
 // $/subscription/notify — outbound notification params
 // --------------------------------------------------------------------------
 
