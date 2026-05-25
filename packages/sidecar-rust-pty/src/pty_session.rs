@@ -178,6 +178,19 @@ pub enum PtySessionError {
     /// `RustSidecarPtyHost` may translate this error to a
     /// `PtyBackendUnavailable` so the selector falls back to
     /// `NodePtyHost` until Phase 3 lands.
+    ///
+    /// `#[cfg_attr(not(windows), allow(dead_code))]` because this variant is
+    /// *constructed* only in the `#[cfg(windows)]` [`PtySessionRegistry::kill`]
+    /// arm — off Windows it is never built, so the binary-crate `dead_code`
+    /// pass flags it (the `Display` arm reads it, but reading is not
+    /// constructing). Polarity is inverted vs. [`SessionHandle::pid`]'s
+    /// `#[cfg_attr(windows, allow(dead_code))]`: that field is dead *on*
+    /// Windows; this variant is dead *off* it. `#[allow]`, not `#[expect]` —
+    /// under the lib + bin double-compile the library build sees this `pub`
+    /// variant as live, so `#[expect(dead_code)]` would fire
+    /// `unfulfilled_lint_expectations` there. Interim hygiene only: Phase 3
+    /// T-024-3-1 constructs it on Windows and the allow becomes inert.
+    #[cfg_attr(not(windows), allow(dead_code))]
     WindowsKillNotImplemented,
 
     /// The platform did not return a pid for the child process so kill
@@ -813,17 +826,6 @@ impl PtySessionRegistry {
             .cloned()
             .ok_or_else(|| PtySessionError::UnknownSession(session_id.to_string()))
     }
-
-    /// Returns the count of currently-active sessions.
-    ///
-    /// A session is "active" from the moment [`PtySessionRegistry::spawn`]
-    /// returns successfully until the waiter task emits
-    /// [`Envelope::ExitCodeNotification`] and removes the session from
-    /// the map. Useful for integration tests and for the T-024-1-5
-    /// dispatcher's health-check / ping-response path.
-    pub async fn active_session_count(&self) -> usize {
-        self.sessions.lock().await.len()
-    }
 }
 
 /// Drop-time deadline before [`Drop`] escalates from a soft kill
@@ -1458,4 +1460,230 @@ fn spawn_waiter_task(
             .expect("killers mutex poisoned")
             .remove(&session_id);
     })
+}
+
+/// White-box lifecycle + leak coverage for [`PtySessionRegistry`]'s private
+/// `sessions` map.
+///
+/// The invariant pinned here — a session is in `sessions` from
+/// [`PtySessionRegistry::spawn`] until the waiter task removes it on exit —
+/// is *internal registry state*, not a public API surface. A child module
+/// can read its parent's private fields, so these tests read
+/// `registry.sessions.lock().await.len()` directly (the same handle
+/// [`PtySessionRegistry::lookup`] uses) instead of going through a `pub`
+/// accessor that production never calls.
+///
+/// `unix`-gated for the same reason as the integration suite in
+/// `tests/pty_session.rs`: the children are `/bin/sh`, so on Windows this
+/// module compiles to zero tests rather than a failure.
+///
+/// Note: because `main.rs` re-declares `mod pty_session;` (the lib + bin
+/// double-compile that this module's sibling `WindowsKillNotImplemented`
+/// allow also addresses), these tests compile into both the lib-test and
+/// bin-test harnesses and execute under both — harmless (each test builds
+/// its own registry in its own process) but they appear twice in
+/// `cargo test` output. The lib crate and the `tests/` integration crate
+/// are separate compilation units and cannot share helpers, so the small
+/// `drain_until_exit` / `empty_env` / `EXIT_TIMEOUT` helpers below are
+/// duplicated from that file. Plan-024 Phase 1 / T-024-1-4.
+#[cfg(all(test, unix))]
+mod registry_lifecycle_tests {
+    use std::time::Duration;
+    use tokio::time::timeout;
+
+    use super::*;
+
+    /// Two-second polling budget for the "child exits + ExitCodeNotification
+    /// arrives" path. `echo hello; exit 0` typically finishes within a few
+    /// milliseconds even under CI load; 2 s is two orders of magnitude of
+    /// headroom while still failing fast on a genuinely hung holder.
+    const EXIT_TIMEOUT: Duration = Duration::from_secs(2);
+
+    /// Drain envelopes from `rx` until an `ExitCodeNotification` is observed
+    /// or `EXIT_TIMEOUT` elapses, returning every envelope received during
+    /// the wait. Used so tests can assert on the arrival ordering of
+    /// `DataFrame` + `ExitCodeNotification` without busy-waiting.
+    async fn drain_until_exit(rx: &mut mpsc::UnboundedReceiver<Envelope>) -> Vec<Envelope> {
+        let mut envelopes = Vec::new();
+        let deadline_fut = timeout(EXIT_TIMEOUT, async {
+            loop {
+                match rx.recv().await {
+                    Some(env) => {
+                        let is_exit = matches!(env, Envelope::ExitCodeNotification(_));
+                        envelopes.push(env);
+                        if is_exit {
+                            return;
+                        }
+                    }
+                    None => return,
+                }
+            }
+        });
+        let _ = deadline_fut.await;
+        envelopes
+    }
+
+    /// Empty env hands the child whatever portable-pty's CommandBuilder
+    /// considers safe defaults. `/bin/sh -c 'exit 0'` doesn't need any env
+    /// for these lifecycle assertions, so keeping the spawn request minimal
+    /// keeps the test focused on the registry's session-map bookkeeping.
+    fn empty_env() -> Vec<(String, String)> {
+        Vec::new()
+    }
+
+    #[tokio::test]
+    async fn active_session_count_tracks_lifecycle() {
+        // Verifies the session-map invariant: insertion at spawn, removal
+        // at waiter-emitted exit. Reads the registry's private `sessions`
+        // map directly (white-box) — the invariant is internal state, not a
+        // public API surface.
+        let (registry, mut rx) = PtySessionRegistry::new();
+        assert_eq!(registry.sessions.lock().await.len(), 0);
+
+        let response = registry
+            .spawn(SpawnRequest {
+                command: "/bin/sh".to_string(),
+                args: vec!["-c".to_string(), "exit 0".to_string()],
+                env: empty_env(),
+                cwd: "/tmp".to_string(),
+                rows: 24,
+                cols: 80,
+            })
+            .await
+            .expect("spawn should succeed");
+
+        // Immediately post-spawn the count is 1 (the waiter task is
+        // running but the child has not yet exited).
+        assert_eq!(registry.sessions.lock().await.len(), 1);
+
+        // Wait for the exit notification — proves the waiter has fired
+        // and removed the session from the map.
+        let _ = drain_until_exit(&mut rx).await;
+
+        // Give the waiter a beat to acquire the map lock and remove the
+        // session. The waiter emits the notification BEFORE removing the
+        // session (so `drain_until_exit` returns before removal completes).
+        // 50 ms is generous; Tokio's lock contention should resolve in
+        // microseconds.
+        for _ in 0..20 {
+            if registry.sessions.lock().await.is_empty() {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        panic!(
+            "session {:?} should have been removed from the registry within 1 s of exit",
+            response.session_id
+        );
+    }
+
+    /// Lifecycle smoke for the `PtySessionRegistry::spawn` insert-before-spawn
+    /// ordering — the pre-fix shape spawned the reader + waiter tasks BEFORE
+    /// inserting the handle into `self.sessions`. With a fast-exiting child
+    /// (`sh -c 'exit 0'`) and the multi-threaded runtime used in production,
+    /// the waiter could in principle drive its
+    /// `sessions.lock().await; map.remove(&id)` to completion before
+    /// `spawn()`'s own `insert` landed, leaking a stale entry for an
+    /// already-reaped session.
+    ///
+    /// The fix inserts the handle into `self.sessions` BEFORE spawning either
+    /// task, so the waiter's `map.remove(&id)` is guaranteed to run after
+    /// the entry exists. This test exercises the post-fix lifecycle and
+    /// pins the load-bearing contract: spawning N fast-exiting children
+    /// and draining all N `ExitCodeNotification`s must leave the registry
+    /// at zero active sessions.
+    ///
+    /// ## Scope and limits
+    ///
+    /// This is a **positive-coverage smoke** for the lifecycle contract,
+    /// not a deterministic bug reproducer. The pre-fix race fires only if
+    /// the waiter task's `spawn_blocking → child.wait → notify → lock →
+    /// remove` chain completes during the few microseconds between
+    /// `spawn_waiter_task(...)` returning and `self.sessions.lock().await.
+    /// insert(...)` completing on the calling thread. For
+    /// `sh -c 'exit 0'` even with `multi_thread` + concurrent spawns the
+    /// race window is too narrow to fire deterministically in CI — empirical
+    /// validation against the buggy shape passes. The fix is enforced
+    /// structurally by code review (insert MUST happen-before the spawn
+    /// calls in `spawn()`); this test catches gross lifecycle regressions
+    /// (e.g. a waiter that never removes, or a spawn that never inserts)
+    /// that broadly break the contract.
+    ///
+    /// ## Why `multi_thread` runtime
+    ///
+    /// `#[tokio::test]` defaults to `flavor = "current_thread"`, which
+    /// serializes spawn() through one executor thread and hides the
+    /// scheduling shape that production uses. `main.rs` runs under a
+    /// multi-threaded `#[tokio::main]`, where the waiter can land on a
+    /// peer worker while spawn() is still on the calling thread. Pinning
+    /// `flavor = "multi_thread"` here keeps the test's scheduler aligned
+    /// with production so any future structural regression is exercised
+    /// under the same conditions the bug originally arose under.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn fast_exiting_child_lifecycle_returns_registry_to_zero() {
+        let (registry, mut rx) = PtySessionRegistry::new();
+
+        const N: usize = 16;
+        let mut session_ids: Vec<String> = Vec::with_capacity(N);
+        for _ in 0..N {
+            let resp = registry
+                .spawn(SpawnRequest {
+                    command: "/bin/sh".to_string(),
+                    args: vec!["-c".to_string(), "exit 0".to_string()],
+                    env: empty_env(),
+                    cwd: "/tmp".to_string(),
+                    rows: 24,
+                    cols: 80,
+                })
+                .await
+                .expect("spawn of `sh -c 'exit 0'` should succeed");
+            session_ids.push(resp.session_id);
+        }
+
+        // Drain envelopes until we observe one `ExitCodeNotification` per
+        // spawn. 10 s is generous; in practice all 16 finish within tens
+        // of milliseconds on every supported platform.
+        let mut exits_seen: std::collections::HashSet<String> =
+            std::collections::HashSet::with_capacity(N);
+        let _ = timeout(Duration::from_secs(10), async {
+            while exits_seen.len() < N {
+                match rx.recv().await {
+                    Some(Envelope::ExitCodeNotification(n)) => {
+                        exits_seen.insert(n.session_id);
+                    }
+                    Some(_) => {}
+                    None => return,
+                }
+            }
+        })
+        .await;
+
+        assert_eq!(
+            exits_seen.len(),
+            N,
+            "observed only {observed}/{N} ExitCodeNotifications within the 10 s budget — \
+             either the waiter task is not firing for every spawn (separate bug) or the \
+             envelope-drain loop is starved",
+            observed = exits_seen.len()
+        );
+
+        // The waiter's `map.remove(&id)` happens-after the
+        // `ExitCodeNotification` send (within microseconds in practice but
+        // the two operations are independent). Poll briefly so the test
+        // isn't flaky on slow CI; 2 s upper bound matches the lifecycle
+        // grace window used by `active_session_count_tracks_lifecycle`.
+        for _ in 0..40 {
+            if registry.sessions.lock().await.is_empty() {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        let final_count = registry.sessions.lock().await.len();
+        panic!(
+            "registry leaked sessions: active session count = {final_count} after every \
+             one of {N} fast-exit ExitCodeNotifications was observed. This indicates the \
+             spawn/exit lifecycle contract is broken — see `PtySessionRegistry::spawn` for \
+             the insert-before-spawn shape that closes the race the bug introduces."
+        );
+    }
 }
