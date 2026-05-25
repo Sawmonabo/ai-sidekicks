@@ -293,6 +293,17 @@ const PRESENCE_PROGRESSION: Record<PresenceState, number> = {
 // out-of-range foreign peer stays sticky-dominant in `isMoreRecent`.
 const MAX_PRESENCE_LAST_SEEN_MS = 253_402_300_799_999;
 
+// Node's `setTimeout` delay is a 32-bit signed value: the largest delay it
+// honors verbatim is 2^31-1 ms (~24.8 days). A larger delay OVERFLOWS the
+// 32-bit field, and Node coerces it to 1ms while emitting a
+// `TimeoutOverflowWarning` — so a grace window set above this would fire the
+// reconnecting/offline transition almost immediately, silently forcing the
+// client offline. Both grace windows are validated to fit under this ceiling in
+// the constructor (see the timing guard), which keeps every delay
+// `#armGraceTimer` actually passes to `setTimeout` (`reconnectingAfterMs` and
+// `offlineAfterMs - reconnectingAfterMs`, each <= its input) safely in range.
+const SET_TIMEOUT_MAX_MS = 2_147_483_647;
+
 // Generous length cap for the snapshot's `originNodeId`. Node ids are
 // `crypto.randomUUID()` (36 chars) in production, but the constructor
 // (`options?.nodeId ?? crypto.randomUUID()`) accepts an arbitrary
@@ -478,8 +489,12 @@ export interface PresenceRegisterServiceOptions {
   readonly offlineAfterMs?: number;
   // Observation seam for T3.3 durable presence-event emission (see
   // `PresenceTransitionEvent`). Absent => transitions are applied to the live
-  // CRDT only (no observer). T3.2 itself never persists.
-  readonly onTransition?: (event: PresenceTransitionEvent) => void;
+  // CRDT only (no observer). T3.2 itself never persists. The return type admits
+  // `Promise<void>` because T3.3 wires this to `SessionService.append` (an async
+  // DB write); `#transition` catches BOTH a sync throw and an async rejection so
+  // either failure mode degrades gracefully instead of crashing the daemon on
+  // the detached timer boundary. A plain `() => void` callback still satisfies it.
+  readonly onTransition?: (event: PresenceTransitionEvent) => void | Promise<void>;
 }
 
 export class PresenceRegisterService {
@@ -500,7 +515,7 @@ export class PresenceRegisterService {
 
   readonly #reconnectingAfterMs: number;
   readonly #offlineAfterMs: number;
-  readonly #onTransition: ((event: PresenceTransitionEvent) => void) | undefined;
+  readonly #onTransition: ((event: PresenceTransitionEvent) => void | Promise<void>) | undefined;
 
   // Per-NODE monotonic ingest counter. Stamped on every LOCAL heartbeat and
   // used as the same-node, same-millisecond recency tiebreaker in
@@ -547,17 +562,22 @@ export class PresenceRegisterService {
     // Fail-fast validation of the two timing options at construction. Both feed
     // `#armGraceTimer`'s `Math.max(0, … - elapsed)` + `setTimeout`, where a
     // negative / NaN / non-integer delay is a silent footgun (setTimeout coerces
-    // NaN to 0, firing the transition immediately). The well-ordering invariant
-    // (`offlineAfterMs >= reconnectingAfterMs`, documented on the options) keeps
-    // the two-step `reconnecting -> offline` machine monotone. RangeError names
-    // the offending value so a misconfiguration is diagnosable at the call site.
+    // NaN to 0, firing the transition immediately). An UPPER bound is just as
+    // load-bearing: a delay above `SET_TIMEOUT_MAX_MS` (2^31-1) overflows
+    // setTimeout's 32-bit field and is coerced to ~1ms (TimeoutOverflowWarning),
+    // which would fire the reconnecting/offline transition almost immediately —
+    // silently forcing the client offline, the inverse of the intended long
+    // window. The well-ordering invariant (`offlineAfterMs >= reconnectingAfterMs`,
+    // documented on the options) keeps the two-step `reconnecting -> offline`
+    // machine monotone. RangeError names the offending value so a
+    // misconfiguration is diagnosable at the call site.
     for (const [label, value] of [
       ["reconnectingAfterMs", this.#reconnectingAfterMs],
       ["offlineAfterMs", this.#offlineAfterMs],
     ] as const) {
-      if (!Number.isInteger(value) || value < 0) {
+      if (!Number.isInteger(value) || value < 0 || value > SET_TIMEOUT_MAX_MS) {
         throw new RangeError(
-          `PresenceRegisterService: ${label} must be a non-negative integer (ms); received ${String(value)}`,
+          `PresenceRegisterService: ${label} must be a non-negative integer (ms) not exceeding ${String(SET_TIMEOUT_MAX_MS)} (setTimeout ceiling); received ${String(value)}`,
         );
       }
     }
@@ -1016,18 +1036,34 @@ export class PresenceRegisterService {
     // `setTimeout` grace-timer callback (`#armGraceTimer`), so this stack has NO
     // surrounding try/catch and runs outside any caller's reach. The
     // `onTransition` observer is documented as the durable-emission seam wired to
-    // `SessionService.append` (T3.3), which CAN throw — SQLite `SQLITE_BUSY`, a
-    // `monotonic_ns` unique-violation, or a Zod validation failure. A throw on
-    // this timer boundary would ESCAPE to Node's `uncaughtException` and is
-    // capable of terminating the daemon process. So we degrade gracefully:
-    // surface the failure via `console.error` with a tripwire prefix carrying the
-    // full transition context, then SWALLOW it — a dropped observer notification
-    // (T3.3 can recover on the next transition / via reconciliation) is the right
-    // trade against crashing the daemon over one emission. There is no structured
-    // logger in the control-plane today; this flips to it when one lands.
-    // TRIPWIRE: replace `console.error` once a structured logger surfaces.
+    // `SessionService.append` (T3.3), an ASYNC DB write that CAN fail two ways —
+    // a SYNCHRONOUS throw (a guard/validation error before the await) OR a
+    // REJECTED promise (SQLite `SQLITE_BUSY`, a `monotonic_ns` unique-violation,
+    // a Zod failure inside the async body). On this detached timer boundary a
+    // sync throw escapes to `uncaughtException` and an unhandled rejection
+    // escapes to `unhandledRejection` — in Node 22 BOTH are capable of
+    // terminating the daemon process. So we degrade gracefully on EITHER path:
+    // the try/catch swallows the sync throw, and (because the seam is legitimately
+    // async) we duck-type the return value for a thenable and attach a `.catch`
+    // that routes a rejection to the SAME tripwire. A dropped observer
+    // notification (T3.3 can recover on the next transition / via reconciliation)
+    // is the right trade against crashing the daemon over one emission. The
+    // duck-typed `.then` check (not `instanceof Promise`) tolerates a non-native
+    // thenable (e.g. a userland promise library or a cross-realm Promise) the
+    // observer might return. We discharge it via `Promise.resolve(thenable)
+    // .catch(...)` rather than calling `.catch` DIRECTLY on the value: the
+    // PromiseLike contract (TC39) only requires `.then`, so a valid `.then`-only
+    // thenable has no `.catch` — a direct `(value).catch(...)` would be
+    // `undefined(...)` and throw a TypeError synchronously, which the outer
+    // try/catch would then swallow and MISLABEL "(sync)" while the genuine async
+    // rejection went unrouted. `Promise.resolve` absorbs ANY thenable into a
+    // native Promise whose `.catch` is guaranteed to exist. This mirrors the
+    // established thenable-discharge pattern in `client-sdk`
+    // `jsonRpcClient.ts` (same `void | Promise<void>` seam). There is no
+    // structured logger in the control-plane today; this flips to it when one
+    // lands. TRIPWIRE: replace `console.error` once a structured logger surfaces.
     try {
-      this.#onTransition?.({
+      const observerResult: void | Promise<void> = this.#onTransition?.({
         sessionId,
         participantId,
         deviceId,
@@ -1035,9 +1071,21 @@ export class PresenceRegisterService {
         to,
         at: new Date(),
       });
+      if (
+        observerResult !== undefined &&
+        observerResult !== null &&
+        typeof (observerResult as { then?: unknown }).then === "function"
+      ) {
+        Promise.resolve(observerResult as PromiseLike<void>).catch((error: unknown) => {
+          console.error(
+            `[presence] onTransition observer rejected (async); transition notification dropped (swallowed to keep the daemon alive) for sessionId=${sessionId} participantId=${participantId} from=${from} to=${to}`,
+            error,
+          );
+        });
+      }
     } catch (error) {
       console.error(
-        `[presence] onTransition observer threw; transition notification dropped (swallowed to keep the daemon alive) for sessionId=${sessionId} participantId=${participantId} from=${from} to=${to}`,
+        `[presence] onTransition observer threw (sync); transition notification dropped (swallowed to keep the daemon alive) for sessionId=${sessionId} participantId=${participantId} from=${from} to=${to}`,
         error,
       );
     }
@@ -1073,12 +1121,23 @@ export class PresenceRegisterService {
       // `setLocalState(null)` below is purely local teardown. The offline
       // snapshot is stamped strictly MORE recent than the prior state (a fresh
       // `lastSeenAtMs`/`ingestSequence`) so it wins `isMoreRecent` and survives
-      // the peer-side recency guard in `#onFanoutMessage`. Skipped when the
-      // client is ALREADY `offline` (re-publishing offline would be redundant).
+      // the peer-side recency guard in `#onFanoutMessage`.
+      //
+      // Re-published UNCONDITIONALLY when a valid snapshot exists — even if the
+      // client is ALREADY `offline`. `#publish` is best-effort (it swallows
+      // transport rejections), so the earlier transition-to-`offline` publish
+      // may have failed transiently, leaving peers stuck on a stale
+      // `online`/`reconnecting` snapshot. There is no TTL reaper this phase, so
+      // teardown is the LAST chance to fan out the disconnect. Re-publishing
+      // `offline` is idempotent on peers (the receiver's recency guard accepts
+      // the strictly-newer tombstone and drops nothing it shouldn't), so the
+      // redundant case is harmless and the failed-publish case is repaired. The
+      // `last !== undefined` guard stays: a cleared slot has no snapshot to build
+      // a tombstone from.
       const last: PresenceLocalState | undefined = validatePresenceLocalState(
         client.awareness.getLocalState(),
       );
-      if (last !== undefined && last.state !== "offline") {
+      if (last !== undefined) {
         const offlineSnapshot: PresenceLocalState = {
           participantId: last.participantId,
           deviceId: last.deviceId,

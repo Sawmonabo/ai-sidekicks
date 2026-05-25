@@ -637,7 +637,7 @@ describe("PresenceRegisterService — constructor validates the reconnecting/off
     ).toThrow(/offlineAfterMs \(10000\) must be >= reconnectingAfterMs \(15000\)/);
   });
 
-  it("throws RangeError on a negative, NaN, or non-integer timing value", () => {
+  it("throws RangeError on a negative, NaN, non-integer, or over-ceiling timing value", () => {
     // FIX C: these feed `#armGraceTimer`'s `Math.max(0, …)` + setTimeout, where
     // a negative / NaN / fractional delay is a silent footgun (NaN coerces to a
     // 0ms timer). Each is rejected at construction; the message names the bad
@@ -650,6 +650,22 @@ describe("PresenceRegisterService — constructor validates the reconnecting/off
     expect(() => new PresenceRegisterService({ reconnectingAfterMs: 1.5 })).toThrow(/received 1.5/);
     expect(() => new PresenceRegisterService({ offlineAfterMs: 60_000.5 })).toThrow(
       /received 60000.5/,
+    );
+
+    // A delay above setTimeout's 32-bit ceiling (2^31-1 = 2_147_483_647) would
+    // overflow and be coerced to ~1ms (TimeoutOverflowWarning), firing the grace
+    // transition almost immediately and silently forcing the client offline.
+    // `2_147_483_648` is exactly one past the ceiling. Hardcoded (not imported
+    // from the module) so the test pins the documented bound independently of the
+    // const. Asserted for BOTH timing options.
+    expect(() => new PresenceRegisterService({ reconnectingAfterMs: 2_147_483_648 })).toThrow(
+      RangeError,
+    );
+    expect(() => new PresenceRegisterService({ reconnectingAfterMs: 2_147_483_648 })).toThrow(
+      /setTimeout ceiling/,
+    );
+    expect(() => new PresenceRegisterService({ offlineAfterMs: 2_147_483_648 })).toThrow(
+      RangeError,
     );
   });
 
@@ -664,6 +680,11 @@ describe("PresenceRegisterService — constructor validates the reconnecting/off
       () => new PresenceRegisterService({ reconnectingAfterMs: 0, offlineAfterMs: 0 }),
     ).not.toThrow();
     expect(() => new PresenceRegisterService()).not.toThrow();
+    // The exact setTimeout ceiling (2^31-1 = 2_147_483_647) is the largest
+    // ACCEPTED value — pins that the bound is `>` not `>=` (a `>=` regression
+    // would silently pass the over-ceiling reject test). Hardcoded to match the
+    // suite's independent-bound-pinning convention.
+    expect(() => new PresenceRegisterService({ offlineAfterMs: 2_147_483_647 })).not.toThrow();
   });
 });
 
@@ -980,6 +1001,170 @@ describe("PresenceRegisterService — Pr2 crash guard (a throwing onTransition o
 
       await service.destroy();
     } finally {
+      process.removeListener("uncaughtException", onUncaught);
+      consoleErrorSpy.mockRestore();
+    }
+  });
+
+  it("swallows a REJECTION from an async onTransition seam, logs the async tripwire, and does not crash", async () => {
+    // The seam is legitimately async (T3.3 wires it to `SessionService.append`,
+    // a DB write). A plain try/catch catches a SYNC throw but NOT a rejected
+    // promise — an unhandled rejection on this detached `setTimeout` boundary
+    // escapes to Node's `unhandledRejection` and can terminate the daemon. The
+    // guard duck-types the observer's return value for a thenable and attaches a
+    // `.catch` to the same tripwire. Real timers (not fake) so the detached
+    // callback runs on its own tick — exactly the production path where an
+    // unguarded rejection would surface as `unhandledRejection`.
+    const unhandledRejections: unknown[] = [];
+    const onUnhandled = (reason: unknown): void => {
+      unhandledRejections.push(reason);
+    };
+    const uncaught: unknown[] = [];
+    const onUncaught = (error: unknown): void => {
+      uncaught.push(error);
+    };
+    process.on("unhandledRejection", onUnhandled);
+    process.on("uncaughtException", onUncaught);
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    // An `async` callback that REJECTS — assignable to the widened
+    // `() => void | Promise<void>` seam. This is the failure shape T3.3's async
+    // append produces (e.g. a rejected SQLite write), distinct from a sync throw.
+    const service = new PresenceRegisterService({
+      reconnectingAfterMs: 5,
+      offlineAfterMs: 10_000, // far out — this test only drives the reconnecting step.
+      onTransition: async () => {
+        await Promise.resolve();
+        throw new Error("synthetic async append rejection");
+      },
+    });
+
+    try {
+      service.recordHeartbeat(
+        SESSION_ID,
+        heartbeat({
+          participantId: PARTICIPANT_A,
+          deviceId: DEVICE_LAPTOP,
+          activityState: "online",
+        }),
+      );
+      // Wait past the 5ms reconnecting window on REAL timers so the detached
+      // callback fires, THEN flush microtasks so the rejected promise's `.catch`
+      // (or, if the guard regressed, the `unhandledRejection`) has settled.
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      await new Promise((resolve) => setImmediate(resolve));
+
+      // (a) The rejection was routed to the guard's `.catch`, NOT to the process:
+      // neither the unhandledRejection nor the uncaughtException handler fired.
+      expect(unhandledRejections).toEqual([]);
+      expect(uncaught).toEqual([]);
+
+      // (b) The async tripwire fired with the full transition context and the
+      // rejection reason forwarded for diagnosis.
+      const tripwireCall = consoleErrorSpy.mock.calls.find(
+        (call) =>
+          typeof call[0] === "string" && call[0].includes("onTransition observer rejected (async)"),
+      );
+      expect(tripwireCall).toBeDefined();
+      const tripwireMessage = tripwireCall?.[0] as string;
+      expect(tripwireMessage).toContain(SESSION_ID);
+      expect(tripwireMessage).toContain(PARTICIPANT_A);
+      expect(tripwireMessage).toContain("from=online");
+      expect(tripwireMessage).toContain("to=reconnecting");
+      expect(tripwireCall?.[1]).toBeInstanceOf(Error);
+      expect((tripwireCall?.[1] as Error).message).toBe("synthetic async append rejection");
+
+      // The in-memory CRDT still advanced despite the rejected emission.
+      expect(service.readPresence(SESSION_ID).participants[0]?.state).toBe("reconnecting");
+
+      await service.destroy();
+    } finally {
+      process.removeListener("unhandledRejection", onUnhandled);
+      process.removeListener("uncaughtException", onUncaught);
+      consoleErrorSpy.mockRestore();
+    }
+  });
+
+  it("routes a rejection from a `.then`-only thenable (no `.catch`) to the async tripwire, not a sync mislabel", async () => {
+    // Hardening parity with `jsonRpcClient.ts`: the seam is a foreign-code trust
+    // boundary, and the PromiseLike (TC39) contract only requires `.then` — a
+    // valid thenable MAY omit `.catch`. The guard MUST discharge the rejection
+    // via `Promise.resolve(thenable).catch(...)`, never a DIRECT `.catch` on the
+    // value: a direct call on a `.then`-only thenable is `undefined(...)` →
+    // throws TypeError synchronously → lands in the sync catch (MISLABELED
+    // "(sync)") while the REAL rejection goes unrouted to `unhandledRejection`.
+    // This thenable rejects and has NO `.catch`. It is a PromiseLike, not a
+    // Promise, so it does not statically satisfy `() => void | Promise<void>` —
+    // the cast injects it to exercise the RUNTIME path the duck-typing defends (a
+    // JS caller / cross-realm value / lying types). The native-Promise test above
+    // passes BOTH the old and new code, so it does NOT cover this case; this does.
+    const unhandledRejections: unknown[] = [];
+    const onUnhandled = (reason: unknown): void => {
+      unhandledRejections.push(reason);
+    };
+    const uncaught: unknown[] = [];
+    const onUncaught = (error: unknown): void => {
+      uncaught.push(error);
+    };
+    process.on("unhandledRejection", onUnhandled);
+    process.on("uncaughtException", onUncaught);
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const thenOnlyRejecting: PromiseLike<void> = {
+      then: (_resolve: (value: void) => void, reject?: (reason: unknown) => void): void => {
+        reject?.(new Error("synthetic then-only rejection"));
+      },
+    };
+    const service = new PresenceRegisterService({
+      reconnectingAfterMs: 5,
+      offlineAfterMs: 10_000, // far out — this test only drives the reconnecting step.
+      // Cast: a `.then`-only PromiseLike is exactly the runtime shape the guard
+      // must absorb; the static type is intentionally bypassed (see comment).
+      onTransition: (() => thenOnlyRejecting) as unknown as (
+        event: PresenceTransitionEvent,
+      ) => void | Promise<void>,
+    });
+
+    try {
+      service.recordHeartbeat(
+        SESSION_ID,
+        heartbeat({
+          participantId: PARTICIPANT_A,
+          deviceId: DEVICE_LAPTOP,
+          activityState: "online",
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      await new Promise((resolve) => setImmediate(resolve));
+
+      // (a) The rejection was absorbed by `Promise.resolve(...).catch`, NOT
+      // leaked to the process and NOT swallowed as a sync TypeError.
+      expect(unhandledRejections).toEqual([]);
+      expect(uncaught).toEqual([]);
+
+      // (b) It was routed to the ASYNC tripwire (not the "(sync)" one — a direct
+      // `.catch` TypeError would have hit the sync catch instead). The forwarded
+      // reason is the thenable's rejection, not a TypeError.
+      const asyncTripwire = consoleErrorSpy.mock.calls.find(
+        (call) =>
+          typeof call[0] === "string" && call[0].includes("onTransition observer rejected (async)"),
+      );
+      expect(asyncTripwire).toBeDefined();
+      expect(asyncTripwire?.[1]).toBeInstanceOf(Error);
+      expect((asyncTripwire?.[1] as Error).message).toBe("synthetic then-only rejection");
+      // The sync tripwire must NOT have fired (no swallowed-and-mislabeled
+      // TypeError from a direct `.catch` on a `.then`-only value).
+      const syncTripwire = consoleErrorSpy.mock.calls.find(
+        (call) =>
+          typeof call[0] === "string" && call[0].includes("onTransition observer threw (sync)"),
+      );
+      expect(syncTripwire).toBeUndefined();
+
+      expect(service.readPresence(SESSION_ID).participants[0]?.state).toBe("reconnecting");
+
+      await service.destroy();
+    } finally {
+      process.removeListener("unhandledRejection", onUnhandled);
       process.removeListener("uncaughtException", onUncaught);
       consoleErrorSpy.mockRestore();
     }
@@ -1465,6 +1650,70 @@ describe("PresenceRegisterService — Pr3 cross-node fan-out (LISTEN/NOTIFY, in-
     expect(onB.participants).toHaveLength(1);
     expect(onB.participants[0]?.participantId).toBe(PARTICIPANT_A);
     // Load-bearing: B sees `offline`, NOT a stale `online`.
+    expect(onB.participants[0]?.state).toBe("offline");
+  });
+
+  it("re-publishes the offline tombstone on teardown even when the client is ALREADY offline (best-effort repair)", () => {
+    // `#publish` is best-effort: it swallows transport rejections, so the
+    // transition-to-`offline` publish can fail transiently, leaving peers stuck
+    // on a stale `online`/`reconnecting` snapshot. There is no TTL reaper this
+    // phase, so teardown is the LAST chance to fan out the disconnect — it must
+    // re-publish offline UNCONDITIONALLY (not skip because the local state is
+    // already offline). A droppable bus reproduces the lost publish: B sees A's
+    // `online`, then A's offline publish is DROPPED (so B stays stale), then
+    // A.forgetClient(...) must re-fan-out the tombstone so B finally flips to
+    // offline. Under the prior `state !== "offline"` skip, this stayed stale.
+    const drop = { active: false };
+    const handlers = new Set<(message: PresenceFanoutMessage) => void>();
+    // A best-effort bus whose `publish` silently drops while `drop.active` — the
+    // same observable effect as a transient NOTIFY failure `#publish` swallows.
+    const droppableBus: PresencePubSub = {
+      publish: (message: PresenceFanoutMessage): Promise<void> => {
+        if (!drop.active) {
+          for (const handler of [...handlers]) {
+            handler(message);
+          }
+        }
+        return Promise.resolve();
+      },
+      subscribe: (handler: (message: PresenceFanoutMessage) => void): (() => void) => {
+        handlers.add(handler);
+        return () => handlers.delete(handler);
+      },
+    };
+
+    const nodeA = new PresenceRegisterService({ pubSub: droppableBus, nodeId: "node-a" });
+    const nodeB = new PresenceRegisterService({ pubSub: droppableBus, nodeId: "node-b" });
+
+    nodeA.recordHeartbeat(
+      SESSION_ID,
+      heartbeat({ participantId: PARTICIPANT_A, deviceId: DEVICE_LAPTOP, activityState: "online" }),
+    );
+    expect(nodeB.readPresence(SESSION_ID).participants[0]?.state).toBe("online");
+
+    // The offline transition's publish is DROPPED (transient transport failure):
+    // A goes offline locally, but B never receives it and stays stale on online.
+    drop.active = true;
+    nodeA.recordHeartbeat(
+      SESSION_ID,
+      heartbeat({
+        participantId: PARTICIPANT_A,
+        deviceId: DEVICE_LAPTOP,
+        activityState: "offline",
+      }),
+    );
+    expect(nodeB.readPresence(SESSION_ID).participants[0]?.state).toBe("online"); // stale.
+
+    // Transport recovers; tear down the (already-offline) local client. Teardown
+    // must re-publish the offline tombstone unconditionally — the last chance to
+    // repair B's stale snapshot.
+    drop.active = false;
+    expect(nodeA.forgetClient(SESSION_ID, PARTICIPANT_A, DEVICE_LAPTOP)).toBe(true);
+
+    const onB = nodeB.readPresence(SESSION_ID);
+    expect(onB.participants).toHaveLength(1);
+    // Load-bearing: the unconditional teardown re-publish flipped B from the
+    // stale `online` to `offline` despite A already being offline locally.
     expect(onB.participants[0]?.state).toBe("offline");
   });
 
