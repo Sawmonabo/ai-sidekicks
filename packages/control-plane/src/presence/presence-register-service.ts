@@ -264,6 +264,15 @@ const PRESENCE_FANOUT_CHANNEL = "presence_fanout";
 // `PresenceStateSchema` enum — so the same contract enum drives both the
 // compile-time rank table here and the parse-time validation, and they cannot
 // drift.
+//
+// SECOND CONSUMER — `isMoreRecent`'s same-tuple state-rank tiebreak (2b): when
+// two snapshots tie on (lastSeenAtMs, originNodeId, ingestSequence), the
+// more-degraded state wins. The tiebreak and the grace machine MUST share THIS
+// table: because `#transition` advances only forward along this ordering and
+// reuses the tuple, the higher-rank state at an equal tuple is provably the
+// later one. A parallel rank table for the tiebreak could disagree — letting a
+// state `#transition` would never move to nevertheless dominate at an equal
+// tuple — so the single shared table is load-bearing, not incidental reuse.
 const PRESENCE_PROGRESSION: Record<PresenceState, number> = {
   online: 0,
   idle: 0,
@@ -841,6 +850,22 @@ export class PresenceRegisterService {
       return; // self-origin echo — already authoritative locally.
     }
 
+    // FOREIGN-WRITER HARDENING (§file header): the envelope `sessionId` becomes a
+    // `#sessions` key via `#clientsFor` below. A peer publishing a MALFORMED
+    // sessionId that nonetheless carries an otherwise-valid state mints a live,
+    // unreachable holder under a garbage key the empty-map reclaim never collects
+    // (the reclaim fires only when ZERO holders survive, and here a valid holder
+    // does). Validate the envelope key against the canonical `SessionIdSchema`
+    // and DROP the whole message on failure. Enforced HERE at the receive
+    // chokepoint — not in `decodeFanoutPayload` — because `InMemoryPresencePubSub`
+    // delivers the structured message DIRECTLY to handlers, bypassing the wire
+    // codec; a decoder-only guard would miss the in-memory transport entirely.
+    // This covers BOTH transports and is symmetric with the per-state
+    // `validatePresenceLocalState` revalidation in the loop below.
+    if (!SessionIdSchema.safeParse(message.sessionId).success) {
+      return;
+    }
+
     // Decode into a SCRATCH Awareness whose own slot is never set (so its empty
     // self-slot is filterable). This is the y-protocols `applyAwarenessUpdate`
     // receive path the cross-node fan-out is built on.
@@ -898,10 +923,16 @@ export class PresenceRegisterService {
         // dropping only when the EXISTING peer holder strictly dominates. This
         // expresses the intent "an older arrival must not clobber a newer peer
         // holder" (covering single-source out-of-order delivery and cross-source
-        // device-migration reorders) while still letting an equal-recency
-        // `#transition` (which deliberately reuses lastSeenAtMs + ingestSequence,
-        // changing only `state`) propagate. The FIX-2 offline tombstone bumps
-        // recency, so it is strictly newer and is always accepted.
+        // device-migration reorders). At an EQUAL heartbeat tuple the asymmetry is
+        // now explicit via the `isMoreRecent` state-rank sub-tiebreak (2b): a
+        // FORWARD-degradation `#transition` snapshot (online -> reconnecting ->
+        // offline at the reused tuple) is strictly more-degraded than the holder,
+        // so `isMoreRecent(existing, arrival)` is false and it PROPAGATES; but a
+        // BACKWARD-degradation same-tuple reorder (a stale less-degraded snapshot
+        // arriving late, e.g. an `online` frame behind a later `reconnecting` at
+        // the identical tuple) is LESS-degraded, so the existing holder dominates
+        // and the stale frame is REJECTED here. The offline tombstone path also
+        // bumps `lastSeenAtMs`, so it is strictly newer and is always accepted.
         continue;
       }
       const peer: PeerClientPresence = { origin: "peer", state: validated };
@@ -1379,23 +1410,42 @@ function teardownAwareness(awareness: Awareness, doc: Y.Doc): void {
 }
 
 // Cross-node recency comparison: is `candidate` strictly more recent than
-// `incumbent`? Three-level cascade (see file header §cross-node recency
-// tiebreak). Total and deterministic both within and across nodes.
+// `incumbent`? Cascade (see file header §cross-node recency tiebreak). Total and
+// deterministic both within and across nodes.
 //   1. `lastSeenAtMs` differs           → greater wins (most-recently-heard-from).
-//   2. tie + SAME `originNodeId`        → greater `ingestSequence` wins. The
-//      per-node sequences are comparable here; this preserves T3.1's
-//      "newest-ingested device wins" same-millisecond contract for one node.
+//   2. tie + SAME `originNodeId`:
+//      2a. `ingestSequence` differs     → greater `ingestSequence` wins. The
+//          per-node sequences are comparable here; this preserves T3.1's
+//          "newest-ingested device wins" same-millisecond contract for one node.
+//      2b. `ingestSequence` ALSO equal  → greater `PRESENCE_PROGRESSION` rank
+//          wins. The `#transition` grace machine reuses the heartbeat tuple
+//          (same lastSeenAtMs + ingestSequence) and only ever advances `state`
+//          FORWARD (online|idle -> reconnecting -> offline), so the more-degraded
+//          same-tuple state is the strictly-later one; a less-degraded same-tuple
+//          snapshot is a stale reorder. This consults the SAME table `#transition`
+//          gates on, so the two cannot disagree about temporal order.
 //   3. tie + DIFFERENT `originNodeId`   → greater `originNodeId` wins. The
 //      disjoint per-node `ingestSequence` spaces are NEVER compared across
 //      nodes, and distinct nodes always have distinct ids, so this is decisive
-//      and total — there is no fourth level to fall through to.
+//      and total. The state-rank sub-tiebreak (2b) is SAME-origin only — it is
+//      never reached on the cross-node branch.
 function isMoreRecent(candidate: PresenceLocalState, incumbent: PresenceLocalState): boolean {
   if (candidate.lastSeenAtMs !== incumbent.lastSeenAtMs) {
     return candidate.lastSeenAtMs > incumbent.lastSeenAtMs;
   }
   if (candidate.originNodeId === incumbent.originNodeId) {
-    // Same node, same millisecond: per-node ingest order is the tiebreak.
-    return candidate.ingestSequence > incumbent.ingestSequence;
+    if (candidate.ingestSequence !== incumbent.ingestSequence) {
+      // Same node, same millisecond: per-node ingest order is the tiebreak.
+      return candidate.ingestSequence > incumbent.ingestSequence;
+    }
+    // Equal (lastSeenAtMs, originNodeId, ingestSequence): the `#transition` grace
+    // machine deliberately REUSES the heartbeat tuple and advances only `state`
+    // forward along online|idle -> reconnecting -> offline, so a more-degraded
+    // state at the same tuple is strictly LATER in time. A less-degraded
+    // same-tuple snapshot is therefore a stale reorder and must NOT win. The rank
+    // is `PRESENCE_PROGRESSION` — the SAME table `#transition` gates on, so the
+    // tiebreak and the grace machine cannot disagree about which state is "later".
+    return PRESENCE_PROGRESSION[candidate.state] > PRESENCE_PROGRESSION[incumbent.state];
   }
   // Cross-node, same millisecond: deterministic node-id tiebreak; the disjoint
   // `ingestSequence` spaces are intentionally not consulted.

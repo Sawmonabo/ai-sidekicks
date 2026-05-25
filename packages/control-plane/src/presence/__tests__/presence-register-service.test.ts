@@ -1404,6 +1404,58 @@ describe("PresenceRegisterService — Pr3 cross-node fan-out (LISTEN/NOTIFY, in-
     expect(node.readPresence(goodSession).participants).toHaveLength(1);
   });
 
+  it("drops a fan-out message whose envelope sessionId is not a valid UUID, minting no #sessions key", () => {
+    // The envelope `sessionId` becomes a `#sessions` key via `#clientsFor`. A peer
+    // publishing a MALFORMED sessionId that nonetheless carries a WELL-FORMED
+    // state would otherwise mint a live, unreachable holder under a garbage key —
+    // and because a VALID holder survives under it, the empty-map reclaim (which
+    // fires only when ZERO holders survive) NEVER collects it. Unbounded growth
+    // from the foreign-writer surface. The receive-chokepoint `SessionIdSchema`
+    // guard must DROP the whole message. We assert against `trackedSessionCount()`
+    // (an empty/garbage map and a deleted map both yield empty `readPresence`).
+    const bus = new InMemoryPresencePubSub();
+    const node = new PresenceRegisterService({ pubSub: bus, nodeId: "node-a" });
+    expect(node.trackedSessionCount()).toBe(0);
+
+    // A fully WELL-FORMED foreign state (so the drop is attributable ONLY to the
+    // bad envelope sessionId, not a per-state revalidation rejection).
+    const wellFormedState = encodeForeignState({
+      participantId: PARTICIPANT_B,
+      deviceId: DEVICE_PHONE,
+      state: "online",
+      deviceType: "desktop",
+      focusedSessionId: null,
+      focusedChannelId: null,
+      lastSeenAtMs: Date.now(),
+      originNodeId: "node-evil",
+      ingestSequence: 1,
+      lastActivityAt: new Date().toISOString(),
+      appVisible: true,
+    });
+
+    // Published under a GARBAGE envelope sessionId. The message must be dropped
+    // before `#clientsFor` mints a key — despite the surviving valid holder.
+    void bus.publish({
+      sessionId: "not-a-valid-uuid" as SessionId,
+      update: wellFormedState,
+      originNodeId: "node-evil",
+    });
+    // Load-bearing: the garbage key was NEVER minted.
+    expect(node.trackedSessionCount()).toBe(0);
+
+    // Control: the SAME well-formed state under a VALID sessionId IS tracked,
+    // proving the drop was specific to the malformed envelope key, not a blanket
+    // drop of all foreign input.
+    const validSession = "01970000-0000-7000-8000-0000000000aa" as SessionId;
+    void bus.publish({
+      sessionId: validSession,
+      update: wellFormedState,
+      originNodeId: "node-evil",
+    });
+    expect(node.trackedSessionCount()).toBe(1);
+    expect(node.readPresence(validSession).participants).toHaveLength(1);
+  });
+
   it("a live local holder outranks a peer holder for the same (participant, device) tuple", () => {
     const bus = new InMemoryPresencePubSub();
     const nodeA = new PresenceRegisterService({ pubSub: bus, nodeId: "node-a" });
@@ -1633,6 +1685,69 @@ describe("PresenceRegisterService — Pr3 cross-node fan-out (LISTEN/NOTIFY, in-
       originNodeId: "node-a",
     });
     expect(nodeB.readPresence(SESSION_ID).participants[0]?.state).toBe("idle");
+  });
+
+  it("does NOT let a stale, less-degraded same-tuple peer snapshot clobber a newer grace state (state-rank tiebreak)", () => {
+    // The grace machine (`#transition`) reuses a client's heartbeat tuple
+    // (lastSeenAtMs + originNodeId + ingestSequence) and advances ONLY `state`
+    // forward (online|idle -> reconnecting -> offline). So two fan-out frames for
+    // the same tuple can differ only in `state`. If they arrive out of order — a
+    // later `reconnecting` first, then the earlier `online` grace frame delivered
+    // late — the receive guard must keep the MORE-degraded (strictly later)
+    // state. With only the (lastSeenAtMs, origin, ingestSequence) tiebreak the
+    // tuples compare EQUAL and the stale `online` would clobber the newer
+    // `reconnecting`. The `PRESENCE_PROGRESSION` state-rank sub-tiebreak rejects
+    // the stale, less-degraded snapshot.
+    const bus = new InMemoryPresencePubSub();
+    const nodeB = new PresenceRegisterService({ pubSub: bus, nodeId: "node-b" });
+
+    const baseMs = Date.parse("2026-05-24T00:00:00.000Z");
+
+    // (1) reconnecting @ (baseMs, node-a, seq 5) — the newer grace state arrives
+    // first.
+    void bus.publish({
+      sessionId: SESSION_ID,
+      update: encodeForeignState({
+        participantId: PARTICIPANT_A,
+        deviceId: DEVICE_LAPTOP,
+        state: "reconnecting",
+        deviceType: "desktop",
+        focusedSessionId: null,
+        focusedChannelId: null,
+        lastSeenAtMs: baseMs,
+        originNodeId: "node-a",
+        ingestSequence: 5,
+        lastActivityAt: new Date(baseMs).toISOString(),
+        appVisible: true,
+      }),
+      originNodeId: "node-a",
+    });
+    expect(nodeB.readPresence(SESSION_ID).participants[0]?.state).toBe("reconnecting");
+
+    // (2) online @ the SAME (baseMs, node-a, seq 5) — the EARLIER grace frame
+    // delivered late. Equal tuple, LESS-degraded state: the state-rank tiebreak
+    // must REJECT it. B stays on the newer `reconnecting`.
+    void bus.publish({
+      sessionId: SESSION_ID,
+      update: encodeForeignState({
+        participantId: PARTICIPANT_A,
+        deviceId: DEVICE_LAPTOP,
+        state: "online",
+        deviceType: "desktop",
+        focusedSessionId: null,
+        focusedChannelId: null,
+        lastSeenAtMs: baseMs,
+        originNodeId: "node-a",
+        ingestSequence: 5,
+        lastActivityAt: new Date(baseMs).toISOString(),
+        appVisible: true,
+      }),
+      originNodeId: "node-a",
+    });
+    // Load-bearing: the stale same-tuple `online` did NOT clobber `reconnecting`.
+    const presence = nodeB.readPresence(SESSION_ID);
+    expect(presence.participants).toHaveLength(1);
+    expect(presence.participants[0]?.state).toBe("reconnecting");
   });
 
   it("fans out an offline tombstone when a LOCAL client is forgotten, so the peer node sees offline (not stale online)", () => {
