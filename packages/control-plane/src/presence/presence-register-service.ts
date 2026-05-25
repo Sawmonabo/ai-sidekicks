@@ -204,6 +204,7 @@ import {
   ParticipantIdSchema,
   PresenceStateSchema,
   SessionIdSchema,
+  canonicalizeUuid,
   wireFreeFormString,
 } from "@ai-sidekicks/contracts";
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate } from "y-protocols/awareness";
@@ -418,16 +419,25 @@ type ClientPresence = LocalClientPresence | PeerClientPresence;
 // so the device id is part of the key — `readPresence` aggregates per
 // participant across that participant's devices (see its docstring).
 function clientKey(participantId: ParticipantId, deviceId: string): string {
+  // `participantId` is canonicalized to lowercase hex (`canonicalizeUuid`)
+  // BEFORE it enters the key: it is a `brandedUuidIdSchema` UUID
+  // (session.ts:57) whose validator (`z.string().uuid()`) is case-INSENSITIVE,
+  // so an uppercase and a lowercase spelling denote the SAME logical
+  // participant and MUST collapse to one key (else the same participant on one
+  // device splits into two slots). `deviceId` is NOT canonicalized — it is an
+  // opaque `wireFreeFormString` (presence.ts:240), case-SIGNIFICANT, where two
+  // case-variant strings are two genuinely different devices.
+  //
   // The separator is a literal NUL byte (`\0`). It is collision-free because
   // `wireFreeFormString` (session.ts:118-128) rejects NUL in EVERY wire
   // free-form string via `.refine((s) => !s.includes("\0"))` (line 126), and
-  // both operands are so guarded at the wire boundary: `participantId` is a
-  // `brandedUuidIdSchema` UUID (session.ts:57) and `deviceId` is
-  // `wireFreeFormString(DEVICE_ID_MAX_LEN, ...)` (presence.ts:240). So the
+  // both operands are so guarded at the wire boundary: the canonicalized
+  // `participantId` is still a hex+hyphen UUID (lowercasing introduces no NUL)
+  // and `deviceId` is `wireFreeFormString(DEVICE_ID_MAX_LEN, ...)`. So the
   // separator can never occur inside either field, and the join parses back
   // unambiguously. (Spelled `\0` rather than an inline literal so the byte is
   // visible in source — an invisible NUL here has already misled two readers.)
-  return `${participantId}\0${deviceId}`;
+  return `${canonicalizeUuid(participantId)}\0${deviceId}`;
 }
 
 // --------------------------------------------------------------------------
@@ -707,7 +717,7 @@ export class PresenceRegisterService {
    * @returns the per-participant presence projection.
    */
   readPresence(sessionId: SessionId): PresenceReadResponse {
-    const clients: Map<string, ClientPresence> | undefined = this.#sessions.get(sessionId);
+    const clients: Map<string, ClientPresence> | undefined = this.#getClients(sessionId);
     if (clients === undefined) {
       return { participants: [] };
     }
@@ -779,7 +789,7 @@ export class PresenceRegisterService {
    *   client was tracked.
    */
   forgetClient(sessionId: SessionId, participantId: ParticipantId, deviceId: string): boolean {
-    const clients: Map<string, ClientPresence> | undefined = this.#sessions.get(sessionId);
+    const clients: Map<string, ClientPresence> | undefined = this.#getClients(sessionId);
     if (clients === undefined) {
       return false;
     }
@@ -791,7 +801,7 @@ export class PresenceRegisterService {
     this.#teardownClient(sessionId, client);
     clients.delete(key);
     if (clients.size === 0) {
-      this.#sessions.delete(sessionId);
+      this.#deleteClients(sessionId);
     }
     return true;
   }
@@ -947,7 +957,7 @@ export class PresenceRegisterService {
     // grow `#sessions` unbounded — a memory-exhaustion vector from the foreign-
     // writer surface this path hardens. Mirrors the `forgetClient` reclaim.
     if (clients.size === 0) {
-      this.#sessions.delete(message.sessionId);
+      this.#deleteClients(message.sessionId);
     }
 
     teardownAwareness(scratch, scratchDoc);
@@ -1126,11 +1136,38 @@ export class PresenceRegisterService {
   // Internal — shared helpers.
   // ------------------------------------------------------------------------
 
+  // ------------------------------------------------------------------------
+  // Outer `#sessions` map accessors — the SINGLE canonicalization boundary.
+  // ------------------------------------------------------------------------
+  //
+  // `#sessions` is keyed by `SessionId`, a `brandedUuidIdSchema` UUID whose
+  // validator (`z.string().uuid()`) is case-INSENSITIVE (RFC 9562 §4), and ids
+  // in this codebase are branded by bare cast at DB-row reads (not parsed
+  // through the schema), so an uppercase and a lowercase spelling of the SAME
+  // logical session can both reach this map. Routing EVERY keyed access through
+  // these three accessors (which canonicalize via `canonicalizeUuid`) is what
+  // guarantees the two spellings collapse to one key — so presence cannot split
+  // or go missing across case-variants. INVARIANT: no direct
+  // `this.#sessions.get/set/delete` exists outside these three methods (whole-
+  // map `entries()`/`clear()`/`size` in `destroy`/`trackedSessionCount` operate
+  // on the map as a whole and need no per-key canonical form).
+  #getClients(sessionId: SessionId): Map<string, ClientPresence> | undefined {
+    return this.#sessions.get(canonicalizeUuid(sessionId));
+  }
+
+  #setClients(sessionId: SessionId, clients: Map<string, ClientPresence>): void {
+    this.#sessions.set(canonicalizeUuid(sessionId), clients);
+  }
+
+  #deleteClients(sessionId: SessionId): void {
+    this.#sessions.delete(canonicalizeUuid(sessionId));
+  }
+
   #clientsFor(sessionId: SessionId): Map<string, ClientPresence> {
-    let clients: Map<string, ClientPresence> | undefined = this.#sessions.get(sessionId);
+    let clients: Map<string, ClientPresence> | undefined = this.#getClients(sessionId);
     if (clients === undefined) {
       clients = new Map<string, ClientPresence>();
-      this.#sessions.set(sessionId, clients);
+      this.#setClients(sessionId, clients);
     }
     return clients;
   }

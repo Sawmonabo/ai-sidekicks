@@ -2497,3 +2497,83 @@ function decodeForeignState(message: PresenceFanoutMessage): Record<string, unkn
   receiverDoc.destroy();
   return result;
 }
+
+// ----------------------------------------------------------------------------
+// UUID hex-case canonicalization at the presence map's key boundaries.
+// ----------------------------------------------------------------------------
+//
+// UUID hex text is case-INSENSITIVE (RFC 9562 §4) and `SessionIdSchema` /
+// `ParticipantIdSchema` (`z.string().uuid()`) accept an uppercase UUID
+// unchanged (no normalization). Ids in this codebase are branded by bare cast
+// at DB-row reads, NOT by parsing through the schema, so an uppercase and a
+// lowercase spelling of the SAME logical id can both reach the service. Both
+// of the presence map's keys are case-sensitive `Map` keys derived from UUIDs:
+//   * the OUTER `#sessions` map is keyed by `sessionId`;
+//   * the INNER per-session map is keyed by `clientKey(participantId, deviceId)`.
+// Without canonicalization, two case-variants of one logical id land under two
+// distinct keys → split or missing presence state. These two tests cover BOTH
+// halves of that bug class (outer key = sessionId, inner key = participantId);
+// `deviceId` is opaque/case-significant and is deliberately NOT canonicalized.
+describe("PresenceRegisterService — canonicalizes case-variant UUID keys (no split presence state)", () => {
+  // The SAME logical session id in two hex cases. v7-shaped (version `7`,
+  // variant `8`) so any wire validation accepts it; cast per the file idiom.
+  const UPPER_SESSION_ID: SessionId = "0197F00D-AAAA-7AAA-8AAA-AAAAAAAAAAAA" as SessionId;
+  const LOWER_SESSION_ID: SessionId = "0197f00d-aaaa-7aaa-8aaa-aaaaaaaaaaaa" as SessionId;
+  // The SAME logical participant id in two hex cases.
+  const UPPER_PARTICIPANT: ParticipantId = "0197F00D-BBBB-7BBB-8BBB-BBBBBBBBBBBB" as ParticipantId;
+  const LOWER_PARTICIPANT: ParticipantId = "0197f00d-bbbb-7bbb-8bbb-bbbbbbbbbbbb" as ParticipantId;
+
+  it("outer key: a heartbeat under an UPPERCASE sessionId is read back under its lowercase form (same logical session)", () => {
+    const service = new PresenceRegisterService();
+
+    // Record under the uppercase spelling…
+    service.recordHeartbeat(
+      UPPER_SESSION_ID,
+      heartbeat({ participantId: PARTICIPANT_A, deviceId: DEVICE_LAPTOP, activityState: "online" }),
+    );
+
+    // …and read under the lowercase spelling of the SAME logical session.
+    // RED (pre-fix): the two cases hit different `#sessions` keys, so this
+    // returns an empty `participants` array (length 0). GREEN (post-fix): both
+    // keys canonicalize to the lowercase form, so the heartbeat is visible.
+    const presence = service.readPresence(LOWER_SESSION_ID);
+    expect(presence.participants).toHaveLength(1);
+    expect(presence.participants[0]?.participantId).toBe(PARTICIPANT_A);
+    expect(presence.participants[0]?.state).toBe("online");
+  });
+
+  it("inner key: the same logical participant in two hex cases (one session, one device) aggregates to ONE entry", () => {
+    const service = new PresenceRegisterService();
+
+    // Two heartbeats for the SAME session + SAME device, differing ONLY in the
+    // hex case of the participant id — i.e. the same logical participant.
+    service.recordHeartbeat(
+      SESSION_ID,
+      heartbeat({
+        participantId: UPPER_PARTICIPANT,
+        deviceId: DEVICE_LAPTOP,
+        activityState: "online",
+      }),
+    );
+    service.recordHeartbeat(
+      SESSION_ID,
+      heartbeat({
+        participantId: LOWER_PARTICIPANT,
+        deviceId: DEVICE_LAPTOP,
+        activityState: "idle",
+      }),
+    );
+
+    // RED (pre-fix): the two case-variant participant ids produce two distinct
+    // `clientKey` slots → `readPresence` dedups by the stored (raw, case-variant)
+    // `participantId` → TWO entries. GREEN (post-fix): `clientKey` canonicalizes
+    // the participant id, so both heartbeats target ONE local holder (the second
+    // `setLocalState` overwrites the first) → exactly ONE participant entry.
+    const presence = service.readPresence(SESSION_ID);
+    expect(presence.participants).toHaveLength(1);
+    // The surviving entry carries the LAST-written spelling + state (the second
+    // heartbeat won the single slot).
+    expect(presence.participants[0]?.participantId).toBe(LOWER_PARTICIPANT);
+    expect(presence.participants[0]?.state).toBe("idle");
+  });
+});
