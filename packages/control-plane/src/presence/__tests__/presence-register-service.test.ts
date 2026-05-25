@@ -778,6 +778,130 @@ describe("PresenceRegisterService — Pr2 reconnect-grace timer (reconnecting be
 });
 
 // ----------------------------------------------------------------------------
+// Pr2 (crash guard) — a throwing onTransition observer must NOT crash the
+// process (daemon-crash guard on the detached setTimeout grace-timer boundary).
+// ----------------------------------------------------------------------------
+//
+// `#transition` fires the `onTransition` observer from a DETACHED `setTimeout`
+// grace-timer callback (`#armGraceTimer`). The observer is T3.3's durable-
+// emission seam wired to `SessionService.append`, which CAN throw (SQLite
+// `SQLITE_BUSY`, a `monotonic_ns` unique-violation, a Zod failure). On a real
+// timer boundary an uncaught throw ESCAPES to Node's `uncaughtException` and can
+// terminate the daemon process — exactly the failure the guard in `#transition`
+// prevents (mirrors the daemon's session-subscribe.ts setImmediate/timer guard).
+//
+// This test deliberately uses REAL timers (a tiny 5ms reconnecting window),
+// NOT the fake timers the rest of Pr2 uses: under `vi.useFakeTimers()` a throw
+// inside a `setTimeout` callback is re-thrown SYNCHRONOUSLY by
+// `advanceTimersByTime` and never reaches `process.on("uncaughtException")`, so
+// the "no uncaught exception" assertion would be vacuous. Real timers exercise
+// the genuine production path: the detached callback runs on its own tick, so a
+// throw really would surface as an `uncaughtException` if the guard regressed.
+
+describe("PresenceRegisterService — Pr2 crash guard (a throwing onTransition observer does not crash the process)", () => {
+  it("swallows a throw from the onTransition seam on the grace-timer boundary, logs a tripwire, and keeps processing", async () => {
+    // Capture any uncaughtException the timer boundary would surface. WITHOUT
+    // the guard in `#transition`, the synthetic throw below escapes the detached
+    // `setTimeout` callback and lands here (and, unguarded in production, would
+    // terminate the daemon). WITH the guard it is swallowed, so this list stays
+    // empty.
+    const uncaught: unknown[] = [];
+    const onUncaught = (error: unknown): void => {
+      uncaught.push(error);
+    };
+    process.on("uncaughtException", onUncaught);
+
+    // Spy on `console.error` so the tripwire log is assertable. Mock the impl to
+    // a no-op so the synthetic-failure diagnostic does not pollute test output.
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    // The observer throws on the FIRST transition (PARTICIPANT_A's
+    // reconnecting), then becomes a no-op so a subsequent participant's
+    // transitions are observed normally. A short 5ms reconnecting window keeps
+    // the real-timer wait tight.
+    const observed: string[] = [];
+    let throwOnce = true;
+    const service = new PresenceRegisterService({
+      reconnectingAfterMs: 5,
+      offlineAfterMs: 10_000, // far out — this test only drives the reconnecting step.
+      onTransition: (event) => {
+        if (throwOnce && event.participantId === PARTICIPANT_A) {
+          throwOnce = false;
+          throw new Error("synthetic append failure");
+        }
+        observed.push(`${event.participantId}:${event.from}->${event.to}`);
+      },
+    });
+
+    try {
+      // Drive PARTICIPANT_A to the reconnecting transition; its observer throws.
+      service.recordHeartbeat(
+        SESSION_ID,
+        heartbeat({
+          participantId: PARTICIPANT_A,
+          deviceId: DEVICE_LAPTOP,
+          activityState: "online",
+        }),
+      );
+      // Wait past the 5ms reconnecting window on REAL timers so the detached
+      // `setTimeout` callback runs on its own tick (where an unguarded throw
+      // would escape to `uncaughtException`).
+      await new Promise((resolve) => setTimeout(resolve, 30));
+
+      // (a) The throw was SWALLOWED at the guard, not propagated to the process.
+      // (If the guard were removed, the detached-callback throw would land in
+      // `uncaught` here.)
+      expect(uncaught).toEqual([]);
+
+      // (b) The guard logged the tripwire with the full transition context
+      // (sessionId / participantId / from / to).
+      expect(consoleErrorSpy).toHaveBeenCalled();
+      const tripwireCall = consoleErrorSpy.mock.calls.find(
+        (call) => typeof call[0] === "string" && call[0].includes("onTransition observer threw"),
+      );
+      expect(tripwireCall).toBeDefined();
+      const tripwireMessage = tripwireCall?.[0] as string;
+      expect(tripwireMessage).toContain(SESSION_ID);
+      expect(tripwireMessage).toContain(PARTICIPANT_A);
+      expect(tripwireMessage).toContain("from=online");
+      expect(tripwireMessage).toContain("to=reconnecting");
+      // The thrown Error is forwarded as the second arg for diagnosis.
+      expect(tripwireCall?.[1]).toBeInstanceOf(Error);
+      expect((tripwireCall?.[1] as Error).message).toBe("synthetic append failure");
+
+      // The in-memory CRDT still advanced despite the observer throw — the
+      // transition itself is applied BEFORE the (swallowed) emission.
+      expect(service.readPresence(SESSION_ID).participants[0]?.state).toBe("reconnecting");
+
+      // (c) The service is NOT in a corrupt state: a SUBSEQUENT heartbeat for a
+      // DIFFERENT participant still processes and its grace-timer transition is
+      // observed normally (the observer no longer throws).
+      service.recordHeartbeat(
+        SESSION_ID,
+        heartbeat({
+          participantId: PARTICIPANT_B,
+          deviceId: DEVICE_PHONE,
+          activityState: "online",
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 30));
+
+      expect(observed).toContain(`${PARTICIPANT_B}:online->reconnecting`);
+      // PARTICIPANT_B surfaces correctly in the projection alongside A.
+      const states = new Map(
+        service.readPresence(SESSION_ID).participants.map((p) => [p.participantId, p.state]),
+      );
+      expect(states.get(PARTICIPANT_B)).toBe("reconnecting");
+
+      await service.destroy();
+    } finally {
+      process.removeListener("uncaughtException", onUncaught);
+      consoleErrorSpy.mockRestore();
+    }
+  });
+});
+
+// ----------------------------------------------------------------------------
 // Pr3 — Postgres LISTEN/NOTIFY cross-node fan-out (Spec-002 §Default Behavior
 // line 61).
 // ----------------------------------------------------------------------------

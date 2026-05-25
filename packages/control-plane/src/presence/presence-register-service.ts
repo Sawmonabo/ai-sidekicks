@@ -874,14 +874,37 @@ export class PresenceRegisterService {
     this.#publish(sessionId, client.awareness, client.doc.clientID);
 
     // T3.3 durable-emission seam (T3.2 writes nothing durable itself).
-    this.#onTransition?.({
-      sessionId,
-      participantId,
-      deviceId,
-      from,
-      to,
-      at: new Date(),
-    });
+    //
+    // CRASH GUARD (mirrors the daemon's session-subscribe.ts setImmediate/timer
+    // boundary guard, lines ~316-326): `#transition` is reached from a DETACHED
+    // `setTimeout` grace-timer callback (`#armGraceTimer`), so this stack has NO
+    // surrounding try/catch and runs outside any caller's reach. The
+    // `onTransition` observer is documented as the durable-emission seam wired to
+    // `SessionService.append` (T3.3), which CAN throw — SQLite `SQLITE_BUSY`, a
+    // `monotonic_ns` unique-violation, or a Zod validation failure. A throw on
+    // this timer boundary would ESCAPE to Node's `uncaughtException` and is
+    // capable of terminating the daemon process. So we degrade gracefully:
+    // surface the failure via `console.error` with a tripwire prefix carrying the
+    // full transition context, then SWALLOW it — a dropped observer notification
+    // (T3.3 can recover on the next transition / via reconciliation) is the right
+    // trade against crashing the daemon over one emission. There is no structured
+    // logger in the control-plane today; this flips to it when one lands.
+    // TRIPWIRE: replace `console.error` once a structured logger surfaces.
+    try {
+      this.#onTransition?.({
+        sessionId,
+        participantId,
+        deviceId,
+        from,
+        to,
+        at: new Date(),
+      });
+    } catch (error) {
+      console.error(
+        `[presence] onTransition observer threw; transition notification dropped (swallowed to keep the daemon alive) for sessionId=${sessionId} participantId=${participantId} from=${from} to=${to}`,
+        error,
+      );
+    }
   }
 
   // ------------------------------------------------------------------------
