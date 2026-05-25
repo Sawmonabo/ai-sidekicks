@@ -9,6 +9,19 @@ packages:
 minimumReleaseAge: 1440
 blockExoticSubdeps: true
 
+# Transitive-dependency pin for the public-surface validator (`attw` / publint CI).
+# fflate@0.8.3 (2026-05-16) changed Gunzip's chunking so one input chunk no longer
+# yields one output chunk; @arethetypeswrong/core's extractTarball assumes one chunk
+# out, so it reads an undefined tarball entry and crashes with
+# "Cannot read properties of undefined (reading 'filename')". This breaks every attw
+# version 0.13.10–0.18.2 (they all float fflate via a caret range). Pin the prior
+# good 0.8.2 only where attw-core consumes it; nothing else in the tree uses fflate.
+# Tracking arethetypeswrong/arethetypeswrong.github.io#258 (open) — remove this
+# override when attw ships a release that pins fflate or fixes extractTarball.
+# Added 2026-05-25.
+overrides:
+  "@arethetypeswrong/core>fflate": "0.8.2"
+
 # Strict build-script allowlist per ADR-022 §Decision row 1 + ADR-023 §Axis 4 sub-axis 5.
 # `allowBuilds` (pnpm 10.26+) replaces deprecated `pnpm.onlyBuiltDependencies` /
 # `ignoredBuiltDependencies` and is configured in pnpm-workspace.yaml per pnpm.io/settings.

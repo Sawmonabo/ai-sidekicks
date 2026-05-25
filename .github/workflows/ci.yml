@@ -152,6 +152,54 @@ jobs:
       - name: Test (Node 22 tier — excluding control-plane)
         run: pnpm turbo run test --filter='!@ai-sidekicks/control-plane'
 
+      # Public-surface validation for the workspace libraries. Two complementary
+      # linters run against the *packed* tarball (not the source tree), so they
+      # see exactly what a consumer would install:
+      #   - publint --strict: packaging correctness (exports map resolves, files
+      #     listed in "files" exist, module type is consistent). --strict makes
+      #     warnings fatal; the packages are clean at this bar.
+      #   - attw (@arethetypeswrong/cli): how the shipped .d.ts resolves under
+      #     each module-resolution mode. Each package carries an .attw.json with
+      #     the `esm-only` profile — these are "type": "module" packages with no
+      #     CJS export, so the node10 / node16-cjs resolutions are intentionally
+      #     ignored (a CJS consumer must dynamic-import) while node16-from-ESM
+      #     and bundler stay enforced.
+      # attw's transitive dep fflate is pinned to 0.8.2 via a pnpm override (see
+      # pnpm-workspace.yaml); fflate 0.8.3 broke attw's tarball extraction.
+      # Libraries are discovered from packages/*/package.json and partitioned by
+      # their minimum supported Node major (semver.minVersion of engines.node) —
+      # no hardcoded list to drift as packages are added. This step validates the
+      # Node 22 tier (floor < 24); the matching step in the Node 24 job validates
+      # floor >= 24. minVersion (not the first numeric token) is used so reordered
+      # OR-ranges like "^24 || >=22.12.0" bucket by their true minimum (22), not a
+      # higher leading clause. The split mirrors the build-filter partition above
+      # (control-plane is carved to Node 24 for the same engines.node reason), so a
+      # new library is validated on the tier it is built on. apps/* are
+      # applications, not published libraries, and are intentionally out of scope.
+      - name: Validate package public surface (publint + attw — Node 22 tier)
+        run: |
+          fail=0
+          tmp=$(mktemp -d)
+          for pj in packages/*/package.json; do
+            dir=$(dirname "$pj")
+            pkg=$(basename "$dir")
+            major=$(node -e 'const s=require("semver");const e=require("./"+process.argv[1]).engines?.node;let m=null;try{if(e)m=s.minVersion(e)}catch{}process.stdout.write(m?String(m.major):"")' "$pj" 2>/dev/null)
+            [ "${major:-22}" -ge 24 ] && continue  # Node 24 tier handles floor >= 24
+            echo "::group::$pkg — publint --strict + attw (esm-only)"
+            ( cd "$dir" && pnpm exec publint --strict ) || { echo "::error::publint failed for $pkg"; fail=1; }
+            ( cd "$dir" && pnpm pack --pack-destination "$tmp" >/dev/null ) || { echo "::error::pnpm pack failed for $pkg"; fail=1; }
+            tgz=$(find "$tmp" -maxdepth 1 -name '*.tgz')
+            ( cd "$dir" && pnpm exec attw "$tgz" ) || { echo "::error::attw failed for $pkg"; fail=1; }
+            find "$tmp" -maxdepth 1 -name '*.tgz' -delete
+            echo "::endgroup::"
+          done
+          rm -rf "$tmp"
+          if [ $fail -ne 0 ]; then
+            echo "::error::package public-surface validation failed (publint/attw)"
+            exit 1
+          fi
+          echo "ok: all Node 22 tier packages pass publint --strict + attw"
+
       # Plan-execution skill tests (Layer 1 fixture-driven + Layer 2 unit). Closes the gap
       # noted in spec §10.4(a) — pre-housekeeper, the .claude/skills/plan-execution/scripts/
       # tests had no CI run. Uses --experimental-strip-types per ADR-022 + repo precedent
@@ -206,6 +254,35 @@ jobs:
 
       - name: Test (control-plane only)
         run: pnpm turbo run test --filter='@ai-sidekicks/control-plane...'
+
+      # Same publint + attw public-surface validation as the Node 22 tier above
+      # (see that step's comment for the esm-only-profile + fflate-pin rationale,
+      # and for how libraries are discovered and partitioned by engines.node).
+      # This step validates the Node 24 tier (floor >= 24) — currently just
+      # control-plane (engines.node >= 24), but discovered dynamically.
+      - name: Validate package public surface (publint + attw — Node 24 tier)
+        run: |
+          fail=0
+          tmp=$(mktemp -d)
+          for pj in packages/*/package.json; do
+            dir=$(dirname "$pj")
+            pkg=$(basename "$dir")
+            major=$(node -e 'const s=require("semver");const e=require("./"+process.argv[1]).engines?.node;let m=null;try{if(e)m=s.minVersion(e)}catch{}process.stdout.write(m?String(m.major):"")' "$pj" 2>/dev/null)
+            [ "${major:-22}" -lt 24 ] && continue  # Node 22 tier handles floor < 24
+            echo "::group::$pkg — publint --strict + attw (esm-only)"
+            ( cd "$dir" && pnpm exec publint --strict ) || { echo "::error::publint failed for $pkg"; fail=1; }
+            ( cd "$dir" && pnpm pack --pack-destination "$tmp" >/dev/null ) || { echo "::error::pnpm pack failed for $pkg"; fail=1; }
+            tgz=$(find "$tmp" -maxdepth 1 -name '*.tgz')
+            ( cd "$dir" && pnpm exec attw "$tgz" ) || { echo "::error::attw failed for $pkg"; fail=1; }
+            find "$tmp" -maxdepth 1 -name '*.tgz' -delete
+            echo "::endgroup::"
+          done
+          rm -rf "$tmp"
+          if [ $fail -ne 0 ]; then
+            echo "::error::package public-surface validation failed (publint/attw)"
+            exit 1
+          fi
+          echo "ok: all Node 24 tier packages pass publint --strict + attw"
 
   ci-gate:
     name: ci-gate
