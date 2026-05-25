@@ -351,7 +351,7 @@ async fn kill_sigterm_terminates_long_running_child() {
     assert_eq!(exit.session_id, session_id);
     // SIGTERM-killed child: exit_code is portable-pty's "signal-
     // terminated" sentinel (1) per the From<std::process::ExitStatus>
-    // implementation in portable-pty 0.9 lib.rs:208-237.
+    // implementation in portable-pty 0.9.
     // signal_code is None at Phase 1 per module rustdoc §6.
     assert_eq!(
         exit.signal_code, None,
@@ -690,7 +690,8 @@ async fn exit_notification_arrives_after_final_data_frame() {
         })
         .sum();
     assert_eq!(
-        data_total, PAYLOAD_BYTES,
+        data_total,
+        PAYLOAD_BYTES,
         "expected all {PAYLOAD_BYTES} bytes of 'A' before ExitCodeNotification, got \
          data_total={data_total} (envelopes={count}). A shortfall indicates the waiter \
          fired ExitCodeNotification before the reader finished pumping — see \
@@ -1050,10 +1051,7 @@ async fn registry_drop_escalates_to_sigkill_for_sighup_ignoring_child() {
     let _response = registry
         .spawn(SpawnRequest {
             command: "/bin/sh".to_string(),
-            args: vec![
-                "-c".to_string(),
-                "trap '' HUP; exec sleep 60".to_string(),
-            ],
+            args: vec!["-c".to_string(), "trap '' HUP; exec sleep 60".to_string()],
             env: empty_env(),
             cwd: "/tmp".to_string(),
             rows: 24,

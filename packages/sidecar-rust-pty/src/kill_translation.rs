@@ -115,7 +115,7 @@ pub fn translate(signal: PtySignal) -> WindowsKillAction {
         PtySignal::Sigterm => WindowsKillAction::ConsoleCtrlEvent(ConsoleCtrlEvent::CtrlBreak),
         // SIGKILL is the immediate-hard-stop contract; skip the
         // console-control-event hop and invoke taskkill directly per
-        // Plan-024 §Implementation Step 8 line 120 ("`SIGKILL`
+        // Plan-024 §Implementation Step 8 ("`SIGKILL`
         // (immediate hard-stop) → `taskkill /T /F /PID <pid>` directly,
         // skipping `CTRL_BREAK_EVENT`").
         PtySignal::Sigkill => WindowsKillAction::TreeKill,
@@ -166,7 +166,7 @@ mod tests {
     fn translates_sigterm_to_ctrl_break_event() {
         // I-024-1: `SIGTERM` (graceful hard-stop) MUST map to
         // `CTRL_BREAK_EVENT` first per ADR-019 §Decision item 1 +
-        // Plan-024 §Implementation Step 8 line 119.
+        // Plan-024 §Implementation Step 8.
         assert_eq!(
             translate(PtySignal::Sigterm),
             WindowsKillAction::ConsoleCtrlEvent(ConsoleCtrlEvent::CtrlBreak),
@@ -177,7 +177,7 @@ mod tests {
     fn translates_sigkill_to_tree_kill_direct() {
         // I-024-1 + I-024-2: `SIGKILL` (immediate hard-stop) skips
         // `CTRL_BREAK_EVENT` and invokes `taskkill /T /F /PID <pid>`
-        // directly per Plan-024 §Implementation Step 8 line 120.
+        // directly per Plan-024 §Implementation Step 8.
         assert_eq!(translate(PtySignal::Sigkill), WindowsKillAction::TreeKill);
     }
 

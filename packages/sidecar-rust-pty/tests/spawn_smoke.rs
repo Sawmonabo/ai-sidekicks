@@ -1,8 +1,8 @@
 //! Plan-024 Phase 1 acceptance smoke tests — spawn-only, both platforms.
 //!
-//! Pins the Phase 1 acceptance criterion verbatim from
-//! `docs/plans/024-rust-pty-sidecar.md` §Test And Verification Plan and
-//! the audit row at Plan-024:282:
+//! Pins the Phase 1 acceptance criterion verbatim from the T-024-1-5 task
+//! row in `docs/plans/024-rust-pty-sidecar.md` (§Implementation Phase
+//! Sequence, Phase 1):
 //!
 //! > "spawns `sh -c 'echo hello; exit 0'` on Linux/macOS **and**
 //! > `cmd.exe /c "echo hello"` on Windows; asserts stdout chunk is
@@ -40,7 +40,7 @@
 //!
 //! [`PtySessionRegistry::spawn`] calls `env_clear()` on the
 //! [`portable_pty::CommandBuilder`] before applying the request's `env`
-//! pairs (deliberate hermetic-spawn design at `pty_session.rs:421`).
+//! pairs (deliberate hermetic-spawn design in [`PtySessionRegistry::spawn`]).
 //! With `PATH` empty in the child, bare command names cannot be resolved
 //! — so on both platforms we pass an absolute binary path:
 //!
