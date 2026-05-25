@@ -80,6 +80,7 @@ import {
   PresenceRegisterService,
   type PgListenNotifyClient,
   type PresenceFanoutMessage,
+  type PresencePubSub,
   type PresenceTransitionEvent,
 } from "../presence-register-service.js";
 
@@ -702,7 +703,9 @@ describe("PresenceRegisterService — Pr2 reconnect-grace timer (reconnecting be
     const service = new PresenceRegisterService({
       reconnectingAfterMs: 15_000,
       offlineAfterMs: 45_000,
-      onTransition: (event) => transitions.push(event),
+      onTransition: (event) => {
+        transitions.push(event);
+      },
     });
 
     service.recordHeartbeat(
@@ -744,7 +747,9 @@ describe("PresenceRegisterService — Pr2 reconnect-grace timer (reconnecting be
     const service = new PresenceRegisterService({
       reconnectingAfterMs: 15_000,
       offlineAfterMs: 45_000,
-      onTransition: (event) => transitions.push(event),
+      onTransition: (event) => {
+        transitions.push(event);
+      },
     });
 
     service.recordHeartbeat(
@@ -785,7 +790,9 @@ describe("PresenceRegisterService — Pr2 reconnect-grace timer (reconnecting be
     const service = new PresenceRegisterService({
       reconnectingAfterMs: 15_000,
       offlineAfterMs: 45_000,
-      onTransition: (event) => transitions.push(event),
+      onTransition: (event) => {
+        transitions.push(event);
+      },
     });
 
     service.recordHeartbeat(
@@ -834,7 +841,9 @@ describe("PresenceRegisterService — Pr2 reconnect-grace timer (reconnecting be
     const service = new PresenceRegisterService({
       reconnectingAfterMs: 15_000,
       offlineAfterMs: 45_000,
-      onTransition: (event) => transitions.push(event),
+      onTransition: (event) => {
+        transitions.push(event);
+      },
     });
 
     // A heartbeat that already carries the TERMINAL `offline` state. The grace
@@ -1110,7 +1119,7 @@ describe("PresenceRegisterService — Pr2 crash guard (a throwing onTransition o
     process.on("uncaughtException", onUncaught);
     const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
-    const thenOnlyRejecting: PromiseLike<void> = {
+    const thenOnlyRejecting = {
       then: (_resolve: (value: void) => void, reject?: (reason: unknown) => void): void => {
         reject?.(new Error("synthetic then-only rejection"));
       },
