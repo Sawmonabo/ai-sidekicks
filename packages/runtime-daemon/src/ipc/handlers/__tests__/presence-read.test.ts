@@ -81,7 +81,7 @@ describe("presence.read — round-trip through MethodRegistry dispatch", () => {
   it("dispatches `presence.read` to the deps' readPresence; returns the canonical response shape", async () => {
     const registry = new MethodRegistryImpl();
     const expectedResponse = buildPresenceReadResponse();
-    const mockReadPresence = vi.fn<(req: PresenceReadRequest) => Promise<PresenceReadResponse>>(
+    const mockReadPresence = vi.fn<(request: PresenceReadRequest) => Promise<PresenceReadResponse>>(
       async () => expectedResponse,
     );
     const deps: PresenceReadDeps = { readPresence: mockReadPresence };
@@ -103,7 +103,7 @@ describe("presence.read — round-trip through MethodRegistry dispatch", () => {
   it("returns an empty roster `{participants: []}` unchanged (a session with no live presence is a valid projection, not an error)", async () => {
     const registry = new MethodRegistryImpl();
     const emptyRoster: PresenceReadResponse = { participants: [] };
-    const mockReadPresence = vi.fn<(req: PresenceReadRequest) => Promise<PresenceReadResponse>>(
+    const mockReadPresence = vi.fn<(request: PresenceReadRequest) => Promise<PresenceReadResponse>>(
       async () => emptyRoster,
     );
     const deps: PresenceReadDeps = { readPresence: mockReadPresence };
@@ -132,7 +132,7 @@ describe("presence.read — round-trip through MethodRegistry dispatch", () => {
 describe("presence.read — I-007-7 schema-validates-before-dispatch", () => {
   it("malformed payload rejects with `RegistryDispatchError(invalid_params)`; handler is NEVER invoked", async () => {
     const registry = new MethodRegistryImpl();
-    const mockReadPresence = vi.fn<(req: PresenceReadRequest) => Promise<PresenceReadResponse>>(
+    const mockReadPresence = vi.fn<(request: PresenceReadRequest) => Promise<PresenceReadResponse>>(
       async () => buildPresenceReadResponse(),
     );
     const deps: PresenceReadDeps = { readPresence: mockReadPresence };
