@@ -167,13 +167,15 @@ jobs:
       # attw's transitive dep fflate is pinned to 0.8.2 via a pnpm override (see
       # pnpm-workspace.yaml); fflate 0.8.3 broke attw's tarball extraction.
       # Libraries are discovered from packages/*/package.json and partitioned by
-      # their engines.node floor — no hardcoded list to drift as packages are
-      # added. This step validates the Node 22 tier (floor < 24); the matching
-      # step in the Node 24 job validates floor >= 24. The split mirrors the
-      # build-filter partition above (control-plane is carved to Node 24 for the
-      # same engines.node reason), so a new library is validated on the tier it
-      # is built on. apps/* are applications, not published libraries, and are
-      # intentionally out of scope.
+      # their minimum supported Node major (semver.minVersion of engines.node) —
+      # no hardcoded list to drift as packages are added. This step validates the
+      # Node 22 tier (floor < 24); the matching step in the Node 24 job validates
+      # floor >= 24. minVersion (not the first numeric token) is used so reordered
+      # OR-ranges like "^24 || >=22.12.0" bucket by their true minimum (22), not a
+      # higher leading clause. The split mirrors the build-filter partition above
+      # (control-plane is carved to Node 24 for the same engines.node reason), so a
+      # new library is validated on the tier it is built on. apps/* are
+      # applications, not published libraries, and are intentionally out of scope.
       - name: Validate package public surface (publint + attw — Node 22 tier)
         run: |
           fail=0
@@ -181,8 +183,7 @@ jobs:
           for pj in packages/*/package.json; do
             dir=$(dirname "$pj")
             pkg=$(basename "$dir")
-            eng=$(node -p "require('./$pj').engines?.node || ''" 2>/dev/null)
-            major=$(echo "$eng" | grep -oE '[0-9]+' | head -1)
+            major=$(node -e 'const s=require("semver");const e=require("./"+process.argv[1]).engines?.node;let m=null;try{if(e)m=s.minVersion(e)}catch{}process.stdout.write(m?String(m.major):"")' "$pj" 2>/dev/null)
             [ "${major:-22}" -ge 24 ] && continue  # Node 24 tier handles floor >= 24
             echo "::group::$pkg — publint --strict + attw (esm-only)"
             ( cd "$dir" && pnpm exec publint --strict ) || { echo "::error::publint failed for $pkg"; fail=1; }
@@ -266,8 +267,7 @@ jobs:
           for pj in packages/*/package.json; do
             dir=$(dirname "$pj")
             pkg=$(basename "$dir")
-            eng=$(node -p "require('./$pj').engines?.node || ''" 2>/dev/null)
-            major=$(echo "$eng" | grep -oE '[0-9]+' | head -1)
+            major=$(node -e 'const s=require("semver");const e=require("./"+process.argv[1]).engines?.node;let m=null;try{if(e)m=s.minVersion(e)}catch{}process.stdout.write(m?String(m.major):"")' "$pj" 2>/dev/null)
             [ "${major:-22}" -lt 24 ] && continue  # Node 22 tier handles floor < 24
             echo "::group::$pkg — publint --strict + attw (esm-only)"
             ( cd "$dir" && pnpm exec publint --strict ) || { echo "::error::publint failed for $pkg"; fail=1; }
