@@ -300,7 +300,7 @@ preconditions:
 **Goal:** Tests Pr1–Pr4 + I3 go green; P10 (no-presence-table migration regression) re-verified after Phase 3 lands.
 
 - `packages/control-plane/src/presence/presence-register-service.ts` — Yjs Awareness state ingestion (in-memory only, I-002-3), Postgres LISTEN/NOTIFY fan-out (per [ADR-008](../decisions/008-default-transports-and-relay-boundaries.md) transport choice). Owned by Plan-002 per CP-002-1.
-- Local IPC bridge: `presence.*` JSON-RPC method namespace (`PresenceUpdate`, `PresenceRead`) registered under the Plan-007-partial wire substrate. Handlers at `packages/runtime-daemon/src/ipc/handlers/presence-update.ts` and `packages/runtime-daemon/src/ipc/handlers/presence-read.ts` per CP-002-2.
+- Local IPC bridge: `presence.*` JSON-RPC method namespace (`PresenceUpdate`, `PresenceRead`) registered under the Plan-007-partial wire substrate. Handlers at `packages/runtime-daemon/src/ipc/handlers/presence-subscribe.ts` and `packages/runtime-daemon/src/ipc/handlers/presence-read.ts` per CP-002-2.
 - `ChannelList` projection that synthesizes the bootstrap `main` channel — a projected structural invariant whose id is `deriveMainChannelId(sessionId)` (a pure function of the session id), synthesized at `session.created` time rather than emitted by a `ChannelCreated` event.
 - Durable presence-state-change events emit via Plan-006 path (`presence.online`/`idle`/`reconnecting`/`offline`); presence rows themselves are never persisted.
 
@@ -316,7 +316,7 @@ preconditions:
 
 ##### T3.3 — Register `presence.*` JSON-RPC handlers under Plan-007-partial wire substrate; emit `presence.online/idle/reconnecting/offline` audit events to `session_events` per Plan-006 path (Pr4).
 
-**Files:** `packages/runtime-daemon/src/ipc/handlers/presence-update.ts`, `packages/runtime-daemon/src/ipc/handlers/presence-read.ts`, `packages/runtime-daemon/src/ipc/handlers/__tests__/presence-update.test.ts`, `packages/runtime-daemon/src/ipc/handlers/__tests__/presence-read.test.ts` **Spec coverage:** Spec-002 §State And Data Implications line 157 (Pr4 — durable presence state-change events), §Interfaces And Contracts line 85 (`PresenceUpdate` JSON-RPC surface), line 86 (`PresenceRead` JSON-RPC surface) **Verifies invariant:** none (transport surface + audit-event emission; I-002-3 is preserved by routing only state-change events — not presence rows — to `session_events`)
+**Files:** `packages/runtime-daemon/src/ipc/handlers/presence-subscribe.ts`, `packages/runtime-daemon/src/ipc/handlers/presence-read.ts`, `packages/runtime-daemon/src/ipc/handlers/__tests__/presence-subscribe.test.ts`, `packages/runtime-daemon/src/ipc/handlers/__tests__/presence-read.test.ts` **Spec coverage:** Spec-002 §State And Data Implications line 157 (Pr4 — durable presence state-change events), §Interfaces And Contracts line 85 (`PresenceUpdate` JSON-RPC surface), line 86 (`PresenceRead` JSON-RPC surface) **Verifies invariant:** none (transport surface + audit-event emission; I-002-3 is preserved by routing only state-change events — not presence rows — to `session_events`)
 
 ##### T3.4 — Implement `ChannelList` read-only projection that synthesizes the bootstrap `main` channel (a projected structural invariant, id = `deriveMainChannelId(sessionId)`); add I3 test asserting the projection returns the bootstrap main channel for an existing session.
 
