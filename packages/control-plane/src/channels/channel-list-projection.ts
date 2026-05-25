@@ -69,7 +69,7 @@ import type { Querier } from "../sessions/migration-runner.js";
 // owned by Plan-016, never the bootstrap default.
 // The `: ChannelState` annotation is a compile-time tripwire — a typo or a
 // future 4th channel state fails compile at this declaration (mirroring the
-// `PRESENCE_STATES` rationale in the presence service).
+// `PRESENCE_PROGRESSION` rationale in the presence service).
 const MAIN_CHANNEL_STATE: ChannelState = "active";
 
 // The bootstrap channel's id is the shared `deriveMainChannelId(sessionId)`

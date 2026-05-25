@@ -67,6 +67,10 @@ import type {
   PresenceState,
   SessionId,
 } from "@ai-sidekicks/contracts";
+// Value import: the response schema is used to prove the foreign-id validation
+// closes the `presence.read` poisoning vector (a malformed peer id would
+// otherwise make the whole response fail schema validation).
+import { PresenceReadResponseSchema } from "@ai-sidekicks/contracts";
 
 import { INITIAL_MIGRATION_SQL } from "../../migrations/0001-initial.js";
 import { applyMigrations, type Querier } from "../../sessions/migration-runner.js";
@@ -581,6 +585,87 @@ describe("PresenceRegisterService — forgetClient (explicit in-memory GC of a d
 // Short non-default windows (`reconnectingAfterMs` / `offlineAfterMs`) are
 // injected so the test reads cleanly; the DEFAULT 15s/45s is asserted
 // separately below from the no-arg constructor.
+
+describe("PresenceRegisterService — constructor validates the injected nodeId option", () => {
+  it("throws RangeError on an empty, over-length, or NUL-bearing nodeId (fail-fast, static message)", () => {
+    // The injected `nodeId` is stamped as `originNodeId` on every LOCAL
+    // snapshot, and the local read-back path revalidates those snapshots through
+    // `PresenceLocalStateSchema`, whose `originNodeId` field is
+    // `wireFreeFormString(NODE_ID_MAX_LEN=256, ...)`. An empty / over-length /
+    // NUL-bearing `nodeId` would therefore SILENTLY drop this node's own
+    // presence on every read and no-op every grace transition. The constructor
+    // now rejects it FAST, symmetric with the timing guards. Same `["", "   ",
+    // "x".repeat(257), "node\0x"]` quad as the peer-side `originNodeId` drop test
+    // (one per wireFreeFormString failure class: empty / whitespace-only /
+    // over-length / NUL).
+    for (const badNodeId of ["", "   ", "x".repeat(257), "node\0x"]) {
+      expect(() => new PresenceRegisterService({ nodeId: badNodeId })).toThrow(RangeError);
+      // Pin the STATIC constraint wording so a future message change is caught.
+      // Load-bearing: the message must NOT echo the raw value (a NUL/megabyte
+      // nodeId in a log line is exactly the vector the guard closes), so it is a
+      // fixed literal naming only the rule.
+      expect(() => new PresenceRegisterService({ nodeId: badNodeId })).toThrow(
+        /nodeId must be a non-blank string/,
+      );
+    }
+  });
+
+  it("accepts a valid custom nodeId and the no-option default (does not over-reject)", () => {
+    // Converse: a legitimate non-UUID node id (the cross-node tests pass
+    // "node-a" / "node-b") passes, and the no-options path — whose default
+    // `crypto.randomUUID()` (36 chars, non-blank, no NUL) must satisfy the same
+    // rule — constructs fine. The guard rejects only malformed ids, not the
+    // arbitrary-but-well-formed strings the abstraction allows.
+    expect(() => new PresenceRegisterService({ nodeId: "node-a" })).not.toThrow();
+    expect(() => new PresenceRegisterService()).not.toThrow();
+  });
+});
+
+describe("PresenceRegisterService — constructor validates the reconnecting/offline timing options", () => {
+  it("throws RangeError when offlineAfterMs < reconnectingAfterMs (well-ordering invariant)", () => {
+    // FIX C: the two-step `reconnecting -> offline` machine requires
+    // `offlineAfterMs >= reconnectingAfterMs`. A swapped pair is a fail-fast
+    // construction error whose message names BOTH offending values, in the
+    // order the message interpolates them (`offlineAfterMs (X) must be >=
+    // reconnectingAfterMs (Y)`) — pinning both rules out a transposed
+    // interpolation silently passing.
+    expect(
+      () => new PresenceRegisterService({ reconnectingAfterMs: 15_000, offlineAfterMs: 10_000 }),
+    ).toThrow(RangeError);
+    expect(
+      () => new PresenceRegisterService({ reconnectingAfterMs: 15_000, offlineAfterMs: 10_000 }),
+    ).toThrow(/offlineAfterMs \(10000\) must be >= reconnectingAfterMs \(15000\)/);
+  });
+
+  it("throws RangeError on a negative, NaN, or non-integer timing value", () => {
+    // FIX C: these feed `#armGraceTimer`'s `Math.max(0, …)` + setTimeout, where
+    // a negative / NaN / fractional delay is a silent footgun (NaN coerces to a
+    // 0ms timer). Each is rejected at construction; the message names the bad
+    // value (its `String(value)` form), so a mislabeled message fails the test.
+    expect(() => new PresenceRegisterService({ reconnectingAfterMs: -1 })).toThrow(RangeError);
+    expect(() => new PresenceRegisterService({ reconnectingAfterMs: -1 })).toThrow(/received -1/);
+    expect(() => new PresenceRegisterService({ offlineAfterMs: Number.NaN })).toThrow(
+      /received NaN/,
+    );
+    expect(() => new PresenceRegisterService({ reconnectingAfterMs: 1.5 })).toThrow(/received 1.5/);
+    expect(() => new PresenceRegisterService({ offlineAfterMs: 60_000.5 })).toThrow(
+      /received 60000.5/,
+    );
+  });
+
+  it("accepts valid timing config, including equal values and the defaults", () => {
+    // FIX C converse: the validation does NOT over-reject — equal values are a
+    // legitimate (degenerate but well-ordered) config, 0 is a non-negative
+    // integer, and the no-options path (the defaults, 15s/45s) constructs fine.
+    expect(
+      () => new PresenceRegisterService({ reconnectingAfterMs: 30_000, offlineAfterMs: 30_000 }),
+    ).not.toThrow();
+    expect(
+      () => new PresenceRegisterService({ reconnectingAfterMs: 0, offlineAfterMs: 0 }),
+    ).not.toThrow();
+    expect(() => new PresenceRegisterService()).not.toThrow();
+  });
+});
 
 describe("PresenceRegisterService — Pr2 reconnect-grace timer (reconnecting before offline)", () => {
   beforeEach(() => {
@@ -1408,6 +1493,321 @@ describe("PresenceRegisterService — Pr3 cross-node fan-out (LISTEN/NOTIFY, in-
     await nodeB.destroy();
   });
 
+  it("drops a peer snapshot whose participantId is not a valid UUID, and keeps presence.read schema-valid", () => {
+    // FOREIGN-WRITER HARDENING (FIX A): a peer fan-out value with a malformed
+    // (non-UUID) participantId must be REJECTED on receive — not stored. The
+    // contract id is `brandedUuidIdSchema` and `PresenceReadResponseSchema`
+    // rejects a non-UUID participantId, so storing it would poison the WHOLE
+    // session's `presence.read` response. A valid co-arriving client for the
+    // SAME session must still surface (the drop is per-snapshot, not per-session).
+    const bus = new InMemoryPresencePubSub();
+    const nodeB = new PresenceRegisterService({ pubSub: bus, nodeId: "node-b" });
+
+    const nowMs = Date.parse("2026-05-24T00:00:00.000Z");
+
+    // Malformed participantId — must be dropped (NOT a valid UUID).
+    void bus.publish({
+      sessionId: SESSION_ID,
+      update: encodeForeignState({
+        participantId: "not-a-uuid",
+        deviceId: DEVICE_LAPTOP,
+        state: "online",
+        deviceType: "desktop",
+        focusedSessionId: null,
+        focusedChannelId: null,
+        lastSeenAtMs: nowMs,
+        originNodeId: "node-a",
+        ingestSequence: 1,
+        lastActivityAt: new Date(nowMs).toISOString(),
+        appVisible: true,
+      }),
+      originNodeId: "node-a",
+    });
+
+    // Valid co-arriving client for the same session — must survive.
+    void bus.publish({
+      sessionId: SESSION_ID,
+      update: encodeForeignState({
+        participantId: PARTICIPANT_B,
+        deviceId: DEVICE_PHONE,
+        state: "online",
+        deviceType: "mobile",
+        focusedSessionId: null,
+        focusedChannelId: null,
+        lastSeenAtMs: nowMs,
+        originNodeId: "node-a",
+        ingestSequence: 2,
+        lastActivityAt: new Date(nowMs).toISOString(),
+        appVisible: true,
+      }),
+      originNodeId: "node-a",
+    });
+
+    const presence = nodeB.readPresence(SESSION_ID);
+    // The malformed-id client was dropped; only the valid one surfaced.
+    expect(presence.participants).toHaveLength(1);
+    expect(presence.participants[0]?.participantId).toBe(PARTICIPANT_B);
+    // Load-bearing: the poisoning vector is closed — the response the daemon
+    // would emit for this session passes the contract schema.
+    expect(PresenceReadResponseSchema.safeParse(presence).success).toBe(true);
+  });
+
+  it("drops a peer snapshot whose focusedSessionId is a non-UUID string", () => {
+    // FIX A: `focusedSessionId` is a branded SessionId-or-null on the wire. A
+    // non-null, non-UUID value must be rejected (null is the legitimate
+    // not-focused value and is exercised by the other fan-out tests).
+    const bus = new InMemoryPresencePubSub();
+    const nodeB = new PresenceRegisterService({ pubSub: bus, nodeId: "node-b" });
+
+    const nowMs = Date.parse("2026-05-24T00:00:00.000Z");
+    void bus.publish({
+      sessionId: SESSION_ID,
+      update: encodeForeignState({
+        participantId: PARTICIPANT_A,
+        deviceId: DEVICE_LAPTOP,
+        state: "online",
+        deviceType: "desktop",
+        focusedSessionId: "not-a-uuid",
+        focusedChannelId: null,
+        lastSeenAtMs: nowMs,
+        originNodeId: "node-a",
+        ingestSequence: 1,
+        lastActivityAt: new Date(nowMs).toISOString(),
+        appVisible: true,
+      }),
+      originNodeId: "node-a",
+    });
+
+    expect(nodeB.readPresence(SESSION_ID).participants).toHaveLength(0);
+  });
+
+  it("drops a peer snapshot whose focusedChannelId is a non-UUID string", () => {
+    // FIX A: `focusedChannelId` is a branded ChannelId-or-null on the wire; a
+    // non-null, non-UUID value must be rejected.
+    const bus = new InMemoryPresencePubSub();
+    const nodeB = new PresenceRegisterService({ pubSub: bus, nodeId: "node-b" });
+
+    const nowMs = Date.parse("2026-05-24T00:00:00.000Z");
+    void bus.publish({
+      sessionId: SESSION_ID,
+      update: encodeForeignState({
+        participantId: PARTICIPANT_A,
+        deviceId: DEVICE_LAPTOP,
+        state: "online",
+        deviceType: "desktop",
+        focusedSessionId: null,
+        focusedChannelId: "not-a-uuid",
+        lastSeenAtMs: nowMs,
+        originNodeId: "node-a",
+        ingestSequence: 1,
+        lastActivityAt: new Date(nowMs).toISOString(),
+        appVisible: true,
+      }),
+      originNodeId: "node-a",
+    });
+
+    expect(nodeB.readPresence(SESSION_ID).participants).toHaveLength(0);
+  });
+
+  it("stores and surfaces a fully-valid foreign update (all branded ids well-formed)", () => {
+    // FIX A converse: the branded-id revalidation does NOT over-reject — a peer
+    // snapshot whose participantId AND both non-null focus ids are valid UUIDs
+    // passes revalidation, is stored, and is surfaced (the projection exposes
+    // {participantId, state, lastSeen}; the focus ids are validated on the
+    // stored state, not re-emitted by `presence.read`).
+    const bus = new InMemoryPresencePubSub();
+    const nodeB = new PresenceRegisterService({ pubSub: bus, nodeId: "node-b" });
+
+    const nowMs = Date.parse("2026-05-24T00:00:00.000Z");
+    void bus.publish({
+      sessionId: SESSION_ID,
+      update: encodeForeignState({
+        participantId: PARTICIPANT_A,
+        deviceId: DEVICE_LAPTOP,
+        state: "online",
+        deviceType: "desktop",
+        focusedSessionId: SESSION_ID,
+        focusedChannelId: FOCUSED_CHANNEL,
+        lastSeenAtMs: nowMs,
+        originNodeId: "node-a",
+        ingestSequence: 1,
+        lastActivityAt: new Date(nowMs).toISOString(),
+        appVisible: true,
+      }),
+      originNodeId: "node-a",
+    });
+
+    const presence = nodeB.readPresence(SESSION_ID);
+    expect(presence.participants).toHaveLength(1);
+    expect(presence.participants[0]?.participantId).toBe(PARTICIPANT_A);
+    expect(presence.participants[0]?.state).toBe("online");
+    expect(PresenceReadResponseSchema.safeParse(presence).success).toBe(true);
+  });
+
+  it("drops a peer snapshot whose lastSeenAtMs is out of Date range, keeping presence.read schema-valid", () => {
+    // FOREIGN-WRITER HARDENING (field-range guard): a peer can send any finite
+    // number for `lastSeenAtMs`. A value past the JS Date ceiling (1e17) is a
+    // finite integer, so the old `Number.isFinite` guard let it through; once
+    // stored it dominates `isMoreRecent` permanently (sticky) and crashes
+    // `readPresence`'s `new Date(ms).toISOString()` for the WHOLE session. It
+    // must be dropped, and the response must stay schema-valid afterward.
+    const bus = new InMemoryPresencePubSub();
+    const nodeB = new PresenceRegisterService({ pubSub: bus, nodeId: "node-b" });
+
+    void bus.publish({
+      sessionId: SESSION_ID,
+      update: foreignStateWithLastSeenAtMs(1e17),
+      originNodeId: "node-a",
+    });
+
+    const presence = nodeB.readPresence(SESSION_ID);
+    expect(presence.participants).toHaveLength(0);
+    // Load-bearing: no out-of-range value was stored, so the projection the
+    // daemon would emit does not throw and passes the contract schema.
+    expect(PresenceReadResponseSchema.safeParse(presence).success).toBe(true);
+  });
+
+  it("accepts lastSeenAtMs at the contract-legal 4-digit-year ceiling and keeps presence.read schema-valid, but drops one past it", () => {
+    // The ceiling is NOT the JS Date max (8.64e15) — `new Date(8.64e15)
+    // .toISOString()` does NOT throw, it emits a 6-digit EXPANDED year
+    // ("+275760-09-13T...") that `PresenceReadResponseSchema.lastSeen`
+    // (`z.iso.datetime`) rejects, relocating the session-wide DoS one layer
+    // downstream into the daemon's presence.read result-schema validation. The
+    // real ceiling is `Date.UTC(9999,11,31,23,59,59,999)` =
+    // 253_402_300_799_999, whose `toISOString()` is the contract-legal
+    // "9999-12-31T23:59:59.999Z"; one past it emits "+010000-01-01T..." and is
+    // dropped. The load-bearing assertion is that the projection stays
+    // contract-valid AT the ceiling.
+    const busAtMax = new InMemoryPresencePubSub();
+    const nodeAtMax = new PresenceRegisterService({ pubSub: busAtMax, nodeId: "node-b" });
+    void busAtMax.publish({
+      sessionId: SESSION_ID,
+      update: foreignStateWithLastSeenAtMs(253_402_300_799_999),
+      originNodeId: "node-a",
+    });
+    const presenceAtMax = nodeAtMax.readPresence(SESSION_ID);
+    expect(presenceAtMax.participants).toHaveLength(1);
+    expect(PresenceReadResponseSchema.safeParse(presenceAtMax).success).toBe(true);
+
+    const busPastMax = new InMemoryPresencePubSub();
+    const nodePastMax = new PresenceRegisterService({ pubSub: busPastMax, nodeId: "node-b" });
+    void busPastMax.publish({
+      sessionId: SESSION_ID,
+      update: foreignStateWithLastSeenAtMs(253_402_300_800_000),
+      originNodeId: "node-a",
+    });
+    expect(nodePastMax.readPresence(SESSION_ID).participants).toHaveLength(0);
+  });
+
+  it("drops a peer snapshot whose lastSeenAtMs is negative or fractional", () => {
+    // `>= 0` rejects an impossible negative receipt time; `Number.isInteger`
+    // rejects fractional ms (the wire contract is integer epoch ms).
+    const busNegative = new InMemoryPresencePubSub();
+    const nodeNegative = new PresenceRegisterService({ pubSub: busNegative, nodeId: "node-b" });
+    void busNegative.publish({
+      sessionId: SESSION_ID,
+      update: foreignStateWithLastSeenAtMs(-1),
+      originNodeId: "node-a",
+    });
+    expect(nodeNegative.readPresence(SESSION_ID).participants).toHaveLength(0);
+
+    const busFractional = new InMemoryPresencePubSub();
+    const nodeFractional = new PresenceRegisterService({ pubSub: busFractional, nodeId: "node-b" });
+    void busFractional.publish({
+      sessionId: SESSION_ID,
+      update: foreignStateWithLastSeenAtMs(1_700_000_000_000.5),
+      originNodeId: "node-a",
+    });
+    expect(nodeFractional.readPresence(SESSION_ID).participants).toHaveLength(0);
+  });
+
+  it("drops a peer snapshot whose lastActivityAt is not an ISO-8601 timestamp", () => {
+    // `lastActivityAt` is validated against the SAME grammar the contract uses
+    // for this field (contracts/src/presence.ts:251, `z.iso.datetime({ offset:
+    // true })`); a non-ISO value is dropped (parity with the contract's
+    // "rejects non-ISO lastActivityAt" test).
+    const bus = new InMemoryPresencePubSub();
+    const nodeB = new PresenceRegisterService({ pubSub: bus, nodeId: "node-b" });
+    void bus.publish({
+      sessionId: SESSION_ID,
+      update: foreignStateWithLastActivityAt("tomorrow"),
+      originNodeId: "node-a",
+    });
+    expect(nodeB.readPresence(SESSION_ID).participants).toHaveLength(0);
+  });
+
+  it("accepts a peer snapshot whose lastActivityAt carries a numeric UTC offset (RFC 3339 §5.6)", () => {
+    // Converse: a valid offset timestamp (the contract's "accepts ISO with
+    // numeric offset" case) passes — the guard does not over-reject.
+    const bus = new InMemoryPresencePubSub();
+    const nodeB = new PresenceRegisterService({ pubSub: bus, nodeId: "node-b" });
+    void bus.publish({
+      sessionId: SESSION_ID,
+      update: foreignStateWithLastActivityAt("2026-05-22T08:30:00-04:00"),
+      originNodeId: "node-a",
+    });
+    expect(nodeB.readPresence(SESSION_ID).participants).toHaveLength(1);
+  });
+
+  it("drops a peer snapshot whose ingestSequence is fractional or negative", () => {
+    // `ingestSequence` is documented per-node MONOTONIC ingest order; a
+    // fractional or negative value violates that contract and is dropped.
+    const busFractional = new InMemoryPresencePubSub();
+    const nodeFractional = new PresenceRegisterService({ pubSub: busFractional, nodeId: "node-b" });
+    void busFractional.publish({
+      sessionId: SESSION_ID,
+      update: foreignStateWithIngestSequence(1.5),
+      originNodeId: "node-a",
+    });
+    expect(nodeFractional.readPresence(SESSION_ID).participants).toHaveLength(0);
+
+    const busNegative = new InMemoryPresencePubSub();
+    const nodeNegative = new PresenceRegisterService({ pubSub: busNegative, nodeId: "node-b" });
+    void busNegative.publish({
+      sessionId: SESSION_ID,
+      update: foreignStateWithIngestSequence(-1),
+      originNodeId: "node-a",
+    });
+    expect(nodeNegative.readPresence(SESSION_ID).participants).toHaveLength(0);
+  });
+
+  it("drops a peer snapshot whose deviceId contains a NUL byte", () => {
+    // `deviceId` is validated with `wireFreeFormString` (the SAME guard the
+    // local heartbeat path uses, contracts/src/presence.ts:240), which rejects
+    // an embedded NUL via `.refine((s) => !s.includes("\0"))` (session.ts:109).
+    // A foreign peer cannot smuggle the `clientKey` separator byte into the
+    // device id (closing the NUL log-injection vector on the fan-out path).
+    const bus = new InMemoryPresencePubSub();
+    const nodeB = new PresenceRegisterService({ pubSub: bus, nodeId: "node-b" });
+    void bus.publish({
+      sessionId: SESSION_ID,
+      update: foreignStateWithDeviceId("dev\0x"),
+      originNodeId: "node-a",
+    });
+    expect(nodeB.readPresence(SESSION_ID).participants).toHaveLength(0);
+  });
+
+  it("drops a peer snapshot whose internal originNodeId is empty, over-length, or NUL-bearing", () => {
+    // The SNAPSHOT-internal `originNodeId` (string-compared in `isMoreRecent`
+    // and logged) carries the same `wireFreeFormString` guard as deviceId /
+    // deviceType — rejects empty / whitespace-only / over-length
+    // (> NODE_ID_MAX_LEN = 256) / NUL. A foreign peer cannot inject an unbounded
+    // or NUL-bearing node id. Each override stays distinct from the receiver's
+    // nodeId ("node-b") so the message reaches validation rather than being
+    // self-suppressed first; the publish-envelope originNodeId ("node-a") is a
+    // valid distinct id.
+    for (const badOriginNodeId of ["", "   ", "x".repeat(257), "node\0x"]) {
+      const bus = new InMemoryPresencePubSub();
+      const nodeB = new PresenceRegisterService({ pubSub: bus, nodeId: "node-b" });
+      void bus.publish({
+        sessionId: SESSION_ID,
+        update: foreignStateWithOriginNodeId(badOriginNodeId),
+        originNodeId: "node-a",
+      });
+      expect(nodeB.readPresence(SESSION_ID).participants).toHaveLength(0);
+    }
+  });
+
   it("the published fan-out update carries the full validated state and does not mutate it on transition", () => {
     // Capture what node A actually puts on the wire. The heartbeat publish and
     // the timer-driven transition publish must BOTH carry a fully-revalidatable
@@ -1600,6 +2000,55 @@ describe("PresenceRegisterService — PgListenNotifyPubSub publish error surface
 });
 
 // ----------------------------------------------------------------------------
+// Pr3 — PgListenNotifyPubSub.close() server-side cleanup (UNLISTEN). No DB; a
+// fake client captures the issued queries so we can assert the UNLISTEN and its
+// best-effort (swallowed) failure path WITHOUT a real Postgres connection.
+// ----------------------------------------------------------------------------
+
+describe("PresenceRegisterService — PgListenNotifyPubSub.close() issues UNLISTEN (server-side cleanup)", () => {
+  it("issues UNLISTEN presence_fanout on close so a reused connection is left clean", async () => {
+    // FIX B: close() clears handlers + removeListener but, without UNLISTEN, a
+    // reused long-lived pg client stays server-side-subscribed (leaked listener,
+    // wasted NOTIFY). A fake client records the queries it is asked to run.
+    const queries: string[] = [];
+    const client: PgListenNotifyClient = {
+      query: (sql) => {
+        queries.push(sql);
+        return Promise.resolve(undefined);
+      },
+      on: () => undefined,
+    };
+    const transport = new PgListenNotifyPubSub(client);
+
+    await transport.close();
+
+    // The transport issued exactly the UNLISTEN for the trusted channel constant.
+    expect(queries).toContain("UNLISTEN presence_fanout");
+  });
+
+  it("swallows a failing UNLISTEN on close (best-effort) — close() resolves and warns", async () => {
+    // FIX B: a transient query failure on an already-closing connection must NOT
+    // make close() throw (teardown must stay total); it is surfaced via `#warn`.
+    const unlistenError = new Error("connection terminated unexpectedly");
+    const failingClient: PgListenNotifyClient = {
+      query: () => Promise.reject(unlistenError),
+      on: () => undefined,
+    };
+    const warn = vi.fn<(warning: string, detail: Record<string, unknown>) => void>();
+    const transport = new PgListenNotifyPubSub(failingClient, warn);
+
+    // close() resolves (does NOT reject) despite the failing UNLISTEN.
+    await expect(transport.close()).resolves.toBeUndefined();
+
+    // The operability signal fired with the structured channel detail.
+    expect(warn).toHaveBeenCalledTimes(1);
+    const [warning, detail] = warn.mock.calls[0] ?? [];
+    expect(warning).toContain("UNLISTEN failed");
+    expect(detail).toMatchObject({ channel: "presence_fanout" });
+  });
+});
+
+// ----------------------------------------------------------------------------
 // Pr3 test helpers — craft/decode a serialized Awareness update the same way
 // the service's fan-out does, so foreign-state tests use the REAL y-protocols
 // wire format (not a hand-rolled shape).
@@ -1616,6 +2065,45 @@ function encodeForeignState(state: Record<string, unknown>): Uint8Array {
   sourceAwareness.destroy();
   sourceDoc.destroy();
   return update;
+}
+
+// A fully-VALID foreign presence-state object — every field passes
+// `validatePresenceLocalState`. The field-range guard tests start from this and
+// override exactly ONE field with a malformed value, so a drop is attributable
+// to that single field (not an unrelated invalid one).
+const VALID_FOREIGN_BASE_MS = Date.parse("2026-05-24T00:00:00.000Z");
+function validForeignState(): Record<string, unknown> {
+  return {
+    participantId: PARTICIPANT_A,
+    deviceId: DEVICE_LAPTOP,
+    state: "online",
+    deviceType: "desktop",
+    focusedSessionId: null,
+    focusedChannelId: null,
+    lastSeenAtMs: VALID_FOREIGN_BASE_MS,
+    originNodeId: "node-a",
+    ingestSequence: 1,
+    lastActivityAt: new Date(VALID_FOREIGN_BASE_MS).toISOString(),
+    appVisible: true,
+  };
+}
+
+// Encode a valid foreign state with a single field overridden, for the
+// field-range guard tests.
+function foreignStateWithLastSeenAtMs(lastSeenAtMs: number): Uint8Array {
+  return encodeForeignState({ ...validForeignState(), lastSeenAtMs });
+}
+function foreignStateWithLastActivityAt(lastActivityAt: string): Uint8Array {
+  return encodeForeignState({ ...validForeignState(), lastActivityAt });
+}
+function foreignStateWithIngestSequence(ingestSequence: number): Uint8Array {
+  return encodeForeignState({ ...validForeignState(), ingestSequence });
+}
+function foreignStateWithDeviceId(deviceId: string): Uint8Array {
+  return encodeForeignState({ ...validForeignState(), deviceId });
+}
+function foreignStateWithOriginNodeId(originNodeId: string): Uint8Array {
+  return encodeForeignState({ ...validForeignState(), originNodeId });
 }
 
 // Decode the foreign client's state object out of a captured fan-out message,

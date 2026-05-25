@@ -140,11 +140,13 @@
 //   writer was the local well-typed `recordHeartbeat`. T3.2's
 //   `applyAwarenessUpdate` is the FIRST path admitting state written by a
 //   FOREIGN node, so full revalidation is now mandatory and lives in
-//   `validatePresenceLocalState`: every field is typeof-checked AND `state` is
-//   asserted to be a member of the canonical `PresenceState` enum. A malformed
-//   peer update (e.g. an out-of-enum `state`, a missing field, a wrong type) is
-//   REJECTED — the offending client is not stored and does not surface on this
-//   node's projection — rather than projected as corrupt state.
+//   `validatePresenceLocalState`, which runs `safeParse` against
+//   `PresenceLocalStateSchema` — the single source of truth for shape,
+//   branded-id UUID format, `PresenceState` enum membership, and numeric range
+//   bounds. A malformed peer update (e.g. an out-of-enum `state`, a missing
+//   field, a wrong type) is REJECTED — the offending client is not stored and
+//   does not surface on this node's projection — rather than projected as
+//   corrupt state.
 //
 // ----------------------------------------------------------------------------
 // T3.3 emission seam (T3.2 produces the transitions; T3.3 emits them durably)
@@ -192,8 +194,21 @@ import type {
   PresenceState,
   SessionId,
 } from "@ai-sidekicks/contracts";
+// Value import (separate from the type-only import above): the branded-id Zod
+// schemas are runtime values used to FULLY revalidate the three UUID id fields
+// on a foreign peer snapshot (see `validatePresenceLocalState`).
+import {
+  ChannelIdSchema,
+  DEVICE_ID_MAX_LEN,
+  DEVICE_TYPE_MAX_LEN,
+  ParticipantIdSchema,
+  PresenceStateSchema,
+  SessionIdSchema,
+  wireFreeFormString,
+} from "@ai-sidekicks/contracts";
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate } from "y-protocols/awareness";
 import * as Y from "yjs";
+import { z } from "zod";
 
 // --------------------------------------------------------------------------
 // Reconnect-grace timing — defaults per Spec-002 line 57.
@@ -243,10 +258,12 @@ const PRESENCE_FANOUT_CHANNEL = "presence_fanout";
 // This `Record<PresenceState, number>` is ALSO the single compile-time
 // exhaustiveness tripwire for the state set: a future fifth `PresenceState`
 // (added to the contract + spec FIRST, per doc-first ordering) is a TYPE ERROR
-// here until it is assigned a rank, with deliberate placement. `PRESENCE_STATES`
-// below is derived from its keys, so the two constants can never drift — adding
-// a state fails compile in exactly this one place and auto-flows into the
-// membership set.
+// here until it is assigned a rank, with deliberate placement. RUNTIME
+// membership enforcement (rejecting an off-enum foreign `state`) lives in
+// `PresenceLocalStateSchema.state`, which reuses the contract's
+// `PresenceStateSchema` enum — so the same contract enum drives both the
+// compile-time rank table here and the parse-time validation, and they cannot
+// drift.
 const PRESENCE_PROGRESSION: Record<PresenceState, number> = {
   online: 0,
   idle: 0,
@@ -255,48 +272,65 @@ const PRESENCE_PROGRESSION: Record<PresenceState, number> = {
 };
 
 // --------------------------------------------------------------------------
-// Canonical PresenceState enum membership — foreign-writer revalidation set.
-// --------------------------------------------------------------------------
-//
-// The canonical states per `@ai-sidekicks/contracts` `PresenceState`
-// (presence.ts:121), DERIVED from `PRESENCE_PROGRESSION`'s keys so the two stay
-// in lockstep (see the tripwire note above). Held as a runtime Set so the
-// receive-path validator can assert enum membership on FOREIGN-written `state`
-// (the T3.1 read-back path only typeof-checked `state` as a string). The element
-// type stays `string` (not `PresenceState`) because `validatePresenceLocalState`
-// calls `.has(state)` on ARBITRARY foreign-input strings — the check must accept
-// any string, then narrow.
-const PRESENCE_STATES: ReadonlySet<string> = new Set(Object.keys(PRESENCE_PROGRESSION));
-
-// --------------------------------------------------------------------------
 // Awareness local-state shape — what each client's CRDT slot carries.
 // --------------------------------------------------------------------------
 //
-// This is the value `setLocalState(...)` writes into the per-client Awareness
-// slot and `getStates()` reads back. It mirrors the metadata the heartbeat
-// carries (Spec-002 line 84) plus the resolved presence `state` and the
-// `originNodeId` of the node that ingested it. T3.2's
-// `encodeAwarenessUpdate(awareness, [doc.clientID])` serializes exactly this
-// object for cross-node fan-out, so the shape is shared across both the local
-// store and the wire.
-interface PresenceLocalState {
-  readonly participantId: ParticipantId;
-  readonly deviceId: string;
-  readonly state: PresenceState;
-  readonly deviceType: string;
-  readonly focusedSessionId: SessionId | null;
-  readonly focusedChannelId: ChannelIdOrNull;
+// The single source of truth for the local-state shape AND its foreign-writer
+// revalidation. `validatePresenceLocalState` runs untrusted, cross-node bytes
+// through `safeParse`, so every constraint a malicious or buggy peer could
+// violate lives here as a parser rule — the derived `PresenceLocalState` type
+// cannot drift from what the validator actually enforces. Branded id fields
+// reuse the contract schemas (`z.ZodType<Brand, Brand>`), so `z.infer` yields
+// the same branded types the rest of the file consumes. `z.object` strips
+// unknown keys, so a peer cannot smuggle extra fields into the stored snapshot.
+//
+// Largest ms epoch whose `new Date(ms).toISOString()` stays within the
+// 4-digit-year ISO-8601 grammar that `PresenceReadResponseSchema.lastSeen`
+// (`z.iso.datetime`, contracts/src/presence.ts:341) enforces —
+// `Date.UTC(9999,11,31,23,59,59,999)`. Beyond this, `toISOString()` emits an
+// expanded 6-digit year that the daemon's presence.read result-schema
+// validation (runtime-daemon registry.ts:395) rejects with -32603 while the
+// out-of-range foreign peer stays sticky-dominant in `isMoreRecent`.
+const MAX_PRESENCE_LAST_SEEN_MS = 253_402_300_799_999;
+
+// Generous length cap for the snapshot's `originNodeId`. Node ids are
+// `crypto.randomUUID()` (36 chars) in production, but the constructor
+// (`options?.nodeId ?? crypto.randomUUID()`) accepts an arbitrary
+// caller-supplied string — the tests pass `"node-a"` / `"node-b"` — so this is
+// a bound, NOT a UUID-format assertion: `z.uuid()` would wrongly reject the
+// legitimate non-UUID node ids the abstraction allows. There is no contracts
+// `NodeId` const because `PresenceFanoutMessage` is control-plane-internal.
+const NODE_ID_MAX_LEN = 256;
+
+const PresenceLocalStateSchema = z.object({
+  participantId: ParticipantIdSchema,
+  // `deviceId` / `deviceType` mirror the LOCAL heartbeat path's
+  // `wireFreeFormString` guard (contracts/src/presence.ts:240 and :245) so the
+  // foreign fan-out path enforces the SAME bound + length cap. This makes the
+  // `clientKey` collision-freedom premise true on both paths and closes the NUL
+  // log-injection vector `wireFreeFormString` exists to guard (session.ts:109).
+  deviceId: wireFreeFormString(DEVICE_ID_MAX_LEN, "PresenceLocalState.deviceId"),
+  state: PresenceStateSchema,
+  deviceType: wireFreeFormString(DEVICE_TYPE_MAX_LEN, "PresenceLocalState.deviceType"),
+  focusedSessionId: SessionIdSchema.nullable(),
+  focusedChannelId: ChannelIdSchema.nullable(),
   // Server-clock receipt time, NOT the wire `metadata.lastActivityAt`. See
   // `recordHeartbeat` for why the server clock is authoritative for `lastSeen`.
   // Primary key of the cross-node recency tiebreak in `readPresence`.
-  readonly lastSeenAtMs: number;
+  // Bounded by `MAX_PRESENCE_LAST_SEEN_MS` — see that const's declaration for the
+  // ISO-8601 4-digit-year ceiling rationale and the downstream -32603 chain.
+  lastSeenAtMs: z.number().int().min(0).max(MAX_PRESENCE_LAST_SEEN_MS),
   // The id of the node that INGESTED this heartbeat (the origin). Generated
   // once per service instance (`crypto.randomUUID()` in the constructor) and
   // stamped on every local heartbeat. It travels in the Awareness payload, so
   // a peer node can (a) suppress its OWN updates that round-trip back through
   // the fan-out, and (b) discriminate the cross-node recency tiebreak (a peer
   // device's `ingestSequence` is NOT comparable to ours — see `isMoreRecent`).
-  readonly originNodeId: string;
+  // Carries the same `wireFreeFormString` guard as `deviceId` / `deviceType`
+  // (rejects empty / over-length / NUL), defending the `isMoreRecent`
+  // string-compare and the log path against a misbehaving peer node — a foreign
+  // peer cannot inject an unbounded or NUL-bearing node id.
+  originNodeId: wireFreeFormString(NODE_ID_MAX_LEN, "PresenceLocalState.originNodeId"),
   // Per-NODE monotonic ingest order, stamped from `#ingestSequence`. It is the
   // SAME-NODE, SAME-MILLISECOND recency tiebreaker in `readPresence`:
   // `lastSeenAtMs` has only millisecond resolution, so two heartbeats from one
@@ -307,18 +341,24 @@ interface PresenceLocalState {
   // consults it ONLY when `originNodeId` matches; across nodes the deterministic
   // `originNodeId` tiebreak is used instead. It travels in the payload but a
   // peer node never compares a foreign sequence to its own.
-  readonly ingestSequence: number;
+  ingestSequence: z.number().int().min(0),
   // The client-reported "last user interaction" timestamp, preserved verbatim
   // from the wire for downstream consumers (e.g. an idle-detector) that want
-  // the activity time distinct from the receipt time.
-  readonly lastActivityAt: string;
-  readonly appVisible: boolean;
-}
+  // the activity time distinct from the receipt time. Validated against the
+  // same wire grammar as contracts/src/presence.ts:251.
+  lastActivityAt: z.iso.datetime({ offset: true }),
+  appVisible: z.boolean(),
+});
 
-// `focusedChannelId` is `ChannelId | null` on the wire; aliased to avoid a
-// second `@ai-sidekicks/contracts` import line just for the brand (it is only
-// ever stored and projected as-is, never constructed here).
-type ChannelIdOrNull = PresenceHeartbeat["metadata"]["focusedChannelId"];
+// This is the value `setLocalState(...)` writes into the per-client Awareness
+// slot and `getStates()` reads back. It mirrors the metadata the heartbeat
+// carries (Spec-002 line 84) plus the resolved presence `state` and the
+// `originNodeId` of the node that ingested it. T3.2's
+// `encodeAwarenessUpdate(awareness, [doc.clientID])` serializes exactly this
+// object for cross-node fan-out, so the shape is shared across both the local
+// store and the wire. `Readonly<...>` is a type-level modifier only (it does
+// NOT freeze the parsed object — every `#transition` produces a fresh spread).
+type PresenceLocalState = Readonly<z.infer<typeof PresenceLocalStateSchema>>;
 
 // --------------------------------------------------------------------------
 // Per-client holders — local (CRDT-backed) vs peer (decoded snapshot).
@@ -474,6 +514,60 @@ export class PresenceRegisterService {
     this.#reconnectingAfterMs = options?.reconnectingAfterMs ?? DEFAULT_RECONNECTING_AFTER_MS;
     this.#offlineAfterMs = options?.offlineAfterMs ?? DEFAULT_OFFLINE_AFTER_MS;
     this.#onTransition = options?.onTransition;
+
+    // Fail-fast validation of the injected `nodeId` at construction, symmetric
+    // with the timing guards below. `this.#nodeId` is stamped as `originNodeId`
+    // on every LOCAL snapshot (`recordHeartbeat`, the fan-out publish, the
+    // offline tombstone), and the local read-back path re-runs those snapshots
+    // through `validatePresenceLocalState` -> `PresenceLocalStateSchema`, whose
+    // `originNodeId` field is `wireFreeFormString(NODE_ID_MAX_LEN, ...)`. So an
+    // empty / whitespace-only / NUL-bearing / over-length injected `nodeId`
+    // would pass the schema's *foreign* `originNodeId` field on a peer snapshot
+    // but then SILENTLY fail the LOCAL snapshot revalidation on every read
+    // (dropping this node's own presence) and no-op every grace transition — a
+    // latent silent failure. Reuse the EXACT schema-field rule so the
+    // constructor and the schema share one source of truth for the bound + NUL
+    // guard. The default `crypto.randomUUID()` path (no `nodeId` option)
+    // trivially passes (36 chars, non-blank, no NUL).
+    //
+    // The thrown message is INTENTIONALLY static — it names the rule but does
+    // NOT interpolate `this.#nodeId` (unlike the timing guards below, whose
+    // numeric values are bounded and NUL-free). A hostile/buggy caller's
+    // `nodeId` could itself carry a NUL byte or be megabytes long; echoing it
+    // into the message (and thus into logs) would reintroduce exactly the
+    // NUL-log-injection / unbounded-string vector `wireFreeFormString` exists to
+    // close. The Zod `safeParse` error is discarded for the same reason (it may
+    // echo the value).
+    if (!wireFreeFormString(NODE_ID_MAX_LEN, "nodeId").safeParse(this.#nodeId).success) {
+      throw new RangeError(
+        `PresenceRegisterService: nodeId must be a non-blank string of at most ${String(NODE_ID_MAX_LEN)} characters with no NUL byte`,
+      );
+    }
+
+    // Fail-fast validation of the two timing options at construction. Both feed
+    // `#armGraceTimer`'s `Math.max(0, … - elapsed)` + `setTimeout`, where a
+    // negative / NaN / non-integer delay is a silent footgun (setTimeout coerces
+    // NaN to 0, firing the transition immediately). The well-ordering invariant
+    // (`offlineAfterMs >= reconnectingAfterMs`, documented on the options) keeps
+    // the two-step `reconnecting -> offline` machine monotone. RangeError names
+    // the offending value so a misconfiguration is diagnosable at the call site.
+    for (const [label, value] of [
+      ["reconnectingAfterMs", this.#reconnectingAfterMs],
+      ["offlineAfterMs", this.#offlineAfterMs],
+    ] as const) {
+      if (!Number.isInteger(value) || value < 0) {
+        throw new RangeError(
+          `PresenceRegisterService: ${label} must be a non-negative integer (ms); received ${String(value)}`,
+        );
+      }
+    }
+    if (this.#offlineAfterMs < this.#reconnectingAfterMs) {
+      throw new RangeError(
+        `PresenceRegisterService: offlineAfterMs (${String(this.#offlineAfterMs)}) must be >= ` +
+          `reconnectingAfterMs (${String(this.#reconnectingAfterMs)}) for a well-ordered ` +
+          `reconnecting -> offline transition`,
+      );
+    }
 
     // Subscribe to the fan-out (if any) so peer-node presence lands on this
     // node. Self-origin messages are suppressed in the handler.
@@ -1165,10 +1259,27 @@ export class PgListenNotifyPubSub implements PresencePubSub {
     };
   }
 
-  close(): Promise<void> {
+  async close(): Promise<void> {
     this.#handlers.clear();
     this.#client.removeListener?.("notification", this.#onNotification);
-    return Promise.resolve();
+    // Defensive cleanup: the caller owns the dedicated LISTEN connection (see
+    // class doc above), but issuing UNLISTEN here leaves a reused connection
+    // clean — without it, a long-lived pg client stays server-side-subscribed
+    // (leaked listener, wasted NOTIFY traffic) after this transport detaches.
+    // UNLISTEN cannot be parameterized (`UNLISTEN $1` is a Postgres parser
+    // error — the channel is an identifier, not a bind value); the channel is a
+    // trusted compile-time constant, so string-concatenation is safe here.
+    // Best-effort — a transient query failure on an already-closing connection
+    // is swallowed via `#warn` and NOT rethrown (close() must not throw on
+    // teardown).
+    try {
+      await this.#client.query("UNLISTEN " + PRESENCE_FANOUT_CHANNEL);
+    } catch (error) {
+      this.#warn("presence fan-out UNLISTEN failed", {
+        channel: PRESENCE_FANOUT_CHANNEL,
+        error,
+      });
+    }
   }
 }
 
@@ -1234,69 +1345,22 @@ function isMoreRecent(candidate: PresenceLocalState, incumbent: PresenceLocalSta
 
 // FULL revalidation of a presence state object read from EITHER a local
 // Awareness slot OR a decoded foreign (peer) update. Unlike T3.1's discriminator-
-// only `readLocalState`, this asserts EVERY field's type AND that `state` is a
-// member of the canonical 4-value `PresenceState` enum — required because the
-// fan-out receive path admits FOREIGN-written state (see file header
-// §FOREIGN-WRITER HARDENING). Returns `undefined` (reject) for any malformed
-// shape; the caller drops the offending client rather than projecting corrupt
-// state. `Awareness#getLocalState()` returns `Record<string, any> | null`, so
-// the input is `unknown` and narrowed here.
+// only `readLocalState`, the input is parsed against `PresenceLocalStateSchema`
+// — the single source of truth for a valid snapshot (field shapes, branded-id
+// UUID format, the canonical `PresenceState` enum, and the numeric range
+// bounds) — required because the fan-out receive path admits FOREIGN-written
+// state (see file header §FOREIGN-WRITER HARDENING). The schema's branded-id
+// fields reuse the contract `*IdSchema`s, so UUID format is asserted uniformly;
+// this matters because `PresenceReadResponseSchema` rejects a non-UUID
+// participantId, so storing a malformed peer value would later make the WHOLE
+// session's `presence.read` response fail schema validation. Returns
+// `undefined` (reject) for any malformed shape; the caller drops the offending
+// client rather than projecting corrupt state.
+// `Awareness#getLocalState()` returns `Record<string, any> | null`, so the
+// input is `unknown` and narrowed by the parse.
 function validatePresenceLocalState(raw: unknown): PresenceLocalState | undefined {
-  if (typeof raw !== "object" || raw === null) {
-    return undefined;
-  }
-  const candidate = raw as Record<string, unknown>;
-
-  const participantId = candidate["participantId"];
-  const deviceId = candidate["deviceId"];
-  const state = candidate["state"];
-  const deviceType = candidate["deviceType"];
-  const focusedSessionId = candidate["focusedSessionId"];
-  const focusedChannelId = candidate["focusedChannelId"];
-  const lastSeenAtMs = candidate["lastSeenAtMs"];
-  const originNodeId = candidate["originNodeId"];
-  const ingestSequence = candidate["ingestSequence"];
-  const lastActivityAt = candidate["lastActivityAt"];
-  const appVisible = candidate["appVisible"];
-
-  if (
-    typeof participantId !== "string" ||
-    typeof deviceId !== "string" ||
-    typeof state !== "string" ||
-    // Enum membership — the load-bearing foreign-writer check. A peer state
-    // carrying e.g. `"away"` is rejected, not projected.
-    !PRESENCE_STATES.has(state) ||
-    typeof deviceType !== "string" ||
-    // focusedSessionId / focusedChannelId are `string | null` on the wire.
-    !(focusedSessionId === null || typeof focusedSessionId === "string") ||
-    !(focusedChannelId === null || typeof focusedChannelId === "string") ||
-    typeof lastSeenAtMs !== "number" ||
-    !Number.isFinite(lastSeenAtMs) ||
-    typeof originNodeId !== "string" ||
-    typeof ingestSequence !== "number" ||
-    !Number.isFinite(ingestSequence) ||
-    typeof lastActivityAt !== "string" ||
-    typeof appVisible !== "boolean"
-  ) {
-    return undefined;
-  }
-
-  // Every field validated above — reconstruct explicitly (rather than casting
-  // the whole object) so the returned value carries only the validated fields,
-  // and the brands are reapplied on the id fields.
-  return {
-    participantId: participantId as ParticipantId,
-    deviceId,
-    state: state as PresenceState,
-    deviceType,
-    focusedSessionId: focusedSessionId as SessionId | null,
-    focusedChannelId: focusedChannelId as ChannelIdOrNull,
-    lastSeenAtMs,
-    originNodeId,
-    ingestSequence,
-    lastActivityAt,
-    appVisible,
-  };
+  const parsed = PresenceLocalStateSchema.safeParse(raw);
+  return parsed.success ? parsed.data : undefined;
 }
 
 // Encode a fan-out message into the NOTIFY text payload: base64 of the binary
