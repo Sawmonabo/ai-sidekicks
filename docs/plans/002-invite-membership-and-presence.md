@@ -306,6 +306,8 @@ preconditions:
 
 #### Tasks
 
+_The task ids below were reconciled post-merge to the as-shipped decomposition (PR #108, squash-commit `1b8e865`): the audit's single **T3.4** row shipped as **T3.4a** + **T3.4b**, and **T3.3c** was an orchestrator-introduced contract-author task. Full rationale in the Shipment Manifest Notes below._
+
 ##### T3.1 — Implement `presence-register-service.ts` with Yjs Awareness ingestion (in-memory only); add Pr1 schema-shape regression test asserting no SQLite/Postgres write occurs on heartbeat.
 
 **Files:** `packages/control-plane/src/presence/presence-register-service.ts`, `packages/control-plane/src/presence/__tests__/presence-register-service.test.ts` **Spec coverage:** Spec-002 §Default Behavior line 58, §State And Data Implications line 157 (Pr1) **Verifies invariant:** I-002-3 (ephemeral presence — Pr1 schema-shape regression test directly verifies no presence-state table is created)
@@ -318,9 +320,17 @@ preconditions:
 
 **Files:** `packages/runtime-daemon/src/ipc/handlers/presence-subscribe.ts`, `packages/runtime-daemon/src/ipc/handlers/presence-read.ts`, `packages/runtime-daemon/src/ipc/handlers/__tests__/presence-subscribe.test.ts`, `packages/runtime-daemon/src/ipc/handlers/__tests__/presence-read.test.ts` **Spec coverage:** Spec-002 §State And Data Implications line 157 (Pr4 — durable presence state-change events), §Interfaces And Contracts line 85 (`PresenceUpdate` JSON-RPC surface), line 86 (`PresenceRead` JSON-RPC surface) **Verifies invariant:** none (transport surface + canonical-shape seam; I-002-3 is preserved by the projector's forward-compat-skip of `presence.*` events — no presence rows materialize, and the production emission trigger is deferred — a daemon-local deps-implementor obligation per CP-002-6, not a Plan-006 Tier 4 gate)
 
-##### T3.4 — Implement `ChannelList` read-only projection that synthesizes the bootstrap `main` channel (a projected structural invariant, id = `deriveMainChannelId(sessionId)`); add I3 test asserting the projection returns the bootstrap main channel for an existing session.
+##### T3.3c — Hoist `SubscribeAckResponse` generic into `jsonrpc-streaming.ts` (canonical subscribe-init ack), demote `SessionSubscribeResponse` to a one-line alias seam over it (`session-subscribe.ts` untouched), and mint the `presence.subscribe` wire contract (`PresenceSubscribeRequest`/`PresenceSubscribeResponse`) in `presence.ts`.
 
-**Files:** `packages/control-plane/src/channels/channel-list-projection.ts`, `packages/control-plane/src/channels/__tests__/channel-list-projection.test.ts` **Spec coverage:** Spec-002 AC1 (live-join non-disruption depends on the default-channel projection being live at accept time), §Interfaces And Contracts line 87 (`ChannelList` projection contract, C5 + I3) **Verifies invariant:** none (the projection synthesizes the bootstrap `main` channel — a projected structural invariant — from the control-plane's own session/membership data; "read-only" means it writes no rows; no Plan-002 invariant on the read path)
+**Files:** `packages/contracts/src/jsonrpc-streaming.ts`, `packages/contracts/src/session.ts`, `packages/contracts/src/presence.ts` **Spec coverage:** Spec-002 §Interfaces And Contracts line 85 (`presence.subscribe` wire contract — request/response), Spec-007 §Wire Format lines 50-56 (streaming subscribe-init ack primitive) **Verifies invariant:** I-007-7
+
+##### T3.4a — Add the shared Buffer-free `deriveMainChannelId` UUIDv8 derivation + `MAIN_CHANNEL_NAME` to `packages/contracts/src/channel-id.ts` (RFC 9562 §5.8, `@noble/hashes` for Cloudflare-Workers isomorphism); golden-vector test + ESLint `no-restricted-imports`/`no-restricted-globals` guard keeping contracts `node:crypto`- and Buffer-free.
+
+**Files:** `packages/contracts/src/channel-id.ts`, `packages/contracts/src/__tests__/channel-id.test.ts` **Spec coverage:** Spec-002 §Interfaces And Contracts line 87 (shared channel-id derivation underpinning the `ChannelList` contract) **Verifies invariant:** none (shared derivation primitive; the `ChannelList` read-path is verified at T3.4b)
+
+##### T3.4b — Migrate the daemon session-projector (drops its local `node:crypto` UUIDv5 derivation) and the new control-plane `ChannelList` projection onto the shared `deriveMainChannelId` — byte-identical bootstrap `main` channel on every surface (CP-002-7); add the I3 projection test.
+
+**Files:** `packages/control-plane/src/channels/channel-list-projection.ts`, `packages/control-plane/src/channels/__tests__/channel-list-projection.test.ts`, `packages/runtime-daemon/src/session/session-projector.ts`, `packages/runtime-daemon/src/session/index.ts`, `packages/runtime-daemon/src/session/__tests__/session-projector.test.ts`, `packages/runtime-daemon/src/session/__tests__/session-service.test.ts`, `packages/contracts/src/index.ts` **Spec coverage:** Spec-002 AC1 (live-join non-disruption depends on the default-channel projection being live at accept time), §Interfaces And Contracts line 87 (`ChannelList` projection contract, C5 + I3) **Verifies invariant:** none (the projection synthesizes the bootstrap `main` channel — a projected structural invariant — from the control-plane's own session/membership data; "read-only" means it writes no rows; no Plan-002 invariant on the read path)
 
 ### Phase 4 — Rate Limiting Surface (deferred to Tier 6)
 
