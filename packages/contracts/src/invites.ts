@@ -306,6 +306,17 @@ export const InviteAcceptResponseSchema: z.ZodType<InviteAcceptResponse, InviteA
 // otherwise distinct ({pending, accepted, revoked, expired} vs {pending,
 // active, suspended, revoked}); conflating them at the schema layer would
 // admit invalid wire values on either response.
+//
+// NOT-FOUND IS A TYPED WIRE ERROR, NOT A NULLABLE RESULT. This schema models
+// the SUCCESS projection only; the non-nullable shape is deliberate. When no
+// invite matches `(inviteId, sessionId)`, the control-plane `revokeInvite`
+// returns an internal `null` sentinel (its own documented contract: see the
+// `@returns ... null ...` docstring at invite-service.ts:828-829 and the
+// "The wire layer maps `null` to a typed not-found" comment at invite-
+// service.ts:884-885) that the wire/daemon layer translates to a typed
+// `invite.not_found` error (error-contracts.md §Invite) — delivered as a
+// JSON-RPC error envelope, never as a `result: null`. A daemon-bridge author
+// must therefore never emit `result: null` against this schema.
 
 export interface InviteRevokeResponse {
   inviteId: InviteId;

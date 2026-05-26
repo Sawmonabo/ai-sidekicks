@@ -253,6 +253,18 @@ export const MembershipUpdateSchema: z.ZodType<MembershipUpdate, MembershipUpdat
 // resolves to T and not `unknown` at consumer sites (ADR-014). The schema is
 // non-transforming, so Input ≡ Output ≡ T. `.strict()` rejects unknown keys —
 // universal across this package's response schemas.
+//
+// NOT-FOUND IS A TYPED WIRE ERROR, NOT A NULLABLE RESULT. This schema models
+// the SUCCESS projection only; the non-nullable shape is deliberate. When no
+// membership row matches the target `membershipId`, the control-plane
+// `updateMembership` returns an internal `null` sentinel (its own documented
+// contract: see the `@returns ... null ...` docstring at membership-
+// service.ts:227-229 and the "unknown membership (the wire layer surfaces a
+// typed not-found)" comment at membership-service.ts:282-283) that the
+// wire/daemon layer translates to a typed not-found error (error-contracts.md
+// §Error Codes) — delivered as a JSON-RPC error envelope, never as a
+// `result: null`. A daemon-bridge author must therefore never emit
+// `result: null` against this schema.
 
 export interface MembershipUpdateResponse {
   membershipId: MembershipId;

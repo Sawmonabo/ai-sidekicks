@@ -173,7 +173,22 @@ const PRESENCE_METHOD_SUBSCRIBE = "presence.subscribe";
 export interface MembershipClient {
   createInvite(request: InviteCreate): Promise<InviteCreateResponse>;
   acceptInvite(request: InviteAccept): Promise<InviteAcceptResponse>;
+  /**
+   * Resolves the post-revoke invite projection (`InviteRevokeResponse`) on
+   * success. A not-found invite REJECTS with a typed `invite.not_found` wire
+   * error (`error-contracts.md §Invite`), never a `null` result — the non-null
+   * return is by design. The daemon translates the control-plane service's
+   * internal `null` sentinel (invite-service.ts:828-829) to that typed error.
+   */
   revokeInvite(request: InviteRevoke): Promise<InviteRevokeResponse>;
+  /**
+   * Resolves the post-update membership projection (`MembershipUpdateResponse`)
+   * on success. A not-found membership REJECTS with a typed not-found wire
+   * error (`error-contracts.md §Error Codes`), never a `null` result — the
+   * non-null return is by design. The daemon translates the control-plane
+   * service's internal `null` sentinel (membership-service.ts:227-229) to that
+   * typed error.
+   */
   updateMembership(request: MembershipUpdate): Promise<MembershipUpdateResponse>;
   listChannels(request: ChannelListRequest): Promise<ChannelListResponse>;
   readPresence(request: PresenceReadRequest): Promise<PresenceReadResponse>;
