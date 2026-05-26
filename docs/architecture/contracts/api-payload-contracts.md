@@ -116,6 +116,7 @@ type SessionState =
   | "purged";
 type MembershipRole = "owner" | "viewer" | "collaborator" | "runtime contributor";
 type MembershipState = "pending" | "active" | "suspended" | "revoked";
+type InviteState = "pending" | "accepted" | "revoked" | "expired";
 type PresenceState = "online" | "idle" | "reconnecting" | "offline";
 type JoinMode = "viewer" | "collaborator" | "runtime contributor";
 
@@ -391,10 +392,23 @@ interface InviteAcceptRequest {
   token: string;
 }
 interface InviteAcceptResponse {
-  sessionId: SessionId;
+  inviteId: InviteId; // the invite consumed (now `accepted`)
   membershipId: MembershipId;
+  sessionId: SessionId;
   participantId: ParticipantId;
   role: MembershipRole;
+  state: MembershipState; // the activated membership's state (NOT InviteState)
+}
+
+// InviteRevoke
+interface InviteRevokeRequest {
+  sessionId: SessionId;
+  inviteId: InviteId;
+  reason?: string;
+}
+interface InviteRevokeResponse {
+  inviteId: InviteId;
+  state: InviteState; // the invite's lifecycle state (NOT MembershipState)
 }
 
 // MembershipUpdate

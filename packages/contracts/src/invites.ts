@@ -37,9 +37,15 @@ import { z } from "zod";
 import { brandedUuidIdSchema } from "./internal/branded.js";
 import { JoinModeSchema, type JoinMode } from "./presence.js";
 import {
+  MembershipIdSchema,
+  MembershipRoleSchema,
+  MembershipStateSchema,
   ParticipantIdSchema,
   SessionIdSchema,
   wireFreeFormString,
+  type MembershipId,
+  type MembershipRole,
+  type MembershipState,
   type ParticipantId,
   type SessionId,
 } from "./session.js";
@@ -185,3 +191,137 @@ export const InviteRevokeSchema: z.ZodType<InviteRevoke, InviteRevoke> = z
     reason: wireFreeFormString(INVITE_REVOKE_REASON_MAX_LEN, "InviteRevoke.reason").optional(),
   })
   .strict();
+
+// --------------------------------------------------------------------------
+// Response payloads — canonical home for the invite-mutation responses
+// --------------------------------------------------------------------------
+//
+// These are the wire RESPONSES the control-plane invite service returns. They
+// land here (the contracts package) so the producer (`@ai-sidekicks/control-
+// plane` InviteService) and the SDK consumer (Plan-002 Phase 5 client SDK)
+// share ONE source of truth instead of duplicating local interfaces. The
+// as-built Phase 2 shapes (invite-service.ts:267-305, shipped in PR #105) are
+// the canonical field sets; `api-payload-contracts.md §Tier 2` is amended up
+// to match in the same change.
+//
+// Annotation posture (matches channels.ts, the Plan-002 Phase 1 sibling, NOT
+// the single-T session.ts responses): every response schema is the double-T
+// `z.ZodType<T, T>` shape so tRPC v11's Standard-Schema-V1 INPUT inference
+// resolves to T and not `unknown` at consumer sites (per ADR-014). These
+// schemas are non-transforming (no `.transform()` / `.coerce()` /
+// `.preprocess()`), so pre-validation Input ≡ post-validation Output ≡ T;
+// the explicit double-T preserves that equivalence on the type surface. The
+// `.strict()` modifier rejects unknown keys at parse time, surfacing schema
+// drift early — universal across every response schema in this package
+// (SessionCreateResponse, ChannelListResponse, …).
+
+// --------------------------------------------------------------------------
+// InviteCreateResponse — api-payload-contracts.md §Tier 2 (createInvite)
+// --------------------------------------------------------------------------
+//
+// `{inviteId, token, expiresAt}`. The `token` is the PLAINTEXT PASETO v4.local
+// string handed to the caller exactly once for out-of-band link delivery
+// (Spec-002 §Invite Delivery); only its SHA-256 hash is persisted (Spec-002
+// line 111). The token is a producer-supplied base64url blob, so it uses a
+// plain `z.string()` (NOT `wireFreeFormString`) — same stance as the
+// `InviteAccept.token` request field above. `expiresAt` matches the ISO 8601
+// convention used by `InviteCreate.expiresAt` (`z.iso.datetime({ offset:
+// true })`, RFC 3339 §5.6 offsets accepted alongside the Z-suffixed UTC form).
+
+export interface InviteCreateResponse {
+  inviteId: InviteId;
+  token: string;
+  expiresAt: string;
+}
+// `z.ZodType<T, T>` — see the response-payloads header above (double-T per
+// channels.ts / ADR-014).
+export const InviteCreateResponseSchema: z.ZodType<InviteCreateResponse, InviteCreateResponse> = z
+  .object({
+    inviteId: InviteIdSchema,
+    token: z.string().min(1).max(INVITE_TOKEN_MAX_LEN),
+    expiresAt: z.iso.datetime({ offset: true }),
+  })
+  .strict();
+
+// --------------------------------------------------------------------------
+// InviteAcceptResponse — api-payload-contracts.md §Tier 2 (acceptInvite)
+// --------------------------------------------------------------------------
+//
+// SIX fields: `{inviteId, membershipId, sessionId, participantId, role,
+// state}`. The accept path returns BOTH the invite that was consumed and the
+// membership that was activated, so the wire layer can confirm the invite
+// transition AND the resulting membership to the caller (invite-service.ts:
+// 284-291).
+//
+// `state` IS THE MEMBERSHIP'S STATE (`MembershipState`) — the lifecycle state
+// of the newly-created `session_memberships` row (invite-service.ts:290),
+// which the accept path activates to `active`. This is DELIBERATELY a
+// different enum from `InviteRevokeResponse.state` below (which is the
+// INVITE's `InviteState`). `role` is the membership's `MembershipRole`.
+
+export interface InviteAcceptResponse {
+  inviteId: InviteId;
+  membershipId: MembershipId;
+  sessionId: SessionId;
+  participantId: ParticipantId;
+  role: MembershipRole;
+  state: MembershipState;
+}
+// `z.ZodType<T, T>` — see the response-payloads header above (double-T per
+// channels.ts / ADR-014). The `as unknown as z.ZodType<T, T>` cast bridges the
+// underlying `z.ZodObject<...>` (whose `_input.role` / `_input.state` resolve
+// to `unknown` because `MembershipRoleSchema` / `MembershipStateSchema` from
+// session.ts are the single-T `z.ZodType<T>` form) to the double-T target
+// required for Standard-Schema-V1 input inference at tRPC v11 consumer sites.
+// Same bridge pattern as `ChannelListResponseChannelSchema` (channels.ts:237);
+// re-wrapping the shared enum schemas locally would diverge from session.ts.
+export const InviteAcceptResponseSchema: z.ZodType<InviteAcceptResponse, InviteAcceptResponse> = z
+  .object({
+    inviteId: InviteIdSchema,
+    membershipId: MembershipIdSchema,
+    sessionId: SessionIdSchema,
+    participantId: ParticipantIdSchema,
+    role: MembershipRoleSchema,
+    // `MembershipState` — the activated membership's state, NOT `InviteState`.
+    // See the interface comment above for why these two response `state`
+    // fields bind different enums.
+    state: MembershipStateSchema,
+  })
+  .strict() as unknown as z.ZodType<InviteAcceptResponse, InviteAcceptResponse>;
+
+// --------------------------------------------------------------------------
+// InviteRevokeResponse — api-payload-contracts.md §Tier 2 (revokeInvite)
+// --------------------------------------------------------------------------
+//
+// STATE-ONLY: `{inviteId, state}`. The response carries the invite id and its
+// new lifecycle state (`'revoked'`); there is no `reason` / `revokedBy` /
+// `revokedAt` field because no such column exists and no audit event is
+// emitted in Phase 2 (invite-service.ts:296-305 — the `invite.revoked` audit
+// event is deferred to Plan-006 Tier 4 per CP-002-6).
+//
+// `state` IS THE INVITE'S STATE (`InviteState`, the `InviteStateSchema`
+// declared earlier in this file) — the invite's lifecycle state, NOT a
+// `MembershipState`. Contrast `InviteAcceptResponse.state` above, which binds
+// `MembershipState`. The two enums share the literal `"revoked"` but are
+// otherwise distinct ({pending, accepted, revoked, expired} vs {pending,
+// active, suspended, revoked}); conflating them at the schema layer would
+// admit invalid wire values on either response.
+
+export interface InviteRevokeResponse {
+  inviteId: InviteId;
+  state: InviteState;
+}
+// `z.ZodType<T, T>` — see the response-payloads header above (double-T per
+// channels.ts / ADR-014). The `as unknown as z.ZodType<T, T>` cast bridges the
+// underlying `z.ZodObject<...>` (whose `_input.state` resolves to `unknown`
+// because this file's `InviteStateSchema` declared earlier is the single-T
+// `z.ZodType<InviteState>` form) to the double-T target required for
+// Standard-Schema-V1 input inference at tRPC v11 consumer sites. Same bridge
+// pattern as `ChannelListResponseChannelSchema` (channels.ts:237).
+export const InviteRevokeResponseSchema: z.ZodType<InviteRevokeResponse, InviteRevokeResponse> = z
+  .object({
+    inviteId: InviteIdSchema,
+    // `InviteState` (this file's `InviteStateSchema`), NOT `MembershipState`.
+    state: InviteStateSchema,
+  })
+  .strict() as unknown as z.ZodType<InviteRevokeResponse, InviteRevokeResponse>;

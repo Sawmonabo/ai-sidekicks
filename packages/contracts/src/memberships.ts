@@ -84,8 +84,10 @@ import { z } from "zod";
 import {
   MembershipIdSchema,
   MembershipRoleSchema,
+  MembershipStateSchema,
   type MembershipId,
   type MembershipRole,
+  type MembershipState,
 } from "./session.js";
 
 // --------------------------------------------------------------------------
@@ -226,3 +228,55 @@ export const MembershipUpdateSchema: z.ZodType<MembershipUpdate, MembershipUpdat
       })
       .strict(),
   ]) as unknown as z.ZodType<MembershipUpdate, MembershipUpdate>;
+
+// --------------------------------------------------------------------------
+// MembershipUpdateResponse — api-payload-contracts.md §Tier 2 (lines 406-410)
+// --------------------------------------------------------------------------
+//
+// `{membershipId, state, role, updatedAt}`. The wire RESPONSE returned by the
+// control-plane membership service after a `MembershipUpdate` mutation. It
+// lands here (the contracts package) so the producer (`@ai-sidekicks/control-
+// plane` MembershipService) and the SDK consumer (Plan-002 Phase 5 client
+// SDK) share ONE source of truth instead of duplicating the local interface
+// (membership-service.ts:173-178, shipped in PR #105). The as-built shape is
+// canonical; `api-payload-contracts.md §Tier 2` already agrees on this shape
+// (no doc edit needed for this response).
+//
+// `state` is the membership's post-mutation `MembershipState`; `role` is its
+// `MembershipRole` (unchanged on suspend / revoke / reactivate; the new role
+// on `change_role`). `updatedAt` matches the ISO 8601 convention used across
+// this package's wire timestamps (`z.iso.datetime({ offset: true })` — RFC
+// 3339 §5.6 offsets accepted alongside the Z-suffixed UTC form).
+//
+// Annotation posture: double-T `z.ZodType<T, T>` (per channels.ts, the
+// Plan-002 Phase 1 sibling) so tRPC v11's Standard-Schema-V1 INPUT inference
+// resolves to T and not `unknown` at consumer sites (ADR-014). The schema is
+// non-transforming, so Input ≡ Output ≡ T. `.strict()` rejects unknown keys —
+// universal across this package's response schemas.
+
+export interface MembershipUpdateResponse {
+  membershipId: MembershipId;
+  state: MembershipState;
+  role: MembershipRole;
+  updatedAt: string;
+}
+// `z.ZodType<T, T>` — see SessionCreateRequestSchema in session.ts; double-T
+// per channels.ts / ADR-014 (preserves Standard-Schema-V1 input inference).
+// The `as unknown as z.ZodType<T, T>` cast bridges the underlying
+// `z.ZodObject<...>` (whose `_input.state` / `_input.role` resolve to
+// `unknown` because `MembershipStateSchema` / `MembershipRoleSchema` from
+// session.ts are the single-T `z.ZodType<T>` form) to the double-T target
+// required for Standard-Schema-V1 input inference at tRPC v11 consumer sites.
+// Same bridge pattern as `MembershipUpdateSchema` above (memberships.ts:228)
+// and `ChannelListResponseChannelSchema` (channels.ts:237).
+export const MembershipUpdateResponseSchema: z.ZodType<
+  MembershipUpdateResponse,
+  MembershipUpdateResponse
+> = z
+  .object({
+    membershipId: MembershipIdSchema,
+    state: MembershipStateSchema,
+    role: MembershipRoleSchema,
+    updatedAt: z.iso.datetime({ offset: true }),
+  })
+  .strict() as unknown as z.ZodType<MembershipUpdateResponse, MembershipUpdateResponse>;
