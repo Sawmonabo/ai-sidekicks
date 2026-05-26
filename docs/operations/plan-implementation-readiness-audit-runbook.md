@@ -222,7 +222,7 @@ A spec cannot transition `draft → review → approved` without:
 
 1. All declared `Depends On` specs and ADRs being at terminal status (`approved` for specs; `accepted` for ADRs). Forward-declared draft deps fail this gate.
 2. All blocking `## Open Questions` resolved or explicitly deferred (referencing a BL-NNN follow-up). Open questions that gate Required Behavior MUST be resolved, not deferred.
-3. **Doc-first-before-coding attestation.** No downstream plan PR has shipped code citing this spec's Required Behavior, Default Behavior, Fallback Behavior, or Acceptance Criteria rows while the spec was in `draft` or `review`. If a violation exists (the Spec-027 / Plan-007 PRs #16/#17/#19 historical case), the promotion PR description MUST enumerate the violating PRs and attest that the spec body as promoted remains authoritative for the rows already shipped (a _post-hoc affirmation_, not a _retroactive approval_).
+3. **Doc-first-before-coding attestation.** No downstream plan PR has shipped code citing this spec's Required Behavior, Default Behavior, Fallback Behavior, or Acceptance Criteria rows while the spec was in `draft` or `review`. If a violation exists (the Spec-027 / Plan-007 PR #16 historical case), the promotion PR description MUST enumerate the violating PRs and attest that the spec body as promoted remains authoritative for the rows already shipped (a _post-hoc affirmation_, not a _retroactive approval_).
 4. The promotion-PR description citing this runbook §Spec-Status Promotion Gate by name.
 
 A spec attempting promotion without clearing these checks fails the spec-template Preconditions checklist. The Preconditions section is added at template-copy time, so future specs inherit the gate without action.

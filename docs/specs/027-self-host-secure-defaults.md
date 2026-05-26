@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| **Status** | `draft` |
+| **Status** | `approved` |
 | **NNN** | `027` |
 | **Slug** | `self-host-secure-defaults` |
 | **Date** | `2026-04-19` |
