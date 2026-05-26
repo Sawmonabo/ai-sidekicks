@@ -148,6 +148,16 @@ The items below were surfaced by the [plan-readiness-audit Tier 1](./operations/
 - Tracked-by: Plan-023 (renderer test harness + Tier 8 IPC dispatcher).
 - Revisit Trigger: Plan-023 Tier 8 ships the renderer test harness / IPC dispatcher; OR V1.1 planning starts; OR a runtime-node renderer regression surfaces that automated component / E2E coverage would have caught.
 
+### BL-132: error-contracts.md invite/membership authorization error-code registration
+
+- Status: `todo`
+- Priority: `P2`
+- Owner: `unassigned`
+- References: [error-contracts.md](./architecture/contracts/error-contracts.md) (the registry missing the codes), [Plan-002 §Progress Log Notes — PR #105 + PR #117](./plans/002-invite-membership-and-presence.md), [`membership-service.ts`](../packages/control-plane/src/memberships/membership-service.ts) (emits `membership.permission_denied` + `membership.last_owner`), [`invite-service.ts`](../packages/control-plane/src/invites/invite-service.ts) (emits `invite.permission_denied`), [BL-103](./archive/backlog-archive.md) (parent C-7 error-code-registration BL — resolved + archived 2026-05-01; the canonical home PR #117's Review Notes routed this gap to, now closed)
+- Summary: The Phase 2 control-plane invite/membership services emit three authorization error codes that are absent from the `error-contracts.md` registry: `membership.permission_denied` (I-002-1 issuer-must-be-owner) and `membership.last_owner` (I-002-2 last-owner-cannot-leave) have no `### Membership` section at all, and `invite.permission_denied` is emitted by `invite-service.ts` but missing from the existing `### Invite` table. The registry is the source of truth the Tier-3 daemon JSON-RPC error-mapping layer and SDK consumers read by code; the gap predates PR #117 (it ships from the Phase 2/3 services, PR #105), and PR #117's Review Notes routed it to BL-103 — which resolved + archived 2026-05-01 — so absent this entry the gap is untracked.
+- Exit Criteria: (a) `error-contracts.md` gains a `### Membership` section registering `membership.permission_denied` (403) + `membership.last_owner` (409 state-conflict, per the §Invite `already_accepted` = 409 precedent); (b) `invite.permission_denied` (403) added to the existing `### Invite` table; (c) HTTP-status mappings follow RFC 7231 + the §Invite precedent; (d) the membership `null → typed not-found` wire code (`membership.not_found`) — which does not exist in code today (the producers return an internal `null` sentinel translated at the wire boundary) — is either minted here or explicitly deferred to the Tier-3 daemon `null`→typed-error bridge with a one-line note.
+- Revisit Trigger: the Tier-3 daemon invite/membership error-mapping (`mapJsonRpcError`) is sequenced for delivery (the registry is its lookup source); OR an SDK/client surface needs to reference a `membership.*` / `invite.permission_denied` code by name; OR a new authorization error code is added to either service.
+
 ---
 
 _Closed items live in [Backlog Archive](./archive/backlog-archive.md)._
