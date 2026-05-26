@@ -41,7 +41,11 @@ import {
   type MembershipId,
   MAIN_CHANNEL_NAME,
   type ParticipantId,
+  type PresenceUpdate,
   type SessionId,
+  SUBSCRIPTION_CANCEL_METHOD,
+  SUBSCRIPTION_NOTIFY_METHOD,
+  type SubscriptionId,
 } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
@@ -64,6 +68,12 @@ const INVITED_PARTICIPANT_ID: ParticipantId =
   "01970000-0000-7000-8000-00000000b002" as ParticipantId;
 const INVITE_ID: InviteId = "01970000-0000-7000-8000-00000000d001" as InviteId;
 const MEMBERSHIP_ID: MembershipId = "01970000-0000-7000-8000-00000000c001" as MembershipId;
+// The daemon-issued subscription handle id returned by the scripted
+// `presence.subscribe` init ack (T5.3). UUID-shaped so it satisfies the
+// `SubscriptionIdSchema` brand the subscribe primitive validates the init
+// result against (`jsonRpcClient.ts` `subscribeInitResultSchema`).
+const PRESENCE_SUBSCRIPTION_ID: SubscriptionId =
+  "01970000-0000-7000-8000-00000000e001" as SubscriptionId;
 
 const PROTOCOL_VERSION = "2026-05-01";
 
@@ -86,6 +96,14 @@ interface ScriptedDaemonResponse {
 interface DaemonHarness {
   readonly transport: InMemoryDaemonTransport;
   readonly client: JsonRpcClient;
+  /**
+   * Drive a `$/subscription/notify` frame inbound, modeling the daemon's
+   * streaming primitive pushing a value to a live subscription. Additive in
+   * T5.3 (mirrors `sessionClient.integration.test.ts:182-196`) so the
+   * `subscribePresence` stream can be exercised; the unary CRUD / sentinel
+   * blocks above never call it.
+   */
+  readonly notify: (params: unknown) => void;
 }
 
 class InMemoryDaemonTransport implements ClientTransport {
@@ -149,7 +167,17 @@ class InMemoryDaemonTransport implements ClientTransport {
 function buildDaemonHarness(scripted: ScriptedDaemonResponse[]): DaemonHarness {
   const transport = new InMemoryDaemonTransport(scripted);
   const client = new JsonRpcClient(transport, { protocolVersion: PROTOCOL_VERSION });
-  return { transport, client };
+  return {
+    transport,
+    client,
+    notify: (params): void => {
+      transport.dispatchInbound({
+        jsonrpc: JSONRPC_VERSION,
+        method: SUBSCRIPTION_NOTIFY_METHOD,
+        params,
+      });
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -521,5 +549,234 @@ describe("control-plane factory — deferred to Tier 5 (NotImplementedAtTier2Err
     expect((thrown as NotImplementedAtTier2Error).message).toMatch(
       /Plan-008-remainder|Tier 5|CP-002-1/,
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// I2 / Spec-002 AC2 — Membership remains durable across a presence offline →
+// online cycle (Plan-002 I2, line 173; Spec-002 AC2, line 179; worked example
+// line 162) — daemon factory.
+//
+// The load-bearing axis is MEMBERSHIP/PRESENCE SEPARATION, NOT durability-
+// enforcement. Durability is the CONTROL-PLANE's guarantee, verified at
+// Plan-002 Phases 1/2 + Plan-010; the mock transport here just replays scripted
+// responses, so it cannot (and must not) try to enforce that membership
+// survives a presence cycle. What it CAN prove at the SDK layer is the
+// separation: driving the presence offline→online cycle issues ZERO membership
+// mutation — only `presence.subscribe` joins the wire (per I-002-3, presence is
+// ephemeral in-memory Yjs Awareness CRDT state; membership is durable
+// control-plane storage on a DISJOINT surface).
+//
+// Why a sequence of distinct `awarenessState` blobs models the cycle: a
+// `PresenceUpdate` is `{sessionId, awarenessState: Uint8Array}` — an OPAQUE
+// serialized Yjs Awareness CRDT blob (presence.ts:280-292). The presence
+// status (online / reconnecting / offline) lives INSIDE that blob; the SDK
+// never decodes it. So "presence goes offline and later returns" at the SDK
+// boundary IS a stream of `PresenceUpdate` notify frames carrying DISTINCT
+// blobs, passed through opaquely. Identical bytes across frames would model
+// nothing, so the three blobs MUST differ (`[1]` / `[2]` / `[3]`).
+// ---------------------------------------------------------------------------
+
+describe("I2 / Spec-002 AC2 — Membership durable across presence offline → online cycle (membership/presence separation)", () => {
+  it("daemon factory: accepting an invite then cycling presence offline→online issues ONLY invite.accept + presence.subscribe (no membership mutation) and yields every PresenceUpdate frame in order", async () => {
+    // Distinct, labeled blobs modeling the cycle. The labels self-document the
+    // offline→online transition even though the SDK treats each as opaque
+    // bytes. They MUST differ — identical bytes would model no transition and
+    // the yield-order assertion would not discriminate the frames.
+    const ONLINE_AWARENESS = new Uint8Array([1]);
+    const OFFLINE_AWARENESS = new Uint8Array([2]);
+    const ONLINE_AGAIN_AWARENESS = new Uint8Array([3]);
+    const presenceOnline: PresenceUpdate = {
+      sessionId: SESSION_ID,
+      awarenessState: ONLINE_AWARENESS,
+    };
+    const presenceOffline: PresenceUpdate = {
+      sessionId: SESSION_ID,
+      awarenessState: OFFLINE_AWARENESS,
+    };
+    const presenceOnlineAgain: PresenceUpdate = {
+      sessionId: SESSION_ID,
+      awarenessState: ONLINE_AGAIN_AWARENESS,
+    };
+
+    const harness = buildDaemonHarness([
+      {
+        method: "invite.accept",
+        buildResult: (): unknown => ({
+          // The durable membership fact (the bracket/context per Spec-002 line
+          // 162): an `InviteAcceptResponse` whose membership is `active`.
+          inviteId: INVITE_ID,
+          membershipId: MEMBERSHIP_ID,
+          sessionId: SESSION_ID,
+          participantId: INVITED_PARTICIPANT_ID,
+          role: "collaborator",
+          state: "active",
+        }),
+      },
+      {
+        // The `presence.subscribe` init ack flows through the scripted table
+        // like any unary call (precedent: sessionClient.integration.test.ts:
+        // 512-515). Returns the daemon-issued subscription handle id.
+        method: "presence.subscribe",
+        buildResult: (): unknown => ({ subscriptionId: PRESENCE_SUBSCRIPTION_ID }),
+      },
+      // No `$/subscription/cancel` script needed: this stream ends via
+      // transport-close, which the client's close path settles to `completed`
+      // locally. The generator's `finally` then calls `subscription.cancel()`,
+      // but `#cancelSubscription`'s terminal-status guard returns WITHOUT
+      // emitting a wire frame for an already-`completed` subscription — so no
+      // cancel envelope reaches the transport here. (Contrast the abort-
+      // lifecycle test below, where the listener-fired cancel DOES emit.)
+    ]);
+    const sdk = createDaemonMembershipClient(harness.client);
+
+    // Step 1 — establish the durable membership fact via the MEMBERSHIP
+    // surface. Hold the returned reference for the post-cycle narrative check.
+    const membership = await sdk.acceptInvite({ token: "v4.local.invite-token-fixture" });
+    expect(membership.membershipId).toBe(MEMBERSHIP_ID);
+    expect(membership.state).toBe("active");
+
+    // Step 2 — drive the presence offline→online cycle via `subscribePresence`.
+    // `daemonSubscribePresence` is `async function*`: its body does NOT run on
+    // construction. We obtain the iterator and prime it with one `.next()` so
+    // the generator prelude executes (sends `presence.subscribe`, registers the
+    // subscription) BEFORE we deliver notify frames — mirroring the precedent
+    // at sessionClient.integration.test.ts:549-581. The prelude up through
+    // `client.subscribe()` is synchronous (the harness dispatches the init ack
+    // synchronously and `#handleResponse` registers `#subscriptions` before
+    // `.next()`'s promise resolves), so firing notifies right after is safe.
+    const iter = sdk.subscribePresence({ sessionId: SESSION_ID })[Symbol.asyncIterator]();
+    const first = iter.next();
+
+    // Step 3 — deliver three notify frames carrying DISTINCT blobs (the
+    // offline→online cycle, opaque to the SDK). Synchronous dispatch parks each
+    // value on the subscription queue by the time `notify(...)` returns.
+    harness.notify({ subscriptionId: PRESENCE_SUBSCRIPTION_ID, value: presenceOnline });
+    harness.notify({ subscriptionId: PRESENCE_SUBSCRIPTION_ID, value: presenceOffline });
+    harness.notify({ subscriptionId: PRESENCE_SUBSCRIPTION_ID, value: presenceOnlineAgain });
+    // Close the transport so the generator's `for await` terminates (clean
+    // close — `reason === undefined` completes the subscription, draining the
+    // queued values first).
+    await harness.transport.close();
+
+    // Drain: the primed `.next()` already issued; collect it then continue.
+    const yielded: PresenceUpdate[] = [];
+    let next = await first;
+    while (next.done !== true) {
+      yielded.push(next.value);
+      next = await iter.next();
+    }
+
+    // (load-bearing) Exact wire-trace method-set — THE "membership/presence
+    // separation" assertion at this layer. The presence cycle (going offline
+    // and returning) adds ONLY `presence.subscribe`; it issues ZERO
+    // `invite.*` / `membership.*` / `channel.*` mutation. Any future regression
+    // that bolts a membership-touching call onto the presence path fails this
+    // `toEqual`. (The transport-close teardown emits no `$/subscription/cancel`
+    // frame — see the scripted-table note above — so the trace is exactly these
+    // two methods.)
+    const sentMethods = harness.transport.sentEnvelopes.map((e) => e.method);
+    expect(sentMethods).toEqual(["invite.accept", "presence.subscribe"]);
+
+    // (stream mechanics) Full ordered yield sequence — proves
+    // `subscribePresence`'s generator handles a MULTI-frame offline→online
+    // cycle (the dedicated `subscribePresence` exercise T5.1 deferred to T5.3).
+    // `toEqual` deep-compares `Uint8Array` byte content, so the three distinct
+    // blobs are discriminated, not just counted.
+    expect(yielded).toEqual([presenceOnline, presenceOffline, presenceOnlineAgain]);
+    // Belt-and-suspenders on the byte distinctness the cycle hinges on: the
+    // labeled blobs surfaced in order, byte-for-byte, NOT collapsed/deduped.
+    expect(yielded.map((u) => u.awarenessState[0])).toEqual([1, 2, 3]);
+
+    // (narrative bracket, light) Membership unmutated by the presence cycle —
+    // the "membership remains active while presence cycles" narrative (Spec-002
+    // line 162). Non-vacuous ONLY because it is paired with the wire-trace
+    // assertion above (the mock would echo any scripted value; the wire trace
+    // is what proves no mutation was even attempted).
+    expect(membership.membershipId).toBe(MEMBERSHIP_ID);
+    expect(membership.state).toBe("active");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// `subscribePresence` abort lifecycle — mid-stream AbortSignal teardown.
+//
+// Closes the deferred `subscribePresence` exercise on the cancellation axis.
+// `daemonSubscribePresence` (membershipClient.ts ~265-335) is a SEPARATE
+// generator from sessionClient's `daemonSubscribe`, so sessionClient's C1 test
+// does NOT transitively cover it — the hardened path is to cover it here. This
+// drives the most generator code: the `addEventListener("abort", ...)` wiring,
+// the listener-fired `subscription.cancel()`, and the `finally` cleanup.
+//
+// Determinism with the synchronous harness hinges on scripting the
+// `$/subscription/cancel` ack: when `controller.abort()` fires, the listener
+// calls `subscription.cancel()`, which emits a `$/subscription/cancel` REQUEST.
+// With `{canceled: true}` scripted, that RPC resolves → `completeSubscription`
+// → the parked `for await` waiter resolves `undefined` → the generator exits
+// CLEANLY (`done: true`). Without the script, the harness's unscripted-method
+// path returns `-32601`, the cancel RPC rejects, `completeSubscriptionWithError`
+// runs, and the parked `next()` would REJECT — so the ack script is what makes
+// the clean-teardown path deterministic.
+// ---------------------------------------------------------------------------
+
+describe("subscribePresence abort lifecycle — mid-stream signal abort completes the stream cleanly", () => {
+  it("daemon factory: after one PresenceUpdate yields, aborting the signal terminates the async iterable (done, no further values, no throw)", async () => {
+    const presenceUpdate: PresenceUpdate = {
+      sessionId: SESSION_ID,
+      awarenessState: new Uint8Array([1]),
+    };
+
+    const harness = buildDaemonHarness([
+      {
+        method: "presence.subscribe",
+        buildResult: (): unknown => ({ subscriptionId: PRESENCE_SUBSCRIPTION_ID }),
+      },
+      {
+        // Scripting the cancel ack is load-bearing for determinism: the
+        // abort-listener-fired `subscription.cancel()` emits this RPC, and a
+        // `{canceled: true}` ack drives the clean-teardown path (parked
+        // `next()` resolves `undefined`) rather than the error path (parked
+        // `next()` rejects). See the block header.
+        method: SUBSCRIPTION_CANCEL_METHOD,
+        buildResult: (): unknown => ({ canceled: true }),
+      },
+    ]);
+    const sdk = createDaemonMembershipClient(harness.client);
+
+    const controller = new AbortController();
+    const stream = sdk.subscribePresence({ sessionId: SESSION_ID, signal: controller.signal });
+    const iter = stream[Symbol.asyncIterator]();
+
+    // Prime the generator prelude (sends `presence.subscribe`, registers the
+    // subscription, wires the abort listener) and deliver ONE frame.
+    const first = iter.next();
+    harness.notify({ subscriptionId: PRESENCE_SUBSCRIPTION_ID, value: presenceUpdate });
+
+    // Core assertion #1: the established stream yields the delivered frame —
+    // proves we exercised the POST-establishment (mid-stream) path, not a
+    // pre-abort short-circuit.
+    const firstResult = await first;
+    expect(firstResult.done).toBe(false);
+    expect(firstResult.value).toEqual(presenceUpdate);
+
+    // Abort mid-stream. The `addEventListener("abort")` listener fires
+    // synchronously and calls `subscription.cancel()` (emits the scripted
+    // `$/subscription/cancel`, which acks `{canceled: true}` and completes the
+    // subscription).
+    controller.abort();
+
+    // Core assertion #2: the next pull completes the iterator (`done: true`)
+    // with no further value — the abort-driven cancel terminated the
+    // `for await` cleanly. `await iter.next()` resolving (not rejecting) is the
+    // proof the teardown path did NOT throw.
+    const afterAbort = await iter.next();
+    expect(afterAbort.done).toBe(true);
+    expect(afterAbort.value).toBeUndefined();
+
+    // Core assertion #3: the abort issued a `$/subscription/cancel` on the wire
+    // (the listener-fired `subscription.cancel()`), confirming the generator's
+    // abort wiring ran rather than the stream merely draining empty.
+    const sentMethods = harness.transport.sentEnvelopes.map((e) => e.method);
+    expect(sentMethods).toEqual(["presence.subscribe", SUBSCRIPTION_CANCEL_METHOD]);
   });
 });
