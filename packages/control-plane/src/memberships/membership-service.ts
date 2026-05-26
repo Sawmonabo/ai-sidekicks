@@ -83,10 +83,6 @@
 //   * Audit-event emission (`session.update.membership`) — owned by Plan-006.
 //     This service mutates the row only; it emits no event.
 //   * Invite-accept membership creation — owned by InviteService (T2.2).
-//   * `MembershipUpdateResponse` wire type — `@ai-sidekicks/contracts` does
-//     not yet export it (verified at T2.3 authoring time); the shape is
-//     declared locally here per the api-payload-contracts.md wire form. See
-//     RESULT for the follow-up recommending it land in contracts.
 //
 // Refs: Spec-002 §Required Behavior (lines 49-50), §Interfaces And Contracts
 // (line 83), Plan-002 §Invariants I-002-1 / I-002-2 / I-002-4,
@@ -100,6 +96,7 @@ import type {
   MembershipRole,
   MembershipState,
   MembershipUpdate,
+  MembershipUpdateResponse,
   ParticipantId,
 } from "@ai-sidekicks/contracts";
 import { MembershipUpdateSchema } from "@ai-sidekicks/contracts";
@@ -107,6 +104,15 @@ import type { Pool } from "pg";
 
 import { createPgPoolQuerier } from "../sessions/session-directory-service.js";
 import type { Querier } from "../sessions/migration-runner.js";
+
+// Re-export the canonical `MembershipUpdateResponse` from this service module
+// so existing consumers that import the wire-response type FROM the service
+// (e.g. memberships/__tests__/membership-service.test.ts) keep resolving after
+// the local interface was hoisted to `@ai-sidekicks/contracts` (T5.0a). The
+// canonical declaration now lives in `packages/contracts/src/memberships.ts`;
+// this module re-exports the TYPE only (the `export type` form is required
+// under `verbatimModuleSyntax`).
+export type { MembershipUpdateResponse } from "@ai-sidekicks/contracts";
 
 // --------------------------------------------------------------------------
 // Typed errors — defined inline (contracts + a separate errors.ts are out of
@@ -159,22 +165,6 @@ export class MembershipLastOwnerException extends Error {
     super(message);
     this.name = "MembershipLastOwnerException";
   }
-}
-
-// --------------------------------------------------------------------------
-// MembershipUpdate response — api-payload-contracts.md §MembershipUpdate
-// (lines 406-410): `{membershipId, state, role, updatedAt}`. Declared locally
-// because `@ai-sidekicks/contracts` does not yet export an
-// `MembershipUpdateResponse` type (verified at T2.3 authoring time) — mirrors
-// the local `InviteCreateResponse` in invite-service.ts. See RESULT for the
-// follow-up recommending it land in `packages/contracts/src/memberships.ts`.
-// --------------------------------------------------------------------------
-
-export interface MembershipUpdateResponse {
-  membershipId: MembershipId;
-  state: MembershipState;
-  role: MembershipRole;
-  updatedAt: string;
 }
 
 // --------------------------------------------------------------------------
