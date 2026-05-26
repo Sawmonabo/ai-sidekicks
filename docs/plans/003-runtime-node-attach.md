@@ -8,8 +8,8 @@
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
 | **Spec** | [Spec-003: Runtime Node Attach](../specs/003-runtime-node-attach.md) |
-| **Required ADRs** | [ADR-001](../decisions/001-session-is-the-primary-domain-object.md), [ADR-002](../decisions/002-local-execution-shared-control-plane.md), [ADR-007](../decisions/007-collaboration-trust-and-permission-model.md), [ADR-008](../decisions/008-default-transports-and-relay-boundaries.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md), [ADR-018](../decisions/018-cross-version-compatibility.md) |
-| **Dependencies** | [Plan-001](./001-shared-session-core.md) (session model, `runtime_node_attachments`/`runtime_node_presence` Postgres tables, forward-declared `session_events` integrity columns); [Plan-006](./006-session-event-taxonomy-and-audit-log.md) (`runtime_node.*` event taxonomy registration at Tier 4 — Plan-003 emits 7 events at Tier 3 as event-shape stubs against the Plan-001 forward-declared columns; full taxonomy registration is an additive Plan-006 follow-up at Tier 4); [Plan-008 bootstrap-deliverable](./008-control-plane-relay-and-session-join.md) (Tier 1 tRPC v11 `sessionRouter` substrate — Plan-003's runtime-node attach calls cross the same control-plane transport). See [cross-plan-dependencies.md §3 Plan-003 row](../architecture/cross-plan-dependencies.md#3-inter-plan-dependency-graph). [Spec-024](../specs/024-cross-node-dispatch-and-approval.md) is **not** a dependency for Plan-003 — historical Session H-interim header reference; cross-node dispatch implementation belongs to [Plan-027](./027-cross-node-dispatch-and-approval.md) per [cross-plan-dependencies.md §Spec-024 Implementation Plan](../architecture/cross-plan-dependencies.md#spec-024-implementation-plan). |
+| **Required ADRs** | [ADR-001](../decisions/001-session-is-the-primary-domain-object.md), [ADR-002](../decisions/002-local-execution-shared-control-plane.md), [ADR-005](../decisions/005-provider-drivers-use-a-normalized-interface.md), [ADR-007](../decisions/007-collaboration-trust-and-permission-model.md), [ADR-008](../decisions/008-default-transports-and-relay-boundaries.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md), [ADR-018](../decisions/018-cross-version-compatibility.md); transitive/substrate pointers (not Plan-003 decisions) — [ADR-009](../decisions/009-json-rpc-ipc-wire-format.md) (the daemon SDK + renderer ride the JSON-RPC IPC wire that Plan-007 owns; Plan-003 decides no wire format), [ADR-023](../decisions/023-v1-ci-cd-and-release-automation.md) (the Phase-5 renderer subtree runs under the Plan-023-owned `test:renderer` CI surface; Plan-003 adds no CI decision) |
+| **Dependencies** | [Plan-001](./001-shared-session-core.md) (session model, forward-declared `session_events` integrity columns, and the `sessions.min_client_version` floor column — Plan-001 ships the physical column; Plan-003 picks up the read/write floor **semantics** at Tier 3 per [cross-plan-dependencies.md §1 Contested `min_client_version` row](../architecture/cross-plan-dependencies.md#1-table-ownership-map)). **The `runtime_node_attachments`/`runtime_node_presence` Postgres tables are Plan-003-owned, not Plan-001's** — Plan-003 CREATEs them in its own control-plane migration (Phase 3) per [cross-plan-dependencies.md §1 Uncontested row](../architecture/cross-plan-dependencies.md#1-table-ownership-map) and the `-- Owner: Plan-003` stamps in [shared-postgres-schema.md](../architecture/schemas/shared-postgres-schema.md); [Plan-007 bootstrap-deliverable](./007-local-ipc-and-daemon-control.md) (Tier 1 daemon JSON-RPC IPC substrate `packages/runtime-daemon/src/ipc/` incl. the namespace `registry.ts` and the `METHOD_NAME_FORMAT` guard — Plan-003 registers its runtime-node method handlers under it per [cross-plan-dependencies.md §2 `ipc/` row](../architecture/cross-plan-dependencies.md#2-package-path-ownership-map)); [Plan-006](./006-session-event-taxonomy-and-audit-log.md) (`runtime_node.*` event taxonomy registration at Tier 4 — Plan-003 emits 7 events at Tier 3 as event-shape stubs against the Plan-001 forward-declared columns; full taxonomy registration is an additive Plan-006 follow-up at Tier 4); [Plan-008 bootstrap-deliverable](./008-control-plane-relay-and-session-join.md) (Tier 1 tRPC v11 `sessionRouter` substrate — Plan-003's runtime-node attach calls cross the same control-plane transport). See [cross-plan-dependencies.md §3 Plan-003 row](../architecture/cross-plan-dependencies.md#3-inter-plan-dependency-graph). [Spec-024](../specs/024-cross-node-dispatch-and-approval.md) is **not** a dependency for Plan-003 — historical Session H-interim header reference; cross-node dispatch implementation belongs to [Plan-027](./027-cross-node-dispatch-and-approval.md) per [cross-plan-dependencies.md §Spec-024 Implementation Plan](../architecture/cross-plan-dependencies.md#spec-024-implementation-plan). |
 | **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
 
 ## Goal
@@ -62,6 +62,14 @@ Plan-003's `runtime_node.*` event emission writes the `monotonic_ns` column (per
 
 **Verification.** Inherits Plan-001's D3 test; Plan-003 PRs that add `runtime_node.*` event emission must not introduce code paths that read `monotonic_ns` for ordering decisions.
 
+### I-003-5 — A runtime node has at most one active attachment (single active session)
+
+In v1, a runtime node MAY be actively attached to at most one session at a time. This ratifies the Spec-003 V1 scope decision ([Spec-003 line 114](../specs/003-runtime-node-attach.md#resolved-questions-and-v1-scope-decisions): "a runtime node may participate in one active session at a time in v1. Multi-session sharing is deferred."). "Active" means a `runtime_node_attachments` row in state `registering`, `online`, or `degraded`; `offline` and `revoked` are inactive. The constraint is enforced at the database by a partial `UNIQUE(node_id)` index scoped to those active states (`idx_node_attachments_active`, see [shared-postgres-schema.md §Runtime Node Attachments](../architecture/schemas/shared-postgres-schema.md#runtime-node-attachments-plan-003)) — not by an application-level read-then-write — so a concurrent second active attach is rejected by the constraint with no TOCTOU window.
+
+**Why load-bearing.** It collapses the node↔session cardinality the heartbeat and detach wire shapes depend on. Because the `idx_node_attachments_active` partial unique index (`UNIQUE(node_id) WHERE state IN ('registering', 'online', 'degraded')`) admits at most one active row per `node_id`, `RuntimeNodeHeartbeatRequest` and `RuntimeNodeDetachRequest` key on `nodeId` alone (no `sessionId`) and a server-side lookup `WHERE node_id = $1 AND state IN ('registering', 'online', 'degraded')` resolves to exactly that one row — the single active attachment. (The composite `idx_node_attachments_node (node_id, session_id)` index is the upsert `ON CONFLICT` target for T3.2's reconnect path, not the resolution index for these `nodeId`-only reads.) Without single-active-session those `nodeId`-only requests would be ambiguous across a node's several attachments; the v1 decision is what makes the wire shape sound (see T1.3, T3.6, T3.7).
+
+**Verification.** Test P9 asserts a node already actively attached to session A is refused a second active attach to session B (the partial unique constraint fires), while a reconnect to A after detach — its row left `offline` — succeeds via the T3.2 upsert (Spec-003 line 65: reconnect under the same node identity). Heartbeat- and detach-by-`nodeId` therefore resolve the node's one active row unambiguously.
+
 ## Cross-Plan Obligations
 
 Plan-003 declares the following obligations on adjacent plans. Implementation of Plan-003 cannot proceed (or must defer specific surfaces) without these being satisfied or explicitly staged.
@@ -80,11 +88,18 @@ Plan-003 emits 7 `runtime_node.*` events at Tier 3 against the column shape Plan
 
 **Resolution.** Plan-008-bootstrap at Tier 1 already shipped the tRPC v11 server skeleton; Plan-003 at Tier 3 adds its routes under that skeleton. No new infrastructure work; just route registration.
 
+### CP-003-3 — Plan-023 owns the `window.sidekicks` preload bridge the Phase-5 renderer projects over
+
+Plan-003's Phase 5 renderer subtree (`apps/desktop/src/renderer/src/runtime-node-attach/`) is a thin projection over the Spec-023 preload-bridge `window.sidekicks` surface owned by [Plan-023](./023-desktop-shell-and-renderer.md) (the renderer substrate + `SidekicksBridge` type at `packages/contracts/src/desktop-bridge.ts` shipped at Plan-023 Tier 1 Partial — NS-03). Per [Spec-023 §Trust Stance](../specs/023-desktop-shell-and-renderer.md#trust-stance) the renderer is untrusted and is **not a direct daemon client**: all runtime-node attach / heartbeat / capability / roster reads route through `window.sidekicks.controlPlane.call(...)` or `window.sidekicks.daemon.{call,subscribe}(...)`, never directly to daemon or control-plane state. See [cross-plan-dependencies.md §2 `apps/desktop/src/renderer/` row](../architecture/cross-plan-dependencies.md#2-package-path-ownership-map).
+
+**Resolution.** Plan-023 Tier 1 Partial already shipped the bridge substrate and the renderer-untrusted import-ban lint; Plan-003 Phase 5 adds its renderer subtree as an extender under that substrate. No new bridge infrastructure — the Phase-5 views consume the existing typed surface. This entry codifies an obligation already doubly stated (Phase 5 prose below + the cross-plan-deps §2 ownership row, which lists Plan-003's `runtime-node-attach/` subtree among the bridge's extending plans) and mirrors how Plan-002 names its renderer-bridge dependency (CP-002-5); it introduces no new coordination requirement.
+
 ## Preconditions
 
 - [x] Paired spec is approved
 - [x] Required ADRs are accepted
 - [x] Blocking open questions are resolved or explicitly deferred
+- [x] **Plan-readiness audit complete per [`docs/operations/plan-implementation-readiness-audit-runbook.md`](../operations/plan-implementation-readiness-audit-runbook.md)** — Tier 3 audit landed via NS-15; see [Status Promotion Gate §1](../operations/plan-implementation-readiness-audit-runbook.md#status-promotion-gate). Per-Phase `#### Tasks` blocks authored (Phases 1–5) and cite anchors corrected in-PR; the runtime-node table-CREATE-ownership self-misattribution (header + Phase 1) corrected to Plan-003-owned. Cross-cutting contract/schema fills (`clientVersion` on `RuntimeNodeAttachRequest`, the below-floor read-only attach representation, the JSON-RPC/tRPC method namespace, and the node↔session cardinality) plus the Spec-003 heartbeat degraded→offline threshold are dispositioned in this PR — the wire shapes in [`api-payload-contracts.md`](../architecture/contracts/api-payload-contracts.md) (the `clientVersion` field, the derived `readOnly` flag, and the Runtime-Node Method-Name Registry), the cardinality as [§Invariants I-003-5](#invariants), and the remainder in the per-task Contract-dependency notes below — per the [runbook §Cross-Tier Amendment Contingency](../operations/plan-implementation-readiness-audit-runbook.md#cross-tier-amendment-contingency); the Spec-003 §Default Behavior threshold addition re-discharges the Spec-Status Promotion Gate via a separate Spec-003 amendment PR.
 
 Target paths below assume the canonical implementation topology defined in [Container Architecture](../architecture/container-architecture.md).
 
@@ -99,8 +114,9 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 ## Data And Storage Changes
 
-- Add shared `runtime_node_attachments` and `runtime_node_presence` tables.
-- Add local `node_capabilities` and `node_trust_state` persistence.
+- Add shared `runtime_node_attachments` and `runtime_node_presence` tables — **Plan-003-owned** (the `-- Owner: Plan-003` stamps in [shared-postgres-schema.md](../architecture/schemas/shared-postgres-schema.md)); Plan-003 CREATEs them in its own control-plane migration at Phase 3, **not** Plan-001.
+- Add local `node_capabilities` and `node_trust_state` persistence (daemon SQLite migration, Phase 1).
+- **Node-registry persistence reuses these SQLite tables:** a row in `node_trust_state` (PK `node_id`) is the durable registration record — a node is "registered to this daemon" iff a `node_trust_state` row exists — and `node_capabilities` rows persist the declared capability set. Identity-payload fields carried only on the wire (`nodeVersion`, `platform` per the Spec-006 `runtime_node.registered` payload) are recovered by event replay, not stored as dedicated columns.
 - See [Local SQLite Schema](../architecture/schemas/local-sqlite-schema.md) for column definitions.
 - See [Shared Postgres Schema](../architecture/schemas/shared-postgres-schema.md) for column definitions.
 
@@ -126,12 +142,13 @@ The remaining 2 events in the `runtime_node_lifecycle` category — `session.clo
 ## Implementation Steps
 
 - Contracts: See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed schemas this plan consumes.
-- All four steps land at Tier 3 (Plan-003's canonical tier). The `apps/desktop/src/renderer/` substrate is created by [Plan-023 Tier 1 Partial](./023-desktop-shell-and-renderer.md#tier-1-partial-pr-sequence) per BL-101 (a) resolution, so step 4 (renderer integration) has no cross-tier blocker — it ships as the final PR in the Plan-003 sequence after step 3's SDK lands. See [cross-plan-dependencies.md §2 `apps/desktop/src/renderer/` row](../architecture/cross-plan-dependencies.md#2-package-path-ownership-map) and §Execution Windows below.
+- All five steps land at Tier 3 (Plan-003's canonical tier) and map 1:1 to the five phases in §Implementation Phase Sequence below (contracts → daemon → control-plane → SDK → renderer). The `apps/desktop/src/renderer/` substrate is created by [Plan-023 Tier 1 Partial](./023-desktop-shell-and-renderer.md#tier-1-partial-pr-sequence) per BL-101 (a) resolution, so step 5 (renderer integration) has no cross-tier blocker — it ships as the final PR in the Plan-003 sequence after step 4's SDK lands. See [cross-plan-dependencies.md §2 `apps/desktop/src/renderer/` row](../architecture/cross-plan-dependencies.md#2-package-path-ownership-map) and §Execution Windows below.
 
 1. **[Tier 3]** Define node contracts and migration shape.
 2. **[Tier 3]** Implement Local Runtime Daemon node registry and capability declaration service; emit the 7 `runtime_node.*` events above through the canonical session-event append path. Per §Invariants I-003-2, `runtime_node.online` MUST emit only after `runtime_node.capability_declared` succeeds. Per §Cross-Plan Obligations CP-003-1, events are shipped as event-shape stubs against the Plan-001 forward-declared integrity columns; Plan-006 at Tier 4 lands the verifier and the canonical writer.
 3. **[Tier 3]** Implement Collaboration Control Plane RuntimeNode attach and presence services. **Per [Spec-003 §Required Behavior line 53](../specs/003-runtime-node-attach.md#required-behavior):** at attach, the control plane MUST verify the daemon's reported version against the session's `min_client_version` floor. A NULL floor permits all daemons. A daemon below the floor MUST be admitted in read-only state — the daemon remains joined and may read session state, but any subsequent write attempt MUST return typed `VERSION_FLOOR_EXCEEDED` per [ADR-018 §Decision #4](../decisions/018-cross-version-compatibility.md). Ejection MUST NOT be the response to a floor mismatch (graceful degradation, not ejection — per §Invariants I-003-1).
-4. **[Tier 3]** Add desktop attach flow and session node roster UI under `apps/desktop/src/renderer/src/runtime-node-attach/` (per [cross-plan-dependencies.md §2 row for `apps/desktop/src/renderer/`](../architecture/cross-plan-dependencies.md#2-package-path-ownership-map)). This step lands as the final PR in the Plan-003 sequence after step 3 ships the SDK; the renderer substrate is created by Plan-023 Tier 1 Partial per BL-101 (a) resolution, not blocked behind Plan-023's Tier 8 remainder.
+4. **[Tier 3]** Implement the client SDK runtime-node surface (`packages/client-sdk/src/runtimeNodeClient.ts`) wrapping attach/heartbeat/capability/detach over the daemon and control-plane transports, plus the mixed-version integration tests (I1–I3). This is a standalone step (Phase 4) gated on step 3 — it is **not** folded into the control-plane step.
+5. **[Tier 3]** Add desktop attach flow and session node roster UI under `apps/desktop/src/renderer/src/runtime-node-attach/` (per [cross-plan-dependencies.md §2 row for `apps/desktop/src/renderer/`](../architecture/cross-plan-dependencies.md#2-package-path-ownership-map)). This step lands as the final PR in the Plan-003 sequence after step 4 ships the SDK; the renderer substrate is created by Plan-023 Tier 1 Partial per BL-101 (a) resolution, not blocked behind Plan-023's Tier 8 remainder.
 
 ## Execution Windows
 
@@ -150,18 +167,19 @@ The TDD test list below is enumerated and ordered by implementation dependency. 
 
 | ID | Test | Asserts | Spec-003 AC / MUST |
 | --- | --- | --- | --- |
-| C1 | `RuntimeNodeAttach payload validates required fields including client_version` | request schema | line 56, 69 |
+| C1 | `RuntimeNodeAttach payload validates required fields including client_version` | request schema | line 69 (required fields), line 53 (client_version) |
 | C2 | `RuntimeNodeCapabilityUpdate payload supports add/remove/health-change variants` | mutation contract | line 71 |
 | C3 | `RuntimeNodeDetach payload validates session id + node id + reason` | retire contract | line 72 |
-| C4 | `runtime_node.* event names exactly match the 7-event taxonomy in Spec-006` | taxonomy conformance | line 60 |
+| C4 | `runtime_node.* event names exactly match the 7-event taxonomy in Spec-006` | taxonomy conformance | Spec-006 §Runtime Node Lifecycle (lines 370–376) |
 | C5 | `VERSION_FLOOR_EXCEEDED error contract matches ADR-018 typed shape` | error contract | line 53, AC4 |
+| C6 | `RuntimeNodeHeartbeat payload validates node id + health state` | presence-update contract | line 70 |
 
 ### Daemon Layer (`packages/runtime-daemon/src/node/`)
 
 | ID | Test | Asserts | Spec-003 AC / MUST |
 | --- | --- | --- | --- |
 | D1 | `Node registry persists node identity across daemon restart` | stable identity (Spec-003 line 90) | AC1 |
-| D2 | `Capability declaration service emits runtime_node.capability_declared on success` | event emission | line 67 |
+| D2 | `Capability declaration service emits runtime_node.capability_declared on success` | event emission | line 79 |
 | D3 | `runtime_node.online MUST NOT emit until runtime_node.capability_declared lands` | I-003-2 ordering invariant | I-003-2, line 57 |
 | D4 | `Detach emits runtime_node.offline; subsequent reconnect under same node id succeeds` | reconnect identity | line 65, line 90 |
 | D5 | `Event emission writes monotonic_ns into Plan-001 forward-declared column shape` | CP-003-1 shape conformance | CP-003-1 |
@@ -176,9 +194,11 @@ The TDD test list below is enumerated and ordered by implementation dependency. 
 | P3 | `RuntimeNodeAttach with client_version < floor admits in read-only state — node remains joined and reads succeed` | I-003-1 admit-in-read-only invariant | I-003-1, line 53 |
 | P4 | `Read-only-attached daemon's subsequent write attempt returns typed VERSION_FLOOR_EXCEEDED; node remains joined (no detach)` | I-003-1 admit-not-eject invariant | I-003-1, AC4 |
 | P5 | `Multiple runtime nodes can attach to the same session without changing session identity` | multi-node co-existence | AC3, line 49 |
-| P6 | `Heartbeat ingestion updates runtime_node_presence; missed heartbeat past threshold emits runtime_node.degraded then offline` | health transitions | line 64–65 |
+| P6 | `Heartbeat ingestion updates runtime_node_presence; missed heartbeat past threshold emits runtime_node.degraded then offline` | health transitions | line 59 (cadence); degraded→offline threshold + sweep owner pending the Spec-003 §Default Behavior amendment (see §Preconditions / this PR's audit) |
 | P7 | `RuntimeNodeAttach MUST NOT mutate session_memberships` | I-003-3 attach-membership-separation | I-003-3, line 47 |
 | P8 | `RuntimeNodeDetach leaves session_memberships unchanged` | I-003-3 attach-membership-separation | I-003-3, line 51 |
+| P9 | `Node actively attached to session A is refused a second active attach to session B with a typed CONFLICT (409) wire error; reconnect to A after detach reactivates the offline row` | I-003-5 single-active-session (partial unique index) | I-003-5, line 114 |
+| P10 | `Re-attach to a session whose attachment row is revoked is refused with a typed CONFLICT (409) wire error — revocation is terminal, not a reconnect` | revoked-row terminality — a revoked (node, session) row is never reactivated | runtime-node-model.md (`revoked` is terminal) |
 
 ### SDK And Integration Layer (`packages/client-sdk/`, integration)
 
@@ -192,7 +212,7 @@ The TDD test list below is enumerated and ordered by implementation dependency. 
 
 - `pnpm turbo test` at workspace root green across all packages
 - Manual smoke: join a live session from one client, attach one runtime node, then attach a second node from a sibling client and verify roster shows both (after Phase 5 ships)
-- All 22 enumerated tests above pass before Plan-003 is marked complete; renderer-step tests gate Phase 5 independently
+- All 25 enumerated tests above pass before Plan-003 is marked complete; Phase 5's renderer projection is gated by the manual two-client smoke (the load-bearing floor/attach/membership semantics are already proven by Phases 1–4 — C1–C6, D1–D6, P1–P10, I1–I3). Automated renderer component/E2E coverage is a criterion-gated V1.1 backfill tracked in BL-131 (not a V1/Tier-3 gate).
 
 ## Implementation Phase Sequence
 
@@ -200,14 +220,74 @@ Plan-003 implementation lands as a sequence of small PRs at Tier 3. Phases 1–4
 
 ### Phase 1 — Node Contracts + Migrations
 
-**Precondition:** Plan-001 complete (Tier 1 substrate carve-outs + Plan-001's `runtime_node_attachments`/`runtime_node_presence` Postgres tables + forward-declared `session_events` integrity columns in place).
+**Precondition:** Plan-001 complete (Tier 1 substrate carve-outs + forward-declared `session_events` integrity columns + the `sessions.min_client_version` column in place). Plan-001 does **not** create the `runtime_node_attachments`/`runtime_node_presence` Postgres tables — those are Plan-003-owned and created in Phase 3 (see §Dependencies and cross-plan-dependencies.md §1).
 
-**Goal:** Tests C1–C5 go green; SQLite migration for `node_capabilities`/`node_trust_state` and Postgres reads against the Plan-001 attach tables work cleanly.
+**Goal:** Tests C1–C6 go green; the daemon SQLite migration for `node_capabilities`/`node_trust_state` lands; Phase 1 confirms the Plan-001 upstream anchors (`participants`, `sessions.min_client_version`) that the Plan-003 Postgres tables will FK/read (the Postgres tables themselves are created in Phase 3).
 
-- `packages/contracts/src/runtimeNode.ts` — `RuntimeNodeAttach`, `RuntimeNodeHeartbeat`, `RuntimeNodeCapabilityUpdate`, `RuntimeNodeDetach` payloads
-- `packages/contracts/src/error.ts` — `VERSION_FLOOR_EXCEEDED` typed error shape per ADR-018 §Decision #4
-- Local SQLite migration (Plan-003-owned): `node_capabilities`, `node_trust_state`
-- Confirm Plan-001 already created `runtime_node_attachments` + `runtime_node_presence` (Plan-003 reads, does not CREATE)
+- `packages/contracts/src/runtimeNode.ts` — `RuntimeNodeAttach`, `RuntimeNodeHeartbeat`, `RuntimeNodeCapabilityUpdate`, `RuntimeNodeDetach` payloads, plus the `NodeId` (string brand) and `NodeState` types.
+- `packages/contracts/src/error.ts` — **no authoring.** The `VersionFloorExceededError` shape + `VersionFloorExceededErrorSchema` + `VERSION_FLOOR_EXCEEDED_CODE` (literal `version.floor_exceeded`) already shipped at Plan-001 T2.3 (see cross-plan-dependencies.md §1 `sessions.min_client_version` row). Plan-003 **imports** this shape; C5 asserts the existing export conforms to ADR-018 §Decision #10. Plan-003 owns the **emit site** (control-plane attach/write path, Phase 3), not the contract.
+- Local SQLite migration (Plan-003-owned, daemon `0002-runtime-node.ts`): `node_capabilities`, `node_trust_state`.
+- Confirm the Plan-001 upstream schema (read-only): the `participants` identity anchor + `sessions.min_client_version` (Plan-003 FK-references / reads; does not duplicate-CREATE). The Plan-003-owned `runtime_node_attachments`/`runtime_node_presence` Postgres tables are created in the Phase 3 control-plane migration, **not** here and **not** by Plan-001.
+
+#### Tasks
+
+##### T1.1 — `runtimeNode.ts`: `RuntimeNodeAttach` request/response + `NodeId`/`NodeState` brands
+
+- **Files:** `packages/contracts/src/runtimeNode.ts` (new), `packages/contracts/src/__tests__/runtimeNode.test.ts` (new), `packages/contracts/src/index.ts` (add re-export).
+- **Step:** Define `NodeId` as a string brand (mirror `SessionId` at `session.ts:51`). Define `NodeState` as `z.enum(["registering","online","degraded","offline","revoked"])`, aligned with the `runtime_node_attachments.state` CHECK (`shared-postgres-schema.md`). Author `RuntimeNodeAttachRequestSchema` (zod `.strict()`) with `sessionId`, `participantId`, `nodeId`, `capabilities: z.record(z.unknown())`, `healthState: z.enum(["online","degraded"])`, and `clientVersion` (the daemon's reported version, validated against `sessions.min_client_version` per Spec-003 line 53). Author `RuntimeNodeAttachResponseSchema` with `attachmentId`, `state: NodeState`, `readOnly: z.boolean()` (derived below-floor flag — `true` iff `client_version` is below the session floor; orthogonal to `state`, populated by the Phase-3 attach service per ADR-018 §Decision #4), and `attachedAt` (ISO string).
+- **Contract dependency:** `clientVersion` on `RuntimeNodeAttachRequest` is required by Spec-003 line 53 + C1; this PR's Tier-3 plan-readiness audit adds it to the canonical wire shape in `api-payload-contracts.md` (see §Preconditions). The below-floor read-only attach representation is ratified there too as a derived `readOnly: boolean` on `RuntimeNodeAttachResponse` — orthogonal to `state` (not a `NodeState` member), `true` iff `client_version` is below the session floor.
+- **Test (C1):** assert `RuntimeNodeAttachRequestSchema.parse` accepts a payload with all required fields including `clientVersion`, and rejects a payload missing `clientVersion`, missing `nodeId`, or with an out-of-enum `healthState`; and assert `RuntimeNodeAttachResponseSchema.parse` accepts a response carrying `readOnly: boolean`.
+- **Spec coverage:** Spec-003 line 69 (RuntimeNodeAttach required fields), Spec-003 line 53 (`client_version` floor field)
+- **Verifies invariant:** (none directly; I-003-1 enforcement is Phase 3)
+
+##### T1.2 — `runtimeNode.ts`: `RuntimeNodeCapabilityUpdate` request/response
+
+- **Files:** `packages/contracts/src/runtimeNode.ts`, `packages/contracts/src/__tests__/runtimeNode.test.ts`.
+- **Step:** Author `RuntimeNodeCapabilityUpdateRequestSchema` (`.strict()`) with `nodeId`, `capabilities: z.record(z.unknown())`, and optional `healthChanges: { state: NodeState; reason?: string }` (additions/removals via the replacement `capabilities` map; health change via `healthChanges`). Author `RuntimeNodeCapabilityUpdateResponseSchema` with `nodeId`, `state: NodeState`, `updatedAt`.
+- **Test (C2):** assert the schema accepts (a) an add-only payload, (b) a removal payload, (c) a health-change payload; assert `.strict()` rejects unknown keys.
+- **Spec coverage:** Spec-003 line 71 (capability additions, removals, health changes)
+- **Verifies invariant:** (none directly; contract-schema definition.)
+
+##### T1.3 — `runtimeNode.ts`: `RuntimeNodeHeartbeat` + `RuntimeNodeDetach` requests
+
+- **Files:** `packages/contracts/src/runtimeNode.ts`, `packages/contracts/src/__tests__/runtimeNode.test.ts`.
+- **Step:** Author `RuntimeNodeHeartbeatRequestSchema` (`.strict()`: `nodeId`, `healthState: z.enum(["online","degraded"])`) and `RuntimeNodeDetachRequestSchema` (`.strict()`: `nodeId`, optional `reason: string`). Both methods return no content, so also author the canonical no-content response schemas `RuntimeNodeHeartbeatResponseSchema = z.null()` and `RuntimeNodeDetachResponseSchema = z.null()` as named exports: over the JSON-RPC daemon transport a success carries `result: null` (JSON-RPC 2.0 requires a `result` member), which `z.null()` validates; over the tRPC control-plane transport the resolver returns `null`, surfaced as a normal HTTP 200 tRPC success envelope `{ result: { data: null } }` (not a 204 — the SDK's `parseTrpcResult` calls `response.json()` on every 2xx response, so an empty 204 body would throw), which `z.null()` likewise validates (see [api-payload-contracts.md §Runtime-Node Method-Name Registry](../architecture/contracts/api-payload-contracts.md#runtime-node-method-name-registry-tier-3)). Naming them here gives T4.1's SDK `client.call(...)` a concrete result schema and stops implementers inventing a per-call shape. (Spec-003 line 72 Detach "must explicitly retire or disconnect a node" — the wire shape keys on `nodeId` only, with `session_id` resolved server-side to the node's single active attachment per [§Invariants I-003-5](#invariants); the "session id + node id" phrasing in C3 reflects the logical key, not two request fields.)
+- **Test (C3):** assert `RuntimeNodeDetachRequestSchema` accepts `{nodeId, reason}` and `{nodeId}`, rejects a missing `nodeId`, and `.strict()`-rejects unknown keys; assert `RuntimeNodeDetachResponseSchema.parse(null)` succeeds and a non-`null` value is rejected.
+- **Test (C6):** assert `RuntimeNodeHeartbeatRequestSchema` accepts `{nodeId, healthState:"online"}` and rejects an out-of-enum `healthState` or a missing `nodeId`; assert `RuntimeNodeHeartbeatResponseSchema.parse(null)` succeeds and a non-`null` value is rejected.
+- **Spec coverage:** Spec-003 line 70 (RuntimeNodeHeartbeat updates presence/health), line 72 (RuntimeNodeDetach retire/disconnect)
+- **Verifies invariant:** (none directly; contract-schema definition.)
+
+##### T1.4 — `runtimeNode.ts`: `runtime_node.*` event-name taxonomy constants (C4 conformance)
+
+- **Files:** `packages/contracts/src/runtimeNode.ts`, `packages/contracts/src/__tests__/runtimeNode.test.ts`.
+- **Step:** Export the 7 `runtime_node.*` event-name string literals (`registered`, `online`, `degraded`, `offline`, `revoked`, `capability_declared`, `capability_updated`) as a frozen tuple, sourced verbatim from Spec-006 §Runtime Node Lifecycle (Spec-006 lines 370–376). The 2 `session.clock_*` events in the same category are Plan-015-owned and out of scope. Per CP-003-1, Plan-003 ships event-shape stubs only — these are name constants, not the `EventEnvelope` schema. The `category` literal `runtime_node_lifecycle` already exists in the `EventCategory` union.
+- **Test (C4):** assert the exported 7-name set is exactly equal (as a sorted set) to the 7 `runtime_node.*` names in Spec-006 §Runtime Node Lifecycle — neither superset nor subset. Re-derive the expected set against Spec-006 lines 370–376; do not transcribe from a Plan-003 gloss.
+- **Spec coverage:** Spec-006 §Runtime Node Lifecycle (lines 370–376) — taxonomy owned by Spec-006 per CP-003-1, not Spec-003
+- **Verifies invariant:** (none directly; event-name taxonomy constants — C4 conformance.)
+
+##### T1.5 — C5: `VERSION_FLOOR_EXCEEDED` conformance assertion against the existing `error.ts` export
+
+- **Files:** `packages/contracts/src/__tests__/runtimeNode.test.ts` (or co-located). **No edit to `error.ts`** (already shipped by Plan-001 T2.3).
+- **Step:** Import `VersionFloorExceededErrorSchema`, `VersionFloorExceededError`, and `VERSION_FLOOR_EXCEEDED_CODE` from `packages/contracts/src/error.ts`. This is a conformance assertion against the existing Plan-001 T2.3 export — **not** a contract author (no edit to `error.ts`).
+- **Test (C5):** assert (a) `VERSION_FLOOR_EXCEEDED_CODE` equals the literal `version.floor_exceeded`; (b) `VersionFloorExceededErrorSchema` accepts a payload whose `details` conforms to the shared `VersionBoundExceededDetails` shape (`attemptedVersion`, `acceptedRange:{min,max}`, optional `upgradePath`) per ADR-018 §Decision #10; (c) the schema is `.strict()` — rejects an unknown extra top-level key.
+- **Spec coverage:** Spec-003 line 53 (typed `VERSION_FLOOR_EXCEEDED` on below-floor write), Spec-003 AC4 (line 104)
+- **Verifies invariant:** I-003-1 (the typed-error contract; full admit-not-eject behavior is verified at P3/P4 in Phase 3)
+
+##### T1.6 — Local SQLite migration `0002-runtime-node.ts`: `node_capabilities` + `node_trust_state`
+
+- **Files:** `packages/runtime-daemon/src/migrations/0002-runtime-node.ts` (new), migration-shape test (extend or new).
+- **Step:** Add the daemon migration `0002-runtime-node.ts` (Plan-003-owned; daemon `0001-initial.ts` is Plan-001's and does NOT contain these tables). Inline the SQL per the `0001-initial.ts` header convention (copy the `node_capabilities` and `node_trust_state` blocks verbatim from `local-sqlite-schema.md`, including `-- Owner:` and per-column comments). Register the migration in the daemon migration runner. Do NOT CREATE `runtime_node_attachments`/`runtime_node_presence` (Postgres, created at Phase 3).
+- **Test:** assert (a) applying `0002` against a `0001`-migrated SQLite DB creates `node_capabilities` and `node_trust_state` with the exact column set + PKs (introspect via `PRAGMA table_info`); (b) idempotent under the runner's version anchor; (c) `node_capabilities` PK is `(node_id, capability_key)` and `node_trust_state` PK is `node_id`.
+- **Spec coverage:** Spec-003 line 78 (runtime-node records durable for reconnect/audit)
+- **Verifies invariant:** (none directly)
+
+##### T1.7 — Confirm Plan-001 upstream schema (read-only; no CREATE)
+
+- **Files:** assertion-only (co-locate in a Phase-1 migration test).
+- **Step:** Confirm — by reading the shipped Plan-001 migrations, NOT by creating tables — that (a) the Postgres `runtime_node_attachments`/`runtime_node_presence` tables are Plan-003-owned and created at Phase 3 (control-plane), and (b) Plan-001 already ships the `participants` identity anchor and `sessions.min_client_version TEXT` that Plan-003 FK-references / reads. A guard that Plan-003 does not duplicate-CREATE upstream tables.
+- **Test:** assert (via migration introspection) that no Plan-003 Phase-1 migration CREATEs `runtime_node_attachments`/`runtime_node_presence` (deferred to the Phase-3 Postgres migration), and that the Plan-001-shipped `participants` anchor + `sessions.min_client_version` column are present for Plan-003 to FK-reference / read.
+- **Spec coverage:** (structural guard; closes the "reads, does not CREATE" obligation against cross-plan-dependencies.md §1)
+- **Verifies invariant:** (none directly)
 
 ### Phase 2 — Daemon Node Registry + Capability Service
 
@@ -217,19 +297,139 @@ Plan-003 implementation lands as a sequence of small PRs at Tier 3. Phases 1–4
 
 - `packages/runtime-daemon/src/node/node-registry.ts` — node identity, registration, persistence across restart
 - `packages/runtime-daemon/src/node/node-capability-service.ts` — declaration validation; emits `runtime_node.capability_declared`
-- Event emission paths for the 7 `runtime_node.*` events through the canonical session-event append path; per CP-003-1 ship as event-shape stubs against the Plan-001 forward-declared columns
+- Event-emission wrapper that routes all 7 `runtime_node.*` event shapes through the canonical session-event append path (`SessionService.append`); per CP-003-1 ship as event-shape stubs against the Plan-001 forward-declared columns. Payload shapes per event are Spec-006-owned (Spec-006 lines 370–376); construct payloads against the Phase-1 `runtimeNode.ts` schemas. **Phase 2 triggers the five daemon-reachable events** — `registered`, `capability_declared`, `capability_updated`, `online` (only after `capability_declared`, per I-003-2), and `offline` with `reason = explicit_shutdown` (detach, required by D4). The heartbeat-driven events (`degraded`, and `offline` with `reason ∈ {heartbeat_lost, network_partition}`) and the admin/trust `revoked` event are triggered in Phase 3 (heartbeat + version-floor services). The runtime-node emitter obtains its per-session `sequence` from the same allocation seam Plan-001's existing emitters use (no parallel counter); `SessionService.append` throws on `UNIQUE(session_id, sequence)` collisions.
 - I-003-2 ordering: `runtime_node.online` only after `runtime_node.capability_declared` succeeds
+
+#### Tasks
+
+##### T2.1 — Node registry: durable node identity + registration across restart
+
+- **Files:** `packages/runtime-daemon/src/node/node-registry.ts` (new)
+- **Step:** Implement a `NodeRegistry` over the canonical SQLite handle (per the migration-runner). A node is "registered to this daemon" iff a `node_trust_state` row (PK `node_id`, `trust_level DEFAULT 'untrusted'`) exists for it; `node_capabilities` rows persist the declared capability set. `register(nodeId, ...)` upserts the `node_trust_state` row; `lookup(nodeId)` reads it back — identity is stable across restart because it is durable SQLite, not in-memory state. On successful registration, emit `runtime_node.registered` through the T2.3 emission helper (payload base + `{capabilities[], nodeVersion, platform}`, Spec-006 line 370). `nodeVersion`/`platform` are carried only on the wire and recovered by event replay — do not add columns for them.
+- **Test (D1):** open a registry, register a node, close + reopen the DB handle, assert the same node identity is recoverable.
+- **Spec coverage:** Spec-003 line 78 (durable runtime-node records), line 90 (node identity stable across reconnect), AC1 (line 101).
+- **Verifies invariant:** I-003-3 (registration records a node without mutating membership).
+
+##### T2.2 — Capability service: declaration validation + capability_declared emission
+
+- **Files:** `packages/runtime-daemon/src/node/node-capability-service.ts` (new)
+- **Step:** Validate the capability declaration (only explicitly declared capabilities are persisted/schedulable, per Spec-003 line 58). Persist accepted capabilities to `node_capabilities` (PK `node_id + capability_key`). On success, emit `runtime_node.capability_declared` through the T2.3 wrapper (payload base + `{capability, capabilityDetails}`, Spec-006 line 375).
+- **Test (D2):** declare a capability, assert one `runtime_node.capability_declared` event is appended with the Spec-006 line 375 payload shape.
+- **Spec coverage:** Spec-003 line 58 (least-privilege schedulability), line 79 (capability/trust changes emitted as session events), line 96 (no implicit capability exposure on attach).
+- **Verifies invariant:** I-003-2 (the declaration is the precondition that gates `online`).
+
+##### T2.3 — Event-emission wrapper: route runtime_node.\* shapes through the canonical append path
+
+- **Files:** `packages/runtime-daemon/src/node/node-registry.ts`, `packages/runtime-daemon/src/node/node-capability-service.ts` (shared emission helper consuming `SessionService.append`).
+- **Step:** Build one emission helper that constructs each `runtime_node.*` event as an `AppendableEvent` and routes it through `SessionService.append`. The append path already zero-fills `prev_hash`/`row_hash`/`daemon_signature` and writes the caller-supplied `monotonic_ns` — Phase 2 does NOT reimplement integrity columns (CP-003-1; Plan-006 lands real hash-chain/signatures at Tier 4). Phase 2 wires triggers for the five daemon-reachable events (registered, capability_declared, capability_updated, online, offline/explicit_shutdown); the helper MAY define constructors for all 7 shapes. Construct payloads against the Phase-1 Zod schemas, not ad-hoc objects. Obtain the per-session `sequence` from Plan-001's existing allocation seam (no parallel counter).
+- **Test (D5):** emit a `runtime_node.*` event, assert the `session_events` row carries `monotonic_ns` in the Plan-001 column shape (zero-filled integrity columns; non-null `monotonic_ns`).
+- **Spec coverage:** Spec-003 line 79 (capability/trust changes emitted as session events); per-event payload shapes Spec-006 lines 370–376.
+- **Verifies invariant:** I-003-4 (`monotonic_ns` is debug data, not the replay key).
+
+##### T2.4 — Ordering: online only after capability_declared
+
+- **Files:** `packages/runtime-daemon/src/node/node-capability-service.ts` (or the state coordinator that fires `online`), consuming the T2.3 helper.
+- **Step:** Gate the `runtime_node.online` emission on a prior successful `runtime_node.capability_declared` for the same node id. Before declaration succeeds, the node remains in a non-online state (Spec-003 line 57).
+- **Test (D3):** drive a node through attach without declaration, assert no `runtime_node.online`; then declare, assert `runtime_node.online` follows `runtime_node.capability_declared` for the same node id.
+- **Spec coverage:** Spec-003 line 57 (online only after capability declaration), line 63 (failed validation → degraded/offline, not healthy).
+- **Verifies invariant:** I-003-2 (online requires capability declaration; Plan-003 §Invariants I-003-2 Verification clause).
+
+##### T2.5 — Detach + reconnect under stable node identity
+
+- **Files:** `packages/runtime-daemon/src/node/node-registry.ts`, consuming the T2.3 helper.
+- **Step:** On detach, emit `runtime_node.offline` (payload base + `{lastHeartbeatAt, reason}`, Spec-006 line 373) and leave the `node_trust_state` registration row intact so the node can reconnect under the same `node_id`. In Phase 2 the explicit-detach trigger fires `offline` with `reason = explicit_shutdown`; heartbeat-loss `offline` is Phase 3.
+- **Test (D4):** detach a node, assert one `runtime_node.offline` event; reconnect under the same node id, assert the registry resolves the same identity.
+- **Spec coverage:** Spec-003 line 65 (disconnected node keeps membership; reconnect under same identity), line 90 (node identity stable across reconnect).
+- **Verifies invariant:** I-003-3 (detach does not revoke membership).
+
+##### T2.6 — Replay does not read monotonic_ns for ordering (regression guard)
+
+- **Files:** test only — `packages/runtime-daemon/` (the runtime-node emission + replay paths).
+- **Step:** Add the regression guard against the new `runtime_node.*` emission + replay code: assert that ordering/replay reads `sequence ASC` and that no `runtime_node.*` code path reads `monotonic_ns` for an ordering decision. The legacy Plan-001 D3 covers the shared replay path; this guard covers the runtime-node-specific code.
+- **Test (D6):** drive non-monotonic `monotonic_ns` values into emitted `runtime_node.*` events, replay, assert ordering follows `sequence` not `monotonic_ns`.
+- **Spec coverage:** (no Spec-003 behavior anchor — internal correctness invariant; see Plan-003 §Invariants I-003-4.)
+- **Verifies invariant:** I-003-4 (inherits Plan-001 I-001-2 / D3).
 
 ### Phase 3 — Control-Plane Attach + Heartbeat Services + Version-Floor Enforcement
 
 **Precondition:** Phase 2 merged.
 
-**Goal:** Tests P1–P8 go green; cross-version-compatibility surface works end-to-end.
+**Goal:** Tests P1–P10 go green; cross-version-compatibility surface works end-to-end.
 
+- Control-plane migration (Plan-003-owned): CREATE `runtime_node_attachments` + `runtime_node_presence` (Postgres) per `shared-postgres-schema.md` — these tables are Plan-003-owned (`-- Owner: Plan-003`), created here, **not** by Plan-001.
 - `packages/control-plane/src/runtime-nodes/attach-service.ts` — attach flow that reads `sessions.min_client_version` and applies the I-003-1 admit-in-read-only logic per Spec-003 line 53. Below-floor daemons remain joined; subsequent writes return `VERSION_FLOOR_EXCEEDED`.
 - `packages/control-plane/src/runtime-nodes/heartbeat-service.ts` — presence ingestion, degraded/offline transitions
 - I-003-3 enforcement: attach/detach paths MUST NOT mutate `session_memberships` (and vice versa)
-- Routes register on the Plan-008-bootstrap tRPC `sessionRouter` substrate (or sibling `runtimeNodeRouter`) per CP-003-2
+- Routes register as a sibling `runtimeNodeRouter` composed into the Plan-008-bootstrap tRPC host alongside `createSessionRouter` per CP-003-2 (see T3.8)
+
+#### Tasks
+
+##### T3.1 — Control-plane migration: CREATE `runtime_node_attachments` + `runtime_node_presence`
+
+- **Files:** `packages/control-plane/src/migrations/0003-runtime-nodes.ts` (new), `packages/control-plane/src/sessions/migration-runner.ts` (extended — append `{ version: 3, sql }` to `MIGRATIONS`, mirroring Plan-002's v2 in-place extension), migration-shape test.
+- **Step:** Add the Plan-003-owned control-plane Postgres migration. Copy the `runtime_node_attachments` and `runtime_node_presence` blocks verbatim from `shared-postgres-schema.md` (including the `-- Owner: Plan-003` stamps, the `state` CHECK, the `idx_node_attachments_node` composite `(node_id, session_id)` unique index, and the `runtime_node_presence` PK). Register it as control-plane migration **version 3** (`0003-runtime-nodes.ts`) — append `{ version: 3, sql: ... }` to the runner's `MIGRATIONS` array in ascending version order, after Plan-002's v2 `0002-session-invites` (the `migration-runner.ts` header already names Plan-003 as the next v3+ registrant; `0002` is taken, so reusing it would break the monotonic sequence the runner depends on). Plan-001 does **not** create these tables (header §Dependencies + cross-plan-dependencies.md §1 Uncontested row); this Task is where they come into existence.
+- **Test:** assert applying `0003` against a Postgres DB already migrated through `0002` (`0001-initial` + `0002-session-invites`) creates both tables with the exact column set, the `state` CHECK enum, the composite uniqueness, and the presence PK; idempotent under the runner.
+- **Spec coverage:** Spec-003 line 78 (durable runtime-node records for reconnect/audit).
+- **Verifies invariant:** (none directly; substrate for I-003-1/I-003-3 persistence.)
+
+##### T3.2 — Attach service: NULL-floor unconditional admission
+
+- **Files:** `packages/control-plane/src/runtime-nodes/attach-service.ts` (new); `packages/control-plane/src/runtime-nodes/errors.ts` (new — the attach-refusal throwables; T3.4 extends it).
+- **Step:** Add a `Querier`-injected `AttachService` (mirror `MembershipService` constructor-injection). On attach, read `sessions.min_client_version`; when NULL, admit the node unconditionally and **upsert** into `runtime_node_attachments` (state `registering` → `online` after capability declaration per I-003-2). The write is `INSERT ... ON CONFLICT (node_id, session_id) DO UPDATE` against the `idx_node_attachments_node` unique key: a prior `offline` row for the same node and session is reactivated to `registering` (reconnect under the same node identity — Spec-003 line 65 / line 90; a plain `INSERT` would violate the unique key on reconnect). **Refuse** the (re)attach when the existing row is `revoked` — a revoked node is "no longer trusted or allowed to participate" ([runtime-node-model.md](../domain/runtime-node-model.md)), so revocation is terminal, not a reconnect. The distinct _cross-session_ case — a second active attach for a node already active on another session — is rejected by the `idx_node_attachments_active` partial unique constraint (§Invariants I-003-5), not by this clause. Both refusals surface as typed wire errors, not bare `500`s: each throws a typed control-plane exception (declared in `runtime-nodes/errors.ts` alongside T3.4's, with a dotted-lowercase `code` registered in [error-contracts.md](../architecture/contracts/error-contracts.md) per the existing convention) that the shared runtime-node-router catch-arm rethrows as `new TRPCError({ code: "CONFLICT", message, cause })` (HTTP 409) and the shared `errorFormatter` projects onto `shape.data.aisError` — the same two-part wiring T3.4 details. The cross-session refusal is detected by catching the Postgres unique-violation (SQLSTATE `23505`) on `idx_node_attachments_active`, matched portably across the `pg` and PGlite adapters. Acquire no `session_memberships` lock.
+- **Test (P1, P9, P10):** `RuntimeNodeAttach` with NULL floor admits all daemon versions (P1); a node already actively attached elsewhere is refused a second active attach with a typed `CONFLICT` (409) error and a reconnect after detach reactivates the `offline` row (P9, I-003-5); a re-attach of a `revoked` row is refused with a typed `CONFLICT` (409) error — revocation is terminal (P10).
+- **Spec coverage:** Spec-003 line 53 (NULL floor permits all daemons).
+- **Verifies invariant:** I-003-3 (no `session_memberships` mutation on attach); I-003-5 (upsert reactivates an `offline` row; the `idx_node_attachments_active` partial unique index enforces single-active-session). Revocation terminality (a `revoked` row is not reactivated) is grounded in [runtime-node-model.md](../domain/runtime-node-model.md), verified by P10.
+
+##### T3.3 — Attach service: floor comparison (≥ floor → read/write; < floor → read-only)
+
+- **Files:** `packages/control-plane/src/runtime-nodes/attach-service.ts`.
+- **Step:** Compare the daemon's reported version against a non-NULL `sessions.min_client_version`. At/above floor → full read/write attachment. Below floor → admit in read-only state; the node stays joined and reads succeed.
+- **Contract dependency:** requires (a) the `clientVersion` field on `RuntimeNodeAttachRequest` and (b) the below-floor read-only attach representation (`RuntimeNodeAttachResponse` + the persisted `runtime_node_attachments` shape) — both ratified by the Tier-3 plan-readiness audit (see §Preconditions). Do not author the comparison or the read-only persistence until the request field and the read-only representation are ratified.
+- **Test (P2, P3):** `client_version ≥ floor` admits read/write; `client_version < floor` admits read-only (node joined, reads succeed).
+- **Spec coverage:** Spec-003 line 53 (verify daemon version against floor; below-floor admitted read-only).
+- **Verifies invariant:** I-003-1 (admit-in-read-only).
+
+##### T3.4 — Write-after-read-only-attach returns typed `VERSION_FLOOR_EXCEEDED`; node not detached
+
+- **Files:** `packages/control-plane/src/runtime-nodes/errors.ts` (extended — adds `VersionFloorExceededException`; the file is created in T3.2 for the attach-refusal throwables), `packages/control-plane/src/runtime-nodes/attach-service.ts` + the control-plane write paths, the runtime-node router (catch-arm), `packages/control-plane/src/sessions/trpc.ts` (shared `errorFormatter`).
+- **Step:** `packages/contracts/src/error.ts` exports the **wire shape** `VersionFloorExceededError` + `VersionFloorExceededErrorSchema` (Plan-001 T2.3) — a payload interface, **not** a throwable. Author a control-plane `VersionFloorExceededException` (`class … extends Error` with `readonly code = VERSION_FLOOR_EXCEEDED_CODE` — the constant imported from `packages/contracts/src/error.ts` per T1.5, not a re-spelled string literal — mirroring `sessions/errors.ts` `ResourceLimitExceededException` and the Plan-002 per-domain exception classes), or reuse one if it has already landed by Phase 3 (none exists today — check before authoring). Its projection conforms to the imported wire shape/schema. Throw it from the write paths reachable by a read-only-admitted node, then surface it via the Plan-001 AC8 two-part pattern: (i) a runtime-node-router **catch-arm** that rethrows as `new TRPCError({ code: "CONFLICT", message, cause })` (`CONFLICT` → HTTP **409** per [error-contracts.md line 224](../architecture/contracts/error-contracts.md)), and (ii) an `errorFormatter` branch on the shared `t` builder (`sessions/trpc.ts`, which the T3.8 sibling router reuses) projecting `cause.code/message/details` onto `shape.data.aisError`. Follow the existing `ResourceLimitExceededException` reference — or conform to the `AisWireException` base-class refactor the [Plan-001 decision-log](../plans/001-shared-session-core.md) prescribes once ≥3 typed exceptions share the formatter, if it has landed by Phase 3. The attachment row is left intact (no transition to `revoked`/`offline`, no `session_memberships` change). Depends on T3.3's read-only state.
+- **Test (P4):** read-only-attached daemon's write returns typed `VERSION_FLOOR_EXCEEDED`; node remains joined (no detach).
+- **Spec coverage:** Spec-003 line 104 (AC4 — `VERSION_FLOOR_EXCEEDED` on write, never ejected).
+- **Verifies invariant:** I-003-1 (admit-not-eject).
+
+##### T3.5 — Multiple nodes attach to one session without changing session identity
+
+- **Files:** `packages/control-plane/src/runtime-nodes/attach-service.ts`.
+- **Step:** Ensure `attach-service.ts` inserts under the composite `(node_id, session_id)` uniqueness so two distinct nodes attach to the same `session_id` without re-creating the session or mutating `sessions`.
+- **Test (P5):** multiple runtime nodes attach to the same session without changing session identity.
+- **Spec coverage:** Spec-003 line 49 (multiple runtime nodes per session), line 103 (AC3 — multiple nodes coexist without changing session identity).
+- **Verifies invariant:** I-003-3 (attach does not touch session identity / membership).
+
+##### T3.6 — Heartbeat service: presence ingestion + degraded/offline transitions
+
+- **Files:** `packages/control-plane/src/runtime-nodes/heartbeat-service.ts` (new).
+- **Step:** Upsert `runtime_node_presence` (`last_heartbeat_at`, `health_state`) on each heartbeat and emit `runtime_node.degraded` / `runtime_node.offline` through the canonical append path (CP-003-1 stubs) when a node misses heartbeats past the threshold.
+- **Contract/spec dependency:** the degraded→offline threshold (miss count / elapsed intervals), the sweep owner (heartbeat-ingest staleness check vs scheduled sweep), and the presence→attachment fan-out join (presence is keyed `node_id`-global while attachments are per-`(node_id, session_id)`; `RuntimeNodeHeartbeatRequest` carries only `nodeId`, which resolves to the node's single active attachment per [§Invariants I-003-5](#invariants)) are unspecified in Spec-003 (which gives only the 15s cadence at line 59). The threshold + sweep owner are a Spec-003 §Default Behavior addition tracked to a separate Spec-003 amendment PR (re-discharges the Spec-Status Promotion Gate); the presence→attachment cardinality is resolved by the single-active-session invariant (I-003-5) ratified in this PR — a heartbeat keyed on `nodeId` maps to the node's one active attachment, so no `sessionId` is needed on the wire. Do not invent threshold values or the fan-out rule until specified.
+- **Test (P6):** heartbeat ingestion updates `runtime_node_presence`; missed heartbeat past threshold emits `runtime_node.degraded` then `offline`.
+- **Spec coverage:** Spec-003 line 59 (heartbeat cadence `15s`) — threshold anchor pending the Spec-003 amendment.
+- **Verifies invariant:** (none directly; health-state lifecycle.)
+
+##### T3.7 — I-003-3 enforcement: attach/detach never mutate `session_memberships`
+
+- **Files:** `packages/control-plane/src/runtime-nodes/attach-service.ts` + the detach path.
+- **Step:** Assert (via test-visible query logging or a contract test) that the attach and detach paths write only `runtime_node_attachments` / `runtime_node_presence` and issue no INSERT/UPDATE/DELETE against `session_memberships`. Detach resolves the node's single active attachment by `nodeId` (unambiguous per §Invariants I-003-5) and updates that `runtime_node_attachments.state` (→ `offline` for a clean disconnect, `revoked` for a trust revocation) and `runtime_node_presence.health_state`, leaving membership rows untouched. Mirror the `MembershipService` no-mutation precedent (membership paths conversely never touch the attach tables).
+- **Test (P7, P8):** `RuntimeNodeAttach` does not mutate `session_memberships`; `RuntimeNodeDetach` leaves `session_memberships` unchanged.
+- **Spec coverage:** Spec-003 line 47 (attach is a separate step from membership acceptance), line 51 (detach/offline must not revoke membership by default).
+- **Verifies invariant:** I-003-3 (attach-membership separation).
+
+##### T3.8 — Route registration on the Plan-008-bootstrap tRPC host
+
+- **Files:** `packages/control-plane/src/runtime-nodes/runtime-node-router.factory.ts` (new).
+- **Step:** Export `createRuntimeNodeRouter(deps)` built on the shared `t` builder from `packages/control-plane/src/sessions/trpc.ts`, with `runtimenode.attach` / `runtimenode.heartbeat` / `runtimenode.capabilityupdate` / `runtimenode.detach` tRPC procedures. Compose it as a sibling `runtimeNodeRouter` merged into the root router in `packages/control-plane/src/server/host.ts` alongside `createSessionRouter` (resolves the "sessionRouter substrate or sibling" choice in favor of the sibling).
+- **Contract dependency:** the runtime-node tRPC procedure names + their request/response schemas, and the daemon-side JSON-RPC method namespace (regex-valid dotted-lowercase, since Plan-007's `ipc/registry.ts` enforces `METHOD_NAME_FORMAT` and rejects the underscore `runtime_node.*` style), are ratified by the Tier-3 audit (see §Preconditions). The `runtime_node.*` **event** namespace is distinct from and unaffected by the JSON-RPC **method** namespace.
+- **Test:** (enables P1–P10 transport; no standalone assertion.)
+- **Spec coverage:** Spec-003 line 52 (control plane coordinates discovery/presence; execution stays local).
+- **Verifies invariant:** (none; transport wiring per CP-003-2.)
 
 ### Phase 4 — Client SDK Runtime-Node Surface + Integration
 
@@ -240,15 +440,85 @@ Plan-003 implementation lands as a sequence of small PRs at Tier 3. Phases 1–4
 - `packages/client-sdk/src/runtimeNodeClient.ts` — wraps attach/heartbeat/capability/detach over the daemon and control-plane transports
 - Integration tests for live attach, multi-node co-existence, mixed-version below-floor read-only behavior
 
+#### Tasks
+
+##### T4.1 — `runtimeNodeClient.ts` SDK surface (two-factory)
+
+- **Files:** `packages/client-sdk/src/runtimeNodeClient.ts` (new).
+- **Step:** Mirror `packages/client-sdk/src/sessionClient.ts`. Define a `RuntimeNodeClient` interface exposing `attach`, `heartbeat`, `capabilityUpdate`, `detach`. Export `createDaemonRuntimeNodeClient(client: JsonRpcClient): RuntimeNodeClient` — each method calls `client.call(<METHOD_NAME>, request, <RequestSchema>, <ResponseSchema>)` using the Phase-1 Zod schemas (`RuntimeNodeAttachRequest/Response`, `RuntimeNodeHeartbeat*`, `RuntimeNodeCapabilityUpdate*`, `RuntimeNodeDetach*`). `JsonRpcClient.call<P, R>` requires a result schema — there is no void overload (see the three `sessionClient.ts` call sites) — so `heartbeat` and `detach` pass their Phase-1 no-content schemas (`RuntimeNodeHeartbeatResponseSchema` / `RuntimeNodeDetachResponseSchema`, both `z.null()`, validating the JSON-RPC `result: null`), while `attach` and `capabilityUpdate` pass their content response schemas. Export `createControlPlaneRuntimeNodeClient(fetcher)` for the tRPC transport, mirroring the `sessionClient.ts` control-plane factory and binding the `runtimenode.*` procedure paths from the sibling `runtimeNodeRouter` (T3.8). Carry a file-header `Spec coverage:` JSDoc block matching the `sessionClient.ts` precedent.
+- **Contract dependency:** the daemon-side JSON-RPC method-name constants (regex-valid dotted-lowercase per the Phase-2/Phase-3 registry) and the control-plane tRPC procedure paths are ratified by the Tier-3 audit (see §Preconditions); do not author literal wire strings until that namespace lands. Control-plane router placement is already resolved — the SDK binds the sibling `runtimeNodeRouter` composed in T3.8 (no `sessionRouter` extension).
+- **Test:** (factory surface; exercised by T4.2–T4.4 — no standalone assertion.)
+- **Spec coverage:** Spec-003 line 69 (RuntimeNodeAttach fields), line 70 (RuntimeNodeHeartbeat updates presence and health), line 71 (RuntimeNodeCapabilityUpdate add/remove/health variants), line 72 (RuntimeNodeDetach retires a node).
+- **Verifies invariant:** (none directly; SDK transport wrapper.)
+
+##### T4.2 — I1 integration test: live attach without session recreation
+
+- **Files:** `packages/client-sdk/test/runtimeNodeClient.integration.test.ts` (new, following the `sessionClient.integration.test.ts` precedent).
+- **Step:** Assert that a participant who has joined a live session can attach a local runtime node and that session identity is unchanged by the attach (the session id observed before and after attach is identical; no new session is materialized). Drive the attach through `createDaemonRuntimeNodeClient` / `createControlPlaneRuntimeNodeClient`.
+- **Test (I1):** live attach to an already-active session leaves session identity unchanged.
+- **Spec coverage:** Spec-003 line 101 (AC1 — participant attaches a local runtime node to an already active session), line 50 (attach must not require session recreation).
+- **Verifies invariant:** (none directly; I1 is an AC-coverage test — no Plan-003 invariant is exclusively verified here.)
+
+##### T4.3 — I2 integration test: degraded node remains distinguishable in roster
+
+- **Files:** `packages/client-sdk/test/runtimeNodeClient.integration.test.ts`.
+- **Step:** Drive a node into `degraded` via the Phase-3 heartbeat transition, then read the roster through the client and assert the node remains visible and distinguishable from a healthy `online` node (the roster entry's `NodeState` reads `degraded`, not `online`, and the node is not absent).
+- **Test (I2):** a degraded node stays visible and distinguishable from a healthy online node in the SDK-surfaced roster.
+- **Spec coverage:** Spec-003 line 102 (AC2 — a degraded or offline node remains distinguishable from a healthy online node).
+- **Verifies invariant:** (none directly; I2 is an AC-coverage test.)
+
+##### T4.4 — I3 integration test: mixed-version attach, below-floor read-only (behavioral)
+
+- **Files:** `packages/client-sdk/test/runtimeNodeClient.integration.test.ts`.
+- **Step:** Set a session `min_client_version` floor, then attach two daemons through the SDK — one at/above floor, one below. Assert end-to-end: (1) **both** attach and remain joined (below-floor is admitted, not rejected); (2) the at-floor daemon reads and writes; (3) the below-floor daemon **reads** successfully; (4) any **write** by the below-floor daemon returns typed `VERSION_FLOOR_EXCEEDED` (dotted `version.floor_exceeded`, HTTP 409 per `error-contracts.md` line 224 / the JSON-RPC two-layer equivalent); (5) the below-floor daemon is **never detached** for the floor mismatch (no `runtime_node.offline`/detach emitted by the floor check). Set the daemon's reported version via the attach-request floor field.
+- **Contract dependency:** the below-floor branch requires the `clientVersion` request field added by this PR's Tier-3 audit (see §Preconditions). Beyond the behavioral assertions (read succeeds, write → `VERSION_FLOOR_EXCEEDED`, no detach), also assert the derived `readOnly` flag ratified in this PR: `response.readOnly === true` for the below-floor daemon and `=== false` for the at-floor daemon (orthogonal to `state`, not a `NodeState` member).
+- **Test (I3):** mixed-version attach — at-floor reads/writes; below-floor reads but writes return `VERSION_FLOOR_EXCEEDED`; neither node is ejected.
+- **Spec coverage:** Spec-003 line 104 (AC4 — below-floor daemon admitted read-only, `VERSION_FLOOR_EXCEEDED` on subsequent write, never ejected).
+- **Verifies invariant:** I-003-1 (admit-in-read-only / admit-not-eject) — verified end-to-end this Phase.
+
 ### Phase 5 — Renderer (Tier 3)
 
-**Precondition:** Phase 4 merged (consumes `runtimeNodeClient.ts` SDK) AND Plan-023 Tier 1 Partial complete (`apps/desktop/src/renderer/` substrate exists). Sequenced at Tier 3 per §Execution Windows above.
+**Precondition:** Phase 4 merged (the `runtimeNodeClient.ts` SDK is consumed by the desktop **main process** to back the preload-bridge handlers — the renderer itself never imports the Node-side SDK; it reaches runtime-node state only through `window.sidekicks` per Spec-023 §Trust Stance) AND Plan-023 Tier 1 Partial complete (`apps/desktop/src/renderer/` substrate exists). Sequenced at Tier 3 per §Execution Windows above.
 
 **Goal:** Step 4 ships; manual two-client attach smoke passes (one client at floor, one below — verify both visible in roster, below-floor blocked on write).
 
 - `apps/desktop/src/renderer/src/runtime-node-attach/` — renderer views for attach flow, capability declaration, node roster, mixed-version status indicators (thin projection over the Spec-023 preload-bridge `window.sidekicks` surface; MUST NOT bypass the bridge to reach daemon or control-plane state directly)
 
-After Phase 4 lands green at Tier 3, Plan-003's load-bearing semantics are complete. Phase 5 ships at Tier 3 after Phase 4 — the renderer substrate from Plan-023 Tier 1 Partial is independently in place from Tier 1, so the gating reduces to Plan-003's own SDK readiness.
+#### Tasks
+
+##### T5.1 — Node roster view (read + live health)
+
+- **Files:** `apps/desktop/src/renderer/src/runtime-node-attach/NodeRoster.tsx` (new), `apps/desktop/src/renderer/src/runtime-node-attach/index.ts` (new — barrel export).
+- **Step:** React component rendering the set of runtime nodes attached to the active session, visually distinguishing health states (`online` vs `degraded`/`offline`) and mixed-version status (at-floor vs below-floor read-only). Consumes session-scoped node state and `runtime_node.*` lifecycle events through the Spec-023 preload bridge ONLY — `window.sidekicks.controlPlane.call(...)` for the roster read and `window.sidekicks.daemon.subscribe(...)` for live health transitions; MUST NOT import the Node-side `runtimeNodeClient.ts` SDK or any `node:*` / `electron` module (renderer-untrusted boundary per Spec-023 §Trust Stance, statically enforced by `apps/desktop/eslint.config.mjs` `no-restricted-imports`). Declare the `window.sidekicks` ambient augmentation inline following the Plan-001 Phase 5 precedent (`SessionBootstrap.tsx:41-45`).
+- **Test:** (no automated component test this Phase — covered by the T5.4 manual smoke; automated coverage backfilled per BL-131, V1.1.)
+- **Spec coverage:** Spec-003 line 102 (AC2 — degraded/offline distinguishable from healthy online), line 103 (AC3 — multiple nodes coexist without changing session identity), line 49 (multiple runtime nodes per session), line 63 (capability-validation failure keeps node degraded/offline, distinguishable from healthy).
+- **Verifies invariant:** (none directly; roster projection.)
+
+##### T5.2 — Attach flow + capability-declaration view
+
+- **Files:** `apps/desktop/src/renderer/src/runtime-node-attach/AttachFlow.tsx` (new), `apps/desktop/src/renderer/src/runtime-node-attach/CapabilityDeclaration.tsx` (new), `apps/desktop/src/renderer/src/runtime-node-attach/index.ts` (extend — add barrel exports).
+- **Step:** Renderer surface that initiates attach of a local runtime node into an already-live session (no session recreation) and renders the node's declared capabilities. Attach is presented as a step distinct from session-membership acceptance — the view MUST NOT couple attach to a membership mutation. The attach request and capability declaration flow through `window.sidekicks.controlPlane.call(...)` / `window.sidekicks.daemon.call(...)` ONLY (bridge, never direct daemon/control-plane access). Pending/resolved/rejected render states follow the `SessionBootstrap.tsx` three-state precedent, including the async-IIFE sync-throw normalization defense against the Tier-1-stub bridge shape.
+- **Test:** (no automated component test this Phase — covered by the T5.4 manual smoke; automated coverage backfilled per BL-131, V1.1.)
+- **Spec coverage:** Spec-003 line 101 (AC1 — attach a local runtime node to an active session), line 47 (attach is a separate step from membership acceptance), line 48 (attach includes node identity, capabilities, health, trust context), line 50 (attach must not require session recreation).
+- **Verifies invariant:** I-003-3 (renderer surfaces attach and membership as distinct actions; does not couple attach to a `session_memberships` mutation).
+
+##### T5.3 — Mixed-version status indicator (below-floor read-only surfacing)
+
+- **Files:** `apps/desktop/src/renderer/src/runtime-node-attach/MixedVersionStatus.tsx` (new), `apps/desktop/src/renderer/src/runtime-node-attach/index.ts` (extend — add barrel export).
+- **Step:** Indicator that surfaces a below-floor daemon's read-only attachment state and the typed `VERSION_FLOOR_EXCEEDED` outcome on a write attempt — the daemon remains visible/joined in the roster (admit-not-eject), and the indicator distinguishes "read-only (below floor)" from "full read/write (at floor)" and from "detached". All state is read through the bridge surface; the renderer does not re-derive floor logic (the version-floor verdict is computed by the Phase-3 control-plane service and consumed here as already-resolved state).
+- **Test:** (no automated component test this Phase — covered by the T5.4 manual smoke; automated coverage backfilled per BL-131, V1.1.)
+- **Spec coverage:** Spec-003 line 104 (AC4 — below-floor admitted read-only, write returns typed `VERSION_FLOOR_EXCEEDED`, never ejected for the floor mismatch), line 53 (control plane verifies daemon version against the floor).
+- **Verifies invariant:** I-003-1 (renderer presents below-floor nodes as joined-but-read-only, never as ejected).
+
+##### T5.4 — Manual two-client attach smoke (verification step, not an automated test)
+
+- **Files:** (none — manual verification per the §Verification renderer-smoke step.)
+- **Step:** Join a live session, attach one runtime node at the session `min_client_version` floor from one client, attach a second node below the floor from a sibling client. Verify through the desktop renderer that (a) the roster shows BOTH nodes (below-floor node is joined and visible, not ejected), (b) the below-floor node's writes surface typed `VERSION_FLOOR_EXCEEDED` in the mixed-version status indicator while reads continue to succeed, and (c) a node detach leaves the other node and session membership intact. This exercises I-003-1 and I-003-3 end-to-end through the renderer/bridge surface; the underlying floor/attach/membership semantics are already proven by the Phase-3/Phase-4 automated suite (P3, P4, P7, P8, I3) — this step verifies the renderer projection faithfully surfaces them, it does not re-prove the semantics.
+- **Test:** manual two-client attach smoke; automated component/E2E coverage backfilled per BL-131 (V1.1).
+- **Spec coverage:** Spec-003 line 101 (AC1), line 102 (AC2), line 104 (AC4), line 51 (detach/offline must not revoke membership), line 65 (node may reconnect under the same node identity).
+- **Verifies invariant:** I-003-1 (end-to-end, bridge-routed), I-003-3 (detach leaves membership intact, observed through the renderer).
+
+After Phase 4 lands green at Tier 3, Plan-003's load-bearing semantics are complete. Phase 5 ships at Tier 3 after Phase 4 — the renderer substrate from Plan-023 Tier 1 Partial is independently in place from Tier 1, so the gating reduces to Plan-003's own SDK readiness. Phase 5's acceptance rests on the manual two-client smoke (T5.4); automated renderer component / E2E coverage is a criterion-gated V1.1 backfill tracked as [BL-131](../backlog.md) — not a Tier-3 gate.
 
 ## Rollout Order
 

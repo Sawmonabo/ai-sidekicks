@@ -190,6 +190,7 @@ CREATE TABLE runtime_node_attachments (
   participant_id  UUID NOT NULL REFERENCES participants(id),
   node_id         TEXT NOT NULL,                 -- daemon-assigned node identifier
   capabilities    JSONB NOT NULL DEFAULT '{}',   -- declared capabilities
+  client_version  TEXT NOT NULL,                 -- daemon semver "MAJOR.MINOR" at attach; floor-compared vs sessions.min_client_version (ADR-018 §Decision #4) — makes the read-only verdict auditable + roster-displayable
   state           TEXT NOT NULL DEFAULT 'registering'
                   CHECK(state IN ('registering', 'online', 'degraded', 'offline', 'revoked')),
   attached_at     TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -198,6 +199,13 @@ CREATE TABLE runtime_node_attachments (
 CREATE INDEX idx_node_attachments_session ON runtime_node_attachments(session_id);
 CREATE INDEX idx_node_attachments_participant ON runtime_node_attachments(participant_id);
 CREATE UNIQUE INDEX idx_node_attachments_node ON runtime_node_attachments(node_id, session_id);
+-- One-active-session enforcement (Plan-003 I-003-5; Spec-003 line 114 — "one active session at a time in v1"):
+-- a node has at most one attachment in an active state across all sessions. The partial UNIQUE constrains
+-- only active-state rows, so an inactive ('offline' or 'revoked') row does not block a later (re)attach at
+-- the index level. Reattach eligibility is then a T3.2 application decision: an 'offline' row is reactivated
+-- on reconnect, while a 'revoked' row is refused — revocation is terminal (Plan-003 T3.2/P10).
+CREATE UNIQUE INDEX idx_node_attachments_active ON runtime_node_attachments(node_id)
+  WHERE state IN ('registering', 'online', 'degraded');
 
 -- Owner: Plan-003
 CREATE TABLE runtime_node_presence (
