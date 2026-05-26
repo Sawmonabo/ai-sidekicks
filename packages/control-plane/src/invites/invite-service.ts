@@ -74,9 +74,12 @@ import { createHash, randomBytes } from "node:crypto";
 
 import type {
   InviteAccept,
-  InviteId,
+  InviteAcceptResponse,
   InviteCreate,
+  InviteCreateResponse,
+  InviteId,
   InviteRevoke,
+  InviteRevokeResponse,
   InviteState,
   JoinMode,
   MembershipId,
@@ -251,57 +254,6 @@ interface InviteTokenClaims {
   readonly join_mode: JoinMode;
   readonly expires_at: string;
   readonly jti: string;
-}
-
-// --------------------------------------------------------------------------
-// createInvite response — api-payload-contracts.md §Tier 2 (lines 383-387)
-// --------------------------------------------------------------------------
-//
-// `InviteCreateResponse { inviteId, token, expiresAt }`. The `token` is the
-// PLAINTEXT PASETO v4.local string handed to the caller exactly once for
-// out-of-band link delivery (Spec-002 §Invite Delivery); only its SHA-256
-// hash is persisted. This shape is defined locally because the `contracts`
-// package does not yet export an `InviteCreateResponse` type — see the RESULT
-// concern recommending it land in `packages/contracts/src/invites.ts` in a
-// follow-up (that file is outside T2.1's `target_paths`).
-export interface InviteCreateResponse {
-  inviteId: InviteId;
-  token: string;
-  expiresAt: string;
-}
-
-// --------------------------------------------------------------------------
-// acceptInvite response — the active membership the accept path creates.
-// --------------------------------------------------------------------------
-//
-// Returns the invite that was consumed plus the membership that was activated,
-// so the wire layer can confirm BOTH the invite transition (`accepted`) and
-// the resulting membership to the caller. Declared locally because
-// `@ai-sidekicks/contracts` does not yet export an `InviteAcceptResponse`
-// type (verified at T2.2 authoring time) — mirrors the local
-// `InviteCreateResponse` and `MembershipUpdateResponse` shapes. See RESULT for
-// the follow-up recommending it land in `packages/contracts/src/invites.ts`.
-export interface InviteAcceptResponse {
-  inviteId: InviteId;
-  membershipId: MembershipId;
-  sessionId: SessionId;
-  participantId: ParticipantId;
-  role: MembershipRole;
-  state: MembershipState;
-}
-
-// --------------------------------------------------------------------------
-// revokeInvite response — the post-revoke invite projection.
-// --------------------------------------------------------------------------
-//
-// STATE-ONLY: the response carries the invite id and its new `state`
-// (`'revoked'`); there is no `reason` / `revokedBy` / `revokedAt` field
-// because no such column exists and no audit event is emitted in Phase 2 (see
-// file header / ADR-017 / CP-002-6). Declared locally for the same reason as
-// the shapes above.
-export interface InviteRevokeResponse {
-  inviteId: InviteId;
-  state: InviteState;
 }
 
 // --------------------------------------------------------------------------
