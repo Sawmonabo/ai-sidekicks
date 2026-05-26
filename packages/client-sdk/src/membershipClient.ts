@@ -333,3 +333,98 @@ async function* daemonSubscribePresence(
     await subscription.cancel().catch(() => undefined);
   }
 }
+
+// --------------------------------------------------------------------------
+// Control-plane transport factory (deferred to Tier 5 — Plan-008-remainder /
+// CP-002-1)
+// --------------------------------------------------------------------------
+//
+// The real direct-to-control-plane membership transport consumes the
+// Plan-008-remainder relay, which does not ship until Tier 5 (cross-plan
+// dependency CP-002-1). It is therefore impossible to implement at Tier 2.
+// This is a plan-sanctioned forward-compatibility scaffold (Plan-002 T5.2,
+// `Spec coverage: none`): a signature-complete factory that fails fast via a
+// typed sentinel until the relay lands. When Tier 5 arrives the body is a
+// straight swap (mirror `createControlPlaneSessionClient`'s
+// fetcher/baseUrl/endpoint HTTP shape) and the `: MembershipClient` annotation
+// already holds — no caller-facing signature churn.
+
+/**
+ * Thrown by `createControlPlaneMembershipClient` at construction time. The
+ * direct-control-plane membership transport is deferred to Tier 5 — it
+ * consumes the Plan-008-remainder relay (cross-plan dependency CP-002-1),
+ * which does not exist at Tier 2 — so the factory cannot return a working
+ * client and refuses to hand back a half-built one. Until then the production
+ * transport for the local client is `createDaemonMembershipClient`, the
+ * Option A daemon-as-gateway path (ADR-008): the daemon proxies `invite.*` /
+ * `membership.*` / `channel.*` to the control-plane server-side, so no V1
+ * caller has a legitimate reason to construct a direct-control-plane client.
+ *
+ * This sentinel is SDK-thrown and never serialized to the wire (it is not a
+ * JSON-RPC / tRPC error envelope), so it stays in `client-sdk` rather than
+ * being hoisted into `@ai-sidekicks/contracts`. The message names the
+ * deferral substrate (Plan-008-remainder, CP-002-1, Tier 5) so a future
+ * `grep` for the relay surfaces this seam.
+ */
+export class NotImplementedAtTier2Error extends Error {
+  public constructor() {
+    super(
+      "createControlPlaneMembershipClient is not implemented at Tier 2: the " +
+        "direct-control-plane membership transport consumes the Plan-008-remainder " +
+        "relay (CP-002-1), which does not ship until Tier 5. Use " +
+        "createDaemonMembershipClient (the Option A daemon-as-gateway path) as the " +
+        "production transport until then.",
+    );
+    this.name = "NotImplementedAtTier2Error";
+  }
+}
+
+/**
+ * Constructor options for the (Tier-5-deferred) control-plane factory. An
+ * EXACT structural mirror of `ControlPlaneSessionClientOptions`
+ * (`sessionClient.ts`) so the future Tier-5 real implementation is a body-swap
+ * with no options-shape divergence between the two control-plane factories.
+ *
+ * `fetcher`: an HTTP-like callable. Accepts a standard `Request` and returns a
+ * standard `Response`. In production this is
+ * `globalThis.fetch.bind(globalThis)` pointed at a deployed control-plane URL.
+ *
+ * `baseUrl`: the absolute URL prefix (no trailing slash) of the control-plane
+ * deployment. The SDK appends `${endpoint}/${method}` to this prefix.
+ *
+ * `endpoint`: optional tRPC mount path. Defaults to `/trpc` in the
+ * sessionClient counterpart. Only override when the deployment mounts the
+ * tRPC handler at a non-default path.
+ */
+export interface ControlPlaneMembershipClientOptions {
+  readonly fetcher: (request: Request) => Promise<Response>;
+  readonly baseUrl: string;
+  readonly endpoint?: string;
+}
+
+/**
+ * Build a `MembershipClient` over the control-plane HTTP transport.
+ *
+ * DEFERRED TO TIER 5: this factory throws `NotImplementedAtTier2Error` at
+ * construction. The real direct-control-plane transport consumes the
+ * Plan-008-remainder relay (CP-002-1), unavailable at Tier 2. Throw-at-
+ * construction (not return-a-stub) is the correct fail-fast signal because
+ * under Option A (ADR-008, daemon-as-gateway) NO V1 caller has a legitimate
+ * reason to construct a direct-control-plane membership client —
+ * `createDaemonMembershipClient` is the only production path. A loud throw at
+ * the call site beats a stub that defers the failure to first method call.
+ *
+ * Returns the SAME `MembershipClient` interface as
+ * `createDaemonMembershipClient` so the Tier-5 implementation is a body-swap
+ * with type-level factory-swappability preserved. The `: MembershipClient`
+ * annotation holds today because a throw-only body has type `never`, which is
+ * assignable to `MembershipClient`. `_opts` is intentionally unused at Tier 2
+ * (the root ESLint `argsIgnorePattern: "^_"` exempts the leading-underscore
+ * name); the Tier-5 body will consume it exactly as
+ * `createControlPlaneSessionClient` consumes its `opts`.
+ */
+export function createControlPlaneMembershipClient(
+  _opts: ControlPlaneMembershipClientOptions,
+): MembershipClient {
+  throw new NotImplementedAtTier2Error();
+}

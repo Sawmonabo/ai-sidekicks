@@ -45,7 +45,11 @@ import {
 } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
-import { createDaemonMembershipClient } from "../src/membershipClient.js";
+import {
+  createControlPlaneMembershipClient,
+  createDaemonMembershipClient,
+  NotImplementedAtTier2Error,
+} from "../src/membershipClient.js";
 import { JsonRpcClient, JsonRpcSchemaError } from "../src/transport/jsonRpcClient.js";
 import type { ClientTransport } from "../src/transport/types.js";
 
@@ -469,5 +473,53 @@ describe("daemon factory — unary CRUD smoke", () => {
     // Fail-fast assertion #3: NO envelope reached the transport — the request
     // never crossed the wire boundary.
     expect(harness.transport.sentEnvelopes).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Control-plane factory — deferred-behavior sentinel (Plan-002 T5.2; Spec
+// coverage: none). The direct-control-plane membership transport consumes the
+// Plan-008-remainder relay (CP-002-1), which does not ship until Tier 5, so
+// the factory throws `NotImplementedAtTier2Error` at construction. This block
+// verifies the sentinel envelope ONLY — that IS the full extent of T5.2's
+// contract (no transport behavior exists to exercise yet).
+// ---------------------------------------------------------------------------
+
+describe("control-plane factory — deferred to Tier 5 (NotImplementedAtTier2Error sentinel)", () => {
+  // Well-typed throwaway options: the factory throws at construction BEFORE it
+  // reads any field, so these values are never used — they exist only to
+  // satisfy `ControlPlaneMembershipClientOptions` at the call site.
+  const throwawayOptions = {
+    fetcher: async (): Promise<Response> => new Response(),
+    baseUrl: "https://control-plane.test",
+    endpoint: "/trpc",
+  };
+
+  it("createControlPlaneMembershipClient throws NotImplementedAtTier2Error at construction", () => {
+    expect(() => createControlPlaneMembershipClient(throwawayOptions)).toThrow(
+      NotImplementedAtTier2Error,
+    );
+  });
+
+  it("the thrown sentinel carries name 'NotImplementedAtTier2Error' and a message naming the deferral substrate", () => {
+    // Throw-and-capture so we can assert on the concrete instance's `name` and
+    // `message` (the `.toThrow(class)` matcher above proves the constructor;
+    // this proves the envelope a future reader greps for).
+    const thrown = ((): unknown => {
+      try {
+        createControlPlaneMembershipClient(throwawayOptions);
+        return undefined;
+      } catch (error: unknown) {
+        return error;
+      }
+    })();
+
+    expect(thrown).toBeInstanceOf(NotImplementedAtTier2Error);
+    expect((thrown as NotImplementedAtTier2Error).name).toBe("NotImplementedAtTier2Error");
+    // The message must signpost the Tier-5 deferral substrate so a future grep
+    // for the relay surfaces this seam.
+    expect((thrown as NotImplementedAtTier2Error).message).toMatch(
+      /Plan-008-remainder|Tier 5|CP-002-1/,
+    );
   });
 });
