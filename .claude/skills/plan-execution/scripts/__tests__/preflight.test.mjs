@@ -345,6 +345,42 @@ test("regexParsePreconditionsLine omits bare-form when localPlanNumber is undefi
   assert.deepEqual(regexParsePreconditionsLine(line), []);
 });
 
+test("regexParsePreconditionsLine extracts plan_unshipped from link-TARGET Tier form", () => {
+  // Corpus convention for a cross-tier dep on an un-decomposed upstream: the
+  // plan number sits in the markdown link target. Plan-002 Phase 4 shape.
+  const line = `[Plan-021](./021-rate-limiting-policy.md) Tier 6 ships the rateLimitProcedure middleware factory.`;
+  assert.deepEqual(regexParsePreconditionsLine(line, 2), [{ type: "plan_unshipped", plan: 21 }]);
+});
+
+test("regexParsePreconditionsLine extracts plan_unshipped from link-TEXT Tier-Partial form", () => {
+  // Plan-002 Phase 2 shape: the `Plan-NNN Tier M Partial` sits inside the link
+  // text, with the deferral verb after the link. The optional `](url)` groups
+  // absorb the link on either side of the Tier token.
+  const line = `[Plan-025 Tier 1 Partial](./025-self-hostable-node-relay.md) merged.`;
+  assert.deepEqual(regexParsePreconditionsLine(line, 2), [{ type: "plan_unshipped", plan: 25 }]);
+});
+
+test("regexParsePreconditionsLine does NOT emit plan_unshipped for a Plan-NNN Phase N form", () => {
+  // The plan_unshipped regex requires a `Tier M` token; the `Plan-NNN Phase N
+  // merged` form belongs to the plan_phase resolver (per-phase manifest check)
+  // and must not be double-claimed as a coarse plan_unshipped entry.
+  const line = `Plan-001 Phase 4 merged.`;
+  assert.deepEqual(regexParsePreconditionsLine(line, 8), [
+    { type: "plan_phase", plan: 1, phase: 4, status: "merged" },
+  ]);
+});
+
+test("regexParsePreconditionsLine emits plan_unshipped alongside a satisfied local phase (Plan-002 Phase 4)", () => {
+  // The exact false-eligible shape: a satisfied local `Phase 2 merged` token
+  // plus the un-decomposed cross-tier `[Plan-021](…) Tier 6 ships` token. Both
+  // entries surface; Gate 5 then halts on the unmet plan_unshipped one.
+  const line = `Phase 2 merged AND [Plan-021](./021-rate-limiting-policy.md) Tier 6 ships the rateLimitProcedure middleware factory.`;
+  assert.deepEqual(regexParsePreconditionsLine(line, 2), [
+    { type: "plan_unshipped", plan: 21 },
+    { type: "plan_phase", plan: 2, phase: 2, status: "merged" },
+  ]);
+});
+
 test("extractPlanNumber pulls leading number from filename", () => {
   assert.equal(extractPlanNumber("/abs/docs/plans/001-shared-session-core.md"), 1);
   assert.equal(extractPlanNumber("007-foo.md"), 7);
@@ -1146,6 +1182,60 @@ shipped: []
   assert.equal(r.ok, true);
 });
 
+test("resolvePrecondition plan_unshipped is UNMET when the upstream is un-decomposed (no manifest)", () => {
+  // The Plan-021 case: a Tier-6 plan with no shipment manifest yet. The
+  // cross-tier substrate is unavailable, so a dependent phase must not be
+  // auto-walk-eligible.
+  const repo = makeTempRepo();
+  writeFileSync(
+    join(repo, "docs", "plans", "021-test.md"),
+    `# Plan-021\n\nUn-decomposed Tier-6 plan — no \`### Phase\` sections, no shipment manifest.\n`,
+  );
+  const r = resolvePrecondition({ type: "plan_unshipped", plan: 21 }, { repoRoot: repo });
+  assert.equal(r.ok, false);
+  assert.match(r.halt, /has not shipped yet/);
+});
+
+test("resolvePrecondition plan_unshipped is MET once the upstream manifest has ≥1 shipped entry", () => {
+  // Coarse-by-design: any shipped entry flips the dependency to met. When the
+  // upstream is decomposed and its substrate ships, the dependent precondition
+  // should be tightened to a per-phase `Plan-NNN Phase N merged` form.
+  const repo = makeTempRepo();
+  writeFileSync(
+    join(repo, "docs", "plans", "021-test.md"),
+    `# Plan-021
+
+## Progress Log
+
+### Shipment Manifest
+
+\`\`\`yaml
+manifest_schema_version: 1
+shipped:
+  - phase: 1
+    task: T1.1
+    pr: 5
+    sha: abc1234
+    merged_at: 2026-01-01
+    files: []
+    verifies_invariant: []
+    spec_coverage: []
+\`\`\`
+
+### Notes
+`,
+  );
+  const r = resolvePrecondition({ type: "plan_unshipped", plan: 21 }, { repoRoot: repo });
+  assert.equal(r.ok, true);
+});
+
+test("resolvePrecondition plan_unshipped halts when the target plan file is absent", () => {
+  const repo = makeTempRepo();
+  const r = resolvePrecondition({ type: "plan_unshipped", plan: 88 }, { repoRoot: repo });
+  assert.equal(r.ok, false);
+  assert.match(r.halt, /Plan-88 not found/);
+});
+
 // ---------- runPreflight integration ----------
 
 function buildTestRepo({ phases, manifestEntries = "shipped: []" }) {
@@ -1206,6 +1296,83 @@ test("runPreflight selects first eligible un-shipped phase (no manifest entries)
   const r = runPreflight(planFile, undefined, { repoRoot: repo, skillMd });
   assert.equal(r.exit, 0, `exit was ${r.exit}; stdout=${r.stdout}; stderr=${r.stderr}`);
   assert.equal(r.stdout, "1");
+});
+
+test("runPreflight skips a phase deferred via a plan_unshipped cross-tier precondition", () => {
+  // Regression guard for the Plan-002 Phase 4 false-eligible: a phase deferred
+  // to a later tier via the prose `[Plan-NNN](…) Tier M ships …` form, whose
+  // ONLY satisfied token is a local `Phase 1 merged`, must NOT auto-walk-
+  // resolve while its upstream is un-decomposed. Phase 1 is shipped, Phase 2
+  // is deferred on un-decomposed Plan-099, Phase 3 is eligible. The walk must
+  // skip 1 (shipped) + 2 (precondition unmet) and land on 3 — proving the
+  // cross-plan resolve surfaces as a soft `preconditions` skip, not a halt.
+  const repo = makeTempRepo();
+  const skillMd = join(repo, ".claude", "skills", "plan-execution", "SKILL.md");
+  writeFileSync(skillMd, `---\nname: test\nrequires_files: []\n---\n\nbody`);
+  // Un-decomposed upstream: no manifest → plan_unshipped(99) resolves unmet.
+  writeFileSync(
+    join(repo, "docs", "plans", "099-upstream.md"),
+    `# Plan-099\n\nUn-decomposed; no shipment manifest.\n`,
+  );
+  const planFile = join(repo, "docs", "plans", "001-test.md");
+  writeFileSync(
+    planFile,
+    `# Plan-001
+
+## Preconditions
+
+- [x] **Plan-readiness audit complete per runbook.
+
+### Phase 1 — Shipped bootstrap
+
+**Precondition:** None.
+
+#### Tasks
+
+##### T1.1 — desc
+**Spec coverage:** none (test placeholder) **Verifies invariant:** I-001-1
+
+### Phase 2 — Deferred surface (Tier 6)
+
+**Precondition:** Phase 1 merged AND [Plan-099](./099-upstream.md) Tier 6 ships the widget factory.
+
+#### Tasks
+
+##### T2.1 — desc
+**Spec coverage:** none (test placeholder) **Verifies invariant:** I-001-2
+
+### Phase 3 — Eligible next
+
+**Precondition:** None.
+
+#### Tasks
+
+##### T3.1 — desc
+**Spec coverage:** none (test placeholder) **Verifies invariant:** I-001-3
+
+## Progress Log
+
+### Shipment Manifest
+
+\`\`\`yaml
+manifest_schema_version: 1
+shipped:
+  - phase: 1
+    task: T1.1
+    pr: 1
+    sha: abc1234
+    merged_at: 2026-01-01
+    files: []
+    verifies_invariant: []
+    spec_coverage: []
+\`\`\`
+
+### Notes
+`,
+  );
+  const r = runPreflight(planFile, undefined, { repoRoot: repo, skillMd });
+  assert.equal(r.exit, 0, `exit was ${r.exit}; stdout=${r.stdout}; stderr=${r.stderr}`);
+  assert.equal(r.stdout, "3");
 });
 
 test("runPreflight halts on unchecked audit checkbox", () => {

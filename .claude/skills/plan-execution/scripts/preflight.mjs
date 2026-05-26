@@ -177,6 +177,28 @@ export function regexParsePreconditionsLine(line, localPlanNumber) {
   for (const m of line.matchAll(/Plan-(\d{3})\s+Phase\s*(\d+)\s+(?:approved|merged)/gi)) {
     entries.push({ type: "plan_phase", plan: Number(m[1]), phase: Number(m[2]), status: "merged" });
   }
+  // Cross-tier deferral on an un-decomposed upstream plan. The corpus convention
+  // for a precondition gated on a plan that has NOT yet been decomposed into
+  // phases (no `### Phase` sections, no shipment manifest) is the prose form
+  // `Plan-NNN Tier M (merged|complete|ships) …` — distinct from the
+  // `Plan-NNN Phase N merged` form above (resolved against the upstream's
+  // per-phase manifest by the plan_phase case). Corpus examples: Plan-002
+  // Phase 4 (`[Plan-021](…) Tier 6 ships the rateLimitProcedure …`), Plan-002
+  // Phase 2 (`[Plan-025 Tier 1 Partial](…) merged`), Plan-002 Phase 6
+  // (`Plan-023 Tier 1 Partial complete`). Without this branch the line falls
+  // through to gatePreconditions' "unparseable prose → legacy free-form →
+  // silent pass", which lets a phase whose ONLY other precondition token is
+  // already satisfied (e.g. a local `Phase 2 merged`) resolve eligible while
+  // its cross-tier substrate is still absent — the Plan-002 Phase 4
+  // false-eligible the auto-walk hit before this fix. The optional `](url)`
+  // groups absorb the markdown link whether the plan number sits in the link
+  // TARGET (`[Plan-021](url) Tier 6 ships`) or inside the link TEXT
+  // (`[Plan-025 Tier 1 Partial](url) merged`).
+  for (const m of line.matchAll(
+    /Plan-(\d{3})(?:\]\([^)]*\))?\s+Tier\s+\d+(?:\s+Partial)?(?:\]\([^)]*\))?\s+(?:merged|complete|ships)\b/gi,
+  )) {
+    entries.push({ type: "plan_unshipped", plan: Number(m[1]) });
+  }
   // Bare-form `Phase N merged` resolves to the local plan. The corpus convention
   // for same-plan precondition prose is the bare form (Plan-001/003/007/024
   // all use it); without this branch the Gate 5 regex drops the dependency
@@ -1837,6 +1859,38 @@ export function resolvePrecondition(
             halt: `unhandled classifyPhaseShipment kind: ${result.kind}`,
           };
       }
+    }
+    case "plan_unshipped": {
+      // Met once the upstream plan has shipped at least one phase/task — i.e.
+      // its shipment manifest exists and has ≥1 entry; unmet (and the phase is
+      // skipped by the auto-walk) while the upstream is still un-decomposed (no
+      // manifest at all). Deliberately COARSE: this answers "has Plan-N started
+      // shipping?", not "has the specific cross-tier substrate landed?". The
+      // narrow question is unanswerable here because an un-decomposed upstream
+      // has no phase/task granularity to point at — that is the whole reason the
+      // corpus uses the prose `Plan-NNN Tier M` form rather than `Plan-NNN Phase
+      // N merged`. When the upstream IS decomposed and its substrate ships,
+      // tighten the dependent precondition to the per-phase `Plan-NNN Phase N
+      // merged` form (plan_phase case) for substrate-level precision.
+      const planDir = resolve(repoRoot, "docs", "plans");
+      const planMatches = findPaddedFiles(planDir, entry.plan);
+      if (planMatches.length === 0) {
+        return { ok: false, halt: `Plan-${entry.plan} not found in docs/plans/` };
+      }
+      if (planMatches.length > 1) {
+        return {
+          ok: false,
+          halt: `Plan-${entry.plan} resolves to multiple files in docs/plans/: ${planMatches.map((p) => basename(p)).join(", ")}. Rename or remove the duplicate.`,
+        };
+      }
+      const manifest = parseManifestBlock(readFileSync(planMatches[0], "utf8"));
+      if (manifest.ok && Array.isArray(manifest.shipped) && manifest.shipped.length > 0) {
+        return { ok: true };
+      }
+      return {
+        ok: false,
+        halt: `Plan-${entry.plan} has not shipped yet (no shipment-manifest entries) — cross-tier substrate unavailable`,
+      };
     }
     case "cross_plan_carve_out": {
       const xplanPath = resolve(repoRoot, "docs", "architecture", "cross-plan-dependencies.md");
