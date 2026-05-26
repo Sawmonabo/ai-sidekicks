@@ -468,12 +468,14 @@ interface RuntimeNodeAttachRequest {
   sessionId: SessionId;
   participantId: ParticipantId;
   nodeId: NodeId;
+  clientVersion: EventEnvelopeVersion; // semver "MAJOR.MINOR" (ADR-018 §Decision #1); validated against sessions.min_client_version — below-floor daemons are admitted read-only, not ejected (ADR-018 §Decision #4 / Plan-003 I-003-1). Comparison is semver-aware (MAJOR.MINOR), not lexicographic.
   capabilities: Record<string, unknown>;
   healthState: "online" | "degraded";
 }
 interface RuntimeNodeAttachResponse {
   attachmentId: string;
-  state: NodeState;
+  state: NodeState; // liveness axis (registering|online|degraded|offline|revoked) — UNCHANGED
+  readOnly: boolean; // permission axis, orthogonal to state — true iff clientVersion is below the session floor (DERIVED from stored client_version vs sessions.min_client_version, never a NodeState value). A node may be online + readOnly.
   attachedAt: string;
 }
 
@@ -482,7 +484,7 @@ interface RuntimeNodeHeartbeatRequest {
   nodeId: NodeId;
   healthState: "online" | "degraded";
 }
-// Response: 204 No Content
+// Response: null — over tRPC, HTTP 200 with { result: { data: null } } (resolver returns null, not a 204); over JSON-RPC, result: null (RuntimeNodeHeartbeatResponseSchema = z.null())
 
 // RuntimeNodeCapabilityUpdate
 interface RuntimeNodeCapabilityUpdateRequest {
@@ -501,8 +503,23 @@ interface RuntimeNodeDetachRequest {
   nodeId: NodeId;
   reason?: string;
 }
-// Response: 204 No Content
+// Response: null — over tRPC, HTTP 200 with { result: { data: null } } (resolver returns null, not a 204); over JSON-RPC, result: null (RuntimeNodeDetachResponseSchema = z.null())
 ```
+
+### Runtime-Node Method-Name Registry (Tier 3)
+
+Plan-003's runtime-node operations are exposed as four methods. Method-name strings are `dotted-lowercase` per the canonical `METHOD_NAME_FORMAT` ratified in §Tier 1 (cont.): Plan-007 above (the `register(method, …)` guard at the regex constant) — the same convention shared across Plan-007's JSON-RPC daemon IPC (mechanically regex-enforced at register time) and Plan-008's tRPC control-plane procedures, so the SDK call-site shape (`client.runtimenode.attach({ … })`) is symmetric across transports. Plan-003 registers these handlers under the Plan-007-partial daemon IPC substrate, and the attach/heartbeat calls also cross the Plan-008 control-plane transport (per [Plan-003 §Dependencies](../../plans/003-runtime-node-attach.md)).
+
+The `runtimenode` namespace token is the concatenated domain noun — distinct from the `runtime_node.*` **event** taxonomy (the 7 lifecycle events in [Spec-006 §Runtime Node Lifecycle](../../specs/006-session-event-taxonomy-and-audit-log.md)). The underscore `runtime_node.*` form is a valid _event_ name but is **rejected** as a _method_ name by `METHOD_NAME_FORMAT` (no underscores). `runtimenode.capabilityupdate` is the system's first multi-word procedure: it uses the 2-segment lowercase run-on form to match the uniform single-verb arity of the `session.*` surface (the regex also permits a 3-segment `noun.sub.verb` form, reserved for a future nested-router need).
+
+| Method | Procedure type | Request schema | Response schema |
+| --- | --- | --- | --- |
+| `runtimenode.attach` | `mutation` | `RuntimeNodeAttachRequest` | `RuntimeNodeAttachResponse` |
+| `runtimenode.heartbeat` | `mutation` | `RuntimeNodeHeartbeatRequest` | `null` — HTTP 200 `{ result: { data: null } }` (tRPC) / `result: null` (JSON-RPC); `RuntimeNodeHeartbeatResponseSchema` (`z.null()`) |
+| `runtimenode.capabilityupdate` | `mutation` | `RuntimeNodeCapabilityUpdateRequest` | `RuntimeNodeCapabilityUpdateResponse` |
+| `runtimenode.detach` | `mutation` | `RuntimeNodeDetachRequest` | `null` — HTTP 200 `{ result: { data: null } }` (tRPC) / `result: null` (JSON-RPC); `RuntimeNodeDetachResponseSchema` (`z.null()`) |
+
+All four are `mutation`s (state-changing, non-idempotent) per the tRPC procedure-type convention in §Tier 1 (cont.): Plan-008 above. The request/response shapes are the interfaces defined directly above; the canonical Zod schemas live in `packages/contracts/` per the §Source-of-Truth Policy. `heartbeat` and `detach` carry a `null` response payload, not an empty `204` body: their resolvers return `null`, which tRPC serializes as an ordinary HTTP 200 success envelope `{ result: { data: null } }` (the control-plane router uses the default transformer, so there is no `data.json` wrapper). This matters because the SDK's `parseTrpcResult` calls `response.json()` on every 2xx response — a `204` with an empty body would throw `SyntaxError`, whereas `{ result: { data: null } }` parses cleanly and `z.null()` validates the extracted `null`. Over the JSON-RPC daemon transport — where JSON-RPC 2.0 requires a `result` member on success — they return `result: null`. Both transports are validated by the canonical `RuntimeNodeHeartbeatResponseSchema` / `RuntimeNodeDetachResponseSchema` (`z.null()`), so the SDK's `JsonRpcClient.call` (daemon) and the tRPC client both have a concrete result schema to pass (Plan-003 T1.3 / T4.1).
 
 ---
 
