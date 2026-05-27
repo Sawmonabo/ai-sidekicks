@@ -283,26 +283,31 @@ describe("InviteAcceptView (Plan-002 Phase 6 T6.3)", () => {
       /import\s*["'`](?:@ai-sidekicks\/(?:runtime-daemon|control-plane)(?:\/[^"'`]*)?|[^"'`]*packages\/(?:runtime-daemon|control-plane)\/[^"'`]*)["'`]/;
     const bannedDynamicImport =
       /import\s*\(\s*["'`](?:@ai-sidekicks\/(?:runtime-daemon|control-plane)(?:\/[^"'`]*)?|[^"'`]*packages\/(?:runtime-daemon|control-plane)\/[^"'`]*)["'`]/;
-    const bannedDirectImportPatterns = [
-      bannedBareImport,
-      bannedRelativeImport,
-      bannedSideEffectImport,
-      bannedDynamicImport,
+    // `[patternName, pattern]` tuples drive the `it.each` below. Naming each
+    // pattern means a future regression reports WHICH shape matched (the case
+    // title interpolates the name) instead of a bare `expected true to be false`
+    // that forces a manual bisect across the four regexes.
+    const bannedDirectImportPatterns: ReadonlyArray<readonly [string, RegExp]> = [
+      ["bannedBareImport", bannedBareImport],
+      ["bannedRelativeImport", bannedRelativeImport],
+      ["bannedSideEffectImport", bannedSideEffectImport],
+      ["bannedDynamicImport", bannedDynamicImport],
     ];
 
-    it("invite-accept-view.tsx does not import the runtime-daemon or control-plane packages directly", () => {
-      const inviteAcceptSource = rendererViewSources["../invite-accept-view.tsx"];
-      // Guard (not just an `expect`) so TypeScript narrows away the
-      // `string | undefined` that `noUncheckedIndexedAccess` gives the indexed
-      // glob lookup — and so a glob-key drift fails LOUDLY here rather than
-      // silently skipping the import scan.
-      if (typeof inviteAcceptSource !== "string") {
-        throw new Error("invite-accept-view.tsx source was not loaded by import.meta.glob");
-      }
+    // Glob-key-drift guard, hoisted to run ONCE before the `it.each`: if the
+    // `import.meta.glob` key ever drifts, this throws loudly here rather than
+    // letting every case vacuously pass against an `undefined` source. After the
+    // narrowing throw, `inviteAcceptSource` is `string` for all cases below.
+    const inviteAcceptSource = rendererViewSources["../invite-accept-view.tsx"];
+    if (typeof inviteAcceptSource !== "string") {
+      throw new Error("invite-accept-view.tsx source was not loaded by import.meta.glob");
+    }
 
-      for (const bannedImportPattern of bannedDirectImportPatterns) {
+    it.each(bannedDirectImportPatterns)(
+      "invite-accept-view.tsx source matches no %s direct daemon/control-plane import",
+      (_bannedImportPatternName, bannedImportPattern) => {
         expect(bannedImportPattern.test(inviteAcceptSource)).toBe(false);
-      }
-    });
+      },
+    );
   });
 });
