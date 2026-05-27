@@ -373,7 +373,7 @@ _The task ids below were reconciled post-merge to the as-shipped decomposition (
 
 ### Phase 6 — Renderer (Tier 2)
 
-**Precondition:** Phase 5 merged (consumes `membershipClient.ts` SDK) AND Plan-023 Tier 1 Partial complete (`apps/desktop/src/renderer/` substrate exists; preload-bridge `window.sidekicks` typed stub in place per [Plan-023 Tier 1 Partial](./023-desktop-shell-and-renderer.md#tier-1-partial-pr-sequence)). Sequenced at Tier 2 per §Execution Windows above.
+**Precondition:** Phase 5 merged (Phase 6 consumes the Phase-5-hoisted invite/membership contract schemas in `@ai-sidekicks/contracts` + the daemon-side `invite.*` / `presence.*` surface the `membershipClient.ts` SDK wraps, over the `window.sidekicks` bridge — not the SDK client directly) AND Plan-023 Tier 1 Partial complete (`apps/desktop/src/renderer/` substrate exists; preload-bridge `window.sidekicks` typed stub in place per [Plan-023 Tier 1 Partial](./023-desktop-shell-and-renderer.md#tier-1-partial-pr-sequence)). Sequenced at Tier 2 per §Execution Windows above.
 
 **Goal:** Phase 6 component tests + single-client smoke pass (invite acceptance UI renders; roster + presence indicators update via the preload bridge). The full two-client end-to-end smoke acceptance criterion is gated on the Plan-023 Tier 8 IPC dispatcher and ships at Tier 8 per CP-002-5; until then, the two-client smoke is a deferred manual verification step.
 
