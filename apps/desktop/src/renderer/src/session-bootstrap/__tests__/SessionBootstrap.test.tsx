@@ -31,11 +31,14 @@ import type { SidekicksBridge } from "@ai-sidekicks/contracts";
 
 import { SessionBootstrap } from "../SessionBootstrap.js";
 
-// Type-augmentation echo: `SessionBootstrap.tsx` declares `window.sidekicks`
-// in a `declare global` block. That augmentation is hoisted into the
-// renderer composite project's typecheck graph (the file is part of the
-// project via `include: ["**/*"]`), so this test sees `window.sidekicks`
-// as `SidekicksBridge`-typed.
+// Type-augmentation echo: the renderer-wide `sidekicks-bridge.d.ts` declares
+// `window.sidekicks` in a `declare global` block. This test file is
+// typechecked by `src/renderer/tsconfig.test.json`, which pulls that ambient
+// `.d.ts` into its program via its `"src/**/*.d.ts"` glob — NOT via the
+// production `tsconfig.json`'s `include: ["**/*"]`, because TS `extends`
+// replaces (does not merge) `include`, so the test config does not inherit the
+// production include set. With the glob in place the test sees
+// `window.sidekicks` as `SidekicksBridge`-typed.
 
 function installMockBridge(call: ReturnType<typeof vi.fn>): void {
   // Build the minimum bridge surface SessionBootstrap touches. The component
