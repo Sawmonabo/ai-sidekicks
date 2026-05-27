@@ -131,6 +131,37 @@ type AcceptState =
 export function InviteAcceptView({ token }: InviteAcceptViewProps): React.JSX.Element {
   const [acceptState, setAcceptState] = useState<AcceptState>({ kind: "idle" });
 
+  // Token-identity prop reset (React's "Adjusting some state when a prop
+  // changes" pattern — react.dev "You Might Not Need an Effect"). This is the
+  // render-phase setState React APPLIES BEFORE the browser repaints, NOT a
+  // `useEffect`: when a parent reuses this mounted instance with a DIFFERENT
+  // `token` (e.g. a future deep-link/router renders the same `<InviteAcceptView>`
+  // for a new invite), `useState({ kind: "idle" })` does not re-run, so without
+  // this reset `acceptState` would keep the PRIOR token's branch.
+  //
+  // SCOPE — what this reset covers, and what completes it:
+  //   • It covers the POST-SETTLED reuse case: a parent reuses the instance with
+  //     a new `token` AFTER the prior accept already SETTLED (resolved/rejected).
+  //     Without the reset the new invite would show the prior token's
+  //     `resolved`/`rejected` branch — stale membership and no Accept button;
+  //     storing the last-seen `token` and resetting to `idle` on a mismatch
+  //     re-prompts for the new invite. (No effect, so no extra render-to-screen —
+  //     the reset folds into the current render.)
+  //   • The COMPLETE fix for instance reuse — POST-SETTLED *and* the
+  //     mid-accept-in-flight race (handled in the click-handler note below) — is
+  //     the Tier-8 parent keying this view per invite (`key={token-derived}`),
+  //     which DISCARDS the prior instance on a token change. That is React's
+  //     canonical "reset all state on an identity-prop change" mechanism
+  //     (react.dev "Preserving and Resetting State"). This render-phase reset is
+  //     the narrower fallback for the post-settled case until that keying lands;
+  //     it is NOT a claim of full standalone correctness across the in-flight
+  //     race (see the click-handler note for why that race is harmless anyway).
+  const [previousToken, setPreviousToken] = useState(token);
+  if (token !== previousToken) {
+    setPreviousToken(token);
+    setAcceptState({ kind: "idle" });
+  }
+
   // Sync click handler (React's `onClick` contract). The async accept work runs
   // in a void IIFE inside it — the same shape SessionBootstrap uses for its
   // mount effect (`void (async () => { … })()`).
@@ -146,6 +177,24 @@ export function InviteAcceptView({ token }: InviteAcceptViewProps): React.JSX.El
   // race, which simply does not arise on a click path. (`main.tsx` confirms no
   // `StrictMode` wrapper at Tier 1; the no-guard form stays correct at Tier 8
   // when StrictMode lands, since the no-op holds under StrictMode too.)
+  //
+  // This IIFE also has NO in-flight cancellation (no `cancelled`/token re-check
+  // before its `setAcceptState`), by design — the same two reasons above apply:
+  // a late `setState` is a silent no-op, and there is no double-fire to guard.
+  //
+  // That leaves ONE reuse race the render-phase prop-reset above does NOT cover:
+  // a parent rerenders this instance with token B WHILE token A's accept IIFE is
+  // still in flight. The render-phase guard sets `idle`, then A's IIFE resolves
+  // and overwrites it with A's stale `resolved` data. No bespoke in-flight guard
+  // is owed at any tier:
+  //   • Tier 2 — the race is UNREACHABLE: no parent reuses this instance (the
+  //     view is rendered standalone with a fixed `token`).
+  //   • Tier 8 — the parent keys this view per invite, so a token change DISCARDS
+  //     the prior instance; A's in-flight IIFE then calls `setAcceptState` on an
+  //     UNMOUNTED instance — the SAME React 18/19 silent no-op cited just above
+  //     for the post-unmount case. The race dissolves at root, no UI corruption.
+  // So the keying that completes the post-settled reuse fix (render-phase block
+  // above) also neutralizes this in-flight race — no cancellation logic needed.
   const handleAcceptClick = (): void => {
     setAcceptState({ kind: "pending" });
 

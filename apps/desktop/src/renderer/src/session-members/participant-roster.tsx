@@ -44,11 +44,21 @@
 //   this view renders.
 //
 //   The data flow:
-//     1. On mount: call `presence.read` once for the initial decoded snapshot.
-//     2. Subscribe to `presence.subscribe`; treat each pushed `PresenceUpdate`
-//        as an OPAQUE "something changed" change-signal and RE-INVOKE
-//        `presence.read` to refresh the decoded list.
+//     1. On mount: subscribe to `presence.subscribe` FIRST — treat each pushed
+//        `PresenceUpdate` as an OPAQUE "something changed" change-signal and
+//        RE-INVOKE `presence.read` to refresh the decoded list.
+//     2. Then call `presence.read` once for the initial decoded snapshot.
 //     3. Unsubscribe on unmount.
+//
+//   Subscribe-BEFORE-initial-read ordering is deliberate (not the reverse): a
+//   presence change landing in the window AFTER the snapshot but BEFORE the
+//   subscription is installed would otherwise never be delivered, leaving the
+//   roster permanently stale until the next change. Installing the subscription
+//   first closes that gap — the worst case becomes a redundant re-read (the
+//   subscription fires while the initial read is still in flight), which the
+//   out-of-order guard below collapses to the freshest result. The opposite
+//   error (a missed update) is unrecoverable without a manual refresh, so we
+//   prefer the redundant read.
 //
 //   `PresenceUpdate` IS A CHANGE-SIGNAL, NOT DISPLAY STATE. We deliberately do
 //   NOT accumulate `awarenessState` bytes into React state — `presence.read` is
@@ -130,6 +140,27 @@ import type {
 // ownership). Mirrors the shipped SDK precedent `membershipClient.ts:164-165`
 // (`PRESENCE_METHOD_READ` / `PRESENCE_METHOD_SUBSCRIBE`) and T6.1's
 // `INVITE_ACCEPT_METHOD`.
+//
+// DECIDED bridge-contract gap — `presence.subscribe` request params have no
+// channel today. The daemon REQUIRES a `{ sessionId }` request body for
+// `presence.subscribe` (`PresenceSubscribeRequestSchema` at
+// `packages/contracts/src/presence.ts` is `z.object({ sessionId }).strict()`;
+// the runtime-daemon handler validates it before dispatch; the client SDK's
+// `subscribePresence` already sends it). But the generic bridge surface
+// `daemon.subscribe<E>(event, handler)` (desktop-bridge.ts:269-272) carries
+// only an event name + handler — NO params channel — so this view CANNOT pass
+// `{ sessionId }` on subscribe and instead carries the session scope into the
+// `presence.read` re-reads alone. This is a DECIDED gap, not an open question:
+// its resolution is PINNED in Spec-023 §Preload Bridge Contract (the
+// daemon-subscribe surface MUST carry each subscription's request params; the
+// param-less signature is a Tier-1 placeholder), and the signature SHAPE is
+// owned by Plan-007 / Plan-008, which narrow `DaemonEvent` / `DaemonParams` /
+// `DaemonEventPayload` across all daemon methods at once. The renderer's
+// subscribe call here is already maximally correct against the current Tier-1
+// stub, so THIS PR owes no further renderer change. When the params channel
+// lands, the Plan-007 / Plan-008 wiring task threads `{ sessionId }` through
+// this subscribe (the daemon enforces it per `PresenceSubscribeRequestSchema`);
+// that future change is owned by that task, not deferred from here.
 const PRESENCE_READ_METHOD = "presence.read";
 const PRESENCE_SUBSCRIBE_EVENT = "presence.subscribe";
 
@@ -152,12 +183,15 @@ export interface ParticipantRosterProps {
 // is click-triggered). Each variant maps 1:1 to a rendered `<section>` branch
 // below, so the render is a total function over the union.
 //
-// IMPORTANT (no-flicker contract): `loading` is set EXACTLY ONCE — on the
-// initial mount read. A subscribe-triggered re-read updates the participant
-// list IN PLACE by transitioning `loaded → loaded` (or `loaded → error` on
-// re-read failure); it never flashes back to `loading`. This is enforced
-// structurally: the subscribe handler's re-read setStates ONLY to `loaded` or
-// `error`, never `loading` (see the re-read IIFE in the effect).
+// IMPORTANT (no-flicker contract): `loading` is set at the TOP of the effect
+// body — so on MOUNT and on every `sessionId` CHANGE (a genuine session switch
+// must show loading, not the prior session's stale roster). It is NOT set on a
+// same-session subscribe-triggered re-read: `refreshSnapshot` setStates ONLY to
+// `loaded` or `error`, never `loading`, so a re-read updates the participant
+// list IN PLACE (`loaded → loaded`, or `loaded → error` on re-read failure) and
+// never flashes back to the loading branch. The distinction is load-bearing:
+// effect-level loading (mount + sessionId change) is correct UX; re-read-level
+// loading would flicker on every presence push.
 type RosterState =
   | { kind: "loading" }
   | { kind: "loaded"; participants: PresenceReadResponseParticipant[] }
@@ -189,11 +223,31 @@ export function ParticipantRoster({ sessionId }: ParticipantRosterProps): React.
     // the double-invoke.
     let cancelled = false;
 
+    // Effect-scoped monotonic read sequence — the out-of-order guard. Multiple
+    // `refreshSnapshot()` calls can be IN FLIGHT at once (rapid subscribe pushes
+    // each kick off a `presence.read`), and the bridge gives no ordering
+    // guarantee on resolution. The `cancelled` flag guards UNMOUNT, not
+    // concurrency: without this counter an OLDER `presence.read` resolving AFTER
+    // a NEWER one would overwrite fresh data with stale. Each `refreshSnapshot`
+    // captures the value AFTER incrementing it; a resolution whose captured
+    // sequence is no longer the latest bails without setState. It RESETS per
+    // effect run (closure-scoped `let`, same rationale as `cancelled`) so a
+    // session switch starts a fresh sequence.
+    let latestRequestSequence = 0;
+
     // Held so cleanup can release the daemon subscription. `undefined` until the
     // synchronous `subscribePresence(...)` below succeeds — at Tier 1 it throws
     // synchronously, so `unsubscribe` stays `undefined` and `unsubscribe?.()`
     // in cleanup is a safe no-op.
     let unsubscribe: Unsubscribe | undefined;
+
+    // Reset to `loading` on mount AND on every `sessionId` change (this runs at
+    // the top of each effect run). A genuine session switch must show the
+    // loading branch, never the prior session's stale `loaded` roster. This is
+    // the ONLY `loading` setState — `refreshSnapshot` below never sets it, so
+    // same-session subscribe-triggered re-reads keep the no-flicker contract
+    // (see the `RosterState` comment).
+    setRosterState({ kind: "loading" });
 
     // `DaemonMethod` brand cast (Plan-007 follow-up), TIGHTENED to the real
     // contract types. The bridge declares
@@ -230,26 +284,34 @@ export function ParticipantRoster({ sessionId }: ParticipantRosterProps): React.
       handler: (payload: PresenceUpdate) => void,
     ) => Unsubscribe;
 
-    // Shared decoded-snapshot read. Used for BOTH the initial mount read and
-    // every subscribe-triggered refresh. The async-IIFE shape funnels a
-    // SYNCHRONOUS Tier-1 stub throw (`() => tier1Throw("daemon.call")`,
-    // desktop-bridge.ts:349) AND a future async rejection into the same `catch`:
-    // a bare `readPresence(...).then(...).catch(...)` would evaluate
-    // `readPresence(...)` first, and the sync throw would escape before `.then`
-    // is reached. This function NEVER setStates to `{ kind: "loading" }` — it
-    // transitions only to `loaded` or `error`, so subscribe-triggered re-reads
-    // never flash back to the loading branch (the no-flicker contract from the
-    // `RosterState` comment).
+    // Shared decoded-snapshot read. Used for BOTH the initial read and every
+    // subscribe-triggered refresh. The async-IIFE shape funnels a SYNCHRONOUS
+    // Tier-1 stub throw (`() => tier1Throw("daemon.call")`, desktop-bridge.ts:349)
+    // AND a future async rejection into the same `catch`: a bare
+    // `readPresence(...).then(...).catch(...)` would evaluate `readPresence(...)`
+    // first, and the sync throw would escape before `.then` is reached. This
+    // function NEVER setStates to `{ kind: "loading" }` — it transitions only to
+    // `loaded` or `error`, so subscribe-triggered re-reads never flash back to
+    // the loading branch (the no-flicker contract from the `RosterState`
+    // comment).
+    //
+    // Each invocation captures a fresh `requestSequence` AFTER incrementing the
+    // effect-scoped counter, so the LATEST in-flight read always owns the
+    // highest sequence. Both the success and the error branch bail when EITHER
+    // the effect was torn down (`cancelled`) OR a newer read has since started
+    // (`requestSequence !== latestRequestSequence`) — the two guards are
+    // independent (unmount vs out-of-order) and both are required.
     const refreshSnapshot = (): void => {
+      const requestSequence = ++latestRequestSequence;
       void (async () => {
         try {
           const presenceResponse = await readPresence(PRESENCE_READ_METHOD, { sessionId });
-          if (cancelled) return;
+          if (cancelled || requestSequence !== latestRequestSequence) return;
           // No `as PresenceReadResponse` cast — the tightened brand cast above
           // already types `readPresence`'s resolved value.
           setRosterState({ kind: "loaded", participants: presenceResponse.participants });
         } catch (bridgeError: unknown) {
-          if (cancelled) return;
+          if (cancelled || requestSequence !== latestRequestSequence) return;
           // Tier-1 production branch: every Tier-1 bridge method throws
           // `NotImplementedAtTier1Error` (desktop-bridge.ts `createTier1Bridge`).
           // We do not narrow on `instanceof` — any `Error` shape renders the
@@ -265,13 +327,15 @@ export function ParticipantRoster({ sessionId }: ParticipantRosterProps): React.
       })();
     };
 
-    // 1. Initial decoded snapshot (mount read).
-    refreshSnapshot();
-
-    // 2. Subscribe to the change-signal stream. The synchronous
-    //    `subscribePresence(...)` call gets its OWN `try/catch` — a SIBLING of
-    //    the read IIFE, NOT nested inside it — because at Tier 1 it throws
-    //    synchronously (`() => tier1Throw("daemon.subscribe")`,
+    // 1. Subscribe to the change-signal stream FIRST, BEFORE the initial read.
+    //    A presence change landing after the snapshot but before the
+    //    subscription is installed would otherwise be lost, leaving the roster
+    //    stale (see the file-header data-flow note). Installing first means the
+    //    worst case is a redundant re-read the out-of-order guard collapses.
+    //
+    //    The synchronous `subscribePresence(...)` call gets its OWN `try/catch`
+    //    — a SIBLING of the read IIFE, NOT nested inside it — because at Tier 1
+    //    it throws synchronously (`() => tier1Throw("daemon.subscribe")`,
     //    desktop-bridge.ts:350); an uncaught throw here would crash the effect
     //    callback (React does not catch effect-callback throws) and strand the
     //    view. On the throw we drive the error state, same envelope as the read.
@@ -280,10 +344,11 @@ export function ParticipantRoster({ sessionId }: ParticipantRosterProps): React.
     //    will invoke it with real signals, and it re-invokes `readPresence`
     //    (the same sync-throwing async shape). The handler delegates to
     //    `refreshSnapshot`, whose async-IIFE already funnels sync throws + async
-    //    rejections to its `catch` — and which closes over `cancelled`, so a
-    //    re-read kicked off the instant before unmount cannot `setState` after
-    //    cleanup. We do NOT consume the `PresenceUpdate` payload: it is an
-    //    opaque change-signal (see the header), so the handler simply re-reads.
+    //    rejections to its `catch` — and which closes over `cancelled` + the
+    //    sequence guard, so a re-read kicked off the instant before unmount
+    //    cannot `setState` after cleanup. We do NOT consume the `PresenceUpdate`
+    //    payload: it is an opaque change-signal (see the header), so the handler
+    //    simply re-reads.
     try {
       unsubscribe = subscribePresence(PRESENCE_SUBSCRIBE_EVENT, () => {
         refreshSnapshot();
@@ -295,6 +360,10 @@ export function ParticipantRoster({ sessionId }: ParticipantRosterProps): React.
         setRosterState({ kind: "error", error: normalizedError });
       }
     }
+
+    // 2. Initial decoded snapshot. Runs AFTER the subscription is installed, so
+    //    no change can slip through the gap between snapshot and subscribe.
+    refreshSnapshot();
 
     return () => {
       cancelled = true;

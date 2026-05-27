@@ -35,7 +35,7 @@
 // Vitest 4 `globals: true` (renderer project) supplies `describe`/`it`/`expect`/
 // `vi`/`afterEach`; the renderer test tsconfig adds `vitest/globals` to `types`.
 
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 
 import { NotImplementedAtTier1Error } from "@ai-sidekicks/contracts";
 import type {
@@ -80,10 +80,17 @@ const rendererViewSources = import.meta.glob("../*.tsx", {
 // Branded id fixtures — `"<uuid>" as SessionId` / `as ParticipantId` mirrors the
 // shipped SDK precedent (packages/client-sdk/test/membershipClient.integration.test.ts:64-70).
 const KNOWN_SESSION_ID = "01970000-0000-7000-8000-0000000000a1" as SessionId;
+// A SECOND session id for the session-switch test: re-rendering with a new
+// `sessionId` must reset the roster to loading (not show the prior session's
+// stale `loaded` roster) and re-read for the new session.
+const SECOND_SESSION_ID = "01970000-0000-7000-8000-0000000000a2" as SessionId;
 const PARTICIPANT_ONLINE = "01970000-0000-7000-8000-0000000000b1" as ParticipantId;
 const PARTICIPANT_OFFLINE = "01970000-0000-7000-8000-0000000000b2" as ParticipantId;
 const PARTICIPANT_RECONNECTING = "01970000-0000-7000-8000-0000000000b3" as ParticipantId;
 const PARTICIPANT_NEW_ON_REREAD = "01970000-0000-7000-8000-0000000000b4" as ParticipantId;
+// A member that belongs ONLY to SECOND_SESSION_ID's roster — used to prove the
+// new session's participants eventually load after a session switch.
+const PARTICIPANT_SECOND_SESSION = "01970000-0000-7000-8000-0000000000b5" as ParticipantId;
 
 // Two snapshots so the re-read test can assert the roster updates from one to
 // the other on a subscribe push. SNAPSHOT_ONE varies `state` across the
@@ -126,6 +133,31 @@ const SNAPSHOT_TWO: PresenceReadResponse = {
     },
   ],
 };
+
+// The roster SECOND_SESSION_ID returns — a disjoint membership, so the
+// session-switch test can assert the prior session's members are gone and this
+// one's member is present.
+const SECOND_SESSION_SNAPSHOT: PresenceReadResponse = {
+  participants: [
+    {
+      participantId: PARTICIPANT_SECOND_SESSION,
+      state: "online",
+      lastSeen: "2026-05-26T11:00:00.000Z",
+    },
+  ],
+};
+
+// A manually-resolvable promise — lets a test hold two `presence.read` calls in
+// flight and resolve them in a CHOSEN order (older last) to exercise the
+// out-of-order guard. `resolve` is assigned synchronously inside the executor,
+// so it is always defined by the time the test calls it.
+function createDeferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
 
 function installMockBridge(
   call: ReturnType<typeof vi.fn>,
@@ -262,6 +294,137 @@ describe("ParticipantRoster (Plan-002 Phase 6 T6.3)", () => {
     expect(screen.queryByText(`participant id: ${PARTICIPANT_OFFLINE}`)).toBeNull();
   });
 
+  it("installs the presence.subscribe subscription before the initial presence.read", async () => {
+    // Subscribe-BEFORE-initial-read ordering (participant-roster.tsx — the
+    // effect installs `daemon.subscribe` first, THEN fires the initial
+    // `presence.read`). A change landing in the window between the snapshot and
+    // the subscription would otherwise be lost. Both calls happen synchronously
+    // within the effect, so asserting the call COUNT alone cannot discriminate
+    // the order — we compare Vitest's `invocationCallOrder` (a monotonic global
+    // counter stamped on every mock call) to prove `subscribe` was invoked
+    // before `call`.
+    const daemonCall = vi.fn().mockResolvedValue(SNAPSHOT_ONE);
+    const daemonSubscribe = vi.fn(() => noopUnsubscribe);
+    installMockBridge(daemonCall, daemonSubscribe);
+
+    render(<ParticipantRoster sessionId={KNOWN_SESSION_ID} />);
+
+    // Both fired during the mount effect.
+    expect(daemonSubscribe).toHaveBeenCalledTimes(1);
+    expect(daemonCall).toHaveBeenCalledTimes(1);
+    // The subscribe's invocation order is strictly lower than the read's —
+    // subscribe ran first. This is the direct ordering proof. Narrowing throws
+    // (mirroring this file's `participantRosterSource` guard) turn the
+    // `noUncheckedIndexedAccess` `number | undefined` into `number` and document
+    // the call-count invariant asserted just above.
+    const subscribeOrder = daemonSubscribe.mock.invocationCallOrder[0];
+    const readOrder = daemonCall.mock.invocationCallOrder[0];
+    if (subscribeOrder === undefined || readOrder === undefined) {
+      throw new Error("expected both daemon.subscribe and daemon.call to have recorded a call");
+    }
+    expect(subscribeOrder).toBeLessThan(readOrder);
+
+    // Sanity: the snapshot still loads (ordering did not break the read path).
+    await screen.findByLabelText("participant-roster-loaded");
+  });
+
+  it("renders the newer presence.read result when two reads resolve out of order", async () => {
+    // Out-of-order guard (participant-roster.tsx `latestRequestSequence`). Rapid
+    // subscribe pushes can leave multiple `presence.read` calls in flight at
+    // once; the bridge gives no resolution-order guarantee. Here the INITIAL
+    // read (older) and a subscribe-triggered re-read (newer) are both in flight,
+    // and the OLDER one resolves LAST. The roster must reflect the NEWER result,
+    // not let the stale older result overwrite it. The `cancelled` flag does NOT
+    // cover this — it only guards unmount — so a regression that dropped the
+    // sequence guard would render the stale snapshot here.
+    const firstRead = createDeferred<PresenceReadResponse>();
+    const secondRead = createDeferred<PresenceReadResponse>();
+    const daemonCall = vi
+      .fn()
+      .mockReturnValueOnce(firstRead.promise)
+      .mockReturnValueOnce(secondRead.promise);
+
+    // Capture the subscribe handler so the test can fire a push deterministically.
+    let capturedHandler: ((payload: PresenceUpdate) => void) | undefined;
+    const daemonSubscribe = vi.fn(
+      (_event: string, handler: (payload: PresenceUpdate) => void): Unsubscribe => {
+        capturedHandler = handler;
+        return noopUnsubscribe;
+      },
+    );
+    installMockBridge(daemonCall, daemonSubscribe);
+
+    render(<ParticipantRoster sessionId={KNOWN_SESSION_ID} />);
+
+    // The initial read (sequence 1) is in flight but unresolved. Fire a push to
+    // trigger the re-read (sequence 2), also in flight and unresolved.
+    expect(capturedHandler).toBeDefined();
+    capturedHandler?.({ sessionId: KNOWN_SESSION_ID, awarenessState: new Uint8Array() });
+    expect(daemonCall).toHaveBeenCalledTimes(2);
+
+    // Resolve the NEWER read (sequence 2 → SNAPSHOT_TWO) FIRST, then the OLDER
+    // read (sequence 1 → SNAPSHOT_ONE) LAST. The stale older result must be
+    // discarded by the sequence guard.
+    secondRead.resolve(SNAPSHOT_TWO);
+    await screen.findByText(`participant id: ${PARTICIPANT_NEW_ON_REREAD}`);
+
+    firstRead.resolve(SNAPSHOT_ONE);
+
+    // The roster still shows the NEWER snapshot. The older read resolving last
+    // is a no-op: SNAPSHOT_ONE-only members never appear, and SNAPSHOT_TWO's new
+    // member stays. `waitFor` lets any (erroneous) stale setState flush before we
+    // assert — without the guard this would flip to SNAPSHOT_ONE and fail.
+    await waitFor(() => {
+      expect(screen.queryByText(`participant id: ${PARTICIPANT_OFFLINE}`)).toBeNull();
+    });
+    expect(screen.getByText(`participant id: ${PARTICIPANT_NEW_ON_REREAD}`)).toBeDefined();
+    expect(screen.queryByText(`participant id: ${PARTICIPANT_RECONNECTING}`)).toBeNull();
+  });
+
+  it("resets to loading on a sessionId change and loads the new session's roster", async () => {
+    // Session-switch reset (participant-roster.tsx — `setRosterState({ loading })`
+    // at the top of the effect, which re-runs on every `sessionId` change). A
+    // switch must transiently show loading, NOT the prior session's stale
+    // `loaded` roster, and must re-read for the new session. The new session's
+    // read is held un-settled so the loading branch is synchronously observable
+    // after the re-render (an immediately-resolved read could flush to `loaded`
+    // before the assertion).
+    const secondRead = createDeferred<PresenceReadResponse>();
+    const daemonCall = vi
+      .fn()
+      .mockResolvedValueOnce(SNAPSHOT_ONE) // session 1 initial read
+      .mockReturnValueOnce(secondRead.promise); // session 2 initial read (held)
+    const daemonSubscribe = vi.fn(() => noopUnsubscribe);
+    installMockBridge(daemonCall, daemonSubscribe);
+
+    // Session 1: load its roster fully.
+    const { rerender } = render(<ParticipantRoster sessionId={KNOWN_SESSION_ID} />);
+    await screen.findByLabelText("participant-roster-loaded");
+    expect(screen.getByText(`participant id: ${PARTICIPANT_ONLINE}`)).toBeDefined();
+
+    // Switch to session 2. The effect re-runs: loading is set at its top and the
+    // new session's read is in flight (held un-settled).
+    rerender(<ParticipantRoster sessionId={SECOND_SESSION_ID} />);
+
+    // The loading branch shows during the new read, and the PRIOR session's
+    // participants are NOT rendered during the transition.
+    await waitFor(() => {
+      expect(screen.getByLabelText("participant-roster-loading")).toBeDefined();
+    });
+    expect(screen.queryByLabelText("participant-roster-loaded")).toBeNull();
+    expect(screen.queryByText(`participant id: ${PARTICIPANT_ONLINE}`)).toBeNull();
+
+    // The re-read fired for the NEW session.
+    expect(daemonCall).toHaveBeenNthCalledWith(2, "presence.read", {
+      sessionId: SECOND_SESSION_ID,
+    });
+
+    // Once the new session's read resolves, its roster loads in place.
+    secondRead.resolve(SECOND_SESSION_SNAPSHOT);
+    await screen.findByText(`participant id: ${PARTICIPANT_SECOND_SESSION}`);
+    expect(screen.queryByText(`participant id: ${PARTICIPANT_ONLINE}`)).toBeNull();
+  });
+
   it("calls the Unsubscribe returned by subscribe exactly once on unmount", () => {
     // LOAD-BEARING cleanup test — the most important lifecycle guarantee of this
     // view. The effect must release the daemon subscription on teardown. We mock
@@ -329,11 +492,14 @@ describe("ParticipantRoster (Plan-002 Phase 6 T6.3)", () => {
     // crash the effect callback (React does not catch effect-callback throws) and
     // strand the view. This case proves that sibling catch drives the error state.
     //
-    // CRITICAL ordering: `refreshSnapshot()` (the read) runs BEFORE the subscribe
-    // in the effect, scheduling an async read microtask. If `presence.read`
-    // RESOLVED, that late `loaded` setState would override the subscribe-throw's
-    // error state and this assertion would flake. We therefore use a NEVER-
-    // SETTLING read mock so the subscribe-throw error state is the terminal one.
+    // CRITICAL ordering: the subscribe runs BEFORE `refreshSnapshot()` in the
+    // effect (subscribe-first), but the read it schedules is an async microtask
+    // that resolves AFTER the synchronous subscribe-throw has already driven the
+    // error state. If `presence.read` RESOLVED, that late `loaded` setState would
+    // override the subscribe-throw's error state and this assertion would flake.
+    // (The subscribe throw is synchronous, so it lands first regardless; the read
+    // settling later is the hazard.) We therefore use a NEVER-SETTLING read mock
+    // so the subscribe-throw error state is the terminal one.
     const subscribeError = new NotImplementedAtTier1Error("presence.subscribe");
     const daemonCall = vi.fn(() => new Promise(() => {}));
     const daemonSubscribe = vi.fn(() => {

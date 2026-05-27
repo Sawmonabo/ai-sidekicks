@@ -36,7 +36,7 @@
 // per-file import; the renderer test tsconfig (`src/renderer/tsconfig.test.json`)
 // adds `vitest/globals` to `types` so TypeScript resolves them too.
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { NotImplementedAtTier1Error } from "@ai-sidekicks/contracts";
 import type {
@@ -99,6 +99,12 @@ const KNOWN_INVITE_ID = "01970000-0000-7000-8000-0000000000d1" as InviteId;
 // §Token Security Properties). A placeholder string — the renderer never
 // decodes it; the control-plane service does.
 const MOCK_INVITE_TOKEN = "v4.local.mock-opaque-invite-token";
+
+// A SECOND opaque token, for the prop-reset test: a parent reusing one mounted
+// `InviteAcceptView` instance for a different invite (a future deep-link/router
+// re-rendering the same element with a new `token`) must reset the view to
+// `idle`, not leave it on the prior token's resolved/rejected branch.
+const SECOND_INVITE_TOKEN = "v4.local.mock-opaque-invite-token-2";
 
 function installMockBridge(call: ReturnType<typeof vi.fn>): void {
   // Minimum bridge surface InviteAcceptView touches: it reads ONLY
@@ -235,6 +241,53 @@ describe("InviteAcceptView (Plan-002 Phase 6 T6.3)", () => {
     expect(errorSection.textContent).toContain("invite.accept");
     // Proves the sync throw did not strand the view in pending.
     expect(screen.queryByLabelText("invite-accept-pending")).toBeNull();
+  });
+
+  it("resets to the idle Accept prompt when the token prop changes on a reused instance", async () => {
+    // Token-identity prop-reset guard (invite-accept-view.tsx — the render-phase
+    // "Adjusting some state when a prop changes" pattern). A parent that REUSES
+    // one mounted instance for a NEW invite (a future deep-link/router rendering
+    // the same `<InviteAcceptView>` element with a different `token` after a
+    // prior accept settled) must see the view return to `idle` for the new
+    // invite — NOT remain pinned on the first token's resolved branch with stale
+    // membership and no Accept button. Without the guard, `useState({ idle })`
+    // would not re-run and the first token's `resolved` state would leak.
+    const firstResponse = {
+      inviteId: KNOWN_INVITE_ID,
+      membershipId: KNOWN_MEMBERSHIP_ID,
+      sessionId: KNOWN_SESSION_ID,
+      participantId: KNOWN_PARTICIPANT_ID,
+      role: "collaborator",
+      state: "active",
+    };
+    const daemonCall = vi.fn().mockResolvedValue(firstResponse);
+    installMockBridge(daemonCall);
+
+    // Render with token A and drive it all the way to the resolved branch.
+    const { rerender } = render(<InviteAcceptView token={MOCK_INVITE_TOKEN} />);
+    fireEvent.click(screen.getByRole("button", { name: "Accept invite" }));
+    await screen.findByLabelText("invite-accept-resolved");
+    expect(daemonCall).toHaveBeenCalledWith("invite.accept", { token: MOCK_INVITE_TOKEN });
+
+    // Re-render the SAME instance with a DIFFERENT token (the deep-link reuse).
+    rerender(<InviteAcceptView token={SECOND_INVITE_TOKEN} />);
+
+    // The view returns to the idle Accept-prompt branch for the new invite: the
+    // idle section + Accept button reappear and the stale resolved section is
+    // gone. `waitFor` because the render-phase setState schedules a re-render.
+    await waitFor(() => {
+      expect(screen.getByLabelText("invite-accept-idle")).toBeDefined();
+    });
+    expect(screen.getByRole("button", { name: "Accept invite" })).toBeDefined();
+    expect(screen.queryByLabelText("invite-accept-resolved")).toBeNull();
+
+    // The reset alone fires no new wire call (acceptance stays user-initiated).
+    expect(daemonCall).toHaveBeenCalledTimes(1);
+
+    // And the new invite is acceptable: clicking Accept now carries token B.
+    fireEvent.click(screen.getByRole("button", { name: "Accept invite" }));
+    await screen.findByLabelText("invite-accept-resolved");
+    expect(daemonCall).toHaveBeenNthCalledWith(2, "invite.accept", { token: SECOND_INVITE_TOKEN });
   });
 
   describe("bridge-projection (CP-002-5)", () => {
