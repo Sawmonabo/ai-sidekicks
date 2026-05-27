@@ -27,22 +27,12 @@
 
 import { useEffect, useState } from "react";
 
-import type { SessionCreateResponse, SidekicksBridge } from "@ai-sidekicks/contracts";
+import type { SessionCreateResponse } from "@ai-sidekicks/contracts";
 
-// Tier-1 stopgap: declare the `window.sidekicks` surface for the renderer's
-// TypeScript graph. The preload (`apps/desktop/src/preload/index.ts`) installs
-// the bridge at runtime via `contextBridge.exposeInMainWorld('sidekicks', ...)`,
-// which is a runtime-only registration — TypeScript needs an ambient
-// augmentation to type the resulting `window.sidekicks` access. We colocate
-// the declaration in the first renderer consumer file rather than authoring
-// a sibling `renderer.d.ts` outside `target_paths`; Plan-023 Tier 8 remainder
-// should hoist this to a shared renderer-only declaration file when the
-// number of consumers grows beyond a handful.
-declare global {
-  interface Window {
-    sidekicks: SidekicksBridge;
-  }
-}
+// The `window.sidekicks` ambient type lives in the renderer-wide
+// `sidekicks-bridge.d.ts` (part of this project via the renderer `tsconfig`'s
+// `include: ["**/*"]`), so `window.sidekicks` below is `SidekicksBridge`-typed
+// without an import here.
 
 type BootstrapState =
   | { kind: "pending" }

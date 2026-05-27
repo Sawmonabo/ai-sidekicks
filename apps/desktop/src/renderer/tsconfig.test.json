@@ -28,6 +28,18 @@
     "sourceMap": false,
     "types": ["vitest/globals"]
   },
-  "include": ["**/__tests__/**/*"],
+  // `src/**/*.d.ts` is globbed in alongside the test files because a
+  // module-scoped `declare global` only augments `Window` when its declaring
+  // file is part of THIS program. TS `extends` REPLACES (does not merge) the
+  // parent `tsconfig.json`'s `include: ["**/*"]`, so renderer ambient `.d.ts`
+  // files (e.g. `src/sidekicks-bridge.d.ts`, which types the `window.sidekicks`
+  // contextBridge global) would otherwise be absent from this config's program
+  // — and the transitively-imported renderer source under test (e.g.
+  // `SessionBootstrap.tsx` reading `window.sidekicks`) would lose the
+  // augmentation and fail with TS2339 under this pass only. The glob is scoped
+  // to `*.d.ts` so it pulls in ambient declarations only, never production
+  // `.tsx`, preserving the hermetic "vitest globals don't leak into the
+  // production typegraph" property documented above.
+  "include": ["**/__tests__/**/*", "src/**/*.d.ts"],
   "exclude": []
 }

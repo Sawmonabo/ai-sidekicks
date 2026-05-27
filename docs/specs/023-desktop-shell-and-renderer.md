@@ -209,6 +209,8 @@ The bridge must not expose:
 - auth material (daemon session token, PASETO tokens, DPoP key, WebAuthn PRF output) in any form — PRF output is derived and consumed inside main-process-owned caches
 - arbitrary file paths as strings — paths returned to the renderer are opaque `FilePathRef` tokens; dereferencing requires a second main-process round trip
 
+> **Parameterized daemon subscriptions — the `daemon.subscribe` signature is a Tier-1 placeholder (pin).** The generic `daemon.subscribe<E>(event, handler)` above carries an event name and a handler but **no request-parameter channel**, so it is incomplete for any daemon subscription that needs per-subscription parameters. `presence.subscribe` is the concrete case surfaced by the Plan-002 Phase 6 renderer: the daemon **requires** a `{ sessionId }` request body for it — `PresenceSubscribeRequestSchema` (`packages/contracts/src/presence.ts`) is `z.object({ sessionId }).strict()`, the runtime-daemon `presence.subscribe` handler validates that schema before dispatch, and the client SDK's `subscribePresence` already sends `{ sessionId }` on the wire. The generic signature cannot express that today (contrast `controlPlane.subscribeRelay(sessionId, handler)`, the one subscribe that already threads a parameter). **Decision pinned:** the daemon-subscribe bridge surface MUST be able to carry each subscription's request parameters; the current param-less signature is a placeholder, not the target. **Deferred to [Plan-007: Local IPC And Daemon Control](../plans/007-local-ipc-and-daemon-control.md) / [Plan-008: Control Plane Relay And Session Join](../plans/008-control-plane-relay-and-session-join.md):** the signature **shape** — positional param vs options bag vs an event→params/payload map — is owned by the plans that narrow `DaemonEvent` / `DaemonParams` / `DaemonEventPayload` (today Tier-1 `never`-shaped brands in `packages/contracts/src/desktop-bridge.ts`) across **all** daemon methods at once. Fixing the subscribe-params shape here from a presence-only vantage would be premature abstraction that conflicts with that holistic narrowing. As with the [§Deep-Link Invite Flow](#deep-link-invite-flow) pin, this clarifies the flow and pins the requirement, not the data type.
+
 ### Main Process Responsibilities
 
 - **App lifecycle.** Single-instance lock (`app.requestSingleInstanceLock()`). Graceful shutdown on `before-quit` — signal the daemon to flush, wait up to a 10-second budget, then force-terminate. Relaunch on update apply.
@@ -249,10 +251,22 @@ If the native module is unavailable or the platform authenticator does not suppo
 ### Deep-Link Invite Flow
 
 1. OS invokes `sidekicks://invite/<token>` — protocol handler fires in the main process
-2. Main process parses the URL, extracts the invite token, and calls the control-plane `acceptInvite(token)` procedure with the attached PASETO access token + DPoP proof
-3. On success, main process receives the new session membership and notifies the renderer via a bridge event
-4. Renderer navigates to the newly joined session view
-5. The raw invite token never crosses the bridge to the renderer
+2. Main process parses the URL and extracts the invite token, holding it in main-process memory only — it does not accept the invite yet, and it does not forward the token to the renderer
+3. Main process resolves the display metadata needed to render a confirmation (target session identity, inviter identity) from a **non-consuming** control-plane invite-metadata path — it does **not** decode the opaque token locally (the token is a PASETO `v4.local` envelope it holds no key for; see the pin below), and it does **not** consume the single-use invite to preview it (a preview that burned the `jti` would defeat step 4's confirmation). It then emits a bridge event carrying that metadata plus an opaque invite reference — never the raw token — to the renderer
+4. Renderer surfaces an explicit confirmation and waits for the participant to accept; this user-initiated step is required (no auto-accept on protocol fire) so an email scanner, link-preview fetcher, or other automated `sidekicks://` follower cannot silently consume the single-use invite
+5. On confirmation, the renderer signals the main process via the opaque reference; the main process calls the control-plane `acceptInvite(token)` procedure with the confined token plus the attached PASETO access token + DPoP proof
+6. On success, main process receives the new session membership and notifies the renderer via a bridge event
+7. Renderer navigates to the newly joined session view
+8. The raw invite token never crosses the bridge to the renderer; the renderer drives confirmation and navigation through the opaque reference and the membership event alone
+
+> **Modern-practice grounding (2026-05).** Two properties are load-bearing, each reflecting current best practice:
+>
+> - **(a) Token confinement to the main process.** The renderer is an untrusted surface (see [§Trust Stance](#trust-stance) and [ADR-016](../decisions/016-electron-desktop-shell.md)); single-use invite tokens must not be exposed to it, mirroring the WebAuthn/PASETO confinement specified in the [§WebAuthn Credential Flow](#webauthn-credential-flow) above. This matches established Electron guidance that auth material is held and processed in the main process while the preload exposes only narrow IPC surfaces ([Electron deep-link handling](https://www.electronjs.org/docs/latest/tutorial/launch-app-from-url-in-another-app); [Better Auth Electron integration](https://better-auth.com/docs/integrations/electron)).
+> - **(b) Explicit user confirmation before consumption.** Auto-accepting on protocol fire lets an automated `sidekicks://` follower (email scanner, link-preview fetcher) silently consume the single-use invite; an explicit confirmation step after the app surfaces the invite is the recommended mitigation ([Mastering Magic Link Security](https://guptadeepak.com/mastering-magic-link-security-a-deep-dive-for-developers/); [observed scanner pre-consumption](https://github.com/better-auth/better-auth/discussions/6985)).
+>
+> The opaque-reference handoff is the mechanism that lets the renderer drive (b) without violating (a). The precise reference data shape, its main-process lifecycle, and its expiry / error semantics are owned by [Plan-023](../plans/023-desktop-shell-and-renderer.md) Tier 8 (the protocol handler + the bridge-event IPC dispatcher); this section pins the flow and these two properties, not the data type.
+>
+> **Non-consuming invite-metadata path required (pin).** Step 3's "resolve the display metadata" is **not** a local operation. The invite token's payload — `{session_id, inviter_id, join_mode, expires_at, jti}`, the very fields step 3 needs to render the confirmation — is, per [Spec-002 §Token Security Properties](./002-invite-membership-and-presence.md#token-security-properties), "encrypted inside the PASETO v4.local envelope"; the main process holds no decryption key for it (only the control plane does, per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md)), so it **cannot** extract the target-session or inviter identity by decoding the token. And the only invite-acceptance surface, `controlPlane.acceptInvite(token)` (step 5), is **consuming** — it burns the single-use `jti` (Spec-002 §Token Security Properties) — so it cannot be used to preview. **Decision pinned:** the deep-link flow REQUIRES a control-plane invite-metadata path that is **non-consuming** (does not burn the `jti`) and returns the target-session + inviter identity for the confirmation; the `v4.local` opacity is the constraint that forces it. **Deferred to [Spec-002](./002-invite-membership-and-presence.md) / [Plan-002](../plans/002-invite-membership-and-presence.md):** the procedure's request / response shape, its consumption semantics, and its expiry / error behavior — including whether the desktop path reuses the existing non-consuming link-resolution surface ([Spec-002 §Invite Delivery](./002-invite-membership-and-presence.md#invite-delivery) describes the control-plane web page that validates-and-displays the session name + join mode before the separate acceptance step) or adds a sibling procedure — are owned by the invite spec / plan that own that surface. As with the [§Preload Bridge Contract](#preload-bridge-contract) daemon-subscribe pin, this clarifies the flow and pins the requirement, not the data type.
 
 ### Auto-Update Flow
 
@@ -628,41 +642,41 @@ A dedicated current-state research pass (Electron version / cadence, security ha
 
 | Source | Type | Key Finding | URL |
 | --- | --- | --- | --- |
-| Electron release timeline | Documentation | 3-major support window, 8-week cadence, no LTS lane | https://www.electronjs.org/docs/latest/tutorial/electron-timelines |
-| Electron release schedule | Documentation | v41 EOL 2026-08-25; forced upgrade cadence confirmation | https://releases.electronjs.org/schedule |
-| Electron 41.0 release notes | Release notes | Chromium 146, Node 24.14, ASAR Integrity Digest, MSIX auto-update | https://www.electronjs.org/blog/electron-41-0 |
-| Electron 40.0 release notes | Release notes | `utilityProcess` `"memory-eviction"` exit reason; renderer clipboard deprecation; macOS dSYM format change | https://www.electronjs.org/blog/electron-40-0 |
-| Electron 39.0 release notes | Release notes | ASAR Integrity graduated to stable; `@electron/packager` v19 enables it by default | https://www.electronjs.org/blog/electron-39-0 |
-| Electron Security Checklist | Documentation | 20-item hardening checklist — the basis for §Security Hardening Baseline | https://www.electronjs.org/docs/latest/tutorial/security |
-| Electron Fuses documentation | Documentation | Fuse defaults and recommended production posture | https://www.electronjs.org/docs/latest/tutorial/fuses |
-| Electron IPC tutorial | Documentation | `contextBridge` + `invoke` / `handle` patterns | https://www.electronjs.org/docs/latest/tutorial/ipc |
-| Electron `utilityProcess` API | Documentation | Chromium-Services-backed process model; `MessagePortMain`; post-`app.ready` requirement | https://www.electronjs.org/docs/latest/api/utility-process |
-| Electron Message Ports tutorial | Documentation | `ipcRenderer.postMessage` required for MessagePort transfer | https://www.electronjs.org/docs/latest/tutorial/message-ports |
-| Electron `safeStorage` API | Documentation | Linux plaintext-fallback when no keystore; `getSelectedStorageBackend` check | https://www.electronjs.org/docs/latest/api/safe-storage |
-| Electron `autoUpdater` API | Documentation | Built-in updater: Squirrel.Mac / Squirrel.Windows or MSIX; no Linux support | https://www.electronjs.org/docs/latest/api/auto-updater |
-| Electron `crashReporter` API | Documentation | Crashpad-based; multipart/form-data upload; 39/127-byte metadata limits | https://www.electronjs.org/docs/latest/api/crash-reporter |
-| Electron Forge overview | Documentation | Officially-recommended packaging; v7.11.1 stable, v8.0.0 alpha (ESM) | https://www.electronjs.org/docs/latest/tutorial/forge-overview |
-| Electron GitHub Security Advisories | Primary source | Q1 2026 CVE batch (2026-04-02): 34769/34770/34771/34772/34774/34764 | https://github.com/electron/electron/security/advisories |
-| electron-builder releases | Release notes | v26.9.0 (2026-04-14); v26.8.2 (2026-03-04) tar security patches | https://github.com/electron-userland/electron-builder/releases |
-| electron.build auto-update docs | Documentation | Code-signature validation on macOS + Windows; staged rollouts; NSIS-only block-map delta | https://www.electron.build/auto-update |
-| Electron Forge GitHub | Source | v7.11.1 stable (2026-01-12); v8.0.0-alpha.7 (2026-04-10) | https://github.com/electron/forge |
-| update.electronjs.org | Source | Restrictions: public GitHub repos only; macOS + Windows only; no Linux | https://github.com/electron/update.electronjs.org |
-| node-keytar archive | Primary source | Archived 2022-12-15; last release v7.9.0 (2022-02-17) | https://github.com/atom/node-keytar |
-| `@napi-rs/keyring` npm | Package | v1.2.0 (2025-09-02); keytar-compatible replacement; no libsecret required on Linux | https://www.npmjs.com/package/@napi-rs/keyring |
-| `@napi-rs/keyring` GitHub | Source | Rust napi-rs binding to keyring-rs crate | https://github.com/Brooooooklyn/keyring-node |
-| MSAL JS issue #7170 | Primary source | Microsoft's migration off keytar (corroborating) | https://github.com/AzureAD/microsoft-authentication-library-for-js/issues/7170 |
-| CA/Browser Forum CSC-31 | Primary source | Adopted 2025-11-17, effective 2026-03-01: 460-day max cert validity | https://cabforum.org/working-groups/code-signing/requirements/ |
-| Microsoft — Artifact Signing GA | Primary source | Renamed from Trusted Signing; GA 2026-01-12; Basic SKU pricing | https://techcommunity.microsoft.com/blog/microsoft-security-blog/simplifying-code-signing-for-windows-apps-artifact-signing-ga/4482789 |
-| Azure Artifact Signing FAQ | Documentation | Regional eligibility (USA/Canada/EU/UK orgs; US/Canada individuals); no EV cert issuance | https://learn.microsoft.com/en-us/azure/artifact-signing/faq |
-| Apple Developer ID | Documentation | Developer ID cert free under $99/yr program; notarization required | https://developer.apple.com/developer-id/ |
-| Apple Developer forum — notarization delays | Primary source | January 2026: 24–120+ hour queue delays reported | https://developer.apple.com/forums/thread/813441 |
-| Microsoft — Windows 10 lifecycle | Primary source | Windows 10 EOL 2025-10-14 | https://learn.microsoft.com/en-us/lifecycle/products/windows-10-home-and-pro |
-| Sentry Electron SDK documentation | Documentation | Per-process init (`@sentry/electron/main` / `/renderer` / `/utility`) | https://docs.sentry.io/platforms/javascript/guides/electron/ |
-| `electron-webauthn-mac` (Vault12) | Source | Jan 2026 open-source release; bridges Apple `AuthenticationServices` for passkeys | https://github.com/vault12/electron-webauthn-mac |
-| `@electron-webauthn/native` | Package | Published as cross-platform; scope beyond macOS not authoritatively confirmed in this pass | https://www.npmjs.com/package/@electron-webauthn/native |
-| electron/electron #15404 | Primary source | Long-standing open issue on native WebAuthn support | https://github.com/electron/electron/issues/15404 |
-| electron/electron #24573 | Primary source | Long-standing open issue on WebAuthn bindings | https://github.com/electron/electron/issues/24573 |
-| GitLab Advisory DB — CVE-2026-34769 | Primary source | Example high-severity entry from Q1 2026 batch | https://advisories.gitlab.com/pkg/npm/electron/CVE-2026-34769/ |
+| Electron release timeline | Documentation | 3-major support window, 8-week cadence, no LTS lane | <https://www.electronjs.org/docs/latest/tutorial/electron-timelines> |
+| Electron release schedule | Documentation | v41 EOL 2026-08-25; forced upgrade cadence confirmation | <https://releases.electronjs.org/schedule> |
+| Electron 41.0 release notes | Release notes | Chromium 146, Node 24.14, ASAR Integrity Digest, MSIX auto-update | <https://www.electronjs.org/blog/electron-41-0> |
+| Electron 40.0 release notes | Release notes | `utilityProcess` `"memory-eviction"` exit reason; renderer clipboard deprecation; macOS dSYM format change | <https://www.electronjs.org/blog/electron-40-0> |
+| Electron 39.0 release notes | Release notes | ASAR Integrity graduated to stable; `@electron/packager` v19 enables it by default | <https://www.electronjs.org/blog/electron-39-0> |
+| Electron Security Checklist | Documentation | 20-item hardening checklist — the basis for §Security Hardening Baseline | <https://www.electronjs.org/docs/latest/tutorial/security> |
+| Electron Fuses documentation | Documentation | Fuse defaults and recommended production posture | <https://www.electronjs.org/docs/latest/tutorial/fuses> |
+| Electron IPC tutorial | Documentation | `contextBridge` + `invoke` / `handle` patterns | <https://www.electronjs.org/docs/latest/tutorial/ipc> |
+| Electron `utilityProcess` API | Documentation | Chromium-Services-backed process model; `MessagePortMain`; post-`app.ready` requirement | <https://www.electronjs.org/docs/latest/api/utility-process> |
+| Electron Message Ports tutorial | Documentation | `ipcRenderer.postMessage` required for MessagePort transfer | <https://www.electronjs.org/docs/latest/tutorial/message-ports> |
+| Electron `safeStorage` API | Documentation | Linux plaintext-fallback when no keystore; `getSelectedStorageBackend` check | <https://www.electronjs.org/docs/latest/api/safe-storage> |
+| Electron `autoUpdater` API | Documentation | Built-in updater: Squirrel.Mac / Squirrel.Windows or MSIX; no Linux support | <https://www.electronjs.org/docs/latest/api/auto-updater> |
+| Electron `crashReporter` API | Documentation | Crashpad-based; multipart/form-data upload; 39/127-byte metadata limits | <https://www.electronjs.org/docs/latest/api/crash-reporter> |
+| Electron Forge overview | Documentation | Officially-recommended packaging; v7.11.1 stable, v8.0.0 alpha (ESM) | <https://www.electronjs.org/docs/latest/tutorial/forge-overview> |
+| Electron GitHub Security Advisories | Primary source | Q1 2026 CVE batch (2026-04-02): 34769/34770/34771/34772/34774/34764 | <https://github.com/electron/electron/security/advisories> |
+| electron-builder releases | Release notes | v26.9.0 (2026-04-14); v26.8.2 (2026-03-04) tar security patches | <https://github.com/electron-userland/electron-builder/releases> |
+| electron.build auto-update docs | Documentation | Code-signature validation on macOS + Windows; staged rollouts; NSIS-only block-map delta | <https://www.electron.build/auto-update> |
+| Electron Forge GitHub | Source | v7.11.1 stable (2026-01-12); v8.0.0-alpha.7 (2026-04-10) | <https://github.com/electron/forge> |
+| update.electronjs.org | Source | Restrictions: public GitHub repos only; macOS + Windows only; no Linux | <https://github.com/electron/update.electronjs.org> |
+| node-keytar archive | Primary source | Archived 2022-12-15; last release v7.9.0 (2022-02-17) | <https://github.com/atom/node-keytar> |
+| `@napi-rs/keyring` npm | Package | v1.2.0 (2025-09-02); keytar-compatible replacement; no libsecret required on Linux | <https://www.npmjs.com/package/@napi-rs/keyring> |
+| `@napi-rs/keyring` GitHub | Source | Rust napi-rs binding to keyring-rs crate | <https://github.com/Brooooooklyn/keyring-node> |
+| MSAL JS issue #7170 | Primary source | Microsoft's migration off keytar (corroborating) | <https://github.com/AzureAD/microsoft-authentication-library-for-js/issues/7170> |
+| CA/Browser Forum CSC-31 | Primary source | Adopted 2025-11-17, effective 2026-03-01: 460-day max cert validity | <https://cabforum.org/working-groups/code-signing/requirements/> |
+| Microsoft — Artifact Signing GA | Primary source | Renamed from Trusted Signing; GA 2026-01-12; Basic SKU pricing | <https://techcommunity.microsoft.com/blog/microsoft-security-blog/simplifying-code-signing-for-windows-apps-artifact-signing-ga/4482789> |
+| Azure Artifact Signing FAQ | Documentation | Regional eligibility (USA/Canada/EU/UK orgs; US/Canada individuals); no EV cert issuance | <https://learn.microsoft.com/en-us/azure/artifact-signing/faq> |
+| Apple Developer ID | Documentation | Developer ID cert free under $99/yr program; notarization required | <https://developer.apple.com/developer-id/> |
+| Apple Developer forum — notarization delays | Primary source | January 2026: 24–120+ hour queue delays reported | <https://developer.apple.com/forums/thread/813441> |
+| Microsoft — Windows 10 lifecycle | Primary source | Windows 10 EOL 2025-10-14 | <https://learn.microsoft.com/en-us/lifecycle/products/windows-10-home-and-pro> |
+| Sentry Electron SDK documentation | Documentation | Per-process init (`@sentry/electron/main` / `/renderer` / `/utility`) | <https://docs.sentry.io/platforms/javascript/guides/electron/> |
+| `electron-webauthn-mac` (Vault12) | Source | Jan 2026 open-source release; bridges Apple `AuthenticationServices` for passkeys | <https://github.com/vault12/electron-webauthn-mac> |
+| `@electron-webauthn/native` | Package | Published as cross-platform; scope beyond macOS not authoritatively confirmed in this pass | <https://www.npmjs.com/package/@electron-webauthn/native> |
+| electron/electron #15404 | Primary source | Long-standing open issue on native WebAuthn support | <https://github.com/electron/electron/issues/15404> |
+| electron/electron #24573 | Primary source | Long-standing open issue on WebAuthn bindings | <https://github.com/electron/electron/issues/24573> |
+| GitLab Advisory DB — CVE-2026-34769 | Primary source | Example high-severity entry from Q1 2026 batch | <https://advisories.gitlab.com/pkg/npm/electron/CVE-2026-34769/> |
 
 ### Related Specs
 
