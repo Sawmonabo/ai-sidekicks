@@ -183,15 +183,17 @@ export interface ParticipantRosterProps {
 // is click-triggered). Each variant maps 1:1 to a rendered `<section>` branch
 // below, so the render is a total function over the union.
 //
-// IMPORTANT (no-flicker contract): `loading` is set at the TOP of the effect
-// body — so on MOUNT and on every `sessionId` CHANGE (a genuine session switch
-// must show loading, not the prior session's stale roster). It is NOT set on a
-// same-session subscribe-triggered re-read: `refreshSnapshot` setStates ONLY to
-// `loaded` or `error`, never `loading`, so a re-read updates the participant
-// list IN PLACE (`loaded → loaded`, or `loaded → error` on re-read failure) and
-// never flashes back to the loading branch. The distinction is load-bearing:
-// effect-level loading (mount + sessionId change) is correct UX; re-read-level
-// loading would flicker on every presence push.
+// IMPORTANT (no-flicker contract): `loading` is set in only two places, both
+// RENDER-PHASE — the `useState` initializer (MOUNT) and the `previousSessionId`
+// guard at the top of the component body (every `sessionId` CHANGE, so a genuine
+// session switch shows loading, not the prior session's stale roster, with no
+// stale frame — see that block). It is NOT set on a same-session
+// subscribe-triggered re-read: `refreshSnapshot` setStates ONLY to `loaded` or
+// `error`, never `loading`, so a re-read updates the participant list IN PLACE
+// (`loaded → loaded`, or `loaded → error` on re-read failure) and never flashes
+// back to the loading branch. The distinction is load-bearing: identity-level
+// loading (mount + sessionId change) is correct UX; re-read-level loading would
+// flicker on every presence push.
 type RosterState =
   | { kind: "loading" }
   | { kind: "loaded"; participants: PresenceReadResponseParticipant[] }
@@ -212,6 +214,38 @@ type RosterState =
  */
 export function ParticipantRoster({ sessionId }: ParticipantRosterProps): React.JSX.Element {
   const [rosterState, setRosterState] = useState<RosterState>({ kind: "loading" });
+
+  // Session-identity prop reset (React's "Adjusting some state when a prop
+  // changes" pattern — react.dev "You Might Not Need an Effect"; the SAME
+  // render-phase mechanism `InviteAcceptView` uses for its `token`). This is a
+  // render-phase setState React applies by DISCARDING the in-progress render
+  // output and re-rendering BEFORE it commits to the DOM — NOT an effect.
+  //
+  // SCOPE — what this reset covers, and what completes it:
+  //   • It covers a parent reusing this mounted instance across a `sessionId`
+  //     change (a future Plan-023 router swapping the rendered session). On the
+  //     change it resets to `loading` so the prior session's `loaded` roster
+  //     never reaches the DOM. Doing this render-phase (not in the effect, which
+  //     runs only AFTER React commits) is what makes "shows loading, not the
+  //     prior session's roster" TRUE rather than aspirational: an effect-body
+  //     reset would let the stale roster paint for one frame before flipping.
+  //   • The COMPLETE fix for instance reuse is the Tier-8 parent keying the
+  //     roster per session (`key={sessionId}`), which DISCARDS the prior instance
+  //     on a session change — React's canonical "reset all state on an
+  //     identity-prop change" mechanism (react.dev "Preserving and Resetting
+  //     State"). This render-phase reset is the narrower fallback until that
+  //     keying lands.
+  //
+  // It touches ONLY `rosterState`: the effect-scoped sequence counter and the
+  // subscribe/read logic live inside the effect (which re-runs on the same
+  // `[sessionId]` change) and are unperturbed. `refreshSnapshot` still never
+  // setStates to `loading`, so same-session subscribe-triggered re-reads remain
+  // flicker-free (the no-flicker contract in the `RosterState` comment).
+  const [previousSessionId, setPreviousSessionId] = useState(sessionId);
+  if (sessionId !== previousSessionId) {
+    setPreviousSessionId(sessionId);
+    setRosterState({ kind: "loading" });
+  }
 
   useEffect(() => {
     // Strict-mode-safe mount (see the file-header MOUNT-EFFECT RACE note). The
@@ -241,14 +275,11 @@ export function ParticipantRoster({ sessionId }: ParticipantRosterProps): React.
     // in cleanup is a safe no-op.
     let unsubscribe: Unsubscribe | undefined;
 
-    // Reset to `loading` on mount AND on every `sessionId` change (this runs at
-    // the top of each effect run). A genuine session switch must show the
-    // loading branch, never the prior session's stale `loaded` roster. This is
-    // the ONLY `loading` setState — `refreshSnapshot` below never sets it, so
-    // same-session subscribe-triggered re-reads keep the no-flicker contract
-    // (see the `RosterState` comment).
-    setRosterState({ kind: "loading" });
-
+    // (Loading reset lives render-phase at the top of the component body, NOT
+    // here — see the `previousSessionId` block. An effect-body reset runs only
+    // AFTER React commits, so a reused instance would paint the prior session's
+    // `loaded` roster for one frame before flipping to `loading`.)
+    //
     // `DaemonMethod` brand cast (Plan-007 follow-up), TIGHTENED to the real
     // contract types. The bridge declares
     // `daemon.call<M extends DaemonMethod>(method: M, params: DaemonParams<M>):
@@ -334,11 +365,15 @@ export function ParticipantRoster({ sessionId }: ParticipantRosterProps): React.
     //    worst case is a redundant re-read the out-of-order guard collapses.
     //
     //    The synchronous `subscribePresence(...)` call gets its OWN `try/catch`
-    //    — a SIBLING of the read IIFE, NOT nested inside it — because at Tier 1
-    //    it throws synchronously (`() => tier1Throw("daemon.subscribe")`,
-    //    desktop-bridge.ts:350); an uncaught throw here would crash the effect
-    //    callback (React does not catch effect-callback throws) and strand the
-    //    view. On the throw we drive the error state, same envelope as the read.
+    //    because at Tier 1 it throws synchronously
+    //    (`() => tier1Throw("daemon.subscribe")`, desktop-bridge.ts:350); an
+    //    uncaught throw here would crash the effect callback (React does not catch
+    //    effect-callback throws) and strand the view. On the throw we drive the
+    //    error state, same envelope as the read. The initial `refreshSnapshot()`
+    //    call sits INSIDE this `try` (step 2 below) so a subscribe-throw skips it
+    //    rather than clobbering the error with a channel-less snapshot; a READ
+    //    failure is still owned by the IIFE's own `catch`, not this one (the
+    //    async IIFE never throws synchronously out of the call).
     //
     //    The handler ITSELF needs sync-throw defense too: at Tier 8 the bridge
     //    will invoke it with real signals, and it re-invokes `readPresence`
@@ -353,6 +388,23 @@ export function ParticipantRoster({ sessionId }: ParticipantRosterProps): React.
       unsubscribe = subscribePresence(PRESENCE_SUBSCRIBE_EVENT, () => {
         refreshSnapshot();
       });
+
+      // 2. Initial decoded snapshot — INSIDE this `try`, AFTER the subscribe
+      //    assignment, so it runs ONLY when the subscription actually installed.
+      //    Two reasons it is gated on subscribe success, not unconditional:
+      //      • Ordering: running after the subscribe means no presence change can
+      //        slip through the gap between snapshot and subscribe (see comment 1).
+      //      • Honesty: if `subscribePresence` threw, control jumps to the `catch`
+      //        below (which set `error`) and SKIPS this read. An unconditional read
+      //        here would, on a subscribe-throw + read-success, CLOBBER that `error`
+      //        with `loaded` — stranding the user on a static snapshot with NO live
+      //        channel that silently never updates. A failed subscribe means no live
+      //        channel, so `error` is the honest Tier-2 state (the same posture as a
+      //        read-failure in `refreshSnapshot`'s `catch`), not a stale `loaded`.
+      //    `refreshSnapshot` is the async-IIFE shape, so it never throws
+      //    synchronously OUT of this call — this `try` cannot swallow a read error;
+      //    read failures are owned by the IIFE's own `catch`.
+      refreshSnapshot();
     } catch (subscribeError: unknown) {
       if (!cancelled) {
         const normalizedError =
@@ -360,10 +412,6 @@ export function ParticipantRoster({ sessionId }: ParticipantRosterProps): React.
         setRosterState({ kind: "error", error: normalizedError });
       }
     }
-
-    // 2. Initial decoded snapshot. Runs AFTER the subscription is installed, so
-    //    no change can slip through the gap between snapshot and subscribe.
-    refreshSnapshot();
 
     return () => {
       cancelled = true;

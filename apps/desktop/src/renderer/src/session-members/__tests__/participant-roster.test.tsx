@@ -35,7 +35,7 @@
 // Vitest 4 `globals: true` (renderer project) supplies `describe`/`it`/`expect`/
 // `vi`/`afterEach`; the renderer test tsconfig adds `vitest/globals` to `types`.
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 
 import { NotImplementedAtTier1Error } from "@ai-sidekicks/contracts";
 import type {
@@ -382,13 +382,21 @@ describe("ParticipantRoster (Plan-002 Phase 6 T6.3)", () => {
   });
 
   it("resets to loading on a sessionId change and loads the new session's roster", async () => {
-    // Session-switch reset (participant-roster.tsx — `setRosterState({ loading })`
-    // at the top of the effect, which re-runs on every `sessionId` change). A
+    // Session-switch reset (participant-roster.tsx — the render-phase
+    // `previousSessionId` guard that sets `loading` on a `sessionId` change). A
     // switch must transiently show loading, NOT the prior session's stale
     // `loaded` roster, and must re-read for the new session. The new session's
-    // read is held un-settled so the loading branch is synchronously observable
-    // after the re-render (an immediately-resolved read could flush to `loaded`
-    // before the assertion).
+    // read is held un-settled so the loading branch is observable after the
+    // re-render (an immediately-resolved read could flush to `loaded` first).
+    //
+    // This is an END-STATE check, not a frame-timing one: after the rerender,
+    // the view shows loading (prior session's roster gone), then loads the new
+    // session once its read resolves. The render-phase reset itself (vs an
+    // effect-body reset that would commit one stale frame first) is documented
+    // and motivated where it lives — the `previousSessionId` block in the
+    // component; it is NOT separately observable here, because React Testing
+    // Library's `act()` flushes every commit before `rerender` returns, so JSDOM
+    // never exposes an intermediate stale-paint commit to a post-rerender assert.
     const secondRead = createDeferred<PresenceReadResponse>();
     const daemonCall = vi
       .fn()
@@ -402,8 +410,8 @@ describe("ParticipantRoster (Plan-002 Phase 6 T6.3)", () => {
     await screen.findByLabelText("participant-roster-loaded");
     expect(screen.getByText(`participant id: ${PARTICIPANT_ONLINE}`)).toBeDefined();
 
-    // Switch to session 2. The effect re-runs: loading is set at its top and the
-    // new session's read is in flight (held un-settled).
+    // Switch to session 2. The render-phase guard resets to loading as part of
+    // committing the new props; the new session's read is in flight (held).
     rerender(<ParticipantRoster sessionId={SECOND_SESSION_ID} />);
 
     // The loading branch shows during the new read, and the PRIOR session's
@@ -486,22 +494,23 @@ describe("ParticipantRoster (Plan-002 Phase 6 T6.3)", () => {
 
   it("renders the error envelope when presence.subscribe throws synchronously", async () => {
     // LOAD-BEARING sync-throw case on the SUBSCRIBE path. The synchronous
-    // `subscribePresence(...)` call has its OWN sibling `try/catch` in the effect
-    // (NOT nested in the read IIFE) because at Tier 1 it throws synchronously
-    // (`() => tier1Throw("daemon.subscribe")`); an uncaught throw there would
-    // crash the effect callback (React does not catch effect-callback throws) and
-    // strand the view. This case proves that sibling catch drives the error state.
+    // `subscribePresence(...)` call has its OWN `try/catch` in the effect because
+    // at Tier 1 it throws synchronously (`() => tier1Throw("daemon.subscribe")`);
+    // an uncaught throw there would crash the effect callback (React does not
+    // catch effect-callback throws) and strand the view. This case proves that
+    // catch drives the error state.
     //
-    // CRITICAL ordering: the subscribe runs BEFORE `refreshSnapshot()` in the
-    // effect (subscribe-first), but the read it schedules is an async microtask
-    // that resolves AFTER the synchronous subscribe-throw has already driven the
-    // error state. If `presence.read` RESOLVED, that late `loaded` setState would
-    // override the subscribe-throw's error state and this assertion would flake.
-    // (The subscribe throw is synchronous, so it lands first regardless; the read
-    // settling later is the hazard.) We therefore use a NEVER-SETTLING read mock
-    // so the subscribe-throw error state is the terminal one.
+    // The initial `refreshSnapshot()` lives INSIDE the subscribe `try`, AFTER the
+    // subscribe assignment — so a synchronous subscribe-throw jumps straight to
+    // the catch and the read is NEVER reached. We assert exactly that: the read
+    // mock is arranged to fail the test if it is ever invoked, and we verify it
+    // was not called. (No never-settling-read contortion is needed: the read does
+    // not run at all on a subscribe-throw, so there is no late `loaded` setState
+    // that could clobber the error — see the no-clobber test below.)
     const subscribeError = new NotImplementedAtTier1Error("presence.subscribe");
-    const daemonCall = vi.fn(() => new Promise(() => {}));
+    const daemonCall = vi.fn(() => {
+      throw new Error("presence.read must not be called when subscribe throws");
+    });
     const daemonSubscribe = vi.fn(() => {
       throw subscribeError;
     });
@@ -514,9 +523,47 @@ describe("ParticipantRoster (Plan-002 Phase 6 T6.3)", () => {
     expect(errorSection.getAttribute("role")).toBe("alert");
     expect(errorSection.textContent).toContain("NotImplementedAtTier1Error");
     expect(errorSection.textContent).toContain("presence.subscribe");
-    // The subscribe was attempted, and the view is not stranded in loading.
+    // The subscribe was attempted, the read was gated out by the subscribe-throw,
+    // and the view is not stranded in loading.
     expect(daemonSubscribe).toHaveBeenCalledTimes(1);
+    expect(daemonCall).not.toHaveBeenCalled();
     expect(screen.queryByLabelText("participant-roster-loading")).toBeNull();
+  });
+
+  it("holds the subscribe-throw error and never flips to loaded when the read later resolves", async () => {
+    // No-clobber outcome: distinct failure mode from the test above. That test
+    // pins that the read is never INVOKED on a subscribe-throw (`daemonCall` not
+    // called); this one pins the user-visible CONSEQUENCE of the gate — that the
+    // error envelope HOLDS and the view never flips to `loaded`. We arrange a read
+    // that resolves a VALID snapshot, resolve it AFTER the subscribe-throw error
+    // is on screen, and assert the error still holds.
+    //
+    // The resolve is wrapped in `act` so that IF a read were in flight (the bug),
+    // its `await`-resumed `setRosterState({ loaded })` would commit before we
+    // assert — making this a genuine discriminator. Verified empirically: with the
+    // read gated out (the fix) the error holds; with the initial read ungated (the
+    // bug), the resolved snapshot drives a `loaded` commit and this fails — which
+    // is the exact mislead being prevented: a static snapshot with no live channel.
+    const subscribeError = new NotImplementedAtTier1Error("presence.subscribe");
+    const heldRead = createDeferred<PresenceReadResponse>();
+    const daemonCall = vi.fn(() => heldRead.promise);
+    const daemonSubscribe = vi.fn(() => {
+      throw subscribeError;
+    });
+    installMockBridge(daemonCall, daemonSubscribe);
+
+    render(<ParticipantRoster sessionId={KNOWN_SESSION_ID} />);
+
+    const errorSection = await screen.findByLabelText("participant-roster-error");
+    expect(errorSection.textContent).toContain("presence.subscribe");
+
+    await act(async () => {
+      heldRead.resolve(SNAPSHOT_ONE);
+    });
+
+    expect(screen.getByLabelText("participant-roster-error")).toBeDefined();
+    expect(screen.queryByLabelText("participant-roster-loaded")).toBeNull();
+    expect(screen.queryByText(`participant id: ${PARTICIPANT_ONLINE}`)).toBeNull();
   });
 
   describe("bridge-projection (CP-002-5)", () => {
