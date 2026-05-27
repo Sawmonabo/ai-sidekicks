@@ -381,11 +381,11 @@ _The task ids below were reconciled post-merge to the as-shipped decomposition (
 
 #### Tasks
 
-##### T6.1 — Implement `session-members/invite-accept-view.tsx` consuming the preload-bridge `window.sidekicks.invites.accept` surface.
+##### T6.1 — Implement `session-members/invite-accept-view.tsx` issuing `daemon.call("invite.accept", { token })` over the generic `window.sidekicks` preload bridge.
 
 **Files:** `apps/desktop/src/renderer/src/session-members/invite-accept-view.tsx` **Spec coverage:** Spec-002 AC1 (line 178 — invited participant joins active session without resetting active runs) **Verifies invariant:** none (renderer surface)
 
-##### T6.2 — Implement `session-members/participant-roster.tsx` rendering presence indicators via `window.sidekicks.presence.subscribe` async iterator.
+##### T6.2 — Implement `session-members/participant-roster.tsx` rendering presence indicators over the generic `window.sidekicks` preload bridge (a `daemon.call("presence.read", { sessionId })` snapshot refreshed on each `daemon.subscribe` presence-stream push).
 
 **Files:** `apps/desktop/src/renderer/src/session-members/participant-roster.tsx` **Spec coverage:** Spec-002 AC1 (line 178 — joined-membership surface), AC2 (line 179 — membership durable across presence offline → online cycle) **Verifies invariant:** none (renderer surface)
 
@@ -397,7 +397,7 @@ _The task ids below were reconciled post-merge to the as-shipped decomposition (
 
 **Tier-8 wiring deferral (shares T6.4's Tier-8 gate):** The end-state contract is now PINNED in the amended [Spec-023 §Deep-Link Invite Flow](../specs/023-desktop-shell-and-renderer.md#deep-link-invite-flow) (token confined to the main process; renderer receives an opaque reference + display metadata; explicit user confirmation; main process accepts on confirm; the raw token never crosses the bridge). T6.1's interim posture — renderer holds the opaque `token` prop and an explicit Accept button issues `daemon.call("invite.accept", { token })` — deviates from that pinned target on two axes: token confinement (renderer-held vs main-confined opaque reference) and acceptance mechanism (renderer-issued `daemon.call("invite.accept", { token })` vs renderer-confirms-via-opaque-reference + main-process-accepts). Only the Tier-8 runtime wiring is deferred — the `sidekicks://invite/<token>` protocol handler + the bridge-event IPC dispatcher + the opaque-reference lifecycle — not the contract decision. The interim explicit-confirmation UX is the target behavior (§Deep-Link property (b)), retained at reshape; the view drops the raw `token` prop for the opaque reference + display metadata.
 
-After Phase 5 lands green at Tier 2, Plan-002's load-bearing semantics are complete. Phase 6 ships at Tier 2 after Phase 5 — the renderer substrate from Plan-023 Tier 1 Partial is independently in place from Tier 1, so the gating reduces to Plan-002's own SDK readiness.
+After Phase 5 lands green at Tier 2, Plan-002's load-bearing semantics are complete. Phase 6 ships at Tier 2 after Phase 5 — the renderer substrate from Plan-023 Tier 1 Partial is independently in place from Tier 1, so the gating reduces to Plan-002's own Phase 5 readiness.
 
 ## Rollout Order
 
