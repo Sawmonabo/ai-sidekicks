@@ -397,6 +397,8 @@ _The task ids below were reconciled post-merge to the as-shipped decomposition (
 
 **Files:** none (manual two-client verification gated on Plan-023 Tier 8 IPC dispatcher; no Plan-002 code deliverable) **Spec coverage:** Spec-002 AC1 (line 178), AC2 (line 179) (two-client end-to-end realization per Plan-002 §Verification — verification deferred to Tier 8 per CP-002-5) **Verifies invariant:** none (deferred manual verification; no automated invariant in this PR)
 
+**Criterion-gated deferral (shares T6.4's Tier-8 gate):** T6.1's interim posture — renderer holds the opaque `token` prop and an explicit Accept button issues `daemon.call("invite.accept", { token })` — DEVIATES from the [Spec-023 §Deep-Link Invite Flow](../specs/023-desktop-shell-and-renderer.md#deep-link-invite-flow) target on two axes: token confinement (renderer-held vs main-process-only — "the raw invite token never crosses the bridge to the renderer") and acceptance trigger (renderer-initiated Accept vs main-process auto-accept on `sidekicks://invite/<token>` fire, where the renderer merely navigates). Reconciliation is gated on Plan-023 Tier 8 (the deep-link protocol handler + the invite-acceptance bridge event contract) and MAY reshape the view into a bridge-event-driven "joined" confirmation OR, if the explicit-confirmation UX is judged the better product design, prompt a Spec-023 §Deep-Link amendment — not pre-decided here.
+
 After Phase 5 lands green at Tier 2, Plan-002's load-bearing semantics are complete. Phase 6 ships at Tier 2 after Phase 5 — the renderer substrate from Plan-023 Tier 1 Partial is independently in place from Tier 1, so the gating reduces to Plan-002's own SDK readiness.
 
 ## Rollout Order

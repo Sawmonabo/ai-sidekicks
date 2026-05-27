@@ -13,24 +13,47 @@
 //     atomicity are the control-plane service's job, never the renderer's —
 //     the renderer is the untrusted surface (Spec-023 §Trust Stance).
 //
-// Acceptance is a DELIBERATE, USER-INITIATED action (the Accept button), not a
-// mount side-effect. The product flow is: the invitee follows a shareable
-// invite link → the app routes here with the link's token → the invitee clicks
-// Accept. Auto-accepting on mount would silently consume a single-use invite on
-// route-load — the wrong UX and a deliberate divergence from
-// `SessionBootstrap`, whose mount-trigger fits "create a session as the app
-// loads" but would be wrong for "accept an invite as a route renders". This is
-// also why this view has an `idle` state that `SessionBootstrap` lacks: a
-// mount-triggered component starts `pending`; a button-triggered one starts
-// `idle` (the pre-click prompt).
+// CRITERION-GATED DEFERRAL — this view's renderer-held-`token` + explicit-Accept
+// shape is a DELIBERATE Tier-2 interim posture that DEVIATES from the Spec-023
+// §Deep-Link Invite Flow target contract. It is NOT yet the settled end-state;
+// reconciliation is gated on Plan-023 Tier 8 (criterion (c) below). A reviewer
+// should read this view as the interim posture, not as a finished realization of
+// §Deep-Link.
 //
-// Tier-2 routing-scope note: no router / deep-link handler exists yet to supply
-// the `token` prop in production — that wiring is a later Plan-023 concern. This
-// view is an independently-renderable, testable component with a clear prop
-// contract; the T6.3 component tests render it with a mock token + a mock
-// `window.sidekicks` bridge. A reviewer should NOT flag "this is never rendered
-// in production" — production deep-link wiring is intentionally out of T6.1's
-// scope.
+//   (a) Tier-2 posture (as-built — what ships now). The renderer receives the
+//       opaque `token` as a prop and issues the daemon-as-gateway
+//       `daemon.call("invite.accept", { token })`; an explicit Accept button
+//       gives user confirmation. The Accept button is a DELIBERATE,
+//       USER-INITIATED trigger, not a mount side-effect — auto-accepting on
+//       mount would silently consume a single-use invite on route-load (the
+//       wrong UX). This is the deliberate divergence from `SessionBootstrap`,
+//       whose mount-trigger fits "create a session as the app loads" but would
+//       be wrong for "accept an invite as a route renders"; it is also why this
+//       view has an `idle` state that `SessionBootstrap` lacks (a
+//       mount-triggered component starts `pending`; a button-triggered one
+//       starts `idle`, the pre-click prompt). The posture is chosen for
+//       independent renderability + testability: this is a self-contained
+//       component with a clear prop contract, and the T6.3 component tests
+//       render it with a mock `token` + a mock `window.sidekicks` bridge. No
+//       router / deep-link handler exists yet to supply the `token` prop in
+//       production — and that is expected here, not a gap to flag against T6.1.
+//   (b) Spec-023 §Deep-Link target shape. There, the MAIN process extracts the
+//       token from `sidekicks://invite/<token>`, calls `acceptInvite(token)`
+//       itself (PASETO + DPoP), and emits a renderer bridge event carrying the
+//       new membership; the renderer NAVIGATES to the joined session and has no
+//       Accept button — "the raw invite token never crosses the bridge to the
+//       renderer" (§Deep-Link final step). The Tier-2 posture deviates on TWO
+//       axes: token confinement (renderer holds the raw `token` vs
+//       main-process-only) and acceptance trigger (renderer-initiated Accept
+//       button vs main-process auto-accept on URL fire). Reconciling MAY reshape
+//       this view into a bridge-event-driven "joined" confirmation, possibly
+//       with no renderer-initiated Accept — OR, if the explicit-confirmation UX
+//       in (a) is judged the better product design, MAY instead warrant a
+//       Spec-023 §Deep-Link amendment. This deferral does NOT pre-decide which.
+//   (c) Pay-off trigger. Plan-023 Tier 8 ships the `sidekicks://invite/<token>`
+//       deep-link protocol handler + the invite-acceptance bridge event contract
+//       (the SAME Tier-8 gate as T6.4's two-client smoke). Neither exists today;
+//       the full §Deep-Link flow cannot be built until they land.
 //
 // Renderer-untrusted boundary (Spec-023 §Trust Stance) — this file imports
 // ONLY:
