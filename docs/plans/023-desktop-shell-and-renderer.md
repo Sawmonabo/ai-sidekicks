@@ -111,6 +111,7 @@ The ADR + Spec preconditions below gate **both** the Tier 1 partial and the Tier
 - `apps/desktop/src/renderer/src/features/runs/RunsView.tsx` — **created, composition-only.** Consumes `daemon.subscribe('run.state', ...)` per Spec-004.
 - `apps/desktop/src/renderer/src/features/channels/ChannelsView.tsx` — **created, composition-only.** Consumes `daemon.subscribe('channel.*', ...)` per Spec-016.
 - `apps/desktop/src/renderer/src/sentry.ts` — **created.** Renderer-side `@sentry/electron/renderer` init. No `beforeSend` override (main-process scrubber catches everything that upload-ships; renderer stays thin).
+- `apps/desktop/src/renderer/src/sidekicks-bridge.d.ts` — **already created by Plan-002 Phase 6; Tier 8 EXTENDS, does not CREATE.** The `window.sidekicks` ambient bridge type, hoisted by Plan-002 Phase 6 out of `SessionBootstrap.tsx`'s `declare global` block into this dedicated `.d.ts` (the conventional Electron+Vite contextBridge-global typing pattern). Tier-8 work extends this surface as the bridge grows; it does not re-create the file or re-declare the global.
 
 ### Build / Config
 
