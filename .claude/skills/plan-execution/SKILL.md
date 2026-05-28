@@ -200,6 +200,7 @@ Dispatch the **plan-analyst** subagent via `Agent({subagent_type: "plan-executio
 - The plan's `## Invariants` section — the analyst must validate that every Tasks-row `Verifies invariant:` cite resolves to a real I-NNN-M entry.
 - The governing spec and cited ADR file paths (analyst reads them; spec is needed to validate `Spec coverage:` cites).
 - The cross-plan dependency map ([`docs/architecture/cross-plan-dependencies.md`](../../../docs/architecture/cross-plan-dependencies.md)).
+- The backlog + archive ([`docs/backlog.md`](../../../docs/backlog.md), [`docs/archive/backlog-archive.md`](../../../docs/archive/backlog-archive.md)) — the `BL-NNN` open-vs-shipped source of truth, so the analyst can classify a `Consumes:` clause-(d) `BL-NNN` as `completed` (collapses to a shipped provider) or open `todo` (a blocker forcing `status: blocked`).
 
 Tasks-block field shapes vary across plans (sub-header style in Plan-001 Phase 5; parenthesized inline in Plan-007 Phases 1-3); both carry the same fields. The analyst extracts them verbatim into DAG fields.
 
@@ -222,7 +223,8 @@ tasks:
     acceptance_criteria: # subset of the Phase's test plan items (orientation; spec_coverage is the audit-derived authority)
       - <plan AC reference, e.g., "P1: SessionCreate returns stable session id">
     contract_provides: [] # type/symbol names this task exports for consumers (contract-author only)
-    contract_consumes: [] # type/symbol names this task imports from upstream tasks
+    contract_consumes: [] # type/symbol names this task imports from upstream tasks (bare importable symbols — implementer/reviewer read this field only)
+    consumes_resolution: {} # map: each contract_consumes symbol not provided in-DAG → its resolution string (the audit Consumes: entry's resolution); decompose-time audit trail, NOT read by implementer/reviewer
     notes: <optional analyst commentary>
 levels: # topological levels — tasks within a level may run concurrently in worktree mode
   - [T1]
@@ -238,11 +240,11 @@ status: ready # ready | needs-context | blocked
   - Every Tasks-row `Spec coverage:` cite appears in the corresponding DAG task's `spec_coverage`.
   - Every Tasks-row `Verifies invariant:` cite appears in the corresponding DAG task's `verifies_invariant`.
   - Every Tasks-row `BLOCKED-ON-C*` marker appears in the corresponding DAG task's `blocked_on`.
-  - Every Tasks-row `Consumes:` entry appears in the corresponding DAG task's `contract_consumes`, carrying its resolution (per the Topology + contracts resolution rule below) — a dropped `Consumes:` entry silently bypasses the consume-resolution gate before implementer/reviewer dispatch.
+  - Every Tasks-row `Consumes:` entry is split into the corresponding DAG task: its **symbol** into `contract_consumes` (the bare importable name) and its **resolution** into `consumes_resolution[symbol]` (per the Topology + contracts resolution rule below) — a dropped `Consumes:` entry silently bypasses the consume-resolution gate before implementer/reviewer dispatch, and appending the resolution string onto the `contract_consumes` symbol itself would hand the implementer a non-importable target.
 - **Topology + contracts:**
   - Every task's `depends_on` ids exist in the DAG.
   - The `depends_on` graph is acyclic (no `T_a → T_b → ... → T_a` chains).
-  - Every `contract_consumes` symbol must resolve to one of: (a) an upstream task's `contract_provides`; (b) a shipped in-repo contract surface in a lower Tier; (c) a declared Phase §Precondition; or (d) a tracked `BL-NNN` — which resolves a consume **only as a blocker**: a completed (shipped) BL collapses to (b), but an open `todo` BL means the consuming task MUST carry `blocked_on: [BL-NNN]`, forcing DAG `status: blocked` (not `ready`) until the BL ships (an implementer building against an unshipped BL is the absent-provider gap this rule exists to catch). The audit Tasks-block `Consumes:` field is the authoritative source for (b)/(c)/(d). A symbol resolving to none is a **dangling consume** (re-dispatch the analyst per the validation-fail handling below).
+  - Every `contract_consumes` symbol must resolve to one of: (a) an upstream task's `contract_provides`; (b) a shipped in-repo contract surface in a lower Tier; (c) a declared Phase §Precondition; or (d) a tracked `BL-NNN` — classified by reading `docs/backlog.md` + `docs/archive/backlog-archive.md` (the BL-state source of truth): a `completed` (shipped) BL collapses to (b), but an open `todo` BL leaves the consume **unsatisfied** — the consuming task carries `blocked_on: [BL-NNN]` and the DAG carries `status: blocked` (not `ready`) until the BL ships (an implementer building against an unshipped BL is the absent-provider gap this rule exists to catch). The audit Tasks-block `Consumes:` field is the authoritative source for (b)/(c)/(d), recorded per symbol in `consumes_resolution`. A symbol resolving to none is a **dangling consume** (re-dispatch the analyst per the validation-fail handling below).
   - `levels[]` is a valid topological sort.
 - **File + AC coverage:**
   - Every plan AC appears in at least one task's `acceptance_criteria`.
@@ -251,7 +253,7 @@ status: ready # ready | needs-context | blocked
 - **Dispatch mode:**
   - Tasks with `dispatch_mode: worktree` have a `notes` field justifying the choice (default is sequential).
 
-If validation fails, re-dispatch the analyst with the specific failures. If the analyst's `RESULT:` is `NEEDS_CONTEXT` (plan is incomplete), halt and surface to user with the analyst's exact gaps — do not auto-fill.
+If validation fails, re-dispatch the analyst with the specific failures. If the analyst's `RESULT:` is `NEEDS_CONTEXT` (plan is incomplete), halt and surface to user with the analyst's exact gaps — do not auto-fill. If the analyst's `RESULT:` is `BLOCKED` or the DAG carries `status: blocked` — e.g., a `Consumes:` entry resolves only to an unshipped `todo` `BL-NNN` per clause (d) — write the DAG to the PR body first (it is the audit trail of the blocking `BL-NNN`(s)), then halt before Phase B and surface the blocker(s) to the user; the Phase is not execution-ready until the BL ships. Do NOT dispatch a blocked DAG to Phase B: an implementer dispatched against an unshipped BL would build the absent provider clause (d) exists to prevent, and the `blocked_on` conservative-inline-shapes handling in the Phase B implementer brief does NOT apply to `BL-NNN` blockers — it is scoped to `BLOCKED-ON-C*` cross-cutting markers, which keep `status: ready`.
 
 When the DAG is valid, write it to the PR body (replace the placeholder block):
 
@@ -457,7 +459,7 @@ After Phase D returns "all reviewers DONE", the orchestrator transitions the fea
 
      On any one of (1)/(2)/(3) AND `totalCount == BASELINE_THREADS`, advance to step 4.
 
-   - **Terminal NON-ack on usage limits** — a `chatgpt-codex-connector[bot]` issue comment matching `usage limits` means Codex is out of review credits and will not ack this HEAD; halt Phase D.5 and surface to the user for a merge decision (do not wait out the budget). Documented but not observed in the #117–#122 sample — verify against current Codex behavior per the staleness caveat (`feedback_codex_head_sha_anchor.md`).
+   - **Terminal NON-ack on usage limits** — a `chatgpt-codex-connector[bot]` issue comment matching `usage limits`, **with `created_at >= BASELINE_TS`** (the same per-HEAD freshness binding as ack shapes (1)/(2) above — a stale `usage limits` comment from a prior HEAD or a manual trigger must not halt the current HEAD's gate), means Codex is out of review credits and will not ack this HEAD; halt Phase D.5 and surface to the user for a merge decision (do not wait out the budget). Documented but not observed in the #117–#122 sample — verify against current Codex behavior per the staleness caveat (`feedback_codex_head_sha_anchor.md`).
 
    The `+1` reaction and the clean-verdict comment are the reaction-form and comment-form of the same Codex "no findings" signal (per Codex docs visible in any of its review bodies: _"If Codex has suggestions, it will comment; otherwise it will react with 👍."_). OR-ing across the ack shapes is the ack-side counterpart of the resubmit-detection lesson at the top of step 3 (the PR #83 burn): a monitor keyed to a single signal — there `latestReviews.length`, here a single ack shape — silently false-times-out when Codex uses a different one. On long stable-state stalls (18+ verdict-poll iterations with no exit and no usage-limits comment), surface to user — Codex sometimes never posts the explicit ack on small / mostly-CI commits and the user makes the manual ack call.
 

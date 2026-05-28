@@ -297,6 +297,9 @@ INPUTS YOU MUST READ:
 - docs/plans/NNN-*.md (the plan body)
 - docs/specs/NNN-*.md (the paired spec)
 - docs/architecture/cross-plan-dependencies.md
+- docs/backlog.md and docs/archive/backlog-archive.md (the BL-NNN
+  open-vs-shipped source of truth — read to classify a Dimension 11
+  Consumes: entry's BL as an open todo blocker vs a shipped provider)
 - Every ADR cited in the plan's "Required ADRs" row
 - Findings files from upstream-tier audits, if present, at
   .agents/tmp/research/plan-readiness-audit/plan-MMM/
@@ -341,13 +344,16 @@ THE 11 DIMENSIONS YOU AUDIT:
     caller supplying state it cannot (a non-consuming read)? does the
     subscribe channel carry the params the caller must pass? This
     shape-match is judgment and is the dimension's load-bearing check.
-    A consume resolving only to an unshipped (todo) BL-NNN is tracked
-    but NOT satisfied: record it as a §Precondition / blocked_on
-    blocker so the Phase is not execution-ready until the BL ships,
-    never as an available dependency. File severity: critical fires
-    only when the consume resolves to NOTHING (no shipped provider, no
-    §Precondition, no tracked BL) — the implementer cannot proceed
-    without inventing the missing provider → blocks tier swap via G2.
+    Classify each BL-NNN by reading docs/backlog.md +
+    docs/archive/backlog-archive.md (the open-vs-shipped source of
+    truth): a consume resolving only to an unshipped (todo) BL-NNN is
+    tracked but NOT satisfied: record it as a §Precondition /
+    blocked_on blocker so the Phase is not execution-ready until the
+    BL ships, never as an available dependency. File severity:
+    critical fires only when the consume resolves to NOTHING (no
+    shipped provider, no §Precondition, no tracked BL) — the
+    implementer cannot proceed without inventing the missing provider
+    → blocks tier swap via G2.
 
 OUTPUT FORMAT:
 
