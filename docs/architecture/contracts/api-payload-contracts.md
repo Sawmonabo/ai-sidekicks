@@ -257,7 +257,7 @@ Plan-008 Phase 1 (Plan-008-bootstrap, Tier 1 carve-out per [`docs/plans/008-cont
 | `session.read` | `query` | `SessionReadRequestSchema` | `SessionReadResponseSchema` | `directoryService.readSession(...)` |
 | `session.join` | `mutation` | `SessionJoinRequestSchema` | `SessionJoinResponseSchema` | `directoryService.joinSession(...)` |
 
-The procedure-type assignments follow the tRPC convention: read-only operations use `query` (HTTP GET-like, idempotent); writes / state-changes use `mutation` (HTTP POST-like, non-idempotent). Method-name strings are dotted-lowercase (`session.create`, `session.read`, `session.join`) per the canonical format ratified in §Tier 1 (cont.): Plan-007 below — the same dotted-lowercase convention applies to both Plan-008's tRPC HTTP procedures and Plan-007's JSON-RPC IPC methods so that client SDK call-site shape is symmetric across local IPC and remote control-plane calls.
+The procedure-type assignments follow the tRPC convention: read-only operations use `query` (HTTP GET-like, idempotent); writes / state-changes use `mutation` (HTTP POST-like, non-idempotent). Method-name strings are `dotted-camelCase` (`session.create`, `session.read`, `session.join`) per the canonical format ratified in §Tier 1 (cont.): Plan-007 below — the same `dotted-camelCase` convention applies to both Plan-008's tRPC HTTP procedures and Plan-007's JSON-RPC IPC methods so that client SDK call-site shape is symmetric across local IPC and remote control-plane calls. The Tier 1 surface uses all-lowercase segments (`session.create`, `session.read`, `session.join`); within-segment camelCase is permitted in nested namespaces per LSP precedent (e.g. `textDocument.didOpen`, `settings.effectiveRead`).
 
 ```ts
 // session.create — tRPC mutation
@@ -313,17 +313,19 @@ The Plan-007 JSON-RPC method-name registry sub-item and the `protocolVersion` fi
 
 Closes the BL-102 sub-item "JSON-RPC method-name canonical-format registry (`session.create` vs `session/create`)" and feature ID F-007p-3-01.
 
-**Canonical format**: `dotted-lowercase`. Method-name strings match the regex:
+**Canonical format**: `dotted-camelCase`. Method-name strings match the regex:
 
 ```
-/^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)+$/
+/^[a-z][a-z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/
 ```
 
-The regex accepts the Tier 1 surface (`session.create`, `session.read`, `session.join`, `session.subscribe`) and rejects:
+The regex requires a lowercase-starting first segment (the namespace root); subsequent dot-delimited segments may contain camelCase (`[a-z][a-zA-Z0-9]*`). This matches the LSP precedent ([Language Server Protocol §General Messages](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/) — `textDocument.didOpen`, `workspace.executeCommand`) and the MCP precedent ([Model Context Protocol §Protocol Messages](https://modelcontextprotocol.io/specification/2025-06-18/server/tools) — `tools.list`, `tools.call`). The V1 Tier 1 surface (`session.create`, `session.read`, `session.join`, `session.subscribe`) happens to use all-lowercase segments; nested-namespace operations like `settings.effectiveRead` are permitted under this regex.
+
+The regex accepts the Tier 1 surface and rejects:
 
 - `session/create` — slash-style (visually conflated with HTTP path segments; ambiguous in JSON-RPC contexts where method names appear in the JSON `method` field, not URLs).
 - `SessionCreate` — PascalCase (collides with the project's TypeScript type-name convention; `SessionCreate` is already a request-payload type symbol per `packages/contracts/src/session.ts`, so a string-form would be ambiguous at every call site).
-- `sessionCreate` — camelCase (cannot express the namespace/operation split without a convention-internal delimiter; doesn't scale to nested namespaces such as `session.member.add`, which would have to become `sessionMemberAdd` and lose the structural signal).
+- `sessionCreate` — bare camelCase without a namespace dot (cannot express the namespace/operation split without a convention-internal delimiter; doesn't scale to nested namespaces).
 
 **Method-name table** (Plan-007 Phase 3 surface, per F-007p-3-01):
 
@@ -334,16 +336,16 @@ The regex accepts the Tier 1 surface (`session.create`, `session.read`, `session
 | `session.join` | RPC (request/response) | Add member; emit `MembershipCreated`. |
 | `session.subscribe` | Long-lived (`LocalSubscriptionConsumer<EventEnvelope>`) | Replay-then-tail event stream. |
 
-**Cross-transport consistency**: This same dotted-lowercase format is used by Plan-008's tRPC HTTP procedures (per §Tier 1 (cont.): Plan-008 above). Both transport surfaces share the convention so that client SDK call-site shape is symmetric across local IPC and remote control-plane calls — `client.session.create({ ... })` reads identically whether the underlying transport is local JSON-RPC over Unix domain socket or tRPC HTTP over the control-plane.
+**Cross-transport consistency**: This same `dotted-camelCase` format is used by Plan-008's tRPC HTTP procedures (per §Tier 1 (cont.): Plan-008 above). Both transport surfaces share the convention so that client SDK call-site shape is symmetric across local IPC and remote control-plane calls — `client.session.create({ ... })` reads identically whether the underlying transport is local JSON-RPC over Unix domain socket or tRPC HTTP over the control-plane.
 
 **Register-time enforcement** (closes [Plan-007 §I-007-9](../../plans/007-local-ipc-and-daemon-control.md) `BLOCKED-ON-C6`): the method registry's `register(method, handler)` call MUST evaluate `method` against this regex and throw on mismatch. This is mechanical validation, not human review — out-of-format names cannot reach the dispatcher.
 
 ```ts
-const METHOD_NAME_FORMAT = /^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)+$/;
+const METHOD_NAME_FORMAT = /^[a-z][a-z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/;
 
 function register(method: string, handler: Handler): void {
   if (!METHOD_NAME_FORMAT.test(method)) {
-    throw new Error(`method name "${method}" violates dotted-lowercase canonical format`);
+    throw new Error(`method name "${method}" violates dotted-camelCase canonical format`);
   }
   // ... registry insertion
 }
@@ -522,9 +524,9 @@ interface RuntimeNodeDetachRequest {
 
 ### Runtime-Node Method-Name Registry (Tier 3)
 
-Plan-003's runtime-node operations are exposed as four methods. Method-name strings are `dotted-lowercase` per the canonical `METHOD_NAME_FORMAT` ratified in §Tier 1 (cont.): Plan-007 above (the `register(method, …)` guard at the regex constant) — the same convention shared across Plan-007's JSON-RPC daemon IPC (mechanically regex-enforced at register time) and Plan-008's tRPC control-plane procedures, so the SDK call-site shape (`client.runtimenode.attach({ … })`) is symmetric across transports. Plan-003 registers these handlers under the Plan-007-partial daemon IPC substrate, and the attach/heartbeat calls also cross the Plan-008 control-plane transport (per [Plan-003 §Dependencies](../../plans/003-runtime-node-attach.md)).
+Plan-003's runtime-node operations are exposed as four methods. Method-name strings are `dotted-camelCase` per the canonical `METHOD_NAME_FORMAT` ratified in §Tier 1 (cont.): Plan-007 above (the `register(method, …)` guard at the regex constant) — the same convention shared across Plan-007's JSON-RPC daemon IPC (mechanically regex-enforced at register time) and Plan-008's tRPC control-plane procedures, so the SDK call-site shape (`client.runtimenode.attach({ … })`) is symmetric across transports. Plan-003 registers these handlers under the Plan-007-partial daemon IPC substrate, and the attach/heartbeat calls also cross the Plan-008 control-plane transport (per [Plan-003 §Dependencies](../../plans/003-runtime-node-attach.md)).
 
-The `runtimenode` namespace token is the concatenated domain noun — distinct from the `runtime_node.*` **event** taxonomy (the 7 lifecycle events in [Spec-006 §Runtime Node Lifecycle](../../specs/006-session-event-taxonomy-and-audit-log.md)). The underscore `runtime_node.*` form is a valid _event_ name but is **rejected** as a _method_ name by `METHOD_NAME_FORMAT` (no underscores). `runtimenode.capabilityupdate` is the system's first multi-word procedure: it uses the 2-segment lowercase run-on form to match the uniform single-verb arity of the `session.*` surface (the regex also permits a 3-segment `noun.sub.verb` form, reserved for a future nested-router need).
+The `runtimenode` namespace token is the concatenated domain noun — distinct from the `runtime_node.*` **event** taxonomy (the 7 lifecycle events in [Spec-006 §Runtime Node Lifecycle](../../specs/006-session-event-taxonomy-and-audit-log.md)). The underscore `runtime_node.*` form is a valid _event_ name but is **rejected** as a _method_ name by `METHOD_NAME_FORMAT` (no underscores). `runtimenode.capabilityupdate` is the system's first multi-word procedure: it uses an all-lowercase run-on form within the `dotted-camelCase` regex (the regex permits camelCase in segments — `runtimeNode.capabilityUpdate` would also be legal — but Plan-003 chose the run-on style to match the uniform single-verb arity of the `session.*` surface; the regex also permits a 3-segment `noun.sub.verb` form, reserved for a future nested-router need).
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |
@@ -542,10 +544,15 @@ All four are `mutation`s (state-changing, non-idempotent) per the tRPC procedure
 ### Plan-005 — Provider Driver Contract (Internal Interface)
 
 ```ts
-// Internal driver interface — TypeScript interfaces, not Zod (internal boundary)
+// Internal driver interface — TypeScript interfaces, not Zod (internal boundary).
+// `resumeSession` returns the `DriverResumeResult` discriminated union (defined below)
+// to make silent-replacement structurally inexpressible per Spec-005:60.
+// `getCapabilities` returns the `GetCapabilitiesResult` wrapper (defined below) so the
+// per-tool `ProviderToolMetadata[]` rides alongside the flag matrix in a single
+// round-trip per Plan-005 Phase 4 ratified design.
 interface ProviderDriver {
   createSession(params: CreateSessionParams): Promise<ProviderSessionHandle>;
-  resumeSession(params: ResumeSessionParams): Promise<ProviderSessionHandle>;
+  resumeSession(params: ResumeSessionParams): Promise<DriverResumeResult>;
   startRun(params: StartRunParams): Promise<void>;
   interruptRun(params: InterruptRunParams): Promise<void>;
   applyIntervention(params: ApplyInterventionParams): Promise<InterventionDriverResult>;
@@ -553,7 +560,7 @@ interface ProviderDriver {
   closeSession(params: CloseSessionParams): Promise<void>;
   listModels(): Promise<ProviderModel[]>;
   listModes(): Promise<ProviderMode[]>;
-  getCapabilities(): Promise<DriverCapabilities>;
+  getCapabilities(): Promise<GetCapabilitiesResult>;
 }
 
 interface CreateSessionParams {

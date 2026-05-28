@@ -160,6 +160,70 @@ CREATE TABLE driver_capabilities (
   refreshed_at      TEXT NOT NULL,
   PRIMARY KEY (driver_name, capability_flag)
 );
+
+-- Owner: Plan-005
+-- Per-tool metadata for the daemon's two-phase command-receipt protocol at
+-- crash-recovery dispatch time (idempotency_class lookup without round-tripping
+-- the driver per Spec-005:130-132). Normalized per-tool rows mirror the
+-- per-flag-row shape of driver_capabilities.
+CREATE TABLE driver_tools (
+  driver_name        TEXT NOT NULL,
+  tool_name          TEXT NOT NULL,
+  idempotency_class  TEXT NOT NULL
+                     CHECK(idempotency_class IN (
+                       'idempotent', 'compensable', 'manual_reconcile_only'
+                     )),
+  description        TEXT,
+  refreshed_at       TEXT NOT NULL,
+  PRIMARY KEY (driver_name, tool_name)
+);
+```
+
+---
+
+## Audit Log Crypto Tables (Plan-006)
+
+```sql
+-- Owner: Plan-006 | Migration: 0NNN-daemon-signing-keys.ts (Tier 4 Phase 2)
+-- Per-session daemon Ed25519 signing keypair. Private key is sealed via the
+-- OS keystore master key (@napi-rs/keyring v1.2.0 per Spec-022:146 — Keychain
+-- kSecAttrAccessibleWhenUnlockedThisDeviceOnly on macOS / CRED_TYPE_GENERIC
+-- CRED_PERSIST_LOCAL_MACHINE on Windows / Secret Service via libsecret +
+-- kwallet6 + keyutils fallback on Linux). Public key is registered in the
+-- session participant roster at join time per Spec-006:382. Sealed-key storage
+-- lives in local SQLite (NOT shared-Postgres sessions) per ADR-004 SQLite-
+-- local-state boundary — daemon-private secrets are per-machine.
+CREATE TABLE daemon_signing_keys (
+  session_id          TEXT PRIMARY KEY,
+  public_key          BLOB NOT NULL,         -- Ed25519 32-byte public key
+  sealed_private_key  BLOB NOT NULL,         -- Ed25519 private key sealed via OS keystore master key
+  created_at          TEXT NOT NULL,
+  rotated_at          TEXT                   -- non-NULL when key has been rotated per ADR-010
+);
+
+-- Owner: Plan-006 | Migration: 0NNN-pending-anchor-uploads.ts (Tier 4 Phase 3)
+-- Durable partition-tolerance queue for Merkle anchors awaiting control-plane
+-- upload. Unflushed anchors survive daemon restart without re-signing per
+-- Plan-006:151. The (session_id, node_id, start_sequence) UNIQUE constraint
+-- makes the T3.3 anchorRange() force-fire path (consumed by T3.2 compactor's
+-- anchor-before-compaction protocol per Spec-006 §Post-Compaction Integrity)
+-- idempotent against re-entry.
+CREATE TABLE pending_anchor_uploads (
+  id                  TEXT PRIMARY KEY,
+  session_id          TEXT NOT NULL,
+  node_id             TEXT NOT NULL,
+  start_sequence      INTEGER NOT NULL,
+  end_sequence        INTEGER NOT NULL,
+  merkle_root         BLOB NOT NULL,         -- BLAKE3 binary Merkle tree root (RFC 9162 §2.1 odd-leaf duplication)
+  root_signature      BLOB NOT NULL,         -- Ed25519 signature over merkle_root by daemon_signing_keys.sealed_private_key
+  anchored_at         TEXT NOT NULL,         -- daemon-local timestamp at anchor computation
+  uploaded_at         TEXT,                  -- non-NULL once control-plane confirms upload to event_log_anchors
+  UNIQUE (session_id, node_id, start_sequence)
+);
+
+CREATE INDEX idx_pending_anchor_uploads_pending
+  ON pending_anchor_uploads(session_id, anchored_at)
+  WHERE uploaded_at IS NULL;
 ```
 
 ---
