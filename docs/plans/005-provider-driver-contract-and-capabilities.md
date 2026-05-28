@@ -282,7 +282,7 @@ See [Local SQLite Schema](../architecture/schemas/local-sqlite-schema.md) for co
   - Estimate: 2 PRs
 
 - **T4.2** — Author Zod schemas + Zod-validated wire envelopes at SDK seam.
-  - Files: `packages/contracts/src/provider-driver.ts` (extend T1.4 — add the SDK-seam Zod schemas for the other 9 methods, e.g. `CreateSessionParamsSchema`, `ResumeSessionParamsSchema`, etc.)
+  - Files: `packages/contracts/src/provider-driver.ts` (extend T1.4 — add the SDK-seam Zod schemas for the remaining client-facing methods, e.g. `ListCapabilitiesResultSchema`, `InterruptRunParamsSchema`, `ListModelsResultSchema`, etc.; the 4 session/run lifecycle ops `createSession`/`resumeSession`/`startRun`/`closeSession` get NO client-facing SDK schema — they are daemon-internal per §Phase 4 decision #2, so no `CreateSessionParamsSchema`/`ResumeSessionParamsSchema` at the client seam)
   - Spec coverage: Spec-005:44 (applyIntervention degraded envelope)
   - Verifies invariant: I-005-4
   - Consumes: T1.4 DriverInterventionResultSchema

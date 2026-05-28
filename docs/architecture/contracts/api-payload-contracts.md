@@ -840,9 +840,9 @@ interface DaemonStatusReadResult {
   uptime: number; // seconds
 }
 
-// DaemonStart / DaemonStop / DaemonRestart
+// DaemonStop / DaemonRestart (no DaemonStart: daemon cold-boot is the CLI process-spawn path — `ai-sidekicks daemon start` — not an IPC method; see Plan-007 T-007r-3-4)
 interface DaemonLifecycleParams {
-  action: "start" | "stop" | "restart";
+  action: "stop" | "restart";
   force?: boolean;
 }
 interface DaemonLifecycleResult {
