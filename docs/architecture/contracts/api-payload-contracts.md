@@ -604,6 +604,22 @@ interface InterventionDriverResult {
   fallbackAction?: string; // e.g. 'queue_and_interrupt' for degraded steer
 }
 
+// Return shape of `ProviderDriver.resumeSession()`. Discriminated union over `status`
+// makes silent-replacement structurally inexpressible: the failure variant has no
+// `bindingId`, so a successful resume cannot be conflated with a failed one. Spec-005:60
+// requires that resume failure "surface `provider failure` detail and a visible
+// `recovery-needed` condition; it must not silently create a replacement provider
+// session under the same canonical run." Timestamps for the resumed case live on
+// `runtime_bindings.updated_at` (Plan-005 T2.1); the result shape carries only the
+// discriminated-union semantic payload.
+type DriverResumeResult =
+  | { status: "resumed"; bindingId: string }
+  | {
+      status: "failed";
+      recoveryCondition: "recovery-needed";
+      providerFailureDetail: string;
+    };
+
 interface RespondToRequestParams {
   runId: RunId;
   requestId: string;
@@ -634,11 +650,66 @@ interface DriverCapabilities {
   flags: Record<DriverCapabilityFlag, boolean>;
   contractVersion: string;
 }
+
+// Per-tool idempotency classification used by the daemon's two-phase command-receipt
+// protocol during crash recovery (Spec-005 §Tool Metadata; Spec-015 §Idempotency
+// Protocol). Undeclared tools resolve to `manual_reconcile_only` (conservative default
+// per Spec-005:128).
+type IdempotencyClass = "idempotent" | "compensable" | "manual_reconcile_only";
+
+interface ProviderToolMetadata {
+  name: string;
+  idempotency_class: IdempotencyClass;
+  description?: string;
+}
+
+// Return type of `ProviderDriver.getCapabilities()`. Spec-005:116-118 semantically
+// separates whole-driver capability flags from per-tool metadata; the wrapper keeps
+// `DriverCapabilities` pure (flags + contractVersion only) while still carrying both
+// surfaces in a single round-trip. Modern precedent: MCP 2026 separates `initialize`
+// server capabilities from `tools/list`; LSP separates `ServerCapabilities` from
+// registered tool surfaces.
+interface GetCapabilitiesResult {
+  capabilities: DriverCapabilities;
+  tools: ProviderToolMetadata[];
+}
 ```
 
 ### Plan-006 — Session Event Taxonomy
 
 ```ts
+// CapabilityDetails — wrapper shape carried by `runtime_node.capability_declared` and
+// `runtime_node.capability_updated` event payloads (Spec-006:375-376). Bound to the same
+// three surfaces a driver advertises via `ProviderDriver.getCapabilities()` (GetCapabilitiesResult
+// above): the seven-flag matrix, the negotiated contract version, and the per-tool metadata.
+// Why flattened (not nested under `capabilities`): in the event-payload context all three
+// surfaces compose one capability snapshot; readers (Plan-013 timeline, Plan-020 dashboards,
+// Plan-015 replay) discriminate `runtime_node.capability_*` events from the discriminated
+// union and consume the snapshot as a single object — there is no driver-method context
+// that requires DriverCapabilities to remain pure. Sources: Spec-006:375-376; Plan-005
+// CP-005-5; Plan-006 Phase 1 T1.4 + Phase 3 doc-mirror audit.
+interface CapabilityDetails {
+  flags: Record<DriverCapabilityFlag, boolean>;
+  contractVersion: string;
+  tools: ProviderToolMetadata[];
+}
+
+// runtime_node.capability_declared payload (Spec-006:375). Emitted once per driver
+// registration with the daemon's runtime-node bootstrap (Plan-003 territory).
+interface RuntimeNodeCapabilityDeclaredPayload {
+  capability: string; // canonical capability identifier (e.g., "provider-driver")
+  capabilityDetails: CapabilityDetails;
+}
+
+// runtime_node.capability_updated payload (Spec-006:376). Emitted on driver-version
+// bump, tool addition/removal, or flag-matrix mutation. `previousState` / `newState`
+// carry the same wrapper shape so consumers diff snapshots structurally.
+interface RuntimeNodeCapabilityUpdatedPayload {
+  capability: string;
+  previousState: CapabilityDetails;
+  newState: CapabilityDetails;
+}
+
 // EventEnvelopeVersion — branded semver "MAJOR.MINOR" string per ADR-018 §Decision #1.
 // Wire form and persisted form are both string (never numeric). Parsing extracts MAJOR
 // and MINOR as integers for numeric comparison; lexical string comparison is unsafe
@@ -674,14 +745,19 @@ type EventCategory =
   | "approval_flow"
   | "usage_telemetry"
   // Extended per Spec-006 §Runtime Node Lifecycle, §Recovery Events, §Participant Lifecycle,
-  // §Audit Integrity, §Security Events, §Event Maintenance, §Policy Events (16 categories total).
+  // §Audit Integrity, §Security Events, §Event Maintenance, §Policy Events,
+  // §Channel Arbitration, §Onboarding Lifecycle, §Cross-Node Dispatch (19 categories total
+  // per Spec-006 §Event Type Summary line 506; 123 event types per line 533).
   | "runtime_node_lifecycle"
   | "recovery_events"
   | "participant_lifecycle"
   | "audit_integrity"
   | "security_events"
   | "event_maintenance"
-  | "policy_events";
+  | "policy_events"
+  | "channel_arbitration"
+  | "onboarding_lifecycle"
+  | "cross_node_dispatch";
 // Individual event types within each category are enumerated in Spec-006 §Event Type Enumeration.
 
 // EventReadAfterCursor
@@ -825,7 +901,11 @@ interface InterventionRequestResponse {
   result?: Record<string, unknown>;
 }
 
-// RunStateChange (event, not request/response)
+// RunStateChange (event, not request/response). The `run.failed` variant carries the
+// `providerFailureDetail` surface that mirrors `DriverResumeResult.failure.providerFailureDetail`
+// (line 620 above) — Spec-005:60 requires resume-failure detail to reach the canonical audit
+// log so Plan-015's recovery dispatcher and Plan-013's timeline can render the operator-actionable
+// reason for the failure without re-querying the driver. Plan-005 CP-005-5; Plan-006 Phase 3 audit.
 interface RunStateChangeEvent {
   runId: RunId;
   previousState: RunState;
@@ -833,6 +913,7 @@ interface RunStateChangeEvent {
   failureCategory?: RunFailureCategory;
   recoveryCondition?: "recovery-needed";
   healthSignal?: "stuck-suspected";
+  providerFailureDetail?: string; // populated on `run.failed` when failureCategory='provider'
   timestamp: string;
 }
 ```
