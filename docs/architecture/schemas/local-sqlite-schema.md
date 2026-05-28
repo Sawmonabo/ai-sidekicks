@@ -38,29 +38,38 @@ CREATE TABLE session_events (
                                                                -- lexical TEXT comparison is unsafe, e.g. "1.10" < "1.9")
   -- Integrity protocol (BL-050): hash-chain + per-event daemon signature
   prev_hash              BLOB NOT NULL,              -- 32 bytes; row_hash of previous row (zero-filled at sequence=0)
-  row_hash               BLOB NOT NULL,              -- 32 bytes; BLAKE3(prev_hash || JCS-canonical envelope bytes)
-  daemon_signature       BLOB NOT NULL,              -- 64 bytes; Ed25519 over same canonical bytes
+  row_hash               BLOB NOT NULL,              -- 32 bytes; BLAKE3(prev_hash || JCS-canonical envelope bytes); frozen pre-compaction
+  daemon_signature       BLOB NOT NULL,              -- 64 bytes; Ed25519 over same canonical bytes; frozen pre-compaction
   participant_signature  BLOB,                       -- 64 bytes; Ed25519 from participant key; NULL for non-sensitive events
+  -- Compaction (Plan-006 Tier 4 Phase 3): typed retention discriminator + post-compaction stub commitment
+  retention_class        TEXT,                       -- NULL = live row (per-row chain-verified); 'audit_stub' = compacted (anchor + stub_signature verified)
+  stub_signature         BLOB,                       -- 64 bytes; Ed25519 over canonical_bytes(audit-stub projection); NULL for live rows. Authenticates the post-compaction stub representation per Spec-006 §Post-Compaction Integrity (frozen row_hash/daemon_signature commit only to the now-discarded pre-compaction bytes)
   UNIQUE(session_id, sequence)
 );
 
 CREATE INDEX idx_session_events_session_seq ON session_events(session_id, sequence);
 CREATE INDEX idx_session_events_type ON session_events(session_id, type);
 CREATE INDEX idx_session_events_correlation ON session_events(correlation_id) WHERE correlation_id IS NOT NULL;
+-- Hot-path replay keeps live rows fast; the partial index excludes compacted stubs.
+CREATE INDEX idx_session_events_live ON session_events(session_id, sequence) WHERE retention_class IS NULL;
 ```
 
-**Integrity protocol.** `prev_hash`, `row_hash`, `daemon_signature` are required; `participant_signature` is NULL-able and present only for sensitive events (approvals, policy changes, membership revocations). The canonical serialization (RFC 8785 JCS) and verification order are specified in [Security Architecture § Audit Log Integrity](../security-architecture.md#audit-log-integrity) and [Spec-006 § Integrity Protocol](../../specs/006-session-event-taxonomy-and-audit-log.md#integrity-protocol).
+**Integrity protocol.** `prev_hash`, `row_hash`, `daemon_signature` are required; `participant_signature` is NULL-able and present only for sensitive events (approvals, policy changes, membership revocations). For un-compacted rows (`retention_class IS NULL`) the verifier recomputes the per-row chain hash + signature over the live `payload`. After compaction (`retention_class = 'audit_stub'`) the original canonical bytes are discarded, so `row_hash`/`daemon_signature` freeze as a commitment to the (now-gone) pre-compaction state and the **`stub_signature`** authenticates the surviving audit-stub bytes; range existence is additionally witnessed by the covering Merkle anchor in `pending_anchor_uploads` / `event_log_anchors`. The canonical serialization (RFC 8785 JCS) and the full verification order are specified in [Security Architecture § Audit Log Integrity](../security-architecture.md#audit-log-integrity) and [Spec-006 § Integrity Protocol](../../specs/006-session-event-taxonomy-and-audit-log.md#integrity-protocol) + [§ Post-Compaction Integrity](../../specs/006-session-event-taxonomy-and-audit-log.md#post-compaction-integrity).
 
 ## Session Snapshots (Plan-001, extended by Plans 006, 015)
 
 ```sql
 -- Owner: Plan-001 | Extended by: Plan-006, Plan-015
 CREATE TABLE session_snapshots (
-  id              TEXT PRIMARY KEY,
-  session_id      TEXT NOT NULL,
-  as_of_sequence  INTEGER NOT NULL,           -- snapshot reflects events up to this sequence
-  state_blob      BLOB NOT NULL,              -- serialized session state
-  created_at      TEXT NOT NULL,
+  id                    TEXT PRIMARY KEY,
+  session_id            TEXT NOT NULL,
+  as_of_sequence        INTEGER NOT NULL,           -- snapshot reflects events up to this sequence (replay-cursor state)
+  state_blob            BLOB NOT NULL,              -- serialized session state
+  created_at            TEXT NOT NULL,
+  -- Compaction hints (Plan-006 Tier 4 Phase 4, migration 0NNN-session-snapshots-compaction-cursor.ts):
+  -- let replay/projection detect compacted regions without scanning session_events.
+  has_compacted_ranges  INTEGER NOT NULL DEFAULT 0, -- boolean: 0 or 1; whether [.., as_of_sequence] contains audit_stub rows
+  compacted_range_count INTEGER NOT NULL DEFAULT 0, -- count of distinct compacted ranges reflected in this snapshot
   FOREIGN KEY (session_id, as_of_sequence) REFERENCES session_events(session_id, sequence)
 );
 
@@ -177,6 +186,19 @@ CREATE TABLE driver_tools (
   refreshed_at       TEXT NOT NULL,
   PRIMARY KEY (driver_name, tool_name)
 );
+
+-- Owner: Plan-005
+-- Per-driver capability-contract metadata. The capability cache is keyed by driver_name
+-- (driver_capabilities + driver_tools are per-driver children); this parent row holds the
+-- single per-driver contract_version so cold-start hydration can reconstruct
+-- GetCapabilitiesResult = { capabilities: { flags, contractVersion }, tools } WITHOUT
+-- round-tripping the driver (Spec-005:130-132 cache-as-source-of-truth). Distinct from
+-- runtime_bindings.contract_version, which records the version bound to a specific run.
+CREATE TABLE driver_contract_meta (
+  driver_name       TEXT PRIMARY KEY,
+  contract_version  TEXT NOT NULL,            -- semver of the driver's advertised capability contract
+  refreshed_at      TEXT NOT NULL             -- last capability-refresh write (matches driver_capabilities.refreshed_at cadence)
+);
 ```
 
 ---
@@ -218,6 +240,11 @@ CREATE TABLE pending_anchor_uploads (
   root_signature      BLOB NOT NULL,         -- Ed25519 signature over merkle_root by daemon_signing_keys.sealed_private_key
   anchored_at         TEXT NOT NULL,         -- daemon-local timestamp at anchor computation
   uploaded_at         TEXT,                  -- non-NULL once control-plane confirms upload to event_log_anchors
+  -- Durable retry/backoff state (Plan-006:296 partition-anchor-queue durability decision): survives daemon
+  -- restart so upload retry resumes and the last failure is queryable for operator triage post-restart.
+  attempt_count       INTEGER NOT NULL DEFAULT 0, -- upload attempts since enqueue; drives exponential backoff
+  last_attempt_at     TEXT,                  -- daemon-local timestamp of most recent upload attempt; NULL until first attempt
+  last_error          TEXT,                  -- last upload failure detail (operator triage); NULL on success or before first attempt
   UNIQUE (session_id, node_id, start_sequence)
 );
 
