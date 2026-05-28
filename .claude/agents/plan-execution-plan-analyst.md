@@ -21,6 +21,7 @@ The orchestrator passes you (via the `prompt` parameter):
 - The cited ADR paths from the plan section. Read them to understand task boundaries.
 - The cross-plan dependency map path (`docs/architecture/cross-plan-dependencies.md`).
 - The container architecture path (`docs/architecture/container-architecture.md`).
+- The backlog + archive paths (`docs/backlog.md`, `docs/archive/backlog-archive.md`) — the `BL-NNN` open-vs-shipped source of truth. Read them to classify a `Consumes:` clause-(d) `BL-NNN`: a `completed` BL collapses to a shipped provider, an open `todo` BL is a blocker (`status: blocked`).
 
 Tasks-block field shapes vary (sub-header style: `##### T5.1 — title` + bold-paragraph fields; parenthesized-inline: `- **T-007p-1-1** (Files: ...; Verifies invariant: ...; Spec coverage: ...) — desc`). Both carry the same fields — extract verbatim into DAG fields. Absent/unparseable field → `NEEDS_CONTEXT` (audit defect).
 
@@ -78,7 +79,8 @@ tasks:
     acceptance_criteria:
       - <plan AC reference, e.g., "P1: SessionCreate returns stable session id">
     contract_provides: [] # type/symbol names exported (contract-author only)
-    contract_consumes: [] # type/symbol names imported from upstream tasks
+    contract_consumes: [] # type/symbol names imported from upstream tasks (bare importable symbols — implementer/reviewer read this field only)
+    consumes_resolution: {} # map: each contract_consumes symbol resolved out-of-DAG (clauses b/c/d) → its verbatim Tasks-row `Consumes:` clause (call-shape + provider preserved); forwarded to implementer + spec-reviewer briefs alongside contract_consumes (empty {} when all consumes are in-DAG)
     notes: <optional commentary, REQUIRED if dispatch_mode == worktree>
 levels:
   - [T1]
@@ -94,12 +96,13 @@ status: ready # ready | needs-context | blocked
 - Every Tasks-row `Spec coverage:` cite appears in the corresponding DAG task's `spec_coverage`.
 - Every Tasks-row `Verifies invariant:` cite appears in the corresponding DAG task's `verifies_invariant`.
 - Every Tasks-row `BLOCKED-ON-C*` marker appears in the corresponding DAG task's `blocked_on`.
+- Every Tasks-row `Consumes:` entry is split into the corresponding DAG task: its **bare importable symbol** (stripped of any call-shape suffix) into `contract_consumes`, and the **verbatim `Consumes:` clause** (call-shape + provider preserved) into `consumes_resolution[symbol]` (per the Topology + contracts resolution rule below) — `consumes_resolution` is forwarded to the implementer + spec-reviewer briefs alongside `contract_consumes` as the per-symbol provenance map. A dropped `Consumes:` entry silently bypasses the consume-resolution gate before implementer/reviewer dispatch; appending the resolution string onto the `contract_consumes` symbol itself would hand the implementer a non-importable target; and dropping the call-shape from the `consumes_resolution[symbol]` value would reintroduce the absent-shape gap Dimension 11 catches (e.g., `presence.subscribe({ sessionId })` losing `({ sessionId })` after the split — the §Preload-Bridge gap PR #120 burned on).
 
 **Topology + contracts:**
 
 - Every `depends_on` id must exist in `tasks[]`.
 - The `depends_on` graph must be acyclic. No `T_a → T_b → ... → T_a` chains.
-- Every `contract_consumes` symbol must appear in some upstream task's `contract_provides`.
+- Every `contract_consumes` symbol must resolve to one of: (a) an upstream task's `contract_provides`; (b) a shipped in-repo contract surface in a lower Tier; (c) a declared Phase §Precondition; or (d) a tracked `BL-NNN` — classified by reading `docs/backlog.md` + `docs/archive/backlog-archive.md` (the BL-state source of truth): a `completed` (shipped) BL collapses to (b), but **any non-completed BL** (status `todo`, `in_progress`, or `blocked` per the `docs/backlog.md` Status Values taxonomy — only `completed` collapses to a shipped provider) leaves the consume **unsatisfied** — the consuming task carries `blocked_on: [BL-NNN]` and the DAG carries `status: blocked` (not `ready`) until the BL ships (an implementer building against any non-completed BL is the absent-provider gap this rule exists to catch). The audit Tasks-block `Consumes:` field is the authoritative source for (b)/(c)/(d), recorded per symbol in `consumes_resolution`. Transcribe each `Consumes:` entry's bare importable symbol into `contract_consumes` and its **full verbatim `Consumes:` clause** (call-shape + provider preserved) into `consumes_resolution[symbol]` (never append the resolution onto the symbol — downstream agents import `contract_consumes` verbatim; `consumes_resolution` is forwarded to the implementer + spec-reviewer briefs as the per-symbol provenance map); for clause (d), any non-completed BL means you return `RESULT: BLOCKED` (see Exit states). A symbol resolving to none is a **dangling consume**: return `RESULT: NEEDS_CONTEXT` naming the specific symbol — do NOT auto-fill a provider.
 - `levels[]` must be a valid topological sort: a task's `depends_on` ids must all appear in earlier levels.
 
 **File + AC coverage:**
@@ -120,7 +123,7 @@ For each non-trivial decomposition choice (e.g., "I split the service file into 
 
 - `RESULT: DONE` — DAG validates against all rules above. Set `status: ready`.
 - `RESULT: NEEDS_CONTEXT` — Plan is incomplete. Set `status: needs-context`. In your response body BEFORE the YAML, list the specific gaps with file paths and line ranges. Do NOT produce a partial DAG.
-- `RESULT: BLOCKED` — You cannot decompose this PR (e.g., plan is internally contradictory, cross-plan ownership is unclear). Set `status: blocked`. List the specific contradictions.
+- `RESULT: BLOCKED` — Two trigger paths, one exit state (the orchestrator halts before Phase B on either): **(i) cannot decompose** — the plan is internally contradictory or cross-plan ownership is unclear; set `status: blocked`, emit NO DAG, and list the specific contradictions. **(ii) decomposed but not execution-ready** — a `Consumes:` entry resolves only to an unshipped `todo` `BL-NNN` (clause (d)); emit the **complete** DAG with `status: blocked`, the consuming task's `blocked_on: [BL-NNN]` set, and the blocking `BL-NNN`(s) named in your report. Contrast `NEEDS_CONTEXT` (incomplete plan — no DAG): path (ii) is a complete, valid DAG that is merely gated on a BL shipping.
 
 ## Report format
 

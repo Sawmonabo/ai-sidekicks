@@ -297,6 +297,10 @@ INPUTS YOU MUST READ:
 - docs/plans/NNN-*.md (the plan body)
 - docs/specs/NNN-*.md (the paired spec)
 - docs/architecture/cross-plan-dependencies.md
+- docs/backlog.md and docs/archive/backlog-archive.md (the BL-NNN
+  open-vs-shipped source of truth — read to classify a Dimension 11
+  Consumes: entry's BL as a non-completed blocker (status `todo`,
+  `in_progress`, or `blocked`) vs a shipped (`completed`) provider)
 - Every ADR cited in the plan's "Required ADRs" row
 - Findings files from upstream-tier audits, if present, at
   .agents/tmp/research/plan-readiness-audit/plan-MMM/
@@ -304,7 +308,7 @@ INPUTS YOU MUST READ:
 OUTPUT FILE:
 .agents/tmp/research/plan-readiness-audit/plan-NNN/phase-N-completeness.md
 
-THE 10 DIMENSIONS YOU AUDIT:
+THE 11 DIMENSIONS YOU AUDIT:
 
 1. Schema completeness — table/column Phase-N owns lacks type, nullability,
    FK, index, or semantics-owner citation for forward-declared elements.
@@ -330,6 +334,29 @@ THE 10 DIMENSIONS YOU AUDIT:
    has no implementation step.
 10. Dependency completeness — Phase-N imports from outside-plan source not
     shipped by an upstream Plan/Phase in lower Tier.
+11. Consumption resolution — a Task consumes a contract symbol (RPC/IPC
+    method, event channel, request-param shape, or exported type) that
+    resolves to no shipped provider, no declared §Precondition, and no
+    tracked BL-NNN. This is the consume-side inverse of Dimension 10
+    (produce-side, import-granular) and the consume-side analog of the
+    Dimension-5 anti-fabrication rule. Resolution is by provider SHAPE,
+    not name: a symbol that exists but does not satisfy the consumer
+    need is still unresolved — does the endpoint return without the
+    caller supplying state it cannot (a non-consuming read)? does the
+    subscribe channel carry the params the caller must pass? This
+    shape-match is judgment and is the dimension's load-bearing check.
+    Classify each BL-NNN by reading docs/backlog.md +
+    docs/archive/backlog-archive.md (the open-vs-shipped source of
+    truth): a consume resolving only to a non-completed BL-NNN
+    (status `todo`, `in_progress`, or `blocked` per the
+    docs/backlog.md Status Values taxonomy — only `completed`
+    collapses to a shipped provider) is tracked but NOT satisfied:
+    record it as a §Precondition / blocked_on blocker so the Phase
+    is not execution-ready until the BL ships, never as an available
+    dependency. File severity: critical fires only when the consume
+    resolves to NOTHING (no shipped provider, no §Precondition, no
+    tracked BL) — the implementer cannot proceed without inventing
+    the missing provider → blocks tier swap via G2.
 
 OUTPUT FORMAT:
 
@@ -338,7 +365,7 @@ OUTPUT FORMAT:
 ## Findings
 
 ### F-NNN-N-01 — {Short headline}
-**Dimension:** {1..10 ID}
+**Dimension:** {1..11 ID}
 **Severity:** critical | major | minor | nit
 **Source location:** {file:line}
 **Finding:** {what's missing}
@@ -375,10 +402,11 @@ CITE ANCHOR DISCIPLINE (HARD RULES):
 
 HARD RULE (anti-fabrication): If the spec doesn't tell you what assertion to write in Step 1, you do NOT invent one. You file a finding (severity: critical, dimension: 5) instead.
 
-WRITING-PLANS FORMAT (Tasks block authoring): For unstarted Phases (no code merged for this Phase yet), author a `#### Tasks` subsection nested under the existing Phase header. Existing Phase prose (Precondition, Goal, scope bullets) is preserved verbatim. Each Task carries two extra fields beyond raw writing-plans format:
+WRITING-PLANS FORMAT (Tasks block authoring): For unstarted Phases (no code merged for this Phase yet), author a `#### Tasks` subsection nested under the existing Phase header. Existing Phase prose (Precondition, Goal, scope bullets) is preserved verbatim. Each Task carries three extra fields beyond raw writing-plans format:
 
 - **Spec coverage:** Spec-NNN AC-X (line NN), AC-Y (line MM) (closes Dimension 9 loop; line-anchored shape preferred. AC-only (`Spec-NNN AC-X`) is the fallback when an AC has no canonical line in the spec.)
 - **Verifies invariant:** I-NNN-M (closes Dimension 7 loop, when applicable)
+- **Consumes:** each contract symbol this Task consumes that is NOT produced within the same Phase (RPC/IPC method, event channel, request-param shape, exported type), each with its resolution — `presence.subscribe({ sessionId }) ← Plan-007 daemon namespace (Tier-4 §Precondition)`, `invites.getMetadata ← BL-133`. Names an upstream Plan/Phase provider, a declared §Precondition, or a tracked `BL-NNN` (closes Dimension 11 loop). A `BL-NNN` resolution means the consume is blocked on that BL — record it as a §Precondition so the Phase is not execution-ready until the BL ships, not a satisfied dependency. Resolution is by provider SHAPE — a symbol that exists but does not satisfy the consumer need is a Finding (severity: critical, dimension: 11), not an entry.
 
 If you cannot author a Task concretely from source materials, file a Finding instead (per the hard rule above).
 
@@ -460,7 +488,7 @@ cite + spec evidence to you for re-amendment.
 
 ## Main-Agent Dep-Trace Dimensions
 
-The main agent walks the 8 dep-ordering dimensions per Phase of each plan in tier scope. These complement the 10 completeness dimensions handled by subagents.
+The main agent walks the 8 dep-ordering dimensions per Phase of each plan in tier scope. These complement the 11 completeness dimensions handled by subagents.
 
 | ID | Dimension | Question |
 | --- | --- | --- |

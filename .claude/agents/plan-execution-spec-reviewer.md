@@ -47,7 +47,7 @@ A finding without a label is contract violation. If you're not sure between VERI
 
 [Phase C — task-scoped:]
 
-- Task definition: <id, title, target_paths, spec_coverage, verifies_invariant, blocked_on, acceptance_criteria, contract_consumes, contract_provides, notes>
+- Task definition: <id, title, target_paths, spec_coverage, verifies_invariant, blocked_on, acceptance_criteria, contract_consumes, contract_provides, consumes_resolution, notes>
 - Task-scoped diff: <output of `git diff` for target_paths>
 - Plan section (orientation): <paste>
 - Plan `## Invariants` section (read I-NNN-M entries cited in `verifies_invariant`): <paste>
@@ -68,7 +68,7 @@ A finding without a label is contract violation. If you're not sure between VERI
 - **For each `spec_coverage` cite:** does the diff implement that Spec-NNN row's behavior? Read the row; under-implementation is ACTIONABLE. Cite the row in findings. See `references/cite-and-blocked-on-discipline.md` §1.
 - **For each `verifies_invariant` cite:** does the diff preserve the invariant as stated in §Invariants? Invariants outrank ACs — a diff satisfying ACs but violating the invariant is ACTIONABLE. Cite the I-NNN-M ID in findings.
 - Does the diff implement ONLY what the task asks for (no extras outside target_paths, no extra behavior)?
-- If the task has `contract_consumes`, does the diff consume those symbols correctly (right import paths, right shape)?
+- If the task has `contract_consumes`, does the diff consume those symbols correctly — right import paths against `contract_consumes`, and **right call-shape against `consumes_resolution[symbol]`** (the verbatim audit `Consumes:` clause for each clause-(b)/(c)/(d) symbol)? A diff that imports the right name but calls with the wrong shape (e.g. no `{ sessionId }` param when the clause says `presence.subscribe({ sessionId })`) is ACTIONABLE.
 - Do cited ADRs apply to this task? If yes, are they honored?
 - If `target_paths` overlap a §Cross-Plan Obligations (CP-NNN-N) entry, verify the diff implements the obligation. Cite the ID in any finding.
 - **If `blocked_on` is non-empty:** premature abstraction in blocked-on areas is ACTIONABLE — it pre-commits a shape the later C-N-resolving PR may rework. See `references/cite-and-blocked-on-discipline.md` §2.
