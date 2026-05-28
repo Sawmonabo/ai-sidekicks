@@ -834,20 +834,29 @@ interface DaemonHelloResult {
 // DaemonStatusRead
 interface DaemonStatusReadParams {}
 interface DaemonStatusReadResult {
-  state: "starting" | "ready" | "degraded" | "shutting_down";
-  activeSessions: number;
-  activeRuns: number;
-  uptime: number; // seconds
+  processState: "running" | "starting" | "stopping" | "degraded";
+  protocolVersion: string;
+  transportEndpoint: string;
+  uptimeMs: number;
 }
 
 // DaemonStop / DaemonRestart (no DaemonStart: daemon cold-boot is the CLI process-spawn path — `ai-sidekicks daemon start` — not an IPC method; see Plan-007 T-007r-3-4)
-interface DaemonLifecycleParams {
-  action: "stop" | "restart";
-  force?: boolean;
+// Separate per-method request schemas (NOT a shared `action` discriminator): each carries the idle-drain
+// deadline that I-007-12 self-swap refusal + I-007-15 quiesce depend on. The 5000ms default is applied by
+// the Zod schema (Plan-007 T-007r-1-2), so the field is input-optional but always present post-parse.
+// Refusal is the canonical JSON-RPC error envelope (data.type: "daemon.lifecycle_conflict"), never a
+// success-shape discriminator — so both success results are the uniform { accepted: true }.
+interface DaemonStopParams {
+  idleDrainDeadlineMs?: number; // default 5000
 }
-interface DaemonLifecycleResult {
-  state: string;
-  message: string;
+interface DaemonStopResult {
+  accepted: true;
+}
+interface DaemonRestartParams {
+  idleDrainDeadlineMs?: number; // default 5000
+}
+interface DaemonRestartResult {
+  accepted: true;
 }
 
 // LocalSubscription

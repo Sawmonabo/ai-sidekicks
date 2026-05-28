@@ -72,12 +72,14 @@ Phase 4 (SDK exposure):
 
 ## Data And Storage Changes
 
-Two SQLite tables ship in Phase 2 (Plan-005-owned per cross-plan-dependencies.md §1):
+Four SQLite tables ship in Phase 2 (Plan-005-owned per cross-plan-dependencies.md §1):
 
 - `runtime_bindings` — persists driver-instance ↔ session/run bindings. Plan-015 extends with recovery-aware persistence methods (per CP-005-1; row-level recovery state lives in Plan-015's dedicated `recovery_checkpoints` table, not on `runtime_bindings`).
 - `driver_capabilities` — caches the 7-flag capability matrix per active driver instance, refreshed on capability change events.
+- `driver_tools` — per-tool metadata keyed `(driver_name, tool_name)`, persisting each tool's `idempotency_class` so the daemon's two-phase command-receipt protocol (Spec-005:130-132) resolves crash-recovery dispatch class without round-tripping the driver. T2.4 hydrates it into `listCapabilities()` after restart.
+- `driver_contract_meta` — per-driver parent row (`driver_name` PK) holding the advertised `contract_version` that cold-start cache hydration (T2.4) reconstructs into `GetCapabilitiesResult.capabilities.contractVersion` without round-tripping the driver (the cache-as-source-of-truth path).
 
-See [Local SQLite Schema](../architecture/schemas/local-sqlite-schema.md) for column definitions (rows owned at the `Owner: Plan-005` annotation on line 137).
+See [Local SQLite Schema §Driver and Runtime Binding Tables](../architecture/schemas/local-sqlite-schema.md#driver-and-runtime-binding-tables-plan-005) for column definitions (all four rows carry the `Owner: Plan-005` annotation).
 
 ## API And Transport Changes
 
@@ -294,7 +296,7 @@ See [Local SQLite Schema](../architecture/schemas/local-sqlite-schema.md) for co
   - Spec coverage: Spec-005:42 (driver authority local — SDK factory is daemon-only); Spec-005:43 (the 10-op contract surface is the in-daemon driver interface — the SDK exposes the 6 non-lifecycle client verbs + `subscribeEvents` per §Phase 4 decision #2, not the 4 lifecycle ops)
   - Verifies invariant: I-005-1
   - Consumes: T1.1 ProviderDriver interface; T1.4 DriverInterventionResultSchema; T4.2 SDK-seam schemas; Plan-007 `JsonRpcClient` transport from `packages/client-sdk/src/transport/jsonRpcClient.ts` (Tier 1 — shipped)
-  - Provides: `interface DriverClient { listCapabilities(); applyIntervention(p); /* + 8 more */; subscribeEvents(): LocalSubscriptionConsumer<DriverEvent> }` + `createDaemonProviderClient(client: JsonRpcClient): DriverClient` factory. No `createControlPlaneProviderClient` per ratified decision #1.
+  - Provides: `interface DriverClient { listCapabilities(); interruptRun(p); applyIntervention(p); respondToRequest(p); listModels(); listModes(); subscribeEvents(): LocalSubscriptionConsumer<DriverEvent> }` (the 6 non-lifecycle client verbs + `subscribeEvents` = the 7 client-facing methods ratified at §Phase 4 decision #2; the 4 lifecycle ops `createSession`/`resumeSession`/`startRun`/`closeSession` are daemon-internal and deliberately absent from the client interface — exposing them would let a client bypass `runtime_bindings` persistence + canonical run/session event emission) + `createDaemonProviderClient(client: JsonRpcClient): DriverClient` factory. No `createControlPlaneProviderClient` per ratified decision #1.
   - Estimate: 1-2 PRs
 
 - **T4.4** — Author `driver.subscribeEvents` subscription surface.
