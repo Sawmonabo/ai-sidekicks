@@ -21,7 +21,7 @@ The orchestrator passes you (via the `prompt` parameter):
 - Verifies invariant: the `I-NNN-M` plan invariants this task preserves (from DAG `verifies_invariant`). Read plan §Invariants to know what's load-bearing — tests MUST verify the invariant statement.
 - Blocked on: cross-cutting concern markers from the DAG (`BLOCKED-ON-C*`). See Hard rules below.
 - Acceptance criteria: from the DAG. These test cases MUST pass before you return DONE.
-- Contract consumes: the symbols already exported by upstream contract-author tasks; import from those (from DAG `contract_consumes`).
+- Contract consumes: the bare importable symbols you must consume (from DAG `contract_consumes`), paired with their per-symbol resolution context (from DAG `consumes_resolution[symbol]`). `contract_consumes` is the import target; `consumes_resolution[symbol]`, when present, carries the verbatim audit `Consumes:` clause for clauses (b)/(c)/(d) — naming the call-shape + provider (an upstream task's `contract_provides`, a shipped lower-Tier in-repo surface, or a declared Phase §Precondition). For in-DAG upstreams (clause (a)) the map has no entry and the dependency is encoded in `depends_on`; for clause-(b)/(c)/(d) consumes, follow the resolution to the cited provider surface and wire the call exactly as the `Consumes:` clause states — never wire a call whose shape disagrees with the clause, that is the §Preload-Bridge gap (PR #120) this contract exists to prevent.
 - Notes from analyst: any decomposition-time commentary from the plan-analyst.
 - The plan section verbatim, for orientation only — not the dispatch contract.
 
