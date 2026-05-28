@@ -94,12 +94,13 @@ status: ready # ready | needs-context | blocked
 - Every Tasks-row `Spec coverage:` cite appears in the corresponding DAG task's `spec_coverage`.
 - Every Tasks-row `Verifies invariant:` cite appears in the corresponding DAG task's `verifies_invariant`.
 - Every Tasks-row `BLOCKED-ON-C*` marker appears in the corresponding DAG task's `blocked_on`.
+- Every Tasks-row `Consumes:` entry appears in the corresponding DAG task's `contract_consumes`, carrying its resolution (per the Topology + contracts resolution rule below) — a dropped `Consumes:` entry silently bypasses the consume-resolution gate before implementer/reviewer dispatch.
 
 **Topology + contracts:**
 
 - Every `depends_on` id must exist in `tasks[]`.
 - The `depends_on` graph must be acyclic. No `T_a → T_b → ... → T_a` chains.
-- Every `contract_consumes` symbol must resolve to one of: (a) an upstream task's `contract_provides`; (b) a shipped in-repo contract surface in a lower Tier; (c) a declared Phase §Precondition; or (d) a tracked `BL-NNN`. The audit Tasks-block `Consumes:` field is the authoritative source for (b)/(c)/(d) — transcribe each `Consumes:` entry into `contract_consumes` and carry its resolution. A symbol resolving to none is a **dangling consume**: return `RESULT: NEEDS_CONTEXT` naming the specific symbol — do NOT auto-fill a provider.
+- Every `contract_consumes` symbol must resolve to one of: (a) an upstream task's `contract_provides`; (b) a shipped in-repo contract surface in a lower Tier; (c) a declared Phase §Precondition; or (d) a tracked `BL-NNN` — which resolves a consume **only as a blocker**: a completed (shipped) BL collapses to (b), but an open `todo` BL means the consuming task MUST carry `blocked_on: [BL-NNN]`, forcing DAG `status: blocked` (not `ready`) until the BL ships (an implementer building against an unshipped BL is the absent-provider gap this rule exists to catch). The audit Tasks-block `Consumes:` field is the authoritative source for (b)/(c)/(d) — transcribe each `Consumes:` entry into `contract_consumes` and carry its resolution. A symbol resolving to none is a **dangling consume**: return `RESULT: NEEDS_CONTEXT` naming the specific symbol — do NOT auto-fill a provider.
 - `levels[]` must be a valid topological sort: a task's `depends_on` ids must all appear in earlier levels.
 
 **File + AC coverage:**

@@ -341,8 +341,13 @@ THE 11 DIMENSIONS YOU AUDIT:
     caller supplying state it cannot (a non-consuming read)? does the
     subscribe channel carry the params the caller must pass? This
     shape-match is judgment and is the dimension's load-bearing check.
-    File severity: critical (the implementer cannot proceed without
-    inventing the missing provider → blocks tier swap via G2).
+    A consume resolving only to an unshipped (todo) BL-NNN is tracked
+    but NOT satisfied: record it as a §Precondition / blocked_on
+    blocker so the Phase is not execution-ready until the BL ships,
+    never as an available dependency. File severity: critical fires
+    only when the consume resolves to NOTHING (no shipped provider, no
+    §Precondition, no tracked BL) — the implementer cannot proceed
+    without inventing the missing provider → blocks tier swap via G2.
 
 OUTPUT FORMAT:
 
@@ -351,7 +356,7 @@ OUTPUT FORMAT:
 ## Findings
 
 ### F-NNN-N-01 — {Short headline}
-**Dimension:** {1..10 ID}
+**Dimension:** {1..11 ID}
 **Severity:** critical | major | minor | nit
 **Source location:** {file:line}
 **Finding:** {what's missing}
@@ -392,7 +397,7 @@ WRITING-PLANS FORMAT (Tasks block authoring): For unstarted Phases (no code merg
 
 - **Spec coverage:** Spec-NNN AC-X (line NN), AC-Y (line MM) (closes Dimension 9 loop; line-anchored shape preferred. AC-only (`Spec-NNN AC-X`) is the fallback when an AC has no canonical line in the spec.)
 - **Verifies invariant:** I-NNN-M (closes Dimension 7 loop, when applicable)
-- **Consumes:** each contract symbol this Task consumes that is NOT produced within the same Phase (RPC/IPC method, event channel, request-param shape, exported type), each with its resolution — `presence.subscribe({ sessionId }) ← Plan-007 daemon namespace (Tier-4 §Precondition)`, `invites.getMetadata ← BL-133`. Names an upstream Plan/Phase provider, a declared §Precondition, or a tracked `BL-NNN` (closes Dimension 11 loop). Resolution is by provider SHAPE — a symbol that exists but does not satisfy the consumer need is a Finding (severity: critical, dimension: 11), not an entry.
+- **Consumes:** each contract symbol this Task consumes that is NOT produced within the same Phase (RPC/IPC method, event channel, request-param shape, exported type), each with its resolution — `presence.subscribe({ sessionId }) ← Plan-007 daemon namespace (Tier-4 §Precondition)`, `invites.getMetadata ← BL-133`. Names an upstream Plan/Phase provider, a declared §Precondition, or a tracked `BL-NNN` (closes Dimension 11 loop). A `BL-NNN` resolution means the consume is blocked on that BL — record it as a §Precondition so the Phase is not execution-ready until the BL ships, not a satisfied dependency. Resolution is by provider SHAPE — a symbol that exists but does not satisfy the consumer need is a Finding (severity: critical, dimension: 11), not an entry.
 
 If you cannot author a Task concretely from source materials, file a Finding instead (per the hard rule above).
 
