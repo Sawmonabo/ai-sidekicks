@@ -319,7 +319,7 @@ Closes the BL-102 sub-item "JSON-RPC method-name canonical-format registry (`ses
 /^[a-z][a-z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/
 ```
 
-The regex requires a lowercase-starting first segment (the namespace root); subsequent dot-delimited segments may contain camelCase (`[a-z][a-zA-Z0-9]*`). This matches the LSP precedent ([Language Server Protocol §General Messages](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/) — `textDocument.didOpen`, `workspace.executeCommand`) and the MCP precedent ([Model Context Protocol §Protocol Messages](https://modelcontextprotocol.io/specification/2025-06-18/server/tools) — `tools.list`, `tools.call`). The V1 Tier 1 surface (`session.create`, `session.read`, `session.join`, `session.subscribe`) happens to use all-lowercase segments; nested-namespace operations like `settings.effectiveRead` are permitted under this regex.
+The regex requires a lowercase-starting first segment (the namespace root); subsequent dot-delimited segments may contain camelCase (`[a-z][a-zA-Z0-9]*`). This adopts the dotted-camelCase _segment_ style of the LSP precedent ([Language Server Protocol §General Messages](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/) — e.g. `workspace.executeCommand`) and the MCP precedent ([Model Context Protocol §Protocol Messages](https://modelcontextprotocol.io/specification/2025-06-18/server/tools) — `tools.list`, `tools.call`), but deliberately **tightens the leading segment to lowercase-only**: LSP's own camelCase-rooted names such as `textDocument.didOpen` are _rejected_ by this regex, because every V1 namespace root (`session`, `driver`, `settings`, `daemon`, `event`, `run`, `repo`, `artifact`) is a lowercase identifier. The V1 Tier 1 surface (`session.create`, `session.read`, `session.join`, `session.subscribe`) uses all-lowercase segments; nested-namespace operations like `settings.effectiveRead` and `driver.listCapabilities` (lowercase root + camelCase tail) are permitted under this regex.
 
 The regex accepts the Tier 1 surface and rejects:
 
@@ -660,11 +660,27 @@ interface DriverCapabilities {
 
 // Per-tool idempotency classification used by the daemon's two-phase command-receipt
 // protocol during crash recovery (Spec-005 §Tool Metadata; Spec-015 §Idempotency
-// Protocol). Undeclared tools resolve to `manual_reconcile_only` (conservative default
-// per Spec-005:128).
+// Protocol).
 type IdempotencyClass = "idempotent" | "compensable" | "manual_reconcile_only";
 
+// INGRESS shape — what a provider driver DECLARES via `getCapabilities()`. `idempotency_class`
+// is OPTIONAL: a driver MAY omit it and an undeclared class is NOT a contract violation. Were the
+// field required here, Zod would reject a conformant-but-silent driver at ingress BEFORE the
+// default could apply — defeating Spec-005:128. The daemon's capability-normalization seam
+// (Plan-005 T2.4 hydration) resolves an omitted class to `manual_reconcile_only` (the conservative
+// default per Spec-005:128), producing a `NormalizedProviderToolMetadata`.
 interface ProviderToolMetadata {
+  name: string;
+  idempotency_class?: IdempotencyClass;
+  description?: string;
+}
+
+// NORMALIZED shape — the daemon-side projection AFTER the normalization seam has applied the
+// `manual_reconcile_only` default. `idempotency_class` is REQUIRED, so the type system forbids
+// persisting an un-normalized value into the NOT NULL `driver_tools.idempotency_class` column or
+// emitting it on a `runtime_node.capability_*` event. This is the only tool-metadata shape that
+// crosses the persistence / event-payload boundary; ingress `ProviderToolMetadata` never does.
+interface NormalizedProviderToolMetadata {
   name: string;
   idempotency_class: IdempotencyClass;
   description?: string;
@@ -688,7 +704,9 @@ interface GetCapabilitiesResult {
 // CapabilityDetails — wrapper shape carried by `runtime_node.capability_declared` and
 // `runtime_node.capability_updated` event payloads (Spec-006:375-376). Bound to the same
 // three surfaces a driver advertises via `ProviderDriver.getCapabilities()` (GetCapabilitiesResult
-// above): the seven-flag matrix, the negotiated contract version, and the per-tool metadata.
+// above): the seven-flag matrix, the negotiated contract version, and the per-tool metadata —
+// here as `NormalizedProviderToolMetadata` (post-default), since these payloads cross the event
+// boundary and must never carry an un-normalized `idempotency_class`.
 // Why flattened (not nested under `capabilities`): in the event-payload context all three
 // surfaces compose one capability snapshot; readers (Plan-013 timeline, Plan-020 dashboards,
 // Plan-015 replay) discriminate `runtime_node.capability_*` events from the discriminated
@@ -698,7 +716,7 @@ interface GetCapabilitiesResult {
 interface CapabilityDetails {
   flags: Record<DriverCapabilityFlag, boolean>;
   contractVersion: string;
-  tools: ProviderToolMetadata[];
+  tools: NormalizedProviderToolMetadata[];
 }
 
 // runtime_node.capability_declared payload (Spec-006:375). Emitted once per driver

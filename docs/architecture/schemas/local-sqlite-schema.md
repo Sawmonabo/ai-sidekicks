@@ -42,7 +42,7 @@ CREATE TABLE session_events (
   daemon_signature       BLOB NOT NULL,              -- 64 bytes; Ed25519 over same canonical bytes; frozen pre-compaction
   participant_signature  BLOB,                       -- 64 bytes; Ed25519 from participant key; NULL for non-sensitive events
   -- Compaction (Plan-006 Tier 4 Phase 3): typed retention discriminator + post-compaction stub commitment
-  retention_class        TEXT,                       -- NULL = live row (per-row chain-verified); 'audit_stub' = compacted (anchor + stub_signature verified)
+  retention_class        TEXT CHECK (retention_class IS NULL OR retention_class = 'audit_stub'), -- NULL = live row (per-row chain-verified); 'audit_stub' = compacted (anchor + stub_signature verified). Column-level CHECK closes the discriminator domain; it is ALTER-ADD-COLUMN-addable (references only this column; NULL-permitting so pre-migration rows pass). Co-presence (audit_stub ⟺ non-NULL stub_signature) is a two-column invariant that cannot be an ALTER-added table-level CHECK without a 12-step table rebuild; it is instead enforced at the verification layer per Spec-006 §Post-Compaction Integrity (NULL stub_signature on an audit_stub row → stub_signature_invalid).
   stub_signature         BLOB,                       -- 64 bytes; Ed25519 over canonical_bytes(audit-stub projection); NULL for live rows. Authenticates the post-compaction stub representation per Spec-006 §Post-Compaction Integrity (frozen row_hash/daemon_signature commit only to the now-discarded pre-compaction bytes)
   UNIQUE(session_id, sequence)
 );
@@ -226,10 +226,11 @@ CREATE TABLE daemon_signing_keys (
 -- Owner: Plan-006 | Migration: 0NNN-pending-anchor-uploads.ts (Tier 4 Phase 3)
 -- Durable partition-tolerance queue for Merkle anchors awaiting control-plane
 -- upload. Unflushed anchors survive daemon restart without re-signing per
--- Plan-006:151. The (session_id, node_id, start_sequence) UNIQUE constraint
--- makes the T3.3 anchorRange() force-fire path (consumed by T3.2 compactor's
--- anchor-before-compaction protocol per Spec-006 §Post-Compaction Integrity)
--- idempotent against re-entry.
+-- Plan-006:151. The (session_id, node_id, start_sequence, end_sequence) UNIQUE
+-- constraint makes the T3.3 anchorRange() force-fire path (consumed by T3.2
+-- compactor's anchor-before-compaction protocol per Spec-006 §Post-Compaction
+-- Integrity) idempotent against re-entry of an identical range (the key dedups
+-- genuine re-fires only — coverage semantics in the constraint comment below).
 CREATE TABLE pending_anchor_uploads (
   id                  TEXT PRIMARY KEY,
   session_id          TEXT NOT NULL,
@@ -245,7 +246,9 @@ CREATE TABLE pending_anchor_uploads (
   attempt_count       INTEGER NOT NULL DEFAULT 0, -- upload attempts since enqueue; drives exponential backoff
   last_attempt_at     TEXT,                  -- daemon-local timestamp of most recent upload attempt; NULL until first attempt
   last_error          TEXT,                  -- last upload failure detail (operator triage); NULL on success or before first attempt
-  UNIQUE (session_id, node_id, start_sequence)
+  -- end_sequence is part of the key: a cadence anchor [1,1000] and a wider compaction-covering anchor [1,5000] share start_sequence=1 and MUST coexist.
+  -- "Covering anchor exists" (Spec-006 §Post-Compaction Integrity step 1) is a COVERAGE query (start_sequence <= range_start AND end_sequence >= range_end), NOT an exact-start match; the key only dedups genuine re-fires of the identical range.
+  UNIQUE (session_id, node_id, start_sequence, end_sequence)
 );
 
 CREATE INDEX idx_pending_anchor_uploads_pending

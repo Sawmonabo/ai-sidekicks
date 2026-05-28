@@ -370,7 +370,11 @@ CREATE TABLE event_log_anchors (
   root_signature    BYTEA NOT NULL,                   -- 64 bytes; Ed25519 signature over merkle_root by emitting daemon
   anchored_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   CHECK (end_sequence >= start_sequence),
-  UNIQUE(session_id, node_id, start_sequence)
+  -- end_sequence is part of the key (mirrors local pending_anchor_uploads): a cadence anchor [1,1000] and a wider
+  -- compaction-covering anchor [1,5000] share start_sequence=1 and MUST coexist, so the daemon's ON CONFLICT DO NOTHING
+  -- upload dedups only genuine re-uploads of the identical range. "Covering anchor" at verify time is a coverage test
+  -- (start_sequence <= range_start AND end_sequence >= range_end) per Spec-006 §Post-Compaction Integrity, not exact-start.
+  UNIQUE(session_id, node_id, start_sequence, end_sequence)
 );
 
 CREATE INDEX idx_event_log_anchors_session ON event_log_anchors(session_id, anchored_at DESC);
