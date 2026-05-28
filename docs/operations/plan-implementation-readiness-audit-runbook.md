@@ -304,7 +304,7 @@ INPUTS YOU MUST READ:
 OUTPUT FILE:
 .agents/tmp/research/plan-readiness-audit/plan-NNN/phase-N-completeness.md
 
-THE 10 DIMENSIONS YOU AUDIT:
+THE 11 DIMENSIONS YOU AUDIT:
 
 1. Schema completeness — table/column Phase-N owns lacks type, nullability,
    FK, index, or semantics-owner citation for forward-declared elements.
@@ -330,6 +330,19 @@ THE 10 DIMENSIONS YOU AUDIT:
    has no implementation step.
 10. Dependency completeness — Phase-N imports from outside-plan source not
     shipped by an upstream Plan/Phase in lower Tier.
+11. Consumption resolution — a Task consumes a contract symbol (RPC/IPC
+    method, event channel, request-param shape, or exported type) that
+    resolves to no shipped provider, no declared §Precondition, and no
+    tracked BL-NNN. This is the consume-side inverse of Dimension 10
+    (produce-side, import-granular) and the consume-side analog of the
+    Dimension-5 anti-fabrication rule. Resolution is by provider SHAPE,
+    not name: a symbol that exists but does not satisfy the consumer
+    need is still unresolved — does the endpoint return without the
+    caller supplying state it cannot (a non-consuming read)? does the
+    subscribe channel carry the params the caller must pass? This
+    shape-match is judgment and is the dimension's load-bearing check.
+    File severity: critical (the implementer cannot proceed without
+    inventing the missing provider → blocks tier swap via G2).
 
 OUTPUT FORMAT:
 
@@ -375,10 +388,11 @@ CITE ANCHOR DISCIPLINE (HARD RULES):
 
 HARD RULE (anti-fabrication): If the spec doesn't tell you what assertion to write in Step 1, you do NOT invent one. You file a finding (severity: critical, dimension: 5) instead.
 
-WRITING-PLANS FORMAT (Tasks block authoring): For unstarted Phases (no code merged for this Phase yet), author a `#### Tasks` subsection nested under the existing Phase header. Existing Phase prose (Precondition, Goal, scope bullets) is preserved verbatim. Each Task carries two extra fields beyond raw writing-plans format:
+WRITING-PLANS FORMAT (Tasks block authoring): For unstarted Phases (no code merged for this Phase yet), author a `#### Tasks` subsection nested under the existing Phase header. Existing Phase prose (Precondition, Goal, scope bullets) is preserved verbatim. Each Task carries three extra fields beyond raw writing-plans format:
 
 - **Spec coverage:** Spec-NNN AC-X (line NN), AC-Y (line MM) (closes Dimension 9 loop; line-anchored shape preferred. AC-only (`Spec-NNN AC-X`) is the fallback when an AC has no canonical line in the spec.)
 - **Verifies invariant:** I-NNN-M (closes Dimension 7 loop, when applicable)
+- **Consumes:** each contract symbol this Task consumes that is NOT produced within the same Phase (RPC/IPC method, event channel, request-param shape, exported type), each with its resolution — `presence.subscribe({ sessionId }) ← Plan-007 daemon namespace (Tier-4 §Precondition)`, `invites.getMetadata ← BL-133`. Names an upstream Plan/Phase provider, a declared §Precondition, or a tracked `BL-NNN` (closes Dimension 11 loop). Resolution is by provider SHAPE — a symbol that exists but does not satisfy the consumer need is a Finding (severity: critical, dimension: 11), not an entry.
 
 If you cannot author a Task concretely from source materials, file a Finding instead (per the hard rule above).
 
@@ -460,7 +474,7 @@ cite + spec evidence to you for re-amendment.
 
 ## Main-Agent Dep-Trace Dimensions
 
-The main agent walks the 8 dep-ordering dimensions per Phase of each plan in tier scope. These complement the 10 completeness dimensions handled by subagents.
+The main agent walks the 8 dep-ordering dimensions per Phase of each plan in tier scope. These complement the 11 completeness dimensions handled by subagents.
 
 | ID | Dimension | Question |
 | --- | --- | --- |

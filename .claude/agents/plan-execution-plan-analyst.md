@@ -99,7 +99,7 @@ status: ready # ready | needs-context | blocked
 
 - Every `depends_on` id must exist in `tasks[]`.
 - The `depends_on` graph must be acyclic. No `T_a → T_b → ... → T_a` chains.
-- Every `contract_consumes` symbol must appear in some upstream task's `contract_provides`.
+- Every `contract_consumes` symbol must resolve to one of: (a) an upstream task's `contract_provides`; (b) a shipped in-repo contract surface in a lower Tier; (c) a declared Phase §Precondition; or (d) a tracked `BL-NNN`. The audit Tasks-block `Consumes:` field is the authoritative source for (b)/(c)/(d) — transcribe each `Consumes:` entry into `contract_consumes` and carry its resolution. A symbol resolving to none is a **dangling consume**: return `RESULT: NEEDS_CONTEXT` naming the specific symbol — do NOT auto-fill a provider.
 - `levels[]` must be a valid topological sort: a task's `depends_on` ids must all appear in earlier levels.
 
 **File + AC coverage:**
