@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| **Status** | `approved` |
+| **Status** | `review` |
 | **NNN** | `007` |
 | **Slug** | `local-ipc-and-daemon-control` |
 | **Date** | `2026-04-14` |

@@ -213,7 +213,7 @@ V1 ships 17 core features across CLI and Desktop GUI per [ADR-015: V1 Feature Sc
 
 ## Build Order
 
-Implementation follows the tiered dependency graph defined in [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md). V1 spans 27 implementation plans; Plan-017 Workflow Authoring remains in `review` while the other V1 plans are approved.
+Implementation follows the tiered dependency graph defined in [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md). V1 spans 27 implementation plans; Plan-001 Shared Session Core is `completed`, Plan-007 Local IPC and Daemon Control and Plan-017 Workflow Authoring are in `review` (Plan-007 reopened by its Tier-4 readiness audit), and the rest are `approved`.
 
 ```
 Tier 1  ► Plan-001  Shared Session Core
@@ -256,8 +256,8 @@ Each tier's prerequisites are the prior tier's completion. See [`docs/architectu
 
 Current documentation corpus:
 
-- **27 V1 implementation plans** with step-by-step build instructions; 26 are `approved` and Plan-017 is in `review`
-- **26 approved specifications** covering every feature and cross-cutting concern, plus Spec-027 (Self-Host Secure Defaults) currently in `draft`
+- **27 V1 implementation plans** with step-by-step build instructions; 24 are `approved`, Plan-001 is `completed`, and Plan-007 + Plan-017 are in `review`
+- **27 approved specifications** covering every feature and cross-cutting concern
 - **12 domain models** (run state machine, intervention model, participant model, workflow model, etc.)
 - **16 architecture documents** (schemas, contracts, security, deployment, dependencies)
 - **11 operations runbooks** (CLI commands, SLOs, on-call routing, self-host secure defaults)
