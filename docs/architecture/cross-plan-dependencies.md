@@ -314,7 +314,7 @@ graph TB
   NS22[NS-22: sibling-doc staleness sweep<br/>0001-initial sql→ts + session.ts line cite]:::completed
   NS15[NS-15: Tier 3 plan-readiness audit<br/>(NS-16..NS-21 sequential)]:::completed
   NS16[NS-16: Tier 4 plan-readiness audit<br/>(NS-17..NS-21 sequential)]:::completed
-  NS17[NS-17..NS-21: Tiers 5-9 audits<br/>1 PR per tier, sequential]:::ready
+  NS17[NS-17: Tier 5 plan-readiness audit<br/>(NS-18..NS-21 sequential)]:::ready
   NS14[NS-14: Tier 2 plan-readiness audit<br/>Plan-002 alone]:::completed
   NS24[NS-24: Plan-002 Phase 1<br/>invite + membership contracts + migration]:::completed
   NS25[NS-25: Plan-002 Phase 2<br/>invite + membership services + PASETO v4.local consumer]:::completed
@@ -330,6 +330,7 @@ graph TB
   %% BLOCKED
   NS09[NS-09: Plan-024 Phase 4 CI + signing]:::blocked
   NS10[NS-10: Plan-024 Phase 5 measurement]:::blocked
+  NS18[NS-18..NS-21: Tiers 6-9 audits<br/>1 PR per tier, sequential]:::blocked
 
   %% COMPLETED
   NS12[NS-12: Plan-001 Phase 5 split + dep alignment]:::completed
@@ -364,6 +365,7 @@ graph TB
   NS14 --> NS15
   NS15 --> NS16
   NS16 --> NS17
+  NS17 --> NS18
 
   classDef ready fill:#9f9,stroke:#0a0,color:#000
   classDef blocked fill:#fcc,stroke:#a00,color:#000
@@ -539,7 +541,7 @@ With NS-01 + NS-02 + NS-04 + NS-05 completed 2026-05-11 (NS-01 via PR #42 — Pl
 - Priority: `P1` (NS-17, current ready entry); `P2` (each downstream tier promotes to `P1` when its turn comes)
 - Upstream: NS-14 → NS-15 (Tier 3, completed 2026-05-26) → NS-16 (Tier 4, completed 2026-05-29) → NS-17 (Tier 5, ready) → ... → NS-21 (Tier 9)
 - References: [audit runbook](../operations/plan-implementation-readiness-audit-runbook.md):89-91 ("Tiers: strictly serialized"), this document §5 (Tier 3-9 rows)
-- Summary: Tiers 3-9 audits run one PR per tier (per CLAUDE.md "8 tier-PRs of audit work owed before broad Tier 2+ code execution can resume"). Each tier-K audit PR commits the tier's plan amendments + tags `plan-readiness-audit-tier-K-complete`. Tier 8 includes Plan-017 — the only `review`-status plan, which must promote `review → approved` at its tier audit. NS-15 (Tier 3) + NS-16 (Tier 4) shipped; NS-17 (Tier 5) is dispatchable now; NS-18..NS-21 sequentially unblock as each prior tier closes.
+- Summary: Tiers 3-9 audits run one PR per tier (per CLAUDE.md "8 tier-PRs of audit work owed before broad Tier 2+ code execution can resume"). Each tier-K audit PR commits the tier's plan amendments + tags `plan-readiness-audit-tier-K-complete`. Tier 8 includes Plan-017, which must promote `review → approved` at its tier audit. (Plan-007 is also `review`-status as of 2026-05-29 — reopened by its completed Tier-4 audit, re-approving via its own R1/R2/R3 review cycle rather than a pending tier audit; both status promotions stay tracked.) NS-15 (Tier 3) + NS-16 (Tier 4) shipped; NS-17 (Tier 5) is dispatchable now; NS-18..NS-21 sequentially unblock as each prior tier closes.
 - Exit Criteria: All 8 tier-PRs merged; all 27 plans cleared the audit; broad Tier 2+ code execution unblocked.
 - PRs:
   - [x] tier-3 — Tier 3 plan-readiness audit (PR #118)
