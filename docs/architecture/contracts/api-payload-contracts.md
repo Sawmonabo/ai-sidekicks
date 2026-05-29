@@ -257,7 +257,7 @@ Plan-008 Phase 1 (Plan-008-bootstrap, Tier 1 carve-out per [`docs/plans/008-cont
 | `session.read` | `query` | `SessionReadRequestSchema` | `SessionReadResponseSchema` | `directoryService.readSession(...)` |
 | `session.join` | `mutation` | `SessionJoinRequestSchema` | `SessionJoinResponseSchema` | `directoryService.joinSession(...)` |
 
-The procedure-type assignments follow the tRPC convention: read-only operations use `query` (HTTP GET-like, idempotent); writes / state-changes use `mutation` (HTTP POST-like, non-idempotent). Method-name strings are dotted-lowercase (`session.create`, `session.read`, `session.join`) per the canonical format ratified in §Tier 1 (cont.): Plan-007 below — the same dotted-lowercase convention applies to both Plan-008's tRPC HTTP procedures and Plan-007's JSON-RPC IPC methods so that client SDK call-site shape is symmetric across local IPC and remote control-plane calls.
+The procedure-type assignments follow the tRPC convention: read-only operations use `query` (HTTP GET-like, idempotent); writes / state-changes use `mutation` (HTTP POST-like, non-idempotent). Method-name strings are `dotted-camelCase` (`session.create`, `session.read`, `session.join`) per the canonical format ratified in §Tier 1 (cont.): Plan-007 below — the same `dotted-camelCase` convention applies to both Plan-008's tRPC HTTP procedures and Plan-007's JSON-RPC IPC methods so that client SDK call-site shape is symmetric across local IPC and remote control-plane calls. The Tier 1 surface uses all-lowercase segments (`session.create`, `session.read`, `session.join`); within-segment camelCase is permitted in nested namespaces per LSP precedent (e.g. `textDocument.didOpen`, `settings.effectiveRead`).
 
 ```ts
 // session.create — tRPC mutation
@@ -313,17 +313,19 @@ The Plan-007 JSON-RPC method-name registry sub-item and the `protocolVersion` fi
 
 Closes the BL-102 sub-item "JSON-RPC method-name canonical-format registry (`session.create` vs `session/create`)" and feature ID F-007p-3-01.
 
-**Canonical format**: `dotted-lowercase`. Method-name strings match the regex:
+**Canonical format**: `dotted-camelCase`. Method-name strings match the regex:
 
 ```
-/^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)+$/
+/^[a-z][a-z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/
 ```
 
-The regex accepts the Tier 1 surface (`session.create`, `session.read`, `session.join`, `session.subscribe`) and rejects:
+The regex requires a lowercase-starting first segment (the namespace root); subsequent dot-delimited segments may contain camelCase (`[a-z][a-zA-Z0-9]*`). This adopts the dotted-camelCase _segment_ style of the LSP precedent ([Language Server Protocol §General Messages](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/) — e.g. `workspace.executeCommand`) and the MCP precedent ([Model Context Protocol §Protocol Messages](https://modelcontextprotocol.io/specification/2025-06-18/server/tools) — `tools.list`, `tools.call`), but deliberately **tightens the leading segment to lowercase-only**: LSP's own camelCase-rooted names such as `textDocument.didOpen` are _rejected_ by this regex, because every V1 namespace root (`session`, `driver`, `settings`, `daemon`, `event`, `run`, `repo`, `artifact`) is a lowercase identifier. The V1 Tier 1 surface (`session.create`, `session.read`, `session.join`, `session.subscribe`) uses all-lowercase segments; nested-namespace operations like `settings.effectiveRead` and `driver.listCapabilities` (lowercase root + camelCase tail) are permitted under this regex.
+
+The regex accepts the Tier 1 surface and rejects:
 
 - `session/create` — slash-style (visually conflated with HTTP path segments; ambiguous in JSON-RPC contexts where method names appear in the JSON `method` field, not URLs).
 - `SessionCreate` — PascalCase (collides with the project's TypeScript type-name convention; `SessionCreate` is already a request-payload type symbol per `packages/contracts/src/session.ts`, so a string-form would be ambiguous at every call site).
-- `sessionCreate` — camelCase (cannot express the namespace/operation split without a convention-internal delimiter; doesn't scale to nested namespaces such as `session.member.add`, which would have to become `sessionMemberAdd` and lose the structural signal).
+- `sessionCreate` — bare camelCase without a namespace dot (cannot express the namespace/operation split without a convention-internal delimiter; doesn't scale to nested namespaces).
 
 **Method-name table** (Plan-007 Phase 3 surface, per F-007p-3-01):
 
@@ -334,16 +336,16 @@ The regex accepts the Tier 1 surface (`session.create`, `session.read`, `session
 | `session.join` | RPC (request/response) | Add member; emit `MembershipCreated`. |
 | `session.subscribe` | Long-lived (`LocalSubscriptionConsumer<EventEnvelope>`) | Replay-then-tail event stream. |
 
-**Cross-transport consistency**: This same dotted-lowercase format is used by Plan-008's tRPC HTTP procedures (per §Tier 1 (cont.): Plan-008 above). Both transport surfaces share the convention so that client SDK call-site shape is symmetric across local IPC and remote control-plane calls — `client.session.create({ ... })` reads identically whether the underlying transport is local JSON-RPC over Unix domain socket or tRPC HTTP over the control-plane.
+**Cross-transport consistency**: This same `dotted-camelCase` format is used by Plan-008's tRPC HTTP procedures (per §Tier 1 (cont.): Plan-008 above). Both transport surfaces share the convention so that client SDK call-site shape is symmetric across local IPC and remote control-plane calls — `client.session.create({ ... })` reads identically whether the underlying transport is local JSON-RPC over Unix domain socket or tRPC HTTP over the control-plane.
 
 **Register-time enforcement** (closes [Plan-007 §I-007-9](../../plans/007-local-ipc-and-daemon-control.md) `BLOCKED-ON-C6`): the method registry's `register(method, handler)` call MUST evaluate `method` against this regex and throw on mismatch. This is mechanical validation, not human review — out-of-format names cannot reach the dispatcher.
 
 ```ts
-const METHOD_NAME_FORMAT = /^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)+$/;
+const METHOD_NAME_FORMAT = /^[a-z][a-z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/;
 
 function register(method: string, handler: Handler): void {
   if (!METHOD_NAME_FORMAT.test(method)) {
-    throw new Error(`method name "${method}" violates dotted-lowercase canonical format`);
+    throw new Error(`method name "${method}" violates dotted-camelCase canonical format`);
   }
   // ... registry insertion
 }
@@ -522,9 +524,9 @@ interface RuntimeNodeDetachRequest {
 
 ### Runtime-Node Method-Name Registry (Tier 3)
 
-Plan-003's runtime-node operations are exposed as four methods. Method-name strings are `dotted-lowercase` per the canonical `METHOD_NAME_FORMAT` ratified in §Tier 1 (cont.): Plan-007 above (the `register(method, …)` guard at the regex constant) — the same convention shared across Plan-007's JSON-RPC daemon IPC (mechanically regex-enforced at register time) and Plan-008's tRPC control-plane procedures, so the SDK call-site shape (`client.runtimenode.attach({ … })`) is symmetric across transports. Plan-003 registers these handlers under the Plan-007-partial daemon IPC substrate, and the attach/heartbeat calls also cross the Plan-008 control-plane transport (per [Plan-003 §Dependencies](../../plans/003-runtime-node-attach.md)).
+Plan-003's runtime-node operations are exposed as four methods. Method-name strings are `dotted-camelCase` per the canonical `METHOD_NAME_FORMAT` ratified in §Tier 1 (cont.): Plan-007 above (the `register(method, …)` guard at the regex constant) — the same convention shared across Plan-007's JSON-RPC daemon IPC (mechanically regex-enforced at register time) and Plan-008's tRPC control-plane procedures, so the SDK call-site shape (`client.runtimenode.attach({ … })`) is symmetric across transports. Plan-003 registers these handlers under the Plan-007-partial daemon IPC substrate, and the attach/heartbeat calls also cross the Plan-008 control-plane transport (per [Plan-003 §Dependencies](../../plans/003-runtime-node-attach.md)).
 
-The `runtimenode` namespace token is the concatenated domain noun — distinct from the `runtime_node.*` **event** taxonomy (the 7 lifecycle events in [Spec-006 §Runtime Node Lifecycle](../../specs/006-session-event-taxonomy-and-audit-log.md)). The underscore `runtime_node.*` form is a valid _event_ name but is **rejected** as a _method_ name by `METHOD_NAME_FORMAT` (no underscores). `runtimenode.capabilityupdate` is the system's first multi-word procedure: it uses the 2-segment lowercase run-on form to match the uniform single-verb arity of the `session.*` surface (the regex also permits a 3-segment `noun.sub.verb` form, reserved for a future nested-router need).
+The `runtimenode` namespace token is the concatenated domain noun — distinct from the `runtime_node.*` **event** taxonomy (the 7 lifecycle events in [Spec-006 §Runtime Node Lifecycle](../../specs/006-session-event-taxonomy-and-audit-log.md)). The underscore `runtime_node.*` form is a valid _event_ name but is **rejected** as a _method_ name by `METHOD_NAME_FORMAT` (no underscores). `runtimenode.capabilityupdate` is the system's first multi-word procedure: it uses an all-lowercase run-on form within the `dotted-camelCase` regex (the regex permits camelCase in segments — `runtimeNode.capabilityUpdate` would also be legal — but Plan-003 chose the run-on style to match the uniform single-verb arity of the `session.*` surface; the regex also permits a 3-segment `noun.sub.verb` form, reserved for a future nested-router need).
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |
@@ -542,10 +544,15 @@ All four are `mutation`s (state-changing, non-idempotent) per the tRPC procedure
 ### Plan-005 — Provider Driver Contract (Internal Interface)
 
 ```ts
-// Internal driver interface — TypeScript interfaces, not Zod (internal boundary)
+// Internal driver interface — TypeScript interfaces, not Zod (internal boundary).
+// `resumeSession` returns the `DriverResumeResult` discriminated union (defined below)
+// to make silent-replacement structurally inexpressible per Spec-005:60.
+// `getCapabilities` returns the `GetCapabilitiesResult` wrapper (defined below) so the
+// per-tool `ProviderToolMetadata[]` rides alongside the flag matrix in a single
+// round-trip per Plan-005 Phase 4 ratified design.
 interface ProviderDriver {
   createSession(params: CreateSessionParams): Promise<ProviderSessionHandle>;
-  resumeSession(params: ResumeSessionParams): Promise<ProviderSessionHandle>;
+  resumeSession(params: ResumeSessionParams): Promise<DriverResumeResult>;
   startRun(params: StartRunParams): Promise<void>;
   interruptRun(params: InterruptRunParams): Promise<void>;
   applyIntervention(params: ApplyInterventionParams): Promise<InterventionDriverResult>;
@@ -553,7 +560,7 @@ interface ProviderDriver {
   closeSession(params: CloseSessionParams): Promise<void>;
   listModels(): Promise<ProviderModel[]>;
   listModes(): Promise<ProviderMode[]>;
-  getCapabilities(): Promise<DriverCapabilities>;
+  getCapabilities(): Promise<GetCapabilitiesResult>;
 }
 
 interface CreateSessionParams {
@@ -604,6 +611,22 @@ interface InterventionDriverResult {
   fallbackAction?: string; // e.g. 'queue_and_interrupt' for degraded steer
 }
 
+// Return shape of `ProviderDriver.resumeSession()`. Discriminated union over `status`
+// makes silent-replacement structurally inexpressible: the failure variant has no
+// `bindingId`, so a successful resume cannot be conflated with a failed one. Spec-005:60
+// requires that resume failure "surface `provider failure` detail and a visible
+// `recovery-needed` condition; it must not silently create a replacement provider
+// session under the same canonical run." Timestamps for the resumed case live on
+// `runtime_bindings.updated_at` (Plan-005 T2.1); the result shape carries only the
+// discriminated-union semantic payload.
+type DriverResumeResult =
+  | { status: "resumed"; bindingId: string }
+  | {
+      status: "failed";
+      recoveryCondition: "recovery-needed";
+      providerFailureDetail: string;
+    };
+
 interface RespondToRequestParams {
   runId: RunId;
   requestId: string;
@@ -634,11 +657,84 @@ interface DriverCapabilities {
   flags: Record<DriverCapabilityFlag, boolean>;
   contractVersion: string;
 }
+
+// Per-tool idempotency classification used by the daemon's two-phase command-receipt
+// protocol during crash recovery (Spec-005 §Tool Metadata; Spec-015 §Idempotency
+// Protocol).
+type IdempotencyClass = "idempotent" | "compensable" | "manual_reconcile_only";
+
+// INGRESS shape — what a provider driver DECLARES via `getCapabilities()`. `idempotency_class`
+// is OPTIONAL: a driver MAY omit it and an undeclared class is NOT a contract violation. Were the
+// field required here, Zod would reject a conformant-but-silent driver at ingress BEFORE the
+// default could apply — defeating Spec-005:128. The daemon's capability-normalization seam
+// (Plan-005 T2.4 hydration) resolves an omitted class to `manual_reconcile_only` (the conservative
+// default per Spec-005:128), producing a `NormalizedProviderToolMetadata`.
+interface ProviderToolMetadata {
+  name: string;
+  idempotency_class?: IdempotencyClass;
+  description?: string;
+}
+
+// NORMALIZED shape — the daemon-side projection AFTER the normalization seam has applied the
+// `manual_reconcile_only` default. `idempotency_class` is REQUIRED, so the type system forbids
+// persisting an un-normalized value into the NOT NULL `driver_tools.idempotency_class` column or
+// emitting it on a `runtime_node.capability_*` event. This is the only tool-metadata shape that
+// crosses the persistence / event-payload boundary; ingress `ProviderToolMetadata` never does.
+interface NormalizedProviderToolMetadata {
+  name: string;
+  idempotency_class: IdempotencyClass;
+  description?: string;
+}
+
+// Return type of `ProviderDriver.getCapabilities()`. Spec-005:116-118 semantically
+// separates whole-driver capability flags from per-tool metadata; the wrapper keeps
+// `DriverCapabilities` pure (flags + contractVersion only) while still carrying both
+// surfaces in a single round-trip. Modern precedent: MCP 2026 separates `initialize`
+// server capabilities from `tools/list`; LSP separates `ServerCapabilities` from
+// registered tool surfaces.
+interface GetCapabilitiesResult {
+  capabilities: DriverCapabilities;
+  tools: ProviderToolMetadata[];
+}
 ```
 
 ### Plan-006 — Session Event Taxonomy
 
 ```ts
+// CapabilityDetails — wrapper shape carried by `runtime_node.capability_declared` and
+// `runtime_node.capability_updated` event payloads (Spec-006:375-376). Bound to the same
+// three surfaces a driver advertises via `ProviderDriver.getCapabilities()` (GetCapabilitiesResult
+// above): the seven-flag matrix, the negotiated contract version, and the per-tool metadata —
+// here as `NormalizedProviderToolMetadata` (post-default), since these payloads cross the event
+// boundary and must never carry an un-normalized `idempotency_class`.
+// Why flattened (not nested under `capabilities`): in the event-payload context all three
+// surfaces compose one capability snapshot; readers (Plan-013 timeline, Plan-020 dashboards,
+// Plan-015 replay) discriminate `runtime_node.capability_*` events from the discriminated
+// union and consume the snapshot as a single object — there is no driver-method context
+// that requires DriverCapabilities to remain pure. Sources: Spec-006:375-376; Plan-005
+// CP-005-5; Plan-006 Phase 1 T1.4 + Phase 3 doc-mirror audit.
+interface CapabilityDetails {
+  flags: Record<DriverCapabilityFlag, boolean>;
+  contractVersion: string;
+  tools: NormalizedProviderToolMetadata[];
+}
+
+// runtime_node.capability_declared payload (Spec-006:375). Emitted once per driver
+// registration with the daemon's runtime-node bootstrap (Plan-003 territory).
+interface RuntimeNodeCapabilityDeclaredPayload {
+  capability: string; // canonical capability identifier (e.g., "provider-driver")
+  capabilityDetails: CapabilityDetails;
+}
+
+// runtime_node.capability_updated payload (Spec-006:376). Emitted on driver-version
+// bump, tool addition/removal, or flag-matrix mutation. `previousState` / `newState`
+// carry the same wrapper shape so consumers diff snapshots structurally.
+interface RuntimeNodeCapabilityUpdatedPayload {
+  capability: string;
+  previousState: CapabilityDetails;
+  newState: CapabilityDetails;
+}
+
 // EventEnvelopeVersion — branded semver "MAJOR.MINOR" string per ADR-018 §Decision #1.
 // Wire form and persisted form are both string (never numeric). Parsing extracts MAJOR
 // and MINOR as integers for numeric comparison; lexical string comparison is unsafe
@@ -674,14 +770,19 @@ type EventCategory =
   | "approval_flow"
   | "usage_telemetry"
   // Extended per Spec-006 §Runtime Node Lifecycle, §Recovery Events, §Participant Lifecycle,
-  // §Audit Integrity, §Security Events, §Event Maintenance, §Policy Events (16 categories total).
+  // §Audit Integrity, §Security Events, §Event Maintenance, §Policy Events,
+  // §Channel Arbitration, §Onboarding Lifecycle, §Cross-Node Dispatch (19 categories total
+  // per Spec-006 §Event Type Summary line 506; 123 event types per line 533).
   | "runtime_node_lifecycle"
   | "recovery_events"
   | "participant_lifecycle"
   | "audit_integrity"
   | "security_events"
   | "event_maintenance"
-  | "policy_events";
+  | "policy_events"
+  | "channel_arbitration"
+  | "onboarding_lifecycle"
+  | "cross_node_dispatch";
 // Individual event types within each category are enumerated in Spec-006 §Event Type Enumeration.
 
 // EventReadAfterCursor
@@ -733,20 +834,29 @@ interface DaemonHelloResult {
 // DaemonStatusRead
 interface DaemonStatusReadParams {}
 interface DaemonStatusReadResult {
-  state: "starting" | "ready" | "degraded" | "shutting_down";
-  activeSessions: number;
-  activeRuns: number;
-  uptime: number; // seconds
+  processState: "running" | "starting" | "stopping" | "degraded";
+  protocolVersion: string;
+  transportEndpoint: string;
+  uptimeMs: number;
 }
 
-// DaemonStart / DaemonStop / DaemonRestart
-interface DaemonLifecycleParams {
-  action: "start" | "stop" | "restart";
-  force?: boolean;
+// DaemonStop / DaemonRestart (no DaemonStart: daemon cold-boot is the CLI process-spawn path — `ai-sidekicks daemon start` — not an IPC method; see Plan-007 T-007r-3-4)
+// Separate per-method request schemas (NOT a shared `action` discriminator): each carries the idle-drain
+// deadline that I-007-12 self-swap refusal + I-007-15 quiesce depend on. The 5000ms default is applied by
+// the Zod schema (Plan-007 T-007r-1-2), so the field is input-optional but always present post-parse.
+// Refusal is the canonical JSON-RPC error envelope (data.type: "daemon.lifecycle_conflict"), never a
+// success-shape discriminator — so both success results are the uniform { accepted: true }.
+interface DaemonStopParams {
+  idleDrainDeadlineMs?: number; // default 5000
 }
-interface DaemonLifecycleResult {
-  state: string;
-  message: string;
+interface DaemonStopResult {
+  accepted: true;
+}
+interface DaemonRestartParams {
+  idleDrainDeadlineMs?: number; // default 5000
+}
+interface DaemonRestartResult {
+  accepted: true;
 }
 
 // LocalSubscription
@@ -825,7 +935,11 @@ interface InterventionRequestResponse {
   result?: Record<string, unknown>;
 }
 
-// RunStateChange (event, not request/response)
+// RunStateChange (event, not request/response). The `run.failed` variant carries the
+// `providerFailureDetail` surface that mirrors `DriverResumeResult.failure.providerFailureDetail`
+// (line 620 above) — Spec-005:60 requires resume-failure detail to reach the canonical audit
+// log so Plan-015's recovery dispatcher and Plan-013's timeline can render the operator-actionable
+// reason for the failure without re-querying the driver. Plan-005 CP-005-5; Plan-006 Phase 3 audit.
 interface RunStateChangeEvent {
   runId: RunId;
   previousState: RunState;
@@ -833,6 +947,7 @@ interface RunStateChangeEvent {
   failureCategory?: RunFailureCategory;
   recoveryCondition?: "recovery-needed";
   healthSignal?: "stuck-suspected";
+  providerFailureDetail?: string; // populated on `run.failed` when failureCategory='provider'
   timestamp: string;
 }
 ```
