@@ -257,11 +257,11 @@ Criteria (1)+(2) are human-judged at audit time and load-bearing in the §5 carv
 
 **Non-qualifying example:**
 
-- **Plan-007 partial Phases 1-3** cover Spec-027 rows 4+10 (Phase 1), Spec-007 §Wire Format (Phase 2), and CP-007-1 + Spec-007 §Required Behavior (Phase 3). They are split via the substrate-vs-namespace decomposition rule but ship behavior — they do NOT qualify under criterion (3). Plan-007 partials are a legacy coverage gap (shipped pre-audit-framework via PRs #16/#17/#19), tracked as a follow-up BL to be filed before Plan-007 remainder Tier 4 execution begins; they are NOT precedent for `substrate_exempt`.
+- **Plan-007 partial Phases 1-3** cover Spec-027 rows 4+10 (Phase 1), Spec-007 §Wire Format (Phase 2), and CP-007-1 + Spec-007 §Required Behavior (Phase 3). They are split via the substrate-vs-namespace decomposition rule but ship behavior — they do NOT qualify under criterion (3). Plan-007 partials are a legacy coverage gap (shipped pre-audit-framework via PRs #16/#17/#19), retroactively audited via the follow-up [BL-113](../archive/backlog-archive.md#bl-113-plan-007-partial-phases-1-3-retroactive-tier-1-audit) (filed and resolved via PR #75) ahead of Plan-007 remainder Tier 4 execution; they are NOT precedent for `substrate_exempt`.
 
 ### Status promotion under `substrate_exempt`
 
-A plan whose Tier 1 phase ships under `audit_status: substrate_exempt` does NOT receive a `[x]` on its plan-level audit checkbox. The checkbox flips to `[x]` only when the full plan-level audit completes at the plan's later-tier remainder (Plan-008 at Tier 5; Plan-023 at Tier 8; Plan-007 at Tier 4 — pending the follow-up BL above). Until then, the plan stays in `approved` status (no regression to `review`); only the audit checkbox remains `[ ]` with a footnote pointing to the deferred-audit work.
+A plan whose Tier 1 phase ships under `audit_status: substrate_exempt` does NOT receive a `[x]` on its plan-level audit checkbox. The checkbox flips to `[x]` only when the full plan-level audit completes at the plan's later-tier remainder (Plan-008 at Tier 5; Plan-023 at Tier 8). Until then, the plan stays in `approved` status (no regression to `review`); only the audit checkbox remains `[ ]` with a footnote pointing to the deferred-audit work. **Plan-007 is not in this `substrate_exempt` set** — its Tier 1 partials shipped behavior, not a substrate exemption (see the non-qualifying example above), so it took the non-exempt path: a retroactive Tier-1 audit (BL-113 / PR #75) plus the Tier-4 remainder audit (NS-16 / PR #124). Its `approved → review → approved` cycle was a [§Status Flip Rule](#status-flip-rule) consequence of the Tier-4 design reopen, **not** the no-regression `substrate_exempt` promotion path described here.
 
 ### Per-tier inner-loop addition
 
@@ -565,7 +565,7 @@ The Tier 1 audit pilot (PR #15) covered Plan-001 + Plan-024 only and excluded th
 
 ### Plan-007 partial is a coverage gap, not a substrate exemption (2026-05-17)
 
-Plan-007 partial Phases 1-3 (PRs #16/#17/#19) shipped without audit coverage AND without `substrate_exempt` declaration. They claim Spec AC coverage (Spec-027 rows 4+10, Spec-007 §Wire Format, CP-007-1 + Spec-007 §Required Behavior) — fail criterion (3) of the `substrate_exempt` predicate. They are a legacy coverage gap, not substrate exemption, and are NOT precedent for future `substrate_exempt` claims. Tracked as a follow-up BL to be filed before Plan-007 remainder Tier 4 execution begins.
+Plan-007 partial Phases 1-3 (PRs #16/#17/#19) shipped without audit coverage AND without `substrate_exempt` declaration. They claim Spec AC coverage (Spec-027 rows 4+10, Spec-007 §Wire Format, CP-007-1 + Spec-007 §Required Behavior) — fail criterion (3) of the `substrate_exempt` predicate. They are a legacy coverage gap, not substrate exemption, and are NOT precedent for future `substrate_exempt` claims. **(Resolved 2026-05-29: the follow-up BL this entry called for was filed and closed as [BL-113](../archive/backlog-archive.md#bl-113-plan-007-partial-phases-1-3-retroactive-tier-1-audit) via PR #75 — the retroactive Tier-1 audit, completed before Plan-007 remainder Tier 4 execution — and the Tier-4 remainder was then audited under NS-16 / PR #124, promoting Plan-007 `review → approved`.)**
 
 ### Tier 2 (Plan-002) — pre-audit `approved` plan calibration (2026-05-20)
 
