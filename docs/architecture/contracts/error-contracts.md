@@ -144,13 +144,22 @@ expect(caught).toMatchObject({
 
 ### Invite
 
-| Code                      | Description                                      | HTTP Status |
-| ------------------------- | ------------------------------------------------ | ----------- |
-| `invite.not_found`        | Invite does not exist                            | 404         |
-| `invite.already_accepted` | Invite has already been accepted                 | 409         |
-| `invite.expired`          | Invite has expired and can no longer be accepted | 410         |
-| `invite.revoked`          | Invite has been revoked by the issuer            | 410         |
-| `invite.limit_exceeded`   | Invite creation rate limit exceeded              | 429         |
+| Code                       | Description                                        | HTTP Status |
+| -------------------------- | -------------------------------------------------- | ----------- |
+| `invite.not_found`         | Invite does not exist                              | 404         |
+| `invite.already_accepted`  | Invite has already been accepted                   | 409         |
+| `invite.expired`           | Invite has expired and can no longer be accepted   | 410         |
+| `invite.revoked`           | Invite has been revoked by the issuer              | 410         |
+| `invite.limit_exceeded`    | Invite creation rate limit exceeded                | 429         |
+| `invite.permission_denied` | Only the session owner may issue or revoke invites | 403         |
+
+### Membership
+
+| Code | Description | HTTP Status |
+| --- | --- | --- |
+| `membership.not_found` | Membership does not exist | 404 |
+| `membership.permission_denied` | Actor is not permitted to apply the requested membership change (owner-only) | 403 |
+| `membership.last_owner` | Action would remove the last remaining active owner of the session | 409 |
 
 ### Workspace
 
