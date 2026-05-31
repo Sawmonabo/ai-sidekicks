@@ -303,7 +303,7 @@ Audit-derived task decomposition. The 11 Implementation Steps regroup into five 
 
 - **T22.3.1 — Pure `splitPii` partition.**
   - Files: `packages/runtime-daemon/src/crypto/split-pii.ts` (CREATE)
-  - Spec coverage: Spec-022:27 (call-site classification); Spec-006 §Canonical Serialization Rules
+  - Spec coverage: Spec-022:116 (PII/non-PII field partition); Spec-006 §Canonical Serialization Rules
   - Verifies invariant: I-022-11, I-022-13, I-022-14
   - Consumes: Plan-006's `EventLogService.append` seam (Tier 4) as the consumer; `pii-codec` (T22.2.4) is injected by Plan-006's `pii-indirection.ts`, never called here.
 - **T22.3.2 — Forward-declare onto Plan-001 migration.**
@@ -334,7 +334,7 @@ Audit-derived task decomposition. The 11 Implementation Steps regroup into five 
   - Consumes: the three handlers (T22.4.1).
 - **T22.4.4 — Error-code + api-payload docs.**
   - Files: `docs/architecture/contracts/error-contracts.md` (EXTEND), `docs/architecture/contracts/api-payload-contracts.md` (EXTEND)
-  - Spec coverage: Spec-022:28 (`gdpr.endpoint_not_v1`)
+  - Spec coverage: Spec-022:69-73 (§Data Export — the V1 data-subject obligation the V1.1 `gdpr.*` endpoints fulfill; V1 returns the `gdpr.endpoint_not_v1` stub per D-022-3)
   - Verifies invariant: I-022-17
   - Consumes: the ADR-009 error envelope.
   - Ratified D-022-3: standard JSON-RPC `-32603` discriminator; `data.type = "gdpr.endpoint_not_v1"` (no custom numeric code — error-contracts.md:39).
@@ -365,8 +365,8 @@ Audit-derived task decomposition. The 11 Implementation Steps regroup into five 
 - **Unit, `pii-codec`**: round-trip (encrypt → decrypt) plus AAD-mismatch test (decrypt with wrong `participant_id` MUST fail). NIST GCM test vectors (SP 800-38D Appendix B) for baseline AES-256-GCM correctness.
 - **Unit, `participant-key-generator`**: generated keys are 32 bytes and statistically distinct across participants (no two provisionings collide); the generated key wraps and unwraps round-trip under the master KEK.
 - **Unit, `wrap-codec`**: AAD mismatch (wrong `participant_id` in wrap AAD) MUST fail decrypt.
-- **Unit, `pii-splitter`**: given emitter inputs with explicit `{payload, piiPayload}` partitions, confirm routing and digest-embed order; given ambiguous mixed-shape inputs (nested records with unclassified fields), confirm fallback routes the whole ambiguous record to `pii_payload` and emits `daemon.pii_split_ambiguous`.
-- **Unit, `write-with-pii` digest embedding (signature-safety gate)**: given a fixture event with non-NULL `pii_payload`, confirm the returned shape includes `pii_ciphertext_digest` field in `payload` equal to `BLAKE3(pii_payload_ciphertext)`. Verify BLAKE3 output against [BLAKE3 official test vectors](https://github.com/BLAKE3-team/BLAKE3/blob/master/test_vectors/test_vectors.json) for correctness. This test is the V1 gate on [§Signature Safety Under Shred](#signature-safety-under-shred) — Plan-006's canonicalizer relies on this digest being present in `payload` before it hashes and signs.
+- **Unit, `split-pii`**: given emitter inputs with explicit `{payload, piiPayload}` partitions, confirm routing only — `splitPii` is a **pure partition** that performs no encryption / digest / canonicalization (those are Plan-006-owned per T22.3.1); given ambiguous mixed-shape inputs (nested records with unclassified fields), confirm fallback routes the whole ambiguous record to `pii_payload` and emits `daemon.pii_split_ambiguous`.
+- **Unit, `pii-codec` ciphertext digest (signature-safety precondition)**: given `pii-codec` (`PiiEncryptor`) output for a fixture `pii_payload`, confirm `BLAKE3(pii_payload_ciphertext)` is derived correctly over the ciphertext bytes — verify BLAKE3 against [BLAKE3 official test vectors](https://github.com/BLAKE3-team/BLAKE3/blob/master/test_vectors/test_vectors.json). The **embed-before-sign** step — writing this digest into `payload` before the canonicalizer hashes and signs — is **Plan-006-owned** (`pii-indirection.ts`, I-022-12) per [§Signature Safety Under Shred](#signature-safety-under-shred); Plan-022 authors no `write-with-pii.ts`, so this test pins only the precondition that the digest is correctly derivable from the codec's ciphertext.
 - **Integration, migration**: Plan-001's migration 0001 fixture must include `pii_payload` on `session_events` and the full `participant_keys` table; test asserts `PRAGMA table_info(session_events)` and `PRAGMA table_info(participant_keys)`.
 - **Integration, write-path**: end-to-end participant provisioning → event write → SQLite inspection shows `pii_payload` is ciphertext bytes (not plaintext JSON) and that the `payload` column contains only non-PII fields.
 - **Integration, master-key resolution event**: each successful custody tier emits exactly one `daemon.master_key_source` event with the correct `{source}` value (`"os-keystore"` | `"encrypted-file"`); the Tier-3 refuse path emits none and exits non-zero.
@@ -377,9 +377,9 @@ Audit-derived task decomposition. The 11 Implementation Steps regroup into five 
 
 1. Land crypto libraries + `master-key-source.ts` + unit tests (Steps 1–2) — no schema impact yet.
 2. Land `participant-key-generator.ts`, `wrap-codec.ts`, `pii-codec.ts` with unit tests (Steps 3, 4, 6) — pure-function, no persistence impact.
-3. Land `participant-keys-store.ts` + `write-with-pii.ts` with unit + integration tests (Steps 5, 7) — depends on Plan-001's migration skeleton being available.
+3. Land `participant-keys-store.ts` (Step 5) + the pure `split-pii.ts` partition (Step 7) with unit + integration tests — depends on Plan-001's migration skeleton being available. Plan-022 authors **no** write-path file; the `pii_payload` write + digest-embed is Plan-006-owned (`pii-indirection.ts`).
 4. Coordinate with Plan-001 authoring (Session 4) to accept the forward-declaration (Step 8). BL-054's cross-plan propagation pass verifies.
-5. Land `gdpr-stub-routes.ts` + documentation updates (Steps 9–10).
+5. Land the daemon JSON-RPC `gdpr-stub-handlers.ts` (`packages/runtime-daemon/src/ipc/handlers/`, registered on Plan-007's `MethodRegistry` per D-022-3) + documentation updates (Steps 9–10).
 
 ## Rollback Or Fallback
 
@@ -403,7 +403,7 @@ Audit-derived task decomposition. The 11 Implementation Steps regroup into five 
 - [ ] XChaCha20-Poly1305 master-key wrap round-trips with `AAD = participant_id || "ais.master-wrap.v1" || key_version` and 24-byte random nonce
 - [ ] Master-key custody: OS keystore (Tier 1) stores the _wrapped_ envelope; Tier-2 `daemon-master.enc` round-trips under an Argon2id KEK; Tier-3 **refuses to start** (exits non-zero) with no plaintext fallback; in-memory master is `sodium_mlock`-held and `sodium_memzero`-wiped
 - [ ] PII splitter `splitPii({payload, piiPayload})` partitions correctly per emitter-supplied classification; ambiguous-record records default to `pii_payload` and emit `daemon.pii_split_ambiguous`
-- [ ] `write-with-pii.ts` computes `pii_ciphertext_digest = BLAKE3(pii_payload_ciphertext)` and embeds it in `payload` BEFORE the canonicalizer runs, per [§Signature Safety Under Shred](#signature-safety-under-shred) and Plan-006 §PII Columns 7-step order
+- [ ] `pii-codec.ts` (`PiiEncryptor`) produces the `pii_payload_ciphertext` whose `BLAKE3(pii_payload_ciphertext)` digest Plan-006's `pii-indirection.ts` embeds in `payload` BEFORE the canonicalizer runs — the embed-before-sign gate is **Plan-006-owned** (I-022-12) per [§Signature Safety Under Shred](#signature-safety-under-shred) and Plan-006 §PII Columns 7-step order; Plan-022 authors no write-path file
 - [ ] [§PII Data Map (Three Durability Tiers)](#pii-data-map-three-durability-tiers) enumerates durable + bounded-retention + telemetry-export tiers with owner-plan attribution (Plan-018 / Plan-020 / Plan-022) per [Spec-022 §PII Data Map](../specs/022-data-retention-and-gdpr.md#pii-data-map)
 - [ ] Implementation Step 11 reserves the V1.1 ordered Path 1 → Path 2 → Path 3 execution contract with rationale per [Spec-022 §Shred Fan-Out](../specs/022-data-retention-and-gdpr.md#shred-fan-out) and §Ordering And Atomicity
 - [ ] Cross-plan alignment confirmed: Plan-001 `participant_keys` cascade-barrier-free (Path 1); Plan-018 Postgres deletion targets (Path 2); Plan-020 diagnostic-bucket scoped flush (Path 3); Plan-006 `event.shredded` emission on Path 1 completion

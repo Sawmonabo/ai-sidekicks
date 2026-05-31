@@ -966,9 +966,12 @@ interface RunStateChangeEvent {
 
 // Run-control mutations (Spec-004:41-43). `pause` interrupts the active run + persists conversation/run
 // state + queues a resume (orchestration-layer, never driver-gated per I-004-10); `resume` returns the
-// `paused` run to active execution with the SAME run id. Both carry the same MANDATORY
-// `expectedRunVersion` optimistic-concurrency guard as InterventionRequestPayload (D-004-2): a stale
-// comparand rejects the request (the run is left untouched), never silently applied.
+// `paused` run to active execution with the SAME run id. Both carry a MANDATORY `expectedRunVersion`
+// optimistic-concurrency guard with the SAME fail-closed semantics as InterventionRequestPayload: a stale
+// comparand rejects the request (the run is left untouched), never silently applied. The Tier-5 audit
+// EXTENDS Plan-004 D-004-2's mandatory-comparand obligation to these orchestration-layer verbs — `pause` /
+// `resume` hold no InterventionType membership (ADR-011), so the guard binds them by deliberate extension,
+// NOT by D-004-2's original intervention-only scope.
 interface RunPauseRequest {
   targetRunId: RunId;
   expectedRunVersion: number;
