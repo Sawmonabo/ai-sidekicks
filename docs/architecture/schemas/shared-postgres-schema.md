@@ -254,19 +254,26 @@ CREATE INDEX idx_relay_connections_session ON relay_connections(session_id);
 -- (OD-008r-2, Tier-5 readiness audit). The PK on the public key is the uniqueness index that
 -- makes a second appearance — in any session — a constraint violation the broker rejects with
 -- relay.bundle_rejected. The audit ratifies that the store is durable + uniqueness-indexed and
--- that its DEFAULT retention is the FULL single-use horizon: Spec-008:169 requires a reused key
--- to be rejected across ALL distinct sessions, so any pruning that drops a still-rejectable key
--- would re-admit it on re-insert — a literal invariant violation — and therefore V1 prunes
--- nothing. The table is bounded by historical (session × participant) ephemeral-key count, not by
--- traffic volume; at desktop-runtime scale that is trivial storage (~64 bytes/row). A future
--- bounded-retention optimization is GATED on first narrowing Spec-008:169's cross-session-rejection
--- scope (its own Spec-008 Type-2 decision, where the data-minimization / storage-limitation tension
--- is weighed against the single-use guarantee) — absent that narrowing no retention window shorter
--- than the rejection horizon is safe, so none is authored here.
+-- that its retention is — by design — the FULL single-use horizon: Spec-008:169 requires a
+-- reused key to be rejected across ALL distinct sessions, so any pruning that drops a
+-- still-rejectable key would re-admit it on re-insert — a literal invariant violation — and
+-- therefore V1 prunes nothing. Full-horizon retention is the correct terminal design here, not
+-- a placeholder to be optimized later: the ephemeral public key is a CLIENT-chosen value with no
+-- server-anchored birth time except its first appearance in this table, so a freshness/TTL window
+-- cannot bound the store — a client reusing a key re-presents it under a fresh timestamp that a
+-- time-windowed store would have forgotten and would wrongly re-admit. (This is why the TLS 1.3
+-- 0-RTT anti-replay window does NOT transfer: that window binds a SERVER-issued ticket age the
+-- peer cannot re-stamp — RFC 8446 §8 — whereas here the dedup key is client-minted.) Remembering
+-- every key is therefore irreducible, not lazy. The table is bounded by historical
+-- (session × participant) ephemeral-key count, not by traffic volume (~64 bytes/row — trivial at
+-- desktop-runtime scale); at hosted scale its growth is an ops concern (time-partition the table,
+-- keeping every partition queryable — never DROP, which would re-admit a pruned key) decoupled
+-- from the security property. Bounding retention would weaken Spec-008:169's forward-secrecy
+-- guarantee and is therefore a separate Spec-008 Type-2 decision, not a code-level optimization.
 CREATE TABLE relay_seen_ephemeral_keys (
   ephemeral_x25519_public BYTEA PRIMARY KEY,     -- 32-byte X25519 public key; PK = global single-use index
   session_id              UUID NOT NULL REFERENCES sessions(id),  -- the session that first claimed this key
-  seen_at                 TIMESTAMPTZ NOT NULL DEFAULT now()      -- first-seen audit anchor (full-horizon retention in V1; see comment above)
+  seen_at                 TIMESTAMPTZ NOT NULL DEFAULT now()      -- first-seen audit anchor (full-horizon retention by design; see comment above)
 );
 
 CREATE INDEX idx_relay_seen_ephemeral_keys_session ON relay_seen_ephemeral_keys(session_id);
