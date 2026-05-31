@@ -94,6 +94,12 @@ Plan-003's Phase 5 renderer subtree (`apps/desktop/src/renderer/src/runtime-node
 
 **Resolution.** Plan-023 Tier 1 Partial already shipped the bridge substrate and the renderer-untrusted import-ban lint; Plan-003 Phase 5 adds its renderer subtree as an extender under that substrate. No new bridge infrastructure — the Phase-5 views consume the existing typed surface. This entry codifies an obligation already doubly stated (Phase 5 prose below + the cross-plan-deps §2 ownership row, which lists Plan-003's `runtime-node-attach/` subtree among the bridge's extending plans) and mirrors how Plan-002 names its renderer-bridge dependency (CP-002-5); it introduces no new coordination requirement.
 
+### CP-003-4 — `runtime_node_attachments` is a Path-2 participant-erasure target (⇄ Plan-022 CP-022-6)
+
+`runtime_node_attachments` (Plan-003-owned — the `-- Owner: Plan-003` stamp in [shared-postgres-schema.md §Runtime Node Attachments](../architecture/schemas/shared-postgres-schema.md#runtime-node-attachments-plan-003)) carries `participant_id UUID NOT NULL REFERENCES participants(id)`, so it is inside the `REFERENCES participants(id)` inbound-foreign-key closure that [Plan-022](./022-data-retention-and-gdpr.md)'s GDPR Art. 17 Path-2 participant-erasure fan-out must address ([CP-022-6](./022-data-retention-and-gdpr.md#cross-plan-obligations)). On a participant-erasure request, the V1.1 shred handler **hard-DELETEs** the participant's `runtime_node_attachments` rows: these are operational node-attach state (the durable node-attach audit trail lives in the crypto-shredded `runtime_node.*` event stream — Path 1 — not in this table), so there is no independent retention basis and no referential-integrity reason to anonymize-and-retain.
+
+**Resolution.** This is the live in-tier reciprocal for Plan-022 CP-022-6, added fix-in-place at the Tier-5 audit swap (2026-05-31 — the F3 round-4 Codex finding that the Path-2 closure omitted this table). No Plan-003 V1 code change: the erasure handler is V1.1 (Plan-022 §Non-Goals), and `runtime_node_attachments` already exists with its `participant_id` FK. This entry encodes the obligation so the closure carries no one-sided edge (Plan-022 I-022-19).
+
 ## Preconditions
 
 - [x] Paired spec is approved

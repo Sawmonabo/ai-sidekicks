@@ -293,9 +293,13 @@ This section verifies end-to-end GDPR coverage across both storage tiers.
 
 ### Path 2 — Postgres PII rows (hard DELETE)
 
-**Mechanism.** Hard DELETE from `participants`, `identity_mappings`, `notification_preferences`. Anonymize participant references in `session_invites` and `session_memberships` using the tombstone-identifier pattern from the existing §Postgres (Control Plane) Deletion behavior above.
+**Mechanism.** Path 2 is exhaustive over the complete `REFERENCES participants(id)` inbound-foreign-key closure in [shared-postgres-schema.md](../architecture/schemas/shared-postgres-schema.md) — not only the PII-content columns in the [§PII Data Map](#pii-data-map) durable tier, but **every** Postgres row that links to the erased participant. Per-table disposition by retention basis:
 
-**Scope.** Exhaustive over the Postgres tables listed in [§PII Data Map](#pii-data-map) durable tier. If any row fails DELETE (foreign-key constraint, row lock, connection failure), the whole path is reported as failed; the daemon does not partially advance.
+- **Hard DELETE** (no independent retention basis): `participants`, `identity_mappings` (Plan-018), `notification_preferences` (Plan-019), `runtime_node_attachments` (Plan-003 — operational node-attach state; the durable node-attach audit trail is the crypto-shredded `runtime_node.*` event stream, not this table), `cross_node_dispatch_coordination` (Plan-027 — routing metadata only).
+- **Anonymize** (tombstone-identifier, to preserve referential integrity of the surviving record): `session_invites.inviter_id` (Plan-002), `session_memberships.participant_id` (Plan-001) — per the §Postgres (Control Plane) Deletion behavior above.
+- **Anonymize-with-security-survival**: `revoked_jtis`, `revoked_token_families` (BL-070 token-revocation denylist) — anonymize `participant_id` to sever the data-subject linkage, but **retain** the denylist key (`jti` / `family_id`) until its natural `expires_at + 24h` reap, so erasure does not resurrect a revoked token within its remaining validity window (the GDPR Art. 17(3) security/legal-obligation carve-out).
+
+**Scope.** Exhaustive over the `REFERENCES participants(id)` inbound-FK closure named in the Mechanism above — the closure is verifiable against [shared-postgres-schema.md](../architecture/schemas/shared-postgres-schema.md), so the set is the source of truth and cannot silently drift behind a hand-maintained list (the prior "exhaustive over the §PII Data Map durable tier" wording undercounted: the §PII Data Map enumerates PII-content columns, not the participant-FK-linkage tables). If any row fails DELETE (foreign-key constraint, row lock, connection failure), the whole path is reported as failed; the daemon does not partially advance.
 
 **Audit artifact.** No event-log row is emitted per Postgres table — the control plane's own Postgres audit logging (not in V1 scope) would record the DELETEs. The daemon records the aggregate `participant.purged` event only after all Postgres deletes succeed.
 

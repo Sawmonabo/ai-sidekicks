@@ -21,7 +21,7 @@ PRAGMA busy_timeout = 5000;
 -- Owner: Plan-001 | Extended by: Plan-006 (event taxonomy + integrity protocol), Plan-015 (replay cursors)
 CREATE TABLE session_events (
   id                     TEXT PRIMARY KEY,           -- ULID or UUID
-  session_id             TEXT NOT NULL,
+  session_id             TEXT NOT NULL,              -- real session ULID/UUID, or a reserved node-scope sentinel for daemon-scope events (no FK; see Spec-006 §Security Events + Plan-022 D-022-8)
   sequence               INTEGER NOT NULL,           -- monotonic per session
   occurred_at            TEXT NOT NULL,              -- RFC 3339 UTC with ms precision (wall-clock; display + audit)
   monotonic_ns           INTEGER NOT NULL,           -- process.hrtime.bigint() at emit; within-daemon ordering only (see Spec-015 §Clock Handling, BL-062)

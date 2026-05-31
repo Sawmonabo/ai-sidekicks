@@ -109,7 +109,7 @@ V1 relay encryption is defined by [ADR-010](../decisions/010-paseto-webauthn-mls
 - Each participant generates an **ephemeral X25519 key pair per session** (not per message); these are zeroed when the session ends. A long-term **Ed25519 identity key** signs the ephemeral X25519 public key, binding the session key exchange to the participant's control-plane-registered identity. CLI at-rest storage of this long-term Ed25519 identity key is specified by [ADR-021](../decisions/021-cli-identity-key-storage-custody.md); desktop clients derive the key from a WebAuthn PRF ceremony per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md).
 - The control plane distributes signed `SessionKeyBundle` entries (`{ephemeral_x25519_public, ed25519_identity_public, signature}`). A compromised control plane cannot forge valid Ed25519 signatures.
 - Session keys are derived via HKDF-SHA256 (RFC 5869) from the ECDH shared secret: `sessionKey = HKDF-SHA256(shared, salt=session_id, info="ai-sidekicks/v1/pairwise", length=32)`.
-- Each message is encrypted per-recipient with a fresh 24-byte random nonce and the recipient's principal identifier as AEAD associated data, yielding per-recipient `(recipient_id, nonce, ciphertext+tag)` envelopes. Per-sender monotonic sequence numbers included in the associated data provide replay protection within a session.
+- Each message is encrypted per-recipient with a fresh 24-byte random nonce; the AEAD associated data binds the recipient's principal identifier **and** the per-sender monotonic sequence number (`recipient_id ‖ seq`), yielding per-recipient `(recipient_id, seq, nonce, ciphertext+tag)` envelopes. The `seq` is carried in the envelope in the clear so the receiver can reconstruct the associated data, but it is authenticated by the AEAD tag — a tampered `seq` fails verification (the DTLS/QUIC/Noise sequence-in-clear-authenticated-as-AAD idiom). Recipients reject any frame whose `seq` is ≤ the last accepted for that sender, providing replay protection within a session.
 - Properties: **session-granularity forward secrecy** (ephemeral X25519 discarded at session end), zero-knowledge relay. Post-compromise security and per-message ratcheting are V1.1 properties delivered by the MLS upgrade (see below).
 - **Participant cap:** V1 pairwise sessions are limited to ≤ 10 active participants to bound the N² per-message fan-out cost.
 - Wire format: 4-byte length prefix + 1-byte message type (pairwise ciphertext envelope vs relay control) + payload.
@@ -123,7 +123,7 @@ MLS via an audited implementation (OpenMLS, mls-rs, or a post-audit TypeScript i
 ## Relay Connection Lifecycle
 
 1. **Connect**: Client establishes a WSS connection to the relay endpoint. The endpoint URL is provided by the control plane via `RelayNegotiationResponse`.
-2. **Authenticate**: Client presents a PASETO v4.public token in the WebSocket handshake (`Sec-WebSocket-Protocol: paseto-v4`). The relay validates the token and establishes the session-scoped channel.
+2. **Authenticate**: Client presents a PASETO v4.public token in the WebSocket handshake via the `Sec-WebSocket-Protocol` header as two subprotocol values — `paseto-v4, <base64url(token)>`: the first value names the auth scheme (which the relay echoes back as the negotiated subprotocol), the second carries the base64url-encoded token. (Browsers cannot set custom WebSocket headers, so the bearer token rides in the subprotocol header — the established Kubernetes apiserver idiom, [kubernetes/kubernetes#47740](https://github.com/kubernetes/kubernetes/pull/47740); base64url-encoding keeps the value within the RFC 7230 `token` grammar the subprotocol field requires, independent of token format.) The relay reads the second value, base64url-decodes it, validates the token, and establishes the session-scoped channel.
 3. **Session Key Establishment**: The client generates an ephemeral X25519 key pair, signs the public key with its long-term Ed25519 identity key, and posts the resulting `SessionKeyBundle` to the control plane. The control plane verifies the Ed25519 signature, publishes the bundle to other session participants, and returns their bundles. The client derives per-pair session keys via HKDF-SHA256 from each X25519 ECDH shared secret and caches them for the session's lifetime.
 4. **Message Exchange**: All message payloads are encrypted per-recipient under the derived pairwise session keys. The relay sees only opaque per-recipient ciphertext envelopes and forwards them without inspection.
 5. **Graceful Close**: The client notifies the control plane that the session has ended, zeroes its ephemeral X25519 secret key and derived session keys in memory, and closes the WebSocket connection. The control plane discards the participant's `SessionKeyBundle`.
@@ -132,7 +132,7 @@ MLS via an audited implementation (OpenMLS, mls-rs, or a post-audit TypeScript i
 ### Message Framing
 
 - **Wire format**: WebSocket binary frames.
-- **Frame structure**: `[4-byte big-endian length][1-byte message type][payload]`. V1 payload is a pairwise ciphertext envelope (`{recipient_id, nonce, ciphertext+tag}`). V1.1+ payload (MLS) is an MLSCiphertext structure.
+- **Frame structure**: `[4-byte big-endian length][1-byte message type][payload]`. V1 payload is a pairwise ciphertext envelope (`{recipient_id, seq, nonce, ciphertext+tag}`) — the `seq` is the per-sender monotonic sequence (8-byte big-endian) bound into the AEAD associated data (`recipient_id ‖ seq`) and carried in the clear for receiver reconstruction; it lives inside the opaque `[payload]`, not in the frame header. V1.1+ payload (MLS) is an MLSCiphertext structure.
 - **Maximum frame size**: 64 KB. Messages larger than 64 KB must be chunked at the application layer before encryption.
 - **Heartbeat**: WebSocket ping/pong at 30-second intervals for keepalive. If no pong is received within 60 seconds, the client must treat the connection as dead and begin reconnect.
 
@@ -183,7 +183,7 @@ Clients must post a fresh `SessionKeyBundle` to the control plane before request
 **V1 guarantees:**
 
 - **Session-granularity forward secrecy** -- past session keys become undecryptable after the session ends, because the ephemeral X25519 material is zeroed. Compromise of the long-term Ed25519 identity key does not reveal past session keys.
-- **Zero-knowledge relay** -- the relay sees only opaque per-recipient ciphertext and cannot read, forge, or replay messages. Per-sender monotonic sequence numbers bound into AEAD associated data provide in-session replay protection.
+- **Zero-knowledge relay** -- the relay sees only opaque per-recipient ciphertext and cannot read, forge, or replay messages. Per-sender monotonic sequence numbers — carried in the envelope and bound into AEAD associated data — provide in-session replay protection; the relay forwards the `seq` opaquely (it routes on `recipient_id` alone).
 
 **V1.1+ additional guarantees (delivered by MLS upgrade):**
 
