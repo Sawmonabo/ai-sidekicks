@@ -212,7 +212,7 @@ CREATE TABLE driver_contract_meta (
 -- kSecAttrAccessibleWhenUnlockedThisDeviceOnly on macOS / CRED_TYPE_GENERIC
 -- CRED_PERSIST_LOCAL_MACHINE on Windows / Secret Service via libsecret +
 -- kwallet6 + keyutils fallback on Linux). Public key is registered in the
--- session participant roster at join time per Spec-006:382. Sealed-key storage
+-- session participant roster at join time per Spec-006:384. Sealed-key storage
 -- lives in local SQLite (NOT shared-Postgres sessions) per ADR-004 SQLite-
 -- local-state boundary — daemon-private secrets are per-machine.
 CREATE TABLE daemon_signing_keys (
@@ -865,7 +865,7 @@ CREATE INDEX idx_run_links_child ON run_links(child_run_id);
 -- Owner: Spec-022 (GDPR)
 CREATE TABLE participant_keys (
   participant_id    TEXT NOT NULL PRIMARY KEY,
-  encrypted_key_blob BLOB NOT NULL,           -- AES-256-GCM key, encrypted at rest
+  encrypted_key_blob BLOB NOT NULL,           -- XChaCha20-Poly1305-wrapped AES-256 content key (wire: nonce || ciphertext || tag) — Plan-022 D-022-2
   key_version       INTEGER NOT NULL DEFAULT 1,
   created_at        TEXT NOT NULL,
   rotated_at        TEXT

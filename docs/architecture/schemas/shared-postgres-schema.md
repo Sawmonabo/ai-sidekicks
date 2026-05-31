@@ -122,7 +122,7 @@ Plan-018 extends the [Plan-001 Participants Identity Anchor](#participants-ident
 -- ALTER COLUMN ... SET NOT NULL in a follow-up migration once backfill completes.
 ALTER TABLE participants
   ADD COLUMN display_name TEXT,                  -- set NOT NULL after backfill
-  ADD COLUMN identity_ref TEXT UNIQUE,           -- set NOT NULL after backfill
+  ADD COLUMN identity_ref TEXT UNIQUE,           -- synthetic primary ref (PASETO kid / minted handle), NOT a {provider}:{external_id} projection — Plan-018 D-018-2; set NOT NULL after backfill
   ADD COLUMN metadata     JSONB NOT NULL DEFAULT '{}';
 
 CREATE INDEX idx_participants_identity ON participants(identity_ref);
@@ -139,6 +139,8 @@ CREATE TABLE identity_mappings (
 
 CREATE INDEX idx_identity_mappings_participant ON identity_mappings(participant_id);
 ```
+
+**`identity_ref` is a synthetic primary ref, not a provider projection (Plan-018 D-018-2).** It is a stable identifier decoupled from any single external provider — a PASETO `kid` or an internally minted synthetic handle — so a participant who links a second provider keeps one `identity_ref` and gains a second `identity_mappings` row, rather than colliding on the `identity_ref UNIQUE` constraint that a denormalized `{provider}:{external_id}` value would force. The per-provider `{provider, external_id}` tuples live in `identity_mappings`; `identity_ref` is the join-stable participant anchor those mappings resolve to.
 
 ---
 
@@ -243,6 +245,24 @@ CREATE TABLE relay_connections (
 );
 
 CREATE INDEX idx_relay_connections_session ON relay_connections(session_id);
+
+-- Owner: Plan-008
+-- Durable cross-session ephemeral-key reuse guard (I-008-7c, Spec-008:169). Each participant
+-- mints a fresh ephemeral X25519 key pair per session (I-008-6), and the per-session relay
+-- Durable Object discards its bundles on close — so a key reused in a *later* session can only
+-- be detected against a store that OUTLIVES the session. This control-plane table is that store
+-- (OD-008r-2, Tier-5 readiness audit). The PK on the public key is the uniqueness index that
+-- makes a second appearance — in any session — a constraint violation the broker rejects with
+-- relay.bundle_rejected. The audit ratifies only that the store is durable + uniqueness-indexed;
+-- the retention window (bounded-TTL pruning of long-closed sessions' keys) is a Type-2 decision
+-- pinned at the Plan-008 code PR, NOT authored here.
+CREATE TABLE relay_seen_ephemeral_keys (
+  ephemeral_x25519_public BYTEA PRIMARY KEY,     -- 32-byte X25519 public key; PK = global single-use index
+  session_id              UUID NOT NULL REFERENCES sessions(id),  -- the session that first claimed this key
+  seen_at                 TIMESTAMPTZ NOT NULL DEFAULT now()      -- first-seen anchor for the code-PR-pinned bounded TTL
+);
+
+CREATE INDEX idx_relay_seen_ephemeral_keys_session ON relay_seen_ephemeral_keys(session_id);
 ```
 
 ---

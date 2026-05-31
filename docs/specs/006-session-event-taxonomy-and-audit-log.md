@@ -176,7 +176,9 @@ Payload shape: `{sessionId, channelId, unreachableNodeId, unreachableAgentId, tu
 
 One event per state from the [Run State Machine](../domain/run-state-machine.md)'s 9 canonical states.
 
-Payload shape: `{sessionId, runId, previousState, newState, channelId?, failureCategory?: RunFailureCategory, recoveryCondition?: 'recovery-needed', trigger?}`
+Payload shape: `{sessionId, runId, runVersion, previousState, newState, channelId?, failureCategory?: RunFailureCategory, recoveryCondition?: 'recovery-needed', trigger?}`
+
+`runVersion` is the run aggregate's **any-run-progression counter** (Plan-004 D-004-1): it increments on every run progression — applied interventions included, not only the state transitions enumerated below — and is the optimistic-concurrency token the `expectedRunVersion` intervention guard compares against ([Spec-004 §Interfaces And Contracts](004-queue-steer-pause-resume.md#interfaces-and-contracts)). It is a **payload** field, distinct from the envelope-level `.version` (§EventEnvelope Version Semantics above): `.version` is the immutable semver wire-contract version bound into the Ed25519 signature, whereas `runVersion` is a mutable per-run counter carried inside `payload` — the two share the word "version" but are different contracts and must never be conflated. Because `runVersion` also advances on applied interventions that cause no state change (e.g. a native steer), the authoritative source of a run's current `runVersion` is the run-state read / `run.subscribeState` stream and the intervention / pause / resume responses, not the `run.*` event sequence alone.
 
 | Type | Description |
 | --- | --- |
@@ -445,7 +447,7 @@ Payload shape: `{sessionId, anchorId?, verifierNodeId}` (base). Per-event payloa
 
 ### Security Events (`security_events`)
 
-Daemon-emitted events recording operator-facing security posture transitions — fail-safe-default overrides and update-availability signals per [Spec-027 §Required Behavior](./027-self-host-secure-defaults.md#required-behavior). These events belong to a distinct category from `audit_integrity` (which records the audit log's tamper-evidence state) and from `event_maintenance` (which records operations on the event stream itself) because they describe **the daemon's security posture** at process scope. Like those two infrastructure-state categories, security events fire at daemon scope across all sessions hosted on the node — they are not session-scoped.
+Daemon-emitted events recording operator-facing security and data-protection posture transitions — fail-safe-default overrides and update-availability signals per [Spec-027 §Required Behavior](./027-self-host-secure-defaults.md#required-behavior), plus the daemon master-key custody source and the PII-split containment signal per [Spec-022](./022-data-retention-and-gdpr.md) (registered here at the Tier-5 readiness-audit swap, Plan-022 D-022-5). These events belong to a distinct category from `audit_integrity` (which records the audit log's tamper-evidence state) and from `event_maintenance` (which records operations on the event stream itself) because they describe **the daemon's security and data-protection posture** at process scope. Like those two infrastructure-state categories, security events fire at daemon scope across all sessions hosted on the node — they are not session-scoped.
 
 **Invariant: at-most-once-per-startup emission for `security.default.override`.** Per [Plan-007 §Invariants I-007-4](../plans/007-local-ipc-and-daemon-control.md#invariants), each active override emits exactly one `security.default.override` event per process startup, never per request. Multi-override scenarios emit one event per distinct override.
 
@@ -455,6 +457,8 @@ Payload shape: `{nodeId, occurredAt}` (base). Per-event payload extensions calle
 | --- | --- | --- |
 | `security.default.override` | An operator opt-in override of a fail-safe default has been activated for this daemon process. Cardinality is at most one per override per process startup (per Plan-007 invariant I-007-4). The set of override `behavior` integers and `row` strings (e.g. `7a`, `7b`) is enumerated in [Spec-027 §Required Behavior](./027-self-host-secure-defaults.md#required-behavior). | base + `{behavior: integer, row: string, effective_value: string, banner_printed_at: string}` per [Spec-027 §Interfaces And Contracts](./027-self-host-secure-defaults.md#interfaces-and-contracts) |
 | `security.update.available` | The daemon's update poller (Spec-027 row 7a) has detected a newer release on the configured release feed. The daemon MUST NOT self-swap while IPC is live; CLI-invoked `ai-sidekicks self-update` (row 7b) is the only sanctioned swap flow. | base + `{currentVersion: string, newerVersion: string, releaseChannel: string, releaseUrl?: string}` |
+| `daemon.master_key_source` | The daemon master key was resolved at startup; `source` names the custody tier that satisfied it — the OS keystore or the ADR-021 `daemon-master.enc` envelope. Emitted exactly once per resolution; the refuse-to-start path (neither tier available) emits none and the daemon exits non-zero (Plan-022 I-022-2). | base + `{source ∈ ['os-keystore','encrypted-file']}` |
+| `daemon.pii_split_ambiguous` | The PII splitter received a mixed-shape record whose PII / non-PII partition was ambiguous and applied the **route-the-whole-record-to-`pii_payload`** containment fallback (err on the side of encryption) per [Spec-022](./022-data-retention-and-gdpr.md). Operator-audit signal — the emitter should be amended to partition fields explicitly on its next write-path touch. Distinct from Plan-006's `daemon.pii_split_bypass` **typed error** (a PII-tagged field reaching `append()` with no `pii_ciphertext_digest` — a hard write-path rejection, not a taxonomy event). | base + `{eventType, fieldPath}` |
 
 **Precedent — `security.default.override`.** Spec-027 row 8 (`legacy_tls12`), row 5 (`postgres_sslmode=verify-ca`), row 6 (`backup_disabled`), row 9a (`metrics_disabled`), row 4 (`insecure_bind`) all enumerate `security.default.override=<behavior>` strings as the structured-log surface; the structured-log payload schema is fixed at [Spec-027:138](./027-self-host-secure-defaults.md#interfaces-and-contracts) `{behavior, row, effective_value, banner_printed_at}`. The taxonomy registration here lifts that structured-log payload into the canonical event envelope.
 
@@ -503,7 +507,7 @@ Payload shape: `{nodeId, bundleId, bundleVersion}` (base). Per-event payload ext
 
 ### Event Type Summary
 
-Total enumerated event types: **123**
+Total enumerated event types: **125**
 
 | Category | Count | Types |
 | --- | --- | --- |
@@ -527,10 +531,10 @@ Total enumerated event types: **123**
 | `recovery_events` | 3 | `recovery.attempted`, `recovery.succeeded`, `recovery.failed` |
 | `participant_lifecycle` | 5 | `participant.exported` through `participant.device_reset` |
 | `audit_integrity` | 3 | `audit_integrity_verified`, `audit_integrity_failed`, `key_reuse_detected` |
-| `security_events` | 2 | `security.default.override`, `security.update.available` |
+| `security_events` | 4 | `security.default.override`, `security.update.available`, `daemon.master_key_source`, `daemon.pii_split_ambiguous` |
 | `event_maintenance` | 3 | `schema.migrated`, `event.compacted`, `event.shredded` |
 | `policy_events` | 2 | `policy_bundle.loaded`, `policy_bundle.rejected` |
-| **Total** | **123** | Exceeds Forge's 69-type baseline by 78% |
+| **Total** | **125** | Exceeds Forge's 69-type baseline by 81% |
 
 ## Integrity Protocol
 

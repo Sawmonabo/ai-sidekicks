@@ -702,7 +702,7 @@ interface GetCapabilitiesResult {
 
 ```ts
 // CapabilityDetails — wrapper shape carried by `runtime_node.capability_declared` and
-// `runtime_node.capability_updated` event payloads (Spec-006:375-376). Bound to the same
+// `runtime_node.capability_updated` event payloads (Spec-006:377-378). Bound to the same
 // three surfaces a driver advertises via `ProviderDriver.getCapabilities()` (GetCapabilitiesResult
 // above): the seven-flag matrix, the negotiated contract version, and the per-tool metadata —
 // here as `NormalizedProviderToolMetadata` (post-default), since these payloads cross the event
@@ -711,7 +711,7 @@ interface GetCapabilitiesResult {
 // surfaces compose one capability snapshot; readers (Plan-013 timeline, Plan-020 dashboards,
 // Plan-015 replay) discriminate `runtime_node.capability_*` events from the discriminated
 // union and consume the snapshot as a single object — there is no driver-method context
-// that requires DriverCapabilities to remain pure. Sources: Spec-006:375-376; Plan-005
+// that requires DriverCapabilities to remain pure. Sources: Spec-006:377-378; Plan-005
 // CP-005-5; Plan-006 Phase 1 T1.4 + Phase 3 doc-mirror audit.
 interface CapabilityDetails {
   flags: Record<DriverCapabilityFlag, boolean>;
@@ -719,14 +719,14 @@ interface CapabilityDetails {
   tools: NormalizedProviderToolMetadata[];
 }
 
-// runtime_node.capability_declared payload (Spec-006:375). Emitted once per driver
+// runtime_node.capability_declared payload (Spec-006:377). Emitted once per driver
 // registration with the daemon's runtime-node bootstrap (Plan-003 territory).
 interface RuntimeNodeCapabilityDeclaredPayload {
   capability: string; // canonical capability identifier (e.g., "provider-driver")
   capabilityDetails: CapabilityDetails;
 }
 
-// runtime_node.capability_updated payload (Spec-006:376). Emitted on driver-version
+// runtime_node.capability_updated payload (Spec-006:378). Emitted on driver-version
 // bump, tool addition/removal, or flag-matrix mutation. `previousState` / `newState`
 // carry the same wrapper shape so consumers diff snapshots structurally.
 interface RuntimeNodeCapabilityUpdatedPayload {
@@ -772,7 +772,9 @@ type EventCategory =
   // Extended per Spec-006 §Runtime Node Lifecycle, §Recovery Events, §Participant Lifecycle,
   // §Audit Integrity, §Security Events, §Event Maintenance, §Policy Events,
   // §Channel Arbitration, §Onboarding Lifecycle, §Cross-Node Dispatch (19 categories total
-  // per Spec-006 §Event Type Summary line 506; 123 event types per line 533).
+  // per Spec-006 §Event Type Summary line 510; 125 event types per line 537 — the Tier-5
+  // readiness-audit swap registered daemon.master_key_source + daemon.pii_split_ambiguous
+  // under the existing security_events category, Plan-022 D-022-5, so no category was added).
   | "runtime_node_lifecycle"
   | "recovery_events"
   | "participant_lifecycle"
@@ -917,21 +919,31 @@ interface QueueItemCancelResponse {
 }
 
 // InterventionRequest (discriminated union by type)
+// `expectedRunVersion` is the MANDATORY optimistic-concurrency comparand (Plan-004 D-004-2,
+// fail-closed): every intervention carries the run version the caller last observed, and the
+// daemon rejects the request as `expired` when it does not match the run's current `runVersion`
+// (surfaced on RunStateChangeEvent / RunControlAck / InterventionRequestResponse below). The field
+// is required — an absent comparand is rejected, never applied (an optional field would let a caller
+// bypass the stale-replay guard by omitting it). The compared-against counter is `runVersion`
+// (Plan-004 D-004-1): an any-run-progression counter that advances on every run progression,
+// applied interventions included — distinct from the immutable EventEnvelope `.version` wire-contract
+// field (Spec-006 §EventEnvelope Version Semantics).
 type InterventionRequestPayload =
   | {
       type: "steer";
       targetRunId: RunId;
-      expectedRunVersion?: number;
+      expectedRunVersion: number;
       content: string;
       attachments?: unknown[];
       expectedTurnId?: string;
     }
-  | { type: "interrupt"; targetRunId: RunId; expectedRunVersion?: number; reason?: string }
-  | { type: "cancel"; targetRunId: RunId; expectedRunVersion?: number; reason?: string };
+  | { type: "interrupt"; targetRunId: RunId; expectedRunVersion: number; reason?: string }
+  | { type: "cancel"; targetRunId: RunId; expectedRunVersion: number; reason?: string };
 
 interface InterventionRequestResponse {
   interventionId: InterventionId;
   state: InterventionState;
+  runVersion: number; // post-application run counter (D-004-1) — the caller threads this into the next intervention's `expectedRunVersion`. Carried on the response because an applied native steer advances the run version WITHOUT a `run.*` state change (Spec-004:85), so for that path the response is the only place the caller can read the fresh comparand.
   result?: Record<string, unknown>;
 }
 
@@ -942,6 +954,7 @@ interface InterventionRequestResponse {
 // reason for the failure without re-querying the driver. Plan-005 CP-005-5; Plan-006 Phase 3 audit.
 interface RunStateChangeEvent {
   runId: RunId;
+  runVersion: number; // run-progression counter (D-004-1): the optimistic-concurrency comparand clients read via run.subscribeState and pass back as `expectedRunVersion`. Advances on every run progression, applied interventions included. Distinct from the immutable EventEnvelope `.version` (Spec-006 §EventEnvelope Version Semantics) — that is the wire-contract semver; this is the run aggregate's concurrency token.
   previousState: RunState;
   currentState: RunState;
   failureCategory?: RunFailureCategory;
@@ -950,7 +963,55 @@ interface RunStateChangeEvent {
   providerFailureDetail?: string; // populated on `run.failed` when failureCategory='provider'
   timestamp: string;
 }
+
+// Run-control mutations (Spec-004:41-43). `pause` interrupts the active run + persists conversation/run
+// state + queues a resume (orchestration-layer, never driver-gated per I-004-10); `resume` returns the
+// `paused` run to active execution with the SAME run id. Both carry the same MANDATORY
+// `expectedRunVersion` optimistic-concurrency guard as InterventionRequestPayload (D-004-2): a stale
+// comparand rejects the request (the run is left untouched), never silently applied.
+interface RunPauseRequest {
+  targetRunId: RunId;
+  expectedRunVersion: number;
+}
+interface RunResumeRequest {
+  targetRunId: RunId;
+  expectedRunVersion: number;
+}
+// Shared pause/resume ack: echoes the post-transition run state + the advanced `runVersion`, so the
+// caller threads the fresh comparand into its next guarded request without a round-trip to run.subscribeState.
+interface RunControlAck {
+  runId: RunId;
+  currentState: RunState;
+  runVersion: number;
+}
+
+// Subscription request shapes. Both subscriptions are session-scoped: the canonical event stream is
+// per-session (Spec-006) and ADR-001 makes the session the authorization unit, so a caller subscribes
+// within a session it participates in and fans out per run client-side via RunStateChangeEvent.runId.
+interface RunStateSubscribeRequest {
+  sessionId: SessionId;
+}
+interface RunQueueSubscribeRequest {
+  sessionId: SessionId;
+}
 ```
+
+### Run-Control Method-Name Registry (Tier 5)
+
+Plan-004's queue / intervention / pause-resume operations are exposed as eight `run.*` methods. The eight concrete strings are ratified (Plan-004 D-004-3 / CP-004-4) and registered here as the canonical wire contract; the reciprocal namespace `provides` is recorded on [Plan-007](../../plans/007-local-ipc-and-daemon-control.md) (the `run.*` method-name owner) in the [cross-plan dependency map](../cross-plan-dependencies.md). Method-name strings are `dotted-camelCase` per the canonical `METHOD_NAME_FORMAT` ratified in §Tier 1 (cont.): Plan-007 above — the `run.*` namespace token is the run-aggregate domain noun, distinct from the `run_lifecycle` **event** taxonomy in [Spec-006 §Run Lifecycle](../../specs/006-session-event-taxonomy-and-audit-log.md) (the underscore form is a valid event name but is rejected as a method name by `METHOD_NAME_FORMAT`).
+
+| Method | Procedure type | Request schema | Response schema |
+| --- | --- | --- | --- |
+| `run.queueList` | `query` | `QueueItemListRequest` | `QueueItemListResponse` |
+| `run.queueCreate` | `mutation` | `QueueItemCreateRequest` | `QueueItemCreateResponse` |
+| `run.queueCancel` | `mutation` | `QueueItemCancelRequest` | `QueueItemCancelResponse` |
+| `run.intervene` | `mutation` | `InterventionRequestPayload` | `InterventionRequestResponse` |
+| `run.pause` | `mutation` | `RunPauseRequest` | `RunControlAck` |
+| `run.resume` | `mutation` | `RunResumeRequest` | `RunControlAck` |
+| `run.subscribeState` | `subscription` | `RunStateSubscribeRequest` | `RunStateChangeEvent` (stream) |
+| `run.subscribeQueue` | `subscription` | `RunQueueSubscribeRequest` | `QueueItemSummary` (stream) |
+
+`run.queueList` is the only `query` (idempotent read); the four mutations are state-changing per the tRPC procedure-type convention in §Tier 1 (cont.): Plan-008 above. The two `subscription`s stream their payload type per emission rather than returning a single response — `run.subscribeState` streams `RunStateChangeEvent` (carrying the `runVersion` comparand clients pass back as `expectedRunVersion`), and `run.subscribeQueue` streams the existing `QueueItemSummary` projection (no separate queue-change event type is introduced). All request/response shapes are the interfaces defined directly above; the canonical Zod schemas live in `packages/contracts/src/runControl.ts` (CP-004-3) per the §Source-of-Truth Policy.
 
 ### Plan-008 — Control-Plane Relay And Session Join
 
@@ -1021,8 +1082,9 @@ interface ParticipantProjection {
   participantId: ParticipantId;
   displayName: string;
   role: MembershipRole;
+  state: MembershipState; // canonical membership lifecycle state (Spec-018:42; Plan-018 CP-018-8). Distinct from `presenceState` (online/idle/…) and `role` (owner/viewer/…). Code-canonical in packages/contracts; this illustration is re-synced to carry it.
   presenceState: PresenceState;
-  lastSeen: string;
+  lastSeen: string; // when `state` ≠ the most-recently-seen device, this is the winning (highest-activity precedence) device's lastSeen, so {state, lastSeen} stay internally consistent (Plan-018 D-018-4).
 }
 
 // ParticipantStateUpdate
@@ -1065,6 +1127,18 @@ interface RevokeAllTokensForParticipantRequest {
 // Auth: admin scope `admin:participants:revoke` OR participant's own access
 // token with step-up reauth per NIST SP 800-63B §4.2.3.
 ```
+
+### Participant Method-Name Registry (Tier 5)
+
+Plan-018's identity / participant-state reads and updates are exposed as three `participant.*` methods (Plan-018 CP-018-6). Names are registered here pending the Plan-007 daemon method-name registry merge; the reciprocal `provides` is recorded on [Plan-007](../../plans/007-local-ipc-and-daemon-control.md). Same `dotted-camelCase` `METHOD_NAME_FORMAT` as the other namespaces above.
+
+| Method | Procedure type | Request schema | Response schema |
+| --- | --- | --- | --- |
+| `participant.projectionRead` | `query` | `ParticipantProjectionReadRequest` | `ParticipantProjectionReadResponse` |
+| `participant.stateUpdate` | `mutation` | `ParticipantStateUpdateRequest` | `ParticipantStateUpdateResponse` |
+| `participant.presenceDetail` | `query` | `PresenceDetailReadRequest` | `PresenceDetailReadResponse` |
+
+`participant.presenceDetail` returns per-device presence fan-out and is **owner/operator-only** (Plan-018 D-018-5 / I-018-6): per-device detail is privacy-sensitive, so the aggregated `presenceState` on `ParticipantProjection` remains the participant-visible default and the device-level breakdown is gated to the session owner / daemon operator (see [Security Architecture §Per-Device Presence Detail Authorization](../security-architecture.md#per-device-presence-detail-authorization)). `participant.stateUpdate` is the only mutation. Canonical Zod schemas live in `packages/contracts/` per the §Source-of-Truth Policy.
 
 ---
 
@@ -1802,8 +1876,10 @@ interface RateLimitCheckResponse {
 
 ### Spec-022 — Data Retention And GDPR
 
+The three GDPR operations are V1 **daemon JSON-RPC stub methods** on Plan-007's `MethodRegistry` (Plan-022 D-022-3) — **not** control-plane HTTP routes. V1 returns the not-implemented stub (`-32603` + `data.type = "gdpr.endpoint_not_v1"`, see [Error Contracts](./error-contracts.md)) **unconditionally** — independent of request body or caller (I-022-15) — because the real handlers must reach daemon-local `participant_keys` + the `sodium_mlock`-held master key that a Cloudflare-Workers control plane cannot. The request/response interfaces below are the **reserved V1.1 surface** (the shapes real handlers will satisfy), retained so V1.1 can ship handlers without a breaking method addition. The HTTP verbs in the comments are the notional V1.1 REST equivalents, not V1 transport.
+
 ```ts
-// POST /sessions/{id}/purge
+// gdpr.sessionPurge — reserved V1.1 (notional REST: POST /sessions/{id}/purge)
 interface SessionPurgeRequest {
   sessionId: SessionId;
 }
@@ -1813,7 +1889,7 @@ interface SessionPurgeResponse {
   scheduledAt: string;
 }
 
-// GET /participants/{id}/export
+// gdpr.participantExport — reserved V1.1 (notional REST: GET /participants/{id}/export)
 interface ParticipantDataExportRequest {
   participantId: ParticipantId;
 }
@@ -1823,7 +1899,7 @@ interface ParticipantDataExportResponse {
   generatedAt: string;
 }
 
-// DELETE /participants/{id}/data
+// gdpr.participantDelete — reserved V1.1 (notional REST: DELETE /participants/{id}/data)
 interface ParticipantDataDeleteRequest {
   participantId: ParticipantId;
 }
@@ -1833,3 +1909,15 @@ interface ParticipantDataDeleteResponse {
   cryptoShredded: boolean;
 }
 ```
+
+### GDPR Method-Name Registry (Tier 5)
+
+The three `gdpr.*` stub methods (Plan-022 D-022-3, registered on Plan-007's `MethodRegistry`; reciprocal `provides` recorded on [Plan-007](../../plans/007-local-ipc-and-daemon-control.md)). All three return the unconditional not-implemented stub in V1 (§above); the Request / Response schemas are the reserved V1.1 contract, not a V1 success surface.
+
+| Method | Procedure type | Request schema | Response schema (reserved V1.1) |
+| --- | --- | --- | --- |
+| `gdpr.sessionPurge` | `mutation` | `SessionPurgeRequest` | `SessionPurgeResponse` |
+| `gdpr.participantExport` | `query` | `ParticipantDataExportRequest` | `ParticipantDataExportResponse` |
+| `gdpr.participantDelete` | `mutation` | `ParticipantDataDeleteRequest` | `ParticipantDataDeleteResponse` |
+
+In V1 every call resolves to the unconditional `-32603` / `data.type = "gdpr.endpoint_not_v1"` stub (I-022-15) regardless of the procedure type shown — the procedure types are the reserved-V1.1 semantics that the real handlers will honor. Canonical schemas live in `packages/contracts/` per the §Source-of-Truth Policy.

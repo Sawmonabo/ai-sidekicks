@@ -2,14 +2,14 @@
 
 | Field | Value |
 | --- | --- |
-| **Status** | `approved` |
+| **Status** | `review` |
 | **NNN** | `022` |
 | **Slug** | `data-retention-and-gdpr` |
 | **Date** | `2026-04-17` |
 | **Author(s)** | `Claude Opus 4.7` |
 | **Spec** | [Spec-022: Data Retention And GDPR Compliance](../specs/022-data-retention-and-gdpr.md) |
-| **Required ADRs** | [ADR-015: V1 Feature Scope Definition](../decisions/015-v1-feature-scope-definition.md) |
-| **Dependencies** | Plan-001 (this plan forward-declares a column on Plan-001's `session_events` table and contributes `participant_keys` to Plan-001's initial SQLite migration); Plan-007 (local daemon IPC host for the 501 GDPR stub routes) |
+| **Required ADRs** | [ADR-015: V1 Feature Scope Definition](../decisions/015-v1-feature-scope-definition.md); [ADR-021: CLI Identity Key Storage Custody](../decisions/021-cli-identity-key-storage-custody.md) — the version-byte XChaCha20-Poly1305 envelope this plan's `daemon-master.enc` extends; [ADR-010: PASETO WebAuthn MLS Auth](../decisions/010-paseto-webauthn-mls-auth.md) — `@noble` crypto-library selection (Argon2id KEK + the AEAD primitives) |
+| **Dependencies** | Plan-001 (forward-declares a column on Plan-001's `session_events` table and contributes `participant_keys` to Plan-001's initial SQLite migration); Plan-006 (sole canonicalization + signing path; consumes this plan's `PiiEncryptor` per CP-022-1 / CP-006-1); Plan-007 (local daemon JSON-RPC host for the GDPR stub methods; reciprocates CP-007-8 master-key store); Plan-018 (Path-2 Postgres deletion targets `participants` / `identity_mappings` — CP-022-6); Plan-023 (forward-declared Tier-8 macOS-only WebAuthn-PRF KEK edge — CP-022-3) |
 | **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
 
 ## Goal
@@ -20,12 +20,12 @@ Ship the V1 **schema and write-path** of the Spec-022 crypto-shredding model so 
 
 - Create the `participant_keys` SQLite table (schema per Spec-022 §Participant Keys) owned by this plan, populated on first participant provisioning.
 - **Forward-declare** the `session_events.pii_payload BLOB` column onto Plan-001's initial SQLite migration `0001-initial.ts` so Tier 1 ships a schema already compatible with crypto-shredding. Plan-001's migration inherits this constraint at authoring time (Session 4 / post-BL-054 propagation).
-- Daemon master-key bootstrap: OS keychain primary (macOS Keychain, Windows DPAPI/Credential Manager, Linux libsecret via `keytar`); file fallback at `${XDG_DATA_HOME:-~/.local/share}/ai-sidekicks/daemon/master-key` (mode `0600`, base64-encoded 32 bytes) when keychain is unavailable.
-- Per-participant key derivation: HKDF-SHA256 (RFC 5869) with `info = "ais.participant.v1" || participant_id`, `salt = null`, `ikm` = participant authentication material passed by Plan-018 at provisioning time; derived key is the AES-256 content key.
+- Daemon master-key custody: **KEK-wrapped envelope; the plaintext master key never touches persistent storage** ([Spec-022 §Daemon Master Key](../specs/022-data-retention-and-gdpr.md#daemon-master-key)). Resolution ladder — **Tier 1**: OS keystore via `@napi-rs/keyring` v1.2.0, caching the _wrapped_ blob (`keytar` is archived/unmaintained and is not used); **Tier 2**: encrypted `daemon-master.enc` — the [ADR-021](../decisions/021-cli-identity-key-storage-custody.md) version-byte XChaCha20-Poly1305 envelope under an Argon2id KEK (OWASP params `m=19456, t=2, p=1`); **Tier 3**: **refuse to start** (exit non-zero) — never a plaintext master, per Spec-022 §Daemon Master Key. The in-memory master is held under `sodium_mlock` and wiped with `sodium_memzero`. Shipped as `OsKeystoreSealedDaemonKeyStore`, reciprocating Plan-007 CP-007-8 (see [§Cross-Plan Obligations](#cross-plan-obligations)). The Argon2id passphrase KEK is the V1 baseline (buildable at Tier 5); the WebAuthn-PRF KEK is a forward-declared Tier-8 macOS-only edge (Plan-023, CP-022-3).
+- Per-participant content key: a **random 32-byte AES-256 key** generated once at provisioning via CSPRNG (`crypto.getRandomValues` / `@noble/ciphers`), wrapped under the daemon master KEK and persisted **only** as `participant_keys.encrypted_key_blob`. It is **not derived** from any credential, identity record, or other surviving secret — its sole copy is the KEK-wrapped blob, so deleting that row is an irreversible cryptographic erasure (the crypto-shred precondition, [Spec-022 §Signature Safety Under Shred](../specs/022-data-retention-and-gdpr.md#signature-safety-under-shred)). This is standard envelope encryption (a random DEK wrapped by a KEK) — the AWS KMS / Google Cloud KMS / Rails ActiveRecord Encryption consensus.
 - PII encryption format: AES-256-GCM with `AAD = participant_id || event_id`, 12-byte random nonce, wire format `iv || ciphertext || tag`. Written to `session_events.pii_payload` by every event writer that emits PII.
-- Master-key wrap for `participant_keys.encrypted_key_blob`: XChaCha20-Poly1305 with `AAD = participant_id || "ais.master-wrap.v1"`, 24-byte random nonce, wire format `nonce || ciphertext || tag`. Matches [Spec-022 §Participant Keys](../specs/022-data-retention-and-gdpr.md#participant-keys) and Plan-001's forward-declared `participant_keys` table. **Rationale.** XChaCha20-Poly1305's 192-bit random nonce eliminates the nonce-collision risk that AES-256-GCM's 96-bit nonce creates for a master-wrap key whose nonces are randomly generated across potentially many rotations and devices; per [RFC 8439 §4](https://datatracker.ietf.org/doc/html/rfc8439) and [draft-irtf-cfrg-xchacha-03](https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-xchacha-03), the 192-bit nonce space is safe for arbitrary random nonces, whereas AES-256-GCM's 96-bit nonce requires counter management or bounded total messages per key. PII content encryption (`pii_payload`) remains AES-256-GCM because the AAD `participant_id || event_id` uniquely binds each record to a per-write counter-safe context.
+- Master-key wrap for `participant_keys.encrypted_key_blob`: XChaCha20-Poly1305 with `AAD = participant_id || "ais.master-wrap.v1" || key_version`, 24-byte random nonce, wire format `nonce || ciphertext || tag`. Matches [Spec-022 §Participant Keys](../specs/022-data-retention-and-gdpr.md#participant-keys) and Plan-001's forward-declared `participant_keys` table. **Rationale.** XChaCha20-Poly1305's 192-bit random nonce eliminates the nonce-collision risk that AES-256-GCM's 96-bit nonce creates for a master-wrap key whose nonces are randomly generated across potentially many rotations and devices; per [RFC 8439 §4](https://datatracker.ietf.org/doc/html/rfc8439) and [draft-irtf-cfrg-xchacha-03](https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-xchacha-03), the 192-bit nonce space is safe for arbitrary random nonces, whereas AES-256-GCM's 96-bit nonce requires counter management or bounded total messages per key. PII content encryption (`pii_payload`) remains AES-256-GCM: its random 96-bit nonce is collision-safe within the bounded per-participant write volume (the [NIST SP 800-38D §8.3](https://csrc.nist.gov/publications/detail/sp/800-38d/final) random-nonce ceiling of ~2³² messages per key applies _per participant_, not across the whole event log). The AAD `participant_id || event_id` is a record-binding / tamper-evidence mechanism — it cryptographically binds each ciphertext to its participant and event, but has **no** effect on nonce-collision probability (the prior "counter-safe" framing was unsound).
 - PII splitter: a pure, content-aware function `splitPii(event) → {payload, pii_payload}` that the emitter invokes per write. The emitter decides at the call site whether a given field carries PII (by passing the field to the `piiPayload` branch of the splitter input); the splitter does not consult a per-event-type registry attribute. Non-PII events write a NULL `pii_payload`. **Rationale.** Spec-006's event taxonomy does not carry a per-event `pii:true|false` attribute and is not planned to — classifying 120 event types across 18 categories into PII buckets is brittle because a single event type can carry PII on one call-site and none on another (e.g. `run.prompt_submitted` carries PII when the prompt is user-authored, none when the prompt is a system template). Call-site classification is the only model that stays correct under this ambiguity.
-- 501 Not Implemented stub routes for the three V1.1+ GDPR endpoints (`POST /sessions/{id}/purge`, `GET /participants/{id}/export`, `DELETE /participants/{id}/data`) returning error code `gdpr.endpoint_not_v1` — preserves URL contract for V1.1 upgrade without shipping half-finished behavior.
+- Daemon JSON-RPC GDPR stub methods (`gdpr.*`) for the three V1.1+ operations (session purge, participant export, participant delete) returning a not-implemented error envelope (`data.type = "gdpr.endpoint_not_v1"`, the standard `-32603` JSON-RPC discriminator — no custom numeric code, per error-contracts.md:39) — reserves the method namespace for the V1.1 upgrade without shipping half-finished behavior. Host is daemon-bound (data-locality); transport shape per D-022-3 (ratified).
 
 ## Non-Goals
 
@@ -39,26 +39,25 @@ Ship the V1 **schema and write-path** of the Spec-022 crypto-shredding model so 
 
 - [x] Spec-022 is approved (this plan is paired with it)
 - [x] ADR-015 V1 Feature Scope Definition is accepted (places GDPR schema readiness as V1 surface requirement)
-- [x] `@noble/hashes` and `@noble/ciphers` crypto-library decision ([ADR-010 §Decision point 3](../decisions/010-paseto-webauthn-mls-auth.md#decision) / [security-architecture.md §Relay Authentication And Encryption](../architecture/security-architecture.md#relay-authentication-and-encryption-task-53) — already fixed to `@noble` v2.x for V1)
+- [x] `@noble/hashes` and `@noble/ciphers` crypto-library decision ([ADR-010 §Decision point 3](../decisions/010-paseto-webauthn-mls-auth.md#decision) / [security-architecture.md §Relay Authentication And Encryption](../architecture/security-architecture.md#relay-authentication-and-encryption-task-53) — already fixed to `@noble` v2.x for V1; `@noble/hashes` v2.x supplies Argon2id for the KEK, so the KEK needs no second crypto dependency — and the random per-participant content DEK needs no KDF at all)
+- [x] [ADR-021: CLI Identity Key Storage Custody](../decisions/021-cli-identity-key-storage-custody.md) is accepted — defines the version-byte XChaCha20-Poly1305 envelope and Argon2id-KEK custody model this plan's daemon `daemon-master.enc` extends
 - [ ] Plan-001 is authored and accepts the forward-declaration (actioned in Session 4 per BL-054)
 - [x] PII classification is a call-site decision owned by the emitter, not a Spec-006 registry attribute. Spec-006 does not carry a `pii:true|false` per-event-type flag — the splitter consumes the emitter's explicit split of `{payload, piiPayload}` on each write. See §Scope for rationale.
 
 ## Target Areas
 
-- `packages/runtime-daemon/src/crypto/` — **created by this plan**: `master-key-source.ts`, `participant-key-deriver.ts`, `pii-codec.ts`, `wrap-codec.ts`
-- `packages/runtime-daemon/src/persistence/participant-keys/` — **created by this plan**: `participant-keys-store.ts`
-- `packages/runtime-daemon/src/persistence/session-events/` — **extended by this plan**: event-writer helper `write-with-pii.ts` that the Plan-001 writer path consumes
-- `packages/runtime-daemon/src/persistence/migrations/0001-initial.ts` — **forward-declared addition to Plan-001's migration**: `session_events.pii_payload BLOB` column + full `participant_keys` table
-- `packages/runtime-daemon/src/config/master-key-source.ts` — keychain bootstrap (via `keytar`), file fallback path resolution
-- `packages/runtime-daemon/src/http/gdpr-stub-routes.ts` — **created by this plan**: three 501 handlers registered by Plan-007's IPC host
-- `docs/architecture/contracts/error-contracts.md` — **extended**: new error code `gdpr.endpoint_not_v1` (HTTP 501)
-- `docs/architecture/schemas/local-sqlite-schema.md` — **extended**: `participant_keys` table schema + `session_events.pii_payload` column documented
+- `packages/runtime-daemon/src/crypto/` — **new subsystem directory created by this plan**: `participant-key-generator.ts`, `pii-codec.ts` (the injected `PiiEncryptor`, [CP-022-1 / CP-006-1](#cross-plan-obligations)), `wrap-codec.ts`, `participant-keys-store.ts`, `split-pii.ts` (the pure call-site PII partition Plan-006's event writer consumes)
+- `packages/runtime-daemon/src/bootstrap/daemon-key-store.ts` — **created by this plan** in the shipped `bootstrap/` composition root: `OsKeystoreSealedDaemonKeyStore`, the KEK-wrapped master-key custody ladder, reciprocating Plan-007 CP-007-8
+- `packages/runtime-daemon/src/migrations/0001-initial.ts` — **forward-declared addition to Plan-001's migration** (Plan-001-owned; the file ships at this path): `session_events.pii_payload BLOB` column + full `participant_keys` table
+- `packages/runtime-daemon/src/ipc/handlers/gdpr-stub-handlers.ts` — **created by this plan** in the shipped `ipc/handlers/` host: three daemon JSON-RPC GDPR stub methods registered on Plan-007's `MethodRegistry`
+- `docs/architecture/contracts/error-contracts.md` — **extended**: new project code `gdpr.endpoint_not_v1` (a §GDPR §Error Codes row + the `-32603` daemon-wire pin in §JSON-RPC Wire Mapping; no custom numeric code per error-contracts.md:39 / D-022-3)
+- `docs/architecture/schemas/local-sqlite-schema.md` — **extended**: `participant_keys` + `session_events.pii_payload`; **correct** the `encrypted_key_blob` wrap-cipher annotation to XChaCha20-Poly1305 (it currently reads AES-256-GCM)
 
 ## Data And Storage Changes
 
 ### PII Data Map (Three Durability Tiers)
 
-Per [Spec-022 §PII Data Map](../specs/022-data-retention-and-gdpr.md#pii-data-map), three PII durability tiers are reachable from `DELETE /participants/{id}/data`. Plan-022 owns the V1 schema and write-path for the durable-tier SQLite side (below); Plan-018 owns the Postgres side of the durable tier; Plan-020 owns the bounded-retention tier; the telemetry-export tier is covered by Plan-020's default-deny outbound posture. Plan-022 is the orchestrator that reconciles the three tiers when the V1.1 deletion handler ships (see Implementation Step 11 + [§Signature Safety Under Shred](#signature-safety-under-shred)).
+Per [Spec-022 §PII Data Map](../specs/022-data-retention-and-gdpr.md#pii-data-map), three PII durability tiers are reachable from `DELETE /participants/{id}/data`. Plan-022 owns the V1 schema and write-path for the durable-tier SQLite side (below); the Postgres side of the durable tier is owned plan-by-plan — Plan-018 (`participants`, `identity_mappings`), Plan-002 (`session_invites`), Plan-019 (`notification_preferences`), Plan-001 (`session_memberships`); Plan-020 owns the bounded-retention tier; the telemetry-export tier is covered by Plan-020's default-deny outbound posture. Plan-022 is the orchestrator that reconciles the three tiers when the V1.1 deletion handler ships (see Implementation Step 11 + [§Signature Safety Under Shred](#signature-safety-under-shred)).
 
 **Durable tier** (V1 schema in scope for Plan-022's SQLite side; Postgres side referenced for V1.1 orchestration):
 
@@ -68,8 +67,8 @@ Per [Spec-022 §PII Data Map](../specs/022-data-retention-and-gdpr.md#pii-data-m
 | `participant_keys` (SQLite) | `encrypted_key_blob` | Plan-022 | Path 1 — row DELETE destroys per-participant AES-256-GCM key |
 | `participants` (PG) | `display_name`, `identity_ref` | Plan-018 (identity model) | Path 2 — hard DELETE row |
 | `identity_mappings` (PG) | `external_id` | Plan-018 | Path 2 — hard DELETE row |
-| `session_invites` (PG) | `token_hash` | Plan-018 | Path 2 — anonymize participant reference |
-| `notification_preferences` (PG) | `preference_value` | Plan-018 | Path 2 — hard DELETE row |
+| `session_invites` (PG) | `inviter_id` (FK reference, anonymized) | Plan-002 (session lifecycle) | Path 2 — anonymize participant reference |
+| `notification_preferences` (PG) | `preference_value` | Plan-019 (notifications) | Path 2 — hard DELETE row |
 
 **Bounded-retention diagnostic tier** (daemon-local SQLite, non-canonical per [Spec-020 §Required Behavior](../specs/020-observability-and-failure-recovery.md#required-behavior); ≤ 7-day TTL; Plan-020 ownership):
 
@@ -79,6 +78,8 @@ Per [Spec-022 §PII Data Map](../specs/022-data-retention-and-gdpr.md#pii-data-m
 | `command_output` (SQLite, daemon-local) | `stdout`, `stderr` | Plan-020 | Path 3 — scoped flush before TTL |
 | `tool_traces` (SQLite, daemon-local) | `args`, `result_body` | Plan-020 | Path 3 — scoped flush before TTL |
 | `reasoning_detail` (SQLite, daemon-local) | `detailed_payload` | Plan-020 | Path 3 — scoped flush before TTL; summary retained (non-PII by construction) |
+
+> **[D-022-4 — ratified]** The four bounded-retention column names above mirror [Spec-022 §PII Data Map](../specs/022-data-retention-and-gdpr.md#pii-data-map):251-254, but [local-sqlite-schema.md](../architecture/schemas/local-sqlite-schema.md) models all four diagnostic buckets as a single `bucket_payload BLOB`. **Ratified:** the schema is the build-time authority — this map is reconciled to `bucket_payload BLOB` at swap; the per-field names are a documentation gloss. See [§Ratified Design Decisions](#ratified-design-decisions-tier-5-audit-2026-05-30) D-022-4.
 
 **Telemetry export tier** (outbound OTel / error-tracker sinks; default-deny, opt-in; Plan-020 redaction-policy ownership):
 
@@ -106,40 +107,53 @@ CREATE TABLE participant_keys (
 
 Plan-001's initial migration `0001-initial.ts` MUST include `pii_payload BLOB` on the `session_events` column list directly (not as a later ALTER). Rationale: Spec-022 §Schema Requirements is load-bearing — _"This schema separation must be present in the initial V1 schema to avoid costly migration later."_ BL-054's propagation pass verifies the forward-declaration has been accepted.
 
-### Filesystem: master-key bootstrap
+### Filesystem: master-key custody (KEK-wrapped, plaintext never persisted)
 
-- **Primary**: OS keychain entry under service `"ai-sidekicks.daemon"`, account `"master-key"` (32 random bytes, base64).
-- **Fallback**: `${XDG_DATA_HOME:-~/.local/share}/ai-sidekicks/daemon/master-key` with mode `0600`.
-- **Bootstrap contract**: if neither exists, generate 32 random bytes (`crypto.getRandomValues`), write to keychain; fall back to file if keychain unavailable; emit a single `daemon.master_key_source` event with `{source: "keychain" | "file"}` on startup.
+Per [Spec-022 §Daemon Master Key](../specs/022-data-retention-and-gdpr.md#daemon-master-key), the 32-byte master key is **never persisted in plaintext**. It is generated once (`crypto.getRandomValues`), wrapped under a KEK, and resolved through a three-tier ladder on startup. The store is `OsKeystoreSealedDaemonKeyStore` at `bootstrap/daemon-key-store.ts`.
+
+- **Tier 1 — OS keystore** via `@napi-rs/keyring` v1.2.0 (service `"ai-sidekicks.daemon"`, account `"master-key"`). Caches the **wrapped** envelope, not raw key bytes. (`keytar` is archived/unmaintained and is not used.)
+- **Tier 2 — encrypted file** `${XDG_DATA_HOME:-~/.local/share}/ai-sidekicks/daemon/daemon-master.enc` (mode `0600`): the [ADR-021](../decisions/021-cli-identity-key-storage-custody.md) version-byte XChaCha20-Poly1305 envelope. KEK derivation: **Argon2id** (`m=19456, t=2, p=1`, [OWASP Password Storage Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)) over a daemon passphrase — the V1-universal baseline, supplied by `@noble/hashes` v2.x `argon2id`. The macOS WebAuthn-PRF KEK is a forward-declared Tier-8 edge (Plan-023, CP-022-3).
+- **Tier 3 — refuse**: if the OS keystore is unavailable AND no decryptable `daemon-master.enc` exists, the daemon **exits non-zero** with an operator-actionable error. It MUST NOT fall back to a plaintext master ([Spec-022 §Daemon Master Key](../specs/022-data-retention-and-gdpr.md#daemon-master-key)).
+- **Envelope AAD**: the full 50-byte header prefix binds the version byte (the KEK-branch discriminator) into the AEAD (ratified D-022-1(b); resolves the Spec-022 :172-vs-:174 self-contradiction in favour of :174).
+- **In-memory protection**: the unwrapped master is held under `sodium_mlock` and zeroed with `sodium_memzero` on shutdown; excluded from backup surfaces.
+- **Audit**: emit one `daemon.master_key_source` event `{source: "os-keystore" | "encrypted-file"}` on resolution (taxonomy registration — see [§Ratified Design Decisions](#ratified-design-decisions-tier-5-audit-2026-05-30) D-022-5; registered in Spec-006 at swap).
 
 ## API And Transport Changes
 
-### 501 GDPR stub routes (HTTP, local IPC via Plan-007's host)
+### GDPR stub methods (daemon JSON-RPC via Plan-007's host)
 
-Three routes registered by Plan-022, all returning HTTP 501 with:
+Three methods registered by Plan-022 on Plan-007's JSON-RPC `MethodRegistry` (`ipc/handlers/gdpr-stub-handlers.ts`), all returning a "not implemented in V1" error envelope. The host is **daemon-bound, not the control plane**: the V1.1 handlers must read daemon-local `participant_keys` rows and the `sodium_mlock`-held master key, which a Cloudflare-Workers control plane cannot reach (data-locality — see [§Ratified Design Decisions](#ratified-design-decisions-tier-5-audit-2026-05-30) D-022-3). The error envelope is the [ADR-009](../decisions/009-json-rpc-ipc-wire-format.md) JSON-RPC shape; the numeric `code` is the standard `-32603` discriminator (the project mints no custom numeric codes — [error-contracts.md:39](../architecture/contracts/error-contracts.md) — so the project meaning rides `data.type`), per D-022-3:
 
-```json
+```jsonc
+// JSON-RPC error response (ADR-009 envelope); standard -32603 discriminator + data.type per D-022-3
 {
+  "jsonrpc": "2.0",
+  "id": "<request-id>",
   "error": {
-    "code": "gdpr.endpoint_not_v1",
-    "message": "Crypto-shredding is post-V1; this endpoint is reserved for a V1.1+ release."
-  }
+    // D-022-3: the project mints NO custom numeric codes (error-contracts.md:39). A registered
+    // method cannot emit -32601 "method not found" — so the stub rides the standard -32603
+    // discriminator (the residual handler-thrown bucket), with the project meaning in data.type,
+    // exactly mirroring transport.unavailable. Consumers discriminate on data.type, not -32603.
+    "code": -32603,
+    "message": "Crypto-shredding is post-V1; this method is reserved for a V1.1+ release.",
+    "data": { "type": "gdpr.endpoint_not_v1" },
+  },
 }
 ```
 
-Routes:
+Methods (final names per D-022-3; `gdpr.*` namespace, registered on Plan-007's `MethodRegistry`):
 
-- `POST /sessions/{id}/purge`
-- `GET /participants/{id}/export`
-- `DELETE /participants/{id}/data`
+- `gdpr.sessionPurge` — reserves the V1.1 session-purge operation
+- `gdpr.participantExport` — reserves the V1.1 participant-data export
+- `gdpr.participantDelete` — reserves the V1.1 participant crypto-shred
 
-The stubs preserve the URL contract so V1.1 can ship real handlers without a breaking route addition. No request validation or authentication beyond Plan-007's standard IPC auth; 501 is returned unconditionally.
+The stubs reserve the method namespace so V1.1 can ship real handlers without a breaking method addition. No request validation beyond Plan-007's standard IPC auth; the not-implemented error is returned **unconditionally** (independent of request body or caller). Plan-007 must reciprocate with a registration entry for the `gdpr.*` namespace — see [§Cross-Plan Obligations](#cross-plan-obligations).
 
 ## Signature Safety Under Shred
 
 Event rows carry an Ed25519 signature over canonical bytes per [Spec-006 §Integrity Protocol](../specs/006-session-event-taxonomy-and-audit-log.md#integrity-protocol). After Path 1 destroys a participant's AES-256-GCM key (see Implementation Step 11), the signature bytes on every pre-shred event row remain on disk indefinitely for audit integrity. Plan-022's write-path obligations (Implementation Step 7 below) ensure these retained signatures **cannot** re-introduce plaintext PII recoverability, per [Spec-022 §Signature Safety Under Shred](../specs/022-data-retention-and-gdpr.md#signature-safety-under-shred). Five-point proof:
 
-1. **Canonical bytes exclude `pii_payload`.** Per [Spec-006 §Canonical Serialization Rules](../specs/006-session-event-taxonomy-and-audit-log.md#canonical-serialization-rules), canonical-bytes-under-signature cover 11 envelope fields (`id`, `sessionId`, `sequence`, `occurredAt`, `category`, `type`, `actor`, `payload`, `correlationId`, `causationId`, `version`) — **not** `pii_payload`. Events whose `pii_payload` is non-NULL embed `pii_ciphertext_digest = BLAKE3(pii_payload_ciphertext)` inside `payload`, which **is** in the canonical form. Plan-022's write-path (Implementation Step 7, `write-with-pii.ts`) MUST compute this digest and embed it in `payload` BEFORE the canonicalizer runs; Plan-006 owns the canonical-serialization semantics — see Plan-006 §PII Columns 7-step Encrypt-Then-Digest-Then-Sign order. Any implementation path that signs `pii_payload` ciphertext directly (skipping the digest indirection) is a signature-integrity regression.
+1. **Canonical bytes exclude `pii_payload`.** Per [Spec-006 §Canonical Serialization Rules](../specs/006-session-event-taxonomy-and-audit-log.md#canonical-serialization-rules), canonical-bytes-under-signature cover 11 envelope fields (`id`, `sessionId`, `sequence`, `occurredAt`, `category`, `type`, `actor`, `payload`, `correlationId`, `causationId`, `version`) — **not** `pii_payload`. Events whose `pii_payload` is non-NULL embed `pii_ciphertext_digest = BLAKE3(pii_payload_ciphertext)` inside `payload`, which **is** in the canonical form. Plan-022 supplies the `PiiEncryptor` (`pii-codec.ts`, [CP-022-1 / CP-006-1](#cross-plan-obligations)) and the pure `splitPii` partition; **Plan-006's `pii-indirection.ts` is the sole owner of the Encrypt-Then-Digest-Then-Sign order** — it invokes the injected `PiiEncryptor`, computes `pii_ciphertext_digest = BLAKE3(ciphertext)`, embeds it in `payload`, then canonicalizes and signs (Plan-006 §PII Columns 7-step order). Plan-022 owns **neither** the digest-embed nor any canonicalization step. Any path that signs `pii_payload` ciphertext directly (skipping the digest indirection) is a signature-integrity regression.
 2. **Ed25519 signature verification is a public operation.** Per [RFC 8032 §5.1](https://datatracker.ietf.org/doc/html/rfc8032#section-5.1), Ed25519 verification takes `(public key, message, signature) → bool`. No plaintext oracle is introduced by verification; an attacker holding every signed row and the daemon's public key learns only that canonical bytes are authentic, never plaintext PII.
 3. **BLAKE3 digest is one-way.** `pii_ciphertext_digest` commits to ciphertext via a 32-byte BLAKE3 digest. Preimage recovery requires brute force over the ciphertext preimage space (AES-256-GCM output bytes, not plaintext).
 4. **AES-256-GCM key destruction is load-bearing.** The per-participant AES-256-GCM key lives only in `participant_keys.encrypted_key_blob`, wrapped under the daemon master key. Path 1 DELETE of the `participant_keys` row destroys the content key by construction — no credential can unwrap a key that is no longer present. Even if an attacker somehow recovered the ciphertext preimage of `pii_ciphertext_digest` (infeasible per point 3), the AES-256-GCM key required to decrypt it is already gone. This matches the cryptographic-construction argument in [Spec-022 §Signature Safety Under Shred point 4](../specs/022-data-retention-and-gdpr.md#signature-safety-under-shred).
@@ -147,21 +161,71 @@ Event rows carry an Ed25519 signature over canonical bytes per [Spec-006 §Integ
 
 **Therefore.** Signature bytes retained indefinitely for audit integrity commit only to ciphertext that Path 1 rendered irrecoverable. Verification remains possible; plaintext recovery remains infeasible. This is the audit-integrity-load-bearing property that lets V1 ship `pii_payload` crypto-shred without breaking Spec-006's BLAKE3 hash chain or Ed25519 signature chain.
 
+## Invariants
+
+Behavioral invariants this plan must preserve; the §Implementation Phase Sequence Tasks cite them in `Verifies invariant`.
+
+- **I-022-1 — Plaintext master key never persisted.** The plaintext daemon master key is never written to any persistent surface the daemon controls — the OS keystore caches only the wrapped envelope; no plaintext file, backup, log, or daemon-managed swap holds raw key bytes. (Spec-022:142,151.) Tasks: T22.1.2, T22.1.1.
+- **I-022-2 — Refuse over plaintext fallback.** With neither a readable OS-keystore entry nor a decryptable `daemon-master.enc`, the daemon exits non-zero and never synthesizes or persists a plaintext master. (Spec-022:153.) Tasks: T22.1.2.
+- **I-022-3 — KEK-wrapped at rest.** `daemon-master.enc` is the ADR-021 XChaCha20-Poly1305 envelope under an Argon2id KEK; the wrap key is never co-located with the ciphertext. (Spec-022:151,161,163-174; ADR-021.) Tasks: T22.1.3, T22.1.4.
+- **I-022-4 — Envelope binds the version byte.** The envelope AEAD's associated data is the full header prefix including the version byte (the KEK-branch discriminator); a flipped version byte fails authentication, blocking branch-confusion downgrade. (ADR-021:71; Spec-022:172,174; ratified D-022-1(b).) Tasks: T22.1.4.
+- **I-022-5 — Master key memory-locked + wiped.** The unwrapped master lives only in `sodium_mlock`-locked memory and is `sodium_memzero`-wiped on shutdown. (Spec-022:176-183.) Tasks: T22.1.5.
+- **I-022-6 — Master excluded from backups.** The master key and `daemon-master.enc` are excluded from any backup/export surface the daemon emits. (Spec-022:208-211.) Tasks: T22.1.5.
+- **I-022-7 — Per-participant key isolation.** Each participant's PII content key is an **independent random 32-byte AES-256 key** (CSPRNG at provisioning); no key material is shared across participants, derived from a common secret, or re-derivable from any surviving credential or identity record. This is the crypto-shred precondition (I-022-14 / [Spec-022 §Signature Safety Under Shred](../specs/022-data-retention-and-gdpr.md#signature-safety-under-shred)): the key's only copy is the KEK-wrapped `participant_keys.encrypted_key_blob`, so a row-DELETE destroys it irrecoverably. (Plan §Scope — params author-internal.) Tasks: T22.2.1.
+- **I-022-8 — Bounded nonce-collision safety.** PII AES-256-GCM random 96-bit nonces stay within the NIST SP 800-38D §8.3 collision bound because write volume is bounded per participant, not across the event log; the AAD provides record-binding, never nonce safety. (NIST SP 800-38D §8.3.) Tasks: T22.2.4.
+- **I-022-9 — Wrap binds participant + key version.** The per-participant key wrap binds `participant_id` **and** `key_version` into its AAD (`participant_id || "ais.master-wrap.v1" || key_version`); a wrapped blob cannot be replayed under another participant or rolled back to a different key version. Binding `key_version` in V1 (where it is pinned at `1`) pre-empts a V1.1 dual-AAD migration. (Plan §Scope — params author-internal; D-022-6.) Tasks: T22.2.2.
+- **I-022-10 — `key_version` immutable in V1.** `key_version` stays `1` and `rotated_at` stays NULL; no V1 path mutates them (rotation is out of scope). (Plan §Non-Goals; Spec-022 §Implementation Notes.) Tasks: T22.2.3.
+- **I-022-11 — Canonical bytes exclude `pii_payload`.** Canonical-bytes-under-signature exclude `pii_payload`; only `pii_ciphertext_digest` inside `payload` commits to PII. (Spec-006 §Canonical Serialization Rules.) Tasks: T22.3.1.
+- **I-022-12 — Digest embedded before signing (Plan-006-owned).** `pii_ciphertext_digest = BLAKE3(ciphertext)` is embedded in `payload` before canonicalization/signing by Plan-006's `pii-indirection.ts`. (Plan-006 §PII Columns 7-step; Spec-022 §Signature Safety Under Shred.) Tasks: T22.2.4, T22.3.1.
+- **I-022-13 — `splitPii` is pure.** `splitPii` performs no encryption, digest, or IO; the same input yields the same partition. Tasks: T22.3.1.
+- **I-022-14 — Key destruction renders PII irrecoverable.** The per-participant content key is a random DEK with **no derivation**, so after the Path-1 `participant_keys` row DELETE no surviving secret — credential, **identity record**, retained signature, digest, or master key — recovers plaintext PII. (A credential- or identity-derived key would survive the row-DELETE via its surviving source secret; the random-DEK construction (D-022-2) is what makes this invariant hold.) (Spec-022 §Signature Safety Under Shred; Spec-022:380 AC#5.) Tasks: T22.3.1, T22.5.1.
+- **I-022-15 — Stubs return not-implemented unconditionally.** The three `gdpr.*` methods return the not-implemented error independent of request body or caller in V1. (Spec-022 §Non-Goals.) Tasks: T22.4.1, T22.4.3.
+- **I-022-16 — Single-owned stub registration.** Each `gdpr.*` method is registered exactly once on Plan-007's `MethodRegistry`. Tasks: T22.4.1, T22.4.2.
+- **I-022-17 — Standard discriminator, dotted project code.** The stub rides the standard JSON-RPC `-32603` discriminator (NOT a custom numeric code — per [error-contracts.md:39](../architecture/contracts/error-contracts.md) the project mints no numeric domain codes) with the registered project code `data.type = "gdpr.endpoint_not_v1"`; consumers discriminate on `data.type`. (ADR-009; D-022-3; mirrors `transport.unavailable`.) Tasks: T22.4.4, T22.4.1.
+- **I-022-18 — Schema doc matches wrap cipher.** `local-sqlite-schema.md` documents `encrypted_key_blob` as XChaCha20-Poly1305-wrapped (matching the migration), not AES-256-GCM. Tasks: T22.4.5.
+- **I-022-19 — Reciprocal completeness.** Every CP-022-1..7 has a reciprocal entry in its owner plan; no one-sided cross-plan edge ships. (cross-plan-deps §3.) Tasks: T22.5.1.
+- **I-022-20 — Cascade-free crypto-shred.** `participant_keys` carries no foreign-key cascade that blocks a Path-1 row DELETE. (Spec-022 §Shred Fan-Out; Plan-001 migration.) Tasks: T22.3.2, T22.5.1.
+- **I-022-21 — No phantom PII columns.** Every column named in the §PII Data Map resolves to a real column in its owner plan's schema. (D-022-4.) Tasks: T22.5.1.
+- **I-022-22 — Ordered shred fan-out.** The V1.1 shred handler executes Path 1 → Path 2 → Path 3 with `participant.purged` emitted last. (Spec-022 §Ordering And Atomicity.) Tasks: T22.5.1.
+
+## Cross-Plan Obligations
+
+- **CP-022-1 — `PiiEncryptor` injection (⇄ Plan-006).** Plan-022 provides `crypto/pii-codec.ts` implementing Plan-006's `PiiEncryptor` interface and returning Plan-006's branded `PiiPayloadCiphertext`; Plan-006's `pii-indirection.ts` injects it and owns Encrypt-Then-Digest-Then-Sign. Reciprocal: Plan-006 CP-006-1 (live — ratified NS-16/PR #124). Provider of the brand + interface: Plan-006.
+- **CP-022-2 — `DaemonKeyStore` (→ Plan-007 CP-007-8).** Plan-022 ships `OsKeystoreSealedDaemonKeyStore` (`bootstrap/daemon-key-store.ts`) satisfying Plan-007's CP-007-8 master-key-store contract. Reciprocal: Plan-007 CP-007-8 (live).
+- **CP-022-3 — WebAuthn-PRF KEK forward-declared edge (← Plan-023, Tier 8).** The Tier-2 envelope KEK is Argon2id in V1 (buildable at Tier 5); the macOS WebAuthn-PRF KEK is consumed from Plan-023 at Tier 8 (macOS-only). Reciprocal owed: a `deriveKeyMaterial`/PRF surface on Plan-023 (forward-declared; not a V1 blocker).
+- **CP-022-4 — [DISSOLVED 2026-05-30 — retained as a numbering anchor].** The former HKDF `ikm`-producer seam (← Plan-018) is **removed**: [§Ratified Design Decisions](#ratified-design-decisions-tier-5-audit-2026-05-30) D-022-2 ratifies a random per-participant DEK (envelope encryption), so Plan-022 consumes **no** per-participant secret from Plan-018 and there is no `ikm`-stability data-loss class. Plan-022's only Plan-018 dependency is the non-secret Path-2 deletion targets (CP-022-6).
+- **CP-022-5 — Path-1 fan-out (⇄ Plan-001, Plan-006).** Plan-001's `participant_keys` migration is cascade-free for the Path-1 DELETE; Plan-006 emits `event.shredded` on Path-1 completion. Reciprocal: live (Plan-006 §Shred Fan-Out Cross-References). Verified at code time per Implementation Step 11(a)(d).
+- **CP-022-6 — Path-2 fan-out (⇄ Plan-018/019/002/001) — NEW, encode-now.** Each Postgres owner carries the reciprocal Path-2 obligation: Plan-018 (`participants`, `identity_mappings` hard-DELETE), Plan-019 (`notification_preferences` hard-DELETE), Plan-002 (`session_invites` anonymize), Plan-001 (`session_memberships` anonymize). Currently one-sided (zero reciprocal in any owner plan). Disposition: **encode now** as fix-in-place amendment notes at swap (project fix-in-place-over-rigid-ownership stance), not deferred to a V1.1 checkpoint.
+- **CP-022-7 — Path-3 fan-out (⇄ Plan-020).** Plan-020's four diagnostic buckets accept per-participant scoped flush as Path-3 targets. Reciprocal: live (Spec-020 bounded-retention). Verified at code time per Implementation Step 11(c).
+
+> **Reciprocal obligations owed on sibling plans** (encoded fix-in-place at this swap, per the project's fix-in-place-over-rigid-ownership stance): (1) **Plan-007** — register the `gdpr.*` method namespace on `MethodRegistry` (mirror CP-007-6/7). (2) **Plan-023** — expose the WebAuthn-PRF `deriveKeyMaterial` surface for CP-022-3 (Tier 8). (3) [cross-plan-deps §3](../architecture/cross-plan-dependencies.md#3-inter-plan-dependency-graph): correct Row 24 (write-mechanism = Plan-006/Tier-4, codec = Plan-022/Tier-5) and add the Plan-022←Plan-006(`PiiEncryptor`) edge + the CP-022 rows — the former Plan-022←Plan-018(`ikm`) edge is **removed** (D-022-2 dissolves it; Plan-022's only Plan-018 edge is the non-secret Path-2 targets, CP-022-6). (4) **Spec-022** back-fills: the random-DEK content-key model (superseding the credential-derived :117 wording), the inner-wrap / PII AEAD parameters, the AAD :172-vs-:174 self-contradiction (D-022-1(b)), and the bucket-column reconcile (D-022-4). (5) **Plan-001⇄Plan-006**: the one-sided `PiiPayloadCiphertext | null` INSERT-param obligation (I-006-2-02) is a Plan-001/Plan-006 seam routed to the orchestrator — not Plan-022's to carry.
+
+## Ratified Design Decisions (Tier 5 audit, 2026-05-30)
+
+The Open Decisions surfaced at the Tier-5 user-review pause are ratified below and folded into the plan body (per the audit runbook's resolved-decision convention). Each was an authored hardened recommendation; the pause confirmed it.
+
+- **D-022-1 — Master-key custody Type-2 parameters → ratified.** (a) The spec's KEK-wrapped custody model (Argon2id V1 baseline, refuse-over-plaintext, reject keytar/base64) supersedes the plan's prior `2026-04-17` base64-plaintext custody — confirmed spec-canonical (Spec-022:146; Plan-006 T2.7; Plan-007 CP-007-8; [cross-plan-deps:26](../architecture/cross-plan-dependencies.md)). (b) The master-envelope AEAD AAD is the **full 50-byte header** (binding the version byte / KEK-branch discriminator), resolving the Spec-022 :172-vs-:174 self-contradiction in favour of :174 (ADR-021:71). The Spec-022 back-fill fixing that self-contradiction lands in this swap. **Type 2.**
+- **D-022-2 — Per-participant content key → random DEK envelope encryption (the `ikm` seam is dissolved).** The content key is a **random 32-byte AES-256 DEK** (CSPRNG at provisioning), wrapped under the master KEK, whose only copy is `participant_keys.encrypted_key_blob` — **not** an HKDF derivation from a Plan-018 secret. **Rationale (the hardened call, not the convenient one — this audit caught the working draft authoring the convenient one):** a credential- or identity-derived content key is re-derivable from a secret that _survives_ the `participant_keys` row-DELETE (the credential, or Plan-018's immutable identity record), so the row-DELETE would **not** destroy it — silently defeating the GDPR Art. 17 crypto-shred erasure guarantee (Spec-022 §Signature Safety Under Shred, AC#5 / I-022-14). Envelope encryption (a random DEK wrapped by a KEK) is the AWS KMS / Google Cloud KMS / Rails ActiveRecord Encryption consensus and the only construction under which row-DELETE is a true cryptographic erasure. This **dissolves** the former CP-022-4 / OD-022-2 `ikm`-producer seam: Plan-022 consumes **no** per-participant secret from Plan-018 (it still consumes Plan-018's non-secret Path-2 deletion targets via CP-022-6). HKDF is removed from this plan entirely — master-wrap = XChaCha20-Poly1305, KEK = Argon2id, PII content = AES-256-GCM, content key = random DEK; none use a KDF. **Was Type 2; resolved by dissolution.**
+- **D-022-3 — GDPR stub shape + error code → ratified.** (a) The three `gdpr.*` V1 stubs are **daemon JSON-RPC methods** on Plan-007's `MethodRegistry` (data-locality: V1.1 handlers must reach daemon-local `participant_keys` + the `sodium_mlock`-held master a Cloudflare-Workers control plane cannot). (b) The stub returns the standard JSON-RPC `-32603` discriminator with the registered project code `data.type = "gdpr.endpoint_not_v1"` — registered in `error-contracts.md` at this swap (a §GDPR §Error Codes row + the `-32603` daemon-wire pin in §JSON-RPC Wire Mapping, mirroring `transport.unavailable`). Per [error-contracts.md:39](../architecture/contracts/error-contracts.md) the project mints **no** custom numeric codes; the "1001 / outside-reserved-range" framing from the readiness-audit notes was a transcription artifact, corrected at swap to the canonical convention. **Type 1 / Type 2 (transport).**
+- **D-022-4 — Diagnostic bucket-PII shape → ratified `bucket_payload BLOB`.** `local-sqlite-schema.md` is the build-time authority: the four per-field column names in the §PII Data Map bounded tier (Spec-022:251-254) are a documentation gloss; the canonical shape is the single `bucket_payload BLOB`, and the §PII Data Map is reconciled to match at this swap. **Type 1.**
+- **D-022-5 — `daemon.*` event taxonomy → registered in Spec-006.** `daemon.master_key_source` and `daemon.pii_split_ambiguous` are registered in the Spec-006 taxonomy at this swap (a corpus-doc amendment-at-swap — the same bucket as the Tier-4 swap's own Spec-006 touch, not a sealed-plan re-open per the runbook's plan-scoped Cross-Tier Amendment Contingency). `daemon.pii_split_ambiguous` is reconciled against any Plan-006 `daemon.pii_split_*` sibling to avoid a duplicate. **Type 1.**
+- **D-022-6 — Wrap-AAD crypto-agility (hardened-execution disposition).** The per-participant wrap AAD binds `key_version` alongside `participant_id` (`participant_id || "ais.master-wrap.v1" || key_version`). In V1 `key_version` is pinned at `1` (I-022-10), so this changes no V1 behaviour; it lets a V1.1 rotation distinguish v1/v2 blobs under a single AAD scheme, pre-empting a costly dual-AAD format migration. Authored now rather than deferred, per the "get the envelope right in the initial migration" discipline (Spec-022:107). **Type 2.**
+
 ## Implementation Steps
 
-1. Add `@noble/hashes` (HKDF-SHA256) and `@noble/ciphers` (AES-256-GCM for PII content encryption; XChaCha20-Poly1305 for master-key wrap of `participant_keys.encrypted_key_blob`) to `packages/runtime-daemon/package.json` at the same major versions pinned by ADR-010 for relay encryption (implementation economy: one audited crypto library with two distinct AEAD primitives matched to their use case — AES-256-GCM for counter-bounded per-record PII writes; XChaCha20-Poly1305 for random-nonce master-wrap).
-2. Implement `packages/runtime-daemon/src/config/master-key-source.ts` with keychain-primary (via `keytar`) and file-fallback (`${XDG_DATA_HOME:-~/.local/share}/ai-sidekicks/daemon/master-key`, mode `0600`) bootstrap. Emit `daemon.master_key_source` event on resolution.
-3. Implement `packages/runtime-daemon/src/crypto/participant-key-deriver.ts`: HKDF-SHA256 with `info = "ais.participant.v1" || participant_id`, returns 32-byte AES-256 key.
-4. Implement `packages/runtime-daemon/src/crypto/wrap-codec.ts`: XChaCha20-Poly1305 wrap with `AAD = participant_id || "ais.master-wrap.v1"`, 24-byte random nonce, wire format `nonce || ciphertext || tag`.
-5. Implement `packages/runtime-daemon/src/persistence/participant-keys/participant-keys-store.ts`: CRUD on `participant_keys` using `wrap-codec`; provides `ensureKeyFor(participantId, ikm)` idempotent provisioning.
+1. Add to `packages/runtime-daemon/package.json`: `@noble/hashes` (Argon2id — ships in v2.x at `@noble/hashes/argon2.js`) and `@noble/ciphers` (AES-256-GCM for PII content; XChaCha20-Poly1305 for master-wrap and the ADR-021 envelope) at the `@noble` **v2.x** line ([security-architecture.md §Relay Authentication And Encryption](../architecture/security-architecture.md#relay-authentication-and-encryption-task-53) pins the version; [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md) selects the library); plus `@napi-rs/keyring` v1.2.0 (OS keystore) and `sodium-native` (`sodium_mlock` / `sodium_memzero`). **Remove `keytar`** (archived/unmaintained). Implementation economy: one audited crypto library covering Argon2id and both AEAD primitives — AES-256-GCM for bounded-volume per-record PII writes, XChaCha20-Poly1305 for random-nonce master-wrap.
+2. Implement `packages/runtime-daemon/src/bootstrap/daemon-key-store.ts` — `OsKeystoreSealedDaemonKeyStore`: the three-tier custody ladder (OS keystore via `@napi-rs/keyring` → ADR-021 `daemon-master.enc` envelope under an Argon2id KEK → refuse-to-start). Never persists or falls back to a plaintext master ([Spec-022 §Daemon Master Key](../specs/022-data-retention-and-gdpr.md#daemon-master-key)). Holds the unwrapped master under `sodium_mlock`; zeroes with `sodium_memzero`. Emits `daemon.master_key_source` `{source: "os-keystore" | "encrypted-file"}` on resolution. Reciprocates Plan-007 CP-007-8.
+3. Implement `packages/runtime-daemon/src/crypto/participant-key-generator.ts`: generate a random 32-byte AES-256 content key via CSPRNG (`@noble/ciphers` `randomBytes` / `crypto.getRandomValues`) and return it for immediate wrapping. No key derivation — the key's confidentiality rests on the KEK-wrap, and its only persisted copy is `encrypted_key_blob` (the crypto-shred precondition).
+4. Implement `packages/runtime-daemon/src/crypto/wrap-codec.ts`: XChaCha20-Poly1305 wrap with `AAD = participant_id || "ais.master-wrap.v1" || key_version`, 24-byte random nonce, wire format `nonce || ciphertext || tag`.
+5. Implement `packages/runtime-daemon/src/crypto/participant-keys-store.ts`: CRUD on `participant_keys` using `wrap-codec`; provides `ensureKeyFor(participantId)` idempotent on `participant_id` (first-write-wins; never mutates `key_version`/`rotated_at` in V1).
 6. Implement `packages/runtime-daemon/src/crypto/pii-codec.ts`: AES-256-GCM with `AAD = participant_id || event_id`, 12-byte random nonce, wire format `iv || ciphertext || tag`.
-7. Implement `packages/runtime-daemon/src/persistence/session-events/write-with-pii.ts`: content-aware PII splitter with signature `splitPii({ payload, piiPayload }) → { payload: PayloadWithDigest, pii_payload: Buffer | null }`. The emitter partitions fields at the call site: non-PII fields go to `payload`, PII fields go to `piiPayload`. When `piiPayload` is non-null, the splitter encrypts it via `pii-codec.ts` (AES-256-GCM), computes `pii_ciphertext_digest = BLAKE3(pii_payload_ciphertext)`, and embeds the digest in the returned `payload` BEFORE the canonicalizer (owned by Plan-006) runs — so the canonical bytes carry the digest commitment but never the plaintext. This embed-before-canonicalize order is load-bearing for [§Signature Safety Under Shred](#signature-safety-under-shred) and matches Plan-006 §PII Columns 7-step Encrypt-Then-Digest-Then-Sign order exactly. Plan-022 owns the digest-embed on the write path; Plan-006's `pii-indirection.ts` is the sole canonicalization path. Consumed by Plan-001's event-writer helper on integration. The splitter never inspects a Spec-006 registry attribute — call-site classification is authoritative.
-8. Forward-declare schema: during Plan-001 authoring (Session 4), migration `0001-initial.ts` must include `pii_payload BLOB` on `session_events` and the full `participant_keys` CREATE TABLE. Capture this dependency in BL-054's propagation pass.
-9. Implement `packages/runtime-daemon/src/http/gdpr-stub-routes.ts`: three 501 handlers returning `gdpr.endpoint_not_v1`; registered via Plan-007's IPC host.
-10. Document the new error code in `docs/architecture/contracts/error-contracts.md` and the new schema elements in `docs/architecture/schemas/local-sqlite-schema.md`.
-11. **Reserve Shred Fan-Out Orchestration surface (V1.1+).** Plan-022 is the V1 schema + write-path surface; the real `DELETE /participants/{id}/data` handler is V1.1+ (per §Non-Goals — 501 stubs in V1). When the real handler ships in V1.1, it MUST execute these three paths in the order below before emitting `participant.purged`, per [Spec-022 §Shred Fan-Out](../specs/022-data-retention-and-gdpr.md#shred-fan-out):
+7. Implement `packages/runtime-daemon/src/crypto/split-pii.ts` — a **pure** content-aware partition `splitPii({ payload, piiPayload }) → { payload, piiPayload }` that routes call-site-classified fields and performs **no** encryption, digest, or canonicalization. Implement `packages/runtime-daemon/src/crypto/pii-codec.ts` as the `PiiEncryptor` that [Plan-006](./006-session-event-taxonomy-and-audit-log.md)'s `pii-indirection.ts` injects ([CP-022-1 / CP-006-1](#cross-plan-obligations)): AES-256-GCM (`AAD = participant_id || event_id`, 12-byte nonce, wire `iv || ciphertext || tag`), returning Plan-006's branded `PiiPayloadCiphertext`. **Plan-006 owns** the Encrypt-Then-Digest-Then-Sign order — it calls `PiiEncryptor`, computes `pii_ciphertext_digest = BLAKE3(ciphertext)`, embeds it in `payload`, then canonicalizes and signs (Plan-006 §PII Columns 7-step order). The consuming seam is Plan-006's `EventLogService.append` (Tier 4), **not** Plan-001's writer. The splitter never inspects a Spec-006 registry attribute — call-site classification is authoritative.
+8. Forward-declare schema onto Plan-001's `packages/runtime-daemon/src/migrations/0001-initial.ts` (Plan-001-owned; the file ships at this path): `pii_payload BLOB` on `session_events` and the full `participant_keys` CREATE TABLE. The forward-declaration was accepted at Plan-001 authoring (BL-054 propagation); since Plan-001 Phases 1–4 have shipped, the Tier-5 code PR verifies the shipped migration carries both columns/table before building on them ([CP-022-5](#cross-plan-obligations)).
+9. Implement `packages/runtime-daemon/src/ipc/handlers/gdpr-stub-handlers.ts`: three daemon JSON-RPC stub methods (`gdpr.*`) returning the not-implemented error envelope **unconditionally**, registered on Plan-007's `MethodRegistry`. Host is daemon-bound (V1.1 handlers read daemon-local `participant_keys` + the `sodium_mlock`-held master key). JSON-RPC `-32603` discriminator + `data.type = "gdpr.endpoint_not_v1"` + final method names per [§Ratified Design Decisions](#ratified-design-decisions-tier-5-audit-2026-05-30) D-022-3. Plan-007 reciprocates registration (see [§Cross-Plan Obligations](#cross-plan-obligations)).
+10. Document the new project code in `docs/architecture/contracts/error-contracts.md` (§GDPR §Error Codes row + the `-32603` daemon-wire pin in §JSON-RPC Wire Mapping; no custom numeric code per error-contracts.md:39 / D-022-3) and the new schema elements in `docs/architecture/schemas/local-sqlite-schema.md` — and **correct** that schema doc's `participant_keys.encrypted_key_blob` annotation, which currently reads AES-256-GCM and omits the XChaCha20-Poly1305 master-wrap. Add a "V1 returns the not-implemented stub" annotation to the `gdpr.*` rows in `docs/architecture/contracts/api-payload-contracts.md`.
+11. **Reserve Shred Fan-Out Orchestration surface (V1.1+).** Plan-022 is the V1 schema + write-path surface; the real participant-delete handler is V1.1+ (per §Non-Goals — not-implemented stub methods in V1). When the real handler ships in V1.1, it MUST execute these three paths in the order below before emitting `participant.purged`, per [Spec-022 §Shred Fan-Out](../specs/022-data-retention-and-gdpr.md#shred-fan-out):
     1. **Path 1 — SQLite crypto-shred.** DELETE the participant's row from `participant_keys`. Per-participant AES-256-GCM key is destroyed; all `pii_payload` ciphertext for every session the participant touched becomes permanently unrecoverable. Audit artifact: one `event.shredded` event (payload contains no PII; retained indefinitely per [Spec-006 §Event Maintenance](../specs/006-session-event-taxonomy-and-audit-log.md#event-maintenance-event_maintenance)); `event.shredded` emission is owned by [Plan-006](./006-session-event-taxonomy-and-audit-log.md) §Shred Fan-Out Cross-References.
-    2. **Path 2 — Postgres hard DELETE.** DELETE rows from `participants`, `identity_mappings`, `notification_preferences`. Anonymize participant references in `session_invites` and `session_memberships` via the tombstone-identifier pattern per [Spec-022 §Postgres (Control Plane) Deletion](../specs/022-data-retention-and-gdpr.md#postgres-control-plane-deletion). Postgres-side table ownership is Plan-018 (identity model) + Plan-001 (`session_memberships`); Plan-022 is the orchestrator. Any DELETE failure reports the whole path failed; daemon does not partially advance.
+    2. **Path 2 — Postgres hard DELETE.** DELETE rows from `participants`, `identity_mappings`, `notification_preferences`. Anonymize participant references in `session_invites` and `session_memberships` via the tombstone-identifier pattern per [Spec-022 §Postgres (Control Plane) Deletion](../specs/022-data-retention-and-gdpr.md#postgres-control-plane-deletion). Postgres-side table ownership: Plan-018 (`participants`, `identity_mappings`), Plan-019 (`notification_preferences`), Plan-002 (`session_invites`), Plan-001 (`session_memberships`); Plan-022 is the orchestrator. Each owner plan must carry the reciprocal Path-2 deletion/anonymization obligation — see [§Cross-Plan Obligations](#cross-plan-obligations) CP-022-6. Any DELETE failure reports the whole path failed; daemon does not partially advance.
     3. **Path 3 — Bounded-retention scoped flush.** For each of the 4 diagnostic buckets (`driver_raw_events`, `command_output`, `tool_traces`, `reasoning_detail` — all owned by Plan-020), DELETE all rows tagged with the purged participant ID. Scoped flush short-circuits the normal 7-day TTL. Counters-only audit artifact (`diagnostic_rows_purged` per table).
 
     After all three paths complete, the daemon emits the aggregate `participant.purged` event. No ACID transaction spans the three paths — SQLite and Postgres are distinct durability domains. Per-path idempotence supports operator-retry on partial completion: key-already-deleted is a no-op (Path 1); DELETE-of-nonexistent is a no-op (Path 2); flush-of-empty-buckets is a no-op (Path 3).
@@ -171,7 +235,124 @@ Event rows carry an Ed25519 signature over canonical bytes per [Spec-006 §Integ
     - **Path 2 before Path 3** — hard-delete the Postgres participant record before clearing diagnostic buckets so a diagnostic-bucket reader cannot re-derive PII via Postgres JOIN during the bucket-flush window.
     - **`participant.purged` last** — the aggregate event is the durable audit artifact of the whole operation; emitting it before all three paths complete would misrepresent completion state.
 
-    **V1 code requirement: zero.** This step is a cross-plan alignment checkpoint, not a code-landing step. It verifies: (a) Plan-001's `participant_keys` schema emits no foreign-key cascade barrier blocking a Path 1 DELETE; (b) Plan-018's Postgres schema exposes all Path 2 deletion/anonymization targets; (c) Plan-020's diagnostic-bucket tables accept per-participant-id scoped flush as Path 3 targets; (d) Plan-006's `event.shredded` emission on Path 1 completion is wired per Plan-006 §Shred Fan-Out Cross-References. Any cross-plan drift surfaced by this checkpoint is fixed at the drifted plan; Plan-022 is the reporter, not the fixer.
+    **V1 code requirement: zero.** This step is a cross-plan alignment checkpoint, not a code-landing step. It verifies: (a) Plan-001's `participant_keys` schema emits no foreign-key cascade barrier blocking a Path 1 DELETE; (b) Plan-018's Postgres schema exposes all Path 2 deletion/anonymization targets; (c) Plan-020's diagnostic-bucket tables accept per-participant-id scoped flush as Path 3 targets; (d) Plan-006's `event.shredded` emission on Path 1 completion is wired per Plan-006 §Shred Fan-Out Cross-References. The reciprocal obligations on Plan-001/006/018/019/002/020 are **encoded now** as [§Cross-Plan Obligations](#cross-plan-obligations) CP-022-5/6/7 (not deferred to a V1.1 checkpoint); each owner plan carries its half. This step verifies they remain in sync at code time.
+
+## Implementation Phase Sequence
+
+Audit-derived task decomposition. The 11 Implementation Steps regroup into five buildable clusters (custody, per-participant crypto, write-path, stub surface, cross-plan fan-out); **17 Tasks** total. Each Task row carries the fields the plan-execution plan-analyst consumes verbatim: **Files**, **Spec coverage**, **Verifies invariant**, **Consumes** (upstream symbols/rows + provider); the former **BLOCKED-ON** / **CONFIRM-AT-PAUSE** markers were all resolved at the Tier-5 pause (see [§Ratified Design Decisions](#ratified-design-decisions-tier-5-audit-2026-05-30)). Sequencing maps to §Rollout Order. Header-level ADR promotion and the Done-Checklist rewrite are corpus edits already applied, not code Tasks.
+
+### Cluster 1 — Daemon master-key custody (Steps 1–2)
+
+#### Tasks
+
+- **T22.1.1 — Crypto + custody dependencies.**
+  - Files: `packages/runtime-daemon/package.json` (EXTEND)
+  - Spec coverage: Spec-022:146 (@napi-rs/keyring), Spec-022:161 (Argon2id KEK), Spec-022:176-183 (sodium_mlock)
+  - Verifies invariant: I-022-1
+  - Consumes: `@noble/hashes` v2.x (`argon2id`) + `@noble/ciphers` v2.x (per ADR-010 selection + security-architecture.md:256 version pin, shipped decision); adds `@napi-rs/keyring` v1.2.0, `sodium-native`; removes `keytar`.
+- **T22.1.2 — `OsKeystoreSealedDaemonKeyStore` custody ladder.**
+  - Files: `packages/runtime-daemon/src/bootstrap/daemon-key-store.ts` (CREATE)
+  - Spec coverage: Spec-022:142 (plaintext never persisted), Spec-022:146-151 (Tier-1/Tier-2), Spec-022:153 (Tier-3 refuse)
+  - Verifies invariant: I-022-1, I-022-2
+  - Consumes: `@napi-rs/keyring` (T22.1.1); the daemon composition root in the shipped `bootstrap/` dir; Plan-007 CP-007-8 store contract (reciprocates it).
+- **T22.1.3 — Argon2id KEK derivation.**
+  - Files: `daemon-key-store.ts` (same)
+  - Spec coverage: Spec-022:161 (Argon2id KEK), Spec-022:159 (PRF forward-decl)
+  - Verifies invariant: I-022-3
+  - Consumes: `@noble/hashes/argon2` `argon2id` (T22.1.1). The WebAuthn-PRF KEK is stubbed as the Plan-023 Tier-8 edge (CP-022-3) — not built in V1.
+- **T22.1.4 — ADR-021 master-envelope codec.**
+  - Files: `daemon-key-store.ts` (same); optionally extract `packages/runtime-daemon/src/crypto/master-envelope-codec.ts` (CREATE)
+  - Spec coverage: Spec-022:163-174 (envelope layout), ADR-021 (version-byte envelope)
+  - Verifies invariant: I-022-3, I-022-4
+  - Consumes: `@noble/ciphers` XChaCha20-Poly1305 (T22.1.1); the ADR-021 envelope format.
+  - Ratified D-022-1(b): envelope AAD = the 50-byte full header (resolves the Spec-022 :172-vs-:174 self-contradiction in favour of :174).
+- **T22.1.5 — Memory protection + backup exclusion.**
+  - Files: `daemon-key-store.ts` (same)
+  - Spec coverage: Spec-022:176-183 (mlock/memzero), Spec-022:208-211 (backup separation)
+  - Verifies invariant: I-022-5, I-022-6
+  - Consumes: `sodium-native` (T22.1.1).
+
+### Cluster 2 — Per-participant crypto primitives (Steps 3–6)
+
+#### Tasks
+
+- **T22.2.1 — Participant key generator (random DEK).**
+  - Files: `packages/runtime-daemon/src/crypto/participant-key-generator.ts` (CREATE)
+  - Spec coverage: Spec-022 §Participant Keys (random per-participant DEK + KEK-wrap — back-fill owed, supersedes the credential-derived :117 wording); Spec-022 §Signature Safety Under Shred (crypto-shred precondition)
+  - Verifies invariant: I-022-7
+  - Consumes: `@noble/ciphers` CSPRNG (`randomBytes`, T22.1.1). No KDF, no Plan-018 secret.
+- **T22.2.2 — Wrap codec (XChaCha20-Poly1305).**
+  - Files: `packages/runtime-daemon/src/crypto/wrap-codec.ts` (CREATE)
+  - Spec coverage: Spec-022 §Participant Keys (wrap AAD/nonce/wire — author-internal, back-fill owed)
+  - Verifies invariant: I-022-9
+  - Consumes: `@noble/ciphers` XChaCha20-Poly1305 (T22.1.1).
+- **T22.2.3 — Participant keys store.**
+  - Files: `packages/runtime-daemon/src/crypto/participant-keys-store.ts` (CREATE)
+  - Spec coverage: Spec-022 §Participant Keys; the `participant_keys` schema (T22.3.2)
+  - Verifies invariant: I-022-10
+  - Consumes: `wrap-codec` (T22.2.2), `participant-key-generator` (T22.2.1), `participant_keys` table (T22.3.2). `ensureKeyFor(participantId)` is idempotent on `participant_id`, first-write-wins; never mutates `key_version`/`rotated_at`.
+- **T22.2.4 — PII codec = `PiiEncryptor`.**
+  - Files: `packages/runtime-daemon/src/crypto/pii-codec.ts` (CREATE)
+  - Spec coverage: Spec-022 §PII Data Map + §Signature Safety Under Shred (PII AAD/nonce/wire — author-internal, back-fill owed); NIST SP 800-38D §8.3
+  - Verifies invariant: I-022-8, I-022-12
+  - Consumes: `@noble/ciphers` AES-256-GCM (T22.1.1); Plan-006's `PiiEncryptor` interface + branded `PiiPayloadCiphertext` (CP-022-1 / CP-006-1, shipped NS-16/PR #124).
+
+### Cluster 3 — Write-path integration (Steps 7–8)
+
+#### Tasks
+
+- **T22.3.1 — Pure `splitPii` partition.**
+  - Files: `packages/runtime-daemon/src/crypto/split-pii.ts` (CREATE)
+  - Spec coverage: Spec-022:27 (call-site classification); Spec-006 §Canonical Serialization Rules
+  - Verifies invariant: I-022-11, I-022-13, I-022-14
+  - Consumes: Plan-006's `EventLogService.append` seam (Tier 4) as the consumer; `pii-codec` (T22.2.4) is injected by Plan-006's `pii-indirection.ts`, never called here.
+- **T22.3.2 — Forward-declare onto Plan-001 migration.**
+  - Files: `packages/runtime-daemon/src/migrations/0001-initial.ts` (EXTEND — Plan-001-owned, ships at this path)
+  - Spec coverage: Spec-022:107 (§Schema Requirements — initial-schema forward-decl)
+  - Verifies invariant: I-022-20
+  - Consumes: Plan-001's shipped `0001-initial.ts` (verify it already carries `pii_payload` + the `participant_keys` table per CP-022-5).
+
+### Cluster 4 — GDPR stub surface (Steps 9–10)
+
+#### Tasks
+
+- **T22.4.1 — Daemon JSON-RPC stub handlers.**
+  - Files: `packages/runtime-daemon/src/ipc/handlers/gdpr-stub-handlers.ts` (CREATE)
+  - Spec coverage: Spec-022 §Non-Goals (post-V1 stubs), Spec-022:119-136 (unconditional not-implemented); ADR-009 (error envelope)
+  - Verifies invariant: I-022-15, I-022-16, I-022-17
+  - Consumes: Plan-007's `MethodRegistry` (JSON-RPC host); the ADR-009 error envelope.
+  - Ratified D-022-3: daemon JSON-RPC methods on Plan-007 `MethodRegistry` (transport + names).
+- **T22.4.2 — Register `gdpr.*` on `MethodRegistry`.**
+  - Files: `gdpr-stub-handlers.ts` (same); daemon registry wiring
+  - Spec coverage: Spec-022:130-134 (three reserved methods)
+  - Verifies invariant: I-022-16
+  - Consumes: Plan-007 `MethodRegistry`. Plan-007 reciprocates the namespace registration (surfaced obligation).
+- **T22.4.3 — Unconditional-stub test.**
+  - Files: `packages/runtime-daemon/src/ipc/handlers/gdpr-stub-handlers.test.ts` (CREATE)
+  - Spec coverage: Spec-022:136 (501/not-implemented unconditional)
+  - Verifies invariant: I-022-15
+  - Consumes: the three handlers (T22.4.1).
+- **T22.4.4 — Error-code + api-payload docs.**
+  - Files: `docs/architecture/contracts/error-contracts.md` (EXTEND), `docs/architecture/contracts/api-payload-contracts.md` (EXTEND)
+  - Spec coverage: Spec-022:28 (`gdpr.endpoint_not_v1`)
+  - Verifies invariant: I-022-17
+  - Consumes: the ADR-009 error envelope.
+  - Ratified D-022-3: standard JSON-RPC `-32603` discriminator; `data.type = "gdpr.endpoint_not_v1"` (no custom numeric code — error-contracts.md:39).
+- **T22.4.5 — Schema-doc wrap-cipher correction.**
+  - Files: `docs/architecture/schemas/local-sqlite-schema.md` (EXTEND)
+  - Spec coverage: Spec-022 §Participant Keys (XChaCha20-Poly1305 wrap)
+  - Verifies invariant: I-022-18
+  - Consumes: the `participant_keys` schema (T22.2.3 / T22.3.2).
+
+### Cluster 5 — Cross-plan fan-out checkpoint (Step 11)
+
+#### Tasks
+
+- **T22.5.1 — Shred fan-out alignment checkpoint (V1 code = 0).**
+  - Files: verification-only — no code land; the cross-plan alignment per Implementation Step 11
+  - Spec coverage: Spec-022 §Shred Fan-Out, §Ordering And Atomicity
+  - Verifies invariant: I-022-14, I-022-19, I-022-20, I-022-21, I-022-22
+  - Consumes: the CP-022-5/6/7 reciprocals (Plan-001/006/018/019/002/020). Confirms the Step-11 Path-2 owner attribution (`session_invites`→Plan-002, `notification_preferences`→Plan-019); encode-now CP-022-6 (fix-in-place at swap).
 
 ## Parallelization Notes
 
@@ -182,53 +363,55 @@ Event rows carry an Ed25519 signature over canonical bytes per [Spec-006 §Integ
 ## Test And Verification Plan
 
 - **Unit, `pii-codec`**: round-trip (encrypt → decrypt) plus AAD-mismatch test (decrypt with wrong `participant_id` MUST fail). NIST GCM test vectors (SP 800-38D Appendix B) for baseline AES-256-GCM correctness.
-- **Unit, `participant-key-deriver`**: RFC 5869 test vectors (Appendix A, A.1–A.3) for HKDF-SHA256.
+- **Unit, `participant-key-generator`**: generated keys are 32 bytes and statistically distinct across participants (no two provisionings collide); the generated key wraps and unwraps round-trip under the master KEK.
 - **Unit, `wrap-codec`**: AAD mismatch (wrong `participant_id` in wrap AAD) MUST fail decrypt.
 - **Unit, `pii-splitter`**: given emitter inputs with explicit `{payload, piiPayload}` partitions, confirm routing and digest-embed order; given ambiguous mixed-shape inputs (nested records with unclassified fields), confirm fallback routes the whole ambiguous record to `pii_payload` and emits `daemon.pii_split_ambiguous`.
 - **Unit, `write-with-pii` digest embedding (signature-safety gate)**: given a fixture event with non-NULL `pii_payload`, confirm the returned shape includes `pii_ciphertext_digest` field in `payload` equal to `BLAKE3(pii_payload_ciphertext)`. Verify BLAKE3 output against [BLAKE3 official test vectors](https://github.com/BLAKE3-team/BLAKE3/blob/master/test_vectors/test_vectors.json) for correctness. This test is the V1 gate on [§Signature Safety Under Shred](#signature-safety-under-shred) — Plan-006's canonicalizer relies on this digest being present in `payload` before it hashes and signs.
 - **Integration, migration**: Plan-001's migration 0001 fixture must include `pii_payload` on `session_events` and the full `participant_keys` table; test asserts `PRAGMA table_info(session_events)` and `PRAGMA table_info(participant_keys)`.
 - **Integration, write-path**: end-to-end participant provisioning → event write → SQLite inspection shows `pii_payload` is ciphertext bytes (not plaintext JSON) and that the `payload` column contains only non-PII fields.
-- **Integration, master-key bootstrap**: mocked keychain-unavailable case falls back to file, emits `daemon.master_key_source` event with `source: "file"`.
-- **Integration, 501 routes**: all three routes return HTTP 501 with `gdpr.endpoint_not_v1` error code regardless of request body.
-- **Manual verification**: on macOS, confirm keychain entry is created; on Linux without libsecret, confirm file fallback triggers.
+- **Integration, master-key resolution event**: each successful custody tier emits exactly one `daemon.master_key_source` event with the correct `{source}` value (`"os-keystore"` | `"encrypted-file"`); the Tier-3 refuse path emits none and exits non-zero.
+- **Integration, GDPR stub methods**: all three `gdpr.*` JSON-RPC methods return the not-implemented error envelope (`data.type = "gdpr.endpoint_not_v1"`, standard `-32603` discriminator) regardless of request body or caller.
+- **Integration, master-key custody**: Tier-1 OS-keystore entry holds the _wrapped_ envelope (not raw bytes); Tier-2 `daemon-master.enc` round-trips under an Argon2id KEK; Tier-3 (no keystore, no decryptable file) exits non-zero with no plaintext written. **Manual**: on macOS confirm the keystore entry; on a headless host confirm the Tier-2 encrypted-file path resolves (never a plaintext master).
 
 ## Rollout Order
 
 1. Land crypto libraries + `master-key-source.ts` + unit tests (Steps 1–2) — no schema impact yet.
-2. Land `participant-key-deriver.ts`, `wrap-codec.ts`, `pii-codec.ts` with unit tests (Steps 3, 4, 6) — pure-function, no persistence impact.
+2. Land `participant-key-generator.ts`, `wrap-codec.ts`, `pii-codec.ts` with unit tests (Steps 3, 4, 6) — pure-function, no persistence impact.
 3. Land `participant-keys-store.ts` + `write-with-pii.ts` with unit + integration tests (Steps 5, 7) — depends on Plan-001's migration skeleton being available.
 4. Coordinate with Plan-001 authoring (Session 4) to accept the forward-declaration (Step 8). BL-054's cross-plan propagation pass verifies.
 5. Land `gdpr-stub-routes.ts` + documentation updates (Steps 9–10).
 
 ## Rollback Or Fallback
 
-- If the keychain primary fails at bootstrap, the file fallback is the rollback path — no code change required.
+- If the OS keystore is unavailable at bootstrap, the Tier-2 encrypted `daemon-master.enc` (Argon2id KEK) is the fallback — no code change required. There is no plaintext fallback; Tier-3 refuse-to-start is the only terminal state.
 - If an emitter passes a mixed-shape record where PII/non-PII partitioning is ambiguous (e.g. a nested object where some keys are PII and others are not, with no explicit partition), the splitter's default policy is **route the whole ambiguous record to `pii_payload`** (err on the side of encryption). Emit a `daemon.pii_split_ambiguous` event with the event type + field path for operator audit. This is a containment fallback, not a rollback. The emitter should be amended to partition fields explicitly on the next write path touch.
 - If the forward-declaration onto Plan-001's migration is missed during Session 4 integration, the schema drift is a build-time failure — the "Integration, migration" test catches it before merge.
 
 ## Risks And Blockers
 
 - **Risk**: an emitter forgets to partition PII fields explicitly and passes PII as plain `payload`. **Mitigation**: code review rule — every event emission that could plausibly carry PII content (user text, file content, prompt bodies, provider outputs) MUST route through `splitPii` with an explicit `piiPayload` argument; the splitter's ambiguous-record containment fallback (route-to-pii_payload + `daemon.pii_split_ambiguous` event) protects against accidental plaintext writes but is not the primary safeguard.
-- **Risk**: `keytar` drops a platform backend (historically libsecret on some distros). **Mitigation**: file fallback is always live; platform-coverage tests exercise both paths.
-- **Risk**: HKDF `ikm` source (participant authentication material from Plan-018) may not be stable across password-change events. **Mitigation**: V1 scopes rotation out entirely; Plan-018's identity model must document that auth-credential changes do not mutate the HKDF `ikm` in V1, or key rotation becomes mandatory.
-- **Blocker**: Plan-001 authoring (Session 4). The forward-declaration onto migration 0001 must be accepted during Plan-001 drafting. BL-054 is the propagation mechanism.
+- **Risk**: the OS keystore (`@napi-rs/keyring`) is unavailable on a headless/CI host. **Mitigation**: the Tier-2 encrypted `daemon-master.enc` (Argon2id-KEK) is the universal fallback — _not_ a plaintext file; Tier-3 refuse-to-start is the only terminal state, never plaintext. Platform-coverage tests exercise Tier 1 and Tier 2.
+- **Resolved (was Risk / OD-022-2)**: the per-participant content key is a **random DEK** (envelope encryption), not a credential- or identity-derived key — so there is no `ikm`-mutation data-loss class and no Plan-018 producer dependency (D-022-2 dissolves the former CP-022-4 seam). This is also the crypto-shred correctness precondition ([Spec-022 §Signature Safety Under Shred](../specs/022-data-retention-and-gdpr.md#signature-safety-under-shred)): the content key is destroyed by deleting its sole wrapped copy. V1 scopes key rotation out entirely (`key_version` pinned at `1`, I-022-10).
+- **Dependency (resolved at doc-time, verify at code-time)**: the forward-declaration onto Plan-001's migration `0001-initial.ts` was accepted at Plan-001 authoring (BL-054). Plan-001 Phases 1–4 have shipped; the Tier-5 code PR must verify the shipped `migrations/0001-initial.ts` carries `pii_payload` + `participant_keys` before building on them ([CP-022-5](#cross-plan-obligations)).
 
 ## Done Checklist
 
 - [ ] `participant_keys` table schema matches Spec-022 §Participant Keys exactly
 - [ ] Plan-001 migration 0001 includes `session_events.pii_payload BLOB` and the full `participant_keys` CREATE TABLE (forward-declaration accepted)
 - [ ] AES-256-GCM PII encryption round-trips with `AAD = participant_id || event_id`
-- [ ] HKDF-SHA256 derivation passes RFC 5869 test vectors
-- [ ] XChaCha20-Poly1305 master-key wrap round-trips with `AAD = participant_id || "ais.master-wrap.v1"` and 24-byte random nonce
-- [ ] OS keychain bootstrap succeeds on macOS and Windows; file fallback succeeds on Linux-without-libsecret
+- [ ] Per-participant content key is a CSPRNG-generated random 32-byte AES-256 DEK (no key derivation); keys are statistically distinct across participants; wrap/unwrap round-trips under the master KEK
+- [ ] XChaCha20-Poly1305 master-key wrap round-trips with `AAD = participant_id || "ais.master-wrap.v1" || key_version` and 24-byte random nonce
+- [ ] Master-key custody: OS keystore (Tier 1) stores the _wrapped_ envelope; Tier-2 `daemon-master.enc` round-trips under an Argon2id KEK; Tier-3 **refuses to start** (exits non-zero) with no plaintext fallback; in-memory master is `sodium_mlock`-held and `sodium_memzero`-wiped
 - [ ] PII splitter `splitPii({payload, piiPayload})` partitions correctly per emitter-supplied classification; ambiguous-record records default to `pii_payload` and emit `daemon.pii_split_ambiguous`
 - [ ] `write-with-pii.ts` computes `pii_ciphertext_digest = BLAKE3(pii_payload_ciphertext)` and embeds it in `payload` BEFORE the canonicalizer runs, per [§Signature Safety Under Shred](#signature-safety-under-shred) and Plan-006 §PII Columns 7-step order
 - [ ] [§PII Data Map (Three Durability Tiers)](#pii-data-map-three-durability-tiers) enumerates durable + bounded-retention + telemetry-export tiers with owner-plan attribution (Plan-018 / Plan-020 / Plan-022) per [Spec-022 §PII Data Map](../specs/022-data-retention-and-gdpr.md#pii-data-map)
 - [ ] Implementation Step 11 reserves the V1.1 ordered Path 1 → Path 2 → Path 3 execution contract with rationale per [Spec-022 §Shred Fan-Out](../specs/022-data-retention-and-gdpr.md#shred-fan-out) and §Ordering And Atomicity
 - [ ] Cross-plan alignment confirmed: Plan-001 `participant_keys` cascade-barrier-free (Path 1); Plan-018 Postgres deletion targets (Path 2); Plan-020 diagnostic-bucket scoped flush (Path 3); Plan-006 `event.shredded` emission on Path 1 completion
-- [ ] All three GDPR stub routes return HTTP 501 with `gdpr.endpoint_not_v1` error code
+- [ ] All three `gdpr.*` JSON-RPC stub methods return the not-implemented error envelope (`data.type = "gdpr.endpoint_not_v1"`) unconditionally
 - [ ] `docs/architecture/contracts/error-contracts.md` documents `gdpr.endpoint_not_v1`
 - [ ] `docs/architecture/schemas/local-sqlite-schema.md` documents `participant_keys` + `pii_payload`
+- [ ] `docs/architecture/schemas/local-sqlite-schema.md` `participant_keys.encrypted_key_blob` annotation corrected to XChaCha20-Poly1305 master-wrap (not AES-256-GCM)
+- [ ] Reciprocal cross-plan obligations CP-022-1..7 carried by their owner plans (Plan-006 `PiiEncryptor`; Plan-007 `gdpr.*` registration; Plan-018 Path-2 deletion targets; Plan-001/002/019/020 Path-2/3 targets)
 - [ ] Spec-022 header `Implementation Plan` row points to this plan
 
 ## Tier Intent
@@ -239,8 +422,12 @@ This plan lands in **Tier 5** of the [canonical build order](../architecture/cro
 
 - [Spec-022: Data Retention And GDPR Compliance](../specs/022-data-retention-and-gdpr.md)
 - [ADR-015: V1 Feature Scope Definition](../decisions/015-v1-feature-scope-definition.md)
-- [ADR-010: PASETO WebAuthn MLS Auth](../decisions/010-paseto-webauthn-mls-auth.md) — adjacent for crypto-library consistency (`@noble/hashes`, `@noble/ciphers`)
+- [ADR-010: PASETO WebAuthn MLS Auth](../decisions/010-paseto-webauthn-mls-auth.md) — **Required**: `@noble` crypto-library selection (Argon2id KEK + AES-256-GCM / XChaCha20-Poly1305 AEAD primitives)
+- [ADR-021: CLI Identity Key Storage Custody](../decisions/021-cli-identity-key-storage-custody.md) — **Required**: the version-byte XChaCha20-Poly1305 custody envelope `daemon-master.enc` extends
+- [ADR-009: JSON-RPC IPC Wire Format](../decisions/009-json-rpc-ipc-wire-format.md) — the daemon error envelope the GDPR stub methods return
 - [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md)
 - [Local SQLite Schema](../architecture/schemas/local-sqlite-schema.md)
-- [RFC 5869 — HKDF](https://datatracker.ietf.org/doc/html/rfc5869) — HKDF-SHA256 key derivation
-- [NIST SP 800-38D](https://csrc.nist.gov/publications/detail/sp/800-38d/final) — AES-GCM normative spec
+- [NIST SP 800-38D](https://csrc.nist.gov/publications/detail/sp/800-38d/final) — AES-GCM normative spec + §8.3 random-nonce ceiling
+- [RFC 8439 — ChaCha20-Poly1305](https://datatracker.ietf.org/doc/html/rfc8439) + [draft-irtf-cfrg-xchacha-03](https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-xchacha-03) — XChaCha20-Poly1305 master-wrap nonce space
+- [OWASP Password Storage Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html) — Argon2id KEK parameters (`m=19456, t=2, p=1`)
+- [BLAKE3 test vectors](https://github.com/BLAKE3-team/BLAKE3/blob/master/test_vectors/test_vectors.json) — `pii_ciphertext_digest` correctness
