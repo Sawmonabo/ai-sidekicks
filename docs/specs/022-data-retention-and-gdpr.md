@@ -64,7 +64,7 @@ This spec covers:
 ### Postgres (Control Plane) Deletion
 
 - Participant records in the control plane Postgres database must be hard-deleted upon a valid deletion request.
-- References to the deleted participant in membership and invite records must be anonymized (replaced with a tombstone identifier) rather than deleted, to preserve referential integrity.
+- References to the deleted participant in membership and invite records must be anonymized (the data-subject FK is nulled via `ON DELETE SET NULL` — see [§Shred Fan-Out](#shred-fan-out) Path 2 FK-safety) rather than the row deleted, preserving the surviving record and its referential integrity while severing the participant linkage.
 
 ### Data Export
 
@@ -276,7 +276,7 @@ This section verifies end-to-end GDPR coverage across both storage tiers.
 - **Right to erasure**: Participant deletion triggers the following sequence:
   1. Crypto-shred via key deletion (DELETE from `participant_keys`)
   2. DELETE Postgres PII rows (`participants`, `identity_mappings`, `notification_preferences`)
-  3. Revoke all session memberships (anonymize membership references with tombstone identifier)
+  3. Revoke all session memberships (anonymize membership references via `ON DELETE SET NULL` — see [§Shred Fan-Out](#shred-fan-out) Path 2 FK-safety)
   4. Emit `participant.purged` event for audit trail (see [Spec-006 §Participant Lifecycle](006-session-event-taxonomy-and-audit-log.md#participant-lifecycle-participant_lifecycle))
 
 ## Shred Fan-Out
@@ -296,8 +296,10 @@ This section verifies end-to-end GDPR coverage across both storage tiers.
 **Mechanism.** Path 2 is exhaustive over the complete `REFERENCES participants(id)` inbound-foreign-key closure in [shared-postgres-schema.md](../architecture/schemas/shared-postgres-schema.md) — not only the PII-content columns in the [§PII Data Map](#pii-data-map) durable tier, but **every** Postgres row that links to the erased participant. Per-table disposition by retention basis:
 
 - **Hard DELETE** (no independent retention basis): `participants`, `identity_mappings` (Plan-018), `notification_preferences` (Plan-019), `runtime_node_attachments` (Plan-003 — operational node-attach state; the durable node-attach audit trail is the crypto-shredded `runtime_node.*` event stream, not this table), `cross_node_dispatch_coordination` (Plan-027 — routing metadata only).
-- **Anonymize** (tombstone-identifier, to preserve referential integrity of the surviving record): `session_invites.inviter_id` (Plan-002), `session_memberships.participant_id` (Plan-001) — per the §Postgres (Control Plane) Deletion behavior above.
-- **Anonymize-with-security-survival**: `revoked_jtis`, `revoked_token_families` (BL-070 token-revocation denylist) — anonymize `participant_id` to sever the data-subject linkage, but **retain** the denylist key (`jti` / `family_id`) until its natural `expires_at + 24h` reap, so erasure does not resurrect a revoked token within its remaining validity window (the GDPR Art. 17(3) security/legal-obligation carve-out).
+- **Anonymize via `ON DELETE SET NULL`** (the data-subject FK is auto-nulled when the `participants` row is hard-deleted; the dependent row survives and the linkage is severed DB-side): `session_invites.inviter_id` (Plan-002), `session_memberships.participant_id` (Plan-001) — per the §Postgres (Control Plane) Deletion behavior above and the **FK-safety** note below.
+- **Anonymize-with-security-survival via `ON DELETE SET NULL`**: `revoked_jtis`, `revoked_token_families` (BL-070 token-revocation denylist) — the participant hard-DELETE auto-nulls `participant_id`, severing the data-subject linkage, while the denylist key (`jti` / `family_id`, the table PRIMARY KEY — **not** `participant_id`) is untouched and the row stays denied until its natural `expires_at + 24h` reap, so erasure does not resurrect a revoked token within its remaining validity window (the GDPR Art. 17(3) security/legal-obligation carve-out).
+
+**FK-safety (the anonymize mechanism is `ON DELETE SET NULL`, not a tombstone row).** The four anonymize-class FKs — `session_invites.inviter_id`, `session_memberships.participant_id`, `revoked_jtis.participant_id`, `revoked_token_families.participant_id` — ship `UUID NOT NULL REFERENCES participants(id)` under their owner plans. Because erasure hard-DELETEs the `participants` row, an in-place rewrite to a non-participant "tombstone identifier" would violate the FK, and a _reserved tombstone participant row_ would collide on `session_memberships`'s `UNIQUE(session_id, participant_id)` whenever two participants in the same session are both erased. The uniform FK-safe mechanism is therefore `ON DELETE SET NULL`: **Plan-022's erasure migration relaxes these four FKs to nullable + `ON DELETE SET NULL`** — a forward ALTER over the owner-plan tables, named here as the contract; the migration itself is Plan-022's build ([D-022-7](../plans/022-data-retention-and-gdpr.md#ratified-design-decisions-tier-5-audit-2026-05-30)) — so the participant hard-DELETE auto-nulls each reference DB-side. `NULL` participant ids are distinct under `UNIQUE(session_id, participant_id)` (Postgres treats `NULL`s as non-equal), so multi-erasure is safe; the `revoked_*` denylist key survives the null because it is the PRIMARY KEY, not the FK.
 
 **Scope.** Exhaustive over the `REFERENCES participants(id)` inbound-FK closure named in the Mechanism above — the closure is verifiable against [shared-postgres-schema.md](../architecture/schemas/shared-postgres-schema.md), so the set is the source of truth and cannot silently drift behind a hand-maintained list (the prior "exhaustive over the §PII Data Map durable tier" wording undercounted: the §PII Data Map enumerates PII-content columns, not the participant-FK-linkage tables). If any row fails DELETE (foreign-key constraint, row lock, connection failure), the whole path is reported as failed; the daemon does not partially advance.
 
@@ -397,6 +399,15 @@ Without the `pii_ciphertext_digest` indirection, a naïve implementation might s
 
 - No blocking open questions remain for v1.
 - Post-V1: determine whether key rotation for long-lived sessions is necessary and define the rotation protocol.
+
+### V1 Erasure Scope Boundary
+
+V1 ships the erasure _mechanism_, not its automated endpoint:
+
+- **In V1:** the `pii_payload` encrypted column, the `participant_keys` table, the schema support for Postgres severance (the anonymize-class FKs' `ON DELETE SET NULL` relaxation — [§Shred Fan-Out](#shred-fan-out) Path 2 FK-safety), and the three `gdpr.*` daemon JSON-RPC stubs, which return a not-implemented error **unconditionally** (independent of request body or caller).
+- **In V1.1+:** the _automated_ deletion/export/purge handler.
+
+A data-subject erasure request is satisfiable in V1 by the documented **manual** operator procedure (crypto-shred via `DELETE FROM participant_keys`; Postgres severance via the `ON DELETE SET NULL` migration; the Path-1 → Path-2 → Path-3 fan-out), so the deferral withholds only the _automation_, not the _capability_. Promotion criteria for the automated endpoint — cross-tier fan-out completeness + the `ON DELETE SET NULL` forward ALTER + closure-equivalence tests — are enumerated in [Plan-022 §Non-Goals](../plans/022-data-retention-and-gdpr.md#non-goals); the interim manual runbook is owed as [BL-138](../backlog.md).
 
 ## References
 

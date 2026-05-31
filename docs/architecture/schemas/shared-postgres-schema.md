@@ -253,13 +253,20 @@ CREATE INDEX idx_relay_connections_session ON relay_connections(session_id);
 -- be detected against a store that OUTLIVES the session. This control-plane table is that store
 -- (OD-008r-2, Tier-5 readiness audit). The PK on the public key is the uniqueness index that
 -- makes a second appearance — in any session — a constraint violation the broker rejects with
--- relay.bundle_rejected. The audit ratifies only that the store is durable + uniqueness-indexed;
--- the retention window (bounded-TTL pruning of long-closed sessions' keys) is a Type-2 decision
--- pinned at the Plan-008 code PR, NOT authored here.
+-- relay.bundle_rejected. The audit ratifies that the store is durable + uniqueness-indexed and
+-- that its DEFAULT retention is the FULL single-use horizon: Spec-008:169 requires a reused key
+-- to be rejected across ALL distinct sessions, so any pruning that drops a still-rejectable key
+-- would re-admit it on re-insert — a literal invariant violation — and therefore V1 prunes
+-- nothing. The table is bounded by historical (session × participant) ephemeral-key count, not by
+-- traffic volume; at desktop-runtime scale that is trivial storage (~64 bytes/row). A future
+-- bounded-retention optimization is GATED on first narrowing Spec-008:169's cross-session-rejection
+-- scope (its own Spec-008 Type-2 decision, where the data-minimization / storage-limitation tension
+-- is weighed against the single-use guarantee) — absent that narrowing no retention window shorter
+-- than the rejection horizon is safe, so none is authored here.
 CREATE TABLE relay_seen_ephemeral_keys (
   ephemeral_x25519_public BYTEA PRIMARY KEY,     -- 32-byte X25519 public key; PK = global single-use index
   session_id              UUID NOT NULL REFERENCES sessions(id),  -- the session that first claimed this key
-  seen_at                 TIMESTAMPTZ NOT NULL DEFAULT now()      -- first-seen anchor for the code-PR-pinned bounded TTL
+  seen_at                 TIMESTAMPTZ NOT NULL DEFAULT now()      -- first-seen audit anchor (full-horizon retention in V1; see comment above)
 );
 
 CREATE INDEX idx_relay_seen_ephemeral_keys_session ON relay_seen_ephemeral_keys(session_id);
