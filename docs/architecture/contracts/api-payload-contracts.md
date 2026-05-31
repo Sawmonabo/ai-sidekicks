@@ -86,12 +86,15 @@ type ErrorNamespace =
   | "run" // run state machine violations
   | "approval" // approval flow errors
   | "invite" // invite lifecycle errors
+  | "membership" // membership/role lifecycle errors
+  | "presence" // presence/device-detail authorization errors
   | "workspace" // workspace/repo errors
   | "artifact" // artifact publication errors
   | "workflow" // workflow execution errors
   | "driver" // provider driver errors
   | "relay" // relay/transport errors
   | "system"; // internal system errors
+// Illustrative V1 subset; `error-contracts.md` is the canonical namespace registry. Remaining union↔registry drift (incl. `data.type`, a `.data` field value not a namespace) tracked in BL-136.
 
 // Rate limiting response (Spec-021)
 interface RateLimitResponse {

@@ -171,4 +171,28 @@ The items below were surfaced by the [plan-readiness-audit Tier 1](./operations/
 
 ---
 
+### BL-136: Reconcile the `ErrorNamespace` union in api-payload-contracts.md against the canonical error-contracts.md registry
+
+- Status: `todo`
+- Priority: `P2`
+- Owner: `unassigned`
+- References: [API Payload Contracts §Error envelope](./architecture/contracts/api-payload-contracts.md), [error-contracts.md](./architecture/contracts/error-contracts.md) (canonical namespace registry), [Plan-022](./plans/022-data-retention-and-gdpr.md) (decision D-022-3(b) — `data.type` is a JSON-RPC `.data` discriminator value, not an error namespace) — surfaced at the Tier-5 plan-readiness audit (PR #129) Codex review
+- Summary: The illustrative `ErrorNamespace` TypeScript union in `api-payload-contracts.md` has drifted from the canonical namespace registry in `error-contracts.md`. The Tier-5 audit added the two audit-touched namespaces (`membership`, `presence`) and flagged the residual in-line: `data.type` is present in the union but is the JSON-RPC `.data` discriminator value (per Plan-022 D-022-3(b)), not an error namespace, so it must not be a union member; and several pre-existing members (`queue`, `resource`, `version`, `transport`, `protocol`) were never cross-checked against the registry. The union is documented as an "illustrative V1 subset," but a subset must not contradict the registry it subsets.
+- Exit Criteria: (a) every `ErrorNamespace` union member resolves to a namespace row in `error-contracts.md`, or is removed; (b) `data.type` is removed from the namespace union (it is a `.data` field value, not a namespace); (c) `error-contracts.md` is named the single canonical registry and the union's doc-comment points to it; (d) no committed doc presents the union as exhaustive while it is a subset.
+- Revisit Trigger: the `api-payload-contracts.md` error-envelope union is next edited; OR the `error-contracts.md` namespace registry is amended; OR any error-namespace-consuming plan (e.g. Plan-006, Plan-008-remainder) reaches its plan-readiness audit.
+
+---
+
+### BL-137: Define the daemon-scope event session-binding model in Spec-006
+
+- Status: `todo`
+- Priority: `P2`
+- Owner: `unassigned`
+- References: [Spec-006 §Security Events / §Audit Integrity / §Event Maintenance](./specs/006-session-event-taxonomy-and-audit-log.md), [ADR-017 Shared Event-Sourcing Scope](./decisions/017-shared-event-sourcing-scope.md) — surfaced at the Tier-5 plan-readiness audit (PR #129) Codex review
+- Summary: Spec-006 defines several daemon-scope event categories — `security_events`, `audit_integrity`, `event_maintenance`, and the daemon-startup `runtime_node_lifecycle` clock events — as "not session-scoped" (they fire at daemon/process scope across all sessions on the node), but the `session_events` store pins `session_id NOT NULL` and every event envelope carries a `sessionId`. The mechanism by which these daemon-scope categories satisfy a non-null `session_id` is undefined (node-session sentinel? a dedicated daemon-scope session row? a separate daemon-scope store?). This is a pre-existing Spec-006 storage seam — the "not session-scoped" language predates the Tier-5 audit — surfaced but not resolved here because it spans four event categories and is owned by Spec-006, not by any Tier-5 plan.
+- Exit Criteria: (a) Spec-006 specifies how daemon-scope events satisfy `session_events.session_id NOT NULL` (sentinel id, dedicated daemon-scope row, or a separate store) for all four categories; (b) the always-present envelope `sessionId` for daemon-scope events is specified; (c) the binding is reflected in the local-sqlite schema doc; (d) no Spec-006 category is described as "not session-scoped" while the store requires a non-null `session_id` without an explained reconciliation.
+- Revisit Trigger: Spec-006 reaches a status promotion; OR the local-sqlite `session_events` schema row is next edited; OR Plan-006 (the daemon-scope event emitter) reaches implementation.
+
+---
+
 _Closed items live in [Backlog Archive](./archive/backlog-archive.md)._

@@ -108,6 +108,8 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
   i.e. when Plan-016 materializes the main channel it MUST use `deriveMainChannelId(sessionId)` for the id and MUST enforce one main channel per session. See [cross-plan-dependencies.md §3 Plan-002 → Plan-016 edge](../architecture/cross-plan-dependencies.md#3-inter-plan-dependency-graph).
 
+- **CP-002-8 — `session_invites` Path-2 crypto-shred reciprocal (⇄ [Plan-022](./022-data-retention-and-gdpr.md) CP-022-6).** On a valid participant purge (`DELETE /participants/{id}/data`), the Plan-002-owned `session_invites` rows that reference the purged participant (e.g. `inviter_id`) are **anonymized in place** with the tombstone-identifier pattern — not hard-DELETEd — in [Plan-022](./022-data-retention-and-gdpr.md)'s Postgres-side shred fan-out (Spec-022:294-296, §Shred Fan-Out Path 2), preserving referential integrity and the invite audit trail (Spec-022:67). Reciprocal of Plan-022 CP-022-6 (encoded fix-in-place at the Tier-5 audit swap, satisfying Plan-022 I-022-19); shred-handler provider: Plan-022 (V1.1, owns the cross-store fan-out).
+
 ## Implementation Steps
 
 - Contracts: See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed schemas this plan consumes.
