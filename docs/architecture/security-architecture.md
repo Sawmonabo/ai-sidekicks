@@ -238,13 +238,13 @@ Per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md), relay E2EE ships as
 **Long-term Ed25519 identity key custody:**
 
 - Desktop clients derive (or wrap) the long-term Ed25519 identity key from a WebAuthn/passkey PRF ceremony per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md); the key is reconstructed per session and never hits disk in plaintext.
-- CLI clients store the long-term Ed25519 identity key at rest using the three-tier custody ladder defined in [ADR-021](../decisions/021-cli-identity-key-storage-custody.md): (1) OS-native keystore (libsecret / Keychain / DPAPI) gated by write-probe-read-delete verification, (2) libsodium XChaCha20-Poly1305 + Argon2id file with OWASP 2026 parameters, (3) refuse to participate in shared-session E2EE. Silent backend substitution and silent key rotation are both explicitly prohibited — silent rotation would invalidate every prior `SessionKeyBundle` signature and drop the participant from all active shared sessions.
+- CLI clients store the long-term Ed25519 identity key at rest using the three-tier custody ladder defined in [ADR-021](../decisions/021-cli-identity-key-storage-custody.md): (1) OS-native keystore (libsecret / Keychain / DPAPI) gated by write-probe-read-delete verification, (2) `@noble/ciphers` XChaCha20-Poly1305 + `@noble/hashes` Argon2id file with OWASP 2026 parameters, (3) refuse to participate in shared-session E2EE. Silent backend substitution and silent key rotation are both explicitly prohibited — silent rotation would invalidate every prior `SessionKeyBundle` signature and drop the participant from all active shared sessions.
 
 **Message encryption:**
 
-- Sender: for each recipient, encrypt plaintext under that pair's `sessionKey` with a fresh 24-byte random nonce and the recipient's principal identifier as AEAD associated data; relay sees `(recipient_id, nonce, ciphertext+tag)`
+- Sender: for each recipient, encrypt plaintext under that pair's `sessionKey` with a fresh 24-byte random nonce and associated data `recipient_id ‖ seq` (the per-sender monotonic sequence, carried in the clear and authenticated by the tag); the frame also carries `sender_ephemeral` — the sender's session ephemeral X25519 public key, the recipient's key-selection handle — so the relay sees `(sender_ephemeral, recipient_id, seq, nonce, ciphertext+tag)`
 - Relay: never sees plaintext; forwards each per-recipient envelope as opaque ciphertext
-- Recipient: verifies associated data, decrypts, and delivers to local session state
+- Recipient: resolves the pairwise key via `sender_ephemeral` (sender authenticity follows from which key verifies the tag), verifies associated data `recipient_id ‖ seq` and rejects any replay at or below the last accepted `seq` for that sender, decrypts, and delivers to local session state
 
 **WebSocket authentication to relay:**
 
