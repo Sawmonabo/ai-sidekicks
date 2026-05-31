@@ -302,12 +302,12 @@ The Tier-5 plan-readiness audit (NS-17) surfaced three open decisions; all three
 ## Rollout Order
 
 1. Ship queue persistence and read-only queue visibility
-2. Enable queue mutation and interrupt
-3. Enable steer and pause/resume where driver capabilities allow
+2. Enable queue mutation and the orchestration-layer run-controls — interrupt, cancel, pause, resume (none capability-gated, I-004-10)
+3. Enable steer where driver capabilities allow — `steer` is the only driver-capability-gated control
 
 ## Rollback Or Fallback
 
-- Disable pause or steer controls and keep queue or interrupt only if capability handling regresses.
+- Disable `steer` (the only capability-gated control) if driver-capability handling regresses; queue + the orchestration-layer controls (interrupt, cancel, pause, resume) stay enabled — they are not capability-gated (I-004-10).
 
 ## Risks And Blockers
 

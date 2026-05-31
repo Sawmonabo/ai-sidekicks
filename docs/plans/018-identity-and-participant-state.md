@@ -52,7 +52,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 - Extend `participants` (owner: Plan-001 per [cross-plan-dependencies.md §1 Contested](../architecture/cross-plan-dependencies.md#1-table-ownership-map) row for `participants` — Plan-018 ALTER/USE adds `display_name`, `identity_ref`, `metadata` columns via additive migrations; columns already recorded in [shared-postgres-schema.md:117,123-126](../architecture/schemas/shared-postgres-schema.md), reciprocity present). `participants.identity_ref` carries a `UNIQUE` constraint (see D-018-2 — a stable synthetic ref, not a `{provider}:{external_id}` projection).
 - Add shared `identity_mappings` side table (CREATE per §1 Uncontested row) with `UNIQUE(provider, external_id)` enforcing one canonical mapping per authenticated identity. Participant-profile projection records and device-presence aggregation read from these base tables; presence data is ephemeral per Plan-002 (Yjs Awareness CRDT, in-memory only) and MUST NOT be persisted to a durable table.
-- One-participant-per-session is enforced by `session_memberships UNIQUE(session_id, participant_id)` (Plan-002-owned table), not a new constraint on `participants`.
+- One-participant-per-session is enforced by `session_memberships UNIQUE(session_id, participant_id)` (Plan-001-owned, Plan-002-extended table — Plan-001 CREATEs per [cross-plan §1](../architecture/cross-plan-dependencies.md#1-table-ownership-map), Plan-002 EXTENDs), not a new constraint on `participants`.
 - Ensure canonical event authorship references stable participant ids rather than mutable display metadata.
 - See [Shared Postgres Schema](../architecture/schemas/shared-postgres-schema.md) for column definitions.
 
