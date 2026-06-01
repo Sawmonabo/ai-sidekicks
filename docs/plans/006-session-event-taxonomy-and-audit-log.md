@@ -403,6 +403,23 @@ Transcription errors and cross-doc inconsistencies discovered during the 2026-05
 - **Invariant enforcement regressions.** If the compactor or shred selector ever mis-categorizes an `audit_integrity` or `event_maintenance` event, the invariant is violated silently. Enforced at three layers (compactor, pii-indirection, shred selector) to prevent single-layer regressions.
 - **Plan-002 amendment sequencing.** The signing-key column + session-create call-site live in Plan-002. The amendment-via-extension PR must merge before step 2 of Rollout Order; the §Rollout Order Prerequisite captures this. Late landing surfaces as null-signing-key throws on the first `EventLogService.append()` — a load-bearing cross-plan sequence dependency, not a runtime bug.
 
+## Progress Log
+
+### Shipment Manifest
+
+<!-- Machine-readable. Housekeeper-emitted, orchestrator-written, preflight-read.
+     Schema authoritative in:
+       .claude/skills/plan-execution/scripts/lib/manifest.mjs -->
+
+```yaml
+manifest_schema_version: 1
+shipped: []
+```
+
+### Notes
+
+<!-- Per-PR human commentary (round-trips, learnings, partial-ship details). Append-only. -->
+
 ## Done Checklist
 
 - [ ] Code changes implemented

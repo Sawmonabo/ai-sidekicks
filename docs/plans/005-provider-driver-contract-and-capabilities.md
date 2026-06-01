@@ -447,6 +447,23 @@ The cross-cutting `InterventionType = "steer" | "interrupt" | "cancel"` enum (ap
 
 **Why bidirectional.** Plan-004 reviewers see the import-from-Plan-005; Plan-005 reviewers must know that the enum is shared and must not relocate it without coordinating with Plan-004.
 
+## Progress Log
+
+### Shipment Manifest
+
+<!-- Machine-readable. Housekeeper-emitted, orchestrator-written, preflight-read.
+     Schema authoritative in:
+       .claude/skills/plan-execution/scripts/lib/manifest.mjs -->
+
+```yaml
+manifest_schema_version: 1
+shipped: []
+```
+
+### Notes
+
+<!-- Per-PR human commentary (round-trips, learnings, partial-ship details). Append-only. -->
+
 ## Done Checklist
 
 - [ ] Phase 1 — Driver contract + capability schema + idempotency_class (T1.1-T1.6)

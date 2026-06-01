@@ -522,6 +522,23 @@ Added to `docs/architecture/contracts/error-contracts.md` in step 21.
 - **Hosted-sign-up redirect URL is a build-time constant.** Option 3's redirect URL is hardcoded in the daemon binary at build time (per Spec-026 §Open Questions tentative). If the hosted-SaaS sign-up URL changes, users on older daemons remain pointed at the old URL until they upgrade. Mitigation: ship the URL as a config-overrideable field (`AIS_HOSTED_SIGNUP_URL`) for power users; the happy path uses the build-time constant. Mid-term: adopt well-known discovery at `<hosted-saas-base>/.well-known/onboarding` per Spec-026 §Open Questions.
 - **Walkthrough host-window accessibility.** The VS-Code-walkthrough-patterned renderer must expose keyboard navigation and screen-reader labels. Plan-026 does not author the full a11y audit (deferred to the desktop design track), but the walkthrough shell must not ship without minimal landmark roles + focus management or the first-run UX is inaccessible. Acceptance test: `axe-core` pass under Playwright `_electron` harness.
 
+## Progress Log
+
+### Shipment Manifest
+
+<!-- Machine-readable. Housekeeper-emitted, orchestrator-written, preflight-read.
+     Schema authoritative in:
+       .claude/skills/plan-execution/scripts/lib/manifest.mjs -->
+
+```yaml
+manifest_schema_version: 1
+shipped: []
+```
+
+### Notes
+
+<!-- Per-PR human commentary (round-trips, learnings, partial-ship details). Append-only. -->
+
 ## Done Checklist
 
 - [ ] `packages/contracts/src/onboarding.ts` exports every type from §API And Transport Changes.

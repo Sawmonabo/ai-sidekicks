@@ -408,6 +408,23 @@ Audit-derived task decomposition. The 11 Implementation Steps regroup into five 
 - **Resolved (was Risk / OD-022-2)**: the per-participant content key is a **random DEK** (envelope encryption), not a credential- or identity-derived key — so there is no `ikm`-mutation data-loss class and no Plan-018 producer dependency (D-022-2 dissolves the former CP-022-4 seam). This is also the crypto-shred correctness precondition ([Spec-022 §Signature Safety Under Shred](../specs/022-data-retention-and-gdpr.md#signature-safety-under-shred)): the content key is destroyed by deleting its sole wrapped copy. V1 scopes key rotation out entirely (`key_version` pinned at `1`, I-022-10).
 - **Dependency (resolved at doc-time, verify at code-time)**: the forward-declaration onto Plan-001's migration `0001-initial.ts` was accepted at Plan-001 authoring (BL-054). Plan-001 Phases 1–4 have shipped; the Tier-5 code PR must verify the shipped `migrations/0001-initial.ts` carries `pii_payload` + `participant_keys` before building on them ([CP-022-5](#cross-plan-obligations)).
 
+## Progress Log
+
+### Shipment Manifest
+
+<!-- Machine-readable. Housekeeper-emitted, orchestrator-written, preflight-read.
+     Schema authoritative in:
+       .claude/skills/plan-execution/scripts/lib/manifest.mjs -->
+
+```yaml
+manifest_schema_version: 1
+shipped: []
+```
+
+### Notes
+
+<!-- Per-PR human commentary (round-trips, learnings, partial-ship details). Append-only. -->
+
 ## Done Checklist
 
 - [ ] `participant_keys` table schema matches Spec-022 §Participant Keys exactly

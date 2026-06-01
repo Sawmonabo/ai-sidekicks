@@ -97,6 +97,23 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - Cross-device duplicate delivery can become noisy if canonical attention state and local notification emission are not separated cleanly
 - Aggregate session attention can drift if clients try to reconstruct it locally instead of consuming the canonical derived projection
 
+## Progress Log
+
+### Shipment Manifest
+
+<!-- Machine-readable. Housekeeper-emitted, orchestrator-written, preflight-read.
+     Schema authoritative in:
+       .claude/skills/plan-execution/scripts/lib/manifest.mjs -->
+
+```yaml
+manifest_schema_version: 1
+shipped: []
+```
+
+### Notes
+
+<!-- Per-PR human commentary (round-trips, learnings, partial-ship details). Append-only. -->
+
 ## Done Checklist
 
 - [ ] Code changes implemented

@@ -95,6 +95,23 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - Ephemeral clone cleanup may leak disk usage without strong lifecycle handling
 - Repositories with mandatory bootstrap steps will need explicit follow-on setup flows or workflows rather than hidden automatic preparation
 
+## Progress Log
+
+### Shipment Manifest
+
+<!-- Machine-readable. Housekeeper-emitted, orchestrator-written, preflight-read.
+     Schema authoritative in:
+       .claude/skills/plan-execution/scripts/lib/manifest.mjs -->
+
+```yaml
+manifest_schema_version: 1
+shipped: []
+```
+
+### Notes
+
+<!-- Per-PR human commentary (round-trips, learnings, partial-ship details). Append-only. -->
+
 ## Done Checklist
 
 - [ ] Code changes implemented
