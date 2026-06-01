@@ -94,6 +94,23 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - Provider-native permission semantics may drift unless normalization is enforced before approval records are written
 - Own-node trust can be over-broadened unless envelope boundaries remain explicit in permission checks and UI copy
 
+## Progress Log
+
+### Shipment Manifest
+
+<!-- Machine-readable. Housekeeper-emitted, orchestrator-written, preflight-read.
+     Schema authoritative in:
+       .claude/skills/plan-execution/scripts/lib/manifest.mjs -->
+
+```yaml
+manifest_schema_version: 1
+shipped: []
+```
+
+### Notes
+
+<!-- Per-PR human commentary (round-trips, learnings, partial-ship details). Append-only. -->
+
 ## Done Checklist
 
 - [ ] Code changes implemented

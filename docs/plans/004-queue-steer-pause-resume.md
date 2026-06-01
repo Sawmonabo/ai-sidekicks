@@ -315,6 +315,23 @@ The Tier-5 plan-readiness audit (NS-17) surfaced three open decisions; all three
 - Provider capability mismatch can produce misleading controls
 - Queue concurrency across multiple clients needs strict daemon serialization
 
+## Progress Log
+
+### Shipment Manifest
+
+<!-- Machine-readable. Housekeeper-emitted, orchestrator-written, preflight-read.
+     Schema authoritative in:
+       .claude/skills/plan-execution/scripts/lib/manifest.mjs -->
+
+```yaml
+manifest_schema_version: 1
+shipped: []
+```
+
+### Notes
+
+<!-- Per-PR human commentary (round-trips, learnings, partial-ship details). Append-only. -->
+
 ## Done Checklist
 
 - [ ] Code changes implemented

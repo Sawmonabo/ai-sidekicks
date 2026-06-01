@@ -155,6 +155,23 @@ Plan-020 owns the daemon-side `/metrics` endpoint required by [Spec-027 row 9](.
 - Health projections can become misleading if replay and provider diagnostics are not merged from authoritative sources
 - Bounded-retention implementation can become misleading if raw diagnostic expiry is not clearly distinguished from canonical observability truth
 
+## Progress Log
+
+### Shipment Manifest
+
+<!-- Machine-readable. Housekeeper-emitted, orchestrator-written, preflight-read.
+     Schema authoritative in:
+       .claude/skills/plan-execution/scripts/lib/manifest.mjs -->
+
+```yaml
+manifest_schema_version: 1
+shipped: []
+```
+
+### Notes
+
+<!-- Per-PR human commentary (round-trips, learnings, partial-ship details). Append-only. -->
+
 ## Done Checklist
 
 - [ ] Code changes implemented

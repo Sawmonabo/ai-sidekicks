@@ -144,6 +144,23 @@ Five test categories (SA-29): property-based, fuzz, load, long-running integrati
 - Per-run gate-chain verification cost scales linearly (~1 ms/row) — acceptable for operator-triggered audit; not in the hot path.
 - Non-determinism in replay if driver adapters leak wall-clock or random seed state — Plan-015 runtime-binding resume is the guard; Pass H §5.2 replay test is the regression.
 
+## Progress Log
+
+### Shipment Manifest
+
+<!-- Machine-readable. Housekeeper-emitted, orchestrator-written, preflight-read.
+     Schema authoritative in:
+       .claude/skills/plan-execution/scripts/lib/manifest.mjs -->
+
+```yaml
+manifest_schema_version: 1
+shipped: []
+```
+
+### Notes
+
+<!-- Per-PR human commentary (round-trips, learnings, partial-ship details). Append-only. -->
+
 ## Done Checklist
 
 - [ ] Code changes implemented

@@ -94,6 +94,23 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - Artifact immutability will be undermined if live workspace paths are allowed to masquerade as durable payload identity
 - Pressure for participant-specific redaction can create accidental in-place mutation semantics unless derivative-artifact handling stays explicit
 
+## Progress Log
+
+### Shipment Manifest
+
+<!-- Machine-readable. Housekeeper-emitted, orchestrator-written, preflight-read.
+     Schema authoritative in:
+       .claude/skills/plan-execution/scripts/lib/manifest.mjs -->
+
+```yaml
+manifest_schema_version: 1
+shipped: []
+```
+
+### Notes
+
+<!-- Per-PR human commentary (round-trips, learnings, partial-ship details). Append-only. -->
+
 ## Done Checklist
 
 - [ ] Code changes implemented

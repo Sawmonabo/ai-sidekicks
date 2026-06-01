@@ -288,6 +288,23 @@ Typed SDK (daemon-as-gateway), renderer subtree, CLI commands, and the service-l
 - **Phase-2 code-land was gated on Open Decisions 1 and 2** (auth context producer shape, identity_ref derivation) — both ratified at the Tier-5 pause (D-018-1 Plan-018-owned `AuthenticatedIdentityContext`; D-018-2 stable synthetic ref), so the gate is cleared; the Spec-018 / `shared-postgres-schema.md` pins land at swap.
 - **Phase-3/4 Tasks T3.1/T3.4/T4.4 were gated on Open Decisions 4 and 5** (lastSeen source, PresenceDetailRead authorized-set) — both ratified (D-018-4 precedence-device `lastSeen`; D-018-5 owner/operator-only); the Spec-018 pins land at swap.
 
+## Progress Log
+
+### Shipment Manifest
+
+<!-- Machine-readable. Housekeeper-emitted, orchestrator-written, preflight-read.
+     Schema authoritative in:
+       .claude/skills/plan-execution/scripts/lib/manifest.mjs -->
+
+```yaml
+manifest_schema_version: 1
+shipped: []
+```
+
+### Notes
+
+<!-- Per-PR human commentary (round-trips, learnings, partial-ship details). Append-only. -->
+
 ## Done Checklist
 
 - [ ] Code changes implemented

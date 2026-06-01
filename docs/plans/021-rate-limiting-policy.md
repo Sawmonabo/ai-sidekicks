@@ -367,6 +367,23 @@ All rate-limited responses must set:
 - **`admin_bans` concurrency.** Two concurrent admins both issuing a ban for the same identity must not produce two active rows. The `UNIQUE INDEX idx_admin_bans_one_active ON admin_bans (identity, identity_type) WHERE revoked_at IS NULL` partial index (see §Data And Storage Changes) rejects the second insert with a unique-violation error. The admin-bans store catches this specific error code (`23505`) and returns a 409 `admin.ban_already_exists` response, so the losing admin gets a deterministic error rather than a silent no-op. Accepted as-is.
 - **Cloudflare shadow-DO round-trip.** Every rate check consults the DO even on success (to return `remaining`/`resetAt`). This doubles the CF rate-limit check cost (~1-5ms DO lookup added to the free binding). For the hot path (60/min messages), 2ms × 60 = 120ms/min added compute per participant per minute. Accepted for V1.
 
+## Progress Log
+
+### Shipment Manifest
+
+<!-- Machine-readable. Housekeeper-emitted, orchestrator-written, preflight-read.
+     Schema authoritative in:
+       .claude/skills/plan-execution/scripts/lib/manifest.mjs -->
+
+```yaml
+manifest_schema_version: 1
+shipped: []
+```
+
+### Notes
+
+<!-- Per-PR human commentary (round-trips, learnings, partial-ship details). Append-only. -->
+
 ## Done Checklist
 
 - [ ] `RateLimiter` interface lives in `packages/contracts/src/rate-limiter.ts` with the shape defined in §API And Transport Changes.

@@ -94,6 +94,23 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - Provider-native orchestration differences can leak into product semantics unless normalized at the daemon boundary
 - Scheduler-limit policy must remain visible to users and workflows so bounded fan-out does not look like silent runtime failure
 
+## Progress Log
+
+### Shipment Manifest
+
+<!-- Machine-readable. Housekeeper-emitted, orchestrator-written, preflight-read.
+     Schema authoritative in:
+       .claude/skills/plan-execution/scripts/lib/manifest.mjs -->
+
+```yaml
+manifest_schema_version: 1
+shipped: []
+```
+
+### Notes
+
+<!-- Per-PR human commentary (round-trips, learnings, partial-ship details). Append-only. -->
+
 ## Done Checklist
 
 - [ ] Code changes implemented

@@ -92,6 +92,23 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - Timeline projections will drift if row schemas are allowed to diverge from canonical event provenance
 - Detailed reasoning payloads can be mistaken for canonical history unless summary-first storage stays explicit across contracts and UI
 
+## Progress Log
+
+### Shipment Manifest
+
+<!-- Machine-readable. Housekeeper-emitted, orchestrator-written, preflight-read.
+     Schema authoritative in:
+       .claude/skills/plan-execution/scripts/lib/manifest.mjs -->
+
+```yaml
+manifest_schema_version: 1
+shipped: []
+```
+
+### Notes
+
+<!-- Per-PR human commentary (round-trips, learnings, partial-ship details). Append-only. -->
+
 ## Done Checklist
 
 - [ ] Code changes implemented
