@@ -69,11 +69,58 @@ export function extractPhaseSection(planSource, phaseNumber) {
   const startMatch = startRe.exec(planSource);
   if (!startMatch) return null;
   const startIdx = startMatch.index;
-  const after = planSource.slice(startIdx + startMatch[0].length);
-  const nextRe = /^### Phase \d+/m;
-  const nextMatch = nextRe.exec(after);
-  const endIdx = nextMatch ? startIdx + startMatch[0].length + nextMatch.index : planSource.length;
+  const bodyStart = startIdx + startMatch[0].length;
+  // Bound the section at the next phase heading (`### Phase N`) OR the next
+  // level-2 `## ` sibling section (Rollout Order / Risks / Progress Log / Done
+  // Checklist), whichever comes first. The `## ` boundary is load-bearing:
+  // without it the LAST phase ran to EOF and swallowed the Progress Log's
+  // Shipment Manifest ```yaml block (and Done Checklist) into its section —
+  // which (a) let parsePreconditionsBlock mistake the manifest for an empty
+  // preconditions block and silently skip the prose **Precondition:** gate
+  // (last-phase gate no-op), and (b) risked Gate-3 task-id / Gate-4 cite tokens
+  // bleeding in from trailing prose. `## ` (two hashes + space) matches neither
+  // `### Phase` nor `#### Tasks` (three / four hashes).
+  //
+  // The boundary scan is fence-aware (findSectionBoundary): a `### Phase N` or
+  // `## ` line INSIDE a fenced code block — a shell `## comment`, a markdown
+  // example heading — is phase body, not a section boundary, so a phase that
+  // carries such an example is no longer severed from its `#### Tasks` block.
+  const endRel = findSectionBoundary(planSource.slice(bodyStart));
+  const endIdx = endRel === -1 ? planSource.length : bodyStart + endRel;
   return planSource.slice(startIdx, endIdx);
+}
+
+// Byte offset within `body` of the first `### Phase N` / `## ` heading that sits
+// OUTSIDE any fenced code block, or -1 if none. Split out of extractPhaseSection
+// so the fence state machine is unit-testable on its own. Fence tracking follows
+// CommonMark: an opening ``` / ~~~ run of length N opens a block that only a
+// closing run of the same character and length >= N — with no trailing info
+// string — closes, so a longer outer run contains shorter inner runs (a
+// 4-backtick fence wraps 3-backtick lines), matching the nesting plans use.
+// Indented code needs no handling: its lines carry leading whitespace and never
+// match `^### `/`^## `.
+export function findSectionBoundary(body) {
+  let offset = 0;
+  let fenceChar = ""; // "" when outside a fence; "`" or "~" while inside one
+  let fenceLen = 0;
+  for (const line of body.split("\n")) {
+    const fence = /^\s*(`{3,}|~{3,})/.exec(line);
+    if (fence) {
+      const runChar = fence[1][0];
+      const bareClose = /^\s*$/.test(line.slice(fence[0].length));
+      if (fenceChar === "") {
+        fenceChar = runChar;
+        fenceLen = fence[1].length;
+      } else if (runChar === fenceChar && fence[1].length >= fenceLen && bareClose) {
+        fenceChar = "";
+        fenceLen = 0;
+      }
+    } else if (fenceChar === "" && (/^### Phase \d+/.test(line) || /^## /.test(line))) {
+      return offset;
+    }
+    offset += line.length + 1; // +1 restores the "\n" consumed by split
+  }
+  return -1;
 }
 
 export function countCites(phaseSection) {
@@ -108,9 +155,26 @@ export function parsePreconditionsBlock(phaseSection) {
   // Accept both ```yaml and ```yml — markdown writers use either; treating
   // them differently produces silent gate-skips when a plan author picks the
   // shorter fence.
-  const blockMatch = phaseSection.match(/```ya?ml\s*\n([\s\S]*?)\n```/);
-  if (!blockMatch) return null;
-  const lines = blockMatch[1].split("\n");
+  //
+  // A yaml block is only a *preconditions* block if it contains a top-level
+  // `preconditions:` key. Select that block specifically — other yaml blocks in
+  // a phase section (a schema/data example in a task body, or the Progress Log
+  // Shipment Manifest if it lands in the section) are NOT preconditions blocks.
+  // Returning [] for them conflated "no preconditions block" with "empty
+  // preconditions list", which made gatePreconditions skip the prose
+  // **Precondition:** fallback and vacuously pass — the silent gate-disable seen
+  // on the last phase of every manifested plan (Plan-001 P5, Plan-002 P6,
+  // Plan-003 P5) and on Plan-002 Phase 2's in-body example. Return null (no
+  // preconditions block) so the prose fallback runs.
+  let blockBody = null;
+  for (const m of phaseSection.matchAll(/```ya?ml\s*\n([\s\S]*?)\n```/g)) {
+    if (/^\s*preconditions\s*:/m.test(m[1])) {
+      blockBody = m[1];
+      break;
+    }
+  }
+  if (blockBody === null) return null;
+  const lines = blockBody.split("\n");
   // Track the column at which `preconditions:` was found (-1 means we're not
   // inside the block). The first list item after the key locks `itemIndent`;
   // subsequent items must match that exact indent. Both YAML block-sequence
