@@ -49,7 +49,7 @@ This spec covers queue admission, interventions, blocked states, and operator-vi
 
 - The default follow-up behavior while a run is active is `queue`.
 - Queue ordering default is FIFO within the target scheduling scope.
-- If a driver does not support steer natively, the intervention must be rejected or degraded to a new queue item. Pause does not require driver support — it is handled entirely by the orchestration layer via `applyIntervention`.
+- If a driver does not support steer natively, the intervention must be rejected or degraded to a new queue item. Pause does not require driver support — it is an orchestration-layer run-control mutation (`run.pause` / `run.resume`), handled entirely by the daemon (interrupt + persist + queue a resume) and **not** dispatched through the driver-facing `applyIntervention` path that steer/interrupt/cancel follow ([ADR-011](../decisions/011-generic-intervention-dispatch.md); the driver never needs to know about pause — see [Queue And Intervention Model](../domain/queue-and-intervention-model.md)).
 
 ## Fallback Behavior
 

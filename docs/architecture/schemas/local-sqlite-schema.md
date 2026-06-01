@@ -106,7 +106,7 @@ CREATE TABLE interventions (
   state                 TEXT NOT NULL DEFAULT 'requested'
                         CHECK(state IN ('requested', 'accepted', 'applied', 'rejected', 'degraded', 'expired')),
   payload               TEXT NOT NULL DEFAULT '{}', -- JSON: type-specific fields
-  expected_run_version  INTEGER,                    -- version guard for expiration detection
+  expected_run_version  INTEGER NOT NULL,           -- MANDATORY fail-closed comparand (Spec-004:63 / Plan-004 D-004-2)
   result                TEXT,                       -- JSON: outcome details
   initiator_id          TEXT,                       -- participant or system
   created_at            TEXT NOT NULL,

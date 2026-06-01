@@ -381,15 +381,24 @@ Without the `pii_ciphertext_digest` indirection, a naïve implementation might s
 
 ## Acceptance Criteria
 
-- [ ] Session state model includes `purge_requested` and `purged` states with correct transitions.
-- [ ] Archived sessions are retained for 90 days before becoming purge-eligible.
+V1 ships the erasure _mechanism_ + the manual operator capability; the _automated_ deletion/export/purge handler is V1.1+ (see [§V1 Erasure Scope Boundary](#v1-erasure-scope-boundary) below). The criteria are grouped accordingly, so the V1 `gdpr.*` stubs that return not-implemented unconditionally do not read as failing this checklist.
+
+**V1 — schema, mechanism, and manual capability:**
+
+- [ ] Session state model includes `purge_requested` and `purged` states with correct transitions, including the irreversibility invariant (a `purged` session cannot transition to any other state).
+- [ ] Archived sessions are retained for 90 days before becoming purge-eligible (retention policy recorded in schema).
 - [ ] V1 schema includes `pii_payload` (encrypted) column separate from `payload` (plaintext).
 - [ ] V1 schema includes `participant_keys` table for per-participant AES-256-GCM keys.
-- [ ] Deleting a participant's key renders their encrypted PII in the event log unrecoverable.
-- [ ] Postgres participant records are hard-deleted and membership/invite references are anonymized upon deletion.
-- [ ] Data export returns a complete JSON archive of a participant's events, decrypted with their key.
-- [ ] A `purged` session retains audit stubs (timestamps, event types, non-PII metadata) but no PII.
-- [ ] Purge is irreversible: a `purged` session cannot transition to any other state.
+- [ ] Deleting a participant's key (manually, `DELETE FROM participant_keys`) renders their encrypted PII in the event log unrecoverable.
+- [ ] V1 schema supports Postgres severance — the two anonymize-class FKs carry `ON DELETE SET NULL`, so a manual participant hard-delete anonymizes membership/invite references.
+- [ ] The three `gdpr.*` daemon JSON-RPC methods exist as stubs that return a not-implemented error unconditionally (reserved surface, not silent non-existence).
+- [ ] A data-subject erasure request is satisfiable via the documented [GDPR Manual Erasure Runbook](../operations/gdpr-manual-erasure-runbook.md) (crypto-shred + Postgres severance + the Path-1 → Path-2 → Path-3 fan-out).
+
+**V1.1+ — automated handler (deferred per [§V1 Erasure Scope Boundary](#v1-erasure-scope-boundary)):**
+
+- [ ] Automated data export returns a complete JSON archive of a participant's events, decrypted with their key.
+- [ ] Automated participant deletion hard-deletes Postgres records and anonymizes membership/invite references upon a deletion request.
+- [ ] Automated purge transitions a session to `purged`, retaining audit stubs (timestamps, event types, non-PII metadata) but no PII.
 
 ## ADR Triggers
 
