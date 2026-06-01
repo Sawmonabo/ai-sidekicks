@@ -255,9 +255,12 @@ CREATE INDEX idx_relay_connections_session ON relay_connections(session_id);
 -- mints a fresh ephemeral X25519 key pair per session (I-008-6), and the per-session relay
 -- Durable Object discards its bundles on close — so a key reused in a *later* session can only
 -- be detected against a store that OUTLIVES the session. This control-plane table is that store
--- (OD-008r-2, Tier-5 readiness audit). The PK on the public key is the uniqueness index that
--- makes a second appearance — in any session — a constraint violation the broker rejects with
--- relay.bundle_rejected. The audit ratifies that the store is durable + uniqueness-indexed and
+-- (OD-008r-2, Tier-5 readiness audit). The PK on the public key is the DB-level uniqueness index that
+-- makes a duplicate INSERT of a key a constraint violation; the broker's admission logic reads the
+-- stored session_id before deciding — rejecting a CROSS-session reuse with relay.bundle_rejected
+-- (Spec-008:179) and treating a SAME-session re-presentation of an already-recorded key as an
+-- idempotent admit, never a rejection (Spec-008:130 same-session resume). The audit ratifies that
+-- the store is durable + uniqueness-indexed and
 -- that its retention is — by design — the FULL single-use horizon: Spec-008:179 requires a
 -- reused key to be rejected across ALL distinct sessions, so any pruning that drops a
 -- still-rejectable key would re-admit it on re-insert — a literal invariant violation — and

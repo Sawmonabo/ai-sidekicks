@@ -26,8 +26,8 @@ Plan-006 is the canonical emitter of the `event_maintenance` and `audit_integrit
 
 - Full timeline UI rendering (Plan-013)
 - Metrics and dashboard implementation (Plan-020)
-- Emission of events owned by other plans: `session.*` lifecycle (Plan-001), `runtime_node.*` and `session.clock_*` (Plan-003 / Plan-015), `dispatch.*` (Spec-024 implementation), `participant.*` purge trigger (Plan-022; Plan-006 emits only the `event.shredded` audit artifact after Path 1 completes), `policy_bundle.*` (V1.1 Cedar runtime bundle loader)
-- Crypto-shred fan-out orchestration (Plan-022 owns the three-path orchestrator; Plan-006 provides the append path and emits `event.shredded` on Path 1 completion)
+- Emission of events owned by other plans: `session.*` lifecycle (Plan-001), `runtime_node.*` and `session.clock_*` (Plan-003 / Plan-015), `dispatch.*` (Spec-024 implementation), `participant.*` purge trigger (Plan-022; Plan-006 emits only the `event.shredded` audit artifact, recording the Path-1 crypto-shred), `policy_bundle.*` (V1.1 Cedar runtime bundle loader)
+- Crypto-shred fan-out orchestration (Plan-022 owns the three-path orchestrator; Plan-006 provides the append path and emits `event.shredded` for the Path-1 crypto-shred, emitted after Path 3 per Spec-022 ordering)
 - Cedar policy bundle runtime loading (V1.1 per [ADR-012](../decisions/012-cedar-approval-policy-engine.md) §Decision — V1 compiles policies into the daemon image at build time)
 
 ## Preconditions
@@ -49,7 +49,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - `packages/runtime-daemon/src/events/signer.ts` — BLAKE3 hash chain + Ed25519 signer
 - `packages/runtime-daemon/src/events/signing-key-source.ts` (NEW Plan-006-owned per the signing-key custody resolution) — `DaemonSigningKeySource` interface + `OsKeystoreSealedDaemonSigningKeySource` implementation (per-session Ed25519 sealed via OS-keystore master-key; stored as ciphertext in the new local `daemon_signing_keys` SQLite table per ADR-004 SQLite-local-state boundary — corrected from the pre-Codex-T4-review draft that mis-located the column on shared-Postgres `sessions`)
 - `packages/runtime-daemon/src/events/pii-indirection.ts` — AES-256-GCM encrypt + BLAKE3 ciphertext digest + payload embed (sole write path for `pii_payload`)
-- `packages/runtime-daemon/src/events/event-log-service.ts` — append path writing all integrity columns; emits `event.shredded` at Plan-022 Path 1 callback
+- `packages/runtime-daemon/src/events/event-log-service.ts` — append path writing all integrity columns; emits `event.shredded` on the Plan-022 shred-fan-out callback (after Path 3; records the Path-1 crypto-shred)
 - `packages/runtime-daemon/src/events/compactor.ts` — audit-stub generator + compaction triggers; **enforces anchor-before-compaction protocol per Spec-006 §Post-Compaction Integrity (force-fires `MerkleAnchorService.anchorRange()` if the to-be-compacted range is not yet anchor-covered)**; emits `event.compacted`; uses `session_events.retention_class` discriminator per the audit-stub representation resolution
 - `packages/runtime-daemon/src/events/merkle-anchor-service.ts` — anchor cadence + upload to shared `event_log_anchors`; durable partition queue via `pending_anchor_uploads` table per the partition-anchor queue resolution
 - `packages/runtime-daemon/src/events/integrity-verifier.ts` — read-side chain/signature/anchor/stub-signature/scalar-binding verifier; emits `audit_integrity_verified` / `audit_integrity_failed` with the 11-value `failureMode` enum from Spec-006:435 (post amendment for the four `anchor_missing_for_compacted_range` / `anchor_signature_invalid` / `stub_signature_invalid` / `stub_scalar_mismatch` modes added by the post-compaction integrity protocol per Spec-006 §Post-Compaction Integrity)
@@ -181,7 +181,7 @@ The single write path is `pii-indirection.ts`; callers MUST NOT construct `pii_p
 
 Plan-006 participates in the Path 1 → Path 2 → Path 3 fan-out defined in [Spec-022 §Shred Fan-Out](../specs/022-data-retention-and-gdpr.md):
 
-- **Plan-006 emits `event.shredded` (Spec-006 §Event Maintenance)** after Path 1 (SQLite crypto-shred via `participant_keys` row DELETE) completes, carrying `{participantId, affectedSessionIds[], piiPayloadsCleared, shredReason}`. The event has no PII content and is retained indefinitely.
+- **Plan-006 emits `event.shredded` (Spec-006 §Event Maintenance)** recording the Path-1 crypto-shred (SQLite `participant_keys` row DELETE) — but **emitted after Path 3 completes**, per the [Spec-022 §Shred Fan-Out](../specs/022-data-retention-and-gdpr.md#shred-fan-out) ordering, so the "shredded" marker never precedes the Path-3 diagnostic-bucket flush — carrying `{participantId, affectedSessionIds[], piiPayloadsCleared, shredReason}`. The event has no PII content and is retained indefinitely.
 - **`participant.purged` emission discipline.** Plan-022 owns the emit trigger for `participant.purged` (Spec-006 §Participant Lifecycle), but the timing is constrained by [Spec-022 §Ordering And Atomicity](../specs/022-data-retention-and-gdpr.md): Plan-022 MUST NOT emit `participant.purged` until all three paths complete. Plan-006 provides the append path and does not short-circuit this ordering.
 - **Partial-shred recovery.** On per-path failure, `participant.purge_requested` remains the most recent durable state per Spec-022 §Fallback Behavior. Plan-006's append path refuses to record a `participant.purged` until Plan-022's orchestrator reports all three paths complete; idempotent retries are safe because all three paths are idempotent per Spec-022 §Ordering And Atomicity.
 
