@@ -591,7 +591,7 @@ interface InterruptRunParams {
 interface ApplyInterventionParams {
   type: InterventionType;
   targetRunId: RunId;
-  expectedRunVersion?: number;
+  expectedRunVersion: number; // MANDATORY fail-closed comparand (Plan-004 D-004-2) — absent value rejected, never applied; same field set as the InterventionRequestPayload union below
   payload: SteerPayload | InterruptPayload | CancelPayload;
 }
 
