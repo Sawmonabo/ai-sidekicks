@@ -231,6 +231,11 @@ CREATE TABLE daemon_signing_keys (
 -- compactor's anchor-before-compaction protocol per Spec-006 §Post-Compaction
 -- Integrity) idempotent against re-entry of an identical range (the key dedups
 -- genuine re-fires only — coverage semantics in the constraint comment below).
+-- Node-scope (sentinel session_id) chains queue their local Merkle anchors here too, as the durable
+-- LOCAL witness. In V1 those sentinel-partitioned rows are NOT upload candidates -- the upload worker
+-- selects session-scoped rows only (the sentinel cannot satisfy event_log_anchors' non-null session_id
+-- FK, and node-scope control-plane witnessing is a V1.1 extension per ADR-017 §Node-Scope Anchor
+-- Witnessing). Their uploaded_at stays NULL by design in V1.
 CREATE TABLE pending_anchor_uploads (
   id                  TEXT PRIMARY KEY,
   session_id          TEXT NOT NULL,

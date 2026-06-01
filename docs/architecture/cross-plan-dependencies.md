@@ -41,7 +41,7 @@ All other tables have a single owning plan. See `docs/plans/NNN-*.md` Data And S
 | Plan-003 | `node_capabilities`, `node_trust_state` (SQLite); `runtime_node_attachments`, `runtime_node_presence` (Postgres) |
 | Plan-004 | `queue_items`, `interventions`, `command_receipts` (SQLite) |
 | Plan-005 | `runtime_bindings`, `driver_capabilities`, `driver_tools`, `driver_contract_meta` (SQLite) |
-| Plan-006 | `event_log_anchors` (Postgres — anchor metadata only per ADR-017); `daemon_signing_keys`, `pending_anchor_uploads` (SQLite — daemon-private signing-key store + partition-tolerance queue per F-006-2-02 + F-006-3-01); extends `session_events`, `session_snapshots` (Plan-001) with additive Tier-4 column migrations per Contested Tables rows above |
+| Plan-006 | `event_log_anchors` (Postgres — anchor metadata only per ADR-017; V1 stores session-scoped anchors only — node-scope witnessing is a V1.1 extension gated on Plan-018/Plan-003 node-identity, see [§5 V1.1+ Cross-Plan Extensions](#v11-cross-plan-extensions)); `daemon_signing_keys`, `pending_anchor_uploads` (SQLite — daemon-private signing-key store + partition-tolerance queue per F-006-2-02 + F-006-3-01); extends `session_events`, `session_snapshots` (Plan-001) with additive Tier-4 column migrations per Contested Tables rows above |
 | Plan-008 | `session_directory`, `relay_connections`, `relay_seen_ephemeral_keys` (Postgres) |
 | Plan-009 | `repo_mounts`, `workspaces` (SQLite) |
 | Plan-010 | `worktrees`, `ephemeral_clones`, `branch_contexts` (SQLite) |
@@ -279,6 +279,14 @@ Plan-025's `Dependencies` header declares Plan-018 as a dependency (PASETO issue
 Plans below are not part of V1 per ADR-015 and are **not** placed in the numbered tier sequence above. Their tier placement will be decided at V1.1 plan-authoring time, against the then-current V1 build state.
 
 No plans currently deferred to V1.1+ tier set. (Plan-017 was promoted to V1 per [ADR-015 Amendment 2026-04-22](../decisions/015-v1-feature-scope-definition.md#amendment-history) / BL-097; placed at Tier 8 above.)
+
+### V1.1+ Cross-Plan Extensions
+
+Extensions to an existing V1 surface that are deferred to V1.1, each gated on a primitive a different plan must ship first. Unlike the deferred plans above, these are not whole plans — they are scoped additions recorded here so the gating plan surfaces the waiting consumer at V1.1 planning time, and so the gate is not lost between the deferring decision and the plan that lifts it.
+
+| V1.1 extension | Owned by | Gated on (provider) | Decision record |
+| --- | --- | --- | --- |
+| **Node-scope anchor control-plane witnessing** — upload of sentinel-partitioned (daemon-scope) Merkle anchors to `event_log_anchors`, so a remote / compliance auditor can verify node-scope security-posture chains (in V1 these are witnessed locally only). | Plan-006 (`event_log_anchors`, anchor-upload path) | **Plan-018 / Plan-003** — a non-forgeable node-identity key + control-plane resolution surface (a sessionless chain has no participant roster to resolve the anchor-signing key from; a self-provisioned node key is forgeable by the local operator it would attest against). When that primitive ships, this extension unblocks. | [ADR-017 §Node-Scope Anchor Witnessing](../decisions/017-shared-event-sourcing-scope.md#node-scope-anchor-witnessing-v1-local-only-v11-control-plane-upload); [Spec-006 §Daemon-Scope Event Binding](../specs/006-session-event-taxonomy-and-audit-log.md#daemon-scope-event-binding-and-node-scope-anchoring) |
 
 ### Spec-024 Implementation Plan
 

@@ -152,7 +152,7 @@ Backs `POST /auth/revoke-all-for-participant` (see [security-architecture.md §B
 -- Owner: BL-070
 CREATE TABLE revoked_jtis (
   jti              TEXT PRIMARY KEY,
-  participant_id   UUID NOT NULL REFERENCES participants(id),
+  participant_id   UUID REFERENCES participants(id) ON DELETE SET NULL,  -- nullable + SET NULL on erasure (Plan-022 D-022-7)
   family_id        UUID NOT NULL,                 -- refresh-token rotation family
   revoked_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   reason           TEXT NOT NULL
@@ -167,7 +167,7 @@ CREATE INDEX idx_revoked_jtis_expires ON revoked_jtis(expires_at);
 -- Owner: BL-070
 CREATE TABLE revoked_token_families (
   family_id        UUID PRIMARY KEY,
-  participant_id   UUID NOT NULL REFERENCES participants(id),
+  participant_id   UUID REFERENCES participants(id) ON DELETE SET NULL,  -- nullable + SET NULL on erasure (Plan-022 D-022-7)
   revoked_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   reason           TEXT NOT NULL
                    CHECK(reason IN ('account_compromise', 'password_reset', 'admin_action', 'self_service'))
@@ -175,6 +175,8 @@ CREATE TABLE revoked_token_families (
 
 CREATE INDEX idx_revoked_families_participant ON revoked_token_families(participant_id);
 ```
+
+**GDPR erasure.** `participant_id` is nullable + `ON DELETE SET NULL` by design — born this way at BL-070's post-V1 build (no migration; these tables build already in their final FK shape). A participant hard-DELETE severs the data-subject link, while the denylist key (`jti` / `family_id`, the PRIMARY KEY — **not** `participant_id`) survives to its natural `expires_at + 24h` reap, so erasure cannot resurrect a revoked token within its validity window (the GDPR Art. 17(3) security carve-out). Canonical: [Plan-022 D-022-7](../../plans/022-data-retention-and-gdpr.md#ratified-design-decisions-tier-5-audit-2026-05-30), [Spec-022 §Shred Fan-Out](../../specs/022-data-retention-and-gdpr.md#shred-fan-out); the [GDPR Manual Erasure Runbook](../../operations/gdpr-manual-erasure-runbook.md) is the V1 operator procedure.
 
 **Retention:** Rows are reaped after `expires_at + 24h` safety margin. The 7-day refresh-token TTL (see [security-architecture.md §Token revocation](../security-architecture.md#token-revocation)) bounds the total row count — worst case is roughly `7 days × daily-active refresh tokens per participant`.
 
@@ -394,6 +396,10 @@ The control plane stores Merkle-root **anchors** (metadata only) for per-daemon 
 -- Owner: Plan-006 (BL-050)
 -- Witness-only storage: Merkle roots + signatures for per-daemon local event logs.
 -- Event payloads remain on the emitting daemon's local SQLite; never uploaded here.
+-- V1 scope: SESSION-scoped anchors only. Node-scope (sentinel-partitioned, daemon-scope) chains
+-- are witnessed locally only in V1 -- control-plane upload requires a node-identity trust anchor and
+-- is a V1.1 extension (ADR-017 §Node-Scope Anchor Witnessing; Spec-006 §Daemon-Scope Event Binding).
+-- The non-null session_id FK below is correct under this scope: only session-scoped anchors land here.
 CREATE TABLE event_log_anchors (
   id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   session_id        UUID NOT NULL REFERENCES sessions(id),
