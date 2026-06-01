@@ -75,7 +75,7 @@ CREATE INDEX idx_sessions_state ON sessions(state);
 CREATE TABLE session_memberships (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   session_id      UUID NOT NULL REFERENCES sessions(id),
-  participant_id  UUID NOT NULL REFERENCES participants(id),
+  participant_id  UUID NOT NULL REFERENCES participants(id),  -- born NOT NULL; relaxed to nullable + ON DELETE SET NULL by D-022-7 migration (see GDPR erasure note below)
   role            TEXT NOT NULL DEFAULT 'viewer'
                   CHECK(role IN ('owner', 'viewer', 'collaborator', 'runtime contributor')),
   state           TEXT NOT NULL DEFAULT 'pending'
@@ -96,7 +96,7 @@ CREATE INDEX idx_session_memberships_participant ON session_memberships(particip
 CREATE TABLE session_invites (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   session_id      UUID NOT NULL REFERENCES sessions(id),
-  inviter_id      UUID NOT NULL REFERENCES participants(id),
+  inviter_id      UUID NOT NULL REFERENCES participants(id),  -- born NOT NULL; relaxed to nullable + ON DELETE SET NULL by D-022-7 migration (see GDPR erasure note below)
   token_hash      TEXT NOT NULL UNIQUE,          -- hashed invite token (never store plaintext)
   join_mode       TEXT NOT NULL DEFAULT 'viewer'
                   CHECK(join_mode IN ('viewer', 'collaborator', 'runtime contributor')),
@@ -110,6 +110,8 @@ CREATE INDEX idx_session_invites_session ON session_invites(session_id);
 CREATE INDEX idx_session_invites_state ON session_invites(state) WHERE state = 'pending';
 ```
 
+**GDPR erasure (the two in-V1 anonymize-class FKs).** `session_memberships.participant_id` and `session_invites.inviter_id` are born `NOT NULL REFERENCES participants(id)` by their owners (Plan-001 / Plan-002) and relaxed to nullable + `ON DELETE SET NULL` by [Plan-022's D-022-7 / T22.5.2 control-plane migration](../../plans/022-data-retention-and-gdpr.md#ratified-design-decisions-tier-5-audit-2026-05-30) — a forward ALTER over the shipped owner tables (unlike the `revoked_*` FKs below, which are born in their final `ON DELETE SET NULL` shape at the BL-070 build). A participant hard-DELETE then severs the data-subject link DB-side rather than failing the parent `DELETE FROM participants` or deleting the surviving membership / invite row; `NULL` participant ids are non-equal under `session_memberships`'s `UNIQUE(session_id, participant_id)`, so erasing two participants in the same session is safe. Canonical: [Spec-022 §Shred Fan-Out FK-safety](../../specs/022-data-retention-and-gdpr.md#shred-fan-out), [Plan-022 D-022-7](../../plans/022-data-retention-and-gdpr.md#ratified-design-decisions-tier-5-audit-2026-05-30); the [GDPR Manual Erasure Runbook](../../operations/gdpr-manual-erasure-runbook.md) verifies `confdeltype = 'n'` on both before the irreversible Path-1 shred.
+
 ---
 
 ## Participants and Identity (Plan-018)
@@ -122,7 +124,7 @@ Plan-018 extends the [Plan-001 Participants Identity Anchor](#participants-ident
 -- ALTER COLUMN ... SET NOT NULL in a follow-up migration once backfill completes.
 ALTER TABLE participants
   ADD COLUMN display_name TEXT,                  -- set NOT NULL after backfill
-  ADD COLUMN identity_ref TEXT UNIQUE,           -- set NOT NULL after backfill
+  ADD COLUMN identity_ref TEXT UNIQUE,           -- synthetic primary ref (PASETO kid / minted handle), NOT a {provider}:{external_id} projection — Plan-018 D-018-2; set NOT NULL after backfill
   ADD COLUMN metadata     JSONB NOT NULL DEFAULT '{}';
 
 CREATE INDEX idx_participants_identity ON participants(identity_ref);
@@ -140,6 +142,8 @@ CREATE TABLE identity_mappings (
 CREATE INDEX idx_identity_mappings_participant ON identity_mappings(participant_id);
 ```
 
+**`identity_ref` is a synthetic primary ref, not a provider projection (Plan-018 D-018-2).** It is a stable identifier decoupled from any single external provider — a PASETO `kid` or an internally minted synthetic handle — so a participant who links a second provider keeps one `identity_ref` and gains a second `identity_mappings` row, rather than colliding on the `identity_ref UNIQUE` constraint that a denormalized `{provider}:{external_id}` value would force. The per-provider `{provider, external_id}` tuples live in `identity_mappings`; `identity_ref` is the join-stable participant anchor those mappings resolve to.
+
 ---
 
 ## Token Revocation (BL-070 — Auth Infrastructure)
@@ -150,7 +154,7 @@ Backs `POST /auth/revoke-all-for-participant` (see [security-architecture.md §B
 -- Owner: BL-070
 CREATE TABLE revoked_jtis (
   jti              TEXT PRIMARY KEY,
-  participant_id   UUID NOT NULL REFERENCES participants(id),
+  participant_id   UUID REFERENCES participants(id) ON DELETE SET NULL,  -- nullable + SET NULL on erasure (Plan-022 D-022-7)
   family_id        UUID NOT NULL,                 -- refresh-token rotation family
   revoked_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   reason           TEXT NOT NULL
@@ -165,14 +169,18 @@ CREATE INDEX idx_revoked_jtis_expires ON revoked_jtis(expires_at);
 -- Owner: BL-070
 CREATE TABLE revoked_token_families (
   family_id        UUID PRIMARY KEY,
-  participant_id   UUID NOT NULL REFERENCES participants(id),
+  participant_id   UUID REFERENCES participants(id) ON DELETE SET NULL,  -- nullable + SET NULL on erasure (Plan-022 D-022-7)
   revoked_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   reason           TEXT NOT NULL
-                   CHECK(reason IN ('account_compromise', 'password_reset', 'admin_action', 'self_service'))
+                   CHECK(reason IN ('account_compromise', 'password_reset', 'admin_action', 'self_service')),
+  expires_at       TIMESTAMPTZ NOT NULL            -- aligns with the revoked family's natural expiry; bounds the reap (mirror revoked_jtis)
 );
 
 CREATE INDEX idx_revoked_families_participant ON revoked_token_families(participant_id);
+CREATE INDEX idx_revoked_families_expires ON revoked_token_families(expires_at);
 ```
+
+**GDPR erasure.** `participant_id` is nullable + `ON DELETE SET NULL` by design — born this way at BL-070's post-V1 build (no migration; these tables build already in their final FK shape). A participant hard-DELETE severs the data-subject link, while the denylist key (`jti` / `family_id`, the PRIMARY KEY — **not** `participant_id`) survives to its natural `expires_at + 24h` reap, so erasure cannot resurrect a revoked token within its validity window (the GDPR Art. 17(3) security carve-out). Canonical: [Plan-022 D-022-7](../../plans/022-data-retention-and-gdpr.md#ratified-design-decisions-tier-5-audit-2026-05-30), [Spec-022 §Shred Fan-Out](../../specs/022-data-retention-and-gdpr.md#shred-fan-out); the [GDPR Manual Erasure Runbook](../../operations/gdpr-manual-erasure-runbook.md) is the V1 operator procedure.
 
 **Retention:** Rows are reaped after `expires_at + 24h` safety margin. The 7-day refresh-token TTL (see [security-architecture.md §Token revocation](../security-architecture.md#token-revocation)) bounds the total row count — worst case is roughly `7 days × daily-active refresh tokens per participant`.
 
@@ -243,6 +251,44 @@ CREATE TABLE relay_connections (
 );
 
 CREATE INDEX idx_relay_connections_session ON relay_connections(session_id);
+
+-- Owner: Plan-008
+-- Durable cross-session ephemeral-key reuse guard (I-008-7c, Spec-008:179). Each participant
+-- mints a fresh ephemeral X25519 key pair per session (I-008-6), and the per-session relay
+-- Durable Object discards its bundles on close — so a key reused in a *later* session can only
+-- be detected against a store that OUTLIVES the session. This control-plane table is that store
+-- (OD-008r-2, Tier-5 readiness audit). The PK on the public key is the DB-level uniqueness index that
+-- makes a duplicate INSERT of a key a constraint violation; the broker's admission logic reads the
+-- stored session_id before deciding — rejecting a CROSS-session reuse with relay.bundle_rejected
+-- (Spec-008:179) and treating a SAME-session re-presentation as an idempotent admit ONLY for the
+-- participant that first claimed the key (Spec-008:130 reconnect-resume; a different participant is
+-- rejected). That original-claimant check is broker live-layer logic against the in-memory admission
+-- record (fail-closed when absent → client re-mints) — this table stays the cross-session
+-- (key → first session_id) backstop, never a claimant store. The audit ratifies that
+-- the store is durable + uniqueness-indexed and
+-- that its retention is — by design — the FULL single-use horizon: Spec-008:179 requires a
+-- reused key to be rejected across ALL distinct sessions, so any pruning that drops a
+-- still-rejectable key would re-admit it on re-insert — a literal invariant violation — and
+-- therefore V1 prunes nothing. Full-horizon retention is the correct terminal design here, not
+-- a placeholder to be optimized later: the ephemeral public key is a CLIENT-chosen value with no
+-- server-anchored birth time except its first appearance in this table, so a freshness/TTL window
+-- cannot bound the store — a client reusing a key re-presents it under a fresh timestamp that a
+-- time-windowed store would have forgotten and would wrongly re-admit. (This is why the TLS 1.3
+-- 0-RTT anti-replay window does NOT transfer: that window binds a SERVER-issued ticket age the
+-- peer cannot re-stamp — RFC 8446 §8 — whereas here the dedup key is client-minted.) Remembering
+-- every key is therefore irreducible, not lazy. The table is bounded by historical
+-- (session × participant) ephemeral-key count, not by traffic volume (~64 bytes/row — trivial at
+-- desktop-runtime scale); at hosted scale its growth is an ops concern (time-partition the table,
+-- keeping every partition queryable — never DROP, which would re-admit a pruned key) decoupled
+-- from the security property. Bounding retention would weaken Spec-008:179's forward-secrecy
+-- guarantee and is therefore a separate Spec-008 Type-2 decision, not a code-level optimization.
+CREATE TABLE relay_seen_ephemeral_keys (
+  ephemeral_x25519_public BYTEA PRIMARY KEY,     -- 32-byte X25519 public key; PK = global single-use index
+  session_id              UUID NOT NULL REFERENCES sessions(id),  -- the session that first claimed this key
+  seen_at                 TIMESTAMPTZ NOT NULL DEFAULT now()      -- first-seen audit anchor (full-horizon retention by design; see comment above)
+);
+
+CREATE INDEX idx_relay_seen_ephemeral_keys_session ON relay_seen_ephemeral_keys(session_id);
 ```
 
 ---
@@ -315,6 +361,8 @@ CREATE INDEX idx_cross_node_dispatch_coordination_target
   ON cross_node_dispatch_coordination(target_node_id, status);
 ```
 
+**GDPR erasure (hard-DELETE class).** `cross_node_dispatch_coordination` has **no `participant_id` column**; it references the participant as both `caller_participant_id` and `target_participant_id`, each `NOT NULL REFERENCES participants(id)` with the default `NO ACTION`. A participant erasure therefore hard-DELETEs every row where the participant is caller **or** target — `DELETE FROM cross_node_dispatch_coordination WHERE caller_participant_id = :pid OR target_participant_id = :pid;` — and must run **before** the `DELETE FROM participants` anchor, or the two `NO ACTION` FKs make that parent `DELETE` fail. This row is routing metadata only (the dispatch payload, capability token, and `ApprovalRecord` are never stored here), so it is hard-DELETE, not anonymize. Canonical: [Spec-022 §Shred Fan-Out](../../specs/022-data-retention-and-gdpr.md#shred-fan-out); the [GDPR Manual Erasure Runbook §Path 2](../../operations/gdpr-manual-erasure-runbook.md#path-2--hard-delete--sever-postgres-rows-control-plane) is the V1 operator procedure.
+
 ---
 
 ## Notification Preferences (Plan-019)
@@ -360,6 +408,10 @@ The control plane stores Merkle-root **anchors** (metadata only) for per-daemon 
 -- Owner: Plan-006 (BL-050)
 -- Witness-only storage: Merkle roots + signatures for per-daemon local event logs.
 -- Event payloads remain on the emitting daemon's local SQLite; never uploaded here.
+-- V1 scope: SESSION-scoped anchors only. Node-scope (sentinel-partitioned, daemon-scope) chains
+-- are witnessed locally only in V1 -- control-plane upload requires a node-identity trust anchor and
+-- is a V1.1 extension (ADR-017 §Node-Scope Anchor Witnessing; Spec-006 §Daemon-Scope Event Binding).
+-- The non-null session_id FK below is correct under this scope: only session-scoped anchors land here.
 CREATE TABLE event_log_anchors (
   id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   session_id        UUID NOT NULL REFERENCES sessions(id),

@@ -84,6 +84,14 @@ The numeric `code` is the JSON-RPC spec-mandated discriminator. The `data.type` 
 | `protocol.handshake_required` | `-32600` | NegotiationError | Mutating dispatch attempted in `pre` state (I-007-1) |
 | `protocol.version_mismatch` | `-32600` | NegotiationError | Mutating dispatch attempted in `done-incompatible` state (Spec-007:67-68) |
 
+### Plan-022 Tier 5 Domain Identifiers
+
+The `gdpr.*` stub methods are registered daemon JSON-RPC handlers (Plan-022 D-022-3) that return the not-implemented envelope unconditionally. Per [§Numeric Code Space](#numeric-code-space-per-json-rpc-20-51) the project mints **no** custom numeric domain codes — the stub rides the standard `-32603` discriminator with its project code in `data.type`, exactly mirroring `transport.unavailable` (a registered handler deliberately unavailable in this configuration). Consumers discriminate on `data.type`, never on the coarse `-32603` (a bare `-32603` with no `data.type` remains a genuine internal error).
+
+| `data.type` | JSON-RPC `code` | Trigger |
+| --- | --- | --- |
+| `gdpr.endpoint_not_v1` | `-32603` | A registered `gdpr.*` daemon stub (`gdpr.sessionPurge` / `gdpr.participantExport` / `gdpr.participantDelete`) was invoked in V1; the handler returns the not-implemented envelope unconditionally (Plan-022 I-022-17). Notional HTTP 501 in [§Error Codes → §GDPR](#gdpr). |
+
 ### Test-Side Discrimination
 
 Test code asserting on JSON-RPC error envelopes MUST discriminate on `data.type` for project-level expectations and on `code` for JSON-RPC-level expectations. The pre-BL-103 substrate's code-string-only assertion (T-007p-1-4 unknown_setting test) widens to full-envelope-shape assertion as part of BL-103 closure:
@@ -134,6 +142,14 @@ expect(caught).toMatchObject({
 | `run.limit_exceeded` | Concurrent run limit exceeded | 429 |
 | `run.recovery_failed` | Run recovery failed due to an internal error | 500 |
 
+### Queue
+
+Daemon-local run-queue control codes (Plan-004). Run-control authority is daemon-only ([ADR-003](../../decisions/003-daemon-backed-queue-and-interventions.md)), so — like the §Run namespace — these ride the daemon JSON-RPC wire with the dotted code as the canonical `data.type` identifier and the HTTP status as the control-plane-notional mapping; no separate §JSON-RPC numeric pin (the §Run domain-code convention).
+
+| Code | Description | HTTP Status |
+| --- | --- | --- |
+| `queue.persistence_unavailable` | New queued run-control work was rejected fail-closed because the daemon's queue-persistence layer is unavailable (Plan-004 I-004-1 / ADR-003 — block new queued work when persistence is unavailable) | 503 |
+
 ### Approval
 
 | Code | Description | HTTP Status |
@@ -160,6 +176,12 @@ expect(caught).toMatchObject({
 | `membership.not_found` | Membership does not exist | 404 |
 | `membership.permission_denied` | Actor is not permitted to apply the requested membership change (owner-only) | 403 |
 | `membership.last_owner` | Action would remove the last remaining active owner of the session | 409 |
+
+### Presence
+
+| Code | Description | HTTP Status |
+| --- | --- | --- |
+| `presence.permission_denied` | Actor is not in the authorized set (owner/operator) for per-device presence detail; the aggregated presence summary is the unauthorized-default projection (Plan-018 D-018-5 / I-018-6). Served via the daemon `participant.presenceDetail` gateway — domain authz code, HTTP row per the `membership.permission_denied` convention (no §JSON-RPC pin). | 403 |
 
 ### Workspace
 
@@ -195,11 +217,14 @@ expect(caught).toMatchObject({
 
 ### Relay
 
-| Code                          | Description                                     | HTTP Status |
-| ----------------------------- | ----------------------------------------------- | ----------- |
-| `relay.connection_failed`     | Relay connection to the upstream service failed | 502         |
-| `relay.group_full`            | Relay group has reached its participant limit   | 429         |
-| `relay.authentication_failed` | Relay authentication failed                     | 401         |
+| Code | Description | HTTP Status |
+| --- | --- | --- |
+| `relay.connection_failed` | Relay connection to the upstream service failed | 502 |
+| `relay.group_full` | Relay group has reached its participant limit | 429 |
+| `relay.authentication_failed` | Relay authentication failed | 401 |
+| `relay.bundle_rejected` | Relay `SessionKeyBundle` admission rejected — the bundle's Ed25519 identity is not bound to a registered participant (Plan-008 I-008-7b). Distinct from the handshake-scoped `relay.authentication_failed`. | 403 |
+| `relay.replay_rejected` | Relay frame rejected — the AEAD-bound sender sequence is ≤ the last accepted sequence for that sender (monotonic-seq replay; client-side detection per Plan-008 I-008-8) | 409 |
+| `relay.bundle_signature_invalid` | Peer `SessionKeyBundle` rejected on client-side defense-in-depth re-verification — the Ed25519 signature over `session_id ‖ ephemeral_x25519_public` failed (Plan-008 I-008-7a) | 403 |
 
 ### Transport
 
@@ -223,6 +248,14 @@ Wire-level codes describing peer mis-use of the framing/handshake layer. Distinc
 | ----------------------- | -------------------------------- | ----------- |
 | `system.internal_error` | Unexpected internal error        | 500         |
 | `system.maintenance`    | System is undergoing maintenance | 503         |
+
+### GDPR
+
+Daemon-local data-subject-request codes (Plan-022). The V1.1 erasure / export / purge handlers are daemon-bound — they read daemon-local `participant_keys` + the `sodium_mlock`-held master key, which the Cloudflare-Workers control plane cannot reach — so these codes ride the **daemon JSON-RPC wire only**: the HTTP status below is notional, and the numeric discriminator is pinned in [§JSON-RPC Wire Mapping → §Plan-022 Tier 5 Domain Identifiers](#plan-022-tier-5-domain-identifiers).
+
+| Code | Description | HTTP Status |
+| --- | --- | --- |
+| `gdpr.endpoint_not_v1` | A `gdpr.*` data-subject endpoint (session purge / participant export / participant delete) was invoked in V1; the registered daemon stub returns the not-implemented envelope unconditionally, reserving the namespace for the V1.1 handler (Plan-022 D-022-3 / I-022-17) | 501 |
 
 ### Version
 

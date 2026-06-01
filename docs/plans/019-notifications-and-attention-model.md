@@ -51,6 +51,10 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - Maintain both run-scoped attention projections and session-scoped aggregate attention projections so client surfaces do not reconstruct aggregate state ad hoc.
 - See [Shared Postgres Schema](../architecture/schemas/shared-postgres-schema.md) for column definitions.
 
+## Cross-Plan Obligations
+
+- **CP-019-1 — `notification_preferences` Path-2 crypto-shred reciprocal (⇄ [Plan-022](./022-data-retention-and-gdpr.md) CP-022-6).** On a valid participant purge (`DELETE /participants/{id}/data`), the Plan-019-owned durable `notification_preferences` rows for the purged participant are **hard-DELETEd** in [Plan-022](./022-data-retention-and-gdpr.md)'s Postgres-side shred fan-out (Spec-022:294-296, §Shred Fan-Out Path 2). Unlike the `session_invites` / `session_memberships` rows (anonymized to preserve referential integrity, Spec-022:67), preferences carry no audit-trail or foreign-key obligation, so they are removed outright. Reciprocal of Plan-022 CP-022-6 (encoded fix-in-place at the Tier-5 audit swap, satisfying Plan-022 I-022-19); shred-handler provider: Plan-022 (V1.1, owns the cross-store fan-out).
+
 ## API And Transport Changes
 
 - Add `AttentionProjectionRead`, `NotificationPreferenceRead`, `NotificationPreferenceUpdate`, and `NotificationEmit` to shared contracts and the typed client SDK.

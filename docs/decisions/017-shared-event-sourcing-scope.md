@@ -36,6 +36,16 @@ BL-046 (P0) from the pre-implementation architecture audit (session `2026-04-16-
 
 Option A is rejected for V1 but **retained as a V1.1 candidate** gated on ADR-010's MLS promotion gates.
 
+### Node-Scope Anchor Witnessing (V1 local-only; V1.1 control-plane upload)
+
+Option B's per-daemon logs include **daemon-scope** event chains that belong to no session — security-posture transitions, event-stream maintenance, daemon-startup clock state. These bind to a reserved sentinel `session_id` and form their own hash-chain + Merkle-anchor partition ([Spec-006 §Daemon-Scope Event Binding And Node-Scope Anchoring](../specs/006-session-event-taxonomy-and-audit-log.md#daemon-scope-event-binding-and-node-scope-anchoring)).
+
+**V1 witnesses these chains locally only.** They are signed and Merkle-anchored on the emitting daemon and verified by a local reader; they are **not** uploaded to the control plane's `event_log_anchors` table. The non-null `session_id` FK on that table is therefore correct under V1 scope — only session-scoped anchors are uploaded. This is sound for V1's actual obligation: [Spec-027](../specs/027-self-host-secure-defaults.md)'s secure-defaults requirement is operator-visible _local_ audit-visibility, which the local witness satisfies.
+
+**V1.1 adds control-plane upload of node-scope anchors,** gated on a non-forgeable **node-identity trust anchor + resolution surface** — a daemon/node identity key registered control-plane-side (owned by Plan-018 Identity / Plan-003 Runtime Node Attach). The gate is load-bearing, not incidental: a sessionless chain has no participant roster from which to resolve its anchor-signing key (the V1 control-plane verification path is roster-based), and a self-provisioned node key signing the daemon's own posture history is forgeable by the very local operator that remote witnessing would attest against. Sound external tamper-evidence therefore _requires_ the node-identity primitive, which V1 does not ship.
+
+**Reversibility.** Additive, like Option A above. When the node-identity surface lands, `event_log_anchors` is extended (a nullable `session_id` discriminator, or a sibling `node_event_log_anchors` table) to admit node-scope rows; no V1 behavior is removed and the local witness is unchanged. The re-evaluation trigger is the node-identity registry shipping in Plan-018 / Plan-003 — recorded as a forward dependency in [cross-plan-dependencies.md §5 V1.1+ Cross-Plan Extensions](../architecture/cross-plan-dependencies.md#v11-cross-plan-extensions).
+
 ### Thesis — Why This Option
 
 V1's zero-knowledge relay cannot read payloads. A shared append-only event log under that constraint has two unhappy shapes: either (a) the server stores ciphertext envelopes it cannot interpret or index — which forecloses shared audit, the only reason to pick Option A — or (b) plaintext reaches the relay, which violates ADR-010's explicit trust model. Neither is viable.
@@ -139,3 +149,4 @@ The Linear pattern is retained as the reference architecture for Option A's V1.1
 | Date | Event | Notes |
 | --- | --- | --- |
 | 2026-04-17 | Accepted | V1 ships Option B per-daemon local event logs; Option A retained as V1.1 candidate gated on ADR-010 MLS promotion gates; BL-046 exit criteria satisfied |
+| 2026-05-31 | Amended — node-scope anchor witnessing scoped | Tier-5 plan-readiness audit (PR #129): daemon-scope (sentinel-partitioned) event chains are witnessed locally only in V1; control-plane upload deferred to V1.1, gated on a node-identity trust anchor + resolution surface (Plan-018 / Plan-003). Dissolves BL-137(c). Core Option B decision unchanged; ADR stays `accepted`. |

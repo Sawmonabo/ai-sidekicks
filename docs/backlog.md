@@ -171,4 +171,16 @@ The items below were surfaced by the [plan-readiness-audit Tier 1](./operations/
 
 ---
 
+### BL-139: ADR-015 §V1.1 criterion-gated-commitment entry for the automated GDPR endpoint
+
+- Status: `todo`
+- Priority: `P2`
+- Owner: `unassigned`
+- References: [ADR-015 V1 Feature Scope Definition](./decisions/015-v1-feature-scope-definition.md), [Plan-022 §Non-Goals](./plans/022-data-retention-and-gdpr.md#non-goals), [Spec-022 §Non-Goals](./specs/022-data-retention-and-gdpr.md#non-goals) — surfaced at the Tier-5 plan-readiness audit (PR #129) Codex review (round-5 GDPR hardening)
+- Summary: The automated GDPR deletion/export/purge endpoint is a V1→V1.1 deferral. Per the project's criterion-gated-deferral discipline, a V1→V1.1 deferral of a compliance-relevant capability should carry a named criterion-gated commitment in ADR-015 (the V1-scope ADR), not only in the plan/spec Non-Goals. Plan-022 §Non-Goals now names the (a)/(b) deferral reasoning + (i)/(ii)/(iii) promotion criteria; this item folds an equivalent criterion-gated-commitment entry into ADR-015 §V1.1 so the scope ADR is the durable record.
+- Exit Criteria: (a) ADR-015 carries a V1.1 criterion-gated-commitment entry for the automated GDPR endpoint naming the (i)/(ii)/(iii) promotion criteria from Plan-022 §Non-Goals; (b) the entry cross-links Plan-022 + Spec-022 §Non-Goals; (c) the deferral is no longer recorded only in plan/spec Non-Goals.
+- Revisit Trigger: ADR-015 is next edited; OR V1.1 scope planning begins; OR the GDPR endpoint promotion criteria are met.
+
+---
+
 _Closed items live in [Backlog Archive](./archive/backlog-archive.md)._

@@ -21,7 +21,7 @@ PRAGMA busy_timeout = 5000;
 -- Owner: Plan-001 | Extended by: Plan-006 (event taxonomy + integrity protocol), Plan-015 (replay cursors)
 CREATE TABLE session_events (
   id                     TEXT PRIMARY KEY,           -- ULID or UUID
-  session_id             TEXT NOT NULL,
+  session_id             TEXT NOT NULL,              -- real session ULID/UUID, or a reserved node-scope sentinel for daemon-scope events (no FK; see Spec-006 §Security Events + Plan-022 D-022-8)
   sequence               INTEGER NOT NULL,           -- monotonic per session
   occurred_at            TEXT NOT NULL,              -- RFC 3339 UTC with ms precision (wall-clock; display + audit)
   monotonic_ns           INTEGER NOT NULL,           -- process.hrtime.bigint() at emit; within-daemon ordering only (see Spec-015 §Clock Handling, BL-062)
@@ -106,7 +106,7 @@ CREATE TABLE interventions (
   state                 TEXT NOT NULL DEFAULT 'requested'
                         CHECK(state IN ('requested', 'accepted', 'applied', 'rejected', 'degraded', 'expired')),
   payload               TEXT NOT NULL DEFAULT '{}', -- JSON: type-specific fields
-  expected_run_version  INTEGER,                    -- version guard for expiration detection
+  expected_run_version  INTEGER NOT NULL,           -- MANDATORY fail-closed comparand (Spec-004:63 / Plan-004 D-004-2)
   result                TEXT,                       -- JSON: outcome details
   initiator_id          TEXT,                       -- participant or system
   created_at            TEXT NOT NULL,
@@ -212,7 +212,7 @@ CREATE TABLE driver_contract_meta (
 -- kSecAttrAccessibleWhenUnlockedThisDeviceOnly on macOS / CRED_TYPE_GENERIC
 -- CRED_PERSIST_LOCAL_MACHINE on Windows / Secret Service via libsecret +
 -- kwallet6 + keyutils fallback on Linux). Public key is registered in the
--- session participant roster at join time per Spec-006:382. Sealed-key storage
+-- session participant roster at join time per Spec-006:384. Sealed-key storage
 -- lives in local SQLite (NOT shared-Postgres sessions) per ADR-004 SQLite-
 -- local-state boundary — daemon-private secrets are per-machine.
 CREATE TABLE daemon_signing_keys (
@@ -231,6 +231,11 @@ CREATE TABLE daemon_signing_keys (
 -- compactor's anchor-before-compaction protocol per Spec-006 §Post-Compaction
 -- Integrity) idempotent against re-entry of an identical range (the key dedups
 -- genuine re-fires only — coverage semantics in the constraint comment below).
+-- Node-scope (sentinel session_id) chains queue their local Merkle anchors here too, as the durable
+-- LOCAL witness. In V1 those sentinel-partitioned rows are NOT upload candidates -- the upload worker
+-- selects session-scoped rows only (the sentinel cannot satisfy event_log_anchors' non-null session_id
+-- FK, and node-scope control-plane witnessing is a V1.1 extension per ADR-017 §Node-Scope Anchor
+-- Witnessing). Their uploaded_at stays NULL by design in V1.
 CREATE TABLE pending_anchor_uploads (
   id                  TEXT PRIMARY KEY,
   session_id          TEXT NOT NULL,
@@ -865,7 +870,7 @@ CREATE INDEX idx_run_links_child ON run_links(child_run_id);
 -- Owner: Spec-022 (GDPR)
 CREATE TABLE participant_keys (
   participant_id    TEXT NOT NULL PRIMARY KEY,
-  encrypted_key_blob BLOB NOT NULL,           -- AES-256-GCM key, encrypted at rest
+  encrypted_key_blob BLOB NOT NULL,           -- XChaCha20-Poly1305-wrapped AES-256 content key (wire: nonce || ciphertext || tag) — Plan-022 D-022-2
   key_version       INTEGER NOT NULL DEFAULT 1,
   created_at        TEXT NOT NULL,
   rotated_at        TEXT

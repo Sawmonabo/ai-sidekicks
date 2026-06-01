@@ -89,11 +89,11 @@ The `interventions` SQLite table (Plan-004) stores the full lifecycle entity —
 
 Intervention payloads are a discriminated union by type:
 
-- `steer`: `{targetRunId, expectedTurnId?, expectedRunVersion?, content, attachments?}`
-- `interrupt`: `{targetRunId, expectedRunVersion?, reason?}`
-- `cancel`: `{targetRunId, expectedRunVersion?, reason?}`
+- `steer`: `{targetRunId, expectedTurnId?, expectedRunVersion, content, attachments?}`
+- `interrupt`: `{targetRunId, expectedRunVersion, reason?}`
+- `cancel`: `{targetRunId, expectedRunVersion, reason?}`
 
-All intervention types support an optional version guard (`expectedRunVersion`). When present, a guard mismatch produces `expired`. An authorization failure produces `rejected`.
+All intervention types carry a **mandatory** version guard (`expectedRunVersion`) — the guard is **fail-closed**: the comparand is required on every intervention request and an absent comparand is **rejected**, never applied (an optional guard would let a caller bypass stale-replay protection by omitting the field). See [Spec-004 §Interfaces And Contracts](../specs/004-queue-steer-pause-resume.md) and [Plan-004 D-004-2](../plans/004-queue-steer-pause-resume.md#ratified-design-decisions-tier-5-audit-2026-05-30). A guard mismatch produces `expired`. An authorization failure produces `rejected`.
 
 ## Field-Level Consistency
 
@@ -104,7 +104,7 @@ The following field inventory maps each intervention payload to the canonical so
 | Field | Required | Source: API Contracts | Source: Spec-005 `ApplyInterventionParams` |
 | --- | --- | --- | --- |
 | `targetRunId` | yes | `InterventionRequestPayload` | `ApplyInterventionParams.targetRunId` |
-| `expectedRunVersion` | no | `InterventionRequestPayload` (optional) | `ApplyInterventionParams.expectedRunVersion` (optional) |
+| `expectedRunVersion` | yes | `InterventionRequestPayload` | `ApplyInterventionParams.expectedRunVersion` |
 | `content` | yes | `InterventionRequestPayload` | `SteerPayload.content` |
 | `attachments` | no | `InterventionRequestPayload` (optional) | `SteerPayload.attachments` (optional) |
 | `expectedTurnId` | no | `InterventionRequestPayload` (optional) | `SteerPayload.expectedTurnId` (optional) |
@@ -114,7 +114,7 @@ The following field inventory maps each intervention payload to the canonical so
 | Field | Required | Source: API Contracts | Source: Spec-005 `ApplyInterventionParams` |
 | --- | --- | --- | --- |
 | `targetRunId` | yes | `InterventionRequestPayload` | `ApplyInterventionParams.targetRunId` |
-| `expectedRunVersion` | no | `InterventionRequestPayload` (optional) | `ApplyInterventionParams.expectedRunVersion` (optional) |
+| `expectedRunVersion` | yes | `InterventionRequestPayload` | `ApplyInterventionParams.expectedRunVersion` |
 | `reason` | no | `InterventionRequestPayload` (optional) | `InterruptPayload.reason` (optional) |
 
 **`cancel` payload:**
@@ -122,7 +122,7 @@ The following field inventory maps each intervention payload to the canonical so
 | Field | Required | Source: API Contracts | Source: Spec-005 `ApplyInterventionParams` |
 | --- | --- | --- | --- |
 | `targetRunId` | yes | `InterventionRequestPayload` | `ApplyInterventionParams.targetRunId` |
-| `expectedRunVersion` | no | `InterventionRequestPayload` (optional) | `ApplyInterventionParams.expectedRunVersion` (optional) |
+| `expectedRunVersion` | yes | `InterventionRequestPayload` | `ApplyInterventionParams.expectedRunVersion` |
 | `reason` | no | `InterventionRequestPayload` (optional) | `CancelPayload.reason` (optional) |
 
 Note: The `ApplyInterventionParams` interface in Spec-005 splits the payload into `targetRunId` and `expectedRunVersion` at the top level and routes the remaining type-specific fields through `SteerPayload`, `InterruptPayload`, or `CancelPayload`. The `InterventionRequestPayload` in the API contracts flattens all fields into a single discriminated union. Both representations carry the same field set per intervention type. The `InterventionDriverResult` returned by the driver uses `status: 'applied' | 'degraded'` — the orchestration layer maps this to the full 6-state lifecycle.

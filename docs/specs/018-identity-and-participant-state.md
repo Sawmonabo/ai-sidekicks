@@ -48,6 +48,7 @@ This spec covers participant identity mapping, participant profile state, device
 - Participant display name defaults to the authenticated profile display name at join time.
 - Session participant projection defaults to one aggregated presence summary plus optional device-level detail.
 - If multiple presences exist, participant status defaults to the highest-activity summary state, preferring `online` over `idle` over `reconnecting` over `offline`.
+- When the highest-activity (precedence) device differs from the most-recently-seen device, the projection's `lastSeen` carries the **precedence device's** value — not the globally-latest timestamp across devices — so the projected `{state, lastSeen}` pair stays internally consistent (state and timestamp describe the same device). (Plan-018 D-018-4.)
 
 ## Fallback Behavior
 
@@ -59,13 +60,14 @@ This spec covers participant identity mapping, participant profile state, device
 
 - `ParticipantProjectionRead` must expose stable participant id and canonical session-scoped membership role.
 - `ParticipantStateUpdate` must support display metadata changes that do not rewrite historical events.
-- `PresenceDetailRead` may expose device-level detail for authorized operators or participants.
+- `PresenceDetailRead` exposes device-level presence detail and is **owner/operator-only** (Plan-018 D-018-5 / I-018-6): per-device fan-out is privacy-sensitive, so the aggregated presence summary on `ParticipantProjection` remains the participant-visible default and the device-level breakdown is gated to the session `owner` and the daemon operator. A denied read returns `presence.permission_denied` (CP-018-7). See [Security Architecture §Per-Device Presence Detail Authorization](../architecture/security-architecture.md#per-device-presence-detail-authorization).
 - See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
 - See [Error Contracts](../architecture/contracts/error-contracts.md) for error response schemas and error codes.
 
 ## State And Data Implications
 
 - Participant identity mapping belongs to shared control-plane storage.
+- The participant's primary identity reference (`identity_ref`) is a **stable synthetic ref** — a PASETO `kid` or an internally minted handle — **not** a denormalized `{provider}:{external_id}` projection. A participant who links a second provider keeps one `identity_ref` and gains a second `identity_mappings` row, rather than colliding on the `identity_ref UNIQUE` constraint that a provider-denormalized value would force; the per-provider `{provider, external_id}` tuples live in `identity_mappings`, for which `identity_ref` is the join-stable anchor. (Plan-018 D-018-2; [shared-postgres-schema.md](../architecture/schemas/shared-postgres-schema.md).)
 - Historical event authorship must reference stable participant ids, not mutable display names.
 - Device-level presence detail may be ephemeral, but participant-state changes with collaboration impact must be durable.
 
