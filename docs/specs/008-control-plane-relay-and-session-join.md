@@ -159,6 +159,16 @@ The control plane provides the following via `RelayNegotiationResponse`:
 | Session ID | The session's identifier, used as HKDF salt during session-key derivation |
 | Cipher suite version | `v1/pairwise` for V1; a V1.1+ client may indicate MLS capability and the control plane returns the negotiated suite |
 
+**V1 connection-token claim shape:** The `connectionToken` is a PASETO `v4.public` capability minted by the control plane's relay-negotiation issuer (signing custody is Plan-018's; the relay broker only verifies) and presented at the relay WSS upgrade. It carries these registered claims:
+
+- `iss` — the relay-negotiation issuer identity;
+- `sub` — the authenticated `ParticipantId` the negotiation was performed for;
+- `aud` — `relay-connect`, distinguishing it from endpoint-authentication tokens;
+- `exp` — a 300-second expiry matching the connection-token TTL above;
+- `sessionId` and `nodeId` — the negotiated channel the token authorizes.
+
+The negotiated `sessionId` is **additionally bound as the PASETO v4 implicit assertion** at both mint and verify: the relay WSS handshake supplies its own session's `sessionId` as the implicit assertion, so a token minted for one session **fails verification cryptographically** when replayed against another — the binding is carried by the signature, not by a claim comparison a verifier could forget to perform. `sessionId` is the sole implicit-assertion component because it is the only value the verifier independently holds at the upgrade (the relay Durable Object is session-sharded, so it knows its own `sessionId`); `nodeId` and `sub` arrive only inside the token — it is the single credential the client presents (carried in `Sec-WebSocket-Protocol`, nothing else) — so they remain signed claims the verifier reads from the verified token and adopts as the connection's identity. The handshake refuses the upgrade unless `aud == relay-connect`, `exp` is unexpired, the implicit-assertion `sessionId` matches the verifier's own session, and `sub` and `nodeId` are present. The 300-second TTL bounds bearer replay within a session; binding the token to a proof-of-possession key is a V1.1 hardening that ships alongside MLS.
+
 **V1 SessionKeyBundle requirements:**
 
 - Ephemeral X25519 public key (32 bytes)
@@ -178,7 +188,9 @@ Clients must post a fresh `SessionKeyBundle` to the control plane before request
 
 **Threat model**: The relay operator is honest-but-curious. The relay can observe metadata (who connects, when, message sizes) but cannot read message content.
 
-**Trust anchors**: Participant identity is established via control plane authentication. In V1, each participant's long-term Ed25519 identity key signs its per-session ephemeral X25519 public key; the control plane verifies each signature before distributing the `SessionKeyBundle` to other participants, and any bundle whose Ed25519 signing key is not bound to a registered participant identity is rejected. In V1.1+, the same identity-binding applies to MLS KeyPackages.
+**Trust anchors**: Participant identity is established via control plane authentication. In V1, each participant's long-term Ed25519 identity key signs its per-session ephemeral X25519 public key; the control plane verifies each signature before distributing the `SessionKeyBundle` to other participants, and any bundle whose Ed25519 signing key is not bound to a registered participant identity — or whose admission-resolved owner is not the authenticated caller posting it — is rejected. In V1.1+, the same identity-binding applies to MLS KeyPackages.
+
+The control plane distributes admitted bundles as `DistributedSessionKeyBundle` records, each pairing a `SessionKeyBundle` with the **server-attested** `ParticipantId` of its owner — the identity the control plane authenticated at bundle admission, carried alongside the bundle rather than inside the client-signed `SessionKeyBundle` (which has no participant field). This lets a recipient map a relay `recipient_id` (a peer `ParticipantId`) to that peer's ephemeral X25519 public key and derive the pairwise key. The `ParticipantId` is never client-asserted: because a bundle whose admission-resolved owner is not the authenticated caller is rejected (above), the distributed record's identity is the control plane's attestation, not a self-claim.
 
 **V1 guarantees:**
 

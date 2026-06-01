@@ -209,10 +209,11 @@ The Tier-5 plan-readiness audit (NS-17) surfaced three open decisions; all three
   - **Files:** `packages/runtime-daemon/src/session/run-engine.ts` (EXTEND)
   - **Spec coverage:** Spec-004 §Run-State Transitions — interrupt; Spec-006 `run_lifecycle`
   - **Verifies invariant:** I-004-6
-- **T3.2 (CANCEL) — Cancel application** (→ terminal `canceled`)
+- **T3.2 (CANCEL) — Cancel application** (`running → interrupted`)
   - **Files:** `run-engine.ts` (EXTEND)
   - **Spec coverage:** Spec-004 §Run-State Transitions — cancel
   - **Verifies invariant:** I-004-6
+  - **Note:** the cancel intervention maps the active run to the canonical `interrupted` run-terminal — cancel is a user-initiated interruption, distinct from T3.1's `interrupt` in actor/intent but **not** in run-terminal (per [run-state-machine.md](../domain/run-state-machine.md): "the cancel intervention maps to the `interrupted` terminal state … distinct from queue-level `QueueItemCancel`"; the run terminals are `completed` / `interrupted` / `failed` — there is no `canceled` run-state). `canceled` is a **`QueueItemState`** (queued / admitted / superseded / canceled / expired; T1.1), applied to queued items by the `QueueItemCancel` path (T2.3), never a run-terminal — this task transitions only the run.
 - **T3.3 (WAIT-GUARD) — `waiting` / `blocked` guard (target_run_id stable)**
   - **Files:** `run-engine.ts` (EXTEND)
   - **Spec coverage:** Spec-004 §Run-State Transitions — waiting / blocked

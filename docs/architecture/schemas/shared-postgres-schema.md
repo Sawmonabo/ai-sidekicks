@@ -251,14 +251,14 @@ CREATE TABLE relay_connections (
 CREATE INDEX idx_relay_connections_session ON relay_connections(session_id);
 
 -- Owner: Plan-008
--- Durable cross-session ephemeral-key reuse guard (I-008-7c, Spec-008:169). Each participant
+-- Durable cross-session ephemeral-key reuse guard (I-008-7c, Spec-008:179). Each participant
 -- mints a fresh ephemeral X25519 key pair per session (I-008-6), and the per-session relay
 -- Durable Object discards its bundles on close — so a key reused in a *later* session can only
 -- be detected against a store that OUTLIVES the session. This control-plane table is that store
 -- (OD-008r-2, Tier-5 readiness audit). The PK on the public key is the uniqueness index that
 -- makes a second appearance — in any session — a constraint violation the broker rejects with
 -- relay.bundle_rejected. The audit ratifies that the store is durable + uniqueness-indexed and
--- that its retention is — by design — the FULL single-use horizon: Spec-008:169 requires a
+-- that its retention is — by design — the FULL single-use horizon: Spec-008:179 requires a
 -- reused key to be rejected across ALL distinct sessions, so any pruning that drops a
 -- still-rejectable key would re-admit it on re-insert — a literal invariant violation — and
 -- therefore V1 prunes nothing. Full-horizon retention is the correct terminal design here, not
@@ -272,7 +272,7 @@ CREATE INDEX idx_relay_connections_session ON relay_connections(session_id);
 -- (session × participant) ephemeral-key count, not by traffic volume (~64 bytes/row — trivial at
 -- desktop-runtime scale); at hosted scale its growth is an ops concern (time-partition the table,
 -- keeping every partition queryable — never DROP, which would re-admit a pruned key) decoupled
--- from the security property. Bounding retention would weaken Spec-008:169's forward-secrecy
+-- from the security property. Bounding retention would weaken Spec-008:179's forward-secrecy
 -- guarantee and is therefore a separate Spec-008 Type-2 decision, not a code-level optimization.
 CREATE TABLE relay_seen_ephemeral_keys (
   ephemeral_x25519_public BYTEA PRIMARY KEY,     -- 32-byte X25519 public key; PK = global single-use index
