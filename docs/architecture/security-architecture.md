@@ -249,7 +249,7 @@ Per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md), relay E2EE ships as
 **WebSocket authentication to relay:**
 
 1. Client connects to relay via WSS
-2. Client presents a PASETO v4.public token in the initial WebSocket handshake (`Sec-WebSocket-Protocol: paseto-v4`)
+2. Client presents a PASETO v4.public connection token in the initial WebSocket handshake via two `Sec-WebSocket-Protocol` subprotocol values — `paseto-v4, <base64url(connectionToken)>` (value 1 `paseto-v4` names the scheme and is echoed by the relay as the negotiated subprotocol; value 2 carries the base64url-encoded token, since browsers cannot set custom WebSocket request headers — per Spec-008/Plan-008)
 3. Relay validates token and establishes the session-scoped channel
 4. All subsequent message payloads are encrypted under the pairwise session keys derived above — the relay sees only opaque ciphertext per-recipient envelopes
 

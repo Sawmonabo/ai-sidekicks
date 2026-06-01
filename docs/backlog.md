@@ -171,18 +171,6 @@ The items below were surfaced by the [plan-readiness-audit Tier 1](./operations/
 
 ---
 
-### BL-136: Reconcile the `ErrorNamespace` union in api-payload-contracts.md against the canonical error-contracts.md registry
-
-- Status: `todo`
-- Priority: `P2`
-- Owner: `unassigned`
-- References: [API Payload Contracts §Error envelope](./architecture/contracts/api-payload-contracts.md), [error-contracts.md](./architecture/contracts/error-contracts.md) (canonical namespace registry), [Plan-022](./plans/022-data-retention-and-gdpr.md) (decision D-022-3(b) — `data.type` is a JSON-RPC `.data` discriminator value, not an error namespace) — surfaced at the Tier-5 plan-readiness audit (PR #129) Codex review
-- Summary: The illustrative `ErrorNamespace` TypeScript union in `api-payload-contracts.md` has drifted from the canonical namespace registry in `error-contracts.md`. The Tier-5 audit added the two audit-touched namespaces (`membership`, `presence`) and flagged the residual in-line: `data.type` is present in the union but is the JSON-RPC `.data` discriminator value (per Plan-022 D-022-3(b)), not an error namespace, so it must not be a union member; and several pre-existing members (`queue`, `resource`, `version`, `transport`, `protocol`) were never cross-checked against the registry. The union is documented as an "illustrative V1 subset," but a subset must not contradict the registry it subsets.
-- Exit Criteria: (a) every `ErrorNamespace` union member resolves to a namespace row in `error-contracts.md`, or is removed; (b) `data.type` is removed from the namespace union (it is a `.data` field value, not a namespace); (c) `error-contracts.md` is named the single canonical registry and the union's doc-comment points to it; (d) no committed doc presents the union as exhaustive while it is a subset.
-- Revisit Trigger: the `api-payload-contracts.md` error-envelope union is next edited; OR the `error-contracts.md` namespace registry is amended; OR any error-namespace-consuming plan (e.g. Plan-006, Plan-008-remainder) reaches its plan-readiness audit.
-
----
-
 ### BL-139: ADR-015 §V1.1 criterion-gated-commitment entry for the automated GDPR endpoint
 
 - Status: `todo`

@@ -94,7 +94,7 @@ type ErrorNamespace =
   | "driver" // provider driver errors
   | "relay" // relay/transport errors
   | "system"; // internal system errors
-// Illustrative V1 subset; `error-contracts.md` is the canonical namespace registry. Remaining union↔registry drift (incl. `data.type`, a `.data` field value not a namespace) tracked in BL-136.
+// Illustrative V1 subset; `error-contracts.md` is the canonical namespace registry.
 
 // Rate limiting response (Spec-021)
 interface RateLimitResponse {
@@ -1017,7 +1017,7 @@ Plan-004's queue / intervention / pause-resume operations are exposed as eight `
 | `run.subscribeState` | `subscription` | `RunStateSubscribeRequest` | `RunStateChangeEvent` (stream) |
 | `run.subscribeQueue` | `subscription` | `RunQueueSubscribeRequest` | `QueueItemSummary` (stream) |
 
-`run.queueList` is the only `query` (idempotent read); the four mutations are state-changing per the tRPC procedure-type convention in §Tier 1 (cont.): Plan-008 above. The two `subscription`s stream their payload type per emission rather than returning a single response — `run.subscribeState` streams `RunStateChangeEvent` (carrying the `runVersion` comparand clients pass back as `expectedRunVersion`), and `run.subscribeQueue` streams the existing `QueueItemSummary` projection (no separate queue-change event type is introduced). All request/response shapes are the interfaces defined directly above; the canonical Zod schemas live in `packages/contracts/src/runControl.ts` (CP-004-3) per the §Source-of-Truth Policy.
+`run.queueList` is the only `query` (idempotent read); the five mutations are state-changing per the tRPC procedure-type convention in §Tier 1 (cont.): Plan-008 above. The two `subscription`s stream their payload type per emission rather than returning a single response — `run.subscribeState` streams `RunStateChangeEvent` (carrying the `runVersion` comparand clients pass back as `expectedRunVersion`), and `run.subscribeQueue` streams the existing `QueueItemSummary` projection (no separate queue-change event type is introduced). All request/response shapes are the interfaces defined directly above; the canonical Zod schemas live in `packages/contracts/src/runControl.ts` (CP-004-3) per the §Source-of-Truth Policy.
 
 ### Plan-008 — Control-Plane Relay And Session Join
 
