@@ -75,7 +75,7 @@ CREATE INDEX idx_sessions_state ON sessions(state);
 CREATE TABLE session_memberships (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   session_id      UUID NOT NULL REFERENCES sessions(id),
-  participant_id  UUID NOT NULL REFERENCES participants(id),
+  participant_id  UUID NOT NULL REFERENCES participants(id),  -- born NOT NULL; relaxed to nullable + ON DELETE SET NULL by D-022-7 migration (see GDPR erasure note below)
   role            TEXT NOT NULL DEFAULT 'viewer'
                   CHECK(role IN ('owner', 'viewer', 'collaborator', 'runtime contributor')),
   state           TEXT NOT NULL DEFAULT 'pending'
@@ -96,7 +96,7 @@ CREATE INDEX idx_session_memberships_participant ON session_memberships(particip
 CREATE TABLE session_invites (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   session_id      UUID NOT NULL REFERENCES sessions(id),
-  inviter_id      UUID NOT NULL REFERENCES participants(id),
+  inviter_id      UUID NOT NULL REFERENCES participants(id),  -- born NOT NULL; relaxed to nullable + ON DELETE SET NULL by D-022-7 migration (see GDPR erasure note below)
   token_hash      TEXT NOT NULL UNIQUE,          -- hashed invite token (never store plaintext)
   join_mode       TEXT NOT NULL DEFAULT 'viewer'
                   CHECK(join_mode IN ('viewer', 'collaborator', 'runtime contributor')),
@@ -109,6 +109,8 @@ CREATE TABLE session_invites (
 CREATE INDEX idx_session_invites_session ON session_invites(session_id);
 CREATE INDEX idx_session_invites_state ON session_invites(state) WHERE state = 'pending';
 ```
+
+**GDPR erasure (the two in-V1 anonymize-class FKs).** `session_memberships.participant_id` and `session_invites.inviter_id` are born `NOT NULL REFERENCES participants(id)` by their owners (Plan-001 / Plan-002) and relaxed to nullable + `ON DELETE SET NULL` by [Plan-022's D-022-7 / T22.5.2 control-plane migration](../../plans/022-data-retention-and-gdpr.md#ratified-design-decisions-tier-5-audit-2026-05-30) — a forward ALTER over the shipped owner tables (unlike the `revoked_*` FKs below, which are born in their final `ON DELETE SET NULL` shape at the BL-070 build). A participant hard-DELETE then severs the data-subject link DB-side rather than failing the parent `DELETE FROM participants` or deleting the surviving membership / invite row; `NULL` participant ids are non-equal under `session_memberships`'s `UNIQUE(session_id, participant_id)`, so erasing two participants in the same session is safe. Canonical: [Spec-022 §Shred Fan-Out FK-safety](../../specs/022-data-retention-and-gdpr.md#shred-fan-out), [Plan-022 D-022-7](../../plans/022-data-retention-and-gdpr.md#ratified-design-decisions-tier-5-audit-2026-05-30); the [GDPR Manual Erasure Runbook](../../operations/gdpr-manual-erasure-runbook.md) verifies `confdeltype = 'n'` on both before the irreversible Path-1 shred.
 
 ---
 
