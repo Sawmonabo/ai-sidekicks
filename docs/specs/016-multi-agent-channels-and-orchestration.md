@@ -121,7 +121,7 @@ Interventions use the generic dispatcher defined by [Spec-004](../specs/004-queu
 - A pause, interrupt, or steer applied to a parent run does not auto-cascade to its child runs. Each child run is an independent intervention target.
 - Propagating an intervention across a parent/child subtree requires the caller to submit one intervention per run. This preserves Spec-004's audit property that every run-state transition corresponds to a distinct `InterventionResult` record.
 - A steer applied to a parent run does not inject content into child-run conversations — child runs receive steer content only when the steer is targeted at the child run's id.
-- Child runs accept pause, steer, and interrupt via the same `applyIntervention` surface as standalone runs. Driver capability semantics (Spec-004's steer degradation, for example) apply uniformly.
+- Child runs accept the same run-control surface as standalone runs — steer and interrupt via `applyIntervention`, pause/resume via the orchestration-layer `run.pause` / `run.resume` verbs (Spec-004; the driver never needs to know about pause). Driver capability semantics (Spec-004's steer degradation, for example) apply uniformly.
 - If a future requirement demands subtree-wide propagation (e.g., "cancel this parent and all its descendants atomically"), that is a new ADR rather than a payload field addition, consistent with ADR-011's Type-1 reversibility stance.
 
 ## Moderation Hooks
