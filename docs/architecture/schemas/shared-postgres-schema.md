@@ -172,10 +172,12 @@ CREATE TABLE revoked_token_families (
   participant_id   UUID REFERENCES participants(id) ON DELETE SET NULL,  -- nullable + SET NULL on erasure (Plan-022 D-022-7)
   revoked_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   reason           TEXT NOT NULL
-                   CHECK(reason IN ('account_compromise', 'password_reset', 'admin_action', 'self_service'))
+                   CHECK(reason IN ('account_compromise', 'password_reset', 'admin_action', 'self_service')),
+  expires_at       TIMESTAMPTZ NOT NULL            -- aligns with the revoked family's natural expiry; bounds the reap (mirror revoked_jtis)
 );
 
 CREATE INDEX idx_revoked_families_participant ON revoked_token_families(participant_id);
+CREATE INDEX idx_revoked_families_expires ON revoked_token_families(expires_at);
 ```
 
 **GDPR erasure.** `participant_id` is nullable + `ON DELETE SET NULL` by design — born this way at BL-070's post-V1 build (no migration; these tables build already in their final FK shape). A participant hard-DELETE severs the data-subject link, while the denylist key (`jti` / `family_id`, the PRIMARY KEY — **not** `participant_id`) survives to its natural `expires_at + 24h` reap, so erasure cannot resurrect a revoked token within its validity window (the GDPR Art. 17(3) security carve-out). Canonical: [Plan-022 D-022-7](../../plans/022-data-retention-and-gdpr.md#ratified-design-decisions-tier-5-audit-2026-05-30), [Spec-022 §Shred Fan-Out](../../specs/022-data-retention-and-gdpr.md#shred-fan-out); the [GDPR Manual Erasure Runbook](../../operations/gdpr-manual-erasure-runbook.md) is the V1 operator procedure.
