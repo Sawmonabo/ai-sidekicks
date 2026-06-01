@@ -258,8 +258,11 @@ CREATE INDEX idx_relay_connections_session ON relay_connections(session_id);
 -- (OD-008r-2, Tier-5 readiness audit). The PK on the public key is the DB-level uniqueness index that
 -- makes a duplicate INSERT of a key a constraint violation; the broker's admission logic reads the
 -- stored session_id before deciding — rejecting a CROSS-session reuse with relay.bundle_rejected
--- (Spec-008:179) and treating a SAME-session re-presentation of an already-recorded key as an
--- idempotent admit, never a rejection (Spec-008:130 same-session resume). The audit ratifies that
+-- (Spec-008:179) and treating a SAME-session re-presentation as an idempotent admit ONLY for the
+-- participant that first claimed the key (Spec-008:130 reconnect-resume; a different participant is
+-- rejected). That original-claimant check is broker live-layer logic against the in-memory admission
+-- record (fail-closed when absent → client re-mints) — this table stays the cross-session
+-- (key → first session_id) backstop, never a claimant store. The audit ratifies that
 -- the store is durable + uniqueness-indexed and
 -- that its retention is — by design — the FULL single-use horizon: Spec-008:179 requires a
 -- reused key to be rejected across ALL distinct sessions, so any pruning that drops a

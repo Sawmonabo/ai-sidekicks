@@ -1044,6 +1044,7 @@ interface RelayNegotiationRequest {
 interface RelayNegotiationResponse {
   relayEndpoint: string;
   transportProtocol: string;
+  cipherSuite: string; // negotiated cipher suite, e.g. 'v1/pairwise' (Spec-008 §Relay Negotiation)
   connectionToken: string; // short-lived auth token
   ttl: number; // seconds
 }
