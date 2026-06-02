@@ -1,10 +1,18 @@
 // Schema migration runner for Local Runtime Daemon SQLite databases.
 //
-// Plan-001 owns migration version 1 — see `migrations/0001-initial.ts`. The
-// runner is intentionally minimal: check `schema_version`, exec the SQL if
-// absent. Subsequent plans (003, 006, 015, 022...) will register additional
-// migrations by appending to the migration list below and bumping
-// `schema_version`.
+// The runner is intentionally minimal: check `schema_version`, exec the SQL
+// if absent. Each migration version N is registered as its own explicit
+// `if (!hasMigrationApplied(db, N))` guarded block inside `applyMigrations`,
+// mirroring the version-1 `db.transaction(...).immediate()` + in-transaction
+// double-check primitive verbatim (race-safe by construction — see the
+// `applyMigrations` docstring). This is deliberately NOT a generic
+// migration-list/registry loop: the `.immediate()` concurrency seam is
+// pinned by the worker_threads concurrent-boot race test, and re-expressing
+// it through a registry would re-open that control flow for re-validation.
+// Version 1 is owned by Plan-001 (`migrations/0001-initial.ts`); version 2
+// by Plan-003 (`migrations/0002-runtime-node.ts`). Subsequent plans (006,
+// 015, 022...) register their version as a further guarded block of the
+// same shape and bump `schema_version`.
 //
 // SQL is sourced as a TypeScript string constant (not a sibling .sql file)
 // because `tsc -b` does not copy non-TS assets into `dist/` and `package.json`
@@ -23,6 +31,7 @@ import Database from "better-sqlite3";
 import type { Database as DatabaseType } from "better-sqlite3";
 
 import { INITIAL_MIGRATION_SQL } from "../migrations/0001-initial.js";
+import { RUNTIME_NODE_MIGRATION_SQL } from "../migrations/0002-runtime-node.js";
 
 /**
  * Apply pragmas to an open Database handle. MUST be called on every
@@ -91,6 +100,25 @@ export function applyMigrations(db: DatabaseType): void {
       // than re-applying the CREATE TABLEs.
       if (!hasMigrationApplied(db, 1)) {
         db.exec(INITIAL_MIGRATION_SQL);
+      }
+    }).immediate();
+  }
+
+  if (!hasMigrationApplied(db, 2)) {
+    // Plan-003 version-2 migration (node_capabilities + node_trust_state).
+    // Same primitive as the version-1 block above: the migration SQL
+    // carries its own version=2 INSERT into schema_version, so the single
+    // .exec() commits the table CREATEs atomically with the anchor row,
+    // and db.transaction(...).immediate() takes the RESERVED writer-intent
+    // lock at BEGIN so concurrent racers serialize at BEGIN rather than
+    // colliding at write-upgrade time.
+    db.transaction(() => {
+      // Re-check inside the transaction to close the
+      // `hasMigrationApplied → exec` window (a concurrent writer that wins
+      // the BEGIN-IMMEDIATE race and commits first is observed here and we
+      // skip the exec rather than re-applying the CREATE TABLEs).
+      if (!hasMigrationApplied(db, 2)) {
+        db.exec(RUNTIME_NODE_MIGRATION_SQL);
       }
     }).immediate();
   }
