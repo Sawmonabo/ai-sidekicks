@@ -552,7 +552,34 @@ After Phase 4 lands green at Tier 3, Plan-003's load-bearing semantics are compl
 
 ```yaml
 manifest_schema_version: 1
-shipped: []
+shipped:
+  - phase: 1
+    task: [T1.1, T1.2, T1.3, T1.4, T1.5, T1.6, T1.7]
+    pr: 135
+    sha: a08db3c
+    merged_at: 2026-06-02
+    files:
+      - packages/contracts/src/__tests__/runtime-node.test.ts
+      - packages/contracts/src/index.ts
+      - packages/contracts/src/runtime-node.ts
+      - packages/control-plane/src/migrations/__tests__/runtime-node-upstream-anchors.test.ts
+      - packages/control-plane/vitest.config.ts
+      - packages/runtime-daemon/src/migrations/0002-runtime-node.ts
+      - packages/runtime-daemon/src/session/__tests__/migration-shape.test.ts
+      - packages/runtime-daemon/src/session/__tests__/session-service.test.ts
+      - packages/runtime-daemon/src/session/migration-runner.ts
+    verifies_invariant: [I-003-1]
+    spec_coverage:
+      [
+        "Spec-003 line 69",
+        "Spec-003 line 53",
+        "Spec-003 line 71",
+        "Spec-003 line 70",
+        "Spec-003 line 72",
+        "Spec-006 lines 374-380",
+        "Spec-003 AC4 line 104",
+        "Spec-003 line 78",
+      ]
 ```
 
 ### Notes
