@@ -31,11 +31,16 @@ import {
   NodeIdSchema,
   NodeStateSchema,
   RUNTIME_NODE_CAPABILITY_UPDATE_REASON_MAX_LEN,
+  RUNTIME_NODE_DETACH_REASON_MAX_LEN,
   RuntimeNodeAttachRequestSchema,
   RuntimeNodeAttachResponseSchema,
   RuntimeNodeCapabilityUpdateRequestSchema,
   RuntimeNodeCapabilityUpdateResponseSchema,
+  RuntimeNodeDetachRequestSchema,
+  RuntimeNodeDetachResponseSchema,
   RuntimeNodeHealthStateSchema,
+  RuntimeNodeHeartbeatRequestSchema,
+  RuntimeNodeHeartbeatResponseSchema,
 } from "../runtime-node.js";
 
 // Fixtures must be VALID per the imported upstream schemas:
@@ -407,5 +412,163 @@ describe("RuntimeNodeCapabilityUpdateResponseSchema (C2: nodeId + state + update
   it("rejects a malformed updatedAt (z.iso.datetime is load-bearing)", () => {
     const broken = { ...buildValidCapabilityUpdateResponse(), updatedAt: "not-a-date" };
     expect(RuntimeNodeCapabilityUpdateResponseSchema.safeParse(broken).success).toBe(false);
+  });
+});
+
+// --------------------------------------------------------------------------
+// Plan-003 PR #135 — Test C6: `RuntimeNodeHeartbeat` request + null response.
+// --------------------------------------------------------------------------
+//
+// Backstops the heartbeat wire shape (api-payload-contracts.md:501-506,537):
+// a `nodeId` + a 2-value `healthState`, and a `null` response payload (NOT a
+// 204 empty body — the resolver returns `null`, serialized as a 200 success
+// envelope). The discriminating test is the 2-value health-enum boundary: a
+// mis-wire to the 5-value `NodeStateSchema` would accept `offline`/`registering`/
+// `revoked`, so the loop-reject below is the inverse of the 5-value proof on the
+// capability-update path and the test that catches that specific mis-wire.
+const buildValidHeartbeatRequest = () => ({
+  nodeId: NodeIdSchema.parse(NODE_ID),
+  healthState: "online" as const,
+});
+
+describe("RuntimeNodeHeartbeatRequestSchema (C6: nodeId + 2-value healthState)", () => {
+  it("accepts a heartbeat with healthState online", () => {
+    expect(RuntimeNodeHeartbeatRequestSchema.safeParse(buildValidHeartbeatRequest()).success).toBe(
+      true,
+    );
+  });
+
+  it("accepts a heartbeat with healthState degraded", () => {
+    const degraded = { ...buildValidHeartbeatRequest(), healthState: "degraded" as const };
+    expect(RuntimeNodeHeartbeatRequestSchema.safeParse(degraded).success).toBe(true);
+  });
+
+  it("rejects a heartbeat missing nodeId", () => {
+    const { nodeId: _omitted, ...withoutNodeId } = buildValidHeartbeatRequest();
+    expect(RuntimeNodeHeartbeatRequestSchema.safeParse(withoutNodeId).success).toBe(false);
+  });
+
+  it("rejects a heartbeat missing healthState (required, not optional)", () => {
+    const { healthState: _omitted, ...withoutHealthState } = buildValidHeartbeatRequest();
+    expect(RuntimeNodeHeartbeatRequestSchema.safeParse(withoutHealthState).success).toBe(false);
+  });
+
+  it("rejects an unknown extra key (.strict drift guard)", () => {
+    const broken = { ...buildValidHeartbeatRequest(), bogusField: "nope" };
+    expect(RuntimeNodeHeartbeatRequestSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("rejects NodeState liveness values that are NOT 2-value health values (mis-wire guard)", () => {
+    // `offline`/`registering`/`revoked` are valid 5-value NodeState liveness
+    // positions (shared-postgres-schema.md:202-203) but are EXCLUDED from the
+    // 2-value daemon-reported wire-health enum. If `healthState` were mis-wired
+    // to the 5-value `NodeStateSchema` these would be ACCEPTED — this loop is the
+    // inverse of the capability-update 5-value proof and catches that mis-wire.
+    for (const liveness of ["offline", "registering", "revoked"]) {
+      const broken = { ...buildValidHeartbeatRequest(), healthState: liveness };
+      expect(RuntimeNodeHeartbeatRequestSchema.safeParse(broken).success).toBe(false);
+    }
+  });
+
+  it("rejects an empty nodeId (brand .min(1) guard)", () => {
+    const broken = { ...buildValidHeartbeatRequest(), nodeId: "" };
+    expect(RuntimeNodeHeartbeatRequestSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("rejects an oversized nodeId (brand defense-in-depth length cap)", () => {
+    const broken = { ...buildValidHeartbeatRequest(), nodeId: "x".repeat(NODE_ID_MAX_LEN + 1) };
+    expect(RuntimeNodeHeartbeatRequestSchema.safeParse(broken).success).toBe(false);
+  });
+});
+
+describe("RuntimeNodeHeartbeatResponseSchema (C6: null no-content payload)", () => {
+  it("accepts null (the wire response is literally null, not a 204 empty body)", () => {
+    expect(RuntimeNodeHeartbeatResponseSchema.safeParse(null).success).toBe(true);
+  });
+
+  it("rejects a non-null payload (empty object / string / number / undefined)", () => {
+    expect(RuntimeNodeHeartbeatResponseSchema.safeParse({}).success).toBe(false);
+    expect(RuntimeNodeHeartbeatResponseSchema.safeParse("x").success).toBe(false);
+    expect(RuntimeNodeHeartbeatResponseSchema.safeParse(0).success).toBe(false);
+    expect(RuntimeNodeHeartbeatResponseSchema.safeParse(undefined).success).toBe(false);
+  });
+});
+
+// --------------------------------------------------------------------------
+// Plan-003 PR #135 — Test C3: `RuntimeNodeDetach` request + null response.
+// --------------------------------------------------------------------------
+//
+// Backstops the detach wire shape (api-payload-contracts.md:520-525,539): a
+// `nodeId` + an OPTIONAL free-form `reason`, and a `null` response payload. The
+// `reason` field composes `wireFreeFormString` (session.ts:118), so it inherits
+// the trust-boundary guards — these mirror the four `InviteRevoke.reason` /
+// `RuntimeNodeCapabilityUpdate.healthChanges.reason` guard cases (the identical-
+// wire-spec precedents) and pin that `reason` is NOT a bare `z.string()`.
+const buildValidDetachRequest = () => ({
+  nodeId: NodeIdSchema.parse(NODE_ID),
+});
+
+describe("RuntimeNodeDetachRequestSchema (C3: nodeId + optional reason)", () => {
+  it("accepts a detach with reason omitted (reason is optional)", () => {
+    expect(RuntimeNodeDetachRequestSchema.safeParse(buildValidDetachRequest()).success).toBe(true);
+  });
+
+  it("accepts a detach with reason present", () => {
+    const withReason = { ...buildValidDetachRequest(), reason: "node shutting down for upgrade" };
+    expect(RuntimeNodeDetachRequestSchema.safeParse(withReason).success).toBe(true);
+  });
+
+  it("rejects a detach missing nodeId", () => {
+    const broken = { reason: "no node id" };
+    expect(RuntimeNodeDetachRequestSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("rejects an unknown extra key (.strict drift guard)", () => {
+    const broken = { ...buildValidDetachRequest(), bogusField: "nope" };
+    expect(RuntimeNodeDetachRequestSchema.safeParse(broken).success).toBe(false);
+  });
+
+  // `reason` composes `wireFreeFormString` (session.ts:118) — the four guards
+  // below prove it is NOT a bare `z.string()` (the regressed shape T1.2 was
+  // round-tripped to fix), mirroring invites.test.ts:282-301.
+  it("rejects a NUL-byte in reason (wireFreeFormString guard)", () => {
+    const broken = { ...buildValidDetachRequest(), reason: "detach\u0000injected" };
+    expect(RuntimeNodeDetachRequestSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("rejects an oversized reason (defense-in-depth length cap)", () => {
+    const broken = {
+      ...buildValidDetachRequest(),
+      reason: "a".repeat(RUNTIME_NODE_DETACH_REASON_MAX_LEN + 1),
+    };
+    expect(RuntimeNodeDetachRequestSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("accepts a reason at exactly the length cap (boundary)", () => {
+    const ok = {
+      ...buildValidDetachRequest(),
+      reason: "a".repeat(RUNTIME_NODE_DETACH_REASON_MAX_LEN),
+    };
+    expect(RuntimeNodeDetachRequestSchema.safeParse(ok).success).toBe(true);
+  });
+
+  it("rejects an empty / whitespace-only reason (helper .min(1) + \\S guard)", () => {
+    for (const reason of ["", "   "]) {
+      const broken = { ...buildValidDetachRequest(), reason };
+      expect(RuntimeNodeDetachRequestSchema.safeParse(broken).success).toBe(false);
+    }
+  });
+});
+
+describe("RuntimeNodeDetachResponseSchema (C3: null no-content payload)", () => {
+  it("accepts null (the wire response is literally null, not a 204 empty body)", () => {
+    expect(RuntimeNodeDetachResponseSchema.safeParse(null).success).toBe(true);
+  });
+
+  it("rejects a non-null payload (empty object / string / number / undefined)", () => {
+    expect(RuntimeNodeDetachResponseSchema.safeParse({}).success).toBe(false);
+    expect(RuntimeNodeDetachResponseSchema.safeParse("x").success).toBe(false);
+    expect(RuntimeNodeDetachResponseSchema.safeParse(0).success).toBe(false);
+    expect(RuntimeNodeDetachResponseSchema.safeParse(undefined).success).toBe(false);
   });
 });
