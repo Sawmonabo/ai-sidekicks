@@ -5,11 +5,15 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import process from "node:process";
 import {
   parseFrontmatter,
   walkPhases,
   extractPhaseSection,
+  findSectionBoundary,
   countCites,
   extractAuditCheckbox,
   parseFlowMapping,
@@ -118,6 +122,118 @@ phase 2 body`;
   const sec = extractPhaseSection(plan, 1);
   assert.match(sec, /phase 1 body/);
   assert.doesNotMatch(sec, /phase 2 body/);
+});
+
+test("extractPhaseSection bounds the last phase at the next level-2 ## sibling, not EOF", () => {
+  // Regression: the last phase must stop at its first `## ` sibling (Progress
+  // Log) rather than running to EOF and swallowing the Shipment Manifest yaml.
+  // The swallow silently disabled the last-phase precondition gate — the
+  // manifest block was mistaken for a (vacuous) preconditions block.
+  const plan = `### Phase 1 — A
+phase 1 body
+### Phase 2 — B (last phase)
+phase 2 body
+## Progress Log
+
+### Shipment Manifest
+
+\`\`\`yaml
+manifest_schema_version: 1
+shipped: []
+\`\`\`
+`;
+  const sec = extractPhaseSection(plan, 2);
+  assert.match(sec, /phase 2 body/);
+  assert.doesNotMatch(sec, /Progress Log/);
+  assert.doesNotMatch(sec, /manifest_schema_version/);
+});
+
+test("extractPhaseSection (last phase) stops at the next ## sibling so trailing task-shaped headings don't bleed into Gate 3", () => {
+  // Without the `## ` boundary, the last phase ran to EOF and swallowed the
+  // ## Progress Log / ## Notes siblings, so a trailing `##### Tx.y`-shaped
+  // heading in Notes was wrongly attributed to the phase by
+  // extractDeclaredTaskIds (the set Gate 3 compares against the manifest).
+  const plan = `### Phase 1 — Only phase
+
+#### Tasks
+
+##### T1.1 — real task
+**Spec coverage:** none (test placeholder) **Verifies invariant:** I-001-1
+
+## Progress Log
+
+### Notes
+
+##### T9.9 — trailing prose that merely looks like a task heading
+`;
+  const sec = extractPhaseSection(plan, 1);
+  assert.match(sec, /T1\.1/);
+  assert.doesNotMatch(sec, /T9\.9/);
+  assert.deepEqual(extractDeclaredTaskIds(sec), ["T1.1"]);
+});
+
+test("findSectionBoundary skips headings inside fenced code blocks", () => {
+  // A `## ` or `### Phase` line inside a ``` / ~~~ fence is body content, not a
+  // section boundary — the scan must walk past it to the real sibling heading.
+  const fenced = [
+    "intro line",
+    "```md",
+    "## fenced heading (not a boundary)",
+    "### Phase 9 — also fenced",
+    "```",
+    "more body",
+    "## Real Sibling",
+    "tail",
+  ].join("\n");
+  const at = findSectionBoundary(fenced);
+  assert.ok(at >= 0 && fenced.slice(at).startsWith("## Real Sibling"));
+
+  // A longer outer ```` run contains shorter inner ``` runs (CommonMark): the
+  // scan stays inside the fence until the matching 4-backtick close, not the
+  // first 3-backtick line.
+  const nested = ["a", "````md", "## inner", "```", "## still inner", "````", "## Out"].join("\n");
+  const atN = findSectionBoundary(nested);
+  assert.ok(atN >= 0 && nested.slice(atN).startsWith("## Out"));
+
+  // No heading outside a fence → -1.
+  assert.equal(findSectionBoundary("just\nbody\n```\n## fenced\n```\n"), -1);
+});
+
+test("extractPhaseSection keeps a fenced ## / ### Phase example in the body and bounds only at the real sibling", () => {
+  // Fence-awareness regression: a phase whose body shows a fenced markdown
+  // example (with `## ` and `### Phase` lines) must not be truncated at that
+  // example — its `#### Tasks` block follows the fence and would otherwise be
+  // severed from Gate 3/4, and the example heading would be mistaken for the
+  // section boundary. Pre-fence-aware, extractDeclaredTaskIds(sec) was [].
+  const plan = `### Phase 1 — Only phase
+
+Example of a plan heading, shown inside a fence:
+
+\`\`\`md
+## Not a real sibling
+### Phase 99 — not a real phase
+\`\`\`
+
+#### Tasks
+
+##### T1.1 — real task
+**Spec coverage:** none (test placeholder) **Verifies invariant:** I-001-1
+
+## Progress Log
+
+### Shipment Manifest
+
+\`\`\`yaml
+manifest_schema_version: 1
+shipped: []
+\`\`\`
+`;
+  const sec = extractPhaseSection(plan, 1);
+  assert.match(sec, /Not a real sibling/); // fenced example stays in the section
+  assert.match(sec, /T1\.1/); //              #### Tasks survived the fenced `## `
+  assert.doesNotMatch(sec, /Progress Log/); // real `## ` sibling still bounds it
+  assert.doesNotMatch(sec, /manifest_schema_version/);
+  assert.deepEqual(extractDeclaredTaskIds(sec), ["T1.1"]);
 });
 
 test("countCites counts substring occurrences", () => {
@@ -303,6 +419,43 @@ preconditions: foo
 `;
   // Inline scalar is rejected — block mode never enters; subsequent items not absorbed.
   assert.deepEqual(parsePreconditionsBlock(sec), []);
+});
+
+test("parsePreconditionsBlock returns null for a non-preconditions yaml block (Shipment Manifest)", () => {
+  // The Progress-Log manifest block has no `preconditions:` key — it is not a
+  // preconditions block, so parse must return null and let gatePreconditions
+  // fall back to the prose **Precondition:** line, NOT consume the manifest as
+  // a vacuous []. Returning [] here is the exact bug that no-op'd the
+  // last-phase gate.
+  const sec = `### Phase 5
+
+**Precondition:** Phase 4 merged.
+
+\`\`\`yaml
+manifest_schema_version: 1
+shipped: []
+\`\`\`
+`;
+  assert.equal(parsePreconditionsBlock(sec), null);
+});
+
+test("parsePreconditionsBlock selects the preconditions block when a non-preconditions yaml block precedes it", () => {
+  // A schema/data example earlier in the section must not shadow a real
+  // preconditions block that follows — the parser scans all yaml blocks and
+  // picks the first one carrying a `preconditions:` key.
+  const sec = `### Phase 2
+
+\`\`\`yaml
+capabilities:
+  - key: gpu
+\`\`\`
+
+\`\`\`yaml
+preconditions:
+  - {type: pr_merged, ref: 19}
+\`\`\`
+`;
+  assert.deepEqual(parsePreconditionsBlock(sec), [{ type: "pr_merged", ref: 19 }]);
 });
 
 test("regexParsePreconditionsLine extracts patterns", () => {
@@ -1397,6 +1550,130 @@ test("runPreflight halts on unchecked audit checkbox", () => {
   assert.match(r.stdout, /audit-complete gate failed/);
 });
 
+test("runPreflight enforces a last-phase prose precondition despite the Progress-Log manifest (regression: last-phase gate no-op)", () => {
+  // Before the fix: extractPhaseSection bounded the last phase at EOF and
+  // swallowed the ## Progress Log Shipment Manifest; parsePreconditionsBlock
+  // returned [] for that non-preconditions block, so gatePreconditions skipped
+  // the prose **Precondition:** and vacuously passed (exit 0). Phase 1 is
+  // unshipped here, so the last phase's `Phase 1 merged` precondition is unmet
+  // and explicit-phase mode must HALT instead of falsely reporting eligible.
+  const repo = makeTempRepo();
+  const skillMd = join(repo, ".claude", "skills", "plan-execution", "SKILL.md");
+  writeFileSync(skillMd, `---\nname: test\nrequires_files: []\n---\n\nbody`);
+  const planFile = join(repo, "docs", "plans", "001-test.md");
+  writeFileSync(
+    planFile,
+    `# Plan-001
+
+## Preconditions
+
+- [x] **Plan-readiness audit complete per runbook.
+
+### Phase 1 — Bootstrap
+
+**Precondition:** None.
+
+#### Tasks
+
+##### T1.1 — desc
+**Spec coverage:** none (test placeholder) **Verifies invariant:** I-001-1
+
+### Phase 2 — Renderer (last phase)
+
+**Precondition:** Phase 1 merged.
+
+#### Tasks
+
+##### T2.1 — desc
+**Spec coverage:** none (test placeholder) **Verifies invariant:** I-001-2
+
+## Progress Log
+
+### Shipment Manifest
+
+\`\`\`yaml
+manifest_schema_version: 1
+shipped: []
+\`\`\`
+
+### Notes
+`,
+  );
+  const r = runPreflight(planFile, 2, { repoRoot: repo, skillMd });
+  assert.equal(r.exit, 1, `exit was ${r.exit}; stdout=${r.stdout}; stderr=${r.stderr}`);
+  assert.match(r.stdout, /precondition unmet/i);
+  assert.match(r.stdout, /Phase 1/);
+});
+
+test("runPreflight enforces a prose precondition when a non-preconditions yaml block sits in the (non-last) phase body", () => {
+  // Plan-002 Phase 2 shape: a yaml schema example inside a phase body must not
+  // suppress that phase's prose **Precondition:** by being mistaken for a
+  // (vacuous) preconditions block. Phase 1 is unshipped, so Phase 2's
+  // `Phase 1 merged` precondition is unmet and explicit-phase mode must HALT.
+  const repo = makeTempRepo();
+  const skillMd = join(repo, ".claude", "skills", "plan-execution", "SKILL.md");
+  writeFileSync(skillMd, `---\nname: test\nrequires_files: []\n---\n\nbody`);
+  const planFile = join(repo, "docs", "plans", "001-test.md");
+  writeFileSync(
+    planFile,
+    `# Plan-001
+
+## Preconditions
+
+- [x] **Plan-readiness audit complete per runbook.
+
+### Phase 1 — Bootstrap
+
+**Precondition:** None.
+
+#### Tasks
+
+##### T1.1 — desc
+**Spec coverage:** none (test placeholder) **Verifies invariant:** I-001-1
+
+### Phase 2 — Middle phase with a schema example
+
+**Precondition:** Phase 1 merged.
+
+The capability payload shape:
+
+\`\`\`yaml
+capabilities:
+  - key: gpu
+\`\`\`
+
+#### Tasks
+
+##### T2.1 — desc
+**Spec coverage:** none (test placeholder) **Verifies invariant:** I-001-2
+
+### Phase 3 — Tail
+
+**Precondition:** None.
+
+#### Tasks
+
+##### T3.1 — desc
+**Spec coverage:** none (test placeholder) **Verifies invariant:** I-001-3
+
+## Progress Log
+
+### Shipment Manifest
+
+\`\`\`yaml
+manifest_schema_version: 1
+shipped: []
+\`\`\`
+
+### Notes
+`,
+  );
+  const r = runPreflight(planFile, 2, { repoRoot: repo, skillMd });
+  assert.equal(r.exit, 1, `exit was ${r.exit}; stdout=${r.stdout}; stderr=${r.stderr}`);
+  assert.match(r.stdout, /precondition unmet/i);
+  assert.match(r.stdout, /Phase 1/);
+});
+
 test("runPreflight halts when phase given but missing G4 cites", () => {
   // Manifest section is required even when the test only exercises the
   // cite gate — Gate 3's strict halt on parse failure (Codex P1 round-7)
@@ -2176,4 +2453,141 @@ shipped:
   const r = runPreflight(planFile, 2, { repoRoot: repo, skillMd });
   assert.equal(r.exit, 1);
   assert.match(r.stdout, /per-phase audit declaration missing/);
+});
+
+// ---------- CLI entry (spawnSync) — guards the production wrapper ----------
+// The skill invokes `node preflight.mjs <plan> [phase]`; every other test here
+// imports runPreflight() and bypasses main()'s argv-parse → process.exit(
+// result.exit) → stdout/stderr plumbing. A regression that made main() swallow
+// stdout or mis-map the exit code would leave the rest of this suite green and
+// the tool inert in production. These two spawn the real entry point so that
+// silent-disable class is caught (a durable spawn guard, not a one-time run).
+// REPO_ROOT/SKILL_MD resolve from the script's own __dirname, so the real repo
+// satisfies Gate 1 while the temp plan drives Gates 2–5 from planSource.
+
+const PREFLIGHT_CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "preflight.mjs");
+
+test("CLI entry: --help writes usage to stderr and exits 2", () => {
+  const r = spawnSync(process.execPath, [PREFLIGHT_CLI, "--help"], { encoding: "utf8" });
+  assert.equal(r.status, 2, `status=${r.status} stdout=${r.stdout} stderr=${r.stderr}`);
+  assert.match(r.stderr, /Usage: node preflight\.mjs/);
+});
+
+test("CLI entry: an unmet last-phase precondition halts with exit 1 and the verbatim halt on stdout", () => {
+  // The fix path driven through the real main() wrapper, not just runPreflight.
+  // Pre-fix the last phase swallowed the Progress-Log manifest and treated it as
+  // a vacuous preconditions block, so this returned exit 0; post-fix the prose
+  // **Precondition** is read and resolved. The precondition gate resolves a
+  // `Plan-NNN Phase N merged` token against repoRoot/docs/plans (by design), and
+  // the spawned CLI derives the *real* repoRoot from its own __dirname — so the
+  // token references Plan-099, which is absent from the corpus and therefore
+  // deterministically unmet. This pins the fix across the argv → process.exit
+  // boundary without coupling to any real plan's live ship state.
+  const repo = makeTempRepo();
+  const skillMd = join(repo, ".claude", "skills", "plan-execution", "SKILL.md");
+  writeFileSync(skillMd, `---\nname: test\nrequires_files: []\n---\n\nbody`);
+  const planFile = join(repo, "docs", "plans", "001-test.md");
+  writeFileSync(
+    planFile,
+    `# Plan-001
+
+## Preconditions
+
+- [x] **Plan-readiness audit complete per runbook.
+
+### Phase 1 — Bootstrap
+
+**Precondition:** None.
+
+#### Tasks
+
+##### T1.1 — desc
+**Spec coverage:** none (test placeholder) **Verifies invariant:** I-001-1
+
+### Phase 2 — Renderer (last phase)
+
+**Precondition:** Plan-099 Phase 1 merged.
+
+#### Tasks
+
+##### T2.1 — desc
+**Spec coverage:** none (test placeholder) **Verifies invariant:** I-001-2
+
+## Progress Log
+
+### Shipment Manifest
+
+\`\`\`yaml
+manifest_schema_version: 1
+shipped: []
+\`\`\`
+
+### Notes
+`,
+  );
+  const r = spawnSync(process.execPath, [PREFLIGHT_CLI, planFile, "2"], { encoding: "utf8" });
+  assert.equal(r.status, 1, `status=${r.status} stdout=${r.stdout} stderr=${r.stderr}`);
+  assert.match(r.stdout, /precondition unmet/i);
+  assert.match(r.stdout, /Plan-99 not found/);
+});
+
+test("runPreflight reports the last phase eligible when its precondition is met (over-fire guard)", () => {
+  // Symmetric direction to the last-phase regression: with Phase 1 shipped in
+  // the manifest, the last phase's `Phase 1 merged` precondition is MET, so the
+  // gate must report eligible (exit 0 + phase number) rather than over-fire into
+  // a halt. Every other precondition test asserts a halt, so a fix that wrongly
+  // halted a satisfied last-phase precondition would pass the suite without this.
+  const repo = makeTempRepo();
+  const skillMd = join(repo, ".claude", "skills", "plan-execution", "SKILL.md");
+  writeFileSync(skillMd, `---\nname: test\nrequires_files: []\n---\n\nbody`);
+  const planFile = join(repo, "docs", "plans", "001-test.md");
+  writeFileSync(
+    planFile,
+    `# Plan-001
+
+## Preconditions
+
+- [x] **Plan-readiness audit complete per runbook.
+
+### Phase 1 — Bootstrap
+
+**Precondition:** None.
+
+#### Tasks
+
+##### T1.1 — desc
+**Spec coverage:** none (test placeholder) **Verifies invariant:** I-001-1
+
+### Phase 2 — Renderer (last phase)
+
+**Precondition:** Phase 1 merged.
+
+#### Tasks
+
+##### T2.1 — desc
+**Spec coverage:** none (test placeholder) **Verifies invariant:** I-001-2
+
+## Progress Log
+
+### Shipment Manifest
+
+\`\`\`yaml
+manifest_schema_version: 1
+shipped:
+  - phase: 1
+    task: T1.1
+    pr: 1
+    sha: abc1234
+    merged_at: 2026-01-01
+    files: []
+    verifies_invariant: []
+    spec_coverage: []
+\`\`\`
+
+### Notes
+`,
+  );
+  const r = runPreflight(planFile, 2, { repoRoot: repo, skillMd });
+  assert.equal(r.exit, 0, `exit was ${r.exit}; stdout=${r.stdout}; stderr=${r.stderr}`);
+  assert.equal(r.stdout, "2");
 });
