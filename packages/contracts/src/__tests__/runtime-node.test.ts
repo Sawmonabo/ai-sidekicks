@@ -26,6 +26,12 @@
 //     (catch #10 — the hoisted shared wire enum, distinct from NodeState)
 import { describe, expect, it } from "vitest";
 
+import {
+  VERSION_FLOOR_EXCEEDED_CODE,
+  VersionFloorExceededErrorSchema,
+  type VersionBoundExceededDetails,
+  type VersionFloorExceededError,
+} from "../error.js";
 import { EventCategorySchema } from "../event.js";
 import {
   NODE_ID_MAX_LEN,
@@ -650,5 +656,82 @@ describe("RUNTIME_NODE_EVENT_NAMES (C4: 7-name runtime_node.* taxonomy)", () => 
     // category exists in Plan-001's enum; the name→category binding itself is
     // Plan-006's to register (CP-003-1), not asserted here.
     expect(EventCategorySchema.safeParse("runtime_node_lifecycle").success).toBe(true);
+  });
+});
+
+// --------------------------------------------------------------------------
+// Plan-003 PR #135 — Test C5: typed `VERSION_FLOOR_EXCEEDED` consumer anchor.
+// --------------------------------------------------------------------------
+//
+// This block is a Plan-003 CONSUMER-SIDE conformance anchor, NOT a re-test of
+// Plan-001's error-schema matrix. I-003-1 ("Attach is admit-not-eject for
+// below-floor daemons") requires that a below-floor write returns a *typed*
+// `VERSION_FLOOR_EXCEEDED` (Spec-003:53, Spec-003 AC4:104; ADR-018 §Decision
+// #4 / §Decision #10). The concrete realization of that typed error is the
+// Plan-001-owned `VersionFloorExceededError` / `VersionFloorExceededErrorSchema`
+// / `VERSION_FLOOR_EXCEEDED_CODE` in `error.ts`. The two assertions here pin
+// Plan-003's consuming dependency on that contract — the exact-T1.7 precedent
+// (T1.7 pinned Plan-003's dependency on the Plan-001 Postgres `min_client_version`
+// column; this pins its dependency on the Plan-001 typed error).
+//
+// DELIBERATELY NOT RE-RUN HERE: `error.test.ts`'s
+// `describe("VersionFloorExceededErrorSchema")` (Plan-001 T2.3) owns the full
+// accept/reject/strict-key/oversize/whitespace/boundary/missing-field matrix.
+// This block adds exactly what that matrix does NOT cover — see each `it`.
+//
+// PHASE-3 TRIPWIRE: only the typed-CONTRACT conformance proven here ships in
+// Plan-003 Phase 1. The RUNTIME admit-not-eject behavior — the attach service
+// actually returning this error on a below-floor write and then admitting the
+// daemon read-only (Spec-003 AC4:104) — lands at Plan-003 Phase 3 (P3/P4).
+//
+// Cites: Spec-003:53, Spec-003 AC4:104, I-003-1, ADR-018 §Decision #4 /
+// §Decision #10, docs/architecture/contracts/error-contracts.md:266.
+describe("VersionFloorExceededErrorSchema (C5: VERSION_FLOOR_EXCEEDED typed-contract conformance — Plan-003 consumer anchor)", () => {
+  it("pins the wire code literal to the value registered in error-contracts.md:266", () => {
+    // The expected string is single-sourced from the INDEPENDENT registry —
+    // error-contracts.md:266 maps the typed `VERSION_FLOOR_EXCEEDED` name to the
+    // dotted wire code `version.floor_exceeded` (ADR-018 §Decision #10 mandates
+    // registration there). That doc, NOT `error.ts`, is the source of the
+    // expected value here, so this pin detects drift in `error.ts` rather than
+    // tautologically agreeing with it.
+    //
+    // Non-duplicative vs. error.test.ts: every test there references the constant
+    // SYMBOLICALLY (`code: VERSION_FLOOR_EXCEEDED_CODE`), so renaming the
+    // constant's VALUE (e.g. to `"version.floor_breached"`) would leave all of
+    // `error.test.ts` green while silently breaking the cross-process / cross-SDK
+    // wire contract that I-003-1 depends on. This is the only test in the repo
+    // that pins the literal string itself.
+    expect(VERSION_FLOOR_EXCEEDED_CODE).toBe("version.floor_exceeded");
+  });
+
+  it("binds Plan-003's below-floor rejection payload to its TYPE and preserves the upgradePath through a parse", () => {
+    // Discriminator vs. error.test.ts's un-annotated `buildValidFloorError()`
+    // literal (error.test.ts:377-385,398): that fixture proves the schema ACCEPTS
+    // the shape at runtime; the explicit type annotations below prove Plan-003's
+    // CONSUMING code sees a TYPE that agrees with the schema (compile-time-checked
+    // by the package's `isolatedDeclarations` + `exactOptionalPropertyTypes`
+    // build). `upgradePath` is `string | undefined` on the interface, so including
+    // it with a concrete value is correct under `exactOptionalPropertyTypes`.
+    const belowFloorDetails: VersionBoundExceededDetails = {
+      attemptedVersion: "0.9",
+      acceptedRange: { min: "1.0", max: "2.0" },
+      upgradePath: "Upgrade the client to 1.0 or higher: https://example.com/upgrade",
+    };
+    const belowFloorRejection: VersionFloorExceededError = {
+      code: VERSION_FLOOR_EXCEEDED_CODE,
+      message: "Client protocol version 0.9 is below daemon's accepted floor 1.0.",
+      details: belowFloorDetails,
+    };
+
+    const result = VersionFloorExceededErrorSchema.safeParse(belowFloorRejection);
+    expect(result.success).toBe(true);
+
+    // ADR-018 §Decision #10: the typed floor error carries a human-readable
+    // upgrade path so the read-only-admitted daemon can surface remediation
+    // (graceful degradation, not ejection — I-003-1 / Spec-003:53). Assert the
+    // schema PRESERVES it through a parse rather than dropping the optional field.
+    if (result.success) {
+      expect(result.data.details.upgradePath).toBe(belowFloorRejection.details.upgradePath);
+    }
   });
 });
