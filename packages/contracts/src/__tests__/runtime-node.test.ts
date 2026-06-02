@@ -26,12 +26,14 @@
 //     (catch #10 — the hoisted shared wire enum, distinct from NodeState)
 import { describe, expect, it } from "vitest";
 
+import { EventCategorySchema } from "../event.js";
 import {
   NODE_ID_MAX_LEN,
   NodeIdSchema,
   NodeStateSchema,
   RUNTIME_NODE_CAPABILITY_UPDATE_REASON_MAX_LEN,
   RUNTIME_NODE_DETACH_REASON_MAX_LEN,
+  RUNTIME_NODE_EVENT_NAMES,
   RuntimeNodeAttachRequestSchema,
   RuntimeNodeAttachResponseSchema,
   RuntimeNodeCapabilityUpdateRequestSchema,
@@ -570,5 +572,83 @@ describe("RuntimeNodeDetachResponseSchema (C3: null no-content payload)", () => 
     expect(RuntimeNodeDetachResponseSchema.safeParse("x").success).toBe(false);
     expect(RuntimeNodeDetachResponseSchema.safeParse(0).success).toBe(false);
     expect(RuntimeNodeDetachResponseSchema.safeParse(undefined).success).toBe(false);
+  });
+});
+
+// --------------------------------------------------------------------------
+// Plan-003 PR #135 — Test C4: `runtime_node.*` event-name taxonomy constants.
+// --------------------------------------------------------------------------
+//
+// C4 acceptance criterion: the exported 7-name `runtime_node.*` set is exactly
+// equal (as a sorted set) to the 7 names in the Runtime Node Lifecycle taxonomy
+// table at Spec-006 lines 374-380 — neither superset nor subset. The SET
+// MEMBERSHIP is the contract (additions MINOR, removals MAJOR under ADR-018
+// §Decision #8), not the declaration order, so the equality is asserted
+// order-independently against a hardcoded expected-7 array re-derived from the
+// spec table (NOT transcribed from a Plan-003 gloss).
+//
+// The `expectedSevenFromSpec006` array is the test's independent source of truth,
+// each entry mapped to its Spec-006 table row:
+//   • runtime_node.registered          — Spec-006:374
+//   • runtime_node.online              — Spec-006:375
+//   • runtime_node.degraded            — Spec-006:376
+//   • runtime_node.offline             — Spec-006:377
+//   • runtime_node.revoked             — Spec-006:378
+//   • runtime_node.capability_declared — Spec-006:379
+//   • runtime_node.capability_updated  — Spec-006:380
+// The 2 `session.clock_*` rows (Spec-006:381-382) are DELIBERATELY ABSENT: they
+// share the `runtime_node_lifecycle` category but retain the `session.` prefix by
+// name-preservation (Spec-006:384 / ADR-018 §Decision #8) and were promoted
+// from Spec-015 §Reserved Events.
+const expectedSevenFromSpec006 = [
+  "runtime_node.registered",
+  "runtime_node.online",
+  "runtime_node.degraded",
+  "runtime_node.offline",
+  "runtime_node.revoked",
+  "runtime_node.capability_declared",
+  "runtime_node.capability_updated",
+];
+
+describe("RUNTIME_NODE_EVENT_NAMES (C4: 7-name runtime_node.* taxonomy)", () => {
+  it("is exactly the sorted set of the 7 names in Spec-006 lines 374-380", () => {
+    // Order-independent SET equality: sort both sides so a reorder of either the
+    // export tuple or the spec table does not spuriously fail, while a
+    // missing/extra/renamed name does (the membership IS the contract per
+    // Spec-006:374-380). A spread is required because the export is `readonly` and
+    // `.sort()` mutates in place.
+    expect([...RUNTIME_NODE_EVENT_NAMES].sort()).toEqual([...expectedSevenFromSpec006].sort());
+  });
+
+  it("has exactly 7 entries (neither superset nor subset of the spec set)", () => {
+    expect(RUNTIME_NODE_EVENT_NAMES).toHaveLength(7);
+  });
+
+  it("contains no duplicates (set cardinality equals tuple length)", () => {
+    expect(new Set(RUNTIME_NODE_EVENT_NAMES).size).toBe(7);
+  });
+
+  it("every entry carries the runtime_node. prefix (catches a session.clock_* leak)", () => {
+    // The prefix guard is the discriminating assertion: if a `session.clock_*`
+    // name (Spec-006:381-382) leaked into the set it would fail here even if the
+    // count stayed at 7, because those names retain the `session.` prefix.
+    for (const eventName of RUNTIME_NODE_EVENT_NAMES) {
+      expect(eventName.startsWith("runtime_node.")).toBe(true);
+    }
+  });
+
+  it("excludes the session.clock_* pair (name-preservation boundary, Spec-006:381-384)", () => {
+    // Explicit negative: the two same-category clock events are NOT in the set.
+    expect(RUNTIME_NODE_EVENT_NAMES).not.toContain("session.clock_unsynced");
+    expect(RUNTIME_NODE_EVENT_NAMES).not.toContain("session.clock_corrected");
+  });
+
+  it("targets the runtime_node_lifecycle category, which is registered in Plan-001's EventCategorySchema", () => {
+    // Cross-ref proving the CP-003-1 split is real: Plan-003 ships these NAME
+    // constants, but the category they belong to is owned by Plan-001 and already
+    // present in `EventCategorySchema` (event.ts:101). This confirms the target
+    // category exists in Plan-001's enum; the name→category binding itself is
+    // Plan-006's to register (CP-003-1), not asserted here.
+    expect(EventCategorySchema.safeParse("runtime_node_lifecycle").success).toBe(true);
   });
 });

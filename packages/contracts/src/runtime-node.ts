@@ -70,7 +70,7 @@ export const NodeIdSchema: z.ZodType<NodeId, NodeId> = z
 // (shared-postgres-schema.md:202-203): exactly these five values, in any
 // order (RFC 8785 JCS serializes the literal wire string, so enum declaration
 // order is not load-bearing — but the membership of the set IS a contract per
-// ADR-018 §Decision #1: removals MAJOR, additions MINOR).
+// ADR-018 §Decision #8: removals MAJOR, additions MINOR).
 //
 // Distinct from two neighboring enums — do NOT conflate:
 //   • `RuntimeNodeHealthState` below — 2-value health axis on the wire
@@ -472,3 +472,61 @@ export const RuntimeNodeDetachRequestSchema: z.ZodType<
 // — a response schema is not a tRPC input surface (matches
 // `RuntimeNodeHeartbeatResponseSchema` above).
 export const RuntimeNodeDetachResponseSchema: z.ZodType<null> = z.null();
+
+// --------------------------------------------------------------------------
+// RUNTIME_NODE_EVENT_NAMES — the 7 `runtime_node.*` durable event-type names.
+// --------------------------------------------------------------------------
+//
+// The canonical exported set of the SEVEN `runtime_node.*` durable event-type
+// names, sourced verbatim from the Runtime Node Lifecycle taxonomy table in
+// docs/specs/006-session-event-taxonomy-and-audit-log.md lines 374-380. This
+// ships the NAME taxonomy for C4 conformance only — the per-event `EventEnvelope`
+// payload schemas (and their registration into the discriminated `EventType`
+// union in event.ts) are a later Plan-003 phase, so these names are deliberately
+// NOT added to that union here.
+//
+// Shape mirrors `SESSION_EVENT_TYPES` / `SessionEventType` (event.ts:405-413): a
+// union type alias plus an explicitly-annotated `readonly [...]  as const` tuple.
+// The explicit `readonly RuntimeNodeEventName[]` annotation is required for
+// `isolatedDeclarations`, and `as const` freezes the literal element types so
+// consumers can iterate the registered set without re-parsing schemas. The
+// membership of the SET is the contract, not the declaration order — RFC 8785
+// JCS serializes the literal wire string, so tuple order is not load-bearing
+// (same stance as `NodeState` above and `SESSION_EVENT_TYPES`; additions are
+// MINOR, removals MAJOR under ADR-018 §Decision #8).
+//
+// BOUNDARY — the `session.clock_*` pair is EXCLUDED. `session.clock_unsynced` /
+// `session.clock_corrected` (Spec-006:381-382) sit in the SAME EventCategory
+// (`runtime_node_lifecycle`) but retain the `session.` prefix by name-
+// preservation (Spec-006:384 / ADR-018 §Decision #8 — an event-type rename is
+// not additive, so it is wire-breaking). They were promoted from Spec-015
+// §Reserved Events and are NOT `runtime_node.*` names: this set is the 7-name
+// `runtime_node.*` prefix set ONLY (Spec-006:374-380), exactly per the C4
+// acceptance criterion.
+//
+// CATEGORY OWNERSHIP — all 7 names belong to EventCategory
+// `"runtime_node_lifecycle"`, which is already declared in Plan-001's taxonomy
+// (event.ts:84 type union + event.ts:101 `EventCategorySchema` enum). This file
+// references that category but does NOT redefine it and does NOT add a category-
+// binding map: per CP-003-1 (docs/plans/003-runtime-node-attach.md §Cross-Plan
+// Obligations, lines 77-83), Plan-003 ships the `runtime_node.*` name constants
+// as event-shape stubs while Plan-006 owns the taxonomy registration (the
+// `EventEnvelope` schema, BLAKE3 hash chain, dual-signature mechanics) at Tier 4,
+// against the integrity columns Plan-001 forward-declares.
+export type RuntimeNodeEventName =
+  | "runtime_node.registered"
+  | "runtime_node.online"
+  | "runtime_node.degraded"
+  | "runtime_node.offline"
+  | "runtime_node.revoked"
+  | "runtime_node.capability_declared"
+  | "runtime_node.capability_updated";
+export const RUNTIME_NODE_EVENT_NAMES: readonly RuntimeNodeEventName[] = [
+  "runtime_node.registered",
+  "runtime_node.online",
+  "runtime_node.degraded",
+  "runtime_node.offline",
+  "runtime_node.revoked",
+  "runtime_node.capability_declared",
+  "runtime_node.capability_updated",
+] as const;
