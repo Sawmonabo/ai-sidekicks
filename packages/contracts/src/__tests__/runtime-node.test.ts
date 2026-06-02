@@ -37,11 +37,16 @@ import {
   NODE_ID_MAX_LEN,
   NodeIdSchema,
   NodeStateSchema,
+  RUNTIME_NODE_CAPABILITY_KEY_MAX_LEN,
   RUNTIME_NODE_CAPABILITY_UPDATE_REASON_MAX_LEN,
   RUNTIME_NODE_DETACH_REASON_MAX_LEN,
   RUNTIME_NODE_EVENT_NAMES,
+  RUNTIME_NODE_PLATFORM_MAX_LEN,
+  RUNTIME_NODE_VERSION_MAX_LEN,
   RuntimeNodeAttachRequestSchema,
   RuntimeNodeAttachResponseSchema,
+  RuntimeNodeCapabilityDeclaredPayloadSchema,
+  RuntimeNodeCapabilityUpdatedPayloadSchema,
   RuntimeNodeCapabilityUpdateRequestSchema,
   RuntimeNodeCapabilityUpdateResponseSchema,
   RuntimeNodeDetachRequestSchema,
@@ -49,6 +54,9 @@ import {
   RuntimeNodeHealthStateSchema,
   RuntimeNodeHeartbeatRequestSchema,
   RuntimeNodeHeartbeatResponseSchema,
+  RuntimeNodeOfflinePayloadSchema,
+  RuntimeNodeOnlinePayloadSchema,
+  RuntimeNodeRegisteredPayloadSchema,
 } from "../runtime-node.js";
 
 // Fixtures must be VALID per the imported upstream schemas:
@@ -733,5 +741,375 @@ describe("VersionFloorExceededErrorSchema (C5: VERSION_FLOOR_EXCEEDED typed-cont
     if (result.success) {
       expect(result.data.details.upgradePath).toBe(belowFloorRejection.details.upgradePath);
     }
+  });
+});
+
+// --------------------------------------------------------------------------
+// Plan-003 Phase 2 (PR #137) — Test C7: per-event `runtime_node.*` payload schemas.
+// --------------------------------------------------------------------------
+//
+// Backstops the 5 daemon-reachable per-event PAYLOAD shapes authored in Plan-003
+// Phase 2 (CP-003-1; Spec-006:374-380): `registered`, `online`, `offline`,
+// `capability_declared`, `capability_updated`. These validate the
+// `EventEnvelope.payload` CONTENTS only — the integrity envelope + discriminated-
+// union registration are Plan-006 Tier 4. The discriminating coverage:
+//   • each schema `.parse()`-es a fully-valid payload and round-trips
+//   • a missing required field, an unknown extra key (`.strict()`), and a
+//     wrong-type field each reject
+//   • `offline.reason` accepts each of the 3 enum values and rejects a 4th
+//   • REDUCED-base proof: `capability_declared` REJECTS `newState`/`previousState`
+//     keys (the reduced capability base omits the NodeState-transition fields,
+//     proving capability events are not lifecycle transitions), while a lifecycle
+//     schema ACCEPTS `previousState` omitted + `newState` present
+//   • `actor` accepts a string, accepts `null`, accepts omitted
+//     (`.nullable().optional()`), and rejects a non-string
+const VALID_LIFECYCLE_BASE = {
+  sessionId: SESSION_ID,
+  nodeId: NODE_ID,
+  previousState: "registering" as const,
+  newState: "online" as const,
+  actor: PARTICIPANT_ID,
+};
+
+const buildValidRegisteredPayload = () => ({
+  ...VALID_LIFECYCLE_BASE,
+  capabilities: { ptyHost: true, maxConcurrentRuns: 4 },
+  nodeVersion: "1.4.2",
+  platform: "darwin-arm64",
+});
+
+const buildValidOnlinePayload = () => ({ ...VALID_LIFECYCLE_BASE });
+
+const buildValidOfflinePayload = () => ({
+  ...VALID_LIFECYCLE_BASE,
+  newState: "offline" as const,
+  lastHeartbeatAt: "2026-06-01T00:00:00.000Z",
+  reason: "explicit_shutdown" as const,
+});
+
+const buildValidCapabilityDeclaredPayload = () => ({
+  sessionId: SESSION_ID,
+  nodeId: NODE_ID,
+  actor: PARTICIPANT_ID,
+  capability: "provider-driver",
+  capabilityDetails: { contractVersion: "1.0", flags: { streaming: true } },
+});
+
+const buildValidCapabilityUpdatedPayload = () => ({
+  sessionId: SESSION_ID,
+  nodeId: NODE_ID,
+  actor: PARTICIPANT_ID,
+  capability: "provider-driver",
+  previousState: { contractVersion: "1.0" },
+  newState: { contractVersion: "1.1" },
+});
+
+describe("RuntimeNodeRegisteredPayloadSchema (C7: registered = base + {capabilities, nodeVersion, platform})", () => {
+  it("parses a fully-valid payload and round-trips", () => {
+    const payload = buildValidRegisteredPayload();
+    const result = RuntimeNodeRegisteredPayloadSchema.safeParse(payload);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.nodeVersion).toBe("1.4.2");
+      expect(result.data.platform).toBe("darwin-arm64");
+      expect(result.data.capabilities).toEqual(payload.capabilities);
+    }
+  });
+
+  it("rejects a payload missing the required nodeId", () => {
+    const { nodeId: _omitted, ...withoutNodeId } = buildValidRegisteredPayload();
+    expect(RuntimeNodeRegisteredPayloadSchema.safeParse(withoutNodeId).success).toBe(false);
+  });
+
+  it("rejects a payload missing the required newState (lifecycle transition target)", () => {
+    const { newState: _omitted, ...withoutNewState } = buildValidRegisteredPayload();
+    expect(RuntimeNodeRegisteredPayloadSchema.safeParse(withoutNewState).success).toBe(false);
+  });
+
+  it("rejects an unknown extra key (.strict drift guard)", () => {
+    const broken = { ...buildValidRegisteredPayload(), bogusField: "nope" };
+    expect(RuntimeNodeRegisteredPayloadSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("rejects a wrong-type field (capabilities must be a record, not a string)", () => {
+    const broken = { ...buildValidRegisteredPayload(), capabilities: "not-a-record" };
+    expect(RuntimeNodeRegisteredPayloadSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("rejects an out-of-enum newState", () => {
+    const broken = { ...buildValidRegisteredPayload(), newState: "bogus" };
+    expect(RuntimeNodeRegisteredPayloadSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("accepts a full-semver nodeVersion that EventEnvelopeVersion would reject", () => {
+    // `nodeVersion` is a bounded free string, NOT the MAJOR.MINOR-only
+    // `EventEnvelopeVersion` — a three-segment release version must be accepted.
+    const ok = { ...buildValidRegisteredPayload(), nodeVersion: "10.20.30" };
+    expect(RuntimeNodeRegisteredPayloadSchema.safeParse(ok).success).toBe(true);
+  });
+
+  it("rejects an oversized nodeVersion / platform (defense-in-depth length caps)", () => {
+    expect(
+      RuntimeNodeRegisteredPayloadSchema.safeParse({
+        ...buildValidRegisteredPayload(),
+        nodeVersion: "1".repeat(RUNTIME_NODE_VERSION_MAX_LEN + 1),
+      }).success,
+    ).toBe(false);
+    expect(
+      RuntimeNodeRegisteredPayloadSchema.safeParse({
+        ...buildValidRegisteredPayload(),
+        platform: "x".repeat(RUNTIME_NODE_PLATFORM_MAX_LEN + 1),
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("RuntimeNodeOnlinePayloadSchema (C7: online = base, no extension)", () => {
+  it("parses a fully-valid base payload and round-trips", () => {
+    expect(RuntimeNodeOnlinePayloadSchema.safeParse(buildValidOnlinePayload()).success).toBe(true);
+  });
+
+  it("ACCEPTS previousState omitted with newState present (lifecycle base optionality)", () => {
+    // The full lifecycle base types `previousState?` optional, `newState` required
+    // — a first-ever transition (no prior state) is valid.
+    const { previousState: _omitted, ...withoutPrevious } = buildValidOnlinePayload();
+    expect(RuntimeNodeOnlinePayloadSchema.safeParse(withoutPrevious).success).toBe(true);
+  });
+
+  it("ACCEPTS sessionId omitted (lifecycle base types sessionId optional)", () => {
+    // The full lifecycle base types `sessionId?` optional (Spec-006's `sessionId?`
+    // base) — symmetric coverage with `previousState`/`actor` omitted above. A
+    // future accidental drop of `.optional()` on `sessionId` would be an uncaught
+    // false-reject regression.
+    const { sessionId: _omitted, ...withoutSessionId } = buildValidOnlinePayload();
+    expect(RuntimeNodeOnlinePayloadSchema.safeParse(withoutSessionId).success).toBe(true);
+  });
+
+  it("rejects a payload missing the required newState", () => {
+    const { newState: _omitted, ...withoutNewState } = buildValidOnlinePayload();
+    expect(RuntimeNodeOnlinePayloadSchema.safeParse(withoutNewState).success).toBe(false);
+  });
+
+  it("rejects an unknown extra key (.strict drift guard)", () => {
+    const broken = { ...buildValidOnlinePayload(), capabilities: {} };
+    expect(RuntimeNodeOnlinePayloadSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("rejects a wrong-type newState (must be an enum string, not a number)", () => {
+    const broken = { ...buildValidOnlinePayload(), newState: 7 };
+    expect(RuntimeNodeOnlinePayloadSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("accepts actor as a string, as null, and omitted; rejects a non-string actor", () => {
+    expect(RuntimeNodeOnlinePayloadSchema.safeParse(buildValidOnlinePayload()).success).toBe(true);
+    expect(
+      RuntimeNodeOnlinePayloadSchema.safeParse({ ...buildValidOnlinePayload(), actor: null })
+        .success,
+    ).toBe(true);
+    const { actor: _omitted, ...withoutActor } = buildValidOnlinePayload();
+    expect(RuntimeNodeOnlinePayloadSchema.safeParse(withoutActor).success).toBe(true);
+    expect(
+      RuntimeNodeOnlinePayloadSchema.safeParse({ ...buildValidOnlinePayload(), actor: 123 })
+        .success,
+    ).toBe(false);
+  });
+});
+
+describe("RuntimeNodeOfflinePayloadSchema (C7: offline = base + {lastHeartbeatAt, reason})", () => {
+  it("parses a fully-valid payload and round-trips", () => {
+    expect(RuntimeNodeOfflinePayloadSchema.safeParse(buildValidOfflinePayload()).success).toBe(
+      true,
+    );
+  });
+
+  it.each(["heartbeat_lost", "explicit_shutdown", "network_partition"])(
+    "accepts the full-contract reason value %s (authored even though Phase 2 emits only explicit_shutdown)",
+    (reason) => {
+      const ok = { ...buildValidOfflinePayload(), reason };
+      expect(RuntimeNodeOfflinePayloadSchema.safeParse(ok).success).toBe(true);
+    },
+  );
+
+  it("rejects a 4th reason value outside the 3-value enum", () => {
+    const broken = { ...buildValidOfflinePayload(), reason: "graceful_drain" };
+    expect(RuntimeNodeOfflinePayloadSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("rejects a payload missing the required reason", () => {
+    const { reason: _omitted, ...withoutReason } = buildValidOfflinePayload();
+    expect(RuntimeNodeOfflinePayloadSchema.safeParse(withoutReason).success).toBe(false);
+  });
+
+  it("rejects a payload missing the required nodeId", () => {
+    const { nodeId: _omitted, ...withoutNodeId } = buildValidOfflinePayload();
+    expect(RuntimeNodeOfflinePayloadSchema.safeParse(withoutNodeId).success).toBe(false);
+  });
+
+  it("rejects a malformed lastHeartbeatAt (z.iso.datetime is load-bearing)", () => {
+    const broken = { ...buildValidOfflinePayload(), lastHeartbeatAt: "not-a-date" };
+    expect(RuntimeNodeOfflinePayloadSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("rejects an unknown extra key (.strict drift guard)", () => {
+    const broken = { ...buildValidOfflinePayload(), bogusField: "nope" };
+    expect(RuntimeNodeOfflinePayloadSchema.safeParse(broken).success).toBe(false);
+  });
+});
+
+describe("RuntimeNodeCapabilityDeclaredPayloadSchema (C7: reduced base + {capability, capabilityDetails})", () => {
+  it("parses a fully-valid payload and round-trips", () => {
+    const payload = buildValidCapabilityDeclaredPayload();
+    const result = RuntimeNodeCapabilityDeclaredPayloadSchema.safeParse(payload);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.capability).toBe("provider-driver");
+      expect(result.data.capabilityDetails).toEqual(payload.capabilityDetails);
+    }
+  });
+
+  it("REJECTS a newState key (reduced base omits the NodeState-transition fields)", () => {
+    // Discriminating reduced-base proof: capability events are NOT NodeState
+    // transitions (the canonical payload, api-payload-contracts.md:729, carries no
+    // base NodeState fields). A `newState` key is therefore an unknown key under
+    // `.strict()` — its presence rejects.
+    const broken = { ...buildValidCapabilityDeclaredPayload(), newState: "online" };
+    expect(RuntimeNodeCapabilityDeclaredPayloadSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("REJECTS a previousState key (reduced base omits the NodeState-transition fields)", () => {
+    const broken = { ...buildValidCapabilityDeclaredPayload(), previousState: "registering" };
+    expect(RuntimeNodeCapabilityDeclaredPayloadSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("rejects a payload missing the required capability", () => {
+    const { capability: _omitted, ...withoutCapability } = buildValidCapabilityDeclaredPayload();
+    expect(RuntimeNodeCapabilityDeclaredPayloadSchema.safeParse(withoutCapability).success).toBe(
+      false,
+    );
+  });
+
+  it("rejects a payload missing the required nodeId", () => {
+    const { nodeId: _omitted, ...withoutNodeId } = buildValidCapabilityDeclaredPayload();
+    expect(RuntimeNodeCapabilityDeclaredPayloadSchema.safeParse(withoutNodeId).success).toBe(false);
+  });
+
+  it("rejects an unknown extra key (.strict drift guard)", () => {
+    const broken = { ...buildValidCapabilityDeclaredPayload(), bogusField: "nope" };
+    expect(RuntimeNodeCapabilityDeclaredPayloadSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("rejects a wrong-type capability (must be a string, not a record)", () => {
+    const broken = { ...buildValidCapabilityDeclaredPayload(), capability: { name: "x" } };
+    expect(RuntimeNodeCapabilityDeclaredPayloadSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("rejects an oversized capability key (defense-in-depth length cap)", () => {
+    const broken = {
+      ...buildValidCapabilityDeclaredPayload(),
+      capability: "x".repeat(RUNTIME_NODE_CAPABILITY_KEY_MAX_LEN + 1),
+    };
+    expect(RuntimeNodeCapabilityDeclaredPayloadSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("accepts actor as a string, as null, and omitted; rejects a non-string actor", () => {
+    expect(
+      RuntimeNodeCapabilityDeclaredPayloadSchema.safeParse(buildValidCapabilityDeclaredPayload())
+        .success,
+    ).toBe(true);
+    expect(
+      RuntimeNodeCapabilityDeclaredPayloadSchema.safeParse({
+        ...buildValidCapabilityDeclaredPayload(),
+        actor: null,
+      }).success,
+    ).toBe(true);
+    const { actor: _omitted, ...withoutActor } = buildValidCapabilityDeclaredPayload();
+    expect(RuntimeNodeCapabilityDeclaredPayloadSchema.safeParse(withoutActor).success).toBe(true);
+    expect(
+      RuntimeNodeCapabilityDeclaredPayloadSchema.safeParse({
+        ...buildValidCapabilityDeclaredPayload(),
+        actor: 123,
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("RuntimeNodeCapabilityUpdatedPayloadSchema (C7: reduced base + {capability, previousState, newState})", () => {
+  it("parses a fully-valid payload and round-trips (previousState/newState are CapabilityDetails snapshots)", () => {
+    const payload = buildValidCapabilityUpdatedPayload();
+    const result = RuntimeNodeCapabilityUpdatedPayloadSchema.safeParse(payload);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      // `previousState`/`newState` here are capability SNAPSHOTS (records), NOT
+      // NodeState enum strings — a record value round-trips intact.
+      expect(result.data.previousState).toEqual(payload.previousState);
+      expect(result.data.newState).toEqual(payload.newState);
+    }
+  });
+
+  it("rejects a NodeState enum string for newState (it is an opaque record snapshot, not a NodeState)", () => {
+    // `newState` is `z.record(...)`, so a NodeState string is the WRONG type here
+    // and rejects — proving these fields are capability snapshots, not the
+    // lifecycle NodeState transition fields.
+    const broken = { ...buildValidCapabilityUpdatedPayload(), newState: "online" };
+    expect(RuntimeNodeCapabilityUpdatedPayloadSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("rejects a payload missing the required newState snapshot", () => {
+    const { newState: _omitted, ...withoutNewState } = buildValidCapabilityUpdatedPayload();
+    expect(RuntimeNodeCapabilityUpdatedPayloadSchema.safeParse(withoutNewState).success).toBe(
+      false,
+    );
+  });
+
+  it("rejects a payload missing the required capability", () => {
+    const { capability: _omitted, ...withoutCapability } = buildValidCapabilityUpdatedPayload();
+    expect(RuntimeNodeCapabilityUpdatedPayloadSchema.safeParse(withoutCapability).success).toBe(
+      false,
+    );
+  });
+
+  it("rejects a wrong-type capability (must be a string, not a record)", () => {
+    // `capability` is inline-duplicated (not factory-shared) from
+    // `capability_declared`, so it carries its own type tripwire — mirrors the
+    // analogous `capability_declared` test so the two cannot drift apart uncaught.
+    const broken = { ...buildValidCapabilityUpdatedPayload(), capability: { name: "x" } };
+    expect(RuntimeNodeCapabilityUpdatedPayloadSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("rejects an oversized capability key (defense-in-depth length cap)", () => {
+    // Inline-duplicated `capability` cap tripwire — mirrors the
+    // `capability_declared` length-cap test (the cap constant is shared, the field
+    // declaration is not).
+    const broken = {
+      ...buildValidCapabilityUpdatedPayload(),
+      capability: "x".repeat(RUNTIME_NODE_CAPABILITY_KEY_MAX_LEN + 1),
+    };
+    expect(RuntimeNodeCapabilityUpdatedPayloadSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("rejects an unknown extra key (.strict drift guard)", () => {
+    const broken = { ...buildValidCapabilityUpdatedPayload(), bogusField: "nope" };
+    expect(RuntimeNodeCapabilityUpdatedPayloadSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("accepts actor as a string, as null, and omitted; rejects a non-string actor", () => {
+    expect(
+      RuntimeNodeCapabilityUpdatedPayloadSchema.safeParse(buildValidCapabilityUpdatedPayload())
+        .success,
+    ).toBe(true);
+    expect(
+      RuntimeNodeCapabilityUpdatedPayloadSchema.safeParse({
+        ...buildValidCapabilityUpdatedPayload(),
+        actor: null,
+      }).success,
+    ).toBe(true);
+    const { actor: _omitted, ...withoutActor } = buildValidCapabilityUpdatedPayload();
+    expect(RuntimeNodeCapabilityUpdatedPayloadSchema.safeParse(withoutActor).success).toBe(true);
+    expect(
+      RuntimeNodeCapabilityUpdatedPayloadSchema.safeParse({
+        ...buildValidCapabilityUpdatedPayload(),
+        actor: 123,
+      }).success,
+    ).toBe(false);
   });
 });
