@@ -2,12 +2,15 @@
 // pre-commit-runner — single entry point for the doc-corpus regression hooks.
 //
 // Composes the lib/ check functions into one process so the lefthook chain has
-// one job per chain phase (path-canonical, mermaid-set-coherence, cite-target-
-// existence) instead of three. Same coverage; one less layer of config.
+// one job instead of one per check (path-canonical-ripple, plan-manifest-
+// presence, mermaid-set-coherence, cite-target-existence). Same coverage; one
+// less layer of config.
 //
 // argv: zero or more file paths. Files are filtered to staged `.md` for the
-// per-file checks (mermaid + cite); path-canonical-ripple runs unconditionally
-// (it does its own whole-repo grep via the registry's `scope` globs).
+// per-file checks (mermaid + cite); path-canonical-ripple and plan-manifest-
+// presence run unconditionally (each does its own whole-repo enumeration —
+// path-ripple greps the registry `scope` globs, manifest-presence walks
+// `git ls-files docs/plans/`).
 //
 // Cite-target-existence runs against the staged files PLUS any governance-
 // corpus file whose outbound `:NNN` cites resolve into the staged set — see
@@ -32,6 +35,10 @@ import {
   checkPathCanonicalRipple,
   formatPathRippleViolations,
 } from "../lib/path-canonical-ripple.ts";
+import {
+  checkPlanManifestPresence,
+  formatPlanManifestViolations,
+} from "../lib/plan-manifest-presence.ts";
 
 function isMdFile(p: string): boolean {
   try {
@@ -68,6 +75,16 @@ export function runChecks(args: string[]): RunChecksResult {
   const pathHits = checkPathCanonicalRipple();
   if (pathHits.length > 0) {
     messages.push(formatPathRippleViolations(pathHits));
+    exitCode = 1;
+  }
+
+  // Whole-repo, like path-canonical-ripple above: enforces a parseable Shipment
+  // Manifest on every dispatchable plan regardless of which files are staged, so
+  // a plan can never reach review/approved/completed without one (preflight
+  // Gate 3 would otherwise HALT mid-run).
+  const manifestHits = checkPlanManifestPresence();
+  if (manifestHits.length > 0) {
+    messages.push(formatPlanManifestViolations(manifestHits));
     exitCode = 1;
   }
 
