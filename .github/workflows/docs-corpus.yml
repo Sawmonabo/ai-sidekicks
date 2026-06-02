@@ -6,7 +6,8 @@
 #      regression risk we own. REQUIRED via docs-corpus-gate. Mirrors
 #      lefthook.yml's `docs-anchor-check` pre-commit hook for ADR-023
 #      §Axis 2 D-1 parity (pre-commit and CI verify the same invariant).
-#   2. custom-checks — mermaid + cite-target + path-ripple + tooling tests.
+#   2. custom-checks — path-ripple + manifest-presence + mermaid + cite-target
+#      + tooling tests.
 #      Same risk class as lychee-inbound — PR-introduced regression we own.
 #      REQUIRED via docs-corpus-gate.
 #   3. lychee-outbound — outbound HTTP probe (online). Third-party drift /
@@ -186,7 +187,7 @@ jobs:
           exit 0
 
   custom-checks:
-    name: custom hooks — mermaid + cite + path-ripple + tests
+    name: custom hooks — mermaid + cite + path-ripple + manifest + tests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -208,10 +209,12 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: docs-corpus checks (full repo)
-        # Single runner composing path-canonical-ripple + mermaid-set-coherence +
-        # cite-target-existence. The runner reads argv for per-file checks
-        # (mermaid + cite, scoped to `.md`) and runs path-canonical-ripple
-        # unconditionally (whole-repo grep via the registry's `scope` globs).
+        # Single runner composing path-canonical-ripple + plan-manifest-presence
+        # + mermaid-set-coherence + cite-target-existence. The runner reads argv
+        # for per-file checks (mermaid + cite, scoped to `.md`) and runs
+        # path-canonical-ripple + plan-manifest-presence unconditionally (each
+        # does its own whole-repo enumeration — path-ripple greps the registry
+        # `scope` globs; manifest-presence walks `git ls-files docs/plans/`).
         run: |
           mapfile -t files < <(git ls-files '*.md' | grep -v '^docs/archive/' || true)
           node --experimental-strip-types tools/docs-corpus/bin/pre-commit-runner.ts "${files[@]}"

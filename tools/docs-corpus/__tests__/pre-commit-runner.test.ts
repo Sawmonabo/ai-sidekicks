@@ -47,6 +47,14 @@ function withRepoRoot<T>(root: string, fn: () => T): T {
 }
 
 describe("pre-commit-runner — inbound cite ripple expansion", () => {
+  // runChecks also runs the whole-repo plan-manifest-presence guard
+  // (lib/plan-manifest-presence.ts) unconditionally, before the cite checks. A
+  // fixture plan with no manifest and a non-draft status trips it. So fixtures
+  // asserting a clean exit (exitCode 0, messages == []) mark their plan `draft`
+  // (an exempt status) to isolate the cite-ripple behavior under test; fixtures
+  // asserting a cite violation leave it unmarked — the extra manifest violation
+  // is immaterial to an exitCode-1 + toContain check, and Scenario Y's plan
+  // cannot be marked without shifting its load-bearing line count.
   it("flags an inbound cite-target failure in an UNSTAGED governance doc when a staged plan's referenced line is empty (PR #97 scenario)", () => {
     // PR #97 reproduction shape: a plan's line numbers shift, an unstaged
     // architecture doc cites the OLD line that is now blank. Without
@@ -83,7 +91,8 @@ describe("pre-commit-runner — inbound cite ripple expansion", () => {
     // every commit pays the corpus-walk cost.
     const { root, cleanup } = setupRepo({
       "README.md": "# repo\n",
-      "docs/plans/002-test.md": "# Plan-002\n\npreconds\n",
+      // `draft` → manifest-presence guard exempts this plan (see describe note).
+      "docs/plans/002-test.md": "# Plan-002\n\npreconds\n\n| **Status** | `draft` |\n",
       "docs/architecture/cross-plan-dependencies.md":
         // This cite IS stale (:2 is empty in 002-test.md) — but README staging
         // must not surface it.
@@ -107,7 +116,9 @@ describe("pre-commit-runner — inbound cite ripple expansion", () => {
     // editing one governance doc is never blocked while staging an unrelated
     // change.
     const { root, cleanup } = setupRepo({
-      "docs/plans/002-test.md": "# Plan-002\n\npreconds\n",
+      // `draft` → manifest-presence guard exempts this plan (see describe note);
+      // the status row trails the cited :3 line, so the citer's cite still holds.
+      "docs/plans/002-test.md": "# Plan-002\n\npreconds\n\n| **Status** | `draft` |\n",
       "docs/architecture/cross-plan-dependencies.md":
         "Clean: [Plan-002](../plans/002-test.md):3.\n",
     });
@@ -180,8 +191,9 @@ describe("pre-commit-runner — inbound cite ripple expansion", () => {
       "docs/plans/002-test.md":
         // line 1: "# Plan-002"
         // line 2: ""
-        // line 3: "preconds line"   <-- target
-        "# Plan-002\n\npreconds line\n",
+        // line 3: "preconds line"   <-- target (trailing `draft` status row
+        //          exempts the manifest-presence guard without shifting it)
+        "# Plan-002\n\npreconds line\n\n| **Status** | `draft` |\n",
       "docs/architecture/cross-plan-dependencies.md":
         "See [Plan-002](../plans/002-test.md):3 for preconds.\n",
     });
