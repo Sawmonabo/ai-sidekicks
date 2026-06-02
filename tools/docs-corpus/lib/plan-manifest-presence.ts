@@ -10,13 +10,16 @@
 // shifts that detection LEFT, from a mid-run execution-time halt to a PR-time
 // red gate, so a plan can never reach a dispatchable status without one.
 //
-// Read source: the WORKING TREE (readFileSync) — the mirror image of
-// path-canonical-ripple's `--cached` index read. That check hunts FORBIDDEN
-// content and reads the index so unstaged WIP cannot block an unrelated commit;
-// this check requires PRESENT content, so it reads the working tree to the same
-// end — an unstaged manifest addition on disk (a plan being fixed on a parallel
-// branch) must not block an unrelated commit. In CI the working tree equals
-// HEAD after checkout, so the gate is authoritative there regardless.
+// Read source: the git INDEX (`git show :<path>`), consistent with the
+// `git ls-files` enumeration (listPlanFiles) and with sibling
+// path-canonical-ripple's `--cached` read. A pre-commit gate must validate
+// exactly what the next commit
+// would contribute. Reading the working tree instead is wrong in BOTH
+// directions: it (a) MASKS a staged manifest-less promotion behind an unstaged
+// manifest edit on disk — the false-negative this gate exists to prevent — and
+// (b) FALSE-POSITIVE blocks an unrelated commit over an unstaged WIP promotion.
+// The index is correct on both. In CI the working tree equals HEAD after
+// checkout, so the two modes are identical there; the index read is additive.
 //
 // Parser: the canonical `parseManifestBlock` from the plan-execution skill — the
 // SAME function preflight Gate 3 runs — so this guard and the runtime gate
@@ -30,10 +33,12 @@
 // the hand-written declaration cannot silently diverge from the `.mjs`.
 
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 
-import { parseManifestBlock } from "../../../.claude/skills/plan-execution/scripts/lib/manifest.mjs";
+import {
+  MANIFEST_SCHEMA_VERSION,
+  parseManifestBlock,
+  validateEntry,
+} from "../../../.claude/skills/plan-execution/scripts/lib/manifest.mjs";
 import { getRepoRoot } from "./inbound-cite-discovery.ts";
 
 // Plan statuses from which /plan-execution can dispatch, or which are otherwise
@@ -56,9 +61,14 @@ const STATUS_ROW_RE = /\|\s*\*\*Status\*\*\s*\|\s*`?([A-Za-z-]+)`?\s*\|/;
 export interface PlanManifestViolation {
   file: string;
   status: string;
-  // parseManifestBlock failure reason: no_section | no_yaml_fence |
-  // missing_schema_version | missing_shipped.
+  // parseManifestBlock failure reason (no_section | no_yaml_fence |
+  // missing_schema_version | missing_shipped), or "invalid_entries" when the
+  // block parses but a shipped[] entry fails validateEntry — mirroring
+  // preflight Gate 3's manifest_invalid_entries halt.
   reason: string;
+  // Present only for reason === "invalid_entries": one `shipped[i]: <errors>`
+  // line per failing entry, mirroring Gate 3's per-index diagnostic.
+  detail?: string[];
 }
 
 function listPlanFiles(repoRoot: string): string[] {
@@ -88,6 +98,26 @@ function listPlanFiles(repoRoot: string): string[] {
     .filter((p) => !p.endsWith("000-plan-template.md"));
 }
 
+function readPlanFromIndex(repoRoot: string, file: string): string {
+  // Read the staged (index) blob, not the working tree — see the header note on
+  // read-source. `file` is repo-relative (from `git ls-files`), so `:<file>`
+  // addresses its index entry directly. Every path listPlanFiles returned has an
+  // index entry (git ls-files lists the index), so a non-zero exit is a real
+  // fault (e.g. an unmerged path); fail closed by surfacing it with context.
+  try {
+    return execFileSync("git", ["show", `:${file}`], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      maxBuffer: 16 * 1024 * 1024,
+    });
+  } catch (err) {
+    throw new Error(
+      `plan-manifest-presence: could not read ${file} from the git index: ${err instanceof Error ? err.message : String(err)}`,
+      { cause: err },
+    );
+  }
+}
+
 function parseStatus(source: string): string | null {
   const m = source.match(STATUS_ROW_RE);
   return m ? m[1].toLowerCase() : null;
@@ -97,7 +127,7 @@ export function checkPlanManifestPresence(): PlanManifestViolation[] {
   const repoRoot = getRepoRoot();
   const violations: PlanManifestViolation[] = [];
   for (const file of listPlanFiles(repoRoot)) {
-    const source = readFileSync(resolve(repoRoot, file), "utf8");
+    const source = readPlanFromIndex(repoRoot, file);
     const status = parseStatus(source);
     // A plan whose status cannot be read is itself malformed — fail closed by
     // treating it as required (an unparseable metadata table is a defect, not an
@@ -106,6 +136,22 @@ export function checkPlanManifestPresence(): PlanManifestViolation[] {
     const result = parseManifestBlock(source);
     if (!result.ok) {
       violations.push({ file, status: status ?? "unknown", reason: result.reason });
+      continue;
+    }
+    // The block parses, but Gate 3 (classifyPhaseShipment) ALSO halts on a
+    // manifest whose shipped[] entries fail validateEntry. Mirror its exact
+    // order: fail OPEN on an unknown future schema (Gate 3's
+    // manifest_future_schema — treat as opaque rather than judge a v2 entry by
+    // v1 rules), THEN validate every entry. An empty `shipped: []` (every
+    // never-shipped plan) makes the loop a no-op, so the corpus stays green.
+    if (result.version > MANIFEST_SCHEMA_VERSION) continue;
+    const detail: string[] = [];
+    for (let i = 0; i < result.shipped.length; i++) {
+      const entry = validateEntry(result.shipped[i]);
+      if (!entry.ok) detail.push(`shipped[${i}]: ${entry.errors.join("; ")}`);
+    }
+    if (detail.length > 0) {
+      violations.push({ file, status: status ?? "unknown", reason: "invalid_entries", detail });
     }
   }
   return violations;
@@ -114,17 +160,22 @@ export function checkPlanManifestPresence(): PlanManifestViolation[] {
 export function formatPlanManifestViolations(violations: PlanManifestViolation[]): string {
   if (violations.length === 0) return "";
   const lines: string[] = [];
-  lines.push("plan-manifest-presence: dispatchable plans missing a parseable Shipment Manifest");
+  lines.push(
+    "plan-manifest-presence: dispatchable plans with an absent or invalid Shipment Manifest",
+  );
   lines.push("");
   for (const v of violations) {
     lines.push(`  ${v.file} (status: ${v.status}) — ${v.reason}`);
+    if (v.detail) for (const d of v.detail) lines.push(`    ${d}`);
   }
   lines.push("");
   lines.push(
     `plan-manifest-presence: ${violations.length} plan(s) would HALT /plan-execution preflight Gate 3. ` +
-      "Append the `## Progress Log` / `### Shipment Manifest` block from " +
-      "`docs/plans/000-plan-template.md` — an empty `shipped: []` manifest for a plan " +
-      "that has shipped no phases.",
+      "For a missing/unparseable block, append the `## Progress Log` / `### Shipment Manifest` " +
+      "block from `docs/plans/000-plan-template.md` (an empty `shipped: []` manifest for a plan " +
+      "that has shipped no phases). For `invalid_entries`, fix the listed shipped[] entries — the " +
+      "schema is authoritative in " +
+      "`.claude/skills/plan-execution/scripts/lib/manifest.mjs` §validateEntry.",
   );
   return lines.join("\n");
 }
