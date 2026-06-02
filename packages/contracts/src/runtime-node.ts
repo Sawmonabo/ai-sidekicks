@@ -27,6 +27,7 @@ import { EventEnvelopeVersionSchema, type EventEnvelopeVersion } from "./event.j
 import {
   ParticipantIdSchema,
   SessionIdSchema,
+  wireFreeFormString,
   type ParticipantId,
   type SessionId,
 } from "./session.js";
@@ -191,3 +192,125 @@ export const RuntimeNodeAttachResponseSchema: z.ZodType<RuntimeNodeAttachRespons
     attachedAt: z.iso.datetime({ offset: true }),
   })
   .strict();
+
+// --------------------------------------------------------------------------
+// RuntimeNodeCapabilityUpdate — request / response.
+// --------------------------------------------------------------------------
+//
+// Operation-scoped cap for the free-form `healthChanges.reason` audit string.
+// Mirrors `INVITE_REVOKE_REASON_MAX_LEN` (invites.ts:98) — same per-operation
+// convention (we deliberately do NOT pre-create a shared reason constant for
+// the not-yet-written T1.3 detach `reason`; each operation owns its own cap).
+export const RUNTIME_NODE_CAPABILITY_UPDATE_REASON_MAX_LEN = 512;
+//
+// Canonical wire: api-payload-contracts.md:508-518. Method
+// `runtimenode.capabilityupdate` (a tRPC mutation), so the REQUEST is a tRPC
+// input surface. The request carries the daemon's FULL REPLACEMENT capability
+// map — additions and removals are both expressed by the new `capabilities`
+// set (a key absent from the new map is a removal; a new key is an addition).
+// Health transitions ride the OPTIONAL `healthChanges` object. Both objects are
+// `.strict()` (top-level AND nested) — the wire shape is closed, so unknown
+// keys at either level are schema drift surfaced at parse time.
+//
+// `healthChanges.state` is the FULL 5-value `NodeState` liveness enum, NOT the
+// 2-value `RuntimeNodeHealthState` wire-health enum (intentional per the wire
+// doc, api-payload-contracts.md:512). A capability-update may move the node to
+// any liveness position the daemon reports (e.g. `offline`/`revoked`), which the
+// narrower attach/heartbeat health axis cannot express.
+//
+// Optional fields are typed `key?: T | undefined` (not bare `key?:`): Zod's
+// `.optional()` infers `T | undefined`, and the interface must match the
+// schema's inferred output for the double-T annotation (see the
+// `exactOptionalPropertyTypes` note at session.ts:252-257 and the identical
+// `reason?: string | undefined` stance at invites.ts:184). The wire signal is
+// still "key absent" — `.optional()` keeps the key omittable; consumers that
+// need absent-vs-undefined can test `"healthChanges" in obj`.
+
+export interface RuntimeNodeCapabilityUpdateRequest {
+  nodeId: NodeId;
+  capabilities: Record<string, unknown>;
+  healthChanges?: { state: NodeState; reason?: string | undefined } | undefined;
+}
+// `z.ZodType<T, T>` (double-T) with the outer `as unknown as z.ZodType<T, T>`
+// cast — required so tRPC v11's Standard-Schema-V1 input inference resolves to
+// `RuntimeNodeCapabilityUpdateRequest` and not `unknown` (per ADR-014; the
+// schema is non-transforming, so Input ≡ Output ≡ T and the double-T preserves
+// that equivalence on the type surface).
+//
+// The cast's load-bearing trigger here is the OPTIONAL `healthChanges.state`
+// member, which composes the single-T `NodeStateSchema` (declared
+// `z.ZodType<NodeState>` above — its `Input` slot defaults to `unknown`).
+// Because this is a tRPC INPUT surface, that single-T member poisons the
+// composed object's input inference: without the bridge the request's
+// `healthChanges.state` input resolves to `unknown` (the ablation error is
+// `_input.healthChanges` typed `{ state: unknown; reason?: string | undefined }
+// | undefined` — TS2375 under `exactOptionalPropertyTypes`, which fires because
+// `healthChanges` is an OPTIONAL property). This is a DIFFERENT trigger than
+// `RuntimeNodeAttachRequestSchema` above — that schema's cast is driven by
+// `EventEnvelopeVersionSchema` (single-T), a member T1.2 does NOT carry. We
+// bridge at the consumption site rather than re-annotating the shared single-T
+// `NodeStateSchema` (its response consumers below are correct as single-T, and
+// re-annotation is out of this task's scope).
+export const RuntimeNodeCapabilityUpdateRequestSchema: z.ZodType<
+  RuntimeNodeCapabilityUpdateRequest,
+  RuntimeNodeCapabilityUpdateRequest
+> = z
+  .object({
+    nodeId: NodeIdSchema,
+    // Zod v4 two-arg `z.record(keySchema, valueSchema)` — the one-arg v3 form
+    // `z.record(z.unknown())` mis-types under v4 (matches the `capabilities`
+    // shape on `RuntimeNodeAttachRequestSchema` above / `RecordOfUnknownSchema`
+    // in session.ts). The full map is a REPLACEMENT set: removals are encoded
+    // by omission, additions by presence.
+    capabilities: z.record(z.string(), z.unknown()),
+    // Nested object ALSO `.strict()` so unknown keys inside `healthChanges` are
+    // rejected too (the wire shape is closed at both levels). `reason` uses the
+    // package's standard wire free-form-string realization, `wireFreeFormString`
+    // (session.ts:118, "Used by every wire-layer free-form string in this
+    // package") — it centralizes the trust-boundary guards (length cap + NUL-
+    // byte rejection + empty/whitespace-only rejection) that every free-form
+    // wire field shares. A wire `reason?: string` is NOT accept-any-string at
+    // the boundary: the identical `InviteRevoke.reason` (invites.ts:191, same
+    // `reason?: string` wire spec) composes the same helper. This is the
+    // default REALIZATION of a wire string here, not a contract tightening — no
+    // sibling that uses it (ChannelSummary.name, InviteRevoke.reason, identity
+    // handles) needed a spec edit. The helper's `.min(1)` makes empty/
+    // whitespace-only rejection come free (no separate `.min(1)` needed).
+    healthChanges: z
+      .object({
+        state: NodeStateSchema,
+        reason: wireFreeFormString(
+          RUNTIME_NODE_CAPABILITY_UPDATE_REASON_MAX_LEN,
+          "RuntimeNodeCapabilityUpdate.healthChanges.reason",
+        ).optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict() as unknown as z.ZodType<
+  RuntimeNodeCapabilityUpdateRequest,
+  RuntimeNodeCapabilityUpdateRequest
+>;
+
+export interface RuntimeNodeCapabilityUpdateResponse {
+  nodeId: NodeId;
+  state: NodeState;
+  updatedAt: string;
+}
+// Single-T `z.ZodType<T>` — response schemas are not tRPC input surfaces, so
+// they need no double-T input-inference bridge. This composes the same single-T
+// `NodeStateSchema` for `state` and compiles clean with NO cast (matches
+// `RuntimeNodeAttachResponseSchema` above) — direct proof the single-T member
+// only poisons input inference on the REQUEST side.
+export const RuntimeNodeCapabilityUpdateResponseSchema: z.ZodType<RuntimeNodeCapabilityUpdateResponse> =
+  z
+    .object({
+      nodeId: NodeIdSchema,
+      // LIVENESS axis — the node's post-update liveness position.
+      state: NodeStateSchema,
+      // ISO 8601 per api-payload-contracts.md §RuntimeNodeCapabilityUpdate-
+      // Response. `{ offset: true }` matches `attachedAt` above (RFC 3339 §5.6
+      // numeric offsets widen the default Z-only acceptance).
+      updatedAt: z.iso.datetime({ offset: true }),
+    })
+    .strict();

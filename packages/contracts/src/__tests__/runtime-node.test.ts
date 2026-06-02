@@ -30,8 +30,11 @@ import {
   NODE_ID_MAX_LEN,
   NodeIdSchema,
   NodeStateSchema,
+  RUNTIME_NODE_CAPABILITY_UPDATE_REASON_MAX_LEN,
   RuntimeNodeAttachRequestSchema,
   RuntimeNodeAttachResponseSchema,
+  RuntimeNodeCapabilityUpdateRequestSchema,
+  RuntimeNodeCapabilityUpdateResponseSchema,
   RuntimeNodeHealthStateSchema,
 } from "../runtime-node.js";
 
@@ -217,5 +220,192 @@ describe("RuntimeNodeHealthStateSchema (catch #10: 2-value daemon-reported healt
 
   it("rejects offline (presence-derived, not a daemon-reportable wire value)", () => {
     expect(RuntimeNodeHealthStateSchema.safeParse("offline").success).toBe(false);
+  });
+});
+
+// --------------------------------------------------------------------------
+// Plan-003 PR #135 — Test C2: `RuntimeNodeCapabilityUpdate` request/response.
+// --------------------------------------------------------------------------
+//
+// Backstops Spec-003 line 71 (capability additions, removals, AND health
+// changes). The `capabilities` map is a FULL REPLACEMENT set — additions and
+// removals are both expressed by the new map (removal = key omitted), so the
+// add-only and removal cases differ only in the map contents. Health
+// transitions ride the optional `healthChanges` object, whose `state` is the
+// full 5-value `NodeState` liveness enum (NOT the 2-value wire-health enum).
+// Wire shape pinned: api-payload-contracts.md:508-518.
+const buildValidCapabilityUpdateRequest = () => ({
+  nodeId: NodeIdSchema.parse(NODE_ID),
+  capabilities: { "feature.x": { enabled: true } },
+});
+
+const buildValidCapabilityUpdateResponse = () => ({
+  nodeId: NodeIdSchema.parse(NODE_ID),
+  state: "online" as const,
+  updatedAt: "2026-06-01T00:00:00Z",
+});
+
+describe("RuntimeNodeCapabilityUpdateRequestSchema (C2: additions / removals / health)", () => {
+  it("accepts an add-only payload (replacement map carries the new capability)", () => {
+    // (a) additions — a non-empty capabilities map, no healthChanges. The
+    // builder already returns exactly this shape.
+    const addOnly = buildValidCapabilityUpdateRequest();
+    expect(RuntimeNodeCapabilityUpdateRequestSchema.safeParse(addOnly).success).toBe(true);
+  });
+
+  it("accepts a removal payload (empty replacement map omits prior capabilities)", () => {
+    // (b) removals — an empty map IS a valid replacement set (every prior
+    // capability removed). The schema does not require a non-empty record.
+    const removal = {
+      nodeId: NodeIdSchema.parse(NODE_ID),
+      capabilities: {},
+    };
+    expect(RuntimeNodeCapabilityUpdateRequestSchema.safeParse(removal).success).toBe(true);
+  });
+
+  it("accepts a health-change payload with state + reason", () => {
+    // (c) health change — `healthChanges` carries a NodeState + free-form reason.
+    const healthChange = {
+      ...buildValidCapabilityUpdateRequest(),
+      healthChanges: { state: "degraded" as const, reason: "ptyHost backpressure" },
+    };
+    expect(RuntimeNodeCapabilityUpdateRequestSchema.safeParse(healthChange).success).toBe(true);
+  });
+
+  it("accepts a health-change payload WITHOUT reason (reason is optional)", () => {
+    const healthChangeNoReason = {
+      ...buildValidCapabilityUpdateRequest(),
+      healthChanges: { state: "online" as const },
+    };
+    expect(RuntimeNodeCapabilityUpdateRequestSchema.safeParse(healthChangeNoReason).success).toBe(
+      true,
+    );
+  });
+
+  it("accepts a healthChanges.state that is a 5-value NodeState but NOT a 2-value health value", () => {
+    // PROVES `healthChanges.state` is wired to the 5-value NodeStateSchema and
+    // NOT the 2-value RuntimeNodeHealthStateSchema: "offline" is a valid
+    // NodeState (shared-postgres-schema.md:202-203) but is EXCLUDED from the
+    // 2-value wire-health enum. If the field were mis-wired to the health enum
+    // this payload would be rejected. (Spec-003 line 71 — health changes.)
+    for (const state of ["registering", "offline", "revoked"] as const) {
+      const update = {
+        ...buildValidCapabilityUpdateRequest(),
+        healthChanges: { state },
+      };
+      expect(RuntimeNodeCapabilityUpdateRequestSchema.safeParse(update).success).toBe(true);
+    }
+  });
+
+  it("rejects a top-level unknown key (.strict drift guard)", () => {
+    const broken = { ...buildValidCapabilityUpdateRequest(), bogus: 1 };
+    expect(RuntimeNodeCapabilityUpdateRequestSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("rejects a nested unknown key inside healthChanges (nested .strict)", () => {
+    // PROVES the nested `healthChanges` object is itself `.strict()` — an
+    // unknown key INSIDE it is rejected, not just at the top level.
+    const broken = {
+      ...buildValidCapabilityUpdateRequest(),
+      healthChanges: { state: "online", bogus: 1 },
+    };
+    expect(RuntimeNodeCapabilityUpdateRequestSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("rejects a payload missing nodeId", () => {
+    const { nodeId: _omitted, ...withoutNodeId } = buildValidCapabilityUpdateRequest();
+    expect(RuntimeNodeCapabilityUpdateRequestSchema.safeParse(withoutNodeId).success).toBe(false);
+  });
+
+  it("rejects an out-of-enum healthChanges.state", () => {
+    const broken = {
+      ...buildValidCapabilityUpdateRequest(),
+      healthChanges: { state: "banana" },
+    };
+    expect(RuntimeNodeCapabilityUpdateRequestSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("rejects a healthChanges object missing state (state is required, reason is not)", () => {
+    // The wire shape is `healthChanges?: { state: NodeState; reason?: string }`
+    // — `healthChanges` is optional, but ONCE PRESENT its `state` is required
+    // (no `?`). A `healthChanges` carrying only `reason` is rejected.
+    const broken = {
+      ...buildValidCapabilityUpdateRequest(),
+      healthChanges: { reason: "missing the required state" },
+    };
+    expect(RuntimeNodeCapabilityUpdateRequestSchema.safeParse(broken).success).toBe(false);
+  });
+
+  // healthChanges.reason composes `wireFreeFormString` (the package's standard
+  // wire free-form-string realization — session.ts:118), so it inherits the
+  // trust-boundary guards. These mirror the InviteRevoke.reason coverage
+  // (invites.test.ts:282-301), the identical-wire-spec precedent.
+  it("rejects a NUL-byte in healthChanges.reason (wireFreeFormString guard)", () => {
+    const broken = {
+      ...buildValidCapabilityUpdateRequest(),
+      healthChanges: { state: "degraded" as const, reason: "degraded\u0000injected" },
+    };
+    expect(RuntimeNodeCapabilityUpdateRequestSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("rejects an oversized healthChanges.reason (defense-in-depth length cap)", () => {
+    const broken = {
+      ...buildValidCapabilityUpdateRequest(),
+      healthChanges: {
+        state: "degraded" as const,
+        reason: "x".repeat(RUNTIME_NODE_CAPABILITY_UPDATE_REASON_MAX_LEN + 1),
+      },
+    };
+    expect(RuntimeNodeCapabilityUpdateRequestSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("accepts a healthChanges.reason at exactly the length cap (boundary)", () => {
+    const ok = {
+      ...buildValidCapabilityUpdateRequest(),
+      healthChanges: {
+        state: "degraded" as const,
+        reason: "x".repeat(RUNTIME_NODE_CAPABILITY_UPDATE_REASON_MAX_LEN),
+      },
+    };
+    expect(RuntimeNodeCapabilityUpdateRequestSchema.safeParse(ok).success).toBe(true);
+  });
+
+  it("rejects an empty / whitespace-only healthChanges.reason (helper .min(1) + \\S guard)", () => {
+    for (const reason of ["", "   "]) {
+      const broken = {
+        ...buildValidCapabilityUpdateRequest(),
+        healthChanges: { state: "degraded" as const, reason },
+      };
+      expect(RuntimeNodeCapabilityUpdateRequestSchema.safeParse(broken).success).toBe(false);
+    }
+  });
+});
+
+describe("RuntimeNodeCapabilityUpdateResponseSchema (C2: nodeId + state + updatedAt)", () => {
+  it("accepts a response with nodeId, state, and updatedAt", () => {
+    expect(
+      RuntimeNodeCapabilityUpdateResponseSchema.safeParse(buildValidCapabilityUpdateResponse())
+        .success,
+    ).toBe(true);
+  });
+
+  it("rejects a response missing a required field (state)", () => {
+    const { state: _omitted, ...withoutState } = buildValidCapabilityUpdateResponse();
+    expect(RuntimeNodeCapabilityUpdateResponseSchema.safeParse(withoutState).success).toBe(false);
+  });
+
+  it("rejects a response with an unknown extra key (.strict drift guard)", () => {
+    const broken = { ...buildValidCapabilityUpdateResponse(), bogus: "nope" };
+    expect(RuntimeNodeCapabilityUpdateResponseSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("rejects an out-of-enum state", () => {
+    const broken = { ...buildValidCapabilityUpdateResponse(), state: "bogus" };
+    expect(RuntimeNodeCapabilityUpdateResponseSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("rejects a malformed updatedAt (z.iso.datetime is load-bearing)", () => {
+    const broken = { ...buildValidCapabilityUpdateResponse(), updatedAt: "not-a-date" };
+    expect(RuntimeNodeCapabilityUpdateResponseSchema.safeParse(broken).success).toBe(false);
   });
 });
