@@ -25,7 +25,25 @@ import { applyMigrations, applyPragmas } from "../migration-runner.js";
 
 // The canonical Plan-001 tables. Order is intentional (alphabetical by
 // SQLite's ORDER BY name) so the assertion is stable across SQLite versions.
+// This constant drives the per-table snapshot loop below — it is the
+// I-001-3 immutable-shape guard for the 0001 tables, so the Plan-003
+// version-2 tables are NOT added here (their shape is pinned by the
+// separate `0002-runtime-node migration shape` describe block).
 const PLAN_001_TABLES: ReadonlyArray<string> = [
+  "participant_keys",
+  "schema_version",
+  "session_events",
+  "session_snapshots",
+];
+
+// The full set of tables present after ALL migrations have applied
+// (Plan-001 version-1 tables + Plan-003 version-2 tables). Alphabetical by
+// SQLite's `ORDER BY name` so the assertion is stable across SQLite
+// versions. Kept separate from `PLAN_001_TABLES` so the snapshot loop's
+// 0001-immutability guard is unaffected by the 0002 additions.
+const ALL_EXPECTED_TABLES: ReadonlyArray<string> = [
+  "node_capabilities",
+  "node_trust_state",
   "participant_keys",
   "schema_version",
   "session_events",
@@ -39,7 +57,10 @@ interface PragmaColumn {
   type: string;
   notnull: 0 | 1;
   dflt_value: string | null;
-  pk: 0 | 1;
+  // 1-based ordinal within the primary key; 0 if the column is not part of
+  // the PK. Composite PKs therefore yield pk values 2, 3, ... — hence
+  // `number`, not a binary union.
+  pk: number;
 }
 
 describe("0001-initial migration shape", () => {
@@ -60,11 +81,13 @@ describe("0001-initial migration shape", () => {
     db.close();
   });
 
-  it("creates exactly the Plan-001 tables", () => {
+  it("creates exactly the expected tables after all migrations", () => {
     const rows = db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
       .all() as ReadonlyArray<{ name: string }>;
-    expect(rows.map((r) => r.name)).toEqual(PLAN_001_TABLES);
+    // After version-2 (Plan-003) the DB holds the full six-table set:
+    // the four Plan-001 tables plus node_capabilities + node_trust_state.
+    expect(rows.map((r) => r.name)).toEqual(ALL_EXPECTED_TABLES);
   });
 
   for (const table of PLAN_001_TABLES) {
@@ -110,20 +133,110 @@ describe("0001-initial migration shape", () => {
     expect(byName.get("monotonic_ns")?.notnull).toBe(1);
   });
 
-  it("anchors schema_version row at version=1", () => {
-    const row = db.prepare("SELECT version FROM schema_version").get() as { version: number };
-    expect(row.version).toBe(1);
+  it("anchors schema_version rows at versions [1, 2]", () => {
+    // The `ORDER BY version` is load-bearing: without it the row order is
+    // insertion-order luck and the assertion would silently stop pinning
+    // which versions landed.
+    const versionRows = db
+      .prepare("SELECT version FROM schema_version ORDER BY version")
+      .all() as ReadonlyArray<{ version: number }>;
+    expect(versionRows.map((r) => r.version)).toEqual([1, 2]);
   });
 
   it("is idempotent when applyMigrations runs twice", () => {
     // Second invocation must be a no-op (the migration runner short-
-    // circuits via hasMigrationApplied). Re-running must not throw, must
-    // not double-insert the schema_version row, must not duplicate tables.
+    // circuits via hasMigrationApplied per version). Re-running must not
+    // throw, must not double-insert either schema_version anchor row, must
+    // not duplicate tables. Two DISTINCT versions [1, 2] is not duplication.
     applyMigrations(db);
-    const versionRows = db.prepare("SELECT version FROM schema_version").all() as ReadonlyArray<{
-      version: number;
-    }>;
-    expect(versionRows).toHaveLength(1);
-    expect(versionRows[0]?.version).toBe(1);
+    const versionRows = db
+      .prepare("SELECT version FROM schema_version ORDER BY version")
+      .all() as ReadonlyArray<{ version: number }>;
+    expect(versionRows).toHaveLength(2);
+    expect(versionRows.map((r) => r.version)).toEqual([1, 2]);
+  });
+});
+
+// Plan-003 PR #135 — version-2 migration-shape coverage.
+//
+// Pins the column set, NOT NULL flags, primary-key shape, and the two
+// DEFAULT clauses of the Plan-003 Local SQLite tables (`node_capabilities`,
+// `node_trust_state`). Schema source-of-truth is
+// `docs/architecture/schemas/local-sqlite-schema.md`
+// §"Runtime Node Local Tables (Plan-003)" / `migrations/0002-runtime-node.ts`.
+//
+// Asserted via PRAGMA table_info (explicit field-by-field), NOT
+// `toMatchSnapshot`, so this block adds no entries to the 0001 immutability
+// `.snap` file. Scope is the two new tables only — Postgres-table absence
+// and Plan-001 upstream-presence are a separate structural guard (T1.7),
+// not pinned here.
+describe("0002-runtime-node migration shape", () => {
+  let db: DatabaseType;
+
+  beforeEach(() => {
+    // Mirror the 0001 block's setup: in-memory DB, applyPragmas +
+    // applyMigrations (which now applies both version-1 and version-2).
+    db = new Database(":memory:");
+    applyPragmas(db);
+    applyMigrations(db);
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  it("pins the column shape and composite PK of `node_capabilities`", () => {
+    const columns = db
+      .prepare("PRAGMA table_info(node_capabilities)")
+      .all() as ReadonlyArray<PragmaColumn>;
+
+    // Columns in CID (creation) order — fixed by the CREATE TABLE DDL.
+    expect(columns.map((c) => c.name)).toEqual([
+      "node_id",
+      "capability_key",
+      "capability_value",
+      "updated_at",
+    ]);
+
+    // Every column is NOT NULL per the schema doc.
+    expect(columns.every((c) => c.notnull === 1)).toBe(true);
+
+    // Composite primary key (node_id, capability_key): SQLite numbers the
+    // PK members 1-based in declaration order; non-PK columns are pk === 0.
+    const byName = new Map(columns.map((c) => [c.name, c]));
+    expect(byName.get("node_id")?.pk).toBe(1);
+    expect(byName.get("capability_key")?.pk).toBe(2);
+    expect(byName.get("capability_value")?.pk).toBe(0);
+    expect(byName.get("updated_at")?.pk).toBe(0);
+
+    // capability_value carries the JSON default `'{}'`.
+    expect(byName.get("capability_value")?.dflt_value).toBe("'{}'");
+  });
+
+  it("pins the column shape and single-column PK of `node_trust_state`", () => {
+    const columns = db
+      .prepare("PRAGMA table_info(node_trust_state)")
+      .all() as ReadonlyArray<PragmaColumn>;
+
+    // Columns in CID (creation) order.
+    expect(columns.map((c) => c.name)).toEqual([
+      "node_id",
+      "trust_level",
+      "established_at",
+      "updated_at",
+    ]);
+
+    // Every column is NOT NULL per the schema doc.
+    expect(columns.every((c) => c.notnull === 1)).toBe(true);
+
+    // Single-column primary key on node_id; all others pk === 0.
+    const byName = new Map(columns.map((c) => [c.name, c]));
+    expect(byName.get("node_id")?.pk).toBe(1);
+    expect(byName.get("trust_level")?.pk).toBe(0);
+    expect(byName.get("established_at")?.pk).toBe(0);
+    expect(byName.get("updated_at")?.pk).toBe(0);
+
+    // trust_level carries the default `'untrusted'`.
+    expect(byName.get("trust_level")?.dflt_value).toBe("'untrusted'");
   });
 });

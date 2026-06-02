@@ -337,12 +337,12 @@ describe("SessionService — D4 (snapshot survives daemon restart)", () => {
     expect(afterRestart.asOfSequence).toBe(2);
   });
 
-  it("openDatabase is idempotent on reopen (does not re-run version=1)", () => {
+  it("openDatabase is idempotent on reopen (does not re-run migrations)", () => {
     // Reopening the SAME file via the factory must not throw, must not
-    // duplicate the schema_version row. The factory internally calls
+    // duplicate either schema_version row. The factory internally calls
     // applyMigrations, so this also covers read-after-write
     // idempotency: the second open sees the first's committed
-    // schema_version row and short-circuits.
+    // schema_version rows and short-circuits both version guards.
     ctx.db.close();
     const reopened: DatabaseType = openDatabase(ctx.dbPath);
     ctx.db = reopened;
@@ -350,18 +350,18 @@ describe("SessionService — D4 (snapshot survives daemon restart)", () => {
     const versions = reopened
       .prepare("SELECT version FROM schema_version ORDER BY version")
       .all() as ReadonlyArray<{ version: number }>;
-    expect(versions).toEqual([{ version: 1 }]);
+    expect(versions).toEqual([{ version: 1 }, { version: 2 }]);
   });
 
   it("applyMigrations is idempotent against direct re-call on the same handle", () => {
     // Reapplying migrations on an already-migrated DB must not throw,
-    // must not duplicate the schema_version row.
+    // must not duplicate either schema_version row.
     applyMigrations(ctx.db);
     applyMigrations(ctx.db);
     const versions = ctx.db
       .prepare("SELECT version FROM schema_version ORDER BY version")
       .all() as ReadonlyArray<{ version: number }>;
-    expect(versions).toEqual([{ version: 1 }]);
+    expect(versions).toEqual([{ version: 1 }, { version: 2 }]);
   });
 
   it("applyMigrations on a second handle to the same file is a sequential no-op (read-after-write idempotency)", () => {
@@ -387,7 +387,7 @@ describe("SessionService — D4 (snapshot survives daemon restart)", () => {
       const versions = secondHandle
         .prepare("SELECT version FROM schema_version ORDER BY version")
         .all() as ReadonlyArray<{ version: number }>;
-      expect(versions).toEqual([{ version: 1 }]);
+      expect(versions).toEqual([{ version: 1 }, { version: 2 }]);
     } finally {
       secondHandle.close();
     }
@@ -455,7 +455,8 @@ async function runMigrationRace(
   // `Promise.all` then awaits each result. The point is to maximize the
   // chance the workers reach `BEGIN ...` simultaneously. SQLite's
   // file-locking will then serialize them; the assertion is on the
-  // exit shape (all OK + single schema_version row), not on the order.
+  // exit shape (all OK + the expected schema_version rows), not on the
+  // order.
   //
   // The outer `workers` array tracks every spawned Worker so the
   // `finally` block can terminate any sibling that's still alive when
@@ -649,12 +650,32 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
     ).toBeLessThanOrEqual(FAILURE_THRESHOLD);
 
     // Belt-and-braces verification: every trial's database file must
-    // contain exactly ONE schema_version row regardless of how many
-    // workers succeeded vs blocked. If two racers both ran the
-    // migration on a trial, the row-count assertion catches the
-    // duplicate (or the racing CREATE TABLE would surface as a
-    // failure already counted above). Loop over EVERY trial path so
-    // a partial regression that only corrupts one trial still surfaces.
+    // contain exactly the two expected schema_version rows [1, 2]
+    // regardless of how many workers succeeded vs blocked. The
+    // useDeferred:false worker calls PRODUCTION applyMigrations, so each
+    // trial exercises both the version-1 and version-2 migration blocks.
+    //
+    // What this row-count assertion actually guarantees (claim no more):
+    //   * it catches a broken or missing version-2 anchor INSERT (a v2
+    //     migration that failed to write its schema_version row, or wrote
+    //     the wrong version), and
+    //   * it catches a within-handle double-apply that duplicated either
+    //     anchor row, and
+    //   * it is a strict strengthening over the old `[1]` assertion — it
+    //     cannot pass anything `[1]` would have failed.
+    //
+    // What it does NOT deterministically catch: a v2-ONLY `.immediate()`
+    // drop. Tracing the race, a DEFERRED loser hits SQLITE_BUSY on the
+    // write-UPGRADE and bails BEFORE committing its INSERT (so no
+    // duplicate row lands), and some worker always wins each BEGIN (so the
+    // row is never missing) — the [1, 2] count is therefore essentially
+    // immune to a v2-only `.immediate()` regression. Deterministic
+    // detection of that class rides on the FAILURE_THRESHOLD above
+    // (calibrated to v1's ~95% DEFERRED saturation) and is owned by the
+    // `TODO(Plan-006)` threshold-calibration item; a racing CREATE TABLE
+    // loss would also surface as a worker failure already counted above.
+    // Loop over EVERY trial path so a partial regression that only
+    // corrupts one trial still surfaces.
     for (let trial = 0; trial < TRIAL_COUNT; trial++) {
       const trialPath: string = join(raceTmpDir, `imm-trial-${trial.toString()}.db`);
       const verifier: DatabaseType = new Database(trialPath);
@@ -665,8 +686,8 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
           .all() as ReadonlyArray<{ version: number }>;
         expect(
           rows,
-          `trial ${trial.toString()} expected exactly one schema_version row; got ${JSON.stringify(rows)}`,
-        ).toEqual([{ version: 1 }]);
+          `trial ${trial.toString()} expected exactly the two migration anchor rows [1, 2] (a broken/missing v2 INSERT or a duplicated anchor row would fail here); got ${JSON.stringify(rows)}`,
+        ).toEqual([{ version: 1 }, { version: 2 }]);
       } finally {
         verifier.close();
       }
