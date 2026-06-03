@@ -364,7 +364,7 @@ Plan-003 implementation lands as a sequence of small PRs at Tier 3. Phases 1–4
 - **Files:** `packages/runtime-daemon/src/node/node-registry.ts`, consuming the T2.3 helper.
 - **Step:** On detach, emit `runtime_node.offline` (payload base + `{lastHeartbeatAt, reason}`, Spec-006 line 377) and leave the `node_trust_state` registration row intact so the node can reconnect under the same `node_id`. In Phase 2 the explicit-detach trigger fires `offline` with `reason = explicit_shutdown`; heartbeat-loss `offline` is Phase 3.
 - **Test (D4):** detach a node, assert one `runtime_node.offline` event; reconnect under the same node id, assert the registry resolves the same identity.
-- **Spec coverage:** Spec-003 line 65 (disconnected node keeps membership; reconnect under same identity), line 90 (node identity stable across reconnect).
+- **Spec coverage:** Spec-003 line 65 (reconnect under same identity — a durable-row behavior; the active-membership-intact clause is the I-003-3 invariant verified control-plane-side at P7/P8 in Phase 3), line 90 (node identity stable across reconnect).
 - **Verifies invariant:** I-003-3 (daemon-side — detach does not revoke membership; structural defense-in-depth, as with T2.1. The canonical I-003-3 verification — control-plane attach/detach leaving Postgres `session_memberships` untouched — is P7/P8 in Phase 3, which is why the Phase-2 shipment manifest does not list I-003-3).
 
 ##### T2.6 — Replay does not read monotonic_ns for ordering (regression guard)
@@ -630,7 +630,7 @@ shipped:
       [
         "Spec-003 line 57",
         "Spec-003 line 58",
-        "Spec-003 line 65",
+        "Spec-003 line 65 (reconnect-under-same-identity clause — a durable-row behavior; the active-membership-intact clause is the I-003-3 invariant verified control-plane-side at P7/P8 in Phase 3)",
         "Spec-003 line 78",
         "Spec-003 line 79",
         "Spec-003 line 90",
