@@ -41,7 +41,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { openDatabase } from "../../session/migration-runner.js";
 import { SessionService } from "../../session/session-service.js";
-import type { AppendableEvent } from "../../session/types.js";
+import type { AppendableEvent, StoredEvent } from "../../session/types.js";
 import { RuntimeNodeEventEmitter } from "../node-event-emitter.js";
 import type { RuntimeNodeEventEmitterDeps } from "../node-event-emitter.js";
 
@@ -222,6 +222,124 @@ describe("RuntimeNodeEventEmitter — D5 (monotonic_ns + zero-filled integrity c
     // Sequence is monotonic ASC even though monotonic_ns went backwards.
     expect(rows.map((r) => r.sequence)).toEqual([0n, 1n]);
     expect(rows.map((r) => r.monotonic_ns)).toEqual([9_000_000_000n, 5_000_000_000n]);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// D6 — replay-read composition guard (I-003-4): the production read path
+// returns emitter-produced runtime_node.* events in sequence order under a
+// non-monotonic monotonic_ns.
+// ----------------------------------------------------------------------------
+//
+// The sequence-not-monotonic_ns BEHAVIOR is already pinned elsewhere: legacy
+// Plan-001 D3 (session-service.test.ts) for the shared read over directly-
+// appended generic events, and the emission-half test above for the sequence
+// allocator (sequence advances while monotonic_ns regresses). D6 is the
+// integration guard over the cell neither covers — events ROUTED THROUGH the
+// T2.3 emitter AND read back through the production SessionService.readEvents —
+// so the end-to-end emit→replay path cannot regress to a monotonic_ns key.
+// Per Plan-003 T2.6 (§370-376) / invariant I-003-4. Behavioral by design: the
+// non-monotonic clock is the proof; no structural "monotonic_ns is never read"
+// assertion is added (one test is the right idiom for a negative).
+//
+// Two deliberate fixture choices make the guard fire cleanly and in BOTH
+// directions (vs a merely-descending clock that would only catch a mono-ASC
+// regression and would corrupt allocation before the assertion ran):
+//   * `nextSequence` is INJECTED, so the fixture does not derive `sequence`
+//     through the very `readEvents` under test. Otherwise a regression that
+//     reordered the read would feed `#deriveNextSequence` a stale tail and
+//     collide on `UNIQUE(session_id, sequence)` during emit — masking the
+//     replay-read assertion behind a write-time throw.
+//   * `monotonic_ns` is NON-monotonic (mirrors legacy D3's [5e9,1e9,3e9]): it
+//     sorts to an order matching NEITHER the ascending nor descending sequence
+//     direction, so a read keyed on monotonic_ns in either direction reorders
+//     the events and trips the `sequence` assertion.
+
+describe("RuntimeNodeEventEmitter — D6 (replay reads emitter-produced events by sequence, not monotonic_ns)", () => {
+  it("readEvents returns runtime_node.* events in sequence order even when monotonic_ns sorts to neither direction", () => {
+    // monotonic_ns per emit, in emission order. Non-monotonic by construction:
+    // ascending sort → sequence [1,3,0,2]; descending → [2,0,3,1]; neither is
+    // the emission order [0,1,2,3]. So a read keyed on monotonic_ns (either
+    // direction) is detectable.
+    const monotonicByEmit: ReadonlyArray<bigint> = [
+      5_000_000_000n, // registered          → seq 0
+      1_000_000_000n, // capability_declared  → seq 1
+      7_000_000_000n, // online              → seq 2
+      3_000_000_000n, // offline             → seq 3
+    ];
+    let monotonicIndex: number = 0;
+    let nextSequenceValue: number = 0;
+    const emitter: RuntimeNodeEventEmitter = makeEmitter({
+      monotonicNow: () => {
+        const value: bigint | undefined = monotonicByEmit[monotonicIndex];
+        monotonicIndex += 1;
+        return value ?? 0n;
+      },
+      // Pin sequence to [0,1,2,3] independent of `readEvents` (the SUT) — see
+      // the block comment above for why the default log-derive allocator would
+      // mask the regression this guard targets.
+      nextSequence: () => nextSequenceValue++,
+    });
+
+    // A canonical node lifecycle, emitted in order through the T2.3 seam:
+    // registered → capability_declared → online → offline.
+    emitter.emitRegistered({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      newState: "registering",
+      capabilities: {},
+      nodeVersion: "1.0.0",
+      platform: "linux-x64",
+    });
+    emitter.emitCapabilityDeclared({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      capability: "provider-driver",
+      capabilityDetails: { contractVersion: "1.0" },
+    });
+    emitter.emitOnline({ sessionId: SESSION_ID, nodeId: NODE_ID, newState: "online" });
+    emitter.emitOffline({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      previousState: "online",
+      newState: "offline",
+      lastHeartbeatAt: "2026-06-02T12:00:00.000Z",
+      reason: "explicit_shutdown",
+    });
+
+    // The production replay-READ (SessionService.readEvents) — the surface a
+    // real replay consumes, NOT the raw query the emission-half test uses.
+    const replayed: ReadonlyArray<StoredEvent> = ctx.service.readEvents(SESSION_ID);
+
+    // The read returns events in `sequence` order (= emission order), carrying
+    // the non-monotonic monotonic_ns UNSORTED — direct proof the read did not
+    // reorder by it. `sequence` hydrates to number; `monotonicNs` stays bigint.
+    expect(replayed.map((e) => e.sequence)).toEqual([0, 1, 2, 3]);
+    expect(replayed.map((e) => e.type)).toEqual([
+      "runtime_node.registered",
+      "runtime_node.capability_declared",
+      "runtime_node.online",
+      "runtime_node.offline",
+    ]);
+    expect(replayed.map((e) => e.monotonicNs)).toEqual([
+      5_000_000_000n,
+      1_000_000_000n,
+      7_000_000_000n,
+      3_000_000_000n,
+    ]);
+
+    // Clincher (mirrors legacy D3, session-service.test.ts): a monotonic_ns
+    // sort — in EITHER direction — yields a sequence order DIFFERENT from the
+    // replay order, so the read path demonstrably keyed on sequence, not
+    // monotonic_ns. This closes both regression directions, not just one.
+    const byMonotonicAsc: ReadonlyArray<number> = [...replayed]
+      .sort((a, b) => Number(a.monotonicNs - b.monotonicNs))
+      .map((e) => e.sequence);
+    const byMonotonicDesc: ReadonlyArray<number> = [...replayed]
+      .sort((a, b) => Number(b.monotonicNs - a.monotonicNs))
+      .map((e) => e.sequence);
+    expect(byMonotonicAsc).toEqual([1, 3, 0, 2]);
+    expect(byMonotonicDesc).toEqual([2, 0, 3, 1]);
   });
 });
 
