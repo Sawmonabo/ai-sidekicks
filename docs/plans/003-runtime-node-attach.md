@@ -636,7 +636,7 @@ shipped:
         "Spec-003 line 90",
         "Spec-003 line 96",
         "Spec-003 AC1 line 101",
-        "Spec-006 lines 374-380",
+        "Spec-006 lines 374, 375, 377, 379, 380",
         "api-payload-contracts.md §Plan-006 capability payload typing",
       ]
 ```
