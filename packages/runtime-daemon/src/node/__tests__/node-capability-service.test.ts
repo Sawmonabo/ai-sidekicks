@@ -37,11 +37,11 @@
 //     only after capability declaration succeeds"). After declare it returns true
 //     and appends `runtime_node.online` (newState online, previousState
 //     registering) AFTER the capability_declared event. This is declaration
-//     ABSENCE (the :57 gate), NOT capability-validation FAILURE: Spec-003:63
+//     ABSENCE (the :57 gate), NOT capability-validation FAILURE: Spec-003:67
 //     ("validation FAILS → degraded/offline, not healthy") is a DIFFERENT path,
 //     entirely Phase 3 — Phase 2 has no `degraded`/`offline`-on-invalid emission
 //     (the emitter/schemas defer `degraded`/`revoked` to Plan-003 Phase 3 with
-//     their heartbeat/admin producers), so D3 codifies NONE of :63.
+//     their heartbeat/admin producers), so D3 codifies NONE of :67.
 //   * T2.4 gate-reads-ROW-not-EVENT (§357 regression guard): after an identical
 //     no-op re-declare that emitted NO second event, bringOnline still onlines —
 //     proving the gate read the durable node-keyed ROW, not the event stream
@@ -50,12 +50,12 @@
 // Spec coverage: Spec-003 line 57 (online only after capability declaration — the
 // T2.4 gate D3 verifies: no online until a declaration EXISTS), line 58
 // (least-privilege schedulability — declaration is the path that makes a
-// capability schedulable, proven by path 1's `node_capabilities` row), line 79
-// (capability/trust changes emitted as session events), line 114 (serial re-attach
+// capability schedulable, proven by path 1's `node_capabilities` row), line 83
+// (capability/trust changes emitted as session events), line 118 (serial re-attach
 // satisfies the node-scoped gate without re-declaring — the gate-reads-ROW block).
-// (Spec-003:63 — validation FAILURE → degraded/offline — is NOT covered here: it is
+// (Spec-003:67 — validation FAILURE → degraded/offline — is NOT covered here: it is
 // a Phase-3 path with no Phase-2 `degraded` emit shape; D3 tests declaration
-// ABSENCE via the :57 gate, not validation failure. Spec-003:96 — no implicit
+// ABSENCE via the :57 gate, not validation failure. Spec-003:100 — no implicit
 // exposure on ATTACH — is the register path's obligation, exercised in
 // node-registry.test.ts where `register` carries capabilities yet writes zero
 // `node_capabilities` rows.) Verifies invariant: I-003-2 (the declaration is the
@@ -486,7 +486,7 @@ describe("NodeCapabilityService — change-detection is node-scoped, not session
       capabilityDetails: details,
     });
     // Re-declare the SAME node + capability + details under a DIFFERENT session — a
-    // supported serial re-attach (Spec-003:114). `node_capabilities` is node-keyed
+    // supported serial re-attach (Spec-003:118). `node_capabilities` is node-keyed
     // (no session_id column), so the existing row is found and this is a no-op: NO
     // capability_declared lands in session two. (The daemon `online` gate reads the
     // node-keyed row, not a per-session event, so S2-online does not depend on a

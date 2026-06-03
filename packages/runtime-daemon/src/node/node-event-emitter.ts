@@ -48,7 +48,7 @@
 //     authoring constructors for them now would be untested speculative
 //     surface. Phase 2 defines the 5 schema-backed shapes only.
 //
-// Refs: Plan-003 (Runtime Node Attach) §Phase 2 / T2.3, Spec-003 line 79
+// Refs: Plan-003 (Runtime Node Attach) §Phase 2 / T2.3, Spec-003 line 83
 // (capability/trust changes emitted as session events), Spec-006 lines
 // 374-380 (per-event payload shapes), invariant I-003-4 (`monotonic_ns` is
 // within-daemon debug data, not the replay key — the replay key is

@@ -1,6 +1,6 @@
 // Plan-003 PR #135 — Test C1: `RuntimeNodeAttach` request/response contract.
 //
-// Backstops Spec-003 line 69 (RuntimeNodeAttach required fields) and Spec-003
+// Backstops Spec-003 line 73 (RuntimeNodeAttach required fields) and Spec-003
 // line 53 (`client_version` floor field — the daemon's reported version, which
 // the Phase-3 attach service floor-compares against `sessions.min_client_version`
 // per ADR-018 §Decision #4 / I-003-1). T1.1 ships only the contract SURFACE;
@@ -248,7 +248,7 @@ describe("RuntimeNodeHealthStateSchema (catch #10: 2-value daemon-reported healt
 // Plan-003 PR #135 — Test C2: `RuntimeNodeCapabilityUpdate` request/response.
 // --------------------------------------------------------------------------
 //
-// Backstops Spec-003 line 71 (capability additions, removals, AND health
+// Backstops Spec-003 line 75 (capability additions, removals, AND health
 // changes). The `capabilities` map is a FULL REPLACEMENT set — additions and
 // removals are both expressed by the new map (removal = key omitted), so the
 // add-only and removal cases differ only in the map contents. Health
@@ -308,7 +308,7 @@ describe("RuntimeNodeCapabilityUpdateRequestSchema (C2: additions / removals / h
     // NOT the 2-value RuntimeNodeHealthStateSchema: "offline" is a valid
     // NodeState (shared-postgres-schema.md:202-203) but is EXCLUDED from the
     // 2-value wire-health enum. If the field were mis-wired to the health enum
-    // this payload would be rejected. (Spec-003 line 71 — health changes.)
+    // this payload would be rejected. (Spec-003 line 75 — health changes.)
     for (const state of ["registering", "offline", "revoked"] as const) {
       const update = {
         ...buildValidCapabilityUpdateRequest(),
@@ -674,7 +674,7 @@ describe("RUNTIME_NODE_EVENT_NAMES (C4: 7-name runtime_node.* taxonomy)", () => 
 // This block is a Plan-003 CONSUMER-SIDE conformance anchor, NOT a re-test of
 // Plan-001's error-schema matrix. I-003-1 ("Attach is admit-not-eject for
 // below-floor daemons") requires that a below-floor write returns a *typed*
-// `VERSION_FLOOR_EXCEEDED` (Spec-003:53, Spec-003 AC4:104; ADR-018 §Decision
+// `VERSION_FLOOR_EXCEEDED` (Spec-003:53, Spec-003 AC4:108; ADR-018 §Decision
 // #4 / §Decision #10). The concrete realization of that typed error is the
 // Plan-001-owned `VersionFloorExceededError` / `VersionFloorExceededErrorSchema`
 // / `VERSION_FLOOR_EXCEEDED_CODE` in `error.ts`. The two assertions here pin
@@ -690,9 +690,9 @@ describe("RUNTIME_NODE_EVENT_NAMES (C4: 7-name runtime_node.* taxonomy)", () => 
 // PHASE-3 TRIPWIRE: only the typed-CONTRACT conformance proven here ships in
 // Plan-003 Phase 1. The RUNTIME admit-not-eject behavior — the attach service
 // actually returning this error on a below-floor write and then admitting the
-// daemon read-only (Spec-003 AC4:104) — lands at Plan-003 Phase 3 (P3/P4).
+// daemon read-only (Spec-003 AC4:108) — lands at Plan-003 Phase 3 (P3/P4).
 //
-// Cites: Spec-003:53, Spec-003 AC4:104, I-003-1, ADR-018 §Decision #4 /
+// Cites: Spec-003:53, Spec-003 AC4:108, I-003-1, ADR-018 §Decision #4 /
 // §Decision #10, docs/architecture/contracts/error-contracts.md:266.
 describe("VersionFloorExceededErrorSchema (C5: VERSION_FLOOR_EXCEEDED typed-contract conformance — Plan-003 consumer anchor)", () => {
   it("pins the wire code literal to the value registered in error-contracts.md:266", () => {
