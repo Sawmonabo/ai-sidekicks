@@ -3,7 +3,7 @@
 //
 // This file covers TWO conceptually-distinct deliverables of T3.3:
 //
-//   1. LOCAL IPC BRIDGE (Spec-002:85, Plan-002:303) — the daemon→client
+//   1. LOCAL IPC BRIDGE (Spec-002:85, Plan-002:305) — the daemon→client
 //      `PresenceUpdate` push. Realized as the notify side of a
 //      `presence.subscribe` subscription on the Phase 2 streaming primitive
 //      (see presence-subscribe.ts for the streaming-design rationale).

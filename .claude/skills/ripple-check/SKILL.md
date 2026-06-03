@@ -64,10 +64,31 @@ Override the diff source. Default is `git diff HEAD` ∪ `git diff --cached` (wo
    | An H1–H6 heading was deleted / added / moved between files | **Subagent B** (CAT-03 / CAT-04) | `ripple-check-heading-move` |
    | An H1–H6 heading text was edited in place (slug change) | **Subagent B** (CAT-03 / CAT-04) | (same as above) |
    | A Mermaid graph node, table row, or list bullet was added or removed | **Subagent C** (CAT-05 broad) | `ripple-check-set-quantifier` |
-   | The staged file is cited from elsewhere by `<file>:NNN` | **Subagent D** (CAT-06 / CAT-07) | `ripple-check-line-cite` |
+   | A staged governance doc (spec / plan / ADR — or a label-less domain / architecture / ops doc) is cited from elsewhere by line — in other `.md` docs **or** in `packages/**`+`apps/**` code comments | **Subagent D** (CAT-06 / CAT-07) | `ripple-check-line-cite` |
    | Any modified `.md` file is referenced by other docs | **Subagent E** (cross-doc coherence) | `ripple-check-cross-doc` |
 
    CAT-08 (outbound HTTP / file-link breakage) is fully covered by `lychee` at CI; no subagent fires for it.
+
+   **Subagent D inbound enumeration — code comments are in scope.** A line-shifting edit to a governance doc silently invalidates inbound line-cites in BOTH other `.md` docs **and** `packages/**`+`apps/**` code comments. Code cites the amended doc two ways: by **label token** (`Spec-003:178`) and by **path / basename** (`docs/domain/session-model.md:61-77`, `api-payload-contracts.md:120`) — the latter is the ONLY form for a label-less domain / architecture / ops doc. The deterministic `label-cite` floor (pre-commit + CI) already re-checks the colon forms it can resolve (`Spec-NNN:LL` and the `docs/`-rooted `docs/…md:LL`), but by design it cannot see the line-word forms, the bare-basename form, or any non-empty line-shift (CAT-07). So when the diff amends a governance doc, build Subagent D's inbound cite list across BOTH surfaces and BOTH cite forms:
+   1. **Identify the amended doc by token AND path.** Label token (when the doc has one): `docs/specs/003-…` → `Spec-003`, `docs/plans/007-…` → `Plan-007`, `docs/decisions/018-…` → `ADR-018`. Plus its repo-relative path (`docs/domain/session-model.md`) and basename (`session-model.md`) — a domain / architecture / ops doc has only these.
+   2. **Grep the code tree for the token AND the basename** (coarse pre-filter — refine in step 3; escape dots in the basename):
+
+      ```bash
+      # label token (skip for a label-less doc):
+      grep -rnE '(Spec|Plan|ADR)-[0-9]{3}' packages apps --exclude-dir=dist \
+        --include='*.ts' --include='*.tsx' --include='*.mts' --include='*.cts'
+      # path / basename — e.g. an amended docs/domain/session-model.md:
+      grep -rnE 'session-model\.md' packages apps --exclude-dir=dist \
+        --include='*.ts' --include='*.tsx' --include='*.mts' --include='*.cts'
+      ```
+
+   3. **Keep every line-bearing form**, not just the floor-covered colon forms:
+      - **Token forms:** colon `Spec-003:178`; line-word `Spec-003 line 178` / `lines 81, 107-113`; parenthesized `(line 178)`; named-section `§Acceptance Criteria line 81`; acceptance-criterion `AC4:108`.
+      - **Path / basename forms:** full path `docs/domain/session-model.md:61-77`; bare basename `api-payload-contracts.md:120`; and their line-word variants `…md line N` / `…md (line N)`.
+
+      Drop bare mentions with no line (`Spec-003 §Foo`, `per Spec-003`, a path with no `:NNN`) — there is no cited line to drift. Enumerating colon-only here would merely re-cover the floor and let the line-word AND bare-basename residual fall through BOTH layers — the exact gap (#139 was 11/41 line-word cites) this audit exists to close.
+
+   4. **Normalize** each hit to `<doc-path>:NNN` — the amended doc's path paired with the cited line; a range / list (`lines 81, 107-113`, `:61-77`) expands to one entry per endpoint — and concatenate with the `.md` inbound citers. Pass the union as Subagent D's inbound list, tagging each entry's origin (`.md` vs code) so the subagent can name the citing surface in its narrative.
 
 ### Phase 1 — Parallel subagent dispatch
 
@@ -75,7 +96,7 @@ Dispatch the queued subagents in a **single message** with multiple `Agent` tool
 
 For each subagent:
 
-- Construct the `prompt` parameter as a plain text payload containing the runtime data the agent expects (its `## Inputs` section in `.claude/agents/ripple-check-<role>.md` is the source of truth). At minimum: the modified-file list and the diff hunks scoped to the agent's axis. Axis-specific additions: registry path (A), recent lychee output (B, optional), confirmation that `mermaid-set-coherence` already passed (C), the inbound `<file>:NNN` cite list (D), the list of dependent docs (E).
+- Construct the `prompt` parameter as a plain text payload containing the runtime data the agent expects (its `## Inputs` section in `.claude/agents/ripple-check-<role>.md` is the source of truth). At minimum: the modified-file list and the diff hunks scoped to the agent's axis. Axis-specific additions: registry path (A), recent lychee output (B, optional), confirmation that `mermaid-set-coherence` already passed (C), the inbound `<file>:NNN` cite list spanning `.md` and code citers (D; built per the Phase 0 step 4 enumeration recipe), the list of dependent docs (E).
 - Pass hunks, not the full repo — context discipline is load-bearing for parallel cost and signal-to-noise.
 - The shared output schema and behavioral contract are inlined into each agent's system prompt. Do NOT restate the schema in the dispatch prompt.
 - For `--with-fixes` mode, pass `isolation: "worktree"` to each `Agent` call. Subagents in worktree mode write file edits but do **not** run `git` (their definitions intentionally omit the `Bash` tool); the orchestrator extracts the diff in Phase 3.

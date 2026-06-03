@@ -86,10 +86,10 @@ The catalog is the single source of truth. Hooks, skills, and audit-prompts refe
 
 | Field | Value |
 | --- | --- |
-| Structural Action | A `file.md:NNN` cite remains pointing at a file whose line count dropped below NNN, or whose line NNN became whitespace, or whose target file was deleted / renamed. |
+| Structural Action | A `file.md:NNN` cite (in a doc) or a governance code-comment cite — LABEL form `Spec-NNN:LL` **or** `docs/`-rooted path form `docs/…md:LL` (in a `packages/**`+`apps/**` code comment) — remains pointing at a file whose line count dropped below NNN, or whose line NNN became whitespace, or whose target file was deleted / renamed. |
 | Surface-Label Aliases | "deleted section", "consolidated content", "moved file". |
 | Detection Layer | pre-commit hook + CI |
-| Hook | [`tools/docs-corpus/lib/cite-target-existence.ts`](../../tools/docs-corpus/lib/cite-target-existence.ts) — catches missing target file, line-out-of-range, target-line-empty. Composed by the dispatch runner [`tools/docs-corpus/bin/pre-commit-runner.ts`](../../tools/docs-corpus/bin/pre-commit-runner.ts). |
+| Hook | [`tools/docs-corpus/lib/cite-target-existence.ts`](../../tools/docs-corpus/lib/cite-target-existence.ts) — catches missing target file, line-out-of-range, target-line-empty for `file.md:NNN` cites. [`tools/docs-corpus/lib/label-cite.ts`](../../tools/docs-corpus/lib/label-cite.ts) extends the same floor to two governance code-comment forms: LABEL cites (`Spec-NNN:LL`) and `docs/`-rooted path cites (`docs/…md:LL` — the only floor reachable for label-less domain / architecture / ops docs). Both are colon-anchored and repo-root-resolvable; bare-basename path cites (`api-payload-contracts.md:NN`, statically ambiguous to resolve) and line-word forms are CAT-07. All composed by the dispatch runner [`tools/docs-corpus/bin/pre-commit-runner.ts`](../../tools/docs-corpus/bin/pre-commit-runner.ts). |
 | Off-the-shelf Tool | None. |
 | Failing Example | PR #27 commit `aab5bf9` ("docs(repo): fix two line-citation drifts found by adversarial pass") — `Spec-027:6` should have been `Spec-027:5`; NS-22 References missed `Plan-001:12` and `:121`. Floor cases (file truncation) caught by hook; semantic cases are CAT-07. |
 | What Discipline Restores Correctness | When you intend to cite a specific line, prefer to cite by content (inline anchor or quoting a unique substring) over by line number. When line number is required, run the hook. |
@@ -98,12 +98,12 @@ The catalog is the single source of truth. Hooks, skills, and audit-prompts refe
 
 | Field | Value |
 | --- | --- |
-| Structural Action | A `file.md:NNN` cite remains pointing at a non-empty line of a sufficiently long file but the **content** at NNN no longer matches what the cite intended (target moved within file). |
+| Structural Action | A `file.md:NNN` cite (in a doc) or a governance line-cite in a `packages/**`+`apps/**` code comment — the colon forms `Spec-NNN:LL` / `docs/…md:LL`, **or** the forms the floor cannot parse (line-word `Spec-NNN line N`, `(line N)`, `§Section line N`; bare-basename `api-payload-contracts.md:NN`) — remains pointing at a non-empty line of a sufficiently long file but the **content** at NNN no longer matches what the cite intended (target moved within file). |
 | Surface-Label Aliases | "shifted lines", "edited above", "evolved file". |
 | Detection Layer | **audit only** — explicitly residual under static analysis. |
 | Hook | None possible without semantic understanding (NLP / model invocation). The CAT-06 hook catches the truncation floor only. |
-| Skill | [`/ripple-check`](../../.claude/skills/ripple-check/SKILL.md) dispatches a subagent for the semantic case. |
-| Audit Prompt | "When you modify file X, every `X:NNN` cite from the rest of the corpus should be re-checked for semantic match." |
+| Skill | [`/ripple-check`](../../.claude/skills/ripple-check/SKILL.md) dispatches Subagent D for the semantic case; its Phase 0 inbound enumeration spans both the `.md` corpus and `packages/**`+`apps/**` code comments (all line-bearing forms — label token, full `docs/` path, and bare basename). |
+| Audit Prompt | "When you modify file X, every `X:NNN` cite from the rest of the corpus **and every governance line-cite to X in `packages/**`+`apps/**` code comments** should be re-checked for semantic match." |
 | Failing Example | The `Spec-027:6` → `Spec-027:5` drift in PR #27 fix `aab5bf9` was caught only by an isolated-context Opus 4.7 adversarial subagent. |
 | What Discipline Restores Correctness | Manual audit or `/ripple-check` with a semantic-line-cite task. Long-term fix: cite by content (inline anchor / quoted substring) to escape line-number fragility. |
 

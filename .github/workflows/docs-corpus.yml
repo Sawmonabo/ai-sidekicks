@@ -210,14 +210,21 @@ jobs:
 
       - name: docs-corpus checks (full repo)
         # Single runner composing path-canonical-ripple + plan-manifest-presence
-        # + mermaid-set-coherence + cite-target-existence. The runner reads argv
-        # for per-file checks (mermaid + cite, scoped to `.md`) and runs
-        # path-canonical-ripple + plan-manifest-presence unconditionally (each
-        # does its own whole-repo enumeration — path-ripple greps the registry
-        # `scope` globs; manifest-presence walks `git ls-files docs/plans/`).
+        # + mermaid-set-coherence + cite-target-existence + label-cite. The runner
+        # partitions argv by extension: `.md` governance docs get the per-file
+        # markdown checks (mermaid + cite), and `packages/**`+`apps/**` TypeScript
+        # gets the label-cite floor (governance `Spec-NNN:LL` cites in code
+        # comments). path-canonical-ripple + plan-manifest-presence run
+        # unconditionally (each does its own whole-repo enumeration — path-ripple
+        # greps the registry `scope` globs; manifest-presence walks
+        # `git ls-files docs/plans/`). Passing the FULL code tree (not just the PR
+        # diff) is the backstop for the doc-only-amend case: a spec amendment that
+        # shifts line numbers with no code file in the diff still re-checks every
+        # `Spec-NNN:LL` code cite repo-wide here.
         run: |
-          mapfile -t files < <(git ls-files '*.md' | grep -v '^docs/archive/' || true)
-          node --experimental-strip-types tools/docs-corpus/bin/pre-commit-runner.ts "${files[@]}"
+          mapfile -t md_files < <(git ls-files '*.md' | grep -v '^docs/archive/' || true)
+          mapfile -t code_files < <(git ls-files 'packages/' 'apps/' | grep -E '\.(ts|tsx|mts|cts)$' | grep -v '/dist/' || true)
+          node --experimental-strip-types tools/docs-corpus/bin/pre-commit-runner.ts "${md_files[@]}" "${code_files[@]}"
 
       - name: Unit tests for hook implementations
         run: pnpm exec vitest run --root tools/docs-corpus

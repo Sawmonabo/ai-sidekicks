@@ -25,9 +25,9 @@
 //   `runtimeContributor` is a contract break and requires the spec edit
 //   FIRST per AGENTS.md "doc-first ordering".
 //
-//   `docs/specs/024-cross-node-dispatch-and-approval.md:96` independently
-//   uses a snake_case form for `session_role`; that spec is owned by Plan-027
-//   (cross-node dispatch) and the namespace collision is reconciled there.
+//   Spec-024:96 independently uses a snake_case form for `session_role`; that
+//   spec is owned by Plan-027 (cross-node dispatch) and the namespace
+//   collision is reconciled there.
 //
 // Refs: Spec-002 §Interfaces And Contracts (lines 78-89), §Token Security
 // Properties (lines 107-113), Plan-002 Phase 1, ADR-018 (versioning),
