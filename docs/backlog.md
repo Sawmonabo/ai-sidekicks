@@ -183,16 +183,4 @@ The items below were surfaced by the [plan-readiness-audit Tier 1](./operations/
 
 ---
 
-### BL-140: Spec-003 §Default-Behavior heartbeat degraded→offline threshold + sweep owner
-
-- Status: `todo`
-- Priority: `P2`
-- Owner: `unassigned`
-- References: [Spec-003 §Default Behavior](./specs/003-runtime-node-attach.md) (defines the 15s heartbeat cadence at :59 — but no degraded→offline miss-count threshold and no named sweep owner), [Plan-003 Phase 3 — T3.6/P6 heartbeat lifecycle](./plans/003-runtime-node-attach.md) plus the explicit [Plan-003:443](./plans/003-runtime-node-attach.md) constraint (_"Do not invent threshold values or the fan-out rule until specified"_), [Plan-003 §Invariants](./plans/003-runtime-node-attach.md) (runtime-node presence lifecycle), [cross-plan-dependencies.md §6 NS-32](./architecture/cross-plan-dependencies.md) (Plan-003 Phase 3 — blocked-on-completion until this amendment lands), PR #138 (the post-merge housekeeping pass that surfaced and machine-gated this dependency via the Phase-3 `bl_closed: 140` preflight precondition)
-- Summary: Spec-003 specifies the runtime-node heartbeat cadence (15s, :59) but leaves the degraded→offline transition under-specified — there is no miss-count threshold (how many missed 15s beats demote a node from `degraded` to `offline`) and no named sweep owner (which control-plane service runs the timeout sweep and emits the offline transition). Plan-003 Phase 3 T3.6/P6 requires a test asserting this transition, but Plan-003:443 forbids inventing the threshold + fan-out rule until Spec-003 specifies them — so Phase 3 cannot reach its Exit Criteria until this amendment lands. This is the missing governing spec value, owned at the Spec-003 §Default-Behavior layer (not inventable in the implementation PR).
-- Exit Criteria: (a) Spec-003 §Default Behavior records the degraded→offline miss-count threshold + the sweep-owner service as canonical values (the design decision is made and written, not deferred); (b) Plan-003 Phase 3 T3.6/P6 cites the Spec-003 value with no invention; (c) the Plan-003 Phase 3 preflight precondition `bl_closed: 140` clears (this item flips `completed` / is archived), so preflight stops halting Phase 3 dispatch; (d) `cross-plan-dependencies.md` §6 NS-32 flips `blocked` → `ready`.
-- Revisit Trigger: Plan-003 Phase 3 (NS-32) is sequenced for delivery (this amendment is its hard precondition); OR any Spec-003 amendment touches the heartbeat / presence lifecycle; OR the runtime-node `degraded` / `offline` product behavior is being designed.
-
----
-
 _Closed items live in [Backlog Archive](./archive/backlog-archive.md)._

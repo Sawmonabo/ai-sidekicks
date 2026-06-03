@@ -61,8 +61,8 @@
 //
 // Refs: Plan-003 (Runtime Node Attach) §Phase 2 / T2.2 + T2.4, Spec-003 line 57
 // (online only after capability declaration — the T2.4 gate), line 58
-// (least-privilege schedulability), line 79 (capability/trust changes emitted as
-// session events), line 96 (no implicit capability exposure on attach), line 114
+// (least-privilege schedulability), line 83 (capability/trust changes emitted as
+// session events), line 100 (no implicit capability exposure on attach), line 118
 // (serial re-attach satisfies the node-scoped gate without re-declaring),
 // Spec-006 lines 375 (online payload), 379-380 (capability_declared /
 // capability_updated payload shapes), invariant I-003-2 (the declaration is the
@@ -131,7 +131,7 @@ export class NodeCapabilityService {
     // plan §341 forbids the per-session update spam session-scoping would produce).
     // The daemon-side I-003-2 `online` gate (T2.4) is correspondingly node-scoped:
     // it reads THIS durable row ("has this node declared?"), satisfied across serial
-    // re-attaches (Spec-003:114) — it does NOT scan a per-session capability_declared
+    // re-attaches (Spec-003:118) — it does NOT scan a per-session capability_declared
     // event stream (which this node-keyed dedup would starve).
     this.#selectCapabilityStmt = db.prepare(
       `SELECT capability_value
@@ -162,7 +162,7 @@ export class NodeCapabilityService {
     // node-keyed no-op that emits NO event (Model B), so a node that already declared
     // (row present) but re-declares as a no-op must still online. Gating on the event
     // would resurface Model A at the emission layer; gating on the row makes
-    // "has this node declared?" correct across serial re-attaches (Spec-003:114).
+    // "has this node declared?" correct across serial re-attaches (Spec-003:118).
     this.#nodeHasAnyCapabilityStmt = db.prepare(
       `SELECT 1 FROM node_capabilities WHERE node_id = @node_id LIMIT 1`,
     );
@@ -257,7 +257,7 @@ export class NodeCapabilityService {
    * (T2.2 / Model B), so a node that already declared (row present) but re-declares
    * as a no-op would NEVER online if the gate keyed on the event — Model A
    * resurfacing at the emission layer. Keying on the durable ROW makes
-   * "has this node declared?" correct across serial re-attaches (Spec-003:114),
+   * "has this node declared?" correct across serial re-attaches (Spec-003:118),
    * consistent with T2.2's node-scoped change-detection dedup. The control-plane
    * attach gate (T3.2) is a DISTINCT surface reading relayed events, not this
    * daemon-local table.

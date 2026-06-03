@@ -41,9 +41,9 @@
 // the schema default `'untrusted'`; trust elevation is a separate
 // Phase-3/approval concern, so `register` takes no `trust_level` param.
 //
-// Refs: Plan-003 (Runtime Node Attach) §Phase 2 / T2.1 + T2.5, Spec-003 line 65
+// Refs: Plan-003 (Runtime Node Attach) §Phase 2 / T2.1 + T2.5, Spec-003 line 69
 // (disconnected node keeps membership; reconnect under same identity — the T2.5
-// detach guarantee), line 78 (durable runtime-node records), line 90 (node
+// detach guarantee), line 82 (durable runtime-node records), line 94 (node
 // identity stable across reconnect), Spec-006 lines 374 (`runtime_node.registered`
 // payload shape), 377 (`runtime_node.offline` payload shape), invariant I-003-3
 // (registration records a node without mutating membership; detach does not
@@ -199,8 +199,8 @@ export class NodeRegistry {
    * Detach a node (Plan-003 §Phase 2 / T2.5). Emits `runtime_node.offline`
    * (Spec-006:377) for the explicit-shutdown trigger and LEAVES THE
    * `node_trust_state` REGISTRATION ROW INTACT, so the node can reconnect under
-   * the same `node_id` (Spec-003:65 — a disconnected node keeps membership;
-   * Spec-003:90 — node identity stable across reconnect). This is the I-003-3
+   * the same `node_id` (Spec-003:69 — a disconnected node keeps membership;
+   * Spec-003:94 — node identity stable across reconnect). This is the I-003-3
    * guarantee that detach does not revoke membership.
    *
    * LEAVE-INTACT (no durable write, no transaction): `detach` does NOT
