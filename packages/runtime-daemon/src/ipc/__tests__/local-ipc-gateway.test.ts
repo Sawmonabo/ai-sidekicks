@@ -27,9 +27,9 @@
 //                   audit trace remains complete.
 //   * W-007p-2-T5 — 1MB max-message-size enforcement (per F-007p-2-05).
 //                   Body > 1MB → connection close + `-32600` error
-//                   frame, per Plan-007 line 377. The mapping is wired
+//                   frame, per Plan-007:700. The mapping is wired
 //                   at `jsonrpc-error-mapping.ts:175-199` (oversized_body
-//                   → -32600 InvalidRequest per Plan-007:268).
+//                   → -32600 InvalidRequest per Plan-007:448).
 //   * W-007p-2-T6 — Content-Length framing parser correctness:
 //                   single message, multi-message buffer,
 //                   partial-buffer wait, malformed framing.
@@ -562,7 +562,7 @@ describe("W-007p-2-T5 — 1MB max-message-size enforcement", () => {
           const response = decodeOneFrame(racer.acc) as JsonRpcErrorResponse;
           expect(response.jsonrpc).toBe(JSONRPC_VERSION);
           expect(response.id).toBeNull();
-          // Plan-specified error code per Plan-007:268 + 377: -32600
+          // Plan-specified error code per Plan-007:448 + Plan-007:700: -32600
           // InvalidRequest (oversized_body framing path). Mapping wired
           // at jsonrpc-error-mapping.ts §framingErrorDataType.
           expect(response.error.code).toBe(JsonRpcErrorCode.InvalidRequest);

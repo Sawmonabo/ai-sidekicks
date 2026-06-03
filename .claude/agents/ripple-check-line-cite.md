@@ -1,7 +1,7 @@
 ---
 name: ripple-check-line-cite
 color: blue
-description: Internal subagent for the /ripple-check orchestrator only. Do not invoke directly — the orchestrator dispatches this subagent in parallel with siblings to audit a doc-corpus diff for CAT-06 (line-cite truncation floor — hook-covered residual) and CAT-07 (line-cite semantic drift — audit-only residual) ripple. The orchestrator passes diff hunks and the inbound `:NNN` cite list via the prompt parameter; this subagent returns one JSON object with findings.
+description: Internal subagent for the /ripple-check orchestrator only. Do not invoke directly — the orchestrator dispatches this subagent in parallel with siblings to audit a doc-corpus diff for CAT-06 (line-cite truncation floor — hook-covered residual) and CAT-07 (line-cite semantic drift — audit-only residual) ripple. The orchestrator passes diff hunks and the inbound `:NNN` cite list (spanning `.md` and `packages/**`+`apps/**` code citers) via the prompt parameter; this subagent returns one JSON object with findings.
 model: inherit
 tools: ["Read", "Grep", "Glob", "Edit", "Write"]
 ---
@@ -16,7 +16,7 @@ The orchestrator passes you:
 
 - A list of modified files (repo-relative paths) — the cite TARGETS.
 - The diff hunks for those files (so you can compute line-shift offsets).
-- The list of inbound `<file>:NNN` cites from elsewhere in the corpus that point at any modified file.
+- The list of inbound `<file>:NNN` cites that point at any modified file — from elsewhere in the `.md` corpus **and** from `packages/**`+`apps/**` code comments. The orchestrator enumerates code citers across all line-bearing forms (not just the floor-covered colon `Spec-003:178` — also line-word `Spec-003 line 178`, parenthesized `(line 178)`, named-section `§… line 81`, `AC4:108`, and the path / basename forms `docs/domain/session-model.md:61-77` and bare `api-payload-contracts.md:120`, which are the only way a label-less domain / architecture / ops doc is cited), normalizes each to `<doc-path>:NNN`, and tags its origin (`.md` vs code). Audit a code citer exactly as a `.md` citer: read the citing comment for what it claims, read the target line for what it now says.
 
 If any input is missing or unparseable, return `exit_state: NEEDS_CONTEXT` with a `narrative` describing the gap.
 
@@ -49,7 +49,7 @@ Return **a single JSON object as the final message**. The orchestrator parses on
 | `findings` | array | yes (may be empty) | One entry per finding. Empty `[]` is valid when `exit_state=DONE` |
 | `findings[].severity` | enum: `error` \| `warning` \| `info` | yes | `error` = must fix; `warning` = should fix; `info` = heads-up |
 | `findings[].catalog_row` | string | yes | `CAT-07` for the primary semantic-drift case; `CAT-06` ONLY when you find something the `cite-target-existence` hook should have caught but did not (a hook bug worth surfacing as a Known Gap) |
-| `findings[].file` | string (repo-relative) | yes | The CITING file (the doc with the inbound `:NNN` cite), not the target file |
+| `findings[].file` | string (repo-relative) | yes | The CITING file (the `.md` doc **or** `packages/**`+`apps/**` code file holding the inbound cite), not the target file |
 | `findings[].line` | integer | no | Line of the citing reference; omit for whole-file findings |
 | `findings[].description` | string | yes | Concrete problem statement: what does the citing prose claim, what does the target line now say, why the mismatch |
 | `findings[].suggested_fix` | string | required when `severity=error`; recommended otherwise | Free-form prose or a unified-diff snippet. The orchestrator does NOT parse it programmatically in default mode |

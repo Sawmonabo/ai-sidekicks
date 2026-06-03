@@ -686,7 +686,7 @@ export class JsonRpcClient {
    * @param method - The dotted-namespace subscribe method (e.g.
    *   `session.subscribe`).
    * @param params - The subscribe payload. Type-erased at this layer
-   *   (`unknown`) per the Plan-007:321 contract — typed wrappers
+   *   (`unknown`) per the Plan-007:509 contract — typed wrappers
    *   (Plan-001 Phase 5) narrow per-method.
    * @param valueSchema - Zod schema for the per-notification `value` shape.
    *   Every inbound `$/subscription/notify` is validated against this

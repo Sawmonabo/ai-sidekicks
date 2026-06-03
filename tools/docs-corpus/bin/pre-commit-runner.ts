@@ -6,16 +6,23 @@
 // presence, mermaid-set-coherence, cite-target-existence). Same coverage; one
 // less layer of config.
 //
-// argv: zero or more file paths. Files are filtered to staged `.md` for the
-// per-file checks (mermaid + cite); path-canonical-ripple and plan-manifest-
-// presence run unconditionally (each does its own whole-repo enumeration —
-// path-ripple greps the registry `scope` globs, manifest-presence walks
-// `git ls-files docs/plans/`).
+// argv: zero or more file paths, partitioned by extension into two disjoint
+// per-file lanes: staged `.md` governance docs (mermaid + cite) and staged
+// `packages/**`+`apps/**` TypeScript (the label-cite floor).
+// path-canonical-ripple and plan-manifest-presence run unconditionally (each
+// does its own whole-repo enumeration — path-ripple greps the registry `scope`
+// globs, manifest-presence walks `git ls-files docs/plans/`).
 //
-// Cite-target-existence runs against the staged files PLUS any governance-
-// corpus file whose outbound `:NNN` cites resolve into the staged set — see
-// `../lib/inbound-cite-discovery.ts`. This widens local pre-commit coverage to
-// match the inbound-ripple class CI's `custom-checks` repo-wide sweep catches.
+// Cite-target-existence runs against the staged `.md` files PLUS any
+// governance-corpus file whose outbound `:NNN` cites resolve into the staged
+// set — see `../lib/inbound-cite-discovery.ts`. This widens local pre-commit
+// coverage to match the inbound-ripple class CI's `custom-checks` repo-wide
+// sweep catches.
+//
+// label-cite runs against staged code files: governance LABEL cites
+// (`Spec-NNN:LL`) in comments get the SAME deterministic floor as markdown
+// `file.md:NNN` cites — closing the gap where a spec amendment silently
+// invalidated code-comment line cites (PR #139). See `../lib/label-cite.ts`.
 
 import { realpathSync, statSync } from "node:fs";
 import { resolve } from "node:path";
@@ -30,6 +37,7 @@ import {
   getRepoRoot,
   makeIndexAwareReader,
 } from "../lib/inbound-cite-discovery.ts";
+import { checkLabelCiteTargets, formatLabelCiteViolations } from "../lib/label-cite.ts";
 import { checkMermaidSetCoherence, formatMermaidViolations } from "../lib/mermaid-set-coherence.ts";
 import {
   checkPathCanonicalRipple,
@@ -62,6 +70,25 @@ function isInGovernanceCorpus(p: string): boolean {
   return !PER_FILE_CHECK_EXCLUDED_PREFIXES.some((prefix) => p.startsWith(prefix));
 }
 
+// Code files carry governance LABEL cites (`Spec-NNN:LL`) in comments; they get
+// the deterministic floor via label-cite, NOT the markdown-only per-file checks
+// (mermaid, inbound-expansion). Scoped to first-party TypeScript under
+// `packages/` + `apps/`; `dist/` is generated output and `.d.ts` are emitted
+// declarations — neither hand-authored, so both are excluded to keep the
+// required gate to source a developer actually edits.
+const CODE_FILE_RE = /\.(ts|tsx|mts|cts)$/;
+
+function isCodeFile(p: string): boolean {
+  try {
+    if (!statSync(p).isFile()) return false;
+  } catch {
+    return false;
+  }
+  if (!CODE_FILE_RE.test(p) || p.endsWith(".d.ts")) return false;
+  if (p.includes("/dist/") || p.startsWith("dist/")) return false;
+  return p.startsWith("packages/") || p.startsWith("apps/");
+}
+
 export interface RunChecksResult {
   exitCode: number;
   messages: string[];
@@ -69,6 +96,7 @@ export interface RunChecksResult {
 
 export function runChecks(args: string[]): RunChecksResult {
   const stagedMd = args.filter(isMdFile).filter(isInGovernanceCorpus);
+  const stagedCode = args.filter(isCodeFile);
   const messages: string[] = [];
   let exitCode = 0;
 
@@ -94,18 +122,52 @@ export function runChecks(args: string[]): RunChecksResult {
       messages.push(formatMermaidViolations(mermaidHits));
       exitCode = 1;
     }
-    // Argv-staged paths read the working tree (the developer's explicit
-    // opt-in); auto-expanded citers read the git index (`git show :path`) so
-    // unstaged WIP and worktree-only deletions do not leak into validation.
-    // Build the reader once and share it across expansion + cite-checking.
+  }
+
+  // Cite-target floor for BOTH surfaces (markdown `file.md:NNN` + code
+  // `Spec-NNN:LL`) shares one index-aware reader so a commit that amends a
+  // spec AND fixes its dependent cites validates the STAGED spec, not the
+  // worktree. Argv-staged paths (md + code) read the working tree (the
+  // developer's explicit opt-in); auto-expanded governance citers read the git
+  // index (`git show :path`) so unstaged WIP and worktree-only deletions do not
+  // leak into validation. Build the reader once and share it across both.
+  if (stagedMd.length > 0 || stagedCode.length > 0) {
     const repoRoot = getRepoRoot();
-    const stagedAbsolute = new Set(stagedMd.map((p) => resolve(p)));
+    const stagedAbsolute = new Set([...stagedMd, ...stagedCode].map((p) => resolve(p)));
     const reader = makeIndexAwareReader(repoRoot, stagedAbsolute);
-    const expanded = expandToInboundCiteCorpus(stagedMd, repoRoot, reader);
-    const citeHits = checkCiteTargetExistence(expanded, reader);
-    if (citeHits.length > 0) {
-      messages.push(formatCiteTargetViolations(citeHits));
-      exitCode = 1;
+
+    if (stagedMd.length > 0) {
+      const expanded = expandToInboundCiteCorpus(stagedMd, repoRoot, reader);
+      const citeHits = checkCiteTargetExistence(expanded, reader);
+      if (citeHits.length > 0) {
+        messages.push(formatCiteTargetViolations(citeHits));
+        exitCode = 1;
+      }
+    }
+
+    if (stagedCode.length > 0) {
+      // Governance LABEL cites (`Spec-NNN:LL`) — the deterministic floor the
+      // markdown-only walk never reached. checkLabelCiteTargets resolves each
+      // citer to an absolute path internally, so the shared index-aware reader's
+      // staged-set test (keyed on absolute paths) matches and reads the working
+      // tree rather than the index. No inbound-expansion for code: CI's full-tree
+      // sweep re-checks every code cite on each PR, the backstop for the doc-
+      // only-amend case (a spec shifts with no code file staged), so code-side
+      // inbound discovery would only duplicate it.
+      //
+      // Backtick PATH-form cites (`docs/specs/003-x.md:12`) are deliberately NOT
+      // floored here: that extractor resolves the target repo-root-relative —
+      // correct for governance docs, but it mints false positives on the
+      // package-relative code-to-code refs that dominate comments
+      // (`internal/branded.ts:25` → `packages/contracts/src/internal/branded.ts`).
+      // The lone governance path-cite in code was normalized to the LABEL form;
+      // path + line-word forms are audit-layer (CAT-07) via /ripple-check — the
+      // same CAT-06/CAT-07 split governance docs already use.
+      const labelHits = checkLabelCiteTargets(stagedCode, reader);
+      if (labelHits.length > 0) {
+        messages.push(formatLabelCiteViolations(labelHits));
+        exitCode = 1;
+      }
     }
   }
 

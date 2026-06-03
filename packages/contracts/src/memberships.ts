@@ -44,7 +44,7 @@
 //      owner to promote another active member via
 //      `{action: "change_role", newRole: "owner"}`. The "only existing
 //      owners may elevate" guard is a SERVICE-LAYER check owned by
-//      Plan-002 Phase 2 T2.3 (verified by P6 in Plan-002:147), NOT a
+//      Plan-002 Phase 2 T2.3 (verified by P6 in Plan-002:155), NOT a
 //      schema constraint. Using `NonOwnerMembershipRoleSchema` here
 //      would break owner-elevation entirely.
 //
