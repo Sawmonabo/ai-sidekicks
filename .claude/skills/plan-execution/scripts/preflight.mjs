@@ -387,6 +387,36 @@ export function extractSection5(xplanSource) {
   return xplanSource.slice(startIdx, endIdx);
 }
 
+// Extract a single backlog item's section — its `### BL-NNN` / `#### BL-NNN`
+// heading (active backlog uses h3, the archive uses h4) through the line before
+// the next ATX heading or `---` horizontal rule — or null if the item heading
+// is absent. Heading-anchored (not a bare substring) with the same
+// scoped-not-loose rigor as extractSection5: a `[BL-NNN](…)` cross-reference or
+// a mention inside a neighbor item's prose must not be mistaken for the item
+// itself, so the Status read in the bl_closed resolver comes only from the
+// item's own block. `\b` after the id rejects longer-number collisions
+// (BL-140 must not match a BL-1400 heading).
+export function extractBacklogItemSection(source, blId) {
+  const lines = source.split("\n");
+  const headingRe = new RegExp(`^#{2,4}\\s+${blId}\\b`);
+  let start = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (headingRe.test(lines[i])) {
+      start = i;
+      break;
+    }
+  }
+  if (start === -1) return null;
+  let end = lines.length;
+  for (let i = start + 1; i < lines.length; i++) {
+    if (/^#{1,6}\s+\S/.test(lines[i]) || /^---\s*$/.test(lines[i])) {
+      end = i;
+      break;
+    }
+  }
+  return lines.slice(start, end).join("\n");
+}
+
 // Extract the set of task ids shipped for a given phase from the parsed
 // manifest. Single-string `task` and array-form `task` (legacy multi-task
 // PRs predating NS-02) both contribute their ids. Returns a Set.
@@ -1817,7 +1847,9 @@ export function gateTasksBlockCites(phaseSection, planNumber, phaseNumber, opts 
 // existing cases (pr_merged, adr_accepted, plan_phase, cross_plan_carve_out)
 // ignore the new params; the audit_status case introduced in this version
 // needs phaseSection + phaseNumber to evaluate the substrate_exempt criterion
-// (3) check (Spec-AC-empty sentinel + Tasks-block bracket-form conflict).
+// (3) check (Spec-AC-empty sentinel + Tasks-block bracket-form conflict). The
+// bl_closed case (added for the Plan-003 Phase 3 / NS-32 backlog gate) reads
+// only repoRoot — already present — so it too is purely additive.
 export function resolvePrecondition(
   entry,
   { repoRoot = REPO_ROOT, phaseSection, phaseNumber } = {},
@@ -2049,6 +2081,59 @@ export function resolvePrecondition(
       return {
         ok: false,
         halt: `audit_status.status must be 'complete' or 'substrate_exempt'; got '${entry.status}'`,
+      };
+    }
+    case "bl_closed": {
+      // Gate a phase on a backlog item being closed. Used when a phase cannot
+      // reach its Exit Criteria until a governance change lands, but that change
+      // is neither a merged PR nor an accepted ADR — so no artifact number
+      // exists at declaration time to gate on with pr_merged / adr_accepted
+      // (Codex #3 on PR #138: Plan-003 Phase 3 / NS-32 is blocked on a Spec-003
+      // §Default-Behavior heartbeat-threshold amendment whose PR number is
+      // unknowable now, and the threshold value is a spec value, not
+      // ADR-worthy). The honest machine-readable primitive that exists at
+      // declaration time is the backlog item itself — Codex named it a "backlog
+      // gate". ok:true iff BL-NNN is `completed` in docs/backlog.md OR has been
+      // swept to docs/archive/backlog-archive.md (the canonical closed-location
+      // per the CLAUDE.md backlog discipline); any open state (todo /
+      // in_progress / blocked) or an unknown BL fails closed.
+      const blId = `BL-${String(entry.ref).padStart(3, "0")}`;
+      const backlogPath = resolve(repoRoot, "docs", "backlog.md");
+      let backlog;
+      try {
+        backlog = readFileSync(backlogPath, "utf8");
+      } catch (e) {
+        return { ok: false, halt: `docs/backlog.md unreadable: ${e.message}` };
+      }
+      const activeSection = extractBacklogItemSection(backlog, blId);
+      if (activeSection !== null) {
+        const statusMatch = activeSection.match(/^[-*]\s*Status:\s*`?(\w+)`?/m);
+        if (!statusMatch) {
+          return {
+            ok: false,
+            halt: `${blId} found in docs/backlog.md but its Status line is unparseable; cannot evaluate bl_closed`,
+          };
+        }
+        const status = statusMatch[1].toLowerCase();
+        if (status === "completed") return { ok: true };
+        return {
+          ok: false,
+          halt: `${blId} is '${status}' in docs/backlog.md, not 'completed' — the governance change this phase depends on has not landed`,
+        };
+      }
+      // Not in the active backlog → check the archive (completed items are
+      // swept there per the backlog discipline; presence there means closed).
+      const archivePath = resolve(repoRoot, "docs", "archive", "backlog-archive.md");
+      let archive = "";
+      try {
+        archive = readFileSync(archivePath, "utf8");
+      } catch {
+        // Archive absent is not fatal — fall through to the not-found halt.
+      }
+      if (extractBacklogItemSection(archive, blId) !== null) return { ok: true };
+      return {
+        ok: false,
+        halt: `${blId} not found in docs/backlog.md or docs/archive/backlog-archive.md; cannot evaluate bl_closed (mint the backlog item or correct the ref)`,
       };
     }
     default:
