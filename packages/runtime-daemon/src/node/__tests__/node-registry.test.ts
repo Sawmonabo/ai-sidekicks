@@ -33,11 +33,19 @@
 //     `register` (least privilege; the wire capabilities are replay-only).
 //   * Re-register: a second register preserves `established_at` + `trust_level`
 //     and refreshes only `updated_at` (registration never elevates trust).
+//   * T2.5 / D4 (detach + reconnect under stable node identity, I-003-3): detach
+//     emits exactly one `runtime_node.offline` (reason `explicit_shutdown`,
+//     newState `offline`, previousState `online`, non-empty ISO `lastHeartbeatAt`)
+//     and LEAVES the `node_trust_state` row INTACT — so `lookup` still resolves the
+//     node after detach, and a reconnect register resolves the SAME identity with
+//     `established_at` preserved from the first registration.
 //
-// Spec coverage: Spec-003 line 78 (durable runtime-node records), line 90 (node
-// identity stable across reconnect), line 96 (no implicit capability exposure on
-// attach), AC1 (line 101). Verifies invariant: I-003-3 (registration records a
-// node without mutating membership).
+// Spec coverage: Spec-003 line 65 (disconnected node keeps membership; reconnect
+// under same identity — the T2.5 detach path), line 78 (durable runtime-node
+// records), line 90 (node identity stable across reconnect), line 96 (no implicit
+// capability exposure on attach), AC1 (line 101). Verifies invariant: I-003-3
+// (registration records a node without mutating membership; detach does not revoke
+// membership).
 
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -398,5 +406,89 @@ describe("NodeRegistry — atomicity (throwing emit rolls back the trust-state u
     expect(readTrustRows(ctx.db, NODE_ID)).toHaveLength(0);
     expect(registry.lookup(NODE_ID)).toBeUndefined();
     expect(readEventRows(ctx.db, SESSION_ID)).toHaveLength(0);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// T2.5 / D4 — detach emits offline + leaves registration intact (I-003-3);
+// reconnect resolves the SAME identity under the same node id
+// ----------------------------------------------------------------------------
+
+describe("NodeRegistry — T2.5/D4 (detach + reconnect under stable node identity, I-003-3)", () => {
+  it("emits exactly one explicit_shutdown offline event, leaves the trust row intact, and reconnects to the same identity", () => {
+    // An advancing clock so the first registration, the detach's default
+    // lastHeartbeatAt, and the reconnect registration carry DISTINCT timestamps —
+    // this is what makes the established_at-PRESERVED assertion non-vacuous (a
+    // re-register that reset established_at would surface as the reconnect's later
+    // timestamp).
+    const timestamps: string[] = [
+      "2026-06-02T12:00:00.000Z", // first register → established_at + updated_at
+      "2026-06-02T12:05:00.000Z", // detach's default lastHeartbeatAt
+      "2026-06-02T12:10:00.000Z", // reconnect register → refreshes updated_at only
+    ];
+    let clockIndex: number = 0;
+    const registry: NodeRegistry = makeRegistry(() => {
+      const value: string | undefined = timestamps[clockIndex];
+      clockIndex += 1;
+      return value ?? "2026-06-02T23:59:59.000Z";
+    });
+
+    registry.register({
+      nodeId: NODE_ID,
+      sessionId: SESSION_ID,
+      capabilities: {},
+      nodeVersion: "1.0.0",
+      platform: "linux-x64",
+    });
+    const afterRegister: NodeTrustStateRow | undefined = registry.lookup(NODE_ID);
+    expect(afterRegister?.established_at).toBe("2026-06-02T12:00:00.000Z");
+
+    // Detach with the explicit-shutdown call-site supplying previousState "online"
+    // (the method invents no default; the explicit-shutdown producer supplies it).
+    registry.detach({ nodeId: NODE_ID, sessionId: SESSION_ID, previousState: "online" });
+
+    // Exactly one offline event: register (1) + offline (1) = 2 total events; the
+    // second is the offline.
+    const events: ReadonlyArray<EventRow> = readEventRows(ctx.db, SESSION_ID);
+    expect(events.map((e) => e.type)).toEqual(["runtime_node.registered", "runtime_node.offline"]);
+    const offlineEvent = events[1];
+    expect(offlineEvent).toBeDefined();
+    if (offlineEvent === undefined) return;
+    const payload = JSON.parse(offlineEvent.payload) as Record<string, unknown>;
+    // reason HARDCODED explicit_shutdown (detach is the explicit-shutdown producer);
+    // newState offline; previousState forwarded as the call site supplied; and a
+    // non-empty ISO lastHeartbeatAt defaulted from the injected clock (never null —
+    // the node IS heard from at explicit shutdown).
+    expect(payload["reason"]).toBe("explicit_shutdown");
+    expect(payload["newState"]).toBe("offline");
+    expect(payload["previousState"]).toBe("online");
+    expect(payload["lastHeartbeatAt"]).toBe("2026-06-02T12:05:00.000Z");
+
+    // I-003-3 — detach does NOT revoke membership: the node_trust_state row is left
+    // INTACT, so lookup still resolves the node after detach (the untouched row is
+    // what enables reconnect under the same identity).
+    const afterDetach: NodeTrustStateRow | undefined = registry.lookup(NODE_ID);
+    expect(afterDetach).toBeDefined();
+    expect(afterDetach?.node_id).toBe(NODE_ID);
+    // detach is emit-only — it touched neither established_at nor updated_at.
+    expect(afterDetach?.established_at).toBe("2026-06-02T12:00:00.000Z");
+    expect(afterDetach?.updated_at).toBe("2026-06-02T12:00:00.000Z");
+
+    // Reconnect under the SAME node id (a fresh register) → lookup resolves the SAME
+    // identity: same node_id, and established_at PRESERVED from the first
+    // registration (Spec-003:90 — node identity stable across reconnect).
+    registry.register({
+      nodeId: NODE_ID,
+      sessionId: SESSION_ID,
+      capabilities: {},
+      nodeVersion: "1.0.0",
+      platform: "linux-x64",
+    });
+    const afterReconnect: NodeTrustStateRow | undefined = registry.lookup(NODE_ID);
+    expect(afterReconnect?.node_id).toBe(NODE_ID);
+    expect(afterReconnect?.established_at).toBe("2026-06-02T12:00:00.000Z");
+    // updated_at refreshed by the reconnect register (proves it is the same durable
+    // row being re-registered, not a new identity).
+    expect(afterReconnect?.updated_at).toBe("2026-06-02T12:10:00.000Z");
   });
 });

@@ -31,14 +31,35 @@
 //   * I-003-2 (the declaration is the precondition that gates `online`): a
 //     `runtime_node.capability_declared` event lands for the node id — the event
 //     a Phase-3/T2.4 `online` gate waits for.
+//   * T2.4 / D3 (online only after capability_declared, I-003-2; Spec-003:57):
+//     bringOnline returns false + emits nothing before any declaration EXISTS —
+//     the node stays in its non-online (registering) state (Spec-003:57, "online
+//     only after capability declaration succeeds"). After declare it returns true
+//     and appends `runtime_node.online` (newState online, previousState
+//     registering) AFTER the capability_declared event. This is declaration
+//     ABSENCE (the :57 gate), NOT capability-validation FAILURE: Spec-003:63
+//     ("validation FAILS → degraded/offline, not healthy") is a DIFFERENT path,
+//     entirely Phase 3 — Phase 2 has no `degraded`/`offline`-on-invalid emission
+//     (the emitter/schemas defer `degraded`/`revoked` to Plan-003 Phase 3 with
+//     their heartbeat/admin producers), so D3 codifies NONE of :63.
+//   * T2.4 gate-reads-ROW-not-EVENT (§357 regression guard): after an identical
+//     no-op re-declare that emitted NO second event, bringOnline still onlines —
+//     proving the gate read the durable node-keyed ROW, not the event stream
+//     (the WHY of the gate-on-row design; Model A would never online here).
 //
-// Spec coverage: Spec-003 line 58 (least-privilege schedulability — declaration
-// is the path that makes a capability schedulable, proven by path 1's
-// `node_capabilities` row), line 79 (capability/trust changes emitted as session
-// events). (Spec-003:96 — no implicit exposure on ATTACH — is the register path's
-// obligation, exercised in node-registry.test.ts where `register` carries
-// capabilities yet writes zero `node_capabilities` rows.) Verifies invariant:
-// I-003-2 (the declaration is the precondition that gates `online`).
+// Spec coverage: Spec-003 line 57 (online only after capability declaration — the
+// T2.4 gate D3 verifies: no online until a declaration EXISTS), line 58
+// (least-privilege schedulability — declaration is the path that makes a
+// capability schedulable, proven by path 1's `node_capabilities` row), line 79
+// (capability/trust changes emitted as session events), line 114 (serial re-attach
+// satisfies the node-scoped gate without re-declaring — the gate-reads-ROW block).
+// (Spec-003:63 — validation FAILURE → degraded/offline — is NOT covered here: it is
+// a Phase-3 path with no Phase-2 `degraded` emit shape; D3 tests declaration
+// ABSENCE via the :57 gate, not validation failure. Spec-003:96 — no implicit
+// exposure on ATTACH — is the register path's obligation, exercised in
+// node-registry.test.ts where `register` carries capabilities yet writes zero
+// `node_capabilities` rows.) Verifies invariant: I-003-2 (the declaration is the
+// precondition that gates `online`).
 
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -489,5 +510,101 @@ describe("NodeCapabilityService — change-detection is node-scoped, not session
     expect(readCapabilityRow(ctx.db, NODE_ID, CAPABILITY)?.updated_at).toBe(
       "2026-06-02T12:00:00.000Z",
     );
+  });
+});
+
+// ----------------------------------------------------------------------------
+// T2.4 / D3 — online only after capability_declared (I-003-2 ordering gate)
+// ----------------------------------------------------------------------------
+
+describe("NodeCapabilityService — T2.4/D3 (online only after capability_declared, I-003-2)", () => {
+  it("gates online on a prior declaration: no online before declare; online follows capability_declared for the same node", () => {
+    const service: NodeCapabilityService = makeCapabilityService();
+
+    // Before any declaration the I-003-2 precondition is unmet: bringOnline reads
+    // the (absent) node-keyed row, emits NOTHING, and returns false. The node
+    // stays in its non-online (registering) state (Spec-003:57). Registration is
+    // deliberately NOT performed — the gate reads `node_capabilities`, not
+    // `node_trust_state`, so this test stays focused on the declaration→online
+    // gate without coupling to NodeRegistry.
+    expect(service.bringOnline({ nodeId: NODE_ID, sessionId: SESSION_ID })).toBe(false);
+    expect(readEventRows(ctx.db, SESSION_ID)).toHaveLength(0);
+
+    // Declare a capability → exactly one capability_declared lands.
+    service.declare({
+      nodeId: NODE_ID,
+      sessionId: SESSION_ID,
+      capability: CAPABILITY,
+      capabilityDetails: { contractVersion: "1.0" },
+    });
+
+    // Now the gate is satisfied: bringOnline returns true and appends online AFTER
+    // the declared event.
+    expect(service.bringOnline({ nodeId: NODE_ID, sessionId: SESSION_ID })).toBe(true);
+
+    const events: ReadonlyArray<EventRow> = readEventRows(ctx.db, SESSION_ID);
+    // The exact ordered sequence: capability_declared THEN online (I-003-2 — online
+    // follows the declaration for the same node id).
+    expect(events.map((e) => e.type)).toEqual([
+      "runtime_node.capability_declared",
+      "runtime_node.online",
+    ]);
+
+    // The online payload is the registering→online transition (Spec-006:375 base).
+    const onlineEvent = events[1];
+    expect(onlineEvent).toBeDefined();
+    if (onlineEvent === undefined) return;
+    const payload = JSON.parse(onlineEvent.payload) as Record<string, unknown>;
+    expect(payload["newState"]).toBe("online");
+    expect(payload["previousState"]).toBe("registering");
+    expect(payload["nodeId"]).toBe(NODE_ID);
+    expect(payload["sessionId"]).toBe(SESSION_ID);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// T2.4 — the gate reads the durable ROW, not the capability_declared EVENT (§357)
+// ----------------------------------------------------------------------------
+
+describe("NodeCapabilityService — T2.4 gate reads the durable ROW, not the event (§357)", () => {
+  it("onlines after an identical no-op re-declare emitted no second event — proving the gate read the row, not the event", () => {
+    // This is the regression guard for the WHY of the gate-on-row design: if the
+    // gate keyed on a `capability_declared` EVENT, a node that already declared
+    // (row present) but re-declares as an identical no-op (which emits NO event,
+    // T2.2 / Model B) would never online — Model A resurfacing at the emission
+    // layer. Gating on the durable ROW makes "has this node declared?" correct
+    // across re-declares. Single-session; no re-attach plumbing.
+    const service: NodeCapabilityService = makeCapabilityService();
+    const details: Record<string, unknown> = { contractVersion: "1.0", flags: { streaming: true } };
+
+    // First declaration → one capability_declared, one durable row.
+    service.declare({
+      nodeId: NODE_ID,
+      sessionId: SESSION_ID,
+      capability: CAPABILITY,
+      capabilityDetails: details,
+    });
+
+    // Identical re-declare → the committed no-op: NO second event (T2.2 / Model B).
+    service.declare({
+      nodeId: NODE_ID,
+      sessionId: SESSION_ID,
+      capability: CAPABILITY,
+      capabilityDetails: { contractVersion: "1.0", flags: { streaming: true } },
+    });
+    expect(readEventRows(ctx.db, SESSION_ID)).toHaveLength(1);
+    expect(readEventRows(ctx.db, SESSION_ID)[0]?.type).toBe("runtime_node.capability_declared");
+
+    // bringOnline STILL returns true and emits online — even though the most recent
+    // declare emitted NO event. The ONLY way online can fire here is if the gate
+    // read the durable ROW (which the no-op re-declare left present), NOT the event
+    // stream. This is the assertion that pins the gate-on-row design.
+    expect(service.bringOnline({ nodeId: NODE_ID, sessionId: SESSION_ID })).toBe(true);
+
+    const events: ReadonlyArray<EventRow> = readEventRows(ctx.db, SESSION_ID);
+    expect(events.map((e) => e.type)).toEqual([
+      "runtime_node.capability_declared",
+      "runtime_node.online",
+    ]);
   });
 });

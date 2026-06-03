@@ -1,10 +1,17 @@
-// NodeRegistry — durable node identity + registration (Plan-003 Phase 2, T2.1).
+// NodeRegistry — durable node identity + registration (Plan-003 Phase 2, T2.1)
+// + the explicit-shutdown detach producer (T2.5).
 //
 // A node is "registered to this daemon" iff a `node_trust_state` row (PK
 // `node_id`, `trust_level DEFAULT 'untrusted'`) exists for it. That row is the
 // AUTHORITATIVE durable state: `lookup` recovers identity by READING the row,
 // not by replaying events, so identity is stable across a daemon restart
 // because it lives in SQLite, not in process memory (D1 — plan §334).
+//
+// `detach` (T2.5) emits `runtime_node.offline` (`reason: "explicit_shutdown"`)
+// and LEAVES the `node_trust_state` row INTACT — the untouched row is what lets
+// the node reconnect under the same `node_id` (I-003-3: detach does not revoke
+// membership). It is an emit-only path (no durable write, no transaction); the
+// full rationale lives on the method below.
 //
 // Dual-write with single-transaction atomicity
 // --------------------------------------------------------------------------
@@ -34,11 +41,15 @@
 // the schema default `'untrusted'`; trust elevation is a separate
 // Phase-3/approval concern, so `register` takes no `trust_level` param.
 //
-// Refs: Plan-003 (Runtime Node Attach) §Phase 2 / T2.1, Spec-003 line 78
-// (durable runtime-node records), line 90 (node identity stable across
-// reconnect), Spec-006 line 374 (`runtime_node.registered` payload shape),
-// invariant I-003-3 (registration records a node without mutating membership).
+// Refs: Plan-003 (Runtime Node Attach) §Phase 2 / T2.1 + T2.5, Spec-003 line 65
+// (disconnected node keeps membership; reconnect under same identity — the T2.5
+// detach guarantee), line 78 (durable runtime-node records), line 90 (node
+// identity stable across reconnect), Spec-006 lines 374 (`runtime_node.registered`
+// payload shape), 377 (`runtime_node.offline` payload shape), invariant I-003-3
+// (registration records a node without mutating membership; detach does not
+// revoke membership).
 
+import type { NodeState } from "@ai-sidekicks/contracts";
 import type { Database, Statement } from "better-sqlite3";
 
 import type { RuntimeNodeEventEmitter } from "./node-event-emitter.js";
@@ -74,6 +85,30 @@ export interface RegisterNodeInput {
   readonly actor?: string | null;
 }
 
+/**
+ * `detach` input (Plan-003 §Phase 2 / T2.5). The explicit-shutdown producer for
+ * `runtime_node.offline`.
+ *
+ * `reason` is NOT a parameter: detach IS the explicit-shutdown producer, so the
+ * emitted `reason` is HARDCODED `"explicit_shutdown"`. The `heartbeat_lost` /
+ * `network_partition` reasons come from a DIFFERENT Phase-3 heartbeat-service
+ * producer, never this method (Spec-006:377 authors the full enum; Phase 3 adds
+ * producers, not a shape change).
+ *
+ * `previousState` is forwarded as-supplied (omitted from the payload when
+ * `undefined` — the method invents NO default; the explicit-shutdown call site
+ * supplies `"online"`). `lastHeartbeatAt` defaults to `now()` when omitted (the
+ * node IS heard from at explicit shutdown → a real ISO-8601 timestamp, never
+ * null). `actor` defaults to `null` (system actor) when omitted.
+ */
+export interface DetachNodeInput {
+  readonly nodeId: string;
+  readonly sessionId: string;
+  readonly actor?: string | null;
+  readonly previousState?: NodeState;
+  readonly lastHeartbeatAt?: string;
+}
+
 // --------------------------------------------------------------------------
 // NodeRegistry
 // --------------------------------------------------------------------------
@@ -85,12 +120,24 @@ export class NodeRegistry {
   readonly #upsertTrustStateStmt: Statement;
   readonly #selectTrustStateStmt: Statement;
   readonly #registerTxn: (input: RegisterNodeInput) => void;
+  // The same single emission seam `register` routes through, retained so
+  // `detach` (T2.5) can emit `runtime_node.offline` without re-deriving the
+  // event-construction path. `register`'s transaction captures `emitter` in its
+  // closure; `detach` is a non-transactional emit (no durable write), so it
+  // needs the reference on the instance.
+  readonly #emitter: RuntimeNodeEventEmitter;
+  // Wall-clock source reused for `detach`'s default `lastHeartbeatAt` — the same
+  // injected `now` the registration upsert uses, so a test's deterministic clock
+  // governs both paths.
+  readonly #now: () => string;
 
   constructor(
     db: Database,
     emitter: RuntimeNodeEventEmitter,
     now: () => string = () => new Date().toISOString(),
   ) {
+    this.#emitter = emitter;
+    this.#now = now;
     // UPSERT `node_trust_state`. On first registration: INSERT with
     // `trust_level='untrusted'` (the schema default, spelled explicitly so the
     // intent is visible) and `established_at = updated_at = now`. On
@@ -146,6 +193,53 @@ export class NodeRegistry {
    */
   register(input: RegisterNodeInput): void {
     this.#registerTxn(input);
+  }
+
+  /**
+   * Detach a node (Plan-003 §Phase 2 / T2.5). Emits `runtime_node.offline`
+   * (Spec-006:377) for the explicit-shutdown trigger and LEAVES THE
+   * `node_trust_state` REGISTRATION ROW INTACT, so the node can reconnect under
+   * the same `node_id` (Spec-003:65 — a disconnected node keeps membership;
+   * Spec-003:90 — node identity stable across reconnect). This is the I-003-3
+   * guarantee that detach does not revoke membership.
+   *
+   * LEAVE-INTACT (no durable write, no transaction): `detach` does NOT
+   * update/delete/insert `node_trust_state` — it is `emitOffline` ONLY. The
+   * untouched trust row is precisely what lets `lookup` resolve the SAME identity
+   * on reconnect (`established_at` preserved from the first registration). Because
+   * there is no dual-write here, there is no atomicity concern, so — unlike
+   * `register` — this is NOT wrapped in `db.transaction(...)`.
+   *
+   * HARDCODED `reason: "explicit_shutdown"`: detach IS the explicit-shutdown
+   * producer, so the reason is not a parameter. The `heartbeat_lost` /
+   * `network_partition` reasons come from a DIFFERENT Phase-3 heartbeat-service
+   * producer, not this method (Spec-006:377 authors the full enum so Phase 3 adds
+   * producers, not a shape change). `lastHeartbeatAt` defaults to the injected
+   * `now()` — the node IS heard from at explicit shutdown, so this is a real
+   * ISO-8601 timestamp, never null (the schema is `z.iso.datetime({ offset: true })`).
+   * `previousState` is forwarded as the caller supplies it (the method invents no
+   * default; an omitted value is left off the parsed payload — the explicit-shutdown
+   * call site supplies `"online"`). `actor` forwards as `?? null` so an omitted actor
+   * becomes the system-null actor (the emitter input rejects explicit-`undefined`
+   * under `exactOptionalPropertyTypes`). Synchronous — better-sqlite3 is synchronous
+   * by design.
+   */
+  detach(input: DetachNodeInput): void {
+    this.#emitter.emitOffline({
+      sessionId: input.sessionId,
+      nodeId: input.nodeId,
+      // Forwarded as-supplied; omission keeps the key absent from the parsed
+      // payload (the emitter input types `previousState?: NodeState | undefined`).
+      previousState: input.previousState,
+      newState: "offline",
+      actor: input.actor ?? null,
+      // The node IS heard from at explicit shutdown → default to the real wall
+      // clock, never null (Spec-006:377 / `z.iso.datetime`).
+      lastHeartbeatAt: input.lastHeartbeatAt ?? this.#now(),
+      // HARDCODED — detach is the explicit-shutdown producer; heartbeat-driven
+      // reasons are a Phase-3 producer, not this method.
+      reason: "explicit_shutdown",
+    });
   }
 
   /**
