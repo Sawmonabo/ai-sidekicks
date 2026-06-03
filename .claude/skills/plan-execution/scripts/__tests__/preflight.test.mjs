@@ -31,6 +31,7 @@ import {
   gateTasksBlockCites,
   gatePhaseUnshipped,
   resolvePrecondition,
+  extractBacklogItemSection,
   setGhImpl,
   resetGhImpl,
   runPreflight,
@@ -2328,6 +2329,157 @@ test("audit_status fails on unknown status value", () => {
   const r = resolvePrecondition({ type: "audit_status", status: "tier_pending" });
   assert.equal(r.ok, false);
   assert.match(r.halt, /must be 'complete' or 'substrate_exempt'/);
+});
+
+// ---------- bl_closed (backlog gate for amendment-blocked phases) ----------
+
+test("bl_closed passes when the BL is `completed` in the active backlog", () => {
+  const repo = makeTempRepo();
+  writeFileSync(
+    join(repo, "docs", "backlog.md"),
+    `# Backlog
+
+### BL-140: Some amendment
+
+- Status: \`completed\`
+- Priority: \`P2\`
+
+---
+`,
+  );
+  const r = resolvePrecondition({ type: "bl_closed", ref: 140 }, { repoRoot: repo });
+  assert.equal(r.ok, true);
+});
+
+test("bl_closed fails (fail-closed) when the BL is `blocked` in the active backlog", () => {
+  const repo = makeTempRepo();
+  writeFileSync(
+    join(repo, "docs", "backlog.md"),
+    `### BL-140: Some amendment
+
+- Status: \`blocked\` (until the Spec-003 amendment lands)
+- Priority: \`P2\`
+`,
+  );
+  const r = resolvePrecondition({ type: "bl_closed", ref: 140 }, { repoRoot: repo });
+  assert.equal(r.ok, false);
+  assert.match(r.halt, /BL-140 is 'blocked' .* not 'completed'/);
+});
+
+test("bl_closed fails when the BL is `todo` in the active backlog", () => {
+  const repo = makeTempRepo();
+  writeFileSync(
+    join(repo, "docs", "backlog.md"),
+    `### BL-140: Some amendment\n\n- Status: \`todo\`\n`,
+  );
+  const r = resolvePrecondition({ type: "bl_closed", ref: 140 }, { repoRoot: repo });
+  assert.equal(r.ok, false);
+  assert.match(r.halt, /BL-140 is 'todo'/);
+});
+
+test("bl_closed passes when the BL is absent from active but present in the archive (swept == closed)", () => {
+  const repo = makeTempRepo();
+  writeFileSync(join(repo, "docs", "backlog.md"), `# Backlog\n\n(no active items)\n`);
+  mkdirSync(join(repo, "docs", "archive"), { recursive: true });
+  writeFileSync(
+    join(repo, "docs", "archive", "backlog-archive.md"),
+    `#### BL-140: Some amendment\n\n- Status: \`completed\`\n`,
+  );
+  const r = resolvePrecondition({ type: "bl_closed", ref: 140 }, { repoRoot: repo });
+  assert.equal(r.ok, true);
+});
+
+test("bl_closed fails when the archived item is `withdrawn` (archive is not completed-only)", () => {
+  // Regression for Codex P2 on PR #138: the archive is not a completed-only
+  // location (e.g. BL-136 is `withdrawn` there), so heading presence in the
+  // archive must not unblock — the Status is re-judged with active-path rigor.
+  const repo = makeTempRepo();
+  writeFileSync(join(repo, "docs", "backlog.md"), `# Backlog\n\n(no active items)\n`);
+  mkdirSync(join(repo, "docs", "archive"), { recursive: true });
+  writeFileSync(
+    join(repo, "docs", "archive", "backlog-archive.md"),
+    `#### BL-140: Some amendment (Withdrawn)\n\n- Status: \`withdrawn\`\n`,
+  );
+  const r = resolvePrecondition({ type: "bl_closed", ref: 140 }, { repoRoot: repo });
+  assert.equal(r.ok, false);
+  assert.match(r.halt, /BL-140 is 'withdrawn' in the archive .*not 'completed'/);
+});
+
+test("bl_closed fails when an archived item has no parseable Status (fail-closed)", () => {
+  const repo = makeTempRepo();
+  writeFileSync(join(repo, "docs", "backlog.md"), `# Backlog\n\n(no active items)\n`);
+  mkdirSync(join(repo, "docs", "archive"), { recursive: true });
+  writeFileSync(
+    join(repo, "docs", "archive", "backlog-archive.md"),
+    `#### BL-140: Some amendment\n\n- Owner: \`unassigned\`\n`,
+  );
+  const r = resolvePrecondition({ type: "bl_closed", ref: 140 }, { repoRoot: repo });
+  assert.equal(r.ok, false);
+  assert.match(
+    r.halt,
+    /BL-140 found in docs\/archive\/backlog-archive\.md but its Status line is unparseable/,
+  );
+});
+
+test("bl_closed fails when the BL is missing from both backlog and archive (unknown == fail-closed)", () => {
+  const repo = makeTempRepo();
+  writeFileSync(
+    join(repo, "docs", "backlog.md"),
+    `# Backlog\n\n### BL-139: Other\n\n- Status: \`todo\`\n`,
+  );
+  const r = resolvePrecondition({ type: "bl_closed", ref: 140 }, { repoRoot: repo });
+  assert.equal(r.ok, false);
+  assert.match(r.halt, /BL-140 not found/);
+});
+
+test("bl_closed fails when docs/backlog.md is unreadable (fail-closed)", () => {
+  // makeTempRepo does NOT write docs/backlog.md — the read throws ENOENT.
+  const repo = makeTempRepo();
+  const r = resolvePrecondition({ type: "bl_closed", ref: 140 }, { repoRoot: repo });
+  assert.equal(r.ok, false);
+  assert.match(r.halt, /backlog\.md unreadable/);
+});
+
+test("bl_closed fail-closes when BL-NNN appears only as a cross-reference (heading-scoped)", () => {
+  // BL-140 appears ONLY as a link inside BL-131's prose; it has no heading of
+  // its own. The resolver must treat it as not-found, never read a neighbor's
+  // `completed` status as BL-140's.
+  const repo = makeTempRepo();
+  writeFileSync(
+    join(repo, "docs", "backlog.md"),
+    `### BL-131: Renderer coverage
+
+- Status: \`completed\`
+- Summary: sibling of [BL-140](#bl-140) — do not confuse.
+`,
+  );
+  const r = resolvePrecondition({ type: "bl_closed", ref: 140 }, { repoRoot: repo });
+  assert.equal(r.ok, false);
+  assert.match(r.halt, /BL-140 not found/);
+});
+
+test("extractBacklogItemSection is heading-anchored, not substring (cross-ref → null)", () => {
+  const src = `### BL-131: Renderer coverage
+
+- Status: \`completed\`
+- Summary: sibling of [BL-140](#bl-140) — do not confuse.
+`;
+  assert.equal(extractBacklogItemSection(src, "BL-140"), null);
+});
+
+test("extractBacklogItemSection rejects longer-number collisions (BL-140 ≠ BL-1400)", () => {
+  const src = `### BL-1400: Decoy\n\n- Status: \`completed\`\n`;
+  assert.equal(extractBacklogItemSection(src, "BL-140"), null);
+});
+
+test("bl_closed zero-pads the ref to match BL-0NN headings", () => {
+  const repo = makeTempRepo();
+  writeFileSync(
+    join(repo, "docs", "backlog.md"),
+    `### BL-099: Padded\n\n- Status: \`completed\`\n`,
+  );
+  const r = resolvePrecondition({ type: "bl_closed", ref: 99 }, { repoRoot: repo });
+  assert.equal(r.ok, true);
 });
 
 // ---------- runPreflight integration with substrate_exempt phase ----------

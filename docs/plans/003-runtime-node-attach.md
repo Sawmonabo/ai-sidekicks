@@ -333,7 +333,7 @@ Plan-003 implementation lands as a sequence of small PRs at Tier 3. Phases 1–4
 - **Step:** Implement a `NodeRegistry` over the canonical SQLite handle (per the migration-runner). A node is "registered to this daemon" iff a `node_trust_state` row (PK `node_id`, `trust_level DEFAULT 'untrusted'`) exists for it; `node_capabilities` rows persist the declared capability set. `register(nodeId, ...)` upserts the `node_trust_state` row; `lookup(nodeId)` reads it back — identity is stable across restart because it is durable SQLite, not in-memory state. On successful registration, emit `runtime_node.registered` through the T2.3 emission helper (payload base + `{capabilities[], nodeVersion, platform}`, Spec-006 line 374). `nodeVersion`/`platform` are carried only on the wire and recovered by event replay — do not add columns for them.
 - **Test (D1):** open a registry, register a node, close + reopen the DB handle, assert the same node identity is recoverable.
 - **Spec coverage:** Spec-003 line 78 (durable runtime-node records), line 90 (node identity stable across reconnect), AC1 (line 101).
-- **Verifies invariant:** I-003-3 (registration records a node without mutating membership).
+- **Verifies invariant:** I-003-3 (daemon-side — registration records a node without mutating membership; the daemon SQLite schema has no `session_memberships` table, so this is a structural defense-in-depth check. The canonical I-003-3 verification — the control-plane attach/detach RPC leaving Postgres `session_memberships` untouched, per the §Invariants verification clause — is P7/P8 in Phase 3, which is why the Phase-2 shipment manifest does not list I-003-3).
 
 ##### T2.2 — Capability service: declaration + update validation + capability_declared/\_updated emission
 
@@ -364,8 +364,8 @@ Plan-003 implementation lands as a sequence of small PRs at Tier 3. Phases 1–4
 - **Files:** `packages/runtime-daemon/src/node/node-registry.ts`, consuming the T2.3 helper.
 - **Step:** On detach, emit `runtime_node.offline` (payload base + `{lastHeartbeatAt, reason}`, Spec-006 line 377) and leave the `node_trust_state` registration row intact so the node can reconnect under the same `node_id`. In Phase 2 the explicit-detach trigger fires `offline` with `reason = explicit_shutdown`; heartbeat-loss `offline` is Phase 3.
 - **Test (D4):** detach a node, assert one `runtime_node.offline` event; reconnect under the same node id, assert the registry resolves the same identity.
-- **Spec coverage:** Spec-003 line 65 (disconnected node keeps membership; reconnect under same identity), line 90 (node identity stable across reconnect).
-- **Verifies invariant:** I-003-3 (detach does not revoke membership).
+- **Spec coverage:** Spec-003 line 65 (reconnect under same identity — a durable-row behavior; the active-membership-intact clause is the I-003-3 invariant verified control-plane-side at P7/P8 in Phase 3), line 90 (node identity stable across reconnect).
+- **Verifies invariant:** I-003-3 (daemon-side — detach does not revoke membership; structural defense-in-depth, as with T2.1. The canonical I-003-3 verification — control-plane attach/detach leaving Postgres `session_memberships` untouched — is P7/P8 in Phase 3, which is why the Phase-2 shipment manifest does not list I-003-3).
 
 ##### T2.6 — Replay does not read monotonic_ns for ordering (regression guard)
 
@@ -377,7 +377,13 @@ Plan-003 implementation lands as a sequence of small PRs at Tier 3. Phases 1–4
 
 ### Phase 3 — Control-Plane Attach + Heartbeat Services + Version-Floor Enforcement
 
-**Precondition:** Phase 2 merged.
+**Precondition:** Phase 2 merged AND [BL-140](../backlog.md) closed. Phase 2 is satisfied by PR #137; BL-140 — the Spec-003 §Default-Behavior heartbeat degraded→offline threshold + sweep-owner amendment — is the blocking governance change, because T3.6/P6 below requires the heartbeat miss-count threshold this plan forbids inventing until Spec-003 specifies it (line 443). The machine-readable `bl_closed` precondition halts Phase 3 dispatch until that amendment lands; the lane is tracked at [cross-plan-dependencies.md §6 NS-32](../architecture/cross-plan-dependencies.md) (blocked-on-completion).
+
+```yaml
+preconditions:
+  - { type: plan_phase, plan: 3, phase: 2, status: merged }
+  - { type: bl_closed, ref: 140 }
+```
 
 **Goal:** Tests P1–P10 go green; cross-version-compatibility surface works end-to-end.
 
@@ -598,6 +604,39 @@ shipped:
         "Spec-006 lines 374-380",
         "Spec-003 AC4 line 104",
         "Spec-003 line 78",
+      ]
+  - phase: 2
+    task: [T2.0, T2.1, T2.2, T2.3, T2.4, T2.5, T2.6]
+    pr: 137
+    sha: da95c62
+    merged_at: 2026-06-03
+    files:
+      - docs/architecture/contracts/api-payload-contracts.md
+      - docs/architecture/cross-plan-dependencies.md
+      - docs/plans/003-runtime-node-attach.md
+      - docs/plans/004-queue-steer-pause-resume.md
+      - docs/plans/006-session-event-taxonomy-and-audit-log.md
+      - docs/plans/008-control-plane-relay-and-session-join.md
+      - packages/contracts/src/__tests__/runtime-node.test.ts
+      - packages/contracts/src/runtime-node.ts
+      - packages/runtime-daemon/src/node/__tests__/node-capability-service.test.ts
+      - packages/runtime-daemon/src/node/__tests__/node-event-emitter.test.ts
+      - packages/runtime-daemon/src/node/__tests__/node-registry.test.ts
+      - packages/runtime-daemon/src/node/node-capability-service.ts
+      - packages/runtime-daemon/src/node/node-event-emitter.ts
+      - packages/runtime-daemon/src/node/node-registry.ts
+    verifies_invariant: [I-003-2, I-003-4]
+    spec_coverage:
+      [
+        "Spec-003 line 57",
+        "Spec-003 line 58",
+        "Spec-003 line 65 (reconnect-under-same-identity clause — a durable-row behavior; the active-membership-intact clause is the I-003-3 invariant verified control-plane-side at P7/P8 in Phase 3)",
+        "Spec-003 line 78",
+        "Spec-003 line 79",
+        "Spec-003 line 90",
+        "Spec-003 line 96",
+        "Spec-006 lines 374, 375, 377, 379, 380",
+        "api-payload-contracts.md §Plan-006 capability payload typing",
       ]
 ```
 
