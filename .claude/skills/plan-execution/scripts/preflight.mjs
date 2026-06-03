@@ -417,6 +417,22 @@ export function extractBacklogItemSection(source, blId) {
   return lines.slice(start, end).join("\n");
 }
 
+// Judge whether a backlog item's section (as returned by
+// extractBacklogItemSection) represents work that actually landed: its Status
+// line must read `completed`. Returns { ok: true } or { ok: false, reason }
+// where reason is "unparseable" or the lowercased non-completed status. Shared
+// by the bl_closed resolver's active-backlog AND archive paths so the two
+// cannot drift — the archive is NOT a completed-only location (e.g. BL-136 is
+// `withdrawn` there), so heading presence in the archive must never by itself
+// imply the dependency closed (Codex P2 on PR #138).
+function judgeBacklogCompletion(section) {
+  const statusMatch = section.match(/^[-*]\s*Status:\s*`?(\w+)`?/m);
+  if (!statusMatch) return { ok: false, reason: "unparseable" };
+  const status = statusMatch[1].toLowerCase();
+  if (status === "completed") return { ok: true };
+  return { ok: false, reason: status };
+}
+
 // Extract the set of task ids shipped for a given phase from the parsed
 // manifest. Single-string `task` and array-form `task` (legacy multi-task
 // PRs predating NS-02) both contribute their ids. Returns a Set.
@@ -2093,10 +2109,13 @@ export function resolvePrecondition(
       // unknowable now, and the threshold value is a spec value, not
       // ADR-worthy). The honest machine-readable primitive that exists at
       // declaration time is the backlog item itself — Codex named it a "backlog
-      // gate". ok:true iff BL-NNN is `completed` in docs/backlog.md OR has been
-      // swept to docs/archive/backlog-archive.md (the canonical closed-location
-      // per the CLAUDE.md backlog discipline); any open state (todo /
-      // in_progress / blocked) or an unknown BL fails closed.
+      // gate". ok:true iff BL-NNN's Status reads `completed` — from
+      // docs/backlog.md while the item is active, else from the archive
+      // (docs/archive/backlog-archive.md) where completed items are swept per
+      // the CLAUDE.md backlog discipline. The archive Status is re-parsed, not
+      // trusted on presence: any open state (todo / in_progress / blocked), a
+      // non-completed archived state (e.g. withdrawn / superseded), an
+      // unparseable Status, or an unknown BL fails closed.
       const blId = `BL-${String(entry.ref).padStart(3, "0")}`;
       const backlogPath = resolve(repoRoot, "docs", "backlog.md");
       let backlog;
@@ -2107,22 +2126,24 @@ export function resolvePrecondition(
       }
       const activeSection = extractBacklogItemSection(backlog, blId);
       if (activeSection !== null) {
-        const statusMatch = activeSection.match(/^[-*]\s*Status:\s*`?(\w+)`?/m);
-        if (!statusMatch) {
+        const verdict = judgeBacklogCompletion(activeSection);
+        if (verdict.ok) return { ok: true };
+        if (verdict.reason === "unparseable") {
           return {
             ok: false,
             halt: `${blId} found in docs/backlog.md but its Status line is unparseable; cannot evaluate bl_closed`,
           };
         }
-        const status = statusMatch[1].toLowerCase();
-        if (status === "completed") return { ok: true };
         return {
           ok: false,
-          halt: `${blId} is '${status}' in docs/backlog.md, not 'completed' — the governance change this phase depends on has not landed`,
+          halt: `${blId} is '${verdict.reason}' in docs/backlog.md, not 'completed' — the governance change this phase depends on has not landed`,
         };
       }
-      // Not in the active backlog → check the archive (completed items are
-      // swept there per the backlog discipline; presence there means closed).
+      // Not in the active backlog → check the archive. Completed items are swept
+      // there per the CLAUDE.md backlog discipline, but the archive is NOT
+      // completed-only (withdrawn / superseded items live there too), so the
+      // Status is re-judged with the same rigor as the active path — presence
+      // alone must never unblock (Codex P2 on PR #138).
       const archivePath = resolve(repoRoot, "docs", "archive", "backlog-archive.md");
       let archive = "";
       try {
@@ -2130,7 +2151,21 @@ export function resolvePrecondition(
       } catch {
         // Archive absent is not fatal — fall through to the not-found halt.
       }
-      if (extractBacklogItemSection(archive, blId) !== null) return { ok: true };
+      const archivedSection = extractBacklogItemSection(archive, blId);
+      if (archivedSection !== null) {
+        const verdict = judgeBacklogCompletion(archivedSection);
+        if (verdict.ok) return { ok: true };
+        if (verdict.reason === "unparseable") {
+          return {
+            ok: false,
+            halt: `${blId} found in docs/archive/backlog-archive.md but its Status line is unparseable; cannot evaluate bl_closed`,
+          };
+        }
+        return {
+          ok: false,
+          halt: `${blId} is '${verdict.reason}' in the archive (docs/archive/backlog-archive.md), not 'completed' — withdrawn/superseded items are archived but did not land`,
+        };
+      }
       return {
         ok: false,
         halt: `${blId} not found in docs/backlog.md or docs/archive/backlog-archive.md; cannot evaluate bl_closed (mint the backlog item or correct the ref)`,

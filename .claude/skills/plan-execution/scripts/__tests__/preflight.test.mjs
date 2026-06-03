@@ -2389,6 +2389,38 @@ test("bl_closed passes when the BL is absent from active but present in the arch
   assert.equal(r.ok, true);
 });
 
+test("bl_closed fails when the archived item is `withdrawn` (archive is not completed-only)", () => {
+  // Regression for Codex P2 on PR #138: the archive is not a completed-only
+  // location (e.g. BL-136 is `withdrawn` there), so heading presence in the
+  // archive must not unblock — the Status is re-judged with active-path rigor.
+  const repo = makeTempRepo();
+  writeFileSync(join(repo, "docs", "backlog.md"), `# Backlog\n\n(no active items)\n`);
+  mkdirSync(join(repo, "docs", "archive"), { recursive: true });
+  writeFileSync(
+    join(repo, "docs", "archive", "backlog-archive.md"),
+    `#### BL-140: Some amendment (Withdrawn)\n\n- Status: \`withdrawn\`\n`,
+  );
+  const r = resolvePrecondition({ type: "bl_closed", ref: 140 }, { repoRoot: repo });
+  assert.equal(r.ok, false);
+  assert.match(r.halt, /BL-140 is 'withdrawn' in the archive .*not 'completed'/);
+});
+
+test("bl_closed fails when an archived item has no parseable Status (fail-closed)", () => {
+  const repo = makeTempRepo();
+  writeFileSync(join(repo, "docs", "backlog.md"), `# Backlog\n\n(no active items)\n`);
+  mkdirSync(join(repo, "docs", "archive"), { recursive: true });
+  writeFileSync(
+    join(repo, "docs", "archive", "backlog-archive.md"),
+    `#### BL-140: Some amendment\n\n- Owner: \`unassigned\`\n`,
+  );
+  const r = resolvePrecondition({ type: "bl_closed", ref: 140 }, { repoRoot: repo });
+  assert.equal(r.ok, false);
+  assert.match(
+    r.halt,
+    /BL-140 found in docs\/archive\/backlog-archive\.md but its Status line is unparseable/,
+  );
+});
+
 test("bl_closed fails when the BL is missing from both backlog and archive (unknown == fail-closed)", () => {
   const repo = makeTempRepo();
   writeFileSync(
