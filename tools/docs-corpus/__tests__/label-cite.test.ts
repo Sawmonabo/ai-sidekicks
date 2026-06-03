@@ -238,6 +238,47 @@ describe("label-cite — docs-path form (floors label-LESS docs: domain / archit
       cleanup();
     }
   });
+
+  it("FLAGS a multi-segment `docs/architecture/contracts/...md:LL` cite (any-depth)", () => {
+    // The two-segment `architecture/contracts` path is repo-root-resolvable and
+    // MUST be floored. An out-of-range hit is load-bearing: it proves the regex
+    // MATCHED the deep path (an unmatched cite yields 0 violations, which is
+    // indistinguishable from a pass), routing it through checkCite like the
+    // single-segment form. Regression guard for the single-subtree-only regex.
+    const { root, cleanup } = setupRepo({
+      "docs/architecture/contracts/error-contracts.md": FIVE_LINE_DOC,
+      "packages/contracts/src/x.ts":
+        "// code per `docs/architecture/contracts/error-contracts.md:99`.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/contracts/src/x.ts")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("line-out-of-range");
+      expect(violations[0].cite.rawTarget).toBe(
+        "docs/architecture/contracts/error-contracts.md:99",
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("ACCEPTS a multi-segment `docs/...md:LL` cite at a valid in-range line", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/architecture/contracts/error-contracts.md": FIVE_LINE_DOC,
+      "packages/contracts/src/x.ts":
+        "// pinned to `docs/architecture/contracts/error-contracts.md:3`.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/contracts/src/x.ts")]),
+      );
+      expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
 });
 
 describe("label-cite — exclusions (must never flag; required-gate false-positive guard)", () => {
@@ -291,6 +332,13 @@ describe("label-cite — exclusions (must never flag; required-gate false-positi
     // The lookbehind pins `docs/` to a path-segment start, so a vendored
     // node_modules/pkg/docs/readme.md:3 is not mistaken for a governance cite.
     expect(extractFrom("// vendored at node_modules/pkg/docs/readme.md:3 — ignore.\n")).toEqual([]);
+  });
+
+  it("does NOT match an in-package `docs/` dir (src/docs/y.md:5) — only repo-root docs/", () => {
+    // Same lookbehind: a `docs/` dir inside a package is preceded by `/`, so it
+    // is not the repo-root governance corpus. The any-depth widening floors
+    // repo-root `docs/a/b/x.md` but must still reject this package-local path.
+    expect(extractFrom("// generated note at src/docs/guide.md:5 — package-local.\n")).toEqual([]);
   });
 
   it("does NOT match identifier / RFC / backlog noise", () => {

@@ -37,10 +37,12 @@
 //       – BARE-BASENAME path cites (`api-payload-contracts.md:120`, no `docs/`
 //         prefix): basename → path resolution is ambiguous (`template.md` exists
 //         in several subtrees), so it cannot be made zero-FP in a required gate.
-//       – RELATIVE / DEEP-NESTED `docs/` paths (`../docs/x.md`, `docs/a/b/x.md`):
-//         neither matches the segment-start single-subtree shape, so both fall
-//         through here — 0 instances today; Layer-B's basename grep catches them
-//         regardless of path prefix.
+//       – RELATIVE `docs/` paths (`../docs/x.md:5`) and in-package `docs/` dirs
+//         (`src/docs/y.md:5`): not repo-root-resolvable, and the lookbehind
+//         rejects the leading `/`, so they fall through to Layer-B's basename
+//         grep (which catches them regardless of prefix). A repo-root
+//         `docs/…md:LL` of ANY depth — incl. `docs/architecture/contracts/…` —
+//         IS floored above and never reaches this layer.
 //       – SEMANTIC line shift (below) — no static check can see it.
 // This is the repo's own CAT-06 (deterministic floor) / CAT-07 (audit-only
 // residual) split; see docs/operations/failure-mode-catalog.md.
@@ -82,16 +84,22 @@ const defaultReader: FileContentReader = (absolutePath) => readFileSync(absolute
 const LABEL_CITE_RE = /\b(Spec|Plan|ADR)-(\d{3}):(\d+(?:\s*[,-]\s*\d+)*)/g;
 
 // Docs-path form: a repo-root-relative governance path with a line suffix,
-// `docs/<subtree>/<file>.md:LL` (e.g. `docs/domain/session-model.md:61-77`).
-// The negative lookbehind `(?<![\w/.-])` pins `docs/` to a path-segment START —
-// a backtick / space / `(` before it matches, but a nested
-// `node_modules/x/docs/y.md:3` (preceded by `/`) does NOT, and a package-relative
-// ref with no `docs/` root is never reached. Capture 1 is the path; capture 2 is
-// the same number-list tail as the label form. The subtree segment is lowercase
-// (`specs`, `domain`, `architecture`, …); the filename allows the `NNN-kebab`
-// and `dotted.name` shapes the corpus uses.
+// `docs/<subtree…>/<file>.md:LL` — ANY depth under the repo-root `docs/`
+// (`docs/domain/session-model.md:61-77`, and the two-segment
+// `docs/architecture/contracts/error-contracts.md:266`). The negative lookbehind
+// `(?<![\w/.-])` pins `docs/` to the repo-ROOT: a backtick / space / `(` before
+// it matches, but a nested `node_modules/x/docs/y.md:3`, a relative
+// `../docs/x.md:5`, and an in-package `src/docs/y.md:5` (all preceded by `/`)
+// do NOT, and a package-relative ref with no `docs/` root is never reached.
+// `(?:[a-z][a-z-]*\/)*` accepts zero-or-more lowercase path segments, so every
+// repo-root `docs/…md:LL` resolves — single-subtree, multi-subtree
+// (`architecture/contracts`), or a top-level `docs/<file>.md`. All resolve
+// cleanly from repo root, so the match stays zero-FP regardless of depth.
+// Capture 1 is the path; capture 2 is the same number-list tail as the label
+// form. The filename allows the `NNN-kebab` and `dotted.name` shapes the corpus
+// uses.
 const DOCS_PATH_CITE_RE =
-  /(?<![\w/.-])(docs\/[a-z][a-z-]*\/[A-Za-z0-9._-]+\.md):(\d+(?:\s*[,-]\s*\d+)*)/g;
+  /(?<![\w/.-])(docs\/(?:[a-z][a-z-]*\/)*[A-Za-z0-9._-]+\.md):(\d+(?:\s*[,-]\s*\d+)*)/g;
 
 // Memoize the directory listing per absolute governance tree so a file with N
 // label cites does at most one readdir per tree (3 trees total) instead of one
