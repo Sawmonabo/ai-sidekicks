@@ -23,7 +23,11 @@
 // ADR-022 (toolchain — Zod 4.x).
 import { z } from "zod";
 
-import { EventEnvelopeVersionSchema, type EventEnvelopeVersion } from "./event.js";
+import {
+  EVENT_FIELD_MAX_LEN,
+  EventEnvelopeVersionSchema,
+  type EventEnvelopeVersion,
+} from "./event.js";
 import {
   ParticipantIdSchema,
   SessionIdSchema,
@@ -331,7 +335,7 @@ export const RuntimeNodeCapabilityUpdateResponseSchema: z.ZodType<RuntimeNodeCap
 //
 // `healthState` REUSES the hoisted 2-value `RuntimeNodeHealthStateSchema`
 // (online|degraded) declared above — the SHARED daemon-reported health enum
-// whose comment (lines 95-97) reserves it for exactly this surface. It is the
+// whose comment (lines 99-101) reserves it for exactly this surface. It is the
 // daemon's SELF-REPORTED health axis, deliberately NARROWER than the 5-value
 // `NodeState` liveness enum: `offline`/`registering`/`revoked` are NodeState
 // liveness positions a daemon cannot self-report as a heartbeat health value
@@ -353,7 +357,7 @@ export interface RuntimeNodeHeartbeatRequest {
 // equivalence on the type surface).
 //
 // The cast's load-bearing trigger is the single-T `RuntimeNodeHealthStateSchema`
-// member (declared `z.ZodType<RuntimeNodeHealthState>` at line 105 — its `Input`
+// member (declared `z.ZodType<RuntimeNodeHealthState>` at line 109 — its `Input`
 // slot defaults to `unknown`). Because this is a tRPC INPUT surface, that single-
 // T member poisons the composed object's input inference: without the bridge the
 // request's `healthState` input resolves to `unknown`. The ablation diagnostic
@@ -396,10 +400,10 @@ export const RuntimeNodeHeartbeatResponseSchema: z.ZodType<null> = z.null();
 // --------------------------------------------------------------------------
 //
 // Operation-scoped cap for the free-form detach `reason` audit string. Mirrors
-// `RUNTIME_NODE_CAPABILITY_UPDATE_REASON_MAX_LEN` (line 204) and
+// `RUNTIME_NODE_CAPABILITY_UPDATE_REASON_MAX_LEN` (line 208) and
 // `INVITE_REVOKE_REASON_MAX_LEN` (invites.ts:98) — same per-operation
 // convention: each operation owns its OWN reason cap rather than sharing a
-// single package-wide constant. The capability-update comment at lines 200-203
+// single package-wide constant. The capability-update comment at lines 204-207
 // explicitly anticipated this T1.3 constant ("the not-yet-written T1.3 detach
 // `reason`"). The framework body-size cap (owned by Plan-004/Plan-005) is the
 // authoritative limit; this is defense-in-depth at the wire trust boundary.
@@ -424,7 +428,7 @@ export const RUNTIME_NODE_DETACH_REASON_MAX_LEN = 512;
 // `.optional()` infers `string | undefined`, and the interface must match the
 // schema's inferred output for the double-T annotation (see the
 // `exactOptionalPropertyTypes` note at session.ts:252-257 and the identical
-// `reason?: string | undefined` stance at invites.ts:184 / runtime-node.ts:232).
+// `reason?: string | undefined` stance at invites.ts:184 / runtime-node.ts:236).
 
 export interface RuntimeNodeDetachRequest {
   nodeId: NodeId;
@@ -437,7 +441,7 @@ export interface RuntimeNodeDetachRequest {
 // This schema needs NO `as unknown as z.ZodType<T, T>` cast and compiles clean —
 // it is the CONTRAST case to the three cast-bearing request schemas above. Both
 // composed members are double-T: `NodeIdSchema` (`z.ZodType<NodeId, NodeId>`,
-// line 59) and `wireFreeFormString(...).optional()` (`wireFreeFormString`
+// line 63) and `wireFreeFormString(...).optional()` (`wireFreeFormString`
 // returns `z.ZodString`, session.ts:118 — its `Input` slot is `string`, not
 // `unknown`). With no single-T member there is no `unknown`-input slot to poison
 // the composed object's input inference, EVEN THOUGH `reason` is `.optional()` —
@@ -480,10 +484,17 @@ export const RuntimeNodeDetachResponseSchema: z.ZodType<null> = z.null();
 // The canonical exported set of the SEVEN `runtime_node.*` durable event-type
 // names, sourced verbatim from the Runtime Node Lifecycle taxonomy table in
 // docs/specs/006-session-event-taxonomy-and-audit-log.md lines 374-380. This
-// ships the NAME taxonomy for C4 conformance only — the per-event `EventEnvelope`
-// payload schemas (and their registration into the discriminated `EventType`
-// union in event.ts) are a later Plan-003 phase, so these names are deliberately
-// NOT added to that union here.
+// ships the NAME taxonomy for C4 conformance. The per-event payload-SHAPE schemas
+// for the 5 daemon-reachable events (`registered`, `online`, `offline`,
+// `capability_declared`, `capability_updated`) are now authored in Plan-003 Phase 2
+// in the `Runtime-node event PAYLOAD-shape schemas` section BELOW (CP-003-1
+// amendment 2026-06-02; `degraded` / `revoked` remain Phase 3 — no Phase-2
+// producer). What stays the additive Plan-006 Tier 4 follow-up is (a) the
+// REGISTRATION of these names + payloads into the discriminated `SessionEventSchema`
+// / `EventType` union in event.ts, (b) the `EventEnvelope` integrity wrapper
+// (BLAKE3 hash chain + dual signature + RFC 8785 JCS), and (c) binding the
+// canonical `CapabilityDetails` over the interim-opaque capability fields. So the
+// names are still deliberately NOT added to event.ts's union here.
 //
 // Shape mirrors `SESSION_EVENT_TYPES` / `SessionEventType` (event.ts:405-413): a
 // union type alias plus an explicitly-annotated `readonly [...]  as const` tuple.
@@ -508,11 +519,14 @@ export const RuntimeNodeDetachResponseSchema: z.ZodType<null> = z.null();
 // `"runtime_node_lifecycle"`, which is already declared in Plan-001's taxonomy
 // (event.ts:84 type union + event.ts:101 `EventCategorySchema` enum). This file
 // references that category but does NOT redefine it and does NOT add a category-
-// binding map: per CP-003-1 (docs/plans/003-runtime-node-attach.md §Cross-Plan
-// Obligations, lines 77-83), Plan-003 ships the `runtime_node.*` name constants
-// as event-shape stubs while Plan-006 owns the taxonomy registration (the
-// `EventEnvelope` schema, BLAKE3 hash chain, dual-signature mechanics) at Tier 4,
-// against the integrity columns Plan-001 forward-declares.
+// binding map. Per CP-003-1 (docs/plans/003-runtime-node-attach.md §CP-003-1,
+// "Payload-shape ownership" at line 83): Plan-003 owns the `runtime_node.*` name
+// constants AND the per-event payload-SHAPE schemas (Phase 2 ships the 5
+// daemon-reachable shapes BELOW; Phase 3 ships `degraded` / `revoked`). Plan-006
+// Tier 4 owns the discriminated-union REGISTRATION (folding each payload schema
+// into `SessionEventSchema` in event.ts) + the `EventEnvelope` integrity wrapper
+// (BLAKE3 hash chain, dual-signature mechanics, JCS) + binding the canonical
+// `CapabilityDetails`, all against the integrity columns Plan-001 forward-declares.
 export type RuntimeNodeEventName =
   | "runtime_node.registered"
   | "runtime_node.online"
@@ -530,3 +544,314 @@ export const RUNTIME_NODE_EVENT_NAMES: readonly RuntimeNodeEventName[] = [
   "runtime_node.capability_declared",
   "runtime_node.capability_updated",
 ] as const;
+
+// ==========================================================================
+// Runtime-node event PAYLOAD-shape schemas — Plan-003 Phase 2 (CP-003-1).
+// ==========================================================================
+//
+// The Zod object shape of the `EventEnvelope.payload` field for each of the 5
+// DAEMON-REACHABLE `runtime_node.*` events — `registered`, `online`, `offline`,
+// `capability_declared`, `capability_updated` (the events Plan-003 Phase 2's
+// node-registry + capability-service producers actually emit). `degraded` and
+// `revoked` are deferred to Plan-003 Phase 3 (their producers — heartbeat-loss
+// and admin-revoke — are Phase 3; authoring them now would be untested
+// speculative surface). Sourced from the Runtime Node Lifecycle taxonomy table,
+// docs/specs/006-session-event-taxonomy-and-audit-log.md lines 374-380.
+//
+// SCOPE — these schemas validate the PAYLOAD CONTENTS ONLY, not the full
+// envelope: there is no `type` / `category` / `sequence` / `id` / `occurredAt`
+// / `version` / `prev_hash` / `row_hash` / `daemon_signature` here. That
+// integrity wrapper (the `EventEnvelope` schema, BLAKE3 hash chain, dual
+// signature, RFC 8785 JCS serialization) and the registration of these payloads
+// into the discriminated `SessionEventSchema` / `EventType` union in `event.ts`
+// are owned by Plan-006 Tier 4 (CP-003-1; see the `RUNTIME_NODE_EVENT_NAMES`
+// block above). The names are therefore still NOT added to `event.ts`'s union
+// here — only the per-event payload SHAPES land in this phase.
+//
+// EXPORTED (const + interface), unlike `event.ts`'s module-LOCAL
+// `sessionCreatedPayloadSchema` et al. (event.ts:255-275): these have 2+
+// cross-file consumers, so they clear the export bar — (a) Plan-006 Tier 4
+// imports each `*PayloadSchema` to register it into `SessionEventSchema`, and
+// (b) the Phase-2 T2.1-T2.5 daemon producers (`node-registry.ts`,
+// `node-capability-service.ts`) import them to `.parse()`-validate the payload
+// at the emission boundary (the `.parse()` validation seam CP-003-1 mandates,
+// in place of ad-hoc objects). Plan-001's local payload consts were single-file
+// (folded only into the same module's union branches), so they stayed local.
+//
+// TYPING — single-`T` `z.ZodType<T>`, `.strict()`. These are NON-INPUT event
+// payloads: constructed daemon-side and validated at the emission boundary with
+// `.parse()`, never a tRPC request input. So they follow the single-T
+// `RuntimeNodeAttachResponseSchema` (line 178, "response schemas are not tRPC
+// input surfaces") and `event.ts`'s single-T event schemas — NOT the double-T
+// `RuntimeNodeAttachRequestSchema` input idiom. NO `as unknown as` cast is
+// needed even though each composes the branded `NodeIdSchema` / `SessionIdSchema`
+// double-T scalars: the direct precedent is `MembershipSummarySchema`
+// (session.ts:239) — single-T `z.ZodType<T>` over a `.strict()` object composing
+// branded `MembershipIdSchema` / `ParticipantIdSchema`, exported interface, and
+// compiles clean with no cast (so do `SessionSnapshotSchema` / `ChannelSummary-
+// Schema` / `SessionCreateResponseSchema`). The cast on this file's REQUEST
+// schemas is driven by the double-T input-inference slot (it "only poisons input
+// inference on the REQUEST side", line 313), which a single-T payload does not
+// carry — so single-T payloads composing branded ids compose cleanly.
+//
+// Optional interface fields are typed `key?: T | undefined` (not bare `key?:`):
+// Zod's `.optional()` infers `T | undefined`, and with no `as unknown as` cast
+// TypeScript checks interface ↔ inferred-output equality exactly, so the
+// interface must match (same `exactOptionalPropertyTypes` stance as
+// `ChannelSummary.name` at session.ts:267 and lines 225-231 above). `actor` is
+// `.nullable().optional()` → its inferred output is `string | null | undefined`,
+// so the field is `actor?: string | null | undefined` (mirrors `EventEnvelope`'s
+// `actor` at event.ts:211).
+//
+// --------------------------------------------------------------------------
+// Operation-scoped caps for the new free-form payload string fields. Same
+// per-operation convention as `RUNTIME_NODE_CAPABILITY_UPDATE_REASON_MAX_LEN`
+// (line 208) / `RUNTIME_NODE_DETACH_REASON_MAX_LEN` (line 410): each field owns
+// its own cap rather than sharing a single package-wide constant. Co-located at
+// the head of this section (self-contained) rather than each immediately above
+// its consuming schema, since all three are consumed across the factories +
+// schemas below. Defense-in-depth length bounds at the wire/replay trust
+// boundary — the daemon synthesizes these payloads, but event replay re-admits
+// them from durable storage, so producer trust alone is not sufficient.
+// --------------------------------------------------------------------------
+//
+// `nodeVersion` (the node's software RELEASE version, conventionally full semver
+// e.g. "1.4.2") and `platform` (e.g. "darwin-arm64") are bounded free strings,
+// NOT typed enums/`EventEnvelopeVersion` — see the field-type rationale on
+// `RuntimeNodeRegisteredPayloadSchema` below.
+export const RUNTIME_NODE_VERSION_MAX_LEN = 64;
+export const RUNTIME_NODE_PLATFORM_MAX_LEN = 64;
+// The canonical capability identifier (e.g. "provider-driver") carried on
+// `capability_declared` / `capability_updated`.
+export const RUNTIME_NODE_CAPABILITY_KEY_MAX_LEN = 128;
+
+// --------------------------------------------------------------------------
+// Shared base-shape factories (DRY) — spread into each `z.object` below.
+// --------------------------------------------------------------------------
+//
+// Shape-factory functions (NOT shared schema consts) spread into each
+// `z.object({ ...buildXShape(), ... }).strict()`, mirroring `event.ts`'s
+// `buildCommonShape()` (event.ts:217-247): the factory makes accidental drift
+// between sibling schemas harder than re-typing the fields each time. (Zod 4
+// check chains are immutable and safe to share, so a shared const would also be
+// correct — the factory is the established house style here, event.ts:191-199.)
+//
+// FULL LIFECYCLE base — `{sessionId?, nodeId, previousState?, newState, actor?}`.
+// The Spec-006 base payload shared by every `runtime_node.*` LIFECYCLE event
+// (Spec-006:368). `sessionId` is `.optional()` per Spec-006's `sessionId?` base:
+// the daemon always populates it for `runtime_node.*` events (Spec-006:370,
+// "carry the session_id of the attachment they describe"), but the SCHEMA mirrors
+// the spec's optional base. `actor` is the EventEnvelope free-form actor
+// (`participant_id | agent_id | null` per api-payload-contracts.md §EventEnvelope
+// line 760), realized with `wireFreeFormString(...).nullable().optional()` — the
+// SAME wire field as `EventEnvelope.actor` (event.ts:243), so it reuses the
+// shared `EVENT_FIELD_MAX_LEN` cap (a wire field above the 2-consumer hoist bar),
+// NOT a branded `ParticipantId`.
+const buildRuntimeNodeLifecycleBaseShape = () => ({
+  sessionId: SessionIdSchema.optional(),
+  nodeId: NodeIdSchema,
+  previousState: NodeStateSchema.optional(),
+  newState: NodeStateSchema,
+  actor: wireFreeFormString(EVENT_FIELD_MAX_LEN, "RuntimeNodeLifecyclePayload.actor")
+    .nullable()
+    .optional(),
+});
+
+// REDUCED CAPABILITY base — the full base MINUS `previousState` / `newState`.
+// Capability events are NOT `NodeState` transitions: the canonical typed
+// payloads `RuntimeNodeCapabilityDeclaredPayload` / `RuntimeNodeCapabilityUpdated-
+// Payload` (api-payload-contracts.md §Plan-006, lines 729-741) carry NO base /
+// `NodeState` fields at all — only the capability fields. Carrying a base
+// `newState: NodeState` here would additionally COLLIDE with `capability_updated`'s
+// own `previousState` / `newState`, which are `CapabilityDetails` SNAPSHOTS (the
+// interim-opaque record below), not `NodeState` values. So the reduced base
+// keeps only `{sessionId?, nodeId, actor?}`.
+const buildRuntimeNodeCapabilityBaseShape = () => ({
+  sessionId: SessionIdSchema.optional(),
+  nodeId: NodeIdSchema,
+  actor: wireFreeFormString(EVENT_FIELD_MAX_LEN, "RuntimeNodeCapabilityPayload.actor")
+    .nullable()
+    .optional(),
+});
+
+// --------------------------------------------------------------------------
+// runtime_node.registered — base + {capabilities, nodeVersion, platform}.
+// --------------------------------------------------------------------------
+//
+// Spec-006:374 ("base + {capabilities[], nodeVersion, platform}"). Emitted by the
+// T2.1 node-registry when a node is accepted into the roster (Spec-003 §Attach
+// Protocol). Field-type rationale (so reviewers verify, not re-derive):
+//   • `capabilities` = `z.record(z.string(), z.unknown())` — a lossless snapshot
+//     of the declared capability map, mirroring `RuntimeNodeAttachRequest.
+//     capabilities` (line 164) VERBATIM. Departs from Spec-006's informal
+//     `capabilities[]` table gloss (an array notation) in favor of the typed
+//     line-164 record shape, which governs per typed-source-over-table-gloss.
+//     Forward-compatible: Plan-006 Tier 4 can tighten `unknown` → the canonical
+//     `CapabilityDetails` with no SHAPE change.
+//   • `nodeVersion` = bounded free string, NOT `EventEnvelopeVersion` — it is the
+//     node's software RELEASE version (conventionally full semver, e.g. "1.4.2"),
+//     which the MAJOR.MINOR-only `EventEnvelopeVersion` regex (event.ts:124,
+//     /^(0|[1-9]\d*)\.(0|[1-9]\d*)$/) would REJECT. No source pins its format, so
+//     bounded-but-format-unconstrained is the non-lossy call.
+//   • `platform` = bounded free string, NOT an enum — no source enumerates the
+//     platform set, and composite `platform+arch` values (e.g. "darwin-arm64")
+//     must not be rejected.
+export interface RuntimeNodeRegisteredPayload {
+  sessionId?: SessionId | undefined;
+  nodeId: NodeId;
+  previousState?: NodeState | undefined;
+  newState: NodeState;
+  actor?: string | null | undefined;
+  capabilities: Record<string, unknown>;
+  nodeVersion: string;
+  platform: string;
+}
+export const RuntimeNodeRegisteredPayloadSchema: z.ZodType<RuntimeNodeRegisteredPayload> = z
+  .object({
+    ...buildRuntimeNodeLifecycleBaseShape(),
+    // Zod v4 two-arg `z.record(keySchema, valueSchema)` — the one-arg v3 form
+    // mis-types under v4 (matches `RuntimeNodeAttachRequest.capabilities`, line
+    // 164 / `RecordOfUnknownSchema` in session.ts).
+    capabilities: z.record(z.string(), z.unknown()),
+    nodeVersion: wireFreeFormString(
+      RUNTIME_NODE_VERSION_MAX_LEN,
+      "RuntimeNodeRegisteredPayload.nodeVersion",
+    ),
+    platform: wireFreeFormString(
+      RUNTIME_NODE_PLATFORM_MAX_LEN,
+      "RuntimeNodeRegisteredPayload.platform",
+    ),
+  })
+  .strict();
+
+// --------------------------------------------------------------------------
+// runtime_node.online — base (no extension).
+// --------------------------------------------------------------------------
+//
+// Spec-006:375 ("base"). Emitted by the T2.1/T2.2 path only AFTER
+// `runtime_node.capability_declared` succeeds (I-003-2 ordering, Plan-003 §Phase
+// 2). No payload extension — the full lifecycle base is the whole payload.
+export interface RuntimeNodeOnlinePayload {
+  sessionId?: SessionId | undefined;
+  nodeId: NodeId;
+  previousState?: NodeState | undefined;
+  newState: NodeState;
+  actor?: string | null | undefined;
+}
+export const RuntimeNodeOnlinePayloadSchema: z.ZodType<RuntimeNodeOnlinePayload> = z
+  .object({
+    ...buildRuntimeNodeLifecycleBaseShape(),
+  })
+  .strict();
+
+// --------------------------------------------------------------------------
+// runtime_node.offline — base + {lastHeartbeatAt, reason}.
+// --------------------------------------------------------------------------
+//
+// Spec-006:377 ("base + {lastHeartbeatAt, reason ∈ ['heartbeat_lost',
+// 'explicit_shutdown','network_partition']}"). `reason` is authored as the FULL
+// 3-value enum — the COMPLETE contract per Spec-006 — even though Phase 2's T2.5
+// detach producer emits only `explicit_shutdown` (the `heartbeat_lost` /
+// `network_partition` producers are the Phase-3 heartbeat service). Authoring the
+// full enum now keeps the SHAPE stable across phases (Phase 3 adds producers, not
+// a schema change). `lastHeartbeatAt` is ISO 8601 with `{ offset: true }` (RFC
+// 3339 §5.6 numeric offsets), the same datetime convention as `attachedAt` (line
+// 192) / `occurredAt` (event.ts:235).
+export interface RuntimeNodeOfflinePayload {
+  sessionId?: SessionId | undefined;
+  nodeId: NodeId;
+  previousState?: NodeState | undefined;
+  newState: NodeState;
+  actor?: string | null | undefined;
+  lastHeartbeatAt: string;
+  reason: "heartbeat_lost" | "explicit_shutdown" | "network_partition";
+}
+export const RuntimeNodeOfflinePayloadSchema: z.ZodType<RuntimeNodeOfflinePayload> = z
+  .object({
+    ...buildRuntimeNodeLifecycleBaseShape(),
+    lastHeartbeatAt: z.iso.datetime({ offset: true }),
+    reason: z.enum(["heartbeat_lost", "explicit_shutdown", "network_partition"]),
+  })
+  .strict();
+
+// --------------------------------------------------------------------------
+// runtime_node.capability_declared — REDUCED base + {capability, capabilityDetails}.
+// --------------------------------------------------------------------------
+//
+// Spec-006:379 ("base + {capability, capabilityDetails}"). Emitted by the T2.2
+// capability-service when a node declares a new capability after registration.
+//
+// NAMING NOTE — this `RuntimeNodeCapabilityDeclaredPayload` is a SUPERSET of the
+// canonical interface of the same name in api-payload-contracts.md §Plan-006
+// (line 729), which lists the EXTENSION fields only (`capability`,
+// `capabilityDetails`). Our schema = Spec-006's REDUCED base (`{sessionId?,
+// nodeId, actor?}`) + that doc's extension fields; it does not contradict the
+// canonical interface, it carries the base the canonical doc's extension-only
+// listing omits (the canonical doc documents extensions inline, per Spec-006:368).
+//
+// `capabilityDetails` ships as interim-opaque `z.record(z.string(), z.unknown())`
+// — marker `Plan-006-Tier-4-binds-canonical`: the canonical `CapabilityDetails`
+// (`{flags: Record<DriverCapabilityFlag, boolean>; contractVersion: string;
+// tools: NormalizedProviderToolMetadata[]}`, api-payload-contracts.md:721)
+// consumes Plan-005's `provider-driver.ts` types (`DriverCapabilityFlag`,
+// `NormalizedProviderToolMetadata`) which DO NOT EXIST yet. This is an HONEST
+// forward-dependency mirroring the existing loose `capabilities` at line 164, NOT
+// the lazy-`Record` anti-pattern (CP-003-1). Plan-006 Tier 4 EXTENDs by binding
+// the canonical `CapabilityDetails` over this field.
+export interface RuntimeNodeCapabilityDeclaredPayload {
+  sessionId?: SessionId | undefined;
+  nodeId: NodeId;
+  actor?: string | null | undefined;
+  capability: string;
+  capabilityDetails: Record<string, unknown>;
+}
+export const RuntimeNodeCapabilityDeclaredPayloadSchema: z.ZodType<RuntimeNodeCapabilityDeclaredPayload> =
+  z
+    .object({
+      ...buildRuntimeNodeCapabilityBaseShape(),
+      capability: wireFreeFormString(
+        RUNTIME_NODE_CAPABILITY_KEY_MAX_LEN,
+        "RuntimeNodeCapabilityDeclaredPayload.capability",
+      ),
+      // Interim-opaque — Plan-006-Tier-4-binds-canonical `CapabilityDetails`.
+      capabilityDetails: z.record(z.string(), z.unknown()),
+    })
+    .strict();
+
+// --------------------------------------------------------------------------
+// runtime_node.capability_updated — REDUCED base + {capability, previousState, newState}.
+// --------------------------------------------------------------------------
+//
+// Spec-006:380 ("base + {capability, previousState, newState}"). Emitted by the
+// T2.2 capability-service on a capability health/config change. CRITICAL: here
+// `previousState` / `newState` are `CapabilityDetails` SNAPSHOTS (so consumers
+// diff capability snapshots structurally — api-payload-contracts.md:735-740),
+// NOT `NodeState` values. This is exactly why this event uses the REDUCED base:
+// a base `previousState`/`newState: NodeState` would collide with these
+// capability-snapshot fields of the same name. Both ship as interim-opaque
+// `z.record(z.string(), z.unknown())` — marker `Plan-006-Tier-4-binds-canonical`,
+// same honest-forward-dep on Plan-005's absent `provider-driver.ts` types as
+// `capabilityDetails` above.
+export interface RuntimeNodeCapabilityUpdatedPayload {
+  sessionId?: SessionId | undefined;
+  nodeId: NodeId;
+  actor?: string | null | undefined;
+  capability: string;
+  previousState: Record<string, unknown>;
+  newState: Record<string, unknown>;
+}
+export const RuntimeNodeCapabilityUpdatedPayloadSchema: z.ZodType<RuntimeNodeCapabilityUpdatedPayload> =
+  z
+    .object({
+      ...buildRuntimeNodeCapabilityBaseShape(),
+      capability: wireFreeFormString(
+        RUNTIME_NODE_CAPABILITY_KEY_MAX_LEN,
+        "RuntimeNodeCapabilityUpdatedPayload.capability",
+      ),
+      // Interim-opaque CapabilityDetails snapshots — Plan-006-Tier-4-binds-
+      // canonical. `previousState`/`newState` are CAPABILITY snapshots, NOT
+      // `NodeState` (the reason this event uses the reduced base, above).
+      previousState: z.record(z.string(), z.unknown()),
+      newState: z.record(z.string(), z.unknown()),
+    })
+    .strict();
