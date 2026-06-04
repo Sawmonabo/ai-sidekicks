@@ -21,7 +21,7 @@ Constraints already locked by accepted ADRs:
 - [ADR-009](./009-json-rpc-ipc-wire-format.md) — JSON-RPC 2.0 with LSP-style framing for daemon IPC.
 - [ADR-018](./018-cross-version-compatibility.md) — semver `MAJOR.MINOR` floor enforced via `sessions.min_client_version` and `engines` declarations.
 
-The implementer is Claude Opus 4.7 (AI-implementation economics outweigh human-DX arguments per project memory). Multi-year maintenance horizon. Greenfield repo means low reversibility cost _today_ but high cost once Plan-001 ships and subsequent plans bind to the toolchain.
+The implementer is Claude Opus 4.7 (AI-implementation economics outweigh human-DX arguments). Multi-year maintenance horizon. Greenfield repo means low reversibility cost _today_ but high cost once Plan-001 ships and subsequent plans bind to the toolchain.
 
 ## Problem Statement
 
@@ -29,7 +29,7 @@ What workspace, quality, and runtime-driver primitives should V1 lock so Plan-00
 
 ### Trigger
 
-Plan-001 is approved with `Preconditions` checked. Per the project's doc-first rule, code execution requires every governing doc complete; and because primitive choices count as architectural decisions, they need primary-source-cited research before being presented. This ADR is the doc-first artifact that closes the gate.
+Plan-001 is approved with `Preconditions` checked. Per [AGENTS.md](../../AGENTS.md#doc-first-discipline)'s Doc-First Discipline, code execution requires every governing doc complete; and because primitive choices count as architectural decisions, the repo [Citation Standard](../../AGENTS.md#citation-standard) requires primary-source-cited research before they are presented. This ADR is the doc-first artifact that closes the gate.
 
 ---
 
