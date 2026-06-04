@@ -61,7 +61,7 @@ import type {
 } from "@ai-sidekicks/contracts";
 
 import { applyMigrations, type Querier } from "../../sessions/migration-runner.js";
-import { AttachService } from "../attach-service.js";
+import { AttachService, isAtOrAboveFloor } from "../attach-service.js";
 import {
   RuntimeNodeRevokedException,
   RuntimeNodeSessionConflictException,
@@ -151,8 +151,8 @@ async function seedParticipant(querier: Querier, participantId: ParticipantId): 
 }
 
 // `min_client_version` defaults to NULL when `floor` is omitted — the P1
-// permissive case. A non-NULL floor is T3.3's comparison territory and is NOT
-// exercised here.
+// permissive case. Pass a non-NULL `floor` (e.g. "2.0") to exercise the T3.3
+// floor-comparison branch (P2 at/above → read/write; P3 below → read-only).
 async function seedSession(
   querier: Querier,
   sessionId: string,
@@ -457,5 +457,155 @@ describe("AttachService.attach (P10 — revoked re-attach refused, terminal)", (
     const rows = await readAttachments(ctx.querier, NODE_ID);
     expect(rows).toHaveLength(1);
     expect(rows[0]?.state).toBe("revoked");
+  });
+});
+
+// ----------------------------------------------------------------------------
+// P2 — non-NULL floor, client AT/ABOVE floor admits at full read/write
+// (Spec-003 line 53; ADR-018 §Decision #1/#4; readOnly orthogonal to state)
+// ----------------------------------------------------------------------------
+
+describe("AttachService.attach (P2 — client at/above a non-NULL floor → read/write)", () => {
+  beforeEach(async () => {
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    // Floor 2.0. A client at or above it is admitted at full permission.
+    await seedSession(ctx.querier, SESSION_A_ID, "2.0");
+  });
+
+  it("admits a client ABOVE the floor with readOnly=false, state 'registering', row persisted", async () => {
+    const response = await ctx.service.attach(
+      buildAttachRequest({ clientVersion: "2.5" as EventEnvelopeVersion }),
+    );
+
+    // Above the floor → full read/write. `state` is the unchanged liveness axis
+    // (still `registering` per I-003-2), `readOnly` the orthogonal permission
+    // axis (api-payload-contracts.md:496-497).
+    expect(response.readOnly).toBe(false);
+    expect(response.state).toBe("registering");
+
+    const rows = await readAttachments(ctx.querier, NODE_ID);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ state: "registering", client_version: "2.5" });
+  });
+
+  it("admits a client EXACTLY AT the floor with readOnly=false (at-floor is read/write — boundary)", async () => {
+    // The boundary case the `>=` (not `>`) in `isAtOrAboveFloor` is responsible
+    // for: client == floor is at/above, so read/write, NOT read-only.
+    const response = await ctx.service.attach(
+      buildAttachRequest({ clientVersion: "2.0" as EventEnvelopeVersion }),
+    );
+
+    expect(response.readOnly).toBe(false);
+    expect(response.state).toBe("registering");
+  });
+
+  it("admits a client a higher MAJOR but LOWER minor than the floor with readOnly=false (semver-aware, not lexicographic)", async () => {
+    // Floor 2.0; client 10.0 is above it. A lexicographic string compare would
+    // read "10.0" < "2.0" and wrongly flag read-only — this proves the service
+    // path is semver-aware end to end, not just the unit-tested comparator.
+    const response = await ctx.service.attach(
+      buildAttachRequest({ clientVersion: "10.0" as EventEnvelopeVersion }),
+    );
+
+    expect(response.readOnly).toBe(false);
+    expect(response.state).toBe("registering");
+  });
+});
+
+// ----------------------------------------------------------------------------
+// P3 — non-NULL floor, client BELOW floor admits READ-ONLY (I-003-1:
+// admit-in-read-only / never-eject — the node stays joined, reads succeed)
+// ----------------------------------------------------------------------------
+
+describe("AttachService.attach (P3 — client below a non-NULL floor → read-only, still joined)", () => {
+  beforeEach(async () => {
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    // Floor 2.0. A client below it is admitted READ-ONLY, not rejected.
+    await seedSession(ctx.querier, SESSION_A_ID, "2.0");
+  });
+
+  it("ADMITS (does not reject) a below-floor client with readOnly=true — I-003-1 never-eject", async () => {
+    // The attach SUCCEEDS — it does not throw and does not reject. I-003-1 is
+    // admit-in-read-only: a below-floor daemon stays joined; only its permission
+    // axis is downgraded.
+    const response = await ctx.service.attach(
+      buildAttachRequest({ clientVersion: "1.5" as EventEnvelopeVersion }),
+    );
+
+    expect(response.readOnly).toBe(true);
+    // State is UNCHANGED by the read-only verdict — still admitted in
+    // `registering` (readOnly is orthogonal to state, never a NodeState value).
+    expect(response.state).toBe("registering");
+    expect(response.attachmentId).toMatch(/[0-9a-f-]{36}/i);
+  });
+
+  it("leaves the below-floor node JOINED — the row is persisted and a read path succeeds", async () => {
+    await ctx.service.attach(buildAttachRequest({ clientVersion: "1.5" as EventEnvelopeVersion }));
+
+    // "Node stays joined and reads succeed" (Plan-003 T3.3 §Step / P3): the
+    // attachment row is present with the reported (below-floor) version and is
+    // readable — admission persisted exactly one active row, no rejection.
+    const rows = await readAttachments(ctx.querier, NODE_ID);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      session_id: SESSION_A_ID,
+      state: "registering",
+      client_version: "1.5",
+    });
+  });
+
+  it("flags read-only for a client with the SAME major but a lower minor than the floor (1.5 < 2.0... and 1.99 < 2.0)", async () => {
+    // Floor 2.0, client 1.99: same-major-lower-or-different — below the floor, so
+    // read-only. Guards the minor-vs-major precedence at the service boundary.
+    const response = await ctx.service.attach(
+      buildAttachRequest({ clientVersion: "1.99" as EventEnvelopeVersion }),
+    );
+
+    expect(response.readOnly).toBe(true);
+    expect(response.state).toBe("registering");
+  });
+});
+
+// ----------------------------------------------------------------------------
+// isAtOrAboveFloor — the semver-aware MAJOR.MINOR comparator, unit-tested
+// directly. This is the hardened proof it is NOT lexicographic (ADR-018
+// §Decision #1; api-payload-contracts.md:490): as raw strings "10.0" < "2.0"
+// and "1.10" < "1.5", both WRONG — the comparator must report the opposite.
+// ----------------------------------------------------------------------------
+
+describe("isAtOrAboveFloor — semver-aware MAJOR.MINOR comparison (not lexicographic)", () => {
+  it.each<readonly [clientVersion: string, floor: string, expected: boolean, why: string]>([
+    // [clientVersion, floor, expected, why]
+    ["2.0", "2.0", true, "equal → at floor (>= is inclusive)"],
+    ["2.1", "2.0", true, "same major, higher minor → above"],
+    ["2.0", "2.1", false, "same major, lower minor → below"],
+    ["3.0", "2.9", true, "higher major dominates a lower minor"],
+    ["10.0", "2.0", true, "MAJOR 10 > 2 — lexicographic '10.0' < '2.0' is the trap"],
+    ["2.0", "10.0", false, "MAJOR 2 < 10 — symmetric trap, must be below"],
+    ["1.10", "1.5", true, "MINOR 10 > 5 — lexicographic '1.10' < '1.5' is the trap"],
+    ["1.5", "1.10", false, "MINOR 5 < 10 — symmetric trap, must be below"],
+    ["2.0", "1.99", true, "higher major beats a much larger floor minor"],
+    ["1.99", "2.0", false, "lower major loses despite a much larger own minor"],
+    ["0.1", "0.0", true, "zero major boundary, higher minor → above"],
+    ["0.0", "0.1", false, "zero major boundary, lower minor → below"],
+  ])("isAtOrAboveFloor(%j, %j) === %s — %s", (clientVersion, floor, expected) => {
+    expect(isAtOrAboveFloor(clientVersion, floor)).toBe(expected);
+  });
+
+  it("throws (fail-loud) on a malformed floor rather than silently returning a verdict", () => {
+    // The floor is read from `sessions.min_client_version` via a row-shape cast,
+    // not a runtime parse, and the column has NO CHECK constraint — so a
+    // malformed floor is a possible data-integrity violation. A tolerant parse
+    // would make NaN comparisons return false (fail-safe read-only), silently
+    // MASKING the corruption as a fleet-wide read-only downgrade; the comparator
+    // throws instead so the corruption surfaces (see isAtOrAboveFloor JSDoc).
+    expect(() => isAtOrAboveFloor("1.0", "not-a-version")).toThrow(/MAJOR\.MINOR/);
+    expect(() => isAtOrAboveFloor("1.0", "1")).toThrow(/MAJOR\.MINOR/);
+    expect(() => isAtOrAboveFloor("1.0", "1.0.0")).toThrow(/MAJOR\.MINOR/);
+    expect(() => isAtOrAboveFloor("1.0", "01.0")).toThrow(/MAJOR\.MINOR/);
+  });
+
+  it("throws (fail-loud) on a malformed clientVersion operand too", () => {
+    expect(() => isAtOrAboveFloor("garbage", "2.0")).toThrow(/MAJOR\.MINOR/);
   });
 });

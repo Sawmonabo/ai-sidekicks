@@ -1,9 +1,9 @@
-// AttachService — Plan-003 Phase 3 (T3.2, runtime-node attach flow).
+// AttachService — Plan-003 Phase 3 (T3.2 + T3.3, runtime-node attach flow).
 //
-// Responsibilities (this task, T3.2 — the floor-INDEPENDENT attach mechanics):
-//   * attach — admit a runtime node into a session by writing
-//     `runtime_node_attachments`, enforcing the load-bearing Plan-003
-//     invariants:
+// Responsibilities:
+//   * attach (T3.2 — the floor-INDEPENDENT attach mechanics) — admit a runtime
+//     node into a session by writing `runtime_node_attachments`, enforcing the
+//     load-bearing Plan-003 invariants:
 //       - I-003-3 (attach is separate from membership): the attach path writes
 //         ONLY `runtime_node_attachments`. It acquires NO `session_memberships`
 //         lock and issues NO INSERT/UPDATE/DELETE against `session_memberships`
@@ -17,33 +17,36 @@
 //         `23505`, caught and rethrown as a typed CONFLICT (Plan-003 §Invariants
 //         I-003-5; Spec-003 line 118 — "one active session at a time in v1").
 //
-// NULL-floor admission (Spec-003 §Required Behavior line 53). At attach the
-// control plane verifies the daemon's reported version against the session's
-// `sessions.min_client_version` floor; a NULL floor permits ALL daemons
-// unconditionally. T3.2 implements that NULL-floor branch only: a NULL floor
-// admits any `clientVersion` at full (not read-only) permission, so the
-// response's derived `readOnly` flag is `false`.
+//   * floor comparison (T3.3 — the version-floor permission verdict) — derive
+//     the response `readOnly` flag from the daemon's reported `clientVersion`
+//     versus the session's `sessions.min_client_version` floor:
+//       - I-003-1 (admit-in-read-only / never-eject): a below-floor daemon is
+//         ADMITTED, not rejected — it stays joined (state `registering`, the
+//         SAME row) and its reads succeed; only the derived `readOnly` flag is
+//         `true` (Spec-003 line 53; ADR-018 §Decision #4; Plan-003 §Invariants
+//         I-003-1; api-payload-contracts.md:490, :497).
 //
-// SCOPE BOUNDARY — the NON-NULL floor comparison is T3.3, not this task. T3.3
-// owns "compare the daemon's reported version against a non-NULL
-// `sessions.min_client_version`; at/above floor → full attachment, below floor →
-// admit read-only" — i.e. the floor comparison + the `readOnly` derivation. The
-// semver-aware MAJOR.MINOR comparison (ADR-018 §Decision #1 — NOT lexicographic)
-// is exactly the load-bearing logic T3.3 must get right, so T3.2 deliberately
-// does NOT pre-build it: the floor verdict is isolated behind `#deriveReadOnly`,
-// which handles the NULL case and throws an explicit deferral guard for a
-// non-NULL floor (an honest forward-dep mirroring CP-003-1 interim-opaque fields,
-// NOT a silent wrong answer that would admit a below-floor daemon as
-// `readOnly: false`). T3.3 EXTENDS `#deriveReadOnly` with the comparison;
-// T3.4 then CONSUMES that below-floor verdict to emit the typed structured
-// `VERSION_FLOOR_EXCEEDED` payload on the write path (its `contracts/src/error.ts`
-// home + the `AisWireException` base-class refactor are T3.4's). The upsert +
-// refusal mechanics here are already floor-independent and need no change.
-// T3.3/T3.5/T3.6/T3.7 likewise EXTEND this class (readOnly derivation /
-// multiple nodes / heartbeat + presence / detach + revoke) — this file is their
-// clean foundation, but ships ONLY T3.2's scope. (Capability declaration is NOT
-// in this list: it is a separate daemon-side Plan-003 Phase 2 service, not an
-// `AttachService` extension — see the `registering -> online` note below.)
+// Floor → `readOnly` derivation (Spec-003 §Required Behavior line 53). At attach
+// the control plane verifies the daemon's reported version against the session's
+// `sessions.min_client_version` floor. `readOnly` is the PERMISSION axis,
+// ORTHOGONAL to the liveness `state` (a node may be `online` + `readOnly`;
+// api-payload-contracts.md:496-497) — the floor verdict never changes the
+// persisted state or the admission decision, only the flag. Two branches, both
+// in `#deriveReadOnly`:
+//   - NULL floor (T3.2/P1) → `readOnly: false`: the session imposes no floor, so
+//     all daemons are admitted at full read/write permission.
+//   - Non-NULL floor (T3.3/P2,P3) → `readOnly = !isAtOrAboveFloor(...)`: at/above
+//     the floor → `false` (read/write); strictly below → `true` (read-only,
+//     still joined). The comparison is semver-aware MAJOR.MINOR, NOT
+//     lexicographic (ADR-018 §Decision #1) — see the `isAtOrAboveFloor` helper.
+//
+// T3.4 later CONSUMES the below-floor (`readOnly: true`) verdict to emit the
+// typed structured `VERSION_FLOOR_EXCEEDED` payload on the write path (its
+// `contracts/src/error.ts` home + the `AisWireException` base-class refactor are
+// T3.4's). T3.5/T3.6/T3.7 EXTEND this class (multiple nodes / heartbeat +
+// presence / detach + revoke). Capability declaration is NOT an `AttachService`
+// extension: it is a separate daemon-side Plan-003 Phase 2 service (see the
+// `registering -> online` note below).
 //
 // State on attach is `registering`, NOT `online`. Per I-003-2 a newly attached
 // node defaults to non-online until capability declaration succeeds
@@ -88,7 +91,10 @@ import type {
   RuntimeNodeAttachRequest,
   RuntimeNodeAttachResponse,
 } from "@ai-sidekicks/contracts";
-import { RuntimeNodeAttachRequestSchema } from "@ai-sidekicks/contracts";
+import {
+  EVENT_ENVELOPE_VERSION_PATTERN,
+  RuntimeNodeAttachRequestSchema,
+} from "@ai-sidekicks/contracts";
 import type { Pool } from "pg";
 
 import { createPgPoolQuerier } from "../sessions/session-directory-service.js";
@@ -162,6 +168,75 @@ function isActiveAttachmentUniqueViolation(error: unknown): boolean {
   );
 }
 
+// Parse a strict "MAJOR.MINOR" string into its two integer segments. Validates
+// against the canonical `EVENT_ENVELOPE_VERSION_PATTERN` (contracts/event.ts) —
+// the SAME regex the wire brand enforces — and throws on a malformed operand
+// rather than returning a sentinel.
+function parseMajorMinor(version: string): readonly [major: number, minor: number] {
+  // Match with capture groups rather than `.test()` + `.split(".")`: one scan,
+  // and the matched groups are the two integer segments directly. A non-match is
+  // a malformed operand — throw (see `isAtOrAboveFloor` JSDoc for why fail-loud).
+  const match = EVENT_ENVELOPE_VERSION_PATTERN.exec(version);
+  const majorText = match?.[1];
+  const minorText = match?.[2];
+  if (majorText === undefined || minorText === undefined) {
+    throw new Error(
+      `AttachService: version '${version}' is not a valid "MAJOR.MINOR" string (per ADR-018 §Decision #1 / EVENT_ENVELOPE_VERSION_PATTERN); cannot perform a floor comparison.`,
+    );
+  }
+  // The pattern's two capture groups each match a non-negative integer with no
+  // leading zeros, so `Number.parseInt(_, 10)` is exact and total here.
+  return [Number.parseInt(majorText, 10), Number.parseInt(minorText, 10)] as const;
+}
+
+/**
+ * Compare a daemon's reported `clientVersion` against a session's
+ * `min_client_version` floor and report whether it meets or exceeds the floor.
+ * Returns `true` iff `clientVersion >= floor`.
+ *
+ * The comparison is semver-aware MAJOR.MINOR — MAJOR dominates, MINOR breaks the
+ * tie — NOT lexicographic (api-payload-contracts.md:490; ADR-018 §Decision #1,
+ * where MAJOR bumps are breaking and MINORs are additive-only). Lexicographic
+ * string comparison is the trap this guards against: as strings `"10.0" < "2.0"`
+ * and `"1.10" < "1.5"`, both WRONG. We parse each operand to integer segments and
+ * compare numerically: at/above floor → `true`; strictly below → `false`.
+ *
+ * FAIL-LOUD on malformed input (hardened, deliberate). `clientVersion` is
+ * brand-validated upstream (`RuntimeNodeAttachRequestSchema.parse` runs it through
+ * `EventEnvelopeVersionSchema`), so the only operand that can be malformed in the
+ * live path is the `floor`: it is read from `sessions.min_client_version` via a
+ * row-shape CAST, not a runtime parse, and that column is a bare `TEXT` with NO
+ * CHECK constraint (0001-initial.ts:104) and no validating write path today. A
+ * corrupt floor is therefore a control-plane DATA-INTEGRITY violation. This
+ * comparator does NOT assume the floor is well-formed: `parseMajorMinor` throws.
+ *
+ * The rationale is surfacing-vs-masking, NOT a security inversion. A tolerant
+ * parse of a corrupt floor would be fail-safe RESTRICTIVE, not permissive:
+ * `Number("garbage") -> NaN`, `clientMajor > NaN` is `false`, so the verdict is
+ * `false` -> `readOnly = true`. Read-only is the SAFE direction — the corrupt
+ * floor would not over-grant. The hazard is the SILENCE: a tolerant parse would
+ * treat the session as if it carried an unsatisfiable floor and flag every client
+ * read-only with no signal that the stored floor is garbage. Throwing instead
+ * surfaces the corruption (rolls the attach transaction back -> a 500 the
+ * operator sees) rather than masking a data-integrity bug as a fleet-wide
+ * read-only downgrade.
+ *
+ * `floor` is typed plain `string` (not `EventEnvelopeVersion`): it is an
+ * unbranded DB value, so asserting the brand would claim a guarantee it does not
+ * carry — the runtime regex check is the real guard.
+ *
+ * @param clientVersion the daemon's reported attach version ("MAJOR.MINOR").
+ * @param floor the session's non-NULL `min_client_version` ("MAJOR.MINOR").
+ */
+export function isAtOrAboveFloor(clientVersion: string, floor: string): boolean {
+  const [clientMajor, clientMinor] = parseMajorMinor(clientVersion);
+  const [floorMajor, floorMinor] = parseMajorMinor(floor);
+  if (clientMajor !== floorMajor) {
+    return clientMajor > floorMajor;
+  }
+  return clientMinor >= floorMinor;
+}
+
 export class AttachService {
   readonly #querier: Querier;
 
@@ -185,9 +260,10 @@ export class AttachService {
    * Transaction sequence (the revoked-state read takes a `FOR UPDATE` row lock,
    * so a concurrent revoke (T3.7) and this attach serialize on that row and the
    * terminal-revocation guard cannot be clobbered — see step 2's lock rationale):
-   *   1. Resolve the session floor (`sessions.min_client_version`). A NULL floor
-   *      admits unconditionally (T3.2 scope); the readOnly verdict for a non-NULL
-   *      floor is derived by `#deriveReadOnly`, whose comparison T3.3 owns.
+   *   1. Resolve the session floor (`sessions.min_client_version`) and derive the
+   *      `readOnly` verdict via `#deriveReadOnly`: a NULL floor admits at full
+   *      permission (T3.2/P1); a non-NULL floor is compared semver-aware against
+   *      `clientVersion`, below-floor → `readOnly: true` (T3.3/P2,P3, I-003-1).
    *   2. Read the existing `(node_id, session_id)` row's state `FOR UPDATE`, if
    *      any. If it is `revoked`, throw — terminal, never reactivated. The lock
    *      serializes against a concurrent revoke so the guard cannot be raced.
@@ -331,34 +407,32 @@ export class AttachService {
 
   /**
    * Derive the response `readOnly` flag from the session floor and the daemon's
-   * reported version.
+   * reported version. `readOnly` is the PERMISSION axis — orthogonal to the
+   * liveness `state` (api-payload-contracts.md:496-497). This method NEVER
+   * changes the persisted state or the admission decision; a below-floor node is
+   * still admitted (still `registering`, still joined, the SAME row is written),
+   * it is merely flagged read-only. Admit-in-read-only / never-eject is I-003-1.
    *
-   * T3.2 scope: a NULL floor permits all daemons (Spec-003 line 53), so the node
-   * is admitted at FULL permission — `readOnly` is `false`.
+   *   - NULL floor → `false`: the session imposes no floor, so all daemons are
+   *     admitted at full read/write permission (Spec-003 line 53; T3.2/P1).
+   *   - Non-NULL floor → `!isAtOrAboveFloor(clientVersion, floor)`: at/above the
+   *     floor → `false` (full read/write; P2); strictly below → `true` (admitted
+   *     read-only — the node stays joined and reads succeed; P3 / I-003-1 /
+   *     ADR-018 §Decision #4). The comparison is semver-aware MAJOR.MINOR, NOT
+   *     lexicographic (ADR-018 §Decision #1) — see `isAtOrAboveFloor`.
    *
-   * A NON-NULL floor requires the semver-aware MAJOR.MINOR comparison (ADR-018
-   * §Decision #1 — NOT lexicographic) that Plan-003 T3.3 owns. T3.2 does not
-   * pre-build it: returning `false` for a non-NULL floor would silently admit a
-   * below-floor daemon at full permission (the exact ADR-018 graceful-
-   * degradation violation I-003-1 exists to prevent), so the non-NULL branch
-   * throws an explicit deferral guard instead. T3.3 EXTENDS this method with the
-   * comparison (at/above floor → `false`; below floor → `true`, admitted read-
-   * only); T3.4 then consumes that below-floor verdict to emit the typed
-   * `VERSION_FLOOR_EXCEEDED` payload on the write path. This is an honest
-   * forward-dep, mirroring the CP-003-1 interim-opaque pattern — not a silent
-   * wrong answer.
+   * T3.4 later CONSUMES the below-floor (`readOnly: true`) verdict to emit the
+   * typed `VERSION_FLOOR_EXCEEDED` payload on the write path; that emit is not
+   * this method's concern.
    *
    * @param sessionFloor the session's `min_client_version` (`null` = no floor).
-   * @param clientVersion the daemon's reported attach version (unused in the
-   *   T3.2 NULL branch; consumed by T3.3's comparison).
+   * @param clientVersion the daemon's reported attach version ("MAJOR.MINOR").
    */
   #deriveReadOnly(sessionFloor: string | null, clientVersion: string): boolean {
     if (sessionFloor === null) {
       return false;
     }
-    throw new Error(
-      `AttachService.attach: non-NULL session floor '${sessionFloor}' (vs client '${clientVersion}') requires the semver-aware floor comparison owned by Plan-003 T3.3 (ADR-018 §Decision #1); T3.2 implements only the NULL-floor permissive admission path.`,
-    );
+    return !isAtOrAboveFloor(clientVersion, sessionFloor);
   }
 }
 
