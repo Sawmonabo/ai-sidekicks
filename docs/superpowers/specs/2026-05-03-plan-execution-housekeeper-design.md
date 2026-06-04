@@ -202,7 +202,7 @@ After every plan-execution PR merges into `develop`, the user has been doing thi
 4. Recolor matching mermaid node by changing the class attachment: `:::ready` → `:::completed`
 5. Re-derive "Recommended first wave" prose for the new ready set
 6. Repair any inbound `:NNN` line cites in downstream docs that drifted from row insertion/deletion
-7. Re-verify any set-quantifier claims affected (per `feedback_set_quantifier_reverification`)
+7. Re-verify any set-quantifier claims affected
 8. Open a cleanup PR, run Codex review, merge
 
 Steps 1–4 are mechanical. Steps 5–7 are semantic (require _understanding_ the new state). Step 8 is workflow overhead.
@@ -210,7 +210,7 @@ Steps 1–4 are mechanical. Steps 5–7 are semantic (require _understanding_ th
 ### 1.3 Why fix this now
 
 - The gap recurs on every plan-execution PR (already burned cycles on PR #27, PR #29 cleanup loops).
-- Manual housekeeping is precisely the failure mode `feedback_set_quantifier_reverification` and `feedback_canonicalization_sweep_completeness` were written to prevent — but a feedback memory is not a process gate. A process gate is.
+- Manual housekeeping is precisely the failure mode the set-quantifier-reverification and canonicalization-sweep disciplines were written to prevent — but a discipline note is not a process gate. A process gate is.
 - Q1 of the brainstorm locked: housekeeping must ship in the **same PR** as the plan-execution work. Separate cleanup PRs are themselves a maintenance burden and create a temporary "in-flight stale" state on `develop`.
 - The next plan-execution PR (NS-01 / Plan-024 Phase 1) is queued; closing this gap before NS-04 dispatches means avoiding 5+ more manual cleanups across the Plan-024 chain.
 
@@ -1412,10 +1412,10 @@ These should be resolved during the implementation plan (writing-plans skill, ne
 - **Subagent exit-state taxonomy (the 4 canonical states; spec introduces NO new states):** `.claude/skills/plan-execution/references/failure-modes.md` § DONE / DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED.
 - **Plan-execution skill v2 migration (the gap-introducing PR):** PR #28, merged 2026-05-03
 - **Pre-commit infrastructure baseline:** `lefthook.yml` (verified 2026-05-03; no `.agents/tmp/` prune job present)
-- **Feedback memories the housekeeper operationalizes:**
-  - `feedback_set_quantifier_reverification.md` — re-derive quantifying claims when sets change
-  - `feedback_canonicalization_sweep_completeness.md` — same-class sweep when relocating any referenced string
-  - `feedback_verify_not_recall.md` — infrastructure beats discipline; wire as hooks
+- **Disciplines the housekeeper operationalizes:**
+  - Re-derive quantifying claims when sets change
+  - Same-class sweep when relocating any referenced string
+  - Infrastructure beats discipline; wire as hooks
 - **Recent stale-reference incidents the housekeeper would have prevented:**
   - PR #24 — 4 Codex rounds on archival-rename sweep
   - PR #27 commit `00ec528` — added NS-22 to ready set without re-checking "shares no files" claim; Codex caught the falsehood

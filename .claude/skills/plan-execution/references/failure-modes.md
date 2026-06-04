@@ -92,7 +92,7 @@ Real improvement that does not block correctness or contract: citation drift (an
 
 Routing: re-dispatch the implementer with the consolidated ACTIONABLE+POLISH list (across all three reviewers); implementer addresses each entry; orchestrator re-runs the review pipeline. Loop until the next reviewer pass returns no POLISH or ACTIONABLE.
 
-The PR is the cheapest moment to fix POLISH — context is loaded, mental model is hot. Deferring POLISH to a follow-up PR pays a context-reload cost and risks the polish rotting in the backlog. Under AI-implementer economics (per `feedback_review_label_framework.md`), the round-trip cost is tokens, not human attention; fix-in-PR is the right default.
+The PR is the cheapest moment to fix POLISH — context is loaded, mental model is hot. Deferring POLISH to a follow-up PR pays a context-reload cost and risks the polish rotting in the backlog. Under AI-implementer economics, the round-trip cost is tokens, not human attention; fix-in-PR is the right default.
 
 ### ACTIONABLE — round-trip immediately, must fix to merge
 
@@ -100,7 +100,7 @@ The finding cannot ship as-is.
 
 Examples:
 
-- **Spec**: missing required behavior, ADR violation, wrong field shape, missing AC test, citation that names a non-existent ID (citation-discipline violation per `feedback_citations_in_downstream_docs`), invariant cite that doesn't preserve the I-NNN-M property, premature abstraction on `blocked_on` surfaces.
+- **Spec**: missing required behavior, ADR violation, wrong field shape, missing AC test, citation that names a non-existent ID (citation-discipline violation), invariant cite that doesn't preserve the I-NNN-M property, premature abstraction on `blocked_on` surfaces.
 - **Quality**: silent failure, type unsoundness on exported API, test that doesn't exercise behavior, dead code that misleads readers, test fixture that passes-by-accident.
 - **Code**: bug, regression, race condition, security boundary violation, edge case the AC implies, resource-lifecycle leak.
 
@@ -117,11 +117,11 @@ The default for ACTIONABLE is fix-in-PR. Deferring ACTIONABLE via Path A (file B
 
 - **Rule-of-three** governs _extracting helpers from concrete duplication_. It does NOT govern _closing a lifecycle gap on an existing interface_ (e.g., adding `onCancel` to a stream type that already has `next`/`complete`/`cancel` is API completion, not extraction). When a reviewer flags ACTIONABLE on a single-consumer surface, the right question is "is this a defect on an existing surface?" — not "do we have three consumers yet?"
 - **Premature-abstraction risk** applies to _new abstractions_. Completing the lifecycle of an interface that already exists does not introduce a new abstraction.
-- **Bounded-leak / "not catastrophic"** is a cost description, not a justification. Under AI-implementer economics (per `feedback_review_label_framework.md`), the PR is the cheapest moment to fix; "bounded by X" softens the framing without changing the rule.
+- **Bounded-leak / "not catastrophic"** is a cost description, not a justification. Under AI-implementer economics, the PR is the cheapest moment to fix; "bounded by X" softens the framing without changing the rule.
 
 When in doubt, present without a recommendation that softens ACTIONABLE. Lead with the concrete cost of fix-in-PR (file paths, scope creep into adjacent phase, test surface) and let the user choose. Recommendations biased toward defer-ACTIONABLE that fail audits 1 and 2 are framework violations.
 
-History: this anti-pattern surfaced on Plan-007 PR #19 Round 6 F5 (2026-04-29). The orchestrator argued rule-of-three to defer an upstream-watcher leak whose fix was actually one optional method on an existing contract. User caught the framing error in one sentence; recant cost was a wasted A/B presentation cycle. See `feedback_actionable_deferral_discipline` memory.
+History: this anti-pattern surfaced on Plan-007 PR #19 Round 6 F5 (2026-04-29). The orchestrator argued rule-of-three to defer an upstream-watcher leak whose fix was actually one optional method on an existing contract. User caught the framing error in one sentence; recant cost was a wasted A/B presentation cycle.
 
 ### Inter-reviewer conflict adjudication
 
@@ -141,7 +141,7 @@ Three reviewers run in parallel against the same diff. Their findings sometimes 
 
 The earlier project rule was "all findings round-trip regardless of severity." Plan-001 PR #4 demonstrated the failure mode — R5/R6/R9 spiraled on cosmetic feedback. The first fix introduced binary OBSERVATION/ACTIONABLE: ACTIONABLE round-trips, OBSERVATION aggregates to a post-merge polish list.
 
-That binary scheme was copied from human-team review workflows where round-trip cost is human reviewer attention (expensive). Under AI-implementer economics, that calculus does not apply — round-trip cost is tokens, lifetime cost of unfixed cleanliness compounds, the PR is the cheapest moment to fix. Plan-007 PR #19 surfaced the failure mode of the binary scheme: 10 of 11 OBSERVATIONs in the Round-3 review were verification statements (reviewers showing their work, no fix needed), conflated with 1 real polish finding (citation drift) bucketed identically as "skip." See `feedback_review_label_framework.md`.
+That binary scheme was copied from human-team review workflows where round-trip cost is human reviewer attention (expensive). Under AI-implementer economics, that calculus does not apply — round-trip cost is tokens, lifetime cost of unfixed cleanliness compounds, the PR is the cheapest moment to fix. Plan-007 PR #19 surfaced the failure mode of the binary scheme: 10 of 11 OBSERVATIONs in the Round-3 review were verification statements (reviewers showing their work, no fix needed), conflated with 1 real polish finding (citation drift) bucketed identically as "skip."
 
 The three-label scheme separates the two concerns: VERIFICATION is reasoning (no-op), POLISH is fix-in-PR (eliminates the binary's "skip-and-rot" failure mode), ACTIONABLE is unchanged.
 

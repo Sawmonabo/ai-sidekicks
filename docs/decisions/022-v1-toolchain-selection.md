@@ -29,7 +29,7 @@ What workspace, quality, and runtime-driver primitives should V1 lock so Plan-00
 
 ### Trigger
 
-Plan-001 is approved with `Preconditions` checked. Per [memory `feedback_doc_first_before_coding.md`], code execution requires every governing doc complete; per [memory `feedback_websearch_before_recommendation.md`], primitive choices count as architectural decisions and need primary-source-cited research before being presented. This ADR is the doc-first artifact that closes the gate.
+Plan-001 is approved with `Preconditions` checked. Per the project's doc-first rule, code execution requires every governing doc complete; and because primitive choices count as architectural decisions, they need primary-source-cited research before being presented. This ADR is the doc-first artifact that closes the gate.
 
 ---
 
