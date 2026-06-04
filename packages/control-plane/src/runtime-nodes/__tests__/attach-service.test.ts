@@ -1,4 +1,4 @@
-// P1/P9/P10 — AttachService attach gates (Plan-003 Phase 3, T3.2).
+// P1/P5/P9/P10 — AttachService attach gates (Plan-003 Phase 3, T3.2 + T3.5).
 //
 // P1 (Spec-003 §Required Behavior line 53, AC P1): `RuntimeNodeAttach` against a
 //     session whose `min_client_version` is NULL admits ALL daemon versions
@@ -32,6 +32,29 @@
 //     before/after snapshot of the full `session_memberships` content (mirrors
 //     the MembershipService no-mutation precedent).
 //
+// P5 (Plan-003 §AC P5, Spec-003 line 49 / line 107 AC3, T3.5): multiple DISTINCT
+//     runtime nodes attach to the SAME session and coexist without changing
+//     session identity. Two structural guarantees make this hold under the T3.2
+//     production code with no per-session node cap:
+//       (a) the composite `idx_node_attachments_node` is UNIQUE(node_id,
+//           session_id), so distinct node_ids on one session_id never collide on
+//           the upsert `ON CONFLICT` target — each is a fresh INSERT;
+//       (b) `idx_node_attachments_active` is UNIQUE(node_id) WHERE state IN
+//           ('registering','online','degraded') — keyed on node_id ALONE — so
+//           distinct node_ids never collide on the single-active-session index
+//           either (that index refuses a SECOND session for ONE node, not a
+//           second node for one session — contrast P9).
+//     The load-bearing assertion is session-identity invariance: attach issues no
+//     INSERT/UPDATE/DELETE against `sessions`, so the FULL pre-attach `sessions`
+//     row (all columns, snapshotted) and the session ROW COUNT survive all three
+//     attaches byte-for-byte — "without re-creating the session or mutating
+//     `sessions`" (Plan-003 T3.5 §Step; Spec-003 line 107 AC3). The membership
+//     half of I-003-3 is verified by reusing `snapshotMemberships()` across the
+//     multi-node attaches. A THIRD node proves this is not a hardcoded two-node
+//     special case. (The rigorous query-level P7/P8 membership proof and the
+//     detach path are T3.7's `no-membership-mutation.test.ts`, not duplicated
+//     here — T3.5 proves P5 only.)
+//
 // Harness: the PGlite-in-memory pattern from
 // `memberships/__tests__/membership-service.test.ts` /
 // `migrations/__tests__/0003-runtime-nodes.test.ts` — a fresh ephemeral PGlite
@@ -44,10 +67,12 @@
 // in the arrange step (the detach method that would produce it is T3.7's, not
 // this task's — the dispatch authorizes seeding the state directly here).
 //
-// Refs: Plan-003 Phase 3 T3.2 §Step / §Test; Spec-003 line 47 (attach-membership
-// separation), line 53 (NULL floor permits all daemons), line 69 (reconnect
-// under same identity), line 118 (one active session at a time in v1); Plan-003
-// §Invariants I-003-3 / I-003-5; docs/domain/runtime-node-model.md line 52.
+// Refs: Plan-003 Phase 3 T3.2 §Step / §Test, T3.5 §Step / §Test; Spec-003 line 47
+// (attach-membership separation), line 49 (multiple runtime nodes per session),
+// line 53 (NULL floor permits all daemons), line 69 (reconnect under same
+// identity), line 107 (AC3 — multiple nodes coexist without changing session
+// identity), line 118 (one active session at a time in v1); Plan-003 §Invariants
+// I-003-3 / I-003-5, §AC P5; docs/domain/runtime-node-model.md line 52.
 
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -247,6 +272,62 @@ function normalizeTimestamp(value: unknown): string | null {
   return String(value);
 }
 
+// Snapshot the FULL `sessions` row for a session — its "identity" baseline for
+// the P5 before/after equality assertion (Spec-003 line 107 AC3: attaching nodes
+// does not change session identity). ALL columns are captured (not just `id`):
+// `idx_node_attachments_*` aside, the regression P5 guards against is a future
+// stray `UPDATE sessions ... WHERE id = S` during attach, which could touch any
+// column — `updated_at` is the obvious tripwire, but `state` / `config` /
+// `metadata` / `min_client_version` must be in the snapshot too or such a
+// mutation would slip through. `config` / `metadata` are JSONB (hydrated as
+// objects, deep-equal fine under `toEqual`); the two TIMESTAMPTZ columns are
+// normalized to a stable string so a Date-vs-string substrate difference cannot
+// make two equal snapshots compare unequal (mirrors `snapshotMemberships`).
+async function snapshotSession(
+  querier: Querier,
+  sessionId: string,
+): Promise<Record<string, unknown> | undefined> {
+  const result = await querier.query<Record<string, unknown>>(
+    `SELECT id, state, config, metadata, min_client_version, created_at, updated_at
+       FROM sessions
+      WHERE id = $1`,
+    [sessionId],
+  );
+  const row = result.rows[0];
+  if (row === undefined) {
+    return undefined;
+  }
+  return {
+    ...row,
+    created_at: normalizeTimestamp(row["created_at"]),
+    updated_at: normalizeTimestamp(row["updated_at"]),
+  };
+}
+
+// Read every attachment row for a SESSION (not a node), so multi-node
+// co-existence in one session is observable. Distinct from `readAttachments`
+// (node-scoped) — P5 asserts several DISTINCT nodes share one session_id.
+async function readSessionAttachments(
+  querier: Querier,
+  sessionId: string,
+): Promise<ReadonlyArray<{ id: string; node_id: string; state: string }>> {
+  const result = await querier.query<{ id: string; node_id: string; state: string }>(
+    `SELECT id, node_id, state
+       FROM runtime_node_attachments
+      WHERE session_id = $1
+      ORDER BY attached_at ASC, id ASC`,
+    [sessionId],
+  );
+  return result.rows;
+}
+
+// Count the rows in `sessions` — proves attach neither re-created S nor inserted
+// a duplicate session (Plan-003 T3.5 §Step: "without re-creating the session").
+async function countSessions(querier: Querier): Promise<number> {
+  const result = await querier.query<{ n: number }>("SELECT COUNT(*)::int AS n FROM sessions");
+  return result.rows[0]?.n ?? 0;
+}
+
 // ----------------------------------------------------------------------------
 // P1 — NULL floor admits all daemon versions (Spec-003 line 53)
 // ----------------------------------------------------------------------------
@@ -334,6 +415,127 @@ describe("AttachService.attach (I-003-3 — no session_memberships mutation)", (
     // have bumped updated_at). This is the canonical control-plane-side I-003-3
     // verification (P7), distinct from the daemon-side structural check.
     expect(after).toEqual(before);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// P5 — multiple DISTINCT nodes attach to ONE session without changing session
+// identity (Spec-003 line 49 / line 107 AC3; Plan-003 §AC P5; I-003-3 membership
+// half). The composite (node_id, session_id) uniqueness lets distinct nodes
+// share a session_id, and `idx_node_attachments_active` (keyed on node_id alone)
+// does not collide across distinct nodes — so they coexist, and attach mutates
+// neither `sessions` (identity) nor `session_memberships` (membership).
+// ----------------------------------------------------------------------------
+
+// Three DISTINCT daemon-assigned node identifiers (opaque TEXT, not UUIDs — the
+// `NodeId` brand accepts any non-empty string). Distinct node_ids are the whole
+// point: they prove co-existence in one session, and a THIRD proves this is not
+// a hardcoded two-node special case.
+const NODE_A_ID: NodeId = "node-multi-fixture-a01" as NodeId;
+const NODE_B_ID: NodeId = "node-multi-fixture-b02" as NodeId;
+const NODE_C_ID: NodeId = "node-multi-fixture-c03" as NodeId;
+
+describe("AttachService.attach (P5 — multiple nodes per session, session identity unchanged)", () => {
+  beforeEach(async () => {
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    // A floored session (2.0) — exercises the multi-node property on a session
+    // that actually carries identity-bearing column values beyond the defaults,
+    // so the before/after `sessions` snapshot has a non-NULL `min_client_version`
+    // to protect (not just the trivial NULL-floor row).
+    await seedSession(ctx.querier, SESSION_A_ID, "2.0");
+    // A pre-existing active membership for the session's participant. The
+    // membership half of I-003-3 (Plan-003 §Invariants I-003-3 verification (a))
+    // requires multi-node attach to leave this row byte-for-byte unchanged.
+    await seedMembership(ctx.querier, {
+      sessionId: SESSION_A_ID,
+      participantId: PARTICIPANT_ID,
+      role: "owner",
+      state: "active",
+    });
+  });
+
+  it("attaches three distinct nodes to the SAME session; all coexist and session identity is unchanged", async () => {
+    // Baseline: the full session-identity row + membership content + session
+    // count, captured BEFORE any attach. These are what must survive byte-for-
+    // byte (Spec-003 line 107 AC3 / I-003-3).
+    const sessionBefore = await snapshotSession(ctx.querier, SESSION_A_ID);
+    const membershipsBefore = await snapshotMemberships(ctx.querier);
+    expect(sessionBefore).toBeDefined();
+    expect(membershipsBefore).toHaveLength(1);
+    expect(await countSessions(ctx.querier)).toBe(1);
+
+    // Node A attaches to session S. All three nodes reuse the seeded participant
+    // (the participant_id FK requires an existing `participants` row; reusing the
+    // seeded one is FK-valid and still proves the multi-node-per-session
+    // property). Node A reports 2.5 (at/above the 2.0 floor → read/write).
+    const attachA = await ctx.service.attach(
+      buildAttachRequest({
+        sessionId: SESSION_A_ID as SessionId,
+        nodeId: NODE_A_ID,
+        clientVersion: "2.5" as EventEnvelopeVersion,
+      }),
+    );
+    expect(attachA.state).toBe("registering");
+
+    // Node B — a DISTINCT node_id — attaches to the SAME session S and SUCCEEDS.
+    // The composite (node_id, session_id) differs from A's, so there is no
+    // `ON CONFLICT`, and `idx_node_attachments_active` is keyed on node_id alone,
+    // so B's distinct node_id does not collide with A's active row. (Below the
+    // floor at 1.5 → admitted read-only; admission still succeeds — I-003-1 — and
+    // the read-only verdict is orthogonal to coexistence.)
+    const attachB = await ctx.service.attach(
+      buildAttachRequest({
+        sessionId: SESSION_A_ID as SessionId,
+        nodeId: NODE_B_ID,
+        clientVersion: "1.5" as EventEnvelopeVersion,
+      }),
+    );
+    expect(attachB.state).toBe("registering");
+    expect(attachB.readOnly).toBe(true);
+
+    // Node C — a THIRD distinct node_id — also attaches to S and SUCCEEDS. Three
+    // proves there is no hardcoded two-node cap.
+    const attachC = await ctx.service.attach(
+      buildAttachRequest({
+        sessionId: SESSION_A_ID as SessionId,
+        nodeId: NODE_C_ID,
+        clientVersion: "2.0" as EventEnvelopeVersion,
+      }),
+    );
+    expect(attachC.state).toBe("registering");
+
+    // CO-EXISTENCE: exactly three attachment rows for session S, with distinct
+    // attachment ids AND distinct node_ids, all active (`registering`). None
+    // overwrote another (an `ON CONFLICT DO UPDATE` collision would have left
+    // fewer than three rows).
+    const sessionRows = await readSessionAttachments(ctx.querier, SESSION_A_ID);
+    expect(sessionRows).toHaveLength(3);
+    expect(new Set(sessionRows.map((row) => row.id)).size).toBe(3);
+    expect(new Set(sessionRows.map((row) => row.node_id))).toEqual(
+      new Set([NODE_A_ID, NODE_B_ID, NODE_C_ID]),
+    );
+    expect(sessionRows.every((row) => row.state === "registering")).toBe(true);
+    // The three returned attachment ids are distinct too (the response projection
+    // agrees with the persisted rows).
+    expect(new Set([attachA.attachmentId, attachB.attachmentId, attachC.attachmentId]).size).toBe(
+      3,
+    );
+
+    // SESSION IDENTITY UNCHANGED (the load-bearing P5 assertion, Spec-003 line
+    // 107 AC3): the full `sessions` row for S is byte-for-byte identical to the
+    // pre-attach snapshot — attach issued no INSERT/UPDATE/DELETE against
+    // `sessions`, so no column (least of all `updated_at`) moved.
+    const sessionAfter = await snapshotSession(ctx.querier, SESSION_A_ID);
+    expect(sessionAfter).toEqual(sessionBefore);
+    // ...and the session was neither re-created nor duplicated — still exactly
+    // one `sessions` row (Plan-003 T3.5 §Step: "without re-creating the session").
+    expect(await countSessions(ctx.querier)).toBe(1);
+
+    // MEMBERSHIP UNCHANGED (I-003-3 membership half): the multi-node attach
+    // touched no `session_memberships` row — the full content is identical across
+    // all three attaches.
+    const membershipsAfter = await snapshotMemberships(ctx.querier);
+    expect(membershipsAfter).toEqual(membershipsBefore);
   });
 });
 

@@ -1,4 +1,4 @@
-// AttachService — Plan-003 Phase 3 (T3.2 + T3.3, runtime-node attach flow).
+// AttachService — Plan-003 Phase 3 (T3.2 + T3.3 + T3.5, runtime-node attach flow).
 //
 // Responsibilities:
 //   * attach (T3.2 — the floor-INDEPENDENT attach mechanics) — admit a runtime
@@ -43,7 +43,11 @@
 // T3.4 later CONSUMES the below-floor (`readOnly: true`) verdict to emit the
 // typed structured `VERSION_FLOOR_EXCEEDED` payload on the write path (its
 // `contracts/src/error.ts` home + the `AisWireException` base-class refactor are
-// T3.4's). T3.5/T3.6/T3.7 EXTEND this class (multiple nodes / heartbeat +
+// T3.4's). T3.5 (multiple nodes per session) is a PROVING task, not new
+// behavior: the multi-distinct-node-per-session guarantee already falls out of
+// T3.2's two indexes + the no-`sessions`-write attach path — T3.5 documents it
+// as intentional (see step (3) of `attach`) and regression-proofs it (P5),
+// adding no production code path. T3.6/T3.7 EXTEND the surface (heartbeat +
 // presence / detach + revoke). Capability declaration is NOT an `AttachService`
 // extension: it is a separate daemon-side Plan-003 Phase 2 service (see the
 // `registering -> online` note below).
@@ -275,10 +279,25 @@ export class AttachService {
    *      the node is already active in another session — caught and rethrown as
    *      the typed cross-session CONFLICT.
    *
+   * MULTIPLE NODES PER SESSION is an INTENTIONAL guarantee (Spec-003 line 49 /
+   * line 107 AC3; Plan-003 §AC P5 / T3.5), and it falls out of the two indexes
+   * above with NO per-session node cap — do not add one. Two DISTINCT `node_id`s
+   * attaching to the SAME `session_id`: (a) differ on the composite
+   * `(node_id, session_id)`, so neither hits the other's `ON CONFLICT` target —
+   * each is a fresh INSERT; (b) `idx_node_attachments_active` is keyed on
+   * `node_id` ALONE, so distinct nodes never collide on it (that index refuses a
+   * SECOND session for ONE node — I-003-5 — NOT a second node for one session).
+   * The single-active-session refusal (step's `23505`) is therefore strictly a
+   * same-node-different-session guard; it must never be widened into a
+   * per-session cap, which would break P5.
+   *
    * No `session_memberships` lock or write occurs anywhere in this method
-   * (I-003-3). No error-handler wraps the bare `transaction(...)` mutation: the
-   * PGlite and `pg.Pool` adapters both auto-`ROLLBACK` on throw and re-raise, so
-   * a thrown guard leaves `runtime_node_attachments` byte-for-byte unchanged.
+   * (I-003-3). Nor does any INSERT/UPDATE/DELETE touch `sessions` — attaching a
+   * node never re-creates or mutates the session row, so session IDENTITY is
+   * invariant across any number of attaches (Spec-003 line 107 AC3 / P5). No
+   * error-handler wraps the bare `transaction(...)` mutation: the PGlite and
+   * `pg.Pool` adapters both auto-`ROLLBACK` on throw and re-raise, so a thrown
+   * guard leaves `runtime_node_attachments` byte-for-byte unchanged.
    */
   async attach(input: RuntimeNodeAttachRequest): Promise<RuntimeNodeAttachResponse> {
     // Trust-boundary validation. Parse rather than trust the caller — a
