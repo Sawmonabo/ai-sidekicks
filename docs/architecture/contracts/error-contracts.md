@@ -177,6 +177,15 @@ Daemon-local run-queue control codes (Plan-004). Run-control authority is daemon
 | `membership.permission_denied` | Actor is not permitted to apply the requested membership change (owner-only) | 403 |
 | `membership.last_owner` | Action would remove the last remaining active owner of the session | 409 |
 
+### Runtime Node
+
+Control-plane runtime-node attach-refusal codes (Plan-003 Phase 3). These are `code` + `message` on a `CONFLICT` (no structured `data` payload a client destructures), so — like the §Membership conflict rows — they are defined as local `as const` constants in `packages/control-plane/src/runtime-nodes/errors.ts` and registered here, NOT hoisted to `packages/contracts/src/error.ts`. The cross-package §Version code `version.floor_exceeded` (typed `VERSION_FLOOR_EXCEEDED`, Plan-003 T3.4) is the contrasting category: it carries a structured payload consumed cross-package, so it lives in `contracts/src/error.ts`.
+
+| Code | Description | HTTP Status |
+| --- | --- | --- |
+| `runtime_node.revoked_terminal` | Runtime-node attach refused — the node's existing attachment for the session is `revoked`; revocation is terminal and the row is not reactivated on reconnect (Plan-003 T3.2/P10; [runtime-node-model.md](../../domain/runtime-node-model.md) — a revoked node is "no longer trusted or allowed to participate"). The `_terminal` suffix disambiguates this REFUSAL code from the `runtime_node.revoked` EVENT name (the lifecycle transition into revoked). Distinct also from `version.floor_exceeded` (a below-floor write refusal, not an attach refusal). | 409 |
+| `runtime_node.session_conflict` | Runtime-node attach refused — the node is already actively attached to another session; a runtime node may participate in one active session at a time in v1 (Plan-003 §Invariants I-003-5 / Spec-003 line 118). Enforced at the database by the `idx_node_attachments_active` partial-unique index (SQLSTATE `23505`), rethrown typed by the attach service. | 409 |
+
 ### Presence
 
 | Code | Description | HTTP Status |
