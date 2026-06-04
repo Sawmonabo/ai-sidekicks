@@ -139,7 +139,7 @@ Three reviewers run in parallel against the same diff. Their findings sometimes 
 
 ### Why three labels (history)
 
-The earlier project rule was "all findings round-trip regardless of severity." Plan-001 PR #4 demonstrated the failure mode — R5/R6/R9 spiraled on cosmetic feedback (the `feedback_cosmetic_review_spiral` memory). The first fix introduced binary OBSERVATION/ACTIONABLE: ACTIONABLE round-trips, OBSERVATION aggregates to a post-merge polish list.
+The earlier project rule was "all findings round-trip regardless of severity." Plan-001 PR #4 demonstrated the failure mode — R5/R6/R9 spiraled on cosmetic feedback. The first fix introduced binary OBSERVATION/ACTIONABLE: ACTIONABLE round-trips, OBSERVATION aggregates to a post-merge polish list.
 
 That binary scheme was copied from human-team review workflows where round-trip cost is human reviewer attention (expensive). Under AI-implementer economics, that calculus does not apply — round-trip cost is tokens, lifetime cost of unfixed cleanliness compounds, the PR is the cheapest moment to fix. Plan-007 PR #19 surfaced the failure mode of the binary scheme: 10 of 11 OBSERVATIONs in the Round-3 review were verification statements (reviewers showing their work, no fix needed), conflated with 1 real polish finding (citation drift) bucketed identically as "skip." See `feedback_review_label_framework.md`.
 
