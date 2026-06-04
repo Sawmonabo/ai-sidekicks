@@ -48,6 +48,7 @@
 
 import { INITIAL_MIGRATION_SQL } from "../migrations/0001-initial.js";
 import { SESSION_INVITES_MIGRATION_SQL } from "../migrations/0002-session-invites.js";
+import { RUNTIME_NODES_MIGRATION_SQL } from "../migrations/0003-runtime-nodes.js";
 
 // Ordered registry of every migration the control-plane is responsible for
 // applying. Iteration order is the apply order — the runner walks this array
@@ -79,6 +80,7 @@ import { SESSION_INVITES_MIGRATION_SQL } from "../migrations/0002-session-invite
 const MIGRATIONS: ReadonlyArray<{ readonly version: number; readonly sql: string }> = [
   { version: 1, sql: INITIAL_MIGRATION_SQL },
   { version: 2, sql: SESSION_INVITES_MIGRATION_SQL },
+  { version: 3, sql: RUNTIME_NODES_MIGRATION_SQL },
 ];
 
 // Stable advisory-lock ID for ai-sidekicks control-plane migrations.

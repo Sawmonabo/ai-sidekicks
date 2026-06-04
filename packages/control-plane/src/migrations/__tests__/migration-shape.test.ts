@@ -37,14 +37,17 @@
 // ----------------------------------------------------------------------------
 //
 // The delta needs S1 (post-v1, pre-v2) and S2 (post-v2) as DISTINCT snapshots.
-// `applyMigrations()` iterates `MIGRATIONS = [v1, v2]` and applies BOTH in one
-// call (Plan-002 Amendment 2, PR #102), which would collapse the two snapshots
-// into one. So — mirroring the stepwise pattern `0002-session-invites.test.ts`
-// already uses — `beforeEach` direct-execs `INITIAL_MIGRATION_SQL` (v1 only)
-// and each test direct-execs `SESSION_INVITES_MIGRATION_SQL` (v2) between the
-// two snapshots. Each exec is wrapped in a transaction so the migration body
-// and its `schema_migrations` INSERT commit atomically (the same atomicity
-// boundary the canonical `applyMigrations` uses, inlined here).
+// `applyMigrations()` iterates the `MIGRATIONS` array (`[v1, v2, v3]` after
+// Plan-003 Phase 3) and applies EVERY pending version in one call (Plan-002
+// Amendment 2, PR #102), which would collapse the two snapshots into one. So —
+// mirroring the stepwise pattern `0002-session-invites.test.ts` already uses —
+// `beforeEach` direct-execs `INITIAL_MIGRATION_SQL` (v1 only) and the FIRST
+// test direct-execs `SESSION_INVITES_MIGRATION_SQL` (v2) between the two
+// snapshots. Each exec is wrapped in a transaction so the migration body and
+// its `schema_migrations` INSERT commit atomically (the same atomicity
+// boundary the canonical `applyMigrations` uses, inlined here). The THIRD test
+// below DOES drive the canonical `applyMigrations` runner (applying v2 + v3
+// over the v1 baseline) as a cross-path consistency check.
 //
 // Refs: Plan-002 §Test Plan P10, Plan-002 §Invariants I-002-3, Spec-002
 // §State And Data Implications line 157, `0002-session-invites.test.ts` T6
@@ -200,19 +203,20 @@ describe("migrations shape regression (P10 — v2 adds EXACTLY session_invites; 
   });
 
   it("the canonical applyMigrations runner reaches the SAME shape as the stepwise apply (no extra tables)", async () => {
-    // Cross-path consistency: the stepwise direct-exec path (above) and the
-    // canonical `applyMigrations` runner-loop MUST converge on the same public
-    // table set. `beforeEach` already applied v1; calling `applyMigrations`
-    // here applies the remaining v2 through the production runner. The
-    // resulting table set must equal v1's set plus exactly `session_invites`.
-    // This pins that the runner does not introduce a table the stepwise SQL
-    // omits (or vice versa) — a divergence the narrow %presence% probe alone
-    // could not detect.
+    // Cross-path consistency: the canonical `applyMigrations` runner-loop MUST
+    // introduce exactly the tables the registered downstream migrations own.
+    // `beforeEach` already applied v1; calling `applyMigrations` here applies
+    // the remaining versions through the production runner — v2
+    // (`session_invites`) and v3 (Plan-003's `runtime_node_attachments` +
+    // `runtime_node_presence`). The resulting table set must equal v1's set
+    // plus exactly those three tables. This pins that the runner does not
+    // introduce a surprise table beyond what the registered migrations declare
+    // — a divergence the narrow %presence% probe alone could not detect.
     const s1: Set<string> = await snapshotPublicTables(ctx.querier);
     await applyMigrations(ctx.querier);
     const s2: Set<string> = await snapshotPublicTables(ctx.querier);
 
     const delta: string[] = [...s2].filter((tableName) => !s1.has(tableName)).sort();
-    expect(delta).toEqual(["session_invites"]);
+    expect(delta).toEqual(["runtime_node_attachments", "runtime_node_presence", "session_invites"]);
   });
 });

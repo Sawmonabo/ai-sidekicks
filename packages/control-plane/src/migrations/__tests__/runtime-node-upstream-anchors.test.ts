@@ -1,11 +1,12 @@
-// Plan-003 Phase 1 T1.7 — read-only upstream-schema ANCHOR guard.
+// Plan-003 T1.7 (Phase 1) + Phase 3 flip — upstream-schema ANCHOR guard.
 //
 // (a) What this is
 // ----------------------------------------------------------------------------
 // Plan-003 (Runtime Node Attach) READS and FK-references two Plan-001-owned
-// Postgres surfaces but must NEVER duplicate-CREATE them, and it must NOT
-// prematurely create its OWN Phase-3 Postgres tables during Phase 1. This file
-// is the structural guard for that "reads, does not CREATE" obligation
+// Postgres surfaces but must NEVER duplicate-CREATE them. In Phase 1 it also
+// must NOT prematurely create its OWN Postgres tables; those come into
+// existence in Phase 3 via `0003-runtime-nodes.ts`. This file is the structural
+// guard for that "reads, does not duplicate-CREATE" obligation
 // (docs/plans/003-runtime-node-attach.md §Phase 1 T1.7, lines 290-296). It is
 // assertion-only: it CREATEs nothing, it introspects the schema the shipped
 // control-plane migrations already produce.
@@ -25,15 +26,16 @@
 //       forward-declared column (ADR-018 §Decision #4; Spec-003 line 53;
 //       packages/control-plane/src/migrations/0001-initial.ts line 104).
 //   (3) Plan-003's OWN Postgres tables (`runtime_node_attachments`,
-//       `runtime_node_presence`) are ABSENT after Phase 1 — they are
-//       Plan-003-owned but created by the FORWARD-DECLARED Phase-3 control-plane
-//       migration (`0003-runtime-nodes.ts`), NOT here. See assertion-(3) tripwire
-//       note in (d) below.
+//       `runtime_node_presence`) are PRESENT after Phase 3 — they are
+//       Plan-003-owned and created by the Phase-3 control-plane migration
+//       (`0003-runtime-nodes.ts`, registered as v3 in `migration-runner.ts`),
+//       NOT by Plan-001. This assertion FLIPPED from "ABSENT" (Phase 1) to
+//       "PRESENT" when v3 landed — see the resolved tripwire note in (d) below.
 //
 // (b) Substrate rationale — why this guard lives in control-plane, NOT daemon
 // ----------------------------------------------------------------------------
 // Every anchor this guard touches — `participants`, `sessions.min_client_version`,
-// and the deferred `runtime_node_attachments` / `runtime_node_presence` — is a
+// and the `runtime_node_attachments` / `runtime_node_presence` tables — is a
 // POSTGRES / control-plane surface (cross-plan-dependencies.md §1; the
 // runtime_node tables carry `-- Owner: Plan-003` under
 // shared-postgres-schema.md §"Runtime Node Attachments (Plan-003)"). None of
@@ -58,22 +60,25 @@
 // has a pre-v2 baseline.
 //
 // THIS file is the complementary ABSOLUTE-STATE guard: it applies ALL shipped
-// migrations (v1 + v2 via the canonical `applyMigrations` runner) and asserts
-// the resulting full schema CONTAINS the Plan-001 anchors and DOES NOT contain
-// the Plan-003 Phase-3 tables. It is not a delta and it does not re-assert the
+// migrations (v1 + v2 + v3 via the canonical `applyMigrations` runner) and
+// asserts the resulting full schema CONTAINS the Plan-001 anchors AND the
+// Plan-003 runtime-node tables. It is not a delta and it does not re-assert the
 // `session_invites` delta (that is P10's charter); it answers a different
 // question — "is the upstream contract Plan-003 depends on actually shipped, and
-// has Plan-003 stayed within its Phase-1 lane?".
+// did Plan-003's own Phase-3 tables land where the migration runner produces
+// them?".
 //
-// (d) Lifecycle TRIPWIRE on assertion (3)
+// (d) Lifecycle TRIPWIRE on assertion (3) — RESOLVED in Phase 3
 // ----------------------------------------------------------------------------
-// Assertion (3) — `runtime_node_attachments` / `runtime_node_presence` ABSENT —
-// is intentionally PHASE-1-SCOPED. When Plan-003 Phase 3 ships the control-plane
+// Assertion (3) was PHASE-1-SCOPED as "`runtime_node_attachments` /
+// `runtime_node_presence` ABSENT". Plan-003 Phase 3 shipped the control-plane
 // migration that CREATEs those two tables (`0003-runtime-nodes.ts`, registered
-// as v3 in `migration-runner.ts`), `applyMigrations` here will start producing
-// them and assertion (3) WILL — and MUST — fail. That failure is the signal to
-// UPDATE OR REMOVE assertion (3) as part of the Phase-3 PR (flip it to assert
-// PRESENCE, or fold the two tables into a Phase-3 absolute-shape guard).
+// as v3 in `migration-runner.ts`), so `applyMigrations` here now produces them.
+// The tripwire fired exactly as designed and assertion (3) was FLIPPED to
+// assert PRESENCE as part of that Phase-3 PR — there is no remaining deferral.
+// The exact column/CHECK/index shape of the two tables is pinned in the
+// dedicated `migrations/__tests__/0003-runtime-nodes.test.ts`; assertion (3)
+// here remains the lighter-weight absolute-state presence check.
 // Assertions (1) and (2) are permanent — the Plan-001 anchors do not move.
 //
 // (e) Inline-adapter rationale
@@ -169,9 +174,10 @@ beforeEach(async () => {
   // migrations through the canonical runner. Unlike `migration-shape.test.ts`
   // (which applies v1 ONLY because P10 needs a pre-v2 delta baseline), this
   // guard wants the ABSOLUTE post-all-migrations schema, so it uses
-  // `applyMigrations` — which walks `MIGRATIONS = [v1, v2]` and applies every
-  // pending version (migration-runner.ts). When a Phase-3 v3 lands, this call
-  // will also produce the runtime_node_* tables — see header tripwire (d).
+  // `applyMigrations` — which walks `MIGRATIONS = [v1, v2, v3]` and applies
+  // every pending version (migration-runner.ts). Since Plan-003 Phase 3 shipped
+  // v3, this call now also produces the runtime_node_* tables — see resolved
+  // header tripwire (d).
   const pg: PGlite = new PGlite();
   const querier: Querier = adaptPGlite(pg);
   await applyMigrations(querier);
@@ -211,13 +217,17 @@ describe("Plan-003 T1.7 upstream-anchor guard (reads, does not CREATE — cross-
     expect(column?.data_type).toBe("text");
   });
 
-  it("(3) Plan-003 Postgres tables are ABSENT after Phase 1 (deferred to Phase 3)", async () => {
-    // TRIPWIRE (header note (d)): runtime_node_attachments / runtime_node_presence
-    // are Plan-003-OWNED but created by the forward-declared Phase-3 control-plane
-    // migration, NOT here. When Phase 3 ships v3, this assertion MUST be updated
-    // or removed.
+  it("(3) Plan-003 Postgres tables are PRESENT after Phase 3 (v3 created them)", async () => {
+    // RESOLVED TRIPWIRE (header note (d)): runtime_node_attachments /
+    // runtime_node_presence are Plan-003-OWNED and created by the Phase-3
+    // control-plane migration (`0003-runtime-nodes.ts`, registered as v3 in
+    // `migration-runner.ts`). This assertion FLIPPED from "ABSENT" (Phase 1) to
+    // "PRESENT" when v3 landed, confirming `applyMigrations` now produces both
+    // tables. The exact column/CHECK/index shape is pinned in the dedicated
+    // `migrations/__tests__/0003-runtime-nodes.test.ts`; this is the
+    // lighter-weight absolute-state presence check the anchor guard maintains.
     const tables: Set<string> = await snapshotPublicTables(ctx.querier);
-    expect(tables.has("runtime_node_attachments")).toBe(false);
-    expect(tables.has("runtime_node_presence")).toBe(false);
+    expect(tables.has("runtime_node_attachments")).toBe(true);
+    expect(tables.has("runtime_node_presence")).toBe(true);
   });
 });

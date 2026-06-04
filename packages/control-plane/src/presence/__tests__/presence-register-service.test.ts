@@ -10,16 +10,24 @@
 //             (there is nothing to write to). A heartbeat round-trips through
 //             the in-memory CRDT (`recordHeartbeat` -> `readPresence`), proving
 //             the service WORKS without any persistence dependency.
-//         (b) after `applyMigrations(querier)` (v1 + v2, the full Plan-002
-//             migration set), NO `public` table matches `ILIKE '%presence%'`.
-//         (c) the v1->v2 migration DELTA introduces EXACTLY `session_invites`
-//             and no presence-state table (the same delta-set assertion the
+//         (b) after `applyMigrations(querier)` (all shipped migrations), NO
+//             `public` table matches `ILIKE '%presence%'` once the legitimate
+//             Plan-003 `runtime_node_presence` heartbeat table is allowlisted —
+//             i.e. no DURABLE Yjs-Awareness presence-state table exists. The
+//             allowlist names exactly that one table, so any OTHER
+//             presence-named table still trips the guard.
+//         (c) the post-v1 migration DELTA introduces EXACTLY the registered
+//             downstream tables (`session_invites` from v2; Plan-003's
+//             `runtime_node_attachments` + `runtime_node_presence` from v3) and
+//             no Yjs presence-state table (the same delta-set assertion the
 //             T2.5 migration-shape regression makes — re-verified here so the
 //             "no presence-state table / no DB write" property is pinned from
 //             the Phase-3 presence task's own suite).
 //   P10 (re-verify): the (b) + (c) assertions ARE the P10 re-verification — the
-//       same no-presence-state-table / no-DB-write schema-shape assertion as
-//       Pr1's schema-shape test, run after the Plan-002 migrations.
+//       same no-Yjs-presence-state-table / no-DB-write schema-shape assertion as
+//       Pr1's schema-shape test, run after the shipped migrations. (Plan-003
+//       Phase 3 added v3; `runtime_node_presence` is a distinct, legitimate
+//       heartbeat table — not the in-memory Yjs Awareness state I-002-3 governs.)
 //   Pr2 (Spec-002 §Fallback Behavior line 73): a missed heartbeat moves a
 //       participant to `reconnecting` BEFORE `offline` — the reconnect-grace
 //       two-step timer (15s -> reconnecting, 45s -> offline from the last
@@ -51,7 +59,7 @@
 //
 // Harness: the in-process PGlite pattern from
 // `migrations/__tests__/migration-shape.test.ts` — a fresh ephemeral PGlite
-// for the schema-shape assertions, `applyMigrations` for the full Plan-002
+// for the schema-shape assertions, `applyMigrations` for the full shipped
 // schema. The service itself needs NO database (that is the point of Pr1), so
 // most behavioral tests construct it standalone.
 
@@ -240,44 +248,70 @@ describe("PresenceRegisterService — Pr1 (b)/(c) + P10 re-verify (no presence-s
     await pg.close();
   });
 
-  it("after applyMigrations (v1 + v2), no public table matches '%presence%'", async () => {
+  it("after applyMigrations, no DURABLE Yjs-Awareness presence-state table exists (I-002-3)", async () => {
+    // I-002-3: ephemeral Yjs-Awareness session-presence state lives in memory
+    // only and is NEVER persisted to a durable table. This guard surveys the
+    // schema for any `%presence%`-named table and asserts none remains AFTER
+    // allowlisting `runtime_node_presence`.
+    //
+    // `runtime_node_presence` is a LEGITIMATE Plan-003 table (durable
+    // runtime-node heartbeat/health snapshot), explicitly enumerated as a
+    // stored coordination record by the ADR-017 invariant block at the head of
+    // shared-postgres-schema.md ("presence history" + "runtime-node
+    // attachments"). It is a DIFFERENT concept from the Yjs-Awareness presence
+    // CRDT that I-002-3 forbids persisting. We allowlist EXACTLY this one table
+    // (not a broad pattern) so the guard STILL FAILS if any other
+    // presence-named table — a real session/participant presence-state table —
+    // ever appears. ILIKE (not LIKE) so a case regression (`SESSION_PRESENCE`)
+    // cannot slip past.
     await applyMigrations(querier);
     const probe = await querier.query<{ table_name: string }>(
       `SELECT table_name FROM information_schema.tables
         WHERE table_schema = 'public'
           AND table_name ILIKE '%presence%'`,
     );
-    expect(probe.rows).toEqual([]);
+    const forbidden = probe.rows
+      .map((row) => row.table_name)
+      .filter((tableName) => tableName !== "runtime_node_presence");
+    expect(forbidden).toEqual([]);
   });
 
-  it("the v1->v2 migration delta is EXACTLY { session_invites } — no presence-state table is added", async () => {
-    // Stepwise so S1 (post-v1) and S2 (post-v2) are distinct snapshots, mirroring
-    // migration-shape.test.ts. `applyMigrations` applies BOTH v1 and v2 in one
-    // call, so split the boundary: snapshot after a partial apply is not
-    // possible via the runner, so we exec v1 then the runner for the rest.
+  it("the post-v1 migration delta is EXACTLY the registered downstream tables — no Yjs presence-state table is added", async () => {
+    // Stepwise so S1 (post-v1) and S2 (post-all-migrations) are distinct
+    // snapshots, mirroring migration-shape.test.ts. `applyMigrations` applies
+    // every pending version in one call, so we exec v1 directly for the S1
+    // baseline, then run the runner for the rest.
     await querier.transaction(async (tx) => {
       await tx.exec(
-        // v1 only — bootstrap the Plan-001 schema so S1 is post-v1, pre-v2.
-        // Imported indirectly through applyMigrations would apply v2 too; here
-        // we want the pre-v2 snapshot, so exec the INITIAL SQL directly.
+        // v1 only — bootstrap the Plan-001 schema so S1 is the post-v1 baseline.
+        // Imported indirectly through applyMigrations would apply the downstream
+        // versions too; here we want the pre-v2 snapshot, so exec the INITIAL
+        // SQL directly.
         INITIAL_MIGRATION_SQL,
       );
     });
     const s1: Set<string> = await snapshotPublicTables(querier);
 
-    // Apply the remaining migrations (v2) through the production runner.
+    // Apply the remaining migrations (v2 + v3) through the production runner.
     await applyMigrations(querier);
     const s2: Set<string> = await snapshotPublicTables(querier);
 
     const delta: string[] = [...s2].filter((tableName) => !s1.has(tableName)).sort();
-    // Load-bearing: v2 adds the invites table and NOTHING else — no presence
-    // table, no surprise table. A presence-state table would surface as an
+    // Load-bearing: the runner adds EXACTLY the tables the registered
+    // downstream migrations own — v2's `session_invites` and v3's Plan-003
+    // `runtime_node_attachments` + `runtime_node_presence` — and NOTHING else.
+    // A Yjs presence-state table (or any surprise table) would surface as an
     // extra delta member.
-    expect(delta).toEqual(["session_invites"]);
+    expect(delta).toEqual(["runtime_node_attachments", "runtime_node_presence", "session_invites"]);
 
-    // No presence table anywhere in the final schema.
-    const presenceTables: string[] = [...s2].filter((tableName) =>
-      tableName.toLowerCase().includes("presence"),
+    // No DURABLE Yjs-Awareness presence-state table anywhere in the final
+    // schema (I-002-3). `runtime_node_presence` is the LEGITIMATE Plan-003
+    // heartbeat table (a distinct concept — see the sibling `%presence%`
+    // guard above), so it is allowlisted EXACTLY; any OTHER presence-named
+    // table would still trip this assertion.
+    const presenceTables: string[] = [...s2].filter(
+      (tableName) =>
+        tableName.toLowerCase().includes("presence") && tableName !== "runtime_node_presence",
     );
     expect(presenceTables).toEqual([]);
   });
