@@ -502,7 +502,7 @@ With NS-01 + NS-02 + NS-04 + NS-05 completed 2026-05-11 (NS-01 via PR #42 — Pl
 
 ### NS-11: Plan-007-partial completion cleanup
 
-- Status: `completed` (resolved 2026-05-20 via this PR — 3 stale `BLOCKED-ON-C9` comments at `packages/runtime-daemon/src/bootstrap/secure-defaults-events.ts:24,35,59` rewritten to cite [BL-105](../archive/backlog-archive.md) closure (2026-05-01) and the Plan-006 / Spec-006 §Security Events taxonomy ownership of the `security.default.override` event-type; surrounding reviewer rationale preserved per `feedback_no_review_thread_tags_in_code`. Plan-007-partial's Tier 1 §Done Checklist line 614 ("CP-007-1..5 surface ships verified") is now flippable per `verify-not-recall hygiene` — the code-level marker drift is closed and the contract-level satisfaction at HEAD (Plan-007:182) is honest. Closes the Tier 1 closing audit A4 code-residual.)
+- Status: `completed` (resolved 2026-05-20 via this PR — 3 stale `BLOCKED-ON-C9` comments at `packages/runtime-daemon/src/bootstrap/secure-defaults-events.ts:24,35,59` rewritten to cite [BL-105](../archive/backlog-archive.md) closure (2026-05-01) and the Plan-006 / Spec-006 §Security Events taxonomy ownership of the `security.default.override` event-type; surrounding reviewer rationale preserved. Plan-007-partial's Tier 1 §Done Checklist line 614 ("CP-007-1..5 surface ships verified") is now flippable per `verify-not-recall hygiene` — the code-level marker drift is closed and the contract-level satisfaction at HEAD (Plan-007:182) is honest. Closes the Tier 1 closing audit A4 code-residual.)
 - Type: cleanup
 - Priority: `P2`
 - Upstream: none

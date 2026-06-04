@@ -2119,7 +2119,7 @@ Expected: PR URL printed. Mark PR ready (`gh pr ready <num>`) so Codex auto-revi
 
 ## Task 12: Post-merge bookkeeping (separate follow-up PRs)
 
-This task is **not** part of the code PR — it's the doc-only follow-ups owed after the substrate merges. Track via the workflow below; each item gets its own `docs(repo): …` PR per CONTRIBUTING.md and `feedback_housekeeping_always_via_pr`.
+This task is **not** part of the code PR — it's the doc-only follow-ups owed after the substrate merges. Track via the workflow below; each item gets its own `docs(repo): …` PR per CONTRIBUTING.md.
 
 - [ ] **Item 1: Plan-002 Phase 2 precondition update**
 

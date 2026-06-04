@@ -65,7 +65,7 @@ V1 consists of **17 features** (amended 2026-04-22 per BL-097 — was 16 at 2026
 
 ### V1.1 Criterion-Gated Commitments
 
-Sub-features explicitly committed for V1.1 under named criteria (per memory `feedback_criterion_gated_deferrals` — V1→V1.1 deferrals require concrete promotion gates in the ADR, not vague "maybe later"). Criteria below are stated inline; they are grounded in 2025–2026 durable-execution convergence evidence (primary sources consolidated in §Research Conducted).
+Sub-features explicitly committed for V1.1 under named criteria (V1→V1.1 deferrals require concrete promotion gates in the ADR, not vague "maybe later"). Criteria below are stated inline; they are grounded in 2025–2026 durable-execution convergence evidence (primary sources consolidated in §Research Conducted).
 
 **C1 — BIND multi-phase channel reuse (committed V1.1):**
 

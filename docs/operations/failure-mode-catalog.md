@@ -4,7 +4,7 @@
 
 ## Purpose
 
-Every row indexes one doc-corpus regression pattern by **structural action** (what an edit physically does to the corpus) so disciplines, hooks, skills, and audit prompts resolve to the same canonical row regardless of which **domain framing** the author used. This fixes the recall-by-domain-label miss documented in the PR-#27 post-mortem: a memory called `feedback_canonicalization_sweep_completeness.md` existed but did not fire for the surface label `archival` because the human framing was `archival` while the structural action was `string move`.
+Every row indexes one doc-corpus regression pattern by **structural action** (what an edit physically does to the corpus) so disciplines, hooks, skills, and audit prompts resolve to the same canonical row regardless of which **domain framing** the author used. This fixes the recall-by-domain-label miss documented in the PR-#27 post-mortem: the canonicalization-sweep-completeness discipline existed but did not fire for the surface label `archival` because the human framing was `archival` while the structural action was `string move`.
 
 The catalog is the single source of truth. Hooks, skills, and audit-prompts reference catalog rows by ID (`CAT-NN`); adding a new failure pattern means adding one row plus wiring detection — there is no parallel registry.
 
@@ -27,7 +27,6 @@ The catalog is the single source of truth. Hooks, skills, and audit-prompts refe
 | Hook | [`tools/docs-corpus/lib/path-canonical-ripple.ts`](../../tools/docs-corpus/lib/path-canonical-ripple.ts) reads [`tools/docs-corpus/canonical-paths.json`](../../tools/docs-corpus/canonical-paths.json) and fails on any surviving deprecated occurrence outside the configured `exclude` paths. Composed by the dispatch runner [`tools/docs-corpus/bin/pre-commit-runner.ts`](../../tools/docs-corpus/bin/pre-commit-runner.ts). |
 | Off-the-shelf Tool | None. (`lychee` covers `[text](path/file.md)` link syntax but not literal-path strings inside command snippets like `pnpm rebuild --filter=apps/desktop/shell better-sqlite3`.) |
 | Failing Example | PR #24 (BL-101): ADR-022 cited `apps/desktop/{shell,renderer}/`. Round 1 fixed the literal-path citation but missed three executable-form occurrences (`pnpm rebuild --filter=apps/desktop/shell ...`), then missed `cross-plan-dependencies.md:228` in round 2, then missed Tier-8 prose in Plan-002/003/008 in round 3. Four review rounds, four fix commits. |
-| Memory | `feedback_canonicalization_sweep_completeness.md` — frame structurally, not by domain label. |
 | What Discipline Restores Correctness | Add the deprecated form to `tools/docs-corpus/canonical-paths.json` at the same time you make the canonical edit. The pre-commit hook fails if any deprecated occurrence survives outside the registered `exclude` paths; fix-and-restage. |
 
 ### CAT-02 — Identifier rename
@@ -40,7 +39,6 @@ The catalog is the single source of truth. Hooks, skills, and audit-prompts refe
 | Hook | Same registry + script as CAT-01 (identifier strings are entries in `canonical-paths.json` with their own `(canonical, deprecated[])` row). |
 | Off-the-shelf Tool | None for the doc-cite ripple. |
 | Failing Example | None tracked in this corpus yet. |
-| Memory | Same as CAT-01. |
 | What Discipline Restores Correctness | Treat the rename as a CAT-01 entry — every rename of an identifier referenced by name from doc prose belongs in `canonical-paths.json`. |
 
 ### CAT-03 — Heading move / archival
@@ -53,7 +51,6 @@ The catalog is the single source of truth. Hooks, skills, and audit-prompts refe
 | Hook | `lychee` over the staged set (pre-commit) and full repo (CI). Slug algorithm matches GFM. |
 | Skill | [`/ripple-check`](../../.claude/skills/ripple-check/SKILL.md) dispatches Subagent B (CAT-03 / CAT-04) to verify post-staging that every inbound `<file>#<old-slug>` reference was rewritten and that the new heading exists in the destination file with the expected slug. Surfaces inbound references that are technically valid after the move but read awkwardly because the citing-doc prose still names the OLD heading by name. In `--with-fixes` mode the subagent can propose unstaged edits which the orchestrator applies via `git apply`. |
 | Failing Example | PR #27 round 1 (commit `e7f7807`): archived BL-107 from `backlog.md` to `backlog-archive.md`; inbound cites at `Plan-024:94` + `Plan-024:328` were broken; the fix-sweep also caught `Plan-024:312` (BL-103) + `Plan-023:236` (BL-101) silently broken for 2-3 days from prior archivals. |
-| Memory | `feedback_canonicalization_sweep_completeness.md` — note the framing-blindness ("archival" is a domain action; the structural action is "string move"). |
 | What Discipline Restores Correctness | Stage the heading move + inbound-cite rewrites in one commit. The lychee pre-commit hook gates truly-broken anchors; if it fails, compute the new slug and rewrite every cite, then re-stage. Optionally invoke `/ripple-check` after staging to surface inbound references that lychee accepts as valid but where the citing prose still names the OLD heading. |
 
 ### CAT-04 — Heading-text edit (slug change)
@@ -78,7 +75,6 @@ The catalog is the single source of truth. Hooks, skills, and audit-prompts refe
 | Audit Prompt | "For every set claim of the shape `... set (X, Y, Z) <verb> ...` in this PR's diff, has the enumeration been re-derived from the post-edit set state?" |
 | Off-the-shelf Tool | None. |
 | Failing Example | PR #27 round 2 (commit `00ec528`): NS-22 was added as a `:::ready` graph node; the prose `The ready set (NS-01, NS-03, NS-04, NS-11, NS-12, NS-13a, NS-14, NS-22) shares no code paths` claim went stale (NS-22 sweeps `Plan-001` and NS-12 amends `Plan-001:357`, both edit the same file). |
-| Memory | `feedback_set_quantifier_reverification.md` — the "shares no" claim re-derivation discipline. |
 | Known Gaps | Table-shaped and list-shaped set claims are not detected by the hook (residual). The audit prompt covers the residual but is not a gate. |
 | What Discipline Restores Correctness | (a) For Mermaid + enumeration cases: pre-commit hook fails; fix by editing prose OR graph until they match. (b) For table / list cases: audit prompt prompts manual re-derivation. |
 
