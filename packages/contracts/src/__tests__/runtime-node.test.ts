@@ -32,7 +32,7 @@ import {
   type VersionBoundExceededDetails,
   type VersionFloorExceededError,
 } from "../error.js";
-import { EventCategorySchema } from "../event.js";
+import { EVENT_FIELD_MAX_LEN, EventCategorySchema } from "../event.js";
 import {
   NODE_ID_MAX_LEN,
   NodeIdSchema,
@@ -49,6 +49,7 @@ import {
   RuntimeNodeCapabilityUpdatedPayloadSchema,
   RuntimeNodeCapabilityUpdateRequestSchema,
   RuntimeNodeCapabilityUpdateResponseSchema,
+  RuntimeNodeDegradedPayloadSchema,
   RuntimeNodeDetachRequestSchema,
   RuntimeNodeDetachResponseSchema,
   RuntimeNodeHealthStateSchema,
@@ -787,6 +788,17 @@ const buildValidOfflinePayload = () => ({
   reason: "explicit_shutdown" as const,
 });
 
+// `degradedCapabilities` is NON-empty in the valid fixture so the accept-valid
+// case below exercises the Plan-005 capability-degradation producer's path (a
+// per-capability degradation signal); the staleness-producer (T3.6) empty-`[]`
+// case overrides it explicitly. `detail` is the required-non-empty reason string.
+const buildValidDegradedPayload = () => ({
+  ...VALID_LIFECYCLE_BASE,
+  newState: "degraded" as const,
+  degradedCapabilities: ["provider-driver"],
+  detail: "heartbeat stale: last seen 2026-06-01T00:00:00.000Z",
+});
+
 const buildValidCapabilityDeclaredPayload = () => ({
   sessionId: SESSION_ID,
   nodeId: NODE_ID,
@@ -953,6 +965,86 @@ describe("RuntimeNodeOfflinePayloadSchema (C7: offline = base + {lastHeartbeatAt
   it("rejects an unknown extra key (.strict drift guard)", () => {
     const broken = { ...buildValidOfflinePayload(), bogusField: "nope" };
     expect(RuntimeNodeOfflinePayloadSchema.safeParse(broken).success).toBe(false);
+  });
+});
+
+// `RuntimeNodeDegradedPayloadSchema` is ONE event name (`runtime_node.degraded`)
+// with TWO producers (Spec-006:376): the Plan-005 capability-degradation producer
+// (non-empty `degradedCapabilities`) and the Plan-003 T3.6 staleness sweep
+// (`degradedCapabilities: []` + a non-empty `detail`). This block is the unit/
+// boundary axis (the cross-package seam axis lives in the control-plane
+// heartbeat-service bridge tests): it pins the degraded-specific wiring — the
+// `RUNTIME_NODE_CAPABILITY_KEY_MAX_LEN` element cap, the `EVENT_FIELD_MAX_LEN`
+// `detail` cap, and the base required-field rejections — so a future constant
+// mis-wire (swapped element cap, dropped `nodeId`) fails here, not silently.
+describe("RuntimeNodeDegradedPayloadSchema (C7: degraded = base + {degradedCapabilities, detail})", () => {
+  it("parses a fully-valid payload and round-trips", () => {
+    const payload = buildValidDegradedPayload();
+    const result = RuntimeNodeDegradedPayloadSchema.safeParse(payload);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.degradedCapabilities).toEqual(["provider-driver"]);
+      expect(result.data.detail).toBe(payload.detail);
+    }
+  });
+
+  it("rejects a payload missing the required nodeId", () => {
+    const { nodeId: _omitted, ...withoutNodeId } = buildValidDegradedPayload();
+    expect(RuntimeNodeDegradedPayloadSchema.safeParse(withoutNodeId).success).toBe(false);
+  });
+
+  it("rejects a payload missing the required newState (lifecycle transition target)", () => {
+    const { newState: _omitted, ...withoutNewState } = buildValidDegradedPayload();
+    expect(RuntimeNodeDegradedPayloadSchema.safeParse(withoutNewState).success).toBe(false);
+  });
+
+  it("rejects an empty detail and a whitespace-only detail (wireFreeFormString .min(1) + \\S)", () => {
+    const empty = { ...buildValidDegradedPayload(), detail: "" };
+    expect(RuntimeNodeDegradedPayloadSchema.safeParse(empty).success).toBe(false);
+    const whitespace = { ...buildValidDegradedPayload(), detail: "   " };
+    expect(RuntimeNodeDegradedPayloadSchema.safeParse(whitespace).success).toBe(false);
+  });
+
+  it("rejects an oversized detail (EVENT_FIELD_MAX_LEN cap — defense-in-depth)", () => {
+    const broken = { ...buildValidDegradedPayload(), detail: "x".repeat(EVENT_FIELD_MAX_LEN + 1) };
+    expect(RuntimeNodeDegradedPayloadSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("rejects a degradedCapabilities element over the RUNTIME_NODE_CAPABILITY_KEY_MAX_LEN cap", () => {
+    const broken = {
+      ...buildValidDegradedPayload(),
+      degradedCapabilities: ["x".repeat(RUNTIME_NODE_CAPABILITY_KEY_MAX_LEN + 1)],
+    };
+    expect(RuntimeNodeDegradedPayloadSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("ACCEPTS an empty degradedCapabilities (the T3.6 staleness producer carries [])", () => {
+    // The staleness sweep degrades a reachable-but-stale node with NO per-capability
+    // signal — so `degradedCapabilities` is NOT required-non-empty (unlike a
+    // capability-degradation event). Empty must parse, alongside a non-empty detail.
+    const ok = { ...buildValidDegradedPayload(), degradedCapabilities: [] };
+    expect(RuntimeNodeDegradedPayloadSchema.safeParse(ok).success).toBe(true);
+  });
+
+  it("rejects an unknown extra key (.strict drift guard)", () => {
+    const broken = { ...buildValidDegradedPayload(), bogusField: "nope" };
+    expect(RuntimeNodeDegradedPayloadSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("accepts actor as a string, as null, and omitted; rejects a non-string actor", () => {
+    expect(RuntimeNodeDegradedPayloadSchema.safeParse(buildValidDegradedPayload()).success).toBe(
+      true,
+    );
+    expect(
+      RuntimeNodeDegradedPayloadSchema.safeParse({ ...buildValidDegradedPayload(), actor: null })
+        .success,
+    ).toBe(true);
+    const { actor: _omitted, ...withoutActor } = buildValidDegradedPayload();
+    expect(RuntimeNodeDegradedPayloadSchema.safeParse(withoutActor).success).toBe(true);
+    expect(
+      RuntimeNodeDegradedPayloadSchema.safeParse({ ...buildValidDegradedPayload(), actor: 123 })
+        .success,
+    ).toBe(false);
   });
 });
 

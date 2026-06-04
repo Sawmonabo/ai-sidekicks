@@ -775,6 +775,76 @@ export const RuntimeNodeOfflinePayloadSchema: z.ZodType<RuntimeNodeOfflinePayloa
   .strict();
 
 // --------------------------------------------------------------------------
+// runtime_node.degraded — base + {degradedCapabilities[], detail}.
+// --------------------------------------------------------------------------
+//
+// Spec-006:376 ("base + {degradedCapabilities[], detail}"). Authored in Plan-003
+// Phase 3 (T3.6) alongside its producer — the control-plane heartbeat-staleness
+// sweep — exactly as Phase 2 deferred this shape ("their producers — heartbeat-
+// loss and admin-revoke — are Phase 3", lines 556-558 above). The canonical
+// `api-payload-contracts.md` carries NO `RuntimeNodeDegradedPayload` interface
+// (only the `NodeState` / wire-`healthState` enums), so Spec-006:376 is the
+// authoritative shape source here (typed-source-over-table-gloss falls back to
+// the spec gloss when the typed doc is silent — verified 2026-06-04).
+//
+// ONE EVENT NAME, ONE SCHEMA, TWO PRODUCERS. Spec-006:376 frames `degraded` as
+// CAPABILITY degradation ("one or more degraded capabilities (provider driver
+// unhealthy, …)") — that producer (a Plan-005 driver-health path) supplies a
+// non-empty `degradedCapabilities`. But T3.6's producer is HEARTBEAT-STALENESS
+// degradation: a node whose `last_heartbeat_at` aged past `30s` is reachable-but-
+// stale with NO per-capability signal, so it carries `degradedCapabilities: []`
+// and a `detail` staleness reason. The schema must accommodate BOTH, so
+// `degradedCapabilities` is deliberately NOT required-non-empty (`z.array` with
+// NO `.min(1)`) — a required-non-empty array would reject the staleness producer
+// outright. `detail` IS required (a degraded event always explains itself): it is
+// `wireFreeFormString`, whose `.min(1)` (session.ts:118) already rejects an empty
+// / whitespace-only detail, so the staleness producer MUST pass a non-empty
+// reason string (e.g. "heartbeat stale: ...").
+//
+// `degradedCapabilities` elements reuse `RUNTIME_NODE_CAPABILITY_KEY_MAX_LEN`
+// (line 626) — the SAME bounded cap-key realization as `capability` on the
+// `capability_declared` / `capability_updated` payloads — so a capability key is
+// length-bounded + NUL-guarded identically wherever it appears. NO
+// `lastHeartbeatAt` here (that field is `offline`-only, line 766): a degraded
+// node is still heartbeating-but-stale OR capability-impaired; the last-heartbeat
+// timestamp is the OFFLINE event's evidence, not degraded's.
+//
+// TYPING — single-`T` `z.ZodType<T>`, `.strict()`, EXPORTED (const + interface),
+// built via `buildRuntimeNodeLifecycleBaseShape()` + extension — mirrors the
+// `RuntimeNodeOfflinePayloadSchema` above (lines 769-775) exactly. NON-INPUT
+// event payload (constructed daemon-side, validated at the emission boundary with
+// `.parse()`), so no double-T input-inference bridge — same stance as the 5
+// Phase-2 payload schemas (see the §TYPING note at lines 581-595).
+export interface RuntimeNodeDegradedPayload {
+  sessionId?: SessionId | undefined;
+  nodeId: NodeId;
+  previousState?: NodeState | undefined;
+  newState: NodeState;
+  actor?: string | null | undefined;
+  degradedCapabilities: string[];
+  detail: string;
+}
+export const RuntimeNodeDegradedPayloadSchema: z.ZodType<RuntimeNodeDegradedPayload> = z
+  .object({
+    ...buildRuntimeNodeLifecycleBaseShape(),
+    // NO `.min(1)` — see the two-producer rationale above. The staleness producer
+    // (T3.6) carries `[]`; the capability-degradation producer carries a non-empty
+    // set. Element bound reuses the canonical capability-key cap.
+    degradedCapabilities: z.array(
+      wireFreeFormString(
+        RUNTIME_NODE_CAPABILITY_KEY_MAX_LEN,
+        "RuntimeNodeDegradedPayload.degradedCapabilities[]",
+      ),
+    ),
+    // REQUIRED non-empty (wireFreeFormString `.min(1)`): a degraded event always
+    // carries a human-readable reason — the staleness detail or the capability-
+    // health detail. Bounded at the wire/replay trust boundary like the other
+    // free-form payload strings.
+    detail: wireFreeFormString(EVENT_FIELD_MAX_LEN, "RuntimeNodeDegradedPayload.detail"),
+  })
+  .strict();
+
+// --------------------------------------------------------------------------
 // runtime_node.capability_declared — REDUCED base + {capability, capabilityDetails}.
 // --------------------------------------------------------------------------
 //
