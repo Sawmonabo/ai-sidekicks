@@ -27,7 +27,7 @@
 //   * sessionId/actor reconciliation: one input value populates BOTH the
 //     envelope and the payload (a caller cannot make them diverge).
 //
-// Spec coverage: Spec-003 line 83 (capability/trust changes emitted as
+// Spec coverage: Spec-003 line 92 (capability/trust changes emitted as
 // session events); Spec-006 lines 374-380 (per-event payload shapes).
 // Verifies invariant: I-003-4 (`monotonic_ns` is within-daemon debug data,
 // not the replay key — the replay key is `sequence`).
