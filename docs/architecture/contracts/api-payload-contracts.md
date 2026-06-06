@@ -509,11 +509,11 @@ interface RuntimeNodeHeartbeatRequest {
 interface RuntimeNodeCapabilityUpdateRequest {
   nodeId: NodeId;
   capabilities: Record<string, unknown>;
-  healthChanges?: { state: NodeState; reason?: string };
+  healthChanges?: { state: "online" | "degraded"; reason?: string }; // self-reported capability-health — the SAME 2-value RuntimeNodeHealthState axis as attach/heartbeat above (Spec-003 §Default-Behavior capabilityupdate amendment, 2026-06-04). A daemon self-reports only its own capability-health; offline is server-derived liveness-death (the staleness sweep, Plan-003 T3.6) and revoked is an authority-issued trust decision (detach/admin, Plan-003 T3.7) — neither is daemon-self-reportable, so both are unrepresentable here. The request narrows to the 2-value health axis; the response state below stays the broad server-derived NodeState liveness projection — the asymmetry is intentional (daemon asserts narrow, server reports broad).
 }
 interface RuntimeNodeCapabilityUpdateResponse {
   nodeId: NodeId;
-  state: NodeState;
+  state: NodeState; // liveness axis (registering|online|degraded|offline|revoked) — UNCHANGED: the server-derived liveness position the control plane owns (request→response narrow/broad asymmetry is intentional)
   updatedAt: string;
 }
 

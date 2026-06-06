@@ -216,11 +216,25 @@ export const RUNTIME_NODE_CAPABILITY_UPDATE_REASON_MAX_LEN = 512;
 // `.strict()` (top-level AND nested) — the wire shape is closed, so unknown
 // keys at either level are schema drift surfaced at parse time.
 //
-// `healthChanges.state` is the FULL 5-value `NodeState` liveness enum, NOT the
-// 2-value `RuntimeNodeHealthState` wire-health enum (intentional per the wire
-// doc, api-payload-contracts.md:512). A capability-update may move the node to
-// any liveness position the daemon reports (e.g. `offline`/`revoked`), which the
-// narrower attach/heartbeat health axis cannot express.
+// `healthChanges.state` is the 2-value `RuntimeNodeHealthState` wire-health enum
+// (online|degraded) — the SAME self-reported-health axis `RuntimeNodeAttach-
+// Request.healthState` and `RuntimeNodeHeartbeatRequest.healthState` already
+// carry, so all three daemon-self-report surfaces are consistent (Spec-003
+// §Default-Behavior `capabilityupdate` amendment, 2026-06-04). LEAST-PRIVILEGE
+// boundary, held by CONSTRUCTION not by runtime check: a daemon self-reports
+// only its OWN capability-health (the §Fallback-Behavior axis — capability-
+// validation failure leaves the node `degraded`). The two broad `NodeState`
+// liveness positions a daemon CANNOT self-report are now unrepresentable here:
+//   • `offline` is server-derived liveness-death — the control-plane staleness
+//     sweep (Plan-003 T3.6) derives it from heartbeat age, or an explicit
+//     `detach` retires the node; never daemon-asserted via `healthChanges`.
+//   • `revoked` is an authority-issued trust decision ABOUT the node (the
+//     session / detach / admin path, Plan-003 T3.7), never self-asserted.
+// `registering` is likewise not a daemon-reportable health value. This narrows
+// the broad field T1.2 shipped (api-payload-contracts.md:512); the request→
+// response asymmetry is intentional — the daemon asserts the NARROW 2-value
+// health axis here, while the RESPONSE `state: NodeState` below stays the broad
+// server-derived liveness projection the control plane owns.
 //
 // Optional fields are typed `key?: T | undefined` (not bare `key?:`): Zod's
 // `.optional()` infers `T | undefined`, and the interface must match the
@@ -233,7 +247,7 @@ export const RUNTIME_NODE_CAPABILITY_UPDATE_REASON_MAX_LEN = 512;
 export interface RuntimeNodeCapabilityUpdateRequest {
   nodeId: NodeId;
   capabilities: Record<string, unknown>;
-  healthChanges?: { state: NodeState; reason?: string | undefined } | undefined;
+  healthChanges?: { state: RuntimeNodeHealthState; reason?: string | undefined } | undefined;
 }
 // `z.ZodType<T, T>` (double-T) with the outer `as unknown as z.ZodType<T, T>`
 // cast — required so tRPC v11's Standard-Schema-V1 input inference resolves to
@@ -241,25 +255,31 @@ export interface RuntimeNodeCapabilityUpdateRequest {
 // schema is non-transforming, so Input ≡ Output ≡ T and the double-T preserves
 // that equivalence on the type surface).
 //
-// The cast's load-bearing trigger here is the single-T `NodeStateSchema` member
-// inside `healthChanges.state` (declared `z.ZodType<NodeState>` above — its
-// `Input` slot defaults to `unknown`). Because this is a tRPC INPUT surface,
-// that single-T member poisons the composed object's input inference: without
-// the bridge the request's `healthChanges.state` input resolves to `unknown`.
-// The ablation diagnostic (cast removed) is TS2375; the trigger is the single-T
-// member's `unknown` input slot, NOT the optionality of `healthChanges` — the
+// The cast's load-bearing trigger here is the single-T `RuntimeNodeHealthState-
+// Schema` member inside `healthChanges.state` (declared
+// `z.ZodType<RuntimeNodeHealthState>` at line 109 — its `Input` slot defaults to
+// `unknown`). The T3.0 narrowing swapped this member from `NodeStateSchema` to
+// `RuntimeNodeHealthStateSchema`, but BOTH are single-T, so the cast stays for
+// the identical mechanism: because this is a tRPC INPUT surface, that single-T
+// member poisons the composed object's input inference: without the bridge the
+// request's `healthChanges.state` input resolves to `unknown`. The ablation
+// diagnostic (cast removed) is TS2375; the trigger is the single-T member's
+// `unknown` input slot, NOT the optionality of `healthChanges` — the
 // `online`/`degraded` distinction here is irrelevant. TS2375 is emitted (rather
 // than TS2322) because the `ZodType`→`ZodType` structural comparison routes
 // through the `exactOptionalPropertyTypes` path via Zod's internal phantom
 // `_input` structure; the all-required `RuntimeNodeAttachRequestSchema` above
 // (zero optional user-type fields) ablates to the SAME TS2375, which is direct
 // proof the diagnostic tracks the single-T `unknown`-input member, not any
-// optional property on the request type. This is a DIFFERENT single-T member
-// than `RuntimeNodeAttachRequestSchema` (driven by `EventEnvelopeVersionSchema`,
-// a member T1.2 does NOT carry), but the mechanism is identical. We bridge at
-// the consumption site rather than re-annotating the shared single-T
-// `NodeStateSchema` (its response consumers below are correct as single-T, and
-// re-annotation is out of this task's scope).
+// optional property on the request type. After the swap this member is the SAME
+// single-T `RuntimeNodeHealthStateSchema` that drives `RuntimeNodeHeartbeat-
+// RequestSchema`'s cast below (its comment proves the same TS2375 from the
+// all-required side), so the two request schemas' cast rationale is now
+// identical in mechanism. We bridge at the consumption site rather than re-
+// annotating the shared single-T `RuntimeNodeHealthStateSchema` (its other
+// consumers — `RuntimeNodeAttachRequestSchema`, `RuntimeNodeHeartbeatRequest-
+// Schema` — are bridged the same way, and re-annotation is out of this task's
+// scope).
 export const RuntimeNodeCapabilityUpdateRequestSchema: z.ZodType<
   RuntimeNodeCapabilityUpdateRequest,
   RuntimeNodeCapabilityUpdateRequest
@@ -287,7 +307,13 @@ export const RuntimeNodeCapabilityUpdateRequestSchema: z.ZodType<
     // whitespace-only rejection come free (no separate `.min(1)` needed).
     healthChanges: z
       .object({
-        state: NodeStateSchema,
+        // 2-value `RuntimeNodeHealthState` (online|degraded) — narrowed from the
+        // broad `NodeStateSchema` by T3.0 so the illegal `offline`/`revoked`/
+        // `registering` self-report is UNCONSTRUCTABLE at the schema boundary,
+        // not merely runtime-rejected (Spec-003 §Default-Behavior `capability-
+        // update` amendment; I-003-2 least-privilege). Single-T member — the
+        // cast above stays for it (see the cast rationale).
+        state: RuntimeNodeHealthStateSchema,
         reason: wireFreeFormString(
           RUNTIME_NODE_CAPABILITY_UPDATE_REASON_MAX_LEN,
           "RuntimeNodeCapabilityUpdate.healthChanges.reason",
@@ -340,8 +366,12 @@ export const RuntimeNodeCapabilityUpdateResponseSchema: z.ZodType<RuntimeNodeCap
 // `NodeState` liveness enum: `offline`/`registering`/`revoked` are NodeState
 // liveness positions a daemon cannot self-report as a heartbeat health value
 // (e.g. `offline` is presence-DERIVED, never daemon-asserted), so they MUST be
-// rejected here. The capability-update path (above) is where a daemon moves the
-// node across the full 5-value liveness axis; heartbeat is health-only.
+// rejected here. The capability-update path (above) reuses this SAME 2-value
+// `RuntimeNodeHealthStateSchema` on its `healthChanges.state` (T3.0) — so all
+// three daemon-self-report surfaces (attach / capabilityupdate / heartbeat)
+// carry the identical narrow health axis; `offline`/`revoked` are owned by
+// other authorities (the staleness sweep and the trust path) and are not
+// daemon-reportable on ANY of the three.
 //
 // `healthState` is REQUIRED (no `.optional()`, no `| undefined`): a heartbeat
 // without a reported health value is not a valid heartbeat.
@@ -363,15 +393,17 @@ export interface RuntimeNodeHeartbeatRequest {
 // request's `healthState` input resolves to `unknown`. The ablation diagnostic
 // (cast removed) is TS2375 — the same mechanism and code as the two casts above:
 // `RuntimeNodeAttachRequestSchema` (single-T `EventEnvelopeVersionSchema`) and
-// `RuntimeNodeCapabilityUpdateRequestSchema` (single-T `NodeStateSchema`). The
+// `RuntimeNodeCapabilityUpdateRequestSchema` (single-T `RuntimeNodeHealthState-
+// Schema`, the SAME member this heartbeat schema uses after T3.0). The
 // determinant is the single-T `unknown`-input member, NOT user-type optionality:
 // `RuntimeNodeHeartbeatRequest` has ZERO optional fields yet ablates to TS2375,
 // exactly like the all-required `RuntimeNodeAttachRequestSchema` (the cap-update
 // comment above proves the same from the optional-field side). We bridge at the
 // consumption site rather than re-annotating the shared single-T
-// `RuntimeNodeHealthStateSchema` (its other consumer,
-// `RuntimeNodeAttachRequestSchema`, is bridged the same way, and re-annotation
-// is out of this task's scope).
+// `RuntimeNodeHealthStateSchema` (its other consumers,
+// `RuntimeNodeAttachRequestSchema` and `RuntimeNodeCapabilityUpdateRequest-
+// Schema`, are bridged the same way, and re-annotation is out of this task's
+// scope).
 export const RuntimeNodeHeartbeatRequestSchema: z.ZodType<
   RuntimeNodeHeartbeatRequest,
   RuntimeNodeHeartbeatRequest
@@ -428,7 +460,7 @@ export const RUNTIME_NODE_DETACH_REASON_MAX_LEN = 512;
 // `.optional()` infers `string | undefined`, and the interface must match the
 // schema's inferred output for the double-T annotation (see the
 // `exactOptionalPropertyTypes` note at session.ts:252-257 and the identical
-// `reason?: string | undefined` stance at invites.ts:184 / runtime-node.ts:236).
+// `reason?: string | undefined` stance at invites.ts:184 / runtime-node.ts:250).
 
 export interface RuntimeNodeDetachRequest {
   nodeId: NodeId;
@@ -591,14 +623,14 @@ export const RUNTIME_NODE_EVENT_NAMES: readonly RuntimeNodeEventName[] = [
 // compiles clean with no cast (so do `SessionSnapshotSchema` / `ChannelSummary-
 // Schema` / `SessionCreateResponseSchema`). The cast on this file's REQUEST
 // schemas is driven by the double-T input-inference slot (it "only poisons input
-// inference on the REQUEST side", line 313), which a single-T payload does not
+// inference on the REQUEST side", line 339), which a single-T payload does not
 // carry — so single-T payloads composing branded ids compose cleanly.
 //
 // Optional interface fields are typed `key?: T | undefined` (not bare `key?:`):
 // Zod's `.optional()` infers `T | undefined`, and with no `as unknown as` cast
 // TypeScript checks interface ↔ inferred-output equality exactly, so the
 // interface must match (same `exactOptionalPropertyTypes` stance as
-// `ChannelSummary.name` at session.ts:267 and lines 225-231 above). `actor` is
+// `ChannelSummary.name` at session.ts:267 and lines 239-245 above). `actor` is
 // `.nullable().optional()` → its inferred output is `string | null | undefined`,
 // so the field is `actor?: string | null | undefined` (mirrors `EventEnvelope`'s
 // `actor` at event.ts:211).
@@ -606,7 +638,7 @@ export const RUNTIME_NODE_EVENT_NAMES: readonly RuntimeNodeEventName[] = [
 // --------------------------------------------------------------------------
 // Operation-scoped caps for the new free-form payload string fields. Same
 // per-operation convention as `RUNTIME_NODE_CAPABILITY_UPDATE_REASON_MAX_LEN`
-// (line 208) / `RUNTIME_NODE_DETACH_REASON_MAX_LEN` (line 410): each field owns
+// (line 208) / `RUNTIME_NODE_DETACH_REASON_MAX_LEN` (line 442): each field owns
 // its own cap rather than sharing a single package-wide constant. Co-located at
 // the head of this section (self-contained) rather than each immediately above
 // its consuming schema, since all three are consumed across the factories +
