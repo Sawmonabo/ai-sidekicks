@@ -10,8 +10,11 @@
 //             (there is nothing to write to). A heartbeat round-trips through
 //             the in-memory CRDT (`recordHeartbeat` -> `readPresence`), proving
 //             the service WORKS without any persistence dependency.
-//         (b) after `applyMigrations(querier)` (v1 + v2, the full Plan-002
-//             migration set), NO `public` table matches `ILIKE '%presence%'`.
+//         (b) after direct-exec of the v1 + v2 Plan-002 migration set (NOT
+//             `applyMigrations`, which post Plan-003 PR #145 also applies v3's
+//             durable runtime-node liveness table `runtime_node_presence` —
+//             out of this collaborative-presence guard's scope), NO `public`
+//             table matches `ILIKE '%presence%'`.
 //         (c) the v1->v2 migration DELTA introduces EXACTLY `session_invites`
 //             and no presence-state table (the same delta-set assertion the
 //             T2.5 migration-shape regression makes — re-verified here so the
@@ -73,6 +76,7 @@ import type {
 import { PresenceReadResponseSchema } from "@ai-sidekicks/contracts";
 
 import { INITIAL_MIGRATION_SQL } from "../../migrations/0001-initial.js";
+import { SESSION_INVITES_MIGRATION_SQL } from "../../migrations/0002-session-invites.js";
 import { applyMigrations, type Querier } from "../../sessions/migration-runner.js";
 import {
   InMemoryPresencePubSub,
@@ -227,6 +231,19 @@ describe("PresenceRegisterService — Pr1 (a) in-memory ingest, no database hand
 // already proved the service has no DB handle); these tests pin the schema
 // itself from the presence task's own suite.
 
+// Cross-plan amendment — Plan-003 Phase 3 (PR #145): Plan-003 registers
+// migration v3 (`runtime_node_attachments` + `runtime_node_presence`) in the
+// shared `applyMigrations` runner. The two I-002-3 schema guards below used
+// `applyMigrations` as a v1→v2 shortcut, which now also applies v3 — and v3's
+// `runtime_node_presence` (a durable runtime-NODE liveness coordination record,
+// a DIFFERENT domain from the in-memory collaborative Yjs Awareness presence
+// I-002-3 governs) would spuriously trip the `%presence%` / delta assertions.
+// The fix RESTORES these tests' documented v1→v2 scoping via direct-exec of the
+// v1/v2 SQL (test 2 already used this idiom for v1), preserving the original
+// Plan-002 I-002-3 intent unchanged — it does NOT add a Plan-003 carve-out to a
+// Plan-002 invariant assertion. The full-schema carve-out that admits the
+// sanctioned `runtime_node_presence` is homed in the Plan-003-owned
+// `runtime-node-upstream-anchors.test.ts` assertion (4).
 describe("PresenceRegisterService — Pr1 (b)/(c) + P10 re-verify (no presence-state table; I-002-3)", () => {
   let pg: PGlite;
   let querier: Querier;
@@ -240,8 +257,18 @@ describe("PresenceRegisterService — Pr1 (b)/(c) + P10 re-verify (no presence-s
     await pg.close();
   });
 
-  it("after applyMigrations (v1 + v2), no public table matches '%presence%'", async () => {
-    await applyMigrations(querier);
+  it("after the v1 + v2 migration set, no public table matches '%presence%'", async () => {
+    // Direct-exec v1 THEN v2 (not `applyMigrations`) so this guard spans EXACTLY
+    // the Plan-002 migration set — see the cross-plan-amendment note above the
+    // describe. `applyMigrations` would also apply Plan-003's v3, whose durable
+    // runtime-node liveness table `runtime_node_presence` is out of this
+    // I-002-3 collaborative-presence guard's scope.
+    await querier.transaction(async (tx) => {
+      await tx.exec(INITIAL_MIGRATION_SQL);
+    });
+    await querier.transaction(async (tx) => {
+      await tx.exec(SESSION_INVITES_MIGRATION_SQL);
+    });
     const probe = await querier.query<{ table_name: string }>(
       `SELECT table_name FROM information_schema.tables
         WHERE table_schema = 'public'
@@ -252,21 +279,21 @@ describe("PresenceRegisterService — Pr1 (b)/(c) + P10 re-verify (no presence-s
 
   it("the v1->v2 migration delta is EXACTLY { session_invites } — no presence-state table is added", async () => {
     // Stepwise so S1 (post-v1) and S2 (post-v2) are distinct snapshots, mirroring
-    // migration-shape.test.ts. `applyMigrations` applies BOTH v1 and v2 in one
-    // call, so split the boundary: snapshot after a partial apply is not
-    // possible via the runner, so we exec v1 then the runner for the rest.
+    // migration-shape.test.ts. Direct-exec v1, snapshot, then direct-exec v2 —
+    // NOT `applyMigrations`, which post Plan-003 PR #145 would also apply v3 and
+    // pollute the v1→v2 delta with the runtime-node tables (see the cross-plan-
+    // amendment note above the describe). This preserves the test's original
+    // v1→v2 charter.
     await querier.transaction(async (tx) => {
-      await tx.exec(
-        // v1 only — bootstrap the Plan-001 schema so S1 is post-v1, pre-v2.
-        // Imported indirectly through applyMigrations would apply v2 too; here
-        // we want the pre-v2 snapshot, so exec the INITIAL SQL directly.
-        INITIAL_MIGRATION_SQL,
-      );
+      await tx.exec(INITIAL_MIGRATION_SQL);
     });
     const s1: Set<string> = await snapshotPublicTables(querier);
 
-    // Apply the remaining migrations (v2) through the production runner.
-    await applyMigrations(querier);
+    // Apply v2 only via direct-exec so S2 \ S1 spans EXACTLY the Plan-002
+    // migration step.
+    await querier.transaction(async (tx) => {
+      await tx.exec(SESSION_INVITES_MIGRATION_SQL);
+    });
     const s2: Set<string> = await snapshotPublicTables(querier);
 
     const delta: string[] = [...s2].filter((tableName) => !s1.has(tableName)).sort();

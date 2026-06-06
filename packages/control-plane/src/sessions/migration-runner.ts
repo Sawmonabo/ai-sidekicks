@@ -4,7 +4,9 @@
 // Plan-001 PR #4 ships migration version 1 (`migrations/0001-initial.ts`);
 // Plan-002 PR #102 ships migration version 2 (`migrations/0002-session-invites.ts`)
 // via cross-plan Amendment 2 (see `docs/plans/002-invite-membership-and-presence.md`
-// §Cross-Plan Amendments). The runner iterates the `MIGRATIONS` array declared
+// §Cross-Plan Amendments); Plan-003 PR #145 ships migration version 3
+// (`migrations/0003-runtime-nodes.ts` — the `runtime_node_attachments` +
+// `runtime_node_presence` tables). The runner iterates the `MIGRATIONS` array declared
 // below — to register a v3+ migration, add `{ version: N, sql: ... }` in
 // ascending version order. Subsequent plans (003, 006, 015, 022...) will
 // register additional migrations the same way.
@@ -48,6 +50,7 @@
 
 import { INITIAL_MIGRATION_SQL } from "../migrations/0001-initial.js";
 import { SESSION_INVITES_MIGRATION_SQL } from "../migrations/0002-session-invites.js";
+import { RUNTIME_NODES_MIGRATION_SQL } from "../migrations/0003-runtime-nodes.js";
 
 // Ordered registry of every migration the control-plane is responsible for
 // applying. Iteration order is the apply order — the runner walks this array
@@ -79,6 +82,7 @@ import { SESSION_INVITES_MIGRATION_SQL } from "../migrations/0002-session-invite
 const MIGRATIONS: ReadonlyArray<{ readonly version: number; readonly sql: string }> = [
   { version: 1, sql: INITIAL_MIGRATION_SQL },
   { version: 2, sql: SESSION_INVITES_MIGRATION_SQL },
+  { version: 3, sql: RUNTIME_NODES_MIGRATION_SQL },
 ];
 
 // Stable advisory-lock ID for ai-sidekicks control-plane migrations.

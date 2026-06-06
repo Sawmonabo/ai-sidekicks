@@ -58,23 +58,29 @@
 // has a pre-v2 baseline.
 //
 // THIS file is the complementary ABSOLUTE-STATE guard: it applies ALL shipped
-// migrations (v1 + v2 via the canonical `applyMigrations` runner) and asserts
-// the resulting full schema CONTAINS the Plan-001 anchors and DOES NOT contain
-// the Plan-003 Phase-3 tables. It is not a delta and it does not re-assert the
+// migrations (v1 + v2 + v3 via the canonical `applyMigrations` runner) and
+// asserts the resulting full schema CONTAINS the Plan-001 anchors and — post
+// Phase 3 PR #145 — now CONTAINS the Plan-003 runtime-node tables (assertion
+// (3) flipped to PRESENT; see tripwire (d)). It is not a delta and it does not re-assert the
 // `session_invites` delta (that is P10's charter); it answers a different
 // question — "is the upstream contract Plan-003 depends on actually shipped, and
 // has Plan-003 stayed within its Phase-1 lane?".
 //
-// (d) Lifecycle TRIPWIRE on assertion (3)
+// (d) Lifecycle TRIPWIRE on assertion (3) — RESOLVED in Phase 3 PR #145
 // ----------------------------------------------------------------------------
-// Assertion (3) — `runtime_node_attachments` / `runtime_node_presence` ABSENT —
-// is intentionally PHASE-1-SCOPED. When Plan-003 Phase 3 ships the control-plane
-// migration that CREATEs those two tables (`0003-runtime-nodes.ts`, registered
-// as v3 in `migration-runner.ts`), `applyMigrations` here will start producing
-// them and assertion (3) WILL — and MUST — fail. That failure is the signal to
-// UPDATE OR REMOVE assertion (3) as part of the Phase-3 PR (flip it to assert
-// PRESENCE, or fold the two tables into a Phase-3 absolute-shape guard).
-// Assertions (1) and (2) are permanent — the Plan-001 anchors do not move.
+// Assertion (3) was PHASE-1-SCOPED: it asserted `runtime_node_attachments` /
+// `runtime_node_presence` were ABSENT, with the documented expectation that it
+// WOULD — and MUST — fail once Plan-003 Phase 3 shipped the control-plane
+// migration creating those two tables (`0003-runtime-nodes.ts`, registered as
+// v3 in `migration-runner.ts`). That has now happened: Phase 3 PR #145 ships v3,
+// `applyMigrations` in this file's beforeEach materializes both tables, and
+// assertion (3) was flipped ABSENT→PRESENT (it now asserts `.toBe(true)`). The
+// full-schema I-002-3 carve-out the tripwire alluded to ("fold the two tables
+// into a Phase-3 absolute-shape guard") is realized as the new assertion (4):
+// the ONLY durable presence-NAMED table is the sanctioned `runtime_node_presence`
+// liveness record (a DIFFERENT domain from the in-memory collaborative Yjs
+// Awareness presence I-002-3 governs). Assertions (1) and (2) remain permanent —
+// the Plan-001 anchors do not move.
 //
 // (e) Inline-adapter rationale
 // ----------------------------------------------------------------------------
@@ -169,9 +175,9 @@ beforeEach(async () => {
   // migrations through the canonical runner. Unlike `migration-shape.test.ts`
   // (which applies v1 ONLY because P10 needs a pre-v2 delta baseline), this
   // guard wants the ABSOLUTE post-all-migrations schema, so it uses
-  // `applyMigrations` — which walks `MIGRATIONS = [v1, v2]` and applies every
-  // pending version (migration-runner.ts). When a Phase-3 v3 lands, this call
-  // will also produce the runtime_node_* tables — see header tripwire (d).
+  // `applyMigrations` — which walks `MIGRATIONS = [v1, v2, v3]` and applies
+  // every pending version (migration-runner.ts). Post Phase 3 PR #145 this call
+  // also produces the runtime_node_* tables — see header tripwire (d).
   const pg: PGlite = new PGlite();
   const querier: Querier = adaptPGlite(pg);
   await applyMigrations(querier);
@@ -211,13 +217,34 @@ describe("Plan-003 T1.7 upstream-anchor guard (reads, does not CREATE — cross-
     expect(column?.data_type).toBe("text");
   });
 
-  it("(3) Plan-003 Postgres tables are ABSENT after Phase 1 (deferred to Phase 3)", async () => {
-    // TRIPWIRE (header note (d)): runtime_node_attachments / runtime_node_presence
-    // are Plan-003-OWNED but created by the forward-declared Phase-3 control-plane
-    // migration, NOT here. When Phase 3 ships v3, this assertion MUST be updated
-    // or removed.
+  it("(3) Plan-003 Postgres tables are PRESENT after Phase 3 (v3 migration shipped)", async () => {
+    // TRIPWIRE RESOLVED (header note (d)): runtime_node_attachments /
+    // runtime_node_presence are Plan-003-OWNED and are now CREATEd by the v3
+    // control-plane migration (`0003-runtime-nodes.ts`, registered as v3 in
+    // `migration-runner.ts`). Phase 3 PR #145 shipped that migration, so
+    // `applyMigrations` in this file's beforeEach now materializes both tables;
+    // this assertion was flipped from ABSENT→PRESENT in PR #145. Assertions (1)
+    // and (2) remain permanent Plan-001-anchor guards.
     const tables: Set<string> = await snapshotPublicTables(ctx.querier);
-    expect(tables.has("runtime_node_attachments")).toBe(false);
-    expect(tables.has("runtime_node_presence")).toBe(false);
+    expect(tables.has("runtime_node_attachments")).toBe(true);
+    expect(tables.has("runtime_node_presence")).toBe(true);
+  });
+
+  it("(4) the only durable presence-NAMED public table is the sanctioned runtime-node one (I-002-3 at full-schema scope)", async () => {
+    // I-002-3 carve-out (Plan-002 invariant, re-verified at full-schema scope).
+    // I-002-3 keeps COLLABORATIVE presence (Yjs Awareness CRDT — cursors/awareness)
+    // in-memory only. runtime_node_presence is a DIFFERENT domain: runtime-node
+    // liveness (heartbeat + health_state), a durable coordination record sanctioned
+    // by Spec-003 §Default Behavior, ADR-017 §Server-Derived Runtime-Node Lifecycle
+    // Events, and shared-postgres-schema.md §Runtime Node Attachments (`-- Owner:
+    // Plan-003`). This pins that the ONLY durable presence-NAMED table is the
+    // sanctioned runtime-node one — a future durable COLLABORATIVE-presence table
+    // would surface here as an extra member and re-fail I-002-3 at full-schema scope
+    // (the coverage the Plan-002 v1→v2 guards intentionally no longer span post-v3).
+    const tables: Set<string> = await snapshotPublicTables(ctx.querier);
+    const presenceTables: string[] = [...tables]
+      .filter((tableName) => tableName.toLowerCase().includes("presence"))
+      .sort();
+    expect(presenceTables).toEqual(["runtime_node_presence"]);
   });
 });

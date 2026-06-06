@@ -16,8 +16,9 @@
 // Migration-runner coverage: matches the runtime-daemon test shape for
 // `applyMigrations` idempotency (re-call on a migrated handle is a no-op,
 // schema_migrations rows stay stable at the registered MIGRATIONS set).
-// Post Plan-002 Amendment 2 (PR #102) the canonical-path applies BOTH v1
-// and v2; the dedicated `migration-runner.test.ts` test file pins the R1+R2
+// Post Plan-002 Amendment 2 (PR #102) and Plan-003 Phase 3 (PR #145) the
+// canonical-path applies v1, v2, and v3; the dedicated
+// `migration-runner.test.ts` test file pins the R1+R2
 // canonical-path properties directly, while THIS file's idempotency block
 // proves the composition-level integration (running the migration runner
 // through the directory-service test fixture preserves the same shape).
@@ -1484,20 +1485,21 @@ describe("applyMigrations — idempotency", () => {
     // regression that bypassed the `hasMigrationApplied` short-circuit
     // would surface as a `42P07 relation already exists` error.
     //
-    // Post Plan-002 Amendment 2 (PR #102), `applyMigrations` iterates the
-    // `MIGRATIONS` array `[v1, v2]` — the canonical-path bootstrap leaves
-    // BOTH version anchor rows in schema_migrations, so the assertion
-    // shape transitively updated from `[{v:1}]` to `[{v:1},{v:2}]`. The
-    // expanded canonical-path coverage (R1+R2) lives in the dedicated
-    // `migration-runner.test.ts` test file; this assertion remains the
-    // composition-level proof that running the migration runner through
-    // the directory-service test fixture preserves the same idempotency.
+    // Post Plan-002 Amendment 2 (PR #102), `applyMigrations` iterated the
+    // `MIGRATIONS` array `[v1, v2]`; cross-plan amendment — Plan-003 Phase 3
+    // (PR #145) appends v3 (`runtime_node_attachments` + `runtime_node_presence`),
+    // so the canonical-path bootstrap now leaves THREE version anchor rows in
+    // schema_migrations and the assertion shape updated to
+    // `[{v:1},{v:2},{v:3}]`. The expanded canonical-path coverage (R1+R2) lives
+    // in the dedicated `migration-runner.test.ts` test file; this assertion
+    // remains the composition-level proof that running the migration runner
+    // through the directory-service test fixture preserves the same idempotency.
     await applyMigrations(ctx.querier);
     await applyMigrations(ctx.querier);
     const probe = await ctx.querier.query<{ version: number }>(
       "SELECT version FROM schema_migrations ORDER BY version",
     );
-    expect(probe.rows).toEqual([{ version: 1 }, { version: 2 }]);
+    expect(probe.rows).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }]);
   });
 
   it("applyMigrations is concurrency-safe — concurrent calls on the same fresh database serialize via advisory lock (Codex R8)", async () => {
@@ -1543,8 +1545,8 @@ describe("applyMigrations — idempotency", () => {
     //
     //   (a) End-state correctness — `Promise.all([apply, apply])` on a
     //       fresh DB resolves with no throw; each migration lands
-    //       exactly once (`schema_migrations` carries v1 + v2 anchor
-    //       rows post Amendment 2; `participants` table exists from v1).
+    //       exactly once (`schema_migrations` carries v1 + v2 + v3 anchor
+    //       rows post Plan-003 PR #145; `participants` table exists from v1).
     //       This IS load-bearing on PGlite: empirically, the pre-R8
     //       broken shape (no advisory lock around the transaction) DOES
     //       throw `relation "participants" already exists` on PGlite
@@ -1580,13 +1582,15 @@ describe("applyMigrations — idempotency", () => {
       ).resolves.toEqual([undefined, undefined]);
 
       // (a) End-state correctness: each migration landed exactly once.
-      // Post Amendment 2 the runner iterates `[v1, v2]`, so BOTH anchor
-      // rows must be present (regression that drops v2 would surface
-      // here as `toEqual([{version:1}])`).
+      // Post Amendment 2 the runner iterated `[v1, v2]`; cross-plan amendment —
+      // Plan-003 Phase 3 (PR #145) appends v3, so ALL THREE anchor rows must be
+      // present (a regression that drops v2 or v3 would surface here as a
+      // shorter array). The advisory-lock serialization this test exercises is
+      // unchanged — concurrent racers still land each version exactly once.
       const migrationsProbe = await pg.query<{ version: number }>(
         "SELECT version FROM schema_migrations ORDER BY version",
       );
-      expect(migrationsProbe.rows).toEqual([{ version: 1 }, { version: 2 }]);
+      expect(migrationsProbe.rows).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }]);
 
       const participantsProbe = await pg.query<{ exists: boolean }>(
         `SELECT EXISTS (

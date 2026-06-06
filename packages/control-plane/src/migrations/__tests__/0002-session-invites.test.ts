@@ -41,9 +41,10 @@
 // This file exercises `SESSION_INVITES_MIGRATION_SQL` semantics in isolation
 // at the SQL layer — column shape, CHECK clauses, FK enforcement, UNIQUE
 // constraint, idempotency on repeated direct exec. Post Plan-002 Amendment 2
-// (PR #102), `applyMigrations()` iterates `MIGRATIONS = [v1, v2]` and
-// applies BOTH in one call, so using `applyMigrations()` in this file's
-// `beforeEach` would pre-apply v2 — defeating the point of every test
+// (PR #102) and Plan-003 Phase 3 (PR #145), `applyMigrations()` iterates
+// `MIGRATIONS = [v1, v2, v3]` and applies ALL pending versions in one call,
+// so using `applyMigrations()` in this file's `beforeEach` would pre-apply
+// v2 (and v3) — defeating the point of every test
 // below (T1's "session_invites should not yet exist" probe, T2-T8's
 // "apply v2 cleanly, then probe" structure, T7's "re-exec v2 SQL stays
 // idempotent at the SQL layer" assertion).
@@ -57,10 +58,11 @@
 // transaction uses, just inlined here so the test substrate matches the
 // production atomicity boundary).
 //
-// Canonical-path runner coverage (R1: applyMigrations applies both v1+v2;
-// R2: applyMigrations is idempotent at the runner-loop layer) lives in the
-// dedicated `sessions/__tests__/migration-runner.test.ts` test file. T7
-// below is the COMPLEMENTARY SQL-level idempotency assertion: after both
+// Canonical-path runner coverage (R1: applyMigrations applies every
+// registered version — v1+v2+v3 post Plan-003 PR #145; R2: applyMigrations
+// is idempotent at the runner-loop layer) lives in the dedicated
+// `sessions/__tests__/migration-runner.test.ts` test file. T7
+// below is the COMPLEMENTARY SQL-level idempotency assertion: after the
 // versions are present, re-calling `applyMigrations` MUST short-circuit
 // without re-running the SQL — a regression in the runner's outer-probe
 // recognition of pre-applied versions would surface here even if the
@@ -167,8 +169,9 @@ let ctx: TestContext;
 beforeEach(async () => {
   // Fresh in-memory PGlite per test — no tmpdir cleanup needed. Bootstraps
   // ONLY v1 schema via direct `tx.exec(INITIAL_MIGRATION_SQL)`. Using
-  // `applyMigrations(querier)` here would pre-apply v2 post Plan-002
-  // Amendment 2 (PR #102) — see the file-level "Why this file uses
+  // `applyMigrations(querier)` here would pre-apply v2 (post Plan-002
+  // Amendment 2, PR #102) and v3 (post Plan-003 Phase 3, PR #145) — see the
+  // file-level "Why this file uses
   // direct-exec v1 bootstrap" header for the full rationale. The
   // transaction wrapper mirrors the canonical `applyMigrations` atomicity
   // boundary so a torn write in the bootstrap leaves the DB cleanly empty.
@@ -192,9 +195,10 @@ afterEach(async () => {
 // canonical `applyMigrations()` wraps each version
 // (`querier.transaction(...) -> tx.exec(SQL)`); inlined here so this file's
 // tests exercise the v2 SQL semantics in isolation without going through the
-// canonical runner-loop (which post Amendment 2 would apply v2 in `beforeEach`
-// via the v1+v2 iteration, pre-applying it before each test could probe
-// "session_invites not yet present"). Canonical-path runner coverage lives in
+// canonical runner-loop (which post Amendment 2 + Plan-003 Phase 3 would apply
+// v2 in `beforeEach` via the v1+v2+v3 iteration, pre-applying it before each
+// test could probe "session_invites not yet present"). Canonical-path runner
+// coverage lives in
 // `sessions/__tests__/migration-runner.test.ts`.
 async function applySessionInvitesMigration(querier: Querier): Promise<void> {
   await querier.transaction(async (tx) => {
@@ -438,41 +442,48 @@ describe("0002-session-invites migration (T6 — I-002-3 ephemeral-presence by o
 // T7 — applyMigrations idempotency after v2 is applied
 // ----------------------------------------------------------------------------
 
-describe("0002-session-invites migration (T7 — applyMigrations idempotency post-v2)", () => {
-  it("re-calling applyMigrations after v2 is applied is a no-op (no throw, no duplicate rows)", async () => {
-    // `applyMigrations` (`sessions/migration-runner.ts`) iterates
-    // `MIGRATIONS = [v1, v2]` post Plan-002 Amendment 2 (PR #102), with a
-    // per-version `hasMigrationApplied` outer probe that short-circuits
-    // when the version's anchor row exists. This test pre-applies v1
-    // (via `beforeEach` direct-exec) AND v2 (via the local
-    // `applySessionInvitesMigration` direct-exec helper), then calls
-    // `applyMigrations` and asserts it's a no-op — both per-version outer
-    // probes MUST recognize the pre-applied versions, regardless of which
-    // codepath ran the original migration SQL. A regression that lost
-    // the outer-probe short-circuit would surface here as either a re-run
-    // of v1's DDL (`42P07 relation already exists`) or a duplicate-row
-    // insert into `schema_migrations` (PK violation on `version`).
+describe("0002-session-invites migration (T7 — applyMigrations cross-path catch-up + idempotency post-v2)", () => {
+  it("applyMigrations catches up v3 over direct-exec'd v1+v2, then a re-call is a no-op (no duplicate rows)", async () => {
+    // Cross-plan amendment — Plan-003 Phase 3 (PR #145): `applyMigrations`
+    // (`sessions/migration-runner.ts`) now iterates `MIGRATIONS = [v1, v2, v3]`.
+    // This test pre-applies v1 (via `beforeEach` direct-exec) AND v2 (via the
+    // local `applySessionInvitesMigration` direct-exec helper). The FIRST
+    // `applyMigrations` call is therefore no longer a pure no-op — its per-version
+    // outer probe recognizes the direct-exec'd v1+v2 (the cross-path recognition
+    // this test exists to pin) and applies the still-missing v3 as a catch-up.
+    // Plan-003's v3 CREATEs reference `sessions(id)` + `participants(id)`, both
+    // shipped by v1, so the catch-up succeeds without seeding (and we do NOT
+    // import the v3 SQL here — the runner owns it). The SECOND call is the no-op
+    // under test: every version now recognized, nothing applied, no duplicate
+    // `schema_migrations` rows. A regression that lost the outer-probe
+    // short-circuit would surface as a re-run of v1's DDL (`42P07 relation
+    // already exists`) or a duplicate-row insert into `schema_migrations` (PK
+    // violation on `version`).
     //
-    // Complementary to `sessions/__tests__/migration-runner.test.ts` R2,
-    // which asserts canonical-path idempotency (apply via runner, re-call
-    // via runner). This test asserts cross-path idempotency (apply via
-    // direct-exec, re-call via runner) — important because production
-    // migration paths (CI-driven runner) and operational debugging paths
-    // (manual SQL exec) might diverge over time.
+    // Complementary to `sessions/__tests__/migration-runner.test.ts` R2, which
+    // asserts canonical-path idempotency (apply via runner, re-call via runner).
+    // This test asserts cross-path catch-up + idempotency (apply v1+v2 via
+    // direct-exec, then runner) — important because production migration paths
+    // (CI-driven runner) and operational debugging paths (manual SQL exec) might
+    // diverge over time.
     await applySessionInvitesMigration(ctx.querier);
 
-    // Second call — must be a no-op.
+    // First call — cross-path CATCH-UP: recognizes the direct-exec'd v1+v2 and
+    // applies the missing v3.
     await expect(applyMigrations(ctx.querier)).resolves.toBeUndefined();
 
-    // Row counts unchanged: exactly one (1, ...) row and exactly one (2,
-    // 'session_invites table') row.
+    // Second call — the idempotency assertion: now a true no-op.
+    await expect(applyMigrations(ctx.querier)).resolves.toBeUndefined();
+
+    // Row counts: exactly three rows — (1, ...), (2, 'Session invites table'),
+    // and (3, 'Runtime node attachments and presence') — with no duplicates.
     const counts = await ctx.querier.query<{ count: string }>(
       "SELECT COUNT(*)::text AS count FROM schema_migrations",
     );
     const countsRow = counts.rows[0];
     expect(countsRow).toBeDefined();
     if (countsRow === undefined) return;
-    expect(Number.parseInt(countsRow.count, 10)).toBe(2);
+    expect(Number.parseInt(countsRow.count, 10)).toBe(3);
 
     const v2Probe = await ctx.querier.query<{ description: string }>(
       "SELECT description FROM schema_migrations WHERE version = $1",
