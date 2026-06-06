@@ -1,8 +1,9 @@
-// P1 / P2 / P3 / P9 / P10 — AttachService behavior gates (Plan-003 Phase 3,
-// T3.2 + T3.3).
+// P1 / P2 / P3 / P5 / P9 / P10 — AttachService behavior gates (Plan-003 Phase 3,
+// T3.2 + T3.3 + T3.5).
 //
-// Spec-003 line 53 (version-floor admission) + Plan-003 §Invariants I-003-1 /
-// I-003-3 / I-003-5.
+// Spec-003 line 49 (multiple runtime nodes per session) / line 50 (attach must
+// not require session recreation) / line 53 (version-floor admission) + Plan-003
+// §Invariants I-003-1 / I-003-3 / I-003-5.
 //
 // P1 (Spec-003 line 53): a session whose `min_client_version` floor is NULL
 //     ("no floor") admits EVERY daemon version with `readOnly = false`. The
@@ -16,6 +17,14 @@
 //     Multi-digit cases ("10.0" > "2.0"; "1.9" < "1.10") guard against a lexical
 //     string compare; a malformed floor is rejected at the read-time parse (it is
 //     NOT silently admitted).
+//
+// P5 (Spec-003 line 49 + AC line 122 / I-003-3, T3.5 — characterization only):
+//     two DISTINCT nodes attach to the SAME session and both land as active
+//     `registering` rows (the `(node_id, session_id)` arbiter + the per-node
+//     active index admit multi-node-per-session), while the `sessions` row stays
+//     byte-for-byte identical and uncreated (attach never writes `sessions` —
+//     Spec-003 line 50, no recreation). No production change: the shipped T3.2
+//     path already satisfies this.
 //
 // P9 (I-003-5, single active attachment):
 //     P9a (cross-session conflict) — a node already actively attached to ANOTHER
@@ -82,6 +91,12 @@ const SESSION_ID: SessionId = "01970000-0000-7000-8000-0000000e0001" as SessionI
 const OTHER_SESSION_ID: SessionId = "01970000-0000-7000-8000-0000000e0002" as SessionId;
 const PARTICIPANT_ID: ParticipantId = "01970000-0000-7000-8000-0000000f0001" as ParticipantId;
 const NODE_ID: NodeId = "node-alpha-01" as NodeId;
+// A SECOND daemon-minted node id for the P5 multi-node-coexistence block: a
+// distinct opaque TEXT scalar so node A and node B are two separate active
+// attachments in the SAME session (the `(node_id, session_id)` conflict arbiter
+// treats them as two distinct pairs; the per-node active index does not collide
+// across distinct node_ids).
+const NODE_ID_BETA: NodeId = "node-beta-02" as NodeId;
 const CLIENT_VERSION: EventEnvelopeVersion = "1.4" as EventEnvelopeVersion;
 
 // A distinctive capability map so the P1 JSONB round-trip asserts the value
@@ -677,6 +692,148 @@ describe("AttachService — P2/P3 (version-floor comparison, Spec-003 line 53 / 
       expect(await countAttachments(ctx.querier)).toBe(0);
     },
   );
+});
+
+// ----------------------------------------------------------------------------
+// P5 — multi-node coexistence (Spec-003 line 49 + AC line 122; I-003-3 identity)
+// ----------------------------------------------------------------------------
+//
+// P5 (Spec-003 line 49 "support multiple runtime nodes per session" + line 50
+//     "attach must not require session recreation"; the acceptance criterion at
+//     Spec-003 line 122 "Multiple runtime nodes can coexist in one session
+//     without changing session identity"; Plan-003 §Invariants I-003-3): two
+//     DISTINCT nodes attaching to the SAME session both land as active rows, and
+//     the attach path mutates nothing on `sessions` (no UPDATE, no recreate).
+//
+// Why no production change is needed (this block is purely characterization —
+// the shipped T3.2 attach path already satisfies P5; see attach-service.ts):
+//   * The upsert's conflict arbiter is the TOTAL `(node_id, session_id)` unique
+//     (`idx_node_attachments_node`, 0003-runtime-nodes.ts line 116). Node A and
+//     node B against the same session are two DISTINCT (node_id, session_id)
+//     pairs, so neither attach conflicts with the other — both take the INSERT
+//     arm cleanly.
+//   * The single-active constraint `idx_node_attachments_active`
+//     (0003-runtime-nodes.ts lines 122-123) is partial-UNIQUE on `(node_id)`
+//     ALONE — per node, NOT per session. Node A active and node B active in the
+//     same session are distinct node_ids, so the index admits both; it only
+//     forbids ONE node holding two active rows (the P9 cross-session case).
+//   * The attach flow writes ONLY `runtime_node_attachments`; it never SELECTs
+//     FOR UPDATE, INSERTs, or UPDATEs the `sessions` row (the floor read at
+//     step 1 is a plain SELECT). So session identity — `id` and every other
+//     `sessions` column — is invariant across any number of attaches, and no new
+//     `sessions` row is created. This is the multi-node complement to T3.2's
+//     single-attach I-003-3 guard, extended to the `sessions` table itself.
+
+describe("AttachService — P5 (multi-node coexistence, Spec-003 line 49 + AC; I-003-3 session identity)", () => {
+  it("admits two distinct nodes as co-active attachments in one session and leaves the sessions row byte-for-byte unchanged", async () => {
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    // A NULL-floor session (no version gate) — both daemons are admitted
+    // read-write; the focus here is coexistence + session identity, not the
+    // floor verdict (P1/P2/P3 cover that).
+    await seedSession(ctx.querier, SESSION_ID);
+
+    // Snapshot the WHOLE sessions row BEFORE any attach. Raw `SELECT *` (no
+    // ::text casts): this is a before/after snapshot of the SAME row on the SAME
+    // PGlite instance with no mutation in between, so hydration is identical on
+    // both reads and `toEqual` is stable — while `SELECT *` gives the test teeth
+    // against a mutation to ANY column (a hand-picked cast list would miss a
+    // column the attach path might wrongly touch). Exactly one session row exists
+    // going in.
+    const sessionBeforeProbe = await ctx.querier.query<Record<string, unknown>>(
+      "SELECT * FROM sessions WHERE id = $1",
+      [SESSION_ID],
+    );
+    const sessionBefore: Record<string, unknown> | undefined = sessionBeforeProbe.rows[0];
+    expect(sessionBefore).toBeDefined();
+    const sessionCountProbe = await ctx.querier.query<{ n: number }>(
+      "SELECT COUNT(*)::int AS n FROM sessions",
+    );
+    expect(sessionCountProbe.rows[0]?.n).toBe(1);
+
+    // Node A then node B attach to the SAME session under the SAME participant.
+    // Neither call throws — the distinct (node_id, session_id) pairs do not
+    // conflict, and the per-node active index admits both distinct node_ids.
+    const responseAlpha = await ctx.service.attach(buildAttachRequest());
+    const responseBeta = await ctx.service.attach(buildAttachRequest({ nodeId: NODE_ID_BETA }));
+
+    // Both admitted in the fresh `registering` liveness state (two nodes, one
+    // session, both active).
+    expect(responseAlpha.state).toBe("registering");
+    expect(responseBeta.state).toBe("registering");
+    // Two distinct attachment rows now exist.
+    expect(await countAttachments(ctx.querier)).toBe(2);
+    const alphaRow = await readAttachmentRow(ctx.querier, NODE_ID, SESSION_ID);
+    const betaRow = await readAttachmentRow(ctx.querier, NODE_ID_BETA, SESSION_ID);
+    expect(alphaRow).toBeDefined();
+    expect(betaRow).toBeDefined();
+    expect(alphaRow?.state).toBe("registering");
+    expect(betaRow?.state).toBe("registering");
+
+    // Pin the exact attachment set: with countAttachments()===2 above, selecting
+    // ALL rows (no session_id filter) and asserting both the node_id and session_id
+    // lists proves the two distinct nodes both landed in THIS session and nowhere
+    // else — a beta row written to a different session would surface a differing
+    // session_id here (the filtered form could not observe that). "node-alpha-01"
+    // sorts before "node-beta-02", so ORDER BY node_id yields [alpha, beta].
+    const attachmentsProbe = await ctx.querier.query<{ node_id: string; session_id: string }>(
+      "SELECT node_id, session_id FROM runtime_node_attachments ORDER BY node_id",
+    );
+    expect(attachmentsProbe.rows.map((row) => row.node_id)).toEqual([
+      String(NODE_ID),
+      String(NODE_ID_BETA),
+    ]);
+    expect(attachmentsProbe.rows.map((row) => row.session_id)).toEqual([
+      String(SESSION_ID),
+      String(SESSION_ID),
+    ]);
+
+    // Session identity preserved (the "without changing session identity"
+    // clause): the sessions row is byte-for-byte identical after both attaches
+    // (no UPDATE to id / state / min_client_version / any column), and still
+    // exactly ONE session row exists (attach did NOT recreate the session —
+    // Spec-003 line 50).
+    const sessionAfterProbe = await ctx.querier.query<Record<string, unknown>>(
+      "SELECT * FROM sessions WHERE id = $1",
+      [SESSION_ID],
+    );
+    expect(sessionAfterProbe.rows[0]).toEqual(sessionBefore);
+    const sessionCountAfterProbe = await ctx.querier.query<{ n: number }>(
+      "SELECT COUNT(*)::int AS n FROM sessions",
+    );
+    expect(sessionCountAfterProbe.rows[0]?.n).toBe(1);
+  });
+
+  it("leaves a co-resident session_memberships row byte-for-byte unchanged when two nodes attach to the session (I-003-3, multi-node)", async () => {
+    // The multi-node complement to T3.2's single-attach I-003-3 test: even when
+    // SEVERAL nodes attach to a session, the attach domain stays disjoint from
+    // the membership domain (cross-plan-dependencies.md §1) — no node's attach
+    // reads-for-update, inserts, updates, or deletes any session_memberships row.
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID);
+    const membershipId = await seedMembership(ctx.querier, {
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      role: "owner",
+      state: "active",
+    });
+
+    const before = await readMembershipRow(ctx.querier, membershipId);
+    expect(before).toBeDefined();
+    // Exactly the one seeded membership row exists going in.
+    expect(await countMemberships(ctx.querier)).toBe(1);
+
+    // Two distinct nodes attach to the same session.
+    await ctx.service.attach(buildAttachRequest());
+    await ctx.service.attach(buildAttachRequest({ nodeId: NODE_ID_BETA }));
+
+    // Two disjoint mutation modes, two assertions (mirroring T3.2's I-003-3
+    // test): (1) byte-for-byte identity of the seeded row catches an in-place
+    // UPDATE; (2) unchanged total count catches a stray INSERT/DELETE of a
+    // DIFFERENT membership row. Neither moves under multi-node attach.
+    const after = await readMembershipRow(ctx.querier, membershipId);
+    expect(after).toEqual(before);
+    expect(await countMemberships(ctx.querier)).toBe(1);
+  });
 });
 
 // ----------------------------------------------------------------------------
