@@ -100,6 +100,20 @@ export type VersionCeilingExceededCode = typeof NEGOTIATION_REASON_CEILING_EXCEE
 export const VERSION_CEILING_EXCEEDED_CODE: VersionCeilingExceededCode =
   NEGOTIATION_REASON_CEILING_EXCEEDED;
 
+// Runtime-node attach-time refusal codes (Plan-003 Phase 3). Both are
+// code+message-only (no Details/Schema) per the registry-only 409 convention
+// — no AC needs structured details and a conflicting-session-id detail would
+// risk cross-session info-leak. Domain token `runtimenode` matches the method
+// namespace (runtimenode.attach) and deliberately AVOIDS the `runtime_node.*`
+// event-name namespace (separator differs) so an error code never collides
+// with a durable event name. See error-contracts.md §Runtime Node (HTTP 409).
+export type RuntimeNodeAttachConflictCode = "runtimenode.attach_conflict";
+export const RUNTIME_NODE_ATTACH_CONFLICT_CODE: RuntimeNodeAttachConflictCode =
+  "runtimenode.attach_conflict";
+export type RuntimeNodeAttachRevokedCode = "runtimenode.attach_revoked";
+export const RUNTIME_NODE_ATTACH_REVOKED_CODE: RuntimeNodeAttachRevokedCode =
+  "runtimenode.attach_revoked";
+
 // --------------------------------------------------------------------------
 // Per-field length caps — defense-in-depth bounds (see also event.ts header).
 // --------------------------------------------------------------------------
