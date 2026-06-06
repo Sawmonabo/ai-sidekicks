@@ -34,9 +34,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  compareEventEnvelopeVersion,
   EVENT_ENVELOPE_VERSION_PATTERN,
   EVENT_FIELD_MAX_LEN,
   EventCategorySchema,
+  EventEnvelopeVersionSchema,
   SESSION_EVENT_CATEGORY_BY_TYPE,
   SESSION_EVENT_TYPES,
   SessionEventSchema,
@@ -408,5 +410,71 @@ describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
       },
     };
     expect(SessionEventSchema.safeParse(valid).success).toBe(true);
+  });
+});
+
+// --------------------------------------------------------------------------
+// compareEventEnvelopeVersion — total ordering of the branded version type.
+// --------------------------------------------------------------------------
+//
+// Co-located with the EventEnvelopeVersion regex table above (the comparator
+// orders the same value type). Inputs go through `EventEnvelopeVersionSchema.parse`
+// so each case exercises the real brand path, not an `as`-cast.
+//
+// The multi-digit cases are the load-bearing guards: a NUMERIC compare yields
+// `"10" > "9"` and `"1.10" > "1.9"`, whereas the lexical string compare the
+// hand-rolled tuple comparator exists to avoid would yield the opposite. They
+// are why the comparator parses MAJOR/MINOR as integers instead of comparing
+// strings (event.ts §compareEventEnvelopeVersion; ADR-018 §Decision #1).
+describe("compareEventEnvelopeVersion", () => {
+  const parseVersion = (raw: string) => EventEnvelopeVersionSchema.parse(raw);
+
+  it.each([
+    ["1.0", "1.0"],
+    ["2.5", "2.5"],
+  ])("returns 0 for equal versions: compare(%s, %s)", (left, right) => {
+    expect(compareEventEnvelopeVersion(parseVersion(left), parseVersion(right))).toBe(0);
+  });
+
+  it.each([
+    // [a, b, expected] — major equal, minor decides.
+    ["1.2", "1.5", -1],
+    ["1.5", "1.2", 1],
+  ] as const)(
+    "orders by MINOR when MAJOR is equal: compare(%s, %s) === %d",
+    (left, right, want) => {
+      expect(compareEventEnvelopeVersion(parseVersion(left), parseVersion(right))).toBe(want);
+    },
+  );
+
+  it.each([
+    // MAJOR dominates MINOR — 2.0 outranks 1.9 despite minor 0 < 9.
+    ["2.0", "1.9", 1],
+    ["1.9", "2.0", -1],
+  ] as const)("MAJOR dominates MINOR: compare(%s, %s) === %d", (left, right, want) => {
+    expect(compareEventEnvelopeVersion(parseVersion(left), parseVersion(right))).toBe(want);
+  });
+
+  it("multi-digit MAJOR is compared numerically, not lexically: compare(10.0, 9.0) === 1", () => {
+    // Lexical string compare would give `"10" < "9"` (-> -1); numeric major
+    // 10 > 9 gives 1. This is the bug the hand-rolled comparator forecloses.
+    expect(compareEventEnvelopeVersion(parseVersion("10.0"), parseVersion("9.0"))).toBe(1);
+  });
+
+  it("multi-digit MINOR is compared numerically, not lexically: compare(1.10, 1.9) === 1", () => {
+    // Lexical compare would give `"1.10" < "1.9"` (-> -1); numeric minor
+    // 10 > 9 gives 1.
+    expect(compareEventEnvelopeVersion(parseVersion("1.10"), parseVersion("1.9"))).toBe(1);
+  });
+
+  it.each([
+    ["1.2", "1.5"],
+    ["2.0", "1.9"],
+    ["10.0", "9.0"],
+    ["1.10", "1.9"],
+  ])("is antisymmetric: compare(%s, %s) === -compare(reverse)", (left, right) => {
+    const forward = compareEventEnvelopeVersion(parseVersion(left), parseVersion(right));
+    const reverse = compareEventEnvelopeVersion(parseVersion(right), parseVersion(left));
+    expect(forward + reverse).toBe(0);
   });
 });

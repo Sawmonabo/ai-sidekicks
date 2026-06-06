@@ -1,10 +1,21 @@
-// P1 / P9 / P10 — AttachService behavior gates (Plan-003 Phase 3, T3.2).
+// P1 / P2 / P3 / P9 / P10 — AttachService behavior gates (Plan-003 Phase 3,
+// T3.2 + T3.3).
 //
-// Spec-003 line 53 (NULL-floor admission) + Plan-003 §Invariants I-003-3 / I-003-5.
+// Spec-003 line 53 (version-floor admission) + Plan-003 §Invariants I-003-1 /
+// I-003-3 / I-003-5.
 //
 // P1 (Spec-003 line 53): a session whose `min_client_version` floor is NULL
 //     ("no floor") admits EVERY daemon version with `readOnly = false`. The
 //     attachment row is created in the `registering` liveness state.
+//
+// P2 / P3 (Spec-003 line 53 / I-003-1, T3.3): a non-NULL floor compares the
+//     daemon's `clientVersion` numerically (MAJOR.MINOR).
+//     P2 (client_version >= floor) — admit read-write (`readOnly = false`).
+//     P3 (client_version  < floor) — admit READ-ONLY (`readOnly = true`); the
+//         node remains joined and reads succeed, never ejected (admit-not-eject).
+//     Multi-digit cases ("10.0" > "2.0"; "1.9" < "1.10") guard against a lexical
+//     string compare; a malformed floor is rejected at the read-time parse (it is
+//     NOT silently admitted).
 //
 // P9 (I-003-5, single active attachment):
 //     P9a (cross-session conflict) — a node already actively attached to ANOTHER
@@ -40,6 +51,7 @@
 
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { ZodError } from "zod";
 
 import type {
   EventEnvelopeVersion,
@@ -520,14 +532,35 @@ describe("AttachService — P1 (NULL-floor unconditional admission, Spec-003 lin
     const storedCapabilities: unknown = JSON.parse(stored?.capabilities ?? "null");
     expect(storedCapabilities).toEqual(CAPABILITIES);
   });
+});
 
-  it("admits a daemon BELOW a non-NULL floor as read-write in T3.2 (the below-floor read-only flip is T3.3's extension)", async () => {
-    // T3.2's `#deriveReadOnly` returns false for BOTH a NULL floor and a
-    // non-NULL floor (the non-NULL branch is a deferred-to-T3.3 placeholder).
-    // This pins the pre-T3.3 contract: a non-NULL floor still admits read-write
-    // today; T3.3 swaps in the semver comparison that flips readOnly to true for
-    // a below-floor daemon. (Asserting it here makes the T3.3 behavior change
-    // visible as a deliberate test update, not a silent regression.)
+// ----------------------------------------------------------------------------
+// P2 / P3 — version-floor comparison (Spec-003 line 53 / I-003-1)
+// ----------------------------------------------------------------------------
+//
+// P2 (client_version >= floor): admit read-write (readOnly === false).
+// P3 (client_version  < floor): admit READ-ONLY (readOnly === true) — the node
+//     remains joined and reads succeed; it is NEVER ejected (I-003-1 / ADR-018
+//     §Decision #4). The VERSION_FLOOR_EXCEEDED write refusal is T3.4's; at this
+//     service boundary "reads succeed" == the node is admitted in a joined state
+//     (state === "registering", the attachment row persists, attach() did not
+//     throw).
+//
+// The multi-digit cases ("10.0" above "2.0"; "1.9" below "1.10") are the
+// lexical-bug guards: a string compare would invert these verdicts, so they pin
+// the comparator's numeric MAJOR.MINOR ordering (event.ts §compareEventEnvelopeVersion).
+//
+// The malformed-floor cases prove the floor goes through
+// `EventEnvelopeVersionSchema.parse` (which throws), NOT an `as`-cast that would
+// reach the comparator as NaN and silently admit read-write. `sessions.min_client_version`
+// is a plain nullable TEXT column (0001-initial.ts line 104 — no DB CHECK), so a
+// regex-invalid floor seeds fine and the ONLY guard is the read-time parse.
+
+describe("AttachService — P2/P3 (version-floor comparison, Spec-003 line 53 / I-003-1)", () => {
+  it("admits a daemon BELOW a non-NULL floor in read-only state (P3 — admit-not-eject, I-003-1)", async () => {
+    // Below-floor (client 1.0 < floor 2.0): admit READ-ONLY, never eject. The
+    // write refusal (VERSION_FLOOR_EXCEEDED) on this read-only daemon's next
+    // write is T3.4's; here the daemon is admitted joined with readOnly = true.
     await seedParticipant(ctx.querier, PARTICIPANT_ID);
     await seedSession(ctx.querier, SESSION_ID, "2.0");
 
@@ -535,9 +568,115 @@ describe("AttachService — P1 (NULL-floor unconditional admission, Spec-003 lin
       buildAttachRequest({ clientVersion: "1.0" as EventEnvelopeVersion }),
     );
 
+    expect(response.readOnly).toBe(true);
+    expect(response.state).toBe("registering");
+  });
+
+  it("admits a daemon AT the floor as read-write (P2 — the >= boundary edge)", async () => {
+    // The boundary edge: client_version === floor is AT-or-above, so read-write.
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID, "2.0");
+
+    const response = await ctx.service.attach(
+      buildAttachRequest({ clientVersion: "2.0" as EventEnvelopeVersion }),
+    );
+
     expect(response.readOnly).toBe(false);
     expect(response.state).toBe("registering");
   });
+
+  it("admits a daemon ABOVE the floor as read-write (P2 — minor above)", async () => {
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID, "2.0");
+
+    const response = await ctx.service.attach(
+      buildAttachRequest({ clientVersion: "2.5" as EventEnvelopeVersion }),
+    );
+
+    expect(response.readOnly).toBe(false);
+  });
+
+  it("admits a daemon a MAJOR above the floor as read-write (P2 — 2.0 above floor 1.9)", async () => {
+    // Major dominates: client 2.0 outranks floor 1.9 despite minor 0 < 9.
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID, "1.9");
+
+    const response = await ctx.service.attach(
+      buildAttachRequest({ clientVersion: "2.0" as EventEnvelopeVersion }),
+    );
+
+    expect(response.readOnly).toBe(false);
+  });
+
+  it("admits a multi-digit-MAJOR daemon above the floor as read-write (P2 — lexical-bug guard, 10.0 > 2.0)", async () => {
+    // Numeric major 10 > 2 -> read-write. A lexical string compare would give
+    // `"10" < "2"` and WRONGLY flip this to read-only; this pins numeric ordering.
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID, "2.0");
+
+    const response = await ctx.service.attach(
+      buildAttachRequest({ clientVersion: "10.0" as EventEnvelopeVersion }),
+    );
+
+    expect(response.readOnly).toBe(false);
+  });
+
+  it("admits a multi-digit-MINOR daemon below the floor in read-only state (P3 — lexical-bug guard, 1.9 < 1.10)", async () => {
+    // Numeric minor 9 < 10 -> below floor -> read-only. A lexical compare would
+    // give `"1.9" > "1.10"` and WRONGLY admit read-write; this pins numeric order.
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID, "1.10");
+
+    const response = await ctx.service.attach(
+      buildAttachRequest({ clientVersion: "1.9" as EventEnvelopeVersion }),
+    );
+
+    expect(response.readOnly).toBe(true);
+  });
+
+  it("keeps a below-floor daemon JOINED with reads succeeding (P3 / I-003-1 admit-not-eject)", async () => {
+    // The load-bearing I-003-1 property beyond `readOnly === true`: a below-floor
+    // attach is admitted (joined), not ejected. At this service boundary that is
+    // (a) attach() does NOT throw, (b) the node lands in a joined liveness state
+    // (registering), and (c) the attachment row is persisted (a subsequent read
+    // finds it). Together these are "the daemon remains joined and may read".
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID, "2.0");
+
+    const response = await ctx.service.attach(
+      buildAttachRequest({ clientVersion: "1.0" as EventEnvelopeVersion }),
+    );
+
+    // Admitted read-only, in a joined liveness state — NOT ejected.
+    expect(response.readOnly).toBe(true);
+    expect(response.state).toBe("registering");
+    // The attachment row persists (the node is joined; reads find it).
+    expect(await countAttachments(ctx.querier)).toBe(1);
+    const persisted = await readAttachmentRow(ctx.querier, NODE_ID, SESSION_ID);
+    expect(persisted).toBeDefined();
+    expect(persisted?.state).toBe("registering");
+  });
+
+  it.each([
+    ["single-segment", "1"],
+    ["three-segment", "1.0.0"],
+  ])(
+    "rejects attach when the session floor is regex-invalid (%s: %j) — floor goes through .parse, not an as-cast",
+    async (_label, malformedFloor) => {
+      // A malformed floor must NOT silently admit read-write. The non-NULL branch
+      // parses the raw DB floor through EventEnvelopeVersionSchema.parse, which
+      // throws on a regex-invalid value (single-segment "1", three-segment
+      // "1.0.0"). An `as`-cast bypass would instead reach the numeric comparator
+      // as NaN and silently admit. seedSession writes the malformed floor fine
+      // (TEXT column, no DB CHECK), so the parse is the only guard.
+      await seedParticipant(ctx.querier, PARTICIPANT_ID);
+      await seedSession(ctx.querier, SESSION_ID, malformedFloor);
+
+      await expect(ctx.service.attach(buildAttachRequest())).rejects.toThrow(ZodError);
+      // The aborted transaction rolled back: no attachment row was created.
+      expect(await countAttachments(ctx.querier)).toBe(0);
+    },
+  );
 });
 
 // ----------------------------------------------------------------------------

@@ -1,15 +1,18 @@
-// AttachService — Plan-003 Phase 3 (T3.2, runtime-node attach handler).
+// AttachService — Plan-003 Phase 3 (T3.2 + T3.3, runtime-node attach handler).
 //
-// Responsibilities (this task, T3.2):
+// Responsibilities (T3.2 attach flow + T3.3 version-floor verdict):
 //   * attach — admit a runtime node into a session by upserting its
 //     `runtime_node_attachments` row, returning the wire
 //     `RuntimeNodeAttachResponse` (`{attachmentId, state, readOnly, attachedAt}`).
 //     Three load-bearing behaviors (Spec-003 line 53; Plan-003 §Invariants):
-//       - P1 (NULL-floor unconditional admission): when the session's
-//         `min_client_version` floor is NULL ("no floor"), EVERY daemon version
-//         is admitted with `readOnly = false`. The floor read + the readOnly
-//         derivation live here; the BELOW-FLOOR semver comparison that can flip
-//         `readOnly` to `true` is T3.3's extension (see `#deriveReadOnly`).
+//       - P1/P2/P3 (version-floor verdict): the floor read + the `readOnly`
+//         derivation live here (`#deriveReadOnly`). A NULL floor ("no floor")
+//         admits EVERY daemon version with `readOnly = false` (P1). A non-NULL
+//         floor compares the daemon's `clientVersion`: at/above floor admits
+//         read-write (P2, `readOnly = false`); below floor admits READ-ONLY
+//         (P3, `readOnly = true`) — admit-not-eject per I-003-1 (the node stays
+//         joined and reads succeed; the `VERSION_FLOOR_EXCEEDED` write refusal
+//         is T3.4's downstream enforcement).
 //       - P9 (single active attachment — I-003-5): a node already actively
 //         attached to ANOTHER session is refused with the typed
 //         `RuntimeNodeAttachConflictException`; a reconnect of a node whose row
@@ -56,10 +59,11 @@
 //   * `runtime_node_attachments` / `runtime_node_presence` table DDL — owned by
 //     `migrations/0003-runtime-nodes.ts` (Plan-003 Phase 3). This service only
 //     INSERT/UPDATE/SELECTs rows; it never ALTERs the schema.
-//   * The below-floor semver comparison + `VERSION_FLOOR_EXCEEDED` write-refusal
-//     — owned by T3.3 / T3.4 (see `#deriveReadOnly`). This task derives
-//     `readOnly = false` unconditionally (the NULL-floor branch is the whole P1
-//     contract; the non-NULL branch is a deferred-to-T3.3 placeholder).
+//   * The `VERSION_FLOOR_EXCEEDED` write-refusal — owned by T3.4. The below-floor
+//     comparison that derives the read-only verdict at attach lands HERE (T3.3,
+//     see `#deriveReadOnly`): a below-floor daemon is admitted `readOnly = true`
+//     (admit-not-eject, I-003-1). T3.4 enforces the typed refusal on that
+//     read-only daemon's subsequent WRITE — this service only sets the verdict.
 //   * `runtime_node.*` durable event emission (`runtime_node.registered` /
 //     `.online`) — owned by Plan-006 Tier 4 wiring. This service mutates the row
 //     only; it emits no event.
@@ -67,20 +71,26 @@
 //   * The tRPC router + errorFormatter that lift the typed `.code` onto the wire
 //     envelope and map each refusal to HTTP 409 / tRPC `CONFLICT` — T3.4 / T3.8.
 //
-// Refs: Spec-003 line 53 (NULL-floor admission); Plan-003 §Invariants I-003-3
-// (no session_memberships mutation) / I-003-5 (single active attachment) + T3.2
-// (P1 / P9 / P10); docs/architecture/schemas/shared-postgres-schema.md §Runtime
+// Refs: Spec-003 line 53 (version-floor admission); Plan-003 §Invariants I-003-1
+// (admit below-floor read-only, never eject) / I-003-3 (no session_memberships
+// mutation) / I-003-5 (single active attachment) + T3.2 (P1 / P9 / P10) + T3.3
+// (P2 / P3 floor comparison); docs/architecture/schemas/shared-postgres-schema.md §Runtime
 // Node Attachments (the `idx_node_attachments_node` + `idx_node_attachments_active`
 // indexes); docs/architecture/contracts/api-payload-contracts.md §Plan-003
 // (RuntimeNodeAttach request/response); `memberships/membership-service.ts` (the
 // `Querier`-injected service idiom this mirrors).
 
 import type {
+  EventEnvelopeVersion,
   RuntimeNodeAttachRequest,
   RuntimeNodeAttachResponse,
   NodeState,
 } from "@ai-sidekicks/contracts";
-import { RuntimeNodeAttachRequestSchema } from "@ai-sidekicks/contracts";
+import {
+  compareEventEnvelopeVersion,
+  EventEnvelopeVersionSchema,
+  RuntimeNodeAttachRequestSchema,
+} from "@ai-sidekicks/contracts";
 
 import type { Querier } from "../sessions/migration-runner.js";
 import { RuntimeNodeAttachConflictException, RuntimeNodeAttachRevokedException } from "./errors.js";
@@ -334,29 +344,39 @@ export class AttachService {
    * Derive the `readOnly` PERMISSION verdict from the session floor and the
    * daemon's reported `clientVersion`.
    *
-   * T3.2 ships the NULL-floor branch — the whole P1 contract: a NULL floor means
-   * "no floor", so EVERY daemon version is admitted with `readOnly = false`
-   * (Spec-003 line 53). The non-NULL branch is a deferred placeholder that also
-   * returns `false`; the below-floor semver comparison that flips it to `true`
-   * for a below-floor daemon (admit read-only, never eject — I-003-1 / ADR-018
-   * §Decision #4) is T3.3's extension. Isolating the verdict behind this private
-   * seam keeps the upsert path stable across that extension: T3.3 changes only
-   * this method's non-NULL branch.
+   * Two branches, both serving Spec-003 line 53 / I-003-1:
+   *   - NULL floor (P1) — "no floor", so EVERY daemon version is admitted with
+   *     `readOnly = false`. Unconditional read-write admission.
+   *   - Non-NULL floor (P2/P3) — compare the daemon's `clientVersion` against the
+   *     floor via the contracts comparator. A daemon strictly below the floor
+   *     (`compareEventEnvelopeVersion(clientVersion, floor) < 0`) is admitted in
+   *     read-only state (`readOnly = true`); a daemon AT or ABOVE the floor is
+   *     admitted read-write (`readOnly = false`). Below-floor is admit-read-only,
+   *     never eject (I-003-1 / ADR-018 §Decision #4) — the node stays joined and
+   *     reads succeed; the write refusal (`VERSION_FLOOR_EXCEEDED`) is enforced
+   *     downstream (T3.4), not here.
    *
-   * @param floor the session's `min_client_version` (NULL = no floor).
-   * @param _clientVersion the daemon's reported version (unused until T3.3's
-   *   semver comparison lands; named with a leading underscore to mark it
-   *   intentionally-unread without dropping it from the seam's signature).
+   * Isolating the verdict behind this private seam keeps the upsert path stable:
+   * the call site (the transaction body) is unchanged across the T3.2 -> T3.3
+   * extension — only this method's non-NULL branch gained the comparison.
+   *
+   * @param floor the session's raw `min_client_version` DB value (NULL = no
+   *   floor). Parsed+branded HERE (not `as`-cast) so a malformed floor throws at
+   *   the parse boundary rather than reaching the comparator as NaN.
+   * @param clientVersion the daemon's reported version, already branded
+   *   `EventEnvelopeVersion` (parsed at the request boundary in `attach`).
    */
-  #deriveReadOnly(floor: string | null, _clientVersion: string): boolean {
+  #deriveReadOnly(floor: string | null, clientVersion: EventEnvelopeVersion): boolean {
     if (floor === null) {
       // NULL floor — no version gate. Unconditional read-write admission (P1).
       return false;
     }
-    // T3.3 extends: below-floor (semver compare clientVersion < floor, I-003-1)
-    // -> readOnly = true. Until then a non-NULL floor still admits read-write
-    // (the placeholder preserves the pre-T3.3 admit-all behavior; T3.3 swaps in
-    // the comparison without touching the upsert path above).
-    return false;
+    // Non-NULL floor: parse+brand the raw DB value at THIS boundary — never an
+    // `as` cast. A cast would let a malformed floor reach the numeric comparator
+    // as NaN and silently admit read-write; `.parse` throws loud on a malformed
+    // floor (a data-integrity violation) instead. Below floor -> readOnly = true:
+    // admit in read-only, never eject (I-003-1 / ADR-018 §Decision #4).
+    const floorVersion: EventEnvelopeVersion = EventEnvelopeVersionSchema.parse(floor);
+    return compareEventEnvelopeVersion(clientVersion, floorVersion) < 0;
   }
 }

@@ -130,6 +130,49 @@ export const EventEnvelopeVersionSchema: z.ZodType<EventEnvelopeVersion> = z
   .brand<"EventEnvelopeVersion">() as unknown as z.ZodType<EventEnvelopeVersion>;
 
 // --------------------------------------------------------------------------
+// compareEventEnvelopeVersion — total ordering of EventEnvelopeVersion.
+// --------------------------------------------------------------------------
+//
+// Returns -1 / 0 / 1 (a < b / a == b / a > b) — the standard three-way
+// comparator shape (Array.prototype.sort, semver.compare). Callers express the
+// predicate at the call site: a below-floor check is
+// `compareEventEnvelopeVersion(clientVersion, floor) < 0`.
+//
+// Lives here (not in a consumer package) because it is the ordering of a
+// contracts value type: the control-plane version-floor gate (Plan-003
+// T3.3/T3.4) AND the daemon's envelope version negotiation (ADR-018 §6/§7/§10)
+// both compare EventEnvelopeVersion values. Contracts is their only shared
+// ancestor; a consumer-local helper would force the other consumer to depend
+// upward or re-implement the comparison (the lexical "10" < "9" bug, twice).
+//
+// Numeric MAJOR-then-MINOR tuple compare — deliberately NOT the `semver`
+// library: the type is strictly two-segment (EVENT_ENVELOPE_VERSION_PATTERN),
+// so semver's coercion / range / prerelease machinery is dead weight and a
+// needless dependency.
+//
+// Inputs are brand-validated EventEnvelopeVersion, so the regex already
+// guarantees exactly two numeric, leading-zero-free segments: `split(".")`
+// yields a length-2 array of finite integers. The brand IS the proof of
+// well-formedness — this function does NOT re-validate (that would contradict
+// the brand). The guard against a malformed string lives at the PARSE boundary
+// (callers must `EventEnvelopeVersionSchema.parse`, never `as`-cast). A caller
+// that defeats the brand with a cast gets NaN ordering — that is the caller's
+// bug, pinned by the consumer's malformed-input test.
+
+export function compareEventEnvelopeVersion(
+  a: EventEnvelopeVersion,
+  b: EventEnvelopeVersion,
+): -1 | 0 | 1 {
+  // The `as [number, number]` is justified by the brand: the regex guarantees
+  // exactly two segments, each a finite integer.
+  const [aMajor, aMinor] = a.split(".").map(Number) as [number, number];
+  const [bMajor, bMinor] = b.split(".").map(Number) as [number, number];
+  if (aMajor !== bMajor) return aMajor < bMajor ? -1 : 1;
+  if (aMinor !== bMinor) return aMinor < bMinor ? -1 : 1;
+  return 0;
+}
+
+// --------------------------------------------------------------------------
 // Per-field length caps — defense-in-depth bounds on free-form strings.
 // --------------------------------------------------------------------------
 //
