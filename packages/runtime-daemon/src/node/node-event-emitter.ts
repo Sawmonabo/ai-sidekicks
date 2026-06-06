@@ -43,10 +43,10 @@
 //     real BLAKE3 hash-chain + dual signatures + RFC 8785 JCS. This emitter
 //     never computes or passes integrity bytes — it passes only the
 //     `AppendableEvent` fields and the append path zero-fills the rest.
-//   * `degraded` / `revoked` constructors. Their producers (heartbeat-loss
-//     and admin-revoke) and their payload schemas are Plan-003 Phase 3, so
-//     authoring constructors for them now would be untested speculative
-//     surface. Phase 2 defines the 5 schema-backed shapes only.
+//   * `degraded` / `revoked` constructors. Their producers are server-derived
+//     (heartbeat-loss, authority revocation): no V1 party can author them as
+//     durable events, so their schemas are V1.1-gated on the node-identity
+//     anchor (ADR-017). Phase 2 defines the 5 schema-backed shapes only.
 //
 // Refs: Plan-003 (Runtime Node Attach) §Phase 2 / T2.3, Spec-003 line 92
 // (capability/trust changes emitted as session events), Spec-006 lines

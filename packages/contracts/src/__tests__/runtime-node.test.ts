@@ -674,7 +674,7 @@ describe("RUNTIME_NODE_EVENT_NAMES (C4: 7-name runtime_node.* taxonomy)", () => 
 // This block is a Plan-003 CONSUMER-SIDE conformance anchor, NOT a re-test of
 // Plan-001's error-schema matrix. I-003-1 ("Attach is admit-not-eject for
 // below-floor daemons") requires that a below-floor write returns a *typed*
-// `VERSION_FLOOR_EXCEEDED` (Spec-003:53, Spec-003 AC4:117; ADR-018 §Decision
+// `VERSION_FLOOR_EXCEEDED` (Spec-003:53, Spec-003 AC4:123; ADR-018 §Decision
 // #4 / §Decision #10). The concrete realization of that typed error is the
 // Plan-001-owned `VersionFloorExceededError` / `VersionFloorExceededErrorSchema`
 // / `VERSION_FLOOR_EXCEEDED_CODE` in `error.ts`. The two assertions here pin
@@ -690,9 +690,9 @@ describe("RUNTIME_NODE_EVENT_NAMES (C4: 7-name runtime_node.* taxonomy)", () => 
 // PHASE-3 TRIPWIRE: only the typed-CONTRACT conformance proven here ships in
 // Plan-003 Phase 1. The RUNTIME admit-not-eject behavior — the attach service
 // actually returning this error on a below-floor write and then admitting the
-// daemon read-only (Spec-003 AC4:117) — lands at Plan-003 Phase 3 (P3/P4).
+// daemon read-only (Spec-003 AC4:123) — lands at Plan-003 Phase 3 (P3/P4).
 //
-// Cites: Spec-003:53, Spec-003 AC4:117, I-003-1, ADR-018 §Decision #4 /
+// Cites: Spec-003:53, Spec-003 AC4:123, I-003-1, ADR-018 §Decision #4 /
 // §Decision #10, docs/architecture/contracts/error-contracts.md:266.
 describe("VersionFloorExceededErrorSchema (C5: VERSION_FLOOR_EXCEEDED typed-contract conformance — Plan-003 consumer anchor)", () => {
   it("pins the wire code literal to the value registered in error-contracts.md:266", () => {

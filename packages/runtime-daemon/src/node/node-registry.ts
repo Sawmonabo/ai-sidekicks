@@ -43,7 +43,7 @@
 //
 // Refs: Plan-003 (Runtime Node Attach) §Phase 2 / T2.1 + T2.5, Spec-003 line 78
 // (disconnected node keeps membership; reconnect under same identity — the T2.5
-// detach guarantee), line 91 (durable runtime-node records), line 103 (node
+// detach guarantee), line 91 (durable runtime-node records), line 109 (node
 // identity stable across reconnect), Spec-006 lines 374 (`runtime_node.registered`
 // payload shape), 377 (`runtime_node.offline` payload shape), invariant I-003-3
 // (registration records a node without mutating membership; detach does not
@@ -91,9 +91,9 @@ export interface RegisterNodeInput {
  *
  * `reason` is NOT a parameter: detach IS the explicit-shutdown producer, so the
  * emitted `reason` is HARDCODED `"explicit_shutdown"`. The `heartbeat_lost` /
- * `network_partition` reasons come from a DIFFERENT Phase-3 heartbeat-service
- * producer, never this method (Spec-006:377 authors the full enum; Phase 3 adds
- * producers, not a shape change).
+ * `network_partition` reasons are server-derived (staleness sweep): a V1
+ * coordination-record transition, durable event V1.1-gated (ADR-017), never this
+ * method (Spec-006:377 authors the full enum; V1.1 adds a producer, not a shape).
  *
  * `previousState` is forwarded as-supplied (omitted from the payload when
  * `undefined` — the method invents NO default; the explicit-shutdown call site
@@ -200,7 +200,7 @@ export class NodeRegistry {
    * (Spec-006:377) for the explicit-shutdown trigger and LEAVES THE
    * `node_trust_state` REGISTRATION ROW INTACT, so the node can reconnect under
    * the same `node_id` (Spec-003:78 — a disconnected node keeps membership;
-   * Spec-003:103 — node identity stable across reconnect). This is the I-003-3
+   * Spec-003:109 — node identity stable across reconnect). This is the I-003-3
    * guarantee that detach does not revoke membership.
    *
    * LEAVE-INTACT (no durable write, no transaction): `detach` does NOT

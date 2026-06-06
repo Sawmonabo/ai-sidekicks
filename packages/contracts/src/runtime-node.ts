@@ -488,7 +488,7 @@ export const RuntimeNodeDetachResponseSchema: z.ZodType<null> = z.null();
 // for the 5 daemon-reachable events (`registered`, `online`, `offline`,
 // `capability_declared`, `capability_updated`) are now authored in Plan-003 Phase 2
 // in the `Runtime-node event PAYLOAD-shape schemas` section BELOW (CP-003-1
-// amendment 2026-06-02; `degraded` / `revoked` remain Phase 3 — no Phase-2
+// amendment 2026-06-02; `degraded` / `revoked` are V1.1-gated — no V1
 // producer). What stays the additive Plan-006 Tier 4 follow-up is (a) the
 // REGISTRATION of these names + payloads into the discriminated `SessionEventSchema`
 // / `EventType` union in event.ts, (b) the `EventEnvelope` integrity wrapper
@@ -522,7 +522,7 @@ export const RuntimeNodeDetachResponseSchema: z.ZodType<null> = z.null();
 // binding map. Per CP-003-1 (docs/plans/003-runtime-node-attach.md §CP-003-1,
 // "Payload-shape ownership" at line 83): Plan-003 owns the `runtime_node.*` name
 // constants AND the per-event payload-SHAPE schemas (Phase 2 ships the 5
-// daemon-reachable shapes BELOW; Phase 3 ships `degraded` / `revoked`). Plan-006
+// daemon-reachable shapes BELOW; V1.1 ships `degraded` / `revoked`). Plan-006
 // Tier 4 owns the discriminated-union REGISTRATION (folding each payload schema
 // into `SessionEventSchema` in event.ts) + the `EventEnvelope` integrity wrapper
 // (BLAKE3 hash chain, dual-signature mechanics, JCS) + binding the canonical
@@ -553,9 +553,9 @@ export const RUNTIME_NODE_EVENT_NAMES: readonly RuntimeNodeEventName[] = [
 // DAEMON-REACHABLE `runtime_node.*` events — `registered`, `online`, `offline`,
 // `capability_declared`, `capability_updated` (the events Plan-003 Phase 2's
 // node-registry + capability-service producers actually emit). `degraded` and
-// `revoked` are deferred to Plan-003 Phase 3 (their producers — heartbeat-loss
-// and admin-revoke — are Phase 3; authoring them now would be untested
-// speculative surface). Sourced from the Runtime Node Lifecycle taxonomy table,
+// `revoked` are V1.1-gated on the node-identity trust anchor (ADR-017
+// §Server-Derived Runtime-Node Lifecycle Events): server-derived producers with
+// no sound V1 author. Sourced from the Runtime Node Lifecycle taxonomy table,
 // docs/specs/006-session-event-taxonomy-and-audit-log.md lines 374-380.
 //
 // SCOPE — these schemas validate the PAYLOAD CONTENTS ONLY, not the full
@@ -752,9 +752,11 @@ export const RuntimeNodeOnlinePayloadSchema: z.ZodType<RuntimeNodeOnlinePayload>
 // 'explicit_shutdown','network_partition']}"). `reason` is authored as the FULL
 // 3-value enum — the COMPLETE contract per Spec-006 — even though Phase 2's T2.5
 // detach producer emits only `explicit_shutdown` (the `heartbeat_lost` /
-// `network_partition` producers are the Phase-3 heartbeat service). Authoring the
-// full enum now keeps the SHAPE stable across phases (Phase 3 adds producers, not
-// a schema change). `lastHeartbeatAt` is ISO 8601 with `{ offset: true }` (RFC
+// `network_partition` durable events are V1.1-gated — server-derived, no sound
+// V1 author, per ADR-017 §Server-Derived Runtime-Node Lifecycle Events).
+// Authoring the full enum now keeps the SHAPE stable across versions (the V1.1
+// producer adds emission, not a schema change). `lastHeartbeatAt` is ISO 8601
+// with `{ offset: true }` (RFC
 // 3339 §5.6 numeric offsets), the same datetime convention as `attachedAt` (line
 // 192) / `occurredAt` (event.ts:235).
 export interface RuntimeNodeOfflinePayload {
