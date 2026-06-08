@@ -1,9 +1,11 @@
-// P1 / P2 / P3 / P5 / P9 / P10 — AttachService behavior gates (Plan-003 Phase 3,
-// T3.2 + T3.3 + T3.5).
+// P1 / P2 / P3 / P5 / P7 / P8 / P9 / P10 — AttachService behavior gates (Plan-003
+// Phase 3, T3.2 + T3.3 + T3.5 + T3.7).
 //
-// Spec-003 line 49 (multiple runtime nodes per session) / line 50 (attach must
-// not require session recreation) / line 53 (version-floor admission) + Plan-003
-// §Invariants I-003-1 / I-003-3 / I-003-5.
+// Spec-003 line 47 (attach is a separate step from membership acceptance) / line
+// 49 (multiple runtime nodes per session) / line 50 (attach must not require
+// session recreation) / line 51 (detach/offline must not revoke membership by
+// default) / line 53 (version-floor admission) / line 69 (an explicit `detach`
+// retires the node) + Plan-003 §Invariants I-003-1 / I-003-3 / I-003-5.
 //
 // P1 (Spec-003 line 53): a session whose `min_client_version` floor is NULL
 //     ("no floor") admits EVERY daemon version with `readOnly = false`. The
@@ -36,6 +38,26 @@
 // P10 (revocation is terminal): a re-attach against a row in the terminal
 //     `revoked` state for THIS session is refused with the typed
 //     `RuntimeNodeAttachRevokedException` — never reactivated.
+//
+// P7 / P8 (I-003-3, attach-membership separation — Plan-003 test matrix):
+//     P7 (Spec-003 line 47 — `RuntimeNodeAttach MUST NOT mutate
+//         session_memberships`) is verified by the shipped attach I-003-3 test
+//         (the "leaves a co-resident session_memberships row byte-for-byte
+//         unchanged after a successful attach" block below) — no separate P7 test
+//         is added here, the existing attach test IS P7.
+//     P8 (Spec-003 line 51 — `RuntimeNodeDetach leaves session_memberships
+//         unchanged`; an offline/detached node retains its membership) is the new
+//         detach happy-path test below. Asserted along the SAME two disjoint
+//         mutation modes as the attach I-003-3 test (byte-identity snapshot +
+//         total count).
+//
+// detach correctness (T3.7, Spec-003 line 69 "an explicit `detach` retires the
+//     node"; I-003-5 single-active resolution): detach writes the terminal state
+//     `offline` ONLY (it is NOT a `revoked` producer — Spec-003 line 70). The new
+//     detach block covers the slot+liveness `-> offline` transition (P8 happy
+//     path), the LOAD-BEARING revoked-not-flipped guard (the active-state filter
+//     protects P10 revocation-terminality), idempotent re-detach, the never-
+//     attached no-op, and the presence-absent UPDATE-only no-op.
 //
 // I-003-3 (attach must not mutate session_memberships): a successful attach
 //     leaves the `session_memberships` table untouched. Asserted along TWO
@@ -275,6 +297,42 @@ async function readMembershipRow(
     `SELECT role, state, joined_at::text AS joined_at, updated_at::text AS updated_at
        FROM session_memberships WHERE id = $1`,
     [membershipId],
+  );
+  return probe.rows[0];
+}
+
+// Seed a runtime_node_presence row directly (bypassing the heartbeat service)
+// so the detach tests can set up a node that has already heartbeated. Presence is
+// heartbeat-owned (T3.6 creates the row on the first beat); the detach tests that
+// OMIT this seed model a node that never heartbeated (no presence row) so the
+// detach presence UPDATE is a clean 0-row no-op. `lastHeartbeatAt` is coalesced
+// to SQL NULL in the PARAM array (not left as raw `undefined`) so PGlite's
+// `COALESCE($3, now())` resolves it server-side — mirrors seedAttachment's
+// `args.clientVersion ?? "1.0"` house pattern (PGlite binds an explicit `null`,
+// never a JS `undefined`, to a bind slot).
+async function seedPresence(
+  querier: Querier,
+  args: { nodeId: NodeId; healthState: string; lastHeartbeatAt?: string },
+): Promise<void> {
+  await querier.query(
+    `INSERT INTO runtime_node_presence (node_id, last_heartbeat_at, health_state)
+     VALUES ($1, COALESCE($3, now()), $2)`,
+    [args.nodeId, args.healthState, args.lastHeartbeatAt ?? null],
+  );
+}
+
+// Re-read a presence row's mutable columns for the detach liveness-axis
+// assertion. `last_heartbeat_at::text` normalizes TIMESTAMPTZ across pg/PGlite.
+// Returns `undefined` when no presence row exists (the never-heartbeated node) —
+// the detach presence-absent test asserts detach did NOT create one (UPDATE-only).
+async function readPresenceRow(
+  querier: Querier,
+  nodeId: NodeId,
+): Promise<{ health_state: string; last_heartbeat_at: string } | undefined> {
+  const probe = await querier.query<{ health_state: string; last_heartbeat_at: string }>(
+    `SELECT health_state, last_heartbeat_at::text AS last_heartbeat_at
+       FROM runtime_node_presence WHERE node_id = $1`,
+    [nodeId],
   );
   return probe.rows[0];
 }
@@ -873,5 +931,169 @@ describe("AttachService — I-003-3 (attach must not mutate session_memberships)
     const after = await readMembershipRow(ctx.querier, membershipId);
     expect(after).toEqual(before);
     expect(await countMemberships(ctx.querier)).toBe(1);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// P7/P8 + detach (offline transition) — T3.7
+// ----------------------------------------------------------------------------
+//
+// Spec-003 line 51 (detach/offline must NOT revoke membership by default — P8 /
+// I-003-3) + line 69 (an explicit `detach` retires the node) + line 70 (`revoked`
+// is authority-issued, never self-asserted — so detach writes `offline` ONLY) +
+// Plan-003 §Invariants I-003-3 (attach-membership separation) / I-003-5 (detach
+// resolves the node's SINGLE active attachment by `nodeId` alone).
+//
+// detach moves the node's one active attachment to `offline` across two
+// orthogonal axes — the SLOT axis (`runtime_node_attachments.state`) and the
+// LIVENESS axis (`runtime_node_presence.health_state`) — and returns `null` (the
+// no-content wire response). The five cases below pin: (a) the P8 happy path +
+// membership no-mutation; (b) the LOAD-BEARING revoked-not-flipped guard; (c)
+// idempotent re-detach; (d) the never-attached no-op; (e) the presence-absent
+// UPDATE-only no-op. P7 (attach must not mutate session_memberships, Spec-003
+// line 47) is the SHIPPED attach I-003-3 test above — not re-tested here.
+
+describe("AttachService — P7/P8 + detach (offline transition, T3.7)", () => {
+  it("retires an active node to offline on both axes and leaves session_memberships byte-for-byte unchanged (P8, Spec-003 line 51 / I-003-3)", async () => {
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID);
+    // An ACTIVE attachment (slot axis) + a presence row (liveness axis), both
+    // `online` — the live-node starting state an explicit detach retires.
+    await seedAttachment(ctx.querier, {
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      nodeId: NODE_ID,
+      state: "online",
+    });
+    await seedPresence(ctx.querier, { nodeId: NODE_ID, healthState: "online" });
+    // A membership row co-resident in the session. Spec-003 line 51: an explicit
+    // detach (or offline) must NOT revoke this membership — the detach flow must
+    // touch ONLY runtime_node_attachments + runtime_node_presence.
+    const membershipId = await seedMembership(ctx.querier, {
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      role: "owner",
+      state: "active",
+    });
+
+    const membershipBefore = await readMembershipRow(ctx.querier, membershipId);
+    expect(membershipBefore).toBeDefined();
+    expect(await countMemberships(ctx.querier)).toBe(1);
+
+    // Capture presence BEFORE detach so we can prove the health-only UPDATE
+    // (`SET health_state = $2`) never touches the heartbeat clock — the
+    // last_heartbeat_at timestamp must survive the flip to offline untouched.
+    const presenceBefore = await readPresenceRow(ctx.querier, NODE_ID);
+    expect(presenceBefore).toBeDefined();
+
+    const result = await ctx.service.detach({ nodeId: NODE_ID });
+
+    // The no-content wire response is literally `null`.
+    expect(result).toBeNull();
+
+    // Slot axis retired: the active attachment moved online -> offline.
+    const attachmentAfter = await readAttachmentRow(ctx.querier, NODE_ID, SESSION_ID);
+    expect(attachmentAfter?.state).toBe("offline");
+    // Liveness axis retired: presence health moved online -> offline (the same
+    // liveness-death the T3.6 sweep derives at 60s, effected here immediately).
+    const presenceAfter = await readPresenceRow(ctx.querier, NODE_ID);
+    expect(presenceAfter?.health_state).toBe("offline");
+    // The heartbeat clock is untouched: detach's presence write flips ONLY
+    // health_state, never last_heartbeat_at (parallel to the membership
+    // byte-identity check below — makes readPresenceRow's timestamp column
+    // load-bearing).
+    expect(presenceAfter?.last_heartbeat_at).toBe(presenceBefore?.last_heartbeat_at);
+
+    // P8 / I-003-3: the co-resident membership row is byte-for-byte unchanged AND
+    // the total membership count is unchanged — the two disjoint mutation modes
+    // (in-place UPDATE vs stray INSERT/DELETE), mirroring the attach I-003-3 test.
+    // An offline/detached node retains its membership (Spec-003 line 51).
+    const membershipAfter = await readMembershipRow(ctx.querier, membershipId);
+    expect(membershipAfter).toEqual(membershipBefore);
+    expect(await countMemberships(ctx.querier)).toBe(1);
+  });
+
+  it("does NOT flip a revoked attachment to offline — the active-state guard protects revocation-terminality (LOAD-BEARING, P10-adjacent)", async () => {
+    // The single case that goes red if the `AND state IN
+    // ('registering','online','degraded')` active-state guard is dropped from
+    // detach's slot UPDATE. A `revoked` row is INACTIVE (outside the partial
+    // active index), so detach must NOT match it — `revoked` is terminal
+    // (Spec-003 line 70; attach's P10 reads it to refuse re-attach). A naive
+    // `WHERE node_id = $1` (no state guard) would corrupt revoked -> offline,
+    // silently breaking revocation-terminality. No presence row is seeded (a
+    // revoked node need not have heartbeated).
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID);
+    await seedAttachment(ctx.querier, {
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      nodeId: NODE_ID,
+      state: "revoked",
+    });
+
+    const result = await ctx.service.detach({ nodeId: NODE_ID });
+
+    // Idempotent no-op (no ACTIVE attachment to retire) and — load-bearing — the
+    // attachment stays EXACTLY `revoked`, never demoted to `offline`.
+    expect(result).toBeNull();
+    const after = await readAttachmentRow(ctx.querier, NODE_ID, SESSION_ID);
+    expect(after?.state).toBe("revoked");
+  });
+
+  it("is idempotent — a second detach of an already-offline node is a clean no-op", async () => {
+    // An already-`offline` attachment is INACTIVE, so a (re-)detach matches no
+    // active row and returns null without re-writing. The state stays `offline`.
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID);
+    await seedAttachment(ctx.querier, {
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      nodeId: NODE_ID,
+      state: "offline",
+    });
+
+    const result = await ctx.service.detach({ nodeId: NODE_ID });
+
+    expect(result).toBeNull();
+    const after = await readAttachmentRow(ctx.querier, NODE_ID, SESSION_ID);
+    expect(after?.state).toBe("offline");
+  });
+
+  it("returns null and creates no row when detaching a node that was never attached", async () => {
+    // No attachment row exists for the node at all. Detach is a clean no-op: it
+    // returns null and does NOT INSERT a row (the slot UPDATE matches nothing).
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID);
+
+    const result = await ctx.service.detach({ nodeId: NODE_ID });
+
+    expect(result).toBeNull();
+    expect(await countAttachments(ctx.querier)).toBe(0);
+  });
+
+  it("retires the attachment but does NOT create a presence row when the node never heartbeated (presence UPDATE is UPDATE-only)", async () => {
+    // An ACTIVE attachment but NO presence row — a node admitted by attach that
+    // has not yet heartbeated (presence rows are heartbeat-owned, T3.6). Detach
+    // retires the slot axis (online -> offline) but the liveness-axis UPDATE
+    // matches no row and is a clean no-op — detach must NOT INSERT a presence row
+    // (last_heartbeat_at is NOT NULL with no default; an INSERT here would be both
+    // wrong and unsatisfiable).
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID);
+    await seedAttachment(ctx.querier, {
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      nodeId: NODE_ID,
+      state: "online",
+    });
+
+    const result = await ctx.service.detach({ nodeId: NODE_ID });
+
+    expect(result).toBeNull();
+    // Slot axis retired.
+    const attachmentAfter = await readAttachmentRow(ctx.querier, NODE_ID, SESSION_ID);
+    expect(attachmentAfter?.state).toBe("offline");
+    // Liveness axis: still NO presence row (detach did not create one).
+    expect(await readPresenceRow(ctx.querier, NODE_ID)).toBeUndefined();
   });
 });

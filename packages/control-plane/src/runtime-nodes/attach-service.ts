@@ -1,6 +1,7 @@
-// AttachService — Plan-003 Phase 3 (T3.2 + T3.3, runtime-node attach handler).
+// AttachService — Plan-003 Phase 3 (T3.2 + T3.3 + T3.7, runtime-node attach +
+// detach handler).
 //
-// Responsibilities (T3.2 attach flow + T3.3 version-floor verdict):
+// Responsibilities (T3.2 attach flow + T3.3 version-floor verdict + T3.7 detach):
 //   * attach — admit a runtime node into a session by upserting its
 //     `runtime_node_attachments` row, returning the wire
 //     `RuntimeNodeAttachResponse` (`{attachmentId, state, readOnly, attachedAt}`).
@@ -20,6 +21,16 @@
 //       - P10 (revocation is terminal): a re-attach against a row in the
 //         terminal `revoked` state for THIS session is refused with the typed
 //         `RuntimeNodeAttachRevokedException` — never reactivated.
+//   * detach — the clean-disconnect `offline` transition (T3.7; Spec-003 line 69
+//     "an explicit `detach` retires the node"). Moves the node's SINGLE active
+//     attachment to `offline` across two orthogonal axes: the SLOT axis
+//     (`runtime_node_attachments.state -> offline`, guarded to active states) and
+//     the LIVENESS axis (`runtime_node_presence.health_state -> offline`, UPDATE-
+//     only). Resolves the one active row by `nodeId` alone (I-003-5 — the request
+//     carries no `sessionId`). Idempotent: a node with no active attachment is a
+//     clean `null` no-op (presence untouched). Writes the terminal state
+//     `offline` ONLY — it is NOT a `revoked` producer (see the detach scope note
+//     under Cross-task boundaries). Never touches `session_memberships` (I-003-3).
 //
 // Invariant fidelity (this task's `verifies_invariant`):
 //   * I-003-3 (attach must not mutate session_memberships): the attach flow
@@ -29,7 +40,12 @@
 //     Plan-001/Plan-002 own (cross-plan-dependencies.md §1; 0003-runtime-nodes.ts
 //     header "Cross-plan boundary"). T3.2's test asserts the byte-for-byte
 //     no-mutation property by re-SELECTing a seeded membership row's columns
-//     after a successful attach.
+//     after a successful attach. The DETACH path holds the same invariant: it
+//     writes ONLY the two runtime-node tables (`runtime_node_attachments` +
+//     `runtime_node_presence`) and never references `session_memberships`, so an
+//     offline/detached node retains its membership (Spec-003 line 51). P8 asserts
+//     the byte-for-byte membership no-mutation across a detach (snapshot + count,
+//     the same two disjoint mutation modes as the attach test).
 //   * I-003-5 (single active attachment): enforced at the DATABASE layer by the
 //     partial-unique `idx_node_attachments_active` (one active-state row per
 //     node across all sessions). The service does not re-check this in
@@ -43,7 +59,11 @@
 // boundary, mirroring MembershipService / SessionDirectoryService. A thrown
 // refusal rolls the transaction back (the `pg.Pool` + PGlite adapters both
 // auto-`ROLLBACK` on throw and re-raise), so a refused attach leaves
-// `runtime_node_attachments` byte-for-byte unchanged.
+// `runtime_node_attachments` byte-for-byte unchanged. Detach is likewise atomic:
+// the guarded attachment UPDATE (slot axis) and the conditional presence UPDATE
+// (liveness axis) share ONE `Querier.transaction(...)` commit boundary, so the
+// two axes never diverge — a torn detach can never leave the slot `offline` while
+// presence stays `online` (or vice versa).
 //
 // Dependency injection (mirrors MembershipService / SessionDirectoryService):
 //   * `Querier` — the minimal SQL surface declared in
@@ -55,7 +75,7 @@
 //     the eventual production surface (`pg.Pool`) stay interchangeable without a
 //     runtime branch.
 //
-// Cross-task boundaries (DO NOT CROSS in T3.2):
+// Cross-task boundaries (DO NOT CROSS in T3.2 / T3.7):
 //   * `runtime_node_attachments` / `runtime_node_presence` table DDL — owned by
 //     `migrations/0003-runtime-nodes.ts` (Plan-003 Phase 3). This service only
 //     INSERT/UPDATE/SELECTs rows; it never ALTERs the schema.
@@ -65,31 +85,48 @@
 //     (admit-not-eject, I-003-1). T3.4 enforces the typed refusal on that
 //     read-only daemon's subsequent WRITE — this service only sets the verdict.
 //   * `runtime_node.*` durable event emission (`runtime_node.registered` /
-//     `.online`) — owned by Plan-006 Tier 4 wiring. This service mutates the row
-//     only; it emits no event.
-//   * Detach (offline/revoke transitions) — owned by T3.7.
+//     `.online` / `.offline`) — owned by Plan-006 Tier 4 wiring. This service
+//     mutates the row only; it emits no event (so detach's `reason` is dropped —
+//     the durable `runtime_node.offline` audit event is V1.1-gated; CP-003-1).
+//   * The `revoked` trust-revocation producer — the AUTHORITY / admin path that
+//     writes `runtime_node_attachments.state = 'revoked'`. NOT in scope here:
+//     `revoked` is a trust decision issued by an authority ABOUT the node
+//     (Spec-003 line 70 — never self-asserted), whose proper home is a Cedar-
+//     gated authority surface (ADR-012), NOT this daemon-facing detach (a daemon
+//     cannot self-revoke; the wire `RuntimeNodeDetachRequest` carries no
+//     disposition discriminator). The `revoked` STATE itself + attach's P10
+//     terminal-re-attach refusal already ship — only the ungated producer is
+//     deferred. detach (T3.7) writes the terminal state `offline` ONLY.
 //   * The tRPC router + errorFormatter that lift the typed `.code` onto the wire
 //     envelope and map each refusal to HTTP 409 / tRPC `CONFLICT` — T3.4 / T3.8.
 //
-// Refs: Spec-003 line 53 (version-floor admission); Plan-003 §Invariants I-003-1
-// (admit below-floor read-only, never eject) / I-003-3 (no session_memberships
-// mutation) / I-003-5 (single active attachment) + T3.2 (P1 / P9 / P10) + T3.3
-// (P2 / P3 floor comparison); docs/architecture/schemas/shared-postgres-schema.md §Runtime
+// Refs: Spec-003 line 53 (version-floor admission), line 47 (attach is a separate
+// step from membership acceptance — I-003-3), line 51 (detach/offline must not
+// revoke membership by default — I-003-3), line 69 (an explicit `detach` retires
+// the node), line 70 (`revoked` is authority-issued, never self-asserted);
+// Plan-003 §Invariants I-003-1 (admit below-floor read-only, never eject) /
+// I-003-3 (no session_memberships mutation, attach AND detach) / I-003-5 (single
+// active attachment — detach resolves the one active row by `nodeId`) + T3.2
+// (P1 / P9 / P10) + T3.3 (P2 / P3 floor comparison) + T3.7 (detach `offline`
+// transition, P8); docs/architecture/schemas/shared-postgres-schema.md §Runtime
 // Node Attachments (the `idx_node_attachments_node` + `idx_node_attachments_active`
 // indexes); docs/architecture/contracts/api-payload-contracts.md §Plan-003
-// (RuntimeNodeAttach request/response); `memberships/membership-service.ts` (the
-// `Querier`-injected service idiom this mirrors).
+// (RuntimeNodeAttach + RuntimeNodeDetach request/response); `memberships/membership-service.ts`
+// (the `Querier`-injected service idiom + the no-membership-mutation precedent
+// this mirrors).
 
 import type {
   EventEnvelopeVersion,
   RuntimeNodeAttachRequest,
   RuntimeNodeAttachResponse,
+  RuntimeNodeDetachRequest,
   NodeState,
 } from "@ai-sidekicks/contracts";
 import {
   compareEventEnvelopeVersion,
   EventEnvelopeVersionSchema,
   RuntimeNodeAttachRequestSchema,
+  RuntimeNodeDetachRequestSchema,
 } from "@ai-sidekicks/contracts";
 
 import type { Querier } from "../sessions/migration-runner.js";
@@ -118,6 +155,16 @@ const REVOKED_STATE: NodeState = "revoked";
 // node advances to `online` only after the Plan-006 registration/capability
 // handshake (out of scope here); attach lands it at `registering`.
 const REGISTERING_STATE: NodeState = "registering";
+
+// The terminal state an explicit `detach` writes. Reused for BOTH detach writes
+// (the same literal is valid in both column domains): the attachment SLOT axis
+// (`runtime_node_attachments.state` — the clean-disconnect terminal state) and
+// the presence LIVENESS axis (`runtime_node_presence.health_state` — the
+// `online|degraded|offline` CHECK domain). It is the same liveness-death value
+// the T3.6 staleness sweep derives at 60s (Spec-003 line 61), which an explicit
+// detach effects IMMEDIATELY instead of waiting for heartbeat staleness
+// (Spec-003 line 69 — "an explicit `detach` retires the node").
+const OFFLINE_STATE: NodeState = "offline";
 
 // Internal row shape returned by `pg.Pool#query` / `PGlite#query`. Postgres
 // folds column identifiers to lowercase and the schema uses snake_case, so both
@@ -337,6 +384,114 @@ export class AttachService {
         readOnly,
         attachedAt: toIsoString(upsertedRow.attached_at),
       };
+    });
+  }
+
+  /**
+   * Detach a runtime node — the clean-disconnect `offline` transition (Spec-003
+   * line 69 "an explicit `detach` retires the node"; Plan-003 T3.7).
+   *
+   * Retires the node's SINGLE active attachment by `nodeId` alone: the partial
+   * active index `idx_node_attachments_active` admits at most one active-state
+   * row per node across all sessions (I-003-5), so `nodeId` resolves it
+   * unambiguously — the request carries no `sessionId` (the wire shape is
+   * `{nodeId, reason?}`). The retirement moves TWO orthogonal axes to `offline`:
+   * the attachment SLOT axis (`runtime_node_attachments.state`) and the presence
+   * LIVENESS axis (`runtime_node_presence.health_state`).
+   *
+   * Scope (settled, T3.7): detach writes the TERMINAL state `offline` ONLY. It is
+   * NOT a `revoked` producer. `revoked` is an authority-issued trust decision
+   * ABOUT the node (Spec-003 line 70 — never self-asserted), gated on a Cedar /
+   * ADR-012 authorization surface Phase 3 does not ship; the only V1 caller of
+   * detach (T3.8's daemon-initiated `runtimenode.detach`) is a clean disconnect,
+   * and a daemon cannot self-revoke. The `revoked` STATE + attach's P10 terminal
+   * re-attach refusal already ship; this method declines to invent an ungated,
+   * uncalled trust-mutation producer (its home is the future authority surface).
+   *
+   * @param request the runtime-node detach payload. Validated at the boundary
+   *   (`RuntimeNodeDetachRequestSchema.parse`) before any row is touched — the
+   *   same service-layer fail-fast as `attach`, surfacing schema drift before the
+   *   database.
+   * @returns `null` — the no-content wire response (`RuntimeNodeDetachResponseSchema
+   *   = z.null()`; there is no `RuntimeNodeDetachResponse` type alias). Detach is
+   *   idempotent: a node with no active attachment returns `null` as a clean
+   *   no-op.
+   *
+   * Transaction sequence (ONE commit boundary — both UPDATEs are atomic):
+   *   1. Guarded retire of the active attachment row (slot axis): set `state ->
+   *      offline` WHERE the row is in an ACTIVE state. Zero rows -> idempotent
+   *      no-op (no active attachment), `return null` immediately, presence
+   *      untouched.
+   *   2. On one retired row, set presence `health_state -> offline` (liveness
+   *      axis) — UPDATE-only, a no-op when the node never heartbeated.
+   *
+   * I-003-3 (attach-membership separation): detach writes ONLY
+   * `runtime_node_attachments` + `runtime_node_presence`. It NEVER references,
+   * SELECTs FOR UPDATE, INSERTs, UPDATEs, or DELETEs `session_memberships` — an
+   * offline/detached node retains its membership (Spec-003 line 51). Mirrors the
+   * MembershipService no-mutation precedent (the attach domain is disjoint from
+   * the membership domain; cross-plan-dependencies.md §1). P8 asserts the
+   * byte-for-byte no-mutation property across a detach (snapshot + count).
+   */
+  async detach(request: RuntimeNodeDetachRequest): Promise<null> {
+    // Trust-boundary validation — parse rather than trust the caller, mirroring
+    // `attach`. Surfaces schema drift before any row is touched.
+    const validated: RuntimeNodeDetachRequest = RuntimeNodeDetachRequestSchema.parse(request);
+
+    // `validated.reason` is wire-accepted but DELIBERATELY NOT persisted in V1,
+    // exactly as `attach` drops `validated.healthState`: there is no `reason`
+    // column on `runtime_node_attachments`, and the durable `runtime_node.offline`
+    // event that would carry an audit `reason` is Plan-006 / V1.1-gated (no
+    // control-plane event log in V1; CP-003-1). Do NOT "fix" the dropped field by
+    // inventing a column — that would lead the schema.
+
+    return this.#querier.transaction(async (transaction) => {
+      // (1) Slot axis — retire the node's SINGLE active attachment. The
+      // `state IN ('registering', 'online', 'degraded')` set is EXACTLY the
+      // `idx_node_attachments_active` partial-index predicate in
+      // `0003-runtime-nodes.ts`. It is LOAD-BEARING, not a convenience filter:
+      //   - it resolves the one active row by `nodeId` alone (I-003-5 guarantees
+      //     <=1 active row per node, so no `sessionId` is needed); and
+      //   - it protects revocation-terminality (P10) — a lone `revoked` row is
+      //     NEVER flipped to `offline`. A naive `WHERE node_id = $1` (no state
+      //     guard) would corrupt a `revoked` row, so the guard is required.
+      // Setting `state = 'offline'` moves the row OUT of the active partial
+      // index, so the write can never collide (the inverse of attach's INSERT-
+      // into-active path) — hence no `23505` catch / no floor read is needed.
+      const retired = await transaction.query<{ id: string }>(
+        `UPDATE runtime_node_attachments
+            SET state = $2
+          WHERE node_id = $1
+            AND state IN ('registering', 'online', 'degraded')
+        RETURNING id`,
+        [validated.nodeId, OFFLINE_STATE],
+      );
+
+      // (1, cont.) Idempotent no-op: no active attachment — the node is already
+      // `offline`, `revoked`, or never attached. Return `null` WITHOUT touching
+      // presence (presence is heartbeat-owned; detach has nothing to retire).
+      if (retired.rows[0] === undefined) {
+        return null;
+      }
+
+      // (2) Liveness axis — effect the node's liveness-death immediately, the
+      // same `health_state = 'offline'` the T3.6 staleness sweep derives at 60s
+      // (Spec-003 line 61), without waiting for heartbeat staleness. UPDATE-ONLY,
+      // never an upsert/INSERT: presence rows are heartbeat-owned (T3.6 creates
+      // the row on the first beat), and `runtime_node_presence.last_heartbeat_at`
+      // is `NOT NULL` with no default — an INSERT here would be both wrong
+      // (detach is not a heartbeat) and unsatisfiable (no timestamp to write). A
+      // node that never heartbeated has no presence row, so this is a clean
+      // 0-row no-op. `health_state = 'offline'` is CHECK-valid (the presence
+      // domain is `online|degraded|offline`).
+      await transaction.query(
+        `UPDATE runtime_node_presence
+            SET health_state = $2
+          WHERE node_id = $1`,
+        [validated.nodeId, OFFLINE_STATE],
+      );
+
+      return null;
     });
   }
 
