@@ -1,7 +1,8 @@
-// AttachService — Plan-003 Phase 3 (T3.2 + T3.3 + T3.7, runtime-node attach +
-// detach handler).
+// AttachService — Plan-003 Phase 3 (T3.2 + T3.3 + T3.7 + T3.9, runtime-node
+// attach + detach + capability-update handler).
 //
-// Responsibilities (T3.2 attach flow + T3.3 version-floor verdict + T3.7 detach):
+// Responsibilities (T3.2 attach flow + T3.3 version-floor verdict + T3.7 detach
+// + T3.9 capability update):
 //   * attach — admit a runtime node into a session by upserting its
 //     `runtime_node_attachments` row, returning the wire
 //     `RuntimeNodeAttachResponse` (`{attachmentId, state, readOnly, attachedAt}`).
@@ -13,7 +14,9 @@
 //         read-write (P2, `readOnly = false`); below floor admits READ-ONLY
 //         (P3, `readOnly = true`) — admit-not-eject per I-003-1 (the node stays
 //         joined and reads succeed; the `VERSION_FLOOR_EXCEEDED` write refusal
-//         is T3.4's downstream enforcement).
+//         is enforced later, in `updateCapabilities` (T3.9), via the
+//         T3.4-defined `VersionFloorExceededException` — see Cross-task
+//         boundaries).
 //       - P9 (single active attachment — I-003-5): a node already actively
 //         attached to ANOTHER session is refused with the typed
 //         `RuntimeNodeAttachConflictException`; a reconnect of a node whose row
@@ -31,6 +34,29 @@
 //     clean `null` no-op (presence untouched). Writes the terminal state
 //     `offline` ONLY — it is NOT a `revoked` producer (see the detach scope note
 //     under Cross-task boundaries). Never touches `session_memberships` (I-003-3).
+//   * updateCapabilities — the capability-declaration refresh (T3.9; Spec-003
+//     line 57 "the node declares its capabilities"). Resolves the node's SINGLE
+//     active attachment by `nodeId` (I-003-5 — the request carries no
+//     `sessionId`), then refreshes its `capabilities` discovery snapshot and
+//     applies the resolved next-state, all inside ONE `Querier.transaction(...)`.
+//     Enforces TWO refusals that share `runtime-nodes/errors.ts`'s typed family:
+//       - the T3.4 `VERSION_FLOOR_EXCEEDED` write-refusal — a below-floor node
+//         (admitted read-only at attach, T3.3) is denied the capability WRITE.
+//         The read-only verdict is RE-DERIVED here from the CURRENT session floor
+//         + the daemon's attach-time `client_version`, then thrown as the typed
+//         `VersionFloorExceededException` (admit-not-eject — the throw rolls back,
+//         the node stays joined; I-003-1 / ADR-018 §Decision #4 / Spec-003
+//         line 123); and
+//       - the I-003-2 registering->online guard — driving a still-`registering`
+//         attachment to `online` is refused (the typed
+//         `RuntimeNodeCapabilityUpdateConflictException`): bringing a node online
+//         requires a successful daemon-side capability declaration (Spec-003
+//         line 57), and the control plane is not the declaration authority
+//         (Spec-003 line 52).
+//     A no-active-attachment request (a late update racing a detach / sweep) is
+//     the third refusal — also the typed conflict, never a null no-op. A thrown
+//     refusal rolls the transaction back, so a refused update leaves
+//     `runtime_node_attachments` byte-for-byte unchanged.
 //
 // Invariant fidelity (this task's `verifies_invariant`):
 //   * I-003-3 (attach must not mutate session_memberships): the attach flow
@@ -75,15 +101,21 @@
 //     the eventual production surface (`pg.Pool`) stay interchangeable without a
 //     runtime branch.
 //
-// Cross-task boundaries (DO NOT CROSS in T3.2 / T3.7):
+// Cross-task boundaries (DO NOT CROSS in T3.2 / T3.7 / T3.9):
 //   * `runtime_node_attachments` / `runtime_node_presence` table DDL — owned by
 //     `migrations/0003-runtime-nodes.ts` (Plan-003 Phase 3). This service only
 //     INSERT/UPDATE/SELECTs rows; it never ALTERs the schema.
-//   * The `VERSION_FLOOR_EXCEEDED` write-refusal — owned by T3.4. The below-floor
-//     comparison that derives the read-only verdict at attach lands HERE (T3.3,
-//     see `#deriveReadOnly`): a below-floor daemon is admitted `readOnly = true`
-//     (admit-not-eject, I-003-1). T3.4 enforces the typed refusal on that
-//     read-only daemon's subsequent WRITE — this service only sets the verdict.
+//   * The `VERSION_FLOOR_EXCEEDED` write-refusal — the typed
+//     `VersionFloorExceededException` class is DEFINED + wire-wired by T3.4
+//     (`runtime-nodes/errors.ts`), but it is THROWN here in this service. The
+//     attach-time logic only sets the read-only VERDICT (T3.3, `#deriveReadOnly`:
+//     a below-floor daemon is admitted `readOnly = true`, admit-not-eject,
+//     I-003-1); the typed write-refusal is ENFORCED in this file's
+//     `updateCapabilities` (T3.9) — it re-derives the verdict at WRITE time and
+//     throws the T3.4 exception when a below-floor node attempts the capability
+//     WRITE. So the verdict (T3.3, here) and the enforcement (T3.9, here, via the
+//     T3.4-defined throwable) both land in this service; T3.4 owns only the class
+//     definition + the transport/formatter wiring (see the last bullet).
 //   * `runtime_node.*` durable event emission (`runtime_node.registered` /
 //     `.online` / `.offline`) — owned by Plan-006 Tier 4 wiring. This service
 //     mutates the row only; it emits no event (so detach's `reason` is dropped —
@@ -102,16 +134,23 @@
 //
 // Refs: Spec-003 line 53 (version-floor admission), line 47 (attach is a separate
 // step from membership acceptance — I-003-3), line 51 (detach/offline must not
-// revoke membership by default — I-003-3), line 69 (an explicit `detach` retires
-// the node), line 70 (`revoked` is authority-issued, never self-asserted);
-// Plan-003 §Invariants I-003-1 (admit below-floor read-only, never eject) /
-// I-003-3 (no session_memberships mutation, attach AND detach) / I-003-5 (single
-// active attachment — detach resolves the one active row by `nodeId`) + T3.2
-// (P1 / P9 / P10) + T3.3 (P2 / P3 floor comparison) + T3.7 (detach `offline`
-// transition, P8); docs/architecture/schemas/shared-postgres-schema.md §Runtime
+// revoke membership by default — I-003-3), line 57 (the node declares its
+// capabilities — updateCapabilities), line 69 (an explicit `detach` retires
+// the node), line 70 (`revoked` is authority-issued, never self-asserted),
+// line 123 (below-floor writes are refused VERSION_FLOOR_EXCEEDED — the T3.9
+// write-gate); Plan-003 §Invariants I-003-1 (admit below-floor read-only,
+// write-refuse, never eject) / I-003-2 (the control plane cannot drive a node
+// registering -> online — the updateCapabilities guard) / I-003-3 (no
+// session_memberships mutation, attach AND detach) / I-003-5 (single active
+// attachment — detach AND updateCapabilities resolve the one active row by
+// `nodeId`) + T3.2 (P1 / P9 / P10) + T3.3 (P2 / P3 floor comparison) + T3.7
+// (detach `offline` transition, P8) + T3.9 (updateCapabilities — the
+// capability-snapshot refresh + the I-003-2 guard + the floor write-refusal);
+// docs/architecture/schemas/shared-postgres-schema.md §Runtime
 // Node Attachments (the `idx_node_attachments_node` + `idx_node_attachments_active`
 // indexes); docs/architecture/contracts/api-payload-contracts.md §Plan-003
-// (RuntimeNodeAttach + RuntimeNodeDetach request/response); `memberships/membership-service.ts`
+// (RuntimeNodeAttach + RuntimeNodeDetach + RuntimeNodeCapabilityUpdate
+// request/response); `memberships/membership-service.ts`
 // (the `Querier`-injected service idiom + the no-membership-mutation precedent
 // this mirrors).
 
