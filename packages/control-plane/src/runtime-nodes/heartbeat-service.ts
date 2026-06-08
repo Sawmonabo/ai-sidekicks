@@ -43,16 +43,20 @@
 // branch.
 //
 // Cross-task boundaries (DO NOT CROSS in T3.6):
-//   * The PERIODIC INVOCATION of `sweepStaleness()` — the `setInterval` /
-//     Cloudflare Cron host wiring that calls it every
-//     `STALENESS_SWEEP_INTERVAL_MS` on the running host — is owned by T3.8.
-//     This service ships the callable method + the interval constant ONLY; it
-//     has NO `start()`/`stop()`/`setInterval` lifecycle (Cloudflare Workers are
+//   * The PERIODIC INVOCATION of `sweepStaleness()` — the Cloudflare Cron wiring
+//     that calls it every `STALENESS_SWEEP_INTERVAL_MS` on the running host —
+//     requires the production Querier (deferred to Tier 5; host.ts's production
+//     surface throws on Querier use per I-008-2) plus Cloudflare Cron
+//     deployment config (wrangler.toml `[triggers]` + a `scheduled()` Worker
+//     export). It is NOT wired in Plan-003 Phase 3 — a scheduler driving the
+//     sweep against the throwing placeholder Querier would be dead code. This
+//     service ships the callable method + the interval constant ONLY; it has NO
+//     `start()`/`stop()`/`setInterval` lifecycle (Cloudflare Workers are
 //     request-scoped; the scheduling mechanism is environment-specific
 //     deployment wiring, not service logic).
-//   * The tRPC `runtimenode.heartbeat` procedure + router + errorFormatter —
-//     owned by T3.8. `ingest` returns `void`; the router maps it to the wire
-//     `null` (`RuntimeNodeHeartbeatResponseSchema = z.null()`).
+//   * The tRPC `runtimenode.heartbeat` procedure + router — owned by T3.8.
+//     `ingest` returns `void`; the router maps it to the wire `null`
+//     (`RuntimeNodeHeartbeatResponseSchema = z.null()`).
 //   * `runtime_node_attachments` (the attachment-slot axis) — owned by attach /
 //     detach (T3.2 / T3.7). This service touches ONLY `runtime_node_presence`.
 //     The read-time roster reconciliation of the two axes
@@ -75,8 +79,10 @@ import { RuntimeNodeHeartbeatRequestSchema } from "@ai-sidekicks/contracts";
 
 import type { Querier } from "../sessions/migration-runner.js";
 
-// Staleness sweep interval. EXPORTED — T3.8's scheduler imports it to drive the
-// periodic `sweepStaleness()` invocation. Set to 5s, FINER than the 15s
+// Staleness sweep interval. EXPORTED for the eventual sweep scheduler (the
+// Cloudflare Cron `scheduled()` wiring is Tier-5/deployment-deferred — see the
+// `sweepStaleness()` cross-task boundary note above) to drive the periodic
+// `sweepStaleness()` invocation. Set to 5s, FINER than the 15s
 // heartbeat cadence (Spec-003 line 59) so a degraded/offline transition is
 // recorded within one sweep of the threshold crossing — the Spec-003 line 61
 // guarantee that a transition is "recorded within one sweep interval of a
@@ -101,8 +107,8 @@ const DEGRADED_STATE = "degraded";
 const OFFLINE_STATE = "offline";
 
 // The narrow result type of `sweepStaleness`: only the two states the sweep can
-// assign, never `online`. Surfaced for the eventual scheduler/observability
-// (T3.8) and the tests.
+// assign, never `online`. Surfaced for the eventual sweep
+// scheduler/observability (Tier-5/deployment-deferred) and the tests.
 export interface SweptTransition {
   readonly nodeId: string;
   readonly healthState: "degraded" | "offline";
@@ -192,7 +198,8 @@ export class HeartbeatService {
    *   `{ nodeId, healthState }` with `healthState` narrowed to
    *   `"degraded" | "offline"` (the sweep never assigns `online`). An empty
    *   array means nothing crossed a threshold (or every stale row was already at
-   *   its target). Mapped for the eventual scheduler/observability (T3.8).
+   *   its target). Mapped for the eventual sweep scheduler/observability
+   *   (Tier-5/deployment-deferred).
    *
    * Writes ONLY `runtime_node_presence`. Touches NO other table and emits NO
    * durable event (there is no control-plane event log — ADR-017).

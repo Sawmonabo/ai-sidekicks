@@ -15,7 +15,7 @@
 //     drive this function.
 //   - `default { fetch }` — the deployable Worker module. Production wiring of
 //     SessionDirectoryService (Hyperdrive / D1 / WorkerPg adapter) is deferred
-//     to Tier 5 per I-008-2; the deployable surface throws on Querier construction.
+//     to Tier 5 per I-008-2; the deployable surface throws on Querier use.
 //     The dual-gate intercepts before that throw is reachable in normal flows;
 //     the throw is defense-in-depth for any hypothetical gate bypass.
 //
@@ -23,11 +23,17 @@
 //       §I-008-3 #1, §T-008b-1-1, ADR-014, BL-104.
 
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
+import { AttachService } from "../runtime-nodes/attach-service.js";
+import { HeartbeatService } from "../runtime-nodes/heartbeat-service.js";
+import {
+  createRuntimeNodeRouter,
+  type RuntimeNodeRouterDeps,
+} from "../runtime-nodes/runtime-node-router.factory.js";
 import type { Querier } from "../sessions/migration-runner.js";
 import { SessionDirectoryService } from "../sessions/session-directory-service.js";
 import { createSessionRouter } from "../sessions/session-router.factory.js";
 import type { SessionRouterDeps } from "../sessions/session-router.js";
-import type { SessionRouterContext } from "../sessions/trpc.js";
+import { t, type SessionRouterContext } from "../sessions/trpc.js";
 import { checkDevEnvironment, type DevEnvironmentEnv } from "./dev-environment-gate.js";
 import { checkFeatureFlag, type FeatureFlagEnv } from "./feature-flag-gate.js";
 import { prefixSseRetry } from "./sse-retry-prefix.js";
@@ -35,11 +41,13 @@ import { prefixSseRetry } from "./sse-retry-prefix.js";
 export type ControlPlaneEnv = FeatureFlagEnv & DevEnvironmentEnv;
 
 /**
- * Tier 1 host deps — same shape as the router's `SessionRouterDeps` (the host
- * just forwards). Tests inject a pglite-backed directoryService + deterministic
- * stubs for the principal/ID/identity callbacks.
+ * Tier 1 host deps — the union of the session router's `SessionRouterDeps` and
+ * the runtime-node router's `RuntimeNodeRouterDeps` (the host forwards to BOTH
+ * sibling routers). Tests inject a pglite-backed directoryService + the two
+ * runtime-node services (attach + heartbeat) + deterministic stubs for the
+ * principal/ID/identity callbacks.
  */
-export type ControlPlaneDeps = SessionRouterDeps;
+export type ControlPlaneDeps = SessionRouterDeps & RuntimeNodeRouterDeps;
 
 export interface ControlPlaneHandlerOptions {
   /** tRPC endpoint base path. Defaults to `/trpc`. */
@@ -75,9 +83,14 @@ export function buildControlPlaneFetchHandler(
   const log = options.refusalLogger ?? ((message: string) => console.warn(message));
 
   // Build the router once at handler-construction time. Each procedure closes
-  // over `deps.directoryService` per I-008-3 #1 — this is the only constructor
-  // injection surface for the directory dependency.
-  const router = createSessionRouter(deps);
+  // over its constructor-injected service per I-008-3 #1 — the directory
+  // dependency (session procedures) and the attach/heartbeat services
+  // (runtime-node procedures). The session router and the runtime-node router
+  // are MERGED as siblings: both factories return already-namespaced routers
+  // (`session:` / `runtimenode:`), so `t.mergeRouters` composes them flat
+  // (no re-nesting) and the merged router inherits the shared `trpc.ts`
+  // context + errorFormatter.
+  const router = t.mergeRouters(createSessionRouter(deps), createRuntimeNodeRouter(deps));
 
   return async function handle(request, env) {
     const flagResult = checkFeatureFlag(env);
@@ -98,15 +111,20 @@ export function buildControlPlaneFetchHandler(
   };
 }
 
-// Production Worker entrypoint. The directoryService production wiring
-// (Hyperdrive binding → Querier adapter) is deferred to Plan-008-remainder
-// at Tier 5 per §I-008-2. At Tier 1, the deployable surface composes through
-// `buildControlPlaneFetchHandler` with a placeholder directoryService whose
-// methods throw — meaning:
+// Production Worker entrypoint. The service production wiring (Hyperdrive
+// binding → Querier adapter) is deferred to Plan-008-remainder at Tier 5 per
+// §I-008-2. At Tier 1, the deployable surface composes through
+// `buildControlPlaneFetchHandler` with placeholder services — the
+// directoryService (session procedures) AND the runtime-node attach/heartbeat
+// services (Plan-003 Phase 3), all constructed with the SAME throwing
+// `productionPlaceholderQuerier` so any reachable query throws — meaning:
 //   - Gate-fail requests (any production deploy without .dev.vars) → 503 (gate refusal).
 //   - Gate-pass requests (only `wrangler dev` with both .dev.vars keys) → 500
 //     from the procedure body's throw. This is acceptable for Phase 1's skeleton
-//     scope: Tier 5 wires the real Querier and procedures stop throwing.
+//     scope: Tier 5 wires the real Querier and procedures stop throwing. The
+//     runtime-node procedures share this Tier-5-deferred behavior — a gate-pass
+//     request reaching `runtimenode.*` throws on Querier use identically
+//     to the session procedures.
 // Tests bypass this default export and call `buildControlPlaneFetchHandler`
 // directly with a pglite-backed `Querier` so they can exercise the happy path.
 
@@ -141,8 +159,20 @@ const productionPlaceholderDirectoryService = new SessionDirectoryService(
   productionPlaceholderQuerier,
 );
 
+// `AttachService` / `HeartbeatService` carry private `#querier` fields, so they
+// are nominal types a structural stub cannot satisfy without an `as unknown as`
+// double-cast (same rationale as `productionPlaceholderDirectoryService` above).
+// Construct the real classes with the throwing `productionPlaceholderQuerier`;
+// the gates intercept traffic before the querier is reached, and a gate-pass
+// request reaching a runtime-node procedure throws on Querier use (→ 500),
+// matching the session procedures until Tier 5 wires the real Querier.
+const productionPlaceholderAttachService = new AttachService(productionPlaceholderQuerier);
+const productionPlaceholderHeartbeatService = new HeartbeatService(productionPlaceholderQuerier);
+
 const productionFetchHandler = buildControlPlaneFetchHandler({
   directoryService: productionPlaceholderDirectoryService,
+  attachService: productionPlaceholderAttachService,
+  heartbeatService: productionPlaceholderHeartbeatService,
   resolveCurrentParticipantId: () => {
     throw tier5DeferralError("resolveCurrentParticipantId (PASETO auth)");
   },

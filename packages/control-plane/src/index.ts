@@ -19,6 +19,13 @@ export {
   type CreateSessionInput,
   type JoinSessionInput,
 } from "./sessions/session-directory-service.js";
+// Runtime-node host-construction surface (Plan-003 Phase 3) — the two backing
+// service classes the runtime-node router closes over, parallel to
+// `SessionDirectoryService` above. Consumed by the client-sdk integration
+// fixtures (which construct throwing-querier instances for the never-reached
+// posture) and by future Tier-5 production wiring of the runtime-node host.
+export { AttachService } from "./runtime-nodes/attach-service.js";
+export { HeartbeatService } from "./runtime-nodes/heartbeat-service.js";
 export { applyMigrations, type Querier } from "./sessions/migration-runner.js";
 export { INITIAL_MIGRATION_SQL } from "./migrations/0001-initial.js";
 export { SESSION_INVITES_MIGRATION_SQL } from "./migrations/0002-session-invites.js";
