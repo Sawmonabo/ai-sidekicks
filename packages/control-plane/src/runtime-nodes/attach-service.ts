@@ -119,6 +119,8 @@ import type {
   EventEnvelopeVersion,
   RuntimeNodeAttachRequest,
   RuntimeNodeAttachResponse,
+  RuntimeNodeCapabilityUpdateRequest,
+  RuntimeNodeCapabilityUpdateResponse,
   RuntimeNodeDetachRequest,
   NodeState,
 } from "@ai-sidekicks/contracts";
@@ -126,11 +128,17 @@ import {
   compareEventEnvelopeVersion,
   EventEnvelopeVersionSchema,
   RuntimeNodeAttachRequestSchema,
+  RuntimeNodeCapabilityUpdateRequestSchema,
+  RuntimeNodeCapabilityUpdateResponseSchema,
   RuntimeNodeDetachRequestSchema,
 } from "@ai-sidekicks/contracts";
 
 import type { Querier } from "../sessions/migration-runner.js";
-import { RuntimeNodeAttachConflictException, RuntimeNodeAttachRevokedException } from "./errors.js";
+import {
+  RuntimeNodeAttachConflictException,
+  RuntimeNodeAttachRevokedException,
+  RuntimeNodeCapabilityUpdateConflictException,
+} from "./errors.js";
 
 // The partial-unique index whose `23505` signals the I-003-5 cross-session
 // second-active-attach (one active-state row per node across all sessions).
@@ -174,6 +182,20 @@ interface AttachmentRow {
   readonly id: string;
   readonly state: string;
   readonly attached_at: Date | string;
+}
+
+// Internal row shape returned by the `updateCapabilities` RETURNING clause. The
+// LIVENESS `state` plus the node id (mapped to the wire `nodeId`) and the
+// transaction-time server clock `now() AS updated_at` (mapped to `updatedAt`).
+// `updated_at` is NOT a stored column — the canonical `runtime_node_attachments`
+// schema has only `attached_at` (the creation timestamp), which this method must
+// never overwrite — so it is sourced transiently from `now()` at write time and
+// hydrated as a JS `Date` (`pg`) or an ISO 8601 string (PGlite), normalized via
+// `toIsoString` (mirrors `attached_at` on `AttachmentRow`).
+interface CapabilityUpdateRow {
+  readonly node_id: string;
+  readonly state: string;
+  readonly updated_at: Date | string;
 }
 
 // `TIMESTAMPTZ` is hydrated as a JS `Date` by `pg` and as an ISO 8601 string by
@@ -492,6 +514,186 @@ export class AttachService {
       );
 
       return null;
+    });
+  }
+
+  /**
+   * Refresh a runtime node's control-plane discovery snapshot — the
+   * `runtimenode.capabilityupdate` coordination-snapshot refresh (Plan-003 T3.9;
+   * Spec-003 §Default-Behavior `capabilityupdate` amendment).
+   *
+   * This is the CONTROL-PLANE half of capability-update: it refreshes the
+   * `capabilities` JSONB snapshot (the discovery roster other participants read)
+   * on the node's single active attachment and, when `healthChanges` is present,
+   * applies the daemon-reported capability-health transition. It is NOT the
+   * durable `runtime_node.capability_updated` writer — the control plane has no
+   * event log (ADR-017); the daemon's node-capability service stays the event
+   * writer. This method only updates the coordination row.
+   *
+   * @param request the capability-update payload. Validated at the boundary
+   *   (`RuntimeNodeCapabilityUpdateRequestSchema.parse`) before any row is read
+   *   or written — the same service-layer fail-fast as `attach` / `detach`.
+   *   `healthChanges.state` is the 2-value `RuntimeNodeHealthState`
+   *   (`online | degraded`), so `offline` / `revoked` are UNCONSTRUCTABLE at the
+   *   schema boundary (I-003-2 — make-illegal-states-unrepresentable); this
+   *   method never sees them.
+   * @returns the `RuntimeNodeCapabilityUpdateResponse` (`{nodeId, state,
+   *   updatedAt}`) projection of the refreshed row. Note the request->response
+   *   asymmetry: the request's `healthChanges.state` is the 2-value health enum,
+   *   while `response.state` is the broad 5-value `NodeState` (the server-derived
+   *   liveness projection — e.g. a capabilities-only refresh returns the row's
+   *   unchanged `registering` state, which is not a daemon-reportable value).
+   * @throws RuntimeNodeCapabilityUpdateConflictException in two cases, both 409:
+   *   (1) no active attachment exists (a late update racing a `detach` / the
+   *   staleness sweep — there is no `{nodeId, state, updatedAt}` to return); and
+   *   (2) the I-003-2 guard — the request would drive a `registering` attachment
+   *   to `online` (bringing a node online requires a daemon-side capability
+   *   declaration; the control plane is not the declaration authority —
+   *   Spec-003 lines 52 / 57).
+   *
+   * Transaction sequence (ONE commit boundary):
+   *   1. Resolve the node's SINGLE active attachment `FOR UPDATE` by `nodeId`
+   *      within the active-state band (`registering` / `online` / `degraded` —
+   *      unambiguous per I-003-5). Zero rows -> the no-active-attachment refusal
+   *      (case 1).
+   *   2. I-003-2 guard: a `registering` row + a requested `online` health is the
+   *      one residual state-context refusal (case 2). EXPLICITLY ALLOWED (not
+   *      guarded): `registering -> degraded` (Spec-003 §Fallback Behavior —
+   *      capability-validation failure leaves the node degraded), `degraded ->
+   *      online` (recovery), and a capabilities-only refresh on any active row.
+   *   3. Refresh `capabilities` (the discovery snapshot) and write the resolved
+   *      next-state back. `RETURNING node_id, state, now() AS updated_at` — the
+   *      `updatedAt` is the transaction-time server clock, sourced TRANSIENTLY,
+   *      never a stored column: `attached_at` (the creation timestamp) is NOT
+   *      overwritten.
+   *   4. Map (`node_id`/`updated_at` -> `nodeId`/`updatedAt`) and parse through
+   *      `RuntimeNodeCapabilityUpdateResponseSchema` (brands `nodeId`, validates
+   *      the ISO 8601 `updatedAt`).
+   *
+   * Write surface — `runtime_node_attachments` ONLY. It writes NO
+   * `runtime_node_presence` row and bumps NO `last_heartbeat_at` (the liveness
+   * clock is heartbeat-owned, T3.6 — the axes stay orthogonal), mutates NO
+   * `session_memberships` (I-003-3 — the runtime-node domain is disjoint from the
+   * membership domain), and emits NO durable `runtime_node.*` event (ADR-017 —
+   * no control-plane event log). A thrown refusal rolls the transaction back, so
+   * a refused update leaves `runtime_node_attachments` byte-for-byte unchanged.
+   */
+  async updateCapabilities(
+    request: RuntimeNodeCapabilityUpdateRequest,
+  ): Promise<RuntimeNodeCapabilityUpdateResponse> {
+    // Trust-boundary validation — parse rather than trust the caller, mirroring
+    // `attach` / `detach`. Surfaces schema drift (a malformed `capabilities`
+    // map, an out-of-enum `healthChanges.state`, an unknown key) before any row
+    // is read or mutated.
+    const validated: RuntimeNodeCapabilityUpdateRequest =
+      RuntimeNodeCapabilityUpdateRequestSchema.parse(request);
+
+    // `validated.healthChanges?.reason` is wire-accepted but DELIBERATELY NOT
+    // persisted in V1, exactly as `attach` drops `validated.healthState` and
+    // `detach` drops `validated.reason`: there is no `reason` column on
+    // `runtime_node_attachments`, and the only home for a health-transition audit
+    // `reason` is the durable `runtime_node.*` event the control plane does not
+    // write (ADR-017 — no control-plane event log; the daemon's node-capability
+    // service is the event writer). Do NOT "fix" the dropped field by inventing a
+    // column — that would lead the schema. This method reads only
+    // `healthChanges?.state` (the liveness transition) below.
+
+    return this.#querier.transaction(async (transaction) => {
+      // (1) Resolve the node's SINGLE active attachment FOR UPDATE. The
+      // `state IN ('registering', 'online', 'degraded')` set is the same
+      // load-bearing active-state filter detach uses — EXACTLY the
+      // `idx_node_attachments_active` partial-index predicate
+      // (`0003-runtime-nodes.ts`): I-003-5 guarantees <=1 active row per node
+      // across all sessions, so `nodeId` alone resolves it (the request carries
+      // no `sessionId`), and the band EXCLUDES the inactive states (`offline`,
+      // `revoked`) so a late update against a detached / swept / revoked node
+      // matches no row (the typed refusal below). FOR UPDATE locks the row for
+      // the transaction's duration so a concurrent detach / sweep cannot retire
+      // it between this read and the UPDATE below.
+      const activeProbe = await transaction.query<{ id: string; state: string }>(
+        `SELECT id, state
+           FROM runtime_node_attachments
+          WHERE node_id = $1
+            AND state IN ('registering', 'online', 'degraded')
+          FOR UPDATE`,
+        [validated.nodeId],
+      );
+      const activeRow: { id: string; state: string } | undefined = activeProbe.rows[0];
+
+      // (2) No active attachment -> typed 409 refusal (NOT a 500, NOT a null
+      // no-op). capabilityupdate MUST return `{nodeId, state, updatedAt}`; with
+      // no active row there is no state to return. This is a legitimate
+      // production race — a late update arriving after a `detach` retired the
+      // node, or after the T3.6 staleness sweep marked it offline — and mirrors
+      // attach's defensive posture (the service does not assume the router
+      // pre-validated liveness). The message names `nodeId` ONLY (no session, no
+      // state — no info-leak).
+      if (activeRow === undefined) {
+        throw new RuntimeNodeCapabilityUpdateConflictException(
+          `Runtime node ${String(validated.nodeId)} has no active attachment to update.`,
+        );
+      }
+
+      // (3) I-003-2 guard — the ONE residual state-context refusal. The wire
+      // VALUE `online` is legal (the 2-value `RuntimeNodeHealthState`), but
+      // applying it to a still-`registering` attachment is not: bringing a node
+      // `online` requires a successful DAEMON-side capability declaration
+      // (Spec-003 line 57), and the control plane is not the declaration
+      // authority (Spec-003 line 52). EXPLICITLY ALLOWED and NOT guarded here:
+      //   - `registering -> degraded` (Spec-003 §Fallback Behavior — a
+      //     capability-validation failure leaves the node degraded);
+      //   - `degraded -> online` (recovery — the node was declared online once);
+      //   - a capabilities-only refresh (no `healthChanges`) on a registering
+      //     row (no liveness transition at all).
+      // `offline` / `revoked` cannot reach this guard — they are unconstructable
+      // at the schema boundary (the 2-value enum), so this is the SOLE remaining
+      // I-003-2 case. The message names the `nodeId` + the PUBLIC RULE, never the
+      // node's current `state` (no info-leak — a caller learns the rule, not the
+      // node's internal liveness position).
+      if (activeRow.state === REGISTERING_STATE && validated.healthChanges?.state === "online") {
+        throw new RuntimeNodeCapabilityUpdateConflictException(
+          `Runtime node ${String(validated.nodeId)} cannot be brought online via capability update; online requires a daemon-side capability declaration.`,
+        );
+      }
+
+      // (4) Refresh the discovery snapshot + apply the resolved next-state. The
+      // next-state is `healthChanges.state` when present, else the row's current
+      // (locked) state written back unchanged — safe under FOR UPDATE and
+      // idempotent (a capabilities-only refresh re-writes the same `state`).
+      // `capabilities` is the JS object bound DIRECTLY to the JSONB column (no
+      // `::jsonb` cast) — the same idiom attach's INSERT uses and its tests prove
+      // (both `pg` and PGlite serialize an object parameter for a JSONB column).
+      // `now() AS updated_at` is the transaction-time server clock, sourced
+      // transiently — it is RETURNED, never written to a column, so `attached_at`
+      // (the creation timestamp) is left untouched.
+      const nextState: string = validated.healthChanges?.state ?? activeRow.state;
+      const refreshed = await transaction.query<CapabilityUpdateRow>(
+        `UPDATE runtime_node_attachments
+            SET capabilities = $1,
+                state        = $2
+          WHERE id = $3
+        RETURNING node_id, state, now() AS updated_at`,
+        [validated.capabilities, nextState, activeRow.id],
+      );
+      const refreshedRow: CapabilityUpdateRow | undefined = refreshed.rows[0];
+      if (refreshedRow === undefined) {
+        // Defensive: the row was locked FOR UPDATE one statement earlier, so a
+        // zero-row UPDATE here is an impossible substrate state. Surface it as a
+        // hard error rather than masquerading as a successful refresh.
+        throw new Error(
+          `AttachService.updateCapabilities: UPDATE returned no row for node ${String(validated.nodeId)} despite a FOR UPDATE lock.`,
+        );
+      }
+
+      // (5) Map (`node_id`/`updated_at` -> `nodeId`/`updatedAt`) and parse. The
+      // response parse brands `nodeId` and validates the ISO 8601 `updatedAt` —
+      // deliberately more hardened than attach's `as NodeState` row-mapping
+      // cast, per the plan's explicit "parse the mapped row" instruction.
+      return RuntimeNodeCapabilityUpdateResponseSchema.parse({
+        nodeId: refreshedRow.node_id,
+        state: refreshedRow.state,
+        updatedAt: toIsoString(refreshedRow.updated_at),
+      });
     });
   }
 

@@ -185,12 +185,13 @@ Daemon-local run-queue control codes (Plan-004). Run-control authority is daemon
 
 ### Runtime Node
 
-Both codes are registry-only (code + message; no structured `details`): no acceptance criterion needs structured detail, and a conflicting-session-id detail would risk cross-session info-leak. The domain token `runtimenode` matches the method namespace (`runtimenode.attach`) and deliberately differs from the `runtime_node.*` durable event-name namespace (separator differs) so an error code never collides with an event name.
+These codes are registry-only (code + message; no structured `details`): no acceptance criterion needs structured detail, and a conflicting-session-id detail would risk cross-session info-leak. The domain token `runtimenode` matches the method namespace (`runtimenode.attach` / `runtimenode.capabilityupdate`) and deliberately differs from the `runtime_node.*` durable event-name namespace (separator differs) so an error code never collides with an event name.
 
 | Code | Description | HTTP Status |
 | --- | --- | --- |
 | `runtimenode.attach_conflict` | Runtime node is already actively attached to another session; detach before attaching elsewhere (transient — Plan-003 I-003-5 / T3.2 P9) | 409 |
 | `runtimenode.attach_revoked` | Runtime node's attachment to this session was revoked; revocation is terminal (Plan-003 T3.2 P10) | 409 |
+| `runtimenode.capabilityupdate_conflict` | Runtime node has no active attachment to refresh, or cannot be brought online via capability update (online requires a daemon-side capability declaration) — coordination-snapshot refresh refused (Plan-003 I-003-2 / T3.9) | 409 |
 
 ### Workspace
 

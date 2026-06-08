@@ -89,11 +89,13 @@ import type {
   NodeId,
   ParticipantId,
   RuntimeNodeAttachRequest,
+  RuntimeNodeCapabilityUpdateRequest,
   SessionId,
 } from "@ai-sidekicks/contracts";
 import {
   RUNTIME_NODE_ATTACH_CONFLICT_CODE,
   RUNTIME_NODE_ATTACH_REVOKED_CODE,
+  RUNTIME_NODE_CAPABILITY_UPDATE_CONFLICT_CODE,
 } from "@ai-sidekicks/contracts";
 
 import { applyMigrations, type Querier } from "../../sessions/migration-runner.js";
@@ -101,6 +103,7 @@ import { AttachService } from "../attach-service.js";
 import {
   RuntimeNodeAttachConflictException,
   RuntimeNodeAttachRevokedException,
+  RuntimeNodeCapabilityUpdateConflictException,
 } from "../errors.js";
 
 // ----------------------------------------------------------------------------
@@ -129,6 +132,18 @@ const CAPABILITIES: Record<string, unknown> = {
   maxConcurrentRuns: 3,
 };
 
+// A DISTINCT capability map for the capability-update round-trip: a different
+// shape than the seeded `{a:1}`-style snapshot so the refresh assertion proves
+// the new map REPLACED the old one (the request carries a full replacement set —
+// runtime-node.ts:212), and the JSONB round-trip proves the cast-free object
+// bind survived serialization (a silent stringify bug would pass a state-only
+// check).
+const UPDATED_CAPABILITIES: Record<string, unknown> = {
+  "provider-driver": { kind: "codex", streaming: false },
+  maxConcurrentRuns: 8,
+  toolPolicy: "auto",
+};
+
 function buildAttachRequest(
   overrides: Partial<RuntimeNodeAttachRequest> = {},
 ): RuntimeNodeAttachRequest {
@@ -139,6 +154,21 @@ function buildAttachRequest(
     clientVersion: CLIENT_VERSION,
     capabilities: CAPABILITIES,
     healthState: "online",
+    ...overrides,
+  };
+}
+
+// Build a capability-update request (mirrors `buildAttachRequest`). `capabilities`
+// is REQUIRED on every request (the full replacement set), so it defaults to
+// `UPDATED_CAPABILITIES`; `healthChanges` is omitted by default (a
+// capabilities-only refresh) and supplied per-test for the health-transition
+// cases.
+function buildCapabilityUpdateRequest(
+  overrides: Partial<RuntimeNodeCapabilityUpdateRequest> = {},
+): RuntimeNodeCapabilityUpdateRequest {
+  return {
+    nodeId: NODE_ID,
+    capabilities: UPDATED_CAPABILITIES,
     ...overrides,
   };
 }
@@ -274,6 +304,30 @@ async function readAttachmentRow(
     client_version: string;
   }>(
     `SELECT state, capabilities::text AS capabilities, client_version
+       FROM runtime_node_attachments WHERE node_id = $1 AND session_id = $2`,
+    [nodeId, sessionId],
+  );
+  return probe.rows[0];
+}
+
+// Read the FULL capability-update-relevant projection of an attachment row,
+// including the `attached_at` creation timestamp (text-cast to normalize
+// pg/PGlite TIMESTAMPTZ hydration). Used by the capability-update tests to prove
+// (a) `attached_at` is byte-for-byte unchanged across an update (the method must
+// NOT overwrite the creation clock — `updatedAt` is a transient `now()`), and
+// (b) the `capabilities` snapshot round-trips. `readAttachmentRow` above omits
+// `attached_at`, so this is the capability-update complement.
+async function readAttachmentRowWithTimestamp(
+  querier: Querier,
+  nodeId: NodeId,
+  sessionId: SessionId,
+): Promise<{ state: string; capabilities: string; attached_at: string } | undefined> {
+  const probe = await querier.query<{
+    state: string;
+    capabilities: string;
+    attached_at: string;
+  }>(
+    `SELECT state, capabilities::text AS capabilities, attached_at::text AS attached_at
        FROM runtime_node_attachments WHERE node_id = $1 AND session_id = $2`,
     [nodeId, sessionId],
   );
@@ -1095,5 +1149,426 @@ describe("AttachService — P7/P8 + detach (offline transition, T3.7)", () => {
     expect(attachmentAfter?.state).toBe("offline");
     // Liveness axis: still NO presence row (detach did not create one).
     expect(await readPresenceRow(ctx.querier, NODE_ID)).toBeUndefined();
+  });
+});
+
+// ----------------------------------------------------------------------------
+// updateCapabilities — control-plane discovery-snapshot refresh (T3.9)
+// ----------------------------------------------------------------------------
+//
+// Spec-003 §Default-Behavior `capabilityupdate` amendment + §Fallback Behavior
+// (capability-validation failure leaves the node `degraded`) + lines 52/57 (the
+// control plane is NOT the daemon-side capability-declaration authority) +
+// Plan-003 §Invariants I-003-2 (cannot drive registering -> online) / I-003-3
+// (no session_memberships mutation) / I-003-5 (single active attachment) +
+// ADR-017 (no control-plane event log).
+//
+// updateCapabilities refreshes the `capabilities` JSONB snapshot (the discovery
+// roster) on the node's single active attachment and, when `healthChanges` is
+// present, applies the daemon-reported capability-health transition — writing
+// `runtime_node_attachments` ONLY (no presence, no membership, no durable
+// event). The blocks below pin: the capabilities round-trip; the I-003-2
+// registering->online refusal (the ONE residual state-context guard) WITH
+// rollback; the EXPLICITLY-ALLOWED registering->degraded and degraded->online
+// transitions (pinning the guard's narrowness against an over-broad regression);
+// the no-active-row typed refusal (the I-003-5 active-band resolution); the
+// `updatedAt` = server now() / `attached_at`-unchanged property; the I-003-3
+// membership no-mutation; and the structural no-durable-event / write-surface
+// confinement (ADR-017).
+
+describe("AttachService — updateCapabilities (discovery-snapshot refresh, T3.9)", () => {
+  it("refreshes the capabilities JSONB snapshot on the active row (round-trips, cast-free bind)", async () => {
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID);
+    // An ACTIVE (online) attachment whose capabilities the daemon now replaces.
+    await seedAttachment(ctx.querier, {
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      nodeId: NODE_ID,
+      state: "online",
+    });
+
+    const response = await ctx.service.updateCapabilities(
+      buildCapabilityUpdateRequest({ capabilities: UPDATED_CAPABILITIES }),
+    );
+
+    // The response projects the node id + the (unchanged, no healthChanges)
+    // liveness state.
+    expect(String(response.nodeId)).toBe(String(NODE_ID));
+    expect(response.state).toBe("online");
+
+    // JSONB round-trip: the new capability object REPLACED the seeded `{}` and
+    // survived serialization into the JSONB column (a silent stringify bug a
+    // state-only check would miss — and proof the cast-free object bind works on
+    // an UPDATE SET, not just attach's INSERT VALUES).
+    const stored = await readAttachmentRowWithTimestamp(ctx.querier, NODE_ID, SESSION_ID);
+    expect(stored).toBeDefined();
+    const storedCapabilities: unknown = JSON.parse(stored?.capabilities ?? "null");
+    expect(storedCapabilities).toEqual(UPDATED_CAPABILITIES);
+  });
+
+  it("sets updatedAt to the server now() (valid ISO-8601) and leaves attached_at byte-for-byte unchanged", async () => {
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID);
+    await seedAttachment(ctx.querier, {
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      nodeId: NODE_ID,
+      state: "online",
+    });
+
+    // Capture the creation timestamp BEFORE the update — the method must NOT
+    // overwrite `attached_at` (the canonical schema has only `attached_at`;
+    // `updatedAt` is a transient `now()`, never a stored column).
+    const before = await readAttachmentRowWithTimestamp(ctx.querier, NODE_ID, SESSION_ID);
+    expect(before).toBeDefined();
+
+    const serverBefore = Date.now();
+    const response = await ctx.service.updateCapabilities(buildCapabilityUpdateRequest());
+    const serverAfter = Date.now();
+
+    // `updatedAt` is a real, parseable ISO-8601 timestamp (NOT attach's weak
+    // typeof === "string" check — this proves now() -> toIsoString -> the
+    // response schema's `z.iso.datetime({ offset: true })` actually round-trips)
+    // and sits at approximately server now() (within the call window, with a
+    // small clock-skew slack).
+    const updatedAtMillis = new Date(response.updatedAt).getTime();
+    expect(Number.isFinite(updatedAtMillis)).toBe(true);
+    expect(updatedAtMillis).toBeGreaterThanOrEqual(serverBefore - 1000);
+    expect(updatedAtMillis).toBeLessThanOrEqual(serverAfter + 1000);
+
+    // `attached_at` is byte-for-byte unchanged (the creation clock survives the
+    // refresh — `updatedAt` did NOT leak into a stored column).
+    const after = await readAttachmentRowWithTimestamp(ctx.querier, NODE_ID, SESSION_ID);
+    expect(after?.attached_at).toBe(before?.attached_at);
+  });
+
+  it("ALLOWS a capabilities-only refresh on a registering row and returns the broad NodeState (request->response asymmetry)", async () => {
+    // EXPLICITLY ALLOWED — the 4th enumerated I-003-2 case: a capabilities-only
+    // refresh (NO healthChanges) on a `registering` row is permitted (no liveness
+    // transition at all). This pins the guard's `&& healthChanges?.state ===
+    // "online"` conjunct on its `undefined` branch: a mutation broadening the
+    // guard to "registering && state !== degraded" would wrongly throw here.
+    //
+    // Load-bearing: it is the request->response asymmetry demonstration
+    // (Spec-003 line 72). `response.state` is the broad 5-value `NodeState` and
+    // here takes `registering` — a value the 2-value request `healthChanges.state`
+    // enum (online|degraded) CANNOT express. No other test exercises a response
+    // state outside the request enum, so this is the asymmetry's only pin.
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID);
+    await seedAttachment(ctx.querier, {
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      nodeId: NODE_ID,
+      state: "registering",
+    });
+
+    const response = await ctx.service.updateCapabilities(buildCapabilityUpdateRequest());
+
+    // The asymmetry: the response carries the broad `registering` liveness state
+    // the request enum cannot express, and the row stays `registering` (no
+    // healthChanges => no transition).
+    expect(response.state).toBe("registering");
+    const after = await readAttachmentRowWithTimestamp(ctx.querier, NODE_ID, SESSION_ID);
+    expect(after?.state).toBe("registering");
+    // The capabilities snapshot was still refreshed (a capabilities-only update
+    // is a real refresh, not a no-op): the new map replaced the seeded `{}`.
+    const storedCapabilities: unknown = JSON.parse(after?.capabilities ?? "null");
+    expect(storedCapabilities).toEqual(UPDATED_CAPABILITIES);
+  });
+
+  it("refuses driving a registering attachment online (I-003-2 guard) and rolls back byte-for-byte", async () => {
+    // The ONE residual I-003-2 state-context guard: a `registering` attachment
+    // cannot be brought `online` via capability update — bringing a node online
+    // requires a daemon-side capability declaration, which the control plane is
+    // not the authority for (Spec-003 lines 52/57). The wire VALUE `online` is
+    // legal (the 2-value health enum); only its application to a registering row
+    // is refused.
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID);
+    await seedAttachment(ctx.querier, {
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      nodeId: NODE_ID,
+      state: "registering",
+    });
+
+    // Snapshot the row BEFORE so the throw-rolls-back property is provable
+    // byte-for-byte (the guard must throw BEFORE the UPDATE — no partial write).
+    const before = await readAttachmentRowWithTimestamp(ctx.querier, NODE_ID, SESSION_ID);
+    expect(before).toBeDefined();
+
+    const error = await ctx.service
+      .updateCapabilities(buildCapabilityUpdateRequest({ healthChanges: { state: "online" } }))
+      .catch((thrown: unknown) => thrown);
+
+    expect(error).toBeInstanceOf(RuntimeNodeCapabilityUpdateConflictException);
+    expect(error).toMatchObject({ code: RUNTIME_NODE_CAPABILITY_UPDATE_CONFLICT_CODE });
+    // No-info-leak: the message names the node id + the PUBLIC rule, never the
+    // node's current internal `state` (parallels attach P9a's no-session-leak).
+    expect((error as Error).message).toContain(String(NODE_ID));
+    expect((error as Error).message).not.toContain("registering");
+
+    // Rollback: the row is byte-for-byte unchanged — capabilities NOT refreshed
+    // (still the seeded `{}`), state still `registering`, attached_at untouched.
+    const after = await readAttachmentRowWithTimestamp(ctx.querier, NODE_ID, SESSION_ID);
+    expect(after).toEqual(before);
+  });
+
+  it("ALLOWS registering -> degraded (Spec-003 §Fallback Behavior — pins the guard's narrowness)", async () => {
+    // EXPLICITLY ALLOWED — the guard is the SINGLE registering->online case, NOT
+    // a blanket registering->* refusal. A capability-validation failure leaves
+    // the node `degraded` (Spec-003 §Fallback Behavior), so registering ->
+    // degraded MUST succeed. This pins the guard's narrowness: an over-broad
+    // `registering -> any health change` regression would redden this.
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID);
+    await seedAttachment(ctx.querier, {
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      nodeId: NODE_ID,
+      state: "registering",
+    });
+
+    const response = await ctx.service.updateCapabilities(
+      buildCapabilityUpdateRequest({ healthChanges: { state: "degraded" } }),
+    );
+
+    expect(response.state).toBe("degraded");
+    const after = await readAttachmentRowWithTimestamp(ctx.querier, NODE_ID, SESSION_ID);
+    expect(after?.state).toBe("degraded");
+  });
+
+  it("ALLOWS degraded -> online (the control-plane guard blocks ONLY the direct registering->online edge)", async () => {
+    // EXPLICITLY ALLOWED — the `online <-> degraded` capability-health axis is
+    // the permitted transition (Spec-003 §Fallback Behavior). The I-003-2 guard
+    // blocks ONLY the direct `registering -> online` edge (Spec-003 line 65), so
+    // `degraded -> online` is permitted because `degraded` is already PAST that
+    // gate. Note: a node can reach `degraded` via `registering -> degraded` (the
+    // capability-validation-failed Fallback path) WITHOUT ever having been
+    // `online`, so the allow does NOT rest on "the node was declared online once"
+    // — whether a node was ever daemon-declared online is not something the
+    // control plane tracks or gates on; it gates the single edge, nothing more.
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID);
+    await seedAttachment(ctx.querier, {
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      nodeId: NODE_ID,
+      state: "degraded",
+    });
+
+    const response = await ctx.service.updateCapabilities(
+      buildCapabilityUpdateRequest({ healthChanges: { state: "online" } }),
+    );
+
+    expect(response.state).toBe("online");
+    const after = await readAttachmentRowWithTimestamp(ctx.querier, NODE_ID, SESSION_ID);
+    expect(after?.state).toBe("online");
+  });
+
+  it("refuses a capability update against a node with no active attachment (typed 409, I-003-5 active-band)", async () => {
+    // No active row resolves -> the typed refusal (NOT an unknown 500, NOT a
+    // null no-op). This is the I-003-5 load-bearing assertion: it proves the
+    // `state IN (active band)` filter EXCLUDES the offline row (a single
+    // happy-path test would pass even if the method resolved by bare node_id).
+    // The node's only row is `offline` (a detached / swept node) — outside the
+    // active band — so a late capability-update finds nothing to refresh. (The
+    // never-attached variant follows.)
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID);
+    await seedAttachment(ctx.querier, {
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      nodeId: NODE_ID,
+      state: "offline",
+    });
+
+    const error = await ctx.service
+      .updateCapabilities(buildCapabilityUpdateRequest())
+      .catch((thrown: unknown) => thrown);
+
+    expect(error).toBeInstanceOf(RuntimeNodeCapabilityUpdateConflictException);
+    expect(error).toMatchObject({ code: RUNTIME_NODE_CAPABILITY_UPDATE_CONFLICT_CODE });
+    expect((error as Error).message).toContain(String(NODE_ID));
+
+    // The offline row was NOT touched (the transaction rolled back; the filter
+    // never matched it).
+    const after = await readAttachmentRowWithTimestamp(ctx.querier, NODE_ID, SESSION_ID);
+    expect(after?.state).toBe("offline");
+  });
+
+  it("refuses a capability update for a node that was never attached (typed 409, no row created)", async () => {
+    // The never-attached variant of the no-active-row refusal: the node has NO
+    // attachment row at all. The method must throw the typed refusal and NOT
+    // INSERT a row (it only ever UPDATEs an existing active row).
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID);
+
+    const error = await ctx.service
+      .updateCapabilities(buildCapabilityUpdateRequest())
+      .catch((thrown: unknown) => thrown);
+
+    expect(error).toBeInstanceOf(RuntimeNodeCapabilityUpdateConflictException);
+    expect(error).toMatchObject({ code: RUNTIME_NODE_CAPABILITY_UPDATE_CONFLICT_CODE });
+    expect(await countAttachments(ctx.querier)).toBe(0);
+  });
+
+  it("does NOT touch a revoked attachment — the active-band excludes revoked (trust-terminality, mirrors detach)", async () => {
+    // The identical trust-terminality exposure detach guards with its
+    // "does NOT flip a revoked attachment" test, applied to capability update. A
+    // `revoked` row is INACTIVE (outside `state IN ('registering','online',
+    // 'degraded')`), so the resolver must NOT match it — `revoked` is terminal
+    // (Spec-003 line 70; attach's P10 reads it to refuse re-attach). The offline
+    // test above covers the band mechanism generically; this pins `revoked`
+    // SPECIFICALLY, so a future edit widening the band to include `revoked` (which
+    // would let a capability update silently resurrect a revoked node) is caught.
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID);
+    await seedAttachment(ctx.querier, {
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      nodeId: NODE_ID,
+      state: "revoked",
+    });
+
+    const before = await readAttachmentRowWithTimestamp(ctx.querier, NODE_ID, SESSION_ID);
+    expect(before).toBeDefined();
+
+    const error = await ctx.service
+      .updateCapabilities(buildCapabilityUpdateRequest())
+      .catch((thrown: unknown) => thrown);
+
+    // Typed refusal (no active row to refresh) and — load-bearing — the row stays
+    // EXACTLY `revoked`, byte-for-byte (capabilities NOT refreshed, never demoted
+    // to another state): revocation-terminality holds across a capability update.
+    expect(error).toBeInstanceOf(RuntimeNodeCapabilityUpdateConflictException);
+    expect(error).toMatchObject({ code: RUNTIME_NODE_CAPABILITY_UPDATE_CONFLICT_CODE });
+    const after = await readAttachmentRowWithTimestamp(ctx.querier, NODE_ID, SESSION_ID);
+    expect(after).toEqual(before);
+    expect(after?.state).toBe("revoked");
+  });
+
+  it("resolves the SINGLE active attachment by nodeId across sessions and leaves an inactive same-node row untouched (I-003-5)", async () => {
+    // Gold-standard I-003-5 hardening (parallels detach's "does NOT flip
+    // revoked" guard): the SAME node has an `offline` row in session A and an
+    // `online` row in session B. The active-band filter resolves EXACTLY the one
+    // active row (B) by `nodeId` alone — the request carries no `sessionId` —
+    // and refreshes it, while the inactive A row is left byte-for-byte unchanged.
+    // This proves the single-active-attachment resolution is unambiguous and the
+    // band excludes the inactive row.
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID);
+    await seedSession(ctx.querier, OTHER_SESSION_ID);
+    await seedAttachment(ctx.querier, {
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      nodeId: NODE_ID,
+      state: "offline",
+    });
+    await seedAttachment(ctx.querier, {
+      sessionId: OTHER_SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      nodeId: NODE_ID,
+      state: "online",
+    });
+
+    const inactiveBefore = await readAttachmentRowWithTimestamp(ctx.querier, NODE_ID, SESSION_ID);
+    expect(inactiveBefore).toBeDefined();
+
+    const response = await ctx.service.updateCapabilities(buildCapabilityUpdateRequest());
+
+    // The ACTIVE row (session B) was refreshed: capabilities replaced, state
+    // unchanged (no healthChanges).
+    expect(response.state).toBe("online");
+    const activeAfter = await readAttachmentRowWithTimestamp(
+      ctx.querier,
+      NODE_ID,
+      OTHER_SESSION_ID,
+    );
+    const activeCapabilities: unknown = JSON.parse(activeAfter?.capabilities ?? "null");
+    expect(activeCapabilities).toEqual(UPDATED_CAPABILITIES);
+
+    // The INACTIVE row (session A) is byte-for-byte unchanged — the active-band
+    // filter never touched it.
+    const inactiveAfter = await readAttachmentRowWithTimestamp(ctx.querier, NODE_ID, SESSION_ID);
+    expect(inactiveAfter).toEqual(inactiveBefore);
+  });
+
+  it("leaves a co-resident session_memberships row byte-for-byte unchanged (I-003-3)", async () => {
+    // I-003-3: the runtime-node domain is disjoint from the membership domain
+    // (cross-plan-dependencies.md §1). A capability update must touch ONLY
+    // runtime_node_attachments — never read-for-update, insert, update, or delete
+    // a session_memberships row. Asserted along the SAME two disjoint mutation
+    // modes as the attach / detach I-003-3 tests (byte-identity snapshot + total
+    // count).
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID);
+    await seedAttachment(ctx.querier, {
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      nodeId: NODE_ID,
+      state: "online",
+    });
+    const membershipId = await seedMembership(ctx.querier, {
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      role: "owner",
+      state: "active",
+    });
+
+    const before = await readMembershipRow(ctx.querier, membershipId);
+    expect(before).toBeDefined();
+    expect(await countMemberships(ctx.querier)).toBe(1);
+
+    await ctx.service.updateCapabilities(
+      buildCapabilityUpdateRequest({ healthChanges: { state: "degraded" } }),
+    );
+
+    // (1) Byte-for-byte identity of the seeded row catches an in-place UPDATE;
+    // (2) unchanged total count catches a stray INSERT/DELETE of a DIFFERENT row.
+    const after = await readMembershipRow(ctx.querier, membershipId);
+    expect(after).toEqual(before);
+    expect(await countMemberships(ctx.querier)).toBe(1);
+  });
+
+  it("emits no durable event and confines its write surface to runtime_node_attachments (ADR-017)", async () => {
+    // ADR-017: the control plane has no event log — the daemon's node-capability
+    // service stays the `runtime_node.capability_updated` writer; this method
+    // only refreshes the coordination snapshot. The no-event property is
+    // STRUCTURAL: AttachService takes ONLY a Querier (no event-emitter
+    // dependency), so it CANNOT emit a durable event. We assert that structurally
+    // by confining the write surface: an active capability update with a health
+    // change writes runtime_node_attachments (the slot row) and touches NEITHER
+    // runtime_node_presence (the liveness axis stays heartbeat-owned, T3.6 — the
+    // axes are orthogonal) NOR session_memberships. (There is no events table to
+    // assert against — inventing one would be inventing a control-plane event
+    // log ADR-017 forbids.)
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID);
+    await seedAttachment(ctx.querier, {
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      nodeId: NODE_ID,
+      state: "online",
+    });
+    // No presence row is seeded — proving the capability update does NOT create
+    // one (presence is heartbeat-owned; the liveness axis is orthogonal).
+
+    await ctx.service.updateCapabilities(
+      buildCapabilityUpdateRequest({ healthChanges: { state: "degraded" } }),
+    );
+
+    // Write-surface confinement: the slot row IS the only thing written. The
+    // attachment moved to degraded (the slot write happened)...
+    const attachmentAfter = await readAttachmentRow(ctx.querier, NODE_ID, SESSION_ID);
+    expect(attachmentAfter?.state).toBe("degraded");
+    // ...while NO presence row was created (the liveness axis is untouched —
+    // a heartbeat-owned table the capability update never writes)...
+    expect(await readPresenceRow(ctx.querier, NODE_ID)).toBeUndefined();
+    // ...and NO session_memberships row was created (I-003-3 — the membership
+    // domain is disjoint).
+    expect(await countMemberships(ctx.querier)).toBe(0);
   });
 });
