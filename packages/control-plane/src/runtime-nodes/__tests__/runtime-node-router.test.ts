@@ -41,6 +41,7 @@ import type {
 import { applyMigrations, type Querier } from "../../sessions/migration-runner.js";
 import { t } from "../../sessions/trpc.js";
 import { AttachService } from "../attach-service.js";
+import { VersionFloorExceededException } from "../errors.js";
 import { HeartbeatService } from "../heartbeat-service.js";
 import { createRuntimeNodeRouter } from "../runtime-node-router.factory.js";
 
@@ -120,10 +121,22 @@ async function seedParticipant(querier: Querier, participantId: ParticipantId): 
   await querier.query("INSERT INTO participants (id) VALUES ($1)", [participantId]);
 }
 
-async function seedSession(querier: Querier, sessionId: SessionId): Promise<void> {
-  // No min_client_version => NULL floor ("no floor") — the focus here is
-  // transport mounting, not the floor verdict (the service tests cover that).
-  await querier.query("INSERT INTO sessions (id, state) VALUES ($1, 'active')", [sessionId]);
+async function seedSession(
+  querier: Querier,
+  sessionId: SessionId,
+  minClientVersion?: string,
+): Promise<void> {
+  // No min_client_version => NULL floor ("no floor") — the default for the
+  // transport-mounting tests, whose focus is mounting not the floor verdict. A
+  // supplied floor seeds the version-floor write-refusal catch-arm test.
+  if (minClientVersion === undefined) {
+    await querier.query("INSERT INTO sessions (id, state) VALUES ($1, 'active')", [sessionId]);
+    return;
+  }
+  await querier.query(
+    "INSERT INTO sessions (id, state, min_client_version) VALUES ($1, 'active', $2)",
+    [sessionId, minClientVersion],
+  );
 }
 
 async function seedAttachment(
@@ -133,13 +146,14 @@ async function seedAttachment(
     participantId: ParticipantId;
     nodeId: NodeId;
     state: string;
+    clientVersion?: string;
   },
 ): Promise<void> {
   await querier.query(
     `INSERT INTO runtime_node_attachments
        (session_id, participant_id, node_id, capabilities, client_version, state)
      VALUES ($1, $2, $3, $4, $5, $6)`,
-    [args.sessionId, args.participantId, args.nodeId, {}, "1.0", args.state],
+    [args.sessionId, args.participantId, args.nodeId, {}, args.clientVersion ?? "1.0", args.state],
   );
 }
 
@@ -295,6 +309,44 @@ describe("runtime-node router — typed exception -> CONFLICT (T3.8 catch-arms)"
     }
     expect(caught).toBeDefined();
     expect(caught?.code).toBe("CONFLICT");
+    expect(caught?.message).toContain(String(NODE_ID));
+  });
+
+  it("runtimenode.capabilityupdate maps the below-floor write-refusal (VersionFloorExceededException) to CONFLICT", async () => {
+    // The version-floor write-refusal catch-arm (T3.4): a below-floor (read-only)
+    // node's capability WRITE is refused with VersionFloorExceededException,
+    // which the capabilityupdate catch-arm maps to tRPC CONFLICT (HTTP 409 per
+    // error-contracts.md §Version) ALONGSIDE the capability-update conflict. A
+    // floored session (floor 2.0) holds the node's active attachment at a
+    // below-floor client_version (1.0) — the read-only verdict the gate
+    // re-derives at write time.
+    await seedParticipant(harness.querier, PARTICIPANT_ID);
+    await seedSession(harness.querier, SESSION_ID, "2.0");
+    await seedAttachment(harness.querier, {
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      nodeId: NODE_ID,
+      state: "online",
+      clientVersion: "1.0",
+    });
+
+    let caught: TRPCError | undefined;
+    try {
+      await harness.caller.runtimenode.capabilityupdate({
+        nodeId: NODE_ID,
+        capabilities: CAPABILITIES,
+      });
+    } catch (err) {
+      if (err instanceof TRPCError) caught = err;
+    }
+    expect(caught).toBeDefined();
+    expect(caught?.code).toBe("CONFLICT");
+    // The typed exception is preserved on `.cause` (what the shared
+    // errorFormatter projects onto `shape.data.aisError`) — pins that the
+    // floor-refusal arm sets the RIGHT cause, distinct from the conflict family.
+    expect(caught?.cause).toBeInstanceOf(VersionFloorExceededException);
+    // No-info-leak survives the transport hop: the message carries the node id +
+    // the caller-legitimate version context.
     expect(caught?.message).toContain(String(NODE_ID));
   });
 });

@@ -276,6 +276,14 @@ Cross-version compatibility errors per [ADR-018](../../decisions/018-cross-versi
 | `version.floor_exceeded` | Client attach or event envelope version is below the session's `min_client_version` floor per [ADR-018](../../decisions/018-cross-version-compatibility.md) §Decision #3 / §Decision #4 (typed: `VERSION_FLOOR_EXCEEDED`) | 409 |
 | `version.ceiling_exceeded` | Event envelope version exceeds the maximum supported by the reading party per ADR-018 §Decision #4 (typed: `VERSION_CEILING_EXCEEDED`) | 409 |
 
+`version.floor_exceeded` is **surface-polymorphic** — the same wire code carries a different shape on each of its three emitting surfaces:
+
+1. **JSON-RPC daemon handshake** (version negotiation, [Spec-007](../../specs/007-local-ipc-and-daemon-control.md)): it is a `DaemonHelloAck.reason` discriminator **string** — _not_ a `details` payload (see [§Negotiation Refusals](#negotiation-refusals), where the row is `n/a (DaemonHelloAck.reason field)`). The handshake's structured detail, when present, rides the separate JSON-RPC `data.fields` channel of the [two-layer envelope](#two-layer-envelope-shape).
+2. **Control-plane peer-floor validation** (Plan-002+ invite-acceptance validating a peer's client floor — the canonical emit site of `VersionFloorExceededError` per `packages/contracts/src/error.ts`): it carries the strict two-sided `VersionBoundExceededDetails` (`attemptedVersion` + `acceptedRange.{min,max}`) in an HTTP `ErrorResponse`, describing the receiver's accepted version range.
+3. **Control-plane runtime-node write-refusal** ([Spec-003](../../specs/003-runtime-node-attach.md) line 123 / [ADR-018](../../decisions/018-cross-version-compatibility.md) §Decision #4 — a below-floor node admitted read-only at attach is refused on its later capability write): it is **code+message-only**. The session floor is one-sided (`sessions.min_client_version`, with no `max` anywhere), so the two-sided `VersionBoundExceededDetails` schema of surface (2) cannot be populated; the daemon already learned its read-only verdict at attach; and the `message` carries leak-free upgrade context (the node id, the daemon's declared client version, and the session floor).
+
+The canonical `ErrorResponse` envelope makes `details` optional, so surfaces (2) and (3) are both valid `ErrorResponse` forms.
+
 ---
 
 ## Rate Limiting

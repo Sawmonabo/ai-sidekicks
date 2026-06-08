@@ -138,6 +138,7 @@ import {
   RuntimeNodeAttachConflictException,
   RuntimeNodeAttachRevokedException,
   RuntimeNodeCapabilityUpdateConflictException,
+  VersionFloorExceededException,
 } from "./errors.js";
 
 // The partial-unique index whose `23505` signals the I-003-5 cross-session
@@ -543,6 +544,12 @@ export class AttachService {
    *   while `response.state` is the broad 5-value `NodeState` (the server-derived
    *   liveness projection — e.g. a capabilities-only refresh returns the row's
    *   unchanged `registering` state, which is not a daemon-reportable value).
+   * @throws VersionFloorExceededException (409) when a below-floor node — one
+   *   admitted READ-ONLY at attach because its declared `clientVersion` is below
+   *   the session's `min_client_version` floor (T3.3) — attempts this capability
+   *   WRITE (the typed `VERSION_FLOOR_EXCEEDED` write-refusal; I-003-1 / ADR-018
+   *   §Decision #4 / Spec-003 line 123). The node is NOT ejected — the throw
+   *   rolls back, leaving its attachment row byte-for-byte unchanged.
    * @throws RuntimeNodeCapabilityUpdateConflictException in two cases, both 409:
    *   (1) no active attachment exists (a late update racing a `detach` / the
    *   staleness sweep — there is no `{nodeId, state, updatedAt}` to return); and
@@ -554,19 +561,27 @@ export class AttachService {
    * Transaction sequence (ONE commit boundary):
    *   1. Resolve the node's SINGLE active attachment `FOR UPDATE` by `nodeId`
    *      within the active-state band (`registering` / `online` / `degraded` —
-   *      unambiguous per I-003-5). Zero rows -> the no-active-attachment refusal
-   *      (case 1).
-   *   2. I-003-2 guard: a `registering` row + a requested `online` health is the
+   *      unambiguous per I-003-5), selecting `client_version` + `session_id` too
+   *      (the floor-gate at step 3 needs both).
+   *   2. Zero rows -> the no-active-attachment refusal (case 1 above).
+   *   3. Version-floor write-gate (I-003-1 / ADR-018 §Decision #4 / Spec-003
+   *      line 123): re-derive the read-only verdict at WRITE time from the
+   *      CURRENT session floor + the version the daemon declared at attach. A
+   *      below-floor node is refused with `VersionFloorExceededException` (typed,
+   *      never-eject — the throw rolls back, the attachment row is untouched, the
+   *      node stays joined). This precedes the I-003-2 guard: a permission denial
+   *      (read-only node) is decided BEFORE the transition-legality check.
+   *   4. I-003-2 guard: a `registering` row + a requested `online` health is the
    *      one residual state-context refusal (case 2). EXPLICITLY ALLOWED (not
    *      guarded): `registering -> degraded` (Spec-003 §Fallback Behavior —
    *      capability-validation failure leaves the node degraded), `degraded ->
    *      online` (recovery), and a capabilities-only refresh on any active row.
-   *   3. Refresh `capabilities` (the discovery snapshot) and write the resolved
+   *   5. Refresh `capabilities` (the discovery snapshot) and write the resolved
    *      next-state back. `RETURNING node_id, state, now() AS updated_at` — the
    *      `updatedAt` is the transaction-time server clock, sourced TRANSIENTLY,
    *      never a stored column: `attached_at` (the creation timestamp) is NOT
    *      overwritten.
-   *   4. Map (`node_id`/`updated_at` -> `nodeId`/`updatedAt`) and parse through
+   *   6. Map (`node_id`/`updated_at` -> `nodeId`/`updatedAt`) and parse through
    *      `RuntimeNodeCapabilityUpdateResponseSchema` (brands `nodeId`, validates
    *      the ISO 8601 `updatedAt`).
    *
@@ -577,6 +592,14 @@ export class AttachService {
    * membership domain), and emits NO durable `runtime_node.*` event (ADR-017 —
    * no control-plane event log). A thrown refusal rolls the transaction back, so
    * a refused update leaves `runtime_node_attachments` byte-for-byte unchanged.
+   *
+   * Floor-gate scope: the version-floor write-refusal (step 3) lives ONLY here,
+   * NOT in `heartbeat` or `detach`. A below-floor (read-only) node MUST still
+   * heartbeat — else the T3.6 staleness sweep marks it offline (a de-facto
+   * ejection) — and MUST be able to `detach` — else it is trapped joined. Gating
+   * either would violate I-003-1's never-eject guarantee. `heartbeat` (the
+   * separate `HeartbeatService`) and `detach` are therefore naturally ungated;
+   * the capability WRITE is the one mutation a read-only node is denied.
    */
   async updateCapabilities(
     request: RuntimeNodeCapabilityUpdateRequest,
@@ -609,16 +632,28 @@ export class AttachService {
       // `revoked`) so a late update against a detached / swept / revoked node
       // matches no row (the typed refusal below). FOR UPDATE locks the row for
       // the transaction's duration so a concurrent detach / sweep cannot retire
-      // it between this read and the UPDATE below.
-      const activeProbe = await transaction.query<{ id: string; state: string }>(
-        `SELECT id, state
+      // it between this read and the UPDATE below. Single-table query, so the
+      // lock covers only the attachment row.
+      //
+      // `client_version` (the version the daemon declared at attach) and
+      // `session_id` (to read THIS session's current floor) are selected here
+      // for the version-floor write-gate at step 3.
+      const activeProbe = await transaction.query<{
+        id: string;
+        state: string;
+        client_version: string;
+        session_id: string;
+      }>(
+        `SELECT id, state, client_version, session_id
            FROM runtime_node_attachments
           WHERE node_id = $1
             AND state IN ('registering', 'online', 'degraded')
           FOR UPDATE`,
         [validated.nodeId],
       );
-      const activeRow: { id: string; state: string } | undefined = activeProbe.rows[0];
+      const activeRow:
+        | { id: string; state: string; client_version: string; session_id: string }
+        | undefined = activeProbe.rows[0];
 
       // (2) No active attachment -> typed 409 refusal (NOT a 500, NOT a null
       // no-op). capabilityupdate MUST return `{nodeId, state, updatedAt}`; with
@@ -634,7 +669,43 @@ export class AttachService {
         );
       }
 
-      // (3) I-003-2 guard — the ONE residual state-context refusal. The wire
+      // (3) Version-floor write-gate (I-003-1 / ADR-018 §Decision #4 / Spec-003
+      // line 123). Re-derive the read-only verdict at WRITE time from the
+      // CURRENT session floor and the version the daemon declared at attach
+      // (stored `client_version`). A below-floor node was admitted read-only
+      // (T3.3); this is where its capability WRITE is refused — typed,
+      // never-eject (the throw rolls the transaction back, leaving the
+      // attachment row byte-unchanged, so the node stays joined). This precedes
+      // the I-003-2 state-context guard below: a permission denial (the node is
+      // read-only) is decided BEFORE we consider whether the requested
+      // transition is legal.
+      //
+      // Read the session floor the SAME way `attach` does — a plain SELECT of
+      // `min_client_version`, no lock (the floor is a `sessions`-owned value;
+      // this method holds no `sessions` lock and mutates nothing there). The
+      // floor is re-read LIVE, not snapshotted at attach: a floor RAISED after a
+      // node attached at-or-above it correctly refuses the node's later write
+      // (the verdict tracks the current session floor, not the attach-time one).
+      // `activeRow.client_version` is parsed+branded through
+      // `EventEnvelopeVersionSchema.parse` (never an `as` cast) inside
+      // `#deriveReadOnly`, so a malformed stored version throws loud rather than
+      // comparing as NaN — the same parse-at-the-boundary discipline `attach`
+      // applies to the floor.
+      const floorProbe = await transaction.query<{ min_client_version: string | null }>(
+        "SELECT min_client_version FROM sessions WHERE id = $1",
+        [activeRow.session_id],
+      );
+      const floorRow: { min_client_version: string | null } | undefined = floorProbe.rows[0];
+      const floor: string | null = floorRow === undefined ? null : floorRow.min_client_version;
+      if (this.#deriveReadOnly(floor, EventEnvelopeVersionSchema.parse(activeRow.client_version))) {
+        throw new VersionFloorExceededException(
+          `Runtime node ${String(validated.nodeId)} attached read-only: client version ` +
+            `${String(activeRow.client_version)} is below this session's floor ${String(floor)}; ` +
+            `writes require an at-or-above-floor client.`,
+        );
+      }
+
+      // (4) I-003-2 guard — the ONE residual state-context refusal. The wire
       // VALUE `online` is legal (the 2-value `RuntimeNodeHealthState`), but
       // applying it to a still-`registering` attachment is not: bringing a node
       // `online` requires a successful DAEMON-side capability declaration
@@ -656,7 +727,7 @@ export class AttachService {
         );
       }
 
-      // (4) Refresh the discovery snapshot + apply the resolved next-state. The
+      // (5) Refresh the discovery snapshot + apply the resolved next-state. The
       // next-state is `healthChanges.state` when present, else the row's current
       // (locked) state written back unchanged — safe under FOR UPDATE and
       // idempotent (a capabilities-only refresh re-writes the same `state`).
@@ -685,7 +756,7 @@ export class AttachService {
         );
       }
 
-      // (5) Map (`node_id`/`updated_at` -> `nodeId`/`updatedAt`) and parse. The
+      // (6) Map (`node_id`/`updated_at` -> `nodeId`/`updatedAt`) and parse. The
       // response parse brands `nodeId` and validates the ISO 8601 `updatedAt` —
       // deliberately more hardened than attach's `as NodeState` row-mapping
       // cast, per the plan's explicit "parse the mapped row" instruction.

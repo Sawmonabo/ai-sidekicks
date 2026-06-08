@@ -15,9 +15,10 @@
 // the two already-namespaced routers (`session:` / `runtimenode:`) share ONE
 // context type AND the shared `errorFormatter`. host.ts merges them via
 // `t.mergeRouters(createSessionRouter(deps), createRuntimeNodeRouter(deps))`.
-// The typed exceptions are preserved on each `TRPCError.cause`; the formatter
-// branch that projects them onto `shape.data.aisError` is T3.4's downstream
-// wiring — this factory only sets `cause`, it adds NO formatter logic.
+// The typed exceptions are preserved on each `TRPCError.cause`; the shared
+// `errorFormatter` (T3.4) projects every `AisWireException` subclass onto
+// `shape.data.aisError` via a single base `instanceof` — this factory only sets
+// `cause`, it adds NO formatter logic of its own.
 //
 // ROUTE-THROUGH-SERVICES: this factory routes through the injected services
 // ONLY — it imports no `pg` / `Pool` / `Client` / `Querier` (the services own
@@ -60,6 +61,7 @@ import {
   RuntimeNodeAttachConflictException,
   RuntimeNodeAttachRevokedException,
   RuntimeNodeCapabilityUpdateConflictException,
+  VersionFloorExceededException,
 } from "./errors.js";
 import { HeartbeatService } from "./heartbeat-service.js";
 
@@ -129,9 +131,10 @@ export function createRuntimeNodeRouter(deps: RuntimeNodeRouterDeps): RuntimeNod
         .mutation(async ({ input }) => {
           // Both attach refusals map to HTTP 409 / tRPC `CONFLICT`
           // (error-contracts.md §Runtime Node). Preserve the typed exception on
-          // `cause` so the T3.4 errorFormatter can later project it onto
-          // `shape.data.aisError` — this arm adds NO formatter logic. Any other
-          // throw (e.g. a raw FK violation) rethrows unchanged.
+          // `cause` so the shared `errorFormatter` projects it onto
+          // `shape.data.aisError` via the `AisWireException` base — this arm adds
+          // NO formatter logic. Any other throw (e.g. a raw FK violation)
+          // rethrows unchanged.
           try {
             return await deps.attachService.attach(input);
           } catch (err) {
@@ -161,14 +164,23 @@ export function createRuntimeNodeRouter(deps: RuntimeNodeRouterDeps): RuntimeNod
         .input(RuntimeNodeCapabilityUpdateRequestSchema)
         .output(RuntimeNodeCapabilityUpdateResponseSchema)
         .mutation(async ({ input }) => {
-          // The capability-update refusal (no active attachment, or the I-003-2
-          // registering->online guard) maps to HTTP 409 / tRPC `CONFLICT`.
-          // Preserve the typed exception on `cause` for the T3.4 formatter; any
-          // other throw rethrows unchanged.
+          // Two refusal families on this procedure both map to HTTP 409 / tRPC
+          // `CONFLICT` (error-contracts.md §Runtime Node + §Version):
+          //   - RuntimeNodeCapabilityUpdateConflictException — no active
+          //     attachment, or the I-003-2 registering->online guard;
+          //   - VersionFloorExceededException — the below-floor read-only node's
+          //     write-refusal (the typed `VERSION_FLOOR_EXCEEDED`, I-003-1 /
+          //     ADR-018 §Decision #4 / Spec-003 line 123).
+          // Preserve the typed exception on `cause` so the shared
+          // `errorFormatter` projects it onto `shape.data.aisError` via the
+          // `AisWireException` base; any other throw rethrows unchanged.
           try {
             return await deps.attachService.updateCapabilities(input);
           } catch (err) {
-            if (err instanceof RuntimeNodeCapabilityUpdateConflictException) {
+            if (
+              err instanceof RuntimeNodeCapabilityUpdateConflictException ||
+              err instanceof VersionFloorExceededException
+            ) {
               throw new TRPCError({ code: "CONFLICT", message: err.message, cause: err });
             }
             throw err;

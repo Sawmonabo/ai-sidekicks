@@ -1,24 +1,26 @@
-// Control-plane runtime-node domain exceptions (Plan-003 Phase 3, T3.2 + T3.9).
+// Control-plane runtime-node domain exceptions (Plan-003 Phase 3, T3.2 + T3.4
+// + T3.9).
 //
-// Mirrors the `ResourceLimitExceededException` idiom in `sessions/errors.ts`:
-// a typed `Error` subclass whose stable `readonly code` literal projects
-// directly into the transport-layer envelope. The three classes here are
-// code+message-only — they carry NO `details` payload, matching their
-// registry-only wire codes (no Details/Schema in `@ai-sidekicks/contracts`):
-// no acceptance criterion needs structured detail, and a conflicting-session-id
-// detail would risk cross-session info-leak (see error-contracts.md §Runtime
-// Node / error.ts header on `RUNTIME_NODE_*_CODE`).
+// Every class here extends `AisWireException` (`../ais-wire-exception.ts`) — the
+// cross-domain base the tRPC `errorFormatter` (`sessions/trpc.ts`) matches with
+// a single `instanceof` to project the typed `.code` onto the wire
+// `shape.data.aisError` envelope. The attach/capability-update refusals are
+// code+message-only — they carry NO `details` payload (they inherit the base's
+// `details === undefined`), matching their registry-only wire codes (no
+// Details/Schema in `@ai-sidekicks/contracts`): no acceptance criterion needs
+// structured detail, and a conflicting-session-id detail would risk
+// cross-session info-leak (see error-contracts.md §Runtime Node / error.ts
+// header on `RUNTIME_NODE_*_CODE`).
 //
-// Transport wiring is DEFERRED (out of scope for T3.2): the runtime-node tRPC
-// router + its `errorFormatter` / catch-arm that lift `.code` onto
-// `shape.data.aisError` and map each to HTTP 409 / tRPC `CONFLICT` are owned by
-// T3.4 (error-formatter wiring) and T3.8 (`runtime-node-router.factory.ts`).
-// This task ships only the typed throwables the Phase-3 `AttachService` raises;
-// the formatter matches them by `instanceof` once those tasks land. T3.4 will
-// additionally EXTEND this module with the version-floor throwable (the typed
-// `VERSION_FLOOR_EXCEEDED` write-refusal a below-floor read-only node receives
-// on a write attempt — ADR-018 §Decision #4 / I-003-1); both attach-time
-// refusals below stay distinct from that floor write-refusal.
+// Transport wiring is LIVE as of T3.4: the runtime-node router catch-arms
+// (`runtime-node-router.factory.ts`) map each refusal to HTTP 409 / tRPC
+// `CONFLICT`, and the shared `errorFormatter` projects every `AisWireException`
+// subclass onto `shape.data.aisError` via the base `instanceof` (T3.4 collapsed
+// the per-class formatter branches onto the base and landed the deferred
+// runtime-node projection). T3.4 also ADDS the version-floor throwable below
+// (`VersionFloorExceededException` — the typed `VERSION_FLOOR_EXCEEDED`
+// write-refusal a below-floor read-only node receives on a write attempt,
+// ADR-018 §Decision #4 / I-003-1), distinct from the two attach-time refusals.
 //
 // Throw discipline (identical to MembershipService / SessionDirectoryService):
 // throw from inside the `Querier.transaction(...)` callback OR the service body.
@@ -26,19 +28,26 @@
 // re-raise, so a thrown refusal leaves `runtime_node_attachments` byte-for-byte
 // unchanged (the no-mutation property the T3.2 conflict/revoked tests assert).
 //
-// Refs: Plan-003 §Invariants I-003-2 (cannot drive registering -> online) /
-// I-003-5 (single active attachment) + T3.2 (P9 conflict / P10 revoked) + T3.9
+// Refs: Plan-003 §Invariants I-003-1 (admit below-floor read-only, write-refuse
+// with typed VERSION_FLOOR_EXCEEDED, never eject) / I-003-2 (cannot drive
+// registering -> online) / I-003-5 (single active attachment) + T3.2 (P9
+// conflict / P10 revoked) + T3.4 (version-floor write-refusal) + T3.9
 // (capability-update conflict); docs/architecture/contracts/error-contracts.md
-// §Runtime Node; `@ai-sidekicks/contracts` `RUNTIME_NODE_ATTACH_CONFLICT_CODE`
-// / `RUNTIME_NODE_ATTACH_REVOKED_CODE` /
-// `RUNTIME_NODE_CAPABILITY_UPDATE_CONFLICT_CODE`; `sessions/errors.ts` (the
-// typed-code idiom this mirrors).
+// §Runtime Node + §Version; ADR-018 §Decision #4 (version-floor write-refusal);
+// `@ai-sidekicks/contracts` `RUNTIME_NODE_ATTACH_CONFLICT_CODE` /
+// `RUNTIME_NODE_ATTACH_REVOKED_CODE` /
+// `RUNTIME_NODE_CAPABILITY_UPDATE_CONFLICT_CODE` / `VERSION_FLOOR_EXCEEDED_CODE`;
+// `../ais-wire-exception.ts` (the base) + `sessions/errors.ts` (the
+// session-domain sibling subclass).
 
 import {
   RUNTIME_NODE_ATTACH_CONFLICT_CODE,
   RUNTIME_NODE_ATTACH_REVOKED_CODE,
   RUNTIME_NODE_CAPABILITY_UPDATE_CONFLICT_CODE,
+  VERSION_FLOOR_EXCEEDED_CODE,
 } from "@ai-sidekicks/contracts";
+
+import { AisWireException } from "../ais-wire-exception.js";
 
 /**
  * Thrown by `AttachService.attach` when the runtime node is already actively
@@ -54,7 +63,7 @@ import {
  * never the OTHER session's id — a caller attaching node N learns that N is busy
  * elsewhere, not WHICH session holds it (which it may have no authority to see).
  */
-export class RuntimeNodeAttachConflictException extends Error {
+export class RuntimeNodeAttachConflictException extends AisWireException {
   readonly code: typeof RUNTIME_NODE_ATTACH_CONFLICT_CODE = RUNTIME_NODE_ATTACH_CONFLICT_CODE;
 
   constructor(message: string) {
@@ -74,7 +83,7 @@ export class RuntimeNodeAttachConflictException extends Error {
  * (the session whose attachment was revoked is the one the caller is attaching
  * to) and the `nodeId` — no other session's identity is disclosed.
  */
-export class RuntimeNodeAttachRevokedException extends Error {
+export class RuntimeNodeAttachRevokedException extends AisWireException {
   readonly code: typeof RUNTIME_NODE_ATTACH_REVOKED_CODE = RUNTIME_NODE_ATTACH_REVOKED_CODE;
 
   constructor(message: string) {
@@ -107,16 +116,66 @@ export class RuntimeNodeAttachRevokedException extends Error {
  * the node's current internal `state` (case 2 names the PUBLIC rule "online
  * requires a daemon-side capability declaration", not "the node is registering")
  * and never another session's id. The transport layer maps this to HTTP 409 /
- * tRPC `CONFLICT` — the same typed-refusal family as the attach refusals above;
- * the formatter wiring (`.code` -> 409) is DEFERRED to T3.4 / T3.8 alongside
- * theirs.
+ * tRPC `CONFLICT` — the same typed-refusal family as the attach refusals above,
+ * projected onto `shape.data.aisError` via the shared `AisWireException` base
+ * (the formatter wiring landed in T3.4 alongside theirs).
  */
-export class RuntimeNodeCapabilityUpdateConflictException extends Error {
+export class RuntimeNodeCapabilityUpdateConflictException extends AisWireException {
   readonly code: typeof RUNTIME_NODE_CAPABILITY_UPDATE_CONFLICT_CODE =
     RUNTIME_NODE_CAPABILITY_UPDATE_CONFLICT_CODE;
 
   constructor(message: string) {
     super(message);
     this.name = "RuntimeNodeCapabilityUpdateConflictException";
+  }
+}
+
+/**
+ * Thrown by `AttachService.updateCapabilities` when a below-floor runtime node —
+ * one admitted READ-ONLY at attach because its `clientVersion` is below the
+ * session's `min_client_version` floor (T3.3) — attempts the capability WRITE.
+ * This is the typed `VERSION_FLOOR_EXCEEDED` write-refusal (I-003-1 / ADR-018
+ * §Decision #4 / Spec-003 line 123): the node was admitted (admit-not-eject) and
+ * its reads succeed, but the write is refused. The throw rolls the transaction
+ * back, leaving the attachment row byte-for-byte unchanged, so the node stays
+ * JOINED — never ejected for the floor mismatch.
+ *
+ * Code+message-only (NO `details`) — and this is DELIBERATE, not an oversight
+ * (Option A, advisor-reviewed + user-ratified):
+ *   - Spec-003 line 123 and ADR-018 §Decision #4 mandate only a TYPED
+ *     `VERSION_FLOOR_EXCEEDED` on write — neither requires structured details.
+ *   - The strict `VersionBoundExceededDetails` schema in `@ai-sidekicks/contracts`
+ *     (which the `VersionFloorExceededError` HTTP `ErrorResponse` sibling carries
+ *     — canonically emitted by the control-plane peer-floor-validation surface,
+ *     e.g. Plan-002+ invite-acceptance validating a peer's client floor; see
+ *     `packages/contracts/src/error.ts` `version.floor_exceeded shape`) requires
+ *     a TWO-sided `acceptedRange {min, max}` describing the receiver's accepted
+ *     version range. The runtime-node session floor is ONE-sided
+ *     (`sessions.min_client_version` — no `max` exists anywhere), so that schema
+ *     CANNOT be populated here. Reusing the strict shape would force inventing a
+ *     fictitious `max`. This control-plane write-refusal surface reuses only the
+ *     CODE, emitted via the generic `aisError {code, message}` envelope
+ *     (canonical `ErrorResponse.details` is optional).
+ *   - The `message` carries leak-free upgrade context (nodeId + the daemon's
+ *     declared `clientVersion` + the session floor — all caller-legitimate
+ *     values the attaching daemon already knows; no other session's identity is
+ *     disclosed).
+ *
+ * `version.floor_exceeded` is thus a SURFACE-POLYMORPHIC code (error-contracts.md
+ * §Version): (1) on the JSON-RPC daemon handshake it is a `DaemonHelloAck.reason`
+ * discriminator STRING (error-contracts.md §Negotiation Refusals — no `details`
+ * payload on that surface); (2) on the control-plane peer-floor-validation
+ * surface (Plan-002+ invite-acceptance) it carries the strict two-sided
+ * `VersionBoundExceededDetails` in an HTTP `ErrorResponse`; (3) on THIS
+ * control-plane runtime-node write-refusal surface it is code+message-only. The
+ * transport layer maps this exception to HTTP 409 / tRPC `CONFLICT`
+ * (error-contracts.md §Version row).
+ */
+export class VersionFloorExceededException extends AisWireException {
+  readonly code: typeof VERSION_FLOOR_EXCEEDED_CODE = VERSION_FLOOR_EXCEEDED_CODE;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "VersionFloorExceededException";
   }
 }

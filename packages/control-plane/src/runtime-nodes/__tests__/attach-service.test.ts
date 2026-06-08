@@ -96,6 +96,7 @@ import {
   RUNTIME_NODE_ATTACH_CONFLICT_CODE,
   RUNTIME_NODE_ATTACH_REVOKED_CODE,
   RUNTIME_NODE_CAPABILITY_UPDATE_CONFLICT_CODE,
+  VERSION_FLOOR_EXCEEDED_CODE,
 } from "@ai-sidekicks/contracts";
 
 import { applyMigrations, type Querier } from "../../sessions/migration-runner.js";
@@ -104,6 +105,7 @@ import {
   RuntimeNodeAttachConflictException,
   RuntimeNodeAttachRevokedException,
   RuntimeNodeCapabilityUpdateConflictException,
+  VersionFloorExceededException,
 } from "../errors.js";
 
 // ----------------------------------------------------------------------------
@@ -1570,5 +1572,184 @@ describe("AttachService — updateCapabilities (discovery-snapshot refresh, T3.9
     // ...and NO session_memberships row was created (I-003-3 — the membership
     // domain is disjoint).
     expect(await countMemberships(ctx.querier)).toBe(0);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// updateCapabilities — version-floor write-refusal (P4 / I-003-1, T3.4)
+// ----------------------------------------------------------------------------
+//
+// Spec-003 line 123 (the sole spec authority): a daemon attaching below the
+// session's `min_client_version` is admitted READ-ONLY, surfaces typed
+// `VERSION_FLOOR_EXCEEDED` on any subsequent WRITE attempt, and is NEVER ejected
+// for the floor mismatch (ADR-018 §Decision #4) + Plan-003 §Invariants I-003-1.
+//
+// The full I-003-1 lifecycle: T3.3 admits the below-floor node read-only (the
+// P2/P3 block above proves the `readOnly = true` verdict at attach); T3.4 — here
+// — refuses its capability WRITE with the typed `VersionFloorExceededException`
+// while leaving it JOINED. The load-bearing never-eject property is the
+// byte-unchanged attachment row across the refused write (the throw rolls the
+// transaction back), proving the node is denied-not-removed.
+//
+// The gate re-derives the read-only verdict at WRITE time from the CURRENT
+// session floor + the daemon's stored `client_version` (the same `#deriveReadOnly`
+// comparison attach uses). The boundary cases pin its narrowness: an AT-floor
+// node writes successfully (the gate does not over-fire on the `>=` edge), and a
+// NULL-floor session admits every write (no gate at all).
+
+describe("AttachService — updateCapabilities version-floor write-refusal (P4 / I-003-1, T3.4)", () => {
+  it("refuses a below-floor (read-only) node's capability write with typed VERSION_FLOOR_EXCEEDED and leaves it JOINED (Spec-003 line 123 / I-003-1)", async () => {
+    // Full lifecycle through the real admission path: a floored session
+    // (floor 2.0) admits a below-floor daemon (client 1.0) READ-ONLY at attach
+    // (T3.3), then the daemon's capability WRITE is refused (T3.4).
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID, "2.0");
+
+    // (T3.3) Attach admits read-only — the precondition this write-refusal
+    // builds on. Asserting `readOnly === true` here ties the two halves of
+    // I-003-1 together in one test (admit read-only -> refuse the write).
+    const attachResponse = await ctx.service.attach(
+      buildAttachRequest({ clientVersion: "1.0" as EventEnvelopeVersion }),
+    );
+    expect(attachResponse.readOnly).toBe(true);
+    expect(attachResponse.state).toBe("registering");
+
+    // Snapshot the attachment row BEFORE the write so the never-eject /
+    // byte-unchanged property is provable across the refused write.
+    const before = await readAttachmentRowWithTimestamp(ctx.querier, NODE_ID, SESSION_ID);
+    expect(before).toBeDefined();
+
+    // (T3.4) The capability WRITE is refused with the typed exception. Capture
+    // the rejection once, then assert both the class and the typed `code`
+    // literal (the transport layer lifts `code` onto the wire envelope).
+    const error = await ctx.service
+      .updateCapabilities(buildCapabilityUpdateRequest())
+      .catch((thrown: unknown) => thrown);
+    expect(error).toBeInstanceOf(VersionFloorExceededException);
+    expect(error).toMatchObject({ code: VERSION_FLOOR_EXCEEDED_CODE });
+
+    // No-info-leak: the message carries the caller-legitimate upgrade context
+    // (the node id + the daemon's own declared client version + the session
+    // floor — all values the attaching daemon already knows), never another
+    // session's identity.
+    expect((error as Error).message).toContain(String(NODE_ID));
+    expect((error as Error).message).toContain("1.0");
+    expect((error as Error).message).toContain("2.0");
+
+    // NEVER EJECTED (the load-bearing I-003-1 property): the throw rolled the
+    // transaction back, so the attachment row is byte-for-byte unchanged
+    // (capabilities NOT refreshed — still the attach-time CAPABILITIES, state
+    // still registering, attached_at untouched) and the node stays joined.
+    const after = await readAttachmentRowWithTimestamp(ctx.querier, NODE_ID, SESSION_ID);
+    expect(after).toEqual(before);
+    expect(after?.state).toBe("registering");
+    const afterCapabilities: unknown = JSON.parse(after?.capabilities ?? "null");
+    expect(afterCapabilities).toEqual(CAPABILITIES);
+    // Still exactly one attachment row — the node was denied, not removed.
+    expect(await countAttachments(ctx.querier)).toBe(1);
+  });
+
+  it("throws VERSION_FLOOR_EXCEEDED (not the I-003-2 conflict) when a below-floor registering node requests state:online — pins floor-gate precedes the I-003-2 guard", async () => {
+    // Gate-ordering tripwire. A below-floor (client 1.0 / floor 2.0) `registering`
+    // node whose capability-update carries `healthChanges: { state: "online" }`
+    // trips BOTH refusals: the floor-gate (step 3 of updateCapabilities) AND the
+    // I-003-2 registering->online guard (step 4). ONLY the gate ordering decides
+    // which type — and therefore which wire `code` — is thrown. The floor-gate
+    // runs first, so the below-floor verdict MUST win: a stale daemon learns it
+    // is below the floor (VERSION_FLOOR_EXCEEDED) rather than the narrower "you
+    // cannot self-promote to online" conflict. A future reorder that moved the
+    // I-003-2 guard ahead of the floor-gate would silently swap the surfaced
+    // code; this test is what catches that.
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID, "2.0");
+
+    // Attach lands the below-floor node read-only in `registering` (the same
+    // admission path the first test uses); confirm the precondition so the
+    // ordering assertion below is unambiguous about which state the node is in.
+    const attachResponse = await ctx.service.attach(
+      buildAttachRequest({ clientVersion: "1.0" as EventEnvelopeVersion }),
+    );
+    expect(attachResponse.readOnly).toBe(true);
+    expect(attachResponse.state).toBe("registering");
+
+    const error = await ctx.service
+      .updateCapabilities(buildCapabilityUpdateRequest({ healthChanges: { state: "online" } }))
+      .catch((thrown: unknown) => thrown);
+
+    // The floor-gate wins the race: VERSION_FLOOR_EXCEEDED, NOT the I-003-2
+    // capability-update conflict. Asserting the conflict type is explicitly
+    // absent makes the ordering — not merely "some refusal" — the thing pinned.
+    expect(error).toBeInstanceOf(VersionFloorExceededException);
+    expect(error).not.toBeInstanceOf(RuntimeNodeCapabilityUpdateConflictException);
+    expect(error).toMatchObject({ code: VERSION_FLOOR_EXCEEDED_CODE });
+  });
+
+  it("ALLOWS an AT-floor node's capability write (the gate does not over-fire on the >= edge)", async () => {
+    // Boundary: client_version === floor is AT-or-above, so read-write — the
+    // write must succeed. Pins the gate's narrowness against an off-by-one that
+    // would wrongly refuse the at-floor node (parallels the P2 attach edge).
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID, "2.0");
+    await seedAttachment(ctx.querier, {
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      nodeId: NODE_ID,
+      state: "online",
+      clientVersion: "2.0",
+    });
+
+    const response = await ctx.service.updateCapabilities(buildCapabilityUpdateRequest());
+
+    // The write landed: the response projects the node + (unchanged) liveness
+    // state, and the capabilities snapshot was refreshed.
+    expect(String(response.nodeId)).toBe(String(NODE_ID));
+    expect(response.state).toBe("online");
+    const after = await readAttachmentRowWithTimestamp(ctx.querier, NODE_ID, SESSION_ID);
+    const storedCapabilities: unknown = JSON.parse(after?.capabilities ?? "null");
+    expect(storedCapabilities).toEqual(UPDATED_CAPABILITIES);
+  });
+
+  it("ALLOWS an above-floor node's capability write (read-write admission, no gate)", async () => {
+    // A daemon comfortably above the floor (client 2.5 > floor 2.0) writes
+    // freely — the read-write complement to the AT-floor edge above.
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID, "2.0");
+    await seedAttachment(ctx.querier, {
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      nodeId: NODE_ID,
+      state: "online",
+      clientVersion: "2.5",
+    });
+
+    const response = await ctx.service.updateCapabilities(buildCapabilityUpdateRequest());
+
+    expect(response.state).toBe("online");
+    const after = await readAttachmentRowWithTimestamp(ctx.querier, NODE_ID, SESSION_ID);
+    const storedCapabilities: unknown = JSON.parse(after?.capabilities ?? "null");
+    expect(storedCapabilities).toEqual(UPDATED_CAPABILITIES);
+  });
+
+  it("ALLOWS a capability write when the session floor is NULL (no version gate at all)", async () => {
+    // A NULL-floor session ("no floor") has no version gate — every daemon
+    // version, however old, writes freely. Pins that the gate's NULL-floor
+    // branch (`#deriveReadOnly` returns false) does not refuse the write. The
+    // seeded daemon's `client_version` is the helper default "1.0".
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID);
+    await seedAttachment(ctx.querier, {
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      nodeId: NODE_ID,
+      state: "online",
+      clientVersion: "1.0",
+    });
+
+    const response = await ctx.service.updateCapabilities(buildCapabilityUpdateRequest());
+
+    expect(response.state).toBe("online");
+    const after = await readAttachmentRowWithTimestamp(ctx.querier, NODE_ID, SESSION_ID);
+    const storedCapabilities: unknown = JSON.parse(after?.capabilities ?? "null");
+    expect(storedCapabilities).toEqual(UPDATED_CAPABILITIES);
   });
 });
