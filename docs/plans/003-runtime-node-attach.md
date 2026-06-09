@@ -664,6 +664,65 @@ shipped:
         "Spec-006 lines 374, 375, 377, 379, 380",
         "api-payload-contracts.md §Plan-006 capability payload typing",
       ]
+  - phase: 3
+    task: [T3.0, T3.1, T3.2, T3.3, T3.4, T3.5, T3.6, T3.7, T3.8, T3.9]
+    pr: 145
+    sha: aee347e
+    merged_at: 2026-06-09
+    files:
+      - docs/architecture/contracts/api-payload-contracts.md
+      - docs/architecture/contracts/error-contracts.md
+      - docs/plans/003-runtime-node-attach.md
+      - docs/specs/003-runtime-node-attach.md
+      - packages/client-sdk/test/sessionClient.integration.test.ts
+      - packages/client-sdk/test/transport/sse-roundtrip.test.ts
+      - packages/contracts/src/__tests__/error.test.ts
+      - packages/contracts/src/__tests__/runtime-node.test.ts
+      - packages/contracts/src/__tests__/session-event.test.ts
+      - packages/contracts/src/error.ts
+      - packages/contracts/src/event.ts
+      - packages/contracts/src/runtime-node.ts
+      - packages/control-plane/src/ais-wire-exception.ts
+      - packages/control-plane/src/index.ts
+      - packages/control-plane/src/migrations/0003-runtime-nodes.ts
+      - packages/control-plane/src/migrations/__tests__/0002-session-invites.test.ts
+      - packages/control-plane/src/migrations/__tests__/0003-runtime-nodes.test.ts
+      - packages/control-plane/src/migrations/__tests__/migration-shape.test.ts
+      - packages/control-plane/src/migrations/__tests__/runtime-node-upstream-anchors.test.ts
+      - packages/control-plane/src/presence/__tests__/presence-register-service.test.ts
+      - packages/control-plane/src/runtime-nodes/__tests__/attach-service.test.ts
+      - packages/control-plane/src/runtime-nodes/__tests__/heartbeat-service.test.ts
+      - packages/control-plane/src/runtime-nodes/__tests__/runtime-node-router.test.ts
+      - packages/control-plane/src/runtime-nodes/attach-service.ts
+      - packages/control-plane/src/runtime-nodes/errors.ts
+      - packages/control-plane/src/runtime-nodes/heartbeat-service.ts
+      - packages/control-plane/src/runtime-nodes/runtime-node-router.factory.ts
+      - packages/control-plane/src/server/__tests__/_helpers.ts
+      - packages/control-plane/src/server/__tests__/host-runtime-node.test.ts
+      - packages/control-plane/src/server/host.ts
+      - packages/control-plane/src/sessions/__tests__/migration-runner.test.ts
+      - packages/control-plane/src/sessions/__tests__/session-directory-service.test.ts
+      - packages/control-plane/src/sessions/errors.ts
+      - packages/control-plane/src/sessions/migration-runner.ts
+      - packages/control-plane/src/sessions/trpc.ts
+    verifies_invariant: [I-003-1, I-003-2, I-003-3, I-003-5]
+    spec_coverage:
+      [
+        "Spec-003 line 47",
+        "Spec-003 line 49",
+        "Spec-003 line 51",
+        "Spec-003 line 52",
+        "Spec-003 line 53",
+        "Spec-003 line 57",
+        "Spec-003 line 59",
+        "Spec-003 line 60",
+        "Spec-003 line 61",
+        "Spec-003 line 65",
+        "Spec-003 line 76",
+        "Spec-003 line 91",
+        "Spec-003 line 122",
+        "Spec-003 line 123",
+      ]
 ```
 
 ### Notes
