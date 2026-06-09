@@ -57,6 +57,9 @@ import {
   RuntimeNodeOfflinePayloadSchema,
   RuntimeNodeOnlinePayloadSchema,
   RuntimeNodeRegisteredPayloadSchema,
+  RuntimeNodeRosterEntrySchema,
+  RuntimeNodeRosterRequestSchema,
+  RuntimeNodeRosterResponseSchema,
 } from "../runtime-node.js";
 
 // Fixtures must be VALID per the imported upstream schemas:
@@ -457,7 +460,7 @@ describe("RuntimeNodeCapabilityUpdateResponseSchema (C2: nodeId + state + update
 // Plan-003 PR #135 — Test C6: `RuntimeNodeHeartbeat` request + null response.
 // --------------------------------------------------------------------------
 //
-// Backstops the heartbeat wire shape (api-payload-contracts.md:501-506,537):
+// Backstops the heartbeat wire shape (api-payload-contracts.md:501-506,559):
 // a `nodeId` + a 2-value `healthState`, and a `null` response payload (NOT a
 // 204 empty body — the resolver returns `null`, serialized as a 200 success
 // envelope). The discriminating test is the 2-value health-enum boundary: a
@@ -540,7 +543,7 @@ describe("RuntimeNodeHeartbeatResponseSchema (C6: null no-content payload)", () 
 // Plan-003 PR #135 — Test C3: `RuntimeNodeDetach` request + null response.
 // --------------------------------------------------------------------------
 //
-// Backstops the detach wire shape (api-payload-contracts.md:520-525,539): a
+// Backstops the detach wire shape (api-payload-contracts.md:520-525,561): a
 // `nodeId` + an OPTIONAL free-form `reason`, and a `null` response payload. The
 // `reason` field composes `wireFreeFormString` (session.ts:118), so it inherits
 // the trust-boundary guards — these mirror the four `InviteRevoke.reason` /
@@ -700,7 +703,7 @@ describe("RUNTIME_NODE_EVENT_NAMES (C4: 7-name runtime_node.* taxonomy)", () => 
 // This block is a Plan-003 CONSUMER-SIDE conformance anchor, NOT a re-test of
 // Plan-001's error-schema matrix. I-003-1 ("Attach is admit-not-eject for
 // below-floor daemons") requires that a below-floor write returns a *typed*
-// `VERSION_FLOOR_EXCEEDED` (Spec-003:53, Spec-003 AC4:123; ADR-018 §Decision
+// `VERSION_FLOOR_EXCEEDED` (Spec-003:53, Spec-003 AC4:130; ADR-018 §Decision
 // #4 / §Decision #10). The concrete realization of that typed error is the
 // Plan-001-owned `VersionFloorExceededError` / `VersionFloorExceededErrorSchema`
 // / `VERSION_FLOOR_EXCEEDED_CODE` in `error.ts`. The two assertions here pin
@@ -716,9 +719,9 @@ describe("RUNTIME_NODE_EVENT_NAMES (C4: 7-name runtime_node.* taxonomy)", () => 
 // PHASE-3 TRIPWIRE: only the typed-CONTRACT conformance proven here ships in
 // Plan-003 Phase 1. The RUNTIME admit-not-eject behavior — the attach service
 // actually returning this error on a below-floor write and then admitting the
-// daemon read-only (Spec-003 AC4:123) — lands at Plan-003 Phase 3 (P3/P4).
+// daemon read-only (Spec-003 AC4:130) — lands at Plan-003 Phase 3 (P3/P4).
 //
-// Cites: Spec-003:53, Spec-003 AC4:123, I-003-1, ADR-018 §Decision #4 /
+// Cites: Spec-003:53, Spec-003 AC4:130, I-003-1, ADR-018 §Decision #4 /
 // §Decision #10, docs/architecture/contracts/error-contracts.md:266.
 describe("VersionFloorExceededErrorSchema (C5: VERSION_FLOOR_EXCEEDED typed-contract conformance — Plan-003 consumer anchor)", () => {
   it("pins the wire code literal to the value registered in error-contracts.md:266", () => {
@@ -995,7 +998,7 @@ describe("RuntimeNodeCapabilityDeclaredPayloadSchema (C7: reduced base + {capabi
 
   it("REJECTS a newState key (reduced base omits the NodeState-transition fields)", () => {
     // Discriminating reduced-base proof: capability events are NOT NodeState
-    // transitions (the canonical payload, api-payload-contracts.md:729, carries no
+    // transitions (the canonical payload, api-payload-contracts.md:752, carries no
     // base NodeState fields). A `newState` key is therefore an unknown key under
     // `.strict()` — its presence rejects.
     const broken = { ...buildValidCapabilityDeclaredPayload(), newState: "online" };
@@ -1137,5 +1140,229 @@ describe("RuntimeNodeCapabilityUpdatedPayloadSchema (C7: reduced base + {capabil
         actor: 123,
       }).success,
     ).toBe(false);
+  });
+});
+
+// --------------------------------------------------------------------------
+// Plan-003 Phase 5 — T5.0b: `RuntimeNodeRoster` request / entry / response.
+// --------------------------------------------------------------------------
+//
+// Backstops the roster wire shape (api-payload-contracts.md:527-547; registry
+// row :562) pinned in Spec-003 §Interfaces And Contracts (2026-06-09
+// amendment, lines 90-94): request `{ sessionId }`, the nine-field both-axes
+// entry, and response `{ nodes: RuntimeNodeRosterEntry[] }`. Spec coverage:
+// Spec-003 line 72 (both health axes carried verbatim — no collapsed scalar),
+// line 128 (AC2 — `degraded`/`offline` representable and distinguishable on
+// the wire), line 129 (AC3 — multiple nodes coexist in one roster), line 49
+// (multiple runtime nodes per session — `nodes[]`). The discriminating enum
+// coverage runs BOTH directions: `healthState` ACCEPTING `offline` proves it
+// is not mis-wired to the 2-value `RuntimeNodeHealthStateSchema` (which
+// excludes `offline`), and `healthState` REJECTING `registering`/`revoked`
+// proves it is not mis-wired to the 5-value `NodeStateSchema`.
+const buildValidRosterRequest = () => ({
+  sessionId: SESSION_ID,
+});
+
+const buildValidRosterEntry = () => ({
+  nodeId: NODE_ID,
+  participantId: PARTICIPANT_ID,
+  state: "online" as const,
+  healthState: "online" as const,
+  lastHeartbeatAt: "2026-06-09T12:00:00.000Z",
+  readOnly: false,
+  capabilities: { ptyHost: true, maxConcurrentRuns: 4 },
+  clientVersion: CLIENT_VERSION,
+  attachedAt: "2026-06-09T11:55:00.000Z",
+});
+
+describe("RuntimeNodeRosterRequestSchema (T5.0b: sessionId-only query input)", () => {
+  it("accepts a request carrying a sessionId", () => {
+    expect(RuntimeNodeRosterRequestSchema.safeParse(buildValidRosterRequest()).success).toBe(true);
+  });
+
+  it("rejects a request missing sessionId", () => {
+    expect(RuntimeNodeRosterRequestSchema.safeParse({}).success).toBe(false);
+  });
+
+  it("rejects a non-UUID sessionId", () => {
+    expect(RuntimeNodeRosterRequestSchema.safeParse({ sessionId: "not-a-uuid" }).success).toBe(
+      false,
+    );
+  });
+
+  it("rejects an unknown extra key (.strict drift guard)", () => {
+    const broken = { ...buildValidRosterRequest(), bogusField: "nope" };
+    expect(RuntimeNodeRosterRequestSchema.safeParse(broken).success).toBe(false);
+  });
+});
+
+describe("RuntimeNodeRosterEntrySchema (T5.0b: nine-field both-axes entry)", () => {
+  it("parses a fully-valid entry and round-trips both health axes verbatim", () => {
+    const entry = buildValidRosterEntry();
+    const result = RuntimeNodeRosterEntrySchema.safeParse(entry);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.state).toBe("online");
+      expect(result.data.healthState).toBe("online");
+      expect(result.data.lastHeartbeatAt).toBe(entry.lastHeartbeatAt);
+      expect(result.data.readOnly).toBe(false);
+      expect(result.data.capabilities).toEqual(entry.capabilities);
+    }
+  });
+
+  it("parses the pre-first-heartbeat row (healthState: null + lastHeartbeatAt: null)", () => {
+    // LEFT-JOIN nullability: no `runtime_node_presence` row exists until the
+    // node's first heartbeat lands, so BOTH liveness-axis fields are null.
+    const preFirstHeartbeat = {
+      ...buildValidRosterEntry(),
+      healthState: null,
+      lastHeartbeatAt: null,
+    };
+    expect(RuntimeNodeRosterEntrySchema.safeParse(preFirstHeartbeat).success).toBe(true);
+  });
+
+  it.each(["registering", "online", "degraded", "offline", "revoked"])(
+    "accepts the slot-axis state value %s (faithful projection — AC2 visibility)",
+    (state) => {
+      const candidate = { ...buildValidRosterEntry(), state };
+      expect(RuntimeNodeRosterEntrySchema.safeParse(candidate).success).toBe(true);
+    },
+  );
+
+  it.each(["online", "degraded", "offline"])(
+    "accepts the liveness-axis healthState value %s (3-value sweep-owned presence enum)",
+    (healthState) => {
+      // Accepting `offline` is the discriminator against a mis-wire to the
+      // 2-value RuntimeNodeHealthStateSchema (the wire self-report excludes it).
+      const candidate = { ...buildValidRosterEntry(), healthState };
+      expect(RuntimeNodeRosterEntrySchema.safeParse(candidate).success).toBe(true);
+    },
+  );
+
+  it("accepts an entry whose axes disagree (state degraded + healthState online)", () => {
+    // Spec-003 line 72 never-mask stance: the schema imposes NO cross-field
+    // constraint between the slot and liveness axes — reconciliation is the
+    // client's render-time concern, never the wire's.
+    const disagreeingAxes = {
+      ...buildValidRosterEntry(),
+      state: "degraded" as const,
+      healthState: "online" as const,
+    };
+    expect(RuntimeNodeRosterEntrySchema.safeParse(disagreeingAxes).success).toBe(true);
+  });
+
+  it("accepts an online AND readOnly entry (permission axis orthogonal to slot axis)", () => {
+    // Same I-003-1 orthogonality as the attach response: a below-floor daemon
+    // is ADMITTED (state=online) but read-only — the roster carries the
+    // per-row read-time-derived verdict.
+    const onlineReadOnly = { ...buildValidRosterEntry(), readOnly: true };
+    expect(RuntimeNodeRosterEntrySchema.safeParse(onlineReadOnly).success).toBe(true);
+  });
+
+  it("rejects an out-of-enum state", () => {
+    const broken = { ...buildValidRosterEntry(), state: "bogus" };
+    expect(RuntimeNodeRosterEntrySchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("rejects NodeState-only values for healthState (mis-wire guard against the 5-value enum)", () => {
+    // `registering`/`revoked` are valid slot-axis NodeState values but are NOT
+    // presence-axis values — if `healthState` were mis-wired to the 5-value
+    // `NodeStateSchema` these would be accepted.
+    for (const slotOnlyValue of ["registering", "revoked"]) {
+      const broken = { ...buildValidRosterEntry(), healthState: slotOnlyValue };
+      expect(RuntimeNodeRosterEntrySchema.safeParse(broken).success).toBe(false);
+    }
+  });
+
+  it("rejects an out-of-enum healthState", () => {
+    const broken = { ...buildValidRosterEntry(), healthState: "banana" };
+    expect(RuntimeNodeRosterEntrySchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("rejects an entry OMITTING healthState or lastHeartbeatAt (nullable, NOT optional)", () => {
+    // `.nullable()` admits an explicit null but the KEY must be present — the
+    // wire always carries both liveness-axis fields (null pre-first-heartbeat).
+    const { healthState: _omittedHealth, ...withoutHealthState } = buildValidRosterEntry();
+    expect(RuntimeNodeRosterEntrySchema.safeParse(withoutHealthState).success).toBe(false);
+    const { lastHeartbeatAt: _omittedBeat, ...withoutLastHeartbeatAt } = buildValidRosterEntry();
+    expect(RuntimeNodeRosterEntrySchema.safeParse(withoutLastHeartbeatAt).success).toBe(false);
+  });
+
+  it("rejects a non-semver clientVersion (branded MAJOR.MINOR round-trip of the stored TEXT)", () => {
+    // The entry round-trips the attach-validated stored `client_version` — a
+    // corrupted stored value must fail closed at the read boundary.
+    const broken = { ...buildValidRosterEntry(), clientVersion: "latest" };
+    expect(RuntimeNodeRosterEntrySchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("rejects a non-UUID participantId", () => {
+    const broken = { ...buildValidRosterEntry(), participantId: "not-a-uuid" };
+    expect(RuntimeNodeRosterEntrySchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("rejects a non-boolean readOnly", () => {
+    const broken = { ...buildValidRosterEntry(), readOnly: "true" };
+    expect(RuntimeNodeRosterEntrySchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("rejects a malformed lastHeartbeatAt / attachedAt (z.iso.datetime is load-bearing)", () => {
+    expect(
+      RuntimeNodeRosterEntrySchema.safeParse({
+        ...buildValidRosterEntry(),
+        lastHeartbeatAt: "not-a-date",
+      }).success,
+    ).toBe(false);
+    expect(
+      RuntimeNodeRosterEntrySchema.safeParse({
+        ...buildValidRosterEntry(),
+        attachedAt: "not-a-date",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects an unknown extra key (.strict drift guard)", () => {
+    const broken = { ...buildValidRosterEntry(), bogusField: "nope" };
+    expect(RuntimeNodeRosterEntrySchema.safeParse(broken).success).toBe(false);
+  });
+});
+
+describe("RuntimeNodeRosterResponseSchema (T5.0b: { nodes: RuntimeNodeRosterEntry[] })", () => {
+  it("accepts a multi-entry roster (AC3 — multiple nodes coexist in one session)", () => {
+    const roster = {
+      nodes: [
+        buildValidRosterEntry(),
+        {
+          ...buildValidRosterEntry(),
+          nodeId: "node-daemon-def456",
+          state: "offline" as const,
+          healthState: "offline" as const,
+        },
+      ],
+    };
+    expect(RuntimeNodeRosterResponseSchema.safeParse(roster).success).toBe(true);
+  });
+
+  it("accepts an empty roster (a session with no attachments yet)", () => {
+    expect(RuntimeNodeRosterResponseSchema.safeParse({ nodes: [] }).success).toBe(true);
+  });
+
+  it("rejects a roster containing an invalid entry (element schema is wired)", () => {
+    const broken = { nodes: [{ ...buildValidRosterEntry(), state: "bogus" }] };
+    expect(RuntimeNodeRosterResponseSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("rejects a non-array nodes value", () => {
+    expect(
+      RuntimeNodeRosterResponseSchema.safeParse({ nodes: buildValidRosterEntry() }).success,
+    ).toBe(false);
+  });
+
+  it("rejects a response missing nodes", () => {
+    expect(RuntimeNodeRosterResponseSchema.safeParse({}).success).toBe(false);
+  });
+
+  it("rejects an unknown extra key (.strict drift guard)", () => {
+    const broken = { nodes: [], bogusField: "nope" };
+    expect(RuntimeNodeRosterResponseSchema.safeParse(broken).success).toBe(false);
   });
 });
