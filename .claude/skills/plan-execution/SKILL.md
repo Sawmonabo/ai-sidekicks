@@ -184,12 +184,12 @@ status: pending-analysis
 <!-- POPULATED AS THE PR PROGRESSES — small-task collapses, residual cap-fire findings (exception, not norm), etc. -->
 
 Refs: ADR-NNN[, BL-NNN], Plan-NNN
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+Co-Authored-By: <running model identity> <noreply@anthropic.com>
 EOF
 )"
 ````
 
-`<type>` is the [Conventional Branch](https://conventional-branch.github.io/) type matching the PR's primary intent (`feat`, `fix`, `chore`, `docs`, `test`). The PR title MUST be a valid Conventional Commit subject — it becomes the squash-commit subject on `develop`.
+`<type>` is the [Conventional Branch](https://conventional-branch.github.io/) type matching the PR's primary intent (`feat`, `fix`, `chore`, `docs`, `test`). The PR title MUST be a valid Conventional Commit subject — it becomes the squash-commit subject on `develop`. The `<running model identity>` placeholder resolves to the harness-provided identity of the running model — the same trailer the harness specifies for git commit messages (`Claude Fable 5` as of 2026-06).
 
 ### Phase A — Plan analysis (decompose to task DAG)
 

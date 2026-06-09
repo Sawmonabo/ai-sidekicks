@@ -59,6 +59,23 @@ When claims depend on recent data (post-knowledge-cutoff or fast-moving librarie
 
 When dispatching parallel research subagents, ensure file targets are disjoint to avoid Read-modify-write race conditions on shared files (e.g., `docs/backlog.md`). When multiple tasks must touch the same file, dispatch serially.
 
+## Model Policy
+
+Model selection resolves through a cascade; each layer stays silent unless it expresses a deliberate deviation:
+
+1. **Explicit override** — a `model:` parameter on a single dispatch, or a user directive for the session. Reserved for deliberate deviations.
+2. **Agent definition** — `.claude/agents/*.md` declare `model: inherit`.
+3. **Session model** — whatever the user selected for the running session.
+4. **Harness default** — the vendor-curated frontier model, which updates automatically as new models ship.
+
+In practice:
+
+- **Omit `model` on dispatch.** Subagents inherit the session model for every role (research, audit, implementation, review). Pass `model:` only to deliberately deviate, and record why.
+- **No committed file may require a model by name.** Where calibrated work needs a quality floor, express it as a tier class ("refuse if you identify as a small/fast-tier model"), never as a name — a name freezes the then-current frontier and rots at the next model ship.
+- **Attribution strings** (`Co-Authored-By:` trailers) derive from the running model's harness-provided identity. Dated examples are fine; hardcoded requirements are not.
+
+Historical records (ADR decision logs, plan author rows, archived session narratives) keep the model names they were written with — they record provenance, not policy.
+
 ## Doc-First Discipline
 
 Code execution is gated on the governing doc surface (specs, ADRs, plans, backlog items) being complete. Before a code-execution plan ships its first PR, every cross-referenced spec, ADR, and plan must have completed the status promotion its type's status lifecycle requires, and every blocking backlog item must be `completed` (or explicitly deferred with a named gate).

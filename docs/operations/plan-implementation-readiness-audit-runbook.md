@@ -29,7 +29,7 @@ Do NOT invoke for: cosmetic doc edits, ADR amendments that don't change plan-int
 
 - `docs/architecture/cross-plan-dependencies.md` is current (last commit reflects the latest `cross-plan-deps`-relevant ADR).
 - The plans in scope are all at `approved` status (unless this audit run is the gate for a `review → approved` promotion).
-- The audit calibration band (B1–B6) was established against Opus 4.7 during the Tier 1 pilot. Recent-data research subagents follow the project's research-standards convention (Opus 4.7 only, per `AGENTS.md`). The main-agent dep trace and per-Phase audit subagents MAY substitute an equivalently-capable model when Opus 4.7 is unavailable; record the substitution and any calibration drift in §Lessons Learned for that tier.
+- The audit calibration band (B1–B6) was established against Opus 4.7 during the Tier 1 pilot. Audit, dep-trace, and recent-data research subagents run the session's frontier-tier model, inherited at dispatch per `AGENTS.md` §Model Policy ("most capable model available"). On a model-family change (e.g. Opus → Fable), record any calibration drift against B1–B6 in §Lessons Learned for that tier.
 - Pre-audit naming sweep (`PR #N` → `Phase N`) has been committed; otherwise findings cite stale GitHub-auto-link-colliding shapes.
 - `.agents/tmp/research/plan-readiness-audit/` working directory exists and is gitignored (it is, via the project's root `.gitignore`).
 
@@ -46,7 +46,7 @@ For each Plan in Tier:
 
   2. Main agent enumerates Phase boundaries from the plan body.
 
-  3. Main agent dispatches N parallel Opus 4.7 subagents
+  3. Main agent dispatches N parallel frontier-model subagents
      (one per Phase) with disjoint output paths under
      .agents/tmp/research/plan-readiness-audit/plan-NNN/.
 
@@ -290,7 +290,9 @@ ROLE: You are a per-Phase completeness auditor for an AI Sidekicks V1
 implementation plan. You audit ONE Phase of ONE plan, in isolation, and
 produce a findings file.
 
-MODEL: You must run as Opus 4.7. Refuse if other model.
+MODEL: You run as the session's frontier-tier model, inherited at dispatch
+per AGENTS.md §Model Policy. Refuse only if you identify as a small/fast-tier
+(Haiku- or Sonnet-class) model.
 
 SCOPE: Plan-NNN, Phase N (single Phase only).
 
@@ -423,7 +425,9 @@ plan. You correct or backfill `**Spec coverage:**` and `**Verifies invariant:**`
 annotations on existing `#### Tasks` rows. You DO NOT author new Tasks; you
 DO NOT modify Files / Goal / Implementation Notes / Precondition prose.
 
-MODEL: You must run as Opus 4.7. Refuse if other model.
+MODEL: You run as the session's frontier-tier model, inherited at dispatch
+per AGENTS.md §Model Policy. Refuse only if you identify as a small/fast-tier
+(Haiku- or Sonnet-class) model.
 
 SCOPE: Plan-NNN, Tasks in scope (the orchestrator names specific Task IDs).
 
