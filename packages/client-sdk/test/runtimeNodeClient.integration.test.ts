@@ -1,12 +1,20 @@
 // Plan-003 Phase 4 T4.2: I1 integration test for `runtimeNodeClient`, plus the
-// SHARED PGlite-backed harness that T4.3 (degraded-via-heartbeat) and T4.4
-// (version-floor write-refusal) extend.
+// SHARED PGlite-backed harness that T4.3 (I2, in this file — capability-health
+// degraded distinguishability) and T4.4 (version-floor write-refusal) extend.
 //
 // Spec coverage — the named acceptance criteria from Spec-003:
 //   * I1 — live attach to an already-active session leaves session identity
 //          unchanged (Spec-003 line 120 AC1: "A participant can attach a local
 //          runtime node to an already active session"; Spec-003 line 50: attach
 //          "must not require session recreation").
+//   * I2 — a capability-degraded node stays visible and distinguishable from a
+//          healthy online node through the client-observable `NodeState`
+//          (Spec-003 line 121 AC2; line 76: capability-validation failure
+//          leaves the node `degraded`; line 72: the two health axes are
+//          independent — the `capabilityupdate` response `state` is the
+//          server-derived full `NodeState`). See the I2 section below for why
+//          `degraded` is driven on the capability-health axis, per the Plan-003
+//          T4.3 amendment (2026-06-09, PR #147).
 //
 // Architecture (locked — see Plan-003 Phase 4 dispatch): this harness drives the
 // REAL `AttachService` / `HeartbeatService` over an in-memory PGlite database —
@@ -72,6 +80,16 @@ const SESSION_ID: SessionId = "01970000-0000-7000-8000-00000000d001" as SessionI
 const PARTICIPANT_ID: ParticipantId = "01970000-0000-7000-8000-00000000d101" as ParticipantId;
 const NODE_ID: NodeId = "node-alpha-01" as NodeId;
 const CLIENT_VERSION: EventEnvelopeVersion = "1.4" as EventEnvelopeVersion;
+
+// I2 (T4.3) node ids — TWO distinct nodes in ONE session (the attach upsert's
+// conflict key is the total `(node_id, session_id)`, so distinct node ids
+// coexist as two attachment rows — the Spec-003 line 49 multi-node shape).
+// Named for the scenario role each plays: the capability-degraded subject vs.
+// the healthy-online contrast node. Distinct from I1's `node-alpha-01` purely
+// for failure-output legibility (each test gets a fresh PGlite, so this is
+// readability, not isolation).
+const DEGRADED_NODE_ID: NodeId = "node-bravo-degraded-01" as NodeId;
+const HEALTHY_NODE_ID: NodeId = "node-charlie-online-01" as NodeId;
 
 const CAPABILITIES: Record<string, unknown> = {
   "provider-driver": { kind: "claude", streaming: true },
@@ -215,6 +233,37 @@ async function countAttachments(querier: Querier): Promise<number> {
   return probe.rows[0]?.n ?? -1;
 }
 
+// Project EVERY attachment row to `node_id -> state` (the SLOT axis,
+// `runtime_node_attachments.state`). I2's DB anti-vacuity cross-check reads the
+// WHOLE table so a `toEqual` against an exact map proves BOTH the per-node
+// states AND that no extra row materialized — sharper than a per-row spot check.
+async function readAttachmentStatesByNode(querier: Querier): Promise<Record<string, string>> {
+  const probe = await querier.query<{ node_id: string; state: string }>(
+    "SELECT node_id, state FROM runtime_node_attachments",
+  );
+  return Object.fromEntries(probe.rows.map((row) => [row.node_id, row.state]));
+}
+
+// Read a node's `runtime_node_presence` row — the LIVENESS axis the heartbeat
+// service owns, DISTINCT from the attachment-slot axis above (Spec-003 line 72:
+// independent health axes with distinct owners). Persistence-layer observation
+// is the CORRECT seam for this axis in Phase 4: no client surface reads it —
+// the heartbeat wire response is the no-content `null`, and there is no
+// roster-read SDK surface (the reconciled presence × slot roster is downstream
+// of Plan-003). `last_heartbeat_at` is typed `unknown` deliberately: the I2
+// assertion is non-nullness of the server-clock write, not a driver-specific
+// hydration shape (PGlite hydrates TIMESTAMPTZ as a JS Date; `pg` may differ).
+async function readPresenceRow(
+  querier: Querier,
+  nodeId: NodeId,
+): Promise<{ health_state: string; last_heartbeat_at: unknown } | undefined> {
+  const probe = await querier.query<{ health_state: string; last_heartbeat_at: unknown }>(
+    "SELECT health_state, last_heartbeat_at FROM runtime_node_presence WHERE node_id = $1",
+    [nodeId],
+  );
+  return probe.rows[0];
+}
+
 // ---------------------------------------------------------------------------
 // Control-plane SDK builder — REAL AttachService / HeartbeatService over the
 // per-test PGlite querier, wrapped by `buildControlPlaneFetchHandler` as a
@@ -273,8 +322,9 @@ function buildRuntimeNodeDeps(
     directoryService: new SessionDirectoryService(throwingQuerier),
     // REAL runtime-node services over the per-test PGlite querier — the subject
     // under test. `AttachService.attach` (I1/T4.4), `AttachService.updateCapabilities`
-    // (T4.4 floor-gate), and `HeartbeatService.ingest` (T4.3 degraded transition)
-    // all read/write through this same connection.
+    // (T4.3 capability-health transitions; T4.4 floor-gate), and
+    // `HeartbeatService.ingest` (T4.3 liveness-axis heartbeat) all read/write
+    // through this same connection.
     attachService: new AttachService(querier),
     heartbeatService: new HeartbeatService(querier),
     // REAL — the attach self-check compares this against `request.participantId`
@@ -469,6 +519,209 @@ describe("I1 / Spec-003 AC1 (line 120) + line 50 — live attach leaves session 
     // materialize a second session (Spec-003 line 50, "attach must not require
     // session recreation").
     expect(await countSessions(ctx.querier)).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// I2 — a degraded node remains distinguishable from a healthy online node
+// (Spec-003 line 121 AC2 + line 76 + line 72) — control-plane transport
+// ---------------------------------------------------------------------------
+//
+// WHY the capability-health axis, NOT the originally-planned heartbeat-driven
+// roster read (Plan-003 T4.3 as amended 2026-06-09, PR #147): the two health
+// axes have DIFFERENT owners and only one is client-observable on the shipped
+// Phase-4 surface. The Phase-3 heartbeat/staleness path writes ONLY the
+// `runtime_node_presence.health_state` LIVENESS axis, which no Phase-4 SDK
+// response surfaces (heartbeat's wire response is the no-content `null`, and
+// there is no roster-read SDK surface — the reconciled presence × slot roster
+// is downstream of this plan). The `capabilityUpdate` response `state` IS
+// client-observable: the server-derived full `NodeState` from
+// `runtime_node_attachments.state` (Spec-003 line 72), and
+// `registering -> degraded` on that axis is EXPLICITLY permitted by the
+// I-003-2 guard, which blocks only `registering -> online` (attach-service.ts
+// step 4) — per Spec-003 line 76, a capability-validation failure leaves the
+// node `degraded`. So the capability-health axis is the ONE client-observable
+// degraded drive in Phase 4, and I2's distinguishability thesis is asserted on
+// it.
+//
+// NO new daemon-transport test here: the daemon side has no runtime-node IPC
+// handler, so a scripted reply table would just echo whatever `state` we
+// scripted — a tautology with no transition under test. The I1 breadth test
+// already proves the daemon factory threads method + schemas through
+// `JsonRpcClient.call`; I2's thesis (REAL state transitions reaching real
+// persistence) only exists on the real-service control-plane harness.
+
+describe("I2 / Spec-003 AC2 (line 121) + lines 76/72 — degraded node remains distinguishable", () => {
+  it("control-plane transport: a capability-degraded node stays visible and distinguishable from a healthy online node in the same session", async () => {
+    // Seed the live session (NULL floor — version gating is T4.4's axis, not
+    // I2's), the participant, and an active membership. Direct INSERTs — the
+    // SDK has no session-create surface.
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID);
+    await seedMembership(ctx.querier, {
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      role: "owner",
+      state: "active",
+    });
+
+    const sdk = buildControlPlaneRuntimeNodeClient(buildRuntimeNodeDeps(ctx.querier));
+
+    // (1) Attach TWO nodes to the ONE live session through the SDK. The attach
+    // upsert's conflict key is the total `(node_id, session_id)`, so the two
+    // distinct node ids land as two attachment rows; both are hard-pinned at
+    // `registering` (Spec-003 line 57 — `online` requires a daemon-side
+    // capability declaration, which the control plane never performs).
+    const degradedSubjectAttach = await sdk.attach({
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      nodeId: DEGRADED_NODE_ID,
+      clientVersion: CLIENT_VERSION,
+      capabilities: CAPABILITIES,
+      healthState: "online",
+    });
+    const healthyContrastAttach = await sdk.attach({
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      nodeId: HEALTHY_NODE_ID,
+      clientVersion: CLIENT_VERSION,
+      capabilities: CAPABILITIES,
+      healthState: "online",
+    });
+    expect(degradedSubjectAttach.state).toBe("registering");
+    expect(healthyContrastAttach.state).toBe("registering");
+    // DB anti-vacuity: BOTH attaches landed as rows (two distinct node ids did
+    // not collapse into one upserted row).
+    expect(await countAttachments(ctx.querier)).toBe(2);
+
+    // (2) Drive node A `registering -> degraded` on the self-reported
+    // capability-health axis (Spec-003 line 76 — capability-validation failure
+    // leaves the node `degraded`). EXPLICITLY permitted by the I-003-2 guard.
+    // The response `state` is the server-derived full `NodeState` (Spec-003
+    // line 72), so `degraded` here is the client-observable roster position.
+    const degradeResponse = await sdk.capabilityUpdate({
+      nodeId: DEGRADED_NODE_ID,
+      capabilities: CAPABILITIES,
+      healthChanges: {
+        state: "degraded",
+        reason: "provider driver failed capability validation",
+      },
+    });
+    expect(degradeResponse.state).toBe("degraded");
+
+    // (3) Drive node B to the healthy `online` contrast via the PERMITTED
+    // recovery path `registering -> degraded -> online` (`degraded -> online`
+    // is recovery — the node self-reports its capability-health back). The
+    // direct `registering -> online` self-report is the I-003-2 refusal —
+    // unit-covered in control-plane's attach-service tests, deliberately NOT
+    // re-attempted here.
+    const contrastDegrade = await sdk.capabilityUpdate({
+      nodeId: HEALTHY_NODE_ID,
+      capabilities: CAPABILITIES,
+      healthChanges: {
+        state: "degraded",
+        reason: "transient validation failure before recovery",
+      },
+    });
+    expect(contrastDegrade.state).toBe("degraded");
+    const contrastRecover = await sdk.capabilityUpdate({
+      nodeId: HEALTHY_NODE_ID,
+      capabilities: CAPABILITIES,
+      healthChanges: { state: "online" },
+    });
+    expect(contrastRecover.state).toBe("online");
+
+    // (4) DISTINGUISHABILITY through the client (the AC2 thesis, Spec-003 line
+    // 121): the latest client-observable `NodeState` for A reads `degraded`
+    // while B's reads `online` — and A is NOT absent. The absence probe is a
+    // capabilities-only `capabilityUpdate` (no `healthChanges`): it must still
+    // RESOLVE A's single active attachment — a retired slot (detach/revoke)
+    // would surface the typed 409 `runtimenode.capabilityupdate_conflict`
+    // refusal instead — and a capabilities-only refresh writes the CURRENT
+    // state back unchanged, so the response re-reads `degraded` without
+    // mutating the node's position.
+    const degradedVisibilityProbe = await sdk.capabilityUpdate({
+      nodeId: DEGRADED_NODE_ID,
+      capabilities: CAPABILITIES,
+    });
+    expect(degradedVisibilityProbe.nodeId).toBe(DEGRADED_NODE_ID);
+    expect(degradedVisibilityProbe.state).toBe("degraded");
+    expect(degradedVisibilityProbe.state).not.toBe(contrastRecover.state);
+
+    // (5) DB anti-vacuity cross-check: EXACTLY the two attachment rows, reading
+    // exactly {A: degraded, B: online} on the slot axis — the client-observed
+    // distinguishability above is the persisted truth, not a response artifact.
+    expect(await readAttachmentStatesByNode(ctx.querier)).toEqual({
+      [DEGRADED_NODE_ID]: "degraded",
+      [HEALTHY_NODE_ID]: "online",
+    });
+  });
+
+  it("control-plane transport: heartbeat resolves null and lands the presence row; the liveness axis stays independent of the capability axis", async () => {
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID);
+    await seedMembership(ctx.querier, {
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      role: "owner",
+      state: "active",
+    });
+
+    const sdk = buildControlPlaneRuntimeNodeClient(buildRuntimeNodeDeps(ctx.querier));
+    const attachResponse = await sdk.attach({
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      nodeId: DEGRADED_NODE_ID,
+      clientVersion: CLIENT_VERSION,
+      capabilities: CAPABILITIES,
+      healthState: "online",
+    });
+    expect(attachResponse.state).toBe("registering");
+
+    // (1) Heartbeat END-TO-END: the SDK surfaces the no-content response as a
+    // literal `null` resolution (`RuntimeNodeHeartbeatResponseSchema =
+    // z.null()` — the wire payload is `result.data = null`, NOT a 204 empty
+    // body). The explicit `: null` annotation pins the interface's
+    // `Promise<null>` at the call site.
+    const heartbeatResult: null = await sdk.heartbeat({
+      nodeId: DEGRADED_NODE_ID,
+      healthState: "online",
+    });
+    expect(heartbeatResult).toBeNull();
+
+    // DB anti-vacuity: the heartbeat LANDED server-side — the
+    // `runtime_node_presence` row exists with the daemon-reported
+    // `health_state` and a non-null server-clock `last_heartbeat_at` (see the
+    // `readPresenceRow` JSDoc for why the persistence layer is the correct
+    // observation seam for this axis).
+    const presenceAfterHeartbeat = await readPresenceRow(ctx.querier, DEGRADED_NODE_ID);
+    expect(presenceAfterHeartbeat).toBeDefined();
+    expect(presenceAfterHeartbeat?.health_state).toBe("online");
+    expect(presenceAfterHeartbeat?.last_heartbeat_at).not.toBeNull();
+    expect(presenceAfterHeartbeat?.last_heartbeat_at).toBeDefined();
+
+    // (2) Capability-degrade the SAME node (the Spec-003 line 76 drive, as in
+    // the sibling test) — the trigger for the axis-independence observation.
+    const degradeResponse = await sdk.capabilityUpdate({
+      nodeId: DEGRADED_NODE_ID,
+      capabilities: CAPABILITIES,
+      healthChanges: {
+        state: "degraded",
+        reason: "capability validation failed after a healthy heartbeat",
+      },
+    });
+    expect(degradeResponse.state).toBe("degraded");
+
+    // (3) AXIS INDEPENDENCE (Spec-003 line 72): the capability-`degraded`
+    // write touched ONLY the slot axis (`runtime_node_attachments.state`) —
+    // the liveness axis (`runtime_node_presence.health_state`) still reads the
+    // heartbeat-reported `online`. Same node, two axes, two values, each owned
+    // by its writer: a degradation on one never clobbers the other.
+    const presenceAfterDegrade = await readPresenceRow(ctx.querier, DEGRADED_NODE_ID);
+    expect(presenceAfterDegrade?.health_state).toBe("online");
+    expect(await readAttachmentStatesByNode(ctx.querier)).toEqual({
+      [DEGRADED_NODE_ID]: "degraded",
+    });
   });
 });
 
