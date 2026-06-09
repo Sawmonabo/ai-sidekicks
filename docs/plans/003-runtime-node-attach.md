@@ -723,6 +723,34 @@ shipped:
         "Spec-003 line 122",
         "Spec-003 line 123",
       ]
+  - phase: 4
+    task: [T4.1, T4.2, T4.3, T4.4]
+    pr: 147
+    sha: 3e27048
+    merged_at: 2026-06-09
+    files:
+      - docs/plans/003-runtime-node-attach.md
+      - packages/client-sdk/package.json
+      - packages/client-sdk/src/index.ts
+      - packages/client-sdk/src/runtimeNodeClient.ts
+      - packages/client-sdk/test/runtimeNodeClient.integration.test.ts
+      - pnpm-lock.yaml
+    verifies_invariant: [I-003-1]
+    spec_coverage:
+      [
+        "Spec-003 line 82",
+        "Spec-003 line 83",
+        "Spec-003 line 84",
+        "Spec-003 line 85",
+        "Spec-003 line 120",
+        "Spec-003 line 50",
+        "Spec-003 line 121 (capability-health axis per the in-PR T4.3 plan-row amendment, 2026-06-09)",
+        "Spec-003 line 76",
+        "Spec-003 line 72",
+        "Spec-003 AC4 line 123",
+      ]
+    notes: |
+      I2 verified on the client-observable capability-health axis per the in-PR T4.3 plan-row amendment (2026-06-09). The detach lifecycle leg (Spec-003 lines 85 + 69) and the 4-method daemon-transport breadth suite were added by the PR-final coverage review (commit e6df973).
 ```
 
 ### Notes
