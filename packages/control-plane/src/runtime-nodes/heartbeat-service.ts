@@ -151,6 +151,20 @@ export class HeartbeatService {
    *   this `void` to `null`. Deliberately returns no value.
    */
   async ingest(request: RuntimeNodeHeartbeatRequest): Promise<void> {
+    // No version-floor re-check here, and that is deliberate: presence/liveness
+    // is version-INVARIANT. A heartbeat is a fixed `{nodeId, healthState}` shape
+    // that cannot carry a version-incompatible payload, so it is orthogonal to
+    // the capability axis the floor protects. The `min_client_version` floor
+    // gates version-SENSITIVE domain writes — the capability declaration, which
+    // a below-floor node is refused with `VersionFloorExceededException`
+    // (`VERSION_FLOOR_EXCEEDED`) in `AttachService.updateCapabilities` (T3.9) —
+    // NOT liveness. A below-floor (read-only) node therefore stays present and
+    // continues to heartbeat; it is denied only the capability WRITE. This holds
+    // only while the heartbeat payload stays version-invariant — revisit if a
+    // version-sensitive field is ever added to the heartbeat shape.
+    // Refs: Spec-003 §Required Behavior line 53 (the version-sensitive-write vs
+    // version-invariant-heartbeat refusal boundary); ADR-018 §Decision #4.
+
     // Trust-boundary validation — parse rather than trust the caller. Surfaces
     // schema drift (and rejects a daemon-asserted `offline`, unrepresentable in
     // the 2-value enum) before the upsert, mirroring AttachService.attach.
