@@ -1,7 +1,10 @@
 // Plan-003 Phase 4 T4.2: I1 integration test for `runtimeNodeClient`, plus the
 // SHARED PGlite-backed harness that T4.3 (I2 — capability-health degraded
 // distinguishability) and T4.4 (I3 — version-floor write-refusal) extend; all
-// three scenarios now live in this file.
+// three scenarios live in this file, together with the T4.1 surface-coverage
+// legs added per the PR-final coverage review (the control-plane detach
+// lifecycle + the four-method daemon-transport breadth suite — `detach`
+// previously shipped with zero executions on either transport).
 //
 // Spec coverage — the named acceptance criteria from Spec-003:
 //   * I1 — live attach to an already-active session leaves session identity
@@ -22,6 +25,13 @@
 //          daemon is ejected for the floor mismatch. The ONE Phase-4 scenario
 //          verifying a Plan-003 invariant: I-003-1 (admit-in-read-only /
 //          admit-not-eject — Plan-003 §Invariants).
+//   * Detach lifecycle — `detach` retires BOTH axes (attachment slot ->
+//          `offline`, presence `health_state` -> `offline`), a LATE capability
+//          write against the retired slot is refused typed, and a second
+//          detach is an idempotent `null` no-op (Spec-003 line 85:
+//          `RuntimeNodeDetach` must explicitly retire or disconnect a node;
+//          line 69: an explicit detach retires the node — `offline` is
+//          server-effected liveness-death).
 //
 // Architecture (locked — see Plan-003 Phase 4 dispatch): this harness drives the
 // REAL `AttachService` / `HeartbeatService` over an in-memory PGlite database —
@@ -41,10 +51,12 @@
 // the floor decision is a scripted tautology and is explicitly rejected.
 //
 // The daemon path is TRANSPORT BREADTH only: the daemon side has NO runtime-node
-// IPC handler yet, so `createDaemonRuntimeNodeClient.attach` is covered with an
-// in-memory `ClientTransport` + a scripted reply table (mirroring
-// `sessionClient.integration.test.ts`'s `buildDaemonHarness`). This proves the
-// daemon factory wraps `JsonRpcClient.call` with the right method + schemas.
+// IPC handler yet, so ALL FOUR `createDaemonRuntimeNodeClient` methods are
+// covered with an in-memory `ClientTransport` + a scripted reply table
+// (mirroring `sessionClient.integration.test.ts`'s `buildDaemonHarness`). This
+// proves the daemon factory wraps `JsonRpcClient.call` with the right method +
+// schemas per arm — the daemon-breadth section header names the regression
+// classes that pins.
 
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import {
@@ -65,6 +77,7 @@ import {
   type JsonRpcResponseEnvelope,
   type NodeId,
   type ParticipantId,
+  RUNTIME_NODE_CAPABILITY_UPDATE_CONFLICT_CODE,
   type SessionId,
   VERSION_FLOOR_EXCEEDED_CODE,
 } from "@ai-sidekicks/contracts";
@@ -110,6 +123,11 @@ const HEALTHY_NODE_ID: NodeId = "node-charlie-online-01" as NodeId;
 const AT_FLOOR_NODE_ID: NodeId = "node-delta-at-floor-01" as NodeId;
 const BELOW_FLOOR_NODE_ID: NodeId = "node-echo-below-floor-01" as NodeId;
 const BELOW_FLOOR_CLIENT_VERSION: EventEnvelopeVersion = "1.3" as EventEnvelopeVersion;
+
+// Detach-lifecycle (PR-final coverage leg) fixture — the node whose clean
+// disconnect, late-write refusal, and idempotent re-detach the detach test
+// drives. Distinct id for failure-output legibility, as above.
+const DETACH_NODE_ID: NodeId = "node-foxtrot-detach-01" as NodeId;
 
 const CAPABILITIES: Record<string, unknown> = {
   "provider-driver": { kind: "claude", streaming: true },
@@ -566,8 +584,8 @@ describe("I1 / Spec-003 AC1 (line 120) + line 50 — live attach leaves session 
 //
 // NO new daemon-transport test here: the daemon side has no runtime-node IPC
 // handler, so a scripted reply table would just echo whatever `state` we
-// scripted — a tautology with no transition under test. The I1 breadth test
-// already proves the daemon factory threads method + schemas through
+// scripted — a tautology with no transition under test. The daemon breadth
+// suite already proves the daemon factory threads method + schemas through
 // `JsonRpcClient.call`; I2's thesis (REAL state transitions reaching real
 // persistence) only exists on the real-service control-plane harness.
 
@@ -916,10 +934,146 @@ describe("I3 / Spec-003 AC4 (line 123) + I-003-1 — mixed-version attach: below
 });
 
 // ---------------------------------------------------------------------------
-// I1 transport breadth — daemon transport attach (scripted reply table)
+// Detach lifecycle — detach retires both axes; the retired slot refuses late
+// writes; re-detach is an idempotent no-op (Spec-003 line 85 + line 69) —
+// control-plane transport
 // ---------------------------------------------------------------------------
+//
+// The PR-final coverage leg for the LAST unexercised `RuntimeNodeClient`
+// method: I1–I3 drive attach / heartbeat / capabilityUpdate against the real
+// services, but `detach` shipped with zero executions on either transport.
+// This test pins, on a REAL path: the `z.null()` no-content unwrap; the
+// DUAL-AXIS retirement `AttachService.detach` performs (attachment slot
+// `state -> offline` AND presence `health_state -> offline` — the same
+// `offline` the T3.6 staleness sweep derives at 60s, effected immediately on
+// a clean disconnect); the typed `runtimenode.capabilityupdate_conflict`
+// refusal a LATE write against the retired slot receives (the SECOND
+// `aisError` code branch through the SDK error builder — I3 pinned
+// `version.floor_exceeded`); and detach's IDEMPOTENCE (a second detach is a
+// clean `null` no-op, NOT a conflict — attach-service.ts's zero-retired-rows
+// guard; runtime-node-router.test.ts pins the same routing for a
+// never-attached node).
+//
+// The node heartbeats BEFORE the detach so a presence row EXISTS to retire:
+// detach's presence write is UPDATE-only (presence rows are heartbeat-owned —
+// a node that never beat has no row, and the liveness assert would otherwise
+// be a vacuous 0-row no-op instead of an observed `online -> offline` flip).
 
-describe("I1 transport breadth — createDaemonRuntimeNodeClient.attach wraps JsonRpcClient.call", () => {
+describe("Detach lifecycle / Spec-003 line 85 + line 69 — detach retires both axes; late writes refused; re-detach idempotent", () => {
+  it("control-plane transport: detach resolves null and flips slot + presence to offline; a late capability write is refused typed; a second detach is an idempotent no-op", async () => {
+    // Seed the live session (NULL floor — version gating is I3's axis) and
+    // attach the subject node. Direct INSERTs, as in I1/I2/I3.
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID);
+    await seedMembership(ctx.querier, {
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      role: "owner",
+      state: "active",
+    });
+
+    const sdk = buildControlPlaneRuntimeNodeClient(buildRuntimeNodeDeps(ctx.querier));
+    const attachResponse = await sdk.attach({
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      nodeId: DETACH_NODE_ID,
+      clientVersion: CLIENT_VERSION,
+      capabilities: CAPABILITIES,
+      healthState: "online",
+    });
+    expect(attachResponse.state).toBe("registering");
+
+    // (1) Heartbeat FIRST so the presence row exists `online` — the
+    // anti-vacuity precondition for the dual-axis assert in (3) (see the
+    // section header: detach's presence write is UPDATE-only).
+    const preDetachHeartbeat: null = await sdk.heartbeat({
+      nodeId: DETACH_NODE_ID,
+      healthState: "online",
+    });
+    expect(preDetachHeartbeat).toBeNull();
+    expect((await readPresenceRow(ctx.querier, DETACH_NODE_ID))?.health_state).toBe("online");
+
+    // (2) DETACH resolves the literal no-content `null` on the REAL path (the
+    // `z.null()` unwrap the scripted daemon breadth can only echo). `reason`
+    // is wire-accepted but deliberately NOT persisted in V1 (attach-service.ts
+    // — no reason column; the durable audit event is V1.1-gated), so there is
+    // no DB assert on it.
+    const detachResult: null = await sdk.detach({
+      nodeId: DETACH_NODE_ID,
+      reason: "session host requested a clean disconnect",
+    });
+    expect(detachResult).toBeNull();
+
+    // (3) BOTH axes retired (Spec-003 line 69 — `offline` is server-effected
+    // liveness-death; line 85 — detach explicitly retires the node): the
+    // attachment SLOT axis reads `offline` (exact map — no extra row
+    // materialized) AND the presence LIVENESS axis flipped `online ->
+    // offline` without waiting for heartbeat staleness.
+    expect(await readAttachmentStatesByNode(ctx.querier)).toEqual({
+      [DETACH_NODE_ID]: "offline",
+    });
+    expect((await readPresenceRow(ctx.querier, DETACH_NODE_ID))?.health_state).toBe("offline");
+
+    // (4) A LATE capability write against the RETIRED slot is refused typed —
+    // `runtimenode.capabilityupdate_conflict` (asserted against the canonical
+    // contracts constant), HTTP 409 — the legitimate production race the
+    // service defends (an update arriving after detach retired the slot).
+    // Capture-once `.then()` idiom, as in I3.
+    const lateWriteRefusal = await sdk
+      .capabilityUpdate({
+        nodeId: DETACH_NODE_ID,
+        capabilities: CAPABILITIES,
+      })
+      .then(
+        () => {
+          throw new Error("expected the late capability write on a retired slot to be refused");
+        },
+        (error: unknown) => error,
+      );
+    expect(lateWriteRefusal).toBeInstanceOf(RuntimeNodeControlPlaneError);
+    const typedLateWriteRefusal = lateWriteRefusal as RuntimeNodeControlPlaneError;
+    expect(typedLateWriteRefusal.code).toBe(RUNTIME_NODE_CAPABILITY_UPDATE_CONFLICT_CODE);
+    expect(typedLateWriteRefusal.httpStatus).toBe(409);
+    // The refusal message names the refused node (provenance without
+    // info-leak — the service message carries the nodeId only).
+    expect(typedLateWriteRefusal.message).toContain(String(DETACH_NODE_ID));
+
+    // (5) IDEMPOTENT re-detach: a SECOND detach on the already-retired slot
+    // is a clean `null` no-op — NOT a conflict (the zero-retired-rows guard:
+    // the `state IN (active band)` UPDATE matches nothing). The slot stays
+    // `offline` — the no-op disturbs nothing.
+    const secondDetach: null = await sdk.detach({ nodeId: DETACH_NODE_ID });
+    expect(secondDetach).toBeNull();
+    expect(await readAttachmentStatesByNode(ctx.querier)).toEqual({
+      [DETACH_NODE_ID]: "offline",
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Daemon transport breadth — all four methods over the scripted reply table
+// ---------------------------------------------------------------------------
+//
+// The daemon side has NO runtime-node IPC handler yet, so these replies are
+// scripted (see the file header). Scripted breadth deliberately tests
+// TRANSPORT MECHANICS, not domain behavior (the real-service section above
+// owns behavior — scripting a domain outcome would be the tautology the
+// I2/I3 notes reject). What each arm's breadth test pins, per the PR-final
+// coverage review (this suite originally covered attach only):
+//   * the wire METHOD string (`RUNTIME_NODE_METHOD_*` — a typo'd constant
+//     misses the reply table and rejects with -32601);
+//   * the per-arm REQUEST schema (a type-invisible swap — Zod covariance lets
+//     `RuntimeNodeHeartbeatRequestSchema` structurally satisfy the detach
+//     slot — fails loud here because each `.strict()` request schema rejects
+//     the sibling's fields: detach carries `reason`, heartbeat carries
+//     `healthState`);
+//   * request-field FORWARDING on the captured envelope (the factory must not
+//     drop fields); and
+//   * the RESPONSE unwrap — content schemas for attach/capabilityUpdate, the
+//     no-content `z.null()` for heartbeat/detach (resolved value pinned with
+//     the `: null` annotation per the file's idiom).
+
+describe("Daemon transport breadth — createDaemonRuntimeNodeClient wraps JsonRpcClient.call for all four methods", () => {
   it("daemon transport: attach routes runtimenode.attach with the right schemas and unwraps the response", async () => {
     // The daemon side has NO runtime-node IPC handler yet, so the reply is
     // scripted. This proves the daemon factory threads `runtimenode.attach` +
@@ -964,5 +1118,98 @@ describe("I1 transport breadth — createDaemonRuntimeNodeClient.attach wraps Js
     expect(sent?.method).toBe("runtimenode.attach");
     const sentParams = sent?.params as { sessionId?: string } | undefined;
     expect(sentParams?.sessionId).toBe(String(SESSION_ID));
+  });
+
+  it("daemon transport: heartbeat routes runtimenode.heartbeat, forwards healthState, and unwraps the no-content null", async () => {
+    const harness = buildDaemonHarness([
+      {
+        method: "runtimenode.heartbeat",
+        // No-content success: the daemon transport's wire result is a literal
+        // `null` (RuntimeNodeHeartbeatResponseSchema = z.null()).
+        buildResult: (): unknown => null,
+      },
+    ]);
+    const sdk = createDaemonRuntimeNodeClient(harness.client);
+
+    // `degraded` (not `online`) so the forwarding assert below proves the
+    // ACTUAL reported value rides the wire, not a healthy-looking default.
+    const heartbeatResult: null = await sdk.heartbeat({
+      nodeId: NODE_ID,
+      healthState: "degraded",
+    });
+    expect(heartbeatResult).toBeNull();
+
+    expect(harness.transport.sentEnvelopes).toHaveLength(1);
+    const sent = harness.transport.sentEnvelopes[0];
+    expect(sent?.method).toBe("runtimenode.heartbeat");
+    const sentParams = sent?.params as { nodeId?: string; healthState?: string } | undefined;
+    expect(sentParams?.nodeId).toBe(String(NODE_ID));
+    expect(sentParams?.healthState).toBe("degraded");
+  });
+
+  it("daemon transport: capabilityUpdate routes runtimenode.capabilityupdate, forwards the capabilities map, and unwraps the content response", async () => {
+    const harness = buildDaemonHarness([
+      {
+        method: "runtimenode.capabilityupdate",
+        // Scripted content reply — must satisfy the STRICT
+        // `RuntimeNodeCapabilityUpdateResponseSchema` ({nodeId, state,
+        // ISO-datetime updatedAt}); the unwrap Zod-validates before resolving,
+        // so a malformed reply would reject rather than pass through.
+        buildResult: (): unknown => ({
+          nodeId: NODE_ID,
+          state: "online",
+          updatedAt: "2026-06-09T12:00:00.000Z",
+        }),
+      },
+    ]);
+    const sdk = createDaemonRuntimeNodeClient(harness.client);
+
+    const response = await sdk.capabilityUpdate({
+      nodeId: NODE_ID,
+      capabilities: CAPABILITIES,
+      healthChanges: { state: "online" },
+    });
+    expect(response.nodeId).toBe(NODE_ID);
+    expect(response.state).toBe("online");
+    expect(response.updatedAt).toBe("2026-06-09T12:00:00.000Z");
+
+    expect(harness.transport.sentEnvelopes).toHaveLength(1);
+    const sent = harness.transport.sentEnvelopes[0];
+    expect(sent?.method).toBe("runtimenode.capabilityupdate");
+    const sentParams = sent?.params as
+      | { capabilities?: Record<string, unknown>; healthChanges?: { state?: string } }
+      | undefined;
+    // The FULL-REPLACEMENT capabilities map (the domain payload) is forwarded
+    // intact, as is the optional healthChanges transition.
+    expect(sentParams?.capabilities).toEqual(CAPABILITIES);
+    expect(sentParams?.healthChanges).toEqual({ state: "online" });
+  });
+
+  it("daemon transport: detach routes runtimenode.detach, forwards the reason, and unwraps the no-content null", async () => {
+    const harness = buildDaemonHarness([
+      {
+        method: "runtimenode.detach",
+        // No-content success: the daemon transport's wire result is a literal
+        // `null` (RuntimeNodeDetachResponseSchema = z.null()).
+        buildResult: (): unknown => null,
+      },
+    ]);
+    const sdk = createDaemonRuntimeNodeClient(harness.client);
+
+    const detachResult: null = await sdk.detach({
+      nodeId: NODE_ID,
+      reason: "daemon shutting down cleanly",
+    });
+    expect(detachResult).toBeNull();
+
+    expect(harness.transport.sentEnvelopes).toHaveLength(1);
+    const sent = harness.transport.sentEnvelopes[0];
+    expect(sent?.method).toBe("runtimenode.detach");
+    const sentParams = sent?.params as { nodeId?: string; reason?: string } | undefined;
+    expect(sentParams?.nodeId).toBe(String(NODE_ID));
+    // `reason` is the field a request-schema swap would reject (detach's
+    // strict schema is the only arm that accepts it) — forwarding it is
+    // load-bearing for the swap-protection thesis in the section header.
+    expect(sentParams?.reason).toBe("daemon shutting down cleanly");
   });
 });
