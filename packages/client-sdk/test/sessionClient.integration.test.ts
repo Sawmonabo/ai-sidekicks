@@ -51,10 +51,12 @@ import {
   type SubscriptionId,
 } from "@ai-sidekicks/contracts";
 import {
+  AttachService,
   buildControlPlaneFetchHandler,
   type ControlPlaneDeps,
   type ControlPlaneEnv,
   type CreateSessionInput,
+  HeartbeatService,
   type JoinSessionInput,
   type Querier,
   SessionDirectoryService,
@@ -222,6 +224,11 @@ const throwingQuerier: Querier = {
 function buildSubscribeOnlyDeps(provider: SessionEventStreamProvider): ControlPlaneDeps {
   return {
     directoryService: new SessionDirectoryService(throwingQuerier),
+    // Runtime-node services over the throwing Querier: this subscribe-only
+    // harness never reaches `runtimenode.*`, so the services throw on use,
+    // preserving the never-reached posture (same as the throwing callbacks).
+    attachService: new AttachService(throwingQuerier),
+    heartbeatService: new HeartbeatService(throwingQuerier),
     resolveCurrentParticipantId: (): ParticipantId => {
       throw NEVER_REACHED("resolveCurrentParticipantId");
     },
@@ -280,6 +287,10 @@ class FixtureDirectoryService extends SessionDirectoryService {
 function buildCrudOnlyDeps(directoryService: FixtureDirectoryService): ControlPlaneDeps {
   return {
     directoryService,
+    // Runtime-node services over the throwing Querier: the CRUD smoke tests
+    // never reach `runtimenode.*`, so the services throw on use.
+    attachService: new AttachService(throwingQuerier),
+    heartbeatService: new HeartbeatService(throwingQuerier),
     // Both stubs return the same ParticipantId so the join procedure's
     // `resolved !== current` UNAUTHORIZED guard at session-router.factory.ts:128
     // is satisfied for the happy-path smoke tests.

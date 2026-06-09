@@ -249,11 +249,15 @@ describe("RuntimeNodeHealthStateSchema (catch #10: 2-value daemon-reported healt
 // --------------------------------------------------------------------------
 //
 // Backstops Spec-003 line 84 (capability additions, removals, AND health
-// changes). The `capabilities` map is a FULL REPLACEMENT set — additions and
-// removals are both expressed by the new map (removal = key omitted), so the
-// add-only and removal cases differ only in the map contents. Health
-// transitions ride the optional `healthChanges` object, whose `state` is the
-// full 5-value `NodeState` liveness enum (NOT the 2-value wire-health enum).
+// changes) and Spec-003 line 65 (2026-06-04 `capabilityupdate` amendment — the
+// daemon self-report axis is `online ↔ degraded`). The `capabilities` map is a
+// FULL REPLACEMENT set — additions and removals are both expressed by the new
+// map (removal = key omitted), so the add-only and removal cases differ only in
+// the map contents. Health transitions ride the optional `healthChanges`
+// object, whose `state` is the 2-value `RuntimeNodeHealthState` wire-health enum
+// (online|degraded) — the SAME self-report axis as `attach`/`heartbeat`, NOT the
+// broad 5-value `NodeState` (narrowed by T3.0; `offline`/`revoked` are owned by
+// other authorities and are unrepresentable here, I-003-2 least-privilege).
 // Wire shape pinned: api-payload-contracts.md:508-518.
 const buildValidCapabilityUpdateRequest = () => ({
   nodeId: NodeIdSchema.parse(NODE_ID),
@@ -285,7 +289,8 @@ describe("RuntimeNodeCapabilityUpdateRequestSchema (C2: additions / removals / h
   });
 
   it("accepts a health-change payload with state + reason", () => {
-    // (c) health change — `healthChanges` carries a NodeState + free-form reason.
+    // (c) health change — `healthChanges` carries a 2-value RuntimeNodeHealthState
+    // (online|degraded) + free-form reason.
     const healthChange = {
       ...buildValidCapabilityUpdateRequest(),
       healthChanges: { state: "degraded" as const, reason: "ptyHost backpressure" },
@@ -303,18 +308,34 @@ describe("RuntimeNodeCapabilityUpdateRequestSchema (C2: additions / removals / h
     );
   });
 
-  it("accepts a healthChanges.state that is a 5-value NodeState but NOT a 2-value health value", () => {
-    // PROVES `healthChanges.state` is wired to the 5-value NodeStateSchema and
-    // NOT the 2-value RuntimeNodeHealthStateSchema: "offline" is a valid
-    // NodeState (shared-postgres-schema.md:202-203) but is EXCLUDED from the
-    // 2-value wire-health enum. If the field were mis-wired to the health enum
-    // this payload would be rejected. (Spec-003 line 84 — health changes.)
+  it("rejects a healthChanges.state that is a 5-value NodeState but NOT a 2-value health value", () => {
+    // PROVES `healthChanges.state` is wired to the 2-value
+    // RuntimeNodeHealthStateSchema and NOT the 5-value NodeStateSchema (T3.0
+    // narrowing): `registering`/`offline`/`revoked` are valid NodeState liveness
+    // positions (shared-postgres-schema.md:202-203) but are EXCLUDED from the
+    // 2-value daemon-reported wire-health enum, so a daemon self-report carrying
+    // one is now UNCONSTRUCTABLE at the schema boundary rather than runtime-
+    // accepted. Each rejected arm maps to an authority a daemon self-report is
+    // not:
+    //   • `registering` — the `registering → online` transition is driven by a
+    //     successful daemon-side capability DECLARATION, NOT by `capabilityupdate`
+    //     (Spec-003 line 57; the amendment at line 65 forbids `capabilityupdate`
+    //     driving `registering → online`). This narrowing is the contract-surface
+    //     enforcement; the runtime transition-gating is Plan-003 T3.9.
+    //   • `offline` — server-derived liveness-death (the staleness sweep,
+    //     Plan-003 T3.6), never daemon-self-reported.
+    //   • `revoked` — an authority-issued trust decision (detach/admin, Plan-003
+    //     T3.7), never self-asserted.
+    // This is the proof of I-003-2's least-privilege corollary (a daemon self-
+    // report cannot assert liveness-death or revocation). Spec-003 line 57
+    // (online requires a daemon-side capability declaration) + line 65 (2026-06-04
+    // `capabilityupdate` amendment — the self-report axis is `online ↔ degraded`).
     for (const state of ["registering", "offline", "revoked"] as const) {
       const update = {
         ...buildValidCapabilityUpdateRequest(),
         healthChanges: { state },
       };
-      expect(RuntimeNodeCapabilityUpdateRequestSchema.safeParse(update).success).toBe(true);
+      expect(RuntimeNodeCapabilityUpdateRequestSchema.safeParse(update).success).toBe(false);
     }
   });
 
@@ -347,9 +368,10 @@ describe("RuntimeNodeCapabilityUpdateRequestSchema (C2: additions / removals / h
   });
 
   it("rejects a healthChanges object missing state (state is required, reason is not)", () => {
-    // The wire shape is `healthChanges?: { state: NodeState; reason?: string }`
-    // — `healthChanges` is optional, but ONCE PRESENT its `state` is required
-    // (no `?`). A `healthChanges` carrying only `reason` is rejected.
+    // The wire shape is `healthChanges?: { state: "online" | "degraded";
+    // reason?: string }` — `healthChanges` is optional, but ONCE PRESENT its
+    // `state` is required (no `?`). A `healthChanges` carrying only `reason` is
+    // rejected.
     const broken = {
       ...buildValidCapabilityUpdateRequest(),
       healthChanges: { reason: "missing the required state" },
@@ -440,8 +462,11 @@ describe("RuntimeNodeCapabilityUpdateResponseSchema (C2: nodeId + state + update
 // 204 empty body — the resolver returns `null`, serialized as a 200 success
 // envelope). The discriminating test is the 2-value health-enum boundary: a
 // mis-wire to the 5-value `NodeStateSchema` would accept `offline`/`registering`/
-// `revoked`, so the loop-reject below is the inverse of the 5-value proof on the
-// capability-update path and the test that catches that specific mis-wire.
+// `revoked`, so the loop-reject below catches that specific mis-wire. It now
+// PARALLELS the capability-update 2-value reject (both `healthChanges.state` and
+// `healthState` carry the same `RuntimeNodeHealthState` axis after T3.0), rather
+// than inverting it — all three daemon-self-report surfaces reject the broad
+// liveness values by construction.
 const buildValidHeartbeatRequest = () => ({
   nodeId: NodeIdSchema.parse(NODE_ID),
   healthState: "online" as const,
@@ -478,8 +503,9 @@ describe("RuntimeNodeHeartbeatRequestSchema (C6: nodeId + 2-value healthState)",
     // `offline`/`registering`/`revoked` are valid 5-value NodeState liveness
     // positions (shared-postgres-schema.md:202-203) but are EXCLUDED from the
     // 2-value daemon-reported wire-health enum. If `healthState` were mis-wired
-    // to the 5-value `NodeStateSchema` these would be ACCEPTED — this loop is the
-    // inverse of the capability-update 5-value proof and catches that mis-wire.
+    // to the 5-value `NodeStateSchema` these would be ACCEPTED — this loop
+    // catches that mis-wire and PARALLELS the capability-update 2-value reject
+    // (its `healthChanges.state` carries the same narrow axis after T3.0).
     for (const liveness of ["offline", "registering", "revoked"]) {
       const broken = { ...buildValidHeartbeatRequest(), healthState: liveness };
       expect(RuntimeNodeHeartbeatRequestSchema.safeParse(broken).success).toBe(false);

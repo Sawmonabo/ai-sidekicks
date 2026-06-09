@@ -118,16 +118,86 @@ export const EventCategorySchema: z.ZodType<EventCategory> = z.enum([
 
 export const EVENT_ENVELOPE_VERSION_PATTERN: RegExp = /^(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 
+// Length ceiling for an EventEnvelopeVersion string, enforced at the parse
+// boundary BEFORE the format regex. This is a bound on parse cost, not a
+// format rule: `compareEventEnvelopeVersion` parses each segment with `BigInt`
+// for exact ordering above `Number.MAX_SAFE_INTEGER`, and BigInt construction
+// from a decimal string is super-linear in digit count — so an unbounded but
+// regex-valid input (a single segment of arbitrarily many digits) would let a
+// caller drive parse work without limit. Real protocol versions are
+// single/low-double-digit segments per ADR-018 §Decision #1, so 64 characters
+// is generous headroom for any plausible MAJOR.MINOR while keeping the BigInt
+// parse trivially cheap. This is a strict MAJOR.MINOR protocol-version bound,
+// deliberately distinct from `VERSION_STRING_MAX_LEN` (error.ts), which caps
+// free-form version strings in error details — the two must not be coupled.
+export const EVENT_ENVELOPE_VERSION_MAX_LEN = 64;
+
 export type EventEnvelopeVersion = string & {
   readonly __brand: "EventEnvelopeVersion";
 };
 export const EventEnvelopeVersionSchema: z.ZodType<EventEnvelopeVersion> = z
   .string()
+  .max(EVENT_ENVELOPE_VERSION_MAX_LEN, {
+    message: `EventEnvelopeVersion must be at most ${EVENT_ENVELOPE_VERSION_MAX_LEN} characters.`,
+  })
   .regex(EVENT_ENVELOPE_VERSION_PATTERN, {
     message:
       'EventEnvelopeVersion must be a "MAJOR.MINOR" semver string per ADR-018 §Decision #1 (e.g. "1.0", "2.5"; not numeric, not three-segment, no leading zeros).',
   })
   .brand<"EventEnvelopeVersion">() as unknown as z.ZodType<EventEnvelopeVersion>;
+
+// --------------------------------------------------------------------------
+// compareEventEnvelopeVersion — total ordering of EventEnvelopeVersion.
+// --------------------------------------------------------------------------
+//
+// Returns -1 / 0 / 1 (a < b / a == b / a > b) — the standard three-way
+// comparator shape (Array.prototype.sort, semver.compare). Callers express the
+// predicate at the call site: a below-floor check is
+// `compareEventEnvelopeVersion(clientVersion, floor) < 0`.
+//
+// Lives here (not in a consumer package) because it is the ordering of a
+// contracts value type: the control-plane version-floor gate (Plan-003
+// T3.3/T3.4) AND the daemon's envelope version negotiation (ADR-018 §6/§7/§10)
+// both compare EventEnvelopeVersion values. Contracts is their only shared
+// ancestor; a consumer-local helper would force the other consumer to depend
+// upward or re-implement the comparison (the lexical "10" < "9" bug, twice).
+//
+// Numeric MAJOR-then-MINOR tuple compare — deliberately NOT the `semver`
+// library: the type is strictly two-segment (EVENT_ENVELOPE_VERSION_PATTERN),
+// so semver's coercion / range / prerelease machinery is dead weight and a
+// needless dependency.
+//
+// Inputs are brand-validated EventEnvelopeVersion, so the regex already
+// guarantees exactly two non-negative-integer, leading-zero-free segments:
+// `split(".")` yields a length-2 array of valid integer literals. The brand IS
+// the proof of well-formedness — this function does NOT re-validate (that would
+// contradict the brand). The guard against a malformed string lives at the
+// PARSE boundary (callers must `EventEnvelopeVersionSchema.parse`, never
+// `as`-cast). A caller that defeats the brand with a cast carrying a
+// NON-integer segment now THROWS (`SyntaxError` at `BigInt()`) instead of
+// silently mis-ordering — a fail-loud, not fail-silent, improvement: a wrong
+// answer from the version-floor gate becomes an exception at the boundary
+// rather than a covert admit.
+
+export function compareEventEnvelopeVersion(
+  a: EventEnvelopeVersion,
+  b: EventEnvelopeVersion,
+): -1 | 0 | 1 {
+  // The `as [bigint, bigint]` is justified by the brand: the regex guarantees
+  // exactly two segments, each a valid non-negative integer literal. The schema
+  // also bounds input length (EVENT_ENVELOPE_VERSION_MAX_LEN), so the comparator
+  // only ever receives a string within that cap. Within that bound, `BigInt`
+  // (not `Number`) makes the compare EXACT above `Number.MAX_SAFE_INTEGER` —
+  // where a `Number` parse would collapse two distinct large versions to the
+  // same float. That exactness is the point: the version floor reads this
+  // ordering, so an off-by-a-float result there is a security boundary, not a
+  // rounding nit.
+  const [aMajor, aMinor] = a.split(".").map(BigInt) as [bigint, bigint];
+  const [bMajor, bMinor] = b.split(".").map(BigInt) as [bigint, bigint];
+  if (aMajor !== bMajor) return aMajor < bMajor ? -1 : 1;
+  if (aMinor !== bMinor) return aMinor < bMinor ? -1 : 1;
+  return 0;
+}
 
 // --------------------------------------------------------------------------
 // Per-field length caps — defense-in-depth bounds on free-form strings.

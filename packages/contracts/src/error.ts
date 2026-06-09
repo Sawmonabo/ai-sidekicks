@@ -100,6 +100,32 @@ export type VersionCeilingExceededCode = typeof NEGOTIATION_REASON_CEILING_EXCEE
 export const VERSION_CEILING_EXCEEDED_CODE: VersionCeilingExceededCode =
   NEGOTIATION_REASON_CEILING_EXCEEDED;
 
+// Runtime-node refusal codes (Plan-003 Phase 3). These are code+message-only
+// (no Details/Schema) per the registry-only 409 convention — no AC needs
+// structured details and a conflicting-session-id detail would risk
+// cross-session info-leak. Domain token `runtimenode` matches the method
+// namespace (runtimenode.attach / runtimenode.capabilityupdate) and deliberately
+// AVOIDS the `runtime_node.*` event-name namespace (separator differs) so an
+// error code never collides with a durable event name. See error-contracts.md
+// §Runtime Node (HTTP 409).
+export type RuntimeNodeAttachConflictCode = "runtimenode.attach_conflict";
+export const RUNTIME_NODE_ATTACH_CONFLICT_CODE: RuntimeNodeAttachConflictCode =
+  "runtimenode.attach_conflict";
+export type RuntimeNodeAttachRevokedCode = "runtimenode.attach_revoked";
+export const RUNTIME_NODE_ATTACH_REVOKED_CODE: RuntimeNodeAttachRevokedCode =
+  "runtimenode.attach_revoked";
+// The capability-update coordination-snapshot refresh (runtimenode.capabilityupdate,
+// Plan-003 T3.9) raises this single code for BOTH of its refusals: a late update
+// against a node with no active attachment (a detach/sweep race), and the I-003-2
+// state-context guard (cannot drive `registering -> online` — bringing a node
+// online requires a daemon-side capability declaration, which the control plane
+// is not the authority for; Spec-003 lines 52/57). One code, two call sites,
+// distinct messages — neither leaks another session's identity or the node's
+// internal state.
+export type RuntimeNodeCapabilityUpdateConflictCode = "runtimenode.capabilityupdate_conflict";
+export const RUNTIME_NODE_CAPABILITY_UPDATE_CONFLICT_CODE: RuntimeNodeCapabilityUpdateConflictCode =
+  "runtimenode.capabilityupdate_conflict";
+
 // --------------------------------------------------------------------------
 // Per-field length caps — defense-in-depth bounds (see also event.ts header).
 // --------------------------------------------------------------------------

@@ -6,14 +6,16 @@
 // transport-layer envelope (here, the tRPC `errorFormatter` at
 // `trpc.ts` lifts it onto `shape.data.aisError`).
 //
-// Plan-001 PR ships the first instance — `ResourceLimitExceededException`
-// for AC8 (participants-per-session) enforcement. Future plans add more
-// typed exceptions (Plan-002+ version-floor / version-ceiling envelopes
-// when they ship emit sites against the Plan-001 T2.3 contracts) by
-// declaring a new `extends Error` class with its own `readonly code`
-// literal. If 3+ typed exceptions accumulate, refactor into an
-// `AisWireException` base class so the formatter matches a single
-// `instanceof` branch.
+// `ResourceLimitExceededException` extends the cross-domain
+// `AisWireException` base (`../ais-wire-exception.ts`) — the single
+// `instanceof` match-type the formatter projects. This is the
+// session-domain member of the wire-exception family; the runtime-node
+// members live in `runtime-nodes/errors.ts`. A detail-carrying subclass
+// like this one NARROWS the base's optional `details?` to a required,
+// concrete `ResourceLimitExceededDetails` (a valid override); a
+// code+message-only subclass inherits the base's `details === undefined`.
+// New typed exceptions join the family by extending `AisWireException`
+// with their own `readonly code` literal — no formatter change needed.
 //
 // Throw discipline: throw from inside the `Querier.transaction(...)`
 // callback OR from the service body. The `pg.Pool` adapter at
@@ -26,6 +28,8 @@
 
 import type { ResourceLimitExceededDetails } from "@ai-sidekicks/contracts";
 import { RESOURCE_LIMIT_EXCEEDED_CODE } from "@ai-sidekicks/contracts";
+
+import { AisWireException } from "../ais-wire-exception.js";
 
 /**
  * Thrown by `SessionDirectoryService.joinSession` when the session has
@@ -46,9 +50,11 @@ import { RESOURCE_LIMIT_EXCEEDED_CODE } from "@ai-sidekicks/contracts";
  * (always equals or exceeds `limit` at throw time per the precheck
  * ordering in `joinSession`).
  */
-export class ResourceLimitExceededException extends Error {
+export class ResourceLimitExceededException extends AisWireException {
   readonly code: typeof RESOURCE_LIMIT_EXCEEDED_CODE = RESOURCE_LIMIT_EXCEEDED_CODE;
-  readonly details: ResourceLimitExceededDetails;
+  // `override` because this NARROWS the base's optional `details?` to a
+  // required, concrete `ResourceLimitExceededDetails` (noImplicitOverride).
+  override readonly details: ResourceLimitExceededDetails;
 
   constructor(details: ResourceLimitExceededDetails, message: string) {
     super(message);

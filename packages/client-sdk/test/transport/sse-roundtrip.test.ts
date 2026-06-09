@@ -101,9 +101,11 @@ import {
   type SessionId,
 } from "@ai-sidekicks/contracts";
 import {
+  AttachService,
   buildControlPlaneFetchHandler,
   type ControlPlaneDeps,
   type ControlPlaneEnv,
+  HeartbeatService,
   type Querier,
   SessionDirectoryService,
   type SessionEventStreamProvider,
@@ -188,6 +190,10 @@ const throwingQuerier: Querier = {
 function makeIntegrationDeps(provider: SessionEventStreamProvider): ControlPlaneDeps {
   return {
     directoryService: new SessionDirectoryService(throwingQuerier),
+    // Runtime-node services over the throwing Querier: this SSE round-trip
+    // harness never reaches `runtimenode.*`, so the services throw on use.
+    attachService: new AttachService(throwingQuerier),
+    heartbeatService: new HeartbeatService(throwingQuerier),
     resolveCurrentParticipantId: () => {
       throw NEVER_REACHED("resolveCurrentParticipantId");
     },

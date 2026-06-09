@@ -35,6 +35,8 @@ import {
   RESOURCE_LABEL_MAX_LEN,
   RESOURCE_LIMIT_EXCEEDED_CODE,
   ResourceLimitExceededErrorSchema,
+  RUNTIME_NODE_ATTACH_CONFLICT_CODE,
+  RUNTIME_NODE_ATTACH_REVOKED_CODE,
   VERSION_CEILING_EXCEEDED_CODE,
   VERSION_FLOOR_EXCEEDED_CODE,
   VERSION_STRING_MAX_LEN,
@@ -505,5 +507,45 @@ describe("VersionCeilingExceededErrorSchema", () => {
     const broken = { ...buildValidCeilingError(), message: `bad${NUL}message` };
     const result = VersionCeilingExceededErrorSchema.safeParse(broken);
     expect(result.success).toBe(false);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Runtime-node attach-time refusal codes (Plan-003 Phase 3, T3.2)
+// ----------------------------------------------------------------------------
+//
+// `runtimenode.attach_conflict` (P9 / I-003-5, transient) and
+// `runtimenode.attach_revoked` (P10, terminal) are code+message-only — no
+// Details/Schema/Error envelope, per the registry-only 409 convention (no AC
+// needs structured details and a conflicting-session-id detail would risk
+// cross-session info-leak). There is therefore no `*Schema` to round-trip; the
+// contract these constants ship is the EXACT wire string each emits, which the
+// control-plane `RuntimeNodeAttach{Conflict,Revoked}Exception.code` literals
+// (runtime-nodes/errors.ts) project onto the wire envelope. This suite pins the
+// literal values so a typo in either constant fails CI before it reaches the
+// service layer (mirrors the `RESOURCE_LIMIT_EXCEEDED_CODE` literal assertion
+// at line 64). The domain token `runtimenode` deliberately matches the method
+// namespace (`runtimenode.attach`) and AVOIDS the `runtime_node.*` durable
+// event-name namespace (separator differs) so an error code can never collide
+// with an event name (error.ts header; error-contracts.md §Runtime Node).
+describe("runtime-node attach-conflict codes (Plan-003 T3.2)", () => {
+  it("exposes the conflict code as the literal `runtimenode.attach_conflict`", () => {
+    expect(RUNTIME_NODE_ATTACH_CONFLICT_CODE).toBe("runtimenode.attach_conflict");
+  });
+
+  it("exposes the revoked code as the literal `runtimenode.attach_revoked`", () => {
+    expect(RUNTIME_NODE_ATTACH_REVOKED_CODE).toBe("runtimenode.attach_revoked");
+  });
+
+  it("uses the `runtimenode` (no-underscore) domain token, distinct from the runtime_node.* event namespace", () => {
+    // The two error codes must NOT collide with any `runtime_node.*` durable
+    // event-type name. The discriminating fact is the domain separator: the
+    // error namespace is `runtimenode` (no underscore), the event namespace is
+    // `runtime_node` (underscore). Assert both codes carry the no-underscore
+    // token and neither begins with the underscore form.
+    for (const code of [RUNTIME_NODE_ATTACH_CONFLICT_CODE, RUNTIME_NODE_ATTACH_REVOKED_CODE]) {
+      expect(code.startsWith("runtimenode.")).toBe(true);
+      expect(code.startsWith("runtime_node.")).toBe(false);
+    }
   });
 });

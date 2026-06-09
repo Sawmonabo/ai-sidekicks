@@ -11,11 +11,13 @@
 //
 // This file pins the canonical-path runner properties:
 //
-//   R1 — `applyMigrations()` against a fresh database applies BOTH v1 AND v2,
-//        leaving exactly two `schema_migrations` rows and the v2 table
-//        (`session_invites`) materialized. Catches a regression that either
-//        drops a version from the `MIGRATIONS` array or hardcodes the runner
-//        back to v1 only.
+//   R1 — `applyMigrations()` against a fresh database applies EVERY registered
+//        version (v1, v2, AND Plan-003's v3), leaving exactly three
+//        `schema_migrations` rows and every migration's deliverable table
+//        materialized: v2's `session_invites` plus v3's
+//        `runtime_node_attachments` + `runtime_node_presence`. Catches a
+//        regression that either drops a version from the `MIGRATIONS` array or
+//        hardcodes the runner back to v1 only.
 //   R2 — `applyMigrations()` is idempotent at the canonical-path layer:
 //        re-calling on an already-fully-migrated database is a no-op (no throw,
 //        no duplicate `schema_migrations` rows, no perturbed anchor data).
@@ -24,6 +26,12 @@
 //        — that test pins the SQL itself stays self-idempotent under repeated
 //        direct `tx.exec()`; THIS test pins the runner loop's outer-probe
 //        short-circuit.
+//
+// Plan-003 PR #145 cross-plan amendment: registering migration v3 in the runner
+// (the runner header already names Plan-003 as the v3 registrant — same
+// in-place extension pattern Plan-002 Amendment 2 used for v2) forces this
+// Plan-001/002-owned regression file forward. R1/R2 are extended for v3 and the
+// two runtime-node tables (`runtime_node_attachments` + `runtime_node_presence`).
 //
 // ----------------------------------------------------------------------------
 // PGlite -> Querier adapter (local copy)
@@ -35,10 +43,12 @@
 // package-level fixture because (a) the cross-plan amendment scope keeps
 // test fixtures local to avoid widening the surface, and (b) the helper is
 // small enough that an `internal/` extraction would add more indirection
-// than it removes for a now-three-call-site footprint.
+// than it removes; if the call-site count grows further, revisit the
+// extraction trade-off.
 //
 // Refs: Plan-002 PR #102 Cross-Plan Amendment 2; Plan-001 Phase 4 PR #10
-// (original v1-only `applyMigrations()` introduction).
+// (original v1-only `applyMigrations()` introduction); Plan-003 PR #145
+// extends R1/R2 for migration v3 (runtime_node_attachments + runtime_node_presence).
 
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -127,7 +137,7 @@ afterEach(async () => {
 // ----------------------------------------------------------------------------
 
 describe("applyMigrations — per-version loop applies all registered migrations", () => {
-  it("populates schema_migrations with v1 + v2 rows AND materializes session_invites", async () => {
+  it("populates schema_migrations with v1 + v2 + v3 rows AND materializes every migration's tables", async () => {
     // Fresh DB pre-condition: no schema_migrations table exists yet (the
     // first migration creates it). Anchored so a regression that pre-seeds
     // the test fixture would surface here.
@@ -145,42 +155,72 @@ describe("applyMigrations — per-version loop applies all registered migrations
 
     await applyMigrations(ctx.querier);
 
-    // (a) schema_migrations carries BOTH version anchor rows. A regression
-    // that drops v2 from the MIGRATIONS array or reverts the runner to a
-    // hardcoded v1-only shape would surface here as `toHaveLength(1)`.
+    // (a) schema_migrations carries ALL THREE version anchor rows. A regression
+    // that drops v2 or v3 from the MIGRATIONS array or reverts the runner to a
+    // hardcoded v1-only shape would surface here as `toHaveLength(1)` (or 2).
     const versionProbe = await ctx.querier.query<{ version: number; description: string }>(
       "SELECT version, description FROM schema_migrations ORDER BY version ASC",
     );
-    expect(versionProbe.rows).toHaveLength(2);
+    expect(versionProbe.rows).toHaveLength(3);
     const v1Row = versionProbe.rows[0];
     const v2Row = versionProbe.rows[1];
+    const v3Row = versionProbe.rows[2];
     expect(v1Row).toBeDefined();
     expect(v2Row).toBeDefined();
-    if (v1Row === undefined || v2Row === undefined) return;
+    expect(v3Row).toBeDefined();
+    if (v1Row === undefined || v2Row === undefined || v3Row === undefined) return;
     expect(v1Row.version).toBe(1);
     expect(v2Row.version).toBe(2);
+    expect(v3Row.version).toBe(3);
     // Description strings pinned as a secondary anchor — `hasMigrationApplied`
     // keys on `version` alone, so a regression that quietly swapped the
     // description (e.g., a copy-paste error in a future migration) would
     // slip past version-only probes but surface here.
     expect(v1Row.description).toBe("Initial schema");
     expect(v2Row.description).toBe("Session invites table");
+    expect(v3Row.description).toBe("Runtime node attachments and presence");
 
-    // (b) session_invites table (v2's deliverable) is materialized. A
-    // regression where the v2 INSERT row landed in schema_migrations but
-    // the DDL was skipped (impossible under the current per-version-
-    // transaction shape but worth pinning) would surface here.
-    const tableProbe = await ctx.querier.query<{ exists: boolean }>(
+    // (b) every registered migration's deliverable table is materialized
+    // through the runner. A regression where a version's INSERT row landed in
+    // schema_migrations but its DDL was skipped (impossible under the current
+    // per-version-transaction shape but worth pinning) would surface here. v2
+    // ships `session_invites`; Plan-003 v3 ships `runtime_node_attachments` +
+    // `runtime_node_presence`.
+    const inviteTableProbe = await ctx.querier.query<{ exists: boolean }>(
       `SELECT EXISTS (
          SELECT 1 FROM information_schema.tables
           WHERE table_schema = 'public'
             AND table_name = 'session_invites'
        ) AS exists`,
     );
-    const tableRow = tableProbe.rows[0];
-    expect(tableRow).toBeDefined();
-    if (tableRow === undefined) return;
-    expect(tableRow.exists).toBe(true);
+    const inviteTableRow = inviteTableProbe.rows[0];
+    expect(inviteTableRow).toBeDefined();
+    if (inviteTableRow === undefined) return;
+    expect(inviteTableRow.exists).toBe(true);
+
+    const attachTableProbe = await ctx.querier.query<{ exists: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1 FROM information_schema.tables
+          WHERE table_schema = 'public'
+            AND table_name = 'runtime_node_attachments'
+       ) AS exists`,
+    );
+    const attachTableRow = attachTableProbe.rows[0];
+    expect(attachTableRow).toBeDefined();
+    if (attachTableRow === undefined) return;
+    expect(attachTableRow.exists).toBe(true);
+
+    const presenceTableProbe = await ctx.querier.query<{ exists: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1 FROM information_schema.tables
+          WHERE table_schema = 'public'
+            AND table_name = 'runtime_node_presence'
+       ) AS exists`,
+    );
+    const presenceTableRow = presenceTableProbe.rows[0];
+    expect(presenceTableRow).toBeDefined();
+    if (presenceTableRow === undefined) return;
+    expect(presenceTableRow.exists).toBe(true);
   });
 });
 
@@ -190,7 +230,7 @@ describe("applyMigrations — per-version loop applies all registered migrations
 
 describe("applyMigrations — canonical-path idempotency on re-call", () => {
   it("re-calling applyMigrations on a fully-migrated database is a no-op", async () => {
-    // First call bootstraps v1 + v2 (verified by R1 above; here it's the
+    // First call bootstraps v1 + v2 + v3 (verified by R1 above; here it's the
     // ARRANGE step, not the SUT).
     await applyMigrations(ctx.querier);
 
@@ -201,11 +241,11 @@ describe("applyMigrations — canonical-path idempotency on re-call", () => {
     // a PK violation (duplicate INSERT into schema_migrations).
     await expect(applyMigrations(ctx.querier)).resolves.toBeUndefined();
 
-    // Row counts unchanged: exactly two rows, exactly the two expected
+    // Row counts unchanged: exactly three rows, exactly the three expected
     // versions, no duplicates.
     const probe = await ctx.querier.query<{ version: number }>(
       "SELECT version FROM schema_migrations ORDER BY version ASC",
     );
-    expect(probe.rows).toEqual([{ version: 1 }, { version: 2 }]);
+    expect(probe.rows).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }]);
   });
 });

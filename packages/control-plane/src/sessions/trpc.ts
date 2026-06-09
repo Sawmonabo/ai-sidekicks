@@ -20,21 +20,25 @@
 //
 // `errorFormatter` extension (Plan-001 AC8): the formatter projects typed
 // exceptions thrown inside procedure handlers onto a stable
-// `shape.data.aisError = { code, message, details }` envelope so downstream
-// SDK consumers (Plan-005) can branch on the canonical Spec-001 wire code.
-// Today the formatter has one branch (`ResourceLimitExceededException`);
-// Plan-002+ typed exceptions reuse the same hook by adding an `instanceof`
-// branch per error type. If 3+ branches accumulate, refactor the thrown
-// classes into an `AisWireException` base class so the formatter matches a
-// single `instanceof` per `error-contracts.md` §Future Shape.
+// `shape.data.aisError = { code, message, details? }` envelope so downstream
+// SDK consumers (Plan-005) can branch on the canonical wire code. The formatter
+// matches a SINGLE `instanceof AisWireException` (`../ais-wire-exception.ts`) —
+// the cross-domain base — so EVERY subclass projects uniformly: the
+// session-domain `ResourceLimitExceededException` (`./errors.ts`) and the
+// runtime-node-domain refusals (`../runtime-nodes/errors.ts` — the attach /
+// revoked / capability-update conflicts + the version-floor write-refusal).
+// A detail-carrying subclass emits `{code, message, details}`; a
+// code+message-only subclass (`details === undefined`) emits `{code, message}`.
+// New typed exceptions join by extending `AisWireException` — no formatter
+// change needed (the base `instanceof` already matches them).
 //
-// Refs: docs/decisions/014-trpc-control-plane-api.md, Spec-001 §Limit Enforcement
+// Refs: docs/decisions/014-trpc-control-plane-api.md, Spec-001 §Limit
+// Enforcement, error-contracts.md §Runtime Node + §Version,
+// ../ais-wire-exception.ts (the single match-type this formatter projects).
 
 import { initTRPC, type TRPCRootObject, type TRPCRuntimeConfigOptions } from "@trpc/server";
 
-import type { ResourceLimitExceededDetails } from "@ai-sidekicks/contracts";
-
-import { ResourceLimitExceededException } from "./errors.js";
+import { AisWireException, type AisWireErrorDetails } from "../ais-wire-exception.js";
 import { SSE_HEARTBEAT_INTERVAL_MS } from "./session-subscribe-sse.js";
 
 export interface SessionRouterContext {
@@ -43,13 +47,17 @@ export interface SessionRouterContext {
 }
 
 // Wire-projected envelope appended to `shape.data` when a procedure throws
-// a typed control-plane exception. The Spec-001 envelope shape is
-// stable — keep the shape mirrored here verbatim so a `tsc` diff catches
+// a typed control-plane exception (any `AisWireException` subclass). `details`
+// is OPTIONAL: a detail-carrying exception (`ResourceLimitExceededException`)
+// projects its concrete `AisWireErrorDetails`, while a code+message-only
+// exception (the runtime-node refusals + the version-floor write-refusal)
+// omits the key entirely. Keep this shape mirrored against the canonical
+// `ErrorResponse` envelope (`details` optional) so a `tsc` diff catches
 // upstream contract drift at PR review.
 export interface SessionRouterAisError {
   readonly code: string;
   readonly message: string;
-  readonly details: ResourceLimitExceededDetails;
+  readonly details?: AisWireErrorDetails;
 }
 
 // `errorFormatter` mutates the inferred `Options` type slot. The explicit
@@ -72,12 +80,16 @@ export const t: TRPCRootObject<
   },
   errorFormatter({ shape, error }) {
     const cause: unknown = error.cause;
-    if (cause instanceof ResourceLimitExceededException) {
-      const aisError: SessionRouterAisError = {
-        code: cause.code,
-        message: cause.message,
-        details: cause.details,
-      };
+    if (cause instanceof AisWireException) {
+      // Construct WITHOUT an explicit `details: undefined` key — under
+      // `exactOptionalPropertyTypes`, omitting the key is distinct from
+      // assigning `undefined`, and the wire envelope must carry NO `details`
+      // field for a code+message-only exception (a code+message-only refusal's
+      // `cause.details` is `undefined`).
+      const aisError: SessionRouterAisError =
+        cause.details !== undefined
+          ? { code: cause.code, message: cause.message, details: cause.details }
+          : { code: cause.code, message: cause.message };
       return {
         ...shape,
         data: { ...shape.data, aisError },

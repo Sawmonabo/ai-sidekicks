@@ -37,9 +37,10 @@
 // ----------------------------------------------------------------------------
 //
 // The delta needs S1 (post-v1, pre-v2) and S2 (post-v2) as DISTINCT snapshots.
-// `applyMigrations()` iterates `MIGRATIONS = [v1, v2]` and applies BOTH in one
-// call (Plan-002 Amendment 2, PR #102), which would collapse the two snapshots
-// into one. So — mirroring the stepwise pattern `0002-session-invites.test.ts`
+// `applyMigrations()` iterates `MIGRATIONS = [v1, v2, v3]` (Plan-002 Amendment
+// 2, PR #102; Plan-003 Phase 3, PR #145) and applies every pending version in
+// one call, which would collapse the two snapshots and also apply v3. So —
+// mirroring the stepwise pattern `0002-session-invites.test.ts`
 // already uses — `beforeEach` direct-execs `INITIAL_MIGRATION_SQL` (v1 only)
 // and each test direct-execs `SESSION_INVITES_MIGRATION_SQL` (v2) between the
 // two snapshots. Each exec is wrapped in a transaction so the migration body
@@ -126,7 +127,8 @@ beforeEach(async () => {
   // Fresh in-memory PGlite per test. Bootstraps ONLY v1 via direct
   // `tx.exec(INITIAL_MIGRATION_SQL)` so the FIRST snapshot below (S1) is the
   // post-v1, pre-v2 table set. Using `applyMigrations(querier)` here would
-  // pre-apply v2 (Amendment 2, PR #102) and collapse the delta. The
+  // pre-apply v2 (Amendment 2, PR #102) and v3 (Plan-003 Phase 3, PR #145),
+  // collapsing the delta. The
   // transaction wrapper mirrors the canonical `applyMigrations` atomicity
   // boundary.
   const pg: PGlite = new PGlite();
@@ -199,20 +201,22 @@ describe("migrations shape regression (P10 — v2 adds EXACTLY session_invites; 
     expect(probe.rows).toEqual([]);
   });
 
-  it("the canonical applyMigrations runner reaches the SAME shape as the stepwise apply (no extra tables)", async () => {
-    // Cross-path consistency: the stepwise direct-exec path (above) and the
-    // canonical `applyMigrations` runner-loop MUST converge on the same public
-    // table set. `beforeEach` already applied v1; calling `applyMigrations`
-    // here applies the remaining v2 through the production runner. The
-    // resulting table set must equal v1's set plus exactly `session_invites`.
-    // This pins that the runner does not introduce a table the stepwise SQL
-    // omits (or vice versa) — a divergence the narrow %presence% probe alone
-    // could not detect.
+  it("the canonical applyMigrations runner materializes the full registered-migration schema (v2 session_invites + v3 runtime-node tables)", async () => {
+    // Cross-plan amendment — Plan-003 Phase 3 (PR #145): the runner is THIS
+    // test's subject, so it KEEPS `applyMigrations` (tests 1 and 2 above stay
+    // direct-exec-v2 and are untouched). `beforeEach` direct-execs v1, so the
+    // runner now applies v2 AND Plan-003's v3 — the v1→full-set delta is the
+    // three registered tables, not one. This preserves the test's original
+    // cross-path charter: the runner output MUST equal the union of the stepwise
+    // migration SQLs (no table the per-version SQL omits, and vice versa). It
+    // now spans v2+v3; partly redundant with `migration-runner.test.ts` R1 and
+    // the co-located `0003-runtime-nodes.test.ts`, retained for the cross-path
+    // (runner-vs-stepwise) angle the narrow %presence% probe alone cannot detect.
     const s1: Set<string> = await snapshotPublicTables(ctx.querier);
     await applyMigrations(ctx.querier);
     const s2: Set<string> = await snapshotPublicTables(ctx.querier);
 
     const delta: string[] = [...s2].filter((tableName) => !s1.has(tableName)).sort();
-    expect(delta).toEqual(["session_invites"]);
+    expect(delta).toEqual(["runtime_node_attachments", "runtime_node_presence", "session_invites"]);
   });
 });
