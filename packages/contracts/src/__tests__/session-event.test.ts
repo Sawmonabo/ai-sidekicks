@@ -426,6 +426,14 @@ describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
 // hand-rolled tuple comparator exists to avoid would yield the opposite. They
 // are why the comparator parses MAJOR/MINOR as integers instead of comparing
 // strings (event.ts §compareEventEnvelopeVersion; ADR-018 §Decision #1).
+//
+// The precision cases below are the second load-bearing guard: the regex caps
+// neither segment's length, so a `Number` parse would collapse two distinct
+// versions above `Number.MAX_SAFE_INTEGER` to one float (and turn ~400-digit
+// segments into `Infinity`). The comparator parses with `BigInt`, so the
+// ordering stays EXACT at any magnitude. This matters at the version-floor gate
+// (attach-service.ts): a below-floor client whose version collapsed to the
+// floor's float would be mis-read as at-floor and wrongly granted read-write.
 describe("compareEventEnvelopeVersion", () => {
   const parseVersion = (raw: string) => EventEnvelopeVersionSchema.parse(raw);
 
@@ -465,6 +473,53 @@ describe("compareEventEnvelopeVersion", () => {
     // Lexical compare would give `"1.10" < "1.9"` (-> -1); numeric minor
     // 10 > 9 gives 1.
     expect(compareEventEnvelopeVersion(parseVersion("1.10"), parseVersion("1.9"))).toBe(1);
+  });
+
+  // ------------------------------------------------------------------
+  // Precision: BigInt compare is EXACT above Number.MAX_SAFE_INTEGER.
+  // ------------------------------------------------------------------
+  // A `Number` parse collapses adjacent integers past 9007199254740991 to one
+  // float, so a below-floor client could be mis-read as at-floor and granted
+  // read-write at the version-floor gate. These cases pin the exactness.
+
+  it("orders adjacent MAJORs above Number.MAX_SAFE_INTEGER (Number collapses both to one float)", () => {
+    // Number("9007199254740993") === Number("9007199254740992") === 9007199254740992,
+    // so a numeric compare returns 0; BigInt keeps them distinct -> 1 / -1.
+    expect(
+      compareEventEnvelopeVersion(
+        parseVersion("9007199254740993.0"),
+        parseVersion("9007199254740992.0"),
+      ),
+    ).toBe(1);
+    expect(
+      compareEventEnvelopeVersion(
+        parseVersion("9007199254740992.0"),
+        parseVersion("9007199254740993.0"),
+      ),
+    ).toBe(-1);
+  });
+
+  it("orders adjacent MINORs above Number.MAX_SAFE_INTEGER (same float-collapse, minor segment)", () => {
+    expect(
+      compareEventEnvelopeVersion(
+        parseVersion("1.9007199254740993"),
+        parseVersion("1.9007199254740992"),
+      ),
+    ).toBe(1);
+  });
+
+  it("orders ~400-digit MAJORs that both become Infinity under Number", () => {
+    // The regex caps neither segment, so these pass the brand. Number("9"*400)
+    // and Number("1" + "0"*400) both evaluate to Infinity (Infinity !== Infinity
+    // is false -> a numeric compare can't order them); BigInt orders exactly.
+    const fourHundredNines = "9".repeat(400);
+    const strictlyLarger = "1" + "0".repeat(400); // 401 digits > any 400-digit value
+    expect(
+      compareEventEnvelopeVersion(
+        parseVersion(`${strictlyLarger}.0`),
+        parseVersion(`${fourHundredNines}.0`),
+      ),
+    ).toBe(1);
   });
 
   it.each([

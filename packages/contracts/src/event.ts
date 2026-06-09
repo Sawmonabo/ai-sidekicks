@@ -151,22 +151,30 @@ export const EventEnvelopeVersionSchema: z.ZodType<EventEnvelopeVersion> = z
 // needless dependency.
 //
 // Inputs are brand-validated EventEnvelopeVersion, so the regex already
-// guarantees exactly two numeric, leading-zero-free segments: `split(".")`
-// yields a length-2 array of finite integers. The brand IS the proof of
-// well-formedness — this function does NOT re-validate (that would contradict
-// the brand). The guard against a malformed string lives at the PARSE boundary
-// (callers must `EventEnvelopeVersionSchema.parse`, never `as`-cast). A caller
-// that defeats the brand with a cast gets NaN ordering — that is the caller's
-// bug, pinned by the consumer's malformed-input test.
+// guarantees exactly two non-negative-integer, leading-zero-free segments:
+// `split(".")` yields a length-2 array of valid integer literals. The brand IS
+// the proof of well-formedness — this function does NOT re-validate (that would
+// contradict the brand). The guard against a malformed string lives at the
+// PARSE boundary (callers must `EventEnvelopeVersionSchema.parse`, never
+// `as`-cast). A caller that defeats the brand with a cast carrying a
+// NON-integer segment now THROWS (`SyntaxError` at `BigInt()`) instead of
+// silently mis-ordering — a fail-loud, not fail-silent, improvement: a wrong
+// answer from the version-floor gate becomes an exception at the boundary
+// rather than a covert admit.
 
 export function compareEventEnvelopeVersion(
   a: EventEnvelopeVersion,
   b: EventEnvelopeVersion,
 ): -1 | 0 | 1 {
-  // The `as [number, number]` is justified by the brand: the regex guarantees
-  // exactly two segments, each a finite integer.
-  const [aMajor, aMinor] = a.split(".").map(Number) as [number, number];
-  const [bMajor, bMinor] = b.split(".").map(Number) as [number, number];
+  // The `as [bigint, bigint]` is justified by the brand: the regex guarantees
+  // exactly two segments, each a valid non-negative integer literal. `BigInt`
+  // (not `Number`) makes the compare EXACT at arbitrary precision — no
+  // `Number.MAX_SAFE_INTEGER` collapse where two distinct large versions round
+  // to the same float, and no `Infinity` for astronomically long digit strings.
+  // That exactness is the point: the version floor reads this ordering, so an
+  // off-by-a-float result there is a security boundary, not a rounding nit.
+  const [aMajor, aMinor] = a.split(".").map(BigInt) as [bigint, bigint];
+  const [bMajor, bMinor] = b.split(".").map(BigInt) as [bigint, bigint];
   if (aMajor !== bMajor) return aMajor < bMajor ? -1 : 1;
   if (aMinor !== bMinor) return aMinor < bMinor ? -1 : 1;
   return 0;
