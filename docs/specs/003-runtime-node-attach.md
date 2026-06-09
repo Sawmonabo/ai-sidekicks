@@ -120,7 +120,7 @@ This spec covers runtime-node registration, capability declaration, health, and 
 - [ ] A participant can attach a local runtime node to an already active session.
 - [ ] A degraded or offline node remains distinguishable from a healthy online node.
 - [ ] Multiple runtime nodes can coexist in one session without changing session identity.
-- [ ] A daemon attaching with a version below the session's `min_client_version` is admitted in read-only state, surfaces typed `VERSION_FLOOR_EXCEEDED` on any subsequent write attempt, and is never ejected for the floor mismatch (per [ADR-018 §Decision #4](../decisions/018-cross-version-compatibility.md)).
+- [ ] A daemon attaching with a version below the session's `min_client_version` is admitted in read-only state, surfaces typed `VERSION_FLOOR_EXCEEDED` on any subsequent version-sensitive domain write (e.g. a capability declaration via `capabilityupdate`), and is never ejected for the floor mismatch (per [ADR-018 §Decision #4](../decisions/018-cross-version-compatibility.md)).
 
 ## ADR Triggers
 
