@@ -59,9 +59,9 @@ import { AisWireException } from "../ais-wire-exception.js";
  *      layer; the service catches that and rethrows this typed refusal. TRANSIENT
  *      — the node may attach elsewhere once it detaches from its current active
  *      session.
- *   2. Cross-owner same-session reconnect (Spec-003 line 109 — a reconnect is the
+ *   2. Cross-owner same-session reconnect (Spec-003 line 116 — a reconnect is the
  *      same local daemon, so the owner participant is IMMUTABLE; Spec-003 line
- *      116 — never destroy historical node provenance on reconnect). A DIFFERENT
+ *      123 — never destroy historical node provenance on reconnect). A DIFFERENT
  *      participant attempts to reattach to an existing `(node_id, session_id)` row
  *      owned by another participant. The upsert's DO UPDATE
  *      `WHERE ... participant_id = EXCLUDED.participant_id` suppresses the update
@@ -154,14 +154,14 @@ export class RuntimeNodeCapabilityUpdateConflictException extends AisWireExcepti
  * one admitted READ-ONLY at attach because its `clientVersion` is below the
  * session's `min_client_version` floor (T3.3) — attempts the capability WRITE.
  * This is the typed `VERSION_FLOOR_EXCEEDED` write-refusal (I-003-1 / ADR-018
- * §Decision #4 / Spec-003 line 123): the node was admitted (admit-not-eject) and
+ * §Decision #4 / Spec-003 line 130): the node was admitted (admit-not-eject) and
  * its reads succeed, but the write is refused. The throw rolls the transaction
  * back, leaving the attachment row byte-for-byte unchanged, so the node stays
  * JOINED — never ejected for the floor mismatch.
  *
  * Code+message-only (NO `details`) — and this is DELIBERATE, not an oversight
  * (Option A, advisor-reviewed + user-ratified):
- *   - Spec-003 line 123 and ADR-018 §Decision #4 mandate only a TYPED
+ *   - Spec-003 line 130 and ADR-018 §Decision #4 mandate only a TYPED
  *     `VERSION_FLOOR_EXCEEDED` on write — neither requires structured details.
  *   - The strict `VersionBoundExceededDetails` schema in `@ai-sidekicks/contracts`
  *     (which the `VersionFloorExceededError` HTTP `ErrorResponse` sibling carries

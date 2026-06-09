@@ -18,7 +18,7 @@
 //        (`information_schema.columns`, sorted).
 //   P4 — `state` CHECK accepts EXACTLY the five lifecycle states
 //        {registering, online, degraded, offline, revoked} and rejects an
-//        out-of-set value (Spec-003 line 91; `state` CHECK in
+//        out-of-set value (Spec-003 line 98; `state` CHECK in
 //        `shared-postgres-schema.md` §Runtime Node Attachments).
 //   P5 — `health_state` CHECK on `runtime_node_presence` accepts {online,
 //        degraded, offline} and rejects an out-of-set value.
@@ -353,7 +353,7 @@ describe("0003-runtime-nodes migration (P3 — exact column set)", () => {
 // ----------------------------------------------------------------------------
 
 describe("0003-runtime-nodes migration (P4 — state CHECK pins {registering, online, degraded, offline, revoked})", () => {
-  // Spec-003 line 91 + the `state` CHECK in shared-postgres-schema.md §Runtime
+  // Spec-003 line 98 + the `state` CHECK in shared-postgres-schema.md §Runtime
   // Node Attachments: the attachment lifecycle is EXACTLY {registering, online,
   // degraded, offline, revoked}. Each valid state is inserted with a DISTINCT
   // node_id so the partial-active unique index (which constrains the active
@@ -367,7 +367,7 @@ describe("0003-runtime-nodes migration (P4 — state CHECK pins {registering, on
   });
 
   for (const [index, state] of VALID_STATES.entries()) {
-    it(`accepts state = '${state}' (canonical lifecycle per Spec-003 line 91)`, async () => {
+    it(`accepts state = '${state}' (canonical lifecycle per Spec-003 line 98)`, async () => {
       await expect(
         ctx.querier.query(
           `INSERT INTO runtime_node_attachments

@@ -35,7 +35,7 @@
 // `-- Owner: Plan-003` stamps in the canonical schema):
 //
 //   * runtime_node_attachments — durable runtime-node attach records for
-//                       reconnect/audit (Spec-003 line 91). FK references
+//                       reconnect/audit (Spec-003 line 98). FK references
 //                       `sessions(id)` and `participants(id)` — BOTH ship in
 //                       v1 (`0001-initial`), so both FKs resolve at this
 //                       migration's CREATE-time per shared-postgres-schema.md
@@ -114,7 +114,7 @@ CREATE TABLE runtime_node_attachments (
 CREATE INDEX idx_node_attachments_session ON runtime_node_attachments(session_id);
 CREATE INDEX idx_node_attachments_participant ON runtime_node_attachments(participant_id);
 CREATE UNIQUE INDEX idx_node_attachments_node ON runtime_node_attachments(node_id, session_id);
--- One-active-session enforcement (Plan-003 I-003-5; Spec-003 line 133 — "one active session at a time in v1"):
+-- One-active-session enforcement (Plan-003 I-003-5; Spec-003 line 140 — "one active session at a time in v1"):
 -- a node has at most one attachment in an active state across all sessions. The partial UNIQUE constrains
 -- only active-state rows, so an inactive ('offline' or 'revoked') row does not block a later (re)attach at
 -- the index level. Reattach eligibility is then a T3.2 application decision: an 'offline' row is reactivated
