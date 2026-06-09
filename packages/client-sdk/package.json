@@ -31,6 +31,7 @@
   },
   "devDependencies": {
     "@ai-sidekicks/control-plane": "workspace:*",
+    "@electric-sql/pglite": "^0.4.4",
     "@trpc/server": "^11.17.0",
     "vitest": "catalog:testing"
   }
