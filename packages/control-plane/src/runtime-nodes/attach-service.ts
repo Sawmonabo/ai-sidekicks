@@ -19,8 +19,13 @@
 //         boundaries).
 //       - P9 (single active attachment — I-003-5): a node already actively
 //         attached to ANOTHER session is refused with the typed
-//         `RuntimeNodeAttachConflictException`; a reconnect of a node whose row
-//         for THIS session is `offline` reactivates it (offline -> registering).
+//         `RuntimeNodeAttachConflictException`; a SAME-OWNER reconnect of a node
+//         whose row for THIS session is `offline` reactivates it (offline ->
+//         registering). The owner participant is IMMUTABLE across reconnect
+//         (Spec-003 line 109 — a reconnect is the same daemon), so a DIFFERENT
+//         participant reconnecting to that row is REFUSED with the same typed
+//         `RuntimeNodeAttachConflictException` rather than overwriting the owner
+//         (Spec-003 line 116 — never destroy historical node provenance).
 //       - P10 (revocation is terminal): a re-attach against a row in the
 //         terminal `revoked` state for THIS session is refused with the typed
 //         `RuntimeNodeAttachRevokedException` — never reactivated.
@@ -53,7 +58,7 @@
 //         requires a successful daemon-side capability declaration (Spec-003
 //         line 57), and the control plane is not the declaration authority
 //         (Spec-003 line 52).
-//     A no-active-attachment request (a late update racing a detach / sweep) is
+//     A no-active-attachment request (a late update racing a detach / revoke) is
 //     the third refusal — also the typed conflict, never a null no-op. A thrown
 //     refusal rolls the transaction back, so a refused update leaves
 //     `runtime_node_attachments` byte-for-byte unchanged.
@@ -137,8 +142,11 @@
 // revoke membership by default — I-003-3), line 57 (the node declares its
 // capabilities — updateCapabilities), line 69 (an explicit `detach` retires
 // the node), line 70 (`revoked` is authority-issued, never self-asserted),
-// line 123 (below-floor writes are refused VERSION_FLOOR_EXCEEDED — the T3.9
-// write-gate); Plan-003 §Invariants I-003-1 (admit below-floor read-only,
+// line 109 (node identity is stable across reconnect if the same daemon
+// reattaches — the owner is immutable) / line 116 (§Pitfalls — never destroy
+// historical node provenance when a node reconnects: the cross-owner reconnect
+// refusal), line 123 (below-floor writes are refused VERSION_FLOOR_EXCEEDED — the
+// T3.9 write-gate); Plan-003 §Invariants I-003-1 (admit below-floor read-only,
 // write-refuse, never eject) / I-003-2 (the control plane cannot drive a node
 // registering -> online — the updateCapabilities guard) / I-003-3 (no
 // session_memberships mutation, attach AND detach) / I-003-5 (single active
@@ -195,8 +203,10 @@ const ACTIVE_ATTACHMENT_INDEX = "idx_node_attachments_active";
 const UNIQUE_VIOLATION_SQLSTATE = "23505";
 
 // The terminal liveness state a `revoked` attachment row carries. A re-attach
-// against a row in this state is refused (P10); every OTHER non-active state
-// (only `offline` in practice) is reactivated by the upsert's DO UPDATE.
+// against a row in this state is refused (P10); a non-active `offline` row is
+// reactivated by the upsert's DO UPDATE ONLY when the reconnecting participant is
+// the row's existing owner (a cross-owner reconnect is suppressed instead — the
+// owner is immutable, Spec-003 line 109/116).
 const REVOKED_STATE: NodeState = "revoked";
 
 // The liveness state a freshly-admitted / reactivated attachment enters. The
@@ -288,8 +298,12 @@ export class AttachService {
    *   malformed `clientVersion` or unknown key) before touching the database,
    *   mirroring MembershipService.updateMembership's boundary parse.
    * @returns the `RuntimeNodeAttachResponse` projection of the upserted row.
-   * @throws RuntimeNodeAttachConflictException when the node is already actively
-   *   attached to a DIFFERENT session (P9 / I-003-5 — the active-index `23505`).
+   * @throws RuntimeNodeAttachConflictException in TWO cases: (1) the node is
+   *   already actively attached to a DIFFERENT session (P9 / I-003-5 — the
+   *   active-index `23505`); and (2) a DIFFERENT participant attempts to reconnect
+   *   to an existing `(node_id, session_id)` row whose owner is another
+   *   participant (the owner is immutable across reconnect — Spec-003 line 109 —
+   *   so a cross-owner reconnect is refused rather than overwriting the owner).
    * @throws RuntimeNodeAttachRevokedException when the node's row for THIS
    *   session is in the terminal `revoked` state (P10).
    *
@@ -297,17 +311,24 @@ export class AttachService {
    *   1. Read the session's `min_client_version` floor.
    *   2. Derive `readOnly` from (floor, clientVersion) via `#deriveReadOnly`.
    *   3. Upsert the attachment row — `INSERT ... ON CONFLICT (node_id,
-   *      session_id) DO UPDATE ... WHERE state <> 'revoked' RETURNING`. The
-   *      conflict arbiter is the TOTAL `idx_node_attachments_node` unique; the
-   *      DO UPDATE reactivates an `offline` row (P9 reconnect) and is SUPPRESSED
-   *      for a `revoked` row (its WHERE is false), yielding zero RETURNING rows.
+   *      session_id) DO UPDATE ... WHERE state <> 'revoked' AND participant_id =
+   *      EXCLUDED.participant_id RETURNING`. The conflict arbiter is the TOTAL
+   *      `idx_node_attachments_node` unique; the DO UPDATE reactivates a
+   *      same-owner `offline` row (P9 reconnect) and is SUPPRESSED — yielding zero
+   *      RETURNING rows — for a `revoked` row (P10) OR a row owned by a different
+   *      participant (cross-owner reconnect). `participant_id` is NOT in the SET,
+   *      so the owner is never reassigned (Spec-003 line 116 — never destroy node
+   *      provenance on reconnect).
    *   4a. Non-empty RETURNING -> map the row to the response (the admit /
-   *       reconnect happy path, P1 / P9 reconnect).
-   *   4b. Empty RETURNING -> the DO UPDATE was suppressed: verify the existing
-   *       row for THIS session is `revoked` and throw the terminal refusal
-   *       (P10). A genuinely-absent row (no conflict, so the INSERT would have
-   *       inserted and RETURNING would be non-empty) cannot reach this branch;
-   *       the verify-SELECT defends the substrate-generality edge.
+   *       same-owner reconnect happy path, P1 / P9 reconnect).
+   *   4b. Empty RETURNING -> the DO UPDATE was suppressed: re-read the existing
+   *       row for THIS session and discriminate the THREE causes in order —
+   *       (a) `revoked` -> the terminal refusal (P10), checked first because
+   *       revocation is terminal regardless of caller; (b) cross-owner -> the
+   *       typed conflict refusal; (c) neither -> a hard error (impossible state).
+   *       A genuinely-absent row (no conflict, so the INSERT would have inserted
+   *       and RETURNING would be non-empty) cannot reach this branch; the
+   *       verify-SELECT defends the substrate-generality edge.
    *   5. A `23505` on `idx_node_attachments_active` — a SECOND active attach for
    *      this node in ANOTHER session — is caught and rethrown as the typed
    *      conflict refusal (P9 cross-session). It can arise from the INSERT (a
@@ -346,9 +367,20 @@ export class AttachService {
       // unique (`idx_node_attachments_node`); `capabilities` is a JS object
       // bound to the JSONB column (both `pg` and PGlite serialize an object
       // parameter to JSON for a JSONB column); `client_version` (the branded
-      // MAJOR.MINOR string) is stored as TEXT. The DO UPDATE's
-      // `WHERE state <> 'revoked'` reactivates an `offline` row (P9 reconnect)
-      // and is SUPPRESSED for a `revoked` row (P10 -> zero RETURNING rows).
+      // MAJOR.MINOR string) is stored as TEXT. The DO UPDATE's WHERE has TWO
+      // suppressing conditions:
+      //   - `state <> 'revoked'` — reactivates an `offline` row (P9 reconnect)
+      //     and is SUPPRESSED for a `revoked` row (P10 -> zero RETURNING rows).
+      //   - `participant_id = EXCLUDED.participant_id` — the owner participant is
+      //     IMMUTABLE across reconnect: a reconnect is the SAME local daemon
+      //     (Spec-003 line 109), so a DIFFERENT participant attempting to reattach
+      //     to this `(node_id, session_id)` row is SUPPRESSED (-> zero RETURNING
+      //     rows), the same zero-row mechanism the revoked case uses. This is why
+      //     `participant_id` is NOT in the SET list: reassigning the owner on a
+      //     cross-owner reconnect would destroy node provenance (Spec-003 line
+      //     116 — never destroy historical node provenance when a node reconnects).
+      // (`EXCLUDED.participant_id` in a DO UPDATE WHERE is valid Postgres — it
+      // refers to the would-be-inserted row's value.)
       //
       // `validated.healthState` is parsed at the boundary but DELIBERATELY NOT
       // persisted here: `state` is hard-pinned to `registering` (Spec-003 line 57
@@ -363,11 +395,11 @@ export class AttachService {
              (session_id, participant_id, node_id, capabilities, client_version, state)
            VALUES ($1, $2, $3, $4, $5, $6)
            ON CONFLICT (node_id, session_id) DO UPDATE
-             SET participant_id = EXCLUDED.participant_id,
-                 capabilities   = EXCLUDED.capabilities,
+             SET capabilities   = EXCLUDED.capabilities,
                  client_version = EXCLUDED.client_version,
                  state          = $6
            WHERE runtime_node_attachments.state <> $7
+             AND runtime_node_attachments.participant_id = EXCLUDED.participant_id
            RETURNING id, state, attached_at`,
           [
             validated.sessionId,
@@ -412,30 +444,52 @@ export class AttachService {
 
       const upsertedRow: AttachmentRow | undefined = upserted.rows[0];
 
-      // (4b) Zero RETURNING rows => the DO UPDATE was suppressed by
-      // `WHERE state <> 'revoked'`, i.e. the existing row for THIS session is in
-      // the terminal `revoked` state (P10 — revocation is terminal). Verify that
-      // explicitly (a successful zero-row update does NOT abort the transaction,
-      // so this read is safe) so a genuinely-absent row is not mis-reported as
-      // revoked. The message names the caller's OWN `sessionId` (the session
-      // whose attachment was revoked) — no other session's identity is disclosed.
+      // (4b) Zero RETURNING rows => the DO UPDATE was suppressed by its WHERE,
+      // which now has TWO suppressing conditions, so the existing row for THIS
+      // session is in ONE of three states (a successful zero-row update does NOT
+      // abort the transaction, so this read is safe). Re-read `state` AND
+      // `participant_id` and discriminate the three causes IN ORDER:
+      //   (a) revoked-first — the existing row is `revoked`. Terminal REGARDLESS
+      //       of who probes it (the owner reconnecting OR another participant), so
+      //       it is checked first and unconditionally: revocation is terminal
+      //       (P10). The message names the caller's OWN `sessionId` — no other
+      //       session's identity is disclosed.
+      //   (b) cross-owner — the existing row is owned by a DIFFERENT participant
+      //       (its `participant_id` differs from the caller's). A reconnect is the
+      //       same daemon (Spec-003 line 109), so the owner is IMMUTABLE; a
+      //       different participant attempting to reattach to this `(node_id,
+      //       session_id)` row is refused with the typed conflict. The message
+      //       names `nodeId` + the caller's OWN `sessionId` ONLY — never the
+      //       owning `participant_id` (no cross-owner info-leak).
+      //   (c) impossible — neither cause holds (and a row MUST exist: the upsert
+      //       hit ON CONFLICT, so a matching row is present). Surface it as a hard
+      //       error rather than masquerading as a typed refusal.
       if (upsertedRow === undefined) {
-        const existingProbe = await transaction.query<{ state: string }>(
-          "SELECT state FROM runtime_node_attachments WHERE node_id = $1 AND session_id = $2",
+        const existingProbe = await transaction.query<{ state: string; participant_id: string }>(
+          "SELECT state, participant_id FROM runtime_node_attachments WHERE node_id = $1 AND session_id = $2",
           [validated.nodeId, validated.sessionId],
         );
-        const existingRow: { state: string } | undefined = existingProbe.rows[0];
+        const existingRow: { state: string; participant_id: string } | undefined =
+          existingProbe.rows[0];
         if (existingRow !== undefined && existingRow.state === REVOKED_STATE) {
+          // (a) revoked-first — terminal regardless of caller.
           throw new RuntimeNodeAttachRevokedException(
             `Runtime node ${String(validated.nodeId)}'s attachment to session ${String(validated.sessionId)} was revoked; revocation is terminal.`,
           );
         }
-        // Defensive: a zero-row upsert with no revoked row is an impossible
-        // substrate state (the conflict either updated a non-revoked row -> one
-        // RETURNING row, or inserted a fresh row -> one RETURNING row). Surface
-        // it as a hard error rather than masquerading as a revoked refusal.
+        if (existingRow !== undefined && existingRow.participant_id !== validated.participantId) {
+          // (b) cross-owner — the owner is immutable across reconnect.
+          throw new RuntimeNodeAttachConflictException(
+            `Runtime node ${String(validated.nodeId)} is attached to session ${String(validated.sessionId)} under a different participant and cannot be reattached by another participant.`,
+          );
+        }
+        // (c) Defensive: a zero-row upsert that is neither revoked nor cross-owner
+        // is an impossible substrate state (the conflict either updated a
+        // same-owner non-revoked row -> one RETURNING row, or inserted a fresh row
+        // -> one RETURNING row). Surface it as a hard error rather than
+        // masquerading as a typed refusal.
         throw new Error(
-          `AttachService.attach: upsert returned no row for node ${String(validated.nodeId)} in session ${String(validated.sessionId)} and no revoked row was found.`,
+          `AttachService.attach: upsert returned no row for node ${String(validated.nodeId)} in session ${String(validated.sessionId)} and no revoked or cross-owner row was found.`,
         );
       }
 
@@ -590,8 +644,13 @@ export class AttachService {
    *   §Decision #4 / Spec-003 line 123). The node is NOT ejected — the throw
    *   rolls back, leaving its attachment row byte-for-byte unchanged.
    * @throws RuntimeNodeCapabilityUpdateConflictException in two cases, both 409:
-   *   (1) no active attachment exists (a late update racing a `detach` / the
-   *   staleness sweep — there is no `{nodeId, state, updatedAt}` to return); and
+   *   (1) no active attachment exists — the SLOT axis was retired by a `detach`
+   *   or `revoke` (there is no `{nodeId, state, updatedAt}` to return). A
+   *   liveness-only T3.6 staleness sweep does NOT trigger this refusal: the sweep
+   *   writes only `runtime_node_presence.health_state` and leaves the attachment
+   *   SLOT active, so a swept-offline-but-still-attached node IS still resolved by
+   *   the active-band lookup and CAN still receive a capability update (the two
+   *   axes reconcile at READ time — Spec-003 line 72); and
    *   (2) the I-003-2 guard — the request would drive a `registering` attachment
    *   to `online` (bringing a node online requires a daemon-side capability
    *   declaration; the control plane is not the declaration authority —
@@ -667,12 +726,15 @@ export class AttachService {
       // `idx_node_attachments_active` partial-index predicate
       // (`0003-runtime-nodes.ts`): I-003-5 guarantees <=1 active row per node
       // across all sessions, so `nodeId` alone resolves it (the request carries
-      // no `sessionId`), and the band EXCLUDES the inactive states (`offline`,
-      // `revoked`) so a late update against a detached / swept / revoked node
-      // matches no row (the typed refusal below). FOR UPDATE locks the row for
-      // the transaction's duration so a concurrent detach / sweep cannot retire
-      // it between this read and the UPDATE below. Single-table query, so the
-      // lock covers only the attachment row.
+      // no `sessionId`), and the band EXCLUDES the inactive SLOT states
+      // (`offline`, `revoked`) so a late update against a row whose slot was
+      // retired (by `detach` or `revoke`) matches no row (the typed refusal
+      // below). A liveness-only T3.6 staleness sweep does NOT retire the slot (it
+      // writes only `runtime_node_presence.health_state`), so a swept node keeps
+      // an active slot and still matches this band. FOR UPDATE locks the row for
+      // the transaction's duration so a concurrent detach cannot retire it
+      // between this read and the UPDATE below. Single-table query, so the lock
+      // covers only the attachment row.
       //
       // `client_version` (the version the daemon declared at attach) and
       // `session_id` (to read THIS session's current floor) are selected here
@@ -697,11 +759,15 @@ export class AttachService {
       // (2) No active attachment -> typed 409 refusal (NOT a 500, NOT a null
       // no-op). capabilityupdate MUST return `{nodeId, state, updatedAt}`; with
       // no active row there is no state to return. This is a legitimate
-      // production race — a late update arriving after a `detach` retired the
-      // node, or after the T3.6 staleness sweep marked it offline — and mirrors
-      // attach's defensive posture (the service does not assume the router
-      // pre-validated liveness). The message names `nodeId` ONLY (no session, no
-      // state — no info-leak).
+      // production race — a late update arriving after a `detach` OR `revoke`
+      // retired the SLOT axis (`runtime_node_attachments.state`). A liveness-only
+      // T3.6 staleness sweep does NOT reach this refusal: the sweep writes only
+      // `runtime_node_presence.health_state` and leaves the SLOT active, so a
+      // swept-offline-but-still-attached node still matches the active-band lookup
+      // above and is updated normally (the two axes reconcile at READ time —
+      // Spec-003 line 72). This mirrors attach's defensive posture (the service
+      // does not assume the router pre-validated liveness). The message names
+      // `nodeId` ONLY (no session, no state — no info-leak).
       if (activeRow === undefined) {
         throw new RuntimeNodeCapabilityUpdateConflictException(
           `Runtime node ${String(validated.nodeId)} has no active attachment to update.`,

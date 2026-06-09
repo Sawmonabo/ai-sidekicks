@@ -117,6 +117,13 @@ import {
 const SESSION_ID: SessionId = "01970000-0000-7000-8000-0000000e0001" as SessionId;
 const OTHER_SESSION_ID: SessionId = "01970000-0000-7000-8000-0000000e0002" as SessionId;
 const PARTICIPANT_ID: ParticipantId = "01970000-0000-7000-8000-0000000f0001" as ParticipantId;
+// A SECOND participant for the cross-owner reconnect block: a DIFFERENT
+// participant attempting to reattach a node to a session whose existing
+// `(node_id, session_id)` row is owned by `PARTICIPANT_ID`. The owner is
+// immutable across reconnect (Spec-003 line 109), so this reattach is refused
+// and the row's owner stays `PARTICIPANT_ID` (Spec-003 line 116 — never destroy
+// node provenance).
+const OTHER_PARTICIPANT_ID: ParticipantId = "01970000-0000-7000-8000-0000000f0002" as ParticipantId;
 const NODE_ID: NodeId = "node-alpha-01" as NodeId;
 // A SECOND daemon-minted node id for the P5 multi-node-coexistence block: a
 // distinct opaque TEXT scalar so node A and node B are two separate active
@@ -310,6 +317,22 @@ async function readAttachmentRow(
     [nodeId, sessionId],
   );
   return probe.rows[0];
+}
+
+// Read an attachment row's `participant_id` (the owner) for the reconnect
+// provenance assertions: the same-owner reconnect must leave it unchanged, and a
+// cross-owner reconnect must NOT overwrite it (Spec-003 line 116). Returns
+// `undefined` when no row exists for the `(node_id, session_id)` pair.
+async function readAttachmentOwner(
+  querier: Querier,
+  nodeId: NodeId,
+  sessionId: SessionId,
+): Promise<string | undefined> {
+  const probe = await querier.query<{ participant_id: string }>(
+    "SELECT participant_id FROM runtime_node_attachments WHERE node_id = $1 AND session_id = $2",
+    [nodeId, sessionId],
+  );
+  return probe.rows[0]?.participant_id;
 }
 
 // Read the FULL capability-update-relevant projection of an attachment row,
@@ -629,6 +652,171 @@ describe("AttachService — P9b (reconnect reactivates an offline row)", () => {
     expect(await countAttachments(ctx.querier)).toBe(1);
     const after = await readAttachmentRow(ctx.querier, NODE_ID, SESSION_ID);
     expect(after?.state).toBe("registering");
+  });
+});
+
+// ----------------------------------------------------------------------------
+// P9 owner-immutability — reconnect must not destroy node provenance
+// ----------------------------------------------------------------------------
+//
+// Spec-003 line 109 (node identity must be STABLE across reconnect if the same
+// local daemon is reattaching) + line 116 (§Pitfalls — destroying historical
+// node provenance when a node reconnects is PROHIBITED) + Plan-003 §Invariants
+// I-003-5 (the `(node_id, session_id)` index is the upsert ON CONFLICT target for
+// the reconnect path).
+//
+// The reconnect upsert's DO UPDATE is guarded
+// `WHERE state <> 'revoked' AND participant_id = EXCLUDED.participant_id`, and
+// `participant_id` is NOT in the SET — so the owner participant is IMMUTABLE
+// across reconnect. The two tests below pin both sides of that guard, exercising
+// the full reconnect path through the service (attach -> detach -> attach):
+//   (1) SAME-participant reconnect-after-detach SUCCEEDS (the legitimate P9
+//       reconnect: offline -> registering) and the owner is unchanged (the SET
+//       removal must not break the happy path or drop the owner); and
+//   (4) CROSS-owner reconnect is REFUSED with the typed conflict, and the row's
+//       owner is STILL the original participant (provenance preserved, not
+//       overwritten) — the data-integrity guarantee Spec-003 line 116 mandates.
+// (Cases 2 and 3 of the matrix — the cross-session active conflict and the
+// revoked refusal — are the P9a and P10 blocks above; they remain regression
+// guards for the SET/WHERE change and are not duplicated here.)
+
+describe("AttachService — P9 owner-immutability (reconnect preserves node provenance, Spec-003 lines 109/116)", () => {
+  it("reconnects a SAME-participant node after detach (offline -> registering) and leaves the owner participant unchanged", async () => {
+    // The legitimate P9 reconnect, end-to-end through the service: the SAME
+    // participant attaches node N, detaches it (slot -> offline), then reattaches.
+    // The reattach must SUCCEED (the same-owner DO UPDATE reactivates the offline
+    // row) — and the owner participant must be byte-for-byte unchanged (the SET no
+    // longer reassigns participant_id; the happy path must not break or drop it).
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID);
+
+    // Attach, then detach (retires the slot to offline), then reattach — all as
+    // the SAME participant.
+    const first = await ctx.service.attach(buildAttachRequest());
+    expect(first.state).toBe("registering");
+    expect(await readAttachmentOwner(ctx.querier, NODE_ID, SESSION_ID)).toBe(
+      String(PARTICIPANT_ID),
+    );
+
+    await ctx.service.detach({ nodeId: NODE_ID });
+    const afterDetach = await readAttachmentRow(ctx.querier, NODE_ID, SESSION_ID);
+    expect(afterDetach?.state).toBe("offline");
+
+    const reconnect = await ctx.service.attach(buildAttachRequest());
+
+    // The reconnect reactivated the SAME row in place (offline -> registering): id
+    // stable, count stays 1, no duplicate row.
+    expect(reconnect.state).toBe("registering");
+    expect(reconnect.attachmentId).toBe(first.attachmentId);
+    expect(await countAttachments(ctx.querier)).toBe(1);
+    const after = await readAttachmentRow(ctx.querier, NODE_ID, SESSION_ID);
+    expect(after?.state).toBe("registering");
+    // The owner participant survived the reconnect unchanged (the SET-removal
+    // did not drop the owner; provenance preserved on the legitimate path too).
+    expect(await readAttachmentOwner(ctx.querier, NODE_ID, SESSION_ID)).toBe(
+      String(PARTICIPANT_ID),
+    );
+  });
+
+  it("refuses a CROSS-owner reconnect to the same session with the typed conflict and preserves the original owner (Spec-003 line 116)", async () => {
+    // The data-integrity bug this fix closes: participant A attaches node N to
+    // session S and detaches it (slot -> offline); participant B (the SAME session
+    // S) then attempts to attach node N. The ON CONFLICT (node_id, session_id)
+    // path fires, but the DO UPDATE's `participant_id = EXCLUDED.participant_id`
+    // conjunct is false (existing owner A != B), so the update is suppressed (zero
+    // RETURNING rows) and the zero-row verify discriminates the cross-owner cause
+    // -> the typed conflict refusal. Crucially, the original owner A is NOT
+    // overwritten (Spec-003 line 116 — never destroy historical node provenance).
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedParticipant(ctx.querier, OTHER_PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID);
+
+    // A attaches node N to session S, then detaches (slot -> offline) so the row
+    // is eligible for the ON CONFLICT DO UPDATE path B will hit (an offline row is
+    // outside the partial active index, so B's attempt is not the cross-SESSION
+    // 23505 case — it is purely the cross-OWNER same-session case).
+    await ctx.service.attach(buildAttachRequest());
+    await ctx.service.detach({ nodeId: NODE_ID });
+    const afterDetach = await readAttachmentRow(ctx.querier, NODE_ID, SESSION_ID);
+    expect(afterDetach?.state).toBe("offline");
+
+    // B (a DIFFERENT participant, SAME session) attempts to reattach node N.
+    const error = await ctx.service
+      .attach(buildAttachRequest({ participantId: OTHER_PARTICIPANT_ID }))
+      .catch((thrown: unknown) => thrown);
+
+    // The typed conflict refusal (the same code as the cross-session P9a case,
+    // distinct message).
+    expect(error).toBeInstanceOf(RuntimeNodeAttachConflictException);
+    expect(error).toMatchObject({ code: RUNTIME_NODE_ATTACH_CONFLICT_CODE });
+    // No-info-leak: the message names the node id + the caller's OWN session id,
+    // never the owning participant's id.
+    expect((error as Error).message).toContain(String(NODE_ID));
+    expect((error as Error).message).toContain(String(SESSION_ID));
+    expect((error as Error).message).not.toContain(String(PARTICIPANT_ID));
+
+    // PROVENANCE PRESERVED (the load-bearing Spec-003 line 116 property): the
+    // transaction rolled back and the row's owner is STILL A — B did NOT overwrite
+    // it. The row also stays offline (the suppressed DO UPDATE did not reactivate
+    // it), and there is exactly one row (no duplicate inserted).
+    expect(await readAttachmentOwner(ctx.querier, NODE_ID, SESSION_ID)).toBe(
+      String(PARTICIPANT_ID),
+    );
+    const after = await readAttachmentRow(ctx.querier, NODE_ID, SESSION_ID);
+    expect(after?.state).toBe("offline");
+    expect(await countAttachments(ctx.querier)).toBe(1);
+  });
+
+  it("refuses a CROSS-owner reconnect to an ACTIVE same-session row via the cross-owner branch (NOT the cross-session 23505 path)", async () => {
+    // The ACTIVE sub-case of cross-owner (the offline test above is the inactive
+    // sub-case) — a distinct two-index interaction worth pinning. Participant A
+    // attaches node N to session S and the row STAYS active (`registering`; A does
+    // NOT detach). Participant B (SAME session S) then attaches node N. The ON
+    // CONFLICT matches the `(node_id, session_id)` composite arbiter
+    // (`idx_node_attachments_node`); the DO UPDATE's `participant_id =
+    // EXCLUDED.participant_id` conjunct is false (A != B) so the update touches NO
+    // row — which means the partial active index `idx_node_attachments_active` is
+    // NOT triggered (no second active row is written), so this does NOT take the
+    // cross-SESSION 23505 path. The zero-row verify then routes to the cross-OWNER
+    // branch. This proves an active cross-owner reconnect surfaces the cross-owner
+    // refusal, never the "attached to another session" cross-session refusal.
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedParticipant(ctx.querier, OTHER_PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID);
+
+    // A attaches node N to session S; the row stays ACTIVE (registering) — no
+    // detach, so the existing row is in the partial active index.
+    const first = await ctx.service.attach(buildAttachRequest());
+    expect(first.state).toBe("registering");
+
+    // B (a DIFFERENT participant, SAME session) attempts to attach node N.
+    const error = await ctx.service
+      .attach(buildAttachRequest({ participantId: OTHER_PARTICIPANT_ID }))
+      .catch((thrown: unknown) => thrown);
+
+    // The typed conflict refusal — and specifically the CROSS-OWNER message, NOT
+    // the cross-session "attached to another session" message. Asserting the
+    // cross-session phrasing is ABSENT is what proves the active cross-owner case
+    // did NOT leak into the 23505/cross-session path (which would have produced a
+    // different message under the same exception type).
+    expect(error).toBeInstanceOf(RuntimeNodeAttachConflictException);
+    expect(error).toMatchObject({ code: RUNTIME_NODE_ATTACH_CONFLICT_CODE });
+    expect((error as Error).message).toContain(String(NODE_ID));
+    expect((error as Error).message).toContain(String(SESSION_ID));
+    expect((error as Error).message).toContain("under a different participant");
+    expect((error as Error).message).not.toContain("attached to another session");
+    // No-info-leak: the owning participant id is never disclosed.
+    expect((error as Error).message).not.toContain(String(PARTICIPANT_ID));
+
+    // PROVENANCE PRESERVED: the row's owner is STILL A (B did NOT overwrite it),
+    // the row's state is STILL `registering` (the suppressed DO UPDATE left it
+    // untouched — not demoted, not reactivated), and there is exactly one row.
+    expect(await readAttachmentOwner(ctx.querier, NODE_ID, SESSION_ID)).toBe(
+      String(PARTICIPANT_ID),
+    );
+    const after = await readAttachmentRow(ctx.querier, NODE_ID, SESSION_ID);
+    expect(after?.state).toBe("registering");
+    expect(await countAttachments(ctx.querier)).toBe(1);
   });
 });
 
@@ -1375,7 +1563,7 @@ describe("AttachService — updateCapabilities (discovery-snapshot refresh, T3.9
     // null no-op). This is the I-003-5 load-bearing assertion: it proves the
     // `state IN (active band)` filter EXCLUDES the offline row (a single
     // happy-path test would pass even if the method resolved by bare node_id).
-    // The node's only row is `offline` (a detached / swept node) — outside the
+    // The node's only row is `offline` (a detached node) — outside the
     // active band — so a late capability-update finds nothing to refresh. (The
     // never-attached variant follows.)
     await seedParticipant(ctx.querier, PARTICIPANT_ID);

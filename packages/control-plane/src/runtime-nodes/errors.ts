@@ -50,18 +50,31 @@ import {
 import { AisWireException } from "../ais-wire-exception.js";
 
 /**
- * Thrown by `AttachService.attach` when the runtime node is already actively
- * attached to a DIFFERENT session (P9 / I-003-5: a node has at most one
- * attachment in an active state across all sessions). This is the cross-session
- * collision the partial-unique `idx_node_attachments_active` index raises as a
- * `23505` at the database layer; the service catches that and rethrows this
- * typed refusal. TRANSIENT — the node may attach elsewhere once it detaches
- * from its current active session, so the transport layer maps this to HTTP 409
- * (a retryable conflict, not a terminal state).
+ * Thrown by `AttachService.attach` (Plan-003 T3.2) for BOTH attach conflict
+ * triggers — one typed code, two call sites, distinct messages:
+ *   1. Cross-session active collision (P9 / I-003-5: a node has at most one
+ *      attachment in an active state across all sessions). The node is already
+ *      actively attached to a DIFFERENT session — the collision the partial-unique
+ *      `idx_node_attachments_active` index raises as a `23505` at the database
+ *      layer; the service catches that and rethrows this typed refusal. TRANSIENT
+ *      — the node may attach elsewhere once it detaches from its current active
+ *      session.
+ *   2. Cross-owner same-session reconnect (Spec-003 line 109 — a reconnect is the
+ *      same local daemon, so the owner participant is IMMUTABLE; Spec-003 line
+ *      116 — never destroy historical node provenance on reconnect). A DIFFERENT
+ *      participant attempts to reattach to an existing `(node_id, session_id)` row
+ *      owned by another participant. The upsert's DO UPDATE
+ *      `WHERE ... participant_id = EXCLUDED.participant_id` suppresses the update
+ *      (zero RETURNING rows), and the service's zero-row verify discriminates the
+ *      cross-owner cause and throws this typed refusal rather than overwriting the
+ *      owner.
+ * The transport layer maps both to HTTP 409 (a conflict, not a terminal state).
  *
- * No-info-leak stance: the message references the offending `nodeId` ONLY,
- * never the OTHER session's id — a caller attaching node N learns that N is busy
- * elsewhere, not WHICH session holds it (which it may have no authority to see).
+ * No-info-leak stance: case 1 references the offending `nodeId` ONLY — never the
+ * OTHER session's id (a caller attaching node N learns N is busy elsewhere, not
+ * WHICH session holds it). Case 2 references `nodeId` + the caller's OWN
+ * `sessionId` ONLY — never the owning `participant_id` (the caller learns the row
+ * belongs to a different participant, not WHICH one).
  */
 export class RuntimeNodeAttachConflictException extends AisWireException {
   readonly code: typeof RUNTIME_NODE_ATTACH_CONFLICT_CODE = RUNTIME_NODE_ATTACH_CONFLICT_CODE;
@@ -97,10 +110,16 @@ export class RuntimeNodeAttachRevokedException extends AisWireException {
  * capability-update coordination-snapshot refusals — one typed code, two call
  * sites, distinct messages:
  *   1. No active attachment to refresh. A late `runtimenode.capabilityupdate`
- *      raced past a `detach` (or the T3.6 staleness sweep marked the node
- *      offline), so there is no active row — and thus no `{nodeId, state,
- *      updatedAt}` to return. This mirrors `attach`'s defensive posture (the
- *      service does not assume the router pre-validated the node's liveness).
+ *      raced past a `detach` or `revoke` that retired the SLOT axis
+ *      (`runtime_node_attachments.state`), so there is no active row — and thus
+ *      no `{nodeId, state, updatedAt}` to return. A liveness-only T3.6 staleness
+ *      sweep does NOT trigger this refusal: the sweep writes only
+ *      `runtime_node_presence.health_state` and leaves the attachment SLOT active,
+ *      so a swept-offline-but-still-attached node is still resolved by the
+ *      active-band lookup and CAN still receive a capability update (the two axes
+ *      reconcile at READ time — Spec-003 line 72). This mirrors `attach`'s
+ *      defensive posture (the service does not assume the router pre-validated the
+ *      node's liveness).
  *   2. The I-003-2 state-context guard: the request would drive a `registering`
  *      attachment to `online`. The wire VALUE `online` is legal (the 2-value
  *      `RuntimeNodeHealthState`), but applying it to a still-`registering`
