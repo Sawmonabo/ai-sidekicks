@@ -49,6 +49,7 @@ import {
   RuntimeNodeHeartbeatResponseSchema,
   type RuntimeNodeAttachRequest,
   type RuntimeNodeAttachResponse,
+  type ParticipantId,
   type RuntimeNodeCapabilityUpdateRequest,
   type RuntimeNodeCapabilityUpdateResponse,
   type RuntimeNodeDetachRequest,
@@ -73,9 +74,39 @@ import { HeartbeatService } from "./heartbeat-service.js";
 // production placeholder must construct the real class (a structural stub can't
 // satisfy the type). `attachService` backs attach / capabilityupdate / detach;
 // `heartbeatService` backs heartbeat.
+//
+// AUTH POSTURE (Tier 1 structural parity with `session.join`):
+//   The `attach` procedure resolves the acting participant from `ctx` via
+//   `resolveCurrentParticipantId` and REFUSES (tRPC `UNAUTHORIZED`) an attach
+//   claimed on behalf of a different participant — it does not trust the
+//   caller-supplied `input.participantId` as the sole authority. This mirrors
+//   `session.join`'s self-check (session-router.factory.ts), which resolves the
+//   current participant from `ctx` and rejects non-self joins.
+//
+//   DEFERRED to Tier 5 (the same track session.join defers its authorization to):
+//     - Full active-session-membership verification — that the acting
+//       participant is a member of `input.sessionId` (Spec-003 §Required
+//       Behavior: "a participant with active session membership"). session.join
+//       likewise self-checks now and defers its membership/invite authorization
+//       to Tier 5.
+//     - Node-ownership verification for the `nodeId`-only procedures: heartbeat /
+//       capabilityupdate / detach carry NO participant, so authorizing them means
+//       resolving the node's owner and checking the authenticated caller owns it.
+//   A membership/ownership check keyed on an unauthenticated caller is theater
+//   until PASETO auth exists — the production `resolveCurrentParticipantId`
+//   currently throws `tier5DeferralError` (host.ts), so the gates intercept all
+//   prod traffic before any such check could run. Tier 5 wires PASETO-derived
+//   auth per BL-069 (Plan-018 PASETO auth + Plan-002 invite-acceptance).
 export interface RuntimeNodeRouterDeps {
   readonly attachService: AttachService;
   readonly heartbeatService: HeartbeatService;
+  /**
+   * Tier 1 stub principal resolver — returns the participantId the acting
+   * caller resolves to (same type + role as `SessionRouterDeps`). The `attach`
+   * procedure self-checks `input.participantId` against this. Tier 5 wires
+   * PASETO ctx-derived auth (Plan-018) per BL-069.
+   */
+  readonly resolveCurrentParticipantId: (ctx: SessionRouterContext) => ParticipantId;
 }
 
 // Each procedure carries its concrete request/output type from
@@ -128,7 +159,22 @@ export function createRuntimeNodeRouter(deps: RuntimeNodeRouterDeps): RuntimeNod
       attach: runtimeNodeProcedure
         .input(RuntimeNodeAttachRequestSchema)
         .output(RuntimeNodeAttachResponseSchema)
-        .mutation(async ({ input }) => {
+        .mutation(async ({ input, ctx }) => {
+          // Self-check (Tier 1 parity with session.join): resolve the acting
+          // participant from `ctx` and refuse an attach claimed on behalf of a
+          // different participant. We do NOT trust caller-supplied
+          // `input.participantId` as the sole authority. Plain `TRPCError`
+          // (UNAUTHORIZED) — no `aisError` envelope, same as session.join.
+          // Full membership/node-ownership authorization is Tier-5-deferred
+          // (see RuntimeNodeRouterDeps doc above).
+          const current = deps.resolveCurrentParticipantId(ctx);
+          if (input.participantId !== current) {
+            throw new TRPCError({
+              code: "UNAUTHORIZED",
+              message:
+                "auth.not_authorized: a node may be attached only on behalf of the current participant",
+            });
+          }
           // Both attach refusals map to HTTP 409 / tRPC `CONFLICT`
           // (error-contracts.md §Runtime Node). Preserve the typed exception on
           // `cause` so the shared `errorFormatter` projects it onto

@@ -54,6 +54,9 @@ import { createRuntimeNodeRouter } from "../runtime-node-router.factory.js";
 const SESSION_ID: SessionId = "01970000-0000-7000-8000-0000000e0001" as SessionId;
 const OTHER_SESSION_ID: SessionId = "01970000-0000-7000-8000-0000000e0002" as SessionId;
 const PARTICIPANT_ID: ParticipantId = "01970000-0000-7000-8000-0000000f0001" as ParticipantId;
+// A second participant, distinct from the harness's ctx-current PARTICIPANT_ID,
+// used by the attach self-check refusal test (input.participantId !== current).
+const OTHER_PARTICIPANT_ID: ParticipantId = "01970000-0000-7000-8000-0000000f0002" as ParticipantId;
 const NODE_ID: NodeId = "node-alpha-01" as NodeId;
 const CLIENT_VERSION: EventEnvelopeVersion = "1.4" as EventEnvelopeVersion;
 
@@ -173,6 +176,12 @@ async function buildHarness() {
   const router = createRuntimeNodeRouter({
     attachService: new AttachService(querier),
     heartbeatService: new HeartbeatService(querier),
+    // Tier-1 stub: the ctx-current participant is PARTICIPANT_ID — the same
+    // participant every happy-path / catch-arm test passes as
+    // `input.participantId`, so the attach self-check passes through to the
+    // service. The self-check refusal test below uses OTHER_PARTICIPANT_ID to
+    // drive the mismatch.
+    resolveCurrentParticipantId: () => PARTICIPANT_ID,
   });
   const caller = t.createCallerFactory(router)({ requestId: "test-rn-1" });
   return { pg, querier, caller };
@@ -229,6 +238,48 @@ describe("runtime-node router — happy-path mounting (T3.8)", () => {
     const response = await harness.caller.runtimenode.detach({ nodeId: NODE_ID });
 
     expect(response).toBeNull();
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Attach self-check — the acting participant is resolved from `ctx`, and an
+// attach claimed on behalf of a DIFFERENT participant is refused UNAUTHORIZED
+// before the backing service is ever invoked. Tier-1 structural parity with
+// session.join (don't trust caller-supplied identity as the sole authority).
+// ----------------------------------------------------------------------------
+
+describe("runtime-node router — attach resolves the acting participant from ctx", () => {
+  it("runtimenode.attach refuses UNAUTHORIZED when input.participantId is not the ctx-current participant (service NOT invoked)", async () => {
+    // Seed the INPUT's participant + the session so the attach would SUCCEED if
+    // it reached the service — this makes the no-row assertion discriminating
+    // (a regressed guard writes a `registering` row) rather than trivially true.
+    // The harness ctx-current is PARTICIPANT_ID; the input claims
+    // OTHER_PARTICIPANT_ID, so the self-check refuses before the service runs.
+    await seedParticipant(harness.querier, OTHER_PARTICIPANT_ID);
+    await seedSession(harness.querier, SESSION_ID);
+
+    let caught: TRPCError | undefined;
+    try {
+      await harness.caller.runtimenode.attach(
+        buildAttachRequest({ participantId: OTHER_PARTICIPANT_ID }),
+      );
+    } catch (err) {
+      if (err instanceof TRPCError) caught = err;
+    }
+
+    expect(caught).toBeDefined();
+    // The discriminating code: UNAUTHORIZED (the self-check), NOT a service-path
+    // outcome. With the guard absent, a seeded participant + session would let
+    // the attach succeed; an unseeded one would FK-throw INTERNAL_SERVER_ERROR.
+    expect(caught?.code).toBe("UNAUTHORIZED");
+
+    // The service was never invoked: no attachment row was written for the node.
+    // A regressed guard would have inserted a `registering` row here.
+    const { rows } = await harness.querier.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM runtime_node_attachments WHERE node_id = $1",
+      [NODE_ID],
+    );
+    expect(rows[0]?.count).toBe("0");
   });
 });
 
