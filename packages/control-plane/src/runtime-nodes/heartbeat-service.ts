@@ -213,6 +213,18 @@ export class HeartbeatService {
     // of rows). Revisit if `runtime_node_presence` grows: a functional/partial
     // index on `last_heartbeat_at` (e.g. `WHERE health_state <> 'offline'`) is
     // worth the write cost only at scale.
+    //
+    // Why the `health_state <> $4` (offline) guard, separate from the CASE-target
+    // guard below: an explicitly-detached node is parked at `offline` with its
+    // `last_heartbeat_at` left at the final beat (detach flips the state, not the
+    // timestamp). While that beat ages through the 30-60s band the CASE computes
+    // `degraded`, so the transition guard alone (`offline <> degraded`) would
+    // PROMOTE a retired node back to `degraded` until it crossed 60s. Excluding
+    // `offline` rows up front keeps the sweep demotion-only: an `offline` row is
+    // terminal for the sweep (only `ingest` can resurrect it). The two guards are
+    // complementary, not redundant — the CASE-target guard still suppresses the
+    // re-write of a row already AT its computed target (e.g. a `degraded` row in
+    // the 30-60s band), which the offline guard does not cover.
     const swept = await this.#querier.query<SweptRow>(
       `UPDATE runtime_node_presence
        SET health_state = CASE
@@ -220,6 +232,7 @@ export class HeartbeatService {
              ELSE $3
            END
        WHERE now() - last_heartbeat_at > ($1::int * interval '1 second')
+         AND health_state <> $4
          AND health_state <> CASE
              WHEN now() - last_heartbeat_at > ($2::int * interval '1 second') THEN $4
              ELSE $3

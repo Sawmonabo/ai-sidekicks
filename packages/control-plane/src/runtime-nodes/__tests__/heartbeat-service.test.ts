@@ -381,6 +381,25 @@ describe("HeartbeatService — sweep idempotency + write boundary (Spec-003 line
     expect(await countPresence(ctx.querier)).toBe(1);
   });
 
+  it("does NOT promote an explicitly-detached offline row back to degraded while it sits in the 30-60s band", async () => {
+    // detach (attach-service.ts) parks a node at `offline` but leaves its
+    // last_heartbeat_at at the final beat. Seeded squarely in the 30-60s band
+    // (~40s), the sweep's CASE computes `degraded` for that staleness — so
+    // WITHOUT the offline guard the transition predicate (`offline <> degraded`)
+    // would rewrite this retired node back to `degraded` and re-report it. The
+    // sweep only ever demotes; an `offline` row is terminal for it. Seeding at
+    // 90s would NOT exercise this — the CASE-target guard already excludes a
+    // 90s-stale offline row, so this case must sit in the degraded band to bite.
+    await seedPresence(ctx.querier, { nodeId: NODE_ID, ageSeconds: 40, healthState: "offline" });
+
+    const swept = await ctx.service.sweepStaleness();
+
+    // Stays offline (NOT rewritten to degraded) and is not re-reported.
+    const row = await readPresence(ctx.querier, NODE_ID);
+    expect(row?.health_state).toBe("offline");
+    expect(transitionFor(swept, NODE_ID)).toBeUndefined();
+  });
+
   it("does NOT re-report a degraded row already at its degraded target (idempotent across the 30-60s band)", async () => {
     // The complementary idempotency case: a row already `degraded` and aged in
     // the 30-60s band stays put and is not re-reported.
