@@ -1,0 +1,473 @@
+// Plan-003 Phase 4 T4.1: typed `runtimeNodeClient` SDK surface — the V1
+// runtime-node-attach consumer wrapping `JsonRpcClient` (daemon transport,
+// Plan-007 Phase 3) and the tRPC v11 control-plane transport (Plan-003 Phase 3
+// `runtimeNodeRouter`, T3.8) under a single `RuntimeNodeClient` interface.
+//
+// Spec coverage:
+//   * Spec-003 line 82 — `RuntimeNodeAttach` fields (sessionId, participantId,
+//     nodeId, clientVersion, capabilities, healthState). `attach()` below
+//     threads `RuntimeNodeAttachRequestSchema` / `RuntimeNodeAttachResponse-
+//     Schema`; the server-derived `readOnly` PERMISSION verdict and the
+//     `state` LIVENESS axis ride the response through unchanged (the SDK does
+//     NOT compute `readOnly`; the Phase-3 attach service does — runtime-node.ts
+//     §Design note).
+//   * Spec-003 line 83 — `RuntimeNodeHeartbeat` updates presence and health.
+//     `heartbeat()` carries the daemon's 2-value `healthState` and unwraps the
+//     no-content `z.null()` response (`RuntimeNodeHeartbeatResponseSchema`).
+//   * Spec-003 line 84 — `RuntimeNodeCapabilityUpdate` add/remove/health
+//     variants. `capabilityUpdate()` threads the FULL-REPLACEMENT `capabilities`
+//     map (removals by omission, additions by presence) plus the optional
+//     `healthChanges` 2-value-health transition, and unwraps the
+//     `{nodeId, state, updatedAt}` content response.
+//   * Spec-003 line 85 — `RuntimeNodeDetach` retires a node. `detach()` carries
+//     the `nodeId` (+ optional audit `reason`) and unwraps the no-content
+//     `z.null()` response (`RuntimeNodeDetachResponseSchema`).
+//
+// Shape choice — TWO factories sharing one interface (mirrors `sessionClient.ts`):
+//   `createDaemonRuntimeNodeClient(client)` wraps the local daemon JSON-RPC
+//   transport; `createControlPlaneRuntimeNodeClient(opts)` wraps the
+//   control-plane tRPC HTTP transport. Both return the SAME `RuntimeNodeClient`
+//   so callers can swap transports without restructuring. Unlike
+//   `sessionClient.ts`, runtime-node is ALL MUTATIONS — attach / heartbeat /
+//   capabilityupdate / detach are every one a tRPC `.mutation` (runtime-node-
+//   router.factory.ts:159-244) — so the control-plane factory has NO query
+//   (no GET `?input=`) and NO subscribe (no SSE) path; every method is a
+//   POST JSON body. This makes the control-plane factory STRICTLY SIMPLER than
+//   sessionClient's (which carries a read query + an SSE subscribe).
+//
+// What this file does NOT do:
+//   * Redefine any request/response schema. Every schema is imported from
+//     `@ai-sidekicks/contracts` (runtime-node.ts) — the wire contract is
+//     single-sourced there.
+//   * Compute `readOnly`. The PERMISSION verdict is server-derived (the Phase-3
+//     attach service compares `clientVersion` against the session
+//     `min_client_version` floor); the SDK passes the response through.
+//   * Implement byte-level framing or HTTP transport. The daemon factory
+//     consumes a fully-constructed `JsonRpcClient`; the control-plane factory
+//     consumes a `fetcher` callable (caller supplies `globalThis.fetch` or an
+//     in-process test handler).
+
+import type {
+  RuntimeNodeAttachRequest,
+  RuntimeNodeAttachResponse,
+  RuntimeNodeCapabilityUpdateRequest,
+  RuntimeNodeCapabilityUpdateResponse,
+  RuntimeNodeDetachRequest,
+  RuntimeNodeHeartbeatRequest,
+} from "@ai-sidekicks/contracts";
+import {
+  RuntimeNodeAttachRequestSchema,
+  RuntimeNodeAttachResponseSchema,
+  RuntimeNodeCapabilityUpdateRequestSchema,
+  RuntimeNodeCapabilityUpdateResponseSchema,
+  RuntimeNodeDetachRequestSchema,
+  RuntimeNodeDetachResponseSchema,
+  RuntimeNodeHeartbeatRequestSchema,
+  RuntimeNodeHeartbeatResponseSchema,
+} from "@ai-sidekicks/contracts";
+
+import type { JsonRpcClient } from "./transport/jsonRpcClient.js";
+
+// --------------------------------------------------------------------------
+// Method names
+// --------------------------------------------------------------------------
+
+/**
+ * Canonical runtime-node operation names shared by both transports. On the
+ * daemon path these route to the JSON-RPC `method` field; on the control-plane
+ * path the SAME strings route to the per-procedure tRPC URL segment
+ * (`${endpoint}/${name}`), exactly as `sessionClient.ts`'s `SESSION_METHOD_*`
+ * consts serve both factories.
+ *
+ * LOWERCASE one-word operation segments (`capabilityupdate`, NOT
+ * `capabilityUpdate`) — these match the `runtimenode.*` procedure namespace the
+ * control-plane router mounts (`runtime-node-router.factory.ts:158` —
+ * `t.router({ runtimenode: t.router({ attach, heartbeat, capabilityupdate,
+ * detach }) })`) and the canonical error codes
+ * `runtimenode.attach_conflict` / `runtimenode.capabilityupdate_conflict`
+ * (`@ai-sidekicks/contracts` error.ts:111-127). These are wire strings authored
+ * locally (NOT imported symbols); centralizing them here so a future name
+ * evolution edits one location.
+ */
+const RUNTIME_NODE_METHOD_ATTACH = "runtimenode.attach";
+const RUNTIME_NODE_METHOD_HEARTBEAT = "runtimenode.heartbeat";
+const RUNTIME_NODE_METHOD_CAPABILITY_UPDATE = "runtimenode.capabilityupdate";
+const RUNTIME_NODE_METHOD_DETACH = "runtimenode.detach";
+
+// --------------------------------------------------------------------------
+// Common consumer surface
+// --------------------------------------------------------------------------
+
+/**
+ * Common consumer-side surface for the four V1 runtime-node methods. Both
+ * `createDaemonRuntimeNodeClient` and `createControlPlaneRuntimeNodeClient`
+ * return an object satisfying this interface.
+ *
+ * `heartbeat` and `detach` resolve `null` on success — their wire responses are
+ * the no-content `z.null()` schemas (`RuntimeNodeHeartbeatResponseSchema` /
+ * `RuntimeNodeDetachResponseSchema`, runtime-node.ts:428/510). The `null` is a
+ * genuine success value, NOT a not-found sentinel: a below-floor or otherwise
+ * refused write REJECTS with `RuntimeNodeControlPlaneError` (control-plane) or
+ * `JsonRpcRemoteError` (daemon), never a `null` result.
+ */
+export interface RuntimeNodeClient {
+  attach(request: RuntimeNodeAttachRequest): Promise<RuntimeNodeAttachResponse>;
+  heartbeat(request: RuntimeNodeHeartbeatRequest): Promise<null>;
+  capabilityUpdate(
+    request: RuntimeNodeCapabilityUpdateRequest,
+  ): Promise<RuntimeNodeCapabilityUpdateResponse>;
+  detach(request: RuntimeNodeDetachRequest): Promise<null>;
+}
+
+// --------------------------------------------------------------------------
+// Daemon transport factory
+// --------------------------------------------------------------------------
+
+/**
+ * Build a `RuntimeNodeClient` over a daemon transport. The caller is
+ * responsible for wiring the underlying `ClientTransport` (Unix socket, Windows
+ * named pipe, in-memory test double) and instantiating the `JsonRpcClient` —
+ * including completing the `daemon.hello` handshake before the first mutating
+ * call (exactly as `createDaemonSessionClient` does).
+ *
+ * Each method threads its request schema + response schema through
+ * `client.call(method, request, RequestSchema, ResponseSchema)`, which owns the
+ * bidirectional Zod fail-fast (request validated before the wire write; response
+ * validated before resolve). `JsonRpcClient.call<P, R>` REQUIRES a result schema
+ * (there is no void overload — jsonRpcClient.ts:515-522), so the no-content
+ * `heartbeat` / `detach` pass their `z.null()` response schemas
+ * (`RuntimeNodeHeartbeatResponseSchema` / `RuntimeNodeDetachResponseSchema`),
+ * while `attach` / `capabilityUpdate` pass their content response schemas. A
+ * wire-level daemon error surfaces as `JsonRpcRemoteError` (jsonRpcClient.ts:96)
+ * — the daemon path does NOT carry the control-plane's typed-aisError parsing
+ * (that envelope is HTTP/tRPC-specific; the daemon transport has its own typed
+ * error surface).
+ */
+export function createDaemonRuntimeNodeClient(client: JsonRpcClient): RuntimeNodeClient {
+  return {
+    attach: (request) =>
+      client.call(
+        RUNTIME_NODE_METHOD_ATTACH,
+        request,
+        RuntimeNodeAttachRequestSchema,
+        RuntimeNodeAttachResponseSchema,
+      ),
+    heartbeat: (request) =>
+      client.call(
+        RUNTIME_NODE_METHOD_HEARTBEAT,
+        request,
+        RuntimeNodeHeartbeatRequestSchema,
+        RuntimeNodeHeartbeatResponseSchema,
+      ),
+    capabilityUpdate: (request) =>
+      client.call(
+        RUNTIME_NODE_METHOD_CAPABILITY_UPDATE,
+        request,
+        RuntimeNodeCapabilityUpdateRequestSchema,
+        RuntimeNodeCapabilityUpdateResponseSchema,
+      ),
+    detach: (request) =>
+      client.call(
+        RUNTIME_NODE_METHOD_DETACH,
+        request,
+        RuntimeNodeDetachRequestSchema,
+        RuntimeNodeDetachResponseSchema,
+      ),
+  };
+}
+
+// --------------------------------------------------------------------------
+// Control-plane transport factory
+// --------------------------------------------------------------------------
+
+/**
+ * Default tRPC procedure path under the control-plane fetch handler — mirrors
+ * `sessionClient.ts`'s `DEFAULT_TRPC_ENDPOINT`. `buildControlPlaneFetchHandler`
+ * mounts at `/trpc` by default; the consumer can override via the `endpoint`
+ * option.
+ */
+const DEFAULT_TRPC_ENDPOINT = "/trpc";
+
+/**
+ * Constructor options for the control-plane factory. An EXACT structural mirror
+ * of `ControlPlaneSessionClientOptions` (`sessionClient.ts`) so the two
+ * control-plane factories stay options-shape-aligned.
+ *
+ * `fetcher`: an HTTP-like callable. Accepts a standard `Request` and returns a
+ * standard `Response`. In production this is `globalThis.fetch.bind(globalThis)`
+ * pointed at a deployed control-plane URL; in tests it's the in-process fetch
+ * handler returned by `buildControlPlaneFetchHandler`.
+ *
+ * `baseUrl`: the absolute URL prefix (no trailing slash) of the control-plane
+ * deployment. The SDK appends `${endpoint}/${method}` to this prefix.
+ *
+ * `endpoint`: optional tRPC mount path. Defaults to `/trpc` (see
+ * `DEFAULT_TRPC_ENDPOINT`). Only override when the deployment mounts the tRPC
+ * handler at a non-default path.
+ */
+export interface ControlPlaneRuntimeNodeClientOptions {
+  readonly fetcher: (request: Request) => Promise<Response>;
+  readonly baseUrl: string;
+  readonly endpoint?: string;
+}
+
+/**
+ * Thrown by the control-plane `RuntimeNodeClient` when a runtime-node procedure
+ * returns a non-2xx tRPC response carrying a typed `aisError` envelope. The
+ * control-plane router maps every typed runtime-node refusal to HTTP 409 / tRPC
+ * `CONFLICT` and the shared `errorFormatter` projects the typed exception's
+ * `.code` onto `shape.data.aisError` (`sessions/trpc.ts:81-99` — the
+ * `AisWireException` base `instanceof`). This class surfaces that wire `code` so
+ * the consumer can branch on it.
+ *
+ * Code-AGNOSTIC by design — it carries WHATEVER `aisError.code` string the wire
+ * delivered, NOT a hardcoded constant. The four runtime-node refusals all
+ * surface through this one class:
+ *   * `version.floor_exceeded` — a below-floor read-only node's capability
+ *     WRITE refusal (the typed `VERSION_FLOOR_EXCEEDED`, I-003-1 / ADR-018
+ *     §Decision #4 / Spec-003 line 123). A consumer (e.g. Plan-003 T4.4) asserts
+ *     this branch via `error.code === VERSION_FLOOR_EXCEEDED_CODE` (imported
+ *     from `@ai-sidekicks/contracts`) — this SDK deliberately does NOT import or
+ *     hardcode that constant, so the surface stays decoupled from any single
+ *     code.
+ *   * `runtimenode.attach_conflict` / `runtimenode.attach_revoked` — the two
+ *     attach refusals.
+ *   * `runtimenode.capabilityupdate_conflict` — the capability-update refusal.
+ *
+ * Modeled on the daemon path's `JsonRpcRemoteError` (jsonRpcClient.ts:96) —
+ * `code` (here a STRING, the dotted wire code) + `message` + the originating
+ * `httpStatus` — so the two transports surface comparably-shaped typed errors.
+ * The wire `message` is read defensively as a string; we do NOT Zod-validate the
+ * `aisError` payload against `VersionFloorExceededErrorSchema` because that
+ * schema is the TWO-sided HTTP `ErrorResponse` shape (`acceptedRange.{min,max}`)
+ * — the runtime-node write-refusal surface is code+message-only (the one-sided
+ * session floor cannot populate it; error-contracts.md §Version surface (3)),
+ * so validating against the two-sided schema would reject the very payload we
+ * are parsing.
+ */
+export class RuntimeNodeControlPlaneError extends Error {
+  /** The typed `aisError.code` wire string (e.g. `version.floor_exceeded`). */
+  public readonly code: string;
+  /** The originating HTTP status (409 for the typed runtime-node refusals). */
+  public readonly httpStatus: number;
+
+  public constructor(code: string, message: string, httpStatus: number) {
+    super(message);
+    this.name = "RuntimeNodeControlPlaneError";
+    this.code = code;
+    this.httpStatus = httpStatus;
+  }
+}
+
+/**
+ * Build a `RuntimeNodeClient` over the control-plane HTTP transport. Uses the
+ * raw `fetch` shape (vs. the `@trpc/client` package) for the same reasons
+ * `createControlPlaneSessionClient` does: `@trpc/client` is not a declared
+ * client-sdk dep, and the all-mutation wire shape (POST JSON body) is small
+ * enough to inline correctly.
+ *
+ * ALL FOUR methods are tRPC mutations — POST with the raw input JSON as the body
+ * (no transformer; the control-plane router uses `defaultTransformer` —
+ * sessions/trpc.ts). There is NO query (`?input=` GET) and NO subscribe (SSE)
+ * path here, which is why this factory is simpler than
+ * `createControlPlaneSessionClient`.
+ *
+ * Each method validates its request at the SDK boundary (mirrors the daemon
+ * path's `JsonRpcClient.call` fail-fast posture), POSTs the validated JSON,
+ * then unwraps + Zod-validates the response via `parseRuntimeNodeResult`. The
+ * no-content `heartbeat` / `detach` unwrap to `null` (validated against their
+ * `z.null()` schemas); `attach` / `capabilityUpdate` unwrap to their content
+ * responses. A non-2xx typed-refusal response REJECTS with
+ * `RuntimeNodeControlPlaneError` carrying the wire `aisError.code`.
+ */
+export function createControlPlaneRuntimeNodeClient(
+  opts: ControlPlaneRuntimeNodeClientOptions,
+): RuntimeNodeClient {
+  const endpoint = opts.endpoint ?? DEFAULT_TRPC_ENDPOINT;
+  const trpcUrl = (method: string): string => `${opts.baseUrl}${endpoint}/${method}`;
+
+  const postMutation = (method: string, body: unknown): Promise<Response> =>
+    opts.fetcher(
+      new Request(trpcUrl(method), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    );
+
+  return {
+    attach: async (request) => {
+      // tRPC v11 mutation wire format with no transformer (the control-plane
+      // router uses defaultTransformer): POST body is the raw input JSON.
+      // Validate AT the SDK boundary (mirrors the daemon path's
+      // `JsonRpcClient.call` fail-fast posture).
+      const validated = RuntimeNodeAttachRequestSchema.parse(request);
+      const response = await postMutation(RUNTIME_NODE_METHOD_ATTACH, validated);
+      return parseRuntimeNodeResult(response, RuntimeNodeAttachResponseSchema);
+    },
+    heartbeat: async (request) => {
+      const validated = RuntimeNodeHeartbeatRequestSchema.parse(request);
+      const response = await postMutation(RUNTIME_NODE_METHOD_HEARTBEAT, validated);
+      // No-content success unwraps to `null` (validated against `z.null()`).
+      return parseRuntimeNodeResult(response, RuntimeNodeHeartbeatResponseSchema);
+    },
+    capabilityUpdate: async (request) => {
+      const validated = RuntimeNodeCapabilityUpdateRequestSchema.parse(request);
+      const response = await postMutation(RUNTIME_NODE_METHOD_CAPABILITY_UPDATE, validated);
+      return parseRuntimeNodeResult(response, RuntimeNodeCapabilityUpdateResponseSchema);
+    },
+    detach: async (request) => {
+      const validated = RuntimeNodeDetachRequestSchema.parse(request);
+      const response = await postMutation(RUNTIME_NODE_METHOD_DETACH, validated);
+      // No-content success unwraps to `null` (validated against `z.null()`).
+      return parseRuntimeNodeResult(response, RuntimeNodeDetachResponseSchema);
+    },
+  };
+}
+
+/**
+ * Parse a tRPC v11 fetch-adapter response for a runtime-node mutation. On a
+ * non-2xx response, surface the typed `aisError` envelope as a
+ * `RuntimeNodeControlPlaneError` (see below); on a 2xx, walk the success
+ * envelope to the unwrapped `data` and Zod-validate it against the caller's
+ * schema.
+ *
+ * Local to this file rather than shared with `sessionClient.ts`'s
+ * `parseTrpcResult`: the success-envelope walk is identical (~8 lines), but the
+ * ERROR paths diverge fundamentally — `sessionClient.parseTrpcResult` throws a
+ * generic `Error` with the body text on any non-2xx, whereas the runtime-node
+ * surface MUST parse the typed `aisError` code and surface it as a typed error
+ * (so a consumer can branch on `version.floor_exceeded`). Sharing the success
+ * walk while diverging the error walk would couple two surfaces with different
+ * error contracts; the divergent error paths make "keep local" the right call.
+ */
+async function parseRuntimeNodeResult<T>(
+  response: Response,
+  schema: { parse: (input: unknown) => T },
+): Promise<T> {
+  if (!response.ok) {
+    throw await buildControlPlaneError(response);
+  }
+  const envelope = (await response.json()) as unknown;
+  // Defensive shape extraction — we don't Zod-validate the tRPC wrapper (its
+  // shape is owned by tRPC v11; pinning it here would tightly couple to the
+  // library version). Walk the path and surface a structured error on mismatch.
+  const data = extractTrpcResponseData(envelope);
+  return schema.parse(data);
+}
+
+/**
+ * Build the typed error for a non-2xx control-plane runtime-node response.
+ *
+ * The tRPC v11 HTTP error envelope (no transformer, no batching) is
+ * `{ error: { message, code, data: { code, httpStatus, path,
+ * ...errorFormatter additions } } }`; the shared `errorFormatter` appends the
+ * typed exception's projection at `error.data.aisError = { code, message }`
+ * (host-runtime-node.test.ts:267-281 pins this path empirically). When that
+ * `aisError` envelope is present we surface its `code` + `message` as a
+ * `RuntimeNodeControlPlaneError`.
+ *
+ * NOT every non-2xx carries an `aisError`: the attach self-check throws a plain
+ * `TRPCError({ code: "UNAUTHORIZED" })` with NO `aisError` envelope
+ * (runtime-node-router.factory.ts:172-176). For that (and any other untyped
+ * non-2xx) we fall back to the tRPC envelope's own `error.message` / top-level
+ * `error.data.code`, still surfaced as a `RuntimeNodeControlPlaneError` so the
+ * caller sees ONE typed error class across both the typed-refusal and the
+ * untyped-failure cases (the `code` is the tRPC `error.code` string, e.g.
+ * `UNAUTHORIZED`, when no `aisError` is present). The originating HTTP status
+ * rides `httpStatus` either way.
+ *
+ * `code` / `message` are read DEFENSIVELY as strings — we do NOT Zod-validate
+ * the `aisError` payload against `VersionFloorExceededErrorSchema` (the
+ * two-sided HTTP `ErrorResponse` shape), because the runtime-node write-refusal
+ * surface is code+message-only and that schema would reject it (see
+ * `RuntimeNodeControlPlaneError` JSDoc + error-contracts.md §Version).
+ */
+async function buildControlPlaneError(response: Response): Promise<RuntimeNodeControlPlaneError> {
+  const httpStatus = response.status;
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    // Body was not JSON (proxy error page, truncated stream, etc.). Surface the
+    // status + statusText so the failure mode is still legible.
+    return new RuntimeNodeControlPlaneError(
+      "control_plane.non_json_error",
+      `Control-plane runtime-node request failed: HTTP ${String(httpStatus)} ${response.statusText}`,
+      httpStatus,
+    );
+  }
+  // Walk the envelope with inline named-property cast types (mirrors
+  // `sessionClient.ts`'s `extractTrpcResponseData`) rather than an index-
+  // signature `Record` — named properties sidestep
+  // `noPropertyAccessFromIndexSignature` (tsconfig.base.json) and keep the walk
+  // legible.
+  const error = isObject(body) ? (body as { error?: unknown }).error : undefined;
+  const data = isObject(error) ? (error as { data?: unknown }).data : undefined;
+
+  // Preferred: the typed `aisError` envelope projected by the shared
+  // errorFormatter (present for every `AisWireException` refusal — the four
+  // runtime-node typed refusals).
+  const aisError = isObject(data) ? (data as { aisError?: unknown }).aisError : undefined;
+  if (isObject(aisError)) {
+    const typed = aisError as { code?: unknown; message?: unknown };
+    if (typeof typed.code === "string") {
+      const message = typeof typed.message === "string" ? typed.message : "";
+      return new RuntimeNodeControlPlaneError(typed.code, message, httpStatus);
+    }
+  }
+
+  // Fallback: an untyped tRPC error (e.g. the attach self-check's
+  // `UNAUTHORIZED`, which carries NO `aisError`). Use the tRPC envelope's own
+  // `error.data.code` (string code like `UNAUTHORIZED`) + `error.message`.
+  const dataCode = isObject(data) ? (data as { code?: unknown }).code : undefined;
+  const fallbackCode = typeof dataCode === "string" ? dataCode : "control_plane.error";
+  const errorMessage = isObject(error) ? (error as { message?: unknown }).message : undefined;
+  const fallbackMessage =
+    typeof errorMessage === "string"
+      ? errorMessage
+      : `Control-plane runtime-node request failed: HTTP ${String(httpStatus)} ${response.statusText}`;
+  return new RuntimeNodeControlPlaneError(fallbackCode, fallbackMessage, httpStatus);
+}
+
+/**
+ * Walk a tRPC v11 success envelope down to the unwrapped `data` value. Throws a
+ * structured error on shape mismatch so a future tRPC envelope change surfaces
+ * here rather than passing `undefined` to Zod.
+ *
+ * Today's control-plane router uses defaultTransformer (identity) — the envelope
+ * is `{ result: { data: <output> } }` directly (no `data.json` hop). For the
+ * no-content `heartbeat` / `detach` mutations the unwrapped `data` is literally
+ * `null` (the resolver returns `null`, serialized as `{ result: { data: null } }`
+ * — host-runtime-node.test.ts:316-321), which `RuntimeNodeHeartbeatResponse-
+ * Schema` / `RuntimeNodeDetachResponseSchema` (`z.null()`) accept. `result` is
+ * the object `{ data: null }`, so the `isObject(result)` guard below passes and
+ * `result.data` correctly reads back `null`.
+ *
+ * Mirrors `sessionClient.ts`'s `extractTrpcResponseData` — kept local rather
+ * than shared because the surrounding error contracts diverge (see
+ * `parseRuntimeNodeResult` JSDoc).
+ */
+function extractTrpcResponseData(envelope: unknown): unknown {
+  if (!isObject(envelope)) {
+    throw new Error("Control-plane runtime-node response: top-level value is not an object");
+  }
+  const result = (envelope as { result?: unknown }).result;
+  if (!isObject(result)) {
+    throw new Error("Control-plane runtime-node response: missing 'result' object");
+  }
+  return (result as { data?: unknown }).data;
+}
+
+/**
+ * Narrow an `unknown` to a non-null object. Centralizes the
+ * `typeof === "object" && !== null` guard the envelope walkers share so the
+ * non-null narrowing is single-sourced (a bare `typeof x === "object"` admits
+ * `null`). Narrows to `object` (NOT `Record<string, unknown>`) so callers must
+ * reach individual fields via inline named-property casts — that sidesteps
+ * `noPropertyAccessFromIndexSignature` and mirrors `sessionClient.ts`'s
+ * envelope-walk idiom.
+ */
+function isObject(value: unknown): value is object {
+  return typeof value === "object" && value !== null;
+}

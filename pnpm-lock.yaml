@@ -118,6 +118,9 @@ importers:
       '@ai-sidekicks/control-plane':
         specifier: workspace:*
         version: link:../control-plane
+      '@electric-sql/pglite':
+        specifier: ^0.4.4
+        version: 0.4.4
       '@trpc/server':
         specifier: ^11.17.0
         version: 11.17.0(typescript@5.9.3)
