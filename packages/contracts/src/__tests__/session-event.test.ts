@@ -35,6 +35,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   compareEventEnvelopeVersion,
+  EVENT_ENVELOPE_VERSION_MAX_LEN,
   EVENT_ENVELOPE_VERSION_PATTERN,
   EVENT_FIELD_MAX_LEN,
   EventCategorySchema,
@@ -181,6 +182,25 @@ describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
     ["", false], // empty
   ])("EventEnvelopeVersion regex accepts %s -> %s", (candidate, shouldPass) => {
     expect(EVENT_ENVELOPE_VERSION_PATTERN.test(candidate)).toBe(shouldPass);
+  });
+
+  // Length cap at the schema boundary, independent of the format regex. Both
+  // inputs are regex-valid (a single all-nines MAJOR + ".0"), so each exercises
+  // the `.max(EVENT_ENVELOPE_VERSION_MAX_LEN)` gate specifically — not the
+  // format gate. The cap bounds the super-linear BigInt parse cost in
+  // `compareEventEnvelopeVersion`, so it must reject through the schema rather
+  // than the regex.
+  it("rejects an EventEnvelopeVersion longer than the length cap", () => {
+    const overCap = "9".repeat(EVENT_ENVELOPE_VERSION_MAX_LEN - 1) + ".0";
+    expect(overCap.length).toBe(EVENT_ENVELOPE_VERSION_MAX_LEN + 1);
+    expect(EVENT_ENVELOPE_VERSION_PATTERN.test(overCap)).toBe(true);
+    expect(EventEnvelopeVersionSchema.safeParse(overCap).success).toBe(false);
+  });
+
+  it("accepts an EventEnvelopeVersion at exactly the length cap (boundary)", () => {
+    const atCap = "9".repeat(EVENT_ENVELOPE_VERSION_MAX_LEN - 2) + ".0";
+    expect(atCap.length).toBe(EVENT_ENVELOPE_VERSION_MAX_LEN);
+    expect(EventEnvelopeVersionSchema.safeParse(atCap).success).toBe(true);
   });
 
   it.each([
@@ -427,13 +447,14 @@ describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
 // are why the comparator parses MAJOR/MINOR as integers instead of comparing
 // strings (event.ts §compareEventEnvelopeVersion; ADR-018 §Decision #1).
 //
-// The precision cases below are the second load-bearing guard: the regex caps
-// neither segment's length, so a `Number` parse would collapse two distinct
-// versions above `Number.MAX_SAFE_INTEGER` to one float (and turn ~400-digit
-// segments into `Infinity`). The comparator parses with `BigInt`, so the
-// ordering stays EXACT at any magnitude. This matters at the version-floor gate
-// (attach-service.ts): a below-floor client whose version collapsed to the
-// floor's float would be mis-read as at-floor and wrongly granted read-write.
+// The precision cases below are the second load-bearing guard: the SCHEMA caps
+// input length (EVENT_ENVELOPE_VERSION_MAX_LEN), but well within that bound a
+// `Number` parse still collapses two distinct versions above
+// `Number.MAX_SAFE_INTEGER` to one float. The comparator parses with `BigInt`,
+// so the ordering stays EXACT across that range. This matters at the
+// version-floor gate (attach-service.ts): a below-floor client whose version
+// collapsed to the floor's float would be mis-read as at-floor and wrongly
+// granted read-write.
 describe("compareEventEnvelopeVersion", () => {
   const parseVersion = (raw: string) => EventEnvelopeVersionSchema.parse(raw);
 
@@ -504,20 +525,6 @@ describe("compareEventEnvelopeVersion", () => {
       compareEventEnvelopeVersion(
         parseVersion("1.9007199254740993"),
         parseVersion("1.9007199254740992"),
-      ),
-    ).toBe(1);
-  });
-
-  it("orders ~400-digit MAJORs that both become Infinity under Number", () => {
-    // The regex caps neither segment, so these pass the brand. Number("9"*400)
-    // and Number("1" + "0"*400) both evaluate to Infinity (Infinity !== Infinity
-    // is false -> a numeric compare can't order them); BigInt orders exactly.
-    const fourHundredNines = "9".repeat(400);
-    const strictlyLarger = "1" + "0".repeat(400); // 401 digits > any 400-digit value
-    expect(
-      compareEventEnvelopeVersion(
-        parseVersion(`${strictlyLarger}.0`),
-        parseVersion(`${fourHundredNines}.0`),
       ),
     ).toBe(1);
   });

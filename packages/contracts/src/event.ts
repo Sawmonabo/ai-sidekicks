@@ -118,11 +118,28 @@ export const EventCategorySchema: z.ZodType<EventCategory> = z.enum([
 
 export const EVENT_ENVELOPE_VERSION_PATTERN: RegExp = /^(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 
+// Length ceiling for an EventEnvelopeVersion string, enforced at the parse
+// boundary BEFORE the format regex. This is a bound on parse cost, not a
+// format rule: `compareEventEnvelopeVersion` parses each segment with `BigInt`
+// for exact ordering above `Number.MAX_SAFE_INTEGER`, and BigInt construction
+// from a decimal string is super-linear in digit count — so an unbounded but
+// regex-valid input (a single segment of arbitrarily many digits) would let a
+// caller drive parse work without limit. Real protocol versions are
+// single/low-double-digit segments per ADR-018 §Decision #1, so 64 characters
+// is generous headroom for any plausible MAJOR.MINOR while keeping the BigInt
+// parse trivially cheap. This is a strict MAJOR.MINOR protocol-version bound,
+// deliberately distinct from `VERSION_STRING_MAX_LEN` (error.ts), which caps
+// free-form version strings in error details — the two must not be coupled.
+export const EVENT_ENVELOPE_VERSION_MAX_LEN = 64;
+
 export type EventEnvelopeVersion = string & {
   readonly __brand: "EventEnvelopeVersion";
 };
 export const EventEnvelopeVersionSchema: z.ZodType<EventEnvelopeVersion> = z
   .string()
+  .max(EVENT_ENVELOPE_VERSION_MAX_LEN, {
+    message: `EventEnvelopeVersion must be at most ${EVENT_ENVELOPE_VERSION_MAX_LEN} characters.`,
+  })
   .regex(EVENT_ENVELOPE_VERSION_PATTERN, {
     message:
       'EventEnvelopeVersion must be a "MAJOR.MINOR" semver string per ADR-018 §Decision #1 (e.g. "1.0", "2.5"; not numeric, not three-segment, no leading zeros).',
@@ -167,12 +184,14 @@ export function compareEventEnvelopeVersion(
   b: EventEnvelopeVersion,
 ): -1 | 0 | 1 {
   // The `as [bigint, bigint]` is justified by the brand: the regex guarantees
-  // exactly two segments, each a valid non-negative integer literal. `BigInt`
-  // (not `Number`) makes the compare EXACT at arbitrary precision — no
-  // `Number.MAX_SAFE_INTEGER` collapse where two distinct large versions round
-  // to the same float, and no `Infinity` for astronomically long digit strings.
-  // That exactness is the point: the version floor reads this ordering, so an
-  // off-by-a-float result there is a security boundary, not a rounding nit.
+  // exactly two segments, each a valid non-negative integer literal. The schema
+  // also bounds input length (EVENT_ENVELOPE_VERSION_MAX_LEN), so the comparator
+  // only ever receives a string within that cap. Within that bound, `BigInt`
+  // (not `Number`) makes the compare EXACT above `Number.MAX_SAFE_INTEGER` —
+  // where a `Number` parse would collapse two distinct large versions to the
+  // same float. That exactness is the point: the version floor reads this
+  // ordering, so an off-by-a-float result there is a security boundary, not a
+  // rounding nit.
   const [aMajor, aMinor] = a.split(".").map(BigInt) as [bigint, bigint];
   const [bMajor, bMinor] = b.split(".").map(BigInt) as [bigint, bigint];
   if (aMajor !== bMajor) return aMajor < bMajor ? -1 : 1;
