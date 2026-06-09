@@ -1,6 +1,7 @@
 // Plan-003 Phase 4 T4.2: I1 integration test for `runtimeNodeClient`, plus the
-// SHARED PGlite-backed harness that T4.3 (I2, in this file — capability-health
-// degraded distinguishability) and T4.4 (version-floor write-refusal) extend.
+// SHARED PGlite-backed harness that T4.3 (I2 — capability-health degraded
+// distinguishability) and T4.4 (I3 — version-floor write-refusal) extend; all
+// three scenarios now live in this file.
 //
 // Spec coverage — the named acceptance criteria from Spec-003:
 //   * I1 — live attach to an already-active session leaves session identity
@@ -15,6 +16,12 @@
 //          server-derived full `NodeState`). See the I2 section below for why
 //          `degraded` is driven on the capability-health axis, per the Plan-003
 //          T4.3 amendment (2026-06-09, PR #147).
+//   * I3 — mixed-version attach (Spec-003 line 123 AC4): the below-floor daemon
+//          is ADMITTED read-only — its reads succeed, its version-sensitive
+//          capability WRITE returns typed `VERSION_FLOOR_EXCEEDED`, and neither
+//          daemon is ejected for the floor mismatch. The ONE Phase-4 scenario
+//          verifying a Plan-003 invariant: I-003-1 (admit-in-read-only /
+//          admit-not-eject — Plan-003 §Invariants).
 //
 // Architecture (locked — see Plan-003 Phase 4 dispatch): this harness drives the
 // REAL `AttachService` / `HeartbeatService` over an in-memory PGlite database —
@@ -59,10 +66,12 @@ import {
   type NodeId,
   type ParticipantId,
   type SessionId,
+  VERSION_FLOOR_EXCEEDED_CODE,
 } from "@ai-sidekicks/contracts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
+  RuntimeNodeControlPlaneError,
   createControlPlaneRuntimeNodeClient,
   createDaemonRuntimeNodeClient,
 } from "../src/runtimeNodeClient.js";
@@ -90,6 +99,17 @@ const CLIENT_VERSION: EventEnvelopeVersion = "1.4" as EventEnvelopeVersion;
 // readability, not isolation).
 const DEGRADED_NODE_ID: NodeId = "node-bravo-degraded-01" as NodeId;
 const HEALTHY_NODE_ID: NodeId = "node-charlie-online-01" as NodeId;
+
+// I3 (T4.4) fixtures — the mixed-version daemon pair. The I3 session floor is
+// `CLIENT_VERSION` ("1.4") ITSELF, so "at-floor" means EQUAL-to-floor — the
+// sharpest admit-read-write boundary case, since the `#deriveReadOnly` gate is
+// strictly-below (attach-service.ts: a daemon AT or ABOVE the floor admits
+// `readOnly = false`) — and the below-floor daemon reports one MINOR lower
+// ("1.3", a valid `EventEnvelopeVersion` MAJOR.MINOR string). Node ids named
+// for the version role each daemon plays in the scenario.
+const AT_FLOOR_NODE_ID: NodeId = "node-delta-at-floor-01" as NodeId;
+const BELOW_FLOOR_NODE_ID: NodeId = "node-echo-below-floor-01" as NodeId;
+const BELOW_FLOOR_CLIENT_VERSION: EventEnvelopeVersion = "1.3" as EventEnvelopeVersion;
 
 const CAPABILITIES: Record<string, unknown> = {
   "provider-driver": { kind: "claude", streaming: true },
@@ -168,10 +188,10 @@ async function seedParticipant(querier: Querier, participantId: ParticipantId): 
 }
 
 // Seed an ACTIVE session with a CONFIGURABLE `min_client_version` floor. The
-// floor is NULL (no version gate) for I1/I2; T4.4 passes a real floor (e.g.
-// "2.0") so a below-floor daemon's later `capabilityUpdate` write is refused
-// through the REAL `AttachService.updateCapabilities` floor-gate. `minClientVersion`
-// omitted => the column stays SQL NULL.
+// floor is NULL (no version gate) for I1/I2; I3 (T4.4) passes the real floor
+// (`CLIENT_VERSION`, "1.4") so a below-floor daemon's later `capabilityUpdate`
+// write is refused through the REAL `AttachService.updateCapabilities`
+// floor-gate. `minClientVersion` omitted => the column stays SQL NULL.
 async function seedSession(
   querier: Querier,
   sessionId: SessionId,
@@ -722,6 +742,176 @@ describe("I2 / Spec-003 AC2 (line 121) + lines 76/72 — degraded node remains d
     expect(await readAttachmentStatesByNode(ctx.querier)).toEqual({
       [DEGRADED_NODE_ID]: "degraded",
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// I3 — mixed-version attach: at-floor reads/writes; below-floor reads but
+// writes return VERSION_FLOOR_EXCEEDED; neither node is ejected
+// (Spec-003 line 123 AC4 + I-003-1) — control-plane transport
+// ---------------------------------------------------------------------------
+//
+// THE invariant scenario: T4.4 is the only Phase-4 task verifying a Plan-003
+// invariant — I-003-1 (Plan-003 §Invariants, "Attach is admit-not-eject for
+// below-floor daemons"). Its load-bearing property: a below-floor daemon MUST
+// be admitted in read-only state and remain joined; any subsequent
+// version-sensitive domain write MUST return typed `VERSION_FLOOR_EXCEEDED`;
+// ejection MUST NOT be the response to a floor mismatch. Ejection would break
+// the ADR-018 §Decision #4 graceful-degradation contract — a participant on a
+// slightly-old daemon would lose ALL session visibility, not just write
+// capability.
+//
+// What "reads" means on this surface: the Phase-4 runtime-node SDK has NO
+// read/roster procedure, so the below-floor read-class evidence is (a) the
+// attach response itself returning full data — admission WITH data readback
+// (`readOnly` verdict, `state`, `attachmentId`) — and (b) `heartbeat`
+// SUCCEEDING below-floor. Presence is version-INVARIANT by design
+// (heartbeat-service.ts carries NO floor recheck: the fixed
+// `{nodeId, healthState}` shape cannot carry a version-incompatible payload),
+// so the read-only daemon keeps participating in liveness while write-blocked.
+// The floor gates only version-SENSITIVE domain writes — the capability
+// declaration (the Spec-003 line 53 refusal boundary).
+//
+// NO daemon-transport variant (same reasoning as I2): the `readOnly` verdict
+// and the floor refusal are derived by the REAL `AttachService` against the
+// session row — a scripted reply table would just echo whatever verdict we
+// scripted, a tautology with no floor decision under test.
+
+describe("I3 / Spec-003 AC4 (line 123) + I-003-1 — mixed-version attach: below-floor admitted read-only, write refused, never ejected", () => {
+  it("control-plane transport: the at-floor daemon reads and writes; the below-floor daemon reads but its capability write returns typed VERSION_FLOOR_EXCEEDED; both stay joined", async () => {
+    // (1) Seed the live session WITH a version floor — `min_client_version` is
+    // `CLIENT_VERSION` ("1.4") itself, so the at-floor daemon attaches EQUAL
+    // to the floor and the below-floor daemon ("1.3") sits one MINOR below it
+    // (see the I3 fixture block).
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID, CLIENT_VERSION);
+    await seedMembership(ctx.querier, {
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      role: "owner",
+      state: "active",
+    });
+
+    const sdk = buildControlPlaneRuntimeNodeClient(buildRuntimeNodeDeps(ctx.querier));
+
+    // (2) The AT-FLOOR daemon attaches read-write: its `clientVersion` EQUALS
+    // the floor, and at-or-above admits `readOnly = false` (the floor gate is
+    // strictly-below — attach-service.ts `#deriveReadOnly`).
+    const atFloorAttach = await sdk.attach({
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      nodeId: AT_FLOOR_NODE_ID,
+      clientVersion: CLIENT_VERSION,
+      capabilities: CAPABILITIES,
+      healthState: "online",
+    });
+    expect(atFloorAttach.state).toBe("registering");
+    expect(atFloorAttach.readOnly).toBe(false);
+
+    // (3) The BELOW-FLOOR daemon is ADMITTED, not rejected (I-003-1
+    // admit-in-read-only): the attach RESOLVES with a well-formed response —
+    // full data readback, the first below-floor "read" — carrying the
+    // server-derived `readOnly = true` PERMISSION verdict. The paired-object
+    // assert pins the ORTHOGONALITY of the two response axes (Plan-003 T4.4):
+    // `readOnly` is NOT a `NodeState` member — the read-only daemon holds a
+    // NORMAL `state` (`registering`, identical to its at-floor peer) with the
+    // permission flag riding alongside.
+    const belowFloorAttach = await sdk.attach({
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      nodeId: BELOW_FLOOR_NODE_ID,
+      clientVersion: BELOW_FLOOR_CLIENT_VERSION,
+      capabilities: CAPABILITIES,
+      healthState: "online",
+    });
+    expect({ state: belowFloorAttach.state, readOnly: belowFloorAttach.readOnly }).toEqual({
+      state: "registering",
+      readOnly: true,
+    });
+    expect(belowFloorAttach.attachmentId).toMatch(/[0-9a-f-]{36}/i);
+    // DB anti-vacuity: BOTH attaches landed as attachment rows — the
+    // below-floor admit is persisted, not a response-only artifact.
+    expect(await countAttachments(ctx.querier)).toBe(2);
+
+    // (4) BELOW-FLOOR READS SUCCEED (I-003-1: "the daemon remains joined and
+    // may read session state"): heartbeat — the version-invariant read-class
+    // operation (see the section header) — resolves the no-content `null` AND
+    // the presence row lands server-side with the daemon-reported state.
+    const belowFloorHeartbeat: null = await sdk.heartbeat({
+      nodeId: BELOW_FLOOR_NODE_ID,
+      healthState: "online",
+    });
+    expect(belowFloorHeartbeat).toBeNull();
+    const belowFloorPresence = await readPresenceRow(ctx.querier, BELOW_FLOOR_NODE_ID);
+    expect(belowFloorPresence).toBeDefined();
+    expect(belowFloorPresence?.health_state).toBe("online");
+
+    // (5) The AT-FLOOR daemon READS AND WRITES: heartbeat resolves, and a
+    // capability declaration (capabilities-only refresh — the AC4
+    // "version-sensitive domain write" class) SUCCEEDS with the state-carrying
+    // response. This payload is kept IDENTICAL to the below-floor attempt in
+    // (6), making the contrast a single-variable experiment: the ONLY
+    // difference between the accepted and the refused write is the attach-time
+    // `clientVersion`.
+    const atFloorHeartbeat: null = await sdk.heartbeat({
+      nodeId: AT_FLOOR_NODE_ID,
+      healthState: "online",
+    });
+    expect(atFloorHeartbeat).toBeNull();
+    const atFloorWrite = await sdk.capabilityUpdate({
+      nodeId: AT_FLOOR_NODE_ID,
+      capabilities: CAPABILITIES,
+    });
+    expect(atFloorWrite.nodeId).toBe(AT_FLOOR_NODE_ID);
+    expect(atFloorWrite.state).toBe("registering");
+
+    // (6) The BELOW-FLOOR WRITE IS REFUSED — typed, not generic (Spec-003
+    // line 123 AC4): the IDENTICAL capability write rejects with the SDK's
+    // typed `RuntimeNodeControlPlaneError` carrying the dotted wire code
+    // `version.floor_exceeded` (asserted against the canonical
+    // `VERSION_FLOOR_EXCEEDED_CODE` constant, never a string literal) and the
+    // HTTP 409 CONFLICT provenance (error-contracts.md §Version row). The
+    // capture-once `.then()` idiom (membershipClient.integration.test.ts
+    // precedent) attempts the refused write exactly ONCE and asserts instance
+    // + fields on the same rejection.
+    const refusal = await sdk
+      .capabilityUpdate({
+        nodeId: BELOW_FLOOR_NODE_ID,
+        capabilities: CAPABILITIES,
+      })
+      .then(
+        () => {
+          throw new Error("expected the below-floor capability write to be refused");
+        },
+        (error: unknown) => error,
+      );
+    expect(refusal).toBeInstanceOf(RuntimeNodeControlPlaneError);
+    const typedRefusal = refusal as RuntimeNodeControlPlaneError;
+    expect(typedRefusal.code).toBe(VERSION_FLOOR_EXCEEDED_CODE);
+    expect(typedRefusal.httpStatus).toBe(409);
+    // The refusal message names the refused node (provenance without
+    // info-leak — host-runtime-node.test.ts pins the same property at the
+    // wire layer).
+    expect(typedRefusal.message).toContain(String(BELOW_FLOOR_NODE_ID));
+
+    // (7) ADMIT-NOT-EJECT (the I-003-1 load-bearing property, observed AFTER
+    // the refusal): BOTH attachment rows are still present in ACTIVE states —
+    // the exact-map `toEqual` proves neither row went `offline`/`revoked` AND
+    // no extra row materialized. The floor gate's throw rolled its transaction
+    // back, leaving the below-floor row byte-unchanged at `registering`; the
+    // at-floor capabilities-only refresh wrote `registering` back unchanged.
+    expect(await readAttachmentStatesByNode(ctx.querier)).toEqual({
+      [AT_FLOOR_NODE_ID]: "registering",
+      [BELOW_FLOOR_NODE_ID]: "registering",
+    });
+    // Post-refusal liveness: the refused daemon can STILL heartbeat — it was
+    // never detached for the floor mismatch (graceful degradation, not
+    // ejection — ADR-018 §Decision #4 via I-003-1).
+    const postRefusalHeartbeat: null = await sdk.heartbeat({
+      nodeId: BELOW_FLOOR_NODE_ID,
+      healthState: "online",
+    });
+    expect(postRefusalHeartbeat).toBeNull();
   });
 });
 
