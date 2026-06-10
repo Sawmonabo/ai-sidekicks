@@ -827,7 +827,7 @@ shipped:
       - packages/runtime-daemon/src/node/node-capability-service.ts
       - packages/runtime-daemon/src/node/node-event-emitter.ts
       - packages/runtime-daemon/src/node/node-registry.ts
-    verifies_invariant: [I-003-1, I-003-3]
+    verifies_invariant: []
     spec_coverage:
       [
         "Spec-003 line 47",
@@ -844,7 +844,7 @@ shipped:
         "Spec-003 AC4 line 130",
       ]
     notes: |
-      T5.4 (manual two-client attach smoke) deliberately excluded from the task list: its Tier-8-gated disposition is recorded on PR #150 — the live two-client leg is impossible at Tier 1; the floor/attach/membership semantics are already proven by the Phase 1-4 automated suites; owner = user at Tier 8; automated renderer component/E2E coverage backfills per BL-131. Plan-003 plan-level status therefore stays `approved`. verifies_invariant unions the shipped task rows only: I-003-3 (T5.2 — attach and membership surfaced as distinct actions) + I-003-1 (T5.3 — below-floor rendered joined-but-read-only, never ejected); spec_coverage is the union of the T5.0a-T5.3 `Spec coverage:` fields.
+      T5.4 (manual two-client attach smoke) deliberately excluded from the task list: its Tier-8-gated disposition is recorded on PR #150 — the live two-client leg is impossible at Tier 1; the floor/attach/membership semantics are already proven by the Phase 1-4 automated suites; owner = user at Tier 8; automated renderer component/E2E coverage backfills per BL-131. Plan-003 plan-level status therefore stays `approved`. verifies_invariant is deliberately EMPTY (Codex P2, PR #151): the only Phase-5 rows carrying invariant markers — T5.2 (I-003-3) and T5.3 (I-003-1) — defer their verification to the T5.4 smoke per their own Test fields ("no automated component test this Phase — covered by the T5.4 manual smoke"), and T5.4 did not run, so recording them here would overstate renderer-projection verification. The service/SDK legs of both invariants remain verified by the Phase 3 and Phase 4 entries above; the renderer-projection legs verify when T5.4 runs at Tier 8 or the BL-131 backfill lands. spec_coverage is the union of the T5.0a-T5.3 `Spec coverage:` fields.
 ```
 
 ### Notes
