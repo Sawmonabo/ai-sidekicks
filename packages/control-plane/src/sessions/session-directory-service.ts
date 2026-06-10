@@ -699,10 +699,10 @@ export class SessionDirectoryService {
 // Row hydration
 // --------------------------------------------------------------------------
 //
-// Postgres `TIMESTAMPTZ` columns are returned as either a JS `Date` (the
-// `pg` driver's default) or an ISO 8601 string (pglite's default). Both
-// drivers expose a `toISOString()` method on the resulting value when it's
-// a Date; for strings we pass through. The wire contract requires ISO 8601
+// Postgres `TIMESTAMPTZ` columns are hydrated as a JS `Date` by BOTH drivers'
+// default parsers — `pg` (pg-types OID 1184) and PGlite (`types.ts` date
+// parser); the string arm keeps normalization total under custom parser
+// configs. The wire contract requires ISO 8601
 // per `SessionSnapshotSchema.createdAt` (`z.iso.datetime({ offset: true })`).
 //
 // `JSONB` columns are returned as plain JS objects (both drivers parse the

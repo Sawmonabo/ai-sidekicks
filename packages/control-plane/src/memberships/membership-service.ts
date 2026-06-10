@@ -184,10 +184,10 @@ interface MembershipRow {
   readonly updated_at: Date | string;
 }
 
-// `TIMESTAMPTZ` is hydrated as a JS `Date` by `pg` and as an ISO 8601 string
-// by PGlite. The response contract requires ISO 8601 (`updatedAt: string`),
-// so normalize both forms. Mirrors `toIsoString` in
-// session-directory-service.ts / invite-service.ts.
+// `TIMESTAMPTZ` is hydrated as a JS `Date` by BOTH drivers' default parsers —
+// `pg` (pg-types OID 1184) and PGlite (`types.ts` date parser). The contract
+// requires ISO 8601 (`updatedAt: string`); the string arm keeps normalization
+// total under custom parsers (mirrors session-directory-service.ts / invite-service.ts).
 function toIsoString(value: Date | string): string {
   if (value instanceof Date) {
     return value.toISOString();
