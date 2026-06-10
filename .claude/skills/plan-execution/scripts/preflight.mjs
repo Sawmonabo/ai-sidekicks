@@ -1013,42 +1013,6 @@ function parseSpecSegment(segment) {
     }
   }
 
-  // Range form: `lines N1-N2 (descriptor)`. Reject when descriptor names
-  // ≥2 distinct identifier-tokens (compound-range under-enumeration).
-  const rangeMatch = body.match(/^lines\s+(\d+)\s*-\s*(\d+)\s*(?:\((.*)\))?$/);
-  if (rangeMatch) {
-    const start = Number(rangeMatch[1]);
-    const end = Number(rangeMatch[2]);
-    const descriptor = rangeMatch[3] ?? "";
-    const subjects = nonPlanLocalSubjects(descriptor);
-    if (subjects.length >= 2) {
-      failures.push(
-        makeFailure(
-          "compound-range-multi-subject",
-          segment,
-          `Compound range 'lines ${start}-${end}' covers distinct subjects (${subjects.join(", ")}); one-anchor-per-behavior is required.`,
-          `Write 'line ${start} (${subjects[0]}), line ${end} (${subjects[1]})' instead of a range. Each Spec line that names a distinct contract gets its own anchor.`,
-        ),
-      );
-      return { anchors: [], failures };
-    }
-    return {
-      anchors: [
-        {
-          type: "line-range",
-          spec,
-          start,
-          end,
-          section,
-          subject: subjects[0] ?? null,
-          descriptor,
-          raw: segment,
-        },
-      ],
-      failures,
-    };
-  }
-
   // General split on `,` and ` + ` for everything else (AC, line, line+AC).
   // Descriptor forms accepted: `(parens)` OR ` - dash-separated` (the latter
   // appears inside nested plan-local-id paren wrappers like `C5 (Spec-002
@@ -1103,6 +1067,56 @@ function parseSpecSegment(segment) {
       inLinesList = false;
       continue;
     }
+    // Range sub-token: `lines N1-N2 [(descriptor)]`, optionally re-sectioned
+    // (`§<Section> lines N1-N2 (...)`). Sole range parser: a standalone
+    // range body arrives here as one sub-token (splitWithinNamespace only
+    // breaks on depth-0 commas), and mid-list ranges split correctly. A
+    // former whole-body `^lines N1-N2 (.*)$` handler both missed mid-list
+    // ranges (they halted as unparseable while the fallback message
+    // advertised the shape as accepted) and greedy-swallowed list tails —
+    // `lines 39-40 (a), 41 (b)` parsed as one range with descriptor
+    // `a), 41 (b`, silently dropping line 41's coverage. Must precede the
+    // single-line re-section branch: that branch's ` - dash-descriptor`
+    // alternative would claim a spaced range (`§A lines 12 - 15`) as
+    // line 12 with descriptor "15". Carries the compound-range
+    // multi-subject rejection so one-anchor-per-behavior holds for every
+    // range position.
+    const rangeTokenMatch = token.match(
+      /^(?:§([^()]+?)\s+)?lines\s+(\d+)\s*-\s*(\d+)\s*(?:\((.*)\))?$/,
+    );
+    if (rangeTokenMatch) {
+      if (rangeTokenMatch[1]) {
+        currentSection = rangeTokenMatch[1].trim();
+      }
+      const start = Number(rangeTokenMatch[2]);
+      const end = Number(rangeTokenMatch[3]);
+      const descriptor = (rangeTokenMatch[4] ?? "").trim();
+      const subjects = nonPlanLocalSubjects(descriptor);
+      if (subjects.length >= 2) {
+        failures.push(
+          makeFailure(
+            "compound-range-multi-subject",
+            token,
+            `Compound range 'lines ${start}-${end}' covers distinct subjects (${subjects.join(", ")}); one-anchor-per-behavior is required.`,
+            `Write 'line ${start} (${subjects[0]}), line ${end} (${subjects[1]})' instead of a range. Each Spec line that names a distinct contract gets its own anchor.`,
+          ),
+        );
+        inLinesList = false;
+        continue;
+      }
+      anchors.push({
+        type: "line-range",
+        spec,
+        start,
+        end,
+        section: currentSection,
+        subject: subjects[0] ?? null,
+        descriptor,
+        raw: segment,
+      });
+      inLinesList = true;
+      continue;
+    }
     // Re-section sub-anchor: `§<Section> line[s] YY[ (descriptor)]` inside a
     // comma-separated multi-section Spec cite (e.g., `Spec-002 §A line 12,
     // §B line 13` or `Spec-002 §A lines 12 (x), 13 (y), §B lines 20 (z)`).
@@ -1154,7 +1168,7 @@ function parseSpecSegment(segment) {
         "unparseable-spec-subanchor",
         token,
         `Cannot parse '${token}' as a Spec-${spec} sub-anchor.`,
-        "Accepted sub-shapes: `AC-N`, `AC-N (line MM)`, `line N`, `line N (subject)`, `line N - subject`, `lines N1, N2, N3`, `lines N1-N2 (single-subject)`, `§Section line N`.",
+        "Accepted sub-shapes: `AC-N`, `AC-N (line MM)`, `line N`, `line N (subject)`, `line N - subject`, `lines N1, N2, N3`, `lines N1-N2 (single-subject)`, `§Section line N`, `§Section lines N1-N2 (single-subject)`.",
         "error",
       ),
     );

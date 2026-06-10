@@ -713,3 +713,99 @@ test("FAIL 41: arch-doc-ambiguous when filename collides across subdirs", () => 
   assert.match(result.evidence, /contracts\/duplicate\.md/);
   assert.match(result.evidence, /schemas\/duplicate\.md/);
 });
+
+// ============================================================
+// Range sub-tokens inside comma-lists
+// ============================================================
+// The standalone range handler fires only when `lines N1-N2` is the
+// entire cite body. Pre-fix, the comma-list sub-token loop had no range
+// branch, so a mid-list range halted as unparseable-spec-subanchor even
+// though the fallback's accepted-shapes message advertised
+// `lines N1-N2 (single-subject)` as accepted (a Plan-003 T3.9
+// Spec-coverage cite halted Gate 4 on exactly this).
+
+test("PASS 45: range sub-token inside a comma-list parses (Plan-003 T3.9 halt shape)", () => {
+  const { anchors, failures } = parseCitePayload(
+    "Spec-016 §Channel Lifecycle line 52 (create path), line 57 (archive path), lines 65-72 (rename ripple)",
+  );
+  assert.equal(failures.length, 0, `expected clean parse; got: ${JSON.stringify(failures)}`);
+  assert.equal(anchors.length, 3);
+  assert.equal(anchors[0].type, "line");
+  assert.equal(anchors[1].type, "line");
+  assert.equal(anchors[2].type, "line-range");
+  assert.equal(anchors[2].start, 65);
+  assert.equal(anchors[2].end, 72);
+  assert.equal(anchors[2].section, "Channel Lifecycle");
+});
+
+test("PASS 46: §Section-qualified range sub-token re-sections mid-list", () => {
+  const { anchors, failures } = parseCitePayload(
+    "Spec-002 §Interfaces and Contracts line 13 (PresenceUpdate), §Rate Limiting lines 28-34 (RateLimitResponse)",
+  );
+  assert.equal(failures.length, 0, `expected clean parse; got: ${JSON.stringify(failures)}`);
+  assert.equal(anchors.length, 2);
+  assert.equal(anchors[0].section, "Interfaces and Contracts");
+  assert.equal(anchors[1].type, "line-range");
+  assert.equal(anchors[1].section, "Rate Limiting");
+  assert.equal(anchors[1].subject, "RateLimitResponse");
+});
+
+test("PASS 47: spaced range sub-token parses as a range, not line + swallowed descriptor", () => {
+  // The single-line re-section branch's ` - dash-descriptor` alternative
+  // would otherwise claim `§A lines 39 - 41 (...)` as line 39 with
+  // descriptor "41 (token rules)" — a silent wrong-anchor false-green.
+  // The range branch precedes it specifically to prevent that.
+  const { anchors, failures } = parseCitePayload(
+    "Spec-002 line 11, §Token Security Properties lines 39 - 41 (token rules)",
+  );
+  assert.equal(failures.length, 0, `expected clean parse; got: ${JSON.stringify(failures)}`);
+  const rangeAnchor = anchors.find((a) => a.type === "line-range");
+  assert.ok(rangeAnchor, `expected a line-range anchor; got: ${JSON.stringify(anchors)}`);
+  assert.equal(rangeAnchor.start, 39);
+  assert.equal(rangeAnchor.end, 41);
+  assert.ok(!anchors.some((a) => a.type === "line" && a.line === 39));
+});
+
+test("FAIL 48: mid-list compound range with distinct subjects still rejects", () => {
+  // The range branch carries the standalone handler's one-anchor-per-
+  // behavior rejection — accepting multi-subject ranges mid-list would
+  // weaken the gate relative to the standalone form.
+  const { failures } = parseCitePayload(
+    "Spec-002 line 11 (InviteCreate), lines 13-14 (PresenceUpdate/PresenceRead)",
+  );
+  assert.ok(
+    failures.some((f) => f.kind === "compound-range-multi-subject"),
+    `expected compound-range-multi-subject failure; got: ${JSON.stringify(failures)}`,
+  );
+});
+
+test("PASS 49: bare-digit continuation after a mid-list range keeps the lines-list context", () => {
+  // A range sub-token uses the `lines` keyword, so per the established
+  // continuation rule it admits trailing bare-digit entries.
+  const { anchors, failures } = parseCitePayload(
+    "Spec-002 §Token Security Properties lines 39-40 (token policy), 41 (keychain)",
+  );
+  assert.equal(failures.length, 0, `expected clean parse; got: ${JSON.stringify(failures)}`);
+  assert.equal(anchors.length, 2);
+  assert.equal(anchors[0].type, "line-range");
+  assert.equal(anchors[1].type, "line");
+  assert.equal(anchors[1].line, 41);
+  assert.equal(anchors[1].section, "Token Security Properties");
+});
+
+test("PASS 50: mid-list range verifies end-to-end against the spec fixture", () => {
+  // Fixture 003: `RateLimitResponse` intro on line 16, fenced shape block
+  // at 18-25 (same ambient-window geometry PASS 13 pins down).
+  const { anchors, parseFailures, verifyFailures } = verifyAll(
+    "Spec-003 §Rate Limiting line 16 (RateLimitResponse), lines 18-25 (RateLimitResponse canonical shape)",
+  );
+  assert.equal(parseFailures.length, 0);
+  assert.equal(
+    verifyFailures.length,
+    0,
+    `expected clean verify; got: ${JSON.stringify(verifyFailures)}`,
+  );
+  assert.equal(anchors.length, 2);
+  assert.equal(anchors[1].type, "line-range");
+  assert.equal(anchors[1].subject, "RateLimitResponse");
+});
