@@ -250,11 +250,11 @@ export const InviteCreateResponseSchema: z.ZodType<InviteCreateResponse, InviteC
 // SIX fields: `{inviteId, membershipId, sessionId, participantId, role,
 // state}`. The accept path returns BOTH the invite that was consumed and the
 // membership that was activated, so the wire layer can confirm the invite
-// transition AND the resulting membership to the caller (invite-service.ts:
-// 284-291).
+// transition AND the resulting membership to the caller
+// (invite-service.ts:780-787).
 //
 // `state` IS THE MEMBERSHIP'S STATE (`MembershipState`) — the lifecycle state
-// of the newly-created `session_memberships` row (invite-service.ts:290),
+// of the newly-created `session_memberships` row (invite-service.ts:760-770),
 // which the accept path activates to `active`. This is DELIBERATELY a
 // different enum from `InviteRevokeResponse.state` below (which is the
 // INVITE's `InviteState`). `role` is the membership's `MembershipRole`.
@@ -296,7 +296,7 @@ export const InviteAcceptResponseSchema: z.ZodType<InviteAcceptResponse, InviteA
 // STATE-ONLY: `{inviteId, state}`. The response carries the invite id and its
 // new lifecycle state (`'revoked'`); there is no `reason` / `revokedBy` /
 // `revokedAt` field because no such column exists and no audit event is
-// emitted in Phase 2 (invite-service.ts:296-305 — the `invite.revoked` audit
+// emitted in Phase 2 (invite-service.ts:815-818 — the `invite.revoked` audit
 // event is deferred to Plan-006 Tier 4 per CP-002-6).
 //
 // `state` IS THE INVITE'S STATE (`InviteState`, the `InviteStateSchema`
@@ -312,8 +312,8 @@ export const InviteAcceptResponseSchema: z.ZodType<InviteAcceptResponse, InviteA
 // invite matches `(inviteId, sessionId)`, the control-plane `revokeInvite`
 // returns an internal `null` sentinel (its own documented contract: see the
 // `@returns ... null ...` docstring at invite-service.ts:828-829 and the
-// "The wire layer maps `null` to a typed not-found" comment at invite-
-// service.ts:884-885) that the wire/daemon layer translates to a typed
+// "The wire layer maps `null` to a typed not-found" comment at
+// invite-service.ts:884-885) that the wire/daemon layer translates to a typed
 // `invite.not_found` error (error-contracts.md §Invite) — delivered as a
 // JSON-RPC error envelope, never as a `result: null`. A daemon-bridge author
 // must therefore never emit `result: null` against this schema.

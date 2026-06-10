@@ -169,10 +169,10 @@ async function seedMembership(
 }
 
 // Re-read a membership row's mutable columns for the no-mutation / transition
-// assertions. `joined_at` is cast to text (mirroring the `updated_at` cast)
-// because PGlite hydrates TIMESTAMPTZ as an ISO string while `pg` hydrates it
-// as a `Date`; the text cast normalizes both, and a SQL NULL surfaces as
-// `null` so the reactivate-stamp tests can assert presence/absence directly.
+// assertions. `joined_at` is cast to text (mirroring the `updated_at` cast) to
+// pin the assertion shape to a string under any driver parser config (both
+// `pg` and PGlite hydrate TIMESTAMPTZ as a JS `Date` by default), and a SQL
+// NULL surfaces as `null` so the reactivate-stamp tests assert presence/absence directly.
 async function readMembershipRow(
   querier: Querier,
   membershipId: MembershipId,

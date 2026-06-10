@@ -789,6 +789,62 @@ shipped:
       ]
     notes: |
       I2 verified on the client-observable capability-health axis per the in-PR T4.3 plan-row amendment (2026-06-09). The detach lifecycle leg (Spec-003 lines 85 + 69) and the 4-method daemon-transport breadth suite were added by the PR-final coverage review (commit e6df973).
+  - phase: 5
+    task: [T5.0a, T5.0b, T5.0c, T5.0d, T5.1, T5.2, T5.3]
+    pr: 150
+    sha: 8eb2a74
+    merged_at: 2026-06-10
+    files:
+      - apps/desktop/src/renderer/src/runtime-node-attach/AttachFlow.tsx
+      - apps/desktop/src/renderer/src/runtime-node-attach/CapabilityDeclaration.tsx
+      - apps/desktop/src/renderer/src/runtime-node-attach/MixedVersionStatus.tsx
+      - apps/desktop/src/renderer/src/runtime-node-attach/NodeRoster.tsx
+      - apps/desktop/src/renderer/src/runtime-node-attach/index.ts
+      - docs/architecture/contracts/api-payload-contracts.md
+      - docs/architecture/cross-plan-dependencies.md
+      - docs/architecture/schemas/shared-postgres-schema.md
+      - docs/plans/003-runtime-node-attach.md
+      - docs/plans/004-queue-steer-pause-resume.md
+      - docs/plans/005-provider-driver-contract-and-capabilities.md
+      - docs/plans/006-session-event-taxonomy-and-audit-log.md
+      - docs/plans/008-control-plane-relay-and-session-join.md
+      - docs/specs/003-runtime-node-attach.md
+      - packages/client-sdk/src/runtimeNodeClient.ts
+      - packages/client-sdk/test/runtimeNodeClient.integration.test.ts
+      - packages/contracts/src/__tests__/runtime-node.test.ts
+      - packages/contracts/src/runtime-node.ts
+      - packages/control-plane/src/migrations/0003-runtime-nodes.ts
+      - packages/control-plane/src/migrations/__tests__/0003-runtime-nodes.test.ts
+      - packages/control-plane/src/runtime-nodes/__tests__/attach-service.test.ts
+      - packages/control-plane/src/runtime-nodes/__tests__/runtime-node-router.test.ts
+      - packages/control-plane/src/runtime-nodes/attach-service.ts
+      - packages/control-plane/src/runtime-nodes/errors.ts
+      - packages/control-plane/src/runtime-nodes/runtime-node-router.factory.ts
+      - packages/control-plane/src/server/__tests__/host-runtime-node.test.ts
+      - packages/runtime-daemon/src/node/__tests__/node-capability-service.test.ts
+      - packages/runtime-daemon/src/node/__tests__/node-event-emitter.test.ts
+      - packages/runtime-daemon/src/node/__tests__/node-registry.test.ts
+      - packages/runtime-daemon/src/node/node-capability-service.ts
+      - packages/runtime-daemon/src/node/node-event-emitter.ts
+      - packages/runtime-daemon/src/node/node-registry.ts
+    verifies_invariant: [I-003-1, I-003-3]
+    spec_coverage:
+      [
+        "Spec-003 line 47",
+        "Spec-003 line 48",
+        "Spec-003 line 49",
+        "Spec-003 line 50",
+        "Spec-003 line 52",
+        "Spec-003 line 53",
+        "Spec-003 line 72",
+        "Spec-003 line 76",
+        "Spec-003 AC1 line 127",
+        "Spec-003 AC2 line 128",
+        "Spec-003 AC3 line 129",
+        "Spec-003 AC4 line 130",
+      ]
+    notes: |
+      T5.4 (manual two-client attach smoke) deliberately excluded from the task list: its Tier-8-gated disposition is recorded on PR #150 — the live two-client leg is impossible at Tier 1; the floor/attach/membership semantics are already proven by the Phase 1-4 automated suites; owner = user at Tier 8; automated renderer component/E2E coverage backfills per BL-131. Plan-003 plan-level status therefore stays `approved`. verifies_invariant unions the shipped task rows only: I-003-3 (T5.2 — attach and membership surfaced as distinct actions) + I-003-1 (T5.3 — below-floor rendered joined-but-read-only, never ejected); spec_coverage is the union of the T5.0a-T5.3 `Spec coverage:` fields.
 ```
 
 ### Notes
