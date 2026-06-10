@@ -316,8 +316,8 @@ async function readAttachmentStatesByNode(querier: Querier): Promise<Record<stri
 // reads remain the sharper DB-truth anti-vacuity cross-check (they observe
 // the stored row itself, not a projection of it). `last_heartbeat_at` is
 // typed `unknown` deliberately: the I2 assertion is non-nullness of the
-// server-clock write, not a driver-specific hydration shape (PGlite hydrates
-// TIMESTAMPTZ as a JS Date; `pg` may differ).
+// server-clock write, not a driver-specific hydration shape (PGlite and `pg`
+// both hydrate TIMESTAMPTZ as a JS Date by default).
 async function readPresenceRow(
   querier: Querier,
   nodeId: NodeId,

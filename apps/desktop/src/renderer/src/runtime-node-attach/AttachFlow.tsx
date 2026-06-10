@@ -76,10 +76,10 @@
 //
 // TRANSPORT — the GENERIC `controlPlane.call(...)` bridge arm:
 //
-//   `runtimenode.attach` is registered DUAL-transport (api-payload-
-//   contracts.md:552 — the four mutations register under the Plan-007-partial
-//   daemon JSON-RPC substrate AND cross the Plan-008 control-plane tRPC
-//   transport). This renderer rides the CONTROL-PLANE arm because:
+//   `runtimenode.attach` is registered DUAL-transport
+//   (api-payload-contracts.md:552 — the four mutations register under the
+//   Plan-007-partial daemon JSON-RPC substrate AND cross the Plan-008
+//   control-plane tRPC transport). This renderer rides the CONTROL-PLANE arm because:
 //     • the attach lands control-plane-owned cross-node coordination state —
 //       the `runtime_node_attachments` row (Spec-003 line 52: "the control
 //       plane must coordinate runtime-node discovery and presence");
@@ -234,8 +234,8 @@ export function AttachFlow({ sessionId, attachDraft }: AttachFlowProps): React.J
   // target; this render-phase reset is the narrower fallback until that
   // keying lands, and the in-flight-IIFE race it does not cover is harmless
   // for the same two reasons T6.1 documents (a late `setState` is a silent
-  // no-op; Tier-8 keying discards the instance — invite-accept-view.tsx:
-  // 185-197).
+  // no-op; Tier-8 keying discards the instance —
+  // invite-accept-view.tsx:185-197).
   const [previousAttachmentTarget, setPreviousAttachmentTarget] = useState({
     sessionId,
     nodeId: attachDraft.nodeId,

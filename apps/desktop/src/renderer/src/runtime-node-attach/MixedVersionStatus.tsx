@@ -237,8 +237,8 @@ function resolveAccessStatus(rosterEntry: RuntimeNodeRosterEntry | null): NodeAc
     default: {
       // The load-bearing arm — the same documented-pin-becomes-enforced-pin
       // move as the type-annotated wire-code const above. `NodeState`
-      // additions are reserved as MINOR by the contract (runtime-node.ts:
-      // 73-77; ADR-018 §Decision #8 — "removals MAJOR, additions MINOR"), so
+      // additions are reserved as MINOR by the contract (runtime-node.ts:73-77;
+      // ADR-018 §Decision #8 — "removals MAJOR, additions MINOR"), so
       // a sixth member is EXPECTED evolution, and an unbound fall-through
       // would silently hand it the active-set projection above (an ACTIVE
       // verdict for a state whose activity nobody classified). The `never`

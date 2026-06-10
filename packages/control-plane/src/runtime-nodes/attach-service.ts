@@ -278,8 +278,8 @@ interface AttachmentRow {
 // `updated_at` is NOT a stored column — the canonical `runtime_node_attachments`
 // schema has only `attached_at` (the creation timestamp), which this method must
 // never overwrite — so it is sourced transiently from `now()` at write time and
-// hydrated as a JS `Date` (`pg`) or an ISO 8601 string (PGlite), normalized via
-// `toIsoString` (mirrors `attached_at` on `AttachmentRow`).
+// hydrated as a JS `Date` by both `pg` and PGlite (default parsers), then
+// normalized via `toIsoString` (mirrors `attached_at` on `AttachmentRow`).
 interface CapabilityUpdateRow {
   readonly node_id: string;
   readonly state: string;
@@ -296,9 +296,9 @@ interface CapabilityUpdateRow {
 // `runtime_node_attachments.session_id` guarantees the session row exists).
 // `capabilities` is JSONB, hydrated as a parsed object by both `pg` and
 // PGlite; typed `unknown` here and validated by the response-schema parse —
-// never cast. Timestamps follow the `AttachmentRow` hydration note (a JS
-// `Date` under `pg`, an ISO 8601 string under PGlite — normalized via
-// `toIsoString`).
+// never cast. Timestamps follow the `toIsoString` hydration note (a JS
+// `Date` under both `pg` and PGlite by default; a string hydration would
+// still normalize through the same total `toIsoString`).
 interface RosterRow {
   readonly node_id: string;
   readonly participant_id: string;
@@ -311,10 +311,10 @@ interface RosterRow {
   readonly min_client_version: string | null;
 }
 
-// `TIMESTAMPTZ` is hydrated as a JS `Date` by `pg` and as an ISO 8601 string by
-// PGlite. The response contract requires ISO 8601 (`attachedAt: string`), so
-// normalize both forms (mirrors `toIsoString` in membership-service.ts /
-// session-directory-service.ts).
+// `TIMESTAMPTZ` is hydrated as a JS `Date` by BOTH drivers' default parsers —
+// `pg` (pg-types OID 1184) and PGlite (`types.ts` date parser). The contract
+// requires ISO 8601 (`attachedAt: string`); the string arm keeps normalization
+// total under custom parsers (mirrors `toIsoString` in membership-service.ts).
 function toIsoString(value: Date | string): string {
   if (value instanceof Date) {
     return value.toISOString();
@@ -1006,8 +1006,8 @@ export class AttachService {
     // ONE SQL read (no transaction — see the JSDoc's read-path note). INNER
     // JOIN `sessions` carries the floor onto every row; LEFT JOIN presence
     // keeps a never-heartbeated node's entry with SQL NULLs on the liveness
-    // axis. Timestamps are NOT `::text`-cast: the driver hydrates TIMESTAMPTZ
-    // (a `Date` under `pg`, an ISO string under PGlite) and `toIsoString`
+    // axis. Timestamps are NOT `::text`-cast: both drivers hydrate TIMESTAMPTZ
+    // as a JS `Date` by default (string tolerated) and `toIsoString`
     // normalizes — the same wire-timestamp path `attach` /
     // `updateCapabilities` ship. ORDER BY is deterministic-read hygiene
     // (attach order, `node_id` tiebreak for same-instant rows), NOT a wire
