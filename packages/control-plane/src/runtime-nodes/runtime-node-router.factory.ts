@@ -1,14 +1,21 @@
-// Plan-003 §Phase 3 §T3.8: createRuntimeNodeRouter factory.
+// Plan-003 §Phase 3 §T3.8 + §Phase 5 §T5.0c: createRuntimeNodeRouter factory.
 //
-// Composes the 4 runtime-node procedures (runtimenode.attach /
-// runtimenode.heartbeat / runtimenode.capabilityupdate / runtimenode.detach)
-// nested under the `runtimenode` namespace so the on-wire JSON-RPC method names
-// match the canonical strings ratified by api-payload-contracts.md §Plan-003.
-// All four are mutations (each one WRITES). Each procedure closes over the
+// Composes the 5 runtime-node procedures nested under the `runtimenode`
+// namespace so the on-wire method names match the canonical strings ratified
+// by api-payload-contracts.md §Runtime-Node Method-Name Registry. Four are
+// mutations (runtimenode.attach / runtimenode.heartbeat /
+// runtimenode.capabilityupdate / runtimenode.detach — each one WRITES, and
+// each shares its dual-transport method name with the daemon JSON-RPC
+// registry); runtimenode.roster (T5.0c) is the namespace's FIRST — and only —
+// `query`: an idempotent read-only projection, control-plane tRPC ONLY (no
+// daemon JSON-RPC registration — the roster is control-plane-owned cross-node
+// state; a daemon knows only itself). Each procedure closes over the
 // constructor-injected `attachService` / `heartbeatService` and is pure
 // transport wiring: input schema -> backing service method -> output schema,
 // plus the catch-arms that map the two services' typed exceptions to the
-// canonical HTTP 409 / tRPC `CONFLICT` per error-contracts.md §Runtime Node.
+// canonical HTTP 409 / tRPC `CONFLICT` per error-contracts.md §Runtime Node
+// (the roster query carries no catch-arm — its backing read throws nothing
+// typed).
 //
 // SIBLING MERGE: this router is built on the SAME shared `t` builder as the
 // session router (`../sessions/trpc.js`), NOT a fresh `initTRPC` instance — so
@@ -26,9 +33,11 @@
 // discipline the session factory follows; here it holds BY CONSTRUCTION, since
 // the factory has no querier to misuse.
 //
-// Refs: docs/plans/003-runtime-node-attach.md §T3.8, Spec-003
+// Refs: docs/plans/003-runtime-node-attach.md §T3.8 + §T5.0c, Spec-003
 //       line 52 (the control plane coordinates discovery/presence; execution
-//       stays local), ADR-014 (tRPC control-plane API), CP-003-2 (transport
+//       stays local) + §Interfaces And Contracts 2026-06-09 amendment lines
+//       90-94 (the roster-read pin: first query, control-plane tRPC only),
+//       ADR-014 (tRPC control-plane API), CP-003-2 (transport
 //       wiring is a thin sibling router, no standalone service assertion).
 
 import {
@@ -37,6 +46,7 @@ import {
   type TRPCDecorateCreateRouterOptions,
   type TRPCDefaultErrorShape,
   type TRPCMutationProcedure,
+  type TRPCQueryProcedure,
 } from "@trpc/server";
 import {
   RuntimeNodeAttachRequestSchema,
@@ -47,6 +57,8 @@ import {
   RuntimeNodeDetachResponseSchema,
   RuntimeNodeHeartbeatRequestSchema,
   RuntimeNodeHeartbeatResponseSchema,
+  RuntimeNodeRosterRequestSchema,
+  RuntimeNodeRosterResponseSchema,
   type RuntimeNodeAttachRequest,
   type RuntimeNodeAttachResponse,
   type ParticipantId,
@@ -54,6 +66,8 @@ import {
   type RuntimeNodeCapabilityUpdateResponse,
   type RuntimeNodeDetachRequest,
   type RuntimeNodeHeartbeatRequest,
+  type RuntimeNodeRosterRequest,
+  type RuntimeNodeRosterResponse,
 } from "@ai-sidekicks/contracts";
 
 import { t, type SessionRouterContext } from "../sessions/trpc.js";
@@ -72,8 +86,8 @@ import { HeartbeatService } from "./heartbeat-service.js";
 // the concrete classes — not a structural interface — is deliberate: each class
 // has a private field, so TypeScript treats it nominally, and the host's
 // production placeholder must construct the real class (a structural stub can't
-// satisfy the type). `attachService` backs attach / capabilityupdate / detach;
-// `heartbeatService` backs heartbeat.
+// satisfy the type). `attachService` backs attach / capabilityupdate / detach /
+// roster; `heartbeatService` backs heartbeat.
 //
 // AUTH POSTURE (Tier 1 structural parity with `session.join`):
 //   The `attach` procedure resolves the acting participant from `ctx` via
@@ -118,6 +132,9 @@ export interface RuntimeNodeRouterDeps {
 // (session-router.factory.ts). `ctx` is the SHARED `SessionRouterContext` (the
 // sibling shares the context type). heartbeat / detach output `null` (their
 // wire responses are `z.null()`, with no response-type alias in contracts).
+// roster is the one `TRPCQueryProcedure` (the namespace's first and only
+// query — its four siblings are mutations), mirroring `SessionRouter`'s
+// `session.read`.
 export type RuntimeNodeRouter = TRPCBuiltRouter<
   {
     ctx: SessionRouterContext;
@@ -145,6 +162,11 @@ export type RuntimeNodeRouter = TRPCBuiltRouter<
       detach: TRPCMutationProcedure<{
         input: RuntimeNodeDetachRequest;
         output: null;
+        meta: object;
+      }>;
+      roster: TRPCQueryProcedure<{
+        input: RuntimeNodeRosterRequest;
+        output: RuntimeNodeRosterResponse;
         meta: object;
       }>;
     };
@@ -216,7 +238,7 @@ export function createRuntimeNodeRouter(deps: RuntimeNodeRouterDeps): RuntimeNod
           //     attachment, or the I-003-2 registering->online guard;
           //   - VersionFloorExceededException — the below-floor read-only node's
           //     write-refusal (the typed `VERSION_FLOOR_EXCEEDED`, I-003-1 /
-          //     ADR-018 §Decision #4 / Spec-003 line 123).
+          //     ADR-018 §Decision #4 / Spec-003 line 130).
           // Preserve the typed exception on `cause` so the shared
           // `errorFormatter` projects it onto `shape.data.aisError` via the
           // `AisWireException` base; any other throw rethrows unchanged.
@@ -241,6 +263,27 @@ export function createRuntimeNodeRouter(deps: RuntimeNodeRouterDeps): RuntimeNod
           // z.null()`). No catch-arm: detach is a clean idempotent no-op and
           // throws nothing typed.
           deps.attachService.detach(input),
+        ),
+
+      roster: runtimeNodeProcedure
+        .input(RuntimeNodeRosterRequestSchema)
+        .output(RuntimeNodeRosterResponseSchema)
+        .query(async ({ input }) =>
+          // The namespace's FIRST — and only — `.query()` (T5.0c;
+          // api-payload-contracts.md §Runtime-Node Method-Name Registry): an
+          // idempotent read-only projection of the `runtime_node_attachments`
+          // x `runtime_node_presence` coordination records, mounted on the
+          // control-plane tRPC transport ONLY (no daemon JSON-RPC registration
+          // — the roster is control-plane-owned cross-node state; a daemon
+          // knows only itself). tRPC v11 serves queries over GET natively via
+          // the host's `fetchRequestHandler` (the shipped `session.read`
+          // proves it in-repo), so the host merge needs no change. No
+          // catch-arm: `readRoster` throws nothing typed — a boundary
+          // `ZodError` is precluded by the `.input()` parse above, and a
+          // corrupted STORED value failing its read-boundary parse is a
+          // data-integrity fault that correctly surfaces as
+          // INTERNAL_SERVER_ERROR, not a 409.
+          deps.attachService.readRoster(input),
         ),
     }),
   });

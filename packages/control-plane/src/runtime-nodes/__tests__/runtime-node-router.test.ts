@@ -1,7 +1,7 @@
-// Plan-003 §Phase 3 §T3.8: router-level tRPC tests for the runtime-node sibling
-// router (`runtimenode.attach` / `.heartbeat` / `.capabilityupdate` / `.detach`)
-// against a pglite-backed `Querier`. These pin the NEW transport wiring that no
-// service test covers:
+// Plan-003 §Phase 3 §T3.8 + §Phase 5 §T5.0c: router-level tRPC tests for the
+// runtime-node sibling router (`runtimenode.attach` / `.heartbeat` /
+// `.capabilityupdate` / `.detach` / `.roster`) against a pglite-backed
+// `Querier`. These pin the NEW transport wiring that no service test covers:
 //
 //   * Mounting — every procedure resolves under the `runtimenode.*` namespace
 //     (the sibling-router composition) with input -> backing service -> output
@@ -13,6 +13,14 @@
 //     capability-update refusal. The services already test the typed throwables
 //     directly (attach-service.test.ts); these tests assert ONLY the
 //     transport-layer code translation, which is T3.8's sole new behavior.
+//   * The roster QUERY registration (T5.0c) — `runtimenode.roster` is the
+//     namespace's FIRST (and only) `query` per the api-payload-contracts.md
+//     Runtime-Node Method-Name Registry (its four siblings are mutations),
+//     its input gated by RuntimeNodeRosterRequestSchema and its output the
+//     schema-valid RuntimeNodeRosterResponse. Roster READ breadth (visibility,
+//     axis independence, derived readOnly, isolation) is the service suite's
+//     domain (attach-service.test.ts) — not re-tested here, mirroring how the
+//     four mutations split service-vs-transport coverage.
 //
 // REAL services over PGlite (not a structural stub): `RuntimeNodeRouterDeps`
 // holds the concrete `AttachService` / `HeartbeatService` classes (nominal,
@@ -24,7 +32,10 @@
 // is a LOCAL copy (sibling tests each carry their own — the dispatch contract
 // forbids exporting a shared test fixture from `packages/control-plane/`).
 //
-// Refs: docs/plans/003-runtime-node-attach.md §T3.8, ADR-014.
+// Refs: docs/plans/003-runtime-node-attach.md §T3.8 + §T5.0c, ADR-014,
+//       docs/architecture/contracts/api-payload-contracts.md §Runtime-Node
+//       Method-Name Registry (the roster registry row at line 562 — query,
+//       control-plane tRPC only — and the procedure-type paragraph at line 564).
 
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { TRPCError } from "@trpc/server";
@@ -37,6 +48,7 @@ import type {
   RuntimeNodeAttachRequest,
   SessionId,
 } from "@ai-sidekicks/contracts";
+import { RuntimeNodeRosterResponseSchema } from "@ai-sidekicks/contracts";
 
 import { applyMigrations, type Querier } from "../../sessions/migration-runner.js";
 import { t } from "../../sessions/trpc.js";
@@ -184,7 +196,7 @@ async function buildHarness() {
     resolveCurrentParticipantId: () => PARTICIPANT_ID,
   });
   const caller = t.createCallerFactory(router)({ requestId: "test-rn-1" });
-  return { pg, querier, caller };
+  return { pg, querier, router, caller };
 }
 
 type Harness = Awaited<ReturnType<typeof buildHarness>>;
@@ -437,7 +449,76 @@ describe("runtime-node router — non-typed error rethrows raw (T3.8 catch-arm d
     // original throwable) so this proves the error reached the INSERT and rethrew
     // the FK violation specifically — not some unrelated Error escaping earlier
     // (a setup/seed failure would also surface as INTERNAL_SERVER_ERROR and
-    // false-pass the code check alone). Mirrors attach-service.test.ts:566-569.
+    // false-pass the code check alone). Mirrors attach-service.test.ts:612-615.
     expect(caught?.cause).toMatchObject({ code: "23503" });
+  });
+});
+
+// ----------------------------------------------------------------------------
+// runtimenode.roster — the namespace's FIRST (and only) query (T5.0c)
+// ----------------------------------------------------------------------------
+//
+// api-payload-contracts.md §Runtime-Node Method-Name Registry: the roster row
+// registers `runtimenode.roster` as a `query` (its four siblings are
+// mutations), control-plane tRPC ONLY — no daemon JSON-RPC registration. The
+// three tests pin T5.0c's NEW transport wiring: the procedure-TYPE
+// registration (query, not mutation — a registry-conformance property no
+// service test can observe), the input gate (RuntimeNodeRosterRequestSchema),
+// and the input -> AttachService.readRoster -> output round-trip returning the
+// schema-valid RuntimeNodeRosterResponse.
+
+describe("runtime-node router — runtimenode.roster registers as the namespace's first query (T5.0c)", () => {
+  it("mounts roster as a QUERY procedure while the four siblings stay mutations (registry conformance)", () => {
+    // `_def.type` is the runtime procedure-type discriminator tRPC v11 carries
+    // on every built procedure. Asserting all five re-derives the registry
+    // table's procedure-type column (four mutations + exactly one query)
+    // against the BUILT router — the on-wire GET/POST split follows from this
+    // type, so pinning it here is the transport-shape assertion.
+    expect(harness.router.runtimenode.roster._def.type).toBe("query");
+    expect(harness.router.runtimenode.attach._def.type).toBe("mutation");
+    expect(harness.router.runtimenode.heartbeat._def.type).toBe("mutation");
+    expect(harness.router.runtimenode.capabilityupdate._def.type).toBe("mutation");
+    expect(harness.router.runtimenode.detach._def.type).toBe("mutation");
+  });
+
+  it("round-trips attach -> roster through the router and returns the schema-valid response", async () => {
+    await seedParticipant(harness.querier, PARTICIPANT_ID);
+    await seedSession(harness.querier, SESSION_ID);
+    await harness.caller.runtimenode.attach(buildAttachRequest());
+
+    const response = await harness.caller.runtimenode.roster({ sessionId: SESSION_ID });
+
+    // Schema-valid END TO END: the in-test parse pins the response against the
+    // canonical contracts schema explicitly (the procedure's `.output()`
+    // validation already ran inside tRPC; re-parsing here keeps the assertion
+    // independent of router internals).
+    expect(() => RuntimeNodeRosterResponseSchema.parse(response)).not.toThrow();
+    expect(response.nodes).toHaveLength(1);
+    const entry = response.nodes[0];
+    expect(String(entry?.nodeId)).toBe(String(NODE_ID));
+    // A NULL-floor fresh attach: registering, read-write — and the
+    // pre-first-heartbeat LEFT-JOIN nullability crosses the transport intact.
+    expect(entry?.state).toBe("registering");
+    expect(entry?.readOnly).toBe(false);
+    expect(entry?.healthState).toBeNull();
+    expect(entry?.lastHeartbeatAt).toBeNull();
+  });
+
+  it("rejects a malformed roster request via RuntimeNodeRosterRequestSchema (BAD_REQUEST)", async () => {
+    // A non-UUID sessionId fails the branded SessionIdSchema member; tRPC v11
+    // surfaces the input-parse failure as BAD_REQUEST (the same typed envelope
+    // session-router.test.ts pins for session.create). The cast drives the
+    // runtime parse path while keeping the outer typing honest.
+    await expect(
+      harness.caller.runtimenode.roster({ sessionId: "not-a-uuid" as SessionId }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    // `.strict()` also rejects an unknown key — the second schema gate on the
+    // same input boundary.
+    await expect(
+      harness.caller.runtimenode.roster({
+        sessionId: SESSION_ID,
+        unexpected: true,
+      } as unknown as { sessionId: SessionId }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 });

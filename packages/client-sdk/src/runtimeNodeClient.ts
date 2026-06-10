@@ -30,7 +30,7 @@
 //   so callers can swap transports without restructuring. Unlike
 //   `sessionClient.ts`, runtime-node is ALL MUTATIONS — attach / heartbeat /
 //   capabilityupdate / detach are every one a tRPC `.mutation` (runtime-node-
-//   router.factory.ts:159-244) — so the control-plane factory has NO query
+//   router.factory.ts:181-266) — so the control-plane factory has NO query
 //   (no GET `?input=`) and NO subscribe (no SSE) path; every method is a
 //   POST JSON body. This makes the control-plane factory STRICTLY SIMPLER than
 //   sessionClient's (which carries a read query + an SSE subscribe).
@@ -81,7 +81,7 @@ import type { JsonRpcClient } from "./transport/jsonRpcClient.js";
  *
  * LOWERCASE one-word operation segments (`capabilityupdate`, NOT
  * `capabilityUpdate`) — these match the `runtimenode.*` procedure namespace the
- * control-plane router mounts (`runtime-node-router.factory.ts:158` —
+ * control-plane router mounts (`runtime-node-router.factory.ts:180` —
  * `t.router({ runtimenode: t.router({ attach, heartbeat, capabilityupdate,
  * detach }) })`) and the canonical error codes
  * `runtimenode.attach_conflict` / `runtimenode.capabilityupdate_conflict`
@@ -225,7 +225,7 @@ export interface ControlPlaneRuntimeNodeClientOptions {
  * surface through this one class:
  *   * `version.floor_exceeded` — a below-floor read-only node's capability
  *     WRITE refusal (the typed `VERSION_FLOOR_EXCEEDED`, I-003-1 / ADR-018
- *     §Decision #4 / Spec-003 line 123). A consumer (e.g. Plan-003 T4.4) asserts
+ *     §Decision #4 / Spec-003 line 130). A consumer (e.g. Plan-003 T4.4) asserts
  *     this branch via `error.code === VERSION_FLOOR_EXCEEDED_CODE` (imported
  *     from `@ai-sidekicks/contracts`) — this SDK deliberately does NOT import or
  *     hardcode that constant, so the surface stays decoupled from any single
@@ -369,7 +369,7 @@ async function parseRuntimeNodeResult<T>(
  *
  * NOT every non-2xx carries an `aisError`: the attach self-check throws a plain
  * `TRPCError({ code: "UNAUTHORIZED" })` with NO `aisError` envelope
- * (runtime-node-router.factory.ts:172-176). For that (and any other untyped
+ * (runtime-node-router.factory.ts:194-198). For that (and any other untyped
  * non-2xx) we fall back to the tRPC envelope's own `error.message` / top-level
  * `error.data.code`, still surfaced as a `RuntimeNodeControlPlaneError` so the
  * caller sees ONE typed error class across both the typed-refusal and the

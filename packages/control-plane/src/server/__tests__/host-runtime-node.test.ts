@@ -410,7 +410,7 @@ describe("errorFormatter projection — AisWireException base covers all subtype
     // translates to the typed RuntimeNodeAttachConflictException (I-003-5). The
     // attach catch-arm maps it to CONFLICT and the shared formatter projects it.
     // This is the in-process router test's attach-conflict assertion
-    // (runtime-node-router.test.ts:242-268) re-run on the HTTP path — the only
+    // (runtime-node-router.test.ts:305-331) re-run on the HTTP path — the only
     // surface where `aisError` is observable.
     const querier = adaptPGlite(pg);
     await seedParticipant(querier, PARTICIPANT_ID);
@@ -436,7 +436,7 @@ describe("errorFormatter projection — AisWireException base covers all subtype
     expect(aisError?.code).toBe(RUNTIME_NODE_ATTACH_CONFLICT_CODE);
     expect(typeof aisError?.message).toBe("string");
     // No-info-leak survives the HTTP hop: the message names the node id, never
-    // the OTHER session holding it (mirrors router.test.ts:266-267).
+    // the OTHER session holding it (mirrors router.test.ts:329-330).
     expect(aisError?.message).toContain(String(NODE_ID));
     expect(aisError?.message).not.toContain(String(OTHER_SESSION_ID));
     expect(aisError).not.toHaveProperty("details");
@@ -447,7 +447,7 @@ describe("errorFormatter projection — AisWireException base covers all subtype
     // state: re-attach is refused with RuntimeNodeAttachRevokedException (P10 —
     // revocation is terminal, never reactivated). The distinct attach catch-arm
     // branch maps it to CONFLICT and the formatter projects it. The HTTP-path
-    // twin of runtime-node-router.test.ts:270-291.
+    // twin of runtime-node-router.test.ts:333-354.
     const querier = adaptPGlite(pg);
     await seedParticipant(querier, PARTICIPANT_ID);
     await seedSession(querier, SESSION_ID);

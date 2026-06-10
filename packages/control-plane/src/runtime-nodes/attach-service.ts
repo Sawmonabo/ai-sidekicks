@@ -1,8 +1,9 @@
-// AttachService — Plan-003 Phase 3 (T3.2 + T3.3 + T3.7 + T3.9, runtime-node
-// attach + detach + capability-update handler).
+// AttachService — Plan-003 Phase 3 (T3.2 + T3.3 + T3.7 + T3.9) + Phase 5
+// (T5.0c): runtime-node attach + detach + capability-update + roster-read
+// handler.
 //
 // Responsibilities (T3.2 attach flow + T3.3 version-floor verdict + T3.7 detach
-// + T3.9 capability update):
+// + T3.9 capability update + T5.0c roster read):
 //   * attach — admit a runtime node into a session by upserting its
 //     `runtime_node_attachments` row, returning the wire
 //     `RuntimeNodeAttachResponse` (`{attachmentId, state, readOnly, attachedAt}`).
@@ -22,10 +23,10 @@
 //         `RuntimeNodeAttachConflictException`; a SAME-OWNER reconnect of a node
 //         whose row for THIS session is `offline` reactivates it (offline ->
 //         registering). The owner participant is IMMUTABLE across reconnect
-//         (Spec-003 line 109 — a reconnect is the same daemon), so a DIFFERENT
+//         (Spec-003 line 116 — a reconnect is the same daemon), so a DIFFERENT
 //         participant reconnecting to that row is REFUSED with the same typed
 //         `RuntimeNodeAttachConflictException` rather than overwriting the owner
-//         (Spec-003 line 116 — never destroy historical node provenance).
+//         (Spec-003 line 123 — never destroy historical node provenance).
 //       - P10 (revocation is terminal): a re-attach against a row in the
 //         terminal `revoked` state for THIS session is refused with the typed
 //         `RuntimeNodeAttachRevokedException` — never reactivated.
@@ -51,7 +52,7 @@
 //         + the daemon's attach-time `client_version`, then thrown as the typed
 //         `VersionFloorExceededException` (admit-not-eject — the throw rolls back,
 //         the node stays joined; I-003-1 / ADR-018 §Decision #4 / Spec-003
-//         line 123); and
+//         line 130); and
 //       - the I-003-2 registering->online guard — driving a still-`registering`
 //         attachment to `online` is refused (the typed
 //         `RuntimeNodeCapabilityUpdateConflictException`): bringing a node online
@@ -62,6 +63,20 @@
 //     the third refusal — also the typed conflict, never a null no-op. A thrown
 //     refusal rolls the transaction back, so a refused update leaves
 //     `runtime_node_attachments` byte-for-byte unchanged.
+//   * readRoster — the session roster projection (T5.0c; Spec-003 §Interfaces
+//     And Contracts 2026-06-09 amendment, lines 90-94). ONE read-only SELECT
+//     returning EVERY `runtime_node_attachments` row for the session — all five
+//     `state` values verbatim, no server-side hiding (Spec-003 line 92; AC2
+//     line 128 needs degraded/offline nodes visible) — LEFT-JOINed with the
+//     heartbeat-owned presence axis (NULL until the node's first beat) and
+//     carrying a per-row `readOnly` verdict derived AT READ TIME via the SAME
+//     `#deriveReadOnly` comparator attach uses (AC4 line 130 — the read-side
+//     surfacing of admit-not-eject, I-003-1). Joins THIS class rather than a
+//     second service: the roster is a projection over the SAME
+//     `runtime_node_attachments` row lifecycle attach / detach /
+//     updateCapabilities own (the T3.9 "not a fragmented second service class"
+//     cohesion rationale). Mounted by the sibling router as `runtimenode.roster`
+//     — the namespace's FIRST (and only) query, control-plane tRPC ONLY.
 //
 // Invariant fidelity (this task's `verifies_invariant`):
 //   * I-003-3 (attach must not mutate session_memberships): the attach flow
@@ -76,7 +91,11 @@
 //     `runtime_node_presence`) and never references `session_memberships`, so an
 //     offline/detached node retains its membership (Spec-003 line 51). P8 asserts
 //     the byte-for-byte membership no-mutation across a detach (snapshot + count,
-//     the same two disjoint mutation modes as the attach test).
+//     the same two disjoint mutation modes as the attach test). The ROSTER READ
+//     (T5.0c) holds the invariant by the same disjointness: readRoster's single
+//     SELECT touches only the two runtime-node tables plus the `sessions` floor
+//     column and never references `session_memberships` — asserted by the same
+//     snapshot + count pattern across a roster read.
 //   * I-003-5 (single active attachment): enforced at the DATABASE layer by the
 //     partial-unique `idx_node_attachments_active` (one active-state row per
 //     node across all sessions). The service does not re-check this in
@@ -134,6 +153,12 @@
 //     disposition discriminator). The `revoked` STATE itself + attach's P10
 //     terminal-re-attach refusal already ship — only the ungated producer is
 //     deferred. detach (T3.7) writes the terminal state `offline` ONLY.
+//   * Liveness (staleness) derivation — owned by the T3.6 heartbeat sweep, the
+//     SINGLE liveness-derivation writer. readRoster (T5.0c) carries
+//     `runtime_node_presence.health_state` / `last_heartbeat_at` VERBATIM and
+//     never ages a heartbeat into a health verdict — deriving at read time
+//     would create a second, racing liveness author (Spec-003 lines 61 / 72:
+//     per-axis single-writer; line 92 — "the read never derives staleness").
 //   * The tRPC router + errorFormatter that lift the typed `.code` onto the wire
 //     envelope and map each refusal to HTTP 409 / tRPC `CONFLICT` — T3.4 / T3.8.
 //
@@ -142,23 +167,32 @@
 // revoke membership by default — I-003-3), line 57 (the node declares its
 // capabilities — updateCapabilities), line 69 (an explicit `detach` retires
 // the node), line 70 (`revoked` is authority-issued, never self-asserted),
-// line 109 (node identity is stable across reconnect if the same daemon
-// reattaches — the owner is immutable) / line 116 (§Pitfalls — never destroy
+// line 116 (node identity is stable across reconnect if the same daemon
+// reattaches — the owner is immutable) / line 123 (§Pitfalls — never destroy
 // historical node provenance when a node reconnects: the cross-owner reconnect
-// refusal), line 123 (below-floor writes are refused VERSION_FLOOR_EXCEEDED — the
-// T3.9 write-gate); Plan-003 §Invariants I-003-1 (admit below-floor read-only,
+// refusal), line 130 (below-floor writes are refused VERSION_FLOOR_EXCEEDED — the
+// T3.9 write-gate), line 49 (multiple runtime nodes per session — the roster's
+// `nodes[]`), line 86 + lines 90-94 (§Interfaces And Contracts roster pin —
+// visibility / nullable presence / derived readOnly / never-mask / ADR-017
+// non-collision), line 128 (AC2 — degraded/offline distinguishable in the
+// roster) / line 129 (AC3 — multiple nodes coexist); Plan-003 §Invariants
+// I-003-1 (admit below-floor read-only,
 // write-refuse, never eject) / I-003-2 (the control plane cannot drive a node
 // registering -> online — the updateCapabilities guard) / I-003-3 (no
-// session_memberships mutation, attach AND detach) / I-003-5 (single active
+// session_memberships mutation, attach AND detach AND the roster read) /
+// I-003-5 (single active
 // attachment — detach AND updateCapabilities resolve the one active row by
 // `nodeId`) + T3.2 (P1 / P9 / P10) + T3.3 (P2 / P3 floor comparison) + T3.7
 // (detach `offline` transition, P8) + T3.9 (updateCapabilities — the
-// capability-snapshot refresh + the I-003-2 guard + the floor write-refusal);
+// capability-snapshot refresh + the I-003-2 guard + the floor write-refusal)
+// + T5.0c (readRoster + the sibling router's first query);
 // docs/architecture/schemas/shared-postgres-schema.md §Runtime
 // Node Attachments (the `idx_node_attachments_node` + `idx_node_attachments_active`
 // indexes); docs/architecture/contracts/api-payload-contracts.md §Plan-003
 // (RuntimeNodeAttach + RuntimeNodeDetach + RuntimeNodeCapabilityUpdate
-// request/response); `memberships/membership-service.ts`
+// request/response) + §Runtime-Node Method-Name Registry (the
+// RuntimeNodeRoster wire shapes at lines 527-547, registry row at line 562,
+// procedure-type paragraph at line 564); `memberships/membership-service.ts`
 // (the `Querier`-injected service idiom + the no-membership-mutation precedent
 // this mirrors).
 
@@ -169,6 +203,8 @@ import type {
   RuntimeNodeCapabilityUpdateRequest,
   RuntimeNodeCapabilityUpdateResponse,
   RuntimeNodeDetachRequest,
+  RuntimeNodeRosterRequest,
+  RuntimeNodeRosterResponse,
   NodeState,
 } from "@ai-sidekicks/contracts";
 import {
@@ -178,6 +214,8 @@ import {
   RuntimeNodeCapabilityUpdateRequestSchema,
   RuntimeNodeCapabilityUpdateResponseSchema,
   RuntimeNodeDetachRequestSchema,
+  RuntimeNodeRosterRequestSchema,
+  RuntimeNodeRosterResponseSchema,
 } from "@ai-sidekicks/contracts";
 
 import type { Querier } from "../sessions/migration-runner.js";
@@ -206,7 +244,7 @@ const UNIQUE_VIOLATION_SQLSTATE = "23505";
 // against a row in this state is refused (P10); a non-active `offline` row is
 // reactivated by the upsert's DO UPDATE ONLY when the reconnecting participant is
 // the row's existing owner (a cross-owner reconnect is suppressed instead — the
-// owner is immutable, Spec-003 line 109/116).
+// owner is immutable, Spec-003 line 116/123).
 const REVOKED_STATE: NodeState = "revoked";
 
 // The liveness state a freshly-admitted / reactivated attachment enters. The
@@ -246,6 +284,31 @@ interface CapabilityUpdateRow {
   readonly node_id: string;
   readonly state: string;
   readonly updated_at: Date | string;
+}
+
+// Internal row shape returned by the `readRoster` SELECT — one row per
+// `runtime_node_attachments` row for the session, carrying the LEFT-JOINed
+// presence axis (`health_state` / `last_heartbeat_at` — SQL NULL until the
+// node's first heartbeat lands, because presence rows are heartbeat-owned,
+// T3.6) and the session's `min_client_version` floor (the per-row `readOnly`
+// derivation input; the COLUMN is nullable — NULL floor = "no floor" — while
+// the INNER JOIN itself never drops a row, since the FK on
+// `runtime_node_attachments.session_id` guarantees the session row exists).
+// `capabilities` is JSONB, hydrated as a parsed object by both `pg` and
+// PGlite; typed `unknown` here and validated by the response-schema parse —
+// never cast. Timestamps follow the `AttachmentRow` hydration note (a JS
+// `Date` under `pg`, an ISO 8601 string under PGlite — normalized via
+// `toIsoString`).
+interface RosterRow {
+  readonly node_id: string;
+  readonly participant_id: string;
+  readonly state: string;
+  readonly health_state: string | null;
+  readonly last_heartbeat_at: Date | string | null;
+  readonly capabilities: unknown;
+  readonly client_version: string;
+  readonly attached_at: Date | string;
+  readonly min_client_version: string | null;
 }
 
 // `TIMESTAMPTZ` is hydrated as a JS `Date` by `pg` and as an ISO 8601 string by
@@ -302,7 +365,7 @@ export class AttachService {
    *   already actively attached to a DIFFERENT session (P9 / I-003-5 — the
    *   active-index `23505`); and (2) a DIFFERENT participant attempts to reconnect
    *   to an existing `(node_id, session_id)` row whose owner is another
-   *   participant (the owner is immutable across reconnect — Spec-003 line 109 —
+   *   participant (the owner is immutable across reconnect — Spec-003 line 116 —
    *   so a cross-owner reconnect is refused rather than overwriting the owner).
    * @throws RuntimeNodeAttachRevokedException when the node's row for THIS
    *   session is in the terminal `revoked` state (P10).
@@ -317,7 +380,7 @@ export class AttachService {
    *      same-owner `offline` row (P9 reconnect) and is SUPPRESSED — yielding zero
    *      RETURNING rows — for a `revoked` row (P10) OR a row owned by a different
    *      participant (cross-owner reconnect). `participant_id` is NOT in the SET,
-   *      so the owner is never reassigned (Spec-003 line 116 — never destroy node
+   *      so the owner is never reassigned (Spec-003 line 123 — never destroy node
    *      provenance on reconnect).
    *   4a. Non-empty RETURNING -> map the row to the response (the admit /
    *       same-owner reconnect happy path, P1 / P9 reconnect).
@@ -373,12 +436,12 @@ export class AttachService {
       //     and is SUPPRESSED for a `revoked` row (P10 -> zero RETURNING rows).
       //   - `participant_id = EXCLUDED.participant_id` — the owner participant is
       //     IMMUTABLE across reconnect: a reconnect is the SAME local daemon
-      //     (Spec-003 line 109), so a DIFFERENT participant attempting to reattach
+      //     (Spec-003 line 116), so a DIFFERENT participant attempting to reattach
       //     to this `(node_id, session_id)` row is SUPPRESSED (-> zero RETURNING
       //     rows), the same zero-row mechanism the revoked case uses. This is why
       //     `participant_id` is NOT in the SET list: reassigning the owner on a
       //     cross-owner reconnect would destroy node provenance (Spec-003 line
-      //     116 — never destroy historical node provenance when a node reconnects).
+      //     123 — never destroy historical node provenance when a node reconnects).
       // (`EXCLUDED.participant_id` in a DO UPDATE WHERE is valid Postgres — it
       // refers to the would-be-inserted row's value.)
       //
@@ -456,7 +519,7 @@ export class AttachService {
       //       session's identity is disclosed.
       //   (b) cross-owner — the existing row is owned by a DIFFERENT participant
       //       (its `participant_id` differs from the caller's). A reconnect is the
-      //       same daemon (Spec-003 line 109), so the owner is IMMUTABLE; a
+      //       same daemon (Spec-003 line 116), so the owner is IMMUTABLE; a
       //       different participant attempting to reattach to this `(node_id,
       //       session_id)` row is refused with the typed conflict. The message
       //       names `nodeId` + the caller's OWN `sessionId` ONLY — never the
@@ -641,7 +704,7 @@ export class AttachService {
    *   admitted READ-ONLY at attach because its declared `clientVersion` is below
    *   the session's `min_client_version` floor (T3.3) — attempts this capability
    *   WRITE (the typed `VERSION_FLOOR_EXCEEDED` write-refusal; I-003-1 / ADR-018
-   *   §Decision #4 / Spec-003 line 123). The node is NOT ejected — the throw
+   *   §Decision #4 / Spec-003 line 130). The node is NOT ejected — the throw
    *   rolls back, leaving its attachment row byte-for-byte unchanged.
    * @throws RuntimeNodeCapabilityUpdateConflictException in two cases, both 409:
    *   (1) no active attachment exists — the SLOT axis was retired by a `detach`
@@ -663,7 +726,7 @@ export class AttachService {
    *      (the floor-gate at step 3 needs both).
    *   2. Zero rows -> the no-active-attachment refusal (case 1 above).
    *   3. Version-floor write-gate (I-003-1 / ADR-018 §Decision #4 / Spec-003
-   *      line 123): re-derive the read-only verdict at WRITE time from the
+   *      line 130): re-derive the read-only verdict at WRITE time from the
    *      CURRENT session floor + the version the daemon declared at attach. A
    *      below-floor node is refused with `VersionFloorExceededException` (typed,
    *      never-eject — the throw rolls back, the attachment row is untouched, the
@@ -775,7 +838,7 @@ export class AttachService {
       }
 
       // (3) Version-floor write-gate (I-003-1 / ADR-018 §Decision #4 / Spec-003
-      // line 123). Re-derive the read-only verdict at WRITE time from the
+      // line 130). Re-derive the read-only verdict at WRITE time from the
       // CURRENT session floor and the version the daemon declared at attach
       // (stored `client_version`). A below-floor node was admitted read-only
       // (T3.3); this is where its capability WRITE is refused — typed,
@@ -874,6 +937,128 @@ export class AttachService {
   }
 
   /**
+   * Read a session's full runtime-node roster — the `runtimenode.roster`
+   * coordination-record projection (Plan-003 T5.0c; Spec-003 §Interfaces And
+   * Contracts 2026-06-09 amendment, lines 90-94; wire shapes in
+   * api-payload-contracts.md lines 527-547, registry row at line 562).
+   *
+   * FAITHFUL PROJECTION (Spec-003 line 92 / AC2 line 128): returns EVERY
+   * `runtime_node_attachments` row for the session — all five `state` values
+   * verbatim (`registering | online | degraded | offline | revoked`), no
+   * server-side hiding — because AC2's distinguishability requires
+   * `degraded` / `offline` nodes visible, and the row count is bounded by
+   * distinct nodes ever attached (`UNIQUE(node_id, session_id)`).
+   *
+   * BOTH AXES VERBATIM, NEVER COLLAPSED (Spec-003 line 72): each entry carries
+   * the SLOT axis (`runtime_node_attachments.state`) AND the LIVENESS axis
+   * (`runtime_node_presence.health_state` + `last_heartbeat_at`, LEFT-JOINed
+   * on `node_id` and NULL until the node's first heartbeat — presence rows are
+   * heartbeat-owned, T3.6) with NO collapsed health scalar. Reconciling the
+   * two axes is the CLIENT's render-time concern; a row whose axes disagree
+   * (e.g. slot `online` with swept liveness `offline`) round-trips as stored.
+   *
+   * NO STALENESS DERIVATION: the read NEVER ages `last_heartbeat_at` into a
+   * health verdict — the T3.6 staleness sweep stays the SINGLE
+   * liveness-derivation writer (Spec-003 lines 61 / 72 / 92). A
+   * stale-but-unswept row reports its stored `health_state` verbatim; deriving
+   * here would create a second, racing liveness author.
+   *
+   * DERIVED `readOnly` (Spec-003 line 92 / AC4 line 130 / I-003-1): computed
+   * per row AT READ TIME from the stored `client_version` against the
+   * session's CURRENT `min_client_version` floor via the same
+   * `#deriveReadOnly` comparator the attach-time verdict (T3.3) and the T3.9
+   * write-gate use — identical semantics by construction (NULL floor ->
+   * `false`). This is the read-side surfacing of admit-not-eject: a
+   * below-floor node appears in the roster joined, its `state` untouched,
+   * with `readOnly = true` — never hidden, never ejected. The stored
+   * `client_version` is parsed+branded (`EventEnvelopeVersionSchema.parse`,
+   * never an `as` cast) so a corrupted stored version fails CLOSED at the
+   * read boundary rather than reaching the comparator as NaN.
+   *
+   * READ PATH, NOT THE WRITER CHAIN: ONE single-statement SELECT — no
+   * `Querier.transaction(...)`, no `FOR UPDATE` (a single statement is already
+   * a consistent snapshot, and locking a read would serialize against the
+   * attach / detach / capability writers for zero integrity gain). It writes
+   * NOTHING: no `session_memberships` access at all (I-003-3), and no durable
+   * `runtime_node.*` event (ADR-017 — the control plane has no event log; the
+   * read PROJECTS coordination records, so it does not collide with the
+   * ADR-017 §Server-Derived Runtime-Node Lifecycle Events V1.1 gate, which
+   * governs durable event AUTHORSHIP, not coordination-record reads).
+   *
+   * @param request the roster-read payload. Validated at the boundary
+   *   (`RuntimeNodeRosterRequestSchema.parse`) before any row is read — the
+   *   same service-layer fail-fast as `attach` / `detach` /
+   *   `updateCapabilities`.
+   * @returns the `RuntimeNodeRosterResponse` (`{nodes}`) projection — one
+   *   entry per attachment row; EMPTY (`{nodes: []}`) both for a session with
+   *   no attachments and for a non-existent session (session
+   *   existence/authorization is the router tier's concern, mirroring
+   *   `attach`'s missing-session posture; the FK on
+   *   `runtime_node_attachments.session_id` guarantees every attachment's
+   *   session exists, so the `sessions` JOIN never drops a row).
+   */
+  async readRoster(request: RuntimeNodeRosterRequest): Promise<RuntimeNodeRosterResponse> {
+    // Trust-boundary validation — parse rather than trust the caller,
+    // mirroring `attach` / `detach` / `updateCapabilities`. Surfaces schema
+    // drift (a malformed `sessionId`, an unknown key) before the database.
+    const validated: RuntimeNodeRosterRequest = RuntimeNodeRosterRequestSchema.parse(request);
+
+    // ONE SQL read (no transaction — see the JSDoc's read-path note). INNER
+    // JOIN `sessions` carries the floor onto every row; LEFT JOIN presence
+    // keeps a never-heartbeated node's entry with SQL NULLs on the liveness
+    // axis. Timestamps are NOT `::text`-cast: the driver hydrates TIMESTAMPTZ
+    // (a `Date` under `pg`, an ISO string under PGlite) and `toIsoString`
+    // normalizes — the same wire-timestamp path `attach` /
+    // `updateCapabilities` ship. ORDER BY is deterministic-read hygiene
+    // (attach order, `node_id` tiebreak for same-instant rows), NOT a wire
+    // contract — the pinned response shape carries no ordering clause.
+    const rosterProbe = await this.#querier.query<RosterRow>(
+      `SELECT attachment.node_id,
+              attachment.participant_id,
+              attachment.state,
+              presence.health_state,
+              presence.last_heartbeat_at,
+              attachment.capabilities,
+              attachment.client_version,
+              attachment.attached_at,
+              floor_session.min_client_version
+         FROM runtime_node_attachments AS attachment
+         JOIN sessions AS floor_session ON floor_session.id = attachment.session_id
+         LEFT JOIN runtime_node_presence AS presence ON presence.node_id = attachment.node_id
+        WHERE attachment.session_id = $1
+        ORDER BY attachment.attached_at, attachment.node_id`,
+      [validated.sessionId],
+    );
+
+    // Build plain entry objects and parse the WHOLE response through the
+    // contracts schema (the same parse-not-cast posture as
+    // `updateCapabilities`' step 6): the parse brands `nodeId` /
+    // `participantId` / `clientVersion`, validates both health-axis enums and
+    // the ISO 8601 timestamps, and fails CLOSED on any corrupted stored value.
+    // `client_version` is ALSO parsed per row BEFORE the response parse
+    // because `#deriveReadOnly` requires the branded comparator input — the
+    // same parse-at-the-boundary discipline `updateCapabilities` applies to
+    // its stored version.
+    const nodes = rosterProbe.rows.map((row) => {
+      const clientVersion: EventEnvelopeVersion = EventEnvelopeVersionSchema.parse(
+        row.client_version,
+      );
+      return {
+        nodeId: row.node_id,
+        participantId: row.participant_id,
+        state: row.state,
+        healthState: row.health_state,
+        lastHeartbeatAt: row.last_heartbeat_at === null ? null : toIsoString(row.last_heartbeat_at),
+        readOnly: this.#deriveReadOnly(row.min_client_version, clientVersion),
+        capabilities: row.capabilities,
+        clientVersion,
+        attachedAt: toIsoString(row.attached_at),
+      };
+    });
+    return RuntimeNodeRosterResponseSchema.parse({ nodes });
+  }
+
+  /**
    * Derive the `readOnly` PERMISSION verdict from the session floor and the
    * daemon's reported `clientVersion`.
    *
@@ -891,7 +1076,11 @@ export class AttachService {
    *
    * Isolating the verdict behind this private seam keeps the upsert path stable:
    * the call site (the transaction body) is unchanged across the T3.2 -> T3.3
-   * extension — only this method's non-NULL branch gained the comparison.
+   * extension — only this method's non-NULL branch gained the comparison. The
+   * seam is now shared by THREE call sites — the attach-time verdict (T3.3),
+   * the T3.9 write-gate's re-derivation, and the T5.0c per-row roster
+   * projection — so all three stay semantically identical by construction (one
+   * comparator, no drift).
    *
    * @param floor the session's raw `min_client_version` DB value (NULL = no
    *   floor). Parsed+branded HERE (not `as`-cast) so a malformed floor throws at

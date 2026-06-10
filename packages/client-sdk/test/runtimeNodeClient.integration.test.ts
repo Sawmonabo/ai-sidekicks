@@ -8,18 +8,18 @@
 //
 // Spec coverage — the named acceptance criteria from Spec-003:
 //   * I1 — live attach to an already-active session leaves session identity
-//          unchanged (Spec-003 line 120 AC1: "A participant can attach a local
+//          unchanged (Spec-003 line 127 AC1: "A participant can attach a local
 //          runtime node to an already active session"; Spec-003 line 50: attach
 //          "must not require session recreation").
 //   * I2 — a capability-degraded node stays visible and distinguishable from a
 //          healthy online node through the client-observable `NodeState`
-//          (Spec-003 line 121 AC2; line 76: capability-validation failure
+//          (Spec-003 line 128 AC2; line 76: capability-validation failure
 //          leaves the node `degraded`; line 72: the two health axes are
 //          independent — the `capabilityupdate` response `state` is the
 //          server-derived full `NodeState`). See the I2 section below for why
 //          `degraded` is driven on the capability-health axis, per the Plan-003
 //          T4.3 amendment (2026-06-09, PR #147).
-//   * I3 — mixed-version attach (Spec-003 line 123 AC4): the below-floor daemon
+//   * I3 — mixed-version attach (Spec-003 line 130 AC4): the below-floor daemon
 //          is ADMITTED read-only — its reads succeed, its version-sensitive
 //          capability WRITE returns typed `VERSION_FLOOR_EXCEEDED`, and neither
 //          daemon is ejected for the floor mismatch. The ONE Phase-4 scenario
@@ -226,7 +226,7 @@ async function seedSession(
 }
 
 // Seed an ACTIVE membership row (the "has joined a live session" precondition
-// in Spec-003 AC1 line 120). Direct INSERT bypassing joinSession; mirrors
+// in Spec-003 AC1 line 127). Direct INSERT bypassing joinSession; mirrors
 // host-runtime-node.test.ts's `seedMembership`. The attach path never reads it
 // (attach is a SEPARATE step from membership — Spec-003 line 47), but seeding it
 // keeps the scenario faithful to AC1's wording.
@@ -318,7 +318,7 @@ async function readPresenceRow(
 //
 // `resolveCurrentParticipantId` is REAL (returns the seeded participant): the
 // attach procedure self-checks `input.participantId !== resolveCurrentParticipantId(ctx)`
-// and throws `UNAUTHORIZED` on mismatch (runtime-node-router.factory.ts:170-176),
+// and throws `UNAUTHORIZED` on mismatch (runtime-node-router.factory.ts:192-198),
 // so a throwing stub would short-circuit attach BEFORE it reaches `AttachService`.
 // This mirrors host-runtime-node.test.ts's `makePassThroughDeps` wiring
 // (currentParticipantId === the seeded PARTICIPANT_ID).
@@ -496,10 +496,10 @@ afterEach(async () => {
 
 // ---------------------------------------------------------------------------
 // I1 — live attach to an already-active session leaves session identity unchanged
-// (Spec-003 line 120 AC1 + line 50 no-recreation) — control-plane transport
+// (Spec-003 line 127 AC1 + line 50 no-recreation) — control-plane transport
 // ---------------------------------------------------------------------------
 
-describe("I1 / Spec-003 AC1 (line 120) + line 50 — live attach leaves session identity unchanged", () => {
+describe("I1 / Spec-003 AC1 (line 127) + line 50 — live attach leaves session identity unchanged", () => {
   it("control-plane transport: a joined participant attaches a node; the sessions row is byte-identical and no second session is materialized", async () => {
     // Seed the already-active session (NULL floor), the participant, and an
     // active membership (the "has joined a live session" precondition). Direct
@@ -562,7 +562,7 @@ describe("I1 / Spec-003 AC1 (line 120) + line 50 — live attach leaves session 
 
 // ---------------------------------------------------------------------------
 // I2 — a degraded node remains distinguishable from a healthy online node
-// (Spec-003 line 121 AC2 + line 76 + line 72) — control-plane transport
+// (Spec-003 line 128 AC2 + line 76 + line 72) — control-plane transport
 // ---------------------------------------------------------------------------
 //
 // WHY the capability-health axis, NOT the originally-planned heartbeat-driven
@@ -589,7 +589,7 @@ describe("I1 / Spec-003 AC1 (line 120) + line 50 — live attach leaves session 
 // `JsonRpcClient.call`; I2's thesis (REAL state transitions reaching real
 // persistence) only exists on the real-service control-plane harness.
 
-describe("I2 / Spec-003 AC2 (line 121) + lines 76/72 — degraded node remains distinguishable", () => {
+describe("I2 / Spec-003 AC2 (line 128) + lines 76/72 — degraded node remains distinguishable", () => {
   it("control-plane transport: a capability-degraded node stays visible and distinguishable from a healthy online node in the same session", async () => {
     // Seed the live session (NULL floor — version gating is T4.4's axis, not
     // I2's), the participant, and an active membership. Direct INSERTs — the
@@ -670,7 +670,7 @@ describe("I2 / Spec-003 AC2 (line 121) + lines 76/72 — degraded node remains d
     expect(contrastRecover.state).toBe("online");
 
     // (4) DISTINGUISHABILITY through the client (the AC2 thesis, Spec-003 line
-    // 121): the latest client-observable `NodeState` for A reads `degraded`
+    // 128): the latest client-observable `NodeState` for A reads `degraded`
     // while B's reads `online` — and A is NOT absent. The absence probe is a
     // capabilities-only `capabilityUpdate` (no `healthChanges`): it must still
     // RESOLVE A's single active attachment — a retired slot (detach/revoke)
@@ -766,7 +766,7 @@ describe("I2 / Spec-003 AC2 (line 121) + lines 76/72 — degraded node remains d
 // ---------------------------------------------------------------------------
 // I3 — mixed-version attach: at-floor reads/writes; below-floor reads but
 // writes return VERSION_FLOOR_EXCEEDED; neither node is ejected
-// (Spec-003 line 123 AC4 + I-003-1) — control-plane transport
+// (Spec-003 line 130 AC4 + I-003-1) — control-plane transport
 // ---------------------------------------------------------------------------
 //
 // THE invariant scenario: T4.4 is the only Phase-4 task verifying a Plan-003
@@ -795,7 +795,7 @@ describe("I2 / Spec-003 AC2 (line 121) + lines 76/72 — degraded node remains d
 // session row — a scripted reply table would just echo whatever verdict we
 // scripted, a tautology with no floor decision under test.
 
-describe("I3 / Spec-003 AC4 (line 123) + I-003-1 — mixed-version attach: below-floor admitted read-only, write refused, never ejected", () => {
+describe("I3 / Spec-003 AC4 (line 130) + I-003-1 — mixed-version attach: below-floor admitted read-only, write refused, never ejected", () => {
   it("control-plane transport: the at-floor daemon reads and writes; the below-floor daemon reads but its capability write returns typed VERSION_FLOOR_EXCEEDED; both stay joined", async () => {
     // (1) Seed the live session WITH a version floor — `min_client_version` is
     // `CLIENT_VERSION` ("1.4") itself, so the at-floor daemon attaches EQUAL
@@ -884,7 +884,7 @@ describe("I3 / Spec-003 AC4 (line 123) + I-003-1 — mixed-version attach: below
     expect(atFloorWrite.state).toBe("registering");
 
     // (6) The BELOW-FLOOR WRITE IS REFUSED — typed, not generic (Spec-003
-    // line 123 AC4): the IDENTICAL capability write rejects with the SDK's
+    // line 130 AC4): the IDENTICAL capability write rejects with the SDK's
     // typed `RuntimeNodeControlPlaneError` carrying the dotted wire code
     // `version.floor_exceeded` (asserted against the canonical
     // `VERSION_FLOOR_EXCEEDED_CODE` constant, never a string literal) and the

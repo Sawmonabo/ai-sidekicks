@@ -1,11 +1,21 @@
 // P1 / P2 / P3 / P5 / P7 / P8 / P9 / P10 — AttachService behavior gates (Plan-003
-// Phase 3, T3.2 + T3.3 + T3.5 + T3.7).
+// Phase 3, T3.2 + T3.3 + T3.5 + T3.7) — plus the readRoster projection suite
+// (Plan-003 Phase 5, T5.0c; the trailing describe blocks).
 //
 // Spec-003 line 47 (attach is a separate step from membership acceptance) / line
 // 49 (multiple runtime nodes per session) / line 50 (attach must not require
 // session recreation) / line 51 (detach/offline must not revoke membership by
 // default) / line 53 (version-floor admission) / line 69 (an explicit `detach`
 // retires the node) + Plan-003 §Invariants I-003-1 / I-003-3 / I-003-5.
+//
+// readRoster (T5.0c): Spec-003 line 128 (AC2 — degraded/offline distinguishable
+// from healthy online) / line 129 (AC3 — multiple nodes coexist without
+// changing session identity) / line 49 (multiple runtime nodes per session) /
+// line 76 (a capability-degraded node stays visible, not treated as healthy) /
+// line 130 (AC4 — the derived readOnly verdict surfaced on read) / line 72
+// (both health axes verbatim, never collapsed) + §Interfaces And Contracts
+// 2026-06-09 amendment lines 90-94 (visibility / nullability / derived
+// readOnly / never-mask / ADR-017 non-collision).
 //
 // P1 (Spec-003 line 53): a session whose `min_client_version` floor is NULL
 //     ("no floor") admits EVERY daemon version with `readOnly = false`. The
@@ -20,7 +30,7 @@
 //     string compare; a malformed floor is rejected at the read-time parse (it is
 //     NOT silently admitted).
 //
-// P5 (Spec-003 line 49 + AC line 122 / I-003-3, T3.5 — characterization only):
+// P5 (Spec-003 line 49 + AC line 129 / I-003-3, T3.5 — characterization only):
 //     two DISTINCT nodes attach to the SAME session and both land as active
 //     `registering` rows (the `(node_id, session_id)` arbiter + the per-node
 //     active index admit multi-node-per-session), while the `sessions` row stays
@@ -120,8 +130,8 @@ const PARTICIPANT_ID: ParticipantId = "01970000-0000-7000-8000-0000000f0001" as 
 // A SECOND participant for the cross-owner reconnect block: a DIFFERENT
 // participant attempting to reattach a node to a session whose existing
 // `(node_id, session_id)` row is owned by `PARTICIPANT_ID`. The owner is
-// immutable across reconnect (Spec-003 line 109), so this reattach is refused
-// and the row's owner stays `PARTICIPANT_ID` (Spec-003 line 116 — never destroy
+// immutable across reconnect (Spec-003 line 116), so this reattach is refused
+// and the row's owner stays `PARTICIPANT_ID` (Spec-003 line 123 — never destroy
 // node provenance).
 const OTHER_PARTICIPANT_ID: ParticipantId = "01970000-0000-7000-8000-0000000f0002" as ParticipantId;
 const NODE_ID: NodeId = "node-alpha-01" as NodeId;
@@ -321,7 +331,7 @@ async function readAttachmentRow(
 
 // Read an attachment row's `participant_id` (the owner) for the reconnect
 // provenance assertions: the same-owner reconnect must leave it unchanged, and a
-// cross-owner reconnect must NOT overwrite it (Spec-003 line 116). Returns
+// cross-owner reconnect must NOT overwrite it (Spec-003 line 123). Returns
 // `undefined` when no row exists for the `(node_id, session_id)` pair.
 async function readAttachmentOwner(
   querier: Querier,
@@ -419,6 +429,17 @@ async function readPresenceRow(
 async function countAttachments(querier: Querier): Promise<number> {
   const probe = await querier.query<{ n: number }>(
     "SELECT COUNT(*)::int AS n FROM runtime_node_attachments",
+  );
+  return probe.rows[0]?.n ?? -1;
+}
+
+// Total runtime_node_presence row count — the same second mutation mode for the
+// presence table (readPresenceRow inspects only the ONE node's row, so it cannot
+// see a stray INSERT/DELETE of a DIFFERENT presence row; this count closes that
+// gap, exactly as countMemberships does for session_memberships).
+async function countPresence(querier: Querier): Promise<number> {
+  const probe = await querier.query<{ n: number }>(
+    "SELECT COUNT(*)::int AS n FROM runtime_node_presence",
   );
   return probe.rows[0]?.n ?? -1;
 }
@@ -659,8 +680,8 @@ describe("AttachService — P9b (reconnect reactivates an offline row)", () => {
 // P9 owner-immutability — reconnect must not destroy node provenance
 // ----------------------------------------------------------------------------
 //
-// Spec-003 line 109 (node identity must be STABLE across reconnect if the same
-// local daemon is reattaching) + line 116 (§Pitfalls — destroying historical
+// Spec-003 line 116 (node identity must be STABLE across reconnect if the same
+// local daemon is reattaching) + line 123 (§Pitfalls — destroying historical
 // node provenance when a node reconnects is PROHIBITED) + Plan-003 §Invariants
 // I-003-5 (the `(node_id, session_id)` index is the upsert ON CONFLICT target for
 // the reconnect path).
@@ -675,12 +696,12 @@ describe("AttachService — P9b (reconnect reactivates an offline row)", () => {
 //       removal must not break the happy path or drop the owner); and
 //   (4) CROSS-owner reconnect is REFUSED with the typed conflict, and the row's
 //       owner is STILL the original participant (provenance preserved, not
-//       overwritten) — the data-integrity guarantee Spec-003 line 116 mandates.
+//       overwritten) — the data-integrity guarantee Spec-003 line 123 mandates.
 // (Cases 2 and 3 of the matrix — the cross-session active conflict and the
 // revoked refusal — are the P9a and P10 blocks above; they remain regression
 // guards for the SET/WHERE change and are not duplicated here.)
 
-describe("AttachService — P9 owner-immutability (reconnect preserves node provenance, Spec-003 lines 109/116)", () => {
+describe("AttachService — P9 owner-immutability (reconnect preserves node provenance, Spec-003 lines 116/123)", () => {
   it("reconnects a SAME-participant node after detach (offline -> registering) and leaves the owner participant unchanged", async () => {
     // The legitimate P9 reconnect, end-to-end through the service: the SAME
     // participant attaches node N, detaches it (slot -> offline), then reattaches.
@@ -718,7 +739,7 @@ describe("AttachService — P9 owner-immutability (reconnect preserves node prov
     );
   });
 
-  it("refuses a CROSS-owner reconnect to the same session with the typed conflict and preserves the original owner (Spec-003 line 116)", async () => {
+  it("refuses a CROSS-owner reconnect to the same session with the typed conflict and preserves the original owner (Spec-003 line 123)", async () => {
     // The data-integrity bug this fix closes: participant A attaches node N to
     // session S and detaches it (slot -> offline); participant B (the SAME session
     // S) then attempts to attach node N. The ON CONFLICT (node_id, session_id)
@@ -726,7 +747,7 @@ describe("AttachService — P9 owner-immutability (reconnect preserves node prov
     // conjunct is false (existing owner A != B), so the update is suppressed (zero
     // RETURNING rows) and the zero-row verify discriminates the cross-owner cause
     // -> the typed conflict refusal. Crucially, the original owner A is NOT
-    // overwritten (Spec-003 line 116 — never destroy historical node provenance).
+    // overwritten (Spec-003 line 123 — never destroy historical node provenance).
     await seedParticipant(ctx.querier, PARTICIPANT_ID);
     await seedParticipant(ctx.querier, OTHER_PARTICIPANT_ID);
     await seedSession(ctx.querier, SESSION_ID);
@@ -755,7 +776,7 @@ describe("AttachService — P9 owner-immutability (reconnect preserves node prov
     expect((error as Error).message).toContain(String(SESSION_ID));
     expect((error as Error).message).not.toContain(String(PARTICIPANT_ID));
 
-    // PROVENANCE PRESERVED (the load-bearing Spec-003 line 116 property): the
+    // PROVENANCE PRESERVED (the load-bearing Spec-003 line 123 property): the
     // transaction rolled back and the row's owner is STILL A — B did NOT overwrite
     // it. The row also stays offline (the suppressed DO UPDATE did not reactivate
     // it), and there is exactly one row (no duplicate inserted).
@@ -997,12 +1018,12 @@ describe("AttachService — P2/P3 (version-floor comparison, Spec-003 line 53 / 
 });
 
 // ----------------------------------------------------------------------------
-// P5 — multi-node coexistence (Spec-003 line 49 + AC line 122; I-003-3 identity)
+// P5 — multi-node coexistence (Spec-003 line 49 + AC line 129; I-003-3 identity)
 // ----------------------------------------------------------------------------
 //
 // P5 (Spec-003 line 49 "support multiple runtime nodes per session" + line 50
 //     "attach must not require session recreation"; the acceptance criterion at
-//     Spec-003 line 122 "Multiple runtime nodes can coexist in one session
+//     Spec-003 line 129 "Multiple runtime nodes can coexist in one session
 //     without changing session identity"; Plan-003 §Invariants I-003-3): two
 //     DISTINCT nodes attaching to the SAME session both land as active rows, and
 //     the attach path mutates nothing on `sessions` (no UPDATE, no recreate).
@@ -1767,7 +1788,7 @@ describe("AttachService — updateCapabilities (discovery-snapshot refresh, T3.9
 // updateCapabilities — version-floor write-refusal (P4 / I-003-1, T3.4)
 // ----------------------------------------------------------------------------
 //
-// Spec-003 line 123 (the sole spec authority): a daemon attaching below the
+// Spec-003 line 130 (the sole spec authority): a daemon attaching below the
 // session's `min_client_version` is admitted READ-ONLY, surfaces typed
 // `VERSION_FLOOR_EXCEEDED` on any subsequent WRITE attempt, and is NEVER ejected
 // for the floor mismatch (ADR-018 §Decision #4) + Plan-003 §Invariants I-003-1.
@@ -1786,7 +1807,7 @@ describe("AttachService — updateCapabilities (discovery-snapshot refresh, T3.9
 // NULL-floor session admits every write (no gate at all).
 
 describe("AttachService — updateCapabilities version-floor write-refusal (P4 / I-003-1, T3.4)", () => {
-  it("refuses a below-floor (read-only) node's capability write with typed VERSION_FLOOR_EXCEEDED and leaves it JOINED (Spec-003 line 123 / I-003-1)", async () => {
+  it("refuses a below-floor (read-only) node's capability write with typed VERSION_FLOOR_EXCEEDED and leaves it JOINED (Spec-003 line 130 / I-003-1)", async () => {
     // Full lifecycle through the real admission path: a floored session
     // (floor 2.0) admits a below-floor daemon (client 1.0) READ-ONLY at attach
     // (T3.3), then the daemon's capability WRITE is refused (T3.4).
@@ -1939,5 +1960,402 @@ describe("AttachService — updateCapabilities version-floor write-refusal (P4 /
     const after = await readAttachmentRowWithTimestamp(ctx.querier, NODE_ID, SESSION_ID);
     const storedCapabilities: unknown = JSON.parse(after?.capabilities ?? "null");
     expect(storedCapabilities).toEqual(UPDATED_CAPABILITIES);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// readRoster — the session roster projection (T5.0c)
+// ----------------------------------------------------------------------------
+//
+// Spec-003 §Interfaces And Contracts 2026-06-09 amendment (lines 90-94): the
+// roster read returns EVERY `runtime_node_attachments` row for the session —
+// all five `state` values verbatim, no server-side hiding (line 92; AC2 line
+// 128 needs degraded/offline visible) — LEFT-JOINs the heartbeat-owned
+// presence axis (NULL until the first beat), derives `readOnly` per row at
+// read time from the stored `client_version` vs the session's CURRENT
+// `min_client_version` floor (AC4 line 130 / I-003-1 — the read-side surfacing
+// of admit-not-eject), and carries BOTH health axes verbatim with no collapsed
+// scalar (line 72 — reconciliation is the client's render-time concern). The
+// read NEVER derives staleness (the T3.6 sweep stays the single
+// liveness-derivation writer) and writes NOTHING (I-003-3: no
+// session_memberships access; ADR-017: no durable event — structural, the
+// control plane has no event log).
+//
+// The blocks below pin: all-five-states visibility (offline/revoked included);
+// attach -> roster end-to-end multi-node coexistence (AC3 line 129 / line 49);
+// axis independence in BOTH directions plus the verbatim heartbeat clock; the
+// no-staleness-derivation property; the per-row derived readOnly verdict
+// (below/at floor in ONE roster + the NULL-floor branch); pre-first-heartbeat
+// nullability; session isolation (including the same node's rows split across
+// sessions); the empty roster; the read-only write-surface (snapshot + count
+// across all three tables); and the fail-closed parse of a corrupted stored
+// `client_version`.
+
+describe("AttachService — readRoster (roster projection, T5.0c)", () => {
+  it("returns EVERY attachment row for the session — offline and revoked included — with all five states verbatim (AC2, Spec-003 lines 128/92; line 76)", async () => {
+    // One session, five DISTINCT nodes, one in each NodeState. Distinct
+    // node_ids never collide on the per-node active index (three active rows
+    // are fine), and the `(node_id, session_id)` arbiter sees five distinct
+    // pairs. The roster must surface all five rows with their states verbatim:
+    // a `degraded` node stays visible and is NOT presented as healthy (Spec-003
+    // line 76), and `offline` / `revoked` rows are NOT hidden server-side —
+    // AC2's distinguishability needs every state observable.
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID);
+    const allFiveStates = ["registering", "online", "degraded", "offline", "revoked"] as const;
+    for (const state of allFiveStates) {
+      await seedAttachment(ctx.querier, {
+        sessionId: SESSION_ID,
+        participantId: PARTICIPANT_ID,
+        nodeId: `node-roster-${state}` as NodeId,
+        state,
+      });
+    }
+
+    const response = await ctx.service.readRoster({ sessionId: SESSION_ID });
+
+    expect(response.nodes).toHaveLength(5);
+    const stateByNodeId = new Map(
+      response.nodes.map((entry) => [String(entry.nodeId), entry.state]),
+    );
+    for (const state of allFiveStates) {
+      expect(stateByNodeId.get(`node-roster-${state}`)).toBe(state);
+    }
+  });
+
+  it("projects multiple coexisting nodes attached through the REAL attach path with per-node identity intact (AC3, Spec-003 lines 129/49)", async () => {
+    // End-to-end write -> read coherence: two nodes attach through the real
+    // service path (not seeds) with DIFFERENT capability maps, then the roster
+    // returns both entries each carrying its OWN identity + fields — per-node
+    // capabilities (the JSONB round-trips per row), the branded clientVersion,
+    // the owner participantId, and a parseable attachedAt. Both are
+    // pre-first-heartbeat, so the liveness axis is NULL on each.
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID);
+    await ctx.service.attach(buildAttachRequest());
+    await ctx.service.attach(
+      buildAttachRequest({ nodeId: NODE_ID_BETA, capabilities: UPDATED_CAPABILITIES }),
+    );
+
+    const response = await ctx.service.readRoster({ sessionId: SESSION_ID });
+
+    expect(response.nodes).toHaveLength(2);
+    const alphaEntry = response.nodes.find((entry) => String(entry.nodeId) === String(NODE_ID));
+    const betaEntry = response.nodes.find((entry) => String(entry.nodeId) === String(NODE_ID_BETA));
+    expect(alphaEntry).toBeDefined();
+    expect(betaEntry).toBeDefined();
+    // Per-node fields stayed per-node (no cross-row bleed through the JOIN).
+    expect(alphaEntry?.capabilities).toEqual(CAPABILITIES);
+    expect(betaEntry?.capabilities).toEqual(UPDATED_CAPABILITIES);
+    expect(String(alphaEntry?.participantId)).toBe(String(PARTICIPANT_ID));
+    expect(String(alphaEntry?.clientVersion)).toBe(String(CLIENT_VERSION));
+    expect(Number.isFinite(new Date(alphaEntry?.attachedAt ?? "").getTime())).toBe(true);
+    // Fresh attaches: slot `registering`, liveness NULL (no heartbeat yet).
+    expect(alphaEntry?.state).toBe("registering");
+    expect(alphaEntry?.healthState).toBeNull();
+    expect(betaEntry?.healthState).toBeNull();
+  });
+
+  it("round-trips DISAGREEING axes verbatim in both directions and carries the heartbeat clock untouched (Spec-003 line 72 — never collapse, never mask)", async () => {
+    // Axis independence, both directions in ONE roster:
+    //   - node A: slot `online` + swept liveness `offline` (the
+    //     swept-offline-but-still-attached shape — the sweep writes only
+    //     presence, the slot stays active);
+    //   - node B: slot `degraded` (capability axis) + fresh liveness `online`
+    //     (a capability-degraded node that heartbeats happily).
+    // The roster must carry BOTH columns of BOTH rows verbatim — a recovery on
+    // one axis never masks a degradation on the other, and no collapsed scalar
+    // exists to lose either verdict. The seeded heartbeat instant also
+    // round-trips verbatim (the read reports the clock; it never rewrites it).
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID);
+    await seedAttachment(ctx.querier, {
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      nodeId: NODE_ID,
+      state: "online",
+    });
+    await seedAttachment(ctx.querier, {
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      nodeId: NODE_ID_BETA,
+      state: "degraded",
+    });
+    const seededHeartbeatInstant = "2026-06-01T12:00:00.000Z";
+    await seedPresence(ctx.querier, {
+      nodeId: NODE_ID,
+      healthState: "offline",
+      lastHeartbeatAt: seededHeartbeatInstant,
+    });
+    await seedPresence(ctx.querier, { nodeId: NODE_ID_BETA, healthState: "online" });
+
+    const response = await ctx.service.readRoster({ sessionId: SESSION_ID });
+
+    const alphaEntry = response.nodes.find((entry) => String(entry.nodeId) === String(NODE_ID));
+    const betaEntry = response.nodes.find((entry) => String(entry.nodeId) === String(NODE_ID_BETA));
+    // Direction 1: active slot + dead liveness — both verbatim.
+    expect(alphaEntry?.state).toBe("online");
+    expect(alphaEntry?.healthState).toBe("offline");
+    // Direction 2: degraded slot + healthy liveness — both verbatim.
+    expect(betaEntry?.state).toBe("degraded");
+    expect(betaEntry?.healthState).toBe("online");
+    // The heartbeat clock round-trips as the SAME instant (compared as epoch
+    // millis — the seed string and the wire ISO form may differ in rendering).
+    expect(new Date(alphaEntry?.lastHeartbeatAt ?? "").getTime()).toBe(
+      Date.parse(seededHeartbeatInstant),
+    );
+  });
+
+  it("NEVER derives staleness — a long-stale heartbeat reports its STORED health verbatim (T3.6 stays the single liveness-derivation writer)", async () => {
+    // A presence row whose last_heartbeat_at is 10 minutes old — far past both
+    // the 30s degraded and 60s offline thresholds — but whose STORED
+    // health_state is still `online` (the sweep has not run). The roster must
+    // report `online` verbatim: deriving `degraded`/`offline` from heartbeat
+    // age at read time would make readRoster a second, racing liveness author
+    // (Spec-003 lines 61/72/92 — the T3.6 sweep owns that derivation).
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID);
+    await seedAttachment(ctx.querier, {
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      nodeId: NODE_ID,
+      state: "online",
+    });
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    await seedPresence(ctx.querier, {
+      nodeId: NODE_ID,
+      healthState: "online",
+      lastHeartbeatAt: tenMinutesAgo,
+    });
+
+    const response = await ctx.service.readRoster({ sessionId: SESSION_ID });
+
+    const entry = response.nodes.find((candidate) => String(candidate.nodeId) === String(NODE_ID));
+    // Stored verdict verbatim — NOT an aged-out derivation.
+    expect(entry?.healthState).toBe("online");
+  });
+
+  it("derives readOnly PER ROW — below-floor true with state untouched, at-floor false in the SAME roster (AC4, Spec-003 line 130 / I-003-1)", async () => {
+    // A floored session (2.0) holding two nodes: one attached at a below-floor
+    // client_version (1.0), one at-floor (2.0). The roster derives the verdict
+    // per row from the STORED version vs the CURRENT floor — the same
+    // #deriveReadOnly comparator as the attach-time verdict — so the two
+    // entries differ on `readOnly` while NOTHING else is touched: the
+    // below-floor node's slot state reads verbatim (`online`, still joined,
+    // admit-not-eject) and its stored row is byte-for-byte unchanged by the
+    // read. readOnly is the PERMISSION axis, orthogonal to `state`.
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID, "2.0");
+    await seedAttachment(ctx.querier, {
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      nodeId: NODE_ID,
+      state: "online",
+      clientVersion: "1.0",
+    });
+    await seedAttachment(ctx.querier, {
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      nodeId: NODE_ID_BETA,
+      state: "online",
+      clientVersion: "2.0",
+    });
+    const belowFloorBefore = await readAttachmentRowWithTimestamp(ctx.querier, NODE_ID, SESSION_ID);
+    expect(belowFloorBefore).toBeDefined();
+
+    const response = await ctx.service.readRoster({ sessionId: SESSION_ID });
+
+    const belowFloorEntry = response.nodes.find(
+      (entry) => String(entry.nodeId) === String(NODE_ID),
+    );
+    const atFloorEntry = response.nodes.find(
+      (entry) => String(entry.nodeId) === String(NODE_ID_BETA),
+    );
+    // The PERMISSION axis differs per row...
+    expect(belowFloorEntry?.readOnly).toBe(true);
+    expect(atFloorEntry?.readOnly).toBe(false);
+    // ...while the below-floor node's STATE is untouched (visible, joined,
+    // never demoted or hidden for the floor mismatch — admit-not-eject).
+    expect(belowFloorEntry?.state).toBe("online");
+    // And the stored row is byte-for-byte unchanged — the verdict is derived,
+    // never written back.
+    const belowFloorAfter = await readAttachmentRowWithTimestamp(ctx.querier, NODE_ID, SESSION_ID);
+    expect(belowFloorAfter).toEqual(belowFloorBefore);
+  });
+
+  it("derives readOnly=false under a NULL floor — no version gate at all (the #deriveReadOnly NULL branch on the read path)", async () => {
+    // A NULL-floor session ("no floor") admits every version read-write; the
+    // roster's per-row derivation must mirror that: even an old client (the
+    // seed default 1.0) reads readOnly=false.
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID);
+    await seedAttachment(ctx.querier, {
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      nodeId: NODE_ID,
+      state: "online",
+      clientVersion: "1.0",
+    });
+
+    const response = await ctx.service.readRoster({ sessionId: SESSION_ID });
+
+    expect(response.nodes[0]?.readOnly).toBe(false);
+  });
+
+  it("carries healthState=null + lastHeartbeatAt=null for a never-heartbeated node (pre-first-heartbeat LEFT-JOIN nullability)", async () => {
+    // Presence rows are heartbeat-owned (T3.6 creates them on the first beat),
+    // so a node attached but never heartbeated has NO presence row — the LEFT
+    // JOIN carries SQL NULLs, which the wire entry surfaces as null/null
+    // rather than dropping the node or inventing a liveness verdict.
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID);
+    await seedAttachment(ctx.querier, {
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      nodeId: NODE_ID,
+      state: "registering",
+    });
+
+    const response = await ctx.service.readRoster({ sessionId: SESSION_ID });
+
+    expect(response.nodes).toHaveLength(1);
+    const entry = response.nodes[0];
+    expect(entry?.healthState).toBeNull();
+    expect(entry?.lastHeartbeatAt).toBeNull();
+    // The slot axis is still fully populated alongside the NULL liveness axis.
+    expect(entry?.state).toBe("registering");
+  });
+
+  it("isolates sessions — session B's rows (including the SAME node's inactive row) never leak into session A's roster", async () => {
+    // Session isolation with the sharpest shape: node ALPHA holds an ACTIVE
+    // row in session A and an `offline` row in session B (legal under the
+    // partial active index — only ACTIVE states are constrained per node), and
+    // node BETA is active in session B only. roster(A) must carry exactly
+    // ALPHA's A-row; roster(B) must carry exactly its OWN two rows — BETA's
+    // active row AND ALPHA's offline row (visibility: an offline row is B's to
+    // show, not A's).
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID);
+    await seedSession(ctx.querier, OTHER_SESSION_ID);
+    await seedAttachment(ctx.querier, {
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      nodeId: NODE_ID,
+      state: "online",
+    });
+    await seedAttachment(ctx.querier, {
+      sessionId: OTHER_SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      nodeId: NODE_ID,
+      state: "offline",
+    });
+    await seedAttachment(ctx.querier, {
+      sessionId: OTHER_SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      nodeId: NODE_ID_BETA,
+      state: "online",
+    });
+
+    const rosterA = await ctx.service.readRoster({ sessionId: SESSION_ID });
+    const rosterB = await ctx.service.readRoster({ sessionId: OTHER_SESSION_ID });
+
+    // Session A: exactly the one A-row — B's rows never bleed in.
+    expect(rosterA.nodes).toHaveLength(1);
+    expect(String(rosterA.nodes[0]?.nodeId)).toBe(String(NODE_ID));
+    expect(rosterA.nodes[0]?.state).toBe("online");
+    // Session B: exactly its own two rows — ALPHA's offline row included
+    // (per-session visibility), BETA's active row included, A's row absent.
+    expect(rosterB.nodes).toHaveLength(2);
+    const rosterBStateByNodeId = new Map(
+      rosterB.nodes.map((entry) => [String(entry.nodeId), entry.state]),
+    );
+    expect(rosterBStateByNodeId.get(String(NODE_ID))).toBe("offline");
+    expect(rosterBStateByNodeId.get(String(NODE_ID_BETA))).toBe("online");
+  });
+
+  it("returns an empty roster for a session with no attachments AND for a non-existent session (the router-tier existence posture)", async () => {
+    // An attachment-free session projects `{nodes: []}` — an empty array is a
+    // valid wire response, not an error. A NON-EXISTENT session likewise reads
+    // empty rather than throwing: session existence/authorization is the
+    // router tier's concern (the same posture attach's NULL-floor read takes),
+    // and the FK guarantees no attachment row can reference a missing session,
+    // so "no session" and "no attachments" are indistinguishable at this READ.
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID);
+
+    const emptyRoster = await ctx.service.readRoster({ sessionId: SESSION_ID });
+    expect(emptyRoster.nodes).toEqual([]);
+
+    const missingSessionRoster = await ctx.service.readRoster({ sessionId: OTHER_SESSION_ID });
+    expect(missingSessionRoster.nodes).toEqual([]);
+  });
+
+  it("writes NOTHING — attachments, presence, and session_memberships are byte-for-byte unchanged across a roster read (I-003-3; ADR-017)", async () => {
+    // The read-only-projection property, asserted across the FULL write
+    // surface with the suite's standard two disjoint mutation modes
+    // (byte-identity snapshot + total count): the attachment row, the presence
+    // row, and a co-resident membership row all survive a roster read
+    // byte-for-byte, and no table gains or loses a row. The no-durable-event
+    // property is STRUCTURAL, exactly as the updateCapabilities ADR-017 test
+    // pins it: AttachService takes ONLY a Querier (no event-emitter
+    // dependency) and the control plane has no event log/table to write — the
+    // roster read PROJECTS coordination records, colliding with nothing the
+    // ADR-017 V1.1 durable-authorship gate governs.
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID);
+    await seedAttachment(ctx.querier, {
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      nodeId: NODE_ID,
+      state: "online",
+    });
+    await seedPresence(ctx.querier, { nodeId: NODE_ID, healthState: "online" });
+    const membershipId = await seedMembership(ctx.querier, {
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      role: "owner",
+      state: "active",
+    });
+
+    const attachmentBefore = await readAttachmentRowWithTimestamp(ctx.querier, NODE_ID, SESSION_ID);
+    const presenceBefore = await readPresenceRow(ctx.querier, NODE_ID);
+    const membershipBefore = await readMembershipRow(ctx.querier, membershipId);
+    expect(attachmentBefore).toBeDefined();
+    expect(presenceBefore).toBeDefined();
+    expect(membershipBefore).toBeDefined();
+
+    const response = await ctx.service.readRoster({ sessionId: SESSION_ID });
+    expect(response.nodes).toHaveLength(1);
+
+    // Byte-identity across every touched-by-JOIN table (mode 1)...
+    expect(await readAttachmentRowWithTimestamp(ctx.querier, NODE_ID, SESSION_ID)).toEqual(
+      attachmentBefore,
+    );
+    expect(await readPresenceRow(ctx.querier, NODE_ID)).toEqual(presenceBefore);
+    expect(await readMembershipRow(ctx.querier, membershipId)).toEqual(membershipBefore);
+    // ...and unchanged totals (mode 2 — no stray INSERT/DELETE anywhere).
+    expect(await countAttachments(ctx.querier)).toBe(1);
+    expect(await countPresence(ctx.querier)).toBe(1);
+    expect(await countMemberships(ctx.querier)).toBe(1);
+  });
+
+  it("fails CLOSED on a corrupted stored client_version — the read boundary parses, never casts", async () => {
+    // The stored `client_version` is parsed+branded through
+    // EventEnvelopeVersionSchema.parse before the readOnly derivation (and
+    // re-validated by the response-schema parse). A regex-invalid stored value
+    // (the TEXT column has no DB CHECK, so the seed lands fine) must throw
+    // loud at the read boundary — an `as`-cast bypass would reach the numeric
+    // comparator as NaN and silently mis-derive the permission verdict.
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID, "2.0");
+    await seedAttachment(ctx.querier, {
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      nodeId: NODE_ID,
+      state: "online",
+      clientVersion: "1.0.0",
+    });
+
+    await expect(ctx.service.readRoster({ sessionId: SESSION_ID })).rejects.toThrow(ZodError);
   });
 });
