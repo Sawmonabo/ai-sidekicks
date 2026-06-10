@@ -4,7 +4,9 @@
 // three scenarios live in this file, together with the T4.1 surface-coverage
 // legs added per the PR-final coverage review (the control-plane detach
 // lifecycle + the four-method daemon-transport breadth suite — `detach`
-// previously shipped with zero executions on either transport).
+// previously shipped with zero executions on either transport) and the
+// Phase 5 T5.0d roster legs (the control-plane-only `runtimenode.roster`
+// query driven through the SDK against the same real services).
 //
 // Spec coverage — the named acceptance criteria from Spec-003:
 //   * I1 — live attach to an already-active session leaves session identity
@@ -32,6 +34,15 @@
 //          `RuntimeNodeDetach` must explicitly retire or disconnect a node;
 //          line 69: an explicit detach retires the node — `offline` is
 //          server-effected liveness-death).
+//   * Roster — the control-plane-only `runtimenode.roster` query projects
+//          every attachment row with BOTH health axes verbatim plus the
+//          per-row read-time `readOnly` verdict, session-isolated (Spec-003
+//          line 128 AC2: a degraded node distinguishable from a healthy
+//          online node through the client read; line 129 AC3: multiple nodes
+//          coexist without changing session identity; line 130 AC4: the
+//          below-floor node visible with `readOnly: true` — admitted, never
+//          ejected; line 49: multiple runtime nodes per session). See the
+//          T5.0d section below.
 //
 // Architecture (locked — see Plan-003 Phase 4 dispatch): this harness drives the
 // REAL `AttachService` / `HeartbeatService` over an in-memory PGlite database —
@@ -81,7 +92,8 @@ import {
   type SessionId,
   VERSION_FLOOR_EXCEEDED_CODE,
 } from "@ai-sidekicks/contracts";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ZodError } from "zod";
 
 import {
   RuntimeNodeControlPlaneError,
@@ -128,6 +140,18 @@ const BELOW_FLOOR_CLIENT_VERSION: EventEnvelopeVersion = "1.3" as EventEnvelopeV
 // disconnect, late-write refusal, and idempotent re-detach the detach test
 // drives. Distinct id for failure-output legibility, as above.
 const DETACH_NODE_ID: NodeId = "node-foxtrot-detach-01" as NodeId;
+
+// Roster-read (T5.0d) fixtures — the mixed-version pair the roster projects,
+// the session-isolation foil (a SECOND session + a node attached only to it),
+// the AC2 distinguishability pair, and the corrupted-stored-version subject.
+// Distinct ids per scenario role for failure-output legibility, as above.
+const OTHER_SESSION_ID: SessionId = "01970000-0000-7000-8000-00000000d002" as SessionId;
+const ROSTER_AT_FLOOR_NODE_ID: NodeId = "node-golf-roster-at-floor-01" as NodeId;
+const ROSTER_BELOW_FLOOR_NODE_ID: NodeId = "node-hotel-roster-below-floor-01" as NodeId;
+const ROSTER_ISOLATED_NODE_ID: NodeId = "node-india-roster-other-session-01" as NodeId;
+const ROSTER_DEGRADED_NODE_ID: NodeId = "node-juliett-roster-degraded-01" as NodeId;
+const ROSTER_HEALTHY_NODE_ID: NodeId = "node-kilo-roster-online-01" as NodeId;
+const ROSTER_CORRUPTED_NODE_ID: NodeId = "node-lima-roster-corrupted-01" as NodeId;
 
 const CAPABILITIES: Record<string, unknown> = {
   "provider-driver": { kind: "claude", streaming: true },
@@ -285,12 +309,15 @@ async function readAttachmentStatesByNode(querier: Querier): Promise<Record<stri
 // Read a node's `runtime_node_presence` row — the LIVENESS axis the heartbeat
 // service owns, DISTINCT from the attachment-slot axis above (Spec-003 line 72:
 // independent health axes with distinct owners). Persistence-layer observation
-// is the CORRECT seam for this axis in Phase 4: no client surface reads it —
-// the heartbeat wire response is the no-content `null`, and there is no
-// roster-read SDK surface (the reconciled presence × slot roster is downstream
-// of Plan-003). `last_heartbeat_at` is typed `unknown` deliberately: the I2
-// assertion is non-nullness of the server-clock write, not a driver-specific
-// hydration shape (PGlite hydrates TIMESTAMPTZ as a JS Date; `pg` may differ).
+// was the ONLY seam for this axis when Phase 4 shipped (the heartbeat wire
+// response is the no-content `null`); the Phase-5 T5.0d `roster` query now
+// ALSO surfaces `health_state` / `last_heartbeat_at` client-side — the roster
+// section below asserts the axis through the client — while these direct
+// reads remain the sharper DB-truth anti-vacuity cross-check (they observe
+// the stored row itself, not a projection of it). `last_heartbeat_at` is
+// typed `unknown` deliberately: the I2 assertion is non-nullness of the
+// server-clock write, not a driver-specific hydration shape (PGlite hydrates
+// TIMESTAMPTZ as a JS Date; `pg` may differ).
 async function readPresenceRow(
   querier: Querier,
   nodeId: NodeId,
@@ -313,8 +340,8 @@ async function readPresenceRow(
 // throwing Querier (never-reached); here the runtime-node services use the REAL
 // PGlite `querier` (the subject under test), and only the SESSION-CRUD deps
 // (`directoryService`) + the SSE `eventStreamProvider` stay never-reached —
-// `runtimenode.attach` / `heartbeat` / `capabilityupdate` / `detach` never
-// resolve a session-create / subscribe procedure.
+// `runtimenode.attach` / `heartbeat` / `capabilityupdate` / `detach` /
+// `roster` never resolve a session-create / subscribe procedure.
 //
 // `resolveCurrentParticipantId` is REAL (returns the seeded participant): the
 // attach procedure self-checks `input.participantId !== resolveCurrentParticipantId(ctx)`
@@ -360,8 +387,9 @@ function buildRuntimeNodeDeps(
     directoryService: new SessionDirectoryService(throwingQuerier),
     // REAL runtime-node services over the per-test PGlite querier — the subject
     // under test. `AttachService.attach` (I1/T4.4), `AttachService.updateCapabilities`
-    // (T4.3 capability-health transitions; T4.4 floor-gate), and
-    // `HeartbeatService.ingest` (T4.3 liveness-axis heartbeat) all read/write
+    // (T4.3 capability-health transitions; T4.4 floor-gate),
+    // `HeartbeatService.ingest` (T4.3 liveness-axis heartbeat), and
+    // `AttachService.readRoster` (the T5.0d roster projection) all read/write
     // through this same connection.
     attachService: new AttachService(querier),
     heartbeatService: new HeartbeatService(querier),
@@ -567,18 +595,18 @@ describe("I1 / Spec-003 AC1 (line 127) + line 50 — live attach leaves session 
 //
 // WHY the capability-health axis, NOT the originally-planned heartbeat-driven
 // roster read (Plan-003 T4.3 as amended 2026-06-09, PR #147): the two health
-// axes have DIFFERENT owners and only one is client-observable on the shipped
+// axes have DIFFERENT owners and only one was client-observable on the shipped
 // Phase-4 surface. The Phase-3 heartbeat/staleness path writes ONLY the
 // `runtime_node_presence.health_state` LIVENESS axis, which no Phase-4 SDK
-// response surfaces (heartbeat's wire response is the no-content `null`, and
-// there is no roster-read SDK surface — the reconciled presence × slot roster
-// is downstream of this plan). The `capabilityUpdate` response `state` IS
-// client-observable: the server-derived full `NodeState` from
-// `runtime_node_attachments.state` (Spec-003 line 72), and
-// `registering -> degraded` on that axis is EXPLICITLY permitted by the
+// response surfaced (heartbeat's wire response is the no-content `null`; the
+// roster-read SDK surface arrived later, in Phase 5 T5.0d — the roster
+// section below now asserts the liveness axis through the client). The
+// `capabilityUpdate` response `state` IS client-observable: the server-derived
+// full `NodeState` from `runtime_node_attachments.state` (Spec-003 line 72),
+// and `registering -> degraded` on that axis is EXPLICITLY permitted by the
 // I-003-2 guard, which blocks only `registering -> online` (attach-service.ts
 // step 4) — per Spec-003 line 76, a capability-validation failure leaves the
-// node `degraded`. So the capability-health axis is the ONE client-observable
+// node `degraded`. So the capability-health axis was the ONE client-observable
 // degraded drive in Phase 4, and I2's distinguishability thesis is asserted on
 // it.
 //
@@ -779,11 +807,14 @@ describe("I2 / Spec-003 AC2 (line 128) + lines 76/72 — degraded node remains d
 // slightly-old daemon would lose ALL session visibility, not just write
 // capability.
 //
-// What "reads" means on this surface: the Phase-4 runtime-node SDK has NO
-// read/roster procedure, so the below-floor read-class evidence is (a) the
+// What "reads" means on this surface: the Phase-4 runtime-node SDK had NO
+// read/roster procedure, so I3's below-floor read-class evidence is (a) the
 // attach response itself returning full data — admission WITH data readback
 // (`readOnly` verdict, `state`, `attachmentId`) — and (b) `heartbeat`
-// SUCCEEDING below-floor. Presence is version-INVARIANT by design
+// SUCCEEDING below-floor. (The Phase-5 T5.0d `roster` query adds the direct
+// read-class surface — the roster section below shows the below-floor node
+// READABLE through the client, entry carrying `readOnly: true`, never
+// hidden.) Presence is version-INVARIANT by design
 // (heartbeat-service.ts carries NO floor recheck: the fixed
 // `{nodeId, healthState}` shape cannot carry a version-incompatible payload),
 // so the read-only daemon keeps participating in liveness while write-blocked.
@@ -1047,6 +1078,329 @@ describe("Detach lifecycle / Spec-003 line 85 + line 69 — detach retires both 
     expect(await readAttachmentStatesByNode(ctx.querier)).toEqual({
       [DETACH_NODE_ID]: "offline",
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Roster read (T5.0d) — the control-plane-only `runtimenode.roster` query
+// through the SDK: a mixed-version pair returned with per-axis state +
+// readOnly; session isolation; AC2 distinguishability; SDK-boundary
+// fail-fast; the typed non-2xx surface
+// (Spec-003 AC2 line 128 + AC3 line 129 + AC4 line 130 + line 49) —
+// control-plane transport
+// ---------------------------------------------------------------------------
+//
+// The roster is the namespace's FIRST — and only — query (GET `?input=`,
+// served natively by the harness's `buildControlPlaneFetchHandler` /
+// fetchRequestHandler — the same wire `session.read` ships) and is
+// CONTROL-PLANE ONLY: no daemon-transport variant exists or is scripted here
+// (the daemon registers no `runtimenode.roster` JSON-RPC method — the roster
+// is control-plane-owned cross-node state; a daemon knows only itself), so
+// the daemon breadth suite below deliberately stays four-method.
+//
+// What these real-path scenarios pin that the control-plane's own roster
+// tests cannot: the SDK leg — `roster()` validates the request at the SDK
+// boundary, encodes it into the GET `?input=` query string, drives the REAL
+// router + services over PGlite, and Zod-validates the projection on the way
+// back out. The roster READ derives nothing: every value asserted below was
+// put there by a Phase-3 writer (attach / heartbeat / capabilityupdate), so
+// the assertions are projections of real transitions, not scripted echoes.
+
+describe("Roster read (T5.0d) / Spec-003 AC2 (line 128) + AC3 (line 129) + AC4 (line 130) + line 49 — the control-plane roster query projects both axes per node", () => {
+  it("control-plane transport: a mixed-version pair returns with per-axis state and readOnly, the roster is session-isolated, and session identity is unchanged", async () => {
+    // (1) Seed TWO live sessions: the floored subject session (floor =
+    // CLIENT_VERSION "1.4", the I3 boundary shape) and a NULL-floor second
+    // session that exists purely as the isolation foil. Direct INSERTs, as in
+    // I1-I3; memberships seeded for scenario faithfulness (the attach path
+    // never reads them — Spec-003 line 47).
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID, CLIENT_VERSION);
+    await seedMembership(ctx.querier, {
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      role: "owner",
+      state: "active",
+    });
+    await seedSession(ctx.querier, OTHER_SESSION_ID);
+    await seedMembership(ctx.querier, {
+      sessionId: OTHER_SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      role: "owner",
+      state: "active",
+    });
+
+    const sdk = buildControlPlaneRuntimeNodeClient(buildRuntimeNodeDeps(ctx.querier));
+
+    // Snapshot the subject session's identity BEFORE any attach — the AC3
+    // (line 129) "without changing session identity" target, asserted after
+    // the roster reads with the same byte-identity posture as I1.
+    const sessionBefore = await readSessionRow(ctx.querier, SESSION_ID);
+    expect(sessionBefore).toBeDefined();
+
+    // (2) Attach the mixed-version pair to the subject session (line 49 —
+    // multiple runtime nodes per session): at-floor ("1.4" EQUALS the floor)
+    // and below-floor ("1.3"), plus the isolation node to the SECOND session.
+    const atFloorAttach = await sdk.attach({
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      nodeId: ROSTER_AT_FLOOR_NODE_ID,
+      clientVersion: CLIENT_VERSION,
+      capabilities: CAPABILITIES,
+      healthState: "online",
+    });
+    const belowFloorAttach = await sdk.attach({
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      nodeId: ROSTER_BELOW_FLOOR_NODE_ID,
+      clientVersion: BELOW_FLOOR_CLIENT_VERSION,
+      capabilities: CAPABILITIES,
+      healthState: "online",
+    });
+    await sdk.attach({
+      sessionId: OTHER_SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      nodeId: ROSTER_ISOLATED_NODE_ID,
+      clientVersion: CLIENT_VERSION,
+      capabilities: CAPABILITIES,
+      healthState: "online",
+    });
+
+    // (3) Heartbeat EXACTLY ONE of the pair — the BELOW-FLOOR node, the
+    // sharper choice: liveness is version-invariant (Spec-003 line 53), so
+    // the read-only node is the one whose presence row exists, while its
+    // at-floor peer never beats and must surface the LEFT-JOIN nulls.
+    const heartbeatResult: null = await sdk.heartbeat({
+      nodeId: ROSTER_BELOW_FLOOR_NODE_ID,
+      healthState: "online",
+    });
+    expect(heartbeatResult).toBeNull();
+
+    // (4) Roster through the SDK — the GET `?input=` query against the real
+    // router. BOTH nodes return — and ONLY both (the node attached to the
+    // second session did not leak in).
+    const roster = await sdk.roster({ sessionId: SESSION_ID });
+    expect(roster.nodes).toHaveLength(2);
+    const entriesByNodeId = new Map(roster.nodes.map((entry) => [entry.nodeId, entry]));
+
+    // Per-axis correctness via FULL-entry equality (the strict response
+    // schema already pinned the SHAPE at two parse boundaries; toEqual pins
+    // the VALUES). At-floor: slot `registering` verbatim; never heartbeated
+    // -> both liveness fields NULL (the LEFT JOIN); `readOnly: false`
+    // (at-or-above admits read-write); `attachedAt` round-trips the attach
+    // response's own timestamp (same stored column, same ISO normalization).
+    expect(entriesByNodeId.get(ROSTER_AT_FLOOR_NODE_ID)).toEqual({
+      nodeId: ROSTER_AT_FLOOR_NODE_ID,
+      participantId: PARTICIPANT_ID,
+      state: "registering",
+      healthState: null,
+      lastHeartbeatAt: null,
+      readOnly: false,
+      capabilities: CAPABILITIES,
+      clientVersion: CLIENT_VERSION,
+      attachedAt: atFloorAttach.attachedAt,
+    });
+    // Below-floor: slot `registering` verbatim (admitted, not ejected — the
+    // AC4/I-003-1 read-side surfacing: the node is IN the roster, state
+    // untouched); heartbeated -> liveness `online` with a non-null
+    // server-clock `lastHeartbeatAt`; `readOnly: true` — the per-row
+    // read-time verdict against the "1.4" floor, orthogonal to `state`.
+    expect(entriesByNodeId.get(ROSTER_BELOW_FLOOR_NODE_ID)).toEqual({
+      nodeId: ROSTER_BELOW_FLOOR_NODE_ID,
+      participantId: PARTICIPANT_ID,
+      state: "registering",
+      healthState: "online",
+      lastHeartbeatAt: expect.any(String),
+      readOnly: true,
+      capabilities: CAPABILITIES,
+      clientVersion: BELOW_FLOOR_CLIENT_VERSION,
+      attachedAt: belowFloorAttach.attachedAt,
+    });
+
+    // (5) SESSION ISOLATION, the other direction: the second session's roster
+    // carries EXACTLY its own node — neither of the subject pair leaked out.
+    const otherRoster = await sdk.roster({ sessionId: OTHER_SESSION_ID });
+    expect(otherRoster.nodes.map((entry) => entry.nodeId)).toEqual([ROSTER_ISOLATED_NODE_ID]);
+
+    // (6) AC3 (line 129): the nodes coexist WITHOUT changing session identity
+    // — the subject sessions row is byte-identical after the attaches AND the
+    // roster reads (the read writes nothing), and no session materialized
+    // beyond the two seeded.
+    expect(await readSessionRow(ctx.querier, SESSION_ID)).toEqual(sessionBefore);
+    expect(await countSessions(ctx.querier)).toBe(2);
+  });
+
+  it("control-plane transport: a capability-degraded node with fresh heartbeats stays visible and distinguishable from a healthy online node in the roster", async () => {
+    // NULL-floor session — version gating is the sibling test's axis, not
+    // AC2's.
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID);
+    await seedMembership(ctx.querier, {
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      role: "owner",
+      state: "active",
+    });
+
+    const sdk = buildControlPlaneRuntimeNodeClient(buildRuntimeNodeDeps(ctx.querier));
+
+    // (1) Attach the pair, then drive the I2 transitions through the REAL
+    // services: the subject node degrades on the capability axis WHILE its
+    // heartbeats stay fresh; the contrast node reaches `online` via the
+    // permitted registering -> degraded -> online recovery path (the direct
+    // registering -> online self-report is the I-003-2 refusal, as in I2).
+    await sdk.attach({
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      nodeId: ROSTER_DEGRADED_NODE_ID,
+      clientVersion: CLIENT_VERSION,
+      capabilities: CAPABILITIES,
+      healthState: "online",
+    });
+    await sdk.attach({
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      nodeId: ROSTER_HEALTHY_NODE_ID,
+      clientVersion: CLIENT_VERSION,
+      capabilities: CAPABILITIES,
+      healthState: "online",
+    });
+
+    const subjectHeartbeat: null = await sdk.heartbeat({
+      nodeId: ROSTER_DEGRADED_NODE_ID,
+      healthState: "online",
+    });
+    expect(subjectHeartbeat).toBeNull();
+    const degradeResponse = await sdk.capabilityUpdate({
+      nodeId: ROSTER_DEGRADED_NODE_ID,
+      capabilities: CAPABILITIES,
+      healthChanges: {
+        state: "degraded",
+        reason: "provider driver failed capability validation",
+      },
+    });
+    expect(degradeResponse.state).toBe("degraded");
+
+    const contrastDegrade = await sdk.capabilityUpdate({
+      nodeId: ROSTER_HEALTHY_NODE_ID,
+      capabilities: CAPABILITIES,
+      healthChanges: {
+        state: "degraded",
+        reason: "transient validation failure before recovery",
+      },
+    });
+    expect(contrastDegrade.state).toBe("degraded");
+    const contrastRecover = await sdk.capabilityUpdate({
+      nodeId: ROSTER_HEALTHY_NODE_ID,
+      capabilities: CAPABILITIES,
+      healthChanges: { state: "online" },
+    });
+    expect(contrastRecover.state).toBe("online");
+
+    // (2) The AC2 thesis THROUGH THE ROSTER READ (line 128): the degraded
+    // node is PRESENT (the faithful projection hides nothing) and
+    // DISTINGUISHABLE from its healthy online peer on the slot axis.
+    const roster = await sdk.roster({ sessionId: SESSION_ID });
+    expect(roster.nodes).toHaveLength(2);
+    const entriesByNodeId = new Map(roster.nodes.map((entry) => [entry.nodeId, entry]));
+    const degradedEntry = entriesByNodeId.get(ROSTER_DEGRADED_NODE_ID);
+    const healthyEntry = entriesByNodeId.get(ROSTER_HEALTHY_NODE_ID);
+    expect(degradedEntry?.state).toBe("degraded");
+    expect(healthyEntry?.state).toBe("online");
+    expect(degradedEntry?.state).not.toBe(healthyEntry?.state);
+
+    // (3) AXIS INDEPENDENCE through the roster (Spec-003 line 72 never-mask):
+    // the capability-degraded subject carries its FRESH liveness axis
+    // verbatim — `healthState: "online"` + a non-null `lastHeartbeatAt` ride
+    // alongside the degraded slot state, neither axis masking the other —
+    // while the never-heartbeated healthy node reads the LEFT-JOIN nulls.
+    expect(degradedEntry?.healthState).toBe("online");
+    expect(degradedEntry?.lastHeartbeatAt).toEqual(expect.any(String));
+    expect(healthyEntry?.healthState).toBeNull();
+    expect(healthyEntry?.lastHeartbeatAt).toBeNull();
+  });
+
+  it("control-plane transport: a malformed roster request rejects Zod-fast at the SDK boundary without a network call", async () => {
+    // Counting fetcher (the sessionClient pre-abort precedent — the test's
+    // purpose is the call-count assertion): if the SDK-boundary parse
+    // regressed and the request DID reach the wire, `not.toHaveBeenCalled()`
+    // below fails loud.
+    const fetcher = vi.fn((_request: Request): Promise<Response> => {
+      throw new Error("fetcher must not run — the request is rejected before the wire");
+    });
+    const sdk = createControlPlaneRuntimeNodeClient({
+      fetcher,
+      baseUrl: CONTROL_PLANE_BASE_URL,
+    });
+
+    // Malformed on the ONLY field: not a UUID, so the `SessionIdSchema`
+    // member of `RuntimeNodeRosterRequestSchema` rejects. The cast is the
+    // malformed-fixture idiom (the membership fail-fast leg) — the runtime
+    // parse is the subject under test. Capture-once `.then()`, as in I3.
+    const rejection = await sdk.roster({ sessionId: "not-a-uuid" as SessionId }).then(
+      () => {
+        throw new Error("expected the malformed roster request to be rejected");
+      },
+      (error: unknown) => error,
+    );
+
+    // The control-plane factory parses via `Schema.parse` directly, so the
+    // RAW `ZodError` surfaces (contrast the daemon path, where `client.call`
+    // wraps the issues in `JsonRpcSchemaError` — the membership fail-fast
+    // leg pins that wrapping).
+    expect(rejection).toBeInstanceOf(ZodError);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("control-plane transport: a corrupted stored client_version surfaces as a typed RuntimeNodeControlPlaneError via the untyped INTERNAL_SERVER_ERROR fallback branch", async () => {
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID);
+    await seedMembership(ctx.querier, {
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      role: "owner",
+      state: "active",
+    });
+
+    const sdk = buildControlPlaneRuntimeNodeClient(buildRuntimeNodeDeps(ctx.querier));
+    await sdk.attach({
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      nodeId: ROSTER_CORRUPTED_NODE_ID,
+      clientVersion: CLIENT_VERSION,
+      capabilities: CAPABILITIES,
+      healthState: "online",
+    });
+
+    // Corrupt the STORED version directly in SQL — no SDK surface can write
+    // a malformed version (attach validated it on the way in), and the
+    // column carries no CHECK constraint, so the UPDATE lands. `readRoster`
+    // parses every stored `client_version` at its read boundary and fails
+    // CLOSED on this row; the router deliberately has no catch-arm, so the
+    // data-integrity fault surfaces as INTERNAL_SERVER_ERROR — NOT a typed
+    // 409 refusal.
+    await ctx.querier.query(
+      "UPDATE runtime_node_attachments SET client_version = $1 WHERE node_id = $2",
+      ["not-a-version", ROSTER_CORRUPTED_NODE_ID],
+    );
+
+    const failure = await sdk.roster({ sessionId: SESSION_ID }).then(
+      () => {
+        throw new Error("expected the corrupted-version roster read to be refused");
+      },
+      (error: unknown) => error,
+    );
+
+    // ONE typed error class across all five methods: with NO `aisError`
+    // envelope present (a ZodError cause is not an `AisWireException`, so
+    // the shared errorFormatter adds nothing), the SDK's fallback branch
+    // carries the tRPC envelope's own `error.data.code` + the 500
+    // provenance. The literal "INTERNAL_SERVER_ERROR" is tRPC's own code
+    // enum value — no contracts constant exists for it by design (it is not
+    // an `aisError` code).
+    expect(failure).toBeInstanceOf(RuntimeNodeControlPlaneError);
+    const typedFailure = failure as RuntimeNodeControlPlaneError;
+    expect(typedFailure.code).toBe("INTERNAL_SERVER_ERROR");
+    expect(typedFailure.httpStatus).toBe(500);
   });
 });
 
