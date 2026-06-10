@@ -200,7 +200,7 @@ export class NodeRegistry {
    * (Spec-006:377) for the explicit-shutdown trigger and LEAVES THE
    * `node_trust_state` REGISTRATION ROW INTACT, so the node can reconnect under
    * the same `node_id` (Spec-003:78 — a disconnected node keeps membership;
-   * Spec-003:109 — node identity stable across reconnect). This is the I-003-3
+   * Spec-003:116 — node identity stable across reconnect). This is the I-003-3
    * guarantee that detach does not revoke membership.
    *
    * LEAVE-INTACT (no durable write, no transaction): `detach` does NOT
