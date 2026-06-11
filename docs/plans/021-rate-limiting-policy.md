@@ -47,7 +47,7 @@ Ship the Spec-021 rate-limiting enforcement layer across the control-plane tRPC 
 - **Billing metering.** Separate plan (not in V1 scope per ADR-015).
 - **Custom rate-limit algorithms beyond sliding window.** Fixed-window and token-bucket are not implemented; Spec-021 §Implementation Notes prefers sliding windows.
 - **Admin UI for ban management.** API only in V1. UI comes with Plan-023 / Plan-026 follow-on (post-V1).
-- **Wiring endpoint groups owned by later-landing plans.** `invite.*` wiring is Plan-002 Phase 4 (BL-120); `artifact.publish` is Plan-014 at Tier 7 (BL-146); `event.subscribe` concurrency-cap enforcement is the SSE subscription surface (BL-144); `approval.resolve` follows the within-tier ordering rule (BL-145). See §Endpoint Wiring Ownership.
+- **Wiring endpoint groups owned by later-landing plans.** `invite.*` wiring is Plan-002 Phase 4 (BL-120); `artifact.publish` is Plan-014 at Tier 7 (BL-146); `event.subscribe` concurrency-cap enforcement is the SSE subscription surface (BL-144); `approval.resolve` is **dormant in V1** — Plan-012's ratified transport is daemon JSON-RPC only (D-012-5) and Spec-021 excludes the daemon IPC path from rate limiting, so no V1 wiring surface exists (BL-145 is the re-arm sentinel). See §Endpoint Wiring Ownership.
 
 ## Preconditions
 
@@ -143,7 +143,7 @@ CHECK (identity_type IN ('participant', 'ip', 'token_hash', 'session'))
 
 ### Cloudflare `[[ratelimits]]` bindings (hosted only)
 
-- One binding per sliding-window endpoint group from the Spec-021 registry; elevated-eligible groups declare a second `<NAME>_ELEVATED` binding with `limit = 3 × <threshold>` (D-021-4). Each binding declared with `period: 60` (or `period: 10` for sub-minute limits) and `limit: <threshold>` per the registry.
+- One binding per **60s-window** sliding-window endpoint group from the Spec-021 registry — the CF binding supports only 10s/60s periods, so hourly rows (`invite.create_session`, `invite.create_participant`, `keypackage.upload`) are DO-tracked on hosted instead (see §Open Questions binding-period-cap note), and `approval.resolve` is dormant in V1 (BL-145). Elevated-eligible groups declare a second `<NAME>_ELEVATED` binding with `limit = 3 × <threshold>` (D-021-4). Each binding declared with `period: 60` (or `period: 10` for sub-minute limits) and `limit: <threshold>` per the registry.
 - Example (partial):
   ```toml
   [[ratelimits]]
@@ -418,7 +418,7 @@ All rate-limited responses must set:
 | `event.subscribe` (5 concurrent — concurrency_cap) | Plan-008 SSE subscription registry | SSE surface owner per [BL-144](../backlog.md) (store-side cap, mirrors the BL-120 pattern) |
 | `health.check` | Plan-008 host (+ Plan-025 self-host) | Plan-021 T21.3-6 (hosted); Plan-025 step 7 (self-host) |
 | `invite.create_session` / `invite.create_participant` / `invite.accept` / `invite.redeem_ip` / `invite.pending_cap` | Plan-002 | Plan-002 Phase 4 self-wires per [BL-120](../backlog.md) (NOT this plan; pending-cap is store-side) |
-| `approval.resolve` | Plan-012 (co-Tier-6) | Whichever of Plan-012/Plan-021 lands second wires it, per [BL-145](../backlog.md) + cross-plan §5 within-tier note |
+| `approval.resolve` | — (dormant in V1) | No V1 wiring surface: Plan-012's transport is daemon JSON-RPC only (D-012-5; api-payload §Approval Method-Name Registry) and Spec-021 excludes daemon IPC from rate limiting (§Scope, §Non-Goals, AC). Row stays priced/reserved; [BL-145](../backlog.md) re-arms it on the Spec-021 §ADR Triggers topology condition |
 | `artifact.publish` | Plan-014 (Tier 7) | Plan-014 self-wires at Tier 7 per [BL-146](../backlog.md) (mirrors BL-120) |
 | `ws.message` | Plan-008 R3 relay (hosted) / Plan-025 (self-host) | Plan-021 T21.3-4 via CP-008-9 (hosted); Plan-025 steps 7-8 (self-host) |
 | `auth.endpoint` / `unauthenticated.request` | Plan-018/Plan-008 auth + unauthenticated procedures | Plan-021 T21.3-6 (fallback buckets + auth group over shipped procedures) |

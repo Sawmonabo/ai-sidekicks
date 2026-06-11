@@ -66,7 +66,7 @@ This registry is the **single enumeration** of every enforced limit (Tier-6 audi
 | `presence.heartbeat` | Presence heartbeat | 10/min | 60s | per participant | authenticated | — | sliding_window |
 | `event.query` | Event query (read) | 60/min | 60s | per participant | authenticated | ✓ | sliding_window |
 | `event.subscribe` | Event subscribe (SSE) | 5 concurrent | — | per participant | authenticated | — | concurrency_cap |
-| `approval.resolve` | Approval resolve | 30/min | 60s | per participant | authenticated | ✓ | sliding_window |
+| `approval.resolve` | Approval resolve | 30/min | 60s | per participant | authenticated | ✓ | sliding_window — dormant in V1 (see registry semantics below) |
 | `artifact.publish` | Artifact publish | 20/min | 60s | per session | authenticated | — | sliding_window |
 | `health.check` | Health check | 120/min | 60s | per IP | anonymous | — | sliding_window |
 | `ws.message` | WebSocket messages | 60/min | 60s | per participant | authenticated | ✓ | sliding_window |
@@ -77,6 +77,7 @@ Registry semantics (Tier-6 audit, D-021-6):
 - **Fallback buckets.** `general.api` applies to every authenticated control-plane procedure that has no more-specific registry row; `unauthenticated.request` applies to every unauthenticated procedure with no more-specific row. A request is counted against exactly one sliding-window row: the most specific matching row, else its tier's fallback bucket.
 - **Stacked invite-redemption limits.** `invite.accept` (per token-hash — throttles brute force against one token) and `invite.redeem_ip` (per IP — throttles one source spraying many tokens) are deliberately **both** enforced on the redemption path; they defend distinct axes. The redemption acceptance criterion (AC-3) anchors on `invite.redeem_ip`.
 - **Concurrency caps are not counters.** Rows with `enforcement class: concurrency_cap` are enforced at the owning resource surface (the invite store enforces `invite.pending_cap` at creation time; the SSE subscription registry enforces `event.subscribe` at subscribe time), not by the sliding-window limiter. They share the standard overflow response.
+- **Dormant rows.** `approval.resolve` is priced and reserved but wired by nobody in V1: Plan-012's ratified transport is daemon JSON-RPC only (Plan-012 D-012-5; no control-plane tRPC sibling exists), and the local daemon IPC path is excluded from rate limiting (see §Scope and §Non-Goals). Plan-027's V1 cross-node approval is target-node-owner-scoped — resolution happens on the owner's daemon over local IPC — so no network-reachable `approval.resolve` surface exists in V1. The row re-arms via BL-145 if the §ADR Triggers topology condition fires (the daemon becoming network-reachable).
 - **Per-frame WS limiting.** `ws.message` is evaluated per message frame (see §WebSocket Overflow Response), not per connection establishment alone.
 
 ### Overflow Response

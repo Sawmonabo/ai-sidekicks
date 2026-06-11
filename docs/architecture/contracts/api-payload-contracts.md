@@ -1420,6 +1420,7 @@ interface WorktreeStatusReadResponse {
     createdByRunId?: RunId;
     createdAt: string;
     updatedAt: string;
+    cleanedAt?: string; // async disk-cleanup stamp; absent until the sweep runs (local-sqlite `cleaned_at`)
   }>;
   ephemeralClones: Array<{
     cloneId: EphemeralCloneId;
@@ -1429,6 +1430,7 @@ interface WorktreeStatusReadResponse {
     cleanupPolicy: "on_run_complete" | "manual";
     expiresAt: string;
     createdAt: string;
+    cleanedAt?: string; // async disk-cleanup stamp; absent until the sweep runs (local-sqlite `cleaned_at`)
   }>;
 }
 ```
@@ -1459,8 +1461,10 @@ interface RememberedScope {
 
 type InvalidationTrigger = "explicit" | "membership_change" | "node_trust_change" | "session_end";
 
-// approval_flow event payload (Spec-006 §Approval Flow, 7 variants incl.
-// `approval.canceled` per D-012-8; mirror of the canonical Zod schema)
+// approval_flow event payload for the seven `approval.*` variants (Spec-006
+// §Approval Flow, incl. `approval.canceled` per D-012-8; mirror of the canonical
+// Zod schema). The category's eighth event, `moderation.review_flagged`, has a
+// distinct payload — see ModerationReviewFlaggedPayload below.
 interface ApprovalFlowEventPayload {
   sessionId: SessionId;
   runId?: RunId; // absent on trust-triggered rule_revoked (no in-flight request)
@@ -1471,6 +1475,18 @@ interface ApprovalFlowEventPayload {
   rememberedScope?: RememberedScope;
   ruleId?: RememberedRuleId; // present on approval.remembered / approval.rule_revoked
   invalidationTrigger?: InvalidationTrigger; // present on approval.rule_revoked
+}
+
+// moderation.review_flagged payload — the approval_flow category's eighth event
+// (Spec-006 §Approval Flow registry row; D-016-10). Informational post-turn
+// moderation flag; emitter Plan-016. `eventId` references the flagged
+// `assistant_output` event.
+interface ModerationReviewFlaggedPayload {
+  sessionId: SessionId;
+  channelId: ChannelId;
+  runId: RunId;
+  agentId: AgentId;
+  eventId: string;
 }
 
 // ApprovalRequestCreate
