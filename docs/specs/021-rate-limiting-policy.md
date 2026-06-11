@@ -109,7 +109,7 @@ Registry semantics (Tier-6 audit, D-021-6):
 
 The elevated tier allows burst operations during session setup. Elevated eligibility requires both (Tier-6 audit, D-021-4): (a) a caller-keyed (per-participant) bucket — per-session, per-IP, and per-token-hash buckets are tier-invariant because their key is not a caller — and (b) a target session resolvable from the request, so the caller's owner role can be read. The registry's `Elevated-eligible` column marks the V1 set. The former "system service" elevated principal is removed from V1: no service-principal identity surface exists; reinstating it requires a minted service-identity surface and an ADR (see §ADR Triggers).
 
-All limits use the sliding window algorithm. Responses include the standard `RateLimitResponse` from [Error Contracts](../architecture/contracts/error-contracts.md).
+Counter limits — registry rows with enforcement class `sliding_window` — use the sliding window algorithm; `concurrency_cap` rows are live concurrent counts enforced at their owning resource surface (see the registry semantics above), not time windows. Responses include the standard `RateLimitResponse` from [Error Contracts](../architecture/contracts/error-contracts.md).
 
 ## Default Behavior
 

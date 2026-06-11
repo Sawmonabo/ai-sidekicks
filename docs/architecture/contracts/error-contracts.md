@@ -157,7 +157,7 @@ Channel lifecycle codes (Plan-016, Tier-6 audit D-016-16). Daemon-only authority
 | Code | Description | HTTP Status |
 | --- | --- | --- |
 | `channel.not_found` | Channel does not exist in the session (`data.fields`: `channelId`) | 404 |
-| `channel.inactive` | Target channel is muted or archived and cannot admit new runs (`data.fields`: `channelId`, `state`) | 409 |
+| `channel.inactive` | Target channel is archived (terminal) and cannot admit new runs or lifecycle mutations; muted channels still admit — mute suppresses attention surfaces, not execution (D-016-12; `data.fields`: `channelId`, `state`) | 409 |
 | `channel.name_reserved` | Requested channel name collides with the reserved bootstrap `main` channel name (`data.fields`: `name`) | 409 |
 
 ### Orchestration
