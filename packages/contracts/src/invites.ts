@@ -20,7 +20,7 @@
 //   `api-payload-contracts.md` §Presence (line 120) adjacent to the
 //   `JoinMode` definition; the spec reference is Spec-002 line 45. The
 //   SPACED wire form `"runtime contributor"` is preserved verbatim from
-//   api-payload-contracts.md line 117, mirroring the `MembershipRole`
+//   api-payload-contracts.md line 121, mirroring the `MembershipRole`
 //   enum in session.ts:153. Editing to `runtime_contributor` /
 //   `runtimeContributor` is a contract break and requires the spec edit
 //   FIRST per AGENTS.md "doc-first ordering".

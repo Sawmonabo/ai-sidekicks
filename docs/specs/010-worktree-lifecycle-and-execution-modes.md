@@ -54,32 +54,40 @@ This spec covers `read-only`, `branch`, `worktree`, and `ephemeral clone` execut
 - Default writable coding runs use one dedicated worktree per active task or branch context.
 - `branch` mode and `ephemeral clone` mode are explicit selections or policy-driven overrides, not hidden defaults.
 - Worktree retirement defaults to preserving metadata and artifacts even when filesystem cleanup later removes the checkout.
-- Worktree or ephemeral-clone preparation must not automatically execute repository setup scripts in v1.
+- Worktree or ephemeral-clone preparation must not automatically execute repository setup scripts in v1. This includes repository-controlled git hooks: provisioning git invocations must neutralize hook execution at the invocation layer (e.g. an empty `core.hooksPath`), so cloning or adding a worktree on a hostile repository executes no repository-controlled code.
 
 ## Fallback Behavior
 
 - If a repo does not support worktrees, the system may offer `ephemeral clone` or explicit `branch` mode where safe, but it must mark the selected mode distinctly from normal worktree mode.
 - If worktree creation fails, the run must remain blocked in setup rather than mutating the main checkout.
 - If ephemeral clone preparation fails, the run must remain blocked in setup unless an operator or participant explicitly selects a different execution mode.
+- "Blocked in setup" is a concrete run disposition: the run parks in the `starting` state with the typed preparation error surfaced; no `running` transition fires, the failure never silently mutates any checkout, and the parked run remains interruptible (cancel applies to `starting` runs, transitioning them to `interrupted`).
 - If an intended reuse candidate is dirty or incompatible with the requested branch strategy, the system must require explicit user choice.
+- Explicit reuse choice is candidate-anchored: the caller names the reuse candidate, and consent to bind a dirty candidate is a separate explicit acknowledgement — a candidate that becomes dirty between check and bind is refused rather than silently bound; a candidate incompatible with the requested branch strategy is never bindable.
+- Preparing an execution root against a `stale` workspace must be refused with the typed stale error until the workspace is repaired (write-gate posture per Spec-009).
+- When a repo mount detaches or an owning workspace archives, dependent non-terminal worktrees and ephemeral clones are retired by the daemon's asynchronous cleanup sweep — retirement is recorded and evented with metadata preserved; disk removal follows asynchronously. Retiring the clone backing a live `ephemeral clone`-mode workspace's current root returns that workspace to `provisioning` (awaiting the next per-run prepare); `stale` is reserved for fault paths (Spec-009 §Ephemeral Clone Lifecycle).
 - If a repository requires setup commands before useful execution, v1 must surface them as explicit follow-on actions or workflow steps rather than hidden execution-root side effects.
 
 ## Interfaces And Contracts
 
-- `ExecutionModeSelect` must distinguish `read-only`, `branch`, `worktree`, and `ephemeral clone`.
-- `ExecutionRootPrepare` must create or bind the execution root required by the selected mode before a run enters `running`.
+- `ExecutionModeSelect` must distinguish `read-only`, `branch`, `worktree`, and `ephemeral clone`. Selection records the canonical mode and transitions the workspace; it does not materialize per-task execution roots — materialization is `ExecutionRootPrepare`'s surface (read-only resolves synchronously at select; an explicit mode switch is exactly one selection mutation, never a client-sequenced select-then-prepare chain).
+- `ExecutionRootPrepare` must create or bind the execution root required by the selected mode before a run enters `running`. Explicit worktree reuse rides this interface by naming the candidate worktree.
 - `WorktreeReuseCheck` must report branch, cleanliness, and compatibility.
 - `EphemeralClonePrepare` must report clone root, lifecycle, and cleanup policy.
+- `EphemeralCloneDispose` must support explicit disposal of a prepared clone (the `manual` cleanup-policy arm and operator-driven cleanup).
 - `WorktreeRetire` must record retirement even if filesystem deletion happens asynchronously.
+- `WorktreeStatusRead` must expose the session's worktree and ephemeral-clone records — lifecycle state, branch, cleanup bookkeeping, and provenance — as a daemon-owned read surface.
 - See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
 - See [Error Contracts](../architecture/contracts/error-contracts.md) for error response schemas and error codes.
 
 ## State And Data Implications
 
 - Worktree records must persist branch name, owning repo mount, lifecycle state, and provenance to the creating session and run.
-- Execution mode must be stored as run setup data.
-- Branch context must be persisted for writable `branch`, `worktree`, and `ephemeral clone` runs.
+- Execution mode must be stored as run setup data: the daemon persists a per-run execution binding (run → workspace, mode, execution root, and any worktree / ephemeral clone / branch context involved) that survives the run for provenance.
+- Branch context must be persisted for writable `branch`, `worktree`, and `ephemeral clone` runs. The branch-context record is a polymorphic carrier: worktree-mode rows reference the worktree, ephemeral-clone rows reference the clone, and branch-mode rows reference neither (the main checkout carries no Plan-010 root row).
 - Dirty and merged state belong to daemon-owned workspace projections.
+- A workspace whose execution root is handed to an active run is `busy` for the run's duration (one holding run at a time in V1); concurrent root handoff is refused with a typed busy error, and the workspace returns to `ready` when the holding run reaches a terminal state.
+- Daemon-provisioned execution roots (worktrees and ephemeral clones) live under the daemon's own execution-roots directory, never inside the attached repository checkout; they are inside the session's trust envelope by construction (Spec-009 §Local Trust Envelope).
 
 ## Example Flows
 
@@ -115,7 +123,12 @@ This spec covers `read-only`, `branch`, `worktree`, and `ephemeral clone` execut
 ## Resolved Questions and V1 Scope Decisions
 
 - No blocking open questions remain for v1.
-- V1 decision: branch prefix and slugging rules are product-defined and locked for consistency in v1. User-configurable naming rules are deferred.
+- V1 decision: branch prefix and slugging rules are product-defined and locked for consistency in v1: `sidekicks/<session-short-id>/<task-slug>`, where `<session-short-id>` is the first 8 hex characters of the session UUID and `<task-slug>` is derived from the originating queue-item summary — lowercased, non-alphanumeric runs collapsed to `-`, trimmed of leading/trailing `-`, truncated to 40 characters at a `-` boundary — falling back to `run-<run-short-id>` (first 8 hex of the run id) when no summary exists. User-configurable naming rules are deferred.
+- V1 decision: branch-name collision handling is provenance-split. A caller-supplied branch name that collides with a live checkout is refused with the typed collision error — user intent is never silently adapted. A daemon-derived default name that collides takes the first free ordinal suffix (`-2`, `-3`, …) as part of the deterministic derivation rule; the chosen name is persisted and reported verbatim. Collision never implies implicit reuse: a fresh worktree on a suffixed name is created; explicit reuse remains the only reuse path.
+- V1 decision: worktree base refs default to the repo mount's current HEAD branch; an explicit base ref may be supplied at preparation. Preparation against a detached-HEAD mount with no explicit base ref is refused rather than guessed.
+- V1 decision: `branch` mode binds to the checkout's existing branch state and verifies it matches the requested branch context; the daemon never checks out, creates, or switches branches inside the main checkout (a mismatch is a typed refusal).
+- V1 decision: ephemeral-clone TTL is daemon configuration (default 24 hours per Spec-009 §Ephemeral Clone Lifecycle), not a wire parameter.
+- V1 decision: worktree and ephemeral-clone state transitions are not separately evented in V1 beyond the worktree lifecycle events already registered in the Spec-006 taxonomy; the `failed` transition and all ephemeral-clone transitions surface through the owning workspace's lifecycle events (`workspace.stale` carries the failure detail) and the `WorktreeStatusRead` surface. The Spec-006 event-type registry stays closed.
 - V1 decision: repository setup scripts do not run automatically during worktree or ephemeral-clone preparation in the first implementation. Setup execution requires an explicit follow-on action under normal approval and policy rules.
 
 ## References

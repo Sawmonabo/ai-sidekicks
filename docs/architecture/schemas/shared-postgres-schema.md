@@ -295,7 +295,7 @@ CREATE INDEX idx_relay_seen_ephemeral_keys_session ON relay_seen_ephemeral_keys(
 
 ## Rate Limiting Tables (Plan-021)
 
-Admin bans (`admin_bans`) are shared by both deployments. Escalation state (`rate_limit_escalations`) is self-host only; hosted deployments use Cloudflare Durable Objects (`RateLimitEscalationDO`) for in-memory escalation counters and persist nothing in Postgres for that path.
+Admin bans (`admin_bans`) are shared by both deployments. Escalation state (`rate_limit_escalations`) is self-host only; hosted deployments use Cloudflare Durable Objects (`RateLimitEscalationDO`) for escalation state and persist nothing in Postgres for that path. The self-host sliding-window counters live in `ratelimit_*`-prefixed tables that `rate-limiter-flexible` auto-creates on first use — library-managed, deliberately absent from this hand-authored schema and from the migration sequence (Plan-021 §Data And Storage Changes; [cross-plan-dependencies.md §1 Plan-021 row](../cross-plan-dependencies.md#1-table-ownership-map)).
 
 ```sql
 -- Owner: Plan-021
@@ -303,8 +303,8 @@ CREATE TABLE admin_bans (
   ban_id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   identity        TEXT NOT NULL,
   identity_type   TEXT NOT NULL
-                  CHECK(identity_type IN ('participant', 'ip', 'token_hash')),
-  issued_by       TEXT NOT NULL,                  -- ParticipantId of issuing admin (operator-scope, stored as text)
+                  CHECK(identity_type IN ('participant', 'ip', 'token_hash', 'session')),
+  issued_by       TEXT NOT NULL,                  -- ParticipantId of issuing admin (operator-scope, stored as text; deliberately no FK — rows must survive participant deletion, Plan-021 D-021-13)
   issued_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   reason          TEXT,
   expires_at      TIMESTAMPTZ,                    -- NULL = permanent
@@ -325,7 +325,8 @@ CREATE INDEX idx_admin_bans_lookup
 -- Owner: Plan-021 (self-host only; hosted uses RateLimitEscalationDO)
 CREATE TABLE rate_limit_escalations (
   identity             TEXT NOT NULL,
-  identity_type        TEXT NOT NULL,
+  identity_type        TEXT NOT NULL
+                       CHECK(identity_type IN ('participant', 'ip', 'token_hash', 'session')),
   violation_count      INTEGER NOT NULL DEFAULT 0,
   first_violation_at   TIMESTAMPTZ,
   last_violation_at    TIMESTAMPTZ,
@@ -333,6 +334,10 @@ CREATE TABLE rate_limit_escalations (
   PRIMARY KEY (identity, identity_type)
 );
 ```
+
+The four-value `identity_type` domain (`'participant' | 'ip' | 'token_hash' | 'session'`) matches `RateLimitIdentityType` in `packages/contracts/src/rate-limiter.ts` (Plan-021 D-021-17 — `'session'` covers per-session registry rows such as `invite.create_session` and `invite.pending_cap`); both tables carry the same CHECK so the domain cannot drift per table.
+
+**GDPR erasure dispositions (Plan-021 D-021-13; mirrored in [Spec-022 §Shred Fan-Out](../../specs/022-data-retention-and-gdpr.md) and the [manual-erasure runbook](../../operations/gdpr-manual-erasure-runbook.md)).** `admin_bans` rows are **retained** on participant erasure under the abuse-prevention legitimate-interest carve-out — including rows whose `identity_type = 'participant'` matches the erased participant and rows where the erased participant appears as `issued_by`/`revoked_by` (erasure must not un-ban an identity, and operator attribution must survive; hence TEXT columns with no FK). Revoked or expired rows become purgeable 90 days after revocation/expiry. `rate_limit_escalations` rows for an erased participant identity are **hard-DELETEd** (ephemeral ≤1-hour operational state; nothing to retain). The library-managed `ratelimit_*` counter tables (section intro above) hold no per-participant durable state beyond their sliding windows and are outside the erasure fan-out.
 
 ---
 

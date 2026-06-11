@@ -77,7 +77,7 @@
 // TRANSPORT — the GENERIC `controlPlane.call(...)` bridge arm:
 //
 //   `runtimenode.attach` is registered DUAL-transport
-//   (api-payload-contracts.md:552 — the four mutations register under the
+//   (api-payload-contracts.md:556 — the four mutations register under the
 //   Plan-007-partial daemon JSON-RPC substrate AND cross the Plan-008
 //   control-plane tRPC transport). This renderer rides the CONTROL-PLANE arm because:
 //     • the attach lands control-plane-owned cross-node coordination state —
@@ -134,9 +134,9 @@ import { CapabilityDeclaration } from "./CapabilityDeclaration.js";
 // Wire procedure name.
 //
 // `RUNTIME_NODE_ATTACH_PROCEDURE` — the REGISTERED runtime-node attach
-// mutation: registry row api-payload-contracts.md:558 (`mutation`, request
+// mutation: registry row api-payload-contracts.md:562 (`mutation`, request
 // `RuntimeNodeAttachRequest`, response `RuntimeNodeAttachResponse`; the
-// five-method registry table at :556-562). Hardcoded as a local `const` per
+// five-method registry table at :560-566). Hardcoded as a local `const` per
 // the shipped renderer idiom (NodeRoster's `ROSTER_READ_PROCEDURE`,
 // participant-roster's `PRESENCE_READ_METHOD`): the bridge surface is
 // generic, so the registered name is the single greppable coupling point the

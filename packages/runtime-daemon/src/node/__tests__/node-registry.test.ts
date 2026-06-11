@@ -26,7 +26,7 @@
 //     makes the emit throw AFTER the upsert ran inside the transaction, so the
 //     `node_trust_state` upsert rolls back (no row).
 //   * Happy-path emit shape: exactly one `runtime_node.registered` row lands in
-//     `session_events` with the Spec-006:374 payload shape.
+//     `session_events` with the Spec-006:379 payload shape.
 //   * Spec-003:122 (no implicit capability exposure on attach): registering a node
 //     that CARRIES capabilities on the wire writes ZERO `node_capabilities` rows —
 //     only an explicit `declare` (T2.2) makes a capability schedulable, never
@@ -74,7 +74,7 @@ const PARTICIPANT_ID: string = "01J0PA0000NN5J5J5J5J5J5J5J";
 
 // Raw read shape for the persisted `runtime_node.registered` event. The
 // integrity columns are not relevant here (D5 owns them); we read the payload +
-// type to assert the Spec-006:374 shape.
+// type to assert the Spec-006:379 shape.
 interface EventRow {
   readonly sequence: bigint;
   readonly type: string;
@@ -254,12 +254,12 @@ describe("NodeRegistry — I-003-3 (registration does not mutate session_members
 });
 
 // ----------------------------------------------------------------------------
-// Happy-path emit shape (Spec-006:374) + envelope wiring + Spec-003:122
+// Happy-path emit shape (Spec-006:379) + envelope wiring + Spec-003:122
 // (no implicit capability exposure on attach)
 // ----------------------------------------------------------------------------
 
-describe("NodeRegistry — emits runtime_node.registered (Spec-006:374)", () => {
-  it("lands exactly one runtime_node.registered event with the Spec-006:374 payload shape and exposes NO capability (Spec-003:122)", () => {
+describe("NodeRegistry — emits runtime_node.registered (Spec-006:379)", () => {
+  it("lands exactly one runtime_node.registered event with the Spec-006:379 payload shape and exposes NO capability (Spec-003:122)", () => {
     const registry: NodeRegistry = makeRegistry();
     registry.register({
       nodeId: NODE_ID,
@@ -282,7 +282,7 @@ describe("NodeRegistry — emits runtime_node.registered (Spec-006:374)", () => 
     expect(event.category).toBe("runtime_node_lifecycle");
 
     const payload = JSON.parse(event.payload) as Record<string, unknown>;
-    // Spec-006:374 shape: base + {capabilities, nodeVersion, platform}. The
+    // Spec-006:379 shape: base + {capabilities, nodeVersion, platform}. The
     // initial lifecycle event carries newState `registering` and NO
     // `previousState` (registration is the first transition — the schema's
     // `.optional()` previousState is stripped when omitted).

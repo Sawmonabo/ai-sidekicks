@@ -3,14 +3,14 @@
 // Backstops the C3 acceptance criterion (Plan-002 §C3, Spec-002 line 83):
 // `MembershipUpdate.action` discriminated union covers role change,
 // suspension, revocation, and reactivation per the canonical wire form
-// at docs/architecture/contracts/api-payload-contracts.md lines 400-410.
+// at docs/architecture/contracts/api-payload-contracts.md lines 404-414.
 //
 // Test surface enumerated (the "what" each block pins):
 //   * Action discriminant pin — exactly 4 canonical snake_case literals
 //     (`change_role`, `suspend`, `revoke`, `reactivate`); kebab-case and
 //     camelCase variants rejected. Regression backstop — kebab-case
 //     `role-change` is NOT the canonical wire form; the canonical 4-action
-//     snake_case set per api-payload-contracts.md:402 is
+//     snake_case set per api-payload-contracts.md:406 is
 //     `{change_role, suspend, revoke, reactivate}`. Tests below fail
 //     loudly if a future edit silently widens or renames the discriminant
 //     set.
@@ -101,7 +101,7 @@ describe("MembershipIdSchema (re-exported from session.ts)", () => {
 // MembershipRoleSchema — canonical wire form (SPACED "runtime contributor")
 // =============================================================================
 //
-// Spec-002 line 45 + api-payload-contracts.md line 117 bind the wire form to
+// Spec-002 line 45 + api-payload-contracts.md line 121 bind the wire form to
 // EXACTLY four spaced literals. The space in "runtime contributor" is part of
 // the contract — collapsing it to "runtime_contributor" or "runtimeContributor"
 // is a contract break that requires the spec edit FIRST per doc-first ordering
@@ -182,7 +182,7 @@ describe("MembershipStateSchema (re-exported; lifecycle states per session.ts:18
 // C3 — MembershipUpdateSchema discriminated union (Spec-002 line 83)
 // =============================================================================
 //
-// Canonical wire form per api-payload-contracts.md lines 400-410:
+// Canonical wire form per api-payload-contracts.md lines 404-414:
 //
 //   interface MembershipUpdateRequest {
 //     membershipId: MembershipId;
@@ -261,7 +261,7 @@ describe("MembershipUpdateSchema (C3: discriminated union per Spec-002 line 83)"
   // ----------------------------------------------------------------------
   //
   // Regression backstop — the canonical wire form per
-  // api-payload-contracts.md:402 uses snake_case `change_role` (NOT
+  // api-payload-contracts.md:406 uses snake_case `change_role` (NOT
   // kebab-case `role-change` or camelCase `changeRole`), and the union
   // has FOUR variants (not three — `reactivate` is canonical). The
   // explicit literal-rejection tests below fail loudly if a future edit
@@ -280,7 +280,7 @@ describe("MembershipUpdateSchema (C3: discriminated union per Spec-002 line 83)"
 
   it("rejects kebab-case 'role-change' (canonical wire is snake_case 'change_role')", () => {
     // Regression backstop — kebab-case `role-change` is NOT the wire
-    // form per api-payload-contracts.md:402. This test fails loudly if a
+    // form per api-payload-contracts.md:406. This test fails loudly if a
     // future edit silently widens the discriminant set.
     const broken = { membershipId: MEMBERSHIP_ID, action: "role-change", newRole: "collaborator" };
     expect(MembershipUpdateSchema.safeParse(broken).success).toBe(false);
@@ -364,7 +364,7 @@ describe("MembershipUpdateSchema (C3: discriminated union per Spec-002 line 83)"
   // Absent-from-wire field guards — sessionId and reason.
   // ----------------------------------------------------------------------
   //
-  // The canonical wire form per api-payload-contracts.md:400-410 omits both
+  // The canonical wire form per api-payload-contracts.md:404-414 omits both
   // `sessionId` (membershipId is globally unique) and `reason` (Spec-002:48
   // routes audit detail to session-event payloads owned by Plan-006). The
   // `.strict()` guard on each variant rejects them at parse time. These

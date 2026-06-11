@@ -5,7 +5,7 @@
 | **Status** | `approved` |
 | **NNN** | `021` |
 | **Slug** | `rate-limiting-policy` |
-| **Date** | `2026-04-15` |
+| **Date** | `2026-04-15` (amended 2026-06-10, Tier-6 readiness audit) |
 | **Author(s)** | `Codex` |
 | **Depends On** | [Deployment Topology](../architecture/deployment-topology.md), [Security Architecture](../architecture/security-architecture.md) |
 | **Implementation Plan** | [Plan-021: Rate Limiting Policy](../plans/021-rate-limiting-policy.md) |
@@ -47,26 +47,37 @@ The local daemon is explicitly excluded. It is trusted by socket reachability an
 - The rate limiting implementation must be deployment-aware. Cloudflare Workers deployments must use the native `rate_limit` binding (hosted). Self-hosted deployments must use `rate-limiter-flexible` with a Postgres backend.
 - Both implementations must enforce identical limits and expose the same programmatic interface. The implementation must swap via deployment configuration, not application code changes.
 
-### Edge Limits
+### Canonical Endpoint Group Registry
 
-| Limit           | Scope               | Threshold        |
-| --------------- | ------------------- | ---------------- |
-| General API     | per user per minute | 100 req/user/min |
-| Auth endpoints  | per IP per minute   | 20 req/min       |
-| Unauthenticated | per IP per minute   | 30 req/min       |
+This registry is the **single enumeration** of every enforced limit (Tier-6 audit, D-021-6). The former §Edge Limits, §Application Limits, and §Rate Limit Values tables enumerated overlapping-but-divergent sets; they are collapsed into this one table, and no other table in this spec enumerates limits. Implementations iterate this registry; the `Key` column is the canonical machine key used by `RateLimitCheck.endpoint`, middleware wiring, and metric labels.
 
-### Application Limits
+| Key | Display name | Limit | Window | Identity scope | Tier | Elevated-eligible | Enforcement class |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `general.api` | General API (fallback bucket) | 100/min | 60s | per participant | authenticated | — | sliding_window |
+| `auth.endpoint` | Auth endpoints | 20/min | 60s | per IP | anonymous | — | sliding_window |
+| `unauthenticated.request` | Unauthenticated (fallback bucket) | 30/min | 60s | per IP | anonymous | — | sliding_window |
+| `session.create` | Session create | 10/min | 60s | per participant | authenticated | — | sliding_window |
+| `session.join` | Session join | 30/min | 60s | per participant | authenticated | ✓ | sliding_window |
+| `invite.create_session` | Invite create (session budget) | 20/hr | 1h | per session | authenticated | — | sliding_window |
+| `invite.create_participant` | Invite create (participant budget) | 50/hr | 1h | per participant | authenticated | ✓ | sliding_window |
+| `invite.pending_cap` | Pending invites | 100 concurrent | — | per session | authenticated | — | concurrency_cap |
+| `invite.accept` | Invite accept (token brute-force guard) | 10/min | 60s | per token-hash | anonymous | — | sliding_window |
+| `invite.redeem_ip` | Invite redemption attempts (source guard) | 5/min | 60s | per IP | anonymous | — | sliding_window |
+| `presence.heartbeat` | Presence heartbeat | 10/min | 60s | per participant | authenticated | — | sliding_window |
+| `event.query` | Event query (read) | 60/min | 60s | per participant | authenticated | ✓ | sliding_window |
+| `event.subscribe` | Event subscribe (SSE) | 5 concurrent | — | per participant | authenticated | — | concurrency_cap |
+| `approval.resolve` | Approval resolve | 30/min | 60s | per participant | authenticated | ✓ | sliding_window |
+| `artifact.publish` | Artifact publish | 20/min | 60s | per session | authenticated | — | sliding_window |
+| `health.check` | Health check | 120/min | 60s | per IP | anonymous | — | sliding_window |
+| `ws.message` | WebSocket messages | 60/min | 60s | per participant | authenticated | ✓ | sliding_window |
+| `keypackage.upload` | KeyPackage uploads (V1.1+) | 5/hr | 1h | per user | authenticated | — | sliding_window — applies once MLS ships per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md); no KeyPackage endpoint exists in V1 |
 
-| Limit | Scope | Threshold |
-| --- | --- | --- |
-| Invite creation | per session per hour | 20 invites/session/hr |
-| Invite creation | per participant per hour | 50 invites/participant/hr |
-| Pending invites | per session | 100 pending invites/session |
-| Invite redemption attempts | per IP per minute | 5 redemption attempts/IP/min |
-| Session creation | per participant per minute | 10 sessions/participant/min |
-| Heartbeat | per participant per minute | 10 heartbeats/participant/min |
-| Messages | per participant per minute | 60 messages/participant/min |
-| KeyPackage uploads (V1.1+) | per user per hour | 5 KeyPackage uploads/user/hr — applies once MLS ships per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md); no KeyPackage endpoint exists in V1 |
+Registry semantics (Tier-6 audit, D-021-6):
+
+- **Fallback buckets.** `general.api` applies to every authenticated control-plane procedure that has no more-specific registry row; `unauthenticated.request` applies to every unauthenticated procedure with no more-specific row. A request is counted against exactly one sliding-window row: the most specific matching row, else its tier's fallback bucket.
+- **Stacked invite-redemption limits.** `invite.accept` (per token-hash — throttles brute force against one token) and `invite.redeem_ip` (per IP — throttles one source spraying many tokens) are deliberately **both** enforced on the redemption path; they defend distinct axes. The redemption acceptance criterion (AC-3) anchors on `invite.redeem_ip`.
+- **Concurrency caps are not counters.** Rows with `enforcement class: concurrency_cap` are enforced at the owning resource surface (the invite store enforces `invite.pending_cap` at creation time; the SSE subscription registry enforces `event.subscribe` at subscribe time), not by the sliding-window limiter. They share the standard overflow response.
+- **Per-frame WS limiting.** `ws.message` is evaluated per message frame (see §WebSocket Overflow Response), not per connection establishment alone.
 
 ### Overflow Response
 
@@ -74,54 +85,46 @@ The local daemon is explicitly excluded. It is trusted by socket reachability an
 - The response must include a `Retry-After` header indicating the number of seconds the client should wait.
 - The response must include standard rate limit headers: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset`.
 
+### WebSocket Overflow Response
+
+(Tier-6 audit, D-021-9.) A `ws.message` counter trip refuses the offending frame only: the relay sends one in-band `rate_limited` error frame (the WebSocket analog of the 429 envelope, carrying `retryAfter`, `limit`, `remaining: 0`, `resetAt`) and the connection stays open. The connection is closed with application close code `4029` **only** when an active escalation block exists for the identity — merely-over-budget participants keep their connection; blocked identities lose it. Closing on first trip is prohibited (it converts a one-frame overflow into a reconnect storm). The frame shape and the `4029` close code are registered in [API Payload Contracts](../architecture/contracts/api-payload-contracts.md).
+
 ### Escalation
 
 - 3 violations within 5 minutes must trigger a 15-minute block for the offending identity.
 - 10 violations within 1 hour must trigger a 1-hour block for the offending identity and must emit an ops alert.
+- Blocks key on the same `(identity, identityType)` that accumulated the violations, and must be enforced for the full block window independent of remaining counter capacity.
+- "Emit an ops alert" means: emit an alertable telemetry signal — a Prometheus counter increment (`rate_limit_block_total{window_size="1h"}`) plus one structured warning log with bounded, PII-free fields. Operator alert routing off scraped counters is the deployment's concern, not a V1 in-product surface (Tier-6 audit, D-021-7).
 - Permanent bans must be manageable exclusively via the admin API. Automated escalation must not permanently ban without human action.
-
-## Rate Limit Values
-
-| Endpoint Group        | Limit          | Window          | Tier          |
-| --------------------- | -------------- | --------------- | ------------- |
-| Session create        | 10/min         | per participant | authenticated |
-| Session join          | 30/min         | per participant | authenticated |
-| Invite create         | 20/hr          | per session     | authenticated |
-| Invite create         | 50/hr          | per participant | authenticated |
-| Pending invites       | 100 concurrent | per session     | authenticated |
-| Invite accept         | 10/min         | per token-hash  | anonymous     |
-| Presence heartbeat    | 10/min         | per participant | authenticated |
-| Event query (read)    | 60/min         | per participant | authenticated |
-| Event subscribe (SSE) | 5 concurrent   | per participant | authenticated |
-| Approval resolve      | 30/min         | per participant | authenticated |
-| Artifact publish      | 20/min         | per session     | authenticated |
-| Health check          | 120/min        | per IP          | anonymous     |
+- Admin bans MAY carry an expiry (`expiresAt`); a NULL expiry is permanent. Time-limited admin bans are admin-issued and distinct from automated escalation blocks (separate store, separate issuance authority) (Tier-6 audit, D-021-12).
 
 ### Rate Limit Tiers
 
-| Tier          | Description                                            | Multiplier |
-| ------------- | ------------------------------------------------------ | ---------- |
-| anonymous     | Unauthenticated requests (invite accept, health check) | 1x (base)  |
-| authenticated | Standard authenticated participant                     | 1x         |
-| elevated      | Session owner or system service                        | 3x         |
+| Tier | Description | Multiplier |
+| --- | --- | --- |
+| anonymous | Unauthenticated requests (invite accept, health check) | 1x (base) |
+| authenticated | Standard authenticated participant | 1x |
+| elevated | Session owner, resolved from the caller's membership role for the request's target session | 3x |
 
-The elevated tier allows burst operations during session setup. All limits use the sliding window algorithm. Responses include the standard `RateLimitResponse` from [Error Contracts](../architecture/contracts/error-contracts.md).
+The elevated tier allows burst operations during session setup. Elevated eligibility requires both (Tier-6 audit, D-021-4): (a) a caller-keyed (per-participant) bucket — per-session, per-IP, and per-token-hash buckets are tier-invariant because their key is not a caller — and (b) a target session resolvable from the request, so the caller's owner role can be read. The registry's `Elevated-eligible` column marks the V1 set. The former "system service" elevated principal is removed from V1: no service-principal identity surface exists; reinstating it requires a minted service-identity surface and an ADR (see §ADR Triggers).
+
+All limits use the sliding window algorithm. Responses include the standard `RateLimitResponse` from [Error Contracts](../architecture/contracts/error-contracts.md).
 
 ## Default Behavior
 
 - All rate limits are active by default for every control plane endpoint and WebSocket connection.
-- Clients that stay within limits receive no rate-limiting headers until they approach the threshold.
+- Clients that stay within limits receive no rate-limiting headers until they approach the threshold. "Approach the threshold" is defined as: `remaining < 25%` of the row's limit (Tier-6 audit). Headers are always present on 429 responses, and are suppressed entirely while the backend is in fail-open grace (degraded responses must not serialize sentinel values into headers).
 
 ## Fallback Behavior
 
-- If the rate limiting backend (Postgres or Cloudflare KV) is unavailable, the system must fail open for a bounded grace period (configurable, default 60 seconds) and must log the failure as a warning.
+- If the rate limiting backend (Postgres on self-host; the Cloudflare `rate_limit` binding / escalation Durable Object on hosted) is unavailable, the system must fail open for a bounded grace period (configurable, default 60 seconds) and must log the failure as a warning.
 - If the grace period expires without backend recovery, the system must fail closed and reject requests with HTTP `503 Service Unavailable`.
 
 ## Interfaces And Contracts
 
-- `RateLimitCheck(identity, endpoint, context) -> { allowed: boolean, remaining: number, resetAt: timestamp }` must be callable before request processing.
-- All HTTP responses from rate-limited endpoints must include `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset` headers.
-- The admin API must expose `POST /admin/bans` and `DELETE /admin/bans/{id}` for permanent ban management.
+- `RateLimitCheck(identity, identityType, endpoint, tier?, context?) -> { allowed: boolean, remaining: number, resetAt: timestamp, limit: number, degraded?: true }` must be callable before request processing (Tier-6 audit — five-field request / four-field response plus the fail-open `degraded` marker, set only during grace).
+- All HTTP responses from rate-limited endpoints must include `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset` headers, subject to the §Default Behavior threshold-approach and degraded-suppression rules.
+- The admin API must expose `POST /admin/bans`, `GET /admin/bans`, and `DELETE /admin/bans/{id}` for ban management (Tier-6 audit, D-021-12 adds the list route).
 - See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
 - See [Error Contracts](../architecture/contracts/error-contracts.md) for error response schemas and error codes.
 
@@ -129,19 +132,20 @@ The elevated tier allows burst operations during session setup. All limits use t
 
 - Rate limit counters are ephemeral and must not be persisted beyond their sliding window.
 - Escalation state (violation counts, active blocks) must be persisted in the rate limiting backend for the duration of the escalation window.
-- Permanent bans must be stored durably and must survive backend restarts.
+- Permanent bans must be stored durably and must survive backend restarts. Time-limited admin bans share the same durable store; expiry is row state, not a separate mechanism.
+- GDPR erasure dispositions (Tier-6 audit, D-021-13): `admin_bans` rows are retained under the abuse-prevention legitimate-interest carve-out — erasure must not un-ban an identity — with revoked/expired rows purgeable after 90 days; `rate_limit_escalations` rows for an erased participant are hard-deleted. See [Spec-022 §Shred Fan-Out](./022-data-retention-and-gdpr.md).
 
 ## Example Flows
 
 - `Example: A participant sends 60 messages in one minute. The 61st message receives HTTP 429 with Retry-After: 12 and the participant must wait before sending again.`
 - `Example: An unauthenticated client hammers the auth endpoint 25 times in one minute. After the 20th request, it receives 429. After 3 violations within 5 minutes, the IP is blocked for 15 minutes.`
-- `Example: An operator uses the admin API to permanently ban an IP that has been persistently abusive. All future requests from that IP receive 403 Forbidden.`
+- `Example: An operator uses the admin API to permanently ban an IP that has been persistently abusive. All future requests from that IP receive 403 Forbidden (enforcement propagates within the documented ≤60s ban-cache staleness bound; immediate in the issuing process).`
 
 ## Implementation Notes
 
 - The abstraction layer should present a single `RateLimiter` interface that both Cloudflare and Postgres backends implement. Configuration selects the backend at startup.
 - Sliding window counters are preferred over fixed windows to avoid burst-at-boundary behavior.
-- WebSocket rate limiting applies per message frame, not per connection establishment alone.
+- WebSocket rate limiting applies per message frame, not per connection establishment alone; overflow semantics are pinned in §WebSocket Overflow Response.
 
 ## Pitfalls To Avoid
 
@@ -149,26 +153,30 @@ The elevated tier allows burst operations during session setup. All limits use t
 - Using fixed-window counters that allow double-rate bursts at window boundaries
 - Failing to include `Retry-After` on 429 responses (clients cannot back off intelligently)
 - Allowing automated escalation to reach permanent bans without human review
+- Treating concurrency-cap registry rows as sliding-window counters (they are enforced at the owning resource surface)
 
 ## Acceptance Criteria
 
-- [ ] General API requests exceeding 100 req/user/min receive HTTP 429 with correct rate limit headers.
-- [ ] Auth endpoint requests exceeding 20 req/IP/min receive HTTP 429 with `Retry-After`.
-- [ ] Invite redemption attempts exceeding 5/IP/min receive HTTP 429.
+- [ ] General API requests exceeding 100 req/user/min on the `general.api` fallback bucket receive HTTP 429 with correct rate limit headers.
+- [ ] Auth endpoint requests exceeding 20 req/IP/min on `auth.endpoint` receive HTTP 429 with `Retry-After`.
+- [ ] Invite redemption attempts exceeding 5/IP/min on `invite.redeem_ip` receive HTTP 429.
 - [ ] 3 violations within 5 minutes trigger a 15-minute block.
-- [ ] 10 violations within 1 hour trigger a 1-hour block and emit an ops alert.
+- [ ] 10 violations within 1 hour trigger a 1-hour block and emit an ops alert (counter increment + structured warning log per §Escalation).
 - [ ] Permanent bans are manageable only via the admin API.
 - [ ] Hosted deployment uses Cloudflare `rate_limit`; self-hosted uses `rate-limiter-flexible` with Postgres; both enforce identical limits.
 - [ ] Local daemon endpoints are not rate-limited.
+- [ ] An elevated-eligible endpoint group admits 3× the base limit for a session owner (membership-role-resolved) and 1× for non-owners (Tier-6 audit, D-021-4).
 
 ## ADR Triggers
 
 - If the deployment topology changes such that the local daemon becomes network-reachable (not socket-only), rate limiting scope must be revisited and an ADR created.
 - If a third deployment target is introduced beyond Cloudflare Workers and self-hosted Postgres, the abstraction layer design must be revisited.
+- If a service-principal identity surface is minted (reinstating the former "system service" elevated tier), the tier model must be revisited via ADR (Tier-6 audit, D-021-4).
 
 ## Resolved Questions and V1 Scope Decisions
 
 - No blocking open questions remain for v1.
+- Tier-6 readiness audit (2026-06-10) resolved: endpoint-group registry unification with canonical keys (D-021-6), stacked invite-redemption limits (D-021-6), elevated-tier redefinition to session-owner with the two-condition eligibility rule (D-021-4), ops-alert realization as alertable telemetry (D-021-7), WebSocket drop-frame overflow semantics (D-021-9), admin-ban expiry + list route (D-021-12), GDPR erasure dispositions (D-021-13), fail-open substrate wording, threshold-approach header definition, and the five-field check shape. Ratified decision bodies live in [Plan-021 §Ratified Design Decisions](../plans/021-rate-limiting-policy.md).
 
 ## References
 

@@ -4,7 +4,7 @@
 // line 53 (`client_version` floor field — the daemon's reported version, which
 // the Phase-3 attach service floor-compares against `sessions.min_client_version`
 // per ADR-018 §Decision #4 / I-003-1). T1.1 ships only the contract SURFACE;
-// these tests pin the wire shape (api-payload-contracts.md:486-499).
+// these tests pin the wire shape (api-payload-contracts.md:490-503).
 //
 // Coverage shape:
 //   • RuntimeNodeAttachRequestSchema ACCEPTS a payload with all required fields
@@ -261,7 +261,7 @@ describe("RuntimeNodeHealthStateSchema (catch #10: 2-value daemon-reported healt
 // (online|degraded) — the SAME self-report axis as `attach`/`heartbeat`, NOT the
 // broad 5-value `NodeState` (narrowed by T3.0; `offline`/`revoked` are owned by
 // other authorities and are unrepresentable here, I-003-2 least-privilege).
-// Wire shape pinned: api-payload-contracts.md:508-518.
+// Wire shape pinned: api-payload-contracts.md:512-522.
 const buildValidCapabilityUpdateRequest = () => ({
   nodeId: NodeIdSchema.parse(NODE_ID),
   capabilities: { "feature.x": { enabled: true } },
@@ -460,7 +460,7 @@ describe("RuntimeNodeCapabilityUpdateResponseSchema (C2: nodeId + state + update
 // Plan-003 PR #135 — Test C6: `RuntimeNodeHeartbeat` request + null response.
 // --------------------------------------------------------------------------
 //
-// Backstops the heartbeat wire shape (api-payload-contracts.md:501-506,559):
+// Backstops the heartbeat wire shape (api-payload-contracts.md:505-510,559):
 // a `nodeId` + a 2-value `healthState`, and a `null` response payload (NOT a
 // 204 empty body — the resolver returns `null`, serialized as a 200 success
 // envelope). The discriminating test is the 2-value health-enum boundary: a
@@ -543,7 +543,7 @@ describe("RuntimeNodeHeartbeatResponseSchema (C6: null no-content payload)", () 
 // Plan-003 PR #135 — Test C3: `RuntimeNodeDetach` request + null response.
 // --------------------------------------------------------------------------
 //
-// Backstops the detach wire shape (api-payload-contracts.md:520-525,561): a
+// Backstops the detach wire shape (api-payload-contracts.md:524-529,561): a
 // `nodeId` + an OPTIONAL free-form `reason`, and a `null` response payload. The
 // `reason` field composes `wireFreeFormString` (session.ts:118), so it inherits
 // the trust-boundary guards — these mirror the four `InviteRevoke.reason` /
@@ -632,16 +632,16 @@ describe("RuntimeNodeDetachResponseSchema (C3: null no-content payload)", () => 
 //
 // The `expectedSevenFromSpec006` array is the test's independent source of truth,
 // each entry mapped to its Spec-006 table row:
-//   • runtime_node.registered          — Spec-006:374
-//   • runtime_node.online              — Spec-006:375
-//   • runtime_node.degraded            — Spec-006:376
-//   • runtime_node.offline             — Spec-006:377
-//   • runtime_node.revoked             — Spec-006:378
-//   • runtime_node.capability_declared — Spec-006:379
-//   • runtime_node.capability_updated  — Spec-006:380
-// The 2 `session.clock_*` rows (Spec-006:381-382) are DELIBERATELY ABSENT: they
+//   • runtime_node.registered          — Spec-006:379
+//   • runtime_node.online              — Spec-006:380
+//   • runtime_node.degraded            — Spec-006:381
+//   • runtime_node.offline             — Spec-006:382
+//   • runtime_node.revoked             — Spec-006:383
+//   • runtime_node.capability_declared — Spec-006:384
+//   • runtime_node.capability_updated  — Spec-006:385
+// The 2 `session.clock_*` rows (Spec-006:386-387) are DELIBERATELY ABSENT: they
 // share the `runtime_node_lifecycle` category but retain the `session.` prefix by
-// name-preservation (Spec-006:384 / ADR-018 §Decision #8) and were promoted
+// name-preservation (Spec-006:389 / ADR-018 §Decision #8) and were promoted
 // from Spec-015 §Reserved Events.
 const expectedSevenFromSpec006 = [
   "runtime_node.registered",
@@ -658,7 +658,7 @@ describe("RUNTIME_NODE_EVENT_NAMES (C4: 7-name runtime_node.* taxonomy)", () => 
     // Order-independent SET equality: sort both sides so a reorder of either the
     // export tuple or the spec table does not spuriously fail, while a
     // missing/extra/renamed name does (the membership IS the contract per
-    // Spec-006:374-380). A spread is required because the export is `readonly` and
+    // Spec-006:379-385). A spread is required because the export is `readonly` and
     // `.sort()` mutates in place.
     expect([...RUNTIME_NODE_EVENT_NAMES].sort()).toEqual([...expectedSevenFromSpec006].sort());
   });
@@ -673,14 +673,14 @@ describe("RUNTIME_NODE_EVENT_NAMES (C4: 7-name runtime_node.* taxonomy)", () => 
 
   it("every entry carries the runtime_node. prefix (catches a session.clock_* leak)", () => {
     // The prefix guard is the discriminating assertion: if a `session.clock_*`
-    // name (Spec-006:381-382) leaked into the set it would fail here even if the
+    // name (Spec-006:386-387) leaked into the set it would fail here even if the
     // count stayed at 7, because those names retain the `session.` prefix.
     for (const eventName of RUNTIME_NODE_EVENT_NAMES) {
       expect(eventName.startsWith("runtime_node.")).toBe(true);
     }
   });
 
-  it("excludes the session.clock_* pair (name-preservation boundary, Spec-006:381-384)", () => {
+  it("excludes the session.clock_* pair (name-preservation boundary, Spec-006:386-389)", () => {
     // Explicit negative: the two same-category clock events are NOT in the set.
     expect(RUNTIME_NODE_EVENT_NAMES).not.toContain("session.clock_unsynced");
     expect(RUNTIME_NODE_EVENT_NAMES).not.toContain("session.clock_corrected");
@@ -722,11 +722,11 @@ describe("RUNTIME_NODE_EVENT_NAMES (C4: 7-name runtime_node.* taxonomy)", () => 
 // daemon read-only (Spec-003 AC4:130) — lands at Plan-003 Phase 3 (P3/P4).
 //
 // Cites: Spec-003:53, Spec-003 AC4:130, I-003-1, ADR-018 §Decision #4 /
-// §Decision #10, docs/architecture/contracts/error-contracts.md:266.
+// §Decision #10, docs/architecture/contracts/error-contracts.md:342.
 describe("VersionFloorExceededErrorSchema (C5: VERSION_FLOOR_EXCEEDED typed-contract conformance — Plan-003 consumer anchor)", () => {
-  it("pins the wire code literal to the value registered in error-contracts.md:266", () => {
+  it("pins the wire code literal to the value registered in error-contracts.md:342", () => {
     // The expected string is single-sourced from the INDEPENDENT registry —
-    // error-contracts.md:266 maps the typed `VERSION_FLOOR_EXCEEDED` name to the
+    // error-contracts.md:342 maps the typed `VERSION_FLOOR_EXCEEDED` name to the
     // dotted wire code `version.floor_exceeded` (ADR-018 §Decision #10 mandates
     // registration there). That doc, NOT `error.ts`, is the source of the
     // expected value here, so this pin detects drift in `error.ts` rather than
@@ -778,7 +778,7 @@ describe("VersionFloorExceededErrorSchema (C5: VERSION_FLOOR_EXCEEDED typed-cont
 // --------------------------------------------------------------------------
 //
 // Backstops the 5 daemon-reachable per-event PAYLOAD shapes authored in Plan-003
-// Phase 2 (CP-003-1; Spec-006:374-380): `registered`, `online`, `offline`,
+// Phase 2 (CP-003-1; Spec-006:379-385): `registered`, `online`, `offline`,
 // `capability_declared`, `capability_updated`. These validate the
 // `EventEnvelope.payload` CONTENTS only — the integrity envelope + discriminated-
 // union registration are Plan-006 Tier 4. The discriminating coverage:
@@ -998,7 +998,7 @@ describe("RuntimeNodeCapabilityDeclaredPayloadSchema (C7: reduced base + {capabi
 
   it("REJECTS a newState key (reduced base omits the NodeState-transition fields)", () => {
     // Discriminating reduced-base proof: capability events are NOT NodeState
-    // transitions (the canonical payload, api-payload-contracts.md:752, carries no
+    // transitions (the canonical payload, api-payload-contracts.md:756, carries no
     // base NodeState fields). A `newState` key is therefore an unknown key under
     // `.strict()` — its presence rejects.
     const broken = { ...buildValidCapabilityDeclaredPayload(), newState: "online" };
@@ -1147,8 +1147,8 @@ describe("RuntimeNodeCapabilityUpdatedPayloadSchema (C7: reduced base + {capabil
 // Plan-003 Phase 5 — T5.0b: `RuntimeNodeRoster` request / entry / response.
 // --------------------------------------------------------------------------
 //
-// Backstops the roster wire shape (api-payload-contracts.md:527-547; registry
-// row :562) pinned in Spec-003 §Interfaces And Contracts (2026-06-09
+// Backstops the roster wire shape (api-payload-contracts.md:531-551; registry
+// row :566) pinned in Spec-003 §Interfaces And Contracts (2026-06-09
 // amendment, lines 90-94): request `{ sessionId }`, the nine-field both-axes
 // entry, and response `{ nodes: RuntimeNodeRosterEntry[] }`. Spec coverage:
 // Spec-003 line 72 (both health axes carried verbatim — no collapsed scalar),

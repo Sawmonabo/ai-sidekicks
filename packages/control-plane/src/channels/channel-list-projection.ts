@@ -65,7 +65,7 @@ import type { Querier } from "../sessions/migration-runner.js";
 
 // The bootstrap channel is the live default channel, so its state is "active".
 // `ChannelState` is `"active" | "muted" | "archived"` (contracts session.ts:189
-// / api-payload-contracts.md:166); "muted"/"archived" are runtime mutations
+// / api-payload-contracts.md:174); "muted"/"archived" are runtime mutations
 // owned by Plan-016, never the bootstrap default.
 // The `: ChannelState` annotation is a compile-time tripwire — a typo or a
 // future 4th channel state fails compile at this declaration (mirroring the

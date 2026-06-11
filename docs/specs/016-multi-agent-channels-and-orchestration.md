@@ -59,19 +59,22 @@ This spec covers channel creation, parent-child run linkage, cross-agent collabo
 
 - If a driver does not support native subagent creation, the runtime must model delegated work as separate runs with explicit linkage and channel context.
 - If child-run detail loading fails, the summary row remains available and marked incomplete.
-- If channel-specific delivery is unavailable, output falls back to the session's default visible channel with preserved provenance.
+- If channel-specific delivery is unavailable, output falls back to the session's default visible channel with preserved provenance. (Tier-6 audit, A-016-18: "unavailable" = the target channel is archived at publication time, or its row is missing at projection time; "preserved provenance" = the event payload keeps the original `channelId` while the projection re-homes display to the main channel.)
 - If child-run creation would exceed the supported delegation depth, the runtime must reject the request with explicit limit detail and must not create hidden background work.
 - If child-run creation would exceed the active-child scheduler limit, the runtime must reject the request with explicit capacity detail rather than silently dropping or auto-spawning overflow work.
 
 ## Interfaces And Contracts
 
-- `ChannelCreate` must create a session-scoped communication surface.
+- `ChannelCreate` must create a session-scoped communication surface. Channel lifecycle mutations (`ChannelMute` / `ChannelUnmute` / `ChannelArchive`) and a daemon-native roster read (`ChannelRosterRead`, carrying per-channel config + arbitration state) complete the channel surface (Tier-6 audit, D-016-6/D-016-12).
+- **Agent surface (Tier-6 audit, A-016-2):** Plan-016 owns the V1 agent identity surface satisfying §Required Behavior's per-agent model/driver/node selection — `AgentAttach` / `AgentDetach` / `AgentConfigUpdate` / `AgentList`, with the agent persona `{name, driverName, modelId, defaultNodeId?, config?}` durable via `agent.*` events ([Spec-006 §Channel and Agent Lifecycle](006-session-event-taxonomy-and-audit-log.md)). `OrchestrationRunCreate.targetAgentId` resolves against this surface; an unknown or detached agent is a typed refusal.
 - `OrchestrationRunCreate` must allow parent linkage, target agent, target node, and target channel.
 - `OrchestrationRunCreate` failure must surface explicit limit or policy rejection when depth or active-child bounds are exceeded.
 - `ChildRunLinkRead` must expose parent-child relationships.
 - `InternalRunFlag` must distinguish internal helper work from user-facing agents.
-- See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
-- See [Error Contracts](../architecture/contracts/error-contracts.md) for error response schemas and error codes.
+- **Link-type semantics (Tier-6 audit, D-016-17):** `spawn` — parent-initiated helper whose output returns to the parent's channel context; `delegate` — bounded task published to its own target channel; `handoff` — the parent transfers its continuation to the child and completes. The type is caller-declared (`linkType`, default `spawn`) and durable in the run linkage.
+- **Budget surface (Tier-6 audit, D-016-5):** session budget/scheduler limits are readable and owner-adjustable via `OrchestrationBudgetRead` / `OrchestrationBudgetUpdate`.
+- See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas (§Plan-016 — including the typed `ChannelConfig` / `OrchestrationRunConfig` shapes that replace the former untyped config placeholders, D-016-4).
+- See [Error Contracts](../architecture/contracts/error-contracts.md) for error response schemas and error codes (§Channel / §Orchestration / §Agent).
 
 ## State And Data Implications
 
@@ -82,7 +85,7 @@ This spec covers channel creation, parent-child run linkage, cross-agent collabo
 ## Example Flows
 
 - `Example: An architect agent and reviewer agent discuss a change in a design channel while an implementer agent works in a separate implementation channel inside the same session.`
-- `Example: A parent run delegates a verification task to a child run on another runtime node. The session timeline shows the child run summary and links to its detailed output.`
+- `Example: A parent run delegates a verification task to a child run on another runtime node. The session timeline shows the child run summary and links to its detailed output.` (Tier-6 audit, D-016-9: in V1 the "another runtime node" in this example must be **locally attached to the same daemon** — `targetNodeId` naming a non-local node is a typed `orchestration.node_not_local` refusal; cross-machine dispatch is [Spec-024](024-cross-node-dispatch-and-approval.md)/Plan-027, V1-deferred, and must never be conflated with this surface.)
 - `Example: A child run attempts to spawn its own helper run in v1. The runtime rejects the request as unsupported nested delegation and records the refusal visibly.`
 
 ## Turn Policies
@@ -93,6 +96,8 @@ This spec covers channel creation, parent-child run linkage, cross-agent collabo
 | `round-robin`   | Agents take turns in a fixed order            | No            |
 | `request-based` | Agents speak only when explicitly addressed   | No            |
 
+Tier-6 audit ratifications (D-016-19): a `round-robin` channel requires a non-empty agent order in its channel config at create time (validation refusal otherwise); the fixed order is that config value, and the next-due cursor derives from the durable run-admission sequence (no separate cursor store). `request-based` is **structurally satisfied in V1**: every agent run is explicitly created (§Default Behavior — child runs only by user request or workflow definition; no agent-initiated speech exists in V1), so every agent turn already carries an explicit addresser and admission adds no check beyond `free-form`. The policy value is accepted and recorded; dedicated request-addressing primitives become meaningful only when agent-initiated communication arrives (V2, with conclusion detection). Turn-policy enforcement governs **agent** runs; human participants are never turn-blocked.
+
 ## Budget Policies
 
 | Budget Type            | Description                              | Default Limit |
@@ -101,7 +106,7 @@ This spec covers channel creation, parent-child run linkage, cross-agent collabo
 | Cost limit per session | Max estimated cost across all runs       | $10.00        |
 | Turn limit per agent   | Max consecutive turns an agent can take  | 50            |
 
-V1 budget enforcement is a hard ceiling, tightened from advisory during the 2026-04-17 V1-readiness review (Spec-016 was authored 2026-04-14, predating ADR-015's V1 quality bar declaration by three days, so the original advisory posture no longer matches the V1 gate). The daemon emits `usage_warning` events at 80% of any budget limit and issues an `interrupt` intervention via the generic dispatcher ([ADR-011](../decisions/011-generic-intervention-dispatch.md)) at 100%. Per-run and per-agent ceilings interrupt the specific offending run with `reason: budget_exhausted`. Session-level cost ceilings interrupt all active runs in the session and block further queue admission until a session admin raises the limit. Conclusion detection (agent determines task is complete) remains V2.
+V1 budget enforcement is a hard ceiling, tightened from advisory during the 2026-04-17 V1-readiness review (Spec-016 was authored 2026-04-14, predating ADR-015's V1 quality bar declaration by three days, so the original advisory posture no longer matches the V1 gate). The daemon emits `usage.budget_warning` events (the registered [Spec-006 §Usage Telemetry](006-session-event-taxonomy-and-audit-log.md) name for the warning this paragraph previously called `usage_warning` — Tier-6 audit, A-016-6) at 80% of any budget limit, once per (scope, budget-type) crossing, and issues an `interrupt` intervention via the generic dispatcher ([ADR-011](../decisions/011-generic-intervention-dispatch.md)) at 100%. Per-run and per-agent ceilings interrupt the specific offending run with `reason: budget_exhausted`. Session-level cost ceilings interrupt all active runs in the session and block further queue admission until the session owner raises the limit ("session admin" resolved to the session `owner` role — the only administrative role in the V1 model (`packages/contracts/src/session.ts`); raise via `OrchestrationBudgetUpdate`, owner-only — Tier-6 audit, D-016-5). Conclusion detection (agent determines task is complete) remains V2.
 
 ## Stop Conditions
 
@@ -113,6 +118,8 @@ V1 budget enforcement is a hard ceiling, tightened from advisory during the 2026
 | Idle timeout | No activity for configurable duration (default: 5 min) | Run interrupted with `idle_timeout` reason |
 
 Conclusion detection (agent determines task is complete) is V2.
+
+Tier-6 audit definitions (D-016-8): a **turn** is one completed assistant-output cycle attributed to a (channel, agent) pair; the consecutive-turn counter resets when a different agent (or a human participant) takes an interleaving turn in the same channel. At the turn limit the run completes with `trigger: 'turn_limit'` and further same-agent admission into that channel is refused with explicit limit detail until an interleaving turn occurs or the owner raises the limit. **Activity** for the idle timeout is any appended session event whose payload carries the run's id; the idle sweep is a daemon-owned per-run timer (default 300000 ms, per-run configurable). The three system-interrupt reasons (`budget_exhausted`, `idle_timeout`, `moderation_denied`) form a closed set carried on the interrupt intervention.
 
 ## Intervention Propagation
 
@@ -131,6 +138,8 @@ Interventions use the generic dispatcher defined by [Spec-004](../specs/004-queu
 - Both hooks integrate with the approval system (Plan-012): category `gate` for pre-turn, informational event for post-turn.
 - V1 default: no moderation hooks enabled. Opt-in per channel.
 
+Tier-6 audit ratification (D-016-10): the pre-turn gate point is `PermissionCheckService.check({category: 'gate'})` evaluated at the turn boundary **before** the turn's `assistant_output` event is appended; pending output buffers in memory while the run blocks per the standard approval-blocking flow, a denial discards the buffered output and system-cancels the run with `reason: moderation_denied`, and an approval appends it unchanged. The post-turn informational event is the registered `moderation.review_flagged` ([Spec-006 §Approval Flow](006-session-event-taxonomy-and-audit-log.md)).
+
 ## Scheduler Limits
 
 | Limit | Default |
@@ -138,6 +147,9 @@ Interventions use the generic dispatcher defined by [Spec-004](../specs/004-queu
 | Max concurrent channels executing | 5 per session |
 | Max queue depth per channel | 25 items (subject to Spec-001 per-session queue depth of 100) |
 | Max pending orchestration runs | 10 per session |
+| Max active children per parent run | 5 (daemon default — Tier-6 audit, D-016-11; not a product-wide ceiling per §Resolved Questions: the value is session-configurable via `OrchestrationBudgetUpdate`) |
+
+Tier-6 audit semantics (D-016-11): a channel is **executing** when ≥1 run targeting it is in `starting` / `running` / `waiting_for_input` / `waiting_for_approval`; a **pending orchestration run** is an orchestration-created run in `queued`; a child is **active** for the active-child bound when in any of those four states or `queued`. All limits are enforced at create-time admission with zero residue (no run row, no queue item survives a refusal), the refusal is a typed error with explicit limit detail, and the daemon records it durably via `orchestration.rejected` ([Spec-006 §Channel Arbitration](006-session-event-taxonomy-and-audit-log.md)). All scheduler limits live with the budget limits in the session budget surface and are owner-adjustable (D-016-5).
 
 ## Partition And Reconnect Behavior
 

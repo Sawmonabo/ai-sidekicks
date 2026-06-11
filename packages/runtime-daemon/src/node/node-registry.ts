@@ -93,7 +93,7 @@ export interface RegisterNodeInput {
  * emitted `reason` is HARDCODED `"explicit_shutdown"`. The `heartbeat_lost` /
  * `network_partition` reasons are server-derived (staleness sweep): a V1
  * coordination-record transition, durable event V1.1-gated (ADR-017), never this
- * method (Spec-006:377 authors the full enum; V1.1 adds a producer, not a shape).
+ * method (Spec-006:382 authors the full enum; V1.1 adds a producer, not a shape).
  *
  * `previousState` is forwarded as-supplied (omitted from the payload when
  * `undefined` — the method invents NO default; the explicit-shutdown call site
@@ -197,7 +197,7 @@ export class NodeRegistry {
 
   /**
    * Detach a node (Plan-003 §Phase 2 / T2.5). Emits `runtime_node.offline`
-   * (Spec-006:377) for the explicit-shutdown trigger and LEAVES THE
+   * (Spec-006:382) for the explicit-shutdown trigger and LEAVES THE
    * `node_trust_state` REGISTRATION ROW INTACT, so the node can reconnect under
    * the same `node_id` (Spec-003:78 — a disconnected node keeps membership;
    * Spec-003:116 — node identity stable across reconnect). This is the I-003-3
@@ -213,7 +213,7 @@ export class NodeRegistry {
    * HARDCODED `reason: "explicit_shutdown"`: detach IS the explicit-shutdown
    * producer, so the reason is not a parameter. The `heartbeat_lost` /
    * `network_partition` reasons come from a DIFFERENT Phase-3 heartbeat-service
-   * producer, not this method (Spec-006:377 authors the full enum so Phase 3 adds
+   * producer, not this method (Spec-006:382 authors the full enum so Phase 3 adds
    * producers, not a shape change). `lastHeartbeatAt` defaults to the injected
    * `now()` — the node IS heard from at explicit shutdown, so this is a real
    * ISO-8601 timestamp, never null (the schema is `z.iso.datetime({ offset: true })`).
@@ -234,7 +234,7 @@ export class NodeRegistry {
       newState: "offline",
       actor: input.actor ?? null,
       // The node IS heard from at explicit shutdown → default to the real wall
-      // clock, never null (Spec-006:377 / `z.iso.datetime`).
+      // clock, never null (Spec-006:382 / `z.iso.datetime`).
       lastHeartbeatAt: input.lastHeartbeatAt ?? this.#now(),
       // HARDCODED — detach is the explicit-shutdown producer; heartbeat-driven
       // reasons are a Phase-3 producer, not this method.

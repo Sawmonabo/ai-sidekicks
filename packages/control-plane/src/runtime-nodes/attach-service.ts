@@ -940,7 +940,7 @@ export class AttachService {
    * Read a session's full runtime-node roster — the `runtimenode.roster`
    * coordination-record projection (Plan-003 T5.0c; Spec-003 §Interfaces And
    * Contracts 2026-06-09 amendment, lines 90-94; wire shapes in
-   * api-payload-contracts.md lines 527-547, registry row at line 562).
+   * api-payload-contracts.md lines 531-551, registry row at line 562).
    *
    * FAITHFUL PROJECTION (Spec-003 line 92 / AC2 line 128): returns EVERY
    * `runtime_node_attachments` row for the session — all five `state` values
