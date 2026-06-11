@@ -304,15 +304,17 @@ CREATE TABLE admin_bans (
   identity        TEXT NOT NULL,
   identity_type   TEXT NOT NULL
                   CHECK(identity_type IN ('participant', 'ip', 'token_hash', 'session')),
-  issued_by       TEXT NOT NULL,                  -- ParticipantId of issuing admin (operator-scope, stored as text; deliberately no FK — rows must survive participant deletion, Plan-021 D-021-13)
+  issued_by       TEXT NOT NULL,                  -- operator attribution, server-derived from the operator-token context (Plan-021 D-021-1: 'deployment-operator' in V1 — no participant principal exists on this surface); deliberately no FK — rows survive participant deletion (Plan-021 D-021-13)
   issued_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   reason          TEXT,
   expires_at      TIMESTAMPTZ,                    -- NULL = permanent
   revoked_at      TIMESTAMPTZ,
-  revoked_by      TEXT                            -- ParticipantId of revoking admin
+  revoked_by      TEXT                            -- operator attribution of the revoking operator (same semantics as issued_by)
 );
 
--- One-active-ban enforcement: partial UNIQUE applies only to non-revoked rows.
+-- One-active-ban enforcement: partial UNIQUE applies only to non-revoked rows. The predicate
+-- cannot test expiry (now() is not IMMUTABLE), so an expired-but-unrevoked row keeps the slot;
+-- the issue path supersedes such a conflict by atomic revoke-then-insert (Plan-021 D-021-12).
 CREATE UNIQUE INDEX idx_admin_bans_one_active
   ON admin_bans (identity, identity_type)
   WHERE revoked_at IS NULL;

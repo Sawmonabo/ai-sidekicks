@@ -2182,6 +2182,7 @@ interface AgentListResponse {
     driverName: string;
     modelId: string;
     defaultNodeId?: NodeId;
+    config: Record<string, unknown>; // driver-scoped persona config (Spec-016 A-016-2); {} when never supplied (agents.config NOT NULL DEFAULT '{}')
     state: AgentState;
     createdAt: string;
   }>;
@@ -2341,6 +2342,8 @@ Raw HTTP routes matched before tRPC dispatch (Plan-021 D-021-10); authenticated 
 
 ```ts
 // POST /admin/bans  → 201 | 401 auth.token_invalid | 403 admin.forbidden | 409 admin.ban_already_exists
+// (409 only on a genuinely active conflict — an expired-but-unrevoked standing ban is
+// superseded on issue via atomic revoke-then-insert, Plan-021 D-021-12)
 interface AdminBanCreateRequest {
   identity: string;
   identityType: RateLimitIdentityType;
@@ -2359,7 +2362,7 @@ interface AdminBanListResponse {
     banId: string;
     identity: string;
     identityType: RateLimitIdentityType;
-    issuedBy: string; // ParticipantId of issuing operator (server-derived)
+    issuedBy: string; // operator attribution (server-derived per Plan-021 D-021-1; V1 single shared token → constant "deployment-operator")
     issuedAt: string;
     expiresAt: string | null;
     revokedAt: string | null;

@@ -169,7 +169,8 @@ Orchestration admission-refusal codes (Plan-016, Tier-6 audit D-016-16). Every c
 | `orchestration.depth_exceeded` | Creating run is itself a child — V1 permits exactly one level of run nesting (Spec-016:55; `data.fields`: `parentRunId`, `maxDepth: 1`) | 409 |
 | `orchestration.active_child_limit_exceeded` | Parent already has the configured number of active children (`data.fields`: `parentRunId`, `limit`, `activeChildCount`) | 429 |
 | `orchestration.pending_limit_exceeded` | Session already has the maximum pending orchestration-created runs (Spec-016 §Scheduler Limits; `data.fields`: `limit`) | 429 |
-| `orchestration.channel_limit_exceeded` | Admitting the run would exceed the maximum concurrently executing channels (Spec-016 §Scheduler Limits; `data.fields`: `limit`) — the run may instead be held `queued`; this code fires only when queue depth for the target channel is also exhausted | 429 |
+| `orchestration.channel_limit_exceeded` | Admitting the run would open a new executing channel beyond the maximum concurrently executing channels (Spec-016 §Scheduler Limits; `data.fields`: `limit`) — the run may instead be held `queued`; this code fires only when the target channel's queue is also exhausted (a busy target channel with a full queue is `orchestration.queue_depth_exceeded` regardless of the executing-channel count) | 429 |
+| `orchestration.queue_depth_exceeded` | Target channel already has an executing run and its queue is at maximum depth, so the run cannot be held `queued` (Spec-016 §Scheduler Limits: 25 per channel, subject to the Spec-001 per-session queue depth; `data.fields`: `channelId`, `limit`, `queuedCount`) | 429 |
 | `orchestration.turn_limit_exceeded` | Target agent is at its consecutive-turn or per-session turn limit in the target channel (D-016-8; `data.fields`: `agentId`, `channelId`, `limit`) | 429 |
 | `orchestration.budget_exhausted` | Session cost ceiling reached — admission blocked until the session owner raises the limit (Spec-016 §Budget Policies; `data.fields`: `budgetType`, `limitValue`, `observedValue`) | 429 |
 | `orchestration.node_not_local` | `targetNodeId` names a node not attached to this daemon — V1 orchestration is single-node; cross-node dispatch is Spec-024/Plan-027 (D-016-9; `data.fields`: `targetNodeId`) | 422 |
@@ -351,7 +352,7 @@ Operator admin-surface codes (Plan-021 admin-bans API, [D-021-1](../../plans/021
 | --- | --- | --- |
 | `admin.forbidden` | Operator admin token present but mismatched on the admin-bans surface (constant-time compare failed) | 403 |
 | `admin.ban_not_found` | `DELETE /admin/bans/:id` targeted a missing or already-revoked ban (revoke is not idempotent) | 404 |
-| `admin.ban_already_exists` | Losing side of the one-active-ban race: a non-revoked ban already exists for `(identity, identity_type)` (Postgres `23505` on the partial unique index, I-021-6) | 409 |
+| `admin.ban_already_exists` | Losing side of the one-active-ban race: an **active** (non-revoked, non-expired) ban already exists for `(identity, identity_type)` (Postgres `23505` on the partial unique index, I-021-6). An expired-but-unrevoked standing ban does not refuse — the issue path supersedes it (atomic revoke-then-insert, Plan-021 D-021-12) | 409 |
 
 ### Version
 

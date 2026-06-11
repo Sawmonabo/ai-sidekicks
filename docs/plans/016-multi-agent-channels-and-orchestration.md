@@ -120,7 +120,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - **D-016-13 — Queue seam.** Orchestration admission pipeline (agent → depth → active-child → scheduler → budget → turn gate) then in-process Plan-004 queue admission with the typed carrier; `RunId` mints at queue insert (`state: 'queued'` in the create response); zero-residue refusals.
 - **D-016-14 — Timeline seam.** Events-only producer: no timeline rows, no Plan-013 imports; Plan-013 derives summary rows at Tier 8 from the durable events + carrier.
 - **D-016-15 — Main-channel model.** `channels` holds user channels only; main is projected (no row, no event — both shipped consumers' posture); reads synthesize main; `channel.create` refuses `MAIN_CHANNEL_NAME` (`channel.name_reserved`); `targetChannelId` accepts the derived main id without a row; no `is_main` column.
-- **D-016-16 — Error vocabulary.** [error-contracts.md](../architecture/contracts/error-contracts.md) §Channel (3 codes) / §Orchestration (7 codes) / §Agent (2 codes); parent-not-found reuses `run.not_found`; no token collides with an event name.
+- **D-016-16 — Error vocabulary.** [error-contracts.md](../architecture/contracts/error-contracts.md) §Channel (3 codes) / §Orchestration (8 codes — incl. the per-channel `orchestration.queue_depth_exceeded` axis, Tier-6 Codex round) / §Agent (2 codes); parent-not-found reuses `run.not_found`; no token collides with an event name.
 - **D-016-17 — Link types.** `spawn` (helper, output to parent's channel context) / `delegate` (bounded task, own target channel) / `handoff` (parent transfers continuation and completes); caller-declared, default `spawn`, durable.
 - **D-016-18 — Desktop scope.** V1 desktop ships **no** `OrchestrationRunCreate` affordance (creation via SDK/CLI now; Plan-017 workflows at Tier 8); it renders roster, lifecycle controls, linkage, and refusal records. Spec-023's pre-audit sketch interactions (participant-mute, pause-channel) are struck — no such V1 surface.
 - **D-016-19 — Turn-policy state.** Derived projections only (no new table): round-robin cursor from the durable `run.queued(channelId, agentId)` sequence + config order (non-empty `roundRobinOrder` required at create); arbitration pause from `arbitration.*` events; `request-based` is structurally satisfied in V1 (every agent run is explicitly created) and adds no admission check.
@@ -270,7 +270,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
   - **Tests:** roster includes synthesized main first + arbitration facet; links carry `internalHelper` / `producingNodeId` / `visibility`; budget read materializes defaults.
 - **T3.3 — Typed domain-error classes.**
   - **Files:** `packages/runtime-daemon/src/orchestration/errors.ts` (NEW).
-  - **Provides:** `DaemonDomainError` subclasses for the twelve §Channel / §Orchestration / §Agent codes with `data.fields` shapes per [error-contracts.md](../architecture/contracts/error-contracts.md).
+  - **Provides:** `DaemonDomainError` subclasses for the thirteen §Channel / §Orchestration / §Agent codes with `data.fields` shapes per [error-contracts.md](../architecture/contracts/error-contracts.md).
   - **Consumes:** BL-143 base class (Plan-007).
   - **Spec coverage:** Spec-016 §Fallback Behavior (explicit limit/capacity detail).
   - **Verifies invariant:** I-016-8.
