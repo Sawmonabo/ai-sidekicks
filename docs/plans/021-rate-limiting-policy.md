@@ -116,15 +116,13 @@ CHECK (identity_type IN ('participant', 'ip', 'token_hash', 'session'))
 ```
 identity             TEXT         NOT NULL
 identity_type        TEXT         NOT NULL
-violation_count      INTEGER      NOT NULL DEFAULT 0
-first_violation_at   TIMESTAMPTZ
-last_violation_at    TIMESTAMPTZ
+violation_timestamps TIMESTAMPTZ[] NOT NULL DEFAULT '{}'   -- per-violation timestamps; append + prune to the 1-hr horizon on upsert (exact N-in-window ladder; DO parity)
 active_block_until   TIMESTAMPTZ
 PRIMARY KEY (identity, identity_type)
 CHECK (identity_type IN ('participant', 'ip', 'token_hash', 'session'))
 ```
 
-- Escalation windows are enforced by the application query: `WHERE last_violation_at >= now() - INTERVAL '5 minutes'` for the 15-min-block rule, and `INTERVAL '1 hour'` for the 1-hr-block rule. Row is upserted on each violation. The CHECK mirrors `admin_bans` (D-021-17 — it was missing pre-audit, F-021-1-11).
+- Escalation windows are evaluated exactly, mirroring the DO's array semantics: `recordViolation` appends `now()` to `violation_timestamps` and prunes entries older than 1 hour (the longest window — the same ≤1-hr retention horizon the DO alarm enforces), then evaluates the ladder by filtering the retained array at read time (`>= 3` entries within 5 min → 15-min block; `>= 10` within 1 hr → 1-hr block). An aggregate count + first/last-timestamp triple cannot answer N-in-window (violations at minutes 0, 6, 7 read as three recent ones — over-blocking); per-violation timestamps are the minimal exact representation, and growth is self-bounding (~≤15 entries: violations cannot accrue while a block is active, since the block stage precedes the counter stage per I-021-1). Row is upserted on each violation. The CHECK mirrors `admin_bans` (D-021-17 — it was missing pre-audit, F-021-1-11).
 
 ### GDPR erasure dispositions (D-021-13)
 
@@ -404,7 +402,7 @@ All rate-limited responses must set:
 - `X-RateLimit-Limit: <limit>`
 - `X-RateLimit-Remaining: 0`
 - `X-RateLimit-Reset: <unix-timestamp-seconds>`
-- `Retry-After: <seconds>` — formula: `max(0, ceil((resetAt - now) / 1000))`. For the Postgres sliding-window backend, `resetAt` is "the time the oldest counted request ages out of the window" (equivalent to `first_violation_at + window_duration`). For the Cloudflare backend, `resetAt` is the DO-tracked authoritative window state (eager-DO, D-021-3); for an active block, `resetAt = active_block_until` (also surfaced as the check's `blockUntil` discriminator).
+- `Retry-After: <seconds>` — formula: `max(0, ceil((resetAt - now) / 1000))`. For the Postgres sliding-window backend, `resetAt` is "the time the oldest counted request ages out of the window" (the oldest in-window hit's timestamp plus the window duration). For the Cloudflare backend, `resetAt` is the DO-tracked authoritative window state (eager-DO, D-021-3); for an active block, `resetAt = active_block_until` (also surfaced as the check's `blockUntil` discriminator).
 
 ## Invariants
 
@@ -487,7 +485,7 @@ All rate-limited responses must set:
   - **Spec coverage:** Spec-021 line 129 (admin API POST + GET + DELETE shapes), line 100 (permanent bans exclusively via admin API), line 101 (ban expiry semantics), line 137 (durable ban shape)
   - **Verifies invariant:** I-021-6 (contract layer: typed already-exists error), I-021-7
   - **Consumes:** `RateLimitIdentityType` ← T21.1-1 (same Phase).
-- [ ] **T21.1-3 — Migration `packages/control-plane/src/migrations/NNNN-rate-limit-tables.ts`.** Version = next free at landing (append-order, cross-plan §5). Export `RATE_LIMIT_TABLES_MIGRATION_SQL` reproducing shared-postgres-schema.md §Rate Limiting Tables VERBATIM (incl. `-- Owner: Plan-021` stamps + both CHECK constraints per D-021-17); register `{ version: NNNN, sql: RATE_LIMIT_TABLES_MIGRATION_SQL }` in the `MIGRATIONS` array in `packages/control-plane/src/sessions/migration-runner.ts`. Migration-shape test (PGlite, repo precedent — testcontainer fallback only if `rate-limiter-flexible` proves PGlite-incompatible, recorded at implementation): both tables exist with documented columns/types/nullability + both partial indexes via information_schema; re-apply is a no-op; duplicate active-ban insert raises 23505 (I-021-6); insert-after-revoke succeeds; `identity_type` outside the 4-value set is rejected by CHECK.
+- [ ] **T21.1-3 — Migration `packages/control-plane/src/migrations/NNNN-rate-limit-tables.ts`.** Version = next free at landing (append-order, cross-plan §5). Export `RATE_LIMIT_TABLES_MIGRATION_SQL` reproducing shared-postgres-schema.md §Rate Limiting Tables VERBATIM (incl. `-- Owner: Plan-021` stamps + both CHECK constraints per D-021-17); register `{ version: NNNN, sql: RATE_LIMIT_TABLES_MIGRATION_SQL }` in the `MIGRATIONS` array in `packages/control-plane/src/sessions/migration-runner.ts`. Migration-shape test (PGlite, repo precedent — testcontainer fallback only if `rate-limiter-flexible` proves PGlite-incompatible, recorded at implementation): both tables exist with documented columns/types/nullability (incl. `violation_timestamps TIMESTAMPTZ[] NOT NULL DEFAULT '{}'`) + the single `idx_admin_bans_one_active` partial unique index — the only secondary index; no expiry-filtered companion exists (`now()` is not IMMUTABLE) — via information_schema/pg_indexes; re-apply is a no-op; duplicate active-ban insert raises 23505 (I-021-6); insert-after-revoke succeeds; `identity_type` outside the 4-value set is rejected by CHECK.
   - **Spec coverage:** Spec-021 line 137 (bans stored durably, survive restarts), line 136 (escalation state persisted for the escalation window — self-host table)
   - **Verifies invariant:** I-021-5, I-021-6
   - **Consumes:** `applyMigrations` `MIGRATIONS` registry seam ← Plan-001 runner (shipped; v3 registration precedent [GitHub PR-#145](https://github.com/Sawmonabo/ai-sidekicks/pull/145)).
@@ -520,7 +518,7 @@ All rate-limited responses must set:
   - **Spec coverage:** Spec-021 line 96 (3/5-min ladder), line 97 (10/1-hr ladder), line 98 (block keying + full-window enforcement)
   - **Verifies invariant:** I-021-3 (contract layer)
   - **Consumes:** `RateLimitIdentityType` ← T21.1-1.
-- [ ] **T21.2-3 — `escalation/postgres-escalation-store.ts`.** Upsert `rate_limit_escalations` per violation inside `recordViolation` (single statement or transaction — atomic ladder evaluation); window queries per §Data And Storage Changes; `getActiveBlock` indexed read.
+- [ ] **T21.2-3 — `escalation/postgres-escalation-store.ts`.** Append-and-prune upsert on `rate_limit_escalations.violation_timestamps` per violation inside `recordViolation` (single statement or transaction — atomic ladder evaluation: prune to the 1-hr horizon, then array-filter both windows exactly per §Data And Storage Changes); `getActiveBlock` indexed read.
   - **Spec coverage:** Spec-021 line 136 (escalation state persisted for the window), line 96 (15-min block), line 97 (1-hr block)
   - **Verifies invariant:** I-021-3, I-021-5
   - **Consumes:** `EscalationStore` ← T21.2-2; `rate_limit_escalations` ← T21.1-3; `pg` (injected client seam — production pool is Plan-025's, tests inject PGlite/testcontainer per T21.1-3's harness note).

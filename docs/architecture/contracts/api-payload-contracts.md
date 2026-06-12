@@ -1342,7 +1342,7 @@ interface ExecutionModeSelectResponse {
 // supplying the run id that populates worktrees.created_by_run_id + run_execution_contexts.
 interface ExecutionRootPrepareRequest {
   workspaceId: WorkspaceId;
-  branchName?: string; // caller-supplied head branch; absent → daemon derives per the Spec-010 slug rule
+  branchName?: string; // REQUIRED for writable modes on the wire (pre-run, no slug-rule seed; absent → typed workspace.branch_name_required refusal); the run-setup gate derives per the Spec-010 slug rule service-side (Plan-010 D-010-19)
   baseRef?: string; // worktree base; default = mount HEAD branch; detached HEAD without baseRef → typed refusal
   reuseWorktreeId?: WorktreeId; // explicit reuse names the candidate (Spec-010 explicit-reuse requirement)
   acknowledgeDirtyCandidate?: boolean; // explicit consent to bind a DIRTY named candidate; never bypasses incompatibility
@@ -1374,7 +1374,7 @@ interface WorktreeReuseCheckResponse {
 // EphemeralClonePrepare — TTL is daemon configuration, not a wire parameter (Spec-010 §Resolved Questions)
 interface EphemeralClonePrepareRequest {
   workspaceId: WorkspaceId;
-  branchName?: string; // head branch inside the clone; absent → derived per the slug rule
+  branchName: string; // head branch inside the clone — required on the wire: wire prepares are pre-run and carry no slug-rule derivation seed; the run-setup gate path derives service-side (Plan-010 D-010-19)
   cleanupPolicy?: "on_run_complete" | "manual"; // default on_run_complete
 }
 interface EphemeralClonePrepareResponse {

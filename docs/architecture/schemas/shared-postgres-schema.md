@@ -327,9 +327,7 @@ CREATE TABLE rate_limit_escalations (
   identity             TEXT NOT NULL,
   identity_type        TEXT NOT NULL
                        CHECK(identity_type IN ('participant', 'ip', 'token_hash', 'session')),
-  violation_count      INTEGER NOT NULL DEFAULT 0,
-  first_violation_at   TIMESTAMPTZ,
-  last_violation_at    TIMESTAMPTZ,
+  violation_timestamps TIMESTAMPTZ[] NOT NULL DEFAULT '{}',  -- per-violation timestamps; append + prune to the 1-hr horizon on upsert — exact N-in-window ladder evaluation, DO parity (Plan-021 §Data And Storage Changes)
   active_block_until   TIMESTAMPTZ,
   PRIMARY KEY (identity, identity_type)
 );

@@ -244,6 +244,7 @@ These codes are registry-only (code + message; no structured `details`): no acce
 | `workspace.branch_mismatch` | `branch` mode bind-only verification failed: the main checkout's current branch does not match the requested branch context; the daemon never switches branches in the main checkout (Spec-010 §Resolved Questions; Plan-010 D-010-9, Tier-6 audit) | 409 |
 | `workspace.busy` | Workspace execution root is held by an active run; one holding run at a time in V1 (Spec-010 §State And Data Implications; Plan-010 D-010-16, Tier-6 audit) | 409 |
 | `workspace.execution_root_unresolved` | A repo-bound run reached the setup gate with no resolved execution root for the workspace's selected mode and root preparation failed; the run parks in `starting` (Spec-010 §Fallback Behavior; Plan-010 D-010-16, Tier-6 audit) | 409 |
+| `workspace.branch_name_required` | A writable-mode wire-initiated (pre-run) `repo.executionRootPrepare` omitted `branchName`: the Spec-010 slug rule's derivation inputs (queue-item summary / run id) exist only on the run-setup gate path, so wire prepares must carry the branch (Plan-010 D-010-19, Tier-6 audit) | 400 |
 
 ### Repo
 
