@@ -984,7 +984,7 @@ CREATE INDEX idx_agents_session ON agents(session_id);
 CREATE TABLE session_budgets (
   session_id                    TEXT PRIMARY KEY,
   cost_limit_cents              INTEGER NOT NULL DEFAULT 1000,  -- Spec-016: $10 per session
-  turn_limit_per_agent          INTEGER NOT NULL DEFAULT 50,    -- Spec-016: 50 turns per agent per session
+  turn_limit_per_agent          INTEGER NOT NULL DEFAULT 50,    -- Spec-016:107: max consecutive turns per (channel, agent), reset on interleave (D-016-8) — not a per-session total
   max_executing_channels        INTEGER NOT NULL DEFAULT 5,     -- Spec-016 §Scheduler Limits
   max_queue_depth_per_channel   INTEGER NOT NULL DEFAULT 25,
   max_pending_orchestration_runs INTEGER NOT NULL DEFAULT 10,
