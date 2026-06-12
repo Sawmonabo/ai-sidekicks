@@ -978,7 +978,14 @@ CREATE TABLE session_budgets (
   max_queue_depth_per_channel   INTEGER NOT NULL DEFAULT 25,
   max_pending_orchestration_runs INTEGER NOT NULL DEFAULT 10,
   active_child_limit            INTEGER NOT NULL DEFAULT 5,     -- Spec-016:150 daemon default, configurable
-  updated_at                    TEXT NOT NULL
+  updated_at                    TEXT NOT NULL,
+  -- Non-negative-integer floors on every limit; wire mirror = orchestration.budgetUpdate Zod .int().nonnegative() (D-016-5)
+  CHECK (typeof(cost_limit_cents) = 'integer' AND cost_limit_cents >= 0),
+  CHECK (typeof(turn_limit_per_agent) = 'integer' AND turn_limit_per_agent >= 0),
+  CHECK (typeof(max_executing_channels) = 'integer' AND max_executing_channels >= 0),
+  CHECK (typeof(max_queue_depth_per_channel) = 'integer' AND max_queue_depth_per_channel >= 0),
+  CHECK (typeof(max_pending_orchestration_runs) = 'integer' AND max_pending_orchestration_runs >= 0),
+  CHECK (typeof(active_child_limit) = 'integer' AND active_child_limit >= 0)
 );
 ```
 

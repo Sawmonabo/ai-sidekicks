@@ -2120,6 +2120,8 @@ interface OrchestrationBudgetState {
 }
 type OrchestrationBudgetReadResponse = OrchestrationBudgetState;
 interface OrchestrationBudgetUpdateRequest {
+  // every provided limit must be a non-negative integer — Zod .int().nonnegative(),
+  // mirroring the session_budgets CHECK constraints (local-sqlite-schema.md §Channel and Orchestration Tables)
   sessionId: SessionId;
   costLimitCents?: number;
   turnLimitPerAgent?: number;

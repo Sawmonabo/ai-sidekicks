@@ -67,7 +67,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 | ID | Invariant | Verified by |
 | --- | --- | --- |
 | **I-016-1** | Every Plan-016 wire/event shape is defined exactly once in `orchestration.ts` (plus `event.ts` union registration); no mirror or duplicate definitions anywhere. | T1.1, T1.2, T3.5 |
-| **I-016-2** | Contract enums and DDL CHECK constraints stay in lockstep (`ChannelState`, `AgentState`, `LinkType`, `internal_helper` 0/1; `session_budgets` defaults) — a conformance suite, not a comment, enforces the pin. | T1.4 |
+| **I-016-2** | Contract enums and DDL CHECK constraints stay in lockstep (`ChannelState`, `AgentState`, `LinkType`, `internal_helper` 0/1; `session_budgets` defaults + non-negative-integer CHECK floors) — a conformance suite, not a comment, enforces the pin. | T1.4 |
 | **I-016-3** | Every `run_links` row carries non-null `session_id` provenance; replay and relay rebuild scope by session. | T1.3, T2.4, T2.9 |
 | **I-016-4** | `channels`, `run_links`, and `agents` rebuild byte-equal from the event log alone (events-canonical; no projection consults request state). | T2.9, T3.7 |
 | **I-016-5** | A peer daemon recovers the full linkage record (parent, linkType, internalHelper, producingNodeId) from relay-distributed `run.queued` events with no SQLite access. | T2.4, T2.9 |
@@ -151,17 +151,17 @@ Target paths below assume the canonical implementation topology defined in [Cont
   - **Consumes:** T1.1 enums/configs; `SessionId` (Plan-001).
   - **Spec coverage:** Spec-016 §Interfaces And Contracts (all interface bullets + budget surface).
   - **Verifies invariant:** I-016-1.
-  - **Tests:** request validation rows (missing/invalid fields per pair); response parity assertions against the api-payload block; carrier round-trip.
+  - **Tests:** request validation rows (missing/invalid fields per pair, incl. negative / non-integer budget limits refused — `.int().nonnegative()`, the `session_budgets` CHECK mirror); response parity assertions against the api-payload block; carrier round-trip.
 - **T1.3 — Migration: `channels` / `run_links` / `agents` / `session_budgets`.**
   - **Files:** `packages/runtime-daemon/src/db/migrations/` (EXTEND — next migration number at execution time).
   - **Provides:** the four tables byte-matching [local-sqlite-schema.md §Channel and Orchestration Tables](../architecture/schemas/local-sqlite-schema.md) (CHECK constraints, indexes, defaults).
   - **Consumes:** Plan-001 migration-runner seam (shipped).
   - **Spec coverage:** Spec-016 §State And Data Implications (durable + replayable).
   - **Verifies invariant:** I-016-3, I-016-10.
-  - **Tests:** migration up + idempotence; CHECK rejection rows (bad state, bad link_type, `internal_helper` ∉ {0,1}); index presence.
+  - **Tests:** migration up + idempotence; CHECK rejection rows (bad state, bad link_type, `internal_helper` ∉ {0,1}, negative / non-integer budget limits); index presence.
 - **T1.4 — Contract ↔ DDL conformance suite.**
   - **Files:** `packages/runtime-daemon/src/db/__tests__/orchestration-schema-conformance.test.ts` (NEW).
-  - **Provides:** mechanical lockstep checks — `ChannelState` / `AgentState` / `LinkType` contract enums vs DDL CHECK lists; `session_budgets` columns vs `OrchestrationBudgetState` fields; defaults vs the Spec-016 §Budget Policies + §Scheduler Limits tables (100000 tokens / 1000¢ / 50 turns / 5 channels / 25 depth / 10 pending / 5 children / 300000 ms).
+  - **Provides:** mechanical lockstep checks — `ChannelState` / `AgentState` / `LinkType` contract enums vs DDL CHECK lists; `session_budgets` columns vs `OrchestrationBudgetState` fields; defaults vs the Spec-016 §Budget Policies + §Scheduler Limits tables (100000 tokens / 1000¢ / 50 turns / 5 channels / 25 depth / 10 pending / 5 children / 300000 ms); `session_budgets` non-negative-integer CHECKs vs the wire pairs' `.int().nonnegative()` bounds.
   - **Consumes:** T1.1–T1.3.
   - **Spec coverage:** Spec-016 §Budget Policies line 101 (defaults table), §Scheduler Limits line 143 (defaults table).
   - **Verifies invariant:** I-016-2.

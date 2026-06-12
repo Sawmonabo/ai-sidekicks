@@ -139,7 +139,7 @@ CHECK (identity_type IN ('participant', 'ip', 'token_hash', 'session'))
 - One DO instance per `(identity, identity_type)` pair, keyed by `idFromName(`${identityType}:${identity}`)`.
 - Persisted state (survives worker restart) via DO's built-in storage API: `violation_timestamps: number[]`, `active_block_until: number | null`, plus per-group window state for authoritative `remaining`/`resetAt` (eager-DO, D-021-3).
 - **Single-alarm scheduling (A-021-19):** Cloudflare permits one scheduled alarm per object and `setAlarm` overrides. On every state change, re-arm to the EARLIEST pending deadline among: oldest `violation_timestamps` entry + 1 hr (the retention horizon), `active_block_until` (block expiry), and the latest per-group window `resetAt` (window expiry). `alarm()` trims entries older than 1 hour — the 5-min ladder is evaluated by filtering the retained array at read time, never by trimming — clears an expired `active_block_until`, drops expired per-group window state, and re-arms if live state remains; once every horizon has passed it calls `storage.deleteAll()` (no per-identity residue survives — the D-021-13 GDPR basis) and the DO idles out with no alarm.
-- RPC surface = the `EscalationStore` methods (`recordViolation`, `getActiveBlock`) plus the eager-DO window read; `DurableObjectEscalationStore` is the Worker-side adapter resolving the stub.
+- RPC surface = the `EscalationStore` methods (`recordViolation`, `getActiveBlock`) plus the eager-DO `recordAllowed` window record-and-read — folds an allowed request into per-group window state and returns authoritative `remaining`/`resetAt` in the same round-trip; `DurableObjectEscalationStore` is the Worker-side adapter resolving the stub.
 
 ### Cloudflare `[[ratelimits]]` bindings (hosted only)
 
@@ -354,7 +354,11 @@ export const rateLimitProcedure = (opts: {
 ```ts
 // packages/control-plane/src/middleware/ws-rate-limit.ts
 export const wsRateLimit =
-  (checkAdmission: AdmissionCheck, identityExtractor: (conn: WsConnection) => WsIdentity) =>
+  (
+    checkAdmission: AdmissionCheck,
+    identityExtractor: (conn: WsConnection) => WsIdentity,
+    mode: "enforce" | "observe",
+  ) =>
   async (conn: WsConnection, frame: WsFrame): Promise<WsAdmissionOutcome> => {
     const { identity, identityType, tier } = identityExtractor(conn); // connection principal; never payload inspection
     const admission = await checkAdmission({
@@ -364,6 +368,7 @@ export const wsRateLimit =
       tier,
     });
     if (admission.admitted) return { proceed: true };
+    if (mode === "observe") return { proceed: true }; // D-021-16 soak: telemetry emitted by checkAdmission; never frame-drop or close
     if (admission.refusal === "banned" || isActiveBlock(admission)) {
       return { proceed: false, close: { code: 4029, retryAfter: retryAfterFrom(admission) } }; // teardown only on ban/block (D-021-9)
     }
@@ -372,6 +377,7 @@ export const wsRateLimit =
 ```
 
 - **Drop-frame semantics (D-021-9):** a counter trip refuses the offending frame only — the caller sends one in-band `rate_limited` error frame (shape registered in [api-payload-contracts.md §Relay Rate-Limit Signalling](../architecture/contracts/api-payload-contracts.md)) and keeps the connection. Close `4029` (WebSocket private range) fires ONLY for banned identities or active escalation blocks. Single-signal contract: the hook returns the outcome; the CALLER (relay frame handler) performs the send/close — the hook never writes to the connection.
+- **Observe mode (D-021-16):** `mode` is factory-provided at construction (`createRateLimiterFactory` reads `AIS_RATELIMIT_MODE` once — T21.2-7), mirroring the tRPC middleware's `ctx.rateLimitMode`. In observe, tripped/blocked/banned frames still return `{ proceed: true }` — `checkAdmission` telemetry records the would-be refusal, but no `rate_limited` frame is sent and no `4029` close fires.
 - Zero-knowledge constraint (CP-008-9): the hosted seam exposes ciphertext-envelope metadata + the authenticated connection principal only; identity = the connection's PASETO-resolved participant.
 
 ### Standard headers on 429 responses
@@ -501,11 +507,11 @@ All rate-limited responses must set:
   - **Spec coverage:** Spec-021 line 134 (escalation state persisted for the window), line 94 (15-min block), line 95 (1-hr block)
   - **Verifies invariant:** I-021-3, I-021-5
   - **Consumes:** `EscalationStore` ← T21.2-2; `rate_limit_escalations` ← T21.1-3; `pg` (injected client seam — production pool is Plan-025's, tests inject PGlite/testcontainer per T21.1-3's harness note).
-- [ ] **T21.2-4 — `escalation/durable-object-escalation-store.ts`.** `RateLimitEscalationDO` class (storage fields + single-alarm earliest-deadline scheduling per §Data And Storage Changes; RPC = `recordViolation`/`getActiveBlock` + eager window read) + `DurableObjectEscalationStore` Worker-side adapter (`idFromName(`${identityType}:${identity}`)`). Export the DO class from `packages/control-plane/src/server/host.ts` (export-only edit, CP-021-1 seam). DO-restart persistence test (storage survives; alarm re-arms) + full-expiry eviction test (alarm `deleteAll`s storage once violations, block, and windows have all passed their horizons — D-021-13).
+- [ ] **T21.2-4 — `escalation/durable-object-escalation-store.ts`.** `RateLimitEscalationDO` class (storage fields + single-alarm earliest-deadline scheduling per §Data And Storage Changes; RPC = `recordViolation`/`getActiveBlock` + `recordAllowed` eager window record-and-read) + `DurableObjectEscalationStore` Worker-side adapter (`idFromName(`${identityType}:${identity}`)`). Export the DO class from `packages/control-plane/src/server/host.ts` (export-only edit, CP-021-1 seam). DO-restart persistence test (storage survives; alarm re-arms) + full-expiry eviction test (alarm `deleteAll`s storage once violations, block, and windows have all passed their horizons — D-021-13).
   - **Spec coverage:** Spec-021 line 134 (escalation state persisted), line 96 (block enforced for full window)
   - **Verifies invariant:** I-021-3, I-021-5
   - **Consumes:** `EscalationStore` ← T21.2-2; Cloudflare DO runtime (`@cloudflare/workers-types` for types); wrangler DO binding + migration declaration (§Target Areas wrangler deliverable).
-- [ ] **T21.2-5 — `cloudflare-rate-limiter.ts`.** `CloudflareWorkersRateLimiter implements RateLimiter`, eager-DO (D-021-3): (a) `getActiveBlock` first — active block → `{ allowed: false, remaining: 0, resetAt: blockUntil, limit }` WITHOUT consuming the binding; (b) select binding by `(endpoint, tier)` — elevated routes to `<NAME>_ELEVATED` (D-021-4); (c) `env.<LIMITER>.limit({ key })`; (d) on `success: false`, `recordViolation` and fold the `EscalationDecision`; (e) on `success: true`, return DO-tracked authoritative `remaining`/`resetAt`. DO read failure falls through to the fail-open wrapper semantics.
+- [ ] **T21.2-5 — `cloudflare-rate-limiter.ts`.** `CloudflareWorkersRateLimiter implements RateLimiter`, eager-DO (D-021-3): (a) `getActiveBlock` first — active block → `{ allowed: false, remaining: 0, resetAt: blockUntil, limit }` WITHOUT consuming the binding; (b) select binding by `(endpoint, tier)` — elevated routes to `<NAME>_ELEVATED` (D-021-4); (c) `env.<LIMITER>.limit({ key })`; (d) on `success: false`, `recordViolation` and fold the `EscalationDecision`; (e) on `success: true`, `recordAllowed` — fold the allowed request into the DO's per-group window and return its authoritative `remaining`/`resetAt` in the same round-trip (success-recording is what keeps the window state authoritative — eager-DO, D-021-3). DO round-trip failure falls through to the fail-open wrapper semantics.
   - **Spec coverage:** Spec-021 line 47 (hosted = Cloudflare `rate_limit` binding), line 96 (block supersedes counter), line 109 (elevated 3× via eligible-row variants)
   - **Verifies invariant:** I-021-2, I-021-3
   - **Consumes:** `RateLimiter` ← T21.1-1; `endpoint-limits.ts` ← T21.2-1; `EscalationStore` ← T21.2-2/T21.2-4; `[[ratelimits]]` bindings (wrangler deliverable).
@@ -542,14 +548,14 @@ All rate-limited responses must set:
   - **Spec coverage:** Spec-021 line 142 (banned identity → 403 on future requests), line 94 (15-min block enforced), line 95 (1-hr block enforced), line 85 (Retry-After on refusal)
   - **Verifies invariant:** I-021-1
   - **Consumes:** `AdminBansStore` ← T21.3-1; `RateLimiter` via factory ← T21.2-7.
-- [ ] **T21.3-3 — `middleware/rate-limit.ts`.** `rateLimitProcedure` per §API And Transport Changes: typed identity pair (D-021-14), `resolveTier` hook with D-021-5 cached membership read (elevated-eligible rows only), observe-mode pass-through (D-021-16), 25%-threshold header attachment + degraded suppression, 429 with the canonical envelope, 403 `ratelimit.banned` mapping. Unit tests: identity fallback chain (participant → ip; missing IP on anonymous endpoint → 400); tier never caller-supplied; observe mode emits telemetry but never denies; header policy rows (under-25% → no headers; ≥25% → headers; degraded → none; 429 → all four).
+- [ ] **T21.3-3 — `middleware/rate-limit.ts`.** `rateLimitProcedure` per §API And Transport Changes: typed identity pair (D-021-14), `resolveTier` hook with D-021-5 cached membership read (elevated-eligible rows only), observe-mode pass-through (D-021-16), 25%-threshold header attachment + degraded suppression, 429 with the canonical envelope, 403 `ratelimit.banned` mapping. Unit tests: identity fallback chain (participant → ip; missing IP on anonymous endpoint → 400); tier never caller-supplied; observe mode emits telemetry but never denies; header policy rows (remaining < 25% of limit → headers attach; remaining ≥ 25% → none; degraded → none; 429 → all four).
   - **Spec coverage:** Spec-021 line 116 (threshold-approach headers), line 84 (429), line 85 (Retry-After), line 86 (standard headers), line 109 (elevated resolution)
   - **Verifies invariant:** I-021-1, I-021-7
   - **Consumes:** `checkAdmission` ← T21.3-2; CP-008-5 mount surface ← Plan-008-remainder (Tier 5, §Preconditions); `AuthenticatedIdentityContext` (`ctx.participantId`) ← Plan-018; `session_memberships` read surface ← Plan-001/Plan-002 (shipped) for `resolveTier`.
-- [ ] **T21.3-4 — `middleware/ws-rate-limit.ts`.** `wsRateLimit` per §API And Transport Changes: drop-frame on counter trip (in-band `rate_limited` frame shape from T21.1-4), close `4029` only on ban/active block, single-signal outcome contract (caller performs send/close). Unit tests: trip → frame outcome + connection-stays-open; active block → close outcome with `retryAfter`; banned → close outcome; identity from connection principal only.
+- [ ] **T21.3-4 — `middleware/ws-rate-limit.ts`.** `wsRateLimit` per §API And Transport Changes: drop-frame on counter trip (in-band `rate_limited` frame shape from T21.1-4), close `4029` only on ban/active block, observe-mode pass-through (D-021-16; factory-provided `mode`), single-signal outcome contract (caller performs send/close). Unit tests: trip → frame outcome + connection-stays-open; active block → close outcome with `retryAfter`; banned → close outcome; observe mode → `{ proceed: true }` on trip/block/ban (telemetry only — never frame or close); identity from connection principal only.
   - **Spec coverage:** Spec-021 line 90 (WS overflow semantics), line 148 (per-frame limiting), line 72 (ws.message registry row)
   - **Verifies invariant:** I-021-1
-  - **Consumes:** `checkAdmission` ← T21.3-2; CP-008-9 seam ← Plan-008 R3 (hosted consumption; §Preconditions); Plan-025 steps 7-8 (self-host consumption, CP-021-3).
+  - **Consumes:** `checkAdmission` ← T21.3-2; factory `mode` ← T21.2-7; CP-008-9 seam ← Plan-008 R3 (hosted consumption; §Preconditions); Plan-025 steps 7-8 (self-host consumption, CP-021-3).
 - [ ] **T21.3-5 — `admin/bans-routes.ts`.** Raw HTTP routes (D-021-10) registered ahead of tRPC dispatch in the host fetch handler: `POST /admin/bans` (validate via `AdminBanCreateRequestSchema`; 201), `GET /admin/bans` (pagination), `DELETE /admin/bans/:id` (204/404). Operator-token auth per D-021-1 (constant-time compare; absent/malformed → 401 `auth.token_invalid`; mismatch → 403 `admin.forbidden`). On issue/revoke: ban-cache write-through invalidation (T21.3-2 hooks) + `admin_ban_total{action}` emission point (lands with T21.4-1).
   - **Spec coverage:** Spec-021 line 127 (the three routes), line 98 (exclusively via admin API), line 142 (ban example flow)
   - **Verifies invariant:** I-021-6
@@ -591,7 +597,7 @@ All rate-limited responses must set:
 
 The authoritative per-task test obligations live in each `#### Tasks` row above. Summary by layer:
 
-- **Unit (`packages/control-plane/src/rate-limit/*.test.ts`, `src/middleware/*.test.ts`, `src/admin/*.test.ts`):** factory table rows; fail-open grace + degraded suppression + transition log; escalation ladder threshold math on both stores; DO single-alarm re-arm + restart persistence; bans-store CRUD + 23505 + pagination; pipeline ordering (ban → block → counter); middleware identity/tier/header/observe rows; WS drop-frame vs close rows; metrics label guard + series count.
+- **Unit (`packages/control-plane/src/rate-limit/*.test.ts`, `src/middleware/*.test.ts`, `src/admin/*.test.ts`):** factory table rows; fail-open grace + degraded suppression + transition log; escalation ladder threshold math on both stores; DO single-alarm re-arm + restart persistence; bans-store CRUD + 23505 + pagination; pipeline ordering (ban → block → counter); middleware identity/tier/header/observe rows; WS drop-frame vs close vs observe rows; metrics label guard + series count.
 - **Migration-shape (`packages/control-plane/src/migrations/__tests__/`):** PGlite information_schema assertions + idempotent re-apply + I-021-6 race + CHECK rejection (T21.1-3).
 - **Contracts (`packages/contracts/src/__tests__/`):** Zod round-trips; 5-field envelope acceptance / 4-field rejection; registry-key union snapshot (T21.1-6).
 - **Contract parity suite (`rate-limiter-contract-suite.ts`):** the I-021-2 proof, run against both backends in CI and re-run by Plan-025 at Tier 7 (T21.2-9; CP-021-3).
