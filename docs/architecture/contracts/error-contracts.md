@@ -254,7 +254,7 @@ Repo-mount attach/detach/resolution errors (Plan-009 D-009-3, Tier-6 audit). The
 | `repo.not_found` | Repo mount does not exist | 404 |
 | `repo.root_resolution_failed` | Canonical repository root could not be resolved for the supplied path; attach fails explicitly rather than guessing (Spec-009 line 58) | 422 |
 | `repo.outside_trust_envelope` | Path or workspace binding resolves outside the session's declared local trust envelope (Spec-009 line 45 + §Local Trust Envelope) | 403 |
-| `repo.already_attached` | The resolved canonical root is already actively attached to this session (active-mount uniqueness, Plan-009 D-009-7) | 409 |
+| `repo.already_attached` | The resolved canonical root is already actively attached to this session on the same owning node (node-scoped active-mount uniqueness, Plan-009 D-009-7) | 409 |
 | `repo.detach_conflict` | Detach refused while a dependent workspace is `busy`; no force-detach in V1 (Spec-009 §Detach Semantics) | 409 |
 
 ### Worktree

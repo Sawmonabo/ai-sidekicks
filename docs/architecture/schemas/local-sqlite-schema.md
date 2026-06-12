@@ -310,10 +310,12 @@ CREATE TABLE repo_mounts (
 );
 
 CREATE INDEX idx_repo_mounts_session ON repo_mounts(session_id);
--- Active-mount uniqueness binds the CANONICAL root (Plan-009 D-009-7): two entered aliases
--- resolving to one root are one mount; detached rows stay re-attachable as new rows.
+-- Active-mount uniqueness binds the CANONICAL root per owning node (Plan-009 D-009-7): two
+-- entered aliases resolving to one root on one node are one mount; the same absolute path on two
+-- different nodes is two distinct node-local filesystems (Spec-009 line 73) and both attach;
+-- detached rows stay re-attachable as new rows.
 CREATE UNIQUE INDEX idx_repo_mounts_active_root
-  ON repo_mounts(session_id, canonical_root) WHERE state = 'attached';
+  ON repo_mounts(session_id, node_id, canonical_root) WHERE state = 'attached';
 
 -- Owner: Plan-009
 CREATE TABLE workspaces (
