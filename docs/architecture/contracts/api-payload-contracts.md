@@ -990,7 +990,7 @@ interface InterventionRequestResponse {
 
 // RunStateChange (event, not request/response). The `run.failed` variant carries the
 // `providerFailureDetail` surface that mirrors `DriverResumeResult.failure.providerFailureDetail`
-// (line 620 above) — Spec-005:60 requires resume-failure detail to reach the canonical audit
+// (line 657 above) — Spec-005:60 requires resume-failure detail to reach the canonical audit
 // log so Plan-015's recovery dispatcher and Plan-013's timeline can render the operator-actionable
 // reason for the failure without re-querying the driver. Plan-005 CP-005-5; Plan-006 Phase 3 audit.
 interface RunStateChangeEvent {
