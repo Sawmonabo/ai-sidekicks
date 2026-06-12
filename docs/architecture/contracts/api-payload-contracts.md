@@ -1251,7 +1251,7 @@ interface WorkspaceBindRequest {
 }
 interface WorkspaceBindResponse {
   workspaceId: WorkspaceId;
-  fsRoot: string;
+  fsRoot?: string; // absent while state = 'provisioning' (writable binds — Plan-010 fills the root at provisioning completion); present for read-only binds (the mount canonical root)
   executionMode: ExecutionMode;
   state: WorkspaceState;
 }
@@ -2391,7 +2391,7 @@ interface RateLimitedFrame {
 }
 
 // Close on ban / active escalation block only
-// code: 4029, reason: "rate_limit_blocked;retryAfter=<seconds>"
+// code: 4029, reason: "rate_limit_blocked;retryAfter=<seconds>" (retryAfter segment omitted for permanent bans — no expiry exists)
 ```
 
 ### Spec-022 — Data Retention And GDPR

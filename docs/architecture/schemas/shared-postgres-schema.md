@@ -313,16 +313,14 @@ CREATE TABLE admin_bans (
 );
 
 -- One-active-ban enforcement: partial UNIQUE applies only to non-revoked rows. The predicate
--- cannot test expiry (now() is not IMMUTABLE), so an expired-but-unrevoked row keeps the slot;
--- the issue path supersedes such a conflict by atomic revoke-then-insert (Plan-021 D-021-12).
+-- cannot test expiry (now() is not IMMUTABLE — true of ANY index predicate, so no separate
+-- expiry-filtered lookup index can exist either); an expired-but-unrevoked row keeps the slot and
+-- the issue path supersedes it by atomic revoke-then-insert (Plan-021 D-021-12). This index also
+-- serves the ban-check hot read: findActive scans it and filters expiry in the query
+-- (AND (expires_at IS NULL OR expires_at > now())) at execution time.
 CREATE UNIQUE INDEX idx_admin_bans_one_active
   ON admin_bans (identity, identity_type)
   WHERE revoked_at IS NULL;
-
--- Hot read path: covers ban-check query (active, non-expired).
-CREATE INDEX idx_admin_bans_lookup
-  ON admin_bans (identity, identity_type)
-  WHERE revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now());
 
 -- Owner: Plan-021 (self-host only; hosted uses RateLimitEscalationDO)
 CREATE TABLE rate_limit_escalations (

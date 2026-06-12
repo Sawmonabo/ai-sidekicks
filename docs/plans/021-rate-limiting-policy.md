@@ -109,7 +109,7 @@ CHECK (identity_type IN ('participant', 'ip', 'token_hash', 'session'))
 ```
 
 - **One-active-ban enforcement (I-021-6):** `UNIQUE INDEX idx_admin_bans_one_active ON admin_bans (identity, identity_type) WHERE revoked_at IS NULL`. Postgres treats `NULL` as distinct in standard `UNIQUE` column constraints, so a partial index with `WHERE revoked_at IS NULL` is the correct idiom — it applies uniqueness only to active rows, admitting as many revoked (non-NULL `revoked_at`) rows as history requires.
-- **Hot read path:** `idx_admin_bans_lookup ON (identity, identity_type) WHERE revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())` is a second partial index covering the ban-check query. Two partial indexes on the same column set is intentional: one enforces uniqueness on active rows, the other accelerates the ban-check read (which also filters out expired bans).
+- **Hot read path:** the `idx_admin_bans_one_active` partial unique index doubles as the ban-check covering index — `findActive` scans `(identity, identity_type) WHERE revoked_at IS NULL` and filters expiry in the query (`AND (expires_at IS NULL OR expires_at > now())`) at execution time. No second expiry-filtered index exists: `now()` is not IMMUTABLE, so it cannot appear in ANY index predicate (the same constraint behind the D-021-12 supersession path).
 
 ### Postgres: `rate_limit_escalations` (new, self-host only — hosted uses DO)
 
@@ -259,7 +259,7 @@ Internal seam co-located with the backends — deliberately NOT in `packages/con
 // packages/control-plane/src/rate-limit/enforcement-pipeline.ts
 export type AdmissionResult =
   | { admitted: true; check: RateLimitCheckResponse }
-  | { admitted: false; refusal: "banned" } // 403 ratelimit.banned — terminal, no counter consumed
+  | { admitted: false; refusal: "banned"; expiresAt: string | null } // 403 ratelimit.banned — terminal, no counter consumed; expiresAt = admin_bans.expires_at (null = permanent) — the close/Retry-After hint source
   | { admitted: false; refusal: "rate_limited"; check: RateLimitCheckResponse }; // 429 (block or counter)
 
 export function createAdmissionCheck(deps: {
@@ -346,12 +346,13 @@ export const rateLimitProcedure = (opts: {
       if (admission.refusal === "banned") throw forbidden("ratelimit.banned"); // 403, Spec-021 §Example Flows
       throw tooManyRequests(rateLimitResponseFrom(admission.check)); // 429 + canonical envelope + headers
     }
+    // headersFrom: {} for banned arms — headers are a 429/threshold surface, never a ban surface
     return next({ ctx: { ...ctx, rateLimitHeaders: headersFrom(admission) } });
   });
 ```
 
 - Usage on a procedure: `t.procedure.use(rateLimitProcedure({ endpoint: 'session.create' }))`. The tRPC v11 middleware chaining model is documented in [tRPC v11 middlewares](https://trpc.io/docs/server/middlewares) (uses `.use()` with opts `{ ctx, path, type, input, getRawInput, next }`).
-- Header policy: all four headers on every 429; on allowed responses, headers attach only when `remaining < 25%` of the limit; no headers while `degraded` is set (Spec-021 §Default Behavior; A-021-18).
+- Header policy: all four headers on every 429; on allowed responses, headers attach only when `remaining < 25%` of the limit; no headers while `degraded` is set (Spec-021 §Default Behavior; A-021-18); never on the 403 ban path (bans carry no counter state).
 
 ### WebSocket per-frame admission (consumed via CP-008-9 hosted; Plan-025 self-host)
 
@@ -375,7 +376,7 @@ export const wsRateLimit =
     if (admission.admitted) return { proceed: true };
     if (mode === "observe") return { proceed: true }; // D-021-16 soak: telemetry emitted by checkAdmission; never frame-drop or close
     if (admission.refusal === "banned" || isActiveBlock(admission)) {
-      return { proceed: false, close: { code: 4029, retryAfter: retryAfterFrom(admission) } }; // teardown only on ban/block (D-021-9)
+      return { proceed: false, close: { code: 4029, retryAfter: retryAfterFrom(admission) } }; // teardown only on ban/block (D-021-9); retryAfter: block → blockUntil, timed ban → expiresAt, permanent ban → omitted
     }
     return { proceed: false, sendFrame: rateLimitedFrame(admission.check) }; // drop-frame: in-band signal, connection stays open
   };
@@ -546,19 +547,19 @@ All rate-limited responses must set:
 
 #### Tasks
 
-- [ ] **T21.3-1 — `admin/bans-store.ts`.** Postgres `AdminBansStore`: `issue` (insert; 23505 conflict with an active ban → typed already-exists error → 409; conflict with an expired non-revoked ban → atomic revoke-then-insert supersession per D-021-12), `revoke` (set revoked_at/revoked_by; missing/already-revoked → not-found), `list` (paginated, `activeOnly` default), `findActive` (single indexed lookup via `idx_admin_bans_lookup`; expired filtered). Unit tests: issue → findActive returns ban; revoke → null; expired auto-filtered; issue over expired ban supersedes (old row revoked, new row active); 23505 mapping (I-021-6); pagination cursor.
+- [ ] **T21.3-1 — `admin/bans-store.ts`.** Postgres `AdminBansStore`: `issue` (insert; 23505 conflict with an active ban → typed already-exists error → 409; conflict with an expired non-revoked ban → atomic revoke-then-insert supersession per D-021-12), `revoke` (set revoked_at/revoked_by; missing/already-revoked → not-found), `list` (paginated, `activeOnly` default), `findActive` (single indexed lookup via the `idx_admin_bans_one_active` partial index; expiry filtered in the query — `now()` cannot appear in an index predicate). Unit tests: issue → findActive returns ban; revoke → null; expired auto-filtered; issue over expired ban supersedes (old row revoked, new row active); 23505 mapping (I-021-6); pagination cursor.
   - **Spec coverage:** Spec-021 line 98 (admin-API-exclusive ban management), line 135 (durable bans), line 127 (route-backing store shapes)
   - **Verifies invariant:** I-021-6
   - **Consumes:** `AdminBansStore` contract ← T21.1-2; `admin_bans` ← T21.1-3; pg client seam (injected; hosted production = Plan-008's Tier-5 Hyperdrive-backed Querier substrate, self-host = Plan-025 pool).
-- [ ] **T21.3-2 — `rate-limit/enforcement-pipeline.ts`.** `createAdmissionCheck` per §API And Transport Changes — returns `{ check, invalidateBanCache }`: ban (≤60s cache; write-through = T21.3-5 calls `invalidateBanCache` on issue/revoke; D-021-5) → `limiter.check`; `onTrip` seam fires on every `rate_limited` result in observe and enforce alike (T21.4-1 binds `rate_limit_trip_total{endpoint,tier}` — the D-021-16 soak input). Unit tests: banned → `{ refusal: "banned" }` without counter consumption (I-021-1); blocked → 429-shaped result with block-remaining; clean → counter path; cache: issue → `invalidateBanCache` → immediate enforcement; cross-process staleness bounded by TTL (fake timers); `onTrip` fires for would-be 429s with no mode dependence.
+- [ ] **T21.3-2 — `rate-limit/enforcement-pipeline.ts`.** `createAdmissionCheck` per §API And Transport Changes — returns `{ check, invalidateBanCache }`: ban (≤60s cache; write-through = T21.3-5 calls `invalidateBanCache` on issue/revoke; D-021-5) → `limiter.check`; `onTrip` seam fires on every `rate_limited` result in observe and enforce alike (T21.4-1 binds `rate_limit_trip_total{endpoint,tier}` — the D-021-16 soak input). Unit tests: banned → `{ refusal: "banned", expiresAt }` (carries `admin_bans.expires_at`; null = permanent) without counter consumption (I-021-1); blocked → 429-shaped result with block-remaining; clean → counter path; cache: issue → `invalidateBanCache` → immediate enforcement; cross-process staleness bounded by TTL (fake timers); `onTrip` fires for would-be 429s with no mode dependence.
   - **Spec coverage:** Spec-021 line 142 (banned identity → 403 on future requests), line 94 (15-min block enforced), line 95 (1-hr block enforced), line 85 (Retry-After on refusal)
   - **Verifies invariant:** I-021-1
   - **Consumes:** `AdminBansStore` ← T21.3-1; `RateLimiter` via factory ← T21.2-7.
-- [ ] **T21.3-3 — `middleware/rate-limit.ts`.** `rateLimitProcedure` per §API And Transport Changes: typed identity pair (D-021-14), `resolveTier` hook with D-021-5 cached membership read (elevated-eligible rows only), observe-mode pass-through (D-021-16), 25%-threshold header attachment + degraded suppression, 429 with the canonical envelope, 403 `ratelimit.banned` mapping. Unit tests: identity fallback chain (participant → ip; missing IP on anonymous endpoint → 400); tier never caller-supplied; observe mode emits telemetry but never denies; header policy rows (remaining < 25% of limit → headers attach; remaining ≥ 25% → none; degraded → none; 429 → all four).
+- [ ] **T21.3-3 — `middleware/rate-limit.ts`.** `rateLimitProcedure` per §API And Transport Changes: typed identity pair (D-021-14), `resolveTier` hook with D-021-5 cached membership read (elevated-eligible rows only), observe-mode pass-through (D-021-16), 25%-threshold header attachment + degraded suppression, 429 with the canonical envelope, 403 `ratelimit.banned` mapping. Unit tests: identity fallback chain (participant → ip; missing IP on anonymous endpoint → 400); tier never caller-supplied; observe mode emits telemetry but never denies; header policy rows (remaining < 25% of limit → headers attach; remaining ≥ 25% → none; degraded → none; 429 → all four); banned arms attach no rate-limit headers (403 and observe pass-through alike).
   - **Spec coverage:** Spec-021 line 116 (threshold-approach headers), line 84 (429), line 85 (Retry-After), line 86 (standard headers), line 109 (elevated resolution)
   - **Verifies invariant:** I-021-1, I-021-7
   - **Consumes:** `checkAdmission` ← T21.3-2; CP-008-5 mount surface ← Plan-008-remainder (Tier 5, §Preconditions); `AuthenticatedIdentityContext` (`ctx.participantId`) ← Plan-018; `session_memberships` read surface ← Plan-001/Plan-002 (shipped) for `resolveTier`.
-- [ ] **T21.3-4 — `middleware/ws-rate-limit.ts`.** `wsRateLimit` per §API And Transport Changes: drop-frame on counter trip (in-band `rate_limited` frame shape from T21.1-4), close `4029` only on ban/active block, observe-mode pass-through (D-021-16; factory-provided `mode`), envelope-kind endpoint routing (`endpointFor`: heartbeat-kind frames → `presence.heartbeat`, default `ws.message` — envelope `type` byte only, CP-008-9-safe), single-signal outcome contract (caller performs send/close). Unit tests: trip → frame outcome + connection-stays-open; active block → close outcome with `retryAfter`; banned → close outcome; observe mode → `{ proceed: true }` on trip/block/ban (telemetry only — never frame or close); heartbeat-kind frame routes to `presence.heartbeat` while other frames stay `ws.message`; identity from connection principal only.
+- [ ] **T21.3-4 — `middleware/ws-rate-limit.ts`.** `wsRateLimit` per §API And Transport Changes: drop-frame on counter trip (in-band `rate_limited` frame shape from T21.1-4), close `4029` only on ban/active block, observe-mode pass-through (D-021-16; factory-provided `mode`), envelope-kind endpoint routing (`endpointFor`: heartbeat-kind frames → `presence.heartbeat`, default `ws.message` — envelope `type` byte only, CP-008-9-safe), single-signal outcome contract (caller performs send/close). Unit tests: trip → frame outcome + connection-stays-open; active block → close outcome with `retryAfter`; banned → close outcome (`retryAfter` = ban `expiresAt` when timed, omitted when permanent); observe mode → `{ proceed: true }` on trip/block/ban (telemetry only — never frame or close); heartbeat-kind frame routes to `presence.heartbeat` while other frames stay `ws.message`; identity from connection principal only.
   - **Spec coverage:** Spec-021 line 90 (WS overflow semantics), line 148 (per-frame limiting), line 72 (ws.message registry row), line 66 (presence.heartbeat registry row — routed by `endpointFor`)
   - **Verifies invariant:** I-021-1
   - **Consumes:** `checkAdmission` ← T21.3-2; factory `mode` ← T21.2-7; CP-008-9 seam ← Plan-008 R3 (hosted consumption; §Preconditions); Plan-025 steps 7-8 (self-host consumption, CP-021-3).
