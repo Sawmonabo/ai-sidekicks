@@ -105,7 +105,7 @@ interface RateLimitResponse {
   retryAfter?: number; // seconds until retry is allowed — sliding-window/escalation refusals; omitted on concurrency-cap refusals (capacity frees on release; no reset clock — Spec-021 §Overflow Response)
   limit: number; // total allowed requests in the window (the cap itself on concurrency-cap refusals)
   remaining: number; // requests remaining in the current window
-  resetAt?: string; // ISO 8601 timestamp when the limit resets — same enforcement-class rule as retryAfter
+  resetAt?: string; // ISO 8601 timestamp when the limit resets — same enforcement-class rule as retryAfter; the pair is both-present or both-absent (schema-refined, Plan-021 T21.1-1)
 }
 ```
 
