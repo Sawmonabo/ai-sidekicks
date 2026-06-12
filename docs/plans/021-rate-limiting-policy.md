@@ -35,7 +35,7 @@ Ship the Spec-021 rate-limiting enforcement layer across the control-plane tRPC 
   - `DELETE /admin/bans/{id}` — revoke a ban.
 - `admin_bans` Postgres table (shared between both deployments — hosted and self-host both have Postgres per ADR-004).
 - Fail-open grace period controlled by `AIS_RATELIMIT_FAILOPEN_SECONDS` env var (default 60s); after grace, fail-closed with HTTP 503; degraded responses carry `degraded: true` and suppress all `X-RateLimit-*` headers (A-021-18).
-- Retry-After and standard rate-limit headers on every 429; on allowed responses headers attach only when `remaining < 25%` of the limit (Spec-021 §Default Behavior).
+- Retry-After and standard rate-limit headers on sliding-window and escalation 429s — concurrency-cap refusals omit the timing pair and send only the truthful subset `X-RateLimit-Limit` + `X-RateLimit-Remaining: 0` (Spec-021 §Overflow Response); on allowed responses headers attach only when `remaining < 25%` of the limit (Spec-021 §Default Behavior).
 - Prometheus-compatible metrics, canonical snake spelling (D-021-8): `rate_limit_trip_total{endpoint,tier}`, `rate_limit_block_total{window_size}`, `rate_limit_backend_error_total{backend}`, `rate_limit_failclosed_total{backend}`, `admin_ban_total{action}`. Registration + emission only; exposition is downstream (D-021-15).
 
 ## Non-Goals
@@ -361,7 +361,7 @@ export const rateLimitProcedure = (opts: {
 ```
 
 - Usage on a procedure: `t.procedure.use(rateLimitProcedure({ endpoint: 'session.create' }))`. The tRPC v11 middleware chaining model is documented in [tRPC v11 middlewares](https://trpc.io/docs/server/middlewares) (uses `.use()` with opts `{ ctx, path, type, input, getRawInput, next }`).
-- Header policy: all four headers on every 429; on allowed responses, headers attach only when `remaining < 25%` of the limit; no headers while `degraded` is set (Spec-021 §Default Behavior; A-021-18); never on the 403 ban path (bans carry no counter state).
+- Header policy: all four headers on sliding-window and escalation-block 429s; concurrency-cap 429s omit `Retry-After`/`X-RateLimit-Reset` and send the truthful subset `X-RateLimit-Limit` + `X-RateLimit-Remaining: 0` (Spec-021 §Overflow Response — cap capacity frees on holder release, not at a reset clock); on allowed responses, headers attach only when `remaining < 25%` of the limit; no headers while `degraded` is set (Spec-021 §Default Behavior; A-021-18); never on the 403 ban path (bans carry no counter state).
 
 ### WebSocket per-frame admission (consumed via CP-008-9 hosted; Plan-025 self-host)
 

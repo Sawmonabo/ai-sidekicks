@@ -1002,6 +1002,7 @@ interface RunStateChangeEvent {
   recoveryCondition?: "recovery-needed";
   healthSignal?: "stuck-suspected";
   providerFailureDetail?: string; // populated on `run.failed` when failureCategory='provider'
+  trigger?: "turn_limit" | "budget_exhausted" | "idle_timeout" | "moderation_denied"; // stop-condition provenance (additive per ADR-018): 'turn_limit' rides run.completed at the turn limit (Plan-016 D-016-8 — the value CP-004-10 adds to Plan-004's trigger set); the three InterruptReason values ride run.interrupted on system interrupts (D-016-7). Absent on natural completion and user-initiated paths; the Runs View / timeline stop-condition rendering (Spec-023) reads this field.
   timestamp: string;
 }
 
@@ -2132,7 +2133,7 @@ interface ChildRunLinkReadResponse {
     // folded from `orchestration.rejected` events with payload.parentRunId = request.parentRunId
     targetChannelId?: ChannelId;
     targetAgentId?: AgentId;
-    reason: string; // error-contracts.md §Orchestration refusal code
+    reason: string; // the refusing error-contracts.md code — the orchestration.runCreate admission vocabulary spans §Agent (agent.not_found / agent.not_ready), §Channel (channel.inactive), §Orchestration, and §Run (run.not_found parent reuse, D-016-16)
     detail?: string;
     occurredAt: string; // the event envelope timestamp
   }>;

@@ -170,7 +170,7 @@ Payload shapes: `arbitration.*` carry `{sessionId, channelId, unreachableNodeId,
 | --- | --- |
 | `arbitration.paused` | A `round-robin` channel's next-due agent sits on a runtime node that has transitioned to `offline` per [Spec-003](./003-runtime-node-attach.md). Arbitration halts so canonical turn ordering is preserved rather than skipping ahead. |
 | `arbitration.resumed` | The previously unreachable node has reconnected and canonical ordering has been restored; arbitration resumes from the stored next-due agent. |
-| `orchestration.rejected` | An orchestration run-create admission was refused (depth, active-child, scheduler, budget, or turn-policy limit — `reason` carries the [error-contracts.md §Orchestration](../architecture/contracts/error-contracts.md) code). Durable so refusals are visible to observers per [Spec-016](./016-multi-agent-channels-and-orchestration.md) ("records the refusal visibly", §Example Flows; explicit limit/capacity detail per §Fallback Behavior); emitter Plan-016 (Tier-6 audit, D-016-11). |
+| `orchestration.rejected` | An orchestration run-create admission was refused (any admission gate — agent readiness, channel state, depth, active-child, scheduler, budget, or turn policy — `reason` carries the refusing [error-contracts.md](../architecture/contracts/error-contracts.md) code: the §Orchestration rows plus the reused §Agent / §Channel / §Run codes, e.g. `agent.not_ready`, `channel.inactive`, `run.not_found` per D-016-16). Durable so refusals are visible to observers per [Spec-016](./016-multi-agent-channels-and-orchestration.md) ("records the refusal visibly", §Example Flows; explicit limit/capacity detail per §Fallback Behavior); emitter Plan-016 (Tier-6 audit, D-016-11). |
 
 > See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed payload definitions.
 
@@ -178,7 +178,7 @@ Payload shapes: `arbitration.*` carry `{sessionId, channelId, unreachableNodeId,
 
 One event per state from the [Run State Machine](../domain/run-state-machine.md)'s 9 canonical states.
 
-Payload shape: `{sessionId, runId, runVersion, previousState, newState, channelId?, failureCategory?: RunFailureCategory, recoveryCondition?: 'recovery-needed', trigger?}`
+Payload shape: `{sessionId, runId, runVersion, previousState, newState, channelId?, failureCategory?: RunFailureCategory, recoveryCondition?: 'recovery-needed', trigger?: 'turn_limit' | 'budget_exhausted' | 'idle_timeout' | 'moderation_denied'}`
 
 `runVersion` is the run aggregate's **any-run-progression counter** (Plan-004 D-004-1): it increments on every run progression — applied interventions included, not only the state transitions enumerated below — and is the optimistic-concurrency token the `expectedRunVersion` intervention guard compares against ([Spec-004 §Interfaces And Contracts](004-queue-steer-pause-resume.md#interfaces-and-contracts)). It is a **payload** field, distinct from the envelope-level `.version` (§EventEnvelope Version Semantics above): `.version` is the immutable semver wire-contract version bound into the Ed25519 signature, whereas `runVersion` is a mutable per-run counter carried inside `payload` — the two share the word "version" but are different contracts and must never be conflated. Because `runVersion` also advances on applied interventions that cause no state change (e.g. a native steer), the authoritative source of a run's current `runVersion` is the run-state read / `run.subscribeState` stream and the intervention / pause / resume responses, not the `run.*` event sequence alone. A no-state-change advance is **not** broadcast as a discrete `run.*` event — there is no state transition to record ([Spec-004:85](004-queue-steer-pause-resume.md)) — so a _non-intervening_ subscriber tracking `runVersion` off the event sequence may hold a stale comparand. Its next guarded intervention / pause / resume is then correctly rejected `expired` (the comparand genuinely _is_ stale — this is the optimistic-concurrency guard working, not a false rejection), whereupon it re-reads run-state for the fresh `runVersion` and retries: the reject → re-read → retry loop is the designed correction, and V1 adds **no** broadcast/read-model push for no-state-change bumps. The _intervening_ caller never round-trips — its `RunControlAck` / `InterventionRequestResponse` / pause-resume ack carries the post-application `runVersion` directly (per [api-payload-contracts.md](../architecture/contracts/api-payload-contracts.md)).
 
@@ -190,8 +190,8 @@ Payload shape: `{sessionId, runId, runVersion, previousState, newState, channelI
 | `run.waiting_for_approval` | The run is blocked on an approval request. |
 | `run.waiting_for_input` | The run is blocked on participant input or structured answers. |
 | `run.paused` | The run has been intentionally suspended. |
-| `run.completed` | The run finished successfully. |
-| `run.interrupted` | The run ended due to an interrupt or cancel path. |
+| `run.completed` | The run finished successfully. `trigger: 'turn_limit'` marks a turn-limit completion (Plan-016 D-016-8); absent on natural completion. |
+| `run.interrupted` | The run ended due to an interrupt or cancel path. System interrupts carry `trigger` from the Plan-016 `InterruptReason` closed set (`budget_exhausted` / `idle_timeout` / `moderation_denied`, D-016-7); absent on user-initiated cancel. |
 | `run.failed` | The run ended due to an unrecovered error. `failureCategory` and `recoveryCondition` provide detail. |
 
 > See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed payload definitions.

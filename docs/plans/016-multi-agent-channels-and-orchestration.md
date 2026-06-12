@@ -42,7 +42,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 - `packages/contracts/src/orchestration.ts` (NEW — single contract file per D-016-1; the pre-audit `src/channels/` + `src/orchestration/` contract directories are struck)
 - `packages/contracts/src/event.ts` (EXTEND — union registration for the new event payload schemas + additive `config?` on the shipped `channelCreatedPayloadSchema`)
-- `packages/runtime-daemon/src/db/migrations/` (EXTEND — `channels` / `run_links` / `agents` / `session_budgets`)
+- `packages/runtime-daemon/src/migrations/` (new guarded-block migration — `channels` / `run_links` / `agents` / `session_budgets`) + `packages/runtime-daemon/src/session/migration-runner.ts` (EXTEND)
 - `packages/runtime-daemon/src/orchestration/` (NEW directory per [cross-plan §2](../architecture/cross-plan-dependencies.md)): `agent-service.ts`, `channel-service.ts`, `orchestration-run-service.ts`, `run-link-projector.ts`, `budget-accountant.ts`, `turn-policy-arbiter.ts`, `idle-sweep.ts`, `moderation-gate.ts`, `errors.ts`
 - `packages/runtime-daemon/src/ipc/handlers/` (EXTEND — `channel.*` / `orchestration.*` / `agent.*` namespace binders)
 - `packages/client-sdk/src/orchestrationClient.ts` (NEW)
@@ -132,7 +132,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 **Goal:** The single-file contract surface, event payload schemas + union registration, and the four-table migration — everything later phases import.
 
-**Scope:** `packages/contracts/src/orchestration.ts` (NEW), `packages/contracts/src/event.ts` (EXTEND), `packages/runtime-daemon/src/db/migrations/` (EXTEND).
+**Scope:** `packages/contracts/src/orchestration.ts` (NEW), `packages/contracts/src/event.ts` (EXTEND), `packages/runtime-daemon/src/migrations/` + `packages/runtime-daemon/src/session/migration-runner.ts` (EXTEND).
 
 **Precondition:** Plan-006 Phase 1 shipped (`EventCategory.channel_arbitration` present; event registration seam live).
 
@@ -153,14 +153,14 @@ Target paths below assume the canonical implementation topology defined in [Cont
   - **Verifies invariant:** I-016-1.
   - **Tests:** request validation rows (missing/invalid fields per pair, incl. negative / non-integer budget limits refused — `.int().nonnegative()`, the `session_budgets` CHECK mirror); response parity assertions against the api-payload block; `agent.configUpdate` `defaultNodeId` tri-state rows (absent = unchanged, `null` = clear-pin, value = rebind — `z.union([NodeIdSchema, z.null()]).optional()`); carrier round-trip.
 - **T1.3 — Migration: `channels` / `run_links` / `agents` / `session_budgets`.**
-  - **Files:** `packages/runtime-daemon/src/db/migrations/` (EXTEND — next migration number at execution time).
+  - **Files:** `packages/runtime-daemon/src/migrations/0NNN-orchestration.ts` (CREATE — NNN = next free version per migration-runner append order at PR-open time), `packages/runtime-daemon/src/session/migration-runner.ts` (EXTEND — version-N guarded `if (!hasMigrationApplied(db, N))` block with `db.transaction(...).immediate()` + in-transaction re-check, per the runner's documented extension contract).
   - **Provides:** the four tables byte-matching [local-sqlite-schema.md §Channel and Orchestration Tables](../architecture/schemas/local-sqlite-schema.md) (CHECK constraints, indexes, defaults).
   - **Consumes:** Plan-001 migration-runner seam (shipped).
   - **Spec coverage:** Spec-016 §State And Data Implications (durable + replayable).
   - **Verifies invariant:** I-016-3, I-016-10.
   - **Tests:** migration up + idempotence; CHECK rejection rows (bad state, bad link_type, `internal_helper` ∉ {0,1}, negative / non-integer budget limits); duplicate-`child_run_id` second-parent insert rejected (single-parent PK); index presence.
 - **T1.4 — Contract ↔ DDL conformance suite.**
-  - **Files:** `packages/runtime-daemon/src/db/__tests__/orchestration-schema-conformance.test.ts` (NEW).
+  - **Files:** `packages/runtime-daemon/src/orchestration/__tests__/orchestration-schema-conformance.test.ts` (NEW).
   - **Provides:** mechanical lockstep checks — `ChannelState` / `AgentState` / `LinkType` contract enums vs DDL CHECK lists; `session_budgets` columns vs `OrchestrationBudgetState` fields; defaults vs the Spec-016 §Budget Policies + §Scheduler Limits tables (100000 tokens / 1000¢ / 50 turns / 5 channels / 25 depth / 10 pending / 5 children / 300000 ms); `session_budgets` non-negative-integer CHECKs vs the wire pairs' `.int().nonnegative()` bounds.
   - **Consumes:** T1.1–T1.3.
   - **Spec coverage:** Spec-016 §Budget Policies line 101 (defaults table), §Scheduler Limits line 143 (defaults table).
