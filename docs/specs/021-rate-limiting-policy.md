@@ -124,7 +124,7 @@ Counter limits — registry rows with enforcement class `sliding_window` — use
 
 ## Interfaces And Contracts
 
-- `RateLimitCheck(identity, identityType, endpoint, tier?, context?) -> { allowed: boolean, remaining: number, resetAt: timestamp, limit: number, degraded?: true }` must be callable before request processing (Tier-6 audit — five-field request / four-field response plus the fail-open `degraded` marker, set only during grace).
+- `RateLimitCheck(identity, identityType, endpoint, tier?, context?) -> { allowed: boolean, remaining: number, resetAt: timestamp, limit: number, degraded?: true, blockUntil?: timestamp }` must be callable before request processing (Tier-6 audit — five-field request / four-field response plus two markers: the fail-open `degraded` marker, set only during grace, and the `blockUntil` marker, set only while an active §Escalation block denies the identity — it carries the block expiry and discriminates counter trips from active blocks).
 - All HTTP responses from rate-limited endpoints must include `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset` headers, subject to the §Default Behavior threshold-approach and degraded-suppression rules.
 - The admin API must expose `POST /admin/bans`, `GET /admin/bans`, and `DELETE /admin/bans/{id}` for ban management (Tier-6 audit, D-021-12 adds the list route).
 - See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.

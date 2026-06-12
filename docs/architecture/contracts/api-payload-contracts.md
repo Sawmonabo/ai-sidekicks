@@ -1382,6 +1382,7 @@ interface EphemeralClonePrepareResponse {
   cloneRoot: string;
   state: Extract<EphemeralCloneState, "creating" | "ready">;
   cleanupPolicy: "on_run_complete" | "manual"; // effective policy, reported per Spec-010 §Interfaces
+  branchName: string; // effective head branch (caller-supplied or slug-derived), persisted on the clone row
   expiresAt: string; // ISO-8601 TTL deadline
 }
 
@@ -1426,6 +1427,7 @@ interface WorktreeStatusReadResponse {
     cloneId: EphemeralCloneId;
     workspaceId: WorkspaceId;
     cloneRoot: string;
+    branchName: string; // head branch inside the clone (Spec-010 §Interfaces: the status read exposes branch for clone records)
     state: EphemeralCloneState;
     cleanupPolicy: "on_run_complete" | "manual";
     expiresAt: string;
@@ -2166,7 +2168,7 @@ interface AgentConfigUpdateRequest {
   agentId: AgentId;
   name?: string;
   modelId?: string;
-  defaultNodeId?: NodeId; // rebinding may flip "configured" <-> "ready"
+  defaultNodeId?: NodeId | null; // tri-state: absent = leave unchanged; null = clear the pin (table NULL = any local attached node); value = rebind — rebinding/clearing may flip "configured" <-> "ready"
   config?: Record<string, unknown>;
 }
 interface AgentConfigUpdateResponse {
@@ -2335,6 +2337,7 @@ interface RateLimitCheckResponse {
   resetAt: string; // ISO 8601
   limit: number; // total threshold for this window
   degraded?: true; // fail-open grace only; consumers suppress X-RateLimit-* headers
+  blockUntil?: string; // ISO 8601; set only when the denial is an active escalation block — the trip-vs-block discriminator (Plan-021 D-021-3)
 }
 ```
 

@@ -151,7 +151,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
   - **Consumes:** T1.1 enums/configs; `SessionId` (Plan-001).
   - **Spec coverage:** Spec-016 §Interfaces And Contracts (all interface bullets + budget surface).
   - **Verifies invariant:** I-016-1.
-  - **Tests:** request validation rows (missing/invalid fields per pair, incl. negative / non-integer budget limits refused — `.int().nonnegative()`, the `session_budgets` CHECK mirror); response parity assertions against the api-payload block; carrier round-trip.
+  - **Tests:** request validation rows (missing/invalid fields per pair, incl. negative / non-integer budget limits refused — `.int().nonnegative()`, the `session_budgets` CHECK mirror); response parity assertions against the api-payload block; `agent.configUpdate` `defaultNodeId` tri-state rows (absent = unchanged, `null` = clear-pin, value = rebind — `z.union([NodeIdSchema, z.null()]).optional()`); carrier round-trip.
 - **T1.3 — Migration: `channels` / `run_links` / `agents` / `session_budgets`.**
   - **Files:** `packages/runtime-daemon/src/db/migrations/` (EXTEND — next migration number at execution time).
   - **Provides:** the four tables byte-matching [local-sqlite-schema.md §Channel and Orchestration Tables](../architecture/schemas/local-sqlite-schema.md) (CHECK constraints, indexes, defaults).
@@ -183,7 +183,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
   - **Consumes:** T1.1 schemas; `EventLogService.append` (CP-016-4); `runtimenode.roster` for attach-time node resolution (CP-016-8).
   - **Spec coverage:** Spec-016 §Required Behavior (per-agent model/driver/node selection); Spec-016 §Interfaces And Contracts (agent surface).
   - **Verifies invariant:** I-016-20.
-  - **Tests:** attach → `ready` vs `configured` (node present/absent); detach → `disabled`; re-attach → `ready`; replay rebuilds the projection byte-equal from events alone; `agent.not_found` / `agent.not_ready` refusals.
+  - **Tests:** attach → `ready` vs `configured` (node present/absent); detach → `disabled`; re-attach → `ready`; `configUpdate` `defaultNodeId: null` clears the pin (row `NULL` = any local attached node) and recomputes `configured` → `ready` while a node is attached; replay rebuilds the projection byte-equal from events alone; `agent.not_found` / `agent.not_ready` refusals.
 - **T2.2 — Channel service + main-channel guards.**
   - **Files:** `packages/runtime-daemon/src/orchestration/channel-service.ts` (NEW).
   - **Provides:** create (config validation incl. round-robin order; `MAIN_CHANNEL_NAME` refusal → `channel.name_reserved`); mute/unmute/archive with transition guards (archived terminal); roster projection (rows + synthesized main first + arbitration facet join); `channel.created/muted/unmuted/archived` emission.

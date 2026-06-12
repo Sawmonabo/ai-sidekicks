@@ -362,6 +362,7 @@ CREATE TABLE ephemeral_clones (
   id              TEXT PRIMARY KEY,
   workspace_id    TEXT NOT NULL REFERENCES workspaces(id),
   clone_root      TEXT NOT NULL,              -- filesystem path (under the daemon execution-roots dir, D-010-6)
+  branch_name     TEXT NOT NULL,              -- head branch inside the clone (caller-supplied or slug-derived at prepare; the status read exposes it — Spec-010 §Interfaces)
   cleanup_policy  TEXT NOT NULL DEFAULT 'on_run_complete'
                   CHECK(cleanup_policy IN ('on_run_complete', 'manual')),
   state           TEXT NOT NULL DEFAULT 'creating'
