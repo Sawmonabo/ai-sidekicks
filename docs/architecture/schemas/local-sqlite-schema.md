@@ -411,7 +411,15 @@ CREATE TABLE run_execution_contexts (
   branch_context_id  TEXT REFERENCES branch_contexts(id),
   created_at         TEXT NOT NULL,
   released_at        TEXT,
-  CHECK (worktree_id IS NULL OR ephemeral_clone_id IS NULL)
+  -- Mode-conditional identity (Tier-6 audit): the mode names exactly which root id is
+  -- present, and every writable mode carries its branch context (Spec-010 §State And
+  -- Data Implications); read-only carries none of the three.
+  CHECK (
+    (execution_mode = 'read-only' AND worktree_id IS NULL AND ephemeral_clone_id IS NULL AND branch_context_id IS NULL)
+    OR (execution_mode = 'branch' AND worktree_id IS NULL AND ephemeral_clone_id IS NULL AND branch_context_id IS NOT NULL)
+    OR (execution_mode = 'worktree' AND worktree_id IS NOT NULL AND ephemeral_clone_id IS NULL AND branch_context_id IS NOT NULL)
+    OR (execution_mode = 'ephemeral clone' AND ephemeral_clone_id IS NOT NULL AND worktree_id IS NULL AND branch_context_id IS NOT NULL)
+  )
 );
 
 CREATE INDEX idx_run_execution_contexts_workspace ON run_execution_contexts(workspace_id);

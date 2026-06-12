@@ -274,10 +274,10 @@ Target paths below assume the canonical implementation topology defined in [Cont
   - **Consumes:** BL-143 base class (Plan-007).
   - **Spec coverage:** Spec-016 §Fallback Behavior (explicit limit/capacity detail).
   - **Verifies invariant:** I-016-8.
-  - **Tests:** each class projects `-32000` + `data.code` + fields; never-collides assertion vs Spec-006 event names.
+  - **Tests:** each class projects its standard JSON-RPC numeric + `data.type` + sanitized `data.fields` per the BL-143 envelope (error-contracts.md §JSON-RPC Wire Mapping); never-collides assertion vs Spec-006 event names.
 - **T3.4 — SDK `orchestrationClient.ts`.**
   - **Files:** `packages/client-sdk/src/orchestrationClient.ts` (NEW); `packages/client-sdk/src/index.ts` (EXTEND — barrel export).
-  - **Provides:** thirteen typed methods marshaling requests verbatim and surfacing `data.code` rejections; no client-side derivation (I-016-16); does **not** duplicate Plan-002's gateway `channel.list` method.
+  - **Provides:** thirteen typed methods marshaling requests verbatim and surfacing `data.type` rejections; no client-side derivation (I-016-16); does **not** duplicate Plan-002's gateway `channel.list` method.
   - **Consumes:** T1.2 pairs; `JsonRpcClient` transport (Plan-007-partial).
   - **Spec coverage:** Spec-016 §Interfaces And Contracts (typed client SDK).
   - **Verifies invariant:** I-016-16.

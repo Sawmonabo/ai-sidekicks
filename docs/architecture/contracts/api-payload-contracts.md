@@ -1637,16 +1637,23 @@ Canonical Zod schemas live in `packages/contracts/src/approval.ts` per the §Sou
 ### Plan-011 — Gitflow PR And Diff Attribution
 
 ```ts
-// BranchContextRead
+// BranchContextRead — exactly one of branchContextId | worktreeId (Zod refinement,
+// the WorkspaceExecutionModeCapabilitiesRead discipline): branchContextId is minted by
+// repo.executionRootPrepare for every writable mode, so branch- and clone-anchored
+// contexts stay readable; the worktreeId key serves worktree-anchored flows that hold
+// only the owning worktree id (Spec-011 §Interfaces And Contracts).
 interface BranchContextReadRequest {
-  worktreeId: WorktreeId;
+  branchContextId?: BranchContextId;
+  worktreeId?: WorktreeId;
 }
 interface BranchContextReadResponse {
-  branchContextId: string;
+  branchContextId: BranchContextId;
+  workspaceId: WorkspaceId;
   baseBranch: string;
   headBranch: string;
   upstreamRef?: string;
-  worktreeId: WorktreeId;
+  worktreeId?: WorktreeId; // present only for worktree-anchored contexts (branch_contexts at-most-one association CHECK)
+  ephemeralCloneId?: EphemeralCloneId; // present only for clone-anchored contexts
 }
 
 // DiffArtifactCreate
@@ -1664,7 +1671,7 @@ interface DiffArtifactCreateResponse {
 
 // PRPrepare
 interface PRPrepareRequest {
-  branchContextId: string;
+  branchContextId: BranchContextId;
   targetBranch: string;
   title?: string;
   description?: string;
