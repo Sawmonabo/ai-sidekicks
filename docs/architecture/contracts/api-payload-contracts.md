@@ -1467,8 +1467,11 @@ type InvalidationTrigger = "explicit" | "membership_change" | "node_trust_change
 // approval_flow event payload for the seven `approval.*` variants (Spec-006
 // §Approval Flow, incl. `approval.canceled` per D-012-8; mirror of the canonical
 // Zod schema). The variants carry the projection-rebuild fields (D-012-6 peer/replay
-// rebuild; D-012-7 events-canonical): `requested` carries the request quad, the
-// resolution events the recorded approver + effective scope; decision and state ride
+// rebuild; D-012-7 events-canonical): `requested` carries the request quad; the
+// resolution events carry the recorded approver + effective scope; `remembered`
+// carries the full rule projection (grantor = `approver`, bound `nodeId`, binding =
+// `rememberedScope` + `runId`, origin resolution via `approvalRequestId`) so
+// `remembered_approval_rules` rebuilds byte-equal (I-012-9); decision and state ride
 // the event type; envelope timestamps supply the created/updated instants. The
 // category's eighth event, `moderation.review_flagged`, has a distinct payload —
 // see ModerationReviewFlaggedPayload below.
@@ -1481,8 +1484,9 @@ interface ApprovalFlowEventPayload {
   requestedBy?: string; // present on approval.requested — recorded requester actor (participant or agent actor id, Spec-012 line 58)
   resourceDescriptor?: Record<string, unknown>; // present on approval.requested — audit-grade target (Spec-012 line 82)
   expiryAt?: string; // present on approval.requested when the request carries an expiry (D-012-14)
-  approver?: ParticipantId; // present on approval.approved / approval.rejected — the recorded resolver (D-012-12)
+  approver?: ParticipantId; // present on approval.approved / approval.rejected — the recorded resolver (D-012-12); on approval.remembered it is the rule's GRANTOR (rules mint only via resolve-with-remember)
   effectiveScope?: string; // present on approval.approved / approval.rejected — recorded effective scope (≤ requested, I-012-6)
+  nodeId?: NodeId; // present on approval.remembered — the rule's bound node (D-012-10 match boundary; not derivable from ruleId on replay)
   rememberedScope?: RememberedScope;
   ruleId?: RememberedRuleId; // present on approval.remembered / approval.rule_revoked
   invalidationTrigger?: InvalidationTrigger; // present on approval.rule_revoked
@@ -2098,7 +2102,12 @@ interface OrchestrationRunCreateResponse {
   internalHelper: boolean; // echo of the durable flag (I-016-10)
 }
 
-// ChildRunLinkRead — wire: orchestration.childRunLinkRead (projection of run_links — single-parent: `child_run_id` is the PK, so a child appears under exactly one parent; D-016-3)
+// ChildRunLinkRead — wire: orchestration.childRunLinkRead (projection of run_links —
+// single-parent: `child_run_id` is the PK, so a child appears under exactly one parent;
+// D-016-3). `rejectedCreates` is event-folded at read time from the parent's
+// `orchestration.rejected` events: zero-residue refusals (I-016-8) leave no run/queue/
+// link row, so the fold is the only data path that lets the child-run view surface
+// refusal records (events-canonical projection, the BudgetAccountant posture — Tier-6 audit).
 interface ChildRunLinkReadRequest {
   parentRunId: RunId;
 }
@@ -2111,6 +2120,14 @@ interface ChildRunLinkReadResponse {
     visibility: "reachable" | "unreachable"; // daemon-projected from runtimenode.roster liveness — never client-inferred
     state: RunState;
     createdAt: string;
+  }>;
+  rejectedCreates: Array<{
+    // folded from `orchestration.rejected` events with payload.parentRunId = request.parentRunId
+    targetChannelId?: ChannelId;
+    targetAgentId?: AgentId;
+    reason: string; // error-contracts.md §Orchestration refusal code
+    detail?: string;
+    occurredAt: string; // the event envelope timestamp
   }>;
 }
 
@@ -2210,7 +2227,7 @@ interface OrchestrationRunLinkCarrier {
   parentRunId?: RunId;
   linkType: LinkType;
   internalHelper: boolean;
-  targetAgentId: AgentId;
+  agentId: AgentId; // name mirrors the run.queued additive payload field verbatim (CP-004-10); the service maps the validated wire targetAgentId here after agent resolution
   producingNodeId: NodeId;
 }
 ```
@@ -2225,7 +2242,7 @@ interface OrchestrationRunLinkCarrier {
 | `channel.archive` | RPC | `ChannelLifecycleRequest` → `ChannelLifecycleResponse` | Emits `channel.archived`; terminal |
 | `channel.rosterRead` | RPC | `ChannelRosterReadRequest` → `ChannelRosterReadResponse` | Daemon-native session-local roster + arbitration facet; distinct from Plan-002's `channel.list` directory read |
 | `orchestration.runCreate` | RPC | `OrchestrationRunCreateRequest` → `OrchestrationRunCreateResponse` | Admission pipeline; composes with Plan-004 queue admission in-process |
-| `orchestration.childRunLinkRead` | RPC | `ChildRunLinkReadRequest` → `ChildRunLinkReadResponse` | run_links projection |
+| `orchestration.childRunLinkRead` | RPC | `ChildRunLinkReadRequest` → `ChildRunLinkReadResponse` | run_links projection + event-folded `rejectedCreates` (zero-residue refusals, I-016-8) |
 | `orchestration.budgetRead` | RPC | `OrchestrationBudgetReadRequest` → `OrchestrationBudgetReadResponse` |  |
 | `orchestration.budgetUpdate` | RPC | `OrchestrationBudgetUpdateRequest` → `OrchestrationBudgetUpdateResponse` | Session-owner-only (wire-boundary authorization) |
 | `agent.attach` | RPC | `AgentAttachRequest` → `AgentAttachResponse` | Emits `agent.attached` |

@@ -200,11 +200,11 @@ Target paths below assume the canonical implementation topology defined in [Cont
   - **Tests:** each refusal code with its `data.fields` shape per [error-contracts.md §Orchestration](../architecture/contracts/error-contracts.md); zero-residue assertions (no run row, no queue item, no link row after refusal); `orchestration.rejected` payload carries the refusing reason; happy path returns `{runId, state: 'queued', parentRunId?, channelId, internalHelper}`; non-local node → `orchestration.node_not_local`; delegation works on a driver without native subagent primitives (CP-016-13).
 - **T2.4 — Run-link projector + visibility.**
   - **Files:** `packages/runtime-daemon/src/orchestration/run-link-projector.ts` (NEW).
-  - **Provides:** `run.queued` carrier-fields → `run_links` row projection (projector registration); `ChildRunLinkRead` backing with `visibility: reachable|unreachable` joined from the roster poll (CP-016-8); delivery-fallback provenance (payload keeps the original `channelId`; display re-homes to main — Spec-016 §Fallback Behavior, A-016-18).
+  - **Provides:** `run.queued` carrier-fields → `run_links` row projection (projector registration); `ChildRunLinkRead` backing with `visibility: reachable|unreachable` joined from the roster poll (CP-016-8) plus the `rejectedCreates` event fold (the parent's `orchestration.rejected` events surfaced at read time — zero-residue refusals have no row to project, I-016-8); delivery-fallback provenance (payload keeps the original `channelId`; display re-homes to main — Spec-016 §Fallback Behavior, A-016-18).
   - **Consumes:** T1.3 tables; Plan-004 `run.queued` emission (CP-016-7).
   - **Spec coverage:** Spec-016 §Required Behavior (durable auditable linkage); Spec-016 §Partition And Reconnect Behavior (unreachable visibility); Spec-016 §Fallback Behavior (delivery fallback).
   - **Verifies invariant:** I-016-3, I-016-4, I-016-5, I-016-10.
-  - **Tests:** projection from carrier-bearing `run.queued`; carrier-less `run.queued` projects nothing; replay rebuild byte-equal; relay-shaped rebuild (events only, no SQLite priors); visibility flips with roster state; re-homed display preserves original `channelId` in the payload.
+  - **Tests:** projection from carrier-bearing `run.queued`; carrier-less `run.queued` projects nothing; replay rebuild byte-equal; relay-shaped rebuild (events only, no SQLite priors); visibility flips with roster state; `rejectedCreates` folds exactly the parent's `orchestration.rejected` events (a refusal surfaces with reason + detail; an unrelated parent's refusal does not); re-homed display preserves original `channelId` in the payload.
 - **T2.5 — Budget accountant + budget surface.**
   - **Files:** `packages/runtime-daemon/src/orchestration/budget-accountant.ts` (NEW).
   - **Provides:** in-memory projection over `usage_telemetry` + `run.*` (replay-rebuilt, no accumulator table — D-016-5); once-per-(scope, type) 80% `usage.budget_warning` emission; 100% interrupt via the in-process entrypoint (`budget_exhausted`, D-016-7); session-cost ceiling fan-out (interrupt all active + admission block); `session_budgets` read/update service (row materializes with spec defaults on first touch); admission-block accessor for T2.3.
@@ -267,7 +267,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
   - **Consumes:** T2.1/T2.2/T2.4/T2.5 read paths.
   - **Spec coverage:** Spec-016 §Interfaces And Contracts (roster, ChildRunLinkRead, budget read).
   - **Verifies invariant:** I-016-10, I-016-11.
-  - **Tests:** roster includes synthesized main first + arbitration facet; links carry `internalHelper` / `producingNodeId` / `visibility`; budget read materializes defaults.
+  - **Tests:** roster includes synthesized main first + arbitration facet; links carry `internalHelper` / `producingNodeId` / `visibility` and `rejectedCreates` rides the wire shape; budget read materializes defaults.
 - **T3.3 — Typed domain-error classes.**
   - **Files:** `packages/runtime-daemon/src/orchestration/errors.ts` (NEW).
   - **Provides:** `DaemonDomainError` subclasses for the thirteen §Channel / §Orchestration / §Agent codes with `data.fields` shapes per [error-contracts.md](../architecture/contracts/error-contracts.md).
@@ -330,7 +330,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
   - **Tests:** exactly one bridge call per action; refusal renders the typed code; no retry loops.
 - **T4.3 — `ChildRunLinksView`.**
   - **Files:** `apps/desktop/src/renderer/src/child-runs/ChildRunLinksView.tsx` (NEW), `apps/desktop/src/renderer/src/child-runs/index.ts` (NEW barrel).
-  - **Provides:** links via `orchestration.childRunLinkRead`; `linkType` + state rendering; `internalHelper` de-emphasis (differentiate-and-admit, never eject); `visibility: unreachable` labeling with last-known state; summary-survives-detail-failure (detail-load failure marks the row incomplete, never removes it — Spec-016 §Fallback Behavior); `orchestration.rejected` refusal records surfaced. **No** run-create affordance (D-016-18).
+  - **Provides:** links via `orchestration.childRunLinkRead`; `linkType` + state rendering; `internalHelper` de-emphasis (differentiate-and-admit, never eject); `visibility: unreachable` labeling with last-known state; summary-survives-detail-failure (detail-load failure marks the row incomplete, never removes it — Spec-016 §Fallback Behavior); `orchestration.rejected` refusal records surfaced from the response's event-folded `rejectedCreates` array (zero-residue refusals have no link row — I-016-8; the fold is the view's only data path). **No** run-create affordance (D-016-18).
   - **Consumes:** T3.4 SDK shapes; bridge.
   - **Spec coverage:** Spec-016 §Required Behavior (helper visibility); Spec-016 §Fallback Behavior (summary row remains); Spec-016 §Partition And Reconnect Behavior (unreachable view).
   - **Verifies invariant:** I-016-18.
