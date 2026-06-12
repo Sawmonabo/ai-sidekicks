@@ -943,10 +943,11 @@ CREATE TABLE run_links (
                     CHECK(internal_helper IN (0, 1)),   -- durable home of the internal-helper flag (I-016-10)
   producing_node_id TEXT NOT NULL,                      -- runtime node that admitted the child run (reachability projection input)
   created_at        TEXT NOT NULL,
-  PRIMARY KEY (parent_run_id, child_run_id)
+  PRIMARY KEY (child_run_id),                       -- single-parent: a child run links to exactly one parent (one-shot run.queued linkage D-016-3; depth-1 model)
+  CHECK (parent_run_id <> child_run_id)             -- a run never parents itself
 );
 
-CREATE INDEX idx_run_links_child ON run_links(child_run_id);
+CREATE INDEX idx_run_links_parent ON run_links(parent_run_id); -- parent → children scans (orchestration.childRunLinkRead; active-child accounting)
 CREATE INDEX idx_run_links_session ON run_links(session_id);
 
 -- Owner: Plan-016 (events-canonical projection of agent.* events — A-016-2; state enum is the

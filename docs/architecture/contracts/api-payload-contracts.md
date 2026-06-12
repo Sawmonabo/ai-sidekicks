@@ -102,10 +102,10 @@ type ErrorNamespace =
 // identical in error-contracts.md §Rate Limiting and packages/contracts/src/rate-limiter.ts)
 interface RateLimitResponse {
   code: "rate_limited";
-  retryAfter: number; // seconds until retry is allowed
-  limit: number; // total allowed requests in the window
+  retryAfter?: number; // seconds until retry is allowed — sliding-window/escalation refusals; omitted on concurrency-cap refusals (capacity frees on release; no reset clock — Spec-021 §Overflow Response)
+  limit: number; // total allowed requests in the window (the cap itself on concurrency-cap refusals)
   remaining: number; // requests remaining in the current window
-  resetAt: string; // ISO 8601 timestamp when the limit resets
+  resetAt?: string; // ISO 8601 timestamp when the limit resets — same enforcement-class rule as retryAfter
 }
 ```
 
@@ -2087,7 +2087,7 @@ interface OrchestrationRunCreateResponse {
   internalHelper: boolean; // echo of the durable flag (I-016-10)
 }
 
-// ChildRunLinkRead — wire: orchestration.childRunLinkRead (projection of run_links; D-016-3)
+// ChildRunLinkRead — wire: orchestration.childRunLinkRead (projection of run_links — single-parent: `child_run_id` is the PK, so a child appears under exactly one parent; D-016-3)
 interface ChildRunLinkReadRequest {
   parentRunId: RunId;
 }
@@ -2378,7 +2378,7 @@ interface AdminBanListResponse {
 
 #### Relay Rate-Limit Signalling
 
-WS overflow is drop-frame (Plan-021 D-021-9): a counter trip refuses the offending frame with ONE in-band error frame and keeps the connection; close code `4029` (private range) fires only for banned identities or active escalation blocks.
+WS overflow is drop-frame (Plan-021 D-021-9): a counter trip refuses the offending frame with ONE in-band error frame and keeps the connection; close code `4029` (private range) fires only for active escalation blocks; an active admin ban closes with `4003` (the 403-class `ratelimit.banned` analog — Spec-021 §WebSocket Overflow Response), enforced in observe mode too.
 
 ```ts
 // In-band frame sent on counter trip (connection stays open)
@@ -2390,8 +2390,10 @@ interface RateLimitedFrame {
   resetAt: string; // ISO 8601
 }
 
-// Close on ban / active escalation block only
-// code: 4029, reason: "rate_limit_blocked;retryAfter=<seconds>" (retryAfter segment omitted for permanent bans — no expiry exists)
+// Close on active escalation block:
+// code: 4029, reason: "rate_limit_blocked;retryAfter=<seconds>"
+// Close on active admin ban (both modes — operator enforcement, never observe-suppressed):
+// code: 4003, reason: "banned;retryAfter=<seconds>" (retryAfter segment omitted for permanent bans — no expiry exists)
 ```
 
 ### Spec-022 — Data Retention And GDPR

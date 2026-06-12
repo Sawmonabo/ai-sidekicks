@@ -50,7 +50,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 ## Data And Storage Changes
 
-- `channels` (user channels only — main is synthesized per D-016-15), `run_links` (with `session_id` provenance, `link_type` CHECK, `internal_helper`, `producing_node_id`), `agents` (4-state domain lifecycle), and `session_budgets` (row-canonical limits) per [Local SQLite Schema §Channel and Orchestration Tables](../architecture/schemas/local-sqlite-schema.md).
+- `channels` (user channels only — main is synthesized per D-016-15), `run_links` (single-parent `child_run_id` PRIMARY KEY, `session_id` provenance, `link_type` CHECK, `internal_helper`, `producing_node_id`), `agents` (4-state domain lifecycle), and `session_budgets` (row-canonical limits) per [Local SQLite Schema §Channel and Orchestration Tables](../architecture/schemas/local-sqlite-schema.md).
 - `channels`, `run_links`, and `agents` are events-canonical projections (ADR-017 Option B) rebuilt byte-equal on replay; `session_budgets` is row-canonical daemon configuration (the `queue_items` posture — mutated by wire method, never evented).
 - Budget **accounting** has no table: the `BudgetAccountant` is an in-memory projection over `usage_telemetry` + `run.*` events, rebuilt on replay (D-016-5).
 - No timeline-projection rows: this plan publishes durable events only; Plan-013 derives summary rows at Tier 8 (D-016-14 — the pre-audit "extend timeline projections" step is struck).
@@ -158,7 +158,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
   - **Consumes:** Plan-001 migration-runner seam (shipped).
   - **Spec coverage:** Spec-016 §State And Data Implications (durable + replayable).
   - **Verifies invariant:** I-016-3, I-016-10.
-  - **Tests:** migration up + idempotence; CHECK rejection rows (bad state, bad link_type, `internal_helper` ∉ {0,1}, negative / non-integer budget limits); index presence.
+  - **Tests:** migration up + idempotence; CHECK rejection rows (bad state, bad link_type, `internal_helper` ∉ {0,1}, negative / non-integer budget limits); duplicate-`child_run_id` second-parent insert rejected (single-parent PK); index presence.
 - **T1.4 — Contract ↔ DDL conformance suite.**
   - **Files:** `packages/runtime-daemon/src/db/__tests__/orchestration-schema-conformance.test.ts` (NEW).
   - **Provides:** mechanical lockstep checks — `ChannelState` / `AgentState` / `LinkType` contract enums vs DDL CHECK lists; `session_budgets` columns vs `OrchestrationBudgetState` fields; defaults vs the Spec-016 §Budget Policies + §Scheduler Limits tables (100000 tokens / 1000¢ / 50 turns / 5 channels / 25 depth / 10 pending / 5 children / 300000 ms); `session_budgets` non-negative-integer CHECKs vs the wire pairs' `.int().nonnegative()` bounds.

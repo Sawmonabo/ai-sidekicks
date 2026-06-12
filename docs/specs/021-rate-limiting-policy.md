@@ -76,19 +76,20 @@ Registry semantics (Tier-6 audit, D-021-6):
 
 - **Fallback buckets.** `general.api` applies to every authenticated control-plane procedure that has no more-specific registry row; `unauthenticated.request` applies to every unauthenticated procedure with no more-specific row. A request is counted against exactly one sliding-window row: the most specific matching row, else its tier's fallback bucket.
 - **Stacked invite-redemption limits.** `invite.accept` (per token-hash — throttles brute force against one token) and `invite.redeem_ip` (per IP — throttles one source spraying many tokens) are deliberately **both** enforced on the redemption path; they defend distinct axes. The redemption acceptance criterion (AC-3) anchors on `invite.redeem_ip`.
-- **Concurrency caps are not counters.** Rows with `enforcement class: concurrency_cap` are enforced at the owning resource surface (the invite store enforces `invite.pending_cap` at creation time; the SSE subscription registry enforces `event.subscribe` at subscribe time), not by the sliding-window limiter. They share the standard overflow response.
+- **Concurrency caps are not counters.** Rows with `enforcement class: concurrency_cap` are enforced at the owning resource surface (the invite store enforces `invite.pending_cap` at creation time; the SSE subscription registry enforces `event.subscribe` at subscribe time), not by the sliding-window limiter. They share the standard overflow envelope and `429` status, with the timing fields and timing headers omitted per §Overflow Response (cap capacity frees when an existing holder releases, not at a known reset time).
 - **Dormant rows.** `approval.resolve` is priced and reserved but wired by nobody in V1: Plan-012's ratified transport is daemon JSON-RPC only (Plan-012 D-012-5; no control-plane tRPC sibling exists), and the local daemon IPC path is excluded from rate limiting (see §Scope and §Non-Goals). Plan-027's V1 cross-node approval is target-node-owner-scoped — resolution happens on the owner's daemon over local IPC — so no network-reachable `approval.resolve` surface exists in V1. The row re-arms via BL-145 if the §ADR Triggers topology condition fires (the daemon becoming network-reachable).
 - **Per-frame WS limiting.** `ws.message` is evaluated per message frame (see §WebSocket Overflow Response), not per connection establishment alone.
 
 ### Overflow Response
 
-- When a rate limit is exceeded, the system must respond with HTTP `429 Too Many Requests`.
+- When a sliding-window rate limit is exceeded, the system must respond with HTTP `429 Too Many Requests`.
 - The response must include a `Retry-After` header indicating the number of seconds the client should wait.
 - The response must include standard rate limit headers: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset`.
+- Concurrency-cap refusals (registry rows with `enforcement class: concurrency_cap`) return `429` with the same envelope but omit `Retry-After`, `X-RateLimit-Reset`, and the envelope timing fields (`retryAfter`, `resetAt`): cap capacity is freed by an existing holder releasing (a pending invite resolving, a subscription closing), not at a known reset timestamp — fabricating window data is prohibited. `X-RateLimit-Limit` (the cap itself) and `X-RateLimit-Remaining: 0` remain truthful and are sent.
 
 ### WebSocket Overflow Response
 
-(Tier-6 audit, D-021-9.) A `ws.message` counter trip refuses the offending frame only: the relay sends one in-band `rate_limited` error frame (the WebSocket analog of the 429 envelope, carrying `retryAfter`, `limit`, `remaining: 0`, `resetAt`) and the connection stays open. The connection is closed with application close code `4029` **only** when an active escalation block exists for the identity — merely-over-budget participants keep their connection; blocked identities lose it. Closing on first trip is prohibited (it converts a one-frame overflow into a reconnect storm). The frame shape and the `4029` close code are registered in [API Payload Contracts](../architecture/contracts/api-payload-contracts.md).
+(Tier-6 audit, D-021-9.) A `ws.message` counter trip refuses the offending frame only: the relay sends one in-band `rate_limited` error frame (the WebSocket analog of the 429 envelope, carrying `retryAfter`, `limit`, `remaining: 0`, `resetAt`) and the connection stays open. The connection is closed with application close code `4029` **only** when an active escalation block exists for the identity — merely-over-budget participants keep their connection; blocked identities lose it. An active **admin ban** also tears down the connection, but with the distinct application close code `4003` — a ban is a 403-class admission refusal (`ratelimit.banned`), not rate-limit overflow, so it never reuses `4029`; the close reason carries the ban expiry when one exists and omits it for permanent bans. Closing on first trip is prohibited (it converts a one-frame overflow into a reconnect storm). The frame shape and both close codes (`4029`, `4003`) are registered in [API Payload Contracts](../architecture/contracts/api-payload-contracts.md).
 
 ### Escalation
 
@@ -109,12 +110,12 @@ Registry semantics (Tier-6 audit, D-021-6):
 
 The elevated tier allows burst operations during session setup. Elevated eligibility requires both (Tier-6 audit, D-021-4): (a) a caller-keyed (per-participant) bucket — per-session, per-IP, and per-token-hash buckets are tier-invariant because their key is not a caller — and (b) a target session resolvable from the request, so the caller's owner role can be read. The registry's `Elevated-eligible` column marks the V1 set. The former "system service" elevated principal is removed from V1: no service-principal identity surface exists; reinstating it requires a minted service-identity surface and an ADR (see §ADR Triggers).
 
-Counter limits — registry rows with enforcement class `sliding_window` — use the sliding window algorithm; `concurrency_cap` rows are live concurrent counts enforced at their owning resource surface (see the registry semantics above), not time windows. Responses include the standard `RateLimitResponse` from [Error Contracts](../architecture/contracts/error-contracts.md).
+Counter limits — registry rows with enforcement class `sliding_window` — use the sliding window algorithm; `concurrency_cap` rows are live concurrent counts enforced at their owning resource surface (see the registry semantics above), not time windows. Refusals from both classes include the standard `RateLimitResponse` from [Error Contracts](../architecture/contracts/error-contracts.md); concurrency-cap refusals omit its timing fields per §Overflow Response.
 
 ## Default Behavior
 
 - All rate limits are active by default for every control plane endpoint and WebSocket connection.
-- Clients that stay within limits receive no rate-limiting headers until they approach the threshold. "Approach the threshold" is defined as: `remaining < 25%` of the row's limit (Tier-6 audit). Headers are always present on 429 responses, and are suppressed entirely while the backend is in fail-open grace (degraded responses must not serialize sentinel values into headers).
+- Clients that stay within limits receive no rate-limiting headers until they approach the threshold. "Approach the threshold" is defined as: `remaining < 25%` of the row's limit (Tier-6 audit). Headers are always present on 429 responses (concurrency-cap refusals send the truthful subset — limit and remaining — per §Overflow Response), and are suppressed entirely while the backend is in fail-open grace (degraded responses must not serialize sentinel values into headers).
 
 ## Fallback Behavior
 
@@ -152,7 +153,7 @@ Counter limits — registry rows with enforcement class `sliding_window` — use
 
 - Applying rate limits to the local daemon IPC path (it is trusted by design)
 - Using fixed-window counters that allow double-rate bursts at window boundaries
-- Failing to include `Retry-After` on 429 responses (clients cannot back off intelligently)
+- Failing to include `Retry-After` on sliding-window 429 responses (clients cannot back off intelligently; concurrency-cap refusals deliberately omit it — no truthful value exists)
 - Allowing automated escalation to reach permanent bans without human review
 - Treating concurrency-cap registry rows as sliding-window counters (they are enforced at the owning resource surface)
 
