@@ -1011,6 +1011,10 @@ interface RunStateChangeEvent {
   linkType?: LinkType;
   internalHelper?: boolean;
   producingNodeId?: NodeId;
+  // run.queued effective config: the admission-resolved OrchestrationRunConfig (request override
+  // else session default) persisted durably so budget/idle enforcement rebuilds replay-stable even
+  // if session defaults change mid-run (Plan-016 D-016-5, I-016-14; Spec-006:187).
+  effectiveRunConfig?: OrchestrationRunConfig;
   timestamp: string;
 }
 
@@ -2120,7 +2124,7 @@ interface OrchestrationRunCreateRequest {
   targetChannelId: ChannelId; // accepts the derived main id without a channels row (D-016-15)
   linkType?: LinkType; // default "spawn" (meaningful only with parentRunId)
   internalHelper?: boolean; // marks as non-user-facing; durable in run_links.internal_helper (default false)
-  config?: OrchestrationRunConfig;
+  config?: OrchestrationRunConfig; // per-run override; admission resolves against session defaults and persists the merged result durably on run.queued (effectiveRunConfig — D-016-5 replay-stable enforcement)
 }
 interface OrchestrationRunCreateResponse {
   runId: RunId; // minted at Plan-004 queue admission (run.queued); orchestration adds no second id
@@ -2257,6 +2261,7 @@ interface OrchestrationRunLinkCarrier {
   internalHelper: boolean;
   agentId: AgentId; // name mirrors the run.queued additive payload field verbatim (CP-004-10); the service maps the validated wire targetAgentId here after agent resolution
   producingNodeId: NodeId;
+  effectiveRunConfig: OrchestrationRunConfig; // admission-resolved post-merge values (request override else session default), persisted on run.queued so budget/idle enforcement rebuilds replay-stable (D-016-5, I-016-14)
 }
 ```
 
@@ -2375,11 +2380,11 @@ Shapes below are canonical per [Plan-021](../../plans/021-rate-limiting-policy.m
 
 ```ts
 // RateLimitCheck (internal operation, both backends)
-type RateLimitIdentityType = "participant" | "ip" | "token_hash" | "session";
+type RateLimitIdentityType = "participant" | "ip" | "token_hash" | "session" | "user"; // 'user' reserved dormant for the V1.1 keypackage.upload activation (Spec-021 row scoped per user; ADR-010 MLS gate) — no V1 surface constructs it (D-021-17)
 type RateLimitTier = "anonymous" | "authenticated" | "elevated";
 
 interface RateLimitCheckRequest {
-  identity: string; // canonical form: participant/session UUID, IPv4 quad / IPv6 /64, Plan-002 token-hash
+  identity: string; // canonical form: participant/session UUID, IPv4 quad / IPv6 /64, Plan-002 token-hash; the reserved 'user' arm pins its form at V1.1 activation (D-021-14)
   identityType: RateLimitIdentityType;
   endpoint: RateLimitEndpointGroup; // registry-key union (Spec-021 registry)
   tier?: RateLimitTier; // resolved server-side; never caller-supplied

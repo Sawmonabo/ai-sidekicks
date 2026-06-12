@@ -184,7 +184,7 @@ Payload shape: `{sessionId, runId, runVersion, previousState, newState, channelI
 
 | Type | Description |
 | --- | --- |
-| `run.queued` | A run has been created and placed in the queue. For orchestration-created runs the payload additionally carries the optional linkage fields `{agentId?, parentRunId?, linkType?, internalHelper?, producingNodeId?}` (Tier-6 audit, D-016-3) — the durable source from which the `run_links` projection and the round-robin turn cursor rebuild on replay; threaded from the in-process `OrchestrationRunLinkCarrier` ([api-payload-contracts §Plan-016](../architecture/contracts/api-payload-contracts.md)). |
+| `run.queued` | A run has been created and placed in the queue. For orchestration-created runs the payload additionally carries the optional linkage fields `{agentId?, parentRunId?, linkType?, internalHelper?, producingNodeId?}` plus the admission-resolved `effectiveRunConfig?` (Tier-6 audit, D-016-3/D-016-5) — the durable source from which the `run_links` projection, the round-robin turn cursor, and the per-run budget/idle enforcement values rebuild on replay; threaded from the in-process `OrchestrationRunLinkCarrier` ([api-payload-contracts §Plan-016](../architecture/contracts/api-payload-contracts.md)). |
 | `run.starting` | The runtime is preparing provider, workspace, or execution state for the run. |
 | `run.running` | The run is actively executing. |
 | `run.waiting_for_approval` | The run is blocked on an approval request. |
