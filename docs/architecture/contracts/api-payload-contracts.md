@@ -1444,8 +1444,9 @@ interface WorktreeStatusReadResponse {
 // packages/contracts/src/approval.ts. PermissionCheck is a daemon-internal API
 // (Spec-012: "inside the local daemon"); it has no JSON-RPC method string and no
 // SDK surface in V1 (D-012-5; the in-process check is the composed enforcement
-// gate per D-012-18 — evaluate, then on an ask-policy outcome create the request,
-// emit `approval.requested`, and notify the run-blocking seam before returning).
+// gate per D-012-18 — evaluate, then on an ask-policy outcome create the request
+// via the approval service (whose create persists and emits `approval.requested` —
+// the single emission seam), and notify the run-blocking seam before returning).
 
 type RememberedRuleId = string & { readonly __brand: "RememberedRuleId" }; // → §Branded ID Types
 
@@ -1465,15 +1466,23 @@ type InvalidationTrigger = "explicit" | "membership_change" | "node_trust_change
 
 // approval_flow event payload for the seven `approval.*` variants (Spec-006
 // §Approval Flow, incl. `approval.canceled` per D-012-8; mirror of the canonical
-// Zod schema). The category's eighth event, `moderation.review_flagged`, has a
-// distinct payload — see ModerationReviewFlaggedPayload below.
+// Zod schema). The variants carry the projection-rebuild fields (D-012-6 peer/replay
+// rebuild; D-012-7 events-canonical): `requested` carries the request quad, the
+// resolution events the recorded approver + effective scope; decision and state ride
+// the event type; envelope timestamps supply the created/updated instants. The
+// category's eighth event, `moderation.review_flagged`, has a distinct payload —
+// see ModerationReviewFlaggedPayload below.
 interface ApprovalFlowEventPayload {
   sessionId: SessionId;
   runId?: RunId; // absent on trust-triggered rule_revoked (no in-flight request)
   approvalRequestId?: ApprovalRequestId; // ditto
   category: ApprovalCategory;
   scope: string;
-  approver?: ParticipantId;
+  requestedBy?: string; // present on approval.requested — recorded requester actor (participant or agent actor id, Spec-012 line 58)
+  resourceDescriptor?: Record<string, unknown>; // present on approval.requested — audit-grade target (Spec-012 line 82)
+  expiryAt?: string; // present on approval.requested when the request carries an expiry (D-012-14)
+  approver?: ParticipantId; // present on approval.approved / approval.rejected — the recorded resolver (D-012-12)
+  effectiveScope?: string; // present on approval.approved / approval.rejected — recorded effective scope (≤ requested, I-012-6)
   rememberedScope?: RememberedScope;
   ruleId?: RememberedRuleId; // present on approval.remembered / approval.rule_revoked
   invalidationTrigger?: InvalidationTrigger; // present on approval.rule_revoked
@@ -2331,14 +2340,19 @@ interface RateLimitCheckRequest {
   tier?: RateLimitTier; // resolved server-side; never caller-supplied
   context?: Record<string, unknown>;
 }
-interface RateLimitCheckResponse {
-  allowed: boolean;
-  remaining: number;
-  resetAt: string; // ISO 8601
-  limit: number; // total threshold for this window
-  degraded?: true; // fail-open grace only; consumers suppress X-RateLimit-* headers
-  blockUntil?: string; // ISO 8601; set only when the denial is an active escalation block — the trip-vs-block discriminator (Plan-021 D-021-3)
-}
+// Two-arm union (Plan-021, Tier-6 audit): the degraded arm is minted only by the
+// fail-open wrapper during grace and carries no window fields — nothing authoritative
+// exists while the backend is unreachable; `graceEndsAt` = grace expiry (503 boundary).
+type RateLimitCheckResponse =
+  | {
+      allowed: boolean;
+      remaining: number;
+      resetAt: string; // ISO 8601
+      limit: number; // total threshold for this window
+      degraded?: never;
+      blockUntil?: string; // ISO 8601; set only when the denial is an active escalation block — the trip-vs-block discriminator (Plan-021 D-021-3)
+    }
+  | { allowed: true; degraded: true; graceEndsAt: string };
 ```
 
 #### Admin Bans API (operator-token surface)

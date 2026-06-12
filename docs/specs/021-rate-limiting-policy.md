@@ -115,7 +115,7 @@ Counter limits — registry rows with enforcement class `sliding_window` — use
 ## Default Behavior
 
 - All rate limits are active by default for every control plane endpoint and WebSocket connection.
-- Clients that stay within limits receive no rate-limiting headers until they approach the threshold. "Approach the threshold" is defined as: `remaining < 25%` of the row's limit (Tier-6 audit). Headers are always present on 429 responses (concurrency-cap refusals send the truthful subset — limit and remaining — per §Overflow Response), and are suppressed entirely while the backend is in fail-open grace (degraded responses must not serialize sentinel values into headers).
+- Clients that stay within limits receive no rate-limiting headers until they approach the threshold. "Approach the threshold" is defined as: `remaining < 25%` of the row's limit (Tier-6 audit). Headers are always present on 429 responses (concurrency-cap refusals send the truthful subset — limit and remaining — per §Overflow Response), and are suppressed entirely while the backend is in fail-open grace (the degraded response arm carries no window fields to serialize).
 
 ## Fallback Behavior
 
@@ -124,7 +124,7 @@ Counter limits — registry rows with enforcement class `sliding_window` — use
 
 ## Interfaces And Contracts
 
-- `RateLimitCheck(identity, identityType, endpoint, tier?, context?) -> { allowed: boolean, remaining: number, resetAt: timestamp, limit: number, degraded?: true, blockUntil?: timestamp }` must be callable before request processing (Tier-6 audit — five-field request / four-field response plus two markers: the fail-open `degraded` marker, set only during grace, and the `blockUntil` marker, set only while an active §Escalation block denies the identity — it carries the block expiry and discriminates counter trips from active blocks).
+- `RateLimitCheck(identity, identityType, endpoint, tier?, context?) -> { allowed: boolean, remaining: number, resetAt: timestamp, limit: number, blockUntil?: timestamp } | { allowed: true, degraded: true, graceEndsAt: timestamp }` must be callable before request processing (Tier-6 audit — five-field request; two-arm response: the window arm carries the four window fields plus the `blockUntil` marker, set only while an active §Escalation block denies the identity — it carries the block expiry and discriminates counter trips from active blocks; the fail-open degraded arm, returned only during grace, carries no window fields — `graceEndsAt` is the grace-expiry instant, never a window reset).
 - All HTTP responses from rate-limited endpoints must include `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset` headers, subject to the §Default Behavior threshold-approach and degraded-suppression rules.
 - The admin API must expose `POST /admin/bans`, `GET /admin/bans`, and `DELETE /admin/bans/{id}` for ban management (Tier-6 audit, D-021-12 adds the list route).
 - See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.

@@ -227,7 +227,7 @@ Payload shape: `{sessionId, interventionId, targetRunId, type: InterventionType,
 
 ### Approval Flow (`approval_flow`)
 
-Payload shape: `{sessionId, runId?, approvalRequestId?, category: ApprovalCategory, scope, approver?, rememberedScope?, ruleId?, invalidationTrigger?}` — `runId`/`approvalRequestId` are absent on trust-triggered `approval.rule_revoked` (no in-flight request); `ruleId` is present on `approval.remembered` / `approval.rule_revoked`; `invalidationTrigger` is present on `approval.rule_revoked` (Tier-6 audit, Plan-012 D-012-8/D-012-3).
+Payload shape: `{sessionId, runId?, approvalRequestId?, category: ApprovalCategory, scope, requestedBy?, resourceDescriptor?, expiryAt?, approver?, effectiveScope?, rememberedScope?, ruleId?, invalidationTrigger?}` — `runId`/`approvalRequestId` are absent on trust-triggered `approval.rule_revoked` (no in-flight request); `requestedBy`/`resourceDescriptor` (+ `expiryAt` when set) are present on `approval.requested` and `approver` + `effectiveScope` on the resolution events, so relayed or replayed events alone rebuild each daemon's approval projection (Plan-012 D-012-6/D-012-7); `ruleId` is present on `approval.remembered` / `approval.rule_revoked`; `invalidationTrigger` is present on `approval.rule_revoked` (Tier-6 audit, Plan-012 D-012-8/D-012-3).
 
 | Type | Description |
 | --- | --- |
