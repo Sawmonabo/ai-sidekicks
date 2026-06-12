@@ -108,8 +108,8 @@ The following table is the single authoritative reference for every allowed run 
 | `running` | `interrupted` | Interrupt or cancel intervention | User-initiated stop |
 | `running` | `completed` | Execution finished | Run reaches successful terminal condition |
 | `running` | `failed` | Unrecovered error | Provider, transport, or internal error during execution |
-| `waiting_for_approval` | `running` | Approval resolved | Resolution outcome (approved, rejected, or expired) delivered to the run; a rejected or expired outcome continues the run with the action refused — it does not terminate the run (Spec-012 — Tier-6 audit) |
-| `waiting_for_approval` | `interrupted` | Interrupt or cancel intervention | User-initiated stop while waiting |
+| `waiting_for_approval` | `running` | Approval resolved | Resolution outcome (approved, rejected, or expired) delivered to the run; a rejected or expired outcome continues the run with the action refused — it does not terminate the run (Spec-012 — Tier-6 audit); exception: a denied pre-turn moderation gate (`category: 'gate'`) does not continue — Plan-016's moderation gate system-cancels it with `trigger: 'moderation_denied'` (Spec-016 D-016-10), exiting via the interrupt row below |
+| `waiting_for_approval` | `interrupted` | Interrupt or cancel intervention | User-initiated stop while waiting, or the system-cancel of a denied pre-turn moderation gate (`trigger: 'moderation_denied'` — Spec-016 D-016-10) |
 | `waiting_for_approval` | `failed` | Provider or transport failure | Failure occurs while run is blocked on approval |
 | `waiting_for_input` | `running` | Input received | Valid participant input received |
 | `waiting_for_input` | `interrupted` | Interrupt or cancel intervention | User-initiated stop while waiting |

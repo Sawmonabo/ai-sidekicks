@@ -1476,6 +1476,13 @@ type InvalidationTrigger = "explicit" | "membership_change" | "node_trust_change
 // the event type; envelope timestamps supply the created/updated instants. The
 // category's eighth event, `moderation.review_flagged`, has a distinct payload —
 // see ModerationReviewFlaggedPayload below.
+// Variant-required fields are enforced at the EMISSION seam via the exported per-type
+// refinement (Plan-012 T1.1 `approvalFlowPayloadRefinementFor`): requested ⇒ runId /
+// approvalRequestId / requestedBy / resourceDescriptor; approved / rejected ⇒
+// approvalRequestId / approver / effectiveScope; expired / canceled ⇒ approvalRequestId;
+// remembered ⇒ approvalRequestId / approver / nodeId / rememberedScope / ruleId (+ runId
+// iff rememberedScope.kind = 'run'); rule_revoked ⇒ ruleId / invalidationTrigger —
+// a malformed event fails at the emission parse, never at peer/restart projection (I-012-9).
 interface ApprovalFlowEventPayload {
   sessionId: SessionId;
   runId?: RunId; // absent on trust-triggered rule_revoked (no in-flight request)

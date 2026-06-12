@@ -523,8 +523,9 @@ CREATE INDEX idx_approval_requests_state ON approval_requests(state) WHERE state
 
 -- Owner: Plan-012
 CREATE TABLE approval_resolutions (
-  id                       TEXT PRIMARY KEY,
-  request_id               TEXT NOT NULL REFERENCES approval_requests(id),
+  request_id               TEXT PRIMARY KEY REFERENCES approval_requests(id),
+                                              -- PK = the durable wire id (approvalRequestId): enforces the 1:1 decision row
+                                              -- and keeps every column event-derivable for peer/replay rebuild (I-012-9)
   approver_id              TEXT NOT NULL,     -- participant recorded as approver (D-012-12: node-owner binding on the
                                               -- local socket; verified PASETO sub on authenticated surfaces; Spec-012 line 83)
   decision                 TEXT NOT NULL
@@ -538,8 +539,6 @@ CREATE TABLE approval_resolutions (
   audit_metadata           TEXT NOT NULL DEFAULT '{}' -- JSON: audit trail
 );
 
-CREATE UNIQUE INDEX idx_approval_resolutions_request ON approval_resolutions(request_id);
-
 -- Owner: Plan-012
 CREATE TABLE remembered_approval_rules (
   id                         TEXT PRIMARY KEY,
@@ -547,7 +546,7 @@ CREATE TABLE remembered_approval_rules (
   participant_id             TEXT NOT NULL,   -- the GRANTOR (approver who opted in); audit + membership-invalidation key, not a match key (D-012-10)
   node_id                    TEXT NOT NULL,   -- executing node whose trust envelope the grant rides; node-trust-invalidation key (Spec-012 line 77)
   run_id                     TEXT,            -- originating run; NOT NULL iff scope_kind = 'run' (the Spec-012 line 97 'this run only' binding)
-  created_from_resolution_id TEXT NOT NULL REFERENCES approval_resolutions(id), -- origin decision (Spec-012 line 92 audit history)
+  created_from_request_id    TEXT NOT NULL REFERENCES approval_resolutions(request_id), -- origin decision (Spec-012 line 92 audit history); the durable wire id carried on approval.remembered, so the FK rebuilds byte-equal from events alone (I-012-9)
   category                   TEXT NOT NULL
                              CHECK(category IN (
                                'tool_execution', 'file_write', 'network_access', 'destructive_git',
