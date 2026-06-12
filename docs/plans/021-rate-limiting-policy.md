@@ -234,7 +234,7 @@ export interface EscalationDecision {
   blockUntil: string | null; // ISO 8601; set when a threshold tripped
   violationCountWindow5m: number;
   violationCountWindow1h: number;
-  escalatedTo1h: boolean; // true exactly when the 10/1-hr threshold trips (ops-alert trigger)
+  escalatedTo1h: boolean; // true exactly when the 10/1-hr threshold trips — the calling limiter emits the T21.4-2 ops-alert pair on this flag (the limiter holds the request's endpoint; the stores never see it, and hosted DO-side emission cannot reach the Worker registry)
 }
 
 export interface EscalationStore {
@@ -266,10 +266,14 @@ export function createAdmissionCheck(deps: {
   bans: AdminBansStore;
   limiterFor: (endpoint: RateLimitEndpointGroup) => RateLimiter;
   banCacheTtlMs?: number; // default 60_000 (D-021-5)
-}): (req: RateLimitCheckRequest) => Promise<AdmissionResult>;
+  onTrip?: (labels: { endpoint: RateLimitEndpointGroup; tier: RateLimitTier }) => void; // fires on EVERY rate_limited result, observe + enforce alike — T21.4-1 binds rate_limit_trip_total (the D-021-16 soak input)
+}): {
+  check: (req: RateLimitCheckRequest) => Promise<AdmissionResult>; // what middleware/WS consume as `checkAdmission`
+  invalidateBanCache: (identity: string, identityType: RateLimitIdentityType) => void; // write-through hook — T21.3-5 calls it on issue/revoke (D-021-5)
+};
 ```
 
-Evaluation order on BOTH transports (I-021-1): **ban → escalation block → counter** — the ban check consults `AdminBansStore.findActive` through an in-memory ≤60s cache (per process on self-host, per isolate on hosted; write-through invalidation in the issuing process on issue/revoke; D-021-5), and the block + counter stages run inside `limiter.check()`. Observe mode (D-021-16) is applied by the consumers: checks run and telemetry emits, but refusals are not enforced.
+Evaluation order on BOTH transports (I-021-1): **ban → escalation block → counter** — the ban check consults `AdminBansStore.findActive` through an in-memory ≤60s cache (per process on self-host, per isolate on hosted; write-through invalidation in the issuing process = T21.3-5 calling the returned `invalidateBanCache` on issue/revoke, so a cached negative never outlives a ban issued in-process; D-021-5), and the block + counter stages run inside `limiter.check()`. Observe mode (D-021-16) is applied by the consumers: checks run and telemetry emits — the pipeline's `onTrip` hook fires on every `rate_limited` result regardless of mode, so `rate_limit_trip_total` counts would-be 429s during the observe soak — but refusals are not enforced.
 
 ### Admin bans API (operator-token-authenticated, D-021-1)
 
@@ -358,13 +362,14 @@ export const wsRateLimit =
     checkAdmission: AdmissionCheck,
     identityExtractor: (conn: WsConnection) => WsIdentity,
     mode: "enforce" | "observe",
+    endpointFor: (frame: WsFrame) => RateLimitEndpointGroup = () => "ws.message", // envelope-kind routing — 1-byte type discriminator only (CP-008-9 metadata, never payload)
   ) =>
   async (conn: WsConnection, frame: WsFrame): Promise<WsAdmissionOutcome> => {
     const { identity, identityType, tier } = identityExtractor(conn); // connection principal; never payload inspection
     const admission = await checkAdmission({
       identity,
       identityType,
-      endpoint: "ws.message",
+      endpoint: endpointFor(frame),
       tier,
     });
     if (admission.admitted) return { proceed: true };
@@ -378,6 +383,7 @@ export const wsRateLimit =
 
 - **Drop-frame semantics (D-021-9):** a counter trip refuses the offending frame only — the caller sends one in-band `rate_limited` error frame (shape registered in [api-payload-contracts.md §Relay Rate-Limit Signalling](../architecture/contracts/api-payload-contracts.md)) and keeps the connection. Close `4029` (WebSocket private range) fires ONLY for banned identities or active escalation blocks. Single-signal contract: the hook returns the outcome; the CALLER (relay frame handler) performs the send/close — the hook never writes to the connection.
 - **Observe mode (D-021-16):** `mode` is factory-provided at construction (`createRateLimiterFactory` reads `AIS_RATELIMIT_MODE` once — T21.2-7), mirroring the tRPC middleware's `ctx.rateLimitMode`. In observe, tripped/blocked/banned frames still return `{ proceed: true }` — `checkAdmission` telemetry records the would-be refusal, but no `rate_limited` frame is sent and no `4029` close fires.
+- **Per-frame endpoint routing:** `endpointFor` selects the registry group from the decoded envelope's 1-byte `type` discriminator only (ciphertext-envelope metadata — the CP-008-9 seam exposes no payload): presence-heartbeat-kind frames → `presence.heartbeat` (10/min per participant, Spec-021 registry row), all other inbound frames → `ws.message`. Spec-002 §Transport Assumptions carries heartbeats as lightweight messages on the relay WebSocket — there is no tRPC procedure to wrap, so the WS frame path is the only enforcement point for that row.
 - Zero-knowledge constraint (CP-008-9): the hosted seam exposes ciphertext-envelope metadata + the authenticated connection principal only; identity = the connection's PASETO-resolved participant.
 
 ### Standard headers on 429 responses
@@ -419,7 +425,7 @@ All rate-limited responses must set:
 | Endpoint group (canonical key) | Procedure owner | Wiring owner + mechanism |
 | --- | --- | --- |
 | `session.create` / `session.join` + `general.api` fallback | Plan-008 (shipped surface) | Plan-021 T21.3-6 (Tier 6) |
-| `presence.heartbeat` | Plan-002/Plan-008 (Tier 5) | Plan-021 T21.3-6 |
+| `presence.heartbeat` | Plan-002/Plan-008 (Tier 5) | Plan-021 T21.3-6 (relay-WS frame path via `endpointFor` — not tRPC; Spec-002 carries heartbeats on the relay WebSocket) |
 | `event.query` | Plan-008 SSE/query surface | Plan-021 T21.3-6 for shipped procedures |
 | `event.subscribe` (5 concurrent — concurrency_cap) | Plan-008 SSE subscription registry | SSE surface owner per [BL-144](../backlog.md) (store-side cap, mirrors the BL-120 pattern) |
 | `health.check` | Plan-008 host (+ Plan-025 self-host) | Plan-021 T21.3-6 (hosted); Plan-025 step 7 (self-host) |
@@ -544,7 +550,7 @@ All rate-limited responses must set:
   - **Spec coverage:** Spec-021 line 98 (admin-API-exclusive ban management), line 135 (durable bans), line 127 (route-backing store shapes)
   - **Verifies invariant:** I-021-6
   - **Consumes:** `AdminBansStore` contract ← T21.1-2; `admin_bans` ← T21.1-3; pg client seam (injected; hosted production = Plan-008's Tier-5 Hyperdrive-backed Querier substrate, self-host = Plan-025 pool).
-- [ ] **T21.3-2 — `rate-limit/enforcement-pipeline.ts`.** `createAdmissionCheck` per §API And Transport Changes: ban (≤60s cache, write-through invalidation hooks for issue/revoke; D-021-5) → `limiter.check`. Unit tests: banned → `{ refusal: "banned" }` without counter consumption (I-021-1); blocked → 429-shaped result with block-remaining; clean → counter path; cache: issue in-process → immediate enforcement; cross-process staleness bounded by TTL (fake timers).
+- [ ] **T21.3-2 — `rate-limit/enforcement-pipeline.ts`.** `createAdmissionCheck` per §API And Transport Changes — returns `{ check, invalidateBanCache }`: ban (≤60s cache; write-through = T21.3-5 calls `invalidateBanCache` on issue/revoke; D-021-5) → `limiter.check`; `onTrip` seam fires on every `rate_limited` result in observe and enforce alike (T21.4-1 binds `rate_limit_trip_total{endpoint,tier}` — the D-021-16 soak input). Unit tests: banned → `{ refusal: "banned" }` without counter consumption (I-021-1); blocked → 429-shaped result with block-remaining; clean → counter path; cache: issue → `invalidateBanCache` → immediate enforcement; cross-process staleness bounded by TTL (fake timers); `onTrip` fires for would-be 429s with no mode dependence.
   - **Spec coverage:** Spec-021 line 142 (banned identity → 403 on future requests), line 94 (15-min block enforced), line 95 (1-hr block enforced), line 85 (Retry-After on refusal)
   - **Verifies invariant:** I-021-1
   - **Consumes:** `AdminBansStore` ← T21.3-1; `RateLimiter` via factory ← T21.2-7.
@@ -552,18 +558,18 @@ All rate-limited responses must set:
   - **Spec coverage:** Spec-021 line 116 (threshold-approach headers), line 84 (429), line 85 (Retry-After), line 86 (standard headers), line 109 (elevated resolution)
   - **Verifies invariant:** I-021-1, I-021-7
   - **Consumes:** `checkAdmission` ← T21.3-2; CP-008-5 mount surface ← Plan-008-remainder (Tier 5, §Preconditions); `AuthenticatedIdentityContext` (`ctx.participantId`) ← Plan-018; `session_memberships` read surface ← Plan-001/Plan-002 (shipped) for `resolveTier`.
-- [ ] **T21.3-4 — `middleware/ws-rate-limit.ts`.** `wsRateLimit` per §API And Transport Changes: drop-frame on counter trip (in-band `rate_limited` frame shape from T21.1-4), close `4029` only on ban/active block, observe-mode pass-through (D-021-16; factory-provided `mode`), single-signal outcome contract (caller performs send/close). Unit tests: trip → frame outcome + connection-stays-open; active block → close outcome with `retryAfter`; banned → close outcome; observe mode → `{ proceed: true }` on trip/block/ban (telemetry only — never frame or close); identity from connection principal only.
-  - **Spec coverage:** Spec-021 line 90 (WS overflow semantics), line 148 (per-frame limiting), line 72 (ws.message registry row)
+- [ ] **T21.3-4 — `middleware/ws-rate-limit.ts`.** `wsRateLimit` per §API And Transport Changes: drop-frame on counter trip (in-band `rate_limited` frame shape from T21.1-4), close `4029` only on ban/active block, observe-mode pass-through (D-021-16; factory-provided `mode`), envelope-kind endpoint routing (`endpointFor`: heartbeat-kind frames → `presence.heartbeat`, default `ws.message` — envelope `type` byte only, CP-008-9-safe), single-signal outcome contract (caller performs send/close). Unit tests: trip → frame outcome + connection-stays-open; active block → close outcome with `retryAfter`; banned → close outcome; observe mode → `{ proceed: true }` on trip/block/ban (telemetry only — never frame or close); heartbeat-kind frame routes to `presence.heartbeat` while other frames stay `ws.message`; identity from connection principal only.
+  - **Spec coverage:** Spec-021 line 90 (WS overflow semantics), line 148 (per-frame limiting), line 72 (ws.message registry row), line 66 (presence.heartbeat registry row — routed by `endpointFor`)
   - **Verifies invariant:** I-021-1
   - **Consumes:** `checkAdmission` ← T21.3-2; factory `mode` ← T21.2-7; CP-008-9 seam ← Plan-008 R3 (hosted consumption; §Preconditions); Plan-025 steps 7-8 (self-host consumption, CP-021-3).
-- [ ] **T21.3-5 — `admin/bans-routes.ts`.** Raw HTTP routes (D-021-10) registered ahead of tRPC dispatch in the host fetch handler: `POST /admin/bans` (validate via `AdminBanCreateRequestSchema`; 201), `GET /admin/bans` (pagination), `DELETE /admin/bans/:id` (204/404). Operator-token auth per D-021-1 (constant-time compare; absent/malformed → 401 `auth.token_invalid`; mismatch → 403 `admin.forbidden`). On issue/revoke: ban-cache write-through invalidation (T21.3-2 hooks) + `admin_ban_total{action}` emission point (lands with T21.4-1).
+- [ ] **T21.3-5 — `admin/bans-routes.ts`.** Raw HTTP routes (D-021-10) registered ahead of tRPC dispatch in the host fetch handler: `POST /admin/bans` (validate via `AdminBanCreateRequestSchema`; 201), `GET /admin/bans` (pagination), `DELETE /admin/bans/:id` (204/404). Operator-token auth per D-021-1 (constant-time compare; absent/malformed → 401 `auth.token_invalid`; mismatch → 403 `admin.forbidden`). On issue/revoke: ban-cache write-through invalidation (call T21.3-2's `invalidateBanCache` before returning) + `admin_ban_total{action}` emission point (lands with T21.4-1).
   - **Spec coverage:** Spec-021 line 127 (the three routes), line 98 (exclusively via admin API), line 142 (ban example flow)
   - **Verifies invariant:** I-021-6
-  - **Consumes:** `AdminBansStore` ← T21.3-1; wire schemas ← T21.1-2; operator token (injected config per D-021-1; self-host provider = Spec-027 Row 3 / BL-135; hosted = `AIS_ADMIN_TOKEN` secret).
-- [ ] **T21.3-6 — Wire shipped procedures + daemon-exclusion test.** Apply `rateLimitProcedure` per the §Endpoint Wiring Ownership table to the procedures shipped at Tier 6: `session.create`, `session.join`, `presence.heartbeat`, `event.query`, `health.check`, the `general.api`/`unauthenticated.request` fallback buckets, and `auth.endpoint` over the shipped auth procedures — inside the CP-008-5 mount seam (export-only host edit). Author `packages/runtime-daemon/test/no-rate-limit-import.test.ts`: glob `packages/runtime-daemon/src/**/*.ts` and assert zero import specifiers matching `control-plane/src/middleware`, `control-plane/src/rate-limit`, or the `rateLimitProcedure`/`wsRateLimit` symbols (type-only `packages/contracts` imports permitted).
-  - **Spec coverage:** Spec-021 line 160 (AC-1 general.api), AC2 (line 161 — auth.endpoint), AC8 (line 167 — daemon exclusion), line 25 (daemon scope exclusion)
+  - **Consumes:** `AdminBansStore` ← T21.3-1; `invalidateBanCache` ← T21.3-2; wire schemas ← T21.1-2; operator token (injected config per D-021-1; self-host provider = Spec-027 Row 3 / BL-135; hosted = `AIS_ADMIN_TOKEN` secret).
+- [ ] **T21.3-6 — Wire shipped procedures + daemon-exclusion test.** Apply `rateLimitProcedure` per the §Endpoint Wiring Ownership table to the procedures shipped at Tier 6: `session.create`, `session.join`, `event.query`, `health.check`, the `general.api`/`unauthenticated.request` fallback buckets, and `auth.endpoint` over the shipped auth procedures — inside the CP-008-5 mount seam (export-only host edit). `presence.heartbeat` is NOT a tRPC procedure (Spec-002 §Transport Assumptions: heartbeats ride the relay WebSocket): bind `wsRateLimit` into the CP-008-9 frame seam with an `endpointFor` routing heartbeat-kind envelopes → `presence.heartbeat`, everything else → `ws.message`. Author `packages/runtime-daemon/test/no-rate-limit-import.test.ts`: glob `packages/runtime-daemon/src/**/*.ts` and assert zero import specifiers matching `control-plane/src/middleware`, `control-plane/src/rate-limit`, or the `rateLimitProcedure`/`wsRateLimit` symbols (type-only `packages/contracts` imports permitted).
+  - **Spec coverage:** Spec-021 line 160 (AC-1 general.api), AC2 (line 161 — auth.endpoint), AC8 (line 167 — daemon exclusion), line 25 (daemon scope exclusion), line 66 (presence.heartbeat — relay-WS frame path, not tRPC)
   - **Verifies invariant:** I-021-1 (daemon-exclusion companion)
-  - **Consumes:** `rateLimitProcedure` ← T21.3-3; shipped Plan-008/Plan-002 procedure surfaces (Tier 5); BL-120/BL-144/BL-145/BL-146 rows cover the NOT-wired groups (tracked, not satisfied here).
+  - **Consumes:** `rateLimitProcedure` ← T21.3-3; `wsRateLimit` + `endpointFor` ← T21.3-4; CP-008-9 seam ← Plan-008 R3; shipped Plan-008/Plan-002 procedure surfaces (Tier 5); BL-120/BL-144/BL-145/BL-146 rows cover the NOT-wired groups (tracked, not satisfied here).
 
 ### Phase 4 — Observability + Rollout Verification
 
@@ -573,14 +579,14 @@ All rate-limited responses must set:
 
 #### Tasks
 
-- [ ] **T21.4-1 — `rate-limit/metrics.ts`.** `RateLimitMetrics` class wrapping an injected `prom-client` `Registry`; register the five canonical families (D-021-8); emission map: trip → middleware/WS deny paths; block → escalation-store threshold writes; failclosed → post-grace 503 path; backend_error → fail-open catch; admin_ban → store issue/revoke. Emission-time label-allow-list guard throws on out-of-list values (Plan-020 invariants). Add `prom-client` to `packages/control-plane/package.json`. Hosted disposition: no exposition — counters degrade to structured-log emission of the same bounded fields (D-021-15); self-host exposition = Plan-025 relay `GET /metrics` (CP-021-3). Unit tests: each emission point increments exactly its family; out-of-allow-list label throws; total series across families < 50 (I-021-8).
+- [ ] **T21.4-1 — `rate-limit/metrics.ts`.** `RateLimitMetrics` class wrapping an injected `prom-client` `Registry`; register the five canonical families (D-021-8); emission map: trip → the T21.3-2 pipeline `onTrip` seam (fires in observe + enforce — the middleware/WS deny paths go dark in observe and MUST NOT own this counter); block → `escalatedTo1h` decisions consumed inside both limiters' `check()` (the seam holding the request `endpoint`; hosted DO-side emission cannot reach the Worker registry); failclosed → post-grace 503 path; backend_error → fail-open catch; admin_ban → store issue/revoke. Emission-time label-allow-list guard throws on out-of-list values (Plan-020 invariants). Add `prom-client` to `packages/control-plane/package.json`. Hosted disposition: no exposition — counters degrade to structured-log emission of the same bounded fields (D-021-15); self-host exposition = Plan-025 relay `GET /metrics` (CP-021-3). Unit tests: each emission point increments exactly its family; out-of-allow-list label throws; total series across families < 50 (I-021-8).
   - **Spec coverage:** Spec-027 §Required Behavior line 67 (row 9b relay family set — Plan-021's counters); Spec-021 line 97 (ops-alert telemetry pair)
   - **Verifies invariant:** I-021-8
-  - **Consumes:** deny/trip paths ← Phases 2-3; Plan-020 §Prometheus /metrics Exposition label invariants (doc contract, CP-021-4); `prom-client` (npm).
-- [ ] **T21.4-2 — Escalation alert telemetry.** On the 10/1-hr threshold trip in BOTH escalation stores: increment `rate_limit_block_total{window_size="1h"}` + emit one structured warning log with bounded fields `{ identity_type, endpoint, window_size: "1h", block_until }` (no raw identity — PII-free). Integration row: ten violations in 1 hr → `active_block_until ≈ now+1h` AND the counter incremented by exactly 1 AND one warning log with the bounded field set.
+  - **Consumes:** `onTrip` + `escalatedTo1h` seams ← Phases 2-3; Plan-020 §Prometheus /metrics Exposition label invariants (doc contract, CP-021-4); `prom-client` (npm).
+- [ ] **T21.4-2 — Escalation alert telemetry.** On `escalatedTo1h: true` from `recordViolation` — observed inside BOTH limiters' `check()` composition, the seam that still holds the request's `endpoint` (the stores never receive it, and hosted DO-side emission cannot reach the Worker registry): increment `rate_limit_block_total{window_size="1h"}` + emit one structured warning log with bounded fields `{ identity_type, endpoint, window_size: "1h", block_until }` (no raw identity — PII-free; exactly-once per crossing rides the store's atomic ladder evaluation). Integration row: ten violations in 1 hr → `active_block_until ≈ now+1h` AND the counter incremented by exactly 1 AND one warning log with the bounded field set.
   - **Spec coverage:** Spec-021 line 95 (1-hr block + ops alert), line 97 (ops-alert definition), AC5 (line 164)
   - **Verifies invariant:** I-021-8
-  - **Consumes:** escalation stores ← T21.2-3/T21.2-4; `RateLimitMetrics` ← T21.4-1.
+  - **Consumes:** `escalatedTo1h` ← T21.2-3/T21.2-4 (surfaced through the T21.2-5/T21.2-6 limiters); `RateLimitMetrics` ← T21.4-1.
 - [ ] **T21.4-3 — AC-anchored integration verification (`packages/control-plane/integration/`).** Named rows, all metric assertions via in-process registry reads (D-021-15 — no scrape exists at Tier 6): (1) `event.query` hammer 61× in 60s → 61st = 429 with `X-RateLimit-Limit: 60`, `Retry-After` per formula; (2) AC-1: 101st `general.api` request in 60s → 429 + all four headers; (3) AC-2: 21st `auth.endpoint` request from one IP → 429 + `Retry-After`; (4) AC-3: 6th redemption attempt from one IP → 429 on `invite.redeem_ip` (limiter-level — route wiring is BL-120); (5) AC-4/AC-5 ladder rows incl. blocked-while-capacity (I-021-3) via the contract suite; (6) AC-6 exclusivity negative: ≥3 consecutive 10/1-hr escalation cycles → zero `admin_bans` rows + ladder ceiling ≤ 1h; (7) admin flow: 201 issue → 403 `ratelimit.banned` on next request from the banned identity (no counter consumed, I-021-1) → 204 revoke → allowed; 409 race row; (8) WS: 61 frames in 60s → 61st refused with in-band frame + connection alive; post-block frame → close 4029 (D-021-9); (9) grace-expiry → 503 + `rate_limit_failclosed_total` increment + one transition log; (10) per-scenario counter deltas (trip/block/admin_ban/backend_error families).
   - **Spec coverage:** Spec-021 line 160 (AC-1), AC2 (line 161), AC3 (line 162), AC4 (line 163), AC5 (line 164), AC6 (line 165), AC8 (line 167 — via T21.3-6's structural test), line 140 (61-message example), line 142 (ban example)
   - **Verifies invariant:** I-021-1, I-021-3, I-021-4, I-021-6
@@ -597,7 +603,7 @@ All rate-limited responses must set:
 
 The authoritative per-task test obligations live in each `#### Tasks` row above. Summary by layer:
 
-- **Unit (`packages/control-plane/src/rate-limit/*.test.ts`, `src/middleware/*.test.ts`, `src/admin/*.test.ts`):** factory table rows; fail-open grace + degraded suppression + transition log; escalation ladder threshold math on both stores; DO single-alarm re-arm + restart persistence; bans-store CRUD + 23505 + pagination; pipeline ordering (ban → block → counter); middleware identity/tier/header/observe rows; WS drop-frame vs close vs observe rows; metrics label guard + series count.
+- **Unit (`packages/control-plane/src/rate-limit/*.test.ts`, `src/middleware/*.test.ts`, `src/admin/*.test.ts`):** factory table rows; fail-open grace + degraded suppression + transition log; escalation ladder threshold math on both stores; DO single-alarm re-arm + restart persistence; bans-store CRUD + 23505 + pagination; pipeline ordering (ban → block → counter) + `onTrip`/`invalidateBanCache` rows; middleware identity/tier/header/observe rows; WS drop-frame vs close vs observe rows; metrics label guard + series count.
 - **Migration-shape (`packages/control-plane/src/migrations/__tests__/`):** PGlite information_schema assertions + idempotent re-apply + I-021-6 race + CHECK rejection (T21.1-3).
 - **Contracts (`packages/contracts/src/__tests__/`):** Zod round-trips; 5-field envelope acceptance / 4-field rejection; registry-key union snapshot (T21.1-6).
 - **Contract parity suite (`rate-limiter-contract-suite.ts`):** the I-021-2 proof, run against both backends in CI and re-run by Plan-025 at Tier 7 (T21.2-9; CP-021-3).
