@@ -212,7 +212,7 @@ CREATE TABLE driver_contract_meta (
 -- kSecAttrAccessibleWhenUnlockedThisDeviceOnly on macOS / CRED_TYPE_GENERIC
 -- CRED_PERSIST_LOCAL_MACHINE on Windows / Secret Service via libsecret +
 -- kwallet6 + keyutils fallback on Linux). Public key is registered in the
--- session participant roster at join time per Spec-006:385. Sealed-key storage
+-- session participant roster at join time per Spec-006:568. Sealed-key storage
 -- lives in local SQLite (NOT shared-Postgres sessions) per ADR-004 SQLite-
 -- local-state boundary — daemon-private secrets are per-machine.
 CREATE TABLE daemon_signing_keys (
@@ -393,7 +393,7 @@ CREATE TABLE branch_contexts (
 );
 
 CREATE INDEX idx_branch_contexts_workspace ON branch_contexts(workspace_id);
-CREATE INDEX idx_branch_contexts_worktree ON branch_contexts(worktree_id) WHERE worktree_id IS NOT NULL;
+CREATE UNIQUE INDEX idx_branch_contexts_worktree_workspace ON branch_contexts(worktree_id, workspace_id) WHERE worktree_id IS NOT NULL;  -- one binding row per (workspace, worktree) — D-010-15 upsert; the worktree-keyed BranchContextRead resolves on the pair
 
 -- Owner: Plan-010 (Tier-6 audit, D-010-16)
 -- Per-run execution binding (Spec-010 §State And Data Implications: execution mode as run setup data):

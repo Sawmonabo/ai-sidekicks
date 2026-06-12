@@ -404,12 +404,14 @@ export const wsRateLimit =
 
 ### Standard headers on 429 responses
 
-All rate-limited responses must set:
+Sliding-window and escalation-block 429 responses must set:
 
 - `X-RateLimit-Limit: <limit>`
 - `X-RateLimit-Remaining: 0`
 - `X-RateLimit-Reset: <unix-timestamp-seconds>`
 - `Retry-After: <seconds>` — formula: `max(0, ceil((resetAt - now) / 1000))`. For the Postgres sliding-window backend, `resetAt` is "the time the oldest counted request ages out of the window" (the oldest in-window hit's timestamp plus the window duration). For the Cloudflare backend, `resetAt` is the DO-tracked authoritative window state (eager-DO, D-021-3); for an active block, `resetAt = active_block_until` (also surfaced as the check's `blockUntil` discriminator).
+
+Concurrency-cap 429s send only the truthful subset `X-RateLimit-Limit` + `X-RateLimit-Remaining: 0`: no reset clock exists — capacity frees when an existing holder releases, not at a window edge — so the timing pair (`X-RateLimit-Reset`, `Retry-After`) is omitted rather than fabricated (Spec-021 §Overflow Response).
 
 ## Invariants
 
@@ -570,8 +572,8 @@ All rate-limited responses must set:
   - **Spec coverage:** Spec-021 line 144 (banned identity → 403 on future requests), line 96 (15-min block enforced), line 97 (1-hr block enforced), line 86 (Retry-After on refusal)
   - **Verifies invariant:** I-021-1
   - **Consumes:** `AdminBansStore` ← T21.3-1; `RateLimiter` via factory ← T21.2-7.
-- [ ] **T21.3-3 — `middleware/rate-limit.ts`.** `rateLimitProcedure` per §API And Transport Changes: typed identity pair (D-021-14), `resolveTier` hook with D-021-5 cached membership read (elevated-eligible rows only), observe-mode pass-through for trip/block (D-021-16 — the banned arm enforces in both modes), 25%-threshold header attachment + degraded suppression, 429 with the canonical envelope, 403 `ratelimit.banned` mapping. Unit tests: identity fallback chain (participant → ip; missing IP on anonymous endpoint → 400); tier never caller-supplied; observe mode emits telemetry and never denies on trip/block while banned still → 403; header policy rows (remaining < 25% of limit → headers attach; remaining ≥ 25% → none; degraded → none; 429 → all four); banned arm attaches no rate-limit headers (403 in both modes).
-  - **Spec coverage:** Spec-021 line 118 (threshold-approach headers), line 85 (429), line 86 (Retry-After), line 87 (standard headers), line 111 (elevated resolution)
+- [ ] **T21.3-3 — `middleware/rate-limit.ts`.** `rateLimitProcedure` per §API And Transport Changes: typed identity pair (D-021-14), `resolveTier` hook with D-021-5 cached membership read (elevated-eligible rows only), observe-mode pass-through for trip/block (D-021-16 — the banned arm enforces in both modes), 25%-threshold header attachment + degraded suppression, 429 with the canonical envelope, 403 `ratelimit.banned` mapping. Unit tests: identity fallback chain (participant → ip; missing IP on anonymous endpoint → 400); tier never caller-supplied; observe mode emits telemetry and never denies on trip/block while banned still → 403; header policy rows (remaining < 25% of limit → headers attach; remaining ≥ 25% → none; degraded → none; sliding-window/escalation 429 → all four; concurrency-cap 429 → only the truthful subset `X-RateLimit-Limit` + `X-RateLimit-Remaining: 0` (Spec-021 §Overflow Response — this module's header helper also serves the store-side cap owners, BL-120/BL-144)); banned arm attaches no rate-limit headers (403 in both modes).
+  - **Spec coverage:** Spec-021 line 118 (threshold-approach headers), line 85 (429), line 86 (Retry-After), line 87 (standard headers), line 88 (concurrency-cap header subset), line 111 (elevated resolution)
   - **Verifies invariant:** I-021-1, I-021-7
   - **Consumes:** `checkAdmission` ← T21.3-2; CP-008-5 mount surface ← Plan-008-remainder (Tier 5, §Preconditions); `AuthenticatedIdentityContext` (`ctx.participantId`) ← Plan-018; `session_memberships` read surface ← Plan-001/Plan-002 (shipped) for `resolveTier`.
 - [ ] **T21.3-4 — `middleware/ws-rate-limit.ts`.** `wsRateLimit` per §API And Transport Changes: drop-frame on counter trip (in-band `rate_limited` frame shape from T21.1-4), close `4029` only on active block / `4003` on ban (both modes), observe-mode pass-through for trip/block (D-021-16; factory-provided `mode`), envelope-kind endpoint routing (`endpointFor`: heartbeat-kind frames → `presence.heartbeat`, default `ws.message` — envelope `type` byte only, CP-008-9-safe), single-signal outcome contract (caller performs send/close). Unit tests: trip → frame outcome + connection-stays-open; active block → close outcome (code `4029`, `retryAfter` = blockUntil); banned → close outcome (code `4003`; `retryAfter` = ban `expiresAt` when timed, omitted when permanent) in observe mode too; observe mode → `{ proceed: true }` on trip/block (telemetry only — never frame or close; bans excepted above); heartbeat-kind frame routes to `presence.heartbeat` while other frames stay `ws.message`; identity from connection principal only.

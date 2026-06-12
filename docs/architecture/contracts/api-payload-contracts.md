@@ -734,7 +734,7 @@ interface GetCapabilitiesResult {
 
 ```ts
 // CapabilityDetails — wrapper shape carried by `runtime_node.capability_declared` and
-// `runtime_node.capability_updated` event payloads (Spec-006:380-381). Bound to the same
+// `runtime_node.capability_updated` event payloads (Spec-006:384-385). Bound to the same
 // three surfaces a driver advertises via `ProviderDriver.getCapabilities()` (GetCapabilitiesResult
 // above): the seven-flag matrix, the negotiated contract version, and the per-tool metadata —
 // here as `NormalizedProviderToolMetadata` (post-default), since these payloads cross the event
@@ -743,7 +743,7 @@ interface GetCapabilitiesResult {
 // surfaces compose one capability snapshot; readers (Plan-013 timeline, Plan-020 dashboards,
 // Plan-015 replay) discriminate `runtime_node.capability_*` events from the discriminated
 // union and consume the snapshot as a single object — there is no driver-method context
-// that requires DriverCapabilities to remain pure. Sources: Spec-006:380-381; Plan-005
+// that requires DriverCapabilities to remain pure. Sources: Spec-006:384-385; Plan-005
 // CP-005-5; Plan-006 Phase 1 T1.4 + Phase 3 doc-mirror audit.
 interface CapabilityDetails {
   flags: Record<DriverCapabilityFlag, boolean>;
@@ -751,14 +751,14 @@ interface CapabilityDetails {
   tools: NormalizedProviderToolMetadata[];
 }
 
-// runtime_node.capability_declared payload (Spec-006:380). Emitted once per driver
+// runtime_node.capability_declared payload (Spec-006:384). Emitted once per driver
 // registration with the daemon's runtime-node bootstrap (Plan-003 territory).
 interface RuntimeNodeCapabilityDeclaredPayload {
   capability: string; // canonical capability identifier (e.g., "provider-driver")
   capabilityDetails: CapabilityDetails;
 }
 
-// runtime_node.capability_updated payload (Spec-006:381). Emitted on driver-version
+// runtime_node.capability_updated payload (Spec-006:385). Emitted on driver-version
 // bump, tool addition/removal, or flag-matrix mutation. `previousState` / `newState`
 // carry the same wrapper shape so consumers diff snapshots structurally.
 interface RuntimeNodeCapabilityUpdatedPayload {
@@ -928,7 +928,7 @@ interface QueueItemCreateResponse {
 // the daemon queue-admission service IN-PROCESS, passing an OrchestrationRunLinkCarrier (see
 // §Plan-016) after its own admission pipeline passes. The in-process admission API returns the
 // minted RunId (the run.queued emission's runId) alongside queueItemId, and run.queued carries the
-// carrier fields durably (Spec-006:179 additive optional fields). The wire run.queueCreate method
+// carrier fields durably (Spec-006:187 additive optional fields). The wire run.queueCreate method
 // never accepts the carrier — child-run creation goes through orchestration.runCreate only.
 
 // QueueItemList
@@ -1003,6 +1003,14 @@ interface RunStateChangeEvent {
   healthSignal?: "stuck-suspected";
   providerFailureDetail?: string; // populated on `run.failed` when failureCategory='provider'
   trigger?: "turn_limit" | "budget_exhausted" | "idle_timeout" | "moderation_denied"; // stop-condition provenance (additive per ADR-018): 'turn_limit' rides run.completed at the turn limit (Plan-016 D-016-8 — the value CP-004-10 adds to Plan-004's trigger set); the three InterruptReason values ride run.interrupted on system interrupts (D-016-7). Absent on natural completion and user-initiated paths; the Runs View / timeline stop-condition rendering (Spec-023) reads this field.
+  // run.queued linkage (orchestration-created runs only): the OrchestrationRunLinkCarrier fields
+  // threaded into the durable payload as optional additive fields (CP-004-10; Plan-016 D-016-3 —
+  // run_links is a pure events-canonical projection rebuilt from this event alone). Spec-006:187.
+  agentId?: AgentId;
+  parentRunId?: RunId;
+  linkType?: LinkType;
+  internalHelper?: boolean;
+  producingNodeId?: NodeId;
   timestamp: string;
 }
 
@@ -1645,14 +1653,19 @@ Canonical Zod schemas live in `packages/contracts/src/approval.ts` per the §Sou
 ### Plan-011 — Gitflow PR And Diff Attribution
 
 ```ts
-// BranchContextRead — exactly one of branchContextId | worktreeId (Zod refinement,
-// the WorkspaceExecutionModeCapabilitiesRead discipline): branchContextId is minted by
-// repo.executionRootPrepare for every writable mode, so branch- and clone-anchored
-// contexts stay readable; the worktreeId key serves worktree-anchored flows that hold
-// only the owning worktree id (Spec-011 §Interfaces And Contracts).
+// BranchContextRead — exactly one of branchContextId | (worktreeId + workspaceId) (Zod
+// refinement, the WorkspaceExecutionModeCapabilitiesRead discipline): branchContextId is
+// minted by repo.executionRootPrepare for every writable mode, so branch- and clone-anchored
+// contexts stay readable; the worktree-keyed arm serves worktree-anchored flows that hold
+// only the owning worktree id (Spec-011 §Interfaces And Contracts) and MUST pair it with the
+// requesting workspaceId: explicit cross-workspace reuse (Plan-010 D-010-15) upserts one
+// branch_contexts row per (workspace, worktree) binding while retaining the same worktree_id
+// across workspaces, so worktreeId alone is 1:N — the pair resolves exactly one row via the
+// partial-unique binding index (local-sqlite-schema.md branch_contexts).
 interface BranchContextReadRequest {
   branchContextId?: BranchContextId;
   worktreeId?: WorktreeId;
+  workspaceId?: WorkspaceId; // required with worktreeId (the pair is the key); absent on the branchContextId arm
 }
 interface BranchContextReadResponse {
   branchContextId: BranchContextId;
@@ -2236,7 +2249,7 @@ interface AgentListResponse {
 // Orchestration queue-admission carrier (D-016-13) — IN-PROCESS seam type, not a wire shape:
 // the orchestration-run-service passes it to Plan-004's daemon queue-admission service after its
 // own admission pipeline passes; the run.queued event payload then carries these fields durably
-// (Spec-006:179 additive optional fields). The wire run.queueCreate handler never populates it —
+// (Spec-006:187 additive optional fields). The wire run.queueCreate handler never populates it —
 // child-run creation goes through orchestration.runCreate only.
 interface OrchestrationRunLinkCarrier {
   parentRunId?: RunId;
