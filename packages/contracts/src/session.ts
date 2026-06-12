@@ -148,7 +148,7 @@ export const SessionStateSchema: z.ZodType<SessionState> = z.enum([
 ]);
 
 // "runtime contributor" includes the space — preserved verbatim from the
-// canonical enum (api-payload-contracts.md line 99). This is the wire form;
+// canonical enum (api-payload-contracts.md line 124). This is the wire form;
 // editing to "runtime_contributor" or similar is a contract break.
 export type MembershipRole = "owner" | "viewer" | "collaborator" | "runtime contributor";
 export const MembershipRoleSchema: z.ZodType<MembershipRole> = z.enum([
@@ -246,7 +246,7 @@ export const MembershipSummarySchema: z.ZodType<MembershipSummary> = z
   .strict();
 
 // `name` is optional in the canonical interface (`name?: string`). Per
-// api-payload-contracts.md line 224, omission is the wire signal for a
+// api-payload-contracts.md line 228, omission is the wire signal for a
 // channel without a friendly label (e.g. the implicit `main` channel).
 //
 // Note on `exactOptionalPropertyTypes: true`: the spec's wire form is
@@ -330,7 +330,7 @@ export const SessionReadRequestSchema: z.ZodType<SessionReadRequest, SessionRead
   .strict();
 
 // `timelineCursors.acknowledged` is optional per the canonical interface
-// (api-payload-contracts.md line 182).
+// (api-payload-contracts.md line 208).
 export interface SessionReadResponse {
   session: SessionSnapshot;
   timelineCursors: {

@@ -3,12 +3,12 @@
 // Backstops the C5 acceptance criterion (Plan-002 §C5, Spec-002 line 87):
 // `ChannelList` request/response shape parses the read-only projection of
 // channels in a session per the canonical wire form at
-// docs/architecture/contracts/api-payload-contracts.md lines 438-450.
+// docs/architecture/contracts/api-payload-contracts.md lines 442-454.
 //
 // Test surface enumerated (the "what" each block pins):
 //   * ChannelStateSchema wire-form pin — exactly the 3 canonical lowercase
 //     literals `{active, muted, archived}` per Spec-002 line 87 (referenced
-//     in the `state: ChannelState` field) + api-payload-contracts.md:166.
+//     in the `state: ChannelState` field) + api-payload-contracts.md:174.
 //     `"deleted"` / `"pending"` rejected (drift defense).
 //   * Re-exports — `ChannelIdSchema`, `SessionIdSchema`, `ChannelStateSchema`
 //     branded UUID + enum guards round-trip from session.ts (anti-cosmetic
@@ -85,10 +85,10 @@ describe("ChannelIdSchema / SessionIdSchema (re-exported from session.ts)", () =
 
 // =============================================================================
 // ChannelStateSchema — canonical lifecycle enum
-// (api-payload-contracts.md:166 — re-exported from session.ts:189-190)
+// (api-payload-contracts.md:174 — re-exported from session.ts:189-190)
 // =============================================================================
 //
-// Spec-002 line 87 + api-payload-contracts.md:166 bind the wire form to
+// Spec-002 line 87 + api-payload-contracts.md:174 bind the wire form to
 // EXACTLY three lowercase literals. Adding `"deleted"` / `"pending"` /
 // `"draft"` here is a contract break requiring the spec edit FIRST per
 // doc-first ordering.

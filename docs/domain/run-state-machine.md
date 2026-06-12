@@ -62,6 +62,7 @@ Primary allowed transitions:
 - `queued -> starting`
 - `starting -> running`
 - `starting -> failed`
+- `starting -> interrupted`
 - `running -> waiting_for_approval`
 - `running -> waiting_for_input`
 - `running -> paused`
@@ -100,14 +101,15 @@ The following table is the single authoritative reference for every allowed run 
 | `queued` | `starting` | Run admitted to execution | Queue slot available |
 | `starting` | `running` | Initialization complete | Provider and workspace ready |
 | `starting` | `failed` | Initialization error | Provider or workspace setup cannot complete |
+| `starting` | `interrupted` | Interrupt or cancel intervention | User-initiated stop while run setup is in progress or parked (e.g. blocked-in-setup per Spec-010 §Fallback Behavior — Tier-6 audit) |
 | `running` | `waiting_for_approval` | Approval requested | Run requires explicit approval before continuing |
 | `running` | `waiting_for_input` | Input requested | Run requires participant input or structured answers |
 | `running` | `paused` | Pause intervention | User or orchestration initiates pause |
 | `running` | `interrupted` | Interrupt or cancel intervention | User-initiated stop |
 | `running` | `completed` | Execution finished | Run reaches successful terminal condition |
 | `running` | `failed` | Unrecovered error | Provider, transport, or internal error during execution |
-| `waiting_for_approval` | `running` | Approval granted | Valid approval received |
-| `waiting_for_approval` | `interrupted` | Interrupt or cancel intervention | User-initiated stop while waiting |
+| `waiting_for_approval` | `running` | Approval resolved | Resolution outcome (approved, rejected, or expired) delivered to the run; a rejected or expired outcome continues the run with the action refused — it does not terminate the run (Spec-012 — Tier-6 audit); exception: a denied pre-turn moderation gate (`category: 'gate'`) does not continue — Plan-016's moderation gate system-cancels it with `trigger: 'moderation_denied'` (Spec-016 D-016-10), exiting via the interrupt row below |
+| `waiting_for_approval` | `interrupted` | Interrupt or cancel intervention | User-initiated stop while waiting, or the system-cancel of a denied pre-turn moderation gate (`trigger: 'moderation_denied'` — Spec-016 D-016-10) |
 | `waiting_for_approval` | `failed` | Provider or transport failure | Failure occurs while run is blocked on approval |
 | `waiting_for_input` | `running` | Input received | Valid participant input received |
 | `waiting_for_input` | `interrupted` | Interrupt or cancel intervention | User-initiated stop while waiting |
@@ -153,16 +155,18 @@ The canonical run lifecycle has one failure terminal state: `failed`. Additional
 
 ## Child-Run Behavior
 
-When a parent run changes state, child runs are affected as follows:
+Child runs are **independent intervention targets**: a parent state change never automatically propagates to children. This table was rewritten at the Tier-6 audit (Plan-016 A-016-17) to align with [Spec-016 §Intervention Propagation](../specs/016-multi-agent-channels-and-orchestration.md) — "A pause, interrupt, or steer applied to a parent run does not auto-cascade to its child runs. Each child run is an independent intervention target." — which postdates this document's original auto-cascade table (the Spec-016 V1-readiness review is the later ruling, and per Spec-016 §ADR Triggers an auto-cascade default would require a new ADR against ADR-011). Participants act on children explicitly via the same intervention surfaces as any run (Plan-004), using the `run_links` projection (`orchestration.childRunLinkRead`) to enumerate them.
 
 | Parent State | Child-Run Effect |
 | --- | --- |
-| `interrupted` | All child runs are interrupted. Children did not fail; they end because the parent was stopped. |
-| `failed` | All child runs are interrupted. Children are interrupted (not failed) because the parent died, not the children themselves. |
-| `paused` | All child runs are paused. Children pause when the parent pauses and resume when the parent resumes. |
+| `interrupted` | No automatic effect. Children keep their current state; each child is interrupted explicitly if the participant wants the subtree stopped. |
+| `failed` | No automatic effect. Children keep running; the parent's death does not invalidate work the children were spawned to do. |
+| `paused` | No automatic effect. Pausing a parent pauses only the parent; children are paused individually if needed. |
 | `completed` | Child runs continue to completion. They were spawned for a reason and are allowed to finish. |
 | `waiting_for_approval` | Child runs continue running. The parent blocking on approval does not block children. |
 | `waiting_for_input` | Child runs continue running. The parent blocking on input does not block children. |
+
+V1 run nesting is depth-1 (Spec-016 §Default Behavior): a child run cannot create its own children, so "subtree" is always a flat set of direct children.
 
 ## Edge Cases
 
@@ -179,7 +183,7 @@ Implementation uses a hybrid approach: XState v5 for internal transition logic a
 Validation against the complete transition table:
 
 - All transitions are deterministic: a given trigger combined with its guard condition produces exactly one target state. No ambiguous transitions exist.
-- Guards required: version checks for interventions (ensuring stale interventions do not apply), recovery eligibility checks (determining whether a stale run can be safely resumed or must fail), and child-run cascade guards (ensuring parent state changes propagate correctly to children).
+- Guards required: version checks for interventions (ensuring stale interventions do not apply), recovery eligibility checks (determining whether a stale run can be safely resumed or must fail), and child-run independence guards (ensuring no code path auto-propagates a parent state change to children — non-cascade per §Child-Run Behavior; Tier-6 audit, Plan-016 A-016-17).
 - No self-transitions or history states are required. Every transition moves the run to a different state.
 - The complete transition table is expressible in both XState v5 (as an explicit transition map with guard functions) and as a TypeScript discriminated union (where each state variant enumerates its valid next states at compile time).
 

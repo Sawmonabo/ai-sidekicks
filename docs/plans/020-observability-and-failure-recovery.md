@@ -11,7 +11,7 @@
 | **Required ADRs** | [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md), [ADR-005](../decisions/005-provider-drivers-use-a-normalized-interface.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md) |
 | **Dependencies** | [Plan-015](./015-persistence-recovery-and-replay.md) (persistence layer) |
 | **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
-| **Owned Spec-027 Rows** | 9 — Prometheus `/metrics` exposition (daemon endpoint + six metric families + bind/auth secure-default contract); see [Spec-027 row 9](../specs/027-self-host-secure-defaults.md#required-behavior). Plan-025 mounts the equivalent relay-side surface. |
+| **Owned Spec-027 Rows** | 9 — Prometheus `/metrics` exposition (daemon endpoint + five daemon metric families (row 9a) + bind/auth secure-default contract); see [Spec-027 row 9](../specs/027-self-host-secure-defaults.md#required-behavior). Plan-025 mounts the equivalent relay-side surface. |
 
 ## Goal
 
@@ -70,16 +70,17 @@ Plan-020 owns the daemon-side `/metrics` endpoint required by [Spec-027 row 9](.
 - Non-loopback opt-in: when `METRICS_BIND` is non-loopback, the daemon MUST require either (a) `METRICS_AUTH=bearer` with a rotated token file or (b) `METRICS_AUTH=mtls` with an operator-provided client-cert allow-list. Missing auth on non-loopback bind is a parse-time error.
 - Disable: `METRICS_BIND=off` disables the endpoint entirely. Disabling MUST emit a banner + `security.default.override=metrics_disabled` log event per [Spec-027 §Fallback Behavior](../specs/027-self-host-secure-defaults.md#fallback-behavior).
 
-**Metric families (daemon scope — Plan-025 mounts the equivalent relay-side set).** Only the six Spec-027 row 9 families are exposed; any additional metric family requires a Plan-020 amendment.
+**Metric families (daemon scope — Plan-025 mounts the equivalent relay-side set).** Only the five Spec-027 row 9a daemon families are exposed; any additional daemon metric family requires a Plan-020 amendment.
 
 | Family | Type | Labels (bounded) | Source |
 | --- | --- | --- | --- |
 | `token_auth_failure_total` | counter | `reason: "expired"\|"invalid"\|"dpop_mismatch"\|"principal_mismatch"\|"scope_denied"` (5 bounded values) | Auth middleware |
-| `rate_limit_trip_total` | counter | `bucket: "session"\|"run"\|"invite"\|"relay_group"\|"resource"` (5 bounded values) | Rate-limit enforcer |
 | `cedar_deny_total` | counter | `policy_family: "session"\|"membership"\|"runtime_node"\|"artifact"\|"admin"` (bounded; owned by ADR-012) | Cedar authorization layer |
 | `relay_connection_churn_total` | counter | `phase: "connect"\|"disconnect"\|"reconnect"\|"rejected"` (4 bounded values) | Relay client (mount via Plan-025 relay-side equivalent) |
 | `backup_success_total` | counter | `kind: "event_end"\|"nightly"\|"manual"` (3 bounded values) | Backup job (Plan-001/BL-063) |
 | `auto_update_check_status` | gauge | none | Update-notify poller (Plan-007 row 7a) — values: `0=ok`, `1=behind`, `2=poll_failed` |
+
+**Rate-limit families are control-plane-side, not daemon-side (Tier-6 audit, Plan-021 D-021-8).** The daemon has no rate-limit enforcer — [Spec-021 §Scope](../specs/021-rate-limiting-policy.md) excludes the local IPC path, and its AC-8 asserts the daemon path is never rate-limited — so the former daemon-side `rate_limit_trip_total{bucket}` family is removed from this table. The canonical rate-limit family set (`rate_limit_trip_total{endpoint,tier}`, `rate_limit_block_total{window_size}`, `rate_limit_backend_error_total{backend}`, `rate_limit_failclosed_total{backend}`, `admin_ban_total{action}`) is owned by [Plan-021](./021-rate-limiting-policy.md#ratified-design-decisions-tier-6-audit), registered + emitted control-plane-side under this section's label invariants (Plan-021 CP-021-4), and exposed on the self-host relay `GET /metrics` by Plan-025 (Spec-027 row 9b); hosted exposition is an explicit V1 gap (Plan-021 D-021-15).
 
 **PII-free-by-construction invariants.**
 
@@ -87,7 +88,7 @@ Plan-020 owns the daemon-side `/metrics` endpoint required by [Spec-027 row 9](.
 - Labels MUST be enumerable at compile time — no dynamic label values. Tests assert the full label cardinality per family is bounded by the documented allow-list.
 - Any attempt to emit a label value outside the allow-list MUST throw at emission time, not silently coerce. Emission-time enforcement prevents accidental PII bleed when a new code path adds a metric observation.
 
-**Cardinality ceiling.** Total emitted series across all six families MUST stay below 200 per daemon instance. Series-count assertion runs in integration tests; exceeding the ceiling is a Plan-020 invariant violation (not a warning), blocking merge until the allow-list tightens.
+**Cardinality ceiling.** Total emitted series across all five families MUST stay below 200 per daemon instance. Series-count assertion runs in integration tests; exceeding the ceiling is a Plan-020 invariant violation (not a warning), blocking merge until the allow-list tightens.
 
 ## Data And Storage Changes
 
@@ -112,7 +113,7 @@ Plan-020 owns the daemon-side `/metrics` endpoint required by [Spec-027 row 9](.
 2. Implement daemon-owned health and failure-detail projections derived from canonical state and provider diagnostics.
 3. Implement safe recovery-action request handling and audit recording.
 4. Implement bounded-retention policy handling for raw diagnostics without weakening canonical diagnosis surfaces. Wire default-deny outbound telemetry for all 4 diagnostic buckets; expose per-bucket opt-in raw-content capture with explicit operator acknowledgement; emit `retention_policy_override` warning metric when TTL override > 30 days.
-5. Implement Prometheus `/metrics` endpoint with the six allow-listed metric families, bounded label sets, bearer/mTLS auth gate for non-loopback `METRICS_BIND`, and emission-time label enforcement (`metrics-exposition.ts`, `metrics-registry.ts`, `metrics-auth.ts`).
+5. Implement Prometheus `/metrics` endpoint with the five allow-listed daemon metric families, bounded label sets, bearer/mTLS auth gate for non-loopback `METRICS_BIND`, and emission-time label enforcement (`metrics-exposition.ts`, `metrics-registry.ts`, `metrics-auth.ts`).
 6. Add desktop recovery and health surfaces that distinguish runtime state, failure categories, and degraded modes without requiring raw logs.
 
 ## Parallelization Notes
@@ -135,7 +136,7 @@ Plan-020 owns the daemon-side `/metrics` endpoint required by [Spec-027 row 9](.
   - `METRICS_AUTH=bearer` on non-loopback bind rejects requests without the bearer token and with a wrong bearer token; rotating the token file invalidates old tokens on the next request.
   - `METRICS_AUTH=mtls` on non-loopback bind rejects requests from clients whose cert is not on the operator-provided allow-list.
   - `METRICS_BIND=off` disables the endpoint, emits the loud banner, and emits `security.default.override=metrics_disabled` log event exactly once per startup.
-  - Cardinality ceiling: integration test asserts total emitted series across the six families stays below 200 per daemon instance; exceeding ceiling blocks merge.
+  - Cardinality ceiling: integration test asserts total emitted series across the five families stays below 200 per daemon instance; exceeding ceiling blocks merge.
   - PII-free label enforcement: attempting to emit a label value outside the documented allow-list throws at emission time (unit test per family).
   - Exposition format conforms to Prometheus v0.0.4 (parse-round-trip verified against a reference parser).
 
@@ -172,11 +173,13 @@ shipped: []
 
 <!-- Per-PR human commentary (round-trips, learnings, partial-ship details). Append-only. -->
 
+- 2026-06-10 — Tier-6 plan-readiness audit (Plan-021 walk, D-021-8): removed the daemon-side `rate_limit_trip_total{bucket}` family from §Prometheus `/metrics` Exposition (the daemon has no rate-limit enforcer per Spec-021 §Scope / AC-8) and recorded the supersession note pointing at Plan-021's canonical control-plane family set. Daemon family count 6 → 5; cardinality ceiling unchanged. Spec-027 rows 9a/9b reconciled in the same audit pass.
+
 ## Done Checklist
 
 - [ ] Code changes implemented
 - [ ] Tests added or updated
 - [ ] Verification completed
 - [ ] Related docs updated
-- [ ] Prometheus `/metrics` endpoint lands with the six allow-listed metric families, bounded label sets, bearer-token / mTLS auth gate for non-loopback bind, and emission-time label enforcement verified by negative tests
+- [ ] Prometheus `/metrics` endpoint lands with the five allow-listed daemon metric families, bounded label sets, bearer-token / mTLS auth gate for non-loopback bind, and emission-time label enforcement verified by negative tests
 - [ ] Cardinality ceiling (< 200 series per daemon instance) asserted in integration tests and wired into CI

@@ -48,11 +48,11 @@ Rate limiting uses a deployment-aware abstraction with identical limits across a
 
 | Deployment | Edge Layer | Application Layer |
 | --- | --- | --- |
-| `Collaborative Hosted Control Plane` (Cloudflare) | CF Workers native `rate_limit` binding (zero latency) | Sliding window counters in Durable Objects |
-| `Collaborative Self-Hosted Control Plane` | `rate-limiter-flexible` with Postgres backend | `rate-limiter-flexible` with Postgres backend |
+| `Collaborative Hosted Control Plane` (Cloudflare) | CF Workers native `rate_limit` binding (sliding-window counters, zero added latency) | Per-identity `RateLimitEscalationDO` Durable Object — escalation-block authority + authoritative window state, consulted on every check (eager-DO, [Plan-021 D-021-3](../plans/021-rate-limiting-policy.md#ratified-design-decisions-tier-6-audit)) |
+| `Collaborative Self-Hosted Control Plane` | `rate-limiter-flexible` with Postgres backend | `rate-limiter-flexible` with Postgres backend + `rate_limit_escalations` table |
 | `Single-Participant Local` | No rate limiting (trusted by socket reachability) | No rate limiting |
 
-The rate limiting interface is identical regardless of deployment. Implementation swaps via configuration. Self-hosted deployments use `rate-limiter-flexible` (Postgres/Redis/in-memory backends) to achieve the same semantics as the Cloudflare native binding.
+The rate limiting interface is identical regardless of deployment. Implementation swaps via configuration (`AIS_RATELIMIT_BACKEND`). Self-hosted deployments use `rate-limiter-flexible` (Postgres backend in V1) to achieve the same semantics as the Cloudflare native binding; both compose the same admission pipeline (admin ban → escalation block → sliding-window counter, Plan-021 I-021-1).
 
 ## Relay Scaling Strategy
 

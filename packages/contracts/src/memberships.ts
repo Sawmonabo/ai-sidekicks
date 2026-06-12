@@ -4,7 +4,7 @@
 // suspension, revocation, and reactivation.
 //
 // Canonical wire form lives in
-// docs/architecture/contracts/api-payload-contracts.md lines 400-410:
+// docs/architecture/contracts/api-payload-contracts.md lines 404-414:
 //
 //   interface MembershipUpdateRequest {
 //     membershipId: MembershipId;
@@ -112,7 +112,7 @@ export type {
 export { MembershipIdSchema, MembershipRoleSchema, MembershipStateSchema } from "./session.js";
 
 // --------------------------------------------------------------------------
-// MembershipUpdate — Spec-002 line 83 + api-payload-contracts.md lines 400-410
+// MembershipUpdate — Spec-002 line 83 + api-payload-contracts.md lines 404-414
 // --------------------------------------------------------------------------
 //
 // Discriminated union over `action`. Variant shapes:

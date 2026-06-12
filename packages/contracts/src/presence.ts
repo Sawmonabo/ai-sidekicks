@@ -18,7 +18,7 @@
 //
 // Wire-doc reconciliation — `PresenceHeartbeat` outer + metadata:
 //
-//   `api-payload-contracts.md:413-417` shows ONLY the outer 3 fields
+//   `api-payload-contracts.md:417-421` shows ONLY the outer 3 fields
 //   `{participantId, deviceId, activityState}`. Spec-002 line 59 + line 84
 //   mandate 5 ADDITIONAL metadata fields the heartbeat MUST carry:
 //   `{deviceType, focusedSessionId, focusedChannelId, lastActivityAt, appVisible}`.
@@ -32,7 +32,7 @@
 //   focused without omitting the wire key. The no-focus case is serialized as
 //   `null` on the wire, preserving the "5 keys always present" floor.
 //
-//   `api-payload-contracts.md:413-417` is INCOMPLETE relative to Spec-002 line
+//   `api-payload-contracts.md:417-421` is INCOMPLETE relative to Spec-002 line
 //   59 + line 84 — the canonical wire doc lacks the metadata sub-object
 //   entirely. A follow-up doc edit to align the wire form is recommended
 //   (out of scope here; broad-impact governance file). The aligned wire
@@ -41,9 +41,9 @@
 //
 // Canonical `JoinMode` home:
 //
-//   `api-payload-contracts.md:120` binds `JoinMode` as the canonical enum
+//   `api-payload-contracts.md:124` binds `JoinMode` as the canonical enum
 //   (also used by `InviteCreateRequest.joinMode: JoinMode` at
-//   api-payload-contracts.md:379). This file owns the canonical
+//   api-payload-contracts.md:383). This file owns the canonical
 //   declaration; `InviteCreate.joinMode` in `invites.ts` consumes
 //   `JoinMode` / `JoinModeSchema` via direct import. The canonical home
 //   is presence.ts because the wire-doc authority for `JoinMode` lives
@@ -112,10 +112,10 @@ export type { ChannelId, ParticipantId, SessionId } from "./session.js";
 export { ChannelIdSchema, ParticipantIdSchema, SessionIdSchema } from "./session.js";
 
 // --------------------------------------------------------------------------
-// PresenceState — canonical lifecycle enum (api-payload-contracts.md:119)
+// PresenceState — canonical lifecycle enum (api-payload-contracts.md:123)
 // --------------------------------------------------------------------------
 //
-// Exactly 4 states per Spec-002 line 47 + api-payload-contracts.md:119.
+// Exactly 4 states per Spec-002 line 47 + api-payload-contracts.md:123.
 // Adding `"away"` / `"busy"` / `"focused"` here is a contract break and
 // requires the spec edit FIRST per AGENTS.md "doc-first ordering".
 
@@ -128,11 +128,11 @@ export const PresenceStateSchema: z.ZodType<PresenceState, PresenceState> = z.en
 ]);
 
 // --------------------------------------------------------------------------
-// JoinMode — canonical enum (api-payload-contracts.md:120 + :379)
+// JoinMode — canonical enum (api-payload-contracts.md:124 + :383)
 // --------------------------------------------------------------------------
 //
-// Canonical name per api-payload-contracts.md:120; also referenced by
-// `InviteCreateRequest.joinMode: JoinMode` at api-payload-contracts.md:379.
+// Canonical name per api-payload-contracts.md:124; also referenced by
+// `InviteCreateRequest.joinMode: JoinMode` at api-payload-contracts.md:383.
 // This file owns the canonical declaration; `InviteCreate.joinMode` in
 // `invites.ts` consumes `JoinMode` / `JoinModeSchema` via direct import.
 //
@@ -178,12 +178,12 @@ export const DEVICE_TYPE_MAX_LEN = 64;
 
 // --------------------------------------------------------------------------
 // C4 — PresenceHeartbeat (Spec-002 line 59 + line 84;
-//      api-payload-contracts.md:413-417 merged with Spec-002 metadata fields)
+//      api-payload-contracts.md:417-421 merged with Spec-002 metadata fields)
 // --------------------------------------------------------------------------
 //
 // Wire shape merges two governance sources:
 //
-//   1. `api-payload-contracts.md:413-417` outer fields (3 required):
+//   1. `api-payload-contracts.md:417-421` outer fields (3 required):
 //      `{participantId: ParticipantId, deviceId: string, activityState: PresenceState}`
 //
 //   2. Spec-002 line 59 + line 84 metadata sub-object (all 5 REQUIRED; 2 nullable):
@@ -259,7 +259,7 @@ export const PresenceHeartbeatSchema: z.ZodType<PresenceHeartbeat, PresenceHeart
 // PresenceUpdate — JSON-RPC local IPC, daemon → client push
 // --------------------------------------------------------------------------
 //
-// Exact wire shape (api-payload-contracts.md:420-424):
+// Exact wire shape (api-payload-contracts.md:424-428):
 //   `{sessionId: SessionId, awarenessState: Uint8Array}`
 //
 // `awarenessState` is the serialized Yjs Awareness CRDT (binary format
@@ -295,10 +295,10 @@ export const PresenceUpdateSchema: z.ZodType<PresenceUpdate, PresenceUpdate> = z
 // PresenceRead — JSON-RPC local IPC, client → daemon query
 // --------------------------------------------------------------------------
 //
-// Request shape (api-payload-contracts.md:426-429):
+// Request shape (api-payload-contracts.md:430-433):
 //   `{sessionId: SessionId}`
 //
-// Response shape (api-payload-contracts.md:430-436):
+// Response shape (api-payload-contracts.md:434-440):
 //   `{participants: Array<{participantId: ParticipantId, state: PresenceState, lastSeen: string}>}`
 //
 // `lastSeen` follows the same ISO 8601 wire convention as `lastActivityAt`

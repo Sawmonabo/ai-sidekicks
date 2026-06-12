@@ -10,7 +10,7 @@
 // Test surface enumerated (the "what" each block pins):
 //   * PresenceStateSchema wire-form pin — exactly the 4 canonical literals
 //     `{online, idle, reconnecting, offline}` per Spec-002 line 47 and
-//     api-payload-contracts.md:119. `"away"` / `"busy"` rejected.
+//     api-payload-contracts.md:123. `"away"` / `"busy"` rejected.
 //   * JoinModeSchema wire-form pin — exactly the 3 canonical SPACED literals
 //     `{viewer, collaborator, runtime contributor}` per api-payload-
 //     contracts.md:120. snake_case `"runtime_contributor"` rejected.
@@ -111,10 +111,10 @@ describe("ParticipantIdSchema / SessionIdSchema / ChannelIdSchema (re-exported f
 });
 
 // =============================================================================
-// PresenceStateSchema — canonical lifecycle enum (api-payload-contracts.md:119)
+// PresenceStateSchema — canonical lifecycle enum (api-payload-contracts.md:123)
 // =============================================================================
 //
-// Spec-002 line 47 + api-payload-contracts.md:119 bind the wire form to
+// Spec-002 line 47 + api-payload-contracts.md:123 bind the wire form to
 // EXACTLY four lowercase literals. Adding `"away"` / `"busy"` is a contract
 // break requiring the spec edit FIRST per doc-first ordering.
 
@@ -144,10 +144,10 @@ describe("PresenceStateSchema (wire form is exactly {online, idle, reconnecting,
 });
 
 // =============================================================================
-// JoinModeSchema — canonical enum (api-payload-contracts.md:120 + :379)
+// JoinModeSchema — canonical enum (api-payload-contracts.md:124 + :383)
 // =============================================================================
 //
-// Spec-002 line 45 + api-payload-contracts.md:120 bind the wire form to
+// Spec-002 line 45 + api-payload-contracts.md:124 bind the wire form to
 // EXACTLY three SPACED literals. Editing the space in "runtime contributor"
 // to underscore or camelCase is a contract break.
 
@@ -203,7 +203,7 @@ describe("JoinModeSchema (canonical wire form is SPACED 'runtime contributor')",
 // =============================================================================
 //
 // Canonical wire form merges two governance sources:
-//   * api-payload-contracts.md:413-417 — 3 outer fields
+//   * api-payload-contracts.md:417-421 — 3 outer fields
 //     `{participantId, deviceId, activityState}`
 //   * Spec-002 line 59 + line 84 — 5 REQUIRED metadata fields
 //     `{deviceType, focusedSessionId, focusedChannelId, lastActivityAt, appVisible}`
@@ -257,7 +257,7 @@ describe("PresenceHeartbeatSchema (C4: 5 metadata fields per Spec-002 line 84)",
   });
 
   // ----------------------------------------------------------------------
-  // Outer fields are all REQUIRED — api-payload-contracts.md:413-417.
+  // Outer fields are all REQUIRED — api-payload-contracts.md:417-421.
   // ----------------------------------------------------------------------
 
   it.each(["participantId", "deviceId", "activityState"] as const)(
@@ -547,7 +547,7 @@ describe("PresenceHeartbeatSchema (C4: 5 metadata fields per Spec-002 line 84)",
 // PresenceUpdateSchema — JSON-RPC local IPC daemon → client push
 // =============================================================================
 //
-// Exact wire shape (api-payload-contracts.md:420-424):
+// Exact wire shape (api-payload-contracts.md:424-428):
 //   `{sessionId: SessionId, awarenessState: Uint8Array}`
 
 describe("PresenceUpdateSchema (JSON-RPC local IPC, daemon → client push)", () => {
@@ -647,10 +647,10 @@ describe("PresenceReadRequestSchema (JSON-RPC local IPC, client → daemon query
 // PresenceReadResponseSchema — participant projection array
 // =============================================================================
 //
-// Wire shape (api-payload-contracts.md:430-436):
+// Wire shape (api-payload-contracts.md:434-440):
 //   `{participants: Array<{participantId, state: PresenceState, lastSeen: string}>}`
 
-describe("PresenceReadResponseSchema (participant projection per api-payload-contracts.md:430-436)", () => {
+describe("PresenceReadResponseSchema (participant projection per api-payload-contracts.md:434-440)", () => {
   it("accepts a response with one participant", () => {
     const payload = {
       participants: [

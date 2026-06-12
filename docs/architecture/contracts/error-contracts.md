@@ -150,13 +150,53 @@ Daemon-local run-queue control codes (Plan-004). Run-control authority is daemon
 | --- | --- | --- |
 | `queue.persistence_unavailable` | New queued run-control work was rejected fail-closed because the daemon's queue-persistence layer is unavailable (Plan-004 I-004-1 / ADR-003 — block new queued work when persistence is unavailable) | 503 |
 
+### Channel
+
+Channel lifecycle codes (Plan-016, Tier-6 audit D-016-16). Daemon-only authority — same wire convention as §Run/§Queue (dotted code as `data.type`, HTTP status as control-plane-notional mapping). Code tokens deliberately avoid the Spec-006 event names `channel.created`/`channel.muted`/`channel.unmuted`/`channel.archived` (never-collide rule, D-012-4).
+
+| Code | Description | HTTP Status |
+| --- | --- | --- |
+| `channel.not_found` | Channel does not exist in the session (`data.fields`: `channelId`) | 404 |
+| `channel.inactive` | Target channel is archived (terminal) and cannot admit new runs or lifecycle mutations; muted channels still admit — mute suppresses attention surfaces, not execution (D-016-12; `data.fields`: `channelId`, `state`) | 409 |
+| `channel.name_reserved` | Requested channel name collides with the reserved bootstrap `main` channel name (`data.fields`: `name`) | 409 |
+
+### Orchestration
+
+Orchestration admission-refusal codes (Plan-016, Tier-6 audit D-016-16). Every code is a zero-residue create-time refusal — no run row, no queue item, no partial state survives the rejection (I-016-8); the daemon additionally records the refusal durably via the `orchestration.rejected` event (Spec-016:89 "records the refusal visibly"). The event name `orchestration.rejected` and these error codes share a root but no token collides with an event name. The parent-run-missing case reuses §Run `run.not_found` (no new semantic — D-016-16).
+
+| Code | Description | HTTP Status |
+| --- | --- | --- |
+| `orchestration.depth_exceeded` | Creating run is itself a child — V1 permits exactly one level of run nesting (Spec-016:55; `data.fields`: `parentRunId`, `maxDepth: 1`) | 409 |
+| `orchestration.active_child_limit_exceeded` | Parent already has the configured number of active children (`data.fields`: `parentRunId`, `limit`, `activeChildCount`) | 429 |
+| `orchestration.pending_limit_exceeded` | Session already has the maximum pending orchestration-created runs (Spec-016 §Scheduler Limits; `data.fields`: `limit`) | 429 |
+| `orchestration.channel_limit_exceeded` | Admitting the run would open a new executing channel beyond the maximum concurrently executing channels (Spec-016 §Scheduler Limits; `data.fields`: `limit`) — the run may instead be held `queued`; this code fires only when the target channel's queue is also exhausted (a busy target channel with a full queue is `orchestration.queue_depth_exceeded` regardless of the executing-channel count) | 429 |
+| `orchestration.queue_depth_exceeded` | Target channel already has an executing run and its queue is at maximum depth, so the run cannot be held `queued` (Spec-016 §Scheduler Limits: 25 per channel, subject to the Spec-001 per-session queue depth; `data.fields`: `channelId`, `limit`, `queuedCount`) | 429 |
+| `orchestration.turn_limit_exceeded` | Target agent is at its consecutive-turn limit in the target channel (D-016-8 — the counter resets on an interleaving human or different-agent turn; `data.fields`: `agentId`, `channelId`, `limit`) | 429 |
+| `orchestration.budget_exhausted` | Session cost ceiling reached — admission blocked until the session owner raises the limit (Spec-016 §Budget Policies; `data.fields`: `budgetType`, `limitValue`, `observedValue`) | 429 |
+| `orchestration.node_not_local` | `targetNodeId` names a node not attached to this daemon — V1 orchestration is single-node; cross-node dispatch is Spec-024/Plan-027 (D-016-9; `data.fields`: `targetNodeId`) | 422 |
+
+### Agent
+
+Agent-surface codes (Plan-016, Tier-6 audit A-016-2 / D-016-16).
+
+| Code | Description | HTTP Status |
+| --- | --- | --- |
+| `agent.not_found` | Agent does not exist in the session (`data.fields`: `agentId`) | 404 |
+| `agent.not_ready` | Agent is not in the `ready` lifecycle state (`configured` / `disabled` / `archived` per [agent-channel-and-run-model.md §Lifecycle](../../domain/agent-channel-and-run-model.md)) or its driver is unavailable, so it cannot take a run (`data.fields`: `agentId`, `state`) | 409 |
+
 ### Approval
 
 | Code | Description | HTTP Status |
 | --- | --- | --- |
 | `approval.not_found` | Approval request does not exist | 404 |
 | `approval.already_resolved` | Approval request has already been resolved | 409 |
-| `approval.expired` | Approval request has expired and can no longer be resolved | 410 |
+| `approval.request_expired` | Approval request has expired and can no longer be resolved | 410 |
+| `approval.request_canceled` | Approval request was canceled (its run ended before resolution) and can no longer be resolved | 409 |
+| `approval.persistence_unavailable` | A permission check or approval mutation was rejected fail-closed because the daemon's approval-persistence layer is unavailable (Spec-012 §Fallback Behavior — the sensitive action must not proceed) | 503 |
+| `approval.rule_not_found` | Remembered approval rule does not exist | 404 |
+| `approval.rule_already_revoked` | Remembered approval rule has already been revoked | 409 |
+
+The `approval.request_expired` / `approval.request_canceled` tokens deliberately differ from the Spec-006 durable event names `approval.expired` / `approval.canceled` so an error code never collides with an event name (the same never-collide rule the `runtimenode` namespace documents below; Tier-6 audit, D-012-4). No `approval.permission_denied` code exists in V1: the daemon IPC surface carries no caller principal (api-payload-contracts §Authenticated Principal, local-daemon endpoints), `PermissionCheck` denial is a normal `allowed: false` response rather than an error, and cross-participant approval authorization is structurally absent until Plan-027 (Spec-024) — minting one is Plan-027's call.
 
 ### Invite
 
@@ -200,6 +240,44 @@ These codes are registry-only (code + message; no structured `details`): no acce
 | `workspace.not_found` | Workspace does not exist | 404 |
 | `workspace.provisioning_failed` | Workspace provisioning failed due to an internal error | 500 |
 | `workspace.mode_unsupported` | Requested execution mode is not supported for this workspace | 400 |
+| `workspace.stale` | Workspace execution root is unavailable; new write runs are blocked until repair (Spec-009 line 59; thrown by the Plan-009 `assertWritable` write gate, CP-009-3) | 409 |
+| `workspace.branch_mismatch` | `branch` mode bind-only verification failed: the main checkout's current branch does not match the requested branch context; the daemon never switches branches in the main checkout (Spec-010 §Resolved Questions; Plan-010 D-010-9, Tier-6 audit) | 409 |
+| `workspace.busy` | Workspace execution root is held by an active run; one holding run at a time in V1 (Spec-010 §State And Data Implications; Plan-010 D-010-16, Tier-6 audit) | 409 |
+| `workspace.execution_root_unresolved` | A repo-bound run reached the setup gate with no resolved execution root for the workspace's selected mode and root preparation failed; the run parks in `starting` (Spec-010 §Fallback Behavior; Plan-010 D-010-16, Tier-6 audit) | 409 |
+| `workspace.branch_name_required` | A writable-mode wire-initiated (pre-run) `repo.executionRootPrepare` omitted `branchName`: the Spec-010 slug rule's derivation inputs (queue-item summary / run id) exist only on the run-setup gate path, so wire prepares must carry the branch (Plan-010 D-010-19, Tier-6 audit) | 400 |
+
+### Repo
+
+Repo-mount attach/detach/resolution errors (Plan-009 D-009-3, Tier-6 audit). The `repo` namespace binds to the mount lifecycle; `workspace.*` binds to the bound-workspace lifecycle. `repo.outside_trust_envelope` and `repo.root_resolution_failed` messages MUST NOT echo the attempted path (error-sanitization discipline; the daemon substrate's `sanitizeFields` is the second layer).
+
+| Code | Description | HTTP Status |
+| --- | --- | --- |
+| `repo.not_found` | Repo mount does not exist | 404 |
+| `repo.root_resolution_failed` | Canonical repository root could not be resolved for the supplied path; attach fails explicitly rather than guessing (Spec-009 line 58) | 422 |
+| `repo.outside_trust_envelope` | Path or workspace binding resolves outside the session's declared local trust envelope (Spec-009 line 45 + §Local Trust Envelope) | 403 |
+| `repo.already_attached` | The resolved canonical root is already actively attached to this session on the same owning node (node-scoped active-mount uniqueness, Plan-009 D-009-7) | 409 |
+| `repo.detach_conflict` | Detach refused while a dependent workspace is `busy`; no force-detach in V1 (Spec-009 §Detach Semantics) | 409 |
+
+### Worktree
+
+Worktree lifecycle errors (Plan-010 D-010-4, Tier-6 audit). The `worktree` namespace binds to worktree rows; mode-capability refusals stay on `workspace.mode_unsupported` (select-time, D-009-5) — there is deliberately no `worktree.unsupported` code, and prepare-time dynamic unavailability surfaces as `worktree.create_failed`. Failure messages MUST NOT echo attempted filesystem paths (error-sanitization discipline, same posture as §Repo).
+
+| Code | Description | HTTP Status |
+| --- | --- | --- |
+| `worktree.not_found` | Worktree does not exist | 404 |
+| `worktree.create_failed` | Worktree creation failed (git error, filesystem error, or dynamic worktree unavailability at provisioning time); the owning workspace transitions to `stale` via `failReprovision` and the failure detail rides `workspace.stale` metadata | 500 |
+| `worktree.branch_collision` | Caller-supplied branch name collides with a live checkout on the same mount; user intent is never silently adapted — daemon-derived default names ordinal-suffix instead (Spec-010 §Resolved Questions collision policy) | 409 |
+| `worktree.reuse_conflict` | Explicit reuse candidate is dirty without `acknowledgeDirtyCandidate`, incompatible with the requested branch strategy (never bindable), or no longer live (Spec-010 §Fallback Behavior) | 409 |
+| `worktree.retire_conflict` | Retire refused while the worktree is the execution root held by an active run (busy owning workspace) | 409 |
+
+### Ephemeral Clone
+
+Ephemeral-clone lifecycle errors (Plan-010 D-010-4, Tier-6 audit). Same sanitization posture as §Worktree.
+
+| Code | Description | HTTP Status |
+| --- | --- | --- |
+| `clone.not_found` | Ephemeral clone does not exist | 404 |
+| `clone.prepare_failed` | Ephemeral clone preparation failed; the owning workspace transitions to `stale` via `failReprovision` and the run stays blocked in setup (Spec-010 §Fallback Behavior) | 500 |
 
 ### Artifact
 
@@ -267,6 +345,16 @@ Daemon-local data-subject-request codes (Plan-022). The V1.1 erasure / export / 
 | --- | --- | --- |
 | `gdpr.endpoint_not_v1` | A `gdpr.*` data-subject endpoint (session purge / participant export / participant delete) was invoked in V1; the registered daemon stub returns the not-implemented envelope unconditionally, reserving the namespace for the V1.1 handler (Plan-022 D-022-3 / I-022-17) | 501 |
 
+### Admin
+
+Operator admin-surface codes (Plan-021 admin-bans API, [D-021-1](../../plans/021-rate-limiting-policy.md#ratified-design-decisions-tier-6-audit)). The surface authenticates via the deployment's operator admin token; an absent or malformed credential maps to the existing `auth.token_invalid` row (401) — no admin-namespace auth code exists.
+
+| Code | Description | HTTP Status |
+| --- | --- | --- |
+| `admin.forbidden` | Operator admin token present but mismatched on the admin-bans surface (constant-time compare failed) | 403 |
+| `admin.ban_not_found` | `DELETE /admin/bans/:id` targeted a missing or already-revoked ban (revoke is not idempotent) | 404 |
+| `admin.ban_already_exists` | Losing side of the one-active-ban race: an **active** (non-revoked, non-expired) ban already exists for `(identity, identity_type)` (Postgres `23505` on the partial unique index, I-021-6). An expired-but-unrevoked standing ban does not refuse — the issue path supersedes it (atomic revoke-then-insert, Plan-021 D-021-12) | 409 |
+
 ### Version
 
 Cross-version compatibility errors per [ADR-018](../../decisions/018-cross-version-compatibility.md) §Decision #4. These errors fire when a client, daemon, or event envelope declares a version outside the accepted range for the session or the platform. The wire/persisted envelope version is a semver `MAJOR.MINOR` string per ADR-018 §Decision #1 — numeric form is rejected at validation. Typed error names (`VERSION_FLOOR_EXCEEDED`, `VERSION_CEILING_EXCEEDED`) from ADR-018 map to the dotted registry codes below.
@@ -293,14 +381,14 @@ Standard 429 response shape (from API Payload Contracts):
 ```ts
 interface RateLimitResponse {
   code: "rate_limited";
-  retryAfter: number; // seconds until retry is allowed
-  limit: number; // total allowed requests in the window
+  retryAfter?: number; // seconds until retry is allowed — sliding-window/escalation refusals; omitted on concurrency-cap refusals (capacity frees on release; no reset clock — Spec-021 §Overflow Response)
+  limit: number; // total allowed requests in the window (the cap itself on concurrency-cap refusals)
   remaining: number; // requests remaining in the current window
-  resetAt: string; // ISO 8601 timestamp when the limit resets
+  resetAt?: string; // ISO 8601 timestamp when the limit resets — same enforcement-class rule as retryAfter
 }
 ```
 
-All rate-limited endpoints return the `RateLimitResponse` envelope with HTTP status 429. The `resetAt` field provides the absolute timestamp (ISO 8601) when the rate limit window resets, complementing the relative `retryAfter` seconds value.
+All rate-limited endpoints return the `RateLimitResponse` envelope with HTTP status 429. The `resetAt` field provides the absolute timestamp (ISO 8601) when the rate limit window resets, complementing the relative `retryAfter` seconds value. The timing pair is enforcement-class-conditional (Spec-021 §Overflow Response): sliding-window and escalation refusals carry both; concurrency-cap refusals omit both fields and the `Retry-After`/`X-RateLimit-Reset` headers — cap capacity frees when an existing holder releases, not at a known timestamp.
 
 Rate limit error codes that trigger this response:
 
@@ -309,3 +397,10 @@ Rate limit error codes that trigger this response:
 - `invite.limit_exceeded`
 - `relay.group_full`
 - `resource.limit_exceeded`
+
+Enforcement-layer codes outside the 429 envelope (Plan-021, Tier-6 audit). These use the standard `ErrorResponse` envelope, not `RateLimitResponse`:
+
+| Code | Description | HTTP Status |
+| --- | --- | --- |
+| `ratelimit.banned` | Request refused because an active admin ban matches the caller identity; terminal — no counter capacity consumed (admission order ban → block → counter, Plan-021 I-021-1) | 403 |
+| `ratelimit.backend_unavailable` | Rate-limit backend unreachable past the fail-open grace window (`AIS_RATELIMIT_FAILOPEN_SECONDS`); enforcement fails closed | 503 |

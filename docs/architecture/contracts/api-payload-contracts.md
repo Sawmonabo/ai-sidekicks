@@ -56,7 +56,7 @@ type QueueItemId = string & { readonly __brand: "QueueItemId" };
 type InterventionId = string & { readonly __brand: "InterventionId" };
 type ArtifactId = string & { readonly __brand: "ArtifactId" };
 type WorkspaceId = string & { readonly __brand: "WorkspaceId" };
-type WorktreeId = string & { readonly __brand: "WorktreeId" };
+type WorktreeId = string & { readonly __brand: "WorktreeId" }; // EphemeralCloneId + BranchContextId: §Plan-010 (Tier 6)
 type RepoMountId = string & { readonly __brand: "RepoMountId" };
 type ApprovalRequestId = string & { readonly __brand: "ApprovalRequestId" };
 type WorkflowDefinitionId = string & { readonly __brand: "WorkflowDefinitionId" };
@@ -88,20 +88,24 @@ type ErrorNamespace =
   | "invite" // invite lifecycle errors
   | "membership" // membership/role lifecycle errors
   | "presence" // presence/device-detail authorization errors
-  | "workspace" // workspace/repo errors
+  | "workspace" // workspace lifecycle errors; sibling "repo" mount-lifecycle namespace per the canonical registry
   | "artifact" // artifact publication errors
   | "workflow" // workflow execution errors
   | "driver" // provider driver errors
   | "relay" // relay/transport errors
+  | "admin" // operator admin-surface errors (admin-bans API, Plan-021)
+  | "ratelimit" // rate-limit enforcement errors beyond the 429 envelope (Plan-021)
   | "system"; // internal system errors
 // Illustrative V1 subset; `error-contracts.md` is the canonical namespace registry.
 
-// Rate limiting response (Spec-021)
+// Rate limiting response (Spec-021; canonical 5-field shape per Plan-021 D-021-6 —
+// identical in error-contracts.md §Rate Limiting and packages/contracts/src/rate-limiter.ts)
 interface RateLimitResponse {
   code: "rate_limited";
-  retryAfter: number; // seconds
-  limit: number;
-  remaining: number;
+  retryAfter?: number; // seconds until retry is allowed — sliding-window/escalation refusals; omitted on concurrency-cap refusals (capacity frees on release; no reset clock — Spec-021 §Overflow Response)
+  limit: number; // total allowed requests in the window (the cap itself on concurrency-cap refusals)
+  remaining: number; // requests remaining in the current window
+  resetAt?: string; // ISO 8601 timestamp when the limit resets — same enforcement-class rule as retryAfter; the pair is both-present or both-absent (schema-refined, Plan-021 T21.1-1)
 }
 ```
 
@@ -161,8 +165,8 @@ type ApprovalState = "pending" | "approved" | "rejected" | "expired" | "canceled
 type NodeState = "registering" | "online" | "degraded" | "offline" | "revoked";
 type ExecutionMode = "read-only" | "branch" | "worktree" | "ephemeral clone";
 type WorkspaceState = "provisioning" | "ready" | "busy" | "stale" | "archived";
-type WorktreeState = "creating" | "ready" | "dirty" | "merged" | "retired" | "failed";
-type RepoMountState = "attached" | "detached" | "archived";
+type WorktreeState = "creating" | "ready" | "dirty" | "merged" | "retired" | "failed"; // EphemeralCloneState: §Plan-010 (Tier 6)
+type RepoMountState = "attached" | "detached" | "archived"; // VcsType + RepoMountHealth: §Plan-009 (Tier 6)
 
 type ArtifactState = "pending" | "published" | "superseded";
 type ArtifactVisibility = "local-only" | "shared";
@@ -322,7 +326,7 @@ Closes the BL-102 sub-item "JSON-RPC method-name canonical-format registry (`ses
 /^[a-z][a-z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/
 ```
 
-The regex requires a lowercase-starting first segment (the namespace root); subsequent dot-delimited segments may contain camelCase (`[a-z][a-zA-Z0-9]*`). This adopts the dotted-camelCase _segment_ style of the LSP precedent ([Language Server Protocol §General Messages](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/) — e.g. `workspace.executeCommand`) and the MCP precedent ([Model Context Protocol §Protocol Messages](https://modelcontextprotocol.io/specification/2025-06-18/server/tools) — `tools.list`, `tools.call`), but deliberately **tightens the leading segment to lowercase-only**: LSP's own camelCase-rooted names such as `textDocument.didOpen` are _rejected_ by this regex, because every V1 namespace root (`session`, `driver`, `settings`, `daemon`, `event`, `run`, `repo`, `artifact`) is a lowercase identifier. The V1 Tier 1 surface (`session.create`, `session.read`, `session.join`, `session.subscribe`) uses all-lowercase segments; nested-namespace operations like `settings.effectiveRead` and `driver.listCapabilities` (lowercase root + camelCase tail) are permitted under this regex.
+The regex requires a lowercase-starting first segment (the namespace root); subsequent dot-delimited segments may contain camelCase (`[a-z][a-zA-Z0-9]*`). This adopts the dotted-camelCase _segment_ style of the LSP precedent ([Language Server Protocol §General Messages](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/) — e.g. `workspace.executeCommand`) and the MCP precedent ([Model Context Protocol §Protocol Messages](https://modelcontextprotocol.io/specification/2025-06-18/server/tools) — `tools.list`, `tools.call`), but deliberately **tightens the leading segment to lowercase-only**: LSP's own camelCase-rooted names such as `textDocument.didOpen` are _rejected_ by this regex, because every V1 namespace root is a lowercase identifier — registered or shipped: `session`, `daemon`, `run`, `repo`, `approval`, `participant`, `gdpr`, `runtimenode`, `presence`, `invite`, `membership`, `channel`, plus the Tier-6-ratified Plan-016 roots `orchestration` and `agent`; still-planned: `driver`, `settings`, `event`, `artifact` (root set re-derived during the Tier-6 audit; `invite`/`membership`/`channel` are SDK-declared daemon-as-gateway strings owned by Plan-002, bridged server-side to control-plane tRPC). The V1 Tier 1 surface (`session.create`, `session.read`, `session.join`, `session.subscribe`) uses all-lowercase segments; nested-namespace operations like `settings.effectiveRead` and `driver.listCapabilities` (lowercase root + camelCase tail) are permitted under this regex.
 
 The regex accepts the Tier 1 surface and rejects:
 
@@ -730,7 +734,7 @@ interface GetCapabilitiesResult {
 
 ```ts
 // CapabilityDetails — wrapper shape carried by `runtime_node.capability_declared` and
-// `runtime_node.capability_updated` event payloads (Spec-006:379-380). Bound to the same
+// `runtime_node.capability_updated` event payloads (Spec-006:384-385). Bound to the same
 // three surfaces a driver advertises via `ProviderDriver.getCapabilities()` (GetCapabilitiesResult
 // above): the seven-flag matrix, the negotiated contract version, and the per-tool metadata —
 // here as `NormalizedProviderToolMetadata` (post-default), since these payloads cross the event
@@ -739,7 +743,7 @@ interface GetCapabilitiesResult {
 // surfaces compose one capability snapshot; readers (Plan-013 timeline, Plan-020 dashboards,
 // Plan-015 replay) discriminate `runtime_node.capability_*` events from the discriminated
 // union and consume the snapshot as a single object — there is no driver-method context
-// that requires DriverCapabilities to remain pure. Sources: Spec-006:379-380; Plan-005
+// that requires DriverCapabilities to remain pure. Sources: Spec-006:384-385; Plan-005
 // CP-005-5; Plan-006 Phase 1 T1.4 + Phase 3 doc-mirror audit.
 interface CapabilityDetails {
   flags: Record<DriverCapabilityFlag, boolean>;
@@ -747,14 +751,14 @@ interface CapabilityDetails {
   tools: NormalizedProviderToolMetadata[];
 }
 
-// runtime_node.capability_declared payload (Spec-006:379). Emitted once per driver
+// runtime_node.capability_declared payload (Spec-006:384). Emitted once per driver
 // registration with the daemon's runtime-node bootstrap (Plan-003 territory).
 interface RuntimeNodeCapabilityDeclaredPayload {
   capability: string; // canonical capability identifier (e.g., "provider-driver")
   capabilityDetails: CapabilityDetails;
 }
 
-// runtime_node.capability_updated payload (Spec-006:380). Emitted on driver-version
+// runtime_node.capability_updated payload (Spec-006:385). Emitted on driver-version
 // bump, tool addition/removal, or flag-matrix mutation. `previousState` / `newState`
 // carry the same wrapper shape so consumers diff snapshots structurally.
 interface RuntimeNodeCapabilityUpdatedPayload {
@@ -800,9 +804,11 @@ type EventCategory =
   // Extended per Spec-006 §Runtime Node Lifecycle, §Recovery Events, §Participant Lifecycle,
   // §Audit Integrity, §Security Events, §Event Maintenance, §Policy Events,
   // §Channel Arbitration, §Onboarding Lifecycle, §Cross-Node Dispatch (19 categories total
-  // per Spec-006 §Event Type Summary line 510; 125 event types per line 537 — the Tier-5
+  // per Spec-006 §Event Type Summary line 519; 130 event types per line 521 — the Tier-5
   // readiness-audit swap registered daemon.master_key_source + daemon.pii_split_ambiguous
-  // under the existing security_events category, Plan-022 D-022-5, so no category was added).
+  // under the existing security_events category, Plan-022 D-022-5, and the Tier-6 swap
+  // added approval.canceled (D-012-8) plus four Plan-016 types (A-016-6, D-016-10/11/12),
+  // all within existing categories — so no category was added).
   | "runtime_node_lifecycle"
   | "recovery_events"
   | "participant_lifecycle"
@@ -909,6 +915,7 @@ interface LocalSubscriptionParams {
 interface QueueItemCreateRequest {
   sessionId: SessionId;
   channelId?: ChannelId;
+  workspaceId?: WorkspaceId; // repo-bound run binding (Spec-010 run setup data; absent = non-repo run) — Tier-6 audit
   priority?: number; // default 0
   payload: Record<string, unknown>;
 }
@@ -917,6 +924,12 @@ interface QueueItemCreateResponse {
   state: QueueItemState;
   createdAt: string;
 }
+// Orchestration seam (Tier-6 audit, D-016-13): Plan-016's orchestration-run-service composes with
+// the daemon queue-admission service IN-PROCESS, passing an OrchestrationRunLinkCarrier (see
+// §Plan-016) after its own admission pipeline passes. The in-process admission API returns the
+// minted RunId (the run.queued emission's runId) alongside queueItemId, and run.queued carries the
+// carrier fields durably (Spec-006:187 additive optional fields). The wire run.queueCreate method
+// never accepts the carrier — child-run creation goes through orchestration.runCreate only.
 
 // QueueItemList
 interface QueueItemListRequest {
@@ -989,6 +1002,19 @@ interface RunStateChangeEvent {
   recoveryCondition?: "recovery-needed";
   healthSignal?: "stuck-suspected";
   providerFailureDetail?: string; // populated on `run.failed` when failureCategory='provider'
+  trigger?: "turn_limit" | "budget_exhausted" | "idle_timeout" | "moderation_denied"; // stop-condition provenance (additive per ADR-018): 'turn_limit' rides run.completed at the turn limit (Plan-016 D-016-8 — the value CP-004-10 adds to Plan-004's trigger set); the three InterruptReason values ride run.interrupted on system interrupts (D-016-7). Absent on natural completion and user-initiated paths; the Runs View / timeline stop-condition rendering (Spec-023) reads this field.
+  // run.queued linkage (orchestration-created runs only): the OrchestrationRunLinkCarrier fields
+  // threaded into the durable payload as optional additive fields (CP-004-10; Plan-016 D-016-3 —
+  // run_links is a pure events-canonical projection rebuilt from this event alone). Spec-006:187.
+  agentId?: AgentId;
+  parentRunId?: RunId;
+  linkType?: LinkType;
+  internalHelper?: boolean;
+  producingNodeId?: NodeId;
+  // run.queued effective config: the admission-resolved OrchestrationRunConfig (request override
+  // else session default) persisted durably so budget/idle enforcement rebuilds replay-stable even
+  // if session defaults change mid-run (Plan-016 D-016-5, I-016-14; Spec-006:187).
+  effectiveRunConfig?: OrchestrationRunConfig;
   timestamp: string;
 }
 
@@ -1179,17 +1205,27 @@ Plan-018's identity / participant-state reads and updates are exposed as three `
 ### Plan-009 — Repo Attachment And Workspace Binding
 
 ```ts
+// Plan-009 shared shapes (Tier-6 audit, D-009-2 / D-009-4) — canonical origin
+// packages/contracts/src/repo.ts; Plan-010 imports these per Plan-009 CP-009-1.
+type VcsType = "git" | "none";
+// Derived projection, never persisted — Spec-009 §Repo Mount Health (V1 Definition)
+interface RepoMountHealth {
+  status: "healthy" | "unreachable";
+  checkedAt: string; // ISO-8601 instant of the probe that produced the verdict
+}
+
 // RepoAttach
 interface RepoAttachRequest {
   sessionId: SessionId;
-  localPath: string;
-  nodeId: NodeId;
+  localPath: string; // user-entered path (provenance; persisted as repo_mounts.local_path)
+  nodeId: NodeId; // owning runtime node — the node that can access the filesystem path
 }
 interface RepoAttachResponse {
   repoMountId: RepoMountId;
   state: RepoMountState;
-  vcsType: string;
-  canonicalRoot: string;
+  vcsType: VcsType;
+  canonicalRoot: string; // resolver output (absolute, symlink-resolved), never the echoed input
+  defaultWorkspaceId: WorkspaceId; // attach always creates the default read-only workspace (Plan-009 D-009-7)
 }
 
 // RepoMountRead
@@ -1199,33 +1235,51 @@ interface RepoMountReadRequest {
 interface RepoMountReadResponse {
   id: RepoMountId;
   sessionId: SessionId;
-  localPath: string;
-  vcsType: string;
+  nodeId: NodeId;
+  localPath: string; // user-entered provenance
+  canonicalRoot: string; // resolver output — the trust-envelope and dedupe key
+  vcsType: VcsType;
   state: RepoMountState;
+  health: RepoMountHealth; // derived projection (defined above), never persisted
   attachedAt: string;
 }
 
-// WorkspaceBind
+// RepoDetach (Plan-009 D-009-6; Spec-009 §Detach Semantics)
+interface RepoDetachRequest {
+  repoMountId: RepoMountId;
+}
+interface RepoDetachResponse {
+  repoMountId: RepoMountId;
+  state: RepoMountState; // 'detached' — terminal; re-attach creates a new mount row
+  archivedWorkspaceIds: WorkspaceId[]; // dependent workspaces archived by the cascade
+}
+
+// WorkspaceBind — mount-first single funnel (Plan-009 D-009-4): directory-root binding
+// attaches the directory as a plain-directory mount (vcsType 'none') first; bind always
+// references a repo mount.
 interface WorkspaceBindRequest {
   repoMountId: RepoMountId;
   executionMode: ExecutionMode;
-  directory?: string; // subdirectory within repo, optional
+  directory?: string; // mount-root-relative subdirectory; containment re-checked after symlink resolution
 }
 interface WorkspaceBindResponse {
   workspaceId: WorkspaceId;
-  fsRoot: string;
+  fsRoot?: string; // absent while state = 'provisioning' (writable binds — Plan-010 fills the root at provisioning completion); present for read-only binds (the mount canonical root)
   executionMode: ExecutionMode;
   state: WorkspaceState;
 }
 
-// WorkspaceExecutionModeCapabilitiesRead
+// WorkspaceExecutionModeCapabilitiesRead — exactly one of repoMountId | workspaceId
+// (Zod refinement): a mount-scoped read answers "what could a workspace on this mount
+// do"; a workspace-scoped read answers "what may THIS workspace do now".
 interface WorkspaceExecutionModeCapabilitiesReadRequest {
-  repoMountId: RepoMountId;
+  repoMountId?: RepoMountId;
+  workspaceId?: WorkspaceId;
 }
 interface WorkspaceExecutionModeCapabilitiesReadResponse {
   availableModes: ExecutionMode[];
-  defaultMode: ExecutionMode;
-  restrictions?: Record<ExecutionMode, string>; // reason if mode is restricted
+  defaultMode: ExecutionMode; // default for the next WRITABLE coding run (Plan-009 D-009-5), not the fresh-workspace read-only posture
+  restrictions?: Partial<Record<ExecutionMode, string>>; // sparse: reason per restricted mode — capability gaps are explicit, never silent substitution
 }
 
 // WorkspaceList
@@ -1240,77 +1294,242 @@ interface WorkspaceListResponse {
     executionMode: ExecutionMode;
     state: WorkspaceState;
     fsRoot?: string;
+    lastError?: string; // present iff state = 'stale' from a recorded failure (workspaces.metadata.lastError, Spec-009 line 91) — Tier-6 audit
   }>;
 }
 ```
 
+### Repo Method-Name Registry (Tier 6)
+
+Plan-009's repo-attachment and workspace-binding surface is exposed as six `repo.*` methods, ratified by the Tier-6 plan-readiness audit (Plan-009 D-009-1, CP-009-5). Names register under the Plan-007-partial daemon `MethodRegistry` at Tier 6 per the §5 substrate-vs-namespace carve-out (`presence.*` precedent); registration is gated on BL-142 (deployed registry-regex conformance to the Tier-1 `METHOD_NAME_FORMAT`). These methods ride the daemon JSON-RPC transport only — repo mounts and workspaces are node-local filesystem state (ADR-004), so no control-plane tRPC sibling exists. Method strings are imperative and disjoint-by-form from the past-participle Spec-006 durable event names (`repo.attached`, `repo.detached`).
+
+| Method | Procedure type | Request schema | Response schema |
+| --- | --- | --- | --- |
+| `repo.attach` | `mutation` | `RepoAttachRequest` | `RepoAttachResponse` |
+| `repo.mountRead` | `query` | `RepoMountReadRequest` | `RepoMountReadResponse` |
+| `repo.workspaceBind` | `mutation` | `WorkspaceBindRequest` | `WorkspaceBindResponse` |
+| `repo.executionModeCapabilitiesRead` | `query` | `WorkspaceExecutionModeCapabilitiesReadRequest` | `WorkspaceExecutionModeCapabilitiesReadResponse` |
+| `repo.workspaceList` | `query` | `WorkspaceListRequest` | `WorkspaceListResponse` |
+| `repo.detach` | `mutation` | `RepoDetachRequest` | `RepoDetachResponse` |
+
+Canonical Zod schemas live in `packages/contracts/src/repo.ts` per the §Source-of-Truth Policy.
+
+Plan-010's worktree-lifecycle and execution-mode surface adds seven further `repo.*` methods (Plan-010 D-010-3, Tier-6 audit) — the same namespace, not a new root, because the Tier-1 ratified namespace-root enumeration admits `repo` and mounts, workspaces, worktrees, and clones form one repo aggregate (sibling symmetry: `repo.executionModeCapabilitiesRead` ↔ `repo.executionModeSelect`). Registration rides the same Plan-007-partial `MethodRegistry` path and the same BL-142 gate; typed domain-error projection over the wire is gated on BL-143. Method strings stay imperative and disjoint-by-form from the past-participle Spec-006 durable event names (`worktree.created` … `worktree.retired`).
+
+| Method | Procedure type | Request schema | Response schema |
+| --- | --- | --- | --- |
+| `repo.executionModeSelect` | `mutation` | `ExecutionModeSelectRequest` | `ExecutionModeSelectResponse` |
+| `repo.executionRootPrepare` | `mutation` | `ExecutionRootPrepareRequest` | `ExecutionRootPrepareResponse` |
+| `repo.worktreeReuseCheck` | `query` | `WorktreeReuseCheckRequest` | `WorktreeReuseCheckResponse` |
+| `repo.ephemeralClonePrepare` | `mutation` | `EphemeralClonePrepareRequest` | `EphemeralClonePrepareResponse` |
+| `repo.ephemeralCloneDispose` | `mutation` | `EphemeralCloneDisposeRequest` | `EphemeralCloneDisposeResponse` |
+| `repo.worktreeRetire` | `mutation` | `WorktreeRetireRequest` | `WorktreeRetireResponse` |
+| `repo.worktreeStatusRead` | `query` | `WorktreeStatusReadRequest` | `WorktreeStatusReadResponse` |
+
+Canonical Zod schemas for these seven pairs live in `packages/contracts/src/worktree.ts` (Plan-010 D-010-1) per the §Source-of-Truth Policy.
+
 ### Plan-010 — Worktree Lifecycle And Execution Modes
 
 ```ts
-// ExecutionModeSelect
+// Branded IDs + enums introduced by Plan-010 (canonical origin: packages/contracts/src/worktree.ts;
+// declared in-block rather than under §Branded ID Types / §Shared Enums for cite stability — Tier-6 audit)
+type EphemeralCloneId = string & { readonly __brand: "EphemeralCloneId" };
+type BranchContextId = string & { readonly __brand: "BranchContextId" };
+type EphemeralCloneState = "creating" | "ready" | "retired" | "failed";
+
+// ExecutionModeSelect — records the canonical mode and transitions the workspace (Spec-010 §Interfaces);
+// root materialization is ExecutionRootPrepare's surface. Exactly one mutation per explicit switch.
 interface ExecutionModeSelectRequest {
   workspaceId: WorkspaceId;
-  mode: ExecutionMode;
+  executionMode: ExecutionMode;
 }
 interface ExecutionModeSelectResponse {
   workspaceId: WorkspaceId;
   executionMode: ExecutionMode;
-  executionRoot?: string;
+  state: WorkspaceState; // 'ready' when resolved synchronously (read-only); 'provisioning' while a writable root awaits prepare
+  executionRoot?: string; // present iff resolved synchronously
 }
 
-// ExecutionRootPrepare
+// ExecutionRootPrepare — materializes (or binds) the execution root for the workspace's selected mode.
+// Wire-initiated prepares are pre-run by definition; the run-setup gate calls the service directly,
+// supplying the run id that populates worktrees.created_by_run_id + run_execution_contexts.
 interface ExecutionRootPrepareRequest {
   workspaceId: WorkspaceId;
-  branchName?: string; // for worktree/branch mode
+  branchName?: string; // REQUIRED for writable modes on the wire (pre-run, no slug-rule seed; absent → typed workspace.branch_name_required refusal); the run-setup gate derives per the Spec-010 slug rule service-side (Plan-010 D-010-19)
+  baseRef?: string; // worktree base; default = mount HEAD branch; detached HEAD without baseRef → typed refusal
+  reuseWorktreeId?: WorktreeId; // explicit reuse names the candidate (Spec-010 explicit-reuse requirement)
+  acknowledgeDirtyCandidate?: boolean; // explicit consent to bind a DIRTY named candidate; never bypasses incompatibility
 }
 interface ExecutionRootPrepareResponse {
   executionRoot: string;
-  worktreeId?: WorktreeId; // set for worktree mode
   state: WorkspaceState;
+  worktreeId?: WorktreeId; // set for worktree mode
+  ephemeralCloneId?: EphemeralCloneId; // set for ephemeral clone mode
+  branchContextId?: BranchContextId; // set for all three writable modes (Spec-010 §State And Data Implications)
 }
 
-// WorktreeReuseCheck
+// WorktreeReuseCheck — singular candidate by construction: the partial-unique active-branch index
+// (local-sqlite-schema.md worktrees DDL) guarantees at most one live checkout per (mount, branch).
 interface WorktreeReuseCheckRequest {
   repoMountId: RepoMountId;
   branchName: string;
 }
 interface WorktreeReuseCheckResponse {
-  available: boolean;
+  available: boolean; // true iff a live candidate exists
   worktreeId?: WorktreeId;
   state?: WorktreeState;
+  branchName?: string;
   isClean?: boolean;
+  compatible?: boolean; // branch-strategy compatibility (Spec-010 §Interfaces)
+  reason?: string; // populated when !isClean || !compatible
 }
 
-// EphemeralClonePrepare
+// EphemeralClonePrepare — TTL is daemon configuration, not a wire parameter (Spec-010 §Resolved Questions)
 interface EphemeralClonePrepareRequest {
   workspaceId: WorkspaceId;
-  cleanupPolicy?: "on_run_complete" | "manual";
+  branchName: string; // head branch inside the clone — required on the wire: wire prepares are pre-run and carry no slug-rule derivation seed; the run-setup gate path derives service-side (Plan-010 D-010-19)
+  cleanupPolicy?: "on_run_complete" | "manual"; // default on_run_complete
 }
 interface EphemeralClonePrepareResponse {
-  cloneId: string;
+  cloneId: EphemeralCloneId;
   cloneRoot: string;
-  state: "creating" | "ready";
+  state: Extract<EphemeralCloneState, "creating" | "ready">;
+  cleanupPolicy: "on_run_complete" | "manual"; // effective policy, reported per Spec-010 §Interfaces
+  branchName: string; // effective head branch (caller-supplied or slug-derived), persisted on the clone row
+  expiresAt: string; // ISO-8601 TTL deadline
 }
 
-// WorktreeRetire
+// EphemeralCloneDispose — explicit disposal: the `manual` cleanup-policy arm (Spec-010 §Interfaces)
+interface EphemeralCloneDisposeRequest {
+  cloneId: EphemeralCloneId;
+}
+interface EphemeralCloneDisposeResponse {
+  cloneId: EphemeralCloneId;
+  state: Extract<EphemeralCloneState, "retired">;
+}
+
+// WorktreeRetire — records retirement; disk cleanup is asynchronous (cleaned_at stamps it)
 interface WorktreeRetireRequest {
   worktreeId: WorktreeId;
 }
 interface WorktreeRetireResponse {
   worktreeId: WorktreeId;
-  state: "retired";
+  state: Extract<WorktreeState, "retired">;
+}
+
+// WorktreeStatusRead — daemon-owned read surface over worktree + clone records incl. provenance
+// (Spec-010 §Interfaces; feeds the execution-mode-picker status view)
+interface WorktreeStatusReadRequest {
+  sessionId: SessionId;
+  repoMountId?: RepoMountId;
+}
+interface WorktreeStatusReadResponse {
+  worktrees: Array<{
+    worktreeId: WorktreeId;
+    repoMountId: RepoMountId;
+    branchName: string;
+    fsRoot: string;
+    state: WorktreeState;
+    createdBySessionId: SessionId;
+    createdByRunId?: RunId;
+    createdAt: string;
+    updatedAt: string;
+    cleanedAt?: string; // async disk-cleanup stamp; absent until the sweep runs (local-sqlite `cleaned_at`)
+  }>;
+  ephemeralClones: Array<{
+    cloneId: EphemeralCloneId;
+    workspaceId: WorkspaceId;
+    cloneRoot: string;
+    branchName: string; // head branch inside the clone (Spec-010 §Interfaces: the status read exposes branch for clone records)
+    state: EphemeralCloneState;
+    cleanupPolicy: "on_run_complete" | "manual";
+    expiresAt: string;
+    createdAt: string;
+    cleanedAt?: string; // async disk-cleanup stamp; absent until the sweep runs (local-sqlite `cleaned_at`)
+  }>;
 }
 ```
 
 ### Plan-012 — Approvals Permissions And Trust Boundaries
 
 ```ts
+// Plan-012 shapes (Tier-6 audit, D-012-1/D-012-3) — canonical origin
+// packages/contracts/src/approval.ts. PermissionCheck is a daemon-internal API
+// (Spec-012: "inside the local daemon"); it has no JSON-RPC method string and no
+// SDK surface in V1 (D-012-5; the in-process check is the composed enforcement
+// gate per D-012-18 — evaluate, then on an ask-policy outcome create the request
+// via the approval service (whose create persists and emits `approval.requested` —
+// the single emission seam), and notify the run-blocking seam before returning).
+
+type RememberedRuleId = string & { readonly __brand: "RememberedRuleId" }; // → §Branded ID Types
+
+// Remembered-grant scope — explicit enum, not free-form (Spec-012 line 104).
+// `request_only` (Spec-012 line 67) is expressed by OMITTING rememberedScope,
+// never by an enum member. Pattern semantics are category-derived (D-012-10):
+// path categories (file_write, destructive_git) = normalized-absolute-path
+// prefix containment; network_access = exact host equality (no wildcards in V1);
+// all other categories = exact scope-token equality. Absent pattern =
+// category-wide within the (session, node, kind) boundary.
+interface RememberedScope {
+  kind: "run" | "session"; // 'run' = remainder of the originating run; 'session' = session-wide (explicit opt-in)
+  pattern?: string; // resource-matching pattern within the kind boundary; absent = category-wide
+}
+
+type InvalidationTrigger = "explicit" | "membership_change" | "node_trust_change" | "session_end";
+
+// approval_flow event payload for the seven `approval.*` variants (Spec-006
+// §Approval Flow, incl. `approval.canceled` per D-012-8; mirror of the canonical
+// Zod schema). The variants carry the projection-rebuild fields (D-012-6 peer/replay
+// rebuild; D-012-7 events-canonical): `requested` carries the request quad; the
+// resolution events carry the recorded approver + effective scope; `remembered`
+// carries the full rule projection (grantor = `approver`, bound `nodeId`, binding =
+// `rememberedScope` + `runId`, origin resolution via `approvalRequestId`) so
+// `remembered_approval_rules` rebuilds byte-equal (I-012-9); decision and state ride
+// the event type; envelope timestamps supply the created/updated instants. The
+// category's eighth event, `moderation.review_flagged`, has a distinct payload —
+// see ModerationReviewFlaggedPayload below.
+// Variant-required fields are enforced at the EMISSION seam via the exported per-type
+// refinement (Plan-012 T1.1 `approvalFlowPayloadRefinementFor`): requested ⇒ runId /
+// approvalRequestId / requestedBy / resourceDescriptor; approved / rejected ⇒
+// approvalRequestId / approver / effectiveScope; expired / canceled ⇒ approvalRequestId;
+// remembered ⇒ approvalRequestId / approver / nodeId / rememberedScope / ruleId (+ runId
+// iff rememberedScope.kind = 'run'); rule_revoked ⇒ ruleId / invalidationTrigger —
+// a malformed event fails at the emission parse, never at peer/restart projection (I-012-9).
+interface ApprovalFlowEventPayload {
+  sessionId: SessionId;
+  runId?: RunId; // absent on trust-triggered rule_revoked (no in-flight request)
+  approvalRequestId?: ApprovalRequestId; // ditto
+  category: ApprovalCategory;
+  scope: string;
+  requestedBy?: string; // present on approval.requested — recorded requester actor (participant or agent actor id, Spec-012 line 58)
+  resourceDescriptor?: Record<string, unknown>; // present on approval.requested — audit-grade target (Spec-012 line 82)
+  expiryAt?: string; // present on approval.requested when the request carries an expiry (D-012-14)
+  approver?: ParticipantId; // present on approval.approved / approval.rejected — the recorded resolver (D-012-12); on approval.remembered it is the rule's GRANTOR (rules mint only via resolve-with-remember)
+  effectiveScope?: string; // present on approval.approved / approval.rejected — recorded effective scope (≤ requested, I-012-6)
+  nodeId?: NodeId; // present on approval.remembered — the rule's bound node (D-012-10 match boundary; not derivable from ruleId on replay)
+  rememberedScope?: RememberedScope;
+  ruleId?: RememberedRuleId; // present on approval.remembered / approval.rule_revoked
+  invalidationTrigger?: InvalidationTrigger; // present on approval.rule_revoked
+}
+
+// moderation.review_flagged payload — the approval_flow category's eighth event
+// (Spec-006 §Approval Flow registry row; D-016-10). Informational post-turn
+// moderation flag; emitter Plan-016. `eventId` references the flagged
+// `assistant_output` event.
+interface ModerationReviewFlaggedPayload {
+  sessionId: SessionId;
+  channelId: ChannelId;
+  runId: RunId;
+  agentId: AgentId;
+  eventId: string;
+}
+
 // ApprovalRequestCreate
 interface ApprovalRequestCreateRequest {
   runId: RunId;
   category: ApprovalCategory;
   scope: string;
-  resourceDescriptor?: Record<string, unknown>;
+  resourceDescriptor: Record<string, unknown>; // REQUIRED (Spec-012 line 82); audit-grade target descriptor
   expiryAt?: string;
 }
 interface ApprovalRequestCreateResponse {
@@ -1322,27 +1541,41 @@ interface ApprovalRequestCreateResponse {
 // ApprovalResolve
 interface ApprovalResolveRequest {
   approvalRequestId: ApprovalRequestId;
+  approver?: ParticipantId; // informational/routing (Spec-012 line 83; D-012-12). Absent on the
+  // local socket → the daemon records its node-owner participant binding; present → cross-checked
+  // (local: vs the owner binding; PASETO surfaces: vs the verified `sub`) — mismatch is rejected
+  // with `auth.principal_mismatch`. Never authoritative.
   decision: ApprovalDecision;
-  rememberedScope?: string; // scope pattern for remembered rules
+  effectiveScope?: string; // granted scope; defaults server-side to the request's scope; never broader than requested
+  rememberedScope?: RememberedScope; // valid only with decision "approved" (allow-only rules, D-012-16); schema-refined
   auditMetadata?: Record<string, unknown>;
 }
 interface ApprovalResolveResponse {
   approvalRequestId: ApprovalRequestId;
   state: ApprovalState;
+  effectiveScope: string; // the recorded grant (Spec-012 line 59)
+  approverId: ParticipantId; // the RECORDED approver (server truth; AC-3 observable)
   resolvedAt: string;
 }
 
-// PermissionCheck (local daemon operation)
+// PermissionCheck (daemon-internal pre-execution gate — no wire method string, D-012-5/D-012-18)
 interface PermissionCheckRequest {
   runId: RunId;
   category: ApprovalCategory;
   scope: string;
-  resourceDescriptor?: Record<string, unknown>;
+  resourceDescriptor: Record<string, unknown>;
 }
 interface PermissionCheckResponse {
   allowed: boolean;
-  reason: "remembered_rule" | "pending_approval" | "denied" | "approved";
-  approvalRequestId?: ApprovalRequestId; // if pending
+  reason: "policy_allow" | "remembered_rule" | "approved" | "pending_approval" | "denied";
+  // D-012-17 semantics: policy_allow = Cedar/own-node-envelope permit with no human approval
+  // artifact (Spec-012 lines 47/62/71); remembered_rule = matched an unrevoked rule that passed
+  // at-use re-validation; approved = a recorded approved resolution covers this exact request;
+  // pending_approval = request created/open (allowed=false); denied = Cedar forbid, rejected/
+  // expired resolution, or fail-closed refusal (the typed `approval.persistence_unavailable`
+  // error additionally surfaces on fail-closed paths so audit can distinguish them).
+  // Invariants: allowed === (reason ∈ {policy_allow, remembered_rule, approved});
+  approvalRequestId?: ApprovalRequestId; // present iff reason = 'pending_approval'
 }
 
 // ApprovalProjectionRead
@@ -1355,14 +1588,67 @@ interface ApprovalProjectionReadResponse {
   approvals: Array<{
     id: ApprovalRequestId;
     runId: RunId;
+    requestedBy: string; // recorded requester actor — participant or agent actor id (Spec-012 line 58)
     category: ApprovalCategory;
     scope: string;
+    resourceDescriptor: Record<string, unknown>; // requested resource (Spec-012 line 82)
     state: ApprovalState;
     createdAt: string;
-    resolvedAt?: string;
+    updatedAt: string; // last state-transition instant (expired/canceled rows settle here; no resolution row)
+    expiryAt?: string;
+    resolvedAt?: string; // resolved quad present iff state ∈ {approved, rejected}
+    decision?: ApprovalDecision;
+    approverId?: ParticipantId; // AC-3: who granted
+    effectiveScope?: string; // AC-3: what scope
+    rememberedScope?: RememberedScope; // present iff the resolution minted a remembered rule
   }>;
 }
+
+// RememberedRuleList
+interface RememberedRuleListRequest {
+  sessionId: SessionId;
+  includeRevoked?: boolean; // default false; true = audit-history view (Spec-012 line 92)
+}
+interface RememberedRuleListResponse {
+  rules: Array<{
+    ruleId: RememberedRuleId;
+    sessionId: SessionId;
+    participantId: ParticipantId; // the GRANTOR (audit + membership-invalidation key, not a match key — D-012-10)
+    nodeId: NodeId;
+    runId?: RunId; // present iff scope.kind = 'run' — the originating run the rule is bound to
+    category: ApprovalCategory;
+    scope: RememberedScope;
+    grantedAt: string;
+    revokedAt?: string;
+    invalidationTrigger?: InvalidationTrigger;
+  }>;
+}
+
+// RememberedRuleRevoke — the explicit revocation path (Spec-012 line 92);
+// writes revoked_at + 'explicit' and emits `approval.rule_revoked`
+interface RememberedRuleRevokeRequest {
+  ruleId: RememberedRuleId;
+}
+interface RememberedRuleRevokeResponse {
+  ruleId: RememberedRuleId;
+  revokedAt: string;
+  invalidationTrigger: "explicit";
+}
 ```
+
+### Approval Method-Name Registry (Tier 6)
+
+Plan-012's approval surface is exposed as five `approval.*` methods, ratified by the Tier-6 plan-readiness audit (D-012-5; findings F-012-1-13/-14, F-012-3-01/-04, F-012-4-04). Names register under the Plan-007-partial daemon `MethodRegistry` at Tier 6 per the §5 substrate-vs-namespace carve-out (`repo.*` precedent); registration is gated on BL-142 (all five tails are camelCase) and typed domain-error projection over the wire is gated on BL-143. These methods ride the **daemon JSON-RPC transport only** — approval state is daemon-local SQLite per ADR-017 (coordination-records-only Postgres; no control-plane approval storage or tRPC sibling exists in V1; cross-participant visibility rides roster-gated relay distribution of `approval_flow` events into each peer daemon's own projection, ADR-017 Option B). Method strings are imperative and disjoint-by-form from the past-participle Spec-006 `approval_flow` durable event names (`approval.resolve` method vs `approval.approved` event; `approval.ruleRevoke` vs `approval.rule_revoked` — the underscore event form is regex-invalid as a method name). `PermissionCheck` is deliberately **not** registered: it is the daemon-internal pre-execution gate (Spec-012: "inside the local daemon"), no V1 client consumes a wire preflight, and exposing one would invite stale-verdict (time-of-check/time-of-use) authorization against the security gate (D-012-5/D-012-18). The plural `approvals.listPending` gloss formerly in Spec-023 §Approvals View is superseded by this registry (reconciled in the Tier-6 working copy; Plan-023's Tier-8 audit owns the full-file pass per CP-012-8).
+
+| Method | Procedure type | Request schema | Response schema |
+| --- | --- | --- | --- |
+| `approval.requestCreate` | `mutation` | `ApprovalRequestCreateRequest` | `ApprovalRequestCreateResponse` |
+| `approval.resolve` | `mutation` | `ApprovalResolveRequest` | `ApprovalResolveResponse` |
+| `approval.projectionRead` | `query` | `ApprovalProjectionReadRequest` | `ApprovalProjectionReadResponse` |
+| `approval.ruleList` | `query` | `RememberedRuleListRequest` | `RememberedRuleListResponse` |
+| `approval.ruleRevoke` | `mutation` | `RememberedRuleRevokeRequest` | `RememberedRuleRevokeResponse` |
+
+Canonical Zod schemas live in `packages/contracts/src/approval.ts` per the §Source-of-Truth Policy.
 
 ---
 
@@ -1371,16 +1657,28 @@ interface ApprovalProjectionReadResponse {
 ### Plan-011 — Gitflow PR And Diff Attribution
 
 ```ts
-// BranchContextRead
+// BranchContextRead — exactly one of branchContextId | (worktreeId + workspaceId) (Zod
+// refinement, the WorkspaceExecutionModeCapabilitiesRead discipline): branchContextId is
+// minted by repo.executionRootPrepare for every writable mode, so branch- and clone-anchored
+// contexts stay readable; the worktree-keyed arm serves worktree-anchored flows that hold
+// only the owning worktree id (Spec-011 §Interfaces And Contracts) and MUST pair it with the
+// requesting workspaceId: explicit cross-workspace reuse (Plan-010 D-010-15) upserts one
+// branch_contexts row per (workspace, worktree) binding while retaining the same worktree_id
+// across workspaces, so worktreeId alone is 1:N — the pair resolves exactly one row via the
+// partial-unique binding index (local-sqlite-schema.md branch_contexts).
 interface BranchContextReadRequest {
-  worktreeId: WorktreeId;
+  branchContextId?: BranchContextId;
+  worktreeId?: WorktreeId;
+  workspaceId?: WorkspaceId; // required with worktreeId (the pair is the key); absent on the branchContextId arm
 }
 interface BranchContextReadResponse {
-  branchContextId: string;
+  branchContextId: BranchContextId;
+  workspaceId: WorkspaceId;
   baseBranch: string;
   headBranch: string;
   upstreamRef?: string;
-  worktreeId: WorktreeId;
+  worktreeId?: WorktreeId; // present only for worktree-anchored contexts (branch_contexts at-most-one association CHECK)
+  ephemeralCloneId?: EphemeralCloneId; // present only for clone-anchored contexts
 }
 
 // DiffArtifactCreate
@@ -1398,7 +1696,7 @@ interface DiffArtifactCreateResponse {
 
 // PRPrepare
 interface PRPrepareRequest {
-  branchContextId: string;
+  branchContextId: BranchContextId;
   targetBranch: string;
   title?: string;
   description?: string;
@@ -1750,16 +2048,34 @@ interface RecoveryActionRequestResponse {
 
 ---
 
-## Tier 9: Plans 016, 017 (Task 4.10)
+## Tier 6 / Tier 8: Plans 016, 017 (Task 4.10)
+
+Heading retitled by the Tier-6 audit: Plan-016 executes at Tier 6 (cross-plan-dependencies §4 build order); Plan-017 at Tier 8. The original "Tier 9" label predated the tier graph.
 
 ### Plan-016 — Multi-Agent Channels And Orchestration
 
+Contracts rewritten during the Tier-6 plan-readiness audit (D-016-1..20). Canonical TypeScript source once shipped: `packages/contracts/src/orchestration.ts` (single file — ChannelCreate included; Plan-002's `channels.ts` is read-projection-only and stays untouched). `AgentId` is a new branded UUID (`brandedUuidIdSchema<AgentId>("AgentId")`). All mutations are daemon JSON-RPC (channel/orchestration/agent authority is daemon-local, ADR-001/ADR-003 posture); `channel.list` remains Plan-002's SDK-declared daemon-as-gateway directory read and is NOT part of this surface.
+
 ```ts
-// ChannelCreate
+// Typed configs (D-016-4) — replace the former Record<string, unknown> placeholders
+type TurnPolicy = "free-form" | "round-robin" | "request-based"; // Spec-016 §Turn Policies; default "free-form"
+interface ChannelConfig {
+  turnPolicy?: TurnPolicy;
+  roundRobinOrder?: AgentId[]; // REQUIRED non-empty when turnPolicy === "round-robin" (validation error otherwise)
+  moderation?: { preTurnGate?: boolean; postTurnReview?: boolean }; // Spec-016 §Moderation Hooks; both default false (V1 opt-in)
+}
+interface OrchestrationRunConfig {
+  tokenLimit?: number; // per-run token budget; default 100000 (Spec-016 §Budget Policies)
+  idleTimeoutMs?: number; // idle stop condition; default 300000 (Spec-016 §Stop Conditions)
+}
+type LinkType = "spawn" | "delegate" | "handoff"; // D-016-17: spawn = parent-initiated helper returning output to the parent's channel context; delegate = bounded task published to its own target channel; handoff = parent transfers its continuation to the child and completes
+type InterruptReason = "budget_exhausted" | "idle_timeout" | "moderation_denied"; // D-016-8: closed set carried on system-initiated interrupts
+
+// ChannelCreate — wire: channel.create (refuses the reserved main name — main is projected, never a row; D-016-15)
 interface ChannelCreateRequest {
   sessionId: SessionId;
   name?: string;
-  config?: Record<string, unknown>; // turn budget, stop policy, etc.
+  config?: ChannelConfig;
 }
 interface ChannelCreateResponse {
   channelId: ChannelId;
@@ -1767,39 +2083,207 @@ interface ChannelCreateResponse {
   createdAt: string;
 }
 
-// OrchestrationRunCreate
-interface OrchestrationRunCreateRequest {
-  sessionId: SessionId;
-  parentRunId?: RunId; // for child runs
-  targetAgentId: string;
-  targetNodeId?: NodeId;
-  targetChannelId: ChannelId;
-  internalHelper?: boolean; // marks as non-user-facing
-  config?: Record<string, unknown>;
-}
-interface OrchestrationRunCreateResponse {
-  runId: RunId;
-  state: RunState;
-  parentRunId?: RunId;
+// ChannelMute / ChannelUnmute / ChannelArchive — wire: channel.mute / channel.unmute / channel.archive (D-016-12)
+interface ChannelLifecycleRequest {
   channelId: ChannelId;
 }
+interface ChannelLifecycleResponse {
+  channelId: ChannelId;
+  state: ChannelState; // post-transition state; archived is terminal
+}
 
-// ChildRunLinkRead
+// ChannelRosterRead — wire: channel.rosterRead (D-016-6; daemon-native session-local roster
+// — distinct from Plan-002's channel.list control-plane directory read)
+interface ChannelRosterReadRequest {
+  sessionId: SessionId;
+}
+interface ChannelRosterReadResponse {
+  channels: Array<{
+    id: ChannelId; // synthesized main (deriveMainChannelId(sessionId), CP-002-7) listed first
+    name?: string;
+    state: ChannelState;
+    config: ChannelConfig;
+    arbitration: {
+      state: "active" | "paused"; // round-robin arbitration pause (Spec-016:122-124) — daemon projection from arbitration.* events
+      turnPolicy: TurnPolicy;
+      unreachableNodeId?: NodeId; // present while paused on an unreachable node
+      unreachableAgentId?: AgentId;
+    };
+    createdAt: string; // synthesized main carries the session createdAt
+  }>;
+}
+
+// OrchestrationRunCreate — wire: orchestration.runCreate (admission pipeline D-016-13:
+// agent resolution -> depth -> active-child -> scheduler limits -> budget block -> turn gate ->
+// Plan-004 queue admission; zero-residue typed refusal + durable orchestration.rejected on deny)
+interface OrchestrationRunCreateRequest {
+  sessionId: SessionId;
+  parentRunId?: RunId; // present = child run; child-of-child refused (depth 1, Spec-016:198)
+  targetAgentId: AgentId; // must resolve in the agents projection (agent.not_found / agent.not_ready)
+  targetNodeId?: NodeId; // V1: must be locally attached or absent (orchestration.node_not_local; cross-node = Spec-024/Plan-027, D-016-9)
+  targetChannelId: ChannelId; // accepts the derived main id without a channels row (D-016-15)
+  linkType?: LinkType; // default "spawn" (meaningful only with parentRunId)
+  internalHelper?: boolean; // marks as non-user-facing; durable in run_links.internal_helper (default false)
+  config?: OrchestrationRunConfig; // per-run override; admission resolves against session defaults and persists the merged result durably on run.queued (effectiveRunConfig — D-016-5 replay-stable enforcement)
+}
+interface OrchestrationRunCreateResponse {
+  runId: RunId; // minted at Plan-004 queue admission (run.queued); orchestration adds no second id
+  state: RunState; // "queued" at create
+  parentRunId?: RunId;
+  channelId: ChannelId;
+  internalHelper: boolean; // echo of the durable flag (I-016-10)
+}
+
+// ChildRunLinkRead — wire: orchestration.childRunLinkRead (projection of run_links —
+// single-parent: `child_run_id` is the PK, so a child appears under exactly one parent;
+// D-016-3). `rejectedCreates` is event-folded at read time from the parent's
+// `orchestration.rejected` events: zero-residue refusals (I-016-8) leave no run/queue/
+// link row, so the fold is the only data path that lets the child-run view surface
+// refusal records (events-canonical projection, the BudgetAccountant posture — Tier-6 audit).
 interface ChildRunLinkReadRequest {
   parentRunId: RunId;
 }
 interface ChildRunLinkReadResponse {
   links: Array<{
     childRunId: RunId;
-    linkType: "spawn" | "delegate" | "handoff";
+    linkType: LinkType;
+    internalHelper: boolean; // never dropped between durable home and read surface (I-016-10)
+    producingNodeId: NodeId;
+    visibility: "reachable" | "unreachable"; // daemon-projected from runtimenode.roster liveness — never client-inferred
     state: RunState;
+    createdAt: string;
+  }>;
+  rejectedCreates: Array<{
+    // folded from `orchestration.rejected` events with payload.parentRunId = request.parentRunId
+    targetChannelId?: ChannelId;
+    targetAgentId?: AgentId;
+    reason: string; // the refusing error-contracts.md code — the orchestration.runCreate admission vocabulary spans §Agent (agent.not_found / agent.not_ready), §Channel (channel.inactive), §Orchestration, and §Run (run.not_found parent reuse, D-016-16)
+    detail?: string;
+    occurredAt: string; // the event envelope timestamp
+  }>;
+}
+
+// BudgetRead / BudgetUpdate — wire: orchestration.budgetRead / orchestration.budgetUpdate (D-016-5;
+// session_budgets row-canonical; budgetUpdate is session-owner-only — Spec-016 "session admin" = role "owner")
+interface OrchestrationBudgetReadRequest {
+  sessionId: SessionId;
+}
+interface OrchestrationBudgetState {
+  sessionId: SessionId;
+  costLimitCents: number; // default 1000 ($10/session)
+  turnLimitPerAgent: number; // default 50
+  maxExecutingChannels: number; // default 5
+  maxQueueDepthPerChannel: number; // default 25
+  maxPendingOrchestrationRuns: number; // default 10
+  activeChildLimit: number; // default 5
+  observedCostCents: number; // BudgetAccountant projection (in-memory, replay-rebuilt)
+}
+type OrchestrationBudgetReadResponse = OrchestrationBudgetState;
+interface OrchestrationBudgetUpdateRequest {
+  // every provided limit must be a non-negative integer — Zod .int().nonnegative(),
+  // mirroring the session_budgets CHECK constraints (local-sqlite-schema.md §Channel and Orchestration Tables)
+  sessionId: SessionId;
+  costLimitCents?: number;
+  turnLimitPerAgent?: number;
+  maxExecutingChannels?: number;
+  maxQueueDepthPerChannel?: number;
+  maxPendingOrchestrationRuns?: number;
+  activeChildLimit?: number;
+}
+type OrchestrationBudgetUpdateResponse = OrchestrationBudgetState;
+
+// Agent surface (A-016-2 — Plan-016 owns the V1 agent identity + lifecycle surface).
+// AgentState is the canonical 4-state lifecycle from domain/agent-channel-and-run-model.md
+// §Lifecycle — the contract adopts it rather than minting a parallel enum. V1 wire mapping:
+// agent.attach -> "ready" ("configured" when the named default node is not currently attached);
+// agent.detach -> "disabled"; re-attach -> "ready"; "archived" is registered but no V1 wire
+// mutation reaches it (a future workflow/V1.1 surface). agent.not_ready fires for any state
+// other than "ready". The daemon resolves the resulting state at emission time and carries it
+// on the agent.* event payloads so the agents projection is deterministic from the log alone.
+// wire: agent.attach / agent.detach / agent.configUpdate / agent.list
+type AgentState = "configured" | "ready" | "disabled" | "archived";
+interface AgentAttachRequest {
+  sessionId: SessionId;
+  name: string;
+  driverName: string; // Plan-005 provider-driver key
+  modelId: string;
+  defaultNodeId?: NodeId;
+  config?: Record<string, unknown>; // driver-scoped, opaque to this contract
+}
+interface AgentAttachResponse {
+  agentId: AgentId;
+  state: AgentState; // "ready" | "configured" at attach
+  createdAt: string;
+}
+interface AgentDetachRequest {
+  agentId: AgentId;
+}
+interface AgentDetachResponse {
+  agentId: AgentId;
+  state: AgentState; // "disabled" at detach
+}
+interface AgentConfigUpdateRequest {
+  agentId: AgentId;
+  name?: string;
+  modelId?: string;
+  defaultNodeId?: NodeId | null; // tri-state: absent = leave unchanged; null = clear the pin (table NULL = any local attached node); value = rebind — rebinding/clearing may flip "configured" <-> "ready"
+  config?: Record<string, unknown>;
+}
+interface AgentConfigUpdateResponse {
+  agentId: AgentId;
+  state: AgentState; // post-update state (rebind may have changed it)
+  updatedAt: string;
+}
+interface AgentListRequest {
+  sessionId: SessionId;
+}
+interface AgentListResponse {
+  agents: Array<{
+    agentId: AgentId;
+    name: string;
+    driverName: string;
+    modelId: string;
+    defaultNodeId?: NodeId;
+    config: Record<string, unknown>; // driver-scoped persona config (Spec-016 A-016-2); {} when never supplied (agents.config NOT NULL DEFAULT '{}')
+    state: AgentState;
     createdAt: string;
   }>;
 }
 
-// InternalRunFlag (enum/marker)
-type InternalRunFlag = boolean; // true = internal helper, false = user-facing
+// Orchestration queue-admission carrier (D-016-13) — IN-PROCESS seam type, not a wire shape:
+// the orchestration-run-service passes it to Plan-004's daemon queue-admission service after its
+// own admission pipeline passes; the run.queued event payload then carries these fields durably
+// (Spec-006:187 additive optional fields). The wire run.queueCreate handler never populates it —
+// child-run creation goes through orchestration.runCreate only.
+interface OrchestrationRunLinkCarrier {
+  parentRunId?: RunId;
+  linkType: LinkType;
+  internalHelper: boolean;
+  agentId: AgentId; // name mirrors the run.queued additive payload field verbatim (CP-004-10); the service maps the validated wire targetAgentId here after agent resolution
+  producingNodeId: NodeId;
+  effectiveRunConfig: OrchestrationRunConfig; // admission-resolved post-merge values (request override else session default), persisted on run.queued so budget/idle enforcement rebuilds replay-stable (D-016-5, I-016-14)
+}
 ```
+
+**Method-string registry — Plan-016** (daemon JSON-RPC; all strings BLOCKED-ON [BL-142](../../backlog.md) for camelCase-tail registration and [BL-143](../../backlog.md) for typed-error wire projection):
+
+| Method | Procedure type | Request → Response | Notes |
+| --- | --- | --- | --- |
+| `channel.create` | RPC | `ChannelCreateRequest` → `ChannelCreateResponse` | First daemon-native handler under the `channel` root (root is Plan-002-declared via the `channel.list` gateway string; co-extension per the repo.\* precedent) |
+| `channel.mute` | RPC | `ChannelLifecycleRequest` → `ChannelLifecycleResponse` | Emits `channel.muted` |
+| `channel.unmute` | RPC | `ChannelLifecycleRequest` → `ChannelLifecycleResponse` | Emits `channel.unmuted` |
+| `channel.archive` | RPC | `ChannelLifecycleRequest` → `ChannelLifecycleResponse` | Emits `channel.archived`; terminal |
+| `channel.rosterRead` | RPC | `ChannelRosterReadRequest` → `ChannelRosterReadResponse` | Daemon-native session-local roster + arbitration facet; distinct from Plan-002's `channel.list` directory read |
+| `orchestration.runCreate` | RPC | `OrchestrationRunCreateRequest` → `OrchestrationRunCreateResponse` | Admission pipeline; composes with Plan-004 queue admission in-process |
+| `orchestration.childRunLinkRead` | RPC | `ChildRunLinkReadRequest` → `ChildRunLinkReadResponse` | run_links projection + event-folded `rejectedCreates` (zero-residue refusals, I-016-8) |
+| `orchestration.budgetRead` | RPC | `OrchestrationBudgetReadRequest` → `OrchestrationBudgetReadResponse` |  |
+| `orchestration.budgetUpdate` | RPC | `OrchestrationBudgetUpdateRequest` → `OrchestrationBudgetUpdateResponse` | Session-owner-only (wire-boundary authorization) |
+| `agent.attach` | RPC | `AgentAttachRequest` → `AgentAttachResponse` | Emits `agent.attached` |
+| `agent.detach` | RPC | `AgentDetachRequest` → `AgentDetachResponse` | Emits `agent.detached` |
+| `agent.configUpdate` | RPC | `AgentConfigUpdateRequest` → `AgentConfigUpdateResponse` | Emits `agent.config_updated` |
+| `agent.list` | RPC | `AgentListRequest` → `AgentListResponse` | agents-table projection |
+
+Error vocabulary: [error-contracts.md](./error-contracts.md) §Channel / §Orchestration / §Agent (D-016-16). Durable events owned by Plan-016 (Spec-006 registrations): `channel.created` / `channel.muted` / `channel.unmuted` / `channel.archived`, `agent.attached` / `agent.detached` / `agent.config_updated`, `arbitration.paused` / `arbitration.resumed`, `orchestration.rejected`, `usage.budget_warning`, `moderation.review_flagged` — see [Spec-006 §Event Type Registry](../../specs/006-session-event-taxonomy-and-audit-log.md).
 
 ### Plan-017 — Workflow Authoring And Execution
 
@@ -1892,18 +2376,91 @@ interface WorkflowGateResolveResponse {
 
 ### Spec-021 — Rate Limiting
 
+Shapes below are canonical per [Plan-021](../../plans/021-rate-limiting-policy.md) (Tier-6 audit, D-021-6/D-021-14/D-021-17); code home is `packages/contracts/src/rate-limiter.ts` + `admin-bans.ts` (Plan-021 Phase 1). Endpoint-group keys come from [Spec-021 §Canonical Endpoint Group Registry](../../specs/021-rate-limiting-policy.md#canonical-endpoint-group-registry).
+
 ```ts
-// RateLimitCheck (internal operation)
+// RateLimitCheck (internal operation, both backends)
+type RateLimitIdentityType = "participant" | "ip" | "token_hash" | "session" | "user"; // 'user' reserved dormant for the V1.1 keypackage.upload activation (Spec-021 row scoped per user; ADR-010 MLS gate) — no V1 surface constructs it (D-021-17)
+type RateLimitTier = "anonymous" | "authenticated" | "elevated";
+
 interface RateLimitCheckRequest {
-  identity: string; // participant_id or API key
-  endpoint: string; // route pattern
+  identity: string; // canonical form: participant/session UUID, IPv4 quad / IPv6 /64, Plan-002 token-hash; the reserved 'user' arm pins its form at V1.1 activation (D-021-14)
+  identityType: RateLimitIdentityType;
+  endpoint: RateLimitEndpointGroup; // registry-key union (Spec-021 registry)
+  tier?: RateLimitTier; // resolved server-side; never caller-supplied
   context?: Record<string, unknown>;
 }
-interface RateLimitCheckResponse {
-  allowed: boolean;
-  remaining: number;
+// Two-arm union (Plan-021, Tier-6 audit): the degraded arm is minted only by the
+// fail-open wrapper during grace and carries no window fields — nothing authoritative
+// exists while the backend is unreachable; `graceEndsAt` = grace expiry (503 boundary).
+type RateLimitCheckResponse =
+  | {
+      allowed: boolean;
+      remaining: number;
+      resetAt: string; // ISO 8601
+      limit: number; // total threshold for this window
+      degraded?: never;
+      blockUntil?: string; // ISO 8601; set only when the denial is an active escalation block — the trip-vs-block discriminator (Plan-021 D-021-3)
+    }
+  | { allowed: true; degraded: true; graceEndsAt: string };
+```
+
+#### Admin Bans API (operator-token surface)
+
+Raw HTTP routes matched before tRPC dispatch (Plan-021 D-021-10); authenticated by the deployment's operator admin token (D-021-1), not PASETO.
+
+```ts
+// POST /admin/bans  → 201 | 401 auth.token_invalid | 403 admin.forbidden | 409 admin.ban_already_exists
+// (409 only on a genuinely active conflict — an expired-but-unrevoked standing ban is
+// superseded on issue via atomic revoke-then-insert, Plan-021 D-021-12)
+interface AdminBanCreateRequest {
+  identity: string;
+  identityType: RateLimitIdentityType;
+  reason?: string;
+  expiresAt?: string; // ISO 8601; omit for permanent
+}
+interface AdminBanCreateResponse {
+  banId: string; // UUID
+  issuedAt: string; // ISO 8601
+  expiresAt: string | null;
+}
+
+// GET /admin/bans?activeOnly=<bool>&limit=<n>&cursor=<c>  (defaults: activeOnly=true, limit=100)
+interface AdminBanListResponse {
+  bans: Array<{
+    banId: string;
+    identity: string;
+    identityType: RateLimitIdentityType;
+    issuedBy: string; // operator attribution (server-derived per Plan-021 D-021-1; V1 single shared token → constant "deployment-operator")
+    issuedAt: string;
+    expiresAt: string | null;
+    revokedAt: string | null;
+    reason: string | null;
+  }>;
+  nextCursor: string | null;
+}
+
+// DELETE /admin/bans/:id → 204 No Content | 404 admin.ban_not_found
+```
+
+#### Relay Rate-Limit Signalling
+
+WS overflow is drop-frame (Plan-021 D-021-9): a counter trip refuses the offending frame with ONE in-band error frame and keeps the connection; close code `4029` (private range) fires only for active escalation blocks; an active admin ban closes with `4003` (the 403-class `ratelimit.banned` analog — Spec-021 §WebSocket Overflow Response), enforced in observe mode too.
+
+```ts
+// In-band frame sent on counter trip (connection stays open)
+interface RateLimitedFrame {
+  type: "rate_limited";
+  retryAfter: number; // seconds
+  limit: number;
+  remaining: 0;
   resetAt: string; // ISO 8601
 }
+
+// Close on active escalation block:
+// code: 4029, reason: "rate_limit_blocked;retryAfter=<seconds>"
+// Close on active admin ban (both modes — operator enforcement, never observe-suppressed):
+// code: 4003, reason: "banned;retryAfter=<seconds>" (retryAfter segment omitted for permanent bans — no expiry exists)
 ```
 
 ### Spec-022 — Data Retention And GDPR

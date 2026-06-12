@@ -146,29 +146,31 @@ Payload shape: `{sessionId, participantId, deviceId, previousState?, newState}`
 
 ### Channel and Agent Lifecycle (`session_lifecycle`)
 
-Payload shape: `{sessionId, channelId?, agentId?, actor}`
+Payload shapes are per-type (Tier-6 audit, A-016-19 — the former single shared shape `{sessionId, channelId?, agentId?, actor}` could not rebuild the `channels` / `agents` projections on replay): `channel.created` carries `{sessionId?, channelId, name?, config?, actor?}` (the shipped Tier-1 `channelCreatedPayloadSchema` in `packages/contracts/src/event.ts` accepts only `{channelId, name?}` until Plan-016 T1.1 lands the additive-optional `sessionId` / `config` / `actor` extension per ADR-018; pre-extension events remain parseable on replay); `channel.muted` / `channel.unmuted` / `channel.archived` carry `{sessionId, channelId, actor}`; `agent.attached` carries the full persona plus the daemon-resolved resulting state `{sessionId, agentId, name, driverName, modelId, defaultNodeId?, config?, state: AgentState, actor}` so the `agents` projection is replay-complete and deterministic from the log alone (`state` is `'ready'` or `'configured'` per the domain lifecycle — [agent-channel-and-run-model.md §Lifecycle](../domain/agent-channel-and-run-model.md)); `agent.detached` carries `{sessionId, agentId, state: 'disabled', actor}`; `agent.config_updated` carries `{sessionId, agentId, name?, modelId?, defaultNodeId?: NodeId | null, config?, state?, actor}` (changed fields only — `defaultNodeId` mirrors the request tri-state: absent = unchanged, `null` = the pin-clear (replay writes table `NULL` = any local attached node), value = rebound; `state?` present when a node rebind flipped `configured` ↔ `ready`). The bootstrap `main` channel never emits `channel.created` — it is projected from the session itself (`deriveMainChannelId`, CP-002-7).
 
-| Type                   | Description                                                      |
-| ---------------------- | ---------------------------------------------------------------- |
-| `channel.created`      | A new channel has been created within the session.               |
-| `channel.muted`        | A channel has been muted, suppressing its output in projections. |
-| `channel.archived`     | A channel has been archived and is no longer active.             |
-| `agent.attached`       | An agent has been attached to the session or a channel.          |
-| `agent.detached`       | An agent has been detached from the session or a channel.        |
-| `agent.config_updated` | An agent's configuration has been updated.                       |
+| Type | Description |
+| --- | --- |
+| `channel.created` | A new user channel has been created within the session. |
+| `channel.muted` | A channel has been muted, suppressing its output in projections. |
+| `channel.unmuted` | A previously muted channel has been restored to `active` (Tier-6 audit, D-016-12 — the mute edge was registered without its reverse). |
+| `channel.archived` | A channel has been archived and is no longer active. |
+| `agent.attached` | An agent has been attached to the session or a channel. |
+| `agent.detached` | An agent has been detached from the session or a channel. |
+| `agent.config_updated` | An agent's configuration has been updated. |
 
 > See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed payload definitions.
 
 ### Channel Arbitration (`channel_arbitration`)
 
-Orchestration-layer visibility events for multi-agent channels whose turn-policy arbitration stalls or resumes. These are distinct from run-level `run.paused` — they describe whose turn it was when arbitration stalled, not an intentional run suspension. Registered here from [Spec-016 §Partition And Reconnect Behavior](./016-multi-agent-channels-and-orchestration.md).
+Orchestration-layer visibility events: turn-policy arbitration stalls/resumes, plus durable orchestration admission refusals (Tier-6 audit, A-016-15). The arbitration pair is distinct from run-level `run.paused` — they describe whose turn it was when arbitration stalled, not an intentional run suspension. Registered here from [Spec-016 §Partition And Reconnect Behavior](./016-multi-agent-channels-and-orchestration.md).
 
-Payload shape: `{sessionId, channelId, unreachableNodeId, unreachableAgentId, turnPolicy, timestamp}`
+Payload shapes: `arbitration.*` carry `{sessionId, channelId, unreachableNodeId, unreachableAgentId, turnPolicy, timestamp}`; `orchestration.rejected` carries `{sessionId, targetChannelId?, targetAgentId?, parentRunId?, reason, detail?}` — no `runId` exists at refusal time (the admission was refused before any run or queue item was created, Plan-016 zero-residue invariant), which is why this event cannot ride `run_lifecycle`.
 
 | Type | Description (When Fired) |
 | --- | --- |
 | `arbitration.paused` | A `round-robin` channel's next-due agent sits on a runtime node that has transitioned to `offline` per [Spec-003](./003-runtime-node-attach.md). Arbitration halts so canonical turn ordering is preserved rather than skipping ahead. |
 | `arbitration.resumed` | The previously unreachable node has reconnected and canonical ordering has been restored; arbitration resumes from the stored next-due agent. |
+| `orchestration.rejected` | An orchestration run-create admission was refused (any admission gate — agent readiness, channel state, depth, active-child, scheduler, budget, or turn policy — `reason` carries the refusing [error-contracts.md](../architecture/contracts/error-contracts.md) code: the §Orchestration rows plus the reused §Agent / §Channel / §Run codes, e.g. `agent.not_ready`, `channel.inactive`, `run.not_found` per D-016-16). Durable so refusals are visible to observers per [Spec-016](./016-multi-agent-channels-and-orchestration.md) ("records the refusal visibly", §Example Flows; explicit limit/capacity detail per §Fallback Behavior); emitter Plan-016 (Tier-6 audit, D-016-11). |
 
 > See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed payload definitions.
 
@@ -176,20 +178,20 @@ Payload shape: `{sessionId, channelId, unreachableNodeId, unreachableAgentId, tu
 
 One event per state from the [Run State Machine](../domain/run-state-machine.md)'s 9 canonical states.
 
-Payload shape: `{sessionId, runId, runVersion, previousState, newState, channelId?, failureCategory?: RunFailureCategory, recoveryCondition?: 'recovery-needed', trigger?}`
+Payload shape: `{sessionId, runId, runVersion, previousState, newState, channelId?, failureCategory?: RunFailureCategory, recoveryCondition?: 'recovery-needed', trigger?: 'turn_limit' | 'budget_exhausted' | 'idle_timeout' | 'moderation_denied'}`
 
 `runVersion` is the run aggregate's **any-run-progression counter** (Plan-004 D-004-1): it increments on every run progression — applied interventions included, not only the state transitions enumerated below — and is the optimistic-concurrency token the `expectedRunVersion` intervention guard compares against ([Spec-004 §Interfaces And Contracts](004-queue-steer-pause-resume.md#interfaces-and-contracts)). It is a **payload** field, distinct from the envelope-level `.version` (§EventEnvelope Version Semantics above): `.version` is the immutable semver wire-contract version bound into the Ed25519 signature, whereas `runVersion` is a mutable per-run counter carried inside `payload` — the two share the word "version" but are different contracts and must never be conflated. Because `runVersion` also advances on applied interventions that cause no state change (e.g. a native steer), the authoritative source of a run's current `runVersion` is the run-state read / `run.subscribeState` stream and the intervention / pause / resume responses, not the `run.*` event sequence alone. A no-state-change advance is **not** broadcast as a discrete `run.*` event — there is no state transition to record ([Spec-004:85](004-queue-steer-pause-resume.md)) — so a _non-intervening_ subscriber tracking `runVersion` off the event sequence may hold a stale comparand. Its next guarded intervention / pause / resume is then correctly rejected `expired` (the comparand genuinely _is_ stale — this is the optimistic-concurrency guard working, not a false rejection), whereupon it re-reads run-state for the fresh `runVersion` and retries: the reject → re-read → retry loop is the designed correction, and V1 adds **no** broadcast/read-model push for no-state-change bumps. The _intervening_ caller never round-trips — its `RunControlAck` / `InterventionRequestResponse` / pause-resume ack carries the post-application `runVersion` directly (per [api-payload-contracts.md](../architecture/contracts/api-payload-contracts.md)).
 
 | Type | Description |
 | --- | --- |
-| `run.queued` | A run has been created and placed in the queue. |
+| `run.queued` | A run has been created and placed in the queue. For orchestration-created runs the payload additionally carries the optional linkage fields `{agentId?, parentRunId?, linkType?, internalHelper?, producingNodeId?}` plus the admission-resolved `effectiveRunConfig?` (Tier-6 audit, D-016-3/D-016-5) — the durable source from which the `run_links` projection, the round-robin turn cursor, and the per-run budget/idle enforcement values rebuild on replay; threaded from the in-process `OrchestrationRunLinkCarrier` ([api-payload-contracts §Plan-016](../architecture/contracts/api-payload-contracts.md)). |
 | `run.starting` | The runtime is preparing provider, workspace, or execution state for the run. |
 | `run.running` | The run is actively executing. |
 | `run.waiting_for_approval` | The run is blocked on an approval request. |
 | `run.waiting_for_input` | The run is blocked on participant input or structured answers. |
 | `run.paused` | The run has been intentionally suspended. |
-| `run.completed` | The run finished successfully. |
-| `run.interrupted` | The run ended due to an interrupt or cancel path. |
+| `run.completed` | The run finished successfully. `trigger: 'turn_limit'` marks a turn-limit completion (Plan-016 D-016-8); absent on natural completion. |
+| `run.interrupted` | The run ended due to an interrupt or cancel path. System interrupts carry `trigger` from the Plan-016 `InterruptReason` closed set (`budget_exhausted` / `idle_timeout` / `moderation_denied`, D-016-7); absent on user-initiated cancel. |
 | `run.failed` | The run ended due to an unrecovered error. `failureCategory` and `recoveryCondition` provide detail. |
 
 > See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed payload definitions.
@@ -225,16 +227,18 @@ Payload shape: `{sessionId, interventionId, targetRunId, type: InterventionType,
 
 ### Approval Flow (`approval_flow`)
 
-Payload shape: `{sessionId, runId, approvalRequestId, category: ApprovalCategory, scope, approver?, rememberedScope?}`
+Payload shape: `{sessionId, runId?, approvalRequestId?, category: ApprovalCategory, scope, requestedBy?, resourceDescriptor?, expiryAt?, approver?, effectiveScope?, nodeId?, rememberedScope?, ruleId?, invalidationTrigger?}` — `runId`/`approvalRequestId` are absent on trust-triggered `approval.rule_revoked` (no in-flight request); `requestedBy`/`resourceDescriptor` (+ `expiryAt` when set) are present on `approval.requested` and `approver` + `effectiveScope` on the resolution events, and `approval.remembered` carries the full rule projection (grantor = `approver`, bound `nodeId`, binding = `rememberedScope`/`runId`, origin resolution via `approvalRequestId`), so relayed or replayed events alone rebuild each daemon's approval projection — `remembered_approval_rules` included — byte-equal (Plan-012 D-012-6/D-012-7, I-012-9); `ruleId` is present on `approval.remembered` / `approval.rule_revoked`; `invalidationTrigger` is present on `approval.rule_revoked` (Tier-6 audit, Plan-012 D-012-8/D-012-3).
 
-| Type                    | Description                                                           |
-| ----------------------- | --------------------------------------------------------------------- |
-| `approval.requested`    | An approval request has been created for a run action.                |
-| `approval.approved`     | An approval request has been granted.                                 |
-| `approval.rejected`     | An approval request has been denied.                                  |
-| `approval.expired`      | An approval request has expired without a decision.                   |
-| `approval.remembered`   | An approval decision has been remembered for future matching actions. |
-| `approval.rule_revoked` | A previously remembered approval rule has been revoked.               |
+| Type | Description |
+| --- | --- |
+| `approval.requested` | An approval request has been created for a run action. |
+| `approval.approved` | An approval request has been granted. |
+| `approval.rejected` | An approval request has been denied. |
+| `approval.expired` | An approval request has expired without a decision. |
+| `approval.canceled` | An approval request was canceled because its run ended before resolution. |
+| `approval.remembered` | An approval decision has been remembered for future matching actions. |
+| `approval.rule_revoked` | A previously remembered approval rule has been revoked. |
+| `moderation.review_flagged` | A post-turn moderation review flagged a completed agent turn for participant attention (informational — the turn proceeds; [Spec-016 §Moderation Hooks](./016-multi-agent-channels-and-orchestration.md)). Payload: `{sessionId, channelId, runId, agentId, eventId}` where `eventId` references the flagged `assistant_output` event. Emitter Plan-016; registered by the Tier-6 audit (D-016-10). |
 
 > See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed payload definitions.
 
@@ -340,11 +344,12 @@ Lifecycle discipline: five terminal events — `.rejected`, `.denied`, `.failed`
 
 Payload shape: `{sessionId, runId?, tokenCount?, inputTokens?, outputTokens?, costCents?, windowUsedTokens?, windowMaxTokens?}`
 
-| Type                          | Description                                               |
-| ----------------------------- | --------------------------------------------------------- |
-| `usage.token_count`           | A token consumption snapshot has been recorded for a run. |
-| `usage.cost_update`           | A cost accumulation update has been recorded.             |
+| Type | Description |
+| --- | --- |
+| `usage.token_count` | A token consumption snapshot has been recorded for a run. |
+| `usage.cost_update` | A cost accumulation update has been recorded. |
 | `usage.context_window_update` | The context window utilization has changed significantly. |
+| `usage.budget_warning` | A budget scope crossed its 80% warning threshold ([Spec-016 §Budget Policies](./016-multi-agent-channels-and-orchestration.md)). Payload: `{sessionId, runId?, agentId?, budgetType: 'run_tokens' \| 'session_cost' \| 'agent_turns', limitValue, observedValue}` — fired once per (scope, budgetType) crossing by the daemon BudgetAccountant. Emitter Plan-016; registered by the Tier-6 audit (A-016-6). |
 
 > See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed payload definitions.
 
@@ -513,25 +518,25 @@ Payload shape: `{nodeId, bundleId, bundleVersion}` (base). Per-event payload ext
 
 ### Event Type Summary
 
-Total enumerated event types: **125**
+Total enumerated event types: **130**
 
 | Category | Count | Types |
 | --- | --- | --- |
 | `session_lifecycle` (session) | 7 | `session.created` through `session.purged` |
 | `membership_change` (invite/membership) | 9 | `invite.created` through `membership.reactivated` (incl. `membership.created`) |
 | `membership_change` (presence) | 4 | `presence.online` through `presence.offline` |
-| `session_lifecycle` (channel/agent) | 6 | `channel.created` through `agent.config_updated` |
-| `channel_arbitration` | 2 | `arbitration.paused`, `arbitration.resumed` |
+| `session_lifecycle` (channel/agent) | 7 | `channel.created` through `agent.config_updated` (incl. `channel.unmuted`) |
+| `channel_arbitration` | 3 | `arbitration.paused`, `arbitration.resumed`, `orchestration.rejected` |
 | `run_lifecycle` | 9 | `run.queued` through `run.failed` |
 | `interactive_request` (queue) | 5 | `queue_item.created` through `queue_item.expired` |
 | `interactive_request` (intervention) | 6 | `intervention.requested` through `intervention.expired` |
-| `approval_flow` | 6 | `approval.requested` through `approval.rule_revoked` |
+| `approval_flow` | 8 | `approval.requested` through `moderation.review_flagged` |
 | `session_lifecycle` (repo/workspace/worktree) | 11 | `repo.attached` through `worktree.retired` |
 | `artifact_publication` | 6 | `artifact.published` through `pr.submitted` |
 | `assistant_output` | 2 | `assistant.message`, `assistant.thinking_update` |
 | `tool_activity` | 5 | `tool.invoked` through `tool.skipped_during_recovery` |
 | `cross_node_dispatch` | 13 | `dispatch.sent`, `dispatch.received`, `dispatch.rejected`, `dispatch.approval_requested`, `dispatch.approved`, `dispatch.denied`, `dispatch.executed`, `dispatch.completed`, `dispatch.failed`, `dispatch.expired`, `dispatch.result_buffered`, `dispatch.approval_observed`, `dispatch.result_observed` |
-| `usage_telemetry` | 3 | `usage.token_count` through `usage.context_window_update` |
+| `usage_telemetry` | 4 | `usage.token_count` through `usage.budget_warning` |
 | `onboarding_lifecycle` | 2 | `onboarding.choice_made`, `onboarding.choice_reset` |
 | `runtime_node_lifecycle` | 9 | `runtime_node.registered` through `session.clock_corrected` |
 | `recovery_events` | 3 | `recovery.attempted`, `recovery.succeeded`, `recovery.failed` |
@@ -540,7 +545,7 @@ Total enumerated event types: **125**
 | `security_events` | 4 | `security.default.override`, `security.update.available`, `daemon.master_key_source`, `daemon.pii_split_ambiguous` |
 | `event_maintenance` | 3 | `schema.migrated`, `event.compacted`, `event.shredded` |
 | `policy_events` | 2 | `policy_bundle.loaded`, `policy_bundle.rejected` |
-| **Total** | **125** | Exceeds Forge's 69-type baseline by 81% |
+| **Total** | **130** | Exceeds Forge's 69-type baseline by 88% |
 
 ## Integrity Protocol
 

@@ -9,11 +9,11 @@
 // on the emitter's append running on that connection).
 //
 // Coverage map (cites are the authoritative contract, not just the ACs):
-//   * D2 path 1 (declare → capability_declared, Spec-006:379): a first
+//   * D2 path 1 (declare → capability_declared, Spec-006:384): a first
 //     declaration emits exactly one `runtime_node.capability_declared` event
 //     (reduced base + {capability, capabilityDetails}) + a `node_capabilities`
 //     row.
-//   * D2 path 2 (re-declare changed → capability_updated, Spec-006:380): a
+//   * D2 path 2 (re-declare changed → capability_updated, Spec-006:385): a
 //     re-declare with CHANGED details emits exactly one
 //     `runtime_node.capability_updated` carrying the prior + new snapshots, and
 //     the row's `capability_value` is updated.
@@ -172,7 +172,7 @@ function makeCapabilityService(now: () => string = makeAdvancingClock()): NodeCa
 }
 
 // ----------------------------------------------------------------------------
-// D2 path 1 — first declaration emits capability_declared (Spec-006:379)
+// D2 path 1 — first declaration emits capability_declared (Spec-006:384)
 // ----------------------------------------------------------------------------
 
 describe("NodeCapabilityService — D2 path 1 (first declaration → capability_declared)", () => {
@@ -193,7 +193,7 @@ describe("NodeCapabilityService — D2 path 1 (first declaration → capability_
     expect(event.type).toBe("runtime_node.capability_declared");
     expect(event.category).toBe("runtime_node_lifecycle");
 
-    // Spec-006:379 shape: reduced base + {capability, capabilityDetails}. NO
+    // Spec-006:384 shape: reduced base + {capability, capabilityDetails}. NO
     // previousState/newState NodeState fields (capability events are not
     // NodeState transitions).
     const payload = JSON.parse(event.payload) as Record<string, unknown>;
@@ -216,7 +216,7 @@ describe("NodeCapabilityService — D2 path 1 (first declaration → capability_
 });
 
 // ----------------------------------------------------------------------------
-// D2 path 2 — changed re-declare emits capability_updated (Spec-006:380)
+// D2 path 2 — changed re-declare emits capability_updated (Spec-006:385)
 // ----------------------------------------------------------------------------
 
 describe("NodeCapabilityService — D2 path 2 (changed re-declare → capability_updated)", () => {
@@ -250,7 +250,7 @@ describe("NodeCapabilityService — D2 path 2 (changed re-declare → capability
     expect(updatedEvent).toBeDefined();
     if (updatedEvent === undefined) return;
     const payload = JSON.parse(updatedEvent.payload) as Record<string, unknown>;
-    // Spec-006:380 shape: reduced base + {capability, previousState, newState} as
+    // Spec-006:385 shape: reduced base + {capability, previousState, newState} as
     // CapabilityDetails SNAPSHOTS carrying the prior + new details.
     expect(payload).toEqual({
       sessionId: SESSION_ID,
@@ -550,7 +550,7 @@ describe("NodeCapabilityService — T2.4/D3 (online only after capability_declar
       "runtime_node.online",
     ]);
 
-    // The online payload is the registering→online transition (Spec-006:375 base).
+    // The online payload is the registering→online transition (Spec-006:380 base).
     const onlineEvent = events[1];
     expect(onlineEvent).toBeDefined();
     if (onlineEvent === undefined) return;

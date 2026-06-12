@@ -65,7 +65,7 @@ This spec covers approval requests, approval scopes, remembered grants, and the 
 ## Default Behavior
 
 - Default grant scope is `request_only`.
-- Session-wide remembered approval rules are `off` by default and must require explicit user opt-in.
+- Session-wide remembered approval rules are `off` by default and must require explicit user opt-in. Remembered approval rules are allow-rules only in V1: a remembered-scope request is valid only on an `approved` decision (`ApprovalResolve` rejects a rejected-decision remember request with a typed error); deny-by-default remains the policy engine's job, not the remembered-rule store's. (Tier-6 audit.)
 - File and tool permissions default to the bound workspace or node trust envelope; out-of-boundary access requires explicit approval.
 - Network access defaults to denied unless the active policy or approval explicitly allows it.
 - A participant's own attached runtime node defaults to trusted for running work on that participant's machine inside the node's declared trust envelope, but it does not grant ambient authority to other participants and does not waive explicit approval for sensitive escalation.
@@ -80,7 +80,7 @@ This spec covers approval requests, approval scopes, remembered grants, and the 
 ## Interfaces And Contracts
 
 - `ApprovalRequestCreate` must include category, scope, requested resource, and expiry policy.
-- `ApprovalResolve` must include approver, decision, optional remembered-scope request, and audit metadata. The Cedar `principal` for authorization is the verified PASETO `sub` of the caller; the `approver` field in the request body is informational/routing metadata and is rejected when it disagrees with the verified `sub`. See [API Payload Contracts §Authenticated Principal And Authorization Model](../architecture/contracts/api-payload-contracts.md#authenticated-principal-and-authorization-model).
+- `ApprovalResolve` must include approver, decision, optional remembered-scope request, and audit metadata. The Cedar `principal` for authorization is the verified PASETO `sub` of the caller; the `approver` field in the request body is informational/routing metadata and is rejected when it disagrees with the verified `sub`. See [API Payload Contracts §Authenticated Principal And Authorization Model](../architecture/contracts/api-payload-contracts.md#authenticated-principal-and-authorization-model). On the local daemon socket — which carries no PASETO principal per the linked local-daemon model — the `approver` body field is optional: when absent, the daemon records its node-owner participant binding as the approver; when present, it is cross-checked against that binding and rejected on mismatch (`auth.principal_mismatch`). The resolution record always carries the recorded approver. (Tier-6 audit.)
 - `PermissionCheck` must run inside the local daemon before executing a sensitive local action.
 - `ApprovalProjectionRead` must surface pending and historical approval state to participants authorized to see it.
 - See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
@@ -103,7 +103,7 @@ This spec covers approval requests, approval scopes, remembered grants, and the 
 - Approval UX may present grouped requests, but canonical approval records must remain granular enough for audit.
 - Remembered approval scopes should be explicit enums, not free-form client labels.
 - Trust changes must propagate into approval evaluation immediately.
-- Policy evaluation uses Cedar (CNCF sandbox). V1 uses YAML policy definitions. V1.1 evaluates Cedar WASM (`@cedarpolicy/cedar-wasm`) for runtime evaluation. Cedar's principal-action-resource-context model maps to: principal = participant, action = approval category, resource = target (file, tool, network, etc.), context = session state. Policy artifact signing, verification, and operator key lifecycle are governed by [ADR-012 §Policy Chain of Custody](../decisions/012-cedar-approval-policy-engine.md#policy-chain-of-custody); operational procedures are in [Cedar Policy Signing And Rotation](../operations/cedar-policy-signing-and-rotation.md).
+- Policy evaluation uses Cedar (CNCF sandbox). V1 runs `@cedar-policy/cedar-wasm` in-process over a build-embedded, signature-verified compiled policy set authored from YAML policy sources (compiled at package build; verified against the pinned operator key on every daemon start, fail-closed — Plan-012 D-012-9). V1.1 changes the policy SOURCE only (build-embedded → runtime-delivered signed policy bundles, criterion-gated per ADR-012); the evaluator does not change. Cedar's principal-action-resource-context model maps to: principal = participant, action = approval category, resource = target (file, tool, network, etc.), context = session state. Policy artifact signing, verification, and operator key lifecycle are governed by [ADR-012 §Policy Chain of Custody](../decisions/012-cedar-approval-policy-engine.md#policy-chain-of-custody); operational procedures are in [Cedar Policy Signing And Rotation](../operations/cedar-policy-signing-and-rotation.md).
 
 ## Pitfalls To Avoid
 

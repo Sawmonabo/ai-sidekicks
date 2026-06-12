@@ -212,7 +212,7 @@ CREATE TABLE driver_contract_meta (
 -- kSecAttrAccessibleWhenUnlockedThisDeviceOnly on macOS / CRED_TYPE_GENERIC
 -- CRED_PERSIST_LOCAL_MACHINE on Windows / Secret Service via libsecret +
 -- kwallet6 + keyutils fallback on Linux). Public key is registered in the
--- session participant roster at join time per Spec-006:384. Sealed-key storage
+-- session participant roster at join time per Spec-006:568. Sealed-key storage
 -- lives in local SQLite (NOT shared-Postgres sessions) per ADR-004 SQLite-
 -- local-state boundary — daemon-private secrets are per-machine.
 CREATE TABLE daemon_signing_keys (
@@ -279,6 +279,10 @@ CREATE TABLE node_capabilities (
 CREATE TABLE node_trust_state (
   node_id           TEXT NOT NULL PRIMARY KEY,
   trust_level       TEXT NOT NULL DEFAULT 'untrusted',
+                    -- V1 value set ratified by the Tier-6 audit (Plan-012 D-012-15): 'untrusted' | 'envelope_trusted'.
+                    -- The shipped 0002 migration carries no CHECK (a retroactive CHECK requires a table rebuild);
+                    -- enforcement is at the seams: Plan-012 owns the elevation write (parse-at-boundary) and its
+                    -- policy evaluator treats any out-of-set value as 'untrusted' (fail-closed read; Spec-012 §Fallback Behavior).
   established_at    TEXT NOT NULL,
   updated_at        TEXT NOT NULL
 );
@@ -293,26 +297,37 @@ CREATE TABLE node_trust_state (
 CREATE TABLE repo_mounts (
   id              TEXT PRIMARY KEY,
   session_id      TEXT NOT NULL,
-  local_path      TEXT NOT NULL,              -- filesystem path to repo root
-  vcs_type        TEXT NOT NULL DEFAULT 'git',
+  node_id         TEXT NOT NULL,              -- owning runtime node (the node that can access the path)
+  local_path      TEXT NOT NULL,              -- user-entered attach path (provenance)
+  canonical_root  TEXT NOT NULL,              -- resolver output: absolute, symlink-resolved (envelope/dedupe key)
+  vcs_type        TEXT NOT NULL DEFAULT 'git'
+                  CHECK(vcs_type IN ('git', 'none')),
   state           TEXT NOT NULL DEFAULT 'attached'
                   CHECK(state IN ('attached', 'detached', 'archived')),
   attached_at     TEXT NOT NULL,
+  updated_at      TEXT NOT NULL,
   metadata        TEXT NOT NULL DEFAULT '{}' -- JSON
 );
 
 CREATE INDEX idx_repo_mounts_session ON repo_mounts(session_id);
+-- Active-mount uniqueness binds the CANONICAL root per owning node (Plan-009 D-009-7): two
+-- entered aliases resolving to one root on one node are one mount; the same absolute path on two
+-- different nodes is two distinct node-local filesystems (Spec-009 line 73) and both attach;
+-- detached rows stay re-attachable as new rows.
+CREATE UNIQUE INDEX idx_repo_mounts_active_root
+  ON repo_mounts(session_id, node_id, canonical_root) WHERE state = 'attached';
 
 -- Owner: Plan-009
 CREATE TABLE workspaces (
   id              TEXT PRIMARY KEY,
   session_id      TEXT NOT NULL,
   repo_mount_id   TEXT NOT NULL REFERENCES repo_mounts(id),
-  execution_mode  TEXT NOT NULL DEFAULT 'worktree'
+  execution_mode  TEXT NOT NULL DEFAULT 'read-only' -- read-only until a writable mode is explicitly selected (Spec-009; 'worktree' is the default WRITABLE run mode per ADR-006, not the row default)
                   CHECK(execution_mode IN ('read-only', 'branch', 'worktree', 'ephemeral clone')),
   fs_root         TEXT,                       -- resolved filesystem root
   state           TEXT NOT NULL DEFAULT 'provisioning'
                   CHECK(state IN ('provisioning', 'ready', 'busy', 'stale', 'archived')),
+  metadata        TEXT NOT NULL DEFAULT '{}', -- JSON; lastError detail on a failed mode switch (Spec-009)
   created_at      TEXT NOT NULL,
   updated_at      TEXT NOT NULL
 );
@@ -320,43 +335,94 @@ CREATE TABLE workspaces (
 CREATE INDEX idx_workspaces_session ON workspaces(session_id);
 CREATE INDEX idx_workspaces_repo ON workspaces(repo_mount_id);
 
--- Owner: Plan-010
+-- Owner: Plan-010 (Tier-6 audit: provenance columns, active-branch uniqueness, cleanup stamp — D-010-5)
 CREATE TABLE worktrees (
-  id              TEXT PRIMARY KEY,
-  repo_mount_id   TEXT NOT NULL REFERENCES repo_mounts(id),
-  branch_name     TEXT NOT NULL,
-  fs_root         TEXT NOT NULL,              -- filesystem path to worktree
-  state           TEXT NOT NULL DEFAULT 'creating'
-                  CHECK(state IN ('creating', 'ready', 'dirty', 'merged', 'retired', 'failed')),
-  created_at      TEXT NOT NULL,
-  updated_at      TEXT NOT NULL
+  id                    TEXT PRIMARY KEY,
+  repo_mount_id         TEXT NOT NULL REFERENCES repo_mounts(id),
+  created_by_session_id TEXT NOT NULL,              -- creating-session provenance (Spec-010 §State And Data Implications; session ids are event-sourced — no FK, matching session_id columns elsewhere)
+  created_by_run_id     TEXT,                       -- creating-run provenance; NULL = pre-run explicit prepare (run ids are event-sourced, not FK-constrained)
+  branch_name           TEXT NOT NULL,
+  fs_root               TEXT NOT NULL,              -- filesystem path to worktree (under the daemon execution-roots dir, D-010-6)
+  state                 TEXT NOT NULL DEFAULT 'creating'
+                        CHECK(state IN ('creating', 'ready', 'dirty', 'merged', 'retired', 'failed')),
+  created_at            TEXT NOT NULL,
+  updated_at            TEXT NOT NULL,
+  cleaned_at            TEXT                        -- async disk-cleanup stamp (retire records state; the sweep stamps cleanup)
 );
 
 CREATE INDEX idx_worktrees_repo ON worktrees(repo_mount_id);
+-- At most one live checkout per (mount, branch): mirrors git's own constraint — a checkout existing
+-- on disk (any non-retired, non-failed state, including 'merged') still holds the branch. Race arbiter
+-- for the provenance-split collision policy (Spec-010 §Resolved Questions).
+CREATE UNIQUE INDEX idx_worktrees_active_branch ON worktrees(repo_mount_id, branch_name)
+  WHERE state NOT IN ('retired', 'failed');
 
--- Owner: Plan-010
+-- Owner: Plan-010 (Tier-6 audit: TTL + cleanup bookkeeping — D-010-5)
 CREATE TABLE ephemeral_clones (
   id              TEXT PRIMARY KEY,
   workspace_id    TEXT NOT NULL REFERENCES workspaces(id),
-  clone_root      TEXT NOT NULL,              -- filesystem path
-  cleanup_policy  TEXT NOT NULL DEFAULT 'on_run_complete',
+  clone_root      TEXT NOT NULL,              -- filesystem path (under the daemon execution-roots dir, D-010-6)
+  branch_name     TEXT NOT NULL,              -- head branch inside the clone (caller-supplied or slug-derived at prepare; the status read exposes it — Spec-010 §Interfaces)
+  cleanup_policy  TEXT NOT NULL DEFAULT 'on_run_complete'
+                  CHECK(cleanup_policy IN ('on_run_complete', 'manual')),
   state           TEXT NOT NULL DEFAULT 'creating'
                   CHECK(state IN ('creating', 'ready', 'retired', 'failed')),
-  created_at      TEXT NOT NULL
+  expires_at      TEXT NOT NULL,              -- TTL deadline (daemon config, default 24h; Spec-009 §Ephemeral Clone Lifecycle)
+  created_at      TEXT NOT NULL,
+  updated_at      TEXT NOT NULL,
+  cleaned_at      TEXT                        -- async disk-cleanup stamp
 );
+
+CREATE INDEX idx_ephemeral_clones_workspace ON ephemeral_clones(workspace_id);
+CREATE INDEX idx_ephemeral_clones_sweep ON ephemeral_clones(state, expires_at);  -- cleanup-tick scan
 
 -- Owner: Plan-010 | Extended by: Plan-011
+-- Polymorphic root carrier (Tier-6 audit, D-010-5): worktree-mode rows reference the worktree,
+-- ephemeral-clone rows the clone, branch-mode rows neither (the main checkout carries no Plan-010 root row).
 CREATE TABLE branch_contexts (
-  id              TEXT PRIMARY KEY,
-  worktree_id     TEXT NOT NULL REFERENCES worktrees(id),
-  base_branch     TEXT NOT NULL,
-  head_branch     TEXT NOT NULL,
-  upstream_ref    TEXT,
-  created_at      TEXT NOT NULL,
-  updated_at      TEXT NOT NULL
+  id                 TEXT PRIMARY KEY,
+  workspace_id       TEXT NOT NULL REFERENCES workspaces(id),
+  worktree_id        TEXT REFERENCES worktrees(id),
+  ephemeral_clone_id TEXT REFERENCES ephemeral_clones(id),
+  base_branch        TEXT NOT NULL,
+  head_branch        TEXT NOT NULL,
+  upstream_ref       TEXT,
+  created_at         TEXT NOT NULL,
+  updated_at         TEXT NOT NULL,
+  CHECK (worktree_id IS NULL OR ephemeral_clone_id IS NULL)
 );
 
-CREATE INDEX idx_branch_contexts_worktree ON branch_contexts(worktree_id);
+CREATE INDEX idx_branch_contexts_workspace ON branch_contexts(workspace_id);
+CREATE UNIQUE INDEX idx_branch_contexts_worktree_workspace ON branch_contexts(worktree_id, workspace_id) WHERE worktree_id IS NOT NULL;  -- one binding row per (workspace, worktree) — D-010-15 upsert; the worktree-keyed BranchContextRead resolves on the pair
+
+-- Owner: Plan-010 (Tier-6 audit, D-010-16)
+-- Per-run execution binding (Spec-010 §State And Data Implications: execution mode as run setup data):
+-- which workspace/mode/root a repo-bound run executes against. run_id is event-sourced (runs live in
+-- the event log, not a table) — PRIMARY KEY without FK. released_at stamps run-terminal release.
+CREATE TABLE run_execution_contexts (
+  run_id             TEXT PRIMARY KEY,
+  session_id         TEXT NOT NULL,                  -- event-sourced session id (no FK, matching session_id columns elsewhere)
+  workspace_id       TEXT NOT NULL REFERENCES workspaces(id),
+  execution_mode     TEXT NOT NULL
+                     CHECK(execution_mode IN ('read-only', 'branch', 'worktree', 'ephemeral clone')),
+  execution_root     TEXT NOT NULL,
+  worktree_id        TEXT REFERENCES worktrees(id),
+  ephemeral_clone_id TEXT REFERENCES ephemeral_clones(id),
+  branch_context_id  TEXT REFERENCES branch_contexts(id),
+  created_at         TEXT NOT NULL,
+  released_at        TEXT,
+  -- Mode-conditional identity (Tier-6 audit): the mode names exactly which root id is
+  -- present, and every writable mode carries its branch context (Spec-010 §State And
+  -- Data Implications); read-only carries none of the three.
+  CHECK (
+    (execution_mode = 'read-only' AND worktree_id IS NULL AND ephemeral_clone_id IS NULL AND branch_context_id IS NULL)
+    OR (execution_mode = 'branch' AND worktree_id IS NULL AND ephemeral_clone_id IS NULL AND branch_context_id IS NOT NULL)
+    OR (execution_mode = 'worktree' AND worktree_id IS NOT NULL AND ephemeral_clone_id IS NULL AND branch_context_id IS NOT NULL)
+    OR (execution_mode = 'ephemeral clone' AND ephemeral_clone_id IS NOT NULL AND worktree_id IS NULL AND branch_context_id IS NOT NULL)
+  )
+);
+
+CREATE INDEX idx_run_execution_contexts_workspace ON run_execution_contexts(workspace_id);
 
 -- Owner: Plan-011
 CREATE TABLE diff_artifacts (
@@ -429,10 +495,13 @@ CREATE INDEX idx_artifact_payload_refs_manifest ON artifact_payload_refs(manifes
 The 9 canonical approval categories: `tool_execution`, `file_write`, `network_access`, `destructive_git`, `user_input`, `plan_approval`, `mcp_elicitation`, `gate`, `human_phase_contribution`.
 
 ```sql
--- Owner: Plan-012
+-- Owner: Plan-012 (amended by the Tier-6 plan-readiness audit, D-012-2)
 CREATE TABLE approval_requests (
   id                    TEXT PRIMARY KEY,
-  run_id                TEXT NOT NULL,
+  session_id            TEXT NOT NULL,        -- owning session (Spec-012 line 58; Spec-006 §Approval Flow payload; projection key);
+                                              -- no local FK target (sessions are control-plane rows per ADR-004)
+  run_id                TEXT NOT NULL,        -- no REFERENCES: run state is event-sourced (ADR-017; interventions precedent)
+  requested_by          TEXT NOT NULL,        -- requester actor (participant or agent actor id; Spec-012 line 58)
   category              TEXT NOT NULL
                         CHECK(category IN (
                           'tool_execution', 'file_write', 'network_access', 'destructive_git',
@@ -440,47 +509,66 @@ CREATE TABLE approval_requests (
                           'human_phase_contribution'                              -- SA-12 addition; mirrors Spec-012 canonical enum
                         )),
   scope                 TEXT NOT NULL,        -- requested scope descriptor
-  resource_descriptor   TEXT,                 -- target resource details (JSON)
+  resource_descriptor   TEXT NOT NULL DEFAULT '{}', -- target resource details (JSON; Spec-012 line 82 'must include')
   expiry_at             TEXT,                 -- ISO 8601, nullable for no-expiry
   state                 TEXT NOT NULL DEFAULT 'pending'
                         CHECK(state IN ('pending', 'approved', 'rejected', 'expired', 'canceled')),
-  created_at            TEXT NOT NULL
+  created_at            TEXT NOT NULL,
+  updated_at            TEXT NOT NULL         -- last state-transition instant (expiry/cancel carry no resolution row)
 );
 
 CREATE INDEX idx_approval_requests_run ON approval_requests(run_id);
+CREATE INDEX idx_approval_requests_session ON approval_requests(session_id);
 CREATE INDEX idx_approval_requests_state ON approval_requests(state) WHERE state = 'pending';
 
 -- Owner: Plan-012
 CREATE TABLE approval_resolutions (
-  id                  TEXT PRIMARY KEY,
-  request_id          TEXT NOT NULL REFERENCES approval_requests(id),
-  approver_id         TEXT NOT NULL,          -- participant who resolved
-  decision            TEXT NOT NULL
-                      CHECK(decision IN ('approved', 'rejected')),
-  remembered_scope    TEXT,                   -- scope for remembered rules, nullable
-  resolved_at         TEXT NOT NULL,
-  audit_metadata      TEXT NOT NULL DEFAULT '{}' -- JSON: audit trail
+  request_id               TEXT PRIMARY KEY REFERENCES approval_requests(id),
+                                              -- PK = the durable wire id (approvalRequestId): enforces the 1:1 decision row
+                                              -- and keeps every column event-derivable for peer/replay rebuild (I-012-9)
+  approver_id              TEXT NOT NULL,     -- participant recorded as approver (D-012-12: node-owner binding on the
+                                              -- local socket; verified PASETO sub on authenticated surfaces; Spec-012 line 83)
+  decision                 TEXT NOT NULL
+                           CHECK(decision IN ('approved', 'rejected')),
+  effective_scope          TEXT NOT NULL,     -- granted scope; = request scope unless approver narrowed it (Spec-012 line 59);
+                                              -- never broader than requested (domain invariant; Phase-2 enforced)
+  remembered_scope_kind    TEXT               -- 'run' | 'session' when remembering was requested; NULL otherwise (Spec-012 line 104)
+                           CHECK(remembered_scope_kind IS NULL OR remembered_scope_kind IN ('run', 'session')),
+  remembered_scope_pattern TEXT,              -- resource-matching pattern for the remembered rule, nullable
+  resolved_at              TEXT NOT NULL,
+  audit_metadata           TEXT NOT NULL DEFAULT '{}' -- JSON: audit trail
 );
-
-CREATE UNIQUE INDEX idx_approval_resolutions_request ON approval_resolutions(request_id);
 
 -- Owner: Plan-012
 CREATE TABLE remembered_approval_rules (
-  id                    TEXT PRIMARY KEY,
-  participant_id        TEXT NOT NULL,
-  category              TEXT NOT NULL
-                        CHECK(category IN (
-                          'tool_execution', 'file_write', 'network_access', 'destructive_git',
-                          'user_input', 'plan_approval', 'mcp_elicitation', 'gate',
-                          'human_phase_contribution'                              -- SA-12 addition; mirrors Spec-012 canonical enum
-                        )),
-  scope_pattern         TEXT NOT NULL,        -- pattern for matching future requests
-  granted_at            TEXT NOT NULL,
-  revoked_at            TEXT,                 -- nullable; set when rule is invalidated
-  invalidation_trigger  TEXT                  -- what caused revocation (session end, explicit, etc.)
+  id                         TEXT PRIMARY KEY,
+  session_id                 TEXT NOT NULL,   -- rules are session-scoped (Spec-012 line 68); membership-invalidation key
+  participant_id             TEXT NOT NULL,   -- the GRANTOR (approver who opted in); audit + membership-invalidation key, not a match key (D-012-10)
+  node_id                    TEXT NOT NULL,   -- executing node whose trust envelope the grant rides; node-trust-invalidation key (Spec-012 line 77)
+  run_id                     TEXT,            -- originating run; NOT NULL iff scope_kind = 'run' (the Spec-012 line 97 'this run only' binding)
+  created_from_request_id    TEXT NOT NULL REFERENCES approval_resolutions(request_id), -- origin decision (Spec-012 line 92 audit history); the durable wire id carried on approval.remembered, so the FK rebuilds byte-equal from events alone (I-012-9)
+  category                   TEXT NOT NULL
+                             CHECK(category IN (
+                               'tool_execution', 'file_write', 'network_access', 'destructive_git',
+                               'user_input', 'plan_approval', 'mcp_elicitation', 'gate',
+                               'human_phase_contribution'                              -- SA-12 addition; mirrors Spec-012 canonical enum
+                             )),
+  scope_kind                 TEXT NOT NULL
+                             CHECK(scope_kind IN ('run', 'session')),  -- explicit enum, not free-form (Spec-012 line 104)
+  scope_pattern              TEXT,            -- resource-matching pattern within the kind boundary; NULL = category-wide within
+                                              -- (session, node, kind); semantics are category-derived (D-012-10)
+  granted_at                 TEXT NOT NULL,
+  revoked_at                 TEXT,            -- nullable; set when rule is invalidated
+  invalidation_trigger       TEXT
+                             CHECK(invalidation_trigger IS NULL OR invalidation_trigger IN
+                               ('explicit', 'membership_change', 'node_trust_change', 'session_end')),
+  CHECK((revoked_at IS NULL) = (invalidation_trigger IS NULL)),  -- co-presence: a revocation always records its trigger
+  CHECK((scope_kind = 'run') = (run_id IS NOT NULL))             -- run-kind rules bind to their originating run
 );
 
 CREATE INDEX idx_remembered_rules_participant ON remembered_approval_rules(participant_id, category);
+CREATE INDEX idx_remembered_rules_session ON remembered_approval_rules(session_id) WHERE revoked_at IS NULL;
+CREATE INDEX idx_remembered_rules_node ON remembered_approval_rules(node_id) WHERE revoked_at IS NULL;
 ```
 
 ---
@@ -835,32 +923,84 @@ CREATE INDEX idx_human_phase_form_state_phase ON human_phase_form_state(phase_ru
 
 ## Channel and Orchestration Tables (Plan-016)
 
+DDL hardened during the Tier-6 plan-readiness audit (D-016-15, A-016-5, A-016-2, D-016-5). Posture per table: `channels`, `run_links`, and `agents` are events-canonical projections ([ADR-017](../../decisions/017-shared-event-sourcing-scope.md) Option B — rebuilt from `session_events` on replay; never written except by the projector); `session_budgets` is row-canonical daemon configuration (the `queue_items` posture — mutated by wire method, not evented). `channels` holds **user-created channels only**: the bootstrap main channel is projected (`deriveMainChannelId(sessionId)` per CP-002-7) and never has a row or a `channel.created` event.
+
 ```sql
--- Owner: Plan-016
+-- Owner: Plan-016 (events-canonical projection of channel.* events; user channels only — main is synthesized)
 CREATE TABLE channels (
   id              TEXT PRIMARY KEY,
   session_id      TEXT NOT NULL,
   name            TEXT,
   state           TEXT NOT NULL DEFAULT 'active'
                   CHECK(state IN ('active', 'muted', 'archived')),
-  config          TEXT NOT NULL DEFAULT '{}', -- JSON: turn budget, stop policy, etc.
+  config          TEXT NOT NULL DEFAULT '{}', -- JSON: ChannelConfig (packages/contracts/src/orchestration.ts) — {turnPolicy?, roundRobinOrder?, moderation?}
   created_at      TEXT NOT NULL,
   updated_at      TEXT NOT NULL
 );
 
 CREATE INDEX idx_channels_session ON channels(session_id);
 
--- Owner: Plan-016
+-- Owner: Plan-016 (events-canonical projection of the run.queued orchestration-carrier fields — D-016-3)
 CREATE TABLE run_links (
-  parent_run_id   TEXT NOT NULL,
-  child_run_id    TEXT NOT NULL,
-  link_type       TEXT NOT NULL DEFAULT 'spawn', -- 'spawn', 'delegate', 'handoff'
-  created_at      TEXT NOT NULL,
-  PRIMARY KEY (parent_run_id, child_run_id)
+  parent_run_id     TEXT NOT NULL,
+  child_run_id      TEXT NOT NULL,
+  session_id        TEXT NOT NULL,                      -- session provenance (I-016-3): replay + relay rebuild scope by session
+  link_type         TEXT NOT NULL DEFAULT 'spawn'
+                    CHECK(link_type IN ('spawn', 'delegate', 'handoff')),
+  internal_helper   INTEGER NOT NULL DEFAULT 0
+                    CHECK(internal_helper IN (0, 1)),   -- durable home of the internal-helper flag (I-016-10)
+  producing_node_id TEXT NOT NULL,                      -- runtime node that admitted the child run (reachability projection input)
+  created_at        TEXT NOT NULL,
+  PRIMARY KEY (child_run_id),                       -- single-parent: a child run links to exactly one parent (one-shot run.queued linkage D-016-3; depth-1 model)
+  CHECK (parent_run_id <> child_run_id)             -- a run never parents itself
 );
 
-CREATE INDEX idx_run_links_child ON run_links(child_run_id);
+CREATE INDEX idx_run_links_parent ON run_links(parent_run_id); -- parent → children scans (orchestration.childRunLinkRead; active-child accounting)
+CREATE INDEX idx_run_links_session ON run_links(session_id);
+
+-- Owner: Plan-016 (events-canonical projection of agent.* events — A-016-2; state enum is the
+-- canonical 4-state agent lifecycle from domain/agent-channel-and-run-model.md §Lifecycle.
+-- V1 wire mapping: agent.attach -> 'ready' (or 'configured' when the named default node is not
+-- currently attached), agent.detach -> 'disabled', re-attach -> 'ready'; 'archived' is registered
+-- but no V1 wire mutation reaches it. The resulting state is carried ON the agent.* event payloads
+-- so the projection is deterministic from the log alone.)
+CREATE TABLE agents (
+  id              TEXT PRIMARY KEY,
+  session_id      TEXT NOT NULL,
+  name            TEXT NOT NULL,
+  driver_name     TEXT NOT NULL,                        -- provider driver key (Plan-005 capability surface)
+  model_id        TEXT NOT NULL,
+  default_node_id TEXT,                                 -- NULL = any local attached node
+  state           TEXT NOT NULL DEFAULT 'ready'
+                  CHECK(state IN ('configured', 'ready', 'disabled', 'archived')),
+  config          TEXT NOT NULL DEFAULT '{}',           -- JSON: agent-scoped driver config (opaque to the schema)
+  created_at      TEXT NOT NULL,
+  updated_at      TEXT NOT NULL
+);
+
+CREATE INDEX idx_agents_session ON agents(session_id);
+
+-- Owner: Plan-016 (row-canonical daemon configuration — queue_items posture, NOT evented; one row per session, created on first read/update with Spec-016 §Budget Policies / §Scheduler Limits defaults; mutated only via orchestration.budgetUpdate, session owner only — D-016-5)
+CREATE TABLE session_budgets (
+  session_id                    TEXT PRIMARY KEY,
+  cost_limit_cents              INTEGER NOT NULL DEFAULT 1000,  -- Spec-016: $10 per session
+  turn_limit_per_agent          INTEGER NOT NULL DEFAULT 50,    -- Spec-016:107: max consecutive turns per (channel, agent), reset on interleave (D-016-8) — not a per-session total
+  max_executing_channels        INTEGER NOT NULL DEFAULT 5,     -- Spec-016 §Scheduler Limits
+  max_queue_depth_per_channel   INTEGER NOT NULL DEFAULT 25,
+  max_pending_orchestration_runs INTEGER NOT NULL DEFAULT 10,
+  active_child_limit            INTEGER NOT NULL DEFAULT 5,     -- Spec-016:150 daemon default, configurable
+  updated_at                    TEXT NOT NULL,
+  -- Non-negative-integer floors on every limit; wire mirror = orchestration.budgetUpdate Zod .int().nonnegative() (D-016-5)
+  CHECK (typeof(cost_limit_cents) = 'integer' AND cost_limit_cents >= 0),
+  CHECK (typeof(turn_limit_per_agent) = 'integer' AND turn_limit_per_agent >= 0),
+  CHECK (typeof(max_executing_channels) = 'integer' AND max_executing_channels >= 0),
+  CHECK (typeof(max_queue_depth_per_channel) = 'integer' AND max_queue_depth_per_channel >= 0),
+  CHECK (typeof(max_pending_orchestration_runs) = 'integer' AND max_pending_orchestration_runs >= 0),
+  CHECK (typeof(active_child_limit) = 'integer' AND active_child_limit >= 0)
+);
 ```
+
+Per-run token (`tokenLimit`, default 100000) and idle-timeout (`idleTimeoutMs`, default 300000) budgets are per-run `OrchestrationRunConfig` values resolved at admission (request override else session default) and persisted durably as the `run.queued` payload's `effectiveRunConfig` (Plan-016 D-016-5; api-payload `RunStateChangeEvent`) — they have no session-level column, and budget/idle enforcement rebuilds from that event field on replay, never by re-merging session defaults that may have changed mid-run. Budget _accounting_ (tokens/cost consumed) has no table: the daemon's `BudgetAccountant` is an in-memory projection rebuilt on replay from `usage_telemetry` + `run.*` events (D-016-5).
 
 ---
 

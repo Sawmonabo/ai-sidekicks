@@ -88,7 +88,7 @@ Cedar's security model assumes trustworthy policy input. A daemon that evaluates
 
 **V1 (policies compiled into the daemon image).** Policy text is embedded in the daemon binary at build time per the decision in §Decision. The signed artifact at V1 is therefore the daemon container image itself. Policy chain of custody collapses into image supply-chain integrity: the image is signed by the operator's release signing key, and daemons refuse to start if the image they were launched from cannot be verified against the pinned operator public key.
 
-**V1.1 (runtime Cedar WASM evaluation).** Policy text ships as a detached bundle `policy-bundle-v{N}.cedar.tar.gz` with a companion detached signature `policy-bundle-v{N}.cedar.tar.gz.sig`. The daemon loads the bundle into the `@cedarpolicy/cedar-wasm` evaluator at runtime. Policy chain of custody becomes a distinct concern from image signing. This section's bundle-level rules apply from V1.1 forward; the V1 image-signing rules above remain the floor.
+**V1.1 (runtime Cedar WASM evaluation).** Policy text ships as a detached bundle `policy-bundle-v{N}.cedar.tar.gz` with a companion detached signature `policy-bundle-v{N}.cedar.tar.gz.sig`. The daemon loads the bundle into the `@cedar-policy/cedar-wasm` evaluator at runtime. Policy chain of custody becomes a distinct concern from image signing. This section's bundle-level rules apply from V1.1 forward; the V1 image-signing rules above remain the floor.
 
 ### Signing Key Identity
 
@@ -160,7 +160,7 @@ The V1/V1.1 design deliberately leaves the following for V2+:
 
 ### Cedar Version Pin
 
-V1.1 pins `@cedarpolicy/cedar-wasm` at Cedar **v4.5** (current stable as of 2026-04). Policy bundles declare their target Cedar version in the manifest. Daemons reject bundles whose target version does not match the daemon's compiled cedar-wasm version. Cedar major-version upgrades are a coordinated daemon-image upgrade event and require an ADR-012 amendment.
+V1.1 pins `@cedar-policy/cedar-wasm` at Cedar **v4.11** (current stable as of 2026-06; verified against the npm registry at the Tier-6 audit). Policy bundles declare their target Cedar version in the manifest. Daemons reject bundles whose target version does not match the daemon's compiled cedar-wasm version. Cedar major-version upgrades are a coordinated daemon-image upgrade event and require an ADR-012 amendment.
 
 ### Related Operational Docs
 
@@ -195,7 +195,10 @@ The operational procedures for signing a V1.1 policy bundle, diagnosing a daemon
 
 ## Decision Log
 
-| Date       | Event    | Notes         |
-| ---------- | -------- | ------------- |
+| Date | Event | Notes |
+| --- | --- | --- |
 | 2026-04-15 | Proposed | Initial draft |
-| 2026-04-15 | Accepted | ADR accepted  |
+| 2026-04-15 | Accepted | ADR accepted |
+| 2026-06-10 | Clarified | Tier-6 plan-readiness audit (Plan-012 D-012-9): the V1 evaluation engine is `@cedar-policy/cedar-wasm` (`isAuthorized`) running in-process over the build-embedded, signature-verified compiled policy set — the V1→V1.1 delta is the policy SOURCE only (build-embedded static set → runtime-loaded signed bundle); the engine is identical in both phases. A thrown evaluation error maps to deny (fail-closed), never allow. Pins the §Decision ambiguity ("compiled from YAML" named no V1 evaluator); reverses nothing. |
+| 2026-06-10 | Clarified | Tier-6 audit (Plan-012 D-012-9): the V1 verified artifact, as enforced in-process, is the compiled Cedar policy set — Ed25519 detached signature over its canonical bytes under the operator release key, verified against the pinned `OPERATOR_PUBLIC_KEY` on every daemon start BEFORE any PermissionCheck is served; verification failure → the daemon refuses to start (typed log `policy-artifact-signature-invalid`). This realizes §Scope By Phase (V1) in both topologies (containerized AND shell-spawned desktop daemon, where no container image exists); whole-image signing remains the distribution pipeline's supply-chain layer, not an in-process check. |
+| 2026-06-10 | Corrected | Tier-6 audit (Plan-012 D-012-9): package name `@cedarpolicy/cedar-wasm` → `@cedar-policy/cedar-wasm` (the unhyphenated scope does not exist on npm — 404 verified 2026-06-10; dependency-confusion hazard). Version pin re-anchored to Cedar v4.11 (current stable, npm-verified). |
