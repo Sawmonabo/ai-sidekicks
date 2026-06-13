@@ -210,9 +210,10 @@ jobs:
 
       - name: docs-corpus checks (full repo)
         # Single runner composing path-canonical-ripple + plan-manifest-presence
-        # + mermaid-set-coherence + cite-target-existence + label-cite. The runner
-        # partitions argv by extension: `.md` governance docs get the per-file
-        # markdown checks (mermaid + cite), and `packages/**`+`apps/**` TypeScript
+        # + mermaid-set-coherence + cite-target-existence + label-cite +
+        # table-total-coherence. The runner partitions argv by extension: `.md`
+        # governance docs get the per-file markdown checks (mermaid + cite +
+        # table-total), and `packages/**`+`apps/**` TypeScript
         # gets the label-cite floor (governance `Spec-NNN:LL` cites in code
         # comments). path-canonical-ripple + plan-manifest-presence run
         # unconditionally (each does its own whole-repo enumeration — path-ripple

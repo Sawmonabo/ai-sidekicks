@@ -27,7 +27,7 @@ This design spec deliberately does **not** cover:
 
 ### 1.3 Why `substrate_exempt`
 
-[Plan-025](../../plans/025-self-hostable-node-relay.md) Tier 1 Partial Phase 1 (the implementation phase this design governs) is admitted under the readiness-audit runbook's [§Per-Phase Audit Semantics](../../operations/plan-implementation-readiness-audit-runbook.md) `substrate_exempt` predicate: `spec_coverage: []` because Spec-025 governs network behavior (the relay surface) — not package-level primitives. The plan-readiness audit gates G1–G6 do not apply to the implementation PR; [ADR-010](../../decisions/010-paseto-webauthn-mls-auth.md) acceptance criteria apply at code-review time.
+[Plan-025](../../plans/025-self-hostable-node-relay.md) Tier 1 Partial Phase 1 (the implementation phase this design governs) is admitted under the readiness-audit runbook's [§Per-Phase Audit Semantics](../../operations/plan-implementation-readiness-audit-runbook.md) `substrate_exempt` predicate: `spec_coverage: []` because Spec-025 governs network behavior (the relay surface) — not package-level primitives. The plan-readiness audit gates G1–G7 do not apply to the implementation PR; [ADR-010](../../decisions/010-paseto-webauthn-mls-auth.md) acceptance criteria apply at code-review time.
 
 ## 2. Governing contracts
 
