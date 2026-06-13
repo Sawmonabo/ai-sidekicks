@@ -74,8 +74,9 @@ pre-commit:
       # Single dispatch script (tools/docs-corpus/bin/pre-commit-runner.ts) that
       # composes the lib/ checks: path-canonical-ripple (whole-repo sweep),
       # plan-manifest-presence (whole-repo), mermaid-set-coherence (PR #27 round
-      # 2 hard-signal), cite-target-existence (file.md:NNN truncation floor), and
-      # label-cite (governance Spec-NNN:LL cites in packages/+apps/ code comments).
+      # 2 hard-signal), cite-target-existence (file.md:NNN truncation floor),
+      # label-cite (governance Spec-NNN:LL cites in packages/+apps/ code comments),
+      # and table-total-coherence (corpus:total-check column re-sum vs Total row + prose total).
       run: node --experimental-strip-types tools/docs-corpus/bin/pre-commit-runner.ts {staged_files}
 
 commit-msg:

@@ -518,7 +518,7 @@ Payload shape: `{nodeId, bundleId, bundleVersion}` (base). Per-event payload ext
 
 ### Event Type Summary
 
-Total enumerated event types: **130**
+Total enumerated event types: **130** <!-- corpus:total-check column="Count" prose-total="Total enumerated event types" -->
 
 | Category | Count | Types |
 | --- | --- | --- |

@@ -47,7 +47,7 @@ cross_plan_carve_out: ../architecture/cross-plan-dependencies.md#plan-025-substr
 spec_coverage: []
 ```
 
-Plan-readiness audit gates G1–G6 do not apply. ADR-010 acceptance criteria apply at code-review time:
+Plan-readiness audit gates G1–G7 do not apply. ADR-010 acceptance criteria apply at code-review time:
 
 - **In-house lib** — `packages/crypto-paseto/` workspace package; no upstream PASETO library consumed
 - **Dual-primitive coverage** — v4.public + v4.local both shipped
@@ -2102,7 +2102,7 @@ Dependencies use `@noble/curves@^2`, `@noble/ciphers@^2`, `@noble/hashes@^2` (Pa
 
 ## Governance
 
-- Carve-out: Plan-025 Tier 1 Partial Phase 1, `audit_status: substrate_exempt`. Plan-readiness audit gates G1–G6 do not apply; ADR-010 ACs apply at code-review time. Carve-out governance landed in PR #86.
+- Carve-out: Plan-025 Tier 1 Partial Phase 1, `audit_status: substrate_exempt`. Plan-readiness audit gates G1–G7 do not apply; ADR-010 ACs apply at code-review time. Carve-out governance landed in PR #86.
 - Design spec: `docs/superpowers/specs/2026-05-20-crypto-paseto-substrate-design.md`.
 - Implementation plan: `docs/superpowers/plans/2026-05-20-crypto-paseto-substrate.md`.
 

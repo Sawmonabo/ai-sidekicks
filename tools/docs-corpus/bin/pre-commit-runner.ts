@@ -23,6 +23,13 @@
 // (`Spec-NNN:LL`) in comments get the SAME deterministic floor as markdown
 // `file.md:NNN` cites — closing the gap where a spec amendment silently
 // invalidated code-comment line cites (PR #139). See `../lib/label-cite.ts`.
+//
+// table-total-coherence runs against staged `.md` files: a breakdown table
+// marked `<!-- corpus:total-check column="..." -->` has that column re-summed
+// and reconciled against the in-table **Total** row and any declared prose
+// total — failing the census-drift class from the PR #152 retrospective (a
+// summary asserting a count while its own column summed to a different one).
+// Opt-in by marker, within-document only. See `../lib/table-total-coherence.ts`.
 
 import { realpathSync, statSync } from "node:fs";
 import { resolve } from "node:path";
@@ -47,6 +54,10 @@ import {
   checkPlanManifestPresence,
   formatPlanManifestViolations,
 } from "../lib/plan-manifest-presence.ts";
+import {
+  checkTableTotalCoherence,
+  formatTableTotalViolations,
+} from "../lib/table-total-coherence.ts";
 
 function isMdFile(p: string): boolean {
   try {
@@ -120,6 +131,18 @@ export function runChecks(args: string[]): RunChecksResult {
     const mermaidHits = checkMermaidSetCoherence(stagedMd);
     if (mermaidHits.length > 0) {
       messages.push(formatMermaidViolations(mermaidHits));
+      exitCode = 1;
+    }
+  }
+
+  // Arithmetic guard for opt-in `<!-- corpus:total-check ... -->` breakdown
+  // tables: re-sum the marked column and reconcile it against the in-table
+  // **Total** row and any declared prose total. Closes the F-4 gap from the
+  // PR #152 retrospective (a census summary that drifted from its own column).
+  if (stagedMd.length > 0) {
+    const totalHits = checkTableTotalCoherence(stagedMd);
+    if (totalHits.length > 0) {
+      messages.push(formatTableTotalViolations(totalHits));
       exitCode = 1;
     }
   }

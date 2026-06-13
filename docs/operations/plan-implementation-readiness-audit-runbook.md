@@ -130,7 +130,7 @@ When auditing Tier-N (N ≥ 2) surfaces a finding requiring an amendment to a pl
 
 ## Validation
 
-The audit has three validation surfaces: **Tier 1 pilot acceptance gate** (one-time, validates the methodology itself), **per-tier coverage gates G1-G6** (every tier, mechanical, before swap), and **final synthesis verification** (after Tier 9, validates the full corpus).
+The audit has three validation surfaces: **Tier 1 pilot acceptance gate** (one-time, validates the methodology itself), **per-tier coverage gates G1-G7** (every tier, mechanical, before swap), and **final synthesis verification** (after Tier 9, validates the full corpus).
 
 ### Tier 1 Pilot — Two-Part Acceptance Gate
 
@@ -171,9 +171,9 @@ Run the audit on Tier 1 at current `develop` HEAD. Measure each metric; record a
 - Multiple metrics out of band: pause; revise §Subagent Prompt Template and/or §Main-Agent Dep-Trace Dimensions before Tier 2 starts; re-run Tier 1 calibration on the pilot tier.
 - Part A regression fails: methodology is broken; do not proceed past Tier 1 until reproduced.
 
-### Per-Tier Coverage Gates (G1-G6)
+### Per-Tier Coverage Gates (G1-G7)
 
-All six gates pass → swap commits. Any fail → block, surface to user.
+All seven gates pass → swap commits. Any fail → block, surface to user.
 
 | Gate | Check |
 | --- | --- |
@@ -183,6 +183,7 @@ All six gates pass → swap commits. Any fail → block, surface to user.
 | G4 | No fabricated specs (every Tasks Step traces to a Spec-NNN AC or invariant) |
 | G5 | `rg "Plan-\d+ PR #\d+" docs/` returns 0 AND `rg "PR #\d+" docs/plans/` returns 0 (catches both qualified `Plan-NNN PR #N` and bare `PR #N` regressions); `pr_preparations` table name preserved |
 | G6 | Tier-(K-1) commit on develop |
+| G7 | Table-total arithmetic clean: running the docs-corpus runner over the tier-changed governance docs (`node --experimental-strip-types tools/docs-corpus/bin/pre-commit-runner.ts <docs>`) exits 0 — every `corpus:total-check`-marked breakdown table reconciles with its own column sum, in-table **Total** row, and declared prose totals (the lint at `tools/docs-corpus/lib/table-total-coherence.ts`). This mechanizes only the within-document arithmetic slice; the cross-document agreement and prose-restatement reciprocity are judgment work recorded per §Cross-Document Design-Fact Reciprocity, not gated here. |
 
 ### Final Synthesis Verification (after Tier 9 ships)
 
@@ -275,7 +276,7 @@ Escalate to user direction when any of the following triggers fire:
 - **G4 fails post-amendment.** A `#### Tasks` Step traces to no Spec-NNN AC or invariant — subagent fabricated. Surface in REVIEW.md; default response is to file a finding for source amendment instead of authoring the fabricated Task.
 - **Subagent disagrees with main agent.** Per-Phase completeness subagent flags a finding the main-agent dep trace did not catch (or vice versa). Both findings go into REVIEW.md; the user decides which to keep.
 - **Cross-tier amendment surfaces.** Tier-N audit finds a Tier-K (K < N) plan needs amendment. Surface in current tier's REVIEW.md; user decides (a) amend Tier-K alongside Tier-N, (b) escalate to backlog, (c) reject.
-- **Multiple tiers fail any G-gate (G2-G6).** Methodology issue, not a per-tier finding. Pause the audit; reconcile dimensions before continuing.
+- **Multiple tiers fail any G-gate (G2-G7).** Methodology issue, not a per-tier finding. Pause the audit; reconcile dimensions before continuing.
 - **User rejects ≥3 tier swaps.** Methodology disagreement at scale. Stop; reconcile with user before any further tiers.
 
 For all escalation triggers: the audit pauses at the user-review checkpoint (per-tier step 11). Do not proceed past that checkpoint without user direction.
@@ -503,6 +504,35 @@ The main agent walks the 8 dep-ordering dimensions per Phase of each plan in tie
 
 **Output:** `.agents/tmp/research/plan-readiness-audit/plan-NNN/main-agent-dep-trace.md`
 
+## Cross-Document Design-Fact Reciprocity (synthesis-stage)
+
+A **main-agent** check run once per tier at synthesis — **not** a per-Phase subagent dimension. Each completeness dimension (the 11 subagent dimensions) and each dep-trace walk (D1-D8) reads **one plan**; cross-document reciprocity spans the whole tier bundle, so it can only be verified where the synthesis sees every amended document at once.
+
+**Why this exists.** The Tier-6 audit (PR #152) ratified design facts across a 5-plan corpus and shipped ~70+ latent cross-document inconsistencies — every place an amendment changed a fact in one document but left a sibling document asserting the old value (a 429 `Retry-After` policy, turn-limit semantics, the 125→130 event census, approval-payload identity types, replay-field shapes), plus a census summary that asserted 130 while its own category column summed to 125. The external reviewer became the de-facto consistency checker across 21 review rounds. None of the gates above reads the authored deltas **as a consumer**; this dimension closes that gap. It is the citation-sweep discipline (paths / anchors / line-cites) generalized from tokens to **semantic design facts** — the same sweep PR #153 applied successfully to the citation layer of the same corpus, converging in one round.
+
+**Procedure.** For each design fact this tier's amendments **change the value of**:
+
+1. **Build the "where else is this fact asserted?" map.** Grep the corpus for the literal value AND read each candidate site's prose — a design fact is restated in different words across plan + spec + contract + schema + dependency map, and a literal-value grep alone misses prose restatements. Regex catches the literal half; the prose half requires reading each consumer.
+2. **Verify every site agrees in the same tier swap.** A fact changed in one document with a sibling left stale is a `C-K-NN` cross-cutting finding (REVIEW.md §Cross-Cutting Findings This Tier), reconciled before the swap — never deferred to the review loop.
+3. **Re-compute every arithmetic total.** Treat each census / generated-union / registry count as a computed invariant: re-sum its source column and reconcile **every** document asserting that total — in-table **Total** row, prose summary line, and any sibling document's restatement — in one pass. Never assert a total you did not just compute.
+
+The within-document arithmetic slice of step 3 is mechanized by gate G7: mark a summable breakdown table with the `corpus:total-check` convention (documented in `tools/docs-corpus/lib/table-total-coherence.ts`) so the lint re-sums it on every commit. Place the marker **inline, trailing the table's total prose line** — not on its own line — so it adds no line (preserving inbound `:NNN` line-cites) and `prettier --check` leaves it untouched:
+
+```markdown
+Total enumerated event types: **130** <!-- corpus:total-check column="Count" prose-total="Total enumerated event types" -->
+
+| Category  | Count   | Types |
+| --------- | ------- | ----- |
+| ...       | ...     | ...   |
+| **Total** | **130** | ...   |
+```
+
+The cross-document agreement (step 2) and the prose-restatement reciprocity remain judgment work here — no regex catches a fact restated in different words across documents.
+
+**Stop rule.** If a review-fix loop's findings-per-round stays flat across ≥3 rounds, the loop is patching symptoms of an un-swept fact class — stop and run this sweep forward over every changed fact before the next push, rather than fixing one named site at a time. (PR #152 ran the narrow per-finding loop 21 times without reading the flat curve.)
+
+**Output:** cross-cutting findings folded into the tier's REVIEW.md §Cross-Cutting Findings This Tier.
+
 ## REVIEW.md Schema
 
 Every tier swap presents a REVIEW.md to the user. Schema is non-negotiable (the runbook's mechanical verification depends on the headings).
@@ -536,6 +566,7 @@ Every tier swap presents a REVIEW.md to the user. Schema is non-negotiable (the 
 ## Cross-Cutting Findings This Tier
 
 - C-K-01: ...
+- Reciprocity sweep (per §Cross-Document Design-Fact Reciprocity): each design fact this tier changed → the sibling sites verified in agreement; each arithmetic total → re-summed against its source column. Omit if this tier changed no multi-document design fact.
 
 ## Upstream-Tier Amendments Required
 
