@@ -67,7 +67,7 @@ Override the diff source. Default is `git diff HEAD` ∪ `git diff --cached` (wo
    | A staged governance doc (spec / plan / ADR — or a label-less domain / architecture / ops doc) is cited from elsewhere by line — in other `.md` docs **or** in `packages/**`+`apps/**` code comments | **Subagent D** (CAT-06 / CAT-07) | `ripple-check-line-cite` |
    | Any modified `.md` file is referenced by other docs | **Subagent E** (cross-doc coherence) | `ripple-check-cross-doc` |
 
-   CAT-08 (outbound HTTP / file-link breakage) is fully covered by `lychee` at CI; no subagent fires for it.
+   CAT-08 (outbound HTTP / file-link breakage) and CAT-09 (table-total arithmetic drift) fire no subagent — each is fully covered by a deterministic hook: `lychee` at CI for CAT-08, and `table-total-coherence` at pre-commit + CI for CAT-09. (A marked-table row change still dispatches Subagent C for its broader CAT-05 set-quantifier ripple; only the within-document arithmetic is the hook's deterministic slice.)
 
    **Subagent D inbound enumeration — code comments are in scope.** A line-shifting edit to a governance doc silently invalidates inbound line-cites in BOTH other `.md` docs **and** `packages/**`+`apps/**` code comments. Code cites the amended doc two ways: by **label token** (`Spec-003:178`) and by **path / basename** (`docs/domain/session-model.md:61-77`, `api-payload-contracts.md:120`) — the latter is the ONLY form for a label-less domain / architecture / ops doc. The deterministic `label-cite` floor (pre-commit + CI) already re-checks the colon forms it can resolve (`Spec-NNN:LL` and the `docs/`-rooted `docs/…md:LL`), but by design it cannot see the line-word forms, the bare-basename form, or any non-empty line-shift (CAT-07). So when the diff amends a governance doc, build Subagent D's inbound cite list across BOTH surfaces and BOTH cite forms:
    1. **Identify the amended doc by token AND path.** Label token (when the doc has one): `docs/specs/003-…` → `Spec-003`, `docs/plans/007-…` → `Plan-007`, `docs/decisions/018-…` → `ADR-018`. Plus its repo-relative path (`docs/domain/session-model.md`) and basename (`session-model.md`) — a domain / architecture / ops doc has only these.
@@ -178,7 +178,7 @@ Without this step, the telemetry is documentation theater — the gitignored log
 ## What this skill does NOT do
 
 - **It does not perform heading-move-with-rewrite atomically.** The skill audits AFTER the heading change is staged (Subagent B verifies post-edit state); it does not stage the move on the author's behalf.
-- **It does not enforce CAT-08** (outbound HTTP / file-link breakage). `lychee` already covers that at CI; running a subagent for it would duplicate effort.
+- **It does not enforce CAT-08 or CAT-09** (outbound HTTP / file-link breakage; table-total arithmetic drift). A deterministic hook already covers each — `lychee` at CI for CAT-08, `table-total-coherence` at pre-commit + CI for CAT-09 — so dispatching a subagent would duplicate effort.
 - **It does not run from CI.** It is non-deterministic and relies on parallel subagent dispatch. Required-checks must be deterministic; the skill is author-invoked only.
 - **It does not bound diff size.** A 10k-line diff will produce a long invocation; the orchestrator does not refuse. Authors should split large diffs into reviewable PRs before invoking; this is hygiene, not a skill-level guard.
 

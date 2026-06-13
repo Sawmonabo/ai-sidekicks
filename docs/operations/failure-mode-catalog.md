@@ -12,7 +12,7 @@ The catalog is the single source of truth. Hooks, skills, and audit-prompts refe
 
 1. **Authoring an edit.** Read the row whose **Structural Action** matches what your edit physically does. The "What discipline restores correctness" cell names the pre-commit / CI / audit / human action you owe.
 2. **Adding a new failure pattern.** Insert one row indexed on the structural action, never on the domain label. List the domain framings that triggered the discovery as **Surface-Label Aliases**. Wire detection (file path or skill name); a row with no detection-layer wiring is documentation theater.
-3. **Skill `/ripple-check`.** Walks the catalog at runtime, identifies which rows' structural-action signals are present in the staged diff, and dispatches up to five parallel subagents — one per related-row group (A=CAT-01/02, B=CAT-03/04, C=CAT-05 broad, D=CAT-06/07) plus one cross-document coherence subagent (E) that audits the residual not keyed to any single row. CAT-08 is excluded because `lychee` already covers it at CI.
+3. **Skill `/ripple-check`.** Walks the catalog at runtime, identifies which rows' structural-action signals are present in the staged diff, and dispatches up to five parallel subagents — one per related-row group (A=CAT-01/02, B=CAT-03/04, C=CAT-05 broad, D=CAT-06/07) plus one cross-document coherence subagent (E) that audits the residual not keyed to any single row. CAT-08 and CAT-09 fire no subagent — each is fully covered by a deterministic hook (`lychee` at CI for CAT-08; `table-total-coherence` at pre-commit + CI for CAT-09). The within-document arithmetic is the deterministic slice of CAT-05's broader "table row added / removed" set change; that broader set-quantifier ripple still dispatches Subagent C (CAT-05).
 4. **Audit-prompt augmentation.** Plan-readiness audit prompts include the line "walk every catalog row marked Detection-layer=audit and re-derive the claim from primary source".
 
 ## Catalog
@@ -115,6 +115,18 @@ The catalog is the single source of truth. Hooks, skills, and audit-prompts refe
 | Failing Example | None tracked yet. |
 | What Discipline Restores Correctness | lychee fails CI; fix the link. |
 
+### CAT-09 — Table-total arithmetic drift
+
+| Field | Value |
+| --- | --- |
+| Structural Action | A data row is added / removed / re-counted in a table marked `<!-- corpus:total-check column="…" -->`, or a declared total is edited, so the summed column no longer equals the in-table **Total** row or a bound `prose-total` restatement. This marked-table arithmetic is the deterministic slice of CAT-05's broader "table row added / removed" set change. |
+| Surface-Label Aliases | "census drift", "the count doesn't add up", "Total says N but the rows sum to M", "event-count mismatch". |
+| Detection Layer | pre-commit hook + CI |
+| Hook | [`tools/docs-corpus/lib/table-total-coherence.ts`](../../tools/docs-corpus/lib/table-total-coherence.ts) re-sums the marked column against the in-table **Total** row and every bound `prose-total` (both the `<label>: N` colon form and the `N-<label>` prefix form). Composed into [`tools/docs-corpus/bin/pre-commit-runner.ts`](../../tools/docs-corpus/bin/pre-commit-runner.ts) for the corpus lanes; the standalone [`tools/docs-corpus/bin/table-total-check.ts`](../../tools/docs-corpus/bin/table-total-check.ts) runs the same check in isolation for the audit runbook's gate G7. |
+| Off-the-shelf Tool | None — summing a marked GFM column against a declared total is corpus-specific; no general linter does it. |
+| Failing Example | PR #152 (Tier-6 plan-readiness audit), round 19: a prose restatement of the Spec-006 event-type total disagreed with the column it summarized while the in-table **Total** row stayed correct, so a Total-row-only check would have passed and missed it. It surfaced only late in PR #152's 21-round review because nothing re-summed the column against every site asserting the total. |
+| What Discipline Restores Correctness | The hook fails the commit / CI; re-sum the column and reconcile the **Total** row and every `prose-total` in the same change. The same total restated in a SIBLING document (Spec-006 vs Plan-006) is cross-document, beyond this within-document hook — that reciprocity is the audit runbook's synthesis-stage [Cross-Document Design-Fact Reciprocity](./plan-implementation-readiness-audit-runbook.md) dimension. |
+
 ## Known Limitations
 
 - **Slug-algorithm divergence on niche Unicode.** lychee's filter and github-slugger's regex (reproduced verbatim in [`tools/docs-corpus/lib/slug.ts`](../../tools/docs-corpus/lib/slug.ts)) produce identical output for this corpus's headings but diverge on CJK punctuation, math symbols, and emoji-flanking. If a future heading uses such characters, the local TS slug is authoritative for what GitHub renders; lychee's check is the fast-path approximation.
@@ -138,6 +150,7 @@ The four layers are complementary, not redundant. Static hooks remove human-in-t
 
 - PR #24 (BL-101 path canonicalization, four review rounds): catalyst for CAT-01.
 - PR #27 (BL-107 archival + adversarial sweep, two review rounds): catalyst for CAT-03 (round 1) and CAT-05 (round 2). Commits `e7f7807`, `aab5bf9`, `b977365`, `00ec528`, `be206f5`.
+- PR #152 (Tier-6 plan-readiness audit, 21 review rounds): catalyst for CAT-09 — the within-document column-sum slice is mechanized here; the cross-document prose-reciprocity remainder is the audit runbook's synthesis-stage Cross-Document Design-Fact Reciprocity dimension.
 - ADR-023 §Axis 2 — pre-commit hooks discipline; this catalog plugs into the existing lefthook chain.
 - [`docs/architecture/cross-plan-dependencies.md`](../architecture/cross-plan-dependencies.md) — exemplar of the Mermaid + prose-enumeration shape CAT-05 enforces.
 - [`docs/operations/plan-implementation-readiness-audit-runbook.md`](./plan-implementation-readiness-audit-runbook.md) — sibling methodology doc; the Plan-readiness audit's checklist is where the catalog's audit-layer entries plug in.

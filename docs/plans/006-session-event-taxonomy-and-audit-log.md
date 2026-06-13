@@ -78,7 +78,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 ## Event Taxonomy Coverage
 
-Plan-006 owns the **130-event type registry across 19 categories** per [Spec-006 §Event Type Summary](../specs/006-session-event-taxonomy-and-audit-log.md). The 19 categories: <!-- corpus:total-check column="Count" -->
+Plan-006 owns the **130-event type registry across 19 categories** per [Spec-006 §Event Type Summary](../specs/006-session-event-taxonomy-and-audit-log.md). The 19 categories: <!-- corpus:total-check column="Count" prose-total="event type registry" prose-total="event taxonomy registry" -->
 
 | Category | Count | Emitter Plan |
 | --- | --- | --- |

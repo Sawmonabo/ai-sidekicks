@@ -183,7 +183,7 @@ All seven gates pass → swap commits. Any fail → block, surface to user.
 | G4 | No fabricated specs (every Tasks Step traces to a Spec-NNN AC or invariant) |
 | G5 | `rg "Plan-\d+ PR #\d+" docs/` returns 0 AND `rg "PR #\d+" docs/plans/` returns 0 (catches both qualified `Plan-NNN PR #N` and bare `PR #N` regressions); `pr_preparations` table name preserved |
 | G6 | Tier-(K-1) commit on develop |
-| G7 | Table-total arithmetic clean: running the docs-corpus runner over the tier-changed governance docs (`node --experimental-strip-types tools/docs-corpus/bin/pre-commit-runner.ts <docs>`) exits 0 — every `corpus:total-check`-marked breakdown table reconciles with its own column sum, in-table **Total** row, and declared prose totals (the lint at `tools/docs-corpus/lib/table-total-coherence.ts`). This mechanizes only the within-document arithmetic slice; the cross-document agreement and prose-restatement reciprocity are judgment work recorded per §Cross-Document Design-Fact Reciprocity, not gated here. |
+| G7 | Table-total arithmetic clean: running the standalone table-total checker over the tier-changed governance docs (`node --experimental-strip-types tools/docs-corpus/bin/table-total-check.ts <docs>`) exits 0 — every `corpus:total-check`-marked breakdown table reconciles with its own column sum, in-table **Total** row, and declared prose totals (the lint at `tools/docs-corpus/lib/table-total-coherence.ts`). Use the table-total checker, **not** the full `pre-commit-runner.ts`: gates run on pre-swap working copies under `.agents/tmp/.../working/`, where the runner's `cite-target-existence` would resolve `../specs/...`-relative links from that base and mint false missing-target failures, and a gate named for arithmetic must not red-light on an unrelated cite / mermaid / manifest finding. The table-total check is within-document only, so it is correct on the working copies. This mechanizes only the within-document arithmetic slice; the cross-document agreement and prose-restatement reciprocity are judgment work recorded per §Cross-Document Design-Fact Reciprocity, not gated here. |
 
 ### Final Synthesis Verification (after Tier 9 ships)
 
@@ -526,6 +526,8 @@ Total enumerated event types: **130** <!-- corpus:total-check column="Count" pro
 | ...       | ...     | ...   |
 | **Total** | **130** | ...   |
 ```
+
+`prose-total` reconciles two phrasings: the colon form above (`<label>: N`, number after the label) and the prefix form `N-<label>` (number before the label, as Plan-006 restates it: `**130-event type registry across 19 categories**`). Declare one `prose-total` per restatement the table's total is also stated in.
 
 The cross-document agreement (step 2) and the prose-restatement reciprocity remain judgment work here — no regex catches a fact restated in different words across documents.
 

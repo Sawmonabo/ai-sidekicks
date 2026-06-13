@@ -95,6 +95,45 @@ Total enumerated event types: **30**
     );
   });
 
+  // Plan-006's census restates the total in PREFIX form — the number precedes
+  // the label ("**30-event type registry across 3 categories**") — unlike
+  // Spec-006's colon form. The marker binds it via prose-total; the matcher must
+  // read the number to the LEFT of the label (30), never the trailing "3
+  // categories". If a marker omits this binding, a prose line could drift back to
+  // an old value while the column still sums right — the exact gap this guards.
+  const PREFIX_OK = `# Plan
+
+## Event Taxonomy Coverage
+
+Plan-006 owns the **30-event type registry across 3 categories**. The 3 categories: <!-- corpus:total-check column="Count" prose-total="event type registry" -->
+
+| Category | Count | Emitter |
+| --- | --- | --- |
+| a | 7 | ... |
+| b | 9 | ... |
+| c | 14 | ... |
+| **Total** | **30** |  |
+`;
+
+  // Doubles as the left-anchor guard: the prose phrase carries a trailing "3
+  // categories". A matcher that grabbed the 3 instead of the leading 30 would
+  // make this fail (3 != 30); a clean parse proves the number is read to the
+  // LEFT of the label.
+  it("ACCEPTS a prefix-form prose total (number precedes the label)", () => {
+    withFile(PREFIX_OK, (file) => {
+      expect(parseFile(file)).toEqual([]);
+    });
+  });
+
+  it("REJECTS prefix-form prose-total drift (prose says 25, column + Total say 30)", () => {
+    withFile(PREFIX_OK.replace("**30-event type registry", "**25-event type registry"), (file) => {
+      const violations = parseFile(file);
+      expect(violations).toHaveLength(1);
+      expect(violations[0].kind).toBe("prose-total-mismatch");
+      expect(violations[0]).toMatchObject({ sum: 30, asserted: 25 });
+    });
+  });
+
   it("fails LOUD when the marked column matches no header", () => {
     withFile(mutate([['column="Count"', 'column="Kount"']]), (file) => {
       const violations = parseFile(file);
@@ -138,6 +177,26 @@ Total enumerated event types: **30**
 | Events per second | 500 |
 `;
     withFile(CAPACITY, (file) => {
+      expect(parseFile(file)).toEqual([]);
+    });
+  });
+
+  // The failure-mode catalog's CAT-09 row prints the marker as inline code to
+  // describe the trigger (`<!-- corpus:total-check ... -->`). That is
+  // documentation, not a live marker — a real marker is a bare HTML comment,
+  // never backticked. Without the inline-code skip it would bind to the next
+  // unrelated table (or, as here, fire `no-table-after-marker`).
+  it("IGNORES a marker shown as inline code in prose (documentation, not a live marker)", () => {
+    const DOC_WITH_INLINE_EXAMPLE = `# Catalog
+
+A census table marked \`<!-- corpus:total-check column="Count" -->\` is re-summed
+on every commit, so a drifted total fails CI.
+
+| Field | Value |
+| --- | --- |
+| Detail | unrelated two-column table, no Total row |
+`;
+    withFile(DOC_WITH_INLINE_EXAMPLE, (file) => {
       expect(parseFile(file)).toEqual([]);
     });
   });

@@ -22,8 +22,12 @@
 //   <!-- corpus:total-check column="Count" prose-total="Total enumerated event types" -->
 //
 //   - column      (required): header text of the column whose data rows are summed.
-//   - prose-total (optional, repeatable): label of a `<label> ...: **N**` assertion
-//     elsewhere in the SAME document that must also equal the sum.
+//   - prose-total (optional, repeatable): label of a prose total assertion
+//     elsewhere in the SAME document that must also equal the sum. Two phrasings
+//     resolve: the colon form `<label>: N` (number after the label, e.g. "Total
+//     enumerated event types: **130**") and the prefix form `N-<label>` (number
+//     before the label, e.g. "**130-event type registry**"). Bold/code wrappers
+//     are stripped before matching.
 //
 // Within-document only. Cross-document agreement (Spec-006's 130 vs Plan-006's
 // 130) is the audit runbook's synthesis-stage Cross-Document Design-Fact
@@ -145,7 +149,16 @@ export function parseFile(filePath: string): TableTotalViolation[] {
 
   for (let i = 0; i < lines.length; i++) {
     if (fenced[i]) continue;
-    const markerMatch = MARKER_RE.exec(lines[i]);
+    // A marker printed as inline-code documentation — e.g. the failure-mode
+    // catalog's CAT-09 row, which shows `<!-- corpus:total-check ... -->` to
+    // describe the trigger — is NOT a live marker: a real marker is a bare HTML
+    // comment, never backticked. Drop inline-code spans before matching so a
+    // documented example never binds to the next unrelated table. (Fenced
+    // examples are handled by the `fenced` pre-scan above; this is the
+    // single-line analogue. The prose-total scan below deliberately does NOT do
+    // this — its backtick-strip is load-bearing for partially-coded real totals.)
+    const scanLine = lines[i].replace(/`[^`]*`/g, " ");
+    const markerMatch = MARKER_RE.exec(scanLine);
     if (!markerMatch) continue;
 
     const attrs = markerMatch[1] ?? "";
@@ -219,13 +232,27 @@ export function parseFile(filePath: string): TableTotalViolation[] {
       at("total-row-mismatch", { sum, asserted });
     }
 
-    // Every declared prose total must also equal the column sum.
+    // Every declared prose total must also equal the column sum. A prose total
+    // is written one of two ways, so both shapes are recognized (bold/code
+    // wrappers are stripped first, mirroring cell normalization, so `**N**` and
+    // a backticked label never defeat the match):
+    //   - colon form  `<label>: N`  — the number FOLLOWS the label
+    //     (Spec-006 "Total enumerated event types: **130**"); tried first so the
+    //     pre-existing inline-declared-total convention resolves unchanged.
+    //   - prefix form `N-<label>` / `N <label>` — the number PRECEDES the label
+    //     (Plan-006 "**130-event type registry across 19 categories**"). The
+    //     number is left-anchored immediately before the label (only spaces /
+    //     hyphens between) so a trailing "... across 19 categories" cannot supply
+    //     the 19 in place of the 130.
     for (const label of proseTotals) {
-      const proseRe = new RegExp(`${escapeRegExp(label)}\\s*:\\s*\\*{0,2}([\\d,]+)`);
+      const escaped = escapeRegExp(label);
+      const colonForm = new RegExp(`${escaped}\\s*:\\s*([\\d,]+)`);
+      const prefixForm = new RegExp(`([\\d,]+)[\\s-]*${escaped}`);
       let found: number | null = null;
       for (let l = 0; l < lines.length; l++) {
         if (fenced[l]) continue;
-        const m = proseRe.exec(lines[l]);
+        const normalized = lines[l].replace(/\*\*/g, "").replace(/`/g, "");
+        const m = colonForm.exec(normalized) ?? prefixForm.exec(normalized);
         if (m) {
           found = Number.parseInt(m[1].replace(/,/g, ""), 10);
           break;
