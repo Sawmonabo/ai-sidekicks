@@ -37,7 +37,7 @@ This plan covers (a) the shared `ProviderDriver` interface + 7-flag capability s
 - [x] Plan-001 Phase 2 branded-id contracts shipped
 - [x] Plan-024 Phase 2 `PtyHost` contract shipped
 - [x] Plan-007-partial Phase 3 JSON-RPC client transport shipped
-- [x] Plan-readiness audit passed (Tier 4 audit, 2026-05-27)
+- [x] **Plan-readiness audit complete per [`docs/operations/plan-implementation-readiness-audit-runbook.md`](../operations/plan-implementation-readiness-audit-runbook.md)** — Tier 4 audit (NS-16 / PR #124), ratified 2026-05-27; see [Status Promotion Gate §1](../operations/plan-implementation-readiness-audit-runbook.md#status-promotion-gate).
 
 Target paths below assume the canonical implementation topology defined in [Container Architecture](../architecture/container-architecture.md).
 
