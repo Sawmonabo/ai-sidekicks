@@ -574,9 +574,17 @@ The four dual-transport methods (`attach`/`heartbeat`/`capabilityupdate`/`detach
 ### Plan-005 — Provider Driver Contract (Internal Interface)
 
 ```ts
-// Internal driver interface. The daemon-constructed surfaces here — this interface, its
-// param types, the capability flags, and `GetCapabilitiesResult` — are nominal TypeScript
-// (the daemon is the trusted caller). Zod validates ONLY the surfaces that parse UNTRUSTED
+// Internal driver interface. Two kinds of nominal-TypeScript surface ship here. (a) The
+// daemon-CONSTRUCTED param types (`CreateSessionParams` … `ApplyInterventionParams` + the
+// intervention payloads) are genuinely trusted — the daemon constructs them in-process.
+// (b) The driver-CONSTRUCTED returns — the capability flags, `DriverCapabilities`,
+// `GetCapabilitiesResult`, `ProviderSessionHandle`, and `ProviderModel`/`ProviderMode` — are
+// normalized at the Plan-005 Phase-3 driver boundary (the driver, daemon-owned code, parses
+// raw provider output there) and returned to the daemon as already-trusted normalized values,
+// so they ship nominal by design and are not re-parsed at this contract layer. Their persisted
+// free-form fields (`DriverCapabilities.contractVersion`, `ProviderSessionHandle.resumeHandle`)
+// are bounded at the Plan-005 Phase-2 write seam (semver / non-empty + length + NUL), not here.
+// Zod validates ONLY the surfaces that parse UNTRUSTED
 // provider output (the trust boundary): the result envelopes `DriverInterventionResult` and
 // `DriverResumeResult`, and provider-declared `ProviderToolMetadata`.
 // `resumeSession` returns the `DriverResumeResult` discriminated union (defined below)

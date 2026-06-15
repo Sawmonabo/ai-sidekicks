@@ -6,12 +6,42 @@
 // a contract break and requires the spec edit first).
 //
 // Trust-boundary asymmetry — why some surfaces are nominal TS and others are Zod:
-//   1. NOMINAL TypeScript (no runtime validation): the `ProviderDriver` methods,
-//      all param types (`CreateSessionParams` … `ApplyInterventionParams` + the
-//      intervention payloads), and the capability flags (`DriverCapabilityFlag`,
-//      `DriverCapabilities`, `GetCapabilitiesResult`). These are daemon-internal
-//      and daemon-CONSTRUCTED — the caller is the trusted runtime, so there is
-//      nothing untrusted to parse.
+//   1. NOMINAL TypeScript (no runtime validation), of two distinct origins:
+//        (a) daemon-CONSTRUCTED PARAMS — the `ProviderDriver` methods and all
+//            param types (`CreateSessionParams` … `ApplyInterventionParams` + the
+//            intervention payloads). The daemon constructs these in-process and
+//            hands them to the driver; the caller IS the trusted runtime, so
+//            there is genuinely nothing untrusted to parse.
+//        (b) driver-CONSTRUCTED RETURNS — the capability / handle / model / mode
+//            shapes (`DriverCapabilityFlag`, `DriverCapabilities`,
+//            `GetCapabilitiesResult`, `ProviderSessionHandle`, `ProviderModel`,
+//            `ProviderMode`). These are NOT daemon-constructed: `getCapabilities`
+//            returns `GetCapabilitiesResult`/`DriverCapabilities`, `createSession`
+//            returns `ProviderSessionHandle`, `listModels`/`listModes` return
+//            `ProviderModel`/`ProviderMode`. They ship nominal by design (T1.2) —
+//            see the two-boundary model below for why that is sound.
+//        TWO-BOUNDARY MODEL: a driver MAY call a remote/native provider behind
+//      these methods (I-005-1). The trust boundary is at the *driver*, not at
+//      this contract layer. The driver — the Plan-005 Phase 3 implementation,
+//      which is daemon-OWNED code — normalizes raw provider output at ITS
+//      boundary and returns these nominal types to the daemon as already-trusted
+//      normalized values. The contract-definition layer here does not re-parse
+//      them; re-parsing trusted-after-normalization output would be redundant.
+//        PRINCIPLE (what Phase 1 Zod-validates, and what it deliberately does
+//      not): Phase 1 validates HERE only the returns that carry a
+//      contract-level invariant or normalization — `DriverResumeResult`
+//      (I-005-5 structural), `ProviderToolMetadata` (I-005-3 `.default()`
+//      normalization), and `DriverInterventionResult` (ratified wire shape; see
+//      (2)). EVERY OTHER provider-output return is validated at its
+//      write/normalize seam — Plan-005 Phase 2 (T2.x persistence write path) or
+//      Phase 3 (driver normalization) — NOT at this contract-definition layer.
+//      Two concrete persisted fields are deferred-but-TRACKED this way:
+//      `DriverCapabilities.contractVersion` (persisted to
+//      `driver_contract_meta.contract_version`, a semver) and
+//      `ProviderSessionHandle.resumeHandle` (persisted to
+//      `runtime_bindings.resume_handle`) receive their length / format bounds at
+//      the Phase-2 write seam (Plan-005 §Phase 2 provider-output-validation
+//      obligation), NOT at this layer.
 //   2. ZOD-VALIDATED HERE in Phase 1: the driver RESULT envelopes
 //      (`DriverInterventionResultSchema`, `DriverResumeResultSchema`) and the
 //      provider-DECLARED tool metadata (`ProviderToolMetadataSchema`). These
@@ -145,6 +175,12 @@ export interface CloseSessionParams {
   sessionId: SessionId;
 }
 
+// Driver-CONSTRUCTED return (§1(b)) of `createSession` / `resumeSession`. Both
+// fields are opaque provider-owned blobs. `resumeHandle` is persisted to
+// `runtime_bindings.resume_handle` and bounded (non-empty + length + NUL-reject)
+// at the Plan-005 Phase-2 write seam (§Phase 2 provider-output-validation
+// obligation), NOT re-parsed here — Spec-005:47 (drivers persist provider-owned
+// resume handles separately from canonical session/run ids).
 export interface ProviderSessionHandle {
   providerSessionId: string;
   resumeHandle: string;
@@ -165,9 +201,13 @@ export interface ProviderMode {
 // T1.2 — Capability flags (Spec-005:46, :48; verifies I-005-2)
 // --------------------------------------------------------------------------
 //
-// Nominal TypeScript — NO Zod. The capability surface is daemon-internal and
-// daemon-constructed (the driver returns it; the daemon trusts it within the
-// process boundary), so there is no untrusted input to runtime-validate here.
+// Nominal TypeScript — NO Zod. The capability surface is a driver-CONSTRUCTED
+// return (§1(b)): the driver normalizes raw provider output at its own Plan-005
+// Phase-3 boundary and returns this already-trusted shape, so the contract layer
+// does not re-parse it. `contractVersion` carries no contract-level invariant
+// that forces a schema here — it is a provider-output value bounded (semver +
+// length) at the Plan-005 Phase-2 write seam (§Phase 2 provider-output-validation
+// obligation, persisted to `driver_contract_meta.contract_version`), not here.
 //
 // `pause` is intentionally EXCLUDED from the flag union per ADR-011: pause is
 // modeled as an intervention (`InterventionType`), not a static capability, so
