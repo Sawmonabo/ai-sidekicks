@@ -23,6 +23,7 @@ export * from "./jsonrpc-registry.js";
 export * from "./jsonrpc-streaming.js";
 export * from "./memberships.js";
 export * from "./presence.js";
+export * from "./provider-driver.js";
 export * from "./pty-host-protocol.js";
 export * from "./pty-host.js";
 export * from "./runtime-node.js";
