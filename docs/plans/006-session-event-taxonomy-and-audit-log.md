@@ -324,7 +324,7 @@ File: `packages/runtime-daemon/src/events/__tests__/canonicalizer.golden.test.ts
 File: `packages/runtime-daemon/src/events/pii-indirection.ts` (NEW). Provides: `writeEventWithPii(input: RawEventInput, db, encryptor, signingKey): Promise<SignedRow>` as the one-and-only path writing non-null `pii_payload`; branded `PiiPayloadCiphertext` constructible only here; `PiiEncryptor` interface (implementation owned by Plan-022 per CP-006-1). Depends: T2.1, T2.2; `splitPii()` shape from Plan-022 working copy (interface only; runtime injection at composition root). IdempotencyClass: `manual_reconcile_only` per AES-256-GCM random-nonce non-replay-safety (NIST SP 800-38D §8.2).
 
 - **Spec coverage:** Spec-006 line 566 (pii_ciphertext_digest)
-- **Verifies invariant:** I-006-2-01 (encrypt→digest→embed→canonicalize→sign order is load-bearing — the per-stage phantom brands this codec emits), I-006-2-02 (sole write path for pii_payload), I-006-3-01 (layer 2 — pii-indirection.ts refuses audit_integrity / event_maintenance)
+- **Verifies invariant:** I-006-2-01 (encrypt→digest→embed→canonicalize→sign order is load-bearing — the per-stage phantom brands this codec emits), I-006-2-02 (sole write path for pii_payload), I-006-2-07 (`RawEventInput` discriminated union types `pii_payload: never` for `audit_integrity` / `event_maintenance` — the compile-time counterpart to I-006-3-01's runtime refusal), I-006-3-01 (layer 2 — pii-indirection.ts refuses audit_integrity / event_maintenance)
 
 ##### T2.5 — Post-shred signature-verification property test
 
@@ -355,7 +355,7 @@ File: `packages/runtime-daemon/src/events/signing-key-source.ts` (NEW). Provides
 
 File: `packages/runtime-daemon/src/events/event-log-service.ts` (NEW). Provides: `EventLogService.append(envelope, options): Promise<{id, sequence, rowHash}>` as the sole append path under per-session mutex; `registerShredCallback(handler: ShredCallback): void` invoked by Plan-022's Path 1 orchestrator after `participant_keys` DELETE commits; refuses any `append()` whose `payload` carries a PII-tagged field without `pii_ciphertext_digest` (surfaces `daemon.pii_split_bypass` typed error). Depends: T2.1, T2.2, T2.4, T2.7; Plan-001 forward-declared columns; Plan-001 `I-001-2` (sequence as canonical replay key). IdempotencyClass: `manual_reconcile_only` per chain-append non-retry-safety.
 
-- **Spec coverage:** Spec-006 line 552 (chained to its predecessor), Spec-006 line 721 (sequence numbers), Spec-006 line 566 (pii_ciphertext_digest), Spec-006 line 492 (event.shredded), Spec-006 line 470 (daemon.pii_split_bypass)
+- **Spec coverage:** Spec-006 line 552 (chained to its predecessor), Spec-006 line 721 (sequence numbers), Spec-006 line 566 (pii_ciphertext_digest), Spec-006 line 492 (event.shredded), Spec-006 line 470 (daemon.pii_split_bypass typed error — characterized at the daemon.pii_split_ambiguous row as an append-without-pii_ciphertext_digest hard rejection, distinct from that taxonomy event)
 - **Verifies invariant:** none (append-path service; the write-path and PII-split invariants name Phase 2 pii-indirection.ts, not this task)
 
 ##### T3.2 — Compactor with three triggers + anchor-before-compaction protocol + audit-stub format + `retention_class` discriminator (Design B — typed column)
