@@ -369,15 +369,18 @@ export interface GetCapabilitiesResult {
 // api-payload-contracts.md § Shared Enums line 149 verbatim.
 export type InterventionType = "steer" | "interrupt" | "cancel";
 
-// Nominal TS — daemon-constructed param. `expectedRunVersion` is the MANDATORY
-// fail-closed comparand (Plan-004 D-004-2): a non-optional `number`, so an
-// absent value is a type error, never a silently-applied intervention.
-export interface ApplyInterventionParams {
-  type: InterventionType;
-  targetRunId: RunId;
-  expectedRunVersion: number;
-  payload: SteerPayload | InterruptPayload | CancelPayload;
-}
+// Nominal TS — daemon-constructed param. Discriminated union over `type`: each
+// intervention type is structurally coupled to its payload, so `type: "steer"`
+// REQUIRES a `SteerPayload` and a mismatched/empty payload is unrepresentable —
+// not a silently-accepted no-op. Spec-005:44 routes interventions by type, so the
+// type→payload coupling is a contract invariant, not a convenience. Every arm
+// repeats `expectedRunVersion`, the MANDATORY fail-closed comparand (Plan-004
+// D-004-2): a non-optional `number`, so an absent value is a type error, never a
+// silently-applied intervention.
+export type ApplyInterventionParams =
+  | { type: "steer"; targetRunId: RunId; expectedRunVersion: number; payload: SteerPayload }
+  | { type: "interrupt"; targetRunId: RunId; expectedRunVersion: number; payload: InterruptPayload }
+  | { type: "cancel"; targetRunId: RunId; expectedRunVersion: number; payload: CancelPayload };
 
 export interface SteerPayload {
   content: string;

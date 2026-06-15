@@ -238,6 +238,19 @@ describe("ProviderDriver contract — AC1 (Spec-005:155): a mock implements all 
     expect(result.status).toBe("applied");
   });
 
+  it("rejects a steer intervention with an empty payload (compile-time, Spec-005:44)", () => {
+    // @ts-expect-error — `steer` is coupled to SteerPayload; `content` is
+    // mandatory, so the empty `payload: {}` below makes this assignment a type
+    // error (an empty payload is structurally unrepresentable for `steer`).
+    const malformed: ApplyInterventionParams = {
+      type: "steer",
+      targetRunId: RUN_ID,
+      expectedRunVersion: 1,
+      payload: {},
+    };
+    void malformed;
+  });
+
   it("consumes session-domain branded ids without redefining them (no session-domain change)", () => {
     // The contract imports `SessionId` / `ChannelId` from session.ts. Binding
     // the same brands here proves the driver reuses the session domain rather

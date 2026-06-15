@@ -634,12 +634,14 @@ interface InterruptRunParams {
   reason?: string;
 }
 
-interface ApplyInterventionParams {
-  type: InterventionType;
-  targetRunId: RunId;
-  expectedRunVersion: number; // MANDATORY fail-closed comparand (Plan-004 D-004-2) — absent value rejected, never applied; same field set as the InterventionRequestPayload union below
-  payload: SteerPayload | InterruptPayload | CancelPayload;
-}
+// Discriminated union over `type` — each intervention type coupled to its payload
+// shape. `expectedRunVersion` is the MANDATORY fail-closed comparand (Plan-004
+// D-004-2) repeated on every arm — absent value rejected, never applied. Same
+// field set as the InterventionRequestPayload union below.
+type ApplyInterventionParams =
+  | { type: "steer"; targetRunId: RunId; expectedRunVersion: number; payload: SteerPayload }
+  | { type: "interrupt"; targetRunId: RunId; expectedRunVersion: number; payload: InterruptPayload }
+  | { type: "cancel"; targetRunId: RunId; expectedRunVersion: number; payload: CancelPayload };
 
 interface SteerPayload {
   content: string;
