@@ -502,7 +502,46 @@ Phase 1 ships `DriverCapabilityFlag` and `NormalizedProviderToolMetadata` in `pr
 
 ```yaml
 manifest_schema_version: 1
-shipped: []
+shipped:
+  - phase: 1
+    task: [T1.1, T1.2, T1.3, T1.4, T1.5, T1.6]
+    pr: 157
+    sha: a81821e
+    merged_at: 2026-06-15
+    files:
+      - docs/architecture/contracts/api-payload-contracts.md
+      - docs/architecture/cross-plan-dependencies.md
+      - docs/domain/queue-and-intervention-model.md
+      - docs/plans/004-queue-steer-pause-resume.md
+      - docs/plans/005-provider-driver-contract-and-capabilities.md
+      - docs/plans/010-worktree-lifecycle-and-execution-modes.md
+      - docs/plans/012-approvals-permissions-and-trust-boundaries.md
+      - docs/plans/016-multi-agent-channels-and-orchestration.md
+      - packages/contracts/src/__tests__/provider-driver.test.ts
+      - packages/contracts/src/index.ts
+      - packages/contracts/src/provider-driver.ts
+      - packages/contracts/src/runtime-node.ts
+    verifies_invariant: [I-005-3]
+    spec_coverage:
+      [
+        Spec-005:41,
+        Spec-005:43,
+        Spec-005:44,
+        Spec-005:46,
+        Spec-005:48,
+        Spec-005:49,
+        Spec-005:60,
+        Spec-005:67,
+        Spec-005:116-118,
+        Spec-005:128,
+        Spec-005:155,
+        Spec-005:156,
+        Spec-005:157,
+        Spec-015:108,
+        Spec-015:120,
+      ]
+    notes: |
+      Phase-1 tasks T1.1-T1.6 shipped as one contracts-only PR (no daemon/SDK; Phases 2-4 follow). AC1+AC2 verified; AC3 (recovery-needed, Spec-005:157) deferred to Phase 3/4 per the Plan-005 Acceptance Mapping. The two no-contract-invariant provider-output fields (DriverCapabilities.contractVersion, ProviderSessionHandle.resumeHandle) are bounded at the Phase-2 write seam (T2.1), not the contract layer. verifies_invariant records only the invariant canonically verified in Phase 1 — I-005-3 (omitted idempotency_class -> manual_reconcile_only at ingress, exercised by the T1.5 contract test). The Phase-1 surface also ships type/schema-level contributions toward I-005-1/2/4/5 (the @ts-expect-error enum-exhaustiveness and discriminated-union narrowing proofs), but their canonical Invariants Test lands later (I-005-1 cross-phase integration; I-005-2 + I-005-4 at T4.6; I-005-5 at T4.7), so each is recorded against its own phase.
 ```
 
 ### Notes
