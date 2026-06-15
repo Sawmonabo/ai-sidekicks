@@ -521,7 +521,7 @@ shipped:
       - packages/contracts/src/index.ts
       - packages/contracts/src/provider-driver.ts
       - packages/contracts/src/runtime-node.ts
-    verifies_invariant: [I-005-1, I-005-2, I-005-3, I-005-4, I-005-5]
+    verifies_invariant: [I-005-3]
     spec_coverage:
       [
         Spec-005:41,
@@ -541,7 +541,7 @@ shipped:
         Spec-015:120,
       ]
     notes: |
-      Phase-1 tasks T1.1-T1.6 shipped as one contracts-only PR (no daemon/SDK; Phases 2-4 follow). AC1+AC2 verified; AC3 (recovery-needed, Spec-005:157) deferred to Phase 3/4 per the Plan-005 Acceptance Mapping. The two no-contract-invariant provider-output fields (DriverCapabilities.contractVersion, ProviderSessionHandle.resumeHandle) are bounded at the Phase-2 write seam (T2.1), not the contract layer.
+      Phase-1 tasks T1.1-T1.6 shipped as one contracts-only PR (no daemon/SDK; Phases 2-4 follow). AC1+AC2 verified; AC3 (recovery-needed, Spec-005:157) deferred to Phase 3/4 per the Plan-005 Acceptance Mapping. The two no-contract-invariant provider-output fields (DriverCapabilities.contractVersion, ProviderSessionHandle.resumeHandle) are bounded at the Phase-2 write seam (T2.1), not the contract layer. verifies_invariant records only the invariant canonically verified in Phase 1 — I-005-3 (omitted idempotency_class -> manual_reconcile_only at ingress, exercised by the T1.5 contract test). The Phase-1 surface also ships type/schema-level contributions toward I-005-1/2/4/5 (the @ts-expect-error enum-exhaustiveness and discriminated-union narrowing proofs), but their canonical Invariants Test lands later (I-005-1 cross-phase integration; I-005-2 + I-005-4 at T4.6; I-005-5 at T4.7), so each is recorded against its own phase.
 ```
 
 ### Notes
