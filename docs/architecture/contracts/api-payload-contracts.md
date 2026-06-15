@@ -584,6 +584,13 @@ The four dual-transport methods (`attach`/`heartbeat`/`capabilityupdate`/`detach
 // `getCapabilities` returns the `GetCapabilitiesResult` wrapper (defined below) so the
 // per-tool `ProviderToolMetadata[]` rides alongside the flag matrix in a single
 // round-trip per Plan-005 Phase 4 ratified design.
+// Within the Zod-validated surfaces, `ProviderToolMetadata` STRIPS unknown keys (Spec-005:55
+// forward-compat: "Unknown capability fields are ignored until the driver contract version
+// explicitly supports them"), while the result envelopes reject unknown keys (`.strict()`);
+// and all five untrusted provider-output free-form strings (`ProviderToolMetadata.name`/`.description`,
+// `DriverInterventionResult.fallbackAction`, `DriverResumeResult.bindingId`/`.providerFailureDetail`)
+// are runtime-bounded (length + non-whitespace + NUL-rejection) via the package's `wireFreeFormString`
+// helper — Zod constraints not expressible in these TS interface shapes.
 interface ProviderDriver {
   createSession(params: CreateSessionParams): Promise<ProviderSessionHandle>;
   resumeSession(params: ResumeSessionParams): Promise<DriverResumeResult>;

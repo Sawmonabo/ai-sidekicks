@@ -19,6 +19,17 @@
 //      runtime validation. `ProviderToolMetadataSchema` additionally carries the
 //      parse-time `idempotency_class` → `manual_reconcile_only` normalization
 //      that only a schema's `.default()` provides (I-005-3).
+//        Within these Zod-validated surfaces there is a further asymmetry: the
+//      result envelopes are `.strict()` (fixed-protocol response shapes — an
+//      unknown key signals a protocol violation, so reject), while
+//      `ProviderToolMetadataSchema` STRIPS unknown keys (extensible declaration
+//      surface — Spec-005:55 forward-compat: "Unknown capability fields are
+//      ignored until the driver contract version explicitly supports them"). And
+//      every untrusted free-form string parsed here is length / non-whitespace /
+//      NUL-bounded via the package's `wireFreeFormString` helper (session.ts),
+//      not a bare `z.string()` — these defense-in-depth bounds prevent
+//      persistence / log-injection hazards on values that reach `driver_tools`,
+//      `runtime_bindings`, and `runtime_node.capability_*` events.
 //   3. The CLIENT-FACING SDK-SEAM Zod schemas (`InterruptRunParamsSchema`,
 //      `RunIdSchema`, …) validate client→daemon WIRE input — a DIFFERENT
 //      boundary — and ship in Phase 4 (T4.2). Do not conflate them with (2):
@@ -34,13 +45,13 @@
 //
 // Refs: Spec-005:41 (normalized contract), Spec-005:43 (10-op surface),
 // Spec-005:44 (intervention surface), Spec-005:49 (tool-metadata ingress),
-// Spec-005:60 (resume-failure surfacing), Spec-005:67 (Required driver
-// operations anchor), Plan-005 Phase 1, ADR-011 (capability flags),
-// CP-005-6 (RunId co-location).
+// Spec-005:55 (forward-compat unknown-field strip), Spec-005:60 (resume-failure
+// surfacing), Spec-005:67 (Required driver operations anchor), Plan-005 Phase 1,
+// ADR-011 (capability flags), CP-005-6 (RunId co-location).
 
 import { z } from "zod";
 
-import type { SessionId, ChannelId } from "./session.js";
+import { wireFreeFormString, type SessionId, type ChannelId } from "./session.js";
 
 // --------------------------------------------------------------------------
 // Branded ID
@@ -191,6 +202,35 @@ export interface DriverCapabilities {
 // Spec-015 §Idempotency Protocol).
 export type IdempotencyClass = "idempotent" | "compensable" | "manual_reconcile_only";
 
+// Per-field length caps — defense-in-depth bounds on the UNTRUSTED free-form
+// strings the three Zod schemas below parse at the provider→daemon trust
+// boundary. The HTTP/JSON-RPC framework layer (Plan-004/005) is authoritative on
+// body size; these caps are a SECOND line of defense (mirrors error.ts:130). All
+// five are consumed via `wireFreeFormString` (rejects empty / whitespace-only /
+// NUL / over-max) — bare `z.string()` would let unbounded provider output reach
+// `driver_tools`, `runtime_bindings`, and `runtime_node.capability_*` events.
+//
+//   • DRIVER_TOOL_NAME_MAX_LEN (128) — tool `name` (a name/label tier token).
+//   • DRIVER_TOOL_DESCRIPTION_MAX_LEN (16384) — tool `description`; prose/message
+//     tier. MCP-style descriptions can embed parameter-schema docs that exceed
+//     8 KiB, and the helper REJECTS on overlength (no truncation), so this is
+//     sized generously to avoid dropping a legitimate verbose description while
+//     still bounding pathological sizes.
+//   • DRIVER_FALLBACK_ACTION_MAX_LEN (128) — intervention `fallbackAction`; a
+//     short hint token (e.g. `queue_and_interrupt`).
+//   • DRIVER_BINDING_ID_MAX_LEN (256) — resume `bindingId`; an opaque provider
+//     session-binding handle persisted into `runtime_bindings`.
+//   • DRIVER_FAILURE_DETAIL_MAX_LEN (32768) — resume `providerFailureDetail`;
+//     prose/message tier failure detail. Sized generously (32 KiB) because a
+//     legitimate failure detail may wrap an upstream stack trace / nested-cause
+//     chain, and a reject here would LOSE the signal Spec-005:60 mandates; a
+//     value still exceeding this is pathological (see the field comment below).
+export const DRIVER_TOOL_NAME_MAX_LEN = 128;
+export const DRIVER_TOOL_DESCRIPTION_MAX_LEN = 16384;
+export const DRIVER_FALLBACK_ACTION_MAX_LEN = 128;
+export const DRIVER_BINDING_ID_MAX_LEN = 256;
+export const DRIVER_FAILURE_DETAIL_MAX_LEN = 32768;
+
 // Declared BEFORE `ProviderToolMetadataSchema` because `const` schemas do not
 // hoist (unlike the `type` declarations above) and the tool-metadata schema
 // references this one.
@@ -244,16 +284,29 @@ export interface NormalizedProviderToolMetadata {
 // interfaces are HAND-WRITTEN (above) rather than `z.input`/`z.output`-derived —
 // derivation would be circular against this required annotation, and the
 // package has zero such usage.
+//
+// Unknown keys are STRIPPED (dropped from the normalized output), NOT rejected:
+// the `z.object()` default already strips, which is exactly Spec-005:55's
+// "Unknown capability fields are ignored until the driver contract version
+// explicitly supports them" — the extensible tool-metadata DECLARATION surface
+// must stay forward-compatible. This is a DELIBERATE contrast to the
+// result-envelope schemas (`DriverInterventionResultSchema`,
+// `DriverResumeResultSchema`) which KEEP `.strict()`: those are fixed-protocol
+// response shapes where an unknown key signals a protocol violation. (No chained
+// `.strip()` — the `z.object()` default already strips; Zod 4 still declares the
+// method but marks an explicit `.strip()` redundant.) The two free-form strings
+// are `wireFreeFormString`-bounded.
 export const ProviderToolMetadataSchema: z.ZodType<
   NormalizedProviderToolMetadata,
   ProviderToolMetadata
-> = z
-  .object({
-    name: z.string(),
-    idempotency_class: IdempotencyClassSchema.optional().default("manual_reconcile_only"),
-    description: z.string().optional(),
-  })
-  .strict();
+> = z.object({
+  name: wireFreeFormString(DRIVER_TOOL_NAME_MAX_LEN, "ProviderToolMetadata.name"),
+  idempotency_class: IdempotencyClassSchema.optional().default("manual_reconcile_only"),
+  description: wireFreeFormString(
+    DRIVER_TOOL_DESCRIPTION_MAX_LEN,
+    "ProviderToolMetadata.description",
+  ).optional(),
+});
 
 // Return type of `ProviderDriver.getCapabilities()` — nominal TS. Spec-005:116-118
 // semantically separates whole-driver capability flags from per-tool metadata;
@@ -320,7 +373,10 @@ export const DriverInterventionResultSchema: z.ZodType<
 > = z
   .object({
     status: z.enum(["applied", "degraded"]),
-    fallbackAction: z.string().optional(),
+    fallbackAction: wireFreeFormString(
+      DRIVER_FALLBACK_ACTION_MAX_LEN,
+      "DriverInterventionResult.fallbackAction",
+    ).optional(),
   })
   .strict();
 
@@ -348,12 +404,40 @@ export type DriverResumeResult =
     };
 export const DriverResumeResultSchema: z.ZodType<DriverResumeResult, DriverResumeResult> =
   z.discriminatedUnion("status", [
-    z.object({ status: z.literal("resumed"), bindingId: z.string() }).strict(),
+    z
+      .object({
+        status: z.literal("resumed"),
+        // `bindingId` is a machine-generated OPAQUE provider session-binding
+        // handle (Spec-005:47, :88) — the same category as the `invites.ts`
+        // PASETO token (`z.string().min(1).max(INVITE_TOKEN_MAX_LEN)`), whose
+        // comment (invites.ts:145-150) deliberately OMITS the `/\S/` + NUL guards
+        // because those target HUMAN-entered fields. We make a different choice
+        // here for a DIFFERENT reason — not "stronger is better": this handle is
+        // PERSISTED into `runtime_bindings` and emitted on `runtime_node.*`
+        // events, so `wireFreeFormString`'s `/\S/` + NUL guards are
+        // defense-in-depth against storage / log-injection hazards on a stored
+        // untrusted value, a separate rationale from invites' hot-path token
+        // validation (not a claim invites under-hardened). The cap
+        // (`DRIVER_BINDING_ID_MAX_LEN = 256`) is sized for a short session-binding
+        // handle, distinct from invites' 4096-char token blob.
+        bindingId: wireFreeFormString(DRIVER_BINDING_ID_MAX_LEN, "DriverResumeResult.bindingId"),
+      })
+      .strict(),
     z
       .object({
         status: z.literal("failed"),
         recoveryCondition: z.literal("recovery-needed"),
-        providerFailureDetail: z.string(),
+        // The cap is generous (`DRIVER_FAILURE_DETAIL_MAX_LEN = 32768`) so a
+        // legitimate verbose detail (wrapped upstream stack trace / nested-cause
+        // chain) is not suppressed — Spec-005:60 MANDATES this detail surface. A
+        // value still exceeding the cap is pathological; the daemon's resume
+        // handler (Plan-005 Phase 3/4) must treat an unparseable provider result
+        // as ITSELF a provider failure and surface `recovery-needed`, so the
+        // system-level signal survives even a parse rejection here.
+        providerFailureDetail: wireFreeFormString(
+          DRIVER_FAILURE_DETAIL_MAX_LEN,
+          "DriverResumeResult.providerFailureDetail",
+        ),
       })
       .strict(),
   ]);

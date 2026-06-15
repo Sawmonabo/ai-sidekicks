@@ -28,7 +28,11 @@
 //   • Result-envelope schemas (the provider→daemon trust boundary) —
 //     `DriverInterventionResultSchema`, `DriverResumeResultSchema`, and the
 //     leaf `IdempotencyClassSchema` parse valid shapes and reject invalid ones
-//     (including `.strict()` extra-key rejection on the object schemas).
+//     (including `.strict()` extra-key rejection on the result-envelope schemas;
+//     `ProviderToolMetadataSchema`, by contrast, STRIPS unknown keys per
+//     Spec-005:55 forward-compat). Every untrusted free-form string these
+//     schemas parse is length / non-whitespace / NUL-bounded via
+//     `wireFreeFormString` — exercised per field below.
 //
 // Idiom: matches the sibling unit tests in this directory — typed-variable
 // assignment as the compile-time proof (session-id.test.ts), `.parse()` /
@@ -44,6 +48,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DRIVER_BINDING_ID_MAX_LEN,
+  DRIVER_FAILURE_DETAIL_MAX_LEN,
+  DRIVER_FALLBACK_ACTION_MAX_LEN,
+  DRIVER_TOOL_DESCRIPTION_MAX_LEN,
+  DRIVER_TOOL_NAME_MAX_LEN,
   DriverInterventionResultSchema,
   DriverResumeResultSchema,
   IdempotencyClassSchema,
@@ -416,10 +425,79 @@ describe("ProviderToolMetadataSchema — I-005-3: ingress→normalized idempoten
     ).toBe(false);
   });
 
-  it("rejects an unknown extra key (.strict() guard)", () => {
-    expect(ProviderToolMetadataSchema.safeParse({ name: "x", unexpected: "leak" }).success).toBe(
-      false,
-    );
+  it("strips an unknown extra key (Spec-005:55 forward-compat — unknown fields ignored)", () => {
+    // The extensible tool-metadata DECLARATION surface must IGNORE unknown keys
+    // (Spec-005:55), in deliberate contrast to the `.strict()` result envelopes.
+    // The load-bearing assertion is ABSENCE of the unknown key from the
+    // normalized output (`toEqual`, not a `success`-only check) — a passthrough
+    // schema would also `success`, so only checking the exact output shape
+    // discriminates "stripped" from "leaked".
+    const result = ProviderToolMetadataSchema.safeParse({ name: "read_file", future_field: "x" });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).toEqual({
+        name: "read_file",
+        idempotency_class: "manual_reconcile_only",
+      });
+    }
+  });
+});
+
+// ===========================================================================
+// ProviderToolMetadataSchema — trust-boundary string bounds (wireFreeFormString).
+// ===========================================================================
+//
+// `name` and `description` parse UNTRUSTED provider output. Both are bounded via
+// `wireFreeFormString`: empty, whitespace-only, NUL-containing, and over-max
+// strings are REJECTED (no truncation). Over-max fixtures are built from the
+// EXPORTED `*_MAX_LEN` constant so the test tracks the contract value.
+
+describe("ProviderToolMetadataSchema — untrusted free-form string bounds", () => {
+  it("accepts an in-bounds name + description", () => {
+    const result = ProviderToolMetadataSchema.safeParse({
+      name: "read_file",
+      description: "Reads a file from the workspace.",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it.each([
+    ["empty string", ""],
+    ["whitespace-only", "   "],
+    ["NUL-containing", "a\u0000b"],
+    ["over-max", "a".repeat(DRIVER_TOOL_NAME_MAX_LEN + 1)],
+  ])("rejects a `name` that is %s", (_label, invalidName) => {
+    expect(ProviderToolMetadataSchema.safeParse({ name: invalidName }).success).toBe(false);
+  });
+
+  it.each([
+    ["empty string", ""],
+    ["whitespace-only", "   "],
+    ["NUL-containing", "a\u0000b"],
+    ["over-max", "a".repeat(DRIVER_TOOL_DESCRIPTION_MAX_LEN + 1)],
+  ])("rejects a `description` that is %s", (_label, invalidDescription) => {
+    expect(
+      ProviderToolMetadataSchema.safeParse({ name: "read_file", description: invalidDescription })
+        .success,
+    ).toBe(false);
+  });
+
+  // `wireFreeFormString`'s `.max()` is INCLUSIVE — an exactly-MAX_LEN string must
+  // be ACCEPTED. Asserting only `MAX_LEN + 1` rejects would let an off-by-one
+  // regression (exclusive bound) pass silently; pin the inclusive boundary.
+  it("accepts a `name` at exactly DRIVER_TOOL_NAME_MAX_LEN (inclusive boundary)", () => {
+    expect(
+      ProviderToolMetadataSchema.safeParse({ name: "a".repeat(DRIVER_TOOL_NAME_MAX_LEN) }).success,
+    ).toBe(true);
+  });
+
+  it("accepts a `description` at exactly DRIVER_TOOL_DESCRIPTION_MAX_LEN (inclusive boundary)", () => {
+    expect(
+      ProviderToolMetadataSchema.safeParse({
+        name: "read_file",
+        description: "a".repeat(DRIVER_TOOL_DESCRIPTION_MAX_LEN),
+      }).success,
+    ).toBe(true);
   });
 });
 
@@ -500,6 +578,38 @@ describe("DriverInterventionResultSchema — intervention result envelope (trust
     expect(
       DriverInterventionResultSchema.safeParse({ status: "degraded", fallbackAction: 123 }).success,
     ).toBe(false);
+  });
+
+  it("accepts an in-bounds fallbackAction hint", () => {
+    expect(
+      DriverInterventionResultSchema.safeParse({
+        status: "degraded",
+        fallbackAction: "queue_and_interrupt",
+      }).success,
+    ).toBe(true);
+  });
+
+  it.each([
+    ["empty string", ""],
+    ["whitespace-only", "   "],
+    ["NUL-containing", "a\u0000b"],
+    ["over-max", "a".repeat(DRIVER_FALLBACK_ACTION_MAX_LEN + 1)],
+  ])("rejects a `fallbackAction` that is %s (wireFreeFormString bound)", (_label, invalidValue) => {
+    expect(
+      DriverInterventionResultSchema.safeParse({ status: "degraded", fallbackAction: invalidValue })
+        .success,
+    ).toBe(false);
+  });
+
+  // Inclusive `.max()`: an exactly-MAX_LEN fallbackAction must be ACCEPTED
+  // (guards against an off-by-one exclusive-bound regression).
+  it("accepts a `fallbackAction` at exactly DRIVER_FALLBACK_ACTION_MAX_LEN (inclusive boundary)", () => {
+    expect(
+      DriverInterventionResultSchema.safeParse({
+        status: "degraded",
+        fallbackAction: "a".repeat(DRIVER_FALLBACK_ACTION_MAX_LEN),
+      }).success,
+    ).toBe(true);
   });
 });
 
@@ -630,5 +740,77 @@ describe("DriverResumeResultSchema — resume result envelope (trust boundary; I
 
   it("rejects an unknown status discriminator value", () => {
     expect(DriverResumeResultSchema.safeParse({ status: "pending" }).success).toBe(false);
+  });
+
+  // wireFreeFormString bounds on the two untrusted free-form strings this
+  // envelope persists / surfaces. `bindingId` carries `/\S/` + NUL guards as
+  // defense-in-depth because it lands in `runtime_bindings` and on events — a
+  // different rationale from the human-field guards, not a "stronger is better"
+  // claim (see the schema comment in provider-driver.ts).
+
+  it("accepts an in-bounds bindingId on the resumed arm", () => {
+    expect(
+      DriverResumeResultSchema.safeParse({ status: "resumed", bindingId: "binding-abc" }).success,
+    ).toBe(true);
+  });
+
+  it.each([
+    ["empty string", ""],
+    ["whitespace-only", "   "],
+    ["NUL-containing", "a\u0000b"],
+    ["over-max", "a".repeat(DRIVER_BINDING_ID_MAX_LEN + 1)],
+  ])("rejects a `bindingId` that is %s (wireFreeFormString bound)", (_label, invalidValue) => {
+    expect(
+      DriverResumeResultSchema.safeParse({ status: "resumed", bindingId: invalidValue }).success,
+    ).toBe(false);
+  });
+
+  it("accepts an in-bounds providerFailureDetail on the failed arm", () => {
+    expect(
+      DriverResumeResultSchema.safeParse({
+        status: "failed",
+        recoveryCondition: "recovery-needed",
+        providerFailureDetail: "provider session expired",
+      }).success,
+    ).toBe(true);
+  });
+
+  it.each([
+    ["empty string", ""],
+    ["whitespace-only", "   "],
+    ["NUL-containing", "a\u0000b"],
+    ["over-max", "a".repeat(DRIVER_FAILURE_DETAIL_MAX_LEN + 1)],
+  ])(
+    "rejects a `providerFailureDetail` that is %s (wireFreeFormString bound)",
+    (_label, invalidValue) => {
+      expect(
+        DriverResumeResultSchema.safeParse({
+          status: "failed",
+          recoveryCondition: "recovery-needed",
+          providerFailureDetail: invalidValue,
+        }).success,
+      ).toBe(false);
+    },
+  );
+
+  // Inclusive `.max()` on both envelope strings: an exactly-MAX_LEN value must be
+  // ACCEPTED (guards the inclusive boundary against an off-by-one regression).
+  it("accepts a `bindingId` at exactly DRIVER_BINDING_ID_MAX_LEN (inclusive boundary)", () => {
+    expect(
+      DriverResumeResultSchema.safeParse({
+        status: "resumed",
+        bindingId: "a".repeat(DRIVER_BINDING_ID_MAX_LEN),
+      }).success,
+    ).toBe(true);
+  });
+
+  it("accepts a `providerFailureDetail` at exactly DRIVER_FAILURE_DETAIL_MAX_LEN (inclusive boundary)", () => {
+    expect(
+      DriverResumeResultSchema.safeParse({
+        status: "failed",
+        recoveryCondition: "recovery-needed",
+        providerFailureDetail: "a".repeat(DRIVER_FAILURE_DETAIL_MAX_LEN),
+      }).success,
+    ).toBe(true);
   });
 });
