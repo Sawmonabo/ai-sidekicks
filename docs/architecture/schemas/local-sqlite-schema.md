@@ -144,12 +144,21 @@ CREATE INDEX idx_command_receipts_inflight ON command_receipts(run_id)
 
 ```sql
 -- Owner: Plan-005 | Extended by: Plan-015 (recovery-aware persistence)
+-- Provider-output defense-in-depth CHECKs (Plan-005 T2.1): contract_version and
+-- resume_handle are provider-declared strings persisted at the write seam. The
+-- DB CHECK layer bounds the SQLite-expressible part (length + NUL-rejection);
+-- semver-shape validation is NOT expressible as a pure-SQLite CHECK and is
+-- enforced at the write seam Zod guard (T2.2 runtime_bindings) using the
+-- `semver` package. The 4096/64 length literals are the canonical bounds that
+-- the T2.2 write-path guard reuses, so the two layers stay consistent.
 CREATE TABLE runtime_bindings (
   id                TEXT PRIMARY KEY,
   run_id            TEXT NOT NULL,
   driver_name       TEXT NOT NULL,            -- e.g. 'claude', 'codex'
-  contract_version  TEXT NOT NULL,            -- semver of driver contract
-  resume_handle     TEXT,                     -- provider-owned opaque handle
+  contract_version  TEXT NOT NULL             -- semver of driver contract
+                    CHECK (length(contract_version) > 0 AND length(contract_version) <= 64 AND instr(contract_version, char(0)) = 0),
+  resume_handle     TEXT                      -- provider-owned opaque handle
+                    CHECK (resume_handle IS NULL OR (length(resume_handle) > 0 AND length(resume_handle) <= 4096 AND instr(resume_handle, char(0)) = 0)),
   runtime_metadata  TEXT NOT NULL DEFAULT '{}', -- JSON: provider-specific recovery data
   created_at        TEXT NOT NULL,
   updated_at        TEXT NOT NULL
@@ -194,9 +203,14 @@ CREATE TABLE driver_tools (
 -- GetCapabilitiesResult = { capabilities: { flags, contractVersion }, tools } WITHOUT
 -- round-tripping the driver (Spec-005:130-132 cache-as-source-of-truth). Distinct from
 -- runtime_bindings.contract_version, which records the version bound to a specific run.
+-- Provider-output defense-in-depth CHECK (Plan-005 T2.1): contract_version
+-- mirrors the runtime_bindings.contract_version bound (length + NUL-rejection,
+-- 64-char ceiling). Semver-shape validation lives at the T2.4 write-path Zod
+-- guard (the `semver` package) — not expressible as a pure-SQLite CHECK.
 CREATE TABLE driver_contract_meta (
   driver_name       TEXT PRIMARY KEY,
-  contract_version  TEXT NOT NULL,            -- semver of the driver's advertised capability contract
+  contract_version  TEXT NOT NULL             -- semver of the driver's advertised capability contract
+                    CHECK (length(contract_version) > 0 AND length(contract_version) <= 64 AND instr(contract_version, char(0)) = 0),
   refreshed_at      TEXT NOT NULL             -- last capability-refresh write (matches driver_capabilities.refreshed_at cadence)
 );
 ```
