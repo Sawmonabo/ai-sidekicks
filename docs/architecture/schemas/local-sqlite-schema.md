@@ -226,7 +226,7 @@ CREATE TABLE daemon_signing_keys (
 -- Owner: Plan-006 | Migration: 0NNN-pending-anchor-uploads.ts (Tier 4 Phase 3)
 -- Durable partition-tolerance queue for Merkle anchors awaiting control-plane
 -- upload. Unflushed anchors survive daemon restart without re-signing per
--- Plan-006:151. The (session_id, node_id, start_sequence, end_sequence) UNIQUE
+-- Plan-006:152. The (session_id, node_id, start_sequence, end_sequence) UNIQUE
 -- constraint makes the T3.3 anchorRange() force-fire path (consumed by T3.2
 -- compactor's anchor-before-compaction protocol per Spec-006 §Post-Compaction
 -- Integrity) idempotent against re-entry of an identical range (the key dedups
@@ -246,7 +246,7 @@ CREATE TABLE pending_anchor_uploads (
   root_signature      BLOB NOT NULL,         -- Ed25519 signature over merkle_root by daemon_signing_keys.sealed_private_key
   anchored_at         TEXT NOT NULL,         -- daemon-local timestamp at anchor computation
   uploaded_at         TEXT,                  -- non-NULL once control-plane confirms upload to event_log_anchors
-  -- Durable retry/backoff state (Plan-006:296 partition-anchor-queue durability decision): survives daemon
+  -- Durable retry/backoff state (Plan-006:467 partition-anchor-queue durability decision): survives daemon
   -- restart so upload retry resumes and the last failure is queryable for operator triage post-restart.
   attempt_count       INTEGER NOT NULL DEFAULT 0, -- upload attempts since enqueue; drives exponential backoff
   last_attempt_at     TEXT,                  -- daemon-local timestamp of most recent upload attempt; NULL until first attempt
