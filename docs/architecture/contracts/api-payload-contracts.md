@@ -585,7 +585,7 @@ interface ProviderDriver {
   resumeSession(params: ResumeSessionParams): Promise<DriverResumeResult>;
   startRun(params: StartRunParams): Promise<void>;
   interruptRun(params: InterruptRunParams): Promise<void>;
-  applyIntervention(params: ApplyInterventionParams): Promise<InterventionDriverResult>;
+  applyIntervention(params: ApplyInterventionParams): Promise<DriverInterventionResult>;
   respondToRequest(params: RespondToRequestParams): Promise<void>;
   closeSession(params: CloseSessionParams): Promise<void>;
   listModels(): Promise<ProviderModel[]>;
@@ -636,7 +636,7 @@ interface CancelPayload {
   reason?: string;
 }
 
-interface InterventionDriverResult {
+interface DriverInterventionResult {
   status: "applied" | "degraded";
   fallbackAction?: string; // e.g. 'queue_and_interrupt' for degraded steer
 }

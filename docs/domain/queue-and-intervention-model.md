@@ -125,7 +125,7 @@ The following field inventory maps each intervention payload to the canonical so
 | `expectedRunVersion` | yes | `InterventionRequestPayload` | `ApplyInterventionParams.expectedRunVersion` |
 | `reason` | no | `InterventionRequestPayload` (optional) | `CancelPayload.reason` (optional) |
 
-Note: The `ApplyInterventionParams` interface in Spec-005 splits the payload into `targetRunId` and `expectedRunVersion` at the top level and routes the remaining type-specific fields through `SteerPayload`, `InterruptPayload`, or `CancelPayload`. The `InterventionRequestPayload` in the API contracts flattens all fields into a single discriminated union. Both representations carry the same field set per intervention type. The `InterventionDriverResult` returned by the driver uses `status: 'applied' | 'degraded'` — the orchestration layer maps this to the full 6-state lifecycle.
+Note: The `ApplyInterventionParams` interface in Spec-005 splits the payload into `targetRunId` and `expectedRunVersion` at the top level and routes the remaining type-specific fields through `SteerPayload`, `InterruptPayload`, or `CancelPayload`. The `InterventionRequestPayload` in the API contracts flattens all fields into a single discriminated union. Both representations carry the same field set per intervention type. The `DriverInterventionResult` returned by the driver uses `status: 'applied' | 'degraded'` — the orchestration layer maps this to the full 6-state lifecycle.
 
 ## Boundary: Interventions vs Interactive Requests
 

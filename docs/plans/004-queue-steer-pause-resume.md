@@ -9,7 +9,7 @@
 | **Author(s)** | `Codex` |
 | **Spec** | [Spec-004: Queue Steer Pause Resume](../specs/004-queue-steer-pause-resume.md) |
 | **Required ADRs** | [ADR-003](../decisions/003-daemon-backed-queue-and-interventions.md), [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md), [ADR-011](../decisions/011-generic-intervention-dispatch.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md) |
-| **Dependencies** | [Plan-001](./001-shared-session-core.md) (session core + `session/` run-engine dir + Phase 5 renderer bootstrap), [Plan-005](./005-provider-driver-contract-and-capabilities.md) (driver capability checks + `InterventionDriverResult`), [Plan-007](./007-local-ipc-and-daemon-control.md) (`api-payload-contracts.md` method-name registry), [Plan-023 Tier 1 Partial](./023-desktop-shell-and-renderer.md#tier-1-partial-pr-sequence) (`window.sidekicks` preload bridge + renderer substrate — the Tier-1-shipped substrate slice, not the Tier-8 remainder; this plan's `run-controls/` renderer subtree consumes only the bridge, so the substrate is the sole dependency and no Tier-5 → Tier-8 back-edge is created) |
+| **Dependencies** | [Plan-001](./001-shared-session-core.md) (session core + `session/` run-engine dir + Phase 5 renderer bootstrap), [Plan-005](./005-provider-driver-contract-and-capabilities.md) (driver capability checks + `DriverInterventionResult`), [Plan-007](./007-local-ipc-and-daemon-control.md) (`api-payload-contracts.md` method-name registry), [Plan-023 Tier 1 Partial](./023-desktop-shell-and-renderer.md#tier-1-partial-pr-sequence) (`window.sidekicks` preload bridge + renderer substrate — the Tier-1-shipped substrate slice, not the Tier-8 remainder; this plan's `run-controls/` renderer subtree consumes only the bridge, so the substrate is the sole dependency and no Tier-5 → Tier-8 back-edge is created) |
 | **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
 | **References** | [Updated Spec-004](../specs/004-queue-steer-pause-resume.md) (6 intervention states, pause as orchestration-layer), [Run State Machine](../domain/run-state-machine.md) (9 states) |
 
@@ -66,7 +66,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 | ID | Obligation | Direction | Tasks |
 | --- | --- | --- | --- |
-| **CP-004-1** | Driver capability flags + `InterventionDriverResult` (`applied` / `degraded`) | **Consume** from [Plan-005](./005-provider-driver-contract-and-capabilities.md) | T2.6, T2.7 |
+| **CP-004-1** | Driver capability flags + `DriverInterventionResult` (`applied` / `degraded`) | **Consume** from [Plan-005](./005-provider-driver-contract-and-capabilities.md) | T2.6, T2.7 |
 | **CP-004-2** | `command_receipts` table — Plan-004 CREATEs the forward-declared table shell; Plan-015 OWNS its column semantics + read model | **Provide shell** to [Plan-015](./015-persistence-recovery-and-replay.md) | T1.5 |
 | **CP-004-3** | `packages/contracts/src/runControl.ts` — new contract surface, no prior owner (verified against the ownership map) | **Create** | T1.1–T1.3, T1.6, T1.7 |
 | **CP-004-4** | `run.*` method-name namespace (`run.queueList` / `run.queueCreate` / `run.queueCancel` / `run.intervene` / `run.pause` / `run.resume` / `run.subscribeState` / `run.subscribeQueue`) — wire contract registered in `api-payload-contracts.md §Method-Name Registry`. **The eight concrete strings are ratified (D-004-3).** | **Register** with [Plan-007](./007-local-ipc-and-daemon-control.md) | T4.1, T4.4 |
@@ -184,11 +184,11 @@ The Tier-5 plan-readiness audit (NS-17) surfaced three open decisions; all three
   - **Spec coverage:** Spec-004 §Authorization + ADR-012 (Cedar) + ADR-010 (PASETO `sub`)
   - **Verifies invariant:** I-004-8
   - **Consumes:** verified PASETO claims (from the Plan-001 / Plan-008 auth context); client `initiatorId` is informational only
-- **T2.6 (I3) — Map `InterventionDriverResult` {`applied` | `degraded`} → 6-state**
+- **T2.6 (I3) — Map `DriverInterventionResult` {`applied` | `degraded`} → 6-state**
   - **Files:** `packages/runtime-daemon/src/interventions/intervention-service.ts` (EXTEND)
   - **Spec coverage:** Spec-004 §Required Behavior — 6 intervention states
   - **Verifies invariant:** I-004-2
-  - **Consumes:** `InterventionDriverResult` (Plan-005 driver contract — CP-004-1), `InterventionState` (T1.3)
+  - **Consumes:** `DriverInterventionResult` (Plan-005 driver contract — CP-004-1), `InterventionState` (T1.3)
 - **T2.7 (I4) — Steer-no-capability degrades to queue + interrupt; durable audit every path**
   - **Files:** `packages/runtime-daemon/src/interventions/intervention-service.ts` (EXTEND)
   - **Spec coverage:** Spec-004 §Degraded Behavior + Plan-005 capability checks
