@@ -574,18 +574,37 @@ The four dual-transport methods (`attach`/`heartbeat`/`capabilityupdate`/`detach
 ### Plan-005 — Provider Driver Contract (Internal Interface)
 
 ```ts
-// Internal driver interface — TypeScript interfaces, not Zod (internal boundary).
+// Internal driver interface. Two kinds of nominal-TypeScript surface ship here. (a) The
+// daemon-CONSTRUCTED param types (`CreateSessionParams` … `ApplyInterventionParams` + the
+// intervention payloads) are genuinely trusted — the daemon constructs them in-process.
+// (b) The driver-CONSTRUCTED returns — the capability flags, `DriverCapabilities`,
+// `GetCapabilitiesResult`, `ProviderSessionHandle`, and `ProviderModel`/`ProviderMode` — are
+// normalized at the Plan-005 Phase-3 driver boundary (the driver, daemon-owned code, parses
+// raw provider output there) and returned to the daemon as already-trusted normalized values,
+// so they ship nominal by design and are not re-parsed at this contract layer. Their persisted
+// free-form fields (`DriverCapabilities.contractVersion`, `ProviderSessionHandle.resumeHandle`)
+// are bounded at the Plan-005 Phase-2 write seam (semver / non-empty + length + NUL), not here.
+// Zod validates ONLY the surfaces that parse UNTRUSTED
+// provider output (the trust boundary): the result envelopes `DriverInterventionResult` and
+// `DriverResumeResult`, and provider-declared `ProviderToolMetadata`.
 // `resumeSession` returns the `DriverResumeResult` discriminated union (defined below)
 // to make silent-replacement structurally inexpressible per Spec-005:60.
 // `getCapabilities` returns the `GetCapabilitiesResult` wrapper (defined below) so the
 // per-tool `ProviderToolMetadata[]` rides alongside the flag matrix in a single
 // round-trip per Plan-005 Phase 4 ratified design.
+// Within the Zod-validated surfaces, `ProviderToolMetadata` STRIPS unknown keys (Spec-005:55
+// forward-compat: "Unknown capability fields are ignored until the driver contract version
+// explicitly supports them"), while the result envelopes reject unknown keys (`.strict()`);
+// and all five untrusted provider-output free-form strings (`ProviderToolMetadata.name`/`.description`,
+// `DriverInterventionResult.fallbackAction`, `DriverResumeResult.bindingId`/`.providerFailureDetail`)
+// are runtime-bounded (length + non-whitespace + NUL-rejection) via the package's `wireFreeFormString`
+// helper — Zod constraints not expressible in these TS interface shapes.
 interface ProviderDriver {
   createSession(params: CreateSessionParams): Promise<ProviderSessionHandle>;
   resumeSession(params: ResumeSessionParams): Promise<DriverResumeResult>;
   startRun(params: StartRunParams): Promise<void>;
   interruptRun(params: InterruptRunParams): Promise<void>;
-  applyIntervention(params: ApplyInterventionParams): Promise<InterventionDriverResult>;
+  applyIntervention(params: ApplyInterventionParams): Promise<DriverInterventionResult>;
   respondToRequest(params: RespondToRequestParams): Promise<void>;
   closeSession(params: CloseSessionParams): Promise<void>;
   listModels(): Promise<ProviderModel[]>;
@@ -615,12 +634,14 @@ interface InterruptRunParams {
   reason?: string;
 }
 
-interface ApplyInterventionParams {
-  type: InterventionType;
-  targetRunId: RunId;
-  expectedRunVersion: number; // MANDATORY fail-closed comparand (Plan-004 D-004-2) — absent value rejected, never applied; same field set as the InterventionRequestPayload union below
-  payload: SteerPayload | InterruptPayload | CancelPayload;
-}
+// Discriminated union over `type` — each intervention type coupled to its payload
+// shape. `expectedRunVersion` is the MANDATORY fail-closed comparand (Plan-004
+// D-004-2) repeated on every arm — absent value rejected, never applied. Same
+// field set as the InterventionRequestPayload union below.
+type ApplyInterventionParams =
+  | { type: "steer"; targetRunId: RunId; expectedRunVersion: number; payload: SteerPayload }
+  | { type: "interrupt"; targetRunId: RunId; expectedRunVersion: number; payload: InterruptPayload }
+  | { type: "cancel"; targetRunId: RunId; expectedRunVersion: number; payload: CancelPayload };
 
 interface SteerPayload {
   content: string;
@@ -636,7 +657,7 @@ interface CancelPayload {
   reason?: string;
 }
 
-interface InterventionDriverResult {
+interface DriverInterventionResult {
   status: "applied" | "degraded";
   fallbackAction?: string; // e.g. 'queue_and_interrupt' for degraded steer
 }
@@ -989,7 +1010,7 @@ interface InterventionRequestResponse {
 }
 
 // RunStateChange (event, not request/response). The `run.failed` variant carries the
-// `providerFailureDetail` surface that mirrors `DriverResumeResult.failure.providerFailureDetail`
+// `providerFailureDetail` surface that mirrors the `failed`-variant `providerFailureDetail` of `DriverResumeResult`
 // (line 657 above) — Spec-005:60 requires resume-failure detail to reach the canonical audit
 // log so Plan-015's recovery dispatcher and Plan-013's timeline can render the operator-actionable
 // reason for the failure without re-querying the driver. Plan-005 CP-005-5; Plan-006 Phase 3 audit.
