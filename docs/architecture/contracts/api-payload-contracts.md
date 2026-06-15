@@ -574,7 +574,11 @@ The four dual-transport methods (`attach`/`heartbeat`/`capabilityupdate`/`detach
 ### Plan-005 — Provider Driver Contract (Internal Interface)
 
 ```ts
-// Internal driver interface — TypeScript interfaces, not Zod (internal boundary).
+// Internal driver interface. The daemon-constructed surfaces here — this interface, its
+// param types, the capability flags, and `GetCapabilitiesResult` — are nominal TypeScript
+// (the daemon is the trusted caller). Zod validates ONLY the surfaces that parse UNTRUSTED
+// provider output (the trust boundary): the result envelopes `DriverInterventionResult` and
+// `DriverResumeResult`, and provider-declared `ProviderToolMetadata`.
 // `resumeSession` returns the `DriverResumeResult` discriminated union (defined below)
 // to make silent-replacement structurally inexpressible per Spec-005:60.
 // `getCapabilities` returns the `GetCapabilitiesResult` wrapper (defined below) so the
@@ -989,7 +993,7 @@ interface InterventionRequestResponse {
 }
 
 // RunStateChange (event, not request/response). The `run.failed` variant carries the
-// `providerFailureDetail` surface that mirrors `DriverResumeResult.failure.providerFailureDetail`
+// `providerFailureDetail` surface that mirrors the `failed`-variant `providerFailureDetail` of `DriverResumeResult`
 // (line 657 above) — Spec-005:60 requires resume-failure detail to reach the canonical audit
 // log so Plan-015's recovery dispatcher and Plan-013's timeline can render the operator-actionable
 // reason for the failure without re-querying the driver. Plan-005 CP-005-5; Plan-006 Phase 3 audit.
