@@ -959,7 +959,8 @@ export const RuntimeNodeOfflinePayloadSchema: z.ZodType<RuntimeNodeOfflinePayloa
 // (`{flags: Record<DriverCapabilityFlag, boolean>; contractVersion: string;
 // tools: NormalizedProviderToolMetadata[]}`, api-payload-contracts.md:748)
 // consumes Plan-005's `provider-driver.ts` types (`DriverCapabilityFlag`,
-// `NormalizedProviderToolMetadata`) which DO NOT EXIST yet. This is an HONEST
+// `NormalizedProviderToolMetadata`), but that's Plan-006 Tier 4's owned step,
+// not this layer's — so the field stays opaque here. An HONEST
 // forward-dependency mirroring the existing loose `capabilities` at line 164, NOT
 // the lazy-`Record` anti-pattern (CP-003-1). Plan-006 Tier 4 EXTENDs by binding
 // the canonical `CapabilityDetails` over this field.
