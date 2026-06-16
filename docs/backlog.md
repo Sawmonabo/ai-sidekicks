@@ -159,18 +159,6 @@ The items below were surfaced by the [plan-readiness-audit Tier 1](./operations/
 
 ---
 
-### BL-135: Reconcile Plan-025 relay admin-token path against canonical Spec-027 `./data/admin-token`
-
-- Status: `todo`
-- Priority: `P2`
-- Owner: `unassigned`
-- References: [Plan-025 §File-By-File Plan-Of-Record](./plans/025-self-hostable-node-relay.md), [Spec-027 §Required Behavior](./specs/027-self-host-secure-defaults.md#required-behavior) (row 3 secret set + the Example 1 first-run banner), [Plan-007 §Phase R2](./plans/007-local-ipc-and-daemon-control.md) (conformed to `./data/admin-token` in PR #124), [operations/self-host-secure-defaults.md](./operations/self-host-secure-defaults.md) (ops mirror), PR #124 Codex round-3 finding F (path divergence surfaced)
-- Summary: Plan-025 writes the relay admin token to `./data/trust/relay-admin-token` in six places (file-by-file plan, plan-of-record table, build steps 21 + 26, acceptance tests), but the canonical Spec-027 §Required Behavior row 3 + the Example 1 first-run banner specify `./data/admin-token`, and the ops mirror independently confirms `./data/admin-token`. This is **one** token at a divergent path, not two separate files: Spec-027 row 3 enumerates the _complete_ first-run secret set (daemon master key per Spec-022; session-signing key; relay admin token) and the both-services Example 1 banner lists exactly one `Admin token:` line. Plan-007's Tier-4 audit (PR #124, finding F) conformed the daemon-side references to `./data/admin-token`; Plan-025 remains divergent. Resolution is a Spec-027-level canonicalization decision and is therefore deferred to Plan-025's own plan-readiness audit (later tier, not yet audited) rather than fixed by a drive-by edit from a Tier-4 PR.
-- Exit Criteria: (a) Spec-027 records the canonical admin-token path as a single decision — EITHER keep `./data/admin-token` (conform Plan-025's six references to it) OR amend Spec-027 to relocate the token under `./data/trust/` alongside the other trust materials (`fingerprint.txt`, `first-run.complete`), in which case Plan-007 §Phase R2, the Spec-027 Example 1 banner, and the ops mirror are all updated to match; (b) every Plan-025 reference uses the canonical path; (c) `docs/architecture/cross-plan-dependencies.md` shared-resource ownership reflects the single owning plan for the admin-token file path; (d) no daemon/relay doc cites a path the canonical spec contradicts.
-- Revisit Trigger: Plan-025 plan-readiness audit reaches the `draft → review` gate (the dominant trigger — resolve as part of that audit); OR any Spec-027 amendment touching the `./data/trust/` first-run-ceremony layout; OR a Plan-025 implementation PR is cut before the audit (block it until the path is canonicalized).
-
----
-
 ### BL-139: ADR-015 §V1.1 criterion-gated-commitment entry for the automated GDPR endpoint
 
 - Status: `todo`

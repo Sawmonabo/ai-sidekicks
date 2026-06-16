@@ -209,7 +209,7 @@ To avoid replicating local-cast workarounds across T1.1 / T1.2 / T1.4 and every 
 2. **Refactors `packages/contracts/src/session.ts`** — the 4 UUID-based branded ID schemas (`SessionIdSchema`, `ParticipantIdSchema`, `MembershipIdSchema`, `ChannelIdSchema`) switch to the helper. `EventCursorSchema` retains its inline cast because its parser is `z.string().min(1).max(EVENT_CURSOR_MAX_LEN)` (Plan-006-owned opaque cursor form, not a UUID); substituting the helper would silently narrow runtime validation. Type-level only; zero runtime change.
 3. **Declares `InviteIdSchema` in T1.1's new `invites.ts`** using the helper (no local cast).
 
-**Cross-plan touch rationale.** `packages/contracts/src/session.ts` is normally Plan-001 Phase 2-owned per the cross-plan ownership map. The literal "no two plans edit the same file" rule would have routed this fix through a precursor Plan-001 housekeeping PR. We applied a fix-in-place housekeeping exception because: (a) the fix is type-level only (zero runtime change, zero behavioral risk), (b) the defect is pre-existing and only discoverable via downstream composition (Plan-002 was the first composer), (c) the helper avoids ~12 lines of cast-boilerplate repeated across T1.1 / T1.2 / T1.4 plus every future V1 branded ID, and (d) bundling the housekeeping in the surfacing PR avoids cross-plan PR coordination ceremony for a sub-30-LOC fix. This is one-time correction, not Plan-002 claiming ongoing edit rights on Plan-001-owned files. The governance amendment encoding this housekeeping-exception convention has since landed as §3 §Ownership Rule's **Housekeeping Exception** clause ([cross-plan-dependencies.md:110-116](../architecture/cross-plan-dependencies.md#ownership-rule)).
+**Cross-plan touch rationale.** `packages/contracts/src/session.ts` is normally Plan-001 Phase 2-owned per the cross-plan ownership map. The literal "no two plans edit the same file" rule would have routed this fix through a precursor Plan-001 housekeeping PR. We applied a fix-in-place housekeeping exception because: (a) the fix is type-level only (zero runtime change, zero behavioral risk), (b) the defect is pre-existing and only discoverable via downstream composition (Plan-002 was the first composer), (c) the helper avoids ~12 lines of cast-boilerplate repeated across T1.1 / T1.2 / T1.4 plus every future V1 branded ID, and (d) bundling the housekeeping in the surfacing PR avoids cross-plan PR coordination ceremony for a sub-30-LOC fix. This is one-time correction, not Plan-002 claiming ongoing edit rights on Plan-001-owned files. The governance amendment encoding this housekeeping-exception convention has since landed as §3 §Ownership Rule's **Housekeeping Exception** clause ([cross-plan-dependencies.md:115-121](../architecture/cross-plan-dependencies.md#ownership-rule)).
 
 **Refs:** Plan-001 Phase 2 (`packages/contracts/src/session.ts` original ship), [ADR-014](../decisions/014-trpc-control-plane-api.md) (tRPC v11 / Standard Schema V1).
 
@@ -256,7 +256,7 @@ Phase D code-reviewer surfaced that T1.5 shipped `SESSION_INVITES_MIGRATION_SQL`
 
 ### Phase 2 — Control-Plane Invite And Membership Services
 
-**Precondition:** Phase 1 merged AND [Plan-025 Tier 1 Partial](./025-self-hostable-node-relay.md#tier-1-partial-pr-sequence--substrate-vs-namespace-carve-out) merged (`packages/crypto-paseto/` v4.public + v4.local primitives available as workspace dep `@ai-sidekicks/crypto-paseto`). Phase 2 consumes the v4.local `encrypt`/`decrypt` surface for invite-token minting per [CP-002-4](#cross-plan-obligations); BL-119 resolved 2026-05-20 via Option A.
+**Precondition:** Phase 1 merged AND [Plan-025 Tier 1 Partial](./025-self-hostable-node-relay.md#tier-1-partial-pr-sequence--substrate-vs-namespace-carve-out) merged (`packages/crypto-paseto/` v4.public + v4.local primitives available as workspace dep `@ai-sidekicks/crypto-paseto`). Phase 2 consumes the v4.local `encryptV4Local`/`decryptV4Local` surface for invite-token minting per [CP-002-4](#cross-plan-obligations); BL-119 resolved 2026-05-20 via Option A.
 
 ```yaml
 preconditions:
@@ -275,7 +275,7 @@ preconditions:
 
 #### Tasks
 
-##### T2.1 — Implement `invite-service.ts` issuance with PASETO v4.local (consumes `@ai-sidekicks/crypto-paseto` v4.local `encrypt` surface from Plan-025 Tier 1 Partial per CP-002-4 — BL-119 resolved via Option A).
+##### T2.1 — Implement `invite-service.ts` issuance with PASETO v4.local (consumes `@ai-sidekicks/crypto-paseto` v4.local `encryptV4Local` surface from Plan-025 Tier 1 Partial per CP-002-4 — BL-119 resolved via Option A).
 
 **Files:** `packages/control-plane/src/invites/invite-service.ts` **Spec coverage:** Spec-002 §Token Security Properties lines 110 (Entropy/CSPRNG), 111 (hash storage), 113 (Token payload structure); P5 **Verifies invariant:** none (issuance path; hash-storage invariant verified by P5)
 

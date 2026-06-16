@@ -116,7 +116,7 @@ Out of scope (see Non-Goals for full list):
 
 ## State And Data Implications
 
-- All persistent state lives in Postgres. The relay container has no durable on-disk state beyond ephemeral logs.
+- All persistent **database** state lives in Postgres. The relay container's only durable on-disk state is the relay's `./data` named volume — the first-run admin token at `./data/admin-token` (the bearer secret, [Spec-027](./027-self-host-secure-defaults.md#required-behavior) Row 3; `0600`) and, under `DEPLOY_MODE=lan`, the `./data/trust/` internal-CA fingerprint `fingerprint.txt` (the public pin, Row 1; `0600`) alongside the `first-run.complete` sentinel — all of which MUST survive container recreation ([Plan-025 §Data And Storage Changes](../plans/025-self-hostable-node-relay.md)); the secret is held at the `./data` root, separate from the `./data/trust/` publishable trust material, and beyond that volume and ephemeral logs the container holds no durable disk state.
 - Postgres schema is shared with the hosted backend; migrations are authored once and apply to both deployments. [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md) names Postgres as the shared control-plane persistence.
 - Rate-limiter state uses its own tables (namespaced `ratelimit_*`) managed by `rate-limiter-flexible`. These tables do not participate in the main schema migration sequence.
 - Audit log, session events, and participant state persist in the shared schema (see Spec-006 for event taxonomy).
