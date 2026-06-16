@@ -635,17 +635,22 @@ test("validateManifestSubagentStage: scans nested semantic_edits values (e.g. ar
   );
 });
 
-// --- Placeholder-scan hardening (PR #161 false-positive + PR #162 disguised stub) ---
-// `hasUnresolvedPlaceholder` strips inline-code spans before the substring test, so:
-//   - a backtick-quoted MENTION narrating the stub's removal (real prose remains
-//     after stripping) is NOT a gap — the PR #161 false positive, covered below;
-//   - a value that is ONLY a backticked placeholder (nothing meaningful remains
-//     after stripping) IS a gap — the PR #162 disguised-stub case, covered below;
-//   - a raw, unquoted stub still gaps — locked by the existing tests above
-//     (in-memory: "fail when ... placeholder appears in semantic_edits values";
-//     on-disk: "fail when ... placeholder still present in any affected file").
+// --- Placeholder-scan policy: STRICT literal match (PR #162 round 3) ---
+// `hasUnresolvedPlaceholder` is a strict `text.includes(PLACEHOLDER)` — ANY
+// occurrence of the literal token is an unreplaced stub. A legitimate resolution
+// narrative never contains the meta-token, so there is no "legitimate mention" to
+// exempt; backtick-wrapping is not replacement. Rounds 1-2 stripped inline-code
+// spans to permit backtick mentions, but that premise let a subagent hide a stub
+// by backticking it (empty stub, then a stub embedded beside real content —
+// Codex P2 ×2). The tests below pin every shape to a gap: raw, backtick-wrapped,
+// backtick-only, and embedded-beside-real-content, on disk and in semantic_edits.
 
-test("validateManifestSubagentStage: backtick-quoted <TODO subagent prose> MENTION in semantic_edits is NOT a placeholder gap (PR #161 false-positive)", () => {
+test("validateManifestSubagentStage: a backtick-wrapped <TODO subagent prose> token in semantic_edits still gaps (strict-literal — backtick-wrapping is not replacement)", () => {
+  // The PR #161 shape, re-classified under the strict-literal policy (PR #162
+  // round 3): wrapping the token in an inline-code span is NOT a resolution. A
+  // legitimate narrative never contains the literal token at all, so any
+  // occurrence — even one quoted while "narrating" the stub's removal — is an
+  // unreplaced stub. The no-echo rule is enforced in the subagent contract.
   const manifest = {
     _script_stage: {
       affected_files: [],
@@ -655,8 +660,6 @@ test("validateManifestSubagentStage: backtick-quoted <TODO subagent prose> MENTI
     },
     semantic_work_pending: ["compose_status_completion_prose"],
     semantic_edits: {
-      // Mirrors the real Phase-E incident value: the token quoted in an inline-code
-      // span while narrating that the stub was replaced.
       compose_status_completion_prose:
         "Replaced the `<TODO subagent prose>` placeholder with the composed NS-36 entry; no `<TODO subagent prose>` stubs remain.",
     },
@@ -667,8 +670,16 @@ test("validateManifestSubagentStage: backtick-quoted <TODO subagent prose> MENTI
   const result = validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) });
   assert.equal(
     result.valid,
-    true,
-    `backtick-quoted mention must not false-positive; got gaps: ${JSON.stringify(result.gaps)}`,
+    false,
+    `a backtick-wrapped token is not replacement and must gap; got gaps: ${JSON.stringify(result.gaps)}`,
+  );
+  assert.ok(
+    result.gaps.some(
+      (g) =>
+        g.includes("<TODO subagent prose>") &&
+        g.includes("semantic_edits.compose_status_completion_prose"),
+    ),
+    `expected a placeholder-still-present gap for the backtick-wrapped token; got: ${JSON.stringify(result.gaps)}`,
   );
 });
 
@@ -704,10 +715,8 @@ test("validateManifestSubagentStage: a value mixing a backtick mention AND a raw
 test("validateManifestSubagentStage: a semantic_edits value that is ONLY a backticked placeholder still gaps (Codex PR #162 P2 disguised stub)", () => {
   // The subagent "addresses" a pending item by echoing the placeholder inside
   // backticks instead of composing real prose. The bare value is non-empty, so
-  // the pending-item meaningfulness check (#2) passes it; before the #162 fix,
-  // code-span stripping also made the placeholder scan miss it → false {valid:true}.
-  // hasUnresolvedPlaceholder's (b) branch (placeholder-only, no meaningful payload
-  // after stripping) must reject it.
+  // the pending-item meaningfulness check (#2) passes it — but strict-literal
+  // hasUnresolvedPlaceholder rejects it because the token is present at all.
   const manifest = {
     _script_stage: {
       affected_files: [],
@@ -739,7 +748,7 @@ test("validateManifestSubagentStage: a semantic_edits value that is ONLY a backt
   );
 });
 
-test("validateManifestSubagentStage: backtick-quoted <TODO subagent prose> MENTION in an affected file is NOT a placeholder gap", () => {
+test("validateManifestSubagentStage: a backtick-wrapped <TODO subagent prose> token in an affected file still gaps (strict-literal)", () => {
   const tmpRepo = mkdtempSync(join(tmpdir(), "validate-todo-mention-"));
   try {
     mkdirSync(join(tmpRepo, "docs/architecture"), { recursive: true });
@@ -767,12 +776,104 @@ test("validateManifestSubagentStage: backtick-quoted <TODO subagent prose> MENTI
     });
     assert.equal(
       result.valid,
-      true,
-      `backtick mention in on-disk content must not false-positive; got: ${JSON.stringify(result.gaps)}`,
+      false,
+      `a backtick-wrapped token in on-disk content must gap; got: ${JSON.stringify(result.gaps)}`,
+    );
+    assert.ok(
+      result.gaps.some(
+        (g) =>
+          g.includes("<TODO subagent prose>") &&
+          g.includes("docs/architecture/cross-plan-dependencies.md"),
+      ),
+      `expected a placeholder-still-present gap for the file; got: ${JSON.stringify(result.gaps)}`,
     );
   } finally {
     rmSync(tmpRepo, { recursive: true, force: true });
   }
+});
+
+test("validateManifestSubagentStage: an embedded backtick-wrapped token in a Status line still gaps on disk (Codex PR #162 round-3 P2)", () => {
+  // The exact evasion Codex flagged: the subagent backtick-wraps ONLY the token
+  // inside an otherwise-real Status line, leaving meaningful content around it.
+  // Round-2's strip-then-check missed this (the stripped remainder was a
+  // non-empty Status line, so the disguised-stub branch (b) did not fire).
+  // Strict-literal catches it: the token is present, period.
+  const tmpRepo = mkdtempSync(join(tmpdir(), "validate-todo-embedded-"));
+  try {
+    mkdirSync(join(tmpRepo, "docs/architecture"), { recursive: true });
+    writeFileSync(
+      join(tmpRepo, "docs/architecture/cross-plan-dependencies.md"),
+      "### NS-01: foo\n- Status: `completed` (resolved 2026-05-03 via PR #30 — `<TODO subagent prose>`)\n",
+    );
+    const manifest = {
+      _script_stage: {
+        affected_files: [],
+        schema_violations: [],
+        verification_failures: [],
+        semantic_work_pending: [],
+      },
+      semantic_work_pending: [],
+      semantic_edits: {},
+      concerns: [],
+      affected_files: ["docs/architecture/cross-plan-dependencies.md"],
+      result: "DONE",
+    };
+    const result = validateManifestSubagentStage({
+      manifest,
+      repoRoot: tmpRepo,
+      ...stageOneFromManifest(manifest),
+    });
+    assert.equal(
+      result.valid,
+      false,
+      `an embedded backtick-wrapped token must gap; got: ${JSON.stringify(result.gaps)}`,
+    );
+    assert.ok(
+      result.gaps.some(
+        (g) =>
+          g.includes("<TODO subagent prose>") &&
+          g.includes("docs/architecture/cross-plan-dependencies.md"),
+      ),
+      `expected a placeholder-still-present gap for the file; got: ${JSON.stringify(result.gaps)}`,
+    );
+  } finally {
+    rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test("validateManifestSubagentStage: an embedded backtick-wrapped token in a semantic_edits value still gaps (Codex PR #162 round-3 P2)", () => {
+  // Same evasion on the semantic_edits surface (walkForPlaceholder): the token is
+  // backtick-wrapped inside an otherwise-real composed Status line.
+  const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
+    semantic_work_pending: ["compose_status_completion_prose"],
+    semantic_edits: {
+      compose_status_completion_prose:
+        "- Status: `completed` (resolved 2026-05-03 via PR #30 — `<TODO subagent prose>`)",
+    },
+    concerns: [],
+    affected_files: [],
+    result: "DONE",
+  };
+  const result = validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) });
+  assert.equal(
+    result.valid,
+    false,
+    `an embedded backtick-wrapped token must gap; got: ${JSON.stringify(result.gaps)}`,
+  );
+  assert.ok(
+    result.gaps.some(
+      (g) =>
+        g.includes("<TODO subagent prose>") &&
+        g.includes("semantic_edits.compose_status_completion_prose"),
+    ),
+    `expected a placeholder-still-present gap; got: ${JSON.stringify(result.gaps)}`,
+  );
 });
 
 // --- narration-mode signal hardening (exit-2→exit-1 spoof) -------------------

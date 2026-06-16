@@ -9,46 +9,33 @@ import process from "node:process";
 const PLACEHOLDER = "<TODO subagent prose>";
 
 /**
- * True when the PLACEHOLDER stub is effectively UNRESOLVED in `text`. Two
- * failure modes, one legitimate success mode:
+ * True when the PLACEHOLDER stub is unresolved in `text` — i.e. the literal
+ * token appears at all.
  *
- *   (a) Raw leftover — PLACEHOLDER appears OUTSIDE a markdown inline-code span
- *       (an un-replaced stub). Caught by stripping code spans first, then a
- *       substring test.
- *   (b) Disguised stub — PLACEHOLDER appears ONLY inside code spans AND, once
- *       those spans are stripped, no meaningful payload remains. This is the
- *       subagent "addressing" a pending item by backticking the placeholder
- *       instead of composing real prose (e.g. `semantic_edits.x = "`<TODO
- *       subagent prose>`"`). The bare value is non-empty, so the pending-item
- *       meaningfulness check (#2) passes it; this guard is what rejects it.
- *       (Codex PR #162 P2.)
- *   ( ) Legitimate mention — real prose that QUOTES the token in backticks
- *       (e.g. narrating the stub's removal) leaves meaningful content after
- *       stripping, so neither (a) nor (b) fires. This is the false positive the
- *       original naive `value.includes(PLACEHOLDER)` scan produced (PR #161).
+ * Deliberately a STRICT literal substring match, NOT a code-span-aware
+ * heuristic. The token is script-injected (written only into stubbed `Status:`
+ * lines and `semantic_edits` values for the subagent to replace), and a
+ * legitimate resolution narrative never contains it — a real narrative reads
+ * "implemented the provider registry (NS-36)", never the meta-token itself. So
+ * ANY occurrence — raw, backtick-wrapped, or embedded beside otherwise-real
+ * prose — is an unreplaced stub. Backtick-wrapping is not replacement; the
+ * subagent contract (canonical-template Hard rule) forbids echoing the token in
+ * any output, and the only files that legitimately carry it (this skill's
+ * contract doc, SKILL.md, test fixtures) are never in the housekeeper's edit
+ * surface.
  *
- * The "meaningful payload" bar is the canonical `isMeaningfulPayload`, so the
- * placeholder scan and the pending-item pairing check agree on what counts as
- * real content (a backticked placeholder plus only whitespace is not work).
- *
- * Sibling hardening idiom: `tokenBoundedRe` in scripts/post-merge-housekeeper.mjs
- * guards a DIFFERENT naive-match hazard (token-boundary collisions like `T5`
- * matching `T5.4`). Code-span stripping is the right mechanism here because the
- * PLACEHOLDER hazard is inline-code mentions, not sub-token matches.
- *
- * Residual (rare, safe-direction): a doc with UNBALANCED backticks could have a
- * stray pair bracket a real (a)-form stub and mask it — a false negative on a
- * leftover stub that only occurs in already-malformed markdown. Accepted over
- * the far more common false positive on legitimate balanced mentions.
+ * History (PR #162): rounds 1-2 stripped inline-code spans before the scan to
+ * permit "legitimate backtick mentions" — but that premise WAS the bug. It let a
+ * subagent hide an unreplaced stub by backticking it: first an empty backticked
+ * stub, then a stub embedded beside real content (Codex P2, twice). Do NOT
+ * re-introduce code-span stripping here — it reopens the evasion class. The
+ * no-echo rule belongs in the subagent contract; this scan stays strict.
  *
  * @param {string} text
  * @returns {boolean}
  */
 function hasUnresolvedPlaceholder(text) {
-  const withoutCodeSpans = text.replace(/`[^`]*`/g, "");
-  if (withoutCodeSpans.includes(PLACEHOLDER)) return true; // (a) raw leftover stub
-  // (b) placeholder present only inside code spans, with no real content left.
-  return text.includes(PLACEHOLDER) && !isMeaningfulPayload(withoutCodeSpans);
+  return text.includes(PLACEHOLDER);
 }
 
 // Canonical subagent prompt template — verbatim from
@@ -78,7 +65,7 @@ Your responsibilities (per Spec §5.4 / §6.2):
 Hard rules:
 - Do NOT introduce new exit-states.
 - Do NOT edit files outside \`manifest.affected_files\`.
-- Do NOT leave \`<TODO subagent prose>\` placeholders intact.
+- Do NOT leave \`<TODO subagent prose>\` placeholders intact. Quoting, backtick-wrapping, or otherwise echoing the literal token does NOT count as replacement — composing the resolution narrative does. The literal string \`<TODO subagent prose>\` MUST NOT appear anywhere in your output: not in any edited file, not in any \`semantic_edits\` value. The validator rejects every occurrence (inside code spans or not).
 - Do NOT read NS catalog item BODIES; the §6-prose-only constraint applies to the set-quantifier reverification surface (responsibility #2).
 - Do NOT confuse design-spec §6 ("Data flow") with \`cross-plan-dependencies.md\` §6 ("Active Next Steps DAG"); D-2 routes to the latter.
 - Do NOT touch \`manifest._script_stage\`. It is the script-embedded snapshot of the four arrays the validator enforces preservation/iteration on (\`affected_files\`, \`schema_violations\`, \`verification_failures\`, \`semantic_work_pending\`); when you rewrite the manifest, copy \`_script_stage\` through verbatim. The orchestrator plumbs its own stage-1 conversation-memory copy of these arrays as the validator's authoritative baseline (see § \`_script_stage\` snapshot + orchestrator plumbing); the manifest-embedded \`_script_stage\` is a redundant integrity signal — removing the key, replacing it with a non-object, or swapping any of its four fields for non-array values is itself a bypass attempt and surfaces in the validator as a structural-tampering gap.`;
