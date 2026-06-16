@@ -108,12 +108,23 @@ export class ProviderOutputValidationError extends Error {
 //     value BYTE-IDENTICAL to what passed validation — no transform, no
 //     mutation of provider data.
 //
+// The build-metadata rejection is a DOCUMENTED CONTRACT RULE, not an incidental
+// side effect of `semver.valid`: `contract_version` is a canonical, IDENTIFYING
+// semver string. Accepting `1.2.3+build.5` and `1.2.3+build.6` as DISTINCT
+// stored values would spuriously fire `runtime_node.capability_updated` on a
+// non-change (SemVer §10 says they denote the SAME version) — the same defect
+// class as the tool-sort canonical-ordering guard. See the matching note in
+// docs/architecture/schemas/local-sqlite-schema.md (`driver_contract_meta` /
+// `runtime_bindings` `contract_version` columns).
+//
 // This is why the refinement is `semver.valid(v) === v` and not `!== null`.
 const contractVersionSchema = wireFreeFormString(
   CONTRACT_VERSION_MAX_LEN,
   "contract_version",
 ).refine((value) => semver.valid(value) === value, {
-  message: "contract_version must be a canonical semver string.",
+  message:
+    "contract_version must be a canonical, identifying semver string (no build metadata; " +
+    "SemVer §10 build metadata is non-identifying and is rejected from this identity field).",
 });
 
 // `wireFreeFormString`'s `/\S/` adds an ALL-WHITESPACE rejection BEYOND the DB
@@ -138,7 +149,9 @@ export function assertValidContractVersion(value: string): void {
   if (!result.success) {
     throw new ProviderOutputValidationError("Invalid provider contract_version.", {
       field: "contract_version",
-      reason: "must be a canonical semver string within length bounds",
+      reason:
+        "must be a canonical, identifying semver string within length bounds " +
+        "(no build metadata; SemVer §10 build metadata is non-identifying and is rejected)",
     });
   }
 }
@@ -156,6 +169,52 @@ export function assertValidResumeHandle(value: string): void {
     throw new ProviderOutputValidationError("Invalid provider resume_handle.", {
       field: "resume_handle",
       reason: "must be a non-empty, non-whitespace, NUL-free string within length bounds",
+    });
+  }
+}
+
+/**
+ * STRUCTURAL shape guard for a provider-declared `GetCapabilitiesResult` at the
+ * write seam. Throws `ProviderOutputValidationError` on failure.
+ *
+ * `DriverCapabilitiesWriter.declare` dereferences `result.capabilities.<...>`
+ * and `result.tools.map(...)` immediately. The static `GetCapabilitiesResult`
+ * type is erased at runtime, so a malformed driver can ship `result`,
+ * `result.capabilities`, or `result.tools` as null/array/primitive — and those
+ * raw dereferences would throw a TypeError, escaping this module's leak-safe
+ * doctrine (rejected/invalid input surfaces ONLY `ProviderOutputValidationError`
+ * and NEVER opens a transaction). This guard checks EXACTLY the three accesses
+ * `declare` already makes — it is BOUNDED:
+ *   * `result` is a non-null, non-array object,
+ *   * `result.capabilities` is a non-null, non-array object,
+ *   * `result.tools` is an Array (so `.map` is safe).
+ * It deliberately does NOT re-parse `capabilities.flags` /
+ * `capabilities.contractVersion` / each tool entry — those keep their dedicated
+ * downstream validators (`assertValidCapabilityFlags`,
+ * `assertValidContractVersion`, `ProviderToolMetadataSchema.safeParse`). Full
+ * value-normalization stays the Phase-3 driver adapter's job (see this module's
+ * header / provider-driver.ts §1(b) boundary). Structural shape-guarding so no
+ * raw error escapes is THIS seam's job; value-normalization is NOT.
+ */
+export function assertValidGetCapabilitiesResultShape(result: unknown): void {
+  if (typeof result !== "object" || result === null || Array.isArray(result)) {
+    throw new ProviderOutputValidationError("Invalid provider capability result.", {
+      field: "result",
+      reason: "result must be an object",
+    });
+  }
+  const resultRecord = result as Record<string, unknown>;
+  const capabilities = resultRecord["capabilities"];
+  if (typeof capabilities !== "object" || capabilities === null || Array.isArray(capabilities)) {
+    throw new ProviderOutputValidationError("Invalid provider capability result.", {
+      field: "capabilities",
+      reason: "capabilities must be an object",
+    });
+  }
+  if (!Array.isArray(resultRecord["tools"])) {
+    throw new ProviderOutputValidationError("Invalid provider capability result.", {
+      field: "tools",
+      reason: "tools must be an array",
     });
   }
 }
@@ -189,9 +248,23 @@ export function assertValidResumeHandle(value: string): void {
  * cardinality === 7 AND all 7 canonical flags present as OWN keys, pigeonhole
  * guarantees the own-key set is EXACTLY canonical — so the writer's
  * `Object.keys`-based write loop can never reach a non-canonical key.
+ *
+ * The param is `unknown` (not `Record<string, unknown>`) DELIBERATELY: the
+ * static type is erased at runtime, so a malformed driver can ship `flags` as
+ * null/array/primitive. Typing it `unknown` stops the type system from masking
+ * that runtime risk and forces the non-null-object guard below, which keeps
+ * `Object.keys(flags)` from raw-throwing a TypeError (`Object.keys(null)`) and
+ * escaping this module's leak-safe doctrine.
  */
-export function assertValidCapabilityFlags(flags: Record<string, unknown>): void {
-  const keys = Object.keys(flags);
+export function assertValidCapabilityFlags(flags: unknown): void {
+  if (typeof flags !== "object" || flags === null || Array.isArray(flags)) {
+    throw new ProviderOutputValidationError("Invalid driver capability flags.", {
+      field: "flags",
+      reason: "flags must be an object",
+    });
+  }
+  const flagRecord = flags as Record<string, unknown>;
+  const keys = Object.keys(flagRecord);
   if (keys.length !== DRIVER_CAPABILITY_FLAGS.length) {
     throw new ProviderOutputValidationError("Invalid driver capability flags.", {
       field: "flags",
@@ -199,7 +272,10 @@ export function assertValidCapabilityFlags(flags: Record<string, unknown>): void
     });
   }
   for (const flag of DRIVER_CAPABILITY_FLAGS) {
-    if (!Object.prototype.hasOwnProperty.call(flags, flag) || typeof flags[flag] !== "boolean") {
+    if (
+      !Object.prototype.hasOwnProperty.call(flagRecord, flag) ||
+      typeof flagRecord[flag] !== "boolean"
+    ) {
       throw new ProviderOutputValidationError("Invalid driver capability flags.", {
         field: "flags",
         reason: "each canonical capability flag must be present and boolean",

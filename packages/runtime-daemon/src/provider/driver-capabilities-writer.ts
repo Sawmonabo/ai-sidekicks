@@ -150,6 +150,7 @@ import type { RuntimeNodeEventEmitter } from "../node/node-event-emitter.js";
 import {
   assertValidCapabilityFlags,
   assertValidContractVersion,
+  assertValidGetCapabilitiesResultShape,
   ProviderOutputValidationError,
 } from "./provider-output-validation.js";
 
@@ -456,6 +457,19 @@ export class DriverCapabilitiesWriter {
    * txn.
    */
   declare(input: DeclareDriverCapabilitiesInput): DeclareDriverCapabilitiesResult {
+    // (0) STRUCTURAL shape guard BEFORE any property dereference. The static
+    // `DeclareDriverCapabilitiesInput` type is erased at runtime, so a malformed
+    // driver can ship `result`, `result.capabilities`, or `result.tools` as
+    // null/array/primitive — and the very next line dereferences
+    // `input.result.capabilities.contractVersion`. Without this guard those
+    // accesses (and `input.result.tools.map(...)` below) raw-throw a TypeError,
+    // escaping this module's leak-safe doctrine (a rejected/invalid input must
+    // surface ONLY `ProviderOutputValidationError`, and must NEVER open a txn).
+    // This guards EXACTLY the accesses `declare` already makes — it is NOT a
+    // full re-parse of the result (value-normalization stays the Phase-3 driver
+    // adapter's job per provider-output-validation.ts's boundary comment).
+    assertValidGetCapabilitiesResultShape(input.result);
+
     // (1) Validate the provider-declared contract_version at the write seam
     // (defense-in-depth on top of the SQL CHECK — reuses the same assert as
     // RuntimeBindingStore). THROWS `ProviderOutputValidationError` on failure,
@@ -495,18 +509,28 @@ export class DriverCapabilitiesWriter {
     // file header). A copy is sorted in place — `.map()` above already produced a
     // fresh array, so this does not mutate the caller's input.
     //
-    // The comparator is a raw code-point compare (`<` / `>` on the string), NOT
-    // `localeCompare`, so the WRITE-side order MATCHES the READ-side order: the
-    // `#snapshot` reader orders via SQLite `ORDER BY tool_name`, which uses the
-    // default BINARY collation (byte/code-point memcmp). `localeCompare` is
-    // locale-aware (e.g. it can sort `"add"` before `"Search"` where BINARY sorts
-    // `'S'`=0x53 before `'a'`=0x61), so the two sides would DISAGREE on realistic
-    // mixed-case / underscore tool names — reintroducing the very spurious
-    // `capability_updated` (and a hydrate-order mismatch) the sort exists to
-    // prevent. A raw code-point comparator is byte-identical to SQLite BINARY, so
-    // write-side and read-side order coincide by construction.
+    // The comparator orders by UTF-8 BYTES (`Buffer.compare` of each name's
+    // UTF-8 encoding), NOT by JS string `<`/`>` and NOT by `localeCompare`, so
+    // the WRITE-side order MATCHES the READ-side order: the `#snapshot` reader
+    // orders via SQLite `ORDER BY tool_name`, and `driver_tools.tool_name` has NO
+    // COLLATE override, so SQLite uses its default BINARY collation — a memcmp of
+    // the stored UTF-8 bytes (better-sqlite3 stores TEXT as UTF-8). Matching that
+    // exact encoding is what makes the two sides agree.
+    //
+    // Why not JS `<`/`>`: JS string comparison is by UTF-16 CODE UNIT, not by
+    // code point or UTF-8 byte. For a supplementary-plane name (e.g. an emoji,
+    // U+1F600, whose UTF-16 lead surrogate is 0xD83D) adjacent to a high-BMP name
+    // in U+E000–U+FFFF, JS orders the surrogate FIRST (0xD83D < 0xE000) while
+    // SQLite BINARY orders the BMP name first (its UTF-8 lead byte 0xEE < the
+    // emoji's 0xF0) — the two sides DIVERGE. Since change-detection
+    // (`isDeepStrictEqual`, array-order-sensitive) and `hydrate()` both read the
+    // tool array positionally, that divergence would fire a spurious
+    // `capability_updated` on an identical re-declare AND mismatch the hydrate
+    // order. `localeCompare` would diverge even on common mixed-case names. The
+    // guarantee here comes from matching encodings (UTF-8 bytes === SQLite BINARY
+    // on a no-COLLATE TEXT column), not from any property of JS `<`.
     normalizedTools.sort((left, right) =>
-      left.name < right.name ? -1 : left.name > right.name ? 1 : 0,
+      Buffer.compare(Buffer.from(left.name, "utf8"), Buffer.from(right.name, "utf8")),
     );
 
     // (4b) REJECT duplicate NORMALIZED tool names BEFORE the txn opens. Two tools
@@ -547,8 +571,10 @@ export class DriverCapabilitiesWriter {
   /**
    * Cold-start hydration: reconstruct a driver's advertised
    * `GetCapabilitiesResult` from the durable cache WITHOUT round-tripping the
-   * driver (Spec-005:130-132). Pure READ — no transaction, no emit. Returns
-   * `undefined` when the driver has never been written.
+   * driver (Spec-005:130-132). Pure READ (no write, no emit); the three SELECTs
+   * run inside ONE `BEGIN DEFERRED` read transaction so they share a consistent
+   * snapshot — see the `#readTxn` field comment. Returns `undefined` when the
+   * driver has never been written.
    *
    * Returns the NESTED `GetCapabilitiesResult` (`{ capabilities: { flags,
    * contractVersion }, tools }`) — the shape `ProviderRegistry.register`

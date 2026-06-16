@@ -460,6 +460,63 @@ describe("DriverCapabilitiesWriter — canonical tool ordering", () => {
     const hydrated = writer.hydrate(DRIVER_NAME);
     expect(hydrated?.tools.map((tool) => tool.name)).toEqual(["Search", "add"]);
   });
+
+  it("sorts by UTF-8 BYTES (not JS UTF-16 code units): a supplementary-plane name re-declares as a no-op + hydrates in reader order (FINDING A)", () => {
+    // The discriminating case the ASCII "Search"/"add" test CANNOT catch: JS
+    // string `<`/`>` compares UTF-16 CODE UNITS, while SQLite `ORDER BY
+    // tool_name` (no COLLATE → default BINARY) compares UTF-8 BYTES.
+    //   * `\u{1F600}` (😀, supplementary plane) → UTF-16 lead surrogate 0xD83D,
+    //     UTF-8 lead byte 0xF0.
+    //   * `\u{E000}` (high-BMP private-use) → UTF-16 code unit 0xE000, UTF-8
+    //     lead byte 0xEE.
+    // JS says `\u{1F600}_tool < \u{E000}_tool` (0xD83D < 0xE000); SQLite BINARY
+    // says the REVERSE (0xEE < 0xF0). Under the OLD JS-`<` comparator the
+    // write-side order DISAGREES with the `ORDER BY tool_name` reader, so an
+    // identical re-declare reads as "changed" (array-order-sensitive
+    // `isDeepStrictEqual`) and fires a SPURIOUS `capability_updated`, AND hydrate
+    // returns a different order than the write side. The UTF-8-byte comparator
+    // makes both sides coincide → no-op + matching hydrate order.
+    const supplementaryName = "\u{1F600}_tool"; // 😀_tool — UTF-8 lead byte 0xF0
+    const highBmpName = "\u{E000}_tool"; // private-use — UTF-8 lead byte 0xEE
+    const { writer } = makeWriter();
+
+    // First declare establishes the snapshot (priorSnapshot === undefined, so the
+    // spurious-update bug only manifests on the IDENTICAL re-declare below).
+    writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result: makeResult({
+        tools: [
+          { name: supplementaryName, idempotency_class: "idempotent" },
+          { name: highBmpName, idempotency_class: "compensable" },
+        ],
+      }),
+    });
+
+    // Re-declare the IDENTICAL set in a DIFFERENT array order. The UTF-8-byte
+    // sort canonicalizes BOTH sides to the reader's BINARY order → no-op.
+    const outcome = writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result: makeResult({
+        tools: [
+          { name: highBmpName, idempotency_class: "compensable" },
+          { name: supplementaryName, idempotency_class: "idempotent" },
+        ],
+      }),
+    });
+    expect(outcome).toEqual({ emitted: "noop" });
+    // No spurious second event (under the old comparator this would be 2).
+    expect(readEventRows(SESSION_ID)).toHaveLength(1);
+
+    // hydrate returns tools in the reader's BINARY (UTF-8 byte) order — the
+    // high-BMP 0xEE name BEFORE the supplementary-plane 0xF0 name — matching the
+    // write-side sort.
+    const hydrated = writer.hydrate(DRIVER_NAME);
+    expect(hydrated?.tools.map((tool) => tool.name)).toEqual([highBmpName, supplementaryName]);
+  });
 });
 
 // ----------------------------------------------------------------------------
@@ -593,6 +650,99 @@ describe("DriverCapabilitiesWriter — malformed tool metadata", () => {
 
     expect(countCapabilityRows(DRIVER_NAME)).toBe(0);
     expect(readToolNames(DRIVER_NAME)).toEqual([]);
+    expect(countContractMetaRows(DRIVER_NAME)).toBe(0);
+    expect(readEventRows(SESSION_ID)).toHaveLength(0);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Structurally-malformed result — leak-safe typed error (NOT raw TypeError),
+// txn never opened (FINDING B)
+// ----------------------------------------------------------------------------
+
+describe("DriverCapabilitiesWriter — structurally-malformed result (leak-safe)", () => {
+  // The static `GetCapabilitiesResult` type forbids these shapes, so each malformed
+  // input is built and cast through `unknown` — the boundary an untyped provider
+  // would actually hit. Pre-fix, `declare` dereferences `result.capabilities.<...>`
+  // / `result.tools.map(...)` with NO structural guard and raw-throws a TypeError;
+  // post-fix the leak-safe `ProviderOutputValidationError` is thrown BEFORE any txn
+  // opens, so the tables stay untouched and no event is emitted.
+
+  function expectLeakSafeReject(malformedResult: unknown): void {
+    const { writer } = makeWriter();
+    let thrown: unknown;
+    try {
+      writer.declare({
+        sessionId: SESSION_ID,
+        nodeId: NODE_ID,
+        driverName: DRIVER_NAME,
+        result: malformedResult as GetCapabilitiesResult,
+      });
+    } catch (error) {
+      thrown = error;
+    }
+    // The DISCRIMINATOR vs pre-fix is the error TYPE + code (pre-fix: raw TypeError).
+    expect(thrown).toBeInstanceOf(ProviderOutputValidationError);
+    expect((thrown as ProviderOutputValidationError).code).toBe("driver.provider_output_invalid");
+
+    // No txn ever opened — all three driver tables untouched + no event emitted.
+    expect(countCapabilityRows(DRIVER_NAME)).toBe(0);
+    expect(readToolNames(DRIVER_NAME)).toEqual([]);
+    expect(countContractMetaRows(DRIVER_NAME)).toBe(0);
+    expect(readEventRows(SESSION_ID)).toHaveLength(0);
+  }
+
+  it("rejects a null `capabilities` as ProviderOutputValidationError (not a raw TypeError)", () => {
+    expectLeakSafeReject({ capabilities: null, tools: [] });
+  });
+
+  it("rejects a null `flags` as ProviderOutputValidationError (not a raw TypeError)", () => {
+    expectLeakSafeReject({
+      capabilities: { flags: null, contractVersion: CONTRACT_VERSION },
+      tools: [],
+    });
+  });
+
+  it("rejects a null `tools` as ProviderOutputValidationError (not a raw TypeError)", () => {
+    expectLeakSafeReject({
+      capabilities: { flags: makeFlags(), contractVersion: CONTRACT_VERSION },
+      tools: null,
+    });
+  });
+});
+
+// ----------------------------------------------------------------------------
+// contract_version build metadata — rejected (canonical-identity), documented
+// contract rule with explicit reason (FINDING C)
+// ----------------------------------------------------------------------------
+
+describe("DriverCapabilitiesWriter — contract_version build metadata rejected", () => {
+  it("rejects `1.2.3+build.5` (SemVer §10 build metadata) with a reason that names build metadata + writes NO rows", () => {
+    const { writer } = makeWriter();
+    let thrown: unknown;
+    try {
+      writer.declare({
+        sessionId: SESSION_ID,
+        nodeId: NODE_ID,
+        driverName: DRIVER_NAME,
+        // Build metadata is NON-identifying (SemVer §10): `semver.valid` STRIPS it
+        // to `1.2.3`, so `=== value` fails and the canonical-identity refine
+        // rejects it. Accepting it would let `+build.5` / `+build.6` denote the
+        // SAME version yet store byte-different strings → spurious capability_updated.
+        result: makeResult({
+          capabilities: { flags: makeFlags(), contractVersion: "1.2.3+build.5" },
+        }),
+      });
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(ProviderOutputValidationError);
+    expect((thrown as ProviderOutputValidationError).fields?.["field"]).toBe("contract_version");
+    // The surfaced reason explicitly references build metadata (the documented rule).
+    expect((thrown as ProviderOutputValidationError).fields?.["reason"]).toMatch(/build metadata/i);
+
+    // Rejected before any txn opened — tables untouched, no event.
+    expect(countCapabilityRows(DRIVER_NAME)).toBe(0);
     expect(countContractMetaRows(DRIVER_NAME)).toBe(0);
     expect(readEventRows(SESSION_ID)).toHaveLength(0);
   });

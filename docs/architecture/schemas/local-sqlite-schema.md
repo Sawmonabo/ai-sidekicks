@@ -155,7 +155,7 @@ CREATE TABLE runtime_bindings (
   id                TEXT PRIMARY KEY,
   run_id            TEXT NOT NULL,
   driver_name       TEXT NOT NULL,            -- e.g. 'claude', 'codex'
-  contract_version  TEXT NOT NULL             -- semver of driver contract
+  contract_version  TEXT NOT NULL             -- canonical, identifying semver of driver contract (build metadata rejected by the T2.2 write-path Zod guard)
                     CHECK (length(contract_version) > 0 AND length(contract_version) <= 64 AND instr(contract_version, char(0)) = 0),
   resume_handle     TEXT                      -- provider-owned opaque handle
                     CHECK (resume_handle IS NULL OR (length(resume_handle) > 0 AND length(resume_handle) <= 4096 AND instr(resume_handle, char(0)) = 0)),
@@ -203,13 +203,18 @@ CREATE TABLE driver_tools (
 -- GetCapabilitiesResult = { capabilities: { flags, contractVersion }, tools } WITHOUT
 -- round-tripping the driver (Spec-005:130-132 cache-as-source-of-truth). Distinct from
 -- runtime_bindings.contract_version, which records the version bound to a specific run.
--- Provider-output defense-in-depth CHECK (Plan-005 T2.1): contract_version
--- mirrors the runtime_bindings.contract_version bound (length + NUL-rejection,
+-- Provider-output defense-in-depth CHECK (Plan-005 T2.1): `contract_version`
+-- mirrors the `runtime_bindings.contract_version` bound (length + NUL-rejection,
 -- 64-char ceiling). Semver-shape validation lives at the T2.4 write-path Zod
 -- guard (the `semver` package) — not expressible as a pure-SQLite CHECK.
+-- `contract_version` is a CANONICAL, IDENTIFYING semver string: build metadata
+-- (SemVer §10, non-identifying) is rejected by the T2.4 write-path Zod guard, so
+-- two byte-different strings can never denote the same contract version (which
+-- would otherwise spuriously fire `runtime_node.capability_updated` on a
+-- non-change).
 CREATE TABLE driver_contract_meta (
   driver_name       TEXT PRIMARY KEY,
-  contract_version  TEXT NOT NULL             -- semver of the driver's advertised capability contract
+  contract_version  TEXT NOT NULL             -- canonical, identifying semver of the driver's advertised capability contract (build metadata rejected by the T2.4 write-path Zod guard)
                     CHECK (length(contract_version) > 0 AND length(contract_version) <= 64 AND instr(contract_version, char(0)) = 0),
   refreshed_at      TEXT NOT NULL             -- last capability-refresh write (matches driver_capabilities.refreshed_at cadence)
 );
