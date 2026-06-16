@@ -183,7 +183,7 @@ See [Local SQLite Schema §Driver and Runtime Binding Tables](../architecture/sc
   - Estimate: 1 PR
 
 - **T2.4** — Author `driver_capabilities` cache writer logic.
-  - Files: `packages/runtime-daemon/src/provider/driver-capabilities-writer.ts` (new)
+  - Files: `packages/runtime-daemon/src/provider/driver-capabilities-writer.ts` (new); `packages/contracts/src/provider-driver.ts` (modify — hoist the existing `DriverCapabilityFlag` union to a runtime `DRIVER_CAPABILITY_FLAGS` `as const`, re-deriving the union via `(typeof DRIVER_CAPABILITY_FLAGS)[number]`, so the write-seam guard, migration-0003 CHECK, and integration fixtures share one canonical 7-flag source. Contract-preserving type-companion refactor of an already-shipped declaration — byte-equivalent union, NOT a provider-output Zod schema; the `assertValidCapabilityFlags` guard stays at the write seam in `provider-output-validation.ts` per the T2.1 provider-output validation obligation)
   - Spec coverage: Spec-005:48 (undeclared capabilities = unsupported — drives the cache-as-source-of-truth pattern); ADR-005 (normalized driver interface)
   - Verifies invariant: I-005-2
   - Consumes: T1.2 DriverCapabilities shape; T2.1 `driver_capabilities` + `driver_tools` + `driver_contract_meta` tables; T2.3 ProviderRegistry
