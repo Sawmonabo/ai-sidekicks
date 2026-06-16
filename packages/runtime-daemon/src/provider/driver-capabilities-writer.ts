@@ -552,8 +552,26 @@ export class DriverCapabilitiesWriter {
     }
 
     // (5) Build the NEW flat snapshot (the canonical `CapabilityDetails` shape).
+    // Build `flags` as a FRESH plain record keyed by the canonical
+    // `DRIVER_CAPABILITY_FLAGS`, reading each validated flag ONCE — never store the
+    // provider's raw `flags` object by reference. Three consumers read this
+    // snapshot's flags: the change-detection JSON round-trip (step 0 in `#writeTxn`),
+    // the `driver_capabilities` write loop (raw `flags[flag]` reads), and the
+    // emitted event payload (serialized downstream). A raw provider object can carry
+    // a custom/inherited `toJSON` that passes `assertValidCapabilityFlags` (own
+    // enumerable keys + boolean values only, NOT the prototype) yet taints the two
+    // JSON-serializing consumers while the raw write loop sees the true booleans —
+    // diverging the persisted rows from the change-detect snapshot and the event
+    // payload, and firing a spurious `capability_updated` on an identical re-declare.
+    // A fresh own-key boolean record severs toJSON / getters / prototype hooks so all
+    // three consumers read identical plain primitives. Consistent with the defensive
+    // snapshot-clone doctrine already applied elsewhere in this writer.
+    const flags = {} as Record<DriverCapabilityFlag, boolean>;
+    for (const capabilityFlag of DRIVER_CAPABILITY_FLAGS) {
+      flags[capabilityFlag] = input.result.capabilities.flags[capabilityFlag] === true;
+    }
     const newSnapshot: CapabilityDetails = {
-      flags: input.result.capabilities.flags,
+      flags,
       contractVersion: input.result.capabilities.contractVersion,
       tools: normalizedTools,
     };

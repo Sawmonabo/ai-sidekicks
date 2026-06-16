@@ -187,7 +187,7 @@ export function assertValidResumeHandle(value: string): void {
  * `declare` already makes — it is BOUNDED:
  *   * `result` is a non-null, non-array object,
  *   * `result.capabilities` is a non-null, non-array object,
- *   * `result.tools` is an Array (so `.map` is safe).
+ *   * `result.tools` is a DENSE Array (no sparse holes — so the downstream `.map` cannot silently skip a hole and the in-txn insert loop cannot dereference an undefined hole).
  * It deliberately does NOT re-parse `capabilities.flags` /
  * `capabilities.contractVersion` / each tool entry — those keep their dedicated
  * downstream validators (`assertValidCapabilityFlags`,
@@ -211,11 +211,30 @@ export function assertValidGetCapabilitiesResultShape(result: unknown): void {
       reason: "capabilities must be an object",
     });
   }
-  if (!Array.isArray(resultRecord["tools"])) {
+  const tools = resultRecord["tools"];
+  if (!Array.isArray(tools)) {
     throw new ProviderOutputValidationError("Invalid provider capability result.", {
       field: "tools",
       reason: "tools must be an array",
     });
+  }
+  // Reject SPARSE arrays (holes). `Array.isArray` is true for `[ , x]`, but the
+  // `declare` path `.map`s the tools (which SKIPS holes, leaving them in the
+  // normalized array) and the in-txn insert loop then iterates with `for...of`
+  // (which does NOT skip holes — it yields `undefined`), so a hole would
+  // dereference `undefined.name` as a raw TypeError from INSIDE an already-opened
+  // transaction — violating both the "never open a txn on rejected input" and the
+  // "leak-safe ProviderOutputValidationError, never a raw error" doctrines.
+  // `index in tools` is the precise hole test (false for a hole, true for an
+  // explicitly-set index, even one whose value is undefined). Asserting density
+  // HERE makes this guard's "tools is a well-formed array" contract literally true.
+  for (let index = 0; index < tools.length; index += 1) {
+    if (!(index in tools)) {
+      throw new ProviderOutputValidationError("Invalid provider capability result.", {
+        field: "tools",
+        reason: "tools must be a dense array (sparse holes are not permitted)",
+      });
+    }
   }
 }
 

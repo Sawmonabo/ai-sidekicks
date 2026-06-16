@@ -34,6 +34,7 @@ import {
   DRIVER_CAPABILITY_FLAGS,
   type DriverCapabilityFlag,
   type GetCapabilitiesResult,
+  type ProviderToolMetadata,
 } from "@ai-sidekicks/contracts";
 
 import { RuntimeNodeEventEmitter } from "../../node/node-event-emitter.js";
@@ -708,6 +709,166 @@ describe("DriverCapabilitiesWriter — structurally-malformed result (leak-safe)
       capabilities: { flags: makeFlags(), contractVersion: CONTRACT_VERSION },
       tools: null,
     });
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Sparse tools array — rejected at the shape guard, txn never opened (FIX D)
+// ----------------------------------------------------------------------------
+
+describe("DriverCapabilitiesWriter — sparse tools array (leak-safe, shape guard)", () => {
+  it("rejects a SPARSE tools array (a hole) as ProviderOutputValidationError BEFORE any txn opens — closes the undefined-hole-deref class", () => {
+    const { writer } = makeWriter();
+
+    // Build a SPARSE array PROGRAMMATICALLY (not a literal `[a, , b]`, which the
+    // `no-sparse-arrays` lint forbids): a valid tool at index 0, then bump the
+    // length so index 1 is a HOLE (`length === 2`, only index 0 set). `Array.isArray`
+    // is true for this, so the OLD guard's bare array-check would PASS it; the
+    // `declare` `.map` then SKIPS the hole (leaving it in `normalizedTools`) and the
+    // in-txn `for...of` insert loop iterates the hole as `undefined`, dereferencing
+    // `undefined.name` — a raw TypeError from INSIDE an already-opened transaction.
+    const validTool: ProviderToolMetadata = { name: "search", idempotency_class: "idempotent" };
+    const sparseTools: ProviderToolMetadata[] = [];
+    sparseTools[0] = validTool;
+    sparseTools.length = 2; // index 1 is a HOLE
+    expect(0 in sparseTools).toBe(true);
+    expect(1 in sparseTools).toBe(false); // confirms the hole
+
+    let thrown: unknown;
+    try {
+      writer.declare({
+        sessionId: SESSION_ID,
+        nodeId: NODE_ID,
+        driverName: DRIVER_NAME,
+        // Pass the sparse array by REFERENCE (object spread copies the reference, so
+        // holes survive to the shape guard). NEVER route through an array spread —
+        // `[...sparseTools]` densifies holes to `undefined` and defeats the test.
+        result: makeResult({ tools: sparseTools }),
+      });
+    } catch (error) {
+      thrown = error;
+    }
+    // Leak-safe typed error (pre-fix: raw TypeError from inside the txn).
+    expect(thrown).toBeInstanceOf(ProviderOutputValidationError);
+    expect((thrown as ProviderOutputValidationError).code).toBe("driver.provider_output_invalid");
+    expect((thrown as ProviderOutputValidationError).fields?.["field"]).toBe("tools");
+    // The reason names the density/sparse contract (the documented rule).
+    expect((thrown as ProviderOutputValidationError).fields?.["reason"]).toMatch(/dense|sparse/i);
+
+    // No txn ever opened — all three driver tables untouched + NO event emitted.
+    expect(countCapabilityRows(DRIVER_NAME)).toBe(0);
+    expect(readToolNames(DRIVER_NAME)).toEqual([]);
+    expect(countContractMetaRows(DRIVER_NAME)).toBe(0);
+    expect(readEventRows(SESSION_ID)).toHaveLength(0);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// toJSON-tainted flags — snapshot clones flags into a fresh plain record (FIX E)
+// ----------------------------------------------------------------------------
+
+describe("DriverCapabilitiesWriter — toJSON-tainted flags (defensive snapshot clone)", () => {
+  it("clones flags into a fresh plain record so serialized consumers see real booleans (not toJSON output) and an identical re-declare no-ops", () => {
+    const { writer } = makeWriter();
+
+    // All 7 canonical boolean flags, PLUS a NON-ENUMERABLE `toJSON` — so the
+    // `assertValidCapabilityFlags` cardinality check (`Object.keys`, own ENUMERABLE
+    // keys) still sees EXACTLY 7 and passes, but `JSON.stringify(snapshot)` would
+    // (pre-fix, when flags is stored by reference) invoke `toJSON` and serialize
+    // `{poisoned:true}` instead of the real flag booleans — tainting BOTH the
+    // change-detection JSON round-trip AND the emitted event payload, while the raw
+    // `flags[flag]` write loop sees the TRUE booleans → the rows DIVERGE from the
+    // event payload AND an identical re-declare spuriously fires `capability_updated`.
+    const taintedFlags = makeFlags({ steer: true, mcp: true }) as Record<string, unknown>;
+    Object.defineProperty(taintedFlags, "toJSON", {
+      value: () => ({ poisoned: true }),
+      enumerable: false,
+    });
+    // Sanity: the own-ENUMERABLE key-set is still exactly the 7 canonical flags
+    // (the non-enumerable toJSON does not inflate cardinality).
+    expect(Object.keys(taintedFlags).sort()).toEqual([...DRIVER_CAPABILITY_FLAGS].sort());
+
+    const outcome = writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result: makeResult({
+        capabilities: {
+          flags: taintedFlags as unknown as Record<DriverCapabilityFlag, boolean>,
+          contractVersion: CONTRACT_VERSION,
+        },
+      }),
+    });
+    expect(outcome).toEqual({ emitted: "declared" });
+
+    // (a) The three-table write carries the TRUE boolean values. `steer` + `mcp`
+    // are the true pair (alongside the makeFlags baseline `resume` + `tool_calls`);
+    // the rest are false. (This passes pre-fix too — the write loop never serializes
+    // — so it is a coherence check, NOT the class-closing discriminator.)
+    expect(countCapabilityRows(DRIVER_NAME)).toBe(7);
+    const supportedByFlag = Object.fromEntries(
+      (
+        db
+          .prepare(
+            `SELECT capability_flag, supported FROM driver_capabilities WHERE driver_name = ?`,
+          )
+          .all(DRIVER_NAME) as ReadonlyArray<{ capability_flag: string; supported: number }>
+      ).map((row) => [row.capability_flag, row.supported === 1]),
+    );
+    expect(supportedByFlag).toEqual({
+      resume: true,
+      tool_calls: true,
+      steer: true,
+      mcp: true,
+      interactive_requests: false,
+      reasoning_stream: false,
+      model_mutation: false,
+    });
+
+    // (b) CLASS-CLOSING DISCRIMINATOR: the SERIALIZED event payload carries the real
+    // flag record, NOT `{poisoned:true}`. The DB-read path round-trips through
+    // `JSON.stringify` at append time — exactly where the toJSON taint manifests.
+    const declaredEvent = readEventRows(SESSION_ID)[0];
+    expect(declaredEvent).toBeDefined();
+    if (declaredEvent === undefined) return;
+    const payload = JSON.parse(declaredEvent.payload) as {
+      capabilityDetails: { flags: Record<string, boolean> };
+    };
+    expect(payload.capabilityDetails.flags).toEqual({
+      resume: true,
+      tool_calls: true,
+      steer: true,
+      mcp: true,
+      interactive_requests: false,
+      reasoning_stream: false,
+      model_mutation: false,
+    });
+    // Belt-and-suspenders on the raw serialized bytes: the real flag keys are
+    // present and the toJSON marker is absent.
+    const flagsJson = JSON.stringify(payload.capabilityDetails.flags);
+    expect(flagsJson).toContain("steer");
+    expect(flagsJson).toContain("mcp");
+    expect(flagsJson).not.toContain("poisoned");
+
+    // (c) CLASS-CLOSING DISCRIMINATOR: a SECOND identical declare (same tainted
+    // object) is a NO-OP — change-detection compares plain booleans on BOTH sides.
+    // Pre-fix, the prior snapshot's `toJSON` would serialize `{poisoned:true}` on
+    // one side and (depending on which side stored the raw object) diverge, firing a
+    // spurious `capability_updated`.
+    const secondOutcome = writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result: makeResult({
+        capabilities: {
+          flags: taintedFlags as unknown as Record<DriverCapabilityFlag, boolean>,
+          contractVersion: CONTRACT_VERSION,
+        },
+      }),
+    });
+    expect(secondOutcome).toEqual({ emitted: "noop" });
+    // Still exactly one event (no spurious capability_updated).
+    expect(readEventRows(SESSION_ID)).toHaveLength(1);
   });
 });
 
