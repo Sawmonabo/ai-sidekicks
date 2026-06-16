@@ -136,6 +136,7 @@ test("validateManifestSubagentStage: pass when every pending item has semantic_e
   };
   assert.deepEqual(validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) }), {
     valid: true,
+    narrationModeDetected: false,
   });
 });
 
@@ -634,6 +635,304 @@ test("validateManifestSubagentStage: scans nested semantic_edits values (e.g. ar
   );
 });
 
+// --- Placeholder-scan policy: STRICT literal match (PR #162 round 3) ---
+// `hasUnresolvedPlaceholder` is a strict `text.includes(PLACEHOLDER)` — ANY
+// occurrence of the literal token is an unreplaced stub. A legitimate resolution
+// narrative never contains the meta-token, so there is no "legitimate mention" to
+// exempt; backtick-wrapping is not replacement. Rounds 1-2 stripped inline-code
+// spans to permit backtick mentions, but that premise let a subagent hide a stub
+// by backticking it (empty stub, then a stub embedded beside real content —
+// Codex P2 ×2). The tests below pin every shape to a gap: raw, backtick-wrapped,
+// backtick-only, and embedded-beside-real-content, on disk and in semantic_edits.
+
+test("validateManifestSubagentStage: a backtick-wrapped <TODO subagent prose> token in semantic_edits still gaps (strict-literal — backtick-wrapping is not replacement)", () => {
+  // The PR #161 shape, re-classified under the strict-literal policy (PR #162
+  // round 3): wrapping the token in an inline-code span is NOT a resolution. A
+  // legitimate narrative never contains the literal token at all, so any
+  // occurrence — even one quoted while "narrating" the stub's removal — is an
+  // unreplaced stub. The no-echo rule is enforced in the subagent contract.
+  const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
+    semantic_work_pending: ["compose_status_completion_prose"],
+    semantic_edits: {
+      compose_status_completion_prose:
+        "Replaced the `<TODO subagent prose>` placeholder with the composed NS-36 entry; no `<TODO subagent prose>` stubs remain.",
+    },
+    concerns: [],
+    affected_files: [],
+    result: "DONE",
+  };
+  const result = validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) });
+  assert.equal(
+    result.valid,
+    false,
+    `a backtick-wrapped token is not replacement and must gap; got gaps: ${JSON.stringify(result.gaps)}`,
+  );
+  assert.ok(
+    result.gaps.some(
+      (g) =>
+        g.includes("<TODO subagent prose>") &&
+        g.includes("semantic_edits.compose_status_completion_prose"),
+    ),
+    `expected a placeholder-still-present gap for the backtick-wrapped token; got: ${JSON.stringify(result.gaps)}`,
+  );
+});
+
+test("validateManifestSubagentStage: a value mixing a backtick mention AND a raw stub still gaps (strip must not mask real stubs)", () => {
+  const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
+    semantic_work_pending: ["compose_status_completion_prose"],
+    semantic_edits: {
+      compose_status_completion_prose:
+        "Replaced the `<TODO subagent prose>` mention but left a raw <TODO subagent prose> here.",
+    },
+    concerns: [],
+    affected_files: [],
+    result: "DONE",
+  };
+  const result = validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) });
+  assert.equal(result.valid, false);
+  assert.ok(
+    result.gaps.some(
+      (g) =>
+        g.includes("<TODO subagent prose>") &&
+        g.includes("semantic_edits.compose_status_completion_prose"),
+    ),
+    `the unquoted stub must still gap even alongside a backtick mention; got: ${JSON.stringify(result.gaps)}`,
+  );
+});
+
+test("validateManifestSubagentStage: a semantic_edits value that is ONLY a backticked placeholder still gaps (Codex PR #162 P2 disguised stub)", () => {
+  // The subagent "addresses" a pending item by echoing the placeholder inside
+  // backticks instead of composing real prose. The bare value is non-empty, so
+  // the pending-item meaningfulness check (#2) passes it — but strict-literal
+  // hasUnresolvedPlaceholder rejects it because the token is present at all.
+  const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
+    semantic_work_pending: ["compose_status_completion_prose"],
+    semantic_edits: {
+      compose_status_completion_prose: "`<TODO subagent prose>`",
+    },
+    concerns: [],
+    affected_files: [],
+    result: "DONE",
+  };
+  const result = validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) });
+  assert.equal(
+    result.valid,
+    false,
+    `a backtick-only placeholder is fake work and must gap; got gaps: ${JSON.stringify(result.gaps)}`,
+  );
+  assert.ok(
+    result.gaps.some(
+      (g) =>
+        g.includes("<TODO subagent prose>") &&
+        g.includes("semantic_edits.compose_status_completion_prose"),
+    ),
+    `expected a placeholder-still-present gap for the disguised stub; got: ${JSON.stringify(result.gaps)}`,
+  );
+});
+
+test("validateManifestSubagentStage: a backtick-wrapped <TODO subagent prose> token in an affected file still gaps (strict-literal)", () => {
+  const tmpRepo = mkdtempSync(join(tmpdir(), "validate-todo-mention-"));
+  try {
+    mkdirSync(join(tmpRepo, "docs/architecture"), { recursive: true });
+    writeFileSync(
+      join(tmpRepo, "docs/architecture/cross-plan-dependencies.md"),
+      "### NS-01: foo\n- Replaced the `<TODO subagent prose>` placeholder with the composed entry.\n",
+    );
+    const manifest = {
+      _script_stage: {
+        affected_files: [],
+        schema_violations: [],
+        verification_failures: [],
+        semantic_work_pending: [],
+      },
+      semantic_work_pending: [],
+      semantic_edits: {},
+      concerns: [],
+      affected_files: ["docs/architecture/cross-plan-dependencies.md"],
+      result: "DONE",
+    };
+    const result = validateManifestSubagentStage({
+      manifest,
+      repoRoot: tmpRepo,
+      ...stageOneFromManifest(manifest),
+    });
+    assert.equal(
+      result.valid,
+      false,
+      `a backtick-wrapped token in on-disk content must gap; got: ${JSON.stringify(result.gaps)}`,
+    );
+    assert.ok(
+      result.gaps.some(
+        (g) =>
+          g.includes("<TODO subagent prose>") &&
+          g.includes("docs/architecture/cross-plan-dependencies.md"),
+      ),
+      `expected a placeholder-still-present gap for the file; got: ${JSON.stringify(result.gaps)}`,
+    );
+  } finally {
+    rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test("validateManifestSubagentStage: an embedded backtick-wrapped token in a Status line still gaps on disk (Codex PR #162 round-3 P2)", () => {
+  // The exact evasion Codex flagged: the subagent backtick-wraps ONLY the token
+  // inside an otherwise-real Status line, leaving meaningful content around it.
+  // Round-2's strip-then-check missed this (the stripped remainder was a
+  // non-empty Status line, so the disguised-stub branch (b) did not fire).
+  // Strict-literal catches it: the token is present, period.
+  const tmpRepo = mkdtempSync(join(tmpdir(), "validate-todo-embedded-"));
+  try {
+    mkdirSync(join(tmpRepo, "docs/architecture"), { recursive: true });
+    writeFileSync(
+      join(tmpRepo, "docs/architecture/cross-plan-dependencies.md"),
+      "### NS-01: foo\n- Status: `completed` (resolved 2026-05-03 via PR #30 — `<TODO subagent prose>`)\n",
+    );
+    const manifest = {
+      _script_stage: {
+        affected_files: [],
+        schema_violations: [],
+        verification_failures: [],
+        semantic_work_pending: [],
+      },
+      semantic_work_pending: [],
+      semantic_edits: {},
+      concerns: [],
+      affected_files: ["docs/architecture/cross-plan-dependencies.md"],
+      result: "DONE",
+    };
+    const result = validateManifestSubagentStage({
+      manifest,
+      repoRoot: tmpRepo,
+      ...stageOneFromManifest(manifest),
+    });
+    assert.equal(
+      result.valid,
+      false,
+      `an embedded backtick-wrapped token must gap; got: ${JSON.stringify(result.gaps)}`,
+    );
+    assert.ok(
+      result.gaps.some(
+        (g) =>
+          g.includes("<TODO subagent prose>") &&
+          g.includes("docs/architecture/cross-plan-dependencies.md"),
+      ),
+      `expected a placeholder-still-present gap for the file; got: ${JSON.stringify(result.gaps)}`,
+    );
+  } finally {
+    rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test("validateManifestSubagentStage: an embedded backtick-wrapped token in a semantic_edits value still gaps (Codex PR #162 round-3 P2)", () => {
+  // Same evasion on the semantic_edits surface (walkForPlaceholder): the token is
+  // backtick-wrapped inside an otherwise-real composed Status line.
+  const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
+    semantic_work_pending: ["compose_status_completion_prose"],
+    semantic_edits: {
+      compose_status_completion_prose:
+        "- Status: `completed` (resolved 2026-05-03 via PR #30 — `<TODO subagent prose>`)",
+    },
+    concerns: [],
+    affected_files: [],
+    result: "DONE",
+  };
+  const result = validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) });
+  assert.equal(
+    result.valid,
+    false,
+    `an embedded backtick-wrapped token must gap; got: ${JSON.stringify(result.gaps)}`,
+  );
+  assert.ok(
+    result.gaps.some(
+      (g) =>
+        g.includes("<TODO subagent prose>") &&
+        g.includes("semantic_edits.compose_status_completion_prose"),
+    ),
+    `expected a placeholder-still-present gap; got: ${JSON.stringify(result.gaps)}`,
+  );
+});
+
+// --- narration-mode signal hardening (exit-2→exit-1 spoof) -------------------
+// `narrationModeDetected` is the trusted check-#13 signal returned by the
+// validator. It must reflect the genuine narration shape, NOT be re-derivable
+// from gap text (a subagent can name a pending item `narration_mode_detected`,
+// making the unaddressed-item gap START with that token).
+
+test("validateManifestSubagentStage: narrationModeDetected stays false when a pending item is named 'narration_mode_detected' (spoof closed)", () => {
+  const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
+    // Subagent self-names a pending item the same as the check-#13 token.
+    semantic_work_pending: ["narration_mode_detected"],
+    semantic_edits: {},
+    concerns: [],
+    affected_files: [],
+    result: "DONE", // canonical → genuine narration check (#13) cannot fire
+  };
+  const result = validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) });
+  assert.equal(result.valid, false); // the unaddressed item still gaps
+  assert.ok(
+    result.gaps.some((g) => g.startsWith("narration_mode_detected")),
+    `the spoofed item still produces a gap starting with the token; got: ${JSON.stringify(result.gaps)}`,
+  );
+  assert.equal(
+    result.narrationModeDetected,
+    false,
+    "trusted signal must stay false — manifest result is canonical, so it is not narration",
+  );
+});
+
+test("validateManifestSubagentStage: narrationModeDetected is true on a genuine script-stage narration manifest", () => {
+  const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: ["compose_status_completion_prose"],
+    },
+    // Narration shape: subagent echoed the script-stage skeleton without doing work.
+    semantic_work_pending: ["compose_status_completion_prose"],
+    semantic_edits: {},
+    concerns: [],
+    affected_files: [],
+    result: "pending-analysis", // non-canonical; subagent_completed_at intentionally unset
+  };
+  const result = validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) });
+  assert.equal(
+    result.narrationModeDetected,
+    true,
+    `genuine narration shape must set the trusted signal; got: ${JSON.stringify(result)}`,
+  );
+});
+
 test("validateManifestSubagentStage: schema_violations require per-entry concerns match (1 generic concern cannot satisfy N violations)", () => {
   // Codex P1 regression (PR #33): the prior `.some(c => c.kind === "schema_violation")`
   // predicate ignored `sv` entirely, so a single generic concern absorbed every violation.
@@ -811,6 +1110,7 @@ test("validateManifestSubagentStage: BLOCKED result waives per-item pairing for 
   };
   assert.deepEqual(validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) }), {
     valid: true,
+    narrationModeDetected: false,
   });
 });
 
@@ -831,6 +1131,7 @@ test("validateManifestSubagentStage: NEEDS_CONTEXT result waives per-item pairin
   };
   assert.deepEqual(validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) }), {
     valid: true,
+    narrationModeDetected: false,
   });
 });
 
@@ -875,6 +1176,7 @@ test("validateManifestSubagentStage: per-item pairing matches by `addressing: <i
   };
   assert.deepEqual(validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) }), {
     valid: true,
+    narrationModeDetected: false,
   });
 });
 
@@ -1013,6 +1315,7 @@ test("validateManifestSubagentStage: passes when semantic_edits[item] is a non-e
   };
   assert.deepEqual(validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) }), {
     valid: true,
+    narrationModeDetected: false,
   });
 });
 
@@ -1156,6 +1459,7 @@ test("validateManifestSubagentStage: passes when result is 'DONE'", () => {
   };
   assert.deepEqual(validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) }), {
     valid: true,
+    narrationModeDetected: false,
   });
 });
 
@@ -1218,6 +1522,7 @@ test("validateManifestSubagentStage: passes when schema_violations present AND r
   };
   assert.deepEqual(validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) }), {
     valid: true,
+    narrationModeDetected: false,
   });
 });
 
@@ -1285,6 +1590,7 @@ test("validateManifestSubagentStage: passes when verification_failures present A
   };
   assert.deepEqual(validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) }), {
     valid: true,
+    narrationModeDetected: false,
   });
 });
 
@@ -1495,7 +1801,7 @@ test("validateManifestSubagentStage: subagent passes when schema_violations pres
       ...stageOneFromManifest(subagentManifest),
       scriptSchemaViolations,
     }),
-    { valid: true },
+    { valid: true, narrationModeDetected: false },
   );
 });
 
@@ -1530,7 +1836,7 @@ test("validateManifestSubagentStage: subagent may ADD new schema_violations beyo
       ...stageOneFromManifest(subagentManifest),
       scriptSchemaViolations,
     }),
-    { valid: true },
+    { valid: true, narrationModeDetected: false },
   );
 });
 
@@ -1613,7 +1919,7 @@ test("validateManifestSubagentStage: subagent passes when verification_failures 
       ...stageOneFromManifest(subagentManifest),
       scriptVerificationFailures,
     }),
-    { valid: true },
+    { valid: true, narrationModeDetected: false },
   );
 });
 
@@ -1648,7 +1954,7 @@ test("validateManifestSubagentStage: key-order-independent JSON canonicalization
       ...stageOneFromManifest(subagentManifest),
       scriptVerificationFailures,
     }),
-    { valid: true },
+    { valid: true, narrationModeDetected: false },
   );
 });
 
@@ -1732,7 +2038,7 @@ test("validateManifestSubagentStage: subagent passes when all script-stage pendi
       ...stageOneFromManifest(subagentManifest),
       scriptSemanticWorkPending,
     }),
-    { valid: true },
+    { valid: true, narrationModeDetected: false },
   );
 });
 
@@ -2013,7 +2319,7 @@ test("validateManifestSubagentStage: baseline-trust gap suppressed when all four
       manifest: subagentManifest,
       ...stageOneFromManifest(subagentManifest),
     }),
-    { valid: true },
+    { valid: true, narrationModeDetected: false },
   );
 });
 

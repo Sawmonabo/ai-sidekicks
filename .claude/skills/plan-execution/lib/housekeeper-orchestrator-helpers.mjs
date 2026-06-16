@@ -8,6 +8,36 @@ import process from "node:process";
 // and `walkForPlaceholder`. Module-private — the prompt template embeds the literal as prose.
 const PLACEHOLDER = "<TODO subagent prose>";
 
+/**
+ * True when the PLACEHOLDER stub is unresolved in `text` — i.e. the literal
+ * token appears at all.
+ *
+ * Deliberately a STRICT literal substring match, NOT a code-span-aware
+ * heuristic. The token is script-injected (written only into stubbed `Status:`
+ * lines and `semantic_edits` values for the subagent to replace), and a
+ * legitimate resolution narrative never contains it — a real narrative reads
+ * "implemented the provider registry (NS-36)", never the meta-token itself. So
+ * ANY occurrence — raw, backtick-wrapped, or embedded beside otherwise-real
+ * prose — is an unreplaced stub. Backtick-wrapping is not replacement; the
+ * subagent contract (canonical-template Hard rule) forbids echoing the token in
+ * any output, and the only files that legitimately carry it (this skill's
+ * contract doc, SKILL.md, test fixtures) are never in the housekeeper's edit
+ * surface.
+ *
+ * History (PR #162): rounds 1-2 stripped inline-code spans before the scan to
+ * permit "legitimate backtick mentions" — but that premise WAS the bug. It let a
+ * subagent hide an unreplaced stub by backticking it: first an empty backticked
+ * stub, then a stub embedded beside real content (Codex P2, twice). Do NOT
+ * re-introduce code-span stripping here — it reopens the evasion class. The
+ * no-echo rule belongs in the subagent contract; this scan stays strict.
+ *
+ * @param {string} text
+ * @returns {boolean}
+ */
+function hasUnresolvedPlaceholder(text) {
+  return text.includes(PLACEHOLDER);
+}
+
 // Canonical subagent prompt template — verbatim from
 // .claude/skills/plan-execution/references/post-merge-housekeeper-contract.md §Canonical Subagent Prompt Template.
 // Plan §Decisions-Locked D-1: this contract is canonical; the script reproduces it verbatim,
@@ -35,7 +65,7 @@ Your responsibilities (per Spec §5.4 / §6.2):
 Hard rules:
 - Do NOT introduce new exit-states.
 - Do NOT edit files outside \`manifest.affected_files\`.
-- Do NOT leave \`<TODO subagent prose>\` placeholders intact.
+- Do NOT leave \`<TODO subagent prose>\` placeholders intact. Quoting, backtick-wrapping, or otherwise echoing the literal token does NOT count as replacement — composing the resolution narrative does. The literal string \`<TODO subagent prose>\` MUST NOT appear anywhere in your output: not in any edited file, not in any \`semantic_edits\` value. The validator rejects every occurrence (inside code spans or not).
 - Do NOT read NS catalog item BODIES; the §6-prose-only constraint applies to the set-quantifier reverification surface (responsibility #2).
 - Do NOT confuse design-spec §6 ("Data flow") with \`cross-plan-dependencies.md\` §6 ("Active Next Steps DAG"); D-2 routes to the latter.
 - Do NOT touch \`manifest._script_stage\`. It is the script-embedded snapshot of the four arrays the validator enforces preservation/iteration on (\`affected_files\`, \`schema_violations\`, \`verification_failures\`, \`semantic_work_pending\`); when you rewrite the manifest, copy \`_script_stage\` through verbatim. The orchestrator plumbs its own stage-1 conversation-memory copy of these arrays as the validator's authoritative baseline (see § \`_script_stage\` snapshot + orchestrator plumbing); the manifest-embedded \`_script_stage\` is a redundant integrity signal — removing the key, replacing it with a non-object, or swapping any of its four fields for non-array values is itself a bypass attempt and surfaces in the validator as a structural-tampering gap.`;
@@ -178,7 +208,13 @@ export function buildHousekeeperPrompt({ manifestPath, scriptExitCode, prNumber,
  *   `manifest._script_stage` (when present) shape: `{ affected_files: string[],
  *   schema_violations: object[], verification_failures: object[],
  *   semantic_work_pending: string[] }` — see contract doc §Manifest schema.
- * @returns {{ valid: true } | { valid: false, gaps: string[] }}
+ * @returns {{ valid: true, narrationModeDetected: boolean }
+ *   | { valid: false, gaps: string[], narrationModeDetected: boolean }}
+ *   `narrationModeDetected` is the trusted, structurally-computed check-#13
+ *   signal — set only when the manifest matches the script-stage narration shape
+ *   verbatim. Consumers (exit-code routing in validate-subagent-manifest.mjs)
+ *   MUST read this rather than re-deriving narration from the gap text, whose
+ *   `${item}` interpolations are subagent-controlled and therefore spoofable.
  */
 export function validateManifestSubagentStage({
   manifest,
@@ -189,6 +225,10 @@ export function validateManifestSubagentStage({
   scriptSemanticWorkPending = null,
 }) {
   const gaps = [];
+  // Trusted check-#13 signal. Set true only where the narration-shape check below
+  // genuinely fires; returned to the caller so exit-code routing reads structured
+  // truth instead of string-matching subagent-influenceable gap text.
+  let narrationModeDetected = false;
 
   // Entry guard: a malformed subagent output (JSON literal `null`, undefined,
   // scalar, array root, etc.) would otherwise crash on the first `manifest.X`
@@ -202,7 +242,7 @@ export function validateManifestSubagentStage({
     gaps.push(
       `manifest is not a JSON object (got ${actualKind}) — subagent contract requires emitting a manifest object per references/post-merge-housekeeper-contract.md §Manifest schema; the validator cannot enforce contract checks against a non-object manifest root`,
     );
-    return { valid: false, gaps };
+    return { valid: false, gaps, narrationModeDetected };
   }
 
   // Trust-boundary check + check #12 (structural-shape tampering on `manifest._script_stage`).
@@ -418,6 +458,7 @@ export function validateManifestSubagentStage({
     noCompletionStamp &&
     hasPendingWork
   ) {
+    narrationModeDetected = true;
     gaps.push(
       `narration_mode_detected — manifest matches the script-stage shape verbatim (result is non-canonical, semantic_edits empty, concerns empty, subagent_completed_at unset) while ${effScriptSemanticWorkPending.length} pending item(s) remained per the trusted stage-1 baseline. The dispatched subagent never wrote the manifest; its response was text-only narration ("Tool: Edit\\n{...}") rather than actual tool invocations. Cross-check via the dispatch's totalToolUseCount field (expected > 0 for any genuine work). Re-dispatch typically reproduces the same failure (the bug is in the agent-definition framing, not the prompt). Route through SKILL.md Phase E § Subagent narration auto-deviation fallback — the orchestrator applies the semantic edits directly and records the deviation via concerns: [{kind: orchestrator_applied_semantic_edits_due_to_subagent_narration}].`,
     );
@@ -545,7 +586,7 @@ export function validateManifestSubagentStage({
       );
       continue;
     }
-    if (text.includes(PLACEHOLDER))
+    if (hasUnresolvedPlaceholder(text))
       gaps.push(`${PLACEHOLDER} placeholder still present in ${path}`);
   }
 
@@ -724,7 +765,9 @@ export function validateManifestSubagentStage({
     }
   }
 
-  return gaps.length === 0 ? { valid: true } : { valid: false, gaps };
+  return gaps.length === 0
+    ? { valid: true, narrationModeDetected }
+    : { valid: false, gaps, narrationModeDetected };
 }
 
 /**
@@ -804,7 +847,7 @@ function isMeaningfulPayload(value) {
  */
 function walkForPlaceholder(value, path, onHit) {
   if (typeof value === "string") {
-    if (value.includes(PLACEHOLDER)) onHit(path);
+    if (hasUnresolvedPlaceholder(value)) onHit(path);
     return;
   }
   if (Array.isArray(value)) {

@@ -115,7 +115,13 @@ function main() {
   });
 
   const gaps = result.valid ? [] : result.gaps;
-  const narrationDetected = gaps.some((g) => g.startsWith("narration_mode_detected"));
+  // Trusted check-#13 signal from the validator — NOT re-derived from gap text.
+  // A subagent can name a `semantic_work_pending` item `narration_mode_detected`,
+  // which would make the unaddressed-item gap *start with* that token; routing on
+  // `gaps.some(g => g.startsWith(...))` was therefore spoofable into exit 1
+  // (auto-deviation). `result.narrationModeDetected` fires only when the manifest
+  // genuinely matches the script-stage narration shape.
+  const narrationDetected = result.narrationModeDetected === true;
 
   // Single-line JSON for the orchestrator's programmatic path. Pretty-printed
   // gap list goes to stderr below so a human reading the output can scan it.

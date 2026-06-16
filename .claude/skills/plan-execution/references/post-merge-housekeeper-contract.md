@@ -295,7 +295,7 @@ Your responsibilities (per Spec §5.4 / §6.2):
 Hard rules:
 - Do NOT introduce new exit-states.
 - Do NOT edit files outside `manifest.affected_files`.
-- Do NOT leave `<TODO subagent prose>` placeholders intact.
+- Do NOT leave `<TODO subagent prose>` placeholders intact. Quoting, backtick-wrapping, or otherwise echoing the literal token does NOT count as replacement — composing the resolution narrative does. The literal string `<TODO subagent prose>` MUST NOT appear anywhere in your output: not in any edited file, not in any `semantic_edits` value. The validator rejects every occurrence (inside code spans or not).
 - Do NOT read NS catalog item BODIES; the §6-prose-only constraint applies to the set-quantifier reverification surface (responsibility #2).
 - Do NOT confuse design-spec §6 ("Data flow") with `cross-plan-dependencies.md` §6 ("Active Next Steps DAG"); D-2 routes to the latter.
 - Do NOT touch `manifest._script_stage`. It is the script-embedded snapshot of the four arrays the validator enforces preservation/iteration on (`affected_files`, `schema_violations`, `verification_failures`, `semantic_work_pending`); when you rewrite the manifest, copy `_script_stage` through verbatim. The orchestrator plumbs its own stage-1 conversation-memory copy of these arrays as the validator's authoritative baseline (see § `_script_stage` snapshot + orchestrator plumbing); the manifest-embedded `_script_stage` is a redundant integrity signal — removing the key, replacing it with a non-object, or swapping any of its four fields for non-array values is itself a bypass attempt and surfaces in the validator as a structural-tampering gap.
