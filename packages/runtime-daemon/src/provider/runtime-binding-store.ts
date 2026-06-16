@@ -292,7 +292,14 @@ export class RuntimeBindingStore {
       driverName: input.driverName,
       contractVersion: input.contractVersion,
       resumeHandle,
-      runtimeMetadata,
+      // Return the JSON-ROUND-TRIPPED metadata (reusing the already-computed
+      // `runtimeMetadataJson` — do NOT re-stringify), so `create()` agrees with
+      // `findById()` / `update()`, which both reconstruct via `#rowToDomain` →
+      // `JSON.parse`. Returning the original `input.runtimeMetadata` would diverge
+      // for values JSON normalizes (`{ optional: undefined }` drops the key; a
+      // `Date` becomes its ISO string) — DB-as-source-of-truth keeps the three
+      // accessors consistent.
+      runtimeMetadata: JSON.parse(runtimeMetadataJson) as Record<string, unknown>,
       createdAt: timestamp,
       updatedAt: timestamp,
     };

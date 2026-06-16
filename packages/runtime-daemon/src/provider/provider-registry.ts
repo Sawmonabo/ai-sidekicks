@@ -140,6 +140,12 @@ export class ProviderRegistry {
   // a plain `driverName` and the DB tables key on `driver_name TEXT`; no brand).
   readonly #drivers: Map<string, RegisteredDriver> = new Map();
 
+  // Per-driver monotonic registration token. Each `register` increments the
+  // driver's token BEFORE its `await`, then re-checks it AFTER resolving: a stale
+  // (superseded) registration drops its result instead of installing it. This
+  // realizes the LAST-CALL-WINS concurrency contract documented on `register`.
+  readonly #registrationSeq: Map<string, number> = new Map();
+
   /**
    * Register (or refresh) a driver under `driverId`.
    *
@@ -149,15 +155,54 @@ export class ProviderRegistry {
    *
    * Re-registering an existing `driverId` OVERWRITES the cached snapshot
    * (idempotent upsert — the in-memory capability-refresh seam).
+   *
+   * CONCURRENCY CONTRACT — LATEST-INITIATED REGISTER WINS (last-call-wins): when
+   * two `register` calls for the SAME `driverId` overlap, the LATER-INITIATED
+   * call's snapshot is installed, REGARDLESS of which `getCapabilities()` resolves
+   * first. This is the correct semantic for the refresh seam: this method is the
+   * "on registration + on capability-refresh events" entrypoint, so a later call
+   * always carries NEWER provider state — letting a stale earlier call win (just
+   * because its async resolved later) would install an outdated snapshot the gate
+   * would then enforce. A per-driver monotonic token (`#registrationSeq`),
+   * captured BEFORE the await and re-checked AFTER, enforces this: a superseded
+   * call detects a newer token and drops its result without writing the Map.
    */
   async register(driverId: string, driver: ProviderDriver): Promise<void> {
+    // Claim a registration token BEFORE the await. A later `register` for the same
+    // id claims a higher token, so the re-check below lets the latest-initiated
+    // call win even if an earlier call's `getCapabilities()` resolves after it.
+    const token: number = (this.#registrationSeq.get(driverId) ?? 0) + 1;
+    this.#registrationSeq.set(driverId, token);
+
     const result = await driver.getCapabilities();
+
+    // A newer `register` for this id superseded us while we awaited — drop this
+    // now-stale result rather than installing an outdated snapshot the gate would
+    // enforce (last-call-wins; see the concurrency contract above).
+    if (this.#registrationSeq.get(driverId) !== token) {
+      return;
+    }
+
     // Snapshot `result.capabilities` (the `DriverCapabilities` — `flags` +
     // `contractVersion`), NOT `result` itself: `getCapabilities` returns a
     // `GetCapabilitiesResult` wrapper, and the gated `flags` live one level down
     // at `result.capabilities.flags`. `tools` (the ingress tool metadata) is a
     // T2.4 hydration concern, not a gating input, so it is not cached here.
-    this.#drivers.set(driverId, { driver, capabilities: result.capabilities });
+    //
+    // DEFENSIVE CLONE — not an alias. The class header promises an immutable
+    // snapshot "resolved ONCE at registration"; caching `result.capabilities` by
+    // reference would let a later driver-side mutation of its own `flags` object
+    // silently drift `checkCapability` away from the advertised DB/event snapshot.
+    // Clone the wrapper AND the nested `flags` object (a shallow `{...flags}` is
+    // enough — flag values are booleans); `contractVersion` is a string primitive
+    // and needs no clone.
+    this.#drivers.set(driverId, {
+      driver,
+      capabilities: {
+        ...result.capabilities,
+        flags: { ...result.capabilities.flags },
+      },
+    });
   }
 
   /**

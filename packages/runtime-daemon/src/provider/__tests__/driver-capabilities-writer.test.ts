@@ -599,6 +599,45 @@ describe("DriverCapabilitiesWriter — malformed tool metadata", () => {
 });
 
 // ----------------------------------------------------------------------------
+// Duplicate tool names — leak-safe typed error, pre-txn (tables untouched) (FIX 2)
+// ----------------------------------------------------------------------------
+
+describe("DriverCapabilitiesWriter — duplicate tool names", () => {
+  it("throws ProviderOutputValidationError (field 'tools') on two tools sharing a name + opens NO txn (tables untouched, no event)", () => {
+    const { writer } = makeWriter();
+    let thrown: unknown;
+    try {
+      writer.declare({
+        sessionId: SESSION_ID,
+        nodeId: NODE_ID,
+        driverName: DRIVER_NAME,
+        // Two tools with the SAME name — pre-fix the second `#insertToolStmt.run`
+        // violates the (driver_name, tool_name) PK INSIDE the txn, throwing a raw
+        // SqliteError from an already-opened transaction. Post-fix this is caught
+        // BEFORE the txn opens and surfaced as the leak-safe typed error.
+        result: makeResult({
+          tools: [
+            { name: "search", idempotency_class: "idempotent" },
+            { name: "search", idempotency_class: "compensable", description: "dup" },
+          ],
+        }),
+      });
+    } catch (error) {
+      thrown = error;
+    }
+    // The DISCRIMINATOR vs pre-fix is the error TYPE/field (pre-fix: raw SqliteError).
+    expect(thrown).toBeInstanceOf(ProviderOutputValidationError);
+    expect((thrown as ProviderOutputValidationError).fields?.["field"]).toBe("tools");
+
+    // No txn ever opened — all three driver tables untouched + no event emitted.
+    expect(countCapabilityRows(DRIVER_NAME)).toBe(0);
+    expect(readToolNames(DRIVER_NAME)).toEqual([]);
+    expect(countContractMetaRows(DRIVER_NAME)).toBe(0);
+    expect(readEventRows(SESSION_ID)).toHaveLength(0);
+  });
+});
+
+// ----------------------------------------------------------------------------
 // No-description re-declare — NULL→omitted round-trip compares equal (noop)
 // ----------------------------------------------------------------------------
 
@@ -739,6 +778,40 @@ describe("DriverCapabilitiesWriter — hydrate (cold-start cache read)", () => {
   it("returns undefined for a driver that was never written", () => {
     const { writer } = makeWriter();
     expect(writer.hydrate("never-seen")).toBeUndefined();
+  });
+
+  // FIX 4 regression: hydrate routes its three-SELECT `#snapshot` read through the
+  // DEFERRED `#readTxn` (one consistent read snapshot, closing the torn-read
+  // hazard a concurrent refresh would open between autocommit SELECTs). The
+  // torn-read concurrency aspect is NOT deterministically unit-testable with
+  // synchronous better-sqlite3 (no interleaving point between the SELECTs), so
+  // this is a PATH-EXERCISING regression guard: it proves the read-transaction
+  // path round-trips a multi-tool, multi-table snapshot coherently end-to-end.
+  it("round-trips a multi-table snapshot THROUGH the deferred read-transaction path (torn-read guard)", () => {
+    const { writer } = makeWriter();
+    const result: GetCapabilitiesResult = makeResult({
+      capabilities: { flags: makeFlags({ steer: true, mcp: true }), contractVersion: "3.1.4" },
+      tools: [
+        { name: "write_file", idempotency_class: "compensable", description: "write a file" },
+        { name: "add", idempotency_class: "idempotent" },
+        { name: "search", idempotency_class: "manual_reconcile_only" },
+      ],
+    });
+    writer.declare({ sessionId: SESSION_ID, nodeId: NODE_ID, driverName: DRIVER_NAME, result });
+
+    // The nested GetCapabilitiesResult reconstructed via the deferred read txn:
+    // contractVersion (contract_meta), flags (driver_capabilities), and tools
+    // (driver_tools) all cohere from the SAME consistent snapshot, in canonical
+    // (name-ascending) order.
+    const hydrated = writer.hydrate(DRIVER_NAME);
+    expect(hydrated).toEqual({
+      capabilities: { flags: makeFlags({ steer: true, mcp: true }), contractVersion: "3.1.4" },
+      tools: [
+        { name: "add", idempotency_class: "idempotent" },
+        { name: "search", idempotency_class: "manual_reconcile_only" },
+        { name: "write_file", idempotency_class: "compensable", description: "write a file" },
+      ],
+    });
   });
 });
 

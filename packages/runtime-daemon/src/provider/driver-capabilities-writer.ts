@@ -251,6 +251,16 @@ export class DriverCapabilitiesWriter {
       newSnapshot: CapabilityDetails,
     ) => "declared" | "updated" | "noop"
   >;
+  // DEFERRED read-transaction wrapper for `hydrate`'s snapshot read. `#snapshot`
+  // runs THREE separate SELECTs; outside a transaction (autocommit) each takes its
+  // own read snapshot, so under the multi-connection model this writer designs for
+  // (see file header), a concurrent refresh committing BETWEEN the SELECTs yields a
+  // TORN read (e.g. `contractVersion` from the old row + flags/tools from the new).
+  // Dispatched DEFERRED (`.deferred(...)`) so all three SELECTs share ONE
+  // consistent read snapshot — the write path's `#snapshot` is already consistent
+  // because it runs INSIDE `#writeTxn`. (DEFERRED, not IMMEDIATE: this is a pure
+  // read that never upgrades to a write, so it must NOT take a writer-intent lock.)
+  readonly #readTxn: Transaction<(driverName: string) => CapabilityDetails | undefined>;
   // The emission seam. REQUIRED (not optional): capability declarations always
   // occur at attach time with a live session/node (Spec-005:53). The `#writeTxn`
   // closure captures it for the write paths.
@@ -417,6 +427,15 @@ export class DriverCapabilitiesWriter {
         return "updated";
       },
     );
+
+    // Prepare the DEFERRED read transaction once. `hydrate` routes its three-SELECT
+    // `#snapshot` read through here so the SELECTs share ONE consistent read
+    // snapshot — closing the torn-read hazard a concurrent refresh would otherwise
+    // open between the autocommit SELECTs (see the `#readTxn` field comment). The
+    // write-path `#snapshot` call stays inside `#writeTxn` (already consistent).
+    this.#readTxn = db.transaction((driverName: string): CapabilityDetails | undefined =>
+      this.#snapshot(driverName),
+    );
   }
 
   /**
@@ -490,6 +509,24 @@ export class DriverCapabilitiesWriter {
       left.name < right.name ? -1 : left.name > right.name ? 1 : 0,
     );
 
+    // (4b) REJECT duplicate NORMALIZED tool names BEFORE the txn opens. Two tools
+    // sharing a normalized `name` would have the second `#insertToolStmt.run`
+    // violate the `(driver_name, tool_name)` PRIMARY KEY INSIDE `#writeTxn`,
+    // throwing a raw `SQLITE_CONSTRAINT` from an already-opened transaction. That
+    // breaks this module's two doctrines: "a REJECTED input never opens a
+    // transaction" and "leak-safe `ProviderOutputValidationError`, never a raw
+    // error" — and makes a provider-declaration bug look like a storage failure.
+    // The tools are already sorted by name, so a duplicate is an adjacent pair;
+    // surface the leak-safe typed error alongside the other pre-txn asserts.
+    for (let index = 1; index < normalizedTools.length; index += 1) {
+      if (normalizedTools[index]?.name === normalizedTools[index - 1]?.name) {
+        throw new ProviderOutputValidationError("Invalid provider tool metadata.", {
+          field: "tools",
+          reason: "duplicate tool name",
+        });
+      }
+    }
+
     // (5) Build the NEW flat snapshot (the canonical `CapabilityDetails` shape).
     const newSnapshot: CapabilityDetails = {
       flags: input.result.capabilities.flags,
@@ -519,7 +556,12 @@ export class DriverCapabilitiesWriter {
    * header for the flat-vs-nested distinction). `tools` is in canonical order.
    */
   hydrate(driverName: string): GetCapabilitiesResult | undefined {
-    const snapshot: CapabilityDetails | undefined = this.#snapshot(driverName);
+    // Route the three-SELECT `#snapshot` read through a DEFERRED read transaction
+    // so the SELECTs share ONE consistent snapshot — a concurrent refresh
+    // committing between them cannot yield a torn read (`.deferred(...)`; see the
+    // `#readTxn` field comment). The write path's `#snapshot` is already consistent
+    // inside `#writeTxn`, so only the read path needs this wrapper.
+    const snapshot: CapabilityDetails | undefined = this.#readTxn.deferred(driverName);
     if (snapshot === undefined) {
       return undefined;
     }

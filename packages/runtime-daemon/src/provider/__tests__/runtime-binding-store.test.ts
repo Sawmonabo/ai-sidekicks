@@ -394,6 +394,33 @@ describe("RuntimeBindingStore — runtime_metadata", () => {
     expect(created.runtimeMetadata).toEqual({});
     expect(store.findById(created.id)?.runtimeMetadata).toEqual({});
   });
+
+  // FIX 5: create() must return the JSON-ROUND-TRIPPED metadata so it agrees with
+  // findById() / update() (which reconstruct via JSON.parse). A value JSON
+  // normalizes away — here `{ b: undefined }` — is the discriminator: pre-fix
+  // create() returns the original object (key `b` PRESENT, value undefined),
+  // findById() returns the round-tripped form (key `b` ABSENT), so they disagree.
+  it("create() returns runtime_metadata round-tripped, matching findById() (DB-as-source-of-truth)", () => {
+    const store = makeStore();
+    const created = store.create({
+      runId: RUN_ID,
+      driverName: DRIVER_NAME,
+      contractVersion: CONTRACT_VERSION,
+      // `b: undefined` is dropped by JSON.stringify, so the persisted/round-tripped
+      // form is `{ a: 1 }`. Pre-fix create() returned `{ a: 1, b: undefined }`.
+      runtimeMetadata: { a: 1, b: undefined },
+    });
+
+    const found = store.findById(created.id);
+    expect(found).toBeDefined();
+    // `toStrictEqual` (NOT `toEqual`) — `toEqual` IGNORES undefined-valued keys, so
+    // it would pass even pre-fix; `toStrictEqual` distinguishes a present
+    // undefined-valued key from an absent one, which is what makes this fail-before.
+    expect(created.runtimeMetadata).toStrictEqual(found?.runtimeMetadata);
+    // And the round-tripped form is exactly `{ a: 1 }` (key `b` absent).
+    expect(created.runtimeMetadata).toStrictEqual({ a: 1 });
+    expect("b" in created.runtimeMetadata).toBe(false);
+  });
 });
 
 // ----------------------------------------------------------------------------

@@ -282,6 +282,95 @@ describe("ProviderRegistry — checkCapability gate (Spec-005:48, I-005-2)", () 
 });
 
 // ----------------------------------------------------------------------------
+// Immutable capability snapshot — register clones, never aliases (FIX 1)
+// ----------------------------------------------------------------------------
+
+describe("ProviderRegistry — immutable capability snapshot (defensive clone)", () => {
+  it("a post-register driver-side MUTATION of the flags object does NOT drift the gate", async () => {
+    const registry = new ProviderRegistry();
+    // The fake stores its `flags` arg BY REFERENCE and returns it BY REFERENCE,
+    // so mutating this object IN PLACE after register() reproduces the aliasing
+    // bug — pre-fix the gate (reading the aliased object) would see the mutation.
+    const mutableFlags = makeFlags({ tool_calls: true });
+    await registry.register(DRIVER_ID, new FakeProviderDriver(mutableFlags));
+
+    // The register-time snapshot supports `tool_calls`.
+    expect(() => registry.checkCapability(DRIVER_ID, "tool_calls")).not.toThrow();
+
+    // Mutate the SAME object the driver advertised, AFTER registration. With a
+    // defensive clone the cached snapshot is unaffected; with the old by-reference
+    // alias this would flip the gate to "unsupported".
+    mutableFlags.tool_calls = false;
+
+    // The gate still reflects the immutable register-time snapshot, not the
+    // later mutation (the class-header "snapshot resolved ONCE at registration").
+    expect(() => registry.checkCapability(DRIVER_ID, "tool_calls")).not.toThrow();
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Last-call-wins registration race guard (FIX 3) — the LATEST-INITIATED register
+// wins regardless of which getCapabilities() resolves first.
+// ----------------------------------------------------------------------------
+
+/**
+ * A fake whose `getCapabilities()` returns a promise the TEST resolves manually,
+ * so two overlapping `register()` calls can be ordered deterministically: A is
+ * initiated first, B second, but B's promise is resolved FIRST. Without manual
+ * promise control this race cannot be reproduced deterministically.
+ */
+class DeferredProviderDriver extends FakeProviderDriver {
+  #resolve: ((result: GetCapabilitiesResult) => void) | undefined;
+  readonly #pending: Promise<GetCapabilitiesResult>;
+  readonly #flagsToReport: Record<DriverCapabilityFlag, boolean>;
+
+  constructor(flags: Record<DriverCapabilityFlag, boolean>) {
+    super(flags);
+    this.#flagsToReport = flags;
+    this.#pending = new Promise<GetCapabilitiesResult>((resolve) => {
+      this.#resolve = resolve;
+    });
+  }
+
+  override getCapabilities(): Promise<GetCapabilitiesResult> {
+    return this.#pending;
+  }
+
+  /** Resolve this driver's pending `getCapabilities()` with its own flags. */
+  settle(): void {
+    this.#resolve?.({
+      capabilities: { flags: this.#flagsToReport, contractVersion: "1.0.0" },
+      tools: [],
+    });
+  }
+}
+
+describe("ProviderRegistry — last-call-wins registration race (latest-initiated wins)", () => {
+  it("the LATER-initiated register wins even when its getCapabilities() resolves LAST", async () => {
+    const registry = new ProviderRegistry();
+    // A is initiated first (steer supported); B second (tool_calls supported).
+    const driverA = new DeferredProviderDriver(makeFlags({ steer: true }));
+    const driverB = new DeferredProviderDriver(makeFlags({ tool_calls: true }));
+
+    const registerA = registry.register(DRIVER_ID, driverA);
+    const registerB = registry.register(DRIVER_ID, driverB);
+
+    // Resolve B FIRST, then A — so the EARLIER-initiated call (A) resolves LAST.
+    // A naive last-to-resolve-wins implementation would install A's stale snapshot.
+    driverB.settle();
+    driverA.settle();
+    await Promise.all([registerA, registerB]);
+
+    // The registry holds B's snapshot (the latest-initiated call): tool_calls
+    // passes, and A's steer is NOT installed (A's late resolution was dropped).
+    expect(() => registry.checkCapability(DRIVER_ID, "tool_calls")).not.toThrow();
+    expect(() => registry.checkCapability(DRIVER_ID, "steer")).toThrow(
+      DriverCapabilityUnsupportedError,
+    );
+  });
+});
+
+// ----------------------------------------------------------------------------
 // re-register (idempotent upsert) + listAvailable
 // ----------------------------------------------------------------------------
 
