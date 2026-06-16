@@ -208,20 +208,31 @@ export interface ProviderMode {
 // that forces a schema here — it is a provider-output value bounded (semver +
 // length) at the Plan-005 Phase-2 write seam (§Phase 2 provider-output-validation
 // obligation, persisted to `driver_contract_meta.contract_version`), not here.
+
+// Canonical runtime companion to the DriverCapabilityFlag union — the SINGLE
+// source the type below, the migration-0003 `capability_flag` CHECK list (a
+// frozen point-in-time copy — see note), the write-seam cardinality guard
+// (`assertValidCapabilityFlags`), and the T2.4 test fixtures all derive from.
+// Order mirrors api-payload-contracts.md §Shared Enums `DriverCapabilityFlag`
+// verbatim. `pause` is intentionally EXCLUDED per ADR-011: pause is modeled as
+// an `InterventionType`, not a static capability flag, so a driver cannot
+// advertise a `pause` capability at all — the type system makes the
+// mis-modeling unrepresentable.
 //
-// `pause` is intentionally EXCLUDED from the flag union per ADR-011: pause is
-// modeled as an intervention (`InterventionType`), not a static capability, so
-// a driver cannot advertise a `pause` capability flag at all — the type system
-// makes the mis-modeling unrepresentable. This 7-flag set mirrors
-// api-payload-contracts.md § Shared Enums `DriverCapabilityFlag` verbatim.
-export type DriverCapabilityFlag =
-  | "resume"
-  | "steer"
-  | "interactive_requests"
-  | "mcp"
-  | "tool_calls"
-  | "reasoning_stream"
-  | "model_mutation";
+// Adding an 8th flag is a coordinated change: this array + a NEW migration
+// (0003's CHECK is immutable history) + any downstream consumer — until then,
+// an undeclared flag is invalid for this contract version.
+export const DRIVER_CAPABILITY_FLAGS = [
+  "resume",
+  "steer",
+  "interactive_requests",
+  "mcp",
+  "tool_calls",
+  "reasoning_stream",
+  "model_mutation",
+] as const;
+
+export type DriverCapabilityFlag = (typeof DRIVER_CAPABILITY_FLAGS)[number];
 
 // `flags` is a `Record<DriverCapabilityFlag, boolean>` (not a partial / array),
 // so every flag MUST be answered — a driver cannot silently omit a capability,

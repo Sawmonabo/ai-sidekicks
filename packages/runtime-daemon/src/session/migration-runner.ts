@@ -10,9 +10,10 @@
 // pinned by the worker_threads concurrent-boot race test, and re-expressing
 // it through a registry would re-open that control flow for re-validation.
 // Version 1 is owned by Plan-001 (`migrations/0001-initial.ts`); version 2
-// by Plan-003 (`migrations/0002-runtime-node.ts`). Subsequent plans (006,
-// 015, 022...) register their version as a further guarded block of the
-// same shape and bump `schema_version`.
+// by Plan-003 (`migrations/0002-runtime-node.ts`); version 3 by Plan-005
+// (`migrations/0003-runtime-bindings.ts`). Subsequent plans (006, 015,
+// 022...) register their version as a further guarded block of the same
+// shape and bump `schema_version`.
 //
 // SQL is sourced as a TypeScript string constant (not a sibling .sql file)
 // because `tsc -b` does not copy non-TS assets into `dist/` and `package.json`
@@ -32,6 +33,7 @@ import type { Database as DatabaseType } from "better-sqlite3";
 
 import { INITIAL_MIGRATION_SQL } from "../migrations/0001-initial.js";
 import { RUNTIME_NODE_MIGRATION_SQL } from "../migrations/0002-runtime-node.js";
+import { RUNTIME_BINDINGS_MIGRATION_SQL } from "../migrations/0003-runtime-bindings.js";
 
 /**
  * Apply pragmas to an open Database handle. MUST be called on every
@@ -119,6 +121,25 @@ export function applyMigrations(db: DatabaseType): void {
       // skip the exec rather than re-applying the CREATE TABLEs).
       if (!hasMigrationApplied(db, 2)) {
         db.exec(RUNTIME_NODE_MIGRATION_SQL);
+      }
+    }).immediate();
+  }
+
+  if (!hasMigrationApplied(db, 3)) {
+    // Plan-005 version-3 migration (runtime_bindings + driver_capabilities +
+    // driver_tools + driver_contract_meta). Same primitive as the version-1/2
+    // blocks above: the migration SQL carries its own version=3 INSERT into
+    // schema_version, so the single .exec() commits the table CREATEs
+    // atomically with the anchor row, and db.transaction(...).immediate()
+    // takes the RESERVED writer-intent lock at BEGIN so concurrent racers
+    // serialize at BEGIN rather than colliding at write-upgrade time.
+    db.transaction(() => {
+      // Re-check inside the transaction to close the
+      // `hasMigrationApplied → exec` window (a concurrent writer that wins
+      // the BEGIN-IMMEDIATE race and commits first is observed here and we
+      // skip the exec rather than re-applying the CREATE TABLEs).
+      if (!hasMigrationApplied(db, 3)) {
+        db.exec(RUNTIME_BINDINGS_MIGRATION_SQL);
       }
     }).immediate();
   }

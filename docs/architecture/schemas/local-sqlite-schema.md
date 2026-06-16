@@ -144,12 +144,21 @@ CREATE INDEX idx_command_receipts_inflight ON command_receipts(run_id)
 
 ```sql
 -- Owner: Plan-005 | Extended by: Plan-015 (recovery-aware persistence)
+-- Provider-output defense-in-depth CHECKs (Plan-005 T2.1): contract_version and
+-- resume_handle are provider-declared strings persisted at the write seam. The
+-- DB CHECK layer bounds the SQLite-expressible part (length + NUL-rejection);
+-- semver-shape validation is NOT expressible as a pure-SQLite CHECK and is
+-- enforced at the write seam Zod guard (T2.2 runtime_bindings) using the
+-- `semver` package. The 4096/64 length literals are the canonical bounds that
+-- the T2.2 write-path guard reuses, so the two layers stay consistent.
 CREATE TABLE runtime_bindings (
   id                TEXT PRIMARY KEY,
   run_id            TEXT NOT NULL,
   driver_name       TEXT NOT NULL,            -- e.g. 'claude', 'codex'
-  contract_version  TEXT NOT NULL,            -- semver of driver contract
-  resume_handle     TEXT,                     -- provider-owned opaque handle
+  contract_version  TEXT NOT NULL             -- canonical, identifying semver of driver contract (build metadata rejected by the T2.2 write-path Zod guard)
+                    CHECK (length(contract_version) > 0 AND length(contract_version) <= 64 AND instr(contract_version, char(0)) = 0),
+  resume_handle     TEXT                      -- provider-owned opaque handle
+                    CHECK (resume_handle IS NULL OR (length(resume_handle) > 0 AND length(resume_handle) <= 4096 AND instr(resume_handle, char(0)) = 0)),
   runtime_metadata  TEXT NOT NULL DEFAULT '{}', -- JSON: provider-specific recovery data
   created_at        TEXT NOT NULL,
   updated_at        TEXT NOT NULL
@@ -194,12 +203,24 @@ CREATE TABLE driver_tools (
 -- GetCapabilitiesResult = { capabilities: { flags, contractVersion }, tools } WITHOUT
 -- round-tripping the driver (Spec-005:130-132 cache-as-source-of-truth). Distinct from
 -- runtime_bindings.contract_version, which records the version bound to a specific run.
+-- Provider-output defense-in-depth CHECK (Plan-005 T2.1): `contract_version`
+-- mirrors the `runtime_bindings.contract_version` bound (length + NUL-rejection,
+-- 64-char ceiling). Semver-shape validation lives at the T2.4 write-path Zod
+-- guard (the `semver` package) — not expressible as a pure-SQLite CHECK.
+-- `contract_version` is a CANONICAL, IDENTIFYING semver string: build metadata
+-- (SemVer §10, non-identifying) is rejected by the T2.4 write-path Zod guard, so
+-- two byte-different strings can never denote the same contract version (which
+-- would otherwise spuriously fire `runtime_node.capability_updated` on a
+-- non-change).
 CREATE TABLE driver_contract_meta (
   driver_name       TEXT PRIMARY KEY,
-  contract_version  TEXT NOT NULL,            -- semver of the driver's advertised capability contract
+  contract_version  TEXT NOT NULL             -- canonical, identifying semver of the driver's advertised capability contract (build metadata rejected by the T2.4 write-path Zod guard)
+                    CHECK (length(contract_version) > 0 AND length(contract_version) <= 64 AND instr(contract_version, char(0)) = 0),
   refreshed_at      TEXT NOT NULL             -- last capability-refresh write (matches driver_capabilities.refreshed_at cadence)
 );
 ```
+
+The build-metadata rejection above is grounded in the SemVer specification itself: per [Semantic Versioning 2.0.0 §10](https://semver.org/#spec-item-10), "Build metadata MUST be ignored when determining version precedence. Thus two versions that differ only in the build metadata, have the same precedence." (fetched 2026-06-15). Because `1.2.3+build.5` and `1.2.3+build.6` denote the SAME contract version under that precedence rule, persisting them as byte-distinct `contract_version` strings would let a non-change masquerade as a change. The shared write-path Zod guard (`assertValidContractVersion`, invoked from both the T2.2 `runtime_bindings` and T2.4 `driver_contract_meta` write paths) therefore REJECTS — rather than strips/normalizes — any value carrying build metadata, keeping the stored value byte-identical to what was validated and both `contract_version` columns canonical-identifying.
 
 ---
 
