@@ -1,0 +1,786 @@
+// DriverCapabilitiesWriter — Plan-005 Phase 2 (T2.4).
+//
+// Exercises the 3-table atomic dual-write + the `runtime_node.capability_*`
+// emission + cold-start hydration over a REAL Local SQLite handle via
+// `openDatabase(":memory:")` — so the migration-0003 tables, their CHECK
+// constraints, AND the real append path all fire end-to-end. The composition
+// mirrors the production root: `SessionService(db)` →
+// `RuntimeNodeEventEmitter({ sessionEvents })` → `DriverCapabilitiesWriter(db,
+// emitter)`, all over the SAME `db` handle (the dual-write atomicity depends on
+// the emitter's append running on that connection — the T2.5 wiring contract).
+//
+// Coverage map (cites are the authoritative contract, not just the ACs):
+//   * Spec-005:48 (undeclared capabilities are unsupported — the cache the gate
+//     reads): the 7-flag matrix round-trips through `driver_capabilities` and
+//     `hydrate`, so a `false`/absent flag is faithfully reconstructed.
+//   * Spec-005:53 (declarations required at attach time, refreshed on provider
+//     state change): the declare → refresh paths (declared / updated / noop).
+//   * Spec-005:130-132 (cache-as-source-of-truth; cold-start hydration without
+//     round-tripping the driver): `hydrate` reconstructs the nested
+//     `GetCapabilitiesResult` from the three tables.
+//   * I-005-2 (the capability cache is the durable mirror the in-memory registry
+//     reads): the flat snapshot persists and reconstructs faithfully; the emitted
+//     event carries the FLAT `CapabilityDetails`.
+//   * Atomicity / write-then-emit ordering: a throwing emit rolls back all three
+//     table writes (no rows for that driver after the failed declare).
+//
+// Refs: Plan-005 §Phase 2 / T2.4, Spec-005 lines 48 + 53 + 130-132, CP-005-5,
+// invariant I-005-2.
+
+import type { Database as DatabaseType } from "better-sqlite3";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
+import {
+  DRIVER_CAPABILITY_FLAGS,
+  type DriverCapabilityFlag,
+  type GetCapabilitiesResult,
+} from "@ai-sidekicks/contracts";
+
+import { RuntimeNodeEventEmitter } from "../../node/node-event-emitter.js";
+import { openDatabase } from "../../session/migration-runner.js";
+import { SessionService } from "../../session/session-service.js";
+import { DriverCapabilitiesWriter } from "../driver-capabilities-writer.js";
+import { ProviderOutputValidationError } from "../provider-output-validation.js";
+
+// ----------------------------------------------------------------------------
+// Fixtures + per-test lifecycle
+// ----------------------------------------------------------------------------
+
+const SESSION_ID: string = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f00";
+const NODE_ID: string = "node-01J0ND0000NN5J5J5J5J5J5J";
+const DRIVER_NAME: string = "claude";
+const CONTRACT_VERSION: string = "1.2.3";
+
+// The full 7-flag matrix every snapshot must answer (Record<DriverCapabilityFlag>
+// — un-omittable by the contract type). Sourced from the canonical
+// `DRIVER_CAPABILITY_FLAGS` array (no 4th hardcoded copy): every flag defaults
+// false, then `resume` + `tool_calls` are the baseline-true pair, then overrides.
+function makeFlags(
+  overrides: Partial<Record<DriverCapabilityFlag, boolean>> = {},
+): Record<DriverCapabilityFlag, boolean> {
+  const base = Object.fromEntries(DRIVER_CAPABILITY_FLAGS.map((flag) => [flag, false])) as Record<
+    DriverCapabilityFlag,
+    boolean
+  >;
+  return { ...base, resume: true, tool_calls: true, ...overrides };
+}
+
+function makeResult(overrides: Partial<GetCapabilitiesResult> = {}): GetCapabilitiesResult {
+  return {
+    capabilities: {
+      flags: makeFlags(),
+      contractVersion: CONTRACT_VERSION,
+    },
+    tools: [],
+    ...overrides,
+  };
+}
+
+let db: DatabaseType;
+
+beforeEach(() => {
+  db = openDatabase(":memory:");
+});
+
+afterEach(() => {
+  if (db.open) {
+    db.close();
+  }
+});
+
+// An ADVANCING clock: each call returns a distinct timestamp, so a "no write on
+// noop" assertion can be made non-vacuous if needed.
+function makeAdvancingClock(): () => string {
+  let minute: number = 0;
+  return () => {
+    const stamp: string = `2026-06-02T12:${minute.toString().padStart(2, "0")}:00.000Z`;
+    minute += 1;
+    return stamp;
+  };
+}
+
+// Wire the production composition root over the current `db`, with a collision-
+// free deterministic event-id source so `session_events.id` (TEXT PRIMARY KEY)
+// never collides across emits. Returns the writer + the SessionService (so tests
+// can read the emitted events off the same connection).
+function makeWriter(now: () => string = makeAdvancingClock()): {
+  writer: DriverCapabilitiesWriter;
+  sessionService: SessionService;
+} {
+  const sessionService: SessionService = new SessionService(db);
+  let idCounter: number = 0;
+  const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
+    sessionEvents: sessionService,
+    newEventId: () => `evt-${(idCounter++).toString()}`,
+  });
+  const writer: DriverCapabilitiesWriter = new DriverCapabilitiesWriter(db, emitter, now);
+  return { writer, sessionService };
+}
+
+// ---- Direct table readers (raw rows, the durable side of the dual-write) ----
+
+interface EventRow {
+  readonly type: string;
+  readonly category: string;
+  readonly payload: string;
+}
+
+function readEventRows(sessionId: string): ReadonlyArray<EventRow> {
+  return db
+    .prepare(
+      `SELECT type, category, payload
+         FROM session_events
+        WHERE session_id = ?
+        ORDER BY sequence ASC`,
+    )
+    .all(sessionId) as ReadonlyArray<EventRow>;
+}
+
+function countCapabilityRows(driverName: string): number {
+  const row = db
+    .prepare(`SELECT COUNT(*) AS n FROM driver_capabilities WHERE driver_name = ?`)
+    .get(driverName) as { readonly n: number };
+  return row.n;
+}
+
+function readToolNames(driverName: string): string[] {
+  const rows = db
+    .prepare(`SELECT tool_name FROM driver_tools WHERE driver_name = ? ORDER BY tool_name`)
+    .all(driverName) as ReadonlyArray<{ readonly tool_name: string }>;
+  return rows.map((row) => row.tool_name);
+}
+
+function readToolIdempotencyClass(driverName: string, toolName: string): string | undefined {
+  const row = db
+    .prepare(`SELECT idempotency_class FROM driver_tools WHERE driver_name = ? AND tool_name = ?`)
+    .get(driverName, toolName) as { readonly idempotency_class: string } | undefined;
+  return row?.idempotency_class;
+}
+
+function countContractMetaRows(driverName: string): number {
+  const row = db
+    .prepare(`SELECT COUNT(*) AS n FROM driver_contract_meta WHERE driver_name = ?`)
+    .get(driverName) as { readonly n: number };
+  return row.n;
+}
+
+// ----------------------------------------------------------------------------
+// First declare — writes all three tables + emits capability_declared
+// ----------------------------------------------------------------------------
+
+describe("DriverCapabilitiesWriter — first declare", () => {
+  it("returns {emitted:'declared'}, writes 7 capability rows + N tool rows + 1 meta row, emits capability_declared with the FLAT snapshot", () => {
+    const { writer } = makeWriter();
+    const result: GetCapabilitiesResult = makeResult({
+      tools: [
+        { name: "search", idempotency_class: "idempotent", description: "search the web" },
+        { name: "write_file", idempotency_class: "compensable" },
+      ],
+    });
+
+    const outcome = writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result,
+    });
+    expect(outcome).toEqual({ emitted: "declared" });
+
+    // Durable side: 7 flag rows, 2 tool rows, 1 meta row.
+    expect(countCapabilityRows(DRIVER_NAME)).toBe(7);
+    expect(readToolNames(DRIVER_NAME)).toEqual(["search", "write_file"]);
+    expect(countContractMetaRows(DRIVER_NAME)).toBe(1);
+
+    // Timeline side: exactly one capability_declared carrying the FLAT snapshot.
+    const events = readEventRows(SESSION_ID);
+    expect(events).toHaveLength(1);
+    const event = events[0];
+    expect(event).toBeDefined();
+    if (event === undefined) return;
+    expect(event.type).toBe("runtime_node.capability_declared");
+    expect(event.category).toBe("runtime_node_lifecycle");
+
+    const payload = JSON.parse(event.payload) as Record<string, unknown>;
+    // The FLAT CapabilityDetails (NOT the nested GetCapabilitiesResult) — flags +
+    // contractVersion + canonical-order tools at the top level of the snapshot.
+    expect(payload).toEqual({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      actor: null,
+      capability: "provider-driver-claude",
+      capabilityDetails: {
+        flags: makeFlags(),
+        contractVersion: CONTRACT_VERSION,
+        tools: [
+          { name: "search", idempotency_class: "idempotent", description: "search the web" },
+          { name: "write_file", idempotency_class: "compensable" },
+        ],
+      },
+    });
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Identical re-declare — idempotent no-op (no event, rows unchanged)
+// ----------------------------------------------------------------------------
+
+describe("DriverCapabilitiesWriter — identical re-declare", () => {
+  it("returns {emitted:'noop'}, emits NO second event, leaves the rows unchanged", () => {
+    const { writer } = makeWriter();
+    const result: GetCapabilitiesResult = makeResult({
+      tools: [{ name: "search", idempotency_class: "idempotent" }],
+    });
+
+    expect(
+      writer.declare({ sessionId: SESSION_ID, nodeId: NODE_ID, driverName: DRIVER_NAME, result }),
+    ).toEqual({ emitted: "declared" });
+
+    // Re-declare the SAME snapshot — idempotent no-op.
+    const outcome = writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result: makeResult({ tools: [{ name: "search", idempotency_class: "idempotent" }] }),
+    });
+    expect(outcome).toEqual({ emitted: "noop" });
+
+    // Still exactly one event (no spurious capability_updated).
+    expect(readEventRows(SESSION_ID)).toHaveLength(1);
+    // Rows unchanged.
+    expect(countCapabilityRows(DRIVER_NAME)).toBe(7);
+    expect(readToolNames(DRIVER_NAME)).toEqual(["search"]);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Changed declare (flag flip) — capability_updated with prior + new snapshots
+// ----------------------------------------------------------------------------
+
+describe("DriverCapabilitiesWriter — changed declare (flag flip)", () => {
+  it("returns {emitted:'updated'} and emits capability_updated carrying prior + new FLAT snapshots", () => {
+    const { writer } = makeWriter();
+    writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result: makeResult(),
+    });
+
+    // Flip the `steer` flag false → true.
+    const outcome = writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result: makeResult({
+        capabilities: {
+          flags: makeFlags({ steer: true }),
+          contractVersion: CONTRACT_VERSION,
+        },
+      }),
+    });
+    expect(outcome).toEqual({ emitted: "updated" });
+
+    const events = readEventRows(SESSION_ID);
+    expect(events.map((event) => event.type)).toEqual([
+      "runtime_node.capability_declared",
+      "runtime_node.capability_updated",
+    ]);
+    const updated = events[1];
+    expect(updated).toBeDefined();
+    if (updated === undefined) return;
+    const payload = JSON.parse(updated.payload) as Record<string, unknown>;
+    const previousState = payload["previousState"] as { flags: Record<string, boolean> };
+    const newState = payload["newState"] as { flags: Record<string, boolean> };
+    expect(previousState.flags["steer"]).toBe(false);
+    expect(newState.flags["steer"]).toBe(true);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// contractVersion-only bump — NOT swallowed as a no-op
+// ----------------------------------------------------------------------------
+
+describe("DriverCapabilitiesWriter — contractVersion-only bump", () => {
+  it("returns {emitted:'updated'} when only the contractVersion changes", () => {
+    const { writer } = makeWriter();
+    writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result: makeResult(),
+    });
+
+    const outcome = writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result: makeResult({
+        capabilities: {
+          flags: makeFlags(),
+          contractVersion: "2.0.0",
+        },
+      }),
+    });
+    expect(outcome).toEqual({ emitted: "updated" });
+
+    // The durable meta row carries the new version.
+    const meta = db
+      .prepare(`SELECT contract_version FROM driver_contract_meta WHERE driver_name = ?`)
+      .get(DRIVER_NAME) as { readonly contract_version: string };
+    expect(meta.contract_version).toBe("2.0.0");
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Tool removed on refresh — delete-then-reinsert drops the orphan row
+// ----------------------------------------------------------------------------
+
+describe("DriverCapabilitiesWriter — tool removed on refresh", () => {
+  it("drops a removed tool's row (delete-then-reinsert) and returns {emitted:'updated'}", () => {
+    const { writer } = makeWriter();
+    writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result: makeResult({
+        tools: [
+          { name: "search", idempotency_class: "idempotent" },
+          { name: "write_file", idempotency_class: "compensable" },
+        ],
+      }),
+    });
+    expect(readToolNames(DRIVER_NAME)).toEqual(["search", "write_file"]);
+
+    // Refresh WITHOUT `write_file` — it must be deleted, not orphaned.
+    const outcome = writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result: makeResult({ tools: [{ name: "search", idempotency_class: "idempotent" }] }),
+    });
+    expect(outcome).toEqual({ emitted: "updated" });
+    expect(readToolNames(DRIVER_NAME)).toEqual(["search"]);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Tool with omitted idempotency_class — normalized to manual_reconcile_only
+// ----------------------------------------------------------------------------
+
+describe("DriverCapabilitiesWriter — tool idempotency_class default (I-005-3)", () => {
+  it("persists an omitted idempotency_class as 'manual_reconcile_only'", () => {
+    const { writer } = makeWriter();
+    writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      // No `idempotency_class` on the tool — the schema default fills it.
+      result: makeResult({ tools: [{ name: "search" }] }),
+    });
+
+    expect(readToolIdempotencyClass(DRIVER_NAME, "search")).toBe("manual_reconcile_only");
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Tools in different array order — canonical-ordering guard (no spurious update)
+// ----------------------------------------------------------------------------
+
+describe("DriverCapabilitiesWriter — canonical tool ordering", () => {
+  it("treats the same tool set in a DIFFERENT array order as a no-op (spurious-update guard)", () => {
+    const { writer } = makeWriter();
+    writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result: makeResult({
+        tools: [
+          { name: "search", idempotency_class: "idempotent" },
+          { name: "write_file", idempotency_class: "compensable" },
+        ],
+      }),
+    });
+
+    // SAME tools, REVERSED order — must canonicalize to the same snapshot → noop.
+    const outcome = writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result: makeResult({
+        tools: [
+          { name: "write_file", idempotency_class: "compensable" },
+          { name: "search", idempotency_class: "idempotent" },
+        ],
+      }),
+    });
+    expect(outcome).toEqual({ emitted: "noop" });
+    // No spurious second event.
+    expect(readEventRows(SESSION_ID)).toHaveLength(1);
+  });
+
+  it("uses BINARY (code-point) collation matching the reader — names that diverge under locale collation still no-op + hydrate in reader order", () => {
+    // `"Search"` (uppercase 'S' = 0x53) sorts BEFORE `"add"` (lowercase 'a' =
+    // 0x61) under SQLite BINARY collation, but a locale-aware `localeCompare`
+    // would order `"add"` first — so these two names are the discriminating case
+    // that catches a write-side sort using the WRONG collation (a mismatch would
+    // make the write order disagree with the `ORDER BY tool_name` reader,
+    // producing a spurious capability_updated AND a hydrate-order mismatch).
+    const { writer } = makeWriter();
+    writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result: makeResult({
+        tools: [
+          { name: "Search", idempotency_class: "idempotent" },
+          { name: "add", idempotency_class: "compensable" },
+        ],
+      }),
+    });
+
+    // Re-declare the SAME pair in a DIFFERENT array order — must canonicalize to
+    // the reader's BINARY order on BOTH sides → no-op (the spurious-update guard
+    // for collation-divergent names).
+    const outcome = writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result: makeResult({
+        tools: [
+          { name: "add", idempotency_class: "compensable" },
+          { name: "Search", idempotency_class: "idempotent" },
+        ],
+      }),
+    });
+    expect(outcome).toEqual({ emitted: "noop" });
+    expect(readEventRows(SESSION_ID)).toHaveLength(1);
+
+    // hydrate returns tools in the reader's BINARY order — `"Search"` BEFORE
+    // `"add"` — proving write-side and read-side collation coincide.
+    const hydrated = writer.hydrate(DRIVER_NAME);
+    expect(hydrated?.tools.map((tool) => tool.name)).toEqual(["Search", "add"]);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Invalid contract_version — throws + opens NO txn (tables untouched, no event)
+// ----------------------------------------------------------------------------
+
+describe("DriverCapabilitiesWriter — invalid contract_version", () => {
+  it("throws ProviderOutputValidationError and writes NO rows + NO event (txn never opened)", () => {
+    const { writer } = makeWriter();
+    expect(() =>
+      writer.declare({
+        sessionId: SESSION_ID,
+        nodeId: NODE_ID,
+        driverName: DRIVER_NAME,
+        // Non-canonical semver — rejected at the write seam BEFORE any txn opens.
+        result: makeResult({
+          capabilities: {
+            flags: makeFlags(),
+            contractVersion: "not-a-semver",
+          },
+        }),
+      }),
+    ).toThrow(ProviderOutputValidationError);
+
+    // The tables must be completely untouched (the txn never opened).
+    expect(countCapabilityRows(DRIVER_NAME)).toBe(0);
+    expect(readToolNames(DRIVER_NAME)).toEqual([]);
+    expect(countContractMetaRows(DRIVER_NAME)).toBe(0);
+    expect(readEventRows(SESSION_ID)).toHaveLength(0);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Invalid flags key-set — extra / missing flag rejected at the write seam
+// ----------------------------------------------------------------------------
+
+describe("DriverCapabilitiesWriter — invalid flags key-set", () => {
+  it("throws ProviderOutputValidationError on an EXTRA (8th bogus) flag + writes NO rows + NO event", () => {
+    const { writer } = makeWriter();
+    // The nominal `Record<DriverCapabilityFlag, boolean>` forbids an unknown key,
+    // so build an 8-key flags object and widen through `unknown` to reach the
+    // write-seam cardinality guard (the boundary an untyped provider would hit).
+    const extraFlags = { ...makeFlags(), nonsense_flag: true } as unknown as Record<
+      DriverCapabilityFlag,
+      boolean
+    >;
+    expect(() =>
+      writer.declare({
+        sessionId: SESSION_ID,
+        nodeId: NODE_ID,
+        driverName: DRIVER_NAME,
+        result: makeResult({
+          capabilities: { flags: extraFlags, contractVersion: CONTRACT_VERSION },
+        }),
+      }),
+    ).toThrow(ProviderOutputValidationError);
+
+    expect(countCapabilityRows(DRIVER_NAME)).toBe(0);
+    expect(countContractMetaRows(DRIVER_NAME)).toBe(0);
+    expect(readEventRows(SESSION_ID)).toHaveLength(0);
+  });
+
+  it("throws ProviderOutputValidationError on a MISSING flag + writes NO rows + NO event", () => {
+    const { writer } = makeWriter();
+    const missingFlags = makeFlags();
+    // Drop a canonical flag — the guard catches the <7 cardinality. Bracket
+    // access because the `Record<string, boolean>` widening goes through an index
+    // signature (`noPropertyAccessFromIndexSignature`).
+    delete (missingFlags as Record<string, boolean>)["mcp"];
+    expect(() =>
+      writer.declare({
+        sessionId: SESSION_ID,
+        nodeId: NODE_ID,
+        driverName: DRIVER_NAME,
+        result: makeResult({
+          capabilities: { flags: missingFlags, contractVersion: CONTRACT_VERSION },
+        }),
+      }),
+    ).toThrow(ProviderOutputValidationError);
+
+    expect(countCapabilityRows(DRIVER_NAME)).toBe(0);
+    expect(countContractMetaRows(DRIVER_NAME)).toBe(0);
+    expect(readEventRows(SESSION_ID)).toHaveLength(0);
+  });
+
+  it("throws ProviderOutputValidationError on a SAME-cardinality wrong-key set (7 keys, one non-canonical) + writes NO rows + NO event", () => {
+    const { writer } = makeWriter();
+    // 7 keys but `mcp` swapped for a bogus name — cardinality (===7) passes, so
+    // the per-flag own-key loop is the guard that must reject (canonical `mcp`
+    // absent as an own key). This is the same-cardinality wrong-key case the loop
+    // exists for; the extra/missing tests trip the cardinality guard first.
+    const wrongKeyFlags = makeFlags();
+    delete (wrongKeyFlags as Record<string, boolean>)["mcp"];
+    (wrongKeyFlags as Record<string, boolean>)["bogus_flag"] = true;
+    expect(() =>
+      writer.declare({
+        sessionId: SESSION_ID,
+        nodeId: NODE_ID,
+        driverName: DRIVER_NAME,
+        result: makeResult({
+          capabilities: {
+            flags: wrongKeyFlags as unknown as Record<DriverCapabilityFlag, boolean>,
+            contractVersion: CONTRACT_VERSION,
+          },
+        }),
+      }),
+    ).toThrow(ProviderOutputValidationError);
+    expect(countCapabilityRows(DRIVER_NAME)).toBe(0);
+    expect(countContractMetaRows(DRIVER_NAME)).toBe(0);
+    expect(readEventRows(SESSION_ID)).toHaveLength(0);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Malformed tool — leak-safe typed error (NOT raw ZodError), txn never opened
+// ----------------------------------------------------------------------------
+
+describe("DriverCapabilitiesWriter — malformed tool metadata", () => {
+  it("throws ProviderOutputValidationError (leak-safe, NOT ZodError) on a whitespace-only tool name + writes NO rows + NO event", () => {
+    const { writer } = makeWriter();
+    expect(() =>
+      writer.declare({
+        sessionId: SESSION_ID,
+        nodeId: NODE_ID,
+        driverName: DRIVER_NAME,
+        // Whitespace-only name — rejected by `wireFreeFormString`'s /\S/ guard,
+        // surfaced as the leak-safe typed error (symmetric with contract_version).
+        result: makeResult({ tools: [{ name: "   " }] }),
+      }),
+    ).toThrow(ProviderOutputValidationError);
+
+    expect(countCapabilityRows(DRIVER_NAME)).toBe(0);
+    expect(readToolNames(DRIVER_NAME)).toEqual([]);
+    expect(countContractMetaRows(DRIVER_NAME)).toBe(0);
+    expect(readEventRows(SESSION_ID)).toHaveLength(0);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// No-description re-declare — NULL→omitted round-trip compares equal (noop)
+// ----------------------------------------------------------------------------
+
+describe("DriverCapabilitiesWriter — no-description tool round-trip", () => {
+  it("treats a re-declare of a description-less tool as a noop (NULL→omitted round-trip is equal)", () => {
+    const { writer } = makeWriter();
+    writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result: makeResult({ tools: [{ name: "search", idempotency_class: "idempotent" }] }),
+    });
+
+    // Re-declare the identical description-less tool. The DB stores NULL; the
+    // `#snapshot` reader omits `description` entirely, so the prior snapshot
+    // compares deep-equal to the new one → noop.
+    const outcome = writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result: makeResult({ tools: [{ name: "search", idempotency_class: "idempotent" }] }),
+    });
+    expect(outcome).toEqual({ emitted: "noop" });
+    expect(readEventRows(SESSION_ID)).toHaveLength(1);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Multi-driver isolation — distinct capability keys + no row/snapshot bleed
+// ----------------------------------------------------------------------------
+
+describe("DriverCapabilitiesWriter — multi-driver isolation", () => {
+  it("emits driver-name-suffixed capability keys and keeps each driver's rows + snapshot isolated", () => {
+    const { writer } = makeWriter();
+
+    const codexResult: GetCapabilitiesResult = makeResult({
+      capabilities: { flags: makeFlags({ steer: true }), contractVersion: "1.0.0" },
+      tools: [{ name: "codex_tool", idempotency_class: "idempotent" }],
+    });
+    const claudeResult: GetCapabilitiesResult = makeResult({
+      capabilities: { flags: makeFlags({ mcp: true }), contractVersion: "2.0.0" },
+      tools: [{ name: "claude_tool", idempotency_class: "compensable" }],
+    });
+
+    writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: "codex",
+      result: codexResult,
+    });
+    writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: "claude",
+      result: claudeResult,
+    });
+
+    // (i) the two events carry DISTINCT driver-name-suffixed capability keys.
+    const events = readEventRows(SESSION_ID);
+    expect(events).toHaveLength(2);
+    const capabilityKeys = events.map(
+      (event) => (JSON.parse(event.payload) as { capability: string }).capability,
+    );
+    expect(capabilityKeys).toEqual(["provider-driver-codex", "provider-driver-claude"]);
+
+    // (ii) no row bleed — each driver has its own 7 flag rows + its own tools.
+    expect(countCapabilityRows("codex")).toBe(7);
+    expect(countCapabilityRows("claude")).toBe(7);
+    expect(readToolNames("codex")).toEqual(["codex_tool"]);
+    expect(readToolNames("claude")).toEqual(["claude_tool"]);
+
+    // (iii) hydrate returns each driver's own snapshot.
+    expect(writer.hydrate("codex")).toEqual({
+      capabilities: { flags: makeFlags({ steer: true }), contractVersion: "1.0.0" },
+      tools: [{ name: "codex_tool", idempotency_class: "idempotent" }],
+    });
+    expect(writer.hydrate("claude")).toEqual({
+      capabilities: { flags: makeFlags({ mcp: true }), contractVersion: "2.0.0" },
+      tools: [{ name: "claude_tool", idempotency_class: "compensable" }],
+    });
+  });
+});
+
+// ----------------------------------------------------------------------------
+// #snapshot cardinality invariant — corrupt cache (a deleted flag row) throws
+// ----------------------------------------------------------------------------
+
+describe("DriverCapabilitiesWriter — #snapshot cardinality invariant", () => {
+  it("throws on a corrupt cache (a flag row deleted out-of-band)", () => {
+    const { writer } = makeWriter();
+    writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result: makeResult(),
+    });
+
+    // Corrupt the cache out-of-band: drop one canonical flag row, leaving the
+    // parent contract_meta row intact (so `#snapshot` passes the existence gate).
+    db.prepare(
+      `DELETE FROM driver_capabilities WHERE driver_name = ? AND capability_flag = 'mcp'`,
+    ).run(DRIVER_NAME);
+
+    expect(() => writer.hydrate(DRIVER_NAME)).toThrow(/cardinality invariant/);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// hydrate — round-trips the nested GetCapabilitiesResult; undefined on miss
+// ----------------------------------------------------------------------------
+
+describe("DriverCapabilitiesWriter — hydrate (cold-start cache read)", () => {
+  it("round-trips a declared driver into the nested GetCapabilitiesResult (canonical tool order)", () => {
+    const { writer } = makeWriter();
+    const result: GetCapabilitiesResult = makeResult({
+      tools: [
+        { name: "write_file", idempotency_class: "compensable", description: "write a file" },
+        { name: "search", idempotency_class: "idempotent" },
+      ],
+    });
+    writer.declare({ sessionId: SESSION_ID, nodeId: NODE_ID, driverName: DRIVER_NAME, result });
+
+    const hydrated = writer.hydrate(DRIVER_NAME);
+    expect(hydrated).toEqual({
+      capabilities: {
+        flags: makeFlags(),
+        contractVersion: CONTRACT_VERSION,
+      },
+      // Canonical (name-ascending) order — search before write_file — regardless
+      // of the declared array order.
+      tools: [
+        { name: "search", idempotency_class: "idempotent" },
+        { name: "write_file", idempotency_class: "compensable", description: "write a file" },
+      ],
+    });
+  });
+
+  it("returns undefined for a driver that was never written", () => {
+    const { writer } = makeWriter();
+    expect(writer.hydrate("never-seen")).toBeUndefined();
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Throwing emit rolls back the cache write — write-then-emit ordering + atomicity
+// ----------------------------------------------------------------------------
+
+describe("DriverCapabilitiesWriter — atomic dual-write (throwing emit rolls back)", () => {
+  it("rolls back all three table writes when the emit throws (no rows for that driver)", () => {
+    const sessionService: SessionService = new SessionService(db);
+    // A REAL emitter whose append runs on the SAME connection, but whose emit is
+    // forced to throw AFTER the writes ran inside the txn — an injected
+    // `nextSequence` that throws makes `emitCapabilityDeclared` throw at append
+    // time (the same atomicity probe NodeCapabilityService's test uses), proving
+    // the write-then-emit ordering + transaction rollback.
+    const throwingEmitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
+      sessionEvents: sessionService,
+      nextSequence: () => {
+        throw new Error("forced emit failure");
+      },
+      newEventId: () => "evt-0",
+    });
+    const writer: DriverCapabilitiesWriter = new DriverCapabilitiesWriter(
+      db,
+      throwingEmitter,
+      makeAdvancingClock(),
+    );
+
+    expect(() =>
+      writer.declare({
+        sessionId: SESSION_ID,
+        nodeId: NODE_ID,
+        driverName: DRIVER_NAME,
+        result: makeResult({ tools: [{ name: "search", idempotency_class: "idempotent" }] }),
+      }),
+    ).toThrow("forced emit failure");
+
+    // The three table writes ran FIRST then rolled back when the emit threw — so
+    // there are NO rows for the driver after the failed declare.
+    expect(countCapabilityRows(DRIVER_NAME)).toBe(0);
+    expect(readToolNames(DRIVER_NAME)).toEqual([]);
+    expect(countContractMetaRows(DRIVER_NAME)).toBe(0);
+    expect(readEventRows(SESSION_ID)).toHaveLength(0);
+  });
+});

@@ -21,7 +21,7 @@
 //
 // Refs: Plan-005 §Phase 2 / T2.2 + T2.4, Spec-005 line 47.
 
-import { wireFreeFormString } from "@ai-sidekicks/contracts";
+import { DRIVER_CAPABILITY_FLAGS, wireFreeFormString } from "@ai-sidekicks/contracts";
 import semver from "semver";
 
 // --------------------------------------------------------------------------
@@ -157,5 +157,53 @@ export function assertValidResumeHandle(value: string): void {
       field: "resume_handle",
       reason: "must be a non-empty, non-whitespace, NUL-free string within length bounds",
     });
+  }
+}
+
+/**
+ * Validate a provider-declared capability `flags` map at the write seam. Throws
+ * `ProviderOutputValidationError` on failure.
+ *
+ * This guards T2.4's OWN cardinality invariant: `DriverCapabilitiesWriter`
+ * explodes `flags` into one CHECK-constrained `driver_capabilities` row per
+ * flag, so the table requires EXACTLY the canonical set — no more, no fewer.
+ * An extra/typo'd key would otherwise hit the SQL CHECK mid-transaction (a
+ * leaky SqliteError), and an omitted key would silently persist a <7-row
+ * partial cache. We REJECT extras here (contrast: tool metadata STRIPS unknown
+ * keys for forward-compat) because each flag maps to a fixed CHECK-constrained
+ * row — the set is closed for this contract version. The canonical key-set is
+ * sourced from the contract (`DRIVER_CAPABILITY_FLAGS`), kept in lockstep with
+ * the frozen migration-0003 CHECK list.
+ *
+ * NOT a re-parse of already-normalized provider output (provider-driver.ts
+ * §1(b) value-normalization stays the Phase-3 driver adapter's job) — only the
+ * key-set cardinality this writer's schema choice created.
+ *
+ * Both halves are on an OWN-key basis (the cardinality check via `Object.keys`;
+ * the per-flag loop via `Object.prototype.hasOwnProperty.call`). This is
+ * load-bearing: a mixed basis (own-key cardinality + prototype-inclusive
+ * `flags[flag]` access) would let a crafted 7-OWN-key input — one typo'd key,
+ * with the missing canonical flag INHERITED as a boolean from the prototype —
+ * pass both checks, then trip the SQL CHECK mid-transaction (a leaky
+ * SqliteError) for exactly the input class this guard exists to reject. With
+ * cardinality === 7 AND all 7 canonical flags present as OWN keys, pigeonhole
+ * guarantees the own-key set is EXACTLY canonical — so the writer's
+ * `Object.keys`-based write loop can never reach a non-canonical key.
+ */
+export function assertValidCapabilityFlags(flags: Record<string, unknown>): void {
+  const keys = Object.keys(flags);
+  if (keys.length !== DRIVER_CAPABILITY_FLAGS.length) {
+    throw new ProviderOutputValidationError("Invalid driver capability flags.", {
+      field: "flags",
+      reason: `must declare exactly the ${DRIVER_CAPABILITY_FLAGS.length.toString()} canonical capability flags`,
+    });
+  }
+  for (const flag of DRIVER_CAPABILITY_FLAGS) {
+    if (!Object.prototype.hasOwnProperty.call(flags, flag) || typeof flags[flag] !== "boolean") {
+      throw new ProviderOutputValidationError("Invalid driver capability flags.", {
+        field: "flags",
+        reason: "each canonical capability flag must be present and boolean",
+      });
+    }
   }
 }
