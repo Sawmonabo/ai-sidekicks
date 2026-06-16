@@ -635,13 +635,15 @@ test("validateManifestSubagentStage: scans nested semantic_edits values (e.g. ar
   );
 });
 
-// --- Placeholder-scan false-positive hardening (PR #161 regression) ---------
-// A backtick-quoted MENTION of the placeholder token (narrating its removal, or
-// documenting it in inline code) is a legitimate reference, not an unreplaced
-// stub. `containsRawPlaceholder` strips inline-code spans before the substring
-// test. The raw-stub-still-caught direction stays locked by the existing tests
-// above (in-memory: "fail when ... placeholder appears in semantic_edits values";
-// on-disk: "fail when ... placeholder still present in any affected file").
+// --- Placeholder-scan hardening (PR #161 false-positive + PR #162 disguised stub) ---
+// `hasUnresolvedPlaceholder` strips inline-code spans before the substring test, so:
+//   - a backtick-quoted MENTION narrating the stub's removal (real prose remains
+//     after stripping) is NOT a gap — the PR #161 false positive, covered below;
+//   - a value that is ONLY a backticked placeholder (nothing meaningful remains
+//     after stripping) IS a gap — the PR #162 disguised-stub case, covered below;
+//   - a raw, unquoted stub still gaps — locked by the existing tests above
+//     (in-memory: "fail when ... placeholder appears in semantic_edits values";
+//     on-disk: "fail when ... placeholder still present in any affected file").
 
 test("validateManifestSubagentStage: backtick-quoted <TODO subagent prose> MENTION in semantic_edits is NOT a placeholder gap (PR #161 false-positive)", () => {
   const manifest = {
@@ -696,6 +698,44 @@ test("validateManifestSubagentStage: a value mixing a backtick mention AND a raw
         g.includes("semantic_edits.compose_status_completion_prose"),
     ),
     `the unquoted stub must still gap even alongside a backtick mention; got: ${JSON.stringify(result.gaps)}`,
+  );
+});
+
+test("validateManifestSubagentStage: a semantic_edits value that is ONLY a backticked placeholder still gaps (Codex PR #162 P2 disguised stub)", () => {
+  // The subagent "addresses" a pending item by echoing the placeholder inside
+  // backticks instead of composing real prose. The bare value is non-empty, so
+  // the pending-item meaningfulness check (#2) passes it; before the #162 fix,
+  // code-span stripping also made the placeholder scan miss it → false {valid:true}.
+  // hasUnresolvedPlaceholder's (b) branch (placeholder-only, no meaningful payload
+  // after stripping) must reject it.
+  const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
+    semantic_work_pending: ["compose_status_completion_prose"],
+    semantic_edits: {
+      compose_status_completion_prose: "`<TODO subagent prose>`",
+    },
+    concerns: [],
+    affected_files: [],
+    result: "DONE",
+  };
+  const result = validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) });
+  assert.equal(
+    result.valid,
+    false,
+    `a backtick-only placeholder is fake work and must gap; got gaps: ${JSON.stringify(result.gaps)}`,
+  );
+  assert.ok(
+    result.gaps.some(
+      (g) =>
+        g.includes("<TODO subagent prose>") &&
+        g.includes("semantic_edits.compose_status_completion_prose"),
+    ),
+    `expected a placeholder-still-present gap for the disguised stub; got: ${JSON.stringify(result.gaps)}`,
   );
 });
 

@@ -9,13 +9,27 @@ import process from "node:process";
 const PLACEHOLDER = "<TODO subagent prose>";
 
 /**
- * True only when PLACEHOLDER appears OUTSIDE a markdown inline-code span.
+ * True when the PLACEHOLDER stub is effectively UNRESOLVED in `text`. Two
+ * failure modes, one legitimate success mode:
  *
- * A backtick-quoted MENTION of the token — a `semantic_edits` value narrating the
- * stub's removal, or an on-disk doc documenting the placeholder in inline code —
- * is a legitimate reference, not an unreplaced stub. Stripping inline-code spans
- * before the substring test kills that false positive while still catching a raw,
- * unquoted leftover stub.
+ *   (a) Raw leftover — PLACEHOLDER appears OUTSIDE a markdown inline-code span
+ *       (an un-replaced stub). Caught by stripping code spans first, then a
+ *       substring test.
+ *   (b) Disguised stub — PLACEHOLDER appears ONLY inside code spans AND, once
+ *       those spans are stripped, no meaningful payload remains. This is the
+ *       subagent "addressing" a pending item by backticking the placeholder
+ *       instead of composing real prose (e.g. `semantic_edits.x = "`<TODO
+ *       subagent prose>`"`). The bare value is non-empty, so the pending-item
+ *       meaningfulness check (#2) passes it; this guard is what rejects it.
+ *       (Codex PR #162 P2.)
+ *   ( ) Legitimate mention — real prose that QUOTES the token in backticks
+ *       (e.g. narrating the stub's removal) leaves meaningful content after
+ *       stripping, so neither (a) nor (b) fires. This is the false positive the
+ *       original naive `value.includes(PLACEHOLDER)` scan produced (PR #161).
+ *
+ * The "meaningful payload" bar is the canonical `isMeaningfulPayload`, so the
+ * placeholder scan and the pending-item pairing check agree on what counts as
+ * real content (a backticked placeholder plus only whitespace is not work).
  *
  * Sibling hardening idiom: `tokenBoundedRe` in scripts/post-merge-housekeeper.mjs
  * guards a DIFFERENT naive-match hazard (token-boundary collisions like `T5`
@@ -23,15 +37,18 @@ const PLACEHOLDER = "<TODO subagent prose>";
  * PLACEHOLDER hazard is inline-code mentions, not sub-token matches.
  *
  * Residual (rare, safe-direction): a doc with UNBALANCED backticks could have a
- * stray pair bracket a real stub and mask it — a false negative on a leftover
- * stub that only occurs in already-malformed markdown. Accepted over the far more
- * common false positive on legitimate balanced mentions.
+ * stray pair bracket a real (a)-form stub and mask it — a false negative on a
+ * leftover stub that only occurs in already-malformed markdown. Accepted over
+ * the far more common false positive on legitimate balanced mentions.
  *
  * @param {string} text
  * @returns {boolean}
  */
-function containsRawPlaceholder(text) {
-  return text.replace(/`[^`]*`/g, "").includes(PLACEHOLDER);
+function hasUnresolvedPlaceholder(text) {
+  const withoutCodeSpans = text.replace(/`[^`]*`/g, "");
+  if (withoutCodeSpans.includes(PLACEHOLDER)) return true; // (a) raw leftover stub
+  // (b) placeholder present only inside code spans, with no real content left.
+  return text.includes(PLACEHOLDER) && !isMeaningfulPayload(withoutCodeSpans);
 }
 
 // Canonical subagent prompt template — verbatim from
@@ -582,7 +599,7 @@ export function validateManifestSubagentStage({
       );
       continue;
     }
-    if (containsRawPlaceholder(text))
+    if (hasUnresolvedPlaceholder(text))
       gaps.push(`${PLACEHOLDER} placeholder still present in ${path}`);
   }
 
@@ -843,7 +860,7 @@ function isMeaningfulPayload(value) {
  */
 function walkForPlaceholder(value, path, onHit) {
   if (typeof value === "string") {
-    if (containsRawPlaceholder(value)) onHit(path);
+    if (hasUnresolvedPlaceholder(value)) onHit(path);
     return;
   }
   if (Array.isArray(value)) {
