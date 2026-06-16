@@ -542,6 +542,36 @@ shipped:
       ]
     notes: |
       Phase-1 tasks T1.1-T1.6 shipped as one contracts-only PR (no daemon/SDK; Phases 2-4 follow). AC1+AC2 verified; AC3 (recovery-needed, Spec-005:157) deferred to Phase 3/4 per the Plan-005 Acceptance Mapping. The two no-contract-invariant provider-output fields (DriverCapabilities.contractVersion, ProviderSessionHandle.resumeHandle) are bounded at the Phase-2 write seam (T2.1), not the contract layer. verifies_invariant records only the invariant canonically verified in Phase 1 — I-005-3 (omitted idempotency_class -> manual_reconcile_only at ingress, exercised by the T1.5 contract test). The Phase-1 surface also ships type/schema-level contributions toward I-005-1/2/4/5 (the @ts-expect-error enum-exhaustiveness and discriminated-union narrowing proofs), but their canonical Invariants Test lands later (I-005-1 cross-phase integration; I-005-2 + I-005-4 at T4.6; I-005-5 at T4.7), so each is recorded against its own phase.
+  - phase: 2
+    task: [T2.1, T2.2, T2.3, T2.4, T2.5]
+    pr: 159
+    sha: 9b93b55
+    merged_at: 2026-06-16
+    files:
+      - docs/architecture/schemas/local-sqlite-schema.md
+      - docs/plans/005-provider-driver-contract-and-capabilities.md
+      - packages/contracts/src/provider-driver.ts
+      - packages/runtime-daemon/package.json
+      - packages/runtime-daemon/src/migrations/0003-runtime-bindings.ts
+      - packages/runtime-daemon/src/provider/__tests__/driver-capabilities-writer.test.ts
+      - packages/runtime-daemon/src/provider/__tests__/phase-2-integration.test.ts
+      - packages/runtime-daemon/src/provider/__tests__/provider-registry.test.ts
+      - packages/runtime-daemon/src/provider/__tests__/runtime-binding-store.test.ts
+      - packages/runtime-daemon/src/provider/driver-capabilities-writer.ts
+      - packages/runtime-daemon/src/provider/provider-output-validation.ts
+      - packages/runtime-daemon/src/provider/provider-registry.ts
+      - packages/runtime-daemon/src/provider/runtime-binding-store.ts
+      - packages/runtime-daemon/src/session/__tests__/migration-shape.test.ts
+      - packages/runtime-daemon/src/session/__tests__/session-service.test.ts
+      - packages/runtime-daemon/src/session/migration-runner.ts
+      - pnpm-lock.yaml
+    verifies_invariant: [I-005-1, I-005-2]
+    spec_coverage: [Spec-005:41, Spec-005:43, Spec-005:47, Spec-005:48]
+    notes: |
+      Phase-2 tasks T2.1-T2.5 shipped as one daemon-persistence PR (migration 0003 + RuntimeBindingStore + ProviderRegistry + DriverCapabilitiesWriter + integration suite).
+      verifies_invariant = the audit DAG-task union {I-005-1, I-005-2}. I-005-1 is canonically verified by the T2.5 daemon-local-authority integration test (binding round-trips through a fresh store with a conceptually-remote mock provider -- the Plan-005 Invariants I-005-1 "integration test, daemon-local with remote endpoint mock"). I-005-2 is verified at the daemon-registry/integration boundary by T2.3 (a direct call against an undeclared flag throws driver.capability_unsupported), T2.4 (the cache-writer gate), and T2.5 (the gate matrix).
+      I-005-2's SDK-layer surface re-verifies at T4.6 (Phase 4); recording the same invariant in both phases is the established multi-layer convention (cf. Plan-003 I-003-2 recorded in both its Phase 2 and Phase 3 entries; Plan-002 I-002-3 in two phases) and is consistent with the Phase-1 note's "I-005-2 + I-005-4 at T4.6" projection, which named the SDK-layer canonical test -- not the sole verification site. I-005-4 (T4.6) and I-005-5 (T4.7) remain Phase-4 obligations and are not verified here.
+      spec_coverage is the union of the T2.1-T2.5 audit "Spec coverage:" cites. Phase 2 AC2 (Spec-005:156 -- capability gating verified end-to-end against a real registry + store) is verified by the T2.5 integration suite. The two persisted provider-output fields without a contract-level invariant (DriverCapabilities.contractVersion, ProviderSessionHandle.resumeHandle) are bounded here at the T2.2 write seam, discharging the Phase-1-tracked obligation. AC3 (recovery-needed) remains Phase 3/4.
 ```
 
 ### Notes
