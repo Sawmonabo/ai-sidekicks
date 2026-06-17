@@ -1705,7 +1705,8 @@ interface BranchContextReadResponse {
 // DiffArtifactCreate
 interface DiffArtifactCreateRequest {
   runId?: RunId; // present (required) when attributionMode === "run_attributed"; omitted for workspace_fallback, where precise run attribution is unavailable (Spec-011:44/58, D-011-2). Mirrors the at-rest CHECK(attribution_mode <> 'run_attributed' OR run_id IS NOT NULL) in local-sqlite-schema.md (diff_artifacts).
-  attributionMode: "run_attributed" | "workspace_fallback"; // Spec-011:52/58 — run_attributed when a diff correlates to run provenance; workspace_fallback when precise attribution is unavailable (D-011-2; the prior agent_trace/git_diff pair conflated the provenance-quality axis with the attribution mechanism)
+  workspaceId?: WorkspaceId; // present (required) when attributionMode === "workspace_fallback"; omitted for run_attributed, where the daemon resolves the producing workspace from runId (run_execution_contexts.workspace_id). The fallback arm carries no runId, so it names its workspace explicitly: the daemon locates the repo via workspaces.repo_mount_id (repo_mounts.canonical_root) to compute the baseRef..headRef diff, and derives the minted manifest's session via workspaces.session_id — symmetric to run_attributed, which resolves both from run_execution_contexts. The computed diff is the payload that mints the linked artifact_manifests row (CP-011-2; artifact_manifests.session_id NOT NULL, local-sqlite-schema.md), so the manifest is never payload-less (D-014-1). diff_artifacts persists no workspace_id/session_id: Spec-011:44 "workspace-level" is the provenance label; the workspace is a mint-time resolver and the session is reached via the artifact_manifest_id FK. sessionId would be the wrong grain — a session holds many workspaces, and baseRef/headRef do not name a repo.
+  attributionMode: "run_attributed" | "workspace_fallback"; // Spec-011:52/58 — run_attributed when a diff correlates to run provenance; workspace_fallback when precise attribution is unavailable (D-011-2; the prior agent_trace/git_diff pair conflated the provenance-quality axis with the attribution mechanism). Exactly one of {runId | workspaceId} resolves the producing workspace — hence the repo to diff and the session for the minted manifest — keyed by mode.
   baseRef: string;
   headRef: string;
 }
@@ -1755,8 +1756,11 @@ interface GitHostingAdapter {
 //     Interface lines 129-152). Every shape uses generic ChangeRequest terminology — callers never
 //     reference GitHub-specific concepts (Spec-011:150). V1 binds each method to a `gh` CLI subcommand
 //     (Spec-011:135-139); field names normalize the `gh` contract — reads via `gh pr … --json`; writes
-//     whose porcelain `gh pr` subcommand has no `--json` (create, comment) resolve their structured
-//     result via the JSON-returning `gh api` REST path, never by scraping porcelain stdout (gh-mapping noted inline).
+//     whose porcelain `gh pr` subcommand has no `--json` (create, comment) each resolve their structured
+//     result without scraping a porcelain table (Spec-011:141): `addComment` posts via the JSON-returning
+//     `gh api` REST path (Spec-011:139), while `createChangeRequest` runs `gh pr create` — which prints only
+//     the new PR URL to stdout — then passes that one URL to `gh pr view <created-url> --json number,url`
+//     (Spec-011:135). Two distinct mechanisms; neither parses porcelain-table stdout (gh-mapping noted inline).
 //     Every params shape carries a `repoMountId` identifying the target repository context — all
 //     operations accept one (Spec-011:141); the adapter resolves it to the repo's working tree / `gh -R`. ---
 interface ChangeRequestParams {
