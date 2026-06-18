@@ -448,14 +448,17 @@ CREATE INDEX idx_run_execution_contexts_workspace ON run_execution_contexts(work
 -- Owner: Plan-011
 CREATE TABLE diff_artifacts (
   id                    TEXT PRIMARY KEY,
-  artifact_manifest_id  TEXT REFERENCES artifact_manifests(id),
+  artifact_manifest_id  TEXT NOT NULL REFERENCES artifact_manifests(id),  -- every diff_artifact links to its minted manifest (CP-011-2; the diff is the manifest's payload, D-014-1 never-payload-less). The session is reached via this FK (artifact_manifests.session_id NOT NULL); a manifest-less row would be session-unreachable.
   run_id                TEXT,                 -- nullable: present for run_attributed, absent for workspace_fallback (Spec-011:44/58 — a fallback artifact must not imply precise run attribution; D-011-2)
   attribution_mode      TEXT NOT NULL         -- Spec-011:52/58 provenance quality (D-011-2)
                         CHECK(attribution_mode IN ('run_attributed', 'workspace_fallback')),
   base_ref              TEXT NOT NULL,
   head_ref              TEXT NOT NULL,
   created_at            TEXT NOT NULL,
-  CHECK(attribution_mode <> 'run_attributed' OR run_id IS NOT NULL)  -- run_attributed binds to its originating run; workspace_fallback may omit run_id (Spec-011:52/58)
+  CHECK(
+    (attribution_mode = 'run_attributed' AND run_id IS NOT NULL)
+    OR (attribution_mode = 'workspace_fallback' AND run_id IS NULL)
+  )  -- biconditional (D-011-2): run_attributed binds to its originating run; a workspace_fallback artifact MUST NOT carry a run_id (else it would imply the precise attribution it explicitly lacks, contradicting line 452 + Spec-011:44/52/58). The prior one-way form (<> OR) admitted a fallback row with a non-null run_id.
 );
 
 CREATE INDEX idx_diff_artifacts_run ON diff_artifacts(run_id) WHERE run_id IS NOT NULL;

@@ -1702,14 +1702,29 @@ interface BranchContextReadResponse {
   ephemeralCloneId?: EphemeralCloneId; // present only for clone-anchored contexts
 }
 
-// DiffArtifactCreate
-interface DiffArtifactCreateRequest {
-  runId?: RunId; // present (required) when attributionMode === "run_attributed"; omitted for workspace_fallback, where precise run attribution is unavailable (Spec-011:44/58, D-011-2). Mirrors the at-rest CHECK(attribution_mode <> 'run_attributed' OR run_id IS NOT NULL) in local-sqlite-schema.md (diff_artifacts).
-  workspaceId?: WorkspaceId; // present (required) when attributionMode === "workspace_fallback"; omitted for run_attributed, where the daemon resolves the producing workspace from runId (run_execution_contexts.workspace_id). The fallback arm carries no runId, so it names its workspace explicitly: the daemon locates the repo via workspaces.repo_mount_id (repo_mounts.canonical_root) to compute the baseRef..headRef diff, and derives the minted manifest's session via workspaces.session_id — symmetric to run_attributed, which resolves both from run_execution_contexts. The computed diff is the payload that mints the linked artifact_manifests row (CP-011-2; artifact_manifests.session_id NOT NULL, local-sqlite-schema.md), so the manifest is never payload-less (D-014-1). diff_artifacts persists no workspace_id/session_id: Spec-011:44 "workspace-level" is the provenance label; the workspace is a mint-time resolver and the session is reached via the artifact_manifest_id FK. sessionId would be the wrong grain — a session holds many workspaces, and baseRef/headRef do not name a repo.
-  attributionMode: "run_attributed" | "workspace_fallback"; // Spec-011:52/58 — run_attributed when a diff correlates to run provenance; workspace_fallback when precise attribution is unavailable (D-011-2; the prior agent_trace/git_diff pair conflated the provenance-quality axis with the attribution mechanism). Exactly one of {runId | workspaceId} resolves the producing workspace — hence the repo to diff and the session for the minted manifest — keyed by mode.
-  baseRef: string;
-  headRef: string;
-}
+// DiffArtifactCreate. Discriminated union over `attributionMode` (Spec-011:52/58, D-011-2) — the arm
+// structurally fixes which workspace-resolver key is present, so the {runId XOR workspaceId} invariant is
+// unrepresentable-when-violated (the prior optional-pair interface let a caller send both or neither). This
+// mirrors the at-rest biconditional CHECK in local-sqlite-schema.md (diff_artifacts): run_attributed
+// requires run_id present, workspace_fallback requires run_id absent. The producing workspace — hence the
+// repo to diff (baseRef..headRef) and the session for the minted manifest — is resolved one way per arm; the
+// computed diff is the payload that mints the linked artifact_manifests row (CP-011-2; artifact_manifests
+// .session_id NOT NULL, local-sqlite-schema.md), so the manifest is never payload-less (D-014-1).
+// diff_artifacts persists no workspace_id/session_id: Spec-011:44 "workspace-level" is the provenance label;
+// the workspace is a mint-time resolver and the session is reached via the artifact_manifest_id FK (NOT NULL).
+type DiffArtifactCreateRequest =
+  | {
+      attributionMode: "run_attributed"; // a diff that correlates to run provenance (Spec-011:52/58, D-011-2)
+      runId: RunId; // required; the daemon resolves the producing workspace from runId (run_execution_contexts.workspace_id) — both the repo to diff and the minted manifest's session
+      baseRef: string;
+      headRef: string;
+    }
+  | {
+      attributionMode: "workspace_fallback"; // precise run attribution unavailable; a workspace-level diff (Spec-011:52/58, D-011-2; the prior agent_trace/git_diff pair conflated the provenance-quality axis with the attribution mechanism)
+      workspaceId: WorkspaceId; // required; the fallback arm carries no runId, so it names its workspace explicitly — the daemon locates the repo via workspaces.repo_mount_id (repo_mounts.canonical_root) and derives the minted manifest's session via workspaces.session_id, symmetric to run_attributed. sessionId would be the wrong grain: a session holds many workspaces, and baseRef/headRef do not name a repo.
+      baseRef: string;
+      headRef: string;
+    };
 interface DiffArtifactCreateResponse {
   diffArtifactId: string;
   artifactManifestId: ArtifactId;
