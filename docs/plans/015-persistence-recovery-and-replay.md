@@ -112,7 +112,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 - [ ] **T15.4 — Expose recovery-status reads and renderer surfaces for degraded or blocked startup conditions.**
   - Implement the `RecoveryStatusRead` daemon contract + `recoveryClient.ts` SDK method, and the renderer recovery-status surface that renders healthy / replaying / degraded / blocked states with machine-readable failure category + recovery condition. Block mutable operations when the local durable store is unavailable. Map `RunFailureCategory.projection failure` → `RecoveryStatusRead` state `degraded`; `RunFailureCategory.local persistence failure` → state `blocked`, per Spec-015:54,61.
-  - **Target paths:** `packages/contracts/src/recovery/`, `packages/client-sdk/src/recoveryClient.ts`, `apps/desktop/src/renderer/src/recovery-status/`
+  - **Target paths:** `packages/contracts/src/recovery/` (with a `recovery/index.ts` barrel re-exported from `packages/contracts/src/index.ts` — the repo single-import-surface convention, Plan-021 T21.1-1/T21.1-2 precedent; `package.json` keeps exporting only `"."`), `packages/client-sdk/src/recoveryClient.ts`, `apps/desktop/src/renderer/src/recovery-status/`
   - **Spec coverage:** Default Behavior — block local mutable ops when store unavailable (`docs/specs/015-persistence-recovery-and-replay.md:54`); Fallback Behavior — degraded read-only + repair signals (`docs/specs/015-persistence-recovery-and-replay.md:61`); Interfaces — `RecoveryStatusRead` healthy/replaying/degraded/blocked (`docs/specs/015-persistence-recovery-and-replay.md:66`); Acceptance Criteria — block when unavailable + failure visible/auditable (`docs/specs/015-persistence-recovery-and-replay.md:345-346`).
   - **Verifies invariant:** I-015-3
   - **Ownership note:** renderer slot `apps/desktop/src/renderer/src/recovery-status/` is Plan-015's extender slot under Plan-023 per `docs/architecture/cross-plan-dependencies.md:101`.
@@ -170,6 +170,7 @@ shipped: []
 <!-- Per-PR human commentary (round-trips, learnings, partial-ship details). Append-only. -->
 
 - 2026-06-15 — Tier-7 plan-readiness audit (NS-19): 6 findings adjudicated via A-015-1..5; D-015-1 ratified. The audit added §Invariants I-015-1..4 (A-015-2) and the four-task `#### Tasks` block (A-015-1) as backfill recording EXISTING relationships — no new contract, so Plan-015 stays `approved`. Other adjudications: replay envelope ADR-018 version handling threaded into T15.2 (A-015-3); `RunFailureCategory` → recovery-state mapping pinned in T15.4 (A-015-4); compaction-cadence risk re-classed as performance-only, correctness compaction-independent per Spec-015:355 (A-015-5). D-015-1 ratifies the `ReplayReadAfterCursor` sequence-position cursor model. No upstream-tier or sealed-plan amendments.
+- 2026-06-18 — Codex review round 15 (NS-19 PR finalization): KcMXv — T15.4's `packages/contracts/src/recovery/` subdir exposes a `recovery/index.ts` barrel re-exported from `packages/contracts/src/index.ts` (the repo single-import-surface convention — the Plan-021 T21.1-1/T21.1-2 `index.ts` re-export precedent); `package.json` keeps exporting only `"."`. Companion: cross-plan-dependencies.md §2 `recovery/` row. No new contract — Plan-015 stays `approved`. No sealed-plan amendments owed.
 
 ## Done Checklist
 
