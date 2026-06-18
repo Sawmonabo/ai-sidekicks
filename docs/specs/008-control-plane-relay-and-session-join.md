@@ -133,7 +133,7 @@ MLS via an audited implementation (OpenMLS, mls-rs, or a post-audit TypeScript i
 
 - **Wire format**: WebSocket binary frames.
 - **Frame structure**: `[4-byte big-endian length][1-byte message type][payload]`. V1 payload is a pairwise ciphertext envelope (`{sender_ephemeral, recipient_id, seq, nonce, ciphertext+tag}`) — `sender_ephemeral` is the sender's 32-byte session ephemeral X25519 public key, the recipient's O(1) key-selection handle into its cached pairwise-key map (sender authenticity follows from which key verifies the tag, so `sender_ephemeral` is **not** AEAD-bound; the associated data stays `recipient_id ‖ seq`). The `seq` is the per-sender monotonic sequence (8-byte big-endian) bound into the AEAD associated data and carried in the clear for receiver reconstruction. Both `sender_ephemeral` and `seq` live inside the opaque `[payload]`, not in the frame header — the R1 frame codec wraps the envelope without inspecting it. V1.1+ payload (MLS) is an MLSCiphertext structure.
-- **Maximum frame size**: 64 KB. Messages larger than 64 KB must be chunked at the application layer before encryption.
+- **Maximum frame size**: 64 KB. Messages larger than 64 KB must be chunked at the application layer before encryption. The 4-byte length prefix counts the 1-byte message type + payload, and the codec enforces the 64 KB cap on the frame consistently on encode and decode.
 - **Heartbeat**: WebSocket ping/pong at 30-second intervals for keepalive. If no pong is received within 60 seconds, the client must treat the connection as dead and begin reconnect.
 
 ### Session Membership Management (V1 Pairwise)
