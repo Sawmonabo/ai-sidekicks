@@ -448,15 +448,22 @@ CREATE INDEX idx_run_execution_contexts_workspace ON run_execution_contexts(work
 -- Owner: Plan-011
 CREATE TABLE diff_artifacts (
   id                    TEXT PRIMARY KEY,
-  artifact_manifest_id  TEXT REFERENCES artifact_manifests(id),
-  run_id                TEXT NOT NULL,
-  attribution_mode      TEXT NOT NULL,        -- e.g. 'agent_trace', 'git_diff'
+  artifact_manifest_id  TEXT NOT NULL REFERENCES artifact_manifests(id),  -- every diff_artifact links to its minted manifest (CP-011-2; the diff is the manifest's payload, D-014-1 never-payload-less). The session is reached via this FK (artifact_manifests.session_id NOT NULL); a manifest-less row would be session-unreachable.
+  run_id                TEXT,                 -- nullable: present for run_attributed, absent for workspace_fallback (Spec-011:44/58 — a fallback artifact must not imply precise run attribution; D-011-2)
+  workspace_id          TEXT REFERENCES workspaces(id),  -- nullable mirror of run_id: present for workspace_fallback (the durable workspace-level provenance Spec-011:44 mandates — D-011-4 persists what the wire's workspace_fallback.workspaceId carries; the prior schema dropped it, treating the workspace as a transient mint-time resolver), null for run_attributed (whose workspace is reachable via the run's run_execution_contexts.workspace_id). FK because workspaces is table-backed, unlike event-sourced run_id/session_id.
+  attribution_mode      TEXT NOT NULL         -- Spec-011:52/58 provenance quality (D-011-2)
+                        CHECK(attribution_mode IN ('run_attributed', 'workspace_fallback')),
   base_ref              TEXT NOT NULL,
   head_ref              TEXT NOT NULL,
-  created_at            TEXT NOT NULL
+  created_at            TEXT NOT NULL,
+  CHECK(
+    (attribution_mode = 'run_attributed' AND run_id IS NOT NULL AND workspace_id IS NULL)
+    OR (attribution_mode = 'workspace_fallback' AND run_id IS NULL AND workspace_id IS NOT NULL)
+  )  -- biconditional (D-011-2, D-011-4): run_attributed binds to its originating run (its workspace reached via that run's run_execution_contexts.workspace_id, so workspace_id is null); a workspace_fallback artifact MUST NOT carry a run_id (else it would imply the precise attribution it explicitly lacks, contradicting the run_id comment above + Spec-011:44/52/58) and MUST carry workspace_id (the durable workspace-level label, mirroring the wire union). The prior one-way form (<> OR) admitted a fallback row with a non-null run_id; the prior schema also dropped workspace_id entirely (KscWH).
 );
 
-CREATE INDEX idx_diff_artifacts_run ON diff_artifacts(run_id);
+CREATE INDEX idx_diff_artifacts_run ON diff_artifacts(run_id) WHERE run_id IS NOT NULL;
+CREATE INDEX idx_diff_artifacts_workspace ON diff_artifacts(workspace_id) WHERE workspace_id IS NOT NULL;
 
 -- Owner: Plan-011
 CREATE TABLE pr_preparations (
@@ -478,23 +485,33 @@ CREATE INDEX idx_pr_preparations_branch ON pr_preparations(branch_context_id);
 
 ```sql
 -- Owner: Plan-014
+-- Tier-7 audit (NS-19): + subject, size_bytes, annotations realize the OCI manifest envelope (D-014-1, D-014-2);
+--   + replication_status realizes the Spec-014:61 manifest-first replication surface (A-014-3) — nullable,
+--   spec-named `pending_replication` value, multi-state CHECK deferred (anti-fabrication; see note below).
 CREATE TABLE artifact_manifests (
-  id              TEXT PRIMARY KEY,
-  session_id      TEXT NOT NULL,
-  run_id          TEXT,
-  artifact_type   TEXT NOT NULL,              -- e.g. 'code', 'document', 'image', 'diff'
-  visibility      TEXT NOT NULL DEFAULT 'local-only'
-                  CHECK(visibility IN ('local-only', 'shared')),
-  state           TEXT NOT NULL DEFAULT 'pending'
-                  CHECK(state IN ('pending', 'published', 'superseded')),
-  content_hash    TEXT,                       -- SHA-256 for deduplication
-  metadata        TEXT NOT NULL DEFAULT '{}', -- JSON: provenance, media type, etc.
-  created_at      TEXT NOT NULL
+  id                 TEXT PRIMARY KEY,
+  session_id         TEXT NOT NULL,
+  run_id             TEXT,
+  artifact_type      TEXT NOT NULL              -- Spec-014:73 discriminator (D-014-4)
+                     CHECK(artifact_type IN ('file', 'diff', 'summary', 'log', 'design', 'workflow_output')),
+  subject            TEXT REFERENCES artifact_manifests(id),  -- OCI `subject`: NULL for originals; a derivative (redacted/summarized shareable form) points to its source manifest, never an in-place UPDATE of the original (I-014-2, Spec-014 line 84, A-014-4)
+  visibility         TEXT NOT NULL DEFAULT 'local-only'
+                     CHECK(visibility IN ('local-only', 'shared')),
+  state              TEXT NOT NULL DEFAULT 'pending'
+                     CHECK(state IN ('pending', 'published', 'superseded')),
+  content_hash       TEXT NOT NULL,              -- SHA-256 content address (OCI `digest`); intrinsic to a content-addressed manifest (I-014-1), set at insert by the writing producer (AttachmentIngest or ArtifactPublish) from its own payload — D-014-1
+  size_bytes         INTEGER NOT NULL,           -- OCI manifest-descriptor `size` (payload byte length); set at insert by the writing producer from its own payload, never a payload-less row — D-014-1
+  annotations        TEXT NOT NULL DEFAULT '{}', -- OCI `annotations`: JSON-encoded string→string map (first-class OCI manifest property, not freeform `metadata`) — D-014-1, D-014-2
+  replication_status TEXT,                       -- A-014-3: manifest-first replication surface (Spec-014 line 61 — a shared artifact awaiting deferred payload transfer is `pending_replication`; NULL otherwise). NO CHECK: the spec names only `pending_replication`, so a multi-state CHECK (terminal/failed values) is a deferred owner refinement — none is invented here (anti-fabrication); see note below.
+  metadata           TEXT NOT NULL DEFAULT '{}', -- JSON: freeform daemon-side provenance/media-type/etc. — distinct from the OCI `annotations` map (own column above)
+  created_at         TEXT NOT NULL,
+  CHECK(subject IS NULL OR subject <> id)        -- I-014-2: a derivative points to a *distinct* source manifest, never itself (no self-referential subject; same guard pattern as run_links parent<>child)
 );
 
 CREATE INDEX idx_artifact_manifests_session ON artifact_manifests(session_id);
 CREATE INDEX idx_artifact_manifests_run ON artifact_manifests(run_id) WHERE run_id IS NOT NULL;
-CREATE INDEX idx_artifact_manifests_hash ON artifact_manifests(content_hash) WHERE content_hash IS NOT NULL;
+CREATE INDEX idx_artifact_manifests_hash ON artifact_manifests(content_hash);
+CREATE INDEX idx_artifact_manifests_subject ON artifact_manifests(subject) WHERE subject IS NOT NULL;
 
 -- Owner: Plan-014
 CREATE TABLE artifact_payload_refs (
@@ -508,6 +525,8 @@ CREATE TABLE artifact_payload_refs (
 
 CREATE INDEX idx_artifact_payload_refs_manifest ON artifact_payload_refs(manifest_id);
 ```
+
+> **Tier-7 audit (NS-19) — ratified design (Plan-014 → `approved`).** `artifact_manifests.subject` (OCI `subject`, self-referential FK — derivative-not-mutation per I-014-2, guarded by a table-level `CHECK(subject IS NULL OR subject <> id)` so no manifest is its own subject — a derivative must point to a _distinct_ source, the same self-reference guard pattern as `run_links` parent≠child), `artifact_manifests.size_bytes` (OCI manifest-descriptor `size`), and `artifact_manifests.annotations` (OCI `annotations`, a first-class string→string map per the [OCI image-manifest spec](https://github.com/opencontainers/image-spec/blob/main/manifest.md)) realize the OCI envelope per D-014-1. **`content_hash`/`size_bytes` are `NOT NULL`:** a content-addressed manifest's `digest` is intrinsic to its identity (I-014-1), and each producer (Plan-014 Task 2 AttachmentIngest, Task 3 ArtifactPublish) computes the SHA-256 + byte length from its own payload and inserts its manifest with both columns set in the same transaction as the payload-ref — the two are independent producers, each writing its own manifest (so the `artifactId` AttachmentIngest returns resolves from the ingest-written manifest, not a later publish), so neither is ever NULL and no payload-less manifest is ever read — this is 1:1 with the **required** `digest`/`size` fields on the `ArtifactManifest` wire shape ([api-payload-contracts.md](../contracts/api-payload-contracts.md)). **D-014-2 (OCI `annotations` reciprocity):** `annotations` is its own column rather than riding inside `metadata` JSON, so the at-rest shape is 1:1 with the wire — `ArtifactReadResponse.annotations` is a field distinct from `metadata` in [api-payload-contracts.md](../contracts/api-payload-contracts.md) — and consistent with `subject`/`size_bytes` getting dedicated columns; `metadata` stays purely freeform. `artifact_manifests.replication_status` (A-014-3) realizes the Spec-014:61 manifest-first replication surface — the column exists (spec-required: shared artifacts replicate manifest-first with deferred payload, Spec-014:61/117), nullable, and V1 writes the spec-named `pending_replication` while a shared artifact awaits payload transfer; it surfaces on the wire as the optional `ArtifactManifest.replicationStatus?` field (1:1 at-rest↔wire). It carries **no multi-state `CHECK`**: Spec-014:61 names only `pending_replication` ("or equivalent"), so terminal/failed values are a deferred owner refinement — none is invented here (anti-fabrication). This schema edit + the `api-payload-contracts.md` artifact-wire edit + Plan-014 CP-014-1 landed as one ratified bundle in the NS-19 audit swap.
 
 ---
 

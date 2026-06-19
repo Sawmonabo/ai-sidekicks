@@ -132,13 +132,13 @@ The adapter uses host-agnostic naming (`ChangeRequest` rather than `PullRequest`
 
 | Operation | Description | Wraps (`gh` V1) |
 | --- | --- | --- |
-| `createChangeRequest(params)` | Creates a PR. Params: `baseBranch`, `headBranch`, `title`, `description`, `reviewers?` | `gh pr create` |
+| `createChangeRequest(params)` | Creates a PR. Params: `baseBranch`, `headBranch`, `title`, `description`, `reviewers?` | `gh pr create` + `gh pr view <created-url> --json number,url` |
 | `updateChangeRequest(params)` | Updates PR metadata (title, description, reviewers, labels). | `gh pr edit` |
 | `listChangeRequests(params)` | Lists PRs for a repo, with optional state and label filters. | `gh pr list` |
 | `getChangeRequestStatus(params)` | Returns PR status: open/merged/closed plus CI check results. | `gh pr view` |
-| `addComment(params)` | Adds a comment to an existing PR. | `gh pr comment` |
+| `addComment(params)` | Adds a comment to an existing PR. | `gh api …/issues/{number}/comments` (`gh pr comment` has no `--json`) |
 
-All operations accept a `repoMountId` to identify the target repository context and return structured results (not raw CLI output). The adapter parses `gh` JSON output (`--json` flag) into typed response objects.
+All operations accept a `repoMountId` to identify the target repository context and return structured results (not raw CLI output). Read operations (`listChangeRequests`, `getChangeRequestStatus`) parse `gh pr … --json` output into typed response objects. Write operations whose porcelain `gh pr` subcommand exposes **no** `--json` flag resolve their structured result via the JSON-returning REST path instead: `addComment` posts via `gh api repos/{owner}/{repo}/issues/{number}/comments` (returns `{ id, html_url }`), and `createChangeRequest` runs `gh pr create` (which prints only the new PR URL to stdout) then resolves the structured handle by passing that URL to `gh pr view <created-url> --json number,url` — never a bare `gh pr view`, which resolves the current branch's PR, not the one just created on an arbitrary `headBranch`. The adapter never scrapes porcelain stdout.
 
 ### Multi-Host Path (V2)
 

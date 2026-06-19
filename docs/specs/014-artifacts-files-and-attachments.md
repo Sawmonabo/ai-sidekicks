@@ -70,7 +70,7 @@ This spec covers artifact types, attachment ingestion, storage expectations, man
 - `ArtifactVisibilityUpdate` must require policy and authorization checks.
 - `AttachmentIngest` must normalize names, media type, and size metadata.
 - Artifact storage uses an OCI-inspired manifest envelope: `{id: ArtifactId, sessionId, runId, digest: SHA-256, size, artifactType, annotations, subject?, createdAt}`.
-- `artifactType` is a discriminator: `"diff"`, `"design"`, `"file"`, `"log"`.
+- `artifactType` is a discriminator: `"file"`, `"diff"`, `"summary"`, `"log"`, `"design"`, `"workflow_output"` — one value per family enumerated above (`summary` covers the plan/summary family) plus `workflow_output`, the Spec-017 workflow phase-output type (Spec-017:237).
 - `subject` field enables artifact linking (e.g., a diff artifact referencing its parent run artifact).
 - See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
 - See [Error Contracts](../architecture/contracts/error-contracts.md) for error response schemas and error codes.
@@ -116,6 +116,7 @@ This spec covers artifact types, attachment ingestion, storage expectations, man
 - No blocking open questions remain for v1.
 - V1 decision: shared artifact replication is manifest-first with deferred payload transfer. Small-payload synchronous optimization does not change the external contract in v1.
 - V1 decision: participant-specific fine-grained artifact redaction is out of scope for v1. Visibility remains class-based, and any redacted shareable form must be published as a separate derivative artifact.
+- V1 decision (Tier-7 NS-19 audit): the `artifactType` discriminator is closed to six values — the five families above plus `workflow_output` (Spec-017:237). The Required-Behavior families list admits "at least" the five, so `workflow_output` is an additive sixth discriminator value, not a families-list rewrite; the closed typed union is the contract in [api-payload-contracts.md](../architecture/contracts/api-payload-contracts.md). Content-only amendment — Spec-014 stays `approved`.
 
 ## References
 

@@ -326,7 +326,7 @@ Closes the BL-102 sub-item "JSON-RPC method-name canonical-format registry (`ses
 /^[a-z][a-z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/
 ```
 
-The regex requires a lowercase-starting first segment (the namespace root); subsequent dot-delimited segments may contain camelCase (`[a-z][a-zA-Z0-9]*`). This adopts the dotted-camelCase _segment_ style of the LSP precedent ([Language Server Protocol §General Messages](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/) — e.g. `workspace.executeCommand`) and the MCP precedent ([Model Context Protocol §Protocol Messages](https://modelcontextprotocol.io/specification/2025-06-18/server/tools) — `tools.list`, `tools.call`), but deliberately **tightens the leading segment to lowercase-only**: LSP's own camelCase-rooted names such as `textDocument.didOpen` are _rejected_ by this regex, because every V1 namespace root is a lowercase identifier — registered or shipped: `session`, `daemon`, `run`, `repo`, `approval`, `participant`, `gdpr`, `runtimenode`, `presence`, `invite`, `membership`, `channel`, plus the Tier-6-ratified Plan-016 roots `orchestration` and `agent`; still-planned: `driver`, `settings`, `event`, `artifact` (root set re-derived during the Tier-6 audit; `invite`/`membership`/`channel` are SDK-declared daemon-as-gateway strings owned by Plan-002, bridged server-side to control-plane tRPC). The V1 Tier 1 surface (`session.create`, `session.read`, `session.join`, `session.subscribe`) uses all-lowercase segments; nested-namespace operations like `settings.effectiveRead` and `driver.listCapabilities` (lowercase root + camelCase tail) are permitted under this regex.
+The regex requires a lowercase-starting first segment (the namespace root); subsequent dot-delimited segments may contain camelCase (`[a-z][a-zA-Z0-9]*`). This adopts the dotted-camelCase _segment_ style of the LSP precedent ([Language Server Protocol §General Messages](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/) — e.g. `workspace.executeCommand`) and the MCP precedent ([Model Context Protocol §Protocol Messages](https://modelcontextprotocol.io/specification/2025-06-18/server/tools) — `tools.list`, `tools.call`), but deliberately **tightens the leading segment to lowercase-only**: LSP's own camelCase-rooted names such as `textDocument.didOpen` are _rejected_ by this regex, because every V1 namespace root is a lowercase identifier — registered or shipped: `session`, `daemon`, `run`, `repo`, `approval`, `participant`, `gdpr`, `runtimenode`, `presence`, `invite`, `membership`, `channel`, plus the Tier-6-ratified Plan-016 roots `orchestration` and `agent`, and the Tier-7-ratified Plan-011 root `gitflow`; still-planned: `driver`, `settings`, `event`, `artifact` (root set re-derived during the Tier-6 audit, gitflow added during the Tier-7 audit; `invite`/`membership`/`channel` are SDK-declared daemon-as-gateway strings owned by Plan-002, bridged server-side to control-plane tRPC). The V1 Tier 1 surface (`session.create`, `session.read`, `session.join`, `session.subscribe`) uses all-lowercase segments; nested-namespace operations like `settings.effectiveRead` and `driver.listCapabilities` (lowercase root + camelCase tail) are permitted under this regex.
 
 The regex accepts the Tier 1 surface and rejects:
 
@@ -1114,7 +1114,7 @@ interface RelayNegotiationRequest {
   transportPreferences: string[]; // e.g. ['websocket', 'http2']
 }
 interface RelayNegotiationResponse {
-  relayEndpoint: string;
+  relayEndpoint: string; // per-session WSS URL the client dials; carries the negotiated sessionId so the relay verifier recovers it out-of-band from the connect-token (PASETO v4 implicit assertion, Spec-008 §Relay Negotiation). The self-hostable single-process relay mints it with sessionId as a path segment (wss://<host>/relay/<sessionId>, Plan-025 D-025-10); the hosted session-sharded Durable Object holds sessionId via its shard identity.
   transportProtocol: string;
   cipherSuite: string; // negotiated cipher suite, e.g. 'v1/pairwise' (Spec-008 §Relay Negotiation)
   connectionToken: string; // short-lived auth token
@@ -1702,13 +1702,32 @@ interface BranchContextReadResponse {
   ephemeralCloneId?: EphemeralCloneId; // present only for clone-anchored contexts
 }
 
-// DiffArtifactCreate
-interface DiffArtifactCreateRequest {
-  runId: RunId;
-  attributionMode: "agent_trace" | "git_diff";
-  baseRef: string;
-  headRef: string;
-}
+// DiffArtifactCreate. Discriminated union over `attributionMode` (Spec-011:52/58, D-011-2) — the arm
+// structurally fixes which workspace-resolver key is present, so the {runId XOR workspaceId} invariant is
+// unrepresentable-when-violated (the prior optional-pair interface let a caller send both or neither). This
+// mirrors the at-rest biconditional CHECK in local-sqlite-schema.md (diff_artifacts): run_attributed
+// requires run_id present + workspace_id absent, workspace_fallback requires run_id absent + workspace_id
+// present. The producing workspace — hence the
+// repo to diff (baseRef..headRef) and the session for the minted manifest — is resolved one way per arm; the
+// computed diff is the payload that mints the linked artifact_manifests row (CP-011-2; artifact_manifests
+// .session_id NOT NULL, local-sqlite-schema.md), so the manifest is never payload-less (D-014-1).
+// diff_artifacts persists workspace_id for the workspace_fallback arm (the durable workspace-level provenance
+// label Spec-011:44 mandates — D-011-4; run_attributed persists no workspace_id, its workspace reachable via
+// the run's run_execution_contexts.workspace_id). No session_id column: the session is reached via the
+// artifact_manifest_id FK (NOT NULL).
+type DiffArtifactCreateRequest =
+  | {
+      attributionMode: "run_attributed"; // a diff that correlates to run provenance (Spec-011:52/58, D-011-2)
+      runId: RunId; // required; the daemon resolves the producing workspace from runId (run_execution_contexts.workspace_id) — both the repo to diff and the minted manifest's session
+      baseRef: string;
+      headRef: string;
+    }
+  | {
+      attributionMode: "workspace_fallback"; // precise run attribution unavailable; a workspace-level diff (Spec-011:52/58, D-011-2; the prior agent_trace/git_diff pair conflated the provenance-quality axis with the attribution mechanism)
+      workspaceId: WorkspaceId; // required; the fallback arm carries no runId, so it names its workspace explicitly — the daemon locates the repo via workspaces.repo_mount_id (repo_mounts.canonical_root) and derives the minted manifest's session via workspaces.session_id, symmetric to run_attributed. sessionId would be the wrong grain: a session holds many workspaces, and baseRef/headRef do not name a repo.
+      baseRef: string;
+      headRef: string;
+    };
 interface DiffArtifactCreateResponse {
   diffArtifactId: string;
   artifactManifestId: ArtifactId;
@@ -1750,45 +1769,155 @@ interface GitHostingAdapter {
   getChangeRequestStatus(params: GetChangeRequestStatusParams): Promise<ChangeRequestStatus>;
   addComment(params: AddCommentParams): Promise<CommentResult>;
 }
+
+// --- GitHostingAdapter supporting types (D-011-1; host-agnostic, Spec-011 §GitHostingAdapter
+//     Interface lines 129-152). Every shape uses generic ChangeRequest terminology — callers never
+//     reference GitHub-specific concepts (Spec-011:150). V1 binds each method to a `gh` CLI subcommand
+//     (Spec-011:135-139); field names normalize the `gh` contract — reads via `gh pr … --json`; writes
+//     whose porcelain `gh pr` subcommand has no `--json` (create, comment) each resolve their structured
+//     result without scraping a porcelain table (Spec-011:141): `addComment` posts via the JSON-returning
+//     `gh api` REST path (Spec-011:139), while `createChangeRequest` runs `gh pr create` — which prints only
+//     the new PR URL to stdout — then passes that one URL to `gh pr view <created-url> --json number,url`
+//     (Spec-011:135). Two distinct mechanisms; neither parses porcelain-table stdout (gh-mapping noted inline).
+//     Every params shape carries a `repoMountId` identifying the target repository context — all
+//     operations accept one (Spec-011:141); the adapter resolves it to the repo's working tree / `gh -R`. ---
+interface ChangeRequestParams {
+  // → gh pr create (prints only the new PR URL to stdout — no --json; Spec-011:135), then
+  //   gh pr view <created-url> --json number,url to resolve the handle. The URL is passed
+  //   explicitly: a bare gh pr view resolves the CURRENT branch's PR, not the one just
+  //   created on an arbitrary headBranch (Spec-011:141).
+  repoMountId: RepoMountId; // target repository context — all operations accept it (Spec-011:141)
+  baseBranch: string; // target branch the change merges into (--base)
+  headBranch: string; // source branch carrying the change (--head)
+  title: string;
+  description: string; // change-request body (--body)
+  reviewers?: string[]; // optional requested reviewers (--reviewer)
+}
+interface ChangeRequestResult {
+  changeRequestId: string; // host-agnostic handle for subsequent update/status/comment calls (gh pr view <created-url> --json number → number, stringified)
+  number: number; // host-assigned change-request number (gh pr view <created-url> --json number)
+  url: string; // canonical web URL (gh pr create prints this URL to stdout; passed back into gh pr view <created-url> --json to resolve number)
+}
+interface UpdateChangeRequestParams {
+  // → gh pr edit (Spec-011:136) — partial: only provided fields change
+  repoMountId: RepoMountId; // target repository context (Spec-011:141)
+  changeRequestId: string; // which change request to edit (gh pr edit <number>)
+  title?: string;
+  description?: string;
+  reviewers?: string[];
+  labels?: string[]; // --add-label / --remove-label reconciliation
+}
+interface ListChangeRequestsParams {
+  // → gh pr list (Spec-011:137)
+  repoMountId: RepoMountId; // target repository context (Spec-011:141)
+  state?: "open" | "merged" | "closed" | "all"; // optional lifecycle filter (--state)
+  labels?: string[]; // optional label filter (--label)
+}
+interface ChangeRequestSummary {
+  changeRequestId: string; // host-agnostic handle (gh: number, stringified)
+  number: number;
+  title: string;
+  state: "open" | "merged" | "closed"; // normalized lifecycle state (gh: state OPEN|MERGED|CLOSED, lowercased)
+  headBranch: string; // gh: headRefName
+  baseBranch: string; // gh: baseRefName
+  url: string;
+  isDraft: boolean; // gh: isDraft
+}
+interface GetChangeRequestStatusParams {
+  repoMountId: RepoMountId; // target repository context (Spec-011:141)
+  changeRequestId: string; // which change request to query (gh pr view <number>, Spec-011:138)
+}
+interface ChangeRequestStatus {
+  // → gh pr view (Spec-011:138) — "open/merged/closed plus CI check results"
+  changeRequestId: string;
+  state: "open" | "merged" | "closed"; // normalized lifecycle state (gh: state)
+  mergeable: "mergeable" | "conflicting" | "unknown"; // normalized from gh: mergeable (GitHub MergeableState MERGEABLE/CONFLICTING/UNKNOWN); "unknown" = host still computing
+  reviewDecision?: "approved" | "changes_requested" | "review_required"; // gh: reviewDecision (normalized)
+  checks: Array<{ name: string; status: "pending" | "success" | "failure" }>; // CI rollup normalized from gh: statusCheckRollup (status×conclusion → the decision-relevant trichotomy)
+}
+interface AddCommentParams {
+  // → gh api repos/{owner}/{repo}/issues/{number}/comments — gh pr comment exposes no --json/id (Spec-011:139)
+  repoMountId: RepoMountId; // target repository context (Spec-011:141)
+  changeRequestId: string; // which change request to comment on — the PR number is the {number} path segment of the gh api issues/comments endpoint (Spec-011:139)
+  body: string; // comment markdown (gh api -f body=…)
+}
+interface CommentResult {
+  commentId: string; // host-agnostic comment handle (gh api .../issues/{number}/comments → id, stringified; gh pr comment exposes no --json/id)
+  url: string; // canonical web URL of the posted comment (gh api → html_url)
+}
 ```
+
+Plan-011's gitflow PR-preparation and diff-attribution surface is exposed as four `gitflow.*` methods, ratified by the Tier-7 plan-readiness audit (Plan-011 D-011-5; Codex round-19 finding KuB_5). Method-name strings are `dotted-camelCase` per the canonical `METHOD_NAME_FORMAT` ratified in §Tier 1 (cont.): Plan-007 above — the `gitflow` namespace token is the gitflow domain noun (the Plan-011-owned `runtime-daemon/src/gitflow/` daemon module, D-011-3; consumed client-side by the `gitflowClient` SDK, Plan-011 §Target Areas). The PascalCase request/response type symbols (`PRPrepare`, `GitActionExecute`, …) are **rejected** as method strings by that regex — it reserves PascalCase for the project's TypeScript type-name convention — so each wire name differs from its payload type symbol. Names register under the Plan-007-partial daemon `MethodRegistry` per the §5 substrate-vs-namespace carve-out; registration is gated on [BL-142](../../backlog.md) (deployed registry-regex conformance to the Tier-1 `METHOD_NAME_FORMAT`). These methods ride the **daemon JSON-RPC transport only** — branch contexts, diff artifacts, and PR preparations are node-local SQLite + local-git state (`branch_contexts` / `diff_artifacts` / `pr_preparations`, local-sqlite-schema.md), so no control-plane tRPC sibling exists.
+
+| Method | Procedure type | Request schema | Response schema |
+| --- | --- | --- | --- |
+| `gitflow.branchContextRead` | `query` | `BranchContextReadRequest` | `BranchContextReadResponse` |
+| `gitflow.diffArtifactCreate` | `mutation` | `DiffArtifactCreateRequest` | `DiffArtifactCreateResponse` |
+| `gitflow.prPrepare` | `mutation` | `PRPrepareRequest` | `PRPrepareResponse` |
+| `gitflow.gitActionExecute` | `mutation` | `GitActionExecuteRequest` | `GitActionExecuteResponse` |
+
+`gitflow.branchContextRead` is the only `query` (an idempotent branch-context read); the three writes are `mutation`s per the tRPC procedure-type convention in §Tier 1 (cont.): Plan-008 above — `diffArtifactCreate` mints a `diff_artifacts` row plus its linked `artifact_manifests` row (CP-011-2), `prPrepare` writes the durable `pr_preparations` record, and `gitActionExecute` performs the remote git mutation. The `GitHostingAdapter` interface and its nine supporting types (above) are daemon-internal (V1 wraps the `gh` CLI, D-011-1) — not registered wire methods. Canonical Zod schemas live in `packages/contracts/src/gitflow.ts` per the §Source-of-Truth Policy.
 
 ### Plan-014 — Artifacts Files And Attachments
 
 ```ts
-// ArtifactPublish
+// --- ArtifactManifest: the persisted manifest record — the OCI-inspired envelope (Spec-014
+//     line 72) plus the daemon-persisted `visibility`/`state`/`metadata` fields (not in line 72).
+//     Defined once here (the `ArtifactManifest` shape Plan-014 Task 1 mints in
+//     packages/contracts/src/artifacts/); ArtifactPublish returns it (Spec-014 line 68),
+//     ArtifactRead returns it plus a payload handle/inline (Spec-014 line 69). 1:1 with the
+//     `artifact_manifests` row — each field a dedicated column (D-014-2), incl. `annotations`
+//     as a first-class OCI string→string map, never folded into freeform `metadata`. Plan-011's
+//     DiffArtifact (artifactType: "diff") rides this envelope per CP-014-1 / CP-011-2. ---
+
+// artifactType discriminator (Spec-014 line 73) — the five Spec-014:41 families (file, diff, summary,
+// log, design) plus workflow_output, the Spec-017:237 (Tier-8) workflow phase-output type. Spec-014:41
+// admits "at least" the five families, so the sixth value is additive, not a families-list rewrite (D-014-4).
+type ArtifactType = "file" | "diff" | "summary" | "log" | "design" | "workflow_output";
+
+interface ArtifactManifest {
+  id: ArtifactId;
+  sessionId: SessionId;
+  runId?: RunId;
+  artifactType: ArtifactType; // discriminator — Spec-014 line 73 (D-014-4: file|diff|summary|log|design|workflow_output)
+  digest: string; // OCI `digest` (SHA-256) = SQLite content_hash — required: a content-addressed manifest always has one (I-014-1)
+  size: number; // OCI manifest-descriptor `size` (payload byte length) = SQLite size_bytes — server-derived, always present
+  annotations: Record<string, string>; // OCI `annotations` string-map = SQLite annotations (NOT NULL DEFAULT '{}') — distinct from freeform `metadata`
+  subject?: ArtifactId; // OCI `subject`: present only on a derivative (redacted/summarized) manifest → source manifest (I-014-2, Spec-014 line 84)
+  visibility: ArtifactVisibility;
+  state: ArtifactState;
+  replicationStatus?: string; // = SQLite `replication_status` (A-014-3): V1 writes `pending_replication` while a shared artifact awaits deferred payload transfer, absent otherwise; open set, no closed union (Spec-014:61 names only `pending_replication`; mirrors the at-rest no-CHECK column)
+  metadata: Record<string, unknown>; // freeform daemon-side provenance/media-type — distinct from the OCI `annotations` map above
+  createdAt: string;
+}
+
+// ArtifactPublish — Spec-014 line 68: "must return artifact id and manifest metadata."
 interface ArtifactPublishRequest {
   sessionId: SessionId;
   runId?: RunId;
-  artifactType: string; // 'code', 'document', 'image', 'diff', etc.
+  artifactType: ArtifactType; // discriminator — see ArtifactManifest.artifactType (Spec-014 line 73; D-014-4)
   visibility: ArtifactVisibility;
   payload: Uint8Array | string;
   mediaType: string; // MIME type
+  // --- producer-supplied OCI envelope inputs (D-014-3). `size`/`digest` are NOT here:
+  //     the daemon derives size_bytes + content_hash from `payload`. ---
+  subject?: ArtifactId; // OCI `subject`: set when publishing a derivative (redacted/summarized) form → points to the source manifest (I-014-2, Spec-014 line 84); omit for originals
+  annotations?: Record<string, string>; // OCI `annotations` string-map persisted to artifact_manifests.annotations; distinct from freeform `metadata`
   metadata?: Record<string, unknown>;
 }
 interface ArtifactPublishResponse {
-  artifactId: ArtifactId;
-  contentHash: string; // SHA-256
-  state: ArtifactState;
-  manifestUrl: string;
+  manifest: ArtifactManifest; // embedded manifest metadata (Spec-014 line 68); manifest.id is the artifact id, manifest.digest the content hash — no resolvable-URL indirection (D-014-3)
 }
 
-// ArtifactRead
+// ArtifactRead — Spec-014 line 69: "must return manifest plus retrievable payload handle or inline content."
 interface ArtifactReadRequest {
   artifactId: ArtifactId;
   includePayload?: boolean; // default false, returns handle only
 }
 interface ArtifactReadResponse {
-  id: ArtifactId;
-  sessionId: SessionId;
-  runId?: RunId;
-  artifactType: string;
-  visibility: ArtifactVisibility;
-  state: ArtifactState;
-  contentHash?: string;
-  metadata: Record<string, unknown>;
+  manifest: ArtifactManifest; // the same envelope ArtifactPublish embeds (Spec-014 line 69)
   payloadHandle?: string; // CAS key or URL for deferred retrieval
   payload?: Uint8Array; // only if includePayload=true and size permits
-  createdAt: string;
 }
 
 // ArtifactVisibilityUpdate
@@ -1817,6 +1946,8 @@ interface AttachmentIngestResponse {
   normalizedName: string;
 }
 ```
+
+> **Tier-7 audit (NS-19) — ratified design (Plan-014 → `approved`).** The ArtifactPublish/ArtifactRead pair now composes a single named `ArtifactManifest` envelope (Spec-014 line 72) instead of inlining and duplicating the fields — this is the `ArtifactManifest` shape Plan-014 Task 1 mints, and the envelope Plan-011's `DiffArtifact` (`artifactType: "diff"`) rides per CP-014-1 / CP-011-2 (Plan-011 consumes the envelope **concept**, unchanged, not a flat field layout). `ArtifactPublishResponse` embeds `manifest: ArtifactManifest` per Spec-014 line 68 ("must return artifact id **and manifest metadata**") — this **replaces the prior `manifestUrl` pointer**, which was drift from that "must" clause: line 69 grants handle/inline latitude to the **payload** on _Read_ only, never to the manifest, so both responses return the manifest metadata inline (D-014-3 — resolved by aligning the wire to the spec, not an owner decision). `ArtifactReadResponse` is `manifest` + `payloadHandle?`/`payload?` (Spec-014 line 69). The wire envelope mirrors the `artifact_manifests` row in [Local SQLite Schema](../schemas/local-sqlite-schema.md) 1:1: `digest`/`size` are **required** on the wire because a content-addressed manifest always carries both (I-014-1), and the at-rest `content_hash`/`size_bytes` columns are correspondingly **`NOT NULL`** — each producer (AttachmentIngest, ArtifactPublish) computes the SHA-256 + byte length from its own payload and inserts its manifest with both columns set in the same transaction as the payload-ref, and AttachmentIngest and ArtifactPublish are independent producers (the `artifactId` `AttachmentIngestResponse` returns resolves from the ingest-written manifest, not a later publish), so there is no payload-less manifest to reconcile (D-014-1). `annotations` is a dedicated OCI string→string column (D-014-2; at-rest `NOT NULL DEFAULT '{}'`), required on the wire, never folded into freeform `metadata`. The at-rest `replication_status` column (nullable) surfaces as the optional `replicationStatus?` wire field (A-014-3 — V1 writes `pending_replication` while a shared artifact awaits deferred payload transfer; open set, no closed union, mirroring the at-rest no-CHECK stance). Producer inputs are closed too (D-014-3): `ArtifactPublishRequest` accepts `subject?` (so a Task-4 I-014-2 derivative names its source at publish) and `annotations?`, while `size`/`digest` stay server-derived from `payload` — otherwise the `annotations` column and derivative `subject` would be write-dead. This wire edit + the `local-sqlite-schema.md` artifact edit + Plan-014 CP-014-1 / Task 3 form one whole-or-not bundle.
 
 ### Plan-015 — Persistence Recovery And Replay
 
