@@ -385,7 +385,7 @@ This section makes Plan-005's reciprocal obligations to other plans visible to a
 
 Plan-005 Phase 2 (T2.2) owns `packages/runtime-daemon/src/provider/runtime-binding-store.ts`. Plan-015 at Tier 7 extends the store with recovery-aware persistence methods (per cross-plan-dependencies.md §2 line 80 ownership row). The extension contract:
 
-- The `RuntimeBindingStore` exposes `findResumableBindings(...)` as a queryable seam where Plan-015 may add recovery-aware predicates (e.g., bindings with stale checkpoints, bindings marked recovery-needed via the dedicated `recovery_checkpoints` table at `local-sqlite-schema.md:1068`).
+- The `RuntimeBindingStore` exposes `findResumableBindings(...)` as a queryable seam where Plan-015 may add recovery-aware predicates (e.g., bindings with stale checkpoints, bindings marked recovery-needed via the dedicated `recovery_checkpoints` table at `local-sqlite-schema.md:1070`).
 - Row-level recovery state lives in Plan-015's `recovery_checkpoints` table (not on `runtime_bindings`). Plan-005's `resumeSession()` returns the typed failure result (T3.1/T3.6); Plan-015's recovery dispatcher (Tier 7) receives the result and writes the corresponding row to `recovery_checkpoints` via a Plan-015-defined extension method on `RuntimeBindingStore`, then emits the existing `run.failed` event with `recoveryCondition: 'recovery-needed'` per Spec-006:181.
 - Plan-005 does NOT add `recovery_state` / `recovery_reason` columns to `runtime_bindings`. The ownership boundary is: `runtime_bindings` carries identity + active binding state; `recovery_checkpoints` carries recovery-state-machine state. (Recovery state belongs to Plan-015's dedicated table.)
 

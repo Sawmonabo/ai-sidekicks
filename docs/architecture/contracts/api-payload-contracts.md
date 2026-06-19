@@ -1114,7 +1114,7 @@ interface RelayNegotiationRequest {
   transportPreferences: string[]; // e.g. ['websocket', 'http2']
 }
 interface RelayNegotiationResponse {
-  relayEndpoint: string;
+  relayEndpoint: string; // per-session WSS URL the client dials; carries the negotiated sessionId so the relay verifier recovers it out-of-band from the connect-token (PASETO v4 implicit assertion, Spec-008 §Relay Negotiation). The self-hostable single-process relay mints it with sessionId as a path segment (wss://<host>/relay/<sessionId>, Plan-025 D-025-10); the hosted session-sharded Durable Object holds sessionId via its shard identity.
   transportProtocol: string;
   cipherSuite: string; // negotiated cipher suite, e.g. 'v1/pairwise' (Spec-008 §Relay Negotiation)
   connectionToken: string; // short-lived auth token
@@ -1706,12 +1706,15 @@ interface BranchContextReadResponse {
 // structurally fixes which workspace-resolver key is present, so the {runId XOR workspaceId} invariant is
 // unrepresentable-when-violated (the prior optional-pair interface let a caller send both or neither). This
 // mirrors the at-rest biconditional CHECK in local-sqlite-schema.md (diff_artifacts): run_attributed
-// requires run_id present, workspace_fallback requires run_id absent. The producing workspace — hence the
+// requires run_id present + workspace_id absent, workspace_fallback requires run_id absent + workspace_id
+// present. The producing workspace — hence the
 // repo to diff (baseRef..headRef) and the session for the minted manifest — is resolved one way per arm; the
 // computed diff is the payload that mints the linked artifact_manifests row (CP-011-2; artifact_manifests
 // .session_id NOT NULL, local-sqlite-schema.md), so the manifest is never payload-less (D-014-1).
-// diff_artifacts persists no workspace_id/session_id: Spec-011:44 "workspace-level" is the provenance label;
-// the workspace is a mint-time resolver and the session is reached via the artifact_manifest_id FK (NOT NULL).
+// diff_artifacts persists workspace_id for the workspace_fallback arm (the durable workspace-level provenance
+// label Spec-011:44 mandates — D-011-4; run_attributed persists no workspace_id, its workspace reachable via
+// the run's run_execution_contexts.workspace_id). No session_id column: the session is reached via the
+// artifact_manifest_id FK (NOT NULL).
 type DiffArtifactCreateRequest =
   | {
       attributionMode: "run_attributed"; // a diff that correlates to run provenance (Spec-011:52/58, D-011-2)

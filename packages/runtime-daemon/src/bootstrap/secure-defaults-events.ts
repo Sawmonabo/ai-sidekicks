@@ -13,9 +13,9 @@
 //     log event per startup, structured so it is greppable in self-host
 //     logs and countable via /metrics.`
 //   * Line 138 — `security.default.override` log event schema (rows 2,
-//     5, 6, 8): structured log with fields `behavior` (integer 1–10),
-//     `row` (`7a`/`7b` as string), `effective_value` (string),
-//     `banner_printed_at` (ISO-8601).
+//     5, 6, 8, 9): structured log with fields `behavior` (integer 1–10),
+//     `effective_value` (string), `banner_printed_at` (ISO-8601), and an
+//     OPTIONAL `row` (`7a`/`7b` as string).
 //   * Line 146 — `every override path contributes a
 //     security.default.override=* log event that feeds /metrics
 //     (rows 9a daemon / 9b relay) and is visible to Spec-006 event
@@ -65,11 +65,14 @@
 
 /**
  * `security.default.override` event payload, audit-derived from
- * Spec-027 line 138. `row` is typed as `string` rather than narrowed
- * to `"7a" | "7b"` because line 138 names rows 2, 5, 6, 8 in the same
- * breath — pre-narrowing the type would lock it to a Tier-1
- * assumption that excludes the broader override surface. Tightening
- * (if appropriate) is owed to CP-007-5's taxonomy registration.
+ * Spec-027 line 138. `row` is OPTIONAL — the `7a`/`7b` sub-row
+ * discriminator is supplied only for behavior 7 and omitted for the
+ * single-integer behaviors (rows 2, 5, 6, 8, 9 carry no sub-row). When
+ * present it is typed as `string` rather than narrowed to `"7a" | "7b"`
+ * because line 138 names rows 2, 5, 6, 8, 9 in the same breath —
+ * pre-narrowing the type would lock it to a Tier-1 assumption that
+ * excludes the broader override surface. Tightening (if appropriate) is
+ * owed to CP-007-5's taxonomy registration.
  *
  * `behavior` is the integer override identity (1–10) per line 138;
  * dedupe (I-007-4) keys on this field. Two emissions sharing the
@@ -86,7 +89,7 @@
  */
 export interface SecurityDefaultOverrideEvent {
   readonly behavior: number;
-  readonly row: string;
+  readonly row?: string;
   readonly effective_value: string;
   readonly banner_printed_at: string;
 }

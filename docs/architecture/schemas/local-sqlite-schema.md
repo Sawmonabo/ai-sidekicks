@@ -450,18 +450,20 @@ CREATE TABLE diff_artifacts (
   id                    TEXT PRIMARY KEY,
   artifact_manifest_id  TEXT NOT NULL REFERENCES artifact_manifests(id),  -- every diff_artifact links to its minted manifest (CP-011-2; the diff is the manifest's payload, D-014-1 never-payload-less). The session is reached via this FK (artifact_manifests.session_id NOT NULL); a manifest-less row would be session-unreachable.
   run_id                TEXT,                 -- nullable: present for run_attributed, absent for workspace_fallback (Spec-011:44/58 — a fallback artifact must not imply precise run attribution; D-011-2)
+  workspace_id          TEXT REFERENCES workspaces(id),  -- nullable mirror of run_id: present for workspace_fallback (the durable workspace-level provenance Spec-011:44 mandates — D-011-4 persists what the wire's workspace_fallback.workspaceId carries; the prior schema dropped it, treating the workspace as a transient mint-time resolver), null for run_attributed (whose workspace is reachable via the run's run_execution_contexts.workspace_id). FK because workspaces is table-backed, unlike event-sourced run_id/session_id.
   attribution_mode      TEXT NOT NULL         -- Spec-011:52/58 provenance quality (D-011-2)
                         CHECK(attribution_mode IN ('run_attributed', 'workspace_fallback')),
   base_ref              TEXT NOT NULL,
   head_ref              TEXT NOT NULL,
   created_at            TEXT NOT NULL,
   CHECK(
-    (attribution_mode = 'run_attributed' AND run_id IS NOT NULL)
-    OR (attribution_mode = 'workspace_fallback' AND run_id IS NULL)
-  )  -- biconditional (D-011-2): run_attributed binds to its originating run; a workspace_fallback artifact MUST NOT carry a run_id (else it would imply the precise attribution it explicitly lacks, contradicting line 452 + Spec-011:44/52/58). The prior one-way form (<> OR) admitted a fallback row with a non-null run_id.
+    (attribution_mode = 'run_attributed' AND run_id IS NOT NULL AND workspace_id IS NULL)
+    OR (attribution_mode = 'workspace_fallback' AND run_id IS NULL AND workspace_id IS NOT NULL)
+  )  -- biconditional (D-011-2, D-011-4): run_attributed binds to its originating run (its workspace reached via that run's run_execution_contexts.workspace_id, so workspace_id is null); a workspace_fallback artifact MUST NOT carry a run_id (else it would imply the precise attribution it explicitly lacks, contradicting the run_id comment above + Spec-011:44/52/58) and MUST carry workspace_id (the durable workspace-level label, mirroring the wire union). The prior one-way form (<> OR) admitted a fallback row with a non-null run_id; the prior schema also dropped workspace_id entirely (KscWH).
 );
 
 CREATE INDEX idx_diff_artifacts_run ON diff_artifacts(run_id) WHERE run_id IS NOT NULL;
+CREATE INDEX idx_diff_artifacts_workspace ON diff_artifacts(workspace_id) WHERE workspace_id IS NOT NULL;
 
 -- Owner: Plan-011
 CREATE TABLE pr_preparations (
