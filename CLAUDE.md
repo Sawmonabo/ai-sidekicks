@@ -16,11 +16,11 @@ Stack: TypeScript across daemon/CLI/desktop/contracts; XState v5 state machines;
 
 V1 ships 17 features ([ADR-015](docs/decisions/015-v1-feature-scope-definition.md)) across 27 implementation plans in 9 dependency tiers. The feature list and tier graph live in [`README.md`](README.md); the build-order + shared-resource ownership map lives in [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md).
 
-## Current State: Tier 1 Code Execution Underway
+## Current State: Tier 2-4 Code Execution; Plan-Readiness Audits Through Tier 7
 
 Code execution started 2026-04-26 with the V1 monorepo scaffold (PR #6) — the doc-first gate cleared when [ADR-023](docs/decisions/023-v1-ci-cd-and-release-automation.md) (V1 CI/CD, pre-commit hooks, release automation) was accepted on the same date, closing [BL-100](docs/archive/backlog-archive.md). Feature branches cut off `develop` and squash-merge back per the [GitFlow-lite branch-model amendment](docs/decisions/023-v1-ci-cd-and-release-automation.md#decision-log).
 
-Four of five [Plan-001](docs/plans/001-shared-session-core.md) phases have shipped:
+All five [Plan-001](docs/plans/001-shared-session-core.md) phases have shipped (Phase 5 across Lanes A–D):
 
 | GitHub PR | Phase | Package |
 | --- | --- | --- |
@@ -28,13 +28,15 @@ Four of five [Plan-001](docs/plans/001-shared-session-core.md) phases have shipp
 | #8 | Phase 2 — Contracts | `packages/contracts` (session / event / error payload schemas) |
 | #9 | Phase 3 — Daemon Migration + Projection | `packages/runtime-daemon` (migration, projector, append/replay) |
 | #10 | Phase 4 — Control Plane Directory | `packages/control-plane` (session directory service: create/read/join) |
+| #30/#36/#38 (A), #48 (B), #77 (C), #83 (D), #87 (completion) | Phase 5 — Client SDK + Desktop Bootstrap (Lanes A–D) | `packages/client-sdk` + `apps/desktop` (session bootstrap, renderer wiring, sidecar lifecycle) |
 
 `package.json` is real (`pnpm@10.33.2`, Node `>=22.12.0`). Use the wired scripts: `pnpm install`, `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm build` (Turbo-driven), `pnpm format` / `pnpm format:check`. **Do not invoke `npm`** — the engines field requires pnpm. Pre-commit hooks (lefthook + lint-staged + commitlint + gitleaks) install via `pnpm prepare`. The unit of work is now mixed: `.md` files under `docs/` for governance and TypeScript under `packages/` + `apps/` for code phases. Doc-first ordering still holds — every code PR cites the plan / spec / ADR(s) it implements per [CONTRIBUTING.md](CONTRIBUTING.md).
 
 **Active gates blocking the next code PRs:**
 
-- **Plan-001 Phase 5** (Client SDK + Desktop Bootstrap) is the only remaining Plan-001 phase. It depends on Plan-007-partial + Plan-008-bootstrap Tier 1 carve-outs (governance merged; code TBD).
-- **Plan-readiness audit** ([runbook](docs/operations/plan-implementation-readiness-audit-runbook.md), methodology PR #14, Tier 1 pilot PR #15) gates code from Tiers 2-9. The plan-template Precondition checkbox blocks `draft → review` for new plans; pre-audit `approved` plans need a retroactive audit pass before downstream code PRs land. **Tiers 2-9 audits are pending** — eight tier-PRs of audit work owed before broad Tier 2+ code execution can resume.
+- **Plan-024 Phases 4-5** (CI cross-compile + signing; measurement substrate) are procurement-blocked on [BL-108](docs/backlog.md) — tracked as §6 nodes NS-09 + NS-10, the only hard-blocked code lanes on the dependency DAG.
+- **Plan-readiness audit** ([runbook](docs/operations/plan-implementation-readiness-audit-runbook.md), methodology PR #14, Tier 1 pilot PR #15) gates code from Tiers 2-9 — each tier's plans must clear the audit before that tier's code PRs land. The plan-template Precondition checkbox blocks `draft → review` for new plans; pre-audit `approved` plans need a retroactive audit pass first. **Tiers 2-7 audits are complete** (NS-14 + NS-15..NS-19; the Tier-7 audit landed via PR #160), so those tiers' `approved` plans have cleared the audit gate — audit clearance only, not code-readiness: code still dispatches in tier order and on each plan's §Preconditions (execution is underway through Tier 4). **Tiers 8-9 audits remain** — two tier-PRs owed (Tier 8 includes Plan-017's `review → approved` promotion).
+- **Plan status promotion** — a code-execution plan ships its first PR only after it — and every cross-referenced spec, ADR, and plan — has completed the status promotion its [Documentation Corpus](#documentation-corpus) row requires, and every blocking backlog item is `completed` (or deferred with a named gate), per [AGENTS.md §Doc-First Discipline](AGENTS.md#doc-first-discipline). This is a separate gate, not satisfied by audit clearance or tier order alone: a plan that is audit-cleared and tier-eligible but not yet promoted stays blocked. The [README](README.md) census lists the plans not yet promoted.
 
 ## Cross-Tool Conventions
 

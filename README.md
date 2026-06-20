@@ -213,7 +213,7 @@ V1 ships 17 core features across CLI and Desktop GUI per [ADR-015: V1 Feature Sc
 
 ## Build Order
 
-Implementation follows the tiered dependency graph defined in [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md). V1 spans 27 implementation plans; Plan-001 Shared Session Core is `completed`, five plans are in `review` (Plan-004, Plan-008, Plan-017 Workflow Authoring, Plan-018, Plan-022), and the rest are `approved`.
+Implementation follows the tiered dependency graph defined in [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md). V1 spans 27 implementation plans; Plan-001 Shared Session Core is `completed`, six plans are in `review` (Plan-004, Plan-008, Plan-017 Workflow Authoring, Plan-018, Plan-022, Plan-025 Self-Hostable Node Relay), and the rest are `approved`.
 
 ```
 Tier 1  ► Plan-001  Shared Session Core
@@ -252,11 +252,11 @@ Each tier's prerequisites are the prior tier's completion. See [`docs/architectu
 
 ## Project Status
 
-**Phase: Documentation validation remediation complete. Code implementation not yet started.**
+**Phase: Tier 2-4 code execution underway; plan-readiness audits complete through Tier 7.**
 
 Current documentation corpus:
 
-- **27 V1 implementation plans** with step-by-step build instructions; 21 are `approved`, Plan-001 is `completed`, and 5 are in `review` (Plan-004, Plan-008, Plan-017, Plan-018, Plan-022)
+- **27 V1 implementation plans** with step-by-step build instructions; 20 are `approved`, Plan-001 is `completed`, and 6 are in `review` (Plan-004, Plan-008, Plan-017, Plan-018, Plan-022, Plan-025)
 - **27 approved specifications** covering every feature and cross-cutting concern
 - **12 domain models** (run state machine, intervention model, participant model, workflow model, etc.)
 - **16 architecture documents** (schemas, contracts, security, deployment, dependencies)
