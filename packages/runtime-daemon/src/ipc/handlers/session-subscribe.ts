@@ -56,7 +56,7 @@
 //     historical events before transitioning to live-tail.
 //   * Test coverage — owned by T-007p-3-4 (sibling task).
 //
-// Method-name format ratified: dotted-lowercase per
+// Method-name format ratified: dotted-camelCase per
 // docs/architecture/contracts/api-payload-contracts.md §JSON-RPC Method-Name
 // Registry (Tier 1 Ratified, lines 291-331). The `register` call site below
 // passes `"session.subscribe"`, which matches the canonical regex.

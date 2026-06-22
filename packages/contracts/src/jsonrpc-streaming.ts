@@ -109,7 +109,7 @@ import { z } from "zod";
  * Canonical source: this file. Per BL-102 no-mirror disposition, the
  * LSP-style streaming method-name taxonomy is canonical in code;
  * api-payload-contracts.md does not maintain a doc-side mirror. The
- * dotted-lowercase regex ratified at §JSON-RPC Method-Name Registry
+ * dotted-camelCase regex ratified at §JSON-RPC Method-Name Registry
  * (lines 291-331) is intentionally limited to user-namespace methods
  * and excludes the `$/`-prefixed system namespace by design.
  *

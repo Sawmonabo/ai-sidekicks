@@ -57,7 +57,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 ## API And Transport Changes
 
-- Thirteen daemon JSON-RPC pairs per [api-payload-contracts.md §Plan-016](../architecture/contracts/api-payload-contracts.md): `channel.create` / `channel.mute` / `channel.unmute` / `channel.archive` / `channel.rosterRead`, `orchestration.runCreate` / `orchestration.childRunLinkRead` / `orchestration.budgetRead` / `orchestration.budgetUpdate`, `agent.attach` / `agent.detach` / `agent.configUpdate` / `agent.list`. Registration is gated on [BL-142](../backlog.md) (camelCase tails) and typed wire errors on [BL-143](../backlog.md).
+- Thirteen daemon JSON-RPC pairs per [api-payload-contracts.md §Plan-016](../architecture/contracts/api-payload-contracts.md): `channel.create` / `channel.mute` / `channel.unmute` / `channel.archive` / `channel.rosterRead`, `orchestration.runCreate` / `orchestration.childRunLinkRead` / `orchestration.budgetRead` / `orchestration.budgetUpdate`, `agent.attach` / `agent.detach` / `agent.configUpdate` / `agent.list`. Registration is gated on [BL-142](../archive/backlog-archive.md) (camelCase tails) and typed wire errors on [BL-143](../archive/backlog-archive.md).
 - Twelve owned event types in the [Spec-006 registry](../specs/006-session-event-taxonomy-and-audit-log.md): `channel.created` / `channel.muted` / `channel.unmuted` / `channel.archived`, `agent.attached` / `agent.detached` / `agent.config_updated`, `arbitration.paused` / `arbitration.resumed`, `orchestration.rejected`, `usage.budget_warning`, `moderation.review_flagged`.
 - The `run.queued` payload gains optional additive linkage fields `{agentId?, parentRunId?, linkType?, internalHelper?, producingNodeId?}` plus the admission-resolved `effectiveRunConfig?` threaded from the in-process `OrchestrationRunLinkCarrier` (D-016-3, CP-004-10; ADR-018 additive-only).
 - Error vocabulary per [error-contracts.md](../architecture/contracts/error-contracts.md) §Channel / §Orchestration / §Agent (D-016-16).
@@ -100,7 +100,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - **CP-016-9 — Usage telemetry.** Consume `usage_telemetry` driver events (Plan-005, Tier 4) as BudgetAccountant input. **Tasks:** T2.5.
 - **CP-016-10 — Timeline inputs forward.** Publish durable child-run events + carrier; [Plan-013](./013-live-timeline-visibility-and-reasoning-surfaces.md) (Tier 8) derives summary rows; no Plan-013 imports at Tier 6 (D-016-14). **Direction:** provide (forward).
 - **CP-016-11 — Renderer bridge.** Renderer subtrees consume daemon state only via `window.sidekicks` (Plan-023-partial substrate; live bridge verification at Tier 8). **Tasks:** T4.1–T4.5.
-- **CP-016-12 — Wire gates.** Registration of the camelCase-tailed strings (`channel.rosterRead`, `orchestration.runCreate` / `childRunLinkRead` / `budgetRead` / `budgetUpdate`, `agent.configUpdate`) is blocked on [BL-142](../backlog.md); typed error projection on [BL-143](../backlog.md) (both Plan-007-owned). **Tasks:** Phase 3 precondition.
+- **CP-016-12 — Wire gates.** Registration of the camelCase-tailed strings (`channel.rosterRead`, `orchestration.runCreate` / `childRunLinkRead` / `budgetRead` / `budgetUpdate`, `agent.configUpdate`) is blocked on [BL-142](../archive/backlog-archive.md); typed error projection on [BL-143](../archive/backlog-archive.md) (both Plan-007-owned). **Tasks:** Phase 3 precondition.
 - **CP-016-13 — Normalized delegation.** Drivers without native subagent primitives still support delegated work modeled as separate linked runs (Spec-016 §Fallback Behavior; ADR-005) — no Plan-016 code may assume a native spawn API. **Direction:** consume from [Plan-005](./005-provider-driver-contract-and-capabilities.md). **Tasks:** T2.3, T2.9.
 
 ## Ratified Design Decisions (Tier-6 audit, 2026-06-10)
@@ -249,8 +249,8 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 **Precondition:** Phase 2 merged; **BL-142 landed** (camelCase registration; CP-016-12); **BL-143 landed** (DaemonDomainError wire projection; CP-016-12). Verify both at dispatch time:
 
-- [ ] [BL-142](../backlog.md) landed (registry accepts camelCase method tails)
-- [ ] [BL-143](../backlog.md) landed (typed domain-error wire projection)
+- [x] [BL-142](../archive/backlog-archive.md) landed (registry accepts camelCase method tails)
+- [x] [BL-143](../archive/backlog-archive.md) landed (typed domain-error wire projection)
 
 #### Tasks
 

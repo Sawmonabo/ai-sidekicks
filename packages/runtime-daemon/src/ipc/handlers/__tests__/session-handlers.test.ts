@@ -1219,7 +1219,7 @@ describe("I-007-3-T8 — session.read round-trip (Spec-007 AC-N2 + I-007-8)", ()
 
     // Act — dispatch. The registry's `dispatch()` does NOT wrap handler
     // throws (only `method_not_found` / `invalid_params` / `invalid_result`
-    // surface as `RegistryDispatchError`; see `registry.ts:355-403`).
+    // surface as `RegistryDispatchError`; see `registry.ts:348-397`).
     // Handler-side throws propagate verbatim up the await chain — which
     // is exactly what the gateway needs: it passes the raw throw to
     // `mapJsonRpcError` for the wire envelope (see

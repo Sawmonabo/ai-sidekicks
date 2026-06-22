@@ -43,11 +43,13 @@
 //   typed error surfaces and projects each into the canonical JSON-RPC
 //   envelope per the §JSON-RPC Wire Mapping table:
 //
-//     1. RegistryDispatchError     → registryCode → numeric + data.type
-//     2. FramingError              → code         → numeric + data.type
-//     3. NegotiationError          → negotiationCode → numeric + data.type
-//     4. SecureDefaultsValidationError → code     → numeric + data.type
-//     5. default (unknown throw)   → -32603 InternalError, no data
+//     1. RegistryDispatchError         → registryCode     → numeric + data.type
+//     2. FramingError                  → code             → numeric + data.type
+//     3. NegotiationError              → negotiationCode  → numeric + data.type
+//     4. SessionNotFoundError          → code             → numeric + data.type
+//     5. SecureDefaultsValidationError → code             → numeric + data.type
+//     6. DaemonDomainError (base)      → code/jsonRpcCode → numeric + data.type
+//     7. default (unknown throw)       → -32603 InternalError, no data
 //
 //   Every branch's `data.type` is a canonical project dotted-namespace
 //   identifier (or a JSON-RPC framework identifier like `invalid_params`
@@ -81,6 +83,7 @@ import type {
 import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts";
 
 import { SecureDefaultsValidationError } from "../bootstrap/secure-defaults.js";
+import { DaemonDomainError } from "./domain-error.js";
 import { FramingError, redactPathsFromString, sanitizeErrorMessage } from "./local-ipc-gateway.js";
 import { NegotiationError } from "./protocol-negotiation.js";
 import { RegistryDispatchError } from "./registry.js";
@@ -325,6 +328,22 @@ function buildSecureDefaultsValidationData(
 function buildSessionNotFoundData(thrown: SessionNotFoundError): JsonRpcErrorData {
   if (thrown.fields !== undefined) {
     return { type: thrown.code, fields: thrown.fields };
+  }
+  return { type: thrown.code };
+}
+
+/**
+ * Build the `data: JsonRpcErrorData` payload for a `DaemonDomainError` (or any
+ * subclass). The error's `code` is the canonical project dotted-namespace
+ * identifier per error-contracts.md §JSON-RPC Wire Mapping — projected
+ * verbatim into `data.type`. The optional `detail` captured at the throw site
+ * projects through to `data.fields` (sanitized at the single seam in
+ * `mapJsonRpcError`, like every other builder's `fields`). Named `detail` on
+ * the class, `fields` on the wire — the projection is the rename point.
+ */
+function buildDomainErrorData(thrown: DaemonDomainError): JsonRpcErrorData {
+  if (thrown.detail !== undefined) {
+    return { type: thrown.code, fields: thrown.detail };
   }
   return { type: thrown.code };
 }
@@ -756,7 +775,14 @@ function capString(value: string): string {
  *      failure. `code` selects the JSON-RPC numeric (always `-32602`);
  *      `data.type` carries the validation code verbatim; `data.fields`
  *      carries `{ setting, value }` from the throw site.
- *   6. Anything else — handler-thrown `Error` / `string` / arbitrary
+ *   6. `DaemonDomainError` — generic namespace-error base (BL-143). Any
+ *      error extending it (or thrown as it directly) self-describes its
+ *      wire mapping: `jsonRpcCode` selects the numeric (default `-32603`
+ *      when unset), `code` is the dotted `data.type`, `detail` becomes
+ *      `data.fields`. Listed LAST among typed branches — it is the
+ *      general base, so the specific branches above are matched first and
+ *      never shadowed (they do not extend this base).
+ *   7. Anything else — handler-thrown `Error` / `string` / arbitrary
  *      thrown value. Collapses to `-32603 Internal Error` with no
  *      `data` field — the substrate has no canonical projection for an
  *      unregistered throw, and per BL-103 the absence of `data` is the
@@ -775,10 +801,11 @@ export function mapJsonRpcError(thrown: unknown, requestId: JsonRpcId): JsonRpcE
   // structured `data` payload. Order matters — the most specific
   // subclass first (RegistryDispatchError, FramingError) before the
   // shared-shape subclasses (NegotiationError, SessionNotFoundError,
-  // SecureDefaultsValidationError) before the generic catch-all.
-  // SessionNotFoundError appears before SecureDefaultsValidationError
-  // because both map to -32602 but SessionNotFoundError is the more
-  // specific surface (per the discrimination-order JSDoc above).
+  // SecureDefaultsValidationError), then the generic DaemonDomainError
+  // base, before the untyped catch-all. SessionNotFoundError appears
+  // before SecureDefaultsValidationError because both map to -32602 but
+  // SessionNotFoundError is the more specific surface (per the
+  // discrimination-order JSDoc above).
   let numericCode: JsonRpcErrorCodeValue;
   let data: JsonRpcErrorData | undefined;
   if (thrown instanceof RegistryDispatchError) {
@@ -817,6 +844,19 @@ export function mapJsonRpcError(thrown: unknown, requestId: JsonRpcId): JsonRpcE
     // handler param.
     numericCode = JsonRpcErrorCode.InvalidParams;
     data = buildSecureDefaultsValidationData(thrown);
+  } else if (thrown instanceof DaemonDomainError) {
+    // Generic typed-domain-error projection (BL-143). Any namespace error
+    // extending DaemonDomainError (or thrown as it directly) carries its
+    // own wire mapping: `jsonRpcCode` selects the numeric (default
+    // `-32603 InternalError` per error-contracts.md §Numeric Code Space
+    // when unset); `code` is the canonical dotted `data.type`; `detail`
+    // becomes `data.fields` (sanitized in Step 2). Placed LAST among the
+    // typed branches — immediately before the untyped catch-all — because
+    // it is the general base; a more-specific existing branch (e.g.
+    // SessionNotFoundError) is matched first and never shadowed (those
+    // classes deliberately do NOT extend this base).
+    numericCode = thrown.jsonRpcCode ?? JsonRpcErrorCode.InternalError;
+    data = buildDomainErrorData(thrown);
   } else {
     // Per JSON-RPC §5.1: "Internal JSON-RPC error" — the catch-all for
     // unexpected throws inside the handler body. The handler's failure

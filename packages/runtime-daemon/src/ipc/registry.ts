@@ -33,7 +33,8 @@
 //   * I-007-9 — method names conform to the canonical format declared in
 //     docs/architecture/contracts/api-payload-contracts.md §JSON-RPC
 //     Method-Name Registry (Tier 1 Ratified, lines 291-331). The dotted-
-//     lowercase regex `/^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)+$/` is canonical;
+//     camelCase regex `/^[a-z][a-z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/` is
+//     canonical (lowercase-rooted; camelCase permitted in tail segments);
 //     LSP-style `$/`-prefixed names remain enforced via a sibling regex
 //     pending a follow-up decision. The regex check runs at `register()`
 //     time per I-007-9.
@@ -52,12 +53,16 @@
 //     `isMutating(method)` for T-2-4 to consult; the registry itself does
 //     not refuse dispatch based on version state.
 //
-// `METHOD_NAME_DOTTED_REGEX` is canonical per
-// docs/architecture/contracts/api-payload-contracts.md §JSON-RPC Method-Name
-// Registry (Tier 1 Ratified, lines 291-331). `METHOD_NAME_LSP_REGEX` enforces
-// the LSP-style `$/`-prefixed system-method shape used by the streaming
-// primitive (T-007p-2-5); the LSP shape is not addressed by the §Method-Name
-// Registry ratification and remains a separate follow-up.
+// The canonical dotted-camelCase method-name format is imported from
+// `@ai-sidekicks/contracts` as `METHOD_NAME_FORMAT` — the single runtime
+// source ratified at api-payload-contracts.md §JSON-RPC Method-Name Registry
+// (Tier 1 Ratified). BL-142 collapsed the prior daemon-local literal (whose
+// tail class had drifted to `[a-z0-9]`, dropping the ratified camelCase
+// tails) into that shared import. `METHOD_NAME_LSP_REGEX` below stays
+// daemon-local: it enforces the LSP-style `$/`-prefixed system-method shape
+// used by the streaming primitive (T-007p-2-5), which the §Method-Name
+// Registry ratification does not address and which remains a separate
+// follow-up.
 
 import type {
   Handler,
@@ -66,27 +71,15 @@ import type {
   RegisterOptions,
   ZodType,
 } from "@ai-sidekicks/contracts";
+import { METHOD_NAME_FORMAT } from "@ai-sidekicks/contracts";
 
 // --------------------------------------------------------------------------
 // Method-name format regexes
 // --------------------------------------------------------------------------
 
-/**
- * Canonical dotted-lowercase namespace.method shape per F-007p-3-01
- * leaning: lowercase identifier, dotted separator, at least one dot
- * (i.e. `namespace.method` minimum, not bare `method`).
- *
- * Examples that match: `session.create`, `presence.subscribe`,
- *   `run.stream.notify`.
- * Examples that don't match: `Session.create` (uppercase),
- *   `sessionCreate` (no dot), `session/create` (slash separator),
- *   `session.` (trailing dot), `.create` (leading dot).
- *
- * Canonical regex per docs/architecture/contracts/api-payload-contracts.md
- * §JSON-RPC Method-Name Registry (Tier 1 Ratified, lines 291-331):
- * `/^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)+$/`.
- */
-const METHOD_NAME_DOTTED_REGEX = /^[a-z][a-z0-9]*(?:\.[a-z][a-z0-9]*)+$/;
+// The canonical dotted-camelCase shape (`METHOD_NAME_FORMAT`) is imported
+// from `@ai-sidekicks/contracts` above — the single source per the file
+// header. Only the LSP-style sibling is declared locally:
 
 /**
  * LSP-style `$/`-prefixed system method shape. Used by the streaming
@@ -109,7 +102,7 @@ const METHOD_NAME_DOTTED_REGEX = /^[a-z][a-z0-9]*(?:\.[a-z][a-z0-9]*)+$/;
  *   (empty segment).
  *
  * The LSP-style shape is not addressed by api-payload-contracts.md §JSON-RPC
- * Method-Name Registry (which ratifies dotted-lowercase only); whether the
+ * Method-Name Registry (which ratifies dotted-camelCase only); whether the
  * LSP form remains accepted, gets re-homed under a separate namespace, or is
  * subsumed into a unified canonical taxonomy is a separate follow-up.
  */
@@ -117,14 +110,14 @@ const METHOD_NAME_LSP_REGEX = /^\$\/[a-z][a-zA-Z0-9]*(?:\/[a-z][a-zA-Z0-9]*)*$/;
 
 /**
  * Test a method-name string against the registry's accepted shapes.
- * Returns `true` if the name matches EITHER the canonical dotted-lowercase
+ * Returns `true` if the name matches EITHER the canonical dotted-camelCase
  * pattern (per api-payload-contracts.md §JSON-RPC Method-Name Registry,
  * lines 291-331) OR the LSP `$/`-prefixed system-method pattern (separate
  * follow-up). Exported only for test reach — production callers go through
  * `register()`.
  */
 export function isCanonicalMethodName(method: string): boolean {
-  return METHOD_NAME_DOTTED_REGEX.test(method) || METHOD_NAME_LSP_REGEX.test(method);
+  return METHOD_NAME_FORMAT.test(method) || METHOD_NAME_LSP_REGEX.test(method);
 }
 
 // --------------------------------------------------------------------------
@@ -140,7 +133,7 @@ export function isCanonicalMethodName(method: string): boolean {
  *   * `"duplicate_method"` — I-007-6 enforcement: a second `register()`
  *     call with the same method name. Synchronous throw at register-time.
  *   * `"invalid_method_name"` — I-007-9 enforcement: the method-name
- *     string did not match the canonical dotted-lowercase regex (per
+ *     string did not match the canonical dotted-camelCase regex (per
  *     api-payload-contracts.md §JSON-RPC Method-Name Registry, lines
  *     291-331) OR the sibling LSP-style `$/`-prefixed regex.
  */
@@ -306,7 +299,7 @@ export class MethodRegistryImpl implements MethodRegistry {
     if (!isCanonicalMethodName(method)) {
       throw new RegistryRegistrationError(
         "invalid_method_name",
-        `MethodRegistry.register: method name ${JSON.stringify(method)} does not match the canonical dotted-lowercase format 'namespace.method' (per api-payload-contracts.md §JSON-RPC Method-Name Registry) or the LSP-style '$/segment[/segment]*' system-method shape`,
+        `MethodRegistry.register: method name ${JSON.stringify(method)} does not match the canonical dotted-camelCase format 'namespace.method' (per api-payload-contracts.md §JSON-RPC Method-Name Registry) or the LSP-style '$/segment[/segment]*' system-method shape`,
       );
     }
 

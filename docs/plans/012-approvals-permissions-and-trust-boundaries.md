@@ -239,8 +239,8 @@ Contracts: see [API Payload Contracts](../architecture/contracts/api-payload-con
 **Preconditions.**
 
 - [ ] Phases 1–2 merged
-- [ ] BL-142 landed — registry regex conformance (camelCase tails: `approval.requestCreate`-class strings throw at boot without it)
-- [ ] BL-143 landed — `DaemonDomainError` projection branch in `mapJsonRpcError` (T3.10's wire assertions observe anonymous `-32603` without it)
+- [x] BL-142 landed — registry regex conformance (camelCase tails: `approval.requestCreate`-class strings throw at boot without it)
+- [x] BL-143 landed — `DaemonDomainError` projection branch in `mapJsonRpcError` (T3.10's wire assertions observe anonymous `-32603` without it)
 - [x] D-012-5 method strings ratified — api-payload-contracts.md §Approval Method-Name Registry (Tier 6)
 - [x] D-012-4 error codes ratified — error-contracts.md §Approval (Tier-6 audit)
 
