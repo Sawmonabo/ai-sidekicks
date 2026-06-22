@@ -134,7 +134,7 @@ Recovery behavior for a receipt that was in-flight at daemon restart (Phase 2 st
 ## Example Flows
 
 - `Example: A local Codex driver starts a session through its native transport, exposes resume and steer capability, and emits normalized run events into the daemon.`
-- `Example: A local Claude driver calls a remote provider API from the participant's runtime node. The provider service is remote, but the canonical driver authority and policy enforcement remain local.`
+- `Example: A local Claude driver wraps the participant's Claude Code CLI — itself a local client of the remote Anthropic provider API — from the participant's runtime node. The provider service is remote, but the canonical driver authority and policy enforcement remain local.`
 - `Example: A user pauses a run. No driver supports native pause. The orchestration layer implements pause as: interrupt the active run, persist conversation history and run state to local SQLite, queue a resume. When the user resumes, a new turn is started with the full saved context. The driver only sees interruptRun followed later by startRun — it never needs to know about pause.`
 - `Example: A user steers a Codex run. The orchestration layer calls applyIntervention(type: "steer", payload). The Codex driver supports steer natively via turn/steer and applies it. For a Claude run, applyIntervention returns degraded, and the orchestration layer falls back to queuing the steer content and interrupting the current turn.`
 
