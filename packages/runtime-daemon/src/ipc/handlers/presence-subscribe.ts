@@ -87,10 +87,10 @@
 //     watcher (Plan-001 Phase 5 bootstrap). This file only DOCUMENTS the
 //     emission contract on the deps interface (Pr4).
 //
-// Method-name format ratified: dotted-lowercase per
+// Method-name format ratified: dotted-camelCase per
 // docs/architecture/contracts/api-payload-contracts.md §JSON-RPC Method-Name
 // Registry (Tier 1 Ratified, lines 311-351). The canonical regex
-// `/^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)+$/` accepts `"presence.subscribe"`.
+// `/^[a-z][a-z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/` accepts `"presence.subscribe"`.
 // The method-name TABLE at lines 327-336 enumerates only Plan-007 Phase 3's
 // `session.*` surface; Plan-002 registers the `presence.*` namespace against
 // the same ratified FORMAT (Plan-002 line 95 / CP-002-2). The `subscribe`

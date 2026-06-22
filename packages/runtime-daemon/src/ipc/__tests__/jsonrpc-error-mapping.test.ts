@@ -41,6 +41,7 @@ import { describe, expect, it } from "vitest";
 import { JsonRpcErrorCode, JSONRPC_VERSION } from "@ai-sidekicks/contracts";
 
 import { SecureDefaultsValidationError } from "../../bootstrap/secure-defaults.js";
+import { DaemonDomainError } from "../domain-error.js";
 import { encodeFrame, FramingError, MAX_MESSAGE_BYTES } from "../local-ipc-gateway.js";
 import { mapJsonRpcError, sanitizeFields } from "../jsonrpc-error-mapping.js";
 
@@ -591,5 +592,102 @@ describe("mapJsonRpcError — I-007-8 single-seam enforcement on data.fields", (
     const envelope = mapJsonRpcError(error, 1);
     expect(envelope.error.code).toBe(JsonRpcErrorCode.InternalError);
     expect(envelope.error.data).toBeUndefined();
+  });
+});
+
+// ----------------------------------------------------------------------------
+// mapJsonRpcError — DaemonDomainError generic wire projection (BL-143)
+// ----------------------------------------------------------------------------
+
+describe("mapJsonRpcError — DaemonDomainError wire projection (BL-143)", () => {
+  it("projects a not-found domain error → jsonRpcCode + data.type + data.fields", () => {
+    // A not-found namespace error rides -32602 (the supplied id does not
+    // resolve — structurally a param-shape failure), like `session.not_found`.
+    const error = new DaemonDomainError("repo r-7 is not attached", {
+      code: "repo.not_found",
+      jsonRpcCode: JsonRpcErrorCode.InvalidParams,
+      httpStatus: 404,
+      detail: { repoId: "r-7" },
+    });
+
+    const envelope = mapJsonRpcError(error, 1);
+
+    expect(envelope.error.code).toBe(JsonRpcErrorCode.InvalidParams);
+    expect(envelope.error.data?.type).toBe("repo.not_found");
+    // Clean detail passes through the sanitizer unchanged into data.fields.
+    expect(envelope.error.data?.fields).toEqual({ repoId: "r-7" });
+  });
+
+  it("defaults to -32603 InternalError when jsonRpcCode is omitted", () => {
+    const error = new DaemonDomainError("approval store unavailable", {
+      code: "approval.store_unavailable",
+    });
+
+    const envelope = mapJsonRpcError(error, 1);
+
+    expect(envelope.error.code).toBe(JsonRpcErrorCode.InternalError);
+    // No detail → data carries only `type`, never a spurious empty `fields`.
+    expect(envelope.error.data).toEqual({ type: "approval.store_unavailable" });
+    expect(envelope.error.data && "fields" in envelope.error.data).toBe(false);
+  });
+
+  it("carries httpStatus on the error object but never leaks it onto the wire", () => {
+    // httpStatus exists for control-plane / observability symmetry; the
+    // JSON-RPC seam selects the numeric from jsonRpcCode and MUST NOT surface
+    // httpStatus anywhere in the wire envelope.
+    const error = new DaemonDomainError("repo r-9 not found", {
+      code: "repo.not_found",
+      jsonRpcCode: JsonRpcErrorCode.InvalidParams,
+      httpStatus: 404,
+      detail: { repoId: "r-9" },
+    });
+    expect(error.httpStatus).toBe(404);
+
+    const envelope = mapJsonRpcError(error, 1);
+    expect("httpStatus" in envelope.error).toBe(false);
+    expect(envelope.error.data && "httpStatus" in envelope.error.data).toBe(false);
+    expect(JSON.stringify(envelope)).not.toContain("httpStatus");
+    expect(JSON.stringify(envelope)).not.toContain("404");
+  });
+
+  it("runs data.fields through the I-007-8 sanitizer (path redaction)", () => {
+    // The single sanitizeFields seam applies to DaemonDomainError exactly like
+    // every other typed surface — a path-shape detail value is redacted and
+    // the envelope stays encoder-safe.
+    const sensitivePath = "/home/operator/.ssh/id_ed25519";
+    const error = new DaemonDomainError("worktree path rejected", {
+      code: "worktree.path_rejected",
+      jsonRpcCode: JsonRpcErrorCode.InvalidParams,
+      detail: { path: sensitivePath },
+    });
+
+    const envelope = mapJsonRpcError(error, 1);
+    const fields = envelope.error.data?.fields as Record<string, unknown> | undefined;
+    expect(fields?.["path"]).toBe("<redacted-path>");
+    expect(JSON.stringify(envelope)).not.toContain(sensitivePath);
+    expect(() => encodeFrame(envelope)).not.toThrow();
+  });
+
+  it("projects a DaemonDomainError SUBCLASS through the same single branch", () => {
+    // Extensibility: a namespace that defines a named subclass fixes its
+    // code/jsonRpcCode in super(...) and is projected by the same branch — no
+    // per-subclass mapper change. `name` reflects the subclass (new.target).
+    class WorktreeLockedError extends DaemonDomainError {
+      constructor(worktreeId: string) {
+        super(`worktree ${worktreeId} is locked`, {
+          code: "worktree.locked",
+          jsonRpcCode: JsonRpcErrorCode.InvalidRequest,
+          detail: { worktreeId },
+        });
+      }
+    }
+
+    const error = new WorktreeLockedError("wt-3");
+    expect(error.name).toBe("WorktreeLockedError");
+
+    const envelope = mapJsonRpcError(error, "req-1");
+    expect(envelope.error.code).toBe(JsonRpcErrorCode.InvalidRequest);
+    expect(envelope.error.data?.type).toBe("worktree.locked");
+    expect(envelope.error.data?.fields).toEqual({ worktreeId: "wt-3" });
   });
 });

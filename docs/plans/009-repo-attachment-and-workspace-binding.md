@@ -274,8 +274,8 @@ Phases map 1:1 onto the four Implementation Steps. Phase 1 has no unsatisfied up
 - [ ] Plan-009 Phase 1 merged (contracts — Zod schemas for the six interface pairs)
 - [ ] Plan-009 Phase 2 merged (RepoMount/workspace services + execution-mode capability projections)
 - [x] `repo.*` method strings ratified — api-payload-contracts.md §Repo Method-Name Registry (Tier 6) (D-009-1)
-- [ ] BL-142 landed — deployed registry method-name regex conformed to the Tier-1 ratified canonical (the deployed tail class rejects camelCase; without the fix, `repo.mountRead`-class registrations throw at daemon boot)
-- [ ] BL-143 landed — `DaemonDomainError` projection branch in `mapJsonRpcError` (without it, T3.6's wire assertions observe anonymous `-32603` errors instead of the ratified `repo.*` codes; surfaced by the Tier-6 Plan-010 walk)
+- [x] BL-142 landed — deployed registry method-name regex conformed to the Tier-1 ratified canonical (the deployed tail class rejects camelCase; without the fix, `repo.mountRead`-class registrations throw at daemon boot)
+- [x] BL-143 landed — `DaemonDomainError` projection branch in `mapJsonRpcError` (without it, T3.6's wire assertions observe anonymous `-32603` errors instead of the ratified `repo.*` codes; surfaced by the Tier-6 Plan-010 walk)
 - [x] `RepoMountReadResponse` amended shape ratified — `canonicalRoot` + `health` (D-009-2, D-009-7)
 - [x] `repo.*` error codes ratified — error-contracts.md §Repo (D-009-3) — gates T3.6
 - [x] `RepoDetach` contract + cascade semantics ratified — Spec-009 §Detach Semantics (D-009-6) — gates T3.7

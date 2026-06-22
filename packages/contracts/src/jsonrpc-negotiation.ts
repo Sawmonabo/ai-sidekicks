@@ -65,7 +65,7 @@ import { z } from "zod";
 
 /**
  * Canonical JSON-RPC method name for the negotiation handshake. The
- * `daemon.hello` string conforms to the dotted-lowercase canonical format
+ * `daemon.hello` string conforms to the dotted-camelCase canonical format
  * ratified at api-payload-contracts.md §JSON-RPC Method-Name Registry
  * (Tier 1 Ratified, 2026-04-30) — registration succeeds against the
  * I-007-9 register-time regex check.

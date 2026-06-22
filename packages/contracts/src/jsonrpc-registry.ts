@@ -27,9 +27,10 @@
 //     mapping).
 //   * I-007-9 — method names conform to the canonical format declared in
 //     docs/architecture/contracts/api-payload-contracts.md §JSON-RPC
-//     Method-Name Registry (Tier 1 Ratified, lines 291-331). The runtime
-//     registry validates at register-time via the canonical regex
-//     /^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)+$/.
+//     Method-Name Registry (Tier 1 Ratified). The `METHOD_NAME_FORMAT`
+//     constant exported below is the single runtime source the daemon
+//     registry's `register()` check imports; it validates each name at
+//     register-time (no per-package re-declaration — BL-142).
 //
 // What this file does NOT define (deferred to sibling tasks):
 //   * The runtime registry class implementation (`MethodRegistry implements
@@ -47,10 +48,10 @@
 //     over `<P, R>` so each handler can register with its own typed
 //     params/result schemas.
 
-// We import zod's `ZodType` as a type ONLY. This keeps the contract
-// package's runtime surface unchanged (zod is already a contracts
-// dependency for the existing schemas in error.ts / event.ts / session.ts;
-// no new runtime import is added here). Type-only imports satisfy
+// We import zod's `ZodType` as a type ONLY. This keeps zod out of the
+// contract package's runtime surface (zod is already a contracts dependency
+// for the existing schemas in error.ts / event.ts / session.ts; no new
+// runtime import is added here). Type-only imports satisfy
 // `verbatimModuleSyntax: true` from tsconfig.base.json.
 import type { ZodType } from "zod";
 
@@ -63,6 +64,43 @@ import type { ZodType } from "zod";
 // Exposing the type here means the daemon can type-check its
 // implementation against `ZodType<T>` while only depending on contracts.
 export type { ZodType };
+
+// --------------------------------------------------------------------------
+// METHOD_NAME_FORMAT — canonical method-name regex (single runtime source)
+// --------------------------------------------------------------------------
+
+/**
+ * Canonical `dotted-camelCase` method-name format, ratified at
+ * docs/architecture/contracts/api-payload-contracts.md §JSON-RPC Method-Name
+ * Registry (Tier 1 Ratified). This constant is the SINGLE runtime source the
+ * daemon's `MethodRegistry` implementation imports for its register-time
+ * I-007-9 check (`packages/runtime-daemon/src/ipc/registry.ts`). It mirrors
+ * the `JsonRpcErrorCode` promotion in `jsonrpc.ts`: a wire-level constant
+ * lives in contracts so every consumer shares one declaration instead of
+ * re-stating the literal. The prior daemon-local copy had drifted from this
+ * canonical form — its tail class read `[a-z0-9]`, dropping the ratified
+ * camelCase tails — which BL-142 surfaced and closed by collapsing the
+ * duplicate into this import.
+ *
+ * Grammar: a lowercase-rooted first segment (`[a-z][a-z0-9]*` — the namespace
+ * root is deliberately lowercase-only) followed by one or more dot-delimited
+ * segments that permit camelCase (`[a-z][a-zA-Z0-9]*`). At least one dot is
+ * required (`namespace.method` minimum; bare `method` is rejected).
+ *
+ *   * Accepts: `session.create`, `presence.subscribe`, `run.stream.notify`,
+ *     `settings.effectiveRead`, `driver.listCapabilities` (camelCase tails).
+ *   * Rejects: `Session.create` / `textDocument.didOpen` (camelCase root —
+ *     roots stay lowercase), `sessionCreate` (no dot), `session/create`
+ *     (slash), `session.` (trailing dot), `SessionCreate` (PascalCase /
+ *     type-name collision).
+ *
+ * The capture group is non-capturing (`(?:…)`) — semantically identical to
+ * the illustrative capturing form in the ratification doc, capture-free
+ * because callers only invoke `.test()`. The regex carries no `g` flag, so
+ * `.test()` is stateless and the shared instance is safe to reuse across
+ * packages.
+ */
+export const METHOD_NAME_FORMAT: RegExp = /^[a-z][a-z0-9]*(?:\.[a-z][a-zA-Z0-9]*)+$/;
 
 // --------------------------------------------------------------------------
 // HandlerContext
@@ -169,10 +207,10 @@ export interface MethodRegistry {
    * Register a typed handler against a method name.
    *
    * @param method - The dotted-namespace method name (e.g. `session.create`).
-   *   Format is governed by I-007-9 + the canonical regex
-   *   /^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)+$/ ratified at
+   *   Format is governed by I-007-9 + the canonical `METHOD_NAME_FORMAT`
+   *   regex exported above, ratified at
    *   docs/architecture/contracts/api-payload-contracts.md §JSON-RPC
-   *   Method-Name Registry (lines 291-331).
+   *   Method-Name Registry.
    * @param paramsSchema - Zod schema validating the request `params`.
    *   Runs before handler dispatch (I-007-7).
    * @param resultSchema - Zod schema validating the handler's resolved

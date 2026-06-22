@@ -59,6 +59,7 @@
 // 2026-05-01); mirrors the narrowed `JsonRpcRequest.protocolVersion`.
 
 import type {
+  JsonRpcErrorData,
   JsonRpcId,
   JsonRpcNotification,
   JsonRpcRequest,
@@ -96,10 +97,16 @@ import type { ClientTransport, LocalSubscriptionConsumer } from "./types.js";
 export class JsonRpcRemoteError extends Error {
   /** The JSON-RPC numeric error code (spec §5.1; see `JsonRpcErrorCode`). */
   public readonly code: number;
-  /** Optional supplementary structured data carried on `error.data`. */
-  public readonly data: unknown;
+  /**
+   * The structured `{ type, fields? }` envelope from the wire's `error.data`,
+   * or `undefined` when the daemon emitted a bare numeric error (an
+   * unregistered internal `-32603` carries no `data`). `data.type` is the
+   * canonical dotted discriminator clients switch on per error-contracts.md
+   * §JSON-RPC Wire Mapping — read it instead of the coarse numeric `code`.
+   */
+  public readonly data: JsonRpcErrorData | undefined;
 
-  public constructor(code: number, message: string, data: unknown) {
+  public constructor(code: number, message: string, data: JsonRpcErrorData | undefined) {
     super(message);
     this.name = "JsonRpcRemoteError";
     this.code = code;

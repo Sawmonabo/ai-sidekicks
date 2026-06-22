@@ -1173,3 +1173,89 @@ describe("Fix #6 / Codex P1 regression — protocolVersion REQUIRED + emitted un
     expect(envelope.protocolVersion).toBe(customVersion);
   });
 });
+
+// ----------------------------------------------------------------------------
+// BL-143 — JsonRpcRemoteError surfaces the structured error.data on rejection
+// ----------------------------------------------------------------------------
+//
+// The daemon's `mapJsonRpcError` projects a typed domain error into the
+// two-layer envelope (numeric `code` + `data: { type, fields? }`). The SDK is
+// the INVERSE seam: a `call()` that observes an `error` response rejects with
+// `JsonRpcRemoteError` carrying that `data` verbatim, so clients discriminate
+// on the dotted `data.type` rather than the coarse numeric `code`.
+
+describe("BL-143 — JsonRpcRemoteError surfaces error.data on rejection", () => {
+  it("rejects with data.type + data.fields when the daemon returns a typed domain error", async () => {
+    const transport = new InMemoryTransport();
+    const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
+    const paramsSchema = z.object({ repoId: z.string() });
+    const resultSchema = z.unknown();
+
+    const promise = client.call("repo.mountRead", { repoId: "r-7" }, paramsSchema, resultSchema);
+
+    const sentEnvelope = transport.sentEnvelopes[0];
+    if (sentEnvelope === undefined || !("id" in sentEnvelope)) {
+      throw new Error("unreachable — call() emits a request envelope");
+    }
+
+    // Daemon NACKs with a typed domain error: -32602 + data.type/fields — the
+    // exact shape `DaemonDomainError` projects through `mapJsonRpcError`.
+    transport.dispatchInbound({
+      jsonrpc: JSONRPC_VERSION,
+      id: sentEnvelope.id,
+      error: {
+        code: -32602,
+        message: "repo r-7 is not attached",
+        data: { type: "repo.not_found", fields: { repoId: "r-7" } },
+      },
+    });
+
+    let caught: unknown = null;
+    try {
+      await promise;
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(JsonRpcRemoteError);
+    if (caught instanceof JsonRpcRemoteError) {
+      expect(caught.code).toBe(-32602);
+      // The dotted discriminator surfaces verbatim — clients switch on this.
+      expect(caught.data?.type).toBe("repo.not_found");
+      expect(caught.data?.fields).toEqual({ repoId: "r-7" });
+    }
+    expect(client.pendingCount).toBe(0);
+  });
+
+  it("rejects with data === undefined for a bare numeric error (no data layer)", async () => {
+    // A bare `-32603` with no `data` is a genuine daemon-internal failure; the
+    // SDK surfaces `data: undefined` so clients distinguish it from a
+    // registered domain failure (which always carries `data.type`).
+    const transport = new InMemoryTransport();
+    const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
+    const paramsSchema = z.unknown();
+    const resultSchema = z.unknown();
+
+    const promise = client.call("repo.mountRead", undefined, paramsSchema, resultSchema);
+    const sentEnvelope = transport.sentEnvelopes[0];
+    if (sentEnvelope === undefined || !("id" in sentEnvelope)) {
+      throw new Error("unreachable — call() emits a request envelope");
+    }
+    transport.dispatchInbound({
+      jsonrpc: JSONRPC_VERSION,
+      id: sentEnvelope.id,
+      error: { code: -32603, message: "internal daemon failure" },
+    });
+
+    let caught: unknown = null;
+    try {
+      await promise;
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(JsonRpcRemoteError);
+    if (caught instanceof JsonRpcRemoteError) {
+      expect(caught.code).toBe(-32603);
+      expect(caught.data).toBeUndefined();
+    }
+  });
+});

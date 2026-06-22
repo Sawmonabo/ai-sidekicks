@@ -141,7 +141,7 @@ export interface PresenceSubscribeOptions {
  * Canonical method names for the membership-surface operations. On the daemon
  * transport these route to the JSON-RPC `method` field (per
  * docs/architecture/contracts/api-payload-contracts.md §JSON-RPC Method-Name
- * Registry, Tier 1 Ratified — dotted-lowercase `namespace.operation`, flat
+ * Registry, Tier 1 Ratified — dotted-camelCase `namespace.operation`, flat
  * top-level namespaces matching the existing `session.*` + `presence.*`).
  *
  * Two provenance classes, deliberately distinguished:

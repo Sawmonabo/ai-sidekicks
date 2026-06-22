@@ -49,10 +49,10 @@
 //   * Test coverage — owned by T-007p-3-4 (sibling task). This file is
 //     production code only.
 //
-// Method-name format ratified: dotted-lowercase per
+// Method-name format ratified: dotted-camelCase per
 // docs/architecture/contracts/api-payload-contracts.md §JSON-RPC Method-Name
 // Registry (Tier 1 Ratified, lines 291-331). Canonical regex:
-// `/^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)+$/` — the `register` call site below
+// `/^[a-z][a-z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/` — the `register` call site below
 // passes `"session.create"`, which matches.
 //
 // Pattern reference: `registerHandshakeMethod` in

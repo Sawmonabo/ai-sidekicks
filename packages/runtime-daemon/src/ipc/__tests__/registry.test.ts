@@ -14,10 +14,11 @@
 //     is NEVER invoked on a malformed payload — `safeParse` short-
 //     circuits dispatch with `RegistryDispatchError("invalid_params")`.
 //   * I-007-9 — method names conform to the canonical regex set:
-//     `METHOD_NAME_DOTTED_REGEX` (canonical per
+//     `METHOD_NAME_FORMAT` (the single source exported from
+//     `@ai-sidekicks/contracts`, canonical per
 //     docs/architecture/contracts/api-payload-contracts.md §JSON-RPC
-//     Method-Name Registry, lines 291-331) ∪ `METHOD_NAME_LSP_REGEX`
-//     (LSP-style `$/`-prefixed; separate follow-up).
+//     Method-Name Registry) ∪ `METHOD_NAME_LSP_REGEX` (daemon-local
+//     LSP-style `$/`-prefixed; separate follow-up).
 //
 // W-tests covered here (per Plan-007 §Phase 2 lines 379-381):
 //   * W-007p-2-T7 — Method-not-found namespace-isolation. Invoking an
@@ -281,7 +282,7 @@ describe("I-007-6 — duplicate method registration rejected at register-time", 
 // ----------------------------------------------------------------------------
 
 describe("I-007-9 — method-name format validation", () => {
-  // Exhaustive each-table over the dotted-lowercase + LSP-style accepts.
+  // Exhaustive each-table over the dotted-camelCase + LSP-style accepts.
   const ACCEPTED = [
     "session.create",
     "session.read",
@@ -289,6 +290,11 @@ describe("I-007-9 — method-name format validation", () => {
     "session.subscribe",
     "presence.subscribe",
     "run.stream.notify",
+    // camelCase tails (BL-142): lowercase root + camelCase tail segment, per
+    // api-payload-contracts.md §JSON-RPC Method-Name Registry (line 329 cites
+    // `settings.effectiveRead` / `driver.listCapabilities` as permitted).
+    "settings.effectiveRead",
+    "driver.listCapabilities",
     "$/subscription/notify",
     "$/subscription/cancel",
     "$/cancelRequest",
@@ -299,7 +305,8 @@ describe("I-007-9 — method-name format validation", () => {
   });
 
   const REJECTED = [
-    "Session.create", // uppercase head
+    "Session.create", // uppercase root
+    "textDocument.didOpen", // camelCase ROOT — roots stay lowercase (BL-142 trap)
     "sessionCreate", // no dot
     "session/create", // slash separator (non-LSP)
     "session.", // trailing dot
@@ -332,7 +339,7 @@ describe("I-007-9 — method-name format validation", () => {
     }
   });
 
-  it("the format check runs BEFORE the duplicate check (regex first per registry.ts:298-325)", () => {
+  it("the format check runs BEFORE the duplicate check (regex first per registry.ts:298-315)", () => {
     // A malformed name that "duplicates" itself should still throw with
     // `invalid_method_name`, not `duplicate_method` — the format check
     // is the first gate.
@@ -352,5 +359,43 @@ describe("I-007-9 — method-name format validation", () => {
     if (caught instanceof RegistryRegistrationError) {
       expect(caught.registryCode).toBe("invalid_method_name");
     }
+  });
+
+  // BL-142: the deployed registry regex must accept the camelCase-tailed
+  // method strings the Tier-6/7 namespace plans register. Before the tail-
+  // class fix (`[a-z0-9]` → `[a-zA-Z0-9]`), every one threw
+  // `RegistryRegistrationError("invalid_method_name")` at daemon boot,
+  // blocking the Plan-009/010/012/016 Phase 3 registrations. Each pairs a
+  // lowercase root with a camelCase tail per the canonical
+  // `METHOD_NAME_FORMAT` (api-payload-contracts.md §JSON-RPC Method-Name
+  // Registry).
+  const BL142_CAMELCASE_TAILS = [
+    "repo.mountRead", // Plan-009
+    "repo.executionModeSelect", // Plan-010
+    "approval.requestCreate", // Plan-012
+    "channel.rosterRead", // Plan-016
+    "orchestration.runCreate", // Plan-016
+    "orchestration.childRunLinkRead", // Plan-016
+    "orchestration.budgetRead", // Plan-016
+    "orchestration.budgetUpdate", // Plan-016
+    "agent.configUpdate", // Plan-016
+  ];
+  it.each(BL142_CAMELCASE_TAILS)(
+    "accepts camelCase-tailed V1 method name `%s` (BL-142 unblock)",
+    (name) => {
+      expect(isCanonicalMethodName(name)).toBe(true);
+    },
+  );
+
+  it("registers a camelCase-tailed method without throwing (BL-142 end-to-end)", () => {
+    const registry = new MethodRegistryImpl();
+    expect(() => {
+      registry.register(
+        "repo.mountRead",
+        passthroughSchema<unknown>(),
+        passthroughSchema<unknown>(),
+        async () => undefined,
+      );
+    }).not.toThrow();
   });
 });
