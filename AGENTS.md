@@ -71,6 +71,7 @@ Model selection resolves through a cascade; each layer stays silent unless it ex
 In practice:
 
 - **Omit `model` on dispatch.** Subagents inherit the session model for every role (research, audit, implementation, review). Pass `model:` only to deliberately deviate, and record why.
+- **Default working model: the latest Opus at 1M context** (Opus 4.8 today) — the project's standing choice for substantive work. This names the _line_, never a pinned _version_: "the latest Opus" tracks each release (4.7 → 4.8 → …) and never rots, so it refines the no-model-by-name rule below (which bars a frozen `Opus 4.8` as a hard requirement) instead of contradicting it. It is a default, not a gate — an explicit `model:` override still wins for a deliberate per-role deviation (e.g., a cheaper tier for codebase search or other mechanical work).
 - **No committed file may require a model by name.** Where calibrated work needs a quality floor, express it as a tier class ("refuse if you identify as a small/fast-tier model"), never as a name — a name freezes the then-current frontier and rots at the next model ship.
 - **Attribution strings** (`Co-Authored-By:` trailers) derive from the running model's harness-provided identity. Dated examples are fine; hardcoded requirements are not.
 
