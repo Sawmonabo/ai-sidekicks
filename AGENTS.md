@@ -75,7 +75,7 @@ In practice:
 - **No committed file may require a model by name.** Where calibrated work needs a quality floor, express it as a tier class ("refuse if you identify as a small/fast-tier model"), never as a name — a name freezes the then-current frontier and rots at the next model ship.
 - **Attribution strings** (`Co-Authored-By:` trailers) derive from the running model's harness-provided identity. Dated examples are fine; hardcoded requirements are not.
 
-Historical records (ADR decision logs, plan author rows, archived session narratives) keep the model names they were written with — they record provenance, not policy. Likewise, a separate tool's own root config (e.g. `.codex/config.toml`) names its operational model directly — it has no parent session to inherit from and its schema requires a concrete value, so that is operational selection, not a quality-floor requirement.
+Historical records (ADR decision logs, plan author rows, archived session narratives) keep the model names they were written with — they record provenance, not policy. Likewise, a separate tool's own root config (e.g. `.codex/config.toml`) may pin an operational model directly — there the `model` field is an optional override, so naming one is a deliberate per-tool choice, not one of this project's calibrated-work quality floors. Such operational tool config sits outside this rule's scope.
 
 ## Doc-First Discipline
 
