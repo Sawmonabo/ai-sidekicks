@@ -83,7 +83,7 @@ Use [Conventional Commits 1.0](https://www.conventionalcommits.org/en/v1.0.0/) e
 Footer trailers are conventions, not commitlint-enforced:
 
 - **`Refs: ADR-NNN, BL-NNN, Plan-NNN`** — cite governance documents the change implements or modifies. Use this whenever the change is traceable to a governance artifact.
-- **`Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`** — required when AI is a co-author of the change, per [`CLAUDE.md`](CLAUDE.md).
+- **`Co-Authored-By: <running model identity> <noreply@anthropic.com>`** — required when AI is a co-author of the change. Derive the name from the running model's harness-provided identity (for Claude Code, the trailer the harness specifies at session start — `Claude Fable 5` as of 2026-06; see [`AGENTS.md`](AGENTS.md) §Model Policy). Never copy a model name from an older commit or example.
 
 ### Breaking changes
 
@@ -161,7 +161,7 @@ pnpm workspace, Turbo pipeline, daemon package skeleton, Vitest config.
 - [ ] `vitest run` exits 0 with the scaffold smoke test
 
 Refs: ADR-022, ADR-023, Plan-001
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+Co-Authored-By: <model identity — §Footer trailers> <noreply@anthropic.com>
 EOF
 )"
 
@@ -178,7 +178,7 @@ Scaffold the V1 monorepo per Plan-001: pnpm workspace, Turbo pipeline,
 daemon package skeleton, Vitest config.
 
 Refs: ADR-022, ADR-023, Plan-001
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+Co-Authored-By: <model identity — §Footer trailers> <noreply@anthropic.com>
 ```
 
 ## Anti-Patterns
