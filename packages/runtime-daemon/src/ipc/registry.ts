@@ -3,9 +3,9 @@
 // (Plan-007 Phase 2, T-007p-2-3).
 //
 // Spec coverage:
-//   * Spec-007 §Cross-Plan Obligations CP-007-3
-//     (docs/specs/007-local-ipc-and-daemon-control.md) — the
-//     `router.add(method, handler)` registry surface owed to Plan-026 and
+//   * Plan-007 §Cross-Plan Obligations CP-007-3
+//     (docs/plans/007-local-ipc-and-daemon-control.md) — the
+//     `MethodRegistry.register()` registry surface owed to Plan-026 and
 //     Tier 4 namespace plans. The interface is the cross-package contract;
 //     this file is the daemon-side implementation that the bootstrap
 //     orchestrator constructs and wires into `LocalIpcGateway` dispatch.

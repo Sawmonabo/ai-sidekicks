@@ -1,8 +1,8 @@
 // W-007p-2-T7 + T9 — MethodRegistryImpl test suite (T-007p-2-6).
 //
 // Spec coverage:
-//   * Spec-007 §Cross-Plan Obligations CP-007-3
-//     (docs/specs/007-local-ipc-and-daemon-control.md) — the registry
+//   * Plan-007 §Cross-Plan Obligations CP-007-3
+//     (docs/plans/007-local-ipc-and-daemon-control.md) — the registry
 //     surface owed to Plan-026 and Tier 4 namespace plans.
 //
 // Invariants verified here (canonical text in
