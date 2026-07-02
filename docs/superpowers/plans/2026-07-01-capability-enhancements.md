@@ -379,9 +379,9 @@ Per-plan procedure (each checkbox above): (1) working-copy audit per the runbook
 
 **Interfaces:** Consumes the Design §3.4 evidence rules. Produces — version-pinned wire-shape docs: four-grade TRUST vocabulary + orthogonal PROVENANCE axis (rejected fifth TRUST grade stays rejected; PROVENANCE gains the vendor-generated-schema top grade); the Codex doc pins against `generate-json-schema`/`generate-ts` output at 0.141.0; the Claude doc pins against the docs census + changelog version anchors, recording the `--help`-non-authoritative rule; driver `__fixtures__/` paths cited as text (not links) with the "lands with Plan-005 Phase 3" marker. Non-governance; no ownership row (categorical). Consumed by Task 14 — its P2-5 `Reference:` lines link these files, so the targets must exist before B10 merges (cite-target gate).
 
-- [ ] **Step 1:** SBP-1 bundle=`b19`, branch=`docs/b19-provider-wire-reference`.
-- [ ] **Step 2:** Regenerate the Codex schema from the pinned binary; author the three docs; re-verify INDEX.md anchors :42/:51/:53/:55. Note: `docs/reference/**` is prettier-exempt (`.prettierignore`), so SBP-3's prettier gate is a policy no-op for these files; every other SBP-3 gate applies.
-- [ ] **Step 3:** SBP-3/4/5/6 — subject `docs(repo): provider-wire reference docs, version-pinned (b19)`, trailer `Refs: Plan-005`.
+- [x] **Step 1:** SBP-1 bundle=`b19`, branch=`docs/b19-provider-wire-reference`.
+- [x] **Step 2:** Regenerate the Codex schema from the pinned binary; author the three docs; re-verify INDEX.md anchors :42/:51/:53/:55. Note: `docs/reference/**` is prettier-exempt (`.prettierignore`), so SBP-3's prettier gate is a policy no-op for these files; every other SBP-3 gate applies.
+- [x] **Step 3:** SBP-3/4/5/6 — subject `docs(repo): provider-wire reference docs, version-pinned (b19)`, trailer `Refs: Plan-005`.
 
 ### Task 26: B23 — turn-snapshot service code (W4; after Tasks 11, 20, and Plan-010's Task-23 promotion)
 

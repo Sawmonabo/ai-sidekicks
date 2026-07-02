@@ -48,6 +48,16 @@ This directory contains the complete analysis of three reference applications (F
 | `design-audits/git-workflow.md`          | Audit of specs 009, 010, 011, 012, 014, 017, plans 009, 011, 012, 014, 017, domain models, ADRs 004/006. Covers repo/workspace/worktree, git flow, diff attribution, PR prep, workflow authoring, approval model. Identifies workflow spec weakness as largest gap area.                                                    |
 | `design-audits/architecture-ops.md`      | Audit of 9 architecture docs, 4 specs, 4 plans, glossary, 8 operations runbooks. Covers C4 architecture, data architecture, IPC/transport, event taxonomy, visibility/timeline, security, operations readiness, deployment topology, notifications. Identifies no schemas, no wire format, no auth mechanism as top 3 gaps. |
 
+### Provider Wire (`provider-wire/`)
+
+Version-pinned wire-shape reference for the two provider CLIs the daemon drives. Non-governance (no status lifecycle, no ownership row).
+
+| File                       | Content                                                                                                                                                                                                                                                                                                                                                     |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `provider-wire/README.md`  | Family front-door: the four-grade TRUST vocabulary (Verified / Documented / Derived / Provisional) and the orthogonal PROVENANCE axis (Generated schema / Official docs / Binary probe / Cross-reference), why they stay orthogonal (the rejected fifth trust grade), the version-pinning policy, and how consuming docs cite these files.                     |
+| `provider-wire/codex.md`   | Codex `app-server` wire, pinned to `codex-cli 0.141.0` and regenerated from the binary's own `generate-json-schema` / `generate-ts`: the legacy-vs-slash method namespace and the rollback / goal / inject / turn-start / realtime (gated) / server-request callback shapes.                                                                                  |
+| `provider-wire/claude.md`  | Claude Code headless CLI wire, pinned to `2.1.198` against the docs census + changelog version anchors: the `--help`-non-authoritative rule, the flag surface, the control-protocol / result / `api_retry` census, and the recorded docs-vs-binary gaps.                                                                                                      |
+
 ---
 
 ## Topic Cross-Reference
@@ -64,6 +74,7 @@ This directory contains the complete analysis of three reference applications (F
 |                  | [implementation-details/06](paseo/implementation-details/06-server-providers-and-normalization.md) — adapter client signatures, wrapSessionProvider mechanics                         |
 |                  | [implementation-details/09](paseo/implementation-details/09-provider-transports-and-features.md) — per-provider transport specifics (Claude CLI, Codex JSON-RPC, OpenCode, ACP stdio) |
 | **Our docs**     | [design-audits/runtime-execution.md §3](design-audits/runtime-execution.md#3-provider-driver-contract) — Spec-005 contradiction, missing pauseRun/steerRun                            |
+|                  | [provider-wire/](provider-wire/README.md) — version-pinned Codex + Claude wire shapes, TRUST/PROVENANCE-graded; Codex regenerated from the `0.141.0` binary, Claude pinned to the `2.1.198` docs census |
 
 ### Run State Machine / Lifecycle
 
