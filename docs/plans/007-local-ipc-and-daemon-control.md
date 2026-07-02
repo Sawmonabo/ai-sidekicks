@@ -208,11 +208,11 @@ Plan-007-remainder (Tier 4) owns the substrate's namespace registry; Plan-002 (l
 
 **Why bidirectional.** Plan-002 reviewers see the dependency on Plan-007's registry; Plan-007 reviewers (especially Tier 4 PR authors) must know that the registry's typed surface is contractually required to support Plan-002's registration before Plan-007-remainder lands.
 
-### CP-007-3 — `router.register(method, handler)` registry surface owed to [Plan-026](./026-first-run-onboarding.md) and Tier 4 namespace plans
+### CP-007-3 — `MethodRegistry.register()` registry surface owed to [Plan-026](./026-first-run-onboarding.md) and Tier 4 namespace plans
 
-Plan-026 (line 236) imports the substrate's registry surface (`router.register(method, handler)`) for first-run-onboarding handlers. The Tier-4-era namespace plans (`settings.*` / `daemon.*` from Plan-007-remainder; `run.*` / `repo.*` / `artifact.*` from their downstream owning plans Plan-004 / Plan-009 / Plan-014) similarly register against the same surface. The typed shape ships at `packages/contracts/src/jsonrpc-registry.ts` (closed 2026-04-30 via [BL-102](../backlog.md) no-mirror disposition; canonical source: code).
+Plan-026 (§API And Transport Changes) imports the substrate's registry surface (`MethodRegistry.register(method, paramsSchema, resultSchema, handler, opts?)` — Zod-validated dispatch; `opts.mutating` gates writes under version mismatch) for first-run-onboarding handlers. The Tier-4-era namespace plans (`settings.*` / `daemon.*` from Plan-007-remainder; `run.*` / `repo.*` / `artifact.*` from their downstream owning plans Plan-004 / Plan-009 / Plan-014) similarly register against the same surface. The typed shape ships at `packages/contracts/src/jsonrpc-registry.ts` (closed 2026-04-30 via [BL-102](../backlog.md) no-mirror disposition; canonical source: code).
 
-**Why bidirectional.** Multiple downstream plans cite the surface informally (Plan-026:236, Plan-002:94, the namespace-owning plans Plan-004 / 009 / 014 + Plan-007-remainder); the surface itself must be authoritatively typed once and re-cited.
+**Why bidirectional.** Multiple downstream plans cite the surface informally (Plan-026 §API And Transport Changes, Plan-002:94, the namespace-owning plans Plan-004 / 009 / 014 + Plan-007-remainder); the surface itself must be authoritatively typed once and re-cited.
 
 ### CP-007-4 — Typed JSON-RPC client transport (`packages/client-sdk/src/transport/`) owed to all client-SDK consumers
 

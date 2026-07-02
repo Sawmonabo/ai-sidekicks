@@ -115,10 +115,10 @@ Every doc task's final steps invoke this procedure with its own branch/commit/fi
 
 **Interfaces:** Produces a phantom-free baseline for Task 27's zero-phantom grep. Authority: the campaign's commissioned cross-tier amendment authority (Design R1; runbook:122–129) — cite it as the operative basis in the PR body, with the Housekeeping Exception ([cross-plan-dependencies.md:111–125](../../architecture/cross-plan-dependencies.md)) cited for its intent (one ceremony-free correction PR), noting its (b)/(e) criteria fit loosely for a corpus-audit batch.
 
-- [ ] **Step 1:** SBP-1 bundle=`w0`, branch=`docs/w0-corpus-repair`.
-- [ ] **Step 2:** Re-verify each of the twelve sites still shows the defect (`sed -n '<N>p'` per Files list); run the NS-27 provenance classification; apply the corrections; nothing else.
-- [ ] **Step 3:** Verify class-wide closure: `grep -rnE 'rpc/router|ipc/router|router\.add\(\)|preload/bridge\.ts|runtime-node/' .worktrees/w0/docs/plans/ .worktrees/w0/docs/architecture/` (the lane's corrected copy, not the main checkout's) → expect exactly two remaining hits, both fixed by later tasks: Plan-027's `runtime-node/` (Task 19/B17) and Plan-005:281's `ipc/router.ts` (Task 14/B10) — record the expected-remainder in the PR body.
-- [ ] **Step 4:** SBP-3/4/5/6 — subject `docs(repo): repair phantom cites + drift (w0 housekeeping exception)`, trailer `Refs: Plan-008, Plan-026`.
+- [x] **Step 1:** SBP-1 bundle=`w0`, branch=`docs/w0-corpus-repair`.
+- [x] **Step 2:** Re-verify each of the twelve sites still shows the defect (`sed -n '<N>p'` per Files list); run the NS-27 provenance classification; apply the corrections; nothing else.
+- [x] **Step 3:** Verify class-wide closure: `grep -rnE 'rpc/router|ipc/router|router\.add\(\)|preload/bridge\.ts|runtime-node/' .worktrees/w0/docs/plans/ .worktrees/w0/docs/architecture/` (the lane's corrected copy, not the main checkout's) → expect exactly two remaining hits, both fixed by later tasks: Plan-027's `runtime-node/` (Task 19/B17) and Plan-005:281's `ipc/router.ts` (Task 14/B10) — record the expected-remainder in the PR body.
+- [x] **Step 4:** SBP-3/4/5/6 — subject `docs(repo): repair phantom cites + drift (w0 housekeeping exception)`, trailer `Refs: Plan-008, Plan-026`.
 
 ### Task 3: B1 — Spec-006 taxonomy bundle
 
