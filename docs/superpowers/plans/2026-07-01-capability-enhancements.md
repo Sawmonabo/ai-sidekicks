@@ -1,0 +1,478 @@
+# Capability-Enhancement Integration Campaign — Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+| Field | Value |
+| --- | --- |
+| Status | approved |
+| Drafted | 2026-07-02 |
+| Design | [2026-07-01-capability-enhancements-design.md](../specs/2026-07-01-capability-enhancements-design.md) |
+| Owner | user (a.sawmon@gmail.com) |
+| Tracker | **this plan** — per-task checkboxes + status lifecycle; zero backlog items (Design R9) |
+
+**Goal:** Execute the capability-enhancement campaign: land all 34 adopted enhancement-corpus items plus the seven R8 CLI-parity capabilities into the V1 governance corpus as 23 bundle PRs (waves W0–W3, with the W1.5 batch spec re-promotion gate between the contract and plan layers), restore every affected plan's `approved` status via targeted re-audits (W2.5), and ship the single bucket-1 prerequisite code PR (W4: B23 turn-snapshot service) — so every owning plan's own `/plan-execution` run builds the rest at its natural slot.
+
+**Architecture:** One PR per owning governance surface (Design R5). Contract layer first (W1 spec/ADR/contract-doc bundles), then the W1.5 batch spec re-promotion (runbook §Spec-Status Promotion Gate), then plan-task layer (W2), then per-plan promotion re-audits (W2.5), then the net-new feature docs (W3: Spec-028 + Plan-028), then the one prerequisite-code PR (W4). Each task = one PR through the full repo pipeline (worktree lane → author → gates → Codex review round-trip → squash-merge). The Design doc (§4 bundle definitions, §5/§5.1 placement matrices) is the content contract for every task; this plan is the executable sequence.
+
+**Tech Stack:** Markdown governance corpus (`docs/`) under prettier + docs-corpus-gate CI; git worktrees under `.worktrees/`; pnpm@10.33.2 / Node ≥22.12.0 (never npm); `/plan-execution` pipeline for B23; GitHub PRs via `gh` with the Codex review bot.
+
+## Global Constraints
+
+Every task inherits all of these. Exact values are copied from the Design and the repo's governing docs.
+
+- **Read the Design first.** Each task's content contract is the named Design section ([§4 bundles](../specs/2026-07-01-capability-enhancements-design.md), §5/§5.1 matrices, §3.2 corrections, §3.4 currency rules, §3.5 ripple audit, §3.6 event-kind census). This plan sequences and gates; the Design specifies. Where this plan compresses a deliverable list, the Design section governs on any ambiguity.
+- **Richest capability wins (Design R3 + extension).** Existing in-repo surfaces are not authoritative merely by existing: where the Design names a richer mechanism than what the corpus or code currently has, the bundle updates and fixes the existing surface rather than deferring to it — provided the result is wired and used (no unwired code) and within the end-of-V1 vision.
+- **Zero backlog items** (Design R9). No `BL-NNN` is created by any task. This plan's checkboxes + status lifecycle are the campaign tracker.
+- **No product code except Task 26 (B23)** (Design R9 bucket-1). Every other task edits documentation surfaces only: `docs/**`, plus the root `README.md` feature-census ripple the ADR-015 amendment owes (rides Task 9 or Task 24 — the only sanctioned non-`docs/**` surface).
+- **Spec amendments follow [runbook:233](../../operations/plan-implementation-readiness-audit-runbook.md)** — every W1 spec amendment lands as a **dated Amendment block** (Spec-003/Spec-006 precedent for the block form), and because every W1 spec bundle changes Required Behavior or Acceptance Criteria, **each spec bundle PR flips its spec to `review`** (declared in the PR body; B19's reference-doc lane is non-governance — no status field); **Task 28 (W1.5)** batch-re-promotes all nine specs through the runbook §Spec-Status Promotion Gate before any W2 lane launches — batched, not per-spec, because the amended specs cross-depend and gate criterion 1 (every `Depends On` at terminal status) is only satisfiable atomically. B4's Spec-006 census row lands while that spec is already `review` from B1's flip — one flip, one restore. B18's W3 census amendment flips Spec-006 again, re-promoted by its own follow-on PR (Task 24 Step 5). Net-new W3 governance docs: Spec-028 lands at `review` and promotes via Task 24 Step 6; Plan-028 stays `draft` for its tier's readiness audit (the campaign's one deliberately non-terminal handoff). **ADRs stay `accepted`** — amendments land as **Decision Log rows** (ADR-015 additionally uses §Amendment History for the 17→23 scope change); the spec gate does not govern ADRs.
+- **Status Flip Rule** ([runbook:111–120](../../operations/plan-implementation-readiness-audit-runbook.md)): W2 bundles are drafted as additive `#### Tasks` subsections + citation updates (rows 1–2 → plan stays `approved`). A bundle flips its plan to `review` only for genuinely new invariants/CPs/phases (row 3). **Every W2 PR description declares its classification.** Known-by-construction: B13, B16, and B22 flip; B9/B12 target already-`review` plans.
+- **Single-CREATE-owner rule.** Before referencing any file/table, check [cross-plan-dependencies.md](../../architecture/cross-plan-dependencies.md) §1/§2; the owning plan CREATEs, dependents EXTEND. **Plan-001 is never touched** (its manifest is sealed; the P-1 fix re-tags CP-004-6 inside Plan-004).
+- **Anchor re-verification.** Every `:NNN` line anchor in the Design and this plan is as-of-audit-date (2026-07-02). Each task re-verifies its anchors against the live files at authoring time (`sed -n '<N>p' <file>`), because earlier bundles landing in the same file shift later bundles' cited lines (e.g. B11's api-payload edit at :206–209 sits above every B3 anchor). The campaign docs themselves carry as-of-audit anchors that later bundles will shift — the cite-target hook checks only the post-paren `](file.md):N` form; refresh campaign-doc anchors opportunistically when a bundle's own edit moves them.
+- **CLI-currency re-verification** (Design §3.4 rules 1–3): any task citing CLI behavior re-verifies against the pinned binaries at authoring time — Claude Code **2.1.198**, codex-cli **0.141.0** (0.142.5 stable exists; floors pin by version anchor, never date). Codex protocol claims cite the binary's own `codex app-server generate-ts` / `generate-json-schema` output (canonical over prose docs; hand-transcription prohibited). Claude `--help` is non-authoritative; the docs census governs.
+- **Cite discipline.** Every cite must pass the hostile-reviewer test ([AGENTS.md](../../../AGENTS.md)). Any subagent dispatched to author or verify citations carries the four mechanism clauses verbatim from the [audit runbook](../../operations/plan-implementation-readiness-audit-runbook.md) (their canonical owner). **Self-containment** (Design §2 source-material note): committed docs and bundle amendment texts never cite the surveyed reference runtime, transient research paths, or any gitignored location — every borrowed mechanism is stated inline with its complete content (the Design carries it: §3.6 census, §4 bundle texts); never cite `.agents/tmp/**` paths.
+- **Committed surfaces never reference ephemeral/personal namespaces** — no `.agents/tmp/`, no session-memory namespaces (`agent-brain` paths or slugs), no review-thread `F-XXXX` tags (the session-ephemeral **four-digit** form). Canonical tier-audit finding IDs (`F-NNN-N-NN` — e.g. Plan-024's `F-024-*` series, integrated into the committed corpus per Plan-024:89) are corpus identifiers, not ephemeral tags: citable, and deliberately outside the gate pattern. Grep the diff for all three before every commit (SBP-3's namespace grep operationalizes exactly these; rule-statement lines in the campaign docs themselves are the known self-match exception).
+- **Prose hygiene:** every identifier containing an underscore is backticked in `.md` prose (prettier corrupts bare `foo_bar` next to `_italic_`); run `pnpm exec prettier --check` on every touched file before commit.
+- **Census arithmetic:** each bundle that changes an event census makes exactly **one** set-quantifier touch and re-derives the total by counting rows, never by incrementing the old number.
+- **Model policy** (Design §8): dispatches omit `model` and inherit the session model. Amendment-authoring and code lanes run the richest frontier tier; mechanical cite-existence sweeps may run a mid-tier model; design/review judgment stays with the orchestrating session.
+- **Branch/commit/PR conventions** ([CONTRIBUTING.md](../../../CONTRIBUTING.md)): branches off `develop`, 2-segment `docs/<bundle>-<topic>` (B23: `feat/b23-turn-snapshots`); Conventional Commits with repo scope enum (this campaign's doc PRs: `docs(repo): …`, ≤72-char subject, lowercase after colon); footer trailers `Refs:` naming the amended Plan/Spec/ADR numbers; squash-merge with an **explicit** `--subject`/`--body-file` (never trust a stale PR title); merge predicate = CI green ∧ Codex ack ∧ zero unresolved threads.
+- **Worktree lanes:** every bundle executes in its own `.worktrees/<bundle>/` lane; within a wave, lanes run in parallel except the named serializations (Task DAG below).
+
+## Task DAG
+
+| Task | Bundle | Wave | Depends on (tasks) |
+| --- | --- | --- | --- |
+| 1 | Campaign docs land | setup | — |
+| 2 | W0 corpus repair | W0 | 1 |
+| 3 | B1 Spec-006 | W1·L0 | 1 |
+| 4 | B2 Spec-004 | W1·L1 | 1, 5, 9, 11 |
+| 5 | B3 Spec-005 + wire | W1·L0.5 | 1, 9, 10 |
+| 6 | B5 Spec-015 | W1·L0.5 | 1, 9 |
+| 7 | B6 Spec-016 | W1·L0.5 | 1, 3, 10 |
+| 8 | B7 Spec-024 | W1·L1 | 1, 5 |
+| 9 | B8 ADR bundle | W1·L0 | 1 |
+| 10 | B20 Spec-012 | W1·L0 | 1 |
+| 11 | B21 Spec-010 | W1·L0.5 | 1, 3 |
+| 12 | B4 Spec-003 | W1·L1 | 3, 5 |
+| 28 | W1.5 spec re-promotions | W1.5 | 3–12 (every W1 spec bundle) |
+| 13 | B9 Plan-004 | W2·L2 | 3, 4, 5, 9, 11, 15, 20, 28, 23 (Plan-006 + Plan-010 rows) |
+| 14 | B10 Plan-005 | W2·L1 | 3, 5, 7, 10, 25, 28 |
+| 15 | B11 Plan-006 | W2·L1 | 3, 28 |
+| 16 | B13 Plan-012 | W2·L2 | 3, 5, 9, 10, 14, 28 |
+| 17 | B14 Plan-015 | W2·L1 | 5, 6, 9, 28 |
+| 18 | B16 Plan-024 | W2·L1 | 9, 12, 28 |
+| 19 | B17 Plan-027 | W2·L1 | 8, 15, 28 (shared `local-sqlite-schema.md`) |
+| 20 | B22 Plan-010 | W2·L1 | 11, 28 |
+| 21 | B12 Plan-008 | W2·L2 | 15, 28, 23 (Plan-006 row) |
+| 22 | B15 Plan-016 | W2·L2 | 3, 7, 19, 28, 23 (Plan-027 row) |
+| 23 | W2.5 re-audits | W2.5 | per plan, as its W2 task lands (13–22) |
+| 24 | B18 Spec-028 + Plan-028 | W3 | 9, 12, 14, 23 (Plan-005 re-audit) |
+| 25 | B19 provider-wire docs | W1·L0 | 1 (before 14 — its `Reference:` targets) |
+| 26 | B23 snapshot code | W4 | 11, 20, 23 (Plan-010 promotion) |
+| 27 | Campaign closure | — | all |
+
+Critical paths (Task 28, the W1.5 spec gate, sits between W1 and every W2 lane): Task 9 → 5 → 4 → 28 → 14 → 16 (deepest W1 chain into the largest bundle and the shared-:154-row serialization), Task 5 → 8 → 28 → 19 → 23 (Plan-027 row) → 22 (cross-node liveness chain), and Task 3 → 11 → 28 → 20 → 23 (Plan-010 row) → 13 (snapshot-rollback chain, continuing into Tasks 23 → 26). Task 26 merges **before Plan-004 Phase 3 dispatches**.
+
+## Standard Bundle Procedure (SBP)
+
+Every doc task's final steps invoke this procedure with its own branch/commit/file values. All commands run from the repo root unless noted.
+
+- **SBP-1 · Lane.** `git worktree add .worktrees/<bundle> -b docs/<bundle>-<topic> develop` — run as **raw Bash** (the harness's native worktree tool forces `worktree-<name>` branch names and cannot produce `docs/…`); work entirely inside `.worktrees/<bundle>/`; never touch the main checkout's copy of a target file. Known repo condition: **lefthook hooks do not fire for commits made inside worktrees** (stale hook binary path + worktree root resolution), so SBP-3's explicit gates and CI are the real enforcement — never assume a hook caught something.
+- **SBP-2 · Author.** Write the task's deliverables per its Design section. Re-verify every `:NNN` anchor you cite (`sed -n '<N>p' <file>`) and every relative link target (`ls <path>`) against the live worktree. For CLI-mechanism claims, apply Design §3.4 rules 1–3.
+- **SBP-3 · Gates (local — run every `pnpm exec` from the MAIN checkout root, targeting the worktree's paths; run git-based and file-content gates against the worktree itself: `git -C .worktrees/<bundle>`, grep paths under `.worktrees/<bundle>/`).** A fresh worktree has no `node_modules`: `pnpm` treats the worktree as its own workspace root and every `pnpm exec` there fails with exit 254 (adversarial executability pass, empirical). The main checkout's install resolves all gate binaries.
+  - `pnpm exec prettier --write --ignore-path=.prettierignore .worktrees/<bundle>/<touched files>` then `pnpm exec prettier --check --ignore-path=.prettierignore .worktrees/<bundle>/<touched files>` → expect `All matched files use Prettier code style!`. The `--ignore-path` override is load-bearing (empirical, 2026-07-02): `.gitignore` covers `.worktrees/`, and prettier 3.x skips gitignored files by default even when they are passed explicitly — without the override, `--check` prints the success string having checked zero files.
+  - Commit-subject check: `echo "<subject>" | pnpm exec commitlint` → expect zero problems (the scope enum has no `specs`/`plans`/`decisions`/`reference` — this campaign uses `docs(repo)` everywhere; every subject in this plan is pre-verified).
+  - Link sweep: for each new `](relative.md…)` link, verify the file exists from the containing doc's directory.
+  - Ephemeral-namespace grep over the diff: `git -C .worktrees/<bundle> diff develop... | grep -nE '\.agents/tmp|F-[0-9]{4}|agent-brain'` → expect no output (exit 1); the `F-[0-9]{4}` pattern deliberately matches only the session-ephemeral four-digit tag form — canonical `F-NNN-N-NN` tier-audit finding IDs (committed corpus, e.g. `F-024-1-03`) are citable and intentionally unmatched — the `-C` is load-bearing: a bare `git diff` at the main checkout root inspects the main checkout's own branch, not the lane's, so empty output there is a false pass — except when a diff touches the campaign docs' own rule-statement lines (the known self-match exception): enumerate every hit and confirm each is a rule statement, never an information-source pointer.
+  - Census/set-quantifier edits only: re-derive each stated total by counting table rows in the amended file; totals must match the count, and run a `ripple-check` pass on the diff.
+- **SBP-4 · Reviews.** Dispatch the spec-reviewer and code-quality-reviewer subagents **in parallel** on the diff (session-inherited model). Fix ACTIONABLE findings; apply POLISH in-PR; record VERIFICATION as no-op.
+- **SBP-5 · PR.** Commit (`docs(repo): <subject>` + `Refs:` trailer naming amended docs + a `Co-Authored-By:` trailer derived from the running model's harness-provided identity per [AGENTS.md](../../../AGENTS.md) §Model Policy) — the commit also **ticks this task's own checkboxes in this plan file** (the tracker rides the bundle's own PR: parallel lanes touch disjoint task sections so squash-merges never conflict (exception: Task 23's contiguous per-plan rows, which carry their own rebase-at-merge rule), and on `develop` a ticked box ⟺ this PR merged, because the tick lands exactly when the merge does), push, `gh pr create --base develop` with the bundle's classification declared in the body (W1 spec bundles: the runbook:233 spec flip, restored by Task 28; W2 bundles: additive vs flip, per the Status Flip Rule). Wait on CI (`ci-gate`, `docs-corpus-gate`) + the Codex review round-trip: reply to every thread before resolving; re-push fixes; merge only on CI ∧ ack ∧ zero-unresolved-threads.
+- **SBP-6 · Merge.** `gh pr merge --squash --subject "<explicit subject>" --body-file <body>` (never the default title), then `git worktree remove .worktrees/<bundle>` — the task's checkboxes landed with the PR itself (SBP-5); there is no post-merge tracker write.
+
+---
+
+### Task 1: Land the campaign docs (setup PR — outside the 23-bundle count)
+
+**Files:**
+
+- Create (commit pre-written files): `docs/superpowers/specs/2026-07-01-capability-enhancements-design.md`, `docs/superpowers/plans/2026-07-01-capability-enhancements.md`
+
+**Interfaces:** Produces the committed Design + Plan every later PR cites. Consumes nothing.
+
+- [x] **Step 1:** Branch `docs/capability-enhancements-campaign` off `develop` — the campaign's authoring branch (no worktree lane: the setup PR has no parallel sibling, and the docs were authored on this branch before this plan landed).
+- [x] **Step 2:** Land both files with their Status fields at `approved` (owner approval was given 2026-07-02 in-session and applied at authoring; the PR body records it).
+- [x] **Step 3:** SBP-3 gates on both files.
+- [x] **Step 4:** SBP-4/5/6 — subject `docs(repo): add capability-enhancement campaign design + plan`, trailer `Refs: ADR-015`.
+
+### Task 2: W0 corpus repair (one Housekeeping-Exception PR)
+
+**Design contract:** §4 W0; §3.1 rows P-4, P-5, P-7.
+
+**Files:**
+
+- Modify: `docs/plans/026-first-run-onboarding.md` (7 sites: :38, :122, :255, :402 `bridge.ts` → `preload/index.ts`; :123, :236, :390 `rpc/router.ts` + `router.add()` → `ipc/registry.ts` + `register()`) — the adversarial corpus pass caught :38/:402 after the initial audit named only :122/:255; a bare grep for `bridge.ts` over the file is the completeness check
+- Modify: `docs/plans/008-control-plane-relay-and-session-join.md` (3 sites: :384 cursor cite `:1097` → `:1144`; :430 + :464 `apps/cli` label "Tier-1-partial" → "Tier-4 remainder")
+- Modify: `docs/architecture/cross-plan-dependencies.md` (:100 desktop row gains Plan-007's extender role per :149; NS-27 "§3 …Ownership Rule" staleness at **five** sites :647/:649/:653–:655 — **classify provenance-vs-policy first** via git-blame: if the rule was already §2 when NS-27 closed (2026-05-23), fix all five as drift; if it was §3 then, leave the dated record and add one bracketed "[now §2]" clarifier at the heading)
+
+**Interfaces:** Produces a phantom-free baseline for Task 27's zero-phantom grep. Authority: the campaign's commissioned cross-tier amendment authority (Design R1; runbook:122–129) — cite it as the operative basis in the PR body, with the Housekeeping Exception ([cross-plan-dependencies.md:111–125](../../architecture/cross-plan-dependencies.md)) cited for its intent (one ceremony-free correction PR), noting its (b)/(e) criteria fit loosely for a corpus-audit batch.
+
+- [ ] **Step 1:** SBP-1 bundle=`w0`, branch=`docs/w0-corpus-repair`.
+- [ ] **Step 2:** Re-verify each of the twelve sites still shows the defect (`sed -n '<N>p'` per Files list); run the NS-27 provenance classification; apply the corrections; nothing else.
+- [ ] **Step 3:** Verify class-wide closure: `grep -rnE 'rpc/router|ipc/router|router\.add\(\)|preload/bridge\.ts|runtime-node/' .worktrees/w0/docs/plans/ .worktrees/w0/docs/architecture/` (the lane's corrected copy, not the main checkout's) → expect exactly two remaining hits, both fixed by later tasks: Plan-027's `runtime-node/` (Task 19/B17) and Plan-005:281's `ipc/router.ts` (Task 14/B10) — record the expected-remainder in the PR body.
+- [ ] **Step 4:** SBP-3/4/5/6 — subject `docs(repo): repair phantom cites + drift (w0 housekeeping exception)`, trailer `Refs: Plan-008, Plan-026`.
+
+### Task 3: B1 — Spec-006 taxonomy bundle
+
+**Design contract:** §4 B1 (all ten bullets). **Files:** Modify `docs/specs/006-session-event-taxonomy-and-audit-log.md` (one dated Amendment block; flips to `review` per the spec-amendment constraint, restored by Task 28).
+
+**Interfaces:** Produces — `completionKind`; the P1-2 emitter statement + backstop partial-unique-index contract; P1-1 intended-close discriminator; P2-1 scoped no-cross-aggregate-order statement; the four `driver_ask.*` types as a third `interactive_request` subfamily (P1-4 — new types under the existing category, never a second family); `costStatus`/`costSource` + `usage.budget_warning.reason`; `windowSource` + `exceeded`; **`usage.rate_limit_update`** (5th `usage_telemetry` subtype, shape `{provider, windowMins, usedPercent, resetsAt?}` + staleness rules (the monotonic drop applies only on confirmed same-`resetsAt` window identity — absent `resetsAt`, newest reading wins); sentinel-bound — the registration adds it to Spec-006 §Daemon-Scope Event Binding's enumerated set); R8 events (`run.rolled_back` in `run_lifecycle` — forward, non-terminal; `session.goal_updated`/`session.goal_cleared`; `subagent.started`/`subagent.completed` in `tool_activity`; reserved `realtime_*` family). Consumed by Tasks 7, 11, 12–17, 22.
+
+- [ ] **Step 1:** SBP-1 bundle=`b1`, branch=`docs/b1-spec006-taxonomy`.
+- [ ] **Step 2:** Author the Amendment block covering all ten Design-§4-B1 bullets; anchors to re-verify: :183 (`runVersion`), :345–:352 (`usage_telemetry`).
+- [ ] **Step 3:** Census arithmetic — one set-quantifier touch; re-derive every family total by row count (`run_lifecycle` 9→10; `usage_telemetry` 4→5; `session_lifecycle` +2; `tool_activity` +2; `interactive_request` +4 `driver_ask.*`; reserved `realtime_*` registered); run ripple-check.
+- [ ] **Step 4:** SBP-3/4/5/6 — subject `docs(repo): spec-006 amendment — taxonomy + r8 event families (b1)`, trailer `Refs: Spec-006`.
+
+### Task 4: B2 — Spec-004 bundle (after Tasks 5 + 9 + 11)
+
+**Design contract:** §4 B2. **Files:** Modify `docs/specs/004-queue-steer-pause-resume.md` (dated Amendment block), `docs/domain/run-state-machine.md` (the rollback transition amendment), `docs/domain/queue-and-intervention-model.md` (the `InterventionType` `rollback` enum extension + payload-shape mirror — **carried here, not in B3's PR**: it is Spec-004 rollback content and would otherwise cite an unlanded amendment; same-file serialization after B3's P0-3 edits).
+
+**Interfaces:** Consumes Tasks 5 (B3's P0-3 edits to the shared domain doc + the self-standing `rollbackTo` driver op), 9 (the B8 ADR-017 rollback decision row this amendment's `run.rolled_back` forward-event text cites), and 11 (B21's Spec-010 turn-snapshot section — the file-restore leg this amendment cites). Produces — P1-8 late-event absorption paragraph (absorbed-never-appended; `run.late_event.absorbed` diagnostic non-event); R8 `rollback` intervention type (rides `applyIntervention` with mandatory `expectedRunVersion` guard, 6-state result, state-gating with **pause-first** for `running` targets; forward `run.rolled_back` event; new §Driver-Level Rollback Mechanics mirroring the steer section; file restore via B21/B22 snapshot refs); the **run-state-machine.md amendment**: new intervention-driven `completed | interrupted | failed → paused` transitions (rollback is the only terminal-exit path) + the :34 exactly-one-terminal invariant reworded per-`runVersion`-epoch — without this the authoritative transition table (zero terminal-exit edges today) contradicts rollback-from-terminal; the domain-doc mirror — `InterventionType` gains `rollback` + the `{targetPosition}` payload-shape row (carried here, not in B3: it is Spec-004 content). Consumed by Task 13.
+
+- [ ] **Step 1:** SBP-1 bundle=`b2`, branch=`docs/b2-spec004-rollback-absorption`. Confirm Tasks 5, 9, and 11 are merged (B3's shared-file edits + `rollbackTo` op; the ADR-017 decision row; B21's snapshot-ref section — every surface this amendment cites must exist).
+- [ ] **Step 2:** Author per Design §4 B2 across the three files; anchors to re-verify: Spec-004 :38–46 (late-event paragraph site), :63–:65 (intervention contract), :101 (capability-gating pattern); run-state-machine.md :34 (invariant) + :60–93 (transition table); queue-and-intervention-model.md :104–110/:128 (post-B3 state — B3's P0-3 edits shift these lines). Cite ADR-011 as designed-for-this (zero ADR amendment).
+- [ ] **Step 3:** SBP-3/4/5/6 — subject `docs(repo): spec-004 late-event absorption + rollback intervention (b2)`, trailer `Refs: Spec-004, ADR-011, ADR-017`.
+
+### Task 5: B3 — Spec-005 + driver-wire bundle (after Tasks 9 + 10)
+
+**Design contract:** §4 B3 (all twelve bullets + CLI-currency half + R8 driver-contract half). **Files:** Modify `docs/specs/005-provider-driver-contract-and-capabilities.md`, `docs/architecture/contracts/api-payload-contracts.md`, `docs/architecture/contracts/error-contracts.md`, `docs/domain/queue-and-intervention-model.md`, `docs/architecture/schemas/local-sqlite-schema.md` (sole W1 editor of the schema doc).
+
+**Interfaces:** Consumes Tasks 9 (the ADR-015 #18 row P2-7's operator-governed upgrade path cites — Spec-028 is W3, so the landed scope authority is the citable anchor) and 10 (B20's Spec-012 posture semantics the `executionPosture` shape cites). Produces — P0-2 `cliVersion`/`DriverCliVersionReport`; P0-5 `DriverAuthProbeResult` (`.strict()`); P0-3 `clientIdempotencyKey` (3 surfaces + `interventions` schema columns `client_idempotency_key` + `UNIQUE(target_run_id, client_idempotency_key)`); P3-4 `RecoveryCondition` hoist (4 sites incl. :1966); P1-5/P3-3 resume union (`resumed.sessionPosition`; `failed` omits `bindingId`); P3-1; P3-7 (:55 change-detection); P2-9 (:166 per-runtime-node 15-min cadence); P2-6 normalize obligation (:78–84); P2-7 MCP `manual_reconcile_only` floor (:116–128); P2-10-L2 honesty note (:101, :106–114); currency: `steer` TRUE via `turn/steer` (C-11), two-provider `interactive_requests` (C-3), `structured_output` flag (C-13), effort vocabularies + per-turn note (C-8), **`approvalsReviewer: "user"` pin** (C-6); R8: mechanism grades on the matrix, `rollbackTo(position)`, goal injection contract, session callback-tool registry, `subagentPolicy {enabled, maxDepth, maxConcurrent, definitions[]}`, `executionPosture` shape, Codex transport axis (the `InterventionType` rollback mirror moves to B2 — it is Spec-004 content). Consumed by Tasks 4, 8, 12, 13, 14, 16, 17, 22.
+
+- [ ] **Step 1:** SBP-1 bundle=`b3`, branch=`docs/b3-spec005-driver-wire`. Confirm Tasks 9 and 10 are merged (the ADR-015 #18 row; the Spec-012 posture section).
+- [ ] **Step 2:** Author across the five files per Design §4 B3; re-verify anchors :55/:78–84/:101/:106–114/:116–128/:166 (Spec-005), :677/:993–1003/:1023/:1966/:2167 (api-payload), :104–110/:128 (domain doc). Apply §3.4 rules (regenerate-don't-transcribe for Codex claims).
+- [ ] **Step 3:** SBP-3 (five files) — plus confirm the schema-doc diff touches only the `interventions` table region (B17 owns the `cross_node_pending_dispatch` row later).
+- [ ] **Step 4:** SBP-4/5/6 — subject `docs(repo): spec-005 + wire contracts — driver + r8 parity (b3)`, trailer `Refs: Spec-005, Spec-012, Spec-024`.
+
+### Task 6: B5 — Spec-015 bundle (after Task 9)
+
+**Design contract:** §4 B5. **Files:** Modify `docs/specs/015-persistence-recovery-and-replay.md`.
+
+**Interfaces:** Consumes Task 9 (the B8 ADR-017 local-log-authoritative row the P1-5 divergence rule cites). Produces — P0-6 reconstruction-before-action bullet (§Default Behavior, after :56); P1-5 resume position-compare divergence ⇒ HALT-FOR-HUMAN (§Fallback :60 area). Consumed by Task 17.
+
+- [ ] **Step 1:** SBP-1 bundle=`b5`, branch=`docs/b5-spec015-recovery`. Confirm Task 9 is merged (the ADR-017 ruling this amendment cites must exist).
+- [ ] **Step 2:** Author the two amendment bullets per Design §4 B5; re-verify :56/:60.
+- [ ] **Step 3:** SBP-3/4/5/6 — subject `docs(repo): spec-015 — reconstruction gate + resume-divergence halt (b5)`, trailer `Refs: Spec-015, ADR-017`.
+
+### Task 7: B6 — Spec-016 budget + R8 orchestration bundle (after Tasks 3 + 10)
+
+**Design contract:** §4 B6 + the R8 orchestration half. **Files:** Modify `docs/specs/016-multi-agent-channels-and-orchestration.md`.
+
+**Interfaces:** Consumes Tasks 3 (B1's `session.goal_updated`/`goal_cleared` + subagent-lifecycle registrations the R8 sections cite) and 10 (B20's command-policy posture presets the single-supervisor enforcement names). Produces — the 3-tier cost subsection in §Budget Policies (:101–109: provider-emitted sanity-bounded → family-table derived → fail-closed unpriced halt; enforcement never branches on `costSource`; current model families per C-8; `--max-budget-usd` defense-in-depth per C-12; the owner-cap unblock scoped to native-cap legs — Claude today; a capless leg (Codex, `token_budget` under development) stays fail-closed until its pricing-table entry lands); R8 sections (a) Session goals, (b) provider-native subagents under the **single-supervisor invariant** (budget roll-up, approval flow-through, timeline normalization; out-of-session supervisors disabled), (c) realtime reservation as a §Resolved Questions V1-scope-decision entry (RA-5 — no channel-model change). Consumed by Tasks 14, 22.
+
+- [ ] **Step 1:** SBP-1 bundle=`b6`, branch=`docs/b6-spec016-budget-orchestration`. Confirm Tasks 3 and 10 are merged (the cited event registrations; the posture presets).
+- [ ] **Step 2:** Author per Design §4 B6; re-verify :101–109; confirm the three-budget table and D-016-8's closed stop-condition set are untouched.
+- [ ] **Step 3:** SBP-3/4/5/6 — subject `docs(repo): spec-016 — 3-tier cost + goals/subagents/realtime (b6)`, trailer `Refs: Spec-016`.
+
+### Task 8: B7 — Spec-024 bundle (after Task 5)
+
+**Design contract:** §4 B7. **Files:** Modify `docs/specs/024-cross-node-dispatch-and-approval.md`.
+
+**Interfaces:** Consumes Task 5 (B3's `structured_output` capability flag, C-13 — the dispatch-result typing cites it). Produces — P1-3 session-half (idle-reap exemption for pending outbound dispatch; `sessionHasPendingCrossNodeDispatch` hard-skip; new AC after :228); R8 transport-parity note (cross-node dispatch = the Claude remote leg; dispatch results adopt C-13 `structured_output` typing). Table + schema row deliberately NOT here (Task 19/B17 owns them). Consumed by Task 19.
+
+- [ ] **Step 1:** SBP-1 bundle=`b7`, branch=`docs/b7-spec024-liveness-transport`. Confirm Task 5 is merged (the `structured_output` flag exists).
+- [ ] **Step 2:** Author per Design §4 B7; re-verify :139/:228.
+- [ ] **Step 3:** SBP-3/4/5/6 — subject `docs(repo): spec-024 — dispatch liveness + transport parity (b7)`, trailer `Refs: Spec-024`.
+
+### Task 9: B8 — ADR bundle (one PR, five Decision-Log rows)
+
+**Design contract:** §4 B8. **Files:** Modify `docs/decisions/009-json-rpc-ipc-wire-format.md`, `012-cedar-approval-policy-engine.md`, `017-shared-event-sourcing-scope.md`, `019-windows-v1-tier-and-pty-sidecar.md`, `015-v1-feature-scope-definition.md`.
+
+**Interfaces:** Produces — ADR-009 P3-8 narrowing; ADR-012 P1-7 resident-authorizer posture + scoped no-caching + end-to-end WASM <1ms empirical target; ADR-017 P1-5 local-log-authoritative + R8 forward-`run.rolled_back` row; ADR-019 P2-2/P3-5 two-layer orphan defense + both resync tiers + Phase-3B kill wire-through (full §9 BP-16..BP-20 mechanics); ADR-015 **17 → 23 features** (#18 MCP governance, #19 time-travel, #20 goals, #21 callback tools, #22 execution postures, #23 realtime gated) + README census ripple (here or Task 24 — decide at authoring, declare in the PR body). Consumed by Tasks 4, 5, 6, 16, 18, 24.
+
+- [ ] **Step 1:** SBP-1 bundle=`b8`, branch=`docs/b8-adr-decision-rows`.
+- [ ] **Step 2:** Author the five Decision-Log rows (+ ADR-015 §Amendment History) per Design §4 B8; all five stay `accepted`.
+- [ ] **Step 3:** If the README feature census is edited here, re-derive the 23-count by listing rows and run ripple-check; otherwise record the explicit hand-off to Task 24 in the PR body.
+- [ ] **Step 4:** SBP-3/4/5/6 — subject `docs(repo): five adr decision-log rows — corpus + r8 scope (b8)`, trailer `Refs: ADR-009, ADR-012, ADR-015, ADR-017, ADR-019`.
+
+### Task 10: B20 — Spec-012 execution-posture bundle
+
+**Design contract:** §4 B20. **Files:** Modify `docs/specs/012-approvals-permissions-and-trust-boundaries.md`.
+
+**Interfaces:** Produces — `executionPosture { mode: 'trusted' | 'workspace-sandboxed' | 'readonly-sandboxed', networkAccess, writableRoots, profileName? }` as a Cedar authorization input (minimum-posture per trust level; posture recorded on spawn events); per-provider legs incl. the Claude `failIfUnavailable`/`allowUnsandboxedCommands:false`/curated credential deny-list mechanics + the three verified boundary facts (subagent inheritance, no native-Windows sandbox, domain-fronting-weak broad allows); the callback-tool Cedar-governance rule. Landing zones per RA-4 (:41–45, :63). Consumed by Tasks 5, 7, 14, 16.
+
+- [ ] **Step 1:** SBP-1 bundle=`b20`, branch=`docs/b20-spec012-execution-posture`.
+- [ ] **Step 2:** Author per Design §4 B20; re-verify :41–45/:63.
+- [ ] **Step 3:** SBP-3/4/5/6 — subject `docs(repo): spec-012 — execution postures + callback-tool authz (b20)`, trailer `Refs: Spec-012`.
+
+### Task 11: B21 — Spec-010 turn-snapshot bundle (after Task 3)
+
+**Design contract:** §4 B21 (RA-1). **Files:** Modify `docs/specs/010-worktree-lifecycle-and-execution-modes.md`.
+
+**Interfaces:** Consumes Task 3 (B1's `completionKind` carve — the turn-boundary trigger this amendment cites). Produces — turn-boundary snapshot refs: at each turn boundary of a writable-mode run, project worktree state — tracked **and untracked**, `.gitignore`d paths excluded on both capture and restore legs (the deliberate B21 ignored-path boundary: rollback never deletes derived state like `node_modules`) — captured via the **temp-index recipe** (`GIT_INDEX_FILE` outside the worktree: `read-tree HEAD` → `add -A` → `write-tree` → `commit-tree -p HEAD -m <fixed message>` with daemon-owned `GIT_AUTHOR_*`/`GIT_COMMITTER_*` env (noninteractive + host-independent: no stdin message read, no passwd-derived ident — Design §4 B21's empirical notes) → `update-ref`; never `git stash create`, which drops untracked files — experimentally refuted, Design §4 B21) recorded under `refs/sidekicks/runs/<runId>/turn-<N>` (never `refs/heads/`; invisible to branch history/PR prep — Spec-011 no-impact statement included); restore = `git read-tree --reset -u <ref>` + `git clean -ffd` scoped to the worktree + a closing `git read-tree --reset HEAD` (index-only: captured-untracked files return to untracked status, never staged additions; a bare checkout leaves post-snapshot files on disk); retention = prune when the run's retention window closes; applies to `worktree`/`branch`/`ephemeral clone` modes, `read-only` snapshots nothing. Consumed by Tasks 4, 13, 20, 26.
+
+- [ ] **Step 1:** SBP-1 bundle=`b21`, branch=`docs/b21-spec010-turn-snapshots`. Confirm Task 3 is merged (`completionKind` exists).
+- [ ] **Step 2:** Author the Amendment block per Design §4 B21, including the Spec-011 no-impact statement.
+- [ ] **Step 3:** SBP-3/4/5/6 — subject `docs(repo): spec-010 amendment — turn-boundary snapshot refs (b21)`, trailer `Refs: Spec-010, Spec-011, ADR-006`.
+
+### Task 12: B4 — Spec-003 PTY-lease bundle (after Tasks 3 + 5)
+
+**Design contract:** §4 B4. **Files:** Modify `docs/specs/003-runtime-node-attach.md`, `docs/architecture/contracts/api-payload-contracts.md` (:554 Runtime-Node registry section), `docs/architecture/contracts/error-contracts.md` (new `### PTY` section), `docs/specs/006-session-event-taxonomy-and-audit-log.md` (the `pty.control_changed` census row — registered by its definer, +1 with arithmetic bump).
+
+**Interfaces:** Consumes Task 3 (census baseline) + Task 5 (api-payload/error-contracts baselines — shared files, hence the serialization). Produces — `session.takeControl`/`session.releaseControl`, `controlHolder` roster projection, `pty.control_changed` event, first-acquire-holds/null-holder-refuses-writes/auto-release-on-disconnect, error codes `ControlNotHeld` + `ControlHeldByOther { holderParticipantId }`. Consumed by Task 18 (T-024-3B-3).
+
+- [ ] **Step 1:** SBP-1 bundle=`b4`, branch=`docs/b4-spec003-pty-lease`. Confirm Tasks 3 and 5 are merged; rebase on current `develop`.
+- [ ] **Step 2:** Author per Design §4 B4; re-verify :53/:92/:130 (Spec-003) and the post-B3 line position of api-payload's :554 section.
+- [ ] **Step 3:** Census bump: Spec-006 total re-derived by row count; ripple-check.
+- [ ] **Step 4:** SBP-3/4/5/6 — subject `docs(repo): spec-003 pty write-lease + census row (b4)`, trailer `Refs: Spec-003, Spec-006`.
+
+### Task 28: W1.5 — batch spec re-promotion gate (after Tasks 3–12; wave-positioned here, numbered post-DAG-freeze)
+
+**Design contract:** §4 W1.5. **Files:** Modify the Status field only, `review` → `approved`, in all nine W1-amended specs: `docs/specs/003-runtime-node-attach.md`, `004-queue-steer-pause-resume.md`, `005-provider-driver-contract-and-capabilities.md`, `006-session-event-taxonomy-and-audit-log.md`, `010-worktree-lifecycle-and-execution-modes.md`, `012-approvals-permissions-and-trust-boundaries.md`, `015-persistence-recovery-and-replay.md`, `016-multi-agent-channels-and-orchestration.md`, `024-cross-node-dispatch-and-approval.md`.
+
+**Interfaces:** Consumes Tasks 3–12 (every W1 spec bundle's merged amendment + declared flip; Task 25/B19 is W1 but non-governance — not gated here). Produces the post-gate `approved` spec baseline every W2 lane cites. Consumed by Tasks 13–22 (a hard gate on every W2 lane).
+
+- [ ] **Step 1:** Confirm Tasks 3–12 are all merged. SBP-1 bundle=`w15`, branch=`docs/w15-spec-repromotions`.
+- [ ] **Step 2:** Execute the [runbook §Spec-Status Promotion Gate](../../operations/plan-implementation-readiness-audit-runbook.md) checklist per spec **in the PR body, citing the gate by name** (criterion 4): (1) `Depends On` closure — satisfied atomically by the batch (the nine specs cross-depend, so single-spec promotion deadlocks on criterion 1 while siblings sit `review`); (2) the amendments added no blocking Open Questions; (3) doc-first attestation — no code has shipped citing the amended behavior rows (bucket-2 code executes post-campaign; B23 waits on W2.5).
+- [ ] **Step 3:** Flip the nine Status fields; SBP-3/4/5/6 — subject `docs(repo): re-promote nine w1-amended specs (w1.5 gate)`, trailer `Refs: Spec-003, Spec-004, Spec-005, Spec-006, Spec-010, Spec-012, Spec-015, Spec-016, Spec-024`.
+
+### Task 13: B9 — Plan-004 bundle (after Tasks 9 + 15 + 20 + Task 23's Plan-006 + Plan-010 rows)
+
+**Design contract:** §4 W2 table, B9 row. **Files:** Modify `docs/plans/004-queue-steer-pause-resume.md`, `docs/architecture/cross-plan-dependencies.md` (§2 per-file row for `run-engine.ts`).
+
+**Interfaces:** Consumes Tasks 3, 4, 5, 9, 11, 15 (B11's T3.1 publishes the `withSessionAppendLock` primitive T3.7 invokes), 20, and Task 23's Plan-006 + Plan-010 rows (both consumed contracts — append lock and snapshot restore — must be post-audit stable, the B18 precedent) (gated by Task 28 like every W2 lane). Produces — P1-2 emitter detail on T3.7 (`withSessionAppendLock` guard+swap+append + read-your-writes `getRun`; backstop-index interplay named); NEW T3.11 (P1-8 absorption, inside the append lock); new invariants I-004-13+; carried rejected-alternatives records; R8 rollback tasks (intervention handler, forward emission, `rollbackTo` + snapshot-restore invocation, projection supersede-marking, `run rollback` CLI command file + `apps/cli` per-file ownership row); **P-1 fix** (CP-004-6 re-tagged as Plan-004 CREATE); **the Plan-004 Phase-3 precondition in Gate 5's parser-enforced YAML shape** — `{type: plan_phase, plan: 010, phase: <K>, status: merged}`, where K is the snapshot Phase number B22 landed in Plan-010 (known at B9-authoring time — B9 runs after Task 20) — per the Gate-5 contract (`.claude/skills/plan-execution/references/preflight-contract.md` §Gate 5: free-form prose preconditions emit zero entries and silently pass, so only the YAML shape makes the gate real); Gate 5 then blocks Phase-3 dispatch until B23 ships that phase's manifest (the campaign checklist is not an enforcement surface). Consumed by Task 23 (Plan-004 promotion) and later Plan-004 Phase 3 execution.
+
+- [ ] **Step 1:** SBP-1 bundle=`b9`, branch=`docs/b9-plan004-tasks`. Confirm Tasks 5, 9, 15, 20, and 28 are merged and Task 23's Plan-006 + Plan-010 rows are checked (the B3 `rollbackTo` + intervention contract; the B8-amended ADR-017 row; B11's `withSessionAppendLock` publication — post-audit stable via the Plan-006 row; Plan-010's B22 snapshot-restore tasks — post-audit stable via the Plan-010 row; the spec gate); rebase on current `develop`.
+- [ ] **Step 2:** Author per the B9 row — including the Phase-3 `preconditions:` YAML entry (`{type: plan_phase, plan: 010, phase: <K>, status: merged}` with K read from Plan-010's B22-landed snapshot Phase; create the YAML block if Phase 3 carries only a prose Precondition line — prose is not parser-enforced); re-verify Plan-004 :74/:208/:213–254 (P-1 sites). Plan is already `review` — no flip question; declare "promoted in W2.5" in the PR body.
+- [ ] **Step 3:** Dep-map §2 region rebase-check before merge (five row-adding PRs share the region).
+- [ ] **Step 4:** SBP-3/4/5/6 — subject `docs(repo): plan-004 corpus tasks + rollback + run-engine row (b9)`, trailer `Refs: Plan-004, Spec-004, Spec-010`.
+
+### Task 14: B10 — Plan-005 bundle (after Tasks 25 + 28; largest)
+
+**Design contract:** §4 W2 table, B10 row — every named duty: the 14 corpus-item enrichments (P0-1…P3-4 per row text), P2-5 `Reference:` lines on T3.5–T3.10, the ten CLI-currency duties (C-1, C-4, C-5, C-7, C-8, C-12, C-14, C-16, C-17 + regenerate-bindings rule), and the seven R8 driver legs (rollback with `--replay-user-messages` + identical-cwd resume, goals, callback-tool hosting, `subagentPolicy`, `executionPosture` mapping, transport axis, `realtime_*` suppression). **Files:** Modify `docs/plans/005-provider-driver-contract-and-capabilities.md`, `docs/architecture/cross-plan-dependencies.md` (§2 row `provider/drivers/`; CP-005-7 tag enrichment on the existing §3 :154 row — the edge already exists, Design §3.3; no new edge).
+
+**Interfaces:** Consumes Tasks 3, 5, 7, 10, 25 (the provider-wire docs its P2-5 `Reference:` lines link). Produces the enriched Phase-3/4 task set Plan-005's imminent execution runs. **P-2 fix** (T4.1 → `registry.ts` + `register()`).
+
+- [ ] **Step 1:** SBP-1 bundle=`b10`, branch=`docs/b10-plan005-driver-tasks`. Confirm Tasks 25 and 28 are merged (the `Reference:` line targets exist — cite-target gate; the W1.5-promoted spec baseline every task cite consumes).
+- [ ] **Step 2:** Author per the B10 row (work the row's list top-to-bottom as a checklist; every item ID named in the amendment text); re-verify Plan-005 :281 (P-2 site).
+- [ ] **Step 3:** Classification: default additive (`#### Tasks` subsections) — declare in the PR body; if any genuinely new invariant emerges at drafting, declare the flip instead (runbook default-when-in-doubt).
+- [ ] **Step 4:** Dep-map §2/§3 edits disjoint-row check; SBP-3/4/5/6 — subject `docs(repo): plan-005 corpus + currency + r8 driver tasks (b10)`, trailer `Refs: Plan-005, Spec-005`.
+
+### Task 15: B11 — Plan-006 bundle
+
+**Design contract:** §4 W2 table, B11 row. **Files:** Modify `docs/plans/006-session-event-taxonomy-and-audit-log.md`, `docs/architecture/contracts/api-payload-contracts.md` (:206–209 `timelineCursors.earliest`), `docs/architecture/schemas/local-sqlite-schema.md` (backstop-index mirror), `docs/architecture/cross-plan-dependencies.md` (§2 row `src/events/`).
+
+**Interfaces:** Consumes Task 3. Produces — the 35-row event-kind disposition table (Design §3.6 census) + §3.4 current-wire delta rows (no-silent-capability-loss default; every `discard` reasoned) + exhaustiveness-test task; T3.1 publishes `withSessionAppendLock` + the R6 backstop partial unique index (with schema mirror + migration note + fail-loud semantics); T4.3 cursor semantics + `earliest`; **P-6 fix** (CP-006-9 full-pathed). Consumed by Tasks 13, 21.
+
+- [ ] **Step 1:** SBP-1 bundle=`b11`, branch=`docs/b11-plan006-dispositions`. Confirm Task 28 is merged (the W1.5-promoted Spec-006 baseline — B1's registrations — that this bundle's cursor/disposition/lock tasks cite).
+- [ ] **Step 2:** Author per the B11 row; re-verify Plan-006 :407/:487 and api-payload :206–209. Disposition-table inputs: the Design §3.6 35-kind census + the §3.4 delta families (Claude result-subtype/`api_retry`/`worker_shutting_down`/plugin/hook; Codex goals/guardian/`turn/*`/`process/*`/reasoning/realtime).
+- [ ] **Step 3:** Census/table totals re-derived by count; ripple-check; classification declared.
+- [ ] **Step 4:** SBP-3/4/5/6 — subject `docs(repo): plan-006 event-kind dispositions + lock + cursors (b11)`, trailer `Refs: Plan-006, Spec-006`.
+
+### Task 16: B13 — Plan-012 bundle (after Task 14 — shared dep-map :154 row; flips → W2.5)
+
+**Design contract:** §4 W2 table, B13 row. **Files:** Modify `docs/plans/012-approvals-permissions-and-trust-boundaries.md`, `docs/domain/run-state-machine.md` (idle-exemption §Invariants mirror — lands after B2's W1 transition amendment in the same file; cross-wave order serializes it), `docs/architecture/cross-plan-dependencies.md` (P2-8 annotation on the existing Plan-012→Plan-005 §3 :154 row — no new edge, Design §3.3; the two `policy/` CREATEs registered by **extending the existing §2 `src/policy/` row's file enumeration** (:95 — Plan-012 already owns the directory; a second row would duplicate the owner)).
+
+**Interfaces:** Consumes Tasks 3, 5, 9, 10, 14 (B10's CP-005-7 tag lands on the same :154 row first). Produces — I-012-20 allow-listed spawn env; NEW T2.8 `driver-ask-normalizer.ts`; P1-7 bench task (`permission-check-service.bench.ts`, end-to-end incl. marshaling, before ADR-012's 2026-10-01 Check Date); P2-4 late-CREATE guard (typed `reason` extension); P2-8 capability gate; P1-3 run-half; `approvalsReviewer: "user"` invariant; R8 posture-as-authz tasks + callback-tool Cedar governance. Consumed by Task 23 (flip promotion).
+
+- [ ] **Step 1:** SBP-1 bundle=`b13`, branch=`docs/b13-plan012-approvals`. Confirm Task 14 is merged (its CP-005-7 tag edits the same dep-map :154 row this bundle's P2-8 annotation extends); rebase on current `develop`.
+- [ ] **Step 2:** Author per the B13 row; **declare the flip** (`approved` → `review`, I-012-20 is a new invariant — Status Flip Rule row 3) in the plan header and PR body.
+- [ ] **Step 3:** SBP-3/4/5/6 — subject `docs(repo): plan-012 spawn-env + normalizer + posture authz (b13)`, trailer `Refs: Plan-012, Spec-012, ADR-012`.
+
+### Task 17: B14 — Plan-015 bundle
+
+**Design contract:** §4 W2 table, B14 row. **Files:** Modify `docs/plans/015-persistence-recovery-and-replay.md`, `docs/architecture/cross-plan-dependencies.md` (§2 row `src/replay/`).
+
+**Interfaces:** Consumes Tasks 5, 6, 9 (the B8 ADR-017 rollback row the R8 interplay guard cites). Produces — NEW T15.5 (position-compare + HALT-FOR-HUMAN); P3-2 completion-drop guard on T15.2; P3-3 exhaustive switch on T15.3 (I-005-5 → I-015-4); P1-2 recovery caller guard; P2-3 residual (`claimForExecution` CAS named; `already-landed`); P0-6 consume edge; R8 interplay guard (`run.rolled_back` = new authoritative position floor).
+
+- [ ] **Step 1:** SBP-1 bundle=`b14`, branch=`docs/b14-plan015-recovery`. Confirm Task 28 is merged (the W1.5-promoted B3/B5/B8 surfaces this bundle's tasks cite).
+- [ ] **Step 2:** Author per the B14 row; re-verify Plan-015 :87–89; classification declared (default additive).
+- [ ] **Step 3:** SBP-3/4/5/6 — subject `docs(repo): plan-015 resume-divergence halt + recovery guards (b14)`, trailer `Refs: Plan-015, Spec-015, ADR-017`.
+
+### Task 18: B16 — Plan-024 Phase 3B (flips → W2.5)
+
+**Design contract:** §4 W2 table, B16 row. **Files:** Modify `docs/plans/024-rust-pty-sidecar.md`, `docs/architecture/cross-plan-dependencies.md` (**new §2 row `src/pty/`**: Plan-024 primary + Plan-001 extender per its manifest).
+
+**Interfaces:** Consumes Tasks 9, 12. Produces — NEW Phase 3B (six tasks T-024-3B-1…6: respawn-as-recovery 5/60s + backoff + manual reset; two-layer orphan reaper incl. `child_guard.rs` + `orphan-registry.ts` full fsync recipe + `(pid, start-time)` sweep guard; `control-lease.ts` lease enforcement; real `signal_code`; tier-2 hardened resync; Windows kill wire-through), invariants I-024-7+; Phase 3 manifest + NS-07 stay sealed; zero dependency on Phases 4–5 declared.
+
+- [ ] **Step 1:** SBP-1 bundle=`b16`, branch=`docs/b16-plan024-phase3b`. Confirm Tasks 12 and 28 are merged (B4's take-control lease surfaces T-024-3B-3 consumes; the W1.5-promoted ADR-019 amendments).
+- [ ] **Step 2:** Author Phase 3B per the B16 row; **declare the flip** (new phase — row 3).
+- [ ] **Step 3:** SBP-3/4/5/6 — subject `docs(repo): plan-024 phase 3b pty substrate hardening (b16)`, trailer `Refs: Plan-024, ADR-019, Spec-003`.
+
+### Task 19: B17 — Plan-027 bundle (after Task 15 — shared `local-sqlite-schema.md`)
+
+**Design contract:** §4 W2 table, B17 row. **Files:** Modify `docs/plans/027-cross-node-dispatch-and-approval.md`, `docs/architecture/schemas/local-sqlite-schema.md` (`cross_node_pending_dispatch` row), `docs/architecture/cross-plan-dependencies.md` (§1 table-cell append; Plan-027→Plan-016 §3 edge).
+
+**Interfaces:** Consumes Task 8; **serialized after Task 15** — both edit `docs/architecture/schemas/local-sqlite-schema.md` (B11's backstop-index mirror lands first; the adversarial passes flagged this as the one unserialized same-wave co-edit, now a DAG edge). Produces — the pending-dispatch table (INSERT-before-relay-write ordering) + schema row; `sessionDispatchLiveness.ts` hard-skip predicate; **P-3 fix** (`runtime-node/` → `node/`). Consumed by Task 22.
+
+- [ ] **Step 1:** SBP-1 bundle=`b17`, branch=`docs/b17-plan027-dispatch-liveness`. Confirm Task 15 is merged; rebase on current `develop` and re-check the schema-doc region before merge.
+- [ ] **Step 2:** Author per the B17 row; re-verify Plan-027 :48 (P-3 site); note the Plan-012 run-half seam (B13) in the amendment text; classification declared.
+- [ ] **Step 3:** SBP-3/4/5/6 — subject `docs(repo): plan-027 pending-dispatch table + liveness predicate (b17)`, trailer `Refs: Plan-027, Spec-024`.
+
+### Task 20: B22 — Plan-010 bundle (after Task 11)
+
+**Design contract:** §4 W2 table, B22 row. **Files:** Modify `docs/plans/010-worktree-lifecycle-and-execution-modes.md`, `docs/architecture/cross-plan-dependencies.md` (**NEW §3 edge Plan-004 → Plan-010**).
+
+**Interfaces:** Consumes Task 11. Produces — the snapshot work as a **discrete named Phase in Plan-010 with its own `#### Tasks` block** (mandatory: `/plan-execution` is phase-granular, and Task 26 dispatches this phase by identity): snapshot-create at turn boundary using the B21 temp-index recipe (failure = diagnostic, never blocks the turn), restore-to-ref op (`read-tree --reset -u` + `clean -ffd` + index-reset to `HEAD`; consumed by Plan-004's `rollback`), retention/prune task, invariants (never `refs/heads/`; PR-prep excluded by namespace). The new dep-map edge pairs with the existing :152 Plan-010→Plan-004 edge — bidirectional at plan granularity, acyclic at phase/task granularity (Plan-024↔Plan-001 precedent); note this in the amendment.
+
+- [ ] **Step 1:** SBP-1 bundle=`b22`, branch=`docs/b22-plan010-snapshot-tasks`. Confirm Tasks 11 and 28 are merged (the B21 snapshot recipe this Phase's tasks cite; the W1.5 spec gate).
+- [ ] **Step 2:** Author per the B22 row **as a discrete named Phase**; **declare the flip** (`approved` → `review`: a new discrete named Phase is a Status Flip Rule row-3 change), restored by Plan-010's W2.5 re-audit.
+- [ ] **Step 3:** SBP-3/4/5/6 — subject `docs(repo): plan-010 turn-snapshot service tasks (b22)`, trailer `Refs: Plan-010, Spec-010`.
+
+### Task 21: B12 — Plan-008 bundle (after Task 15 + Task 23's Plan-006 row)
+
+**Design contract:** §4 W2 table, B12 row. **Files:** Modify `docs/plans/008-control-plane-relay-and-session-join.md`.
+
+**Interfaces:** Consumes Task 15 (cursor semantics) and Task 23's Plan-006 row (the consumed replay-cursor contract must be post-audit stable — the B18 precedent). Produces — P1-10 consumer task `EventClient.resumeAndSubscribe` (subscribe-before-drain; replay floor `acknowledged ?? earliest`; high-water-mark dedupe); I-008-12; nine named tests. Disjoint from BL-144. Consumed by Task 23 (Plan-008 promotion).
+
+- [ ] **Step 1:** SBP-1 bundle=`b12`, branch=`docs/b12-plan008-event-client`. Confirm Task 23's Plan-006 row is checked.
+- [ ] **Step 2:** Author per the B12 row; plan already `review` — promoted in W2.5.
+- [ ] **Step 3:** SBP-3/4/5/6 — subject `docs(repo): plan-008 resume-and-subscribe consumer task (b12)`, trailer `Refs: Plan-008, Spec-006`.
+
+### Task 22: B15 — Plan-016 bundle (after Tasks 3, 7, 19 + Task 23's Plan-027 row)
+
+**Design contract:** §4 W2 table, B15 row. **Files:** Modify `docs/plans/016-multi-agent-channels-and-orchestration.md`, `docs/architecture/cross-plan-dependencies.md` (CP-016-9 tag verification/enrichment on the existing §3 :160 row — the consume is already registered, Design §3.3; no new edge; **plus a §2 per-file ownership row for the `session goal` CLI command files** — Plan-016 CREATE, RA-7, disjoint from B9's `run rollback` row).
+
+**Interfaces:** Consumes Tasks 3, 7, 19 (every consumed shape is W1-landed: `costStatus`/`costSource` + `windowSource`/`exceeded` are B1's Spec-006 mirrors on the pre-existing `usage.cost_update`/`usage_telemetry` family, and the enforcement contract is B6's — B10 is the runtime producer sibling, deliberately not a doc-time dependency) and Task 23's Plan-027 row (the consumed pending-dispatch table/predicate contract must be post-audit stable — the B18 precedent). Produces — T2.5 cost enforcement (priced/unpriced branches; never re-derives; never branches on `costSource`); P2-6 headroom projection + `getContextHeadroom(runId)` + trust map; T2.7 idle-sweep hard-skips (BlockingState + Plan-027 pending-dispatch consult); R8 orchestration tasks (goal lifecycle as event-sourced projection + `session goal` CLI commands; subagent-budget aggregation + single-supervisor enforcement; realtime reservation consume).
+
+- [ ] **Step 1:** SBP-1 bundle=`b15`, branch=`docs/b15-plan016-orchestration`. Confirm Task 23's Plan-027 row is checked.
+- [ ] **Step 2:** Author per the B15 row; classification declared.
+- [ ] **Step 3:** SBP-3/4/5/6 — subject `docs(repo): plan-016 budget enforcement + goals + subagents (b15)`, trailer `Refs: Plan-016, Spec-016`.
+
+### Task 23: W2.5 — targeted re-audits + promotions (per plan, rolling)
+
+**Design contract:** §4 W2.5 (R7); [runbook:218](../../operations/plan-implementation-readiness-audit-runbook.md) + Status Promotion Gate (:208–216).
+
+**Interfaces:** Consumes each W2 task as it lands. Produces every affected plan back at `approved` — the promotion Task 26 and all bucket-2 execution depends on.
+
+Run one single-plan-scoped re-audit per affected plan, batched as plans land — the checklist below is per plan; check each row when its promotion PR merges:
+
+- [ ] Plan-004 (was `review` + B9 content) — re-audit → REVIEW.md → user pause → promotion PR (`review` → `approved`; clears Phase 3's **status** gate — Phase 3 dispatch additionally waits on Task 26/B23, its snapshot prerequisite, enforced in-plan by B9's Phase-3 §Preconditions row — Gate-5 machine-readable, not checklist-only)
+- [ ] Plan-008 (was `review` + B12 content) — same vehicle (unblocks the remainder)
+- [ ] Plan-012 (flipped by B13) — same vehicle
+- [ ] Plan-024 (flipped by B16) — same vehicle
+- [ ] Plan-010 (flipped by B22's new snapshot Phase; its dep-map §3 edge is an independent second trigger) — same vehicle (gates Tasks 13 + 26)
+- [ ] Plan-005 (B10's `provider/drivers/` §2 row + :154 annotation) — same vehicle (**the B18 gate**: Task 24 Step 1 waits on this row)
+- [ ] Plan-006 (B11's `src/events/` §2 row) — same vehicle (gates Tasks 13 + 21)
+- [ ] Plan-015 (B14's `src/replay/` §2 row) — same vehicle
+- [ ] Plan-016 (B15's :160 annotation + the `session goal` §2 per-file rows) — same vehicle
+- [ ] Plan-027 (B17's §1 cell + §3 edge) — same vehicle (gates Task 22)
+
+These five trigger via the runbook's dep-map provision (**any** §1/§2/§3 amendment affecting an already-`approved` plan triggers a targeted re-audit of that plan) — every one of B10/B11/B14/B15/B17 amends the dep-map, so expect all five. The skip path applies only to a W2 PR that lands with zero dep-map amendment and no flip (none expected); record the rationale on the affected plan's row if one materializes
+
+Per-plan procedure (each checkbox above): (1) working-copy audit per the runbook's targeted form; (2) G-gates; (3) the full review narrative lands in the re-audit PR body — `REVIEW.md` is a transient working artifact with no committed audit tree; never cite its path from committed docs; (4) **user pause** — present findings, wait for explicit go; (5) the closing PR: a plan sitting at `review` (standing, like Plan-004/Plan-008, or flipped by its W2 bundle per the Status Flip Rule) flips `review` → `approved`; a plan that stayed `approved` (additive amendment — the re-audit was dep-map-triggered) has no status delta, so the same PR instead appends a dated re-audit attestation line to the plan's dated-amendment history (`> Re-audited 2026-MM-DD (W2.5, campaign): clean` / `…: findings fixed in PR #NNN`) — the audit always leaves a committed in-plan marker; either way the PR cites the **re-audit PR** in lieu of a tier git-tag (R7, durable-citation refinement); (6) the closing PR also ticks this plan's matching Task-23 row checkbox — and because these ten rows are contiguous lines, it **rebases onto current `develop` immediately before merge and re-ticks only its own row**: adjacent-row checkbox edits from parallel closing PRs are an expected textual conflict the rebase resolves (the repo's CLEAN-merge predicate already refuses conflicted merges); never hand-resolve by ticking another plan's row. Subject pattern: `docs(repo): promote plan-NNN to approved (w2.5 re-audit)`; attestation-only rows: `docs(repo): attest plan-NNN w2.5 re-audit (no status change)`.
+
+### Task 24: B18 — Spec-028 + Plan-028 (after Tasks 9 + 12 + 14 + Task 23's Plan-005 row)
+
+**Design contract:** §4 W3 B18 (all four lanes + currency notes). **Files:** Create `docs/specs/028-mcp-server-configuration-and-governance.md` (from `docs/specs/000-spec-template.md`), `docs/plans/028-mcp-server-configuration-and-governance.md` (from `docs/plans/000-plan-template.md`); Modify `docs/specs/006-session-event-taxonomy-and-audit-log.md` (the `mcp_governance` census registration — definer-registers, B4 precedent), `docs/architecture/cross-plan-dependencies.md` (§1/§5 rows + §3 edges), `README.md` (feature census, if not done in Task 9).
+
+**Interfaces:** Consumes Task 9 (ADR-015 #18) + Task 12 (the Spec-006 census baseline — last prior editor) + Task 14's P2-10-L1 status feed definition + Task 23's Plan-005 re-audit (W3 follows W2.5: the consumed feed definition must be post-audit stable). Produces — V1 feature #18 in full: (1) server-config CRUD (Codex wire-first `config/batchWrite`/`config/value/write`/`config/mcpServer/reload`, TOML byte-splice demoted to fallback; Claude `mcpServers` JSON store) + per-session scoping (C-1: ephemeral `--mcp-config`/`--strict-mcp-config` relaunch is the **primary** mechanism; a live `mcp_set_servers` reconcile is docs-silent/likely absent — verify-first at authoring, adopt only if confirmed); (2) trust governance (operator-managed trusted-server store; Cedar-gated per-tool `idempotency_class` overrides; every override emits a governance event; maps Codex `enabled_tools`/`disabled_tools`/`default_tools_approval_mode` + auth fields `bearer_token_env_var`/`scopes`/`oauth_resource`); (3) status & health (zero-billed-turn probing unified into `unknown | starting | connected | needs-auth | failed`); (4) server OAuth events; (5) the Spec-006 `mcp_governance` census registration — `mcp.tool_override_changed`, `mcp.server_oauth_completed`, `mcp.server_status_changed` (binding per §Daemon-Scope Event Binding's iff-rule; census re-derived by count; final naming per Spec-006 conventions at authoring) — without it Plan-028's appenders and exhaustiveness tests have no canonical types. MCP spec revision re-verified at authoring (2025-11-25 stable; 2026-07-28 RC watch). Also produces the terminal statuses: Spec-006 `approved` (Step 5) + Spec-028 `approved` (Step 6); Plan-028 hands off at `draft` to the tier-audit queue.
+
+- [ ] **Step 1:** SBP-1 bundle=`b18`, branch=`docs/b18-spec028-plan028`. Confirm Tasks 9, 12, and 14 are merged and Task 23's Plan-005 row is checked (the ADR-015 #18 row; the Spec-006 census baseline; the P2-10-L1 status-feed definition lane 3 consumes — post-audit stable); rebase on current `develop`.
+- [ ] **Step 2:** Author Spec-028 from the spec template — it lands at `review` in this PR (the SBP-4 dual reviews + this PR's review round-trip are its `draft → review` presentation; Step 6 promotes it) — + Plan-028 from the plan template at `draft` (its Precondition checkbox blocks `draft → review` until its tier's readiness audit passes; tier analysis at authoring — expected Tier 6+, joins the pending audit queue with Tiers 8–9) + the Spec-006 amendment registering the `mcp_governance` events (dated Amendment block; census bump re-derived by row count). The census amendment changes Required Behavior, so the PR **declares the Spec-006 flip** (runbook:233).
+- [ ] **Step 3:** Dep-map §1/§5/§3 additions; README census re-derived by count + ripple-check (if owed from Task 9).
+- [ ] **Step 4:** SBP-3/4/5/6 — subject `docs(repo): spec-028 + plan-028 mcp governance (b18, v1 feature 18)`, trailer `Refs: Spec-028, Plan-028, Spec-006, ADR-015`. **SBP-5 scope: the B18 PR ticks Steps 1–4 only** — Steps 5 and 6 each tick via their own follow-on PR (per those steps' own rules), so no follow-on box reads checked before its promotion actually merged.
+- [ ] **Step 5:** Immediately after merge, open **and land** the follow-on re-promotion PR flipping Spec-006 `review` → `approved`, its body executing the §Spec-Status Promotion Gate checklist (criterion 1 is trivially satisfied solo — no sibling spec is in `review` at W3) — subject `docs(repo): re-promote spec-006 post-b18 census amendment (w3)`, trailer `Refs: Spec-006`. Task 24 is complete only when this follow-on **merges** (full round-trip: CI + review + zero threads); the follow-on PR ticks this checkbox (SBP-5), and Task 27 Step 1 verifies Spec-006 reads `approved`.
+- [ ] **Step 6:** After Step 5's follow-on merges (Spec-028's `Depends On` names Spec-006 — gate criterion 1 needs it terminal), **user pause** — present the authored Spec-028 for explicit go — then open and land the promotion PR flipping Spec-028 `review` → `approved`, its body executing the §Spec-Status Promotion Gate checklist — subject `docs(repo): promote spec-028 to approved (w3 gate)`, trailer `Refs: Spec-028`. The PR ticks this checkbox (SBP-5). **Plan-028 stays `draft` by design** — its promotion path runs through its tier's readiness audit (the standing Tier 8–9 queue), outside this campaign; Task 27 names it as the one deliberately non-terminal handoff.
+
+### Task 25: B19 — provider-wire reference docs (W1 lane; before Task 14)
+
+**Design contract:** §4 W1 B19. **Files:** Create `docs/reference/provider-wire/README.md`, `docs/reference/provider-wire/claude.md`, `docs/reference/provider-wire/codex.md`; Modify `docs/reference/INDEX.md` (File-Manifest block after the Design-Audits block ending :42, before the :51 divider; Topic Cross-Reference row at :53 adjacent to :55).
+
+**Interfaces:** Consumes the Design §3.4 evidence rules. Produces — version-pinned wire-shape docs: four-grade TRUST vocabulary + orthogonal PROVENANCE axis (rejected fifth TRUST grade stays rejected; PROVENANCE gains the vendor-generated-schema top grade); the Codex doc pins against `generate-json-schema`/`generate-ts` output at 0.141.0; the Claude doc pins against the docs census + changelog version anchors, recording the `--help`-non-authoritative rule; driver `__fixtures__/` paths cited as text (not links) with the "lands with Plan-005 Phase 3" marker. Non-governance; no ownership row (categorical). Consumed by Task 14 — its P2-5 `Reference:` lines link these files, so the targets must exist before B10 merges (cite-target gate).
+
+- [ ] **Step 1:** SBP-1 bundle=`b19`, branch=`docs/b19-provider-wire-reference`.
+- [ ] **Step 2:** Regenerate the Codex schema from the pinned binary; author the three docs; re-verify INDEX.md anchors :42/:51/:53/:55. Note: `docs/reference/**` is prettier-exempt (`.prettierignore`), so SBP-3's prettier gate is a policy no-op for these files; every other SBP-3 gate applies.
+- [ ] **Step 3:** SBP-3/4/5/6 — subject `docs(repo): provider-wire reference docs, version-pinned (b19)`, trailer `Refs: Plan-005`.
+
+### Task 26: B23 — turn-snapshot service code (W4; after Tasks 11, 20, and Plan-010's Task-23 promotion)
+
+**Design contract:** §4 W4 B23 (Design R9 bucket 1 — the only code task).
+
+**Files:** exactly the files Plan-010's B22-added snapshot tasks name (the plan amendment is the source of truth; expected: a snapshot service module in Plan-010's worktree namespace under `packages/runtime-daemon/`, its unit tests, and nothing outside Plan-010's ownership rows) — plus this campaign plan file itself: the SBP-5 tracker tick and the Step-5 record line are the one sanctioned out-of-ownership edit every campaign PR carries.
+
+**Interfaces:** Consumes B21-amended Spec-010 + B22-amended, promoted Plan-010. Produces the running snapshot service Plan-004 Phase 3's rollback intervention restores from — **must merge before Plan-004 Phase 3 dispatches**.
+
+- [ ] **Step 1:** Confirm gate: Plan-010 shows `approved` post-re-audit (Task 23 row checked — the re-audit covers the B22-added phase, which is what clears `/plan-execution`'s preflight audit gate) and B21/B22 are merged.
+- [ ] **Step 2:** Dispatch `/plan-execution` on Plan-010's **turn-snapshot Phase** (the discrete named Phase B22 added — the skill is phase-granular, not task-subset-scoped; branch `feat/b23-turn-snapshots`). The pipeline's own implementer/reviewer subagents, per-task tests, and Phase-D PR review apply as normal; commit type `feat(daemon)`.
+- [ ] **Step 3:** Verify in-PR: snapshot refs land under `refs/sidekicks/runs/<runId>/turn-<N>` in tests; tests assert an **untracked** file is captured by the snapshot (the temp-index recipe's load-bearing property), that restore removes post-snapshot files (`read-tree --reset -u` + `clean -ffd` semantics), that after restore the index equals `HEAD` (a captured-untracked file is untracked again, never a staged addition — the closing index-reset leg), that the snapshot commit's author/committer equal the daemon-owned fixed ident (capture ran `-m` + explicit `GIT_AUTHOR_*`/`GIT_COMMITTER_*` env — no stdin message read, no passwd/gitconfig ident dependency), and that an **ignored** path is neither captured nor deleted by restore (the B21 ignored-path boundary); a snapshot failure path asserts diagnostic-not-blocking; prune-on-retention covered; `pnpm turbo run typecheck` + `pnpm test` green.
+- [ ] **Step 4:** Codex round-trip + squash-merge — subject `feat(daemon): turn-boundary worktree snapshot service (b23)`, trailer `Refs: Plan-010, Spec-010`. The PR also ticks this task's checkboxes and writes Step 5's record line (the SBP-5 tracker rule — the tracker edit rides the feat PR).
+- [ ] **Step 5:** Record here (in the same PR, per Step 4) that Plan-004 Phase 3 is now unblocked on its snapshot dependency.
+
+### Task 27: Campaign closure verification
+
+**Interfaces:** Consumes everything. Produces the campaign's `completed` status.
+
+- [ ] **Step 1:** Checkbox audit — every task above checked (ticked ⟺ merged holds by SBP-5 construction; this task's own boxes tick in its Step-5 closure PR); every Task-23 row checked or its skip rationale recorded; **status-terminality audit** — the nine W1-amended specs, Spec-006, and Spec-028 read `approved` (Tasks 28 + 24 Steps 5–6), every W2.5-audited plan reads `approved`, and Plan-028 reads `draft` (the named handoff — its promotion belongs to the tier-audit machinery, not this campaign).
+- [ ] **Step 2:** Zero-phantom grep (the §1.1 exit criterion's phantom half): `grep -rnE 'rpc/router|ipc/router|router\.add\(\)|preload/bridge\.ts|runtime-node/|api-payload-contracts:1097' docs/plans/ docs/architecture/` → expect zero hits (`ipc/router` covers the P-2 phantom and `router\.add\(\)` the invented method's call form — `ipc/registry.ts` + `register()` is the real surface, so both tokens have zero legitimate uses in the grepped directories; the call-form pattern deliberately skips Plan-007:866's bare `router.add` historical record). The `-E` + escaped-paren form is grep-implementation-robust (empirically checked): plain-grep BRE treats `()` as literal but its `\|` alternation is a non-POSIX extension whose strict-POSIX failure mode is a **vacuous pass**; GNU ERE treats an unescaped `()` as an empty group (falsely matching the bare historical token); ugrep hard-errors on it. `router\.add\(\)` under `-E` reads as literal parens on every family, and the full command was verified against the live corpus (hits = the twelve W0 phantom-class sites + the two expected remainders; Plan-007:866 excluded).
+- [ ] **Step 3:** Ledger check — walk the File-structure ledger below; every row's owning task is merged; every net-new file/table has exactly one CREATE owner in the dep-map.
+- [ ] **Step 4:** Bucket-2 visibility statement — confirm the enriched phases are live in their owning plans (Plan-004 Ph3, Plan-005 Ph3–4, Plan-006, Plan-008 remainder, Plan-012, Plan-015, Plan-016, Plan-024 Ph3B, Plan-027) and dispatch on existing tier order; Plan-028 is authored and queued for its tier's readiness audit with Spec-028 already `approved` (its Precondition checkbox blocks `draft → review` until that audit passes — dispatch is governed by that standing gate); nothing further is owed by this campaign.
+- [ ] **Step 5:** Flip this plan's Status to `completed` and tick this task's checkboxes via the final closure PR (`docs(repo): complete capability-enhancement campaign plan`).
+
+---
+
+## File-structure ledger (closure proof)
+
+Rule: every Design item maps to ≥1 merged task; every net-new file/table has exactly one CREATE owner. Task 27 walks this ledger. (Design §5 carries the full per-item contract/plan/consumer chains; this ledger maps item → executing task.)
+
+**A. The 34 corpus items → tasks** (disposition per Design §5: CB/DO/AL; zero DT rows)
+
+| Items | Landing tasks |
+| --- | --- |
+| P0-1, P1-2, P1-4 (payload), P1-6 (mirror), P2-1, P2-6 (mirror), P0-1 rate-limit lane | 3 (B1) + consumers 13/14/15/17/22 |
+| P1-8 | 4 (B2) + 13 |
+| P0-2, P0-3, P0-5, P1-5, P2-6 (spec half), P2-7, P2-9, P2-10-L2, P3-1, P3-3, P3-4, P3-7 | 5 (B3) + 14/16/17 |
+| P1-9 | 12 (B4) + 18 |
+| P0-6, P1-1, P1-5 (fallback) | 6 (B5) + 14/17 |
+| P1-6 (3-tier, R2) | 7 (B6) + 14/22 |
+| P1-3 (session half) | 8 (B7) + 16/19/22 |
+| P1-7, P2-2, P3-5, P3-8, P2-10-L3 (ADR), P1-5 (ADR-017) | 9 (B8) + 16/18/24 |
+| P0-4 | 14 + 16 (invariant-level; no W1 contract) |
+| P1-10 | 15 (B11) + 21 |
+| P2-3 (already-landed residual), P3-2 | 17 (B14) |
+| P2-4, P2-8 | 16 (B13) |
+| P2-5 | 25 (B19) + 14 (`Reference:` lines) |
+| P2-10-L1 | 14 (B10) |
+| P3-6 | 18 (B16) |
+
+**B. The seven R8 parity capabilities → tasks** (mechanisms per Design §5.1)
+
+| Capability                            | Tasks                           |
+| ------------------------------------- | ------------------------------- |
+| Session time-travel (rollback)        | 3, 4, 9, 11, 13, 14, 17, 20, 26 |
+| Session goals                         | 3, 7, 14, 22                    |
+| Session callback tools                | 5, 10, 14, 16                   |
+| Remote provider transports            | 5, 8, 14                        |
+| Provider-native subagents             | 5, 7, 14, 22                    |
+| Execution postures / sandbox profiles | 10, 5, 14, 16                   |
+| Realtime voice (gated)                | 3, 7 (reservations only)        |
+
+**C. Phantom/drift fixes → tasks**
+
+| Defect | Task |
+| --- | --- |
+| P-1 `run-engine.ts` | 13 |
+| P-2 `ipc/router.ts` | 14 |
+| P-3 `runtime-node/` | 19 |
+| P-4, P-5, P-7 | 2 (W0) |
+| P-6 `replay-service.ts` cross-ref + `src/events/`/`src/replay/` rows | 15, 17 |
+| P-8 ownership-map gaps (`src/pty/`, `src/events/`, `src/replay/`, `provider/drivers/`) | 18, 15, 17, 14 |
+
+**D. Net-new files/tables → CREATE owner** (clean slots verified, Design §3.1)
+
+| Artifact | CREATE owner (plan) | Specified by task | Code ships |
+| --- | --- | --- | --- |
+| `control-lease.ts`, `orphan-registry.ts`, `orphan-reaper/`, `child_guard.rs` | Plan-024 | 18 | Plan-024 Ph3B run |
+| `driver-ask-normalizer.ts`, `permission-check-service.bench.ts` | Plan-012 | 16 | Plan-012 run |
+| `sessionDispatchLiveness.ts`, `cross_node_pending_dispatch` table | Plan-027 | 19 | Plan-027 run |
+| driver `__fixtures__/` dirs | Plan-005 | 14 | Plan-005 Ph3 run |
+| turn-snapshot service module(s) | Plan-010 | 20 | **Task 26 (B23)** |
+| `run-engine.ts` (re-tagged CREATE) | Plan-004 | 13 | Plan-004 Ph3 run |
+| `run rollback` / `session goal` CLI command files | Plan-004 / Plan-016 | 13 / 22 | owning plans' runs |
+| `docs/reference/provider-wire/{README,claude,codex}.md` | non-governance (no row) | 25 | n/a (docs) |
+| Spec-028 / Plan-028 | new docs | 24 | Plan-028's own run |
+
+## Self-review (writing-plans checklist)
+
+1. **Spec coverage:** all Design §4 bundles (W0, B1–B23) map to Tasks 2–26; §5's 34 rows and §5.1's 7 rows appear in the ledger; W2.5 (R7) is Task 23; the W1.5 spec gate is Task 28; R9's zero-BL + bucket rules are Global Constraints; Task 27 executes the §1.1 exit criterion. No gaps found.
+2. **Placeholder scan:** no TBD/TODO; every task names exact files, deliverables, and commands. B23's file list is deliberately defined by Plan-010's B22 amendment (the source-of-truth chain, not a placeholder).
+3. **Consistency:** bundle IDs, task dependencies, and the Task DAG match the Design §7 DAG (W1 three-level closure — every cross-bundle citation is an edge: **B3 after B8+B20**, **B5 after B8**, **B6 after B1+B20**, **B21 after B1**, **B2 after B3/B8/B21** incl. the shared `queue-and-intervention-model.md` mirror, **B4 after B1+B3**, **B7 after B3**; **every W2 bundle after the W1.5 spec gate**; **B9 after B1/B2/B3/B8/B11/B21/B22 + Plan-006's and Plan-010's W2.5 re-audits** — B11 publishes the invoked append lock; both consumed contracts post-audit stable; B12 after B11 + Plan-006's W2.5 re-audit; **B13 after B10** — the shared dep-map :154 row; B14 after B3/B5/B8; B15 after B1/B6/B17 + Plan-027's W2.5 re-audit; **B17 after B7+B11** — the shared schema-doc serialization; B18 after B4/B8/B10 + Plan-005's W2.5 re-audit; **B19 before B10** — its `Reference:` targets must exist; B23 after B21/B22/Plan-010 promotion); flip declarations match Design §6 item 3; the nine W1 spec flips restore via Task 28 and B18's Spec-006 flip via Task 24 Step 5 (runbook:233).
+4. **Adversarial-review fold-in (2026-07-02):** four independent adversarial passes (corpus / CLI / architecture / executability) ran against the committed checkpoint; every surviving finding is folded into this plan and the Design — the temp-index snapshot recipe, the run-state-machine amendment (Task 4), the worktree-gates correction (SBP-1/SBP-3), the commitlint-verified subject set (every subject re-verified 2026-07-02 after the self-containment naming rewrite), the B11→B17 serialization, W0's twelve sites, and the phase-granular B23 dispatch.
