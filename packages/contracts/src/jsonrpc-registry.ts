@@ -4,15 +4,16 @@
 // This file owns the CONTRACT SHAPE every consumer of the daemon's
 // method-namespace registry agrees on. The runtime IMPLEMENTATION lives in
 // `packages/runtime-daemon/src/ipc/registry.ts` (T-007p-2-3 sibling). Per
-// CP-007-3 / Plan-002 line 94 / Plan-026 line 236, multiple downstream plans
+// CP-007-3 / Plan-002 CP-002-2 / Plan-026 §API And Transport Changes,
+// multiple downstream plans
 // register handlers against this surface — typing the interface here lets
 // each consumer import the surface without taking a runtime-daemon
 // dependency.
 //
 // Spec coverage:
-//   * Spec-007 §Cross-Plan Obligations CP-007-3
-//     (docs/specs/007-local-ipc-and-daemon-control.md) — the
-//     `router.add(method, handler)` registry surface owed to Plan-026 and
+//   * Plan-007 §Cross-Plan Obligations CP-007-3
+//     (docs/plans/007-local-ipc-and-daemon-control.md) — the
+//     `MethodRegistry.register()` registry surface owed to Plan-026 and
 //     Tier 4 namespace plans.
 //
 // Invariants this file's interface enforces (canonical text in
