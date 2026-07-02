@@ -453,7 +453,7 @@ The **`RunId` brand (`type RunId`) and its validator `RunIdSchema`** co-locate i
 
 ### CP-005-7 — Driver approval-request normalization owed to [Plan-012](./012-approvals-permissions-and-trust-boundaries.md)
 
-Plan-012 owns the normalizer that maps Plan-005's driver-surfaced permission asks (`interactive_request` driver events / driver-host permission callbacks) into canonical `approval.requestCreate` inputs; it lands with Plan-012's driver integration, not in Plan-005 (Tier-6 audit, 2026-06-10 — Plan-012 CP-012-6, A-18). Until that normalizer lands, the schema-validated `approval.requestCreate` boundary is the enforced normalization gate, and a driver that cannot surface granular permission requests inherits the stricter daemon boundary per [Spec-012:75](../specs/012-approvals-permissions-and-trust-boundaries.md).
+Plan-012 owns the normalizer that maps Plan-005's driver-surfaced permission asks (`interactive_request` driver events / driver-host permission callbacks) into canonical `approval.requestCreate` inputs; it lands with Plan-012's driver integration, not in Plan-005 (Tier-6 audit, 2026-06-10 — Plan-012 CP-012-6, A-18). Until that normalizer lands, the schema-validated `approval.requestCreate` boundary is the enforced normalization gate, and a driver that cannot surface granular permission requests inherits the stricter daemon boundary per [Spec-012:89](../specs/012-approvals-permissions-and-trust-boundaries.md).
 
 **Why bidirectional.** Plan-012 reviewers see the consume edge on the Plan-012 §3 dependency row; Plan-005 reviewers must know the driver event surface has a downstream approval consumer and must not reshape `interactive_request` driver-event payloads without coordinating with Plan-012.
 

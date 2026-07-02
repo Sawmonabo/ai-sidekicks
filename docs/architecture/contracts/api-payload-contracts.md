@@ -1484,8 +1484,8 @@ interface WorktreeStatusReadResponse {
 
 type RememberedRuleId = string & { readonly __brand: "RememberedRuleId" }; // → §Branded ID Types
 
-// Remembered-grant scope — explicit enum, not free-form (Spec-012 line 104).
-// `request_only` (Spec-012 line 67) is expressed by OMITTING rememberedScope,
+// Remembered-grant scope — explicit enum, not free-form (Spec-012 line 118).
+// `request_only` (Spec-012 line 81) is expressed by OMITTING rememberedScope,
 // never by an enum member. Pattern semantics are category-derived (D-012-10):
 // path categories (file_write, destructive_git) = normalized-absolute-path
 // prefix containment; network_access = exact host equality (no wildcards in V1);
@@ -1523,7 +1523,7 @@ interface ApprovalFlowEventPayload {
   category: ApprovalCategory;
   scope: string;
   requestedBy?: string; // present on approval.requested — recorded requester actor (participant or agent actor id, Spec-012 line 58)
-  resourceDescriptor?: Record<string, unknown>; // present on approval.requested — audit-grade target (Spec-012 line 82)
+  resourceDescriptor?: Record<string, unknown>; // present on approval.requested — audit-grade target (Spec-012 line 96)
   expiryAt?: string; // present on approval.requested when the request carries an expiry (D-012-14)
   approver?: ParticipantId; // present on approval.approved / approval.rejected — the recorded resolver (D-012-12); on approval.remembered it is the rule's GRANTOR (rules mint only via resolve-with-remember)
   effectiveScope?: string; // present on approval.approved / approval.rejected — recorded effective scope (≤ requested, I-012-6)
@@ -1550,7 +1550,7 @@ interface ApprovalRequestCreateRequest {
   runId: RunId;
   category: ApprovalCategory;
   scope: string;
-  resourceDescriptor: Record<string, unknown>; // REQUIRED (Spec-012 line 82); audit-grade target descriptor
+  resourceDescriptor: Record<string, unknown>; // REQUIRED (Spec-012 line 96); audit-grade target descriptor
   expiryAt?: string;
 }
 interface ApprovalRequestCreateResponse {
@@ -1562,7 +1562,7 @@ interface ApprovalRequestCreateResponse {
 // ApprovalResolve
 interface ApprovalResolveRequest {
   approvalRequestId: ApprovalRequestId;
-  approver?: ParticipantId; // informational/routing (Spec-012 line 83; D-012-12). Absent on the
+  approver?: ParticipantId; // informational/routing (Spec-012 line 97; D-012-12). Absent on the
   // local socket → the daemon records its node-owner participant binding; present → cross-checked
   // (local: vs the owner binding; PASETO surfaces: vs the verified `sub`) — mismatch is rejected
   // with `auth.principal_mismatch`. Never authoritative.
@@ -1590,7 +1590,7 @@ interface PermissionCheckResponse {
   allowed: boolean;
   reason: "policy_allow" | "remembered_rule" | "approved" | "pending_approval" | "denied";
   // D-012-17 semantics: policy_allow = Cedar/own-node-envelope permit with no human approval
-  // artifact (Spec-012 lines 47/62/71); remembered_rule = matched an unrevoked rule that passed
+  // artifact (Spec-012 lines 47/62/85); remembered_rule = matched an unrevoked rule that passed
   // at-use re-validation; approved = a recorded approved resolution covers this exact request;
   // pending_approval = request created/open (allowed=false); denied = Cedar forbid, rejected/
   // expired resolution, or fail-closed refusal (the typed `approval.persistence_unavailable`
@@ -1612,7 +1612,7 @@ interface ApprovalProjectionReadResponse {
     requestedBy: string; // recorded requester actor — participant or agent actor id (Spec-012 line 58)
     category: ApprovalCategory;
     scope: string;
-    resourceDescriptor: Record<string, unknown>; // requested resource (Spec-012 line 82)
+    resourceDescriptor: Record<string, unknown>; // requested resource (Spec-012 line 96)
     state: ApprovalState;
     createdAt: string;
     updatedAt: string; // last state-transition instant (expired/canceled rows settle here; no resolution row)
@@ -1628,7 +1628,7 @@ interface ApprovalProjectionReadResponse {
 // RememberedRuleList
 interface RememberedRuleListRequest {
   sessionId: SessionId;
-  includeRevoked?: boolean; // default false; true = audit-history view (Spec-012 line 92)
+  includeRevoked?: boolean; // default false; true = audit-history view (Spec-012 line 106)
 }
 interface RememberedRuleListResponse {
   rules: Array<{
@@ -1645,7 +1645,7 @@ interface RememberedRuleListResponse {
   }>;
 }
 
-// RememberedRuleRevoke — the explicit revocation path (Spec-012 line 92);
+// RememberedRuleRevoke — the explicit revocation path (Spec-012 line 106);
 // writes revoked_at + 'explicit' and emits `approval.rule_revoked`
 interface RememberedRuleRevokeRequest {
   ruleId: RememberedRuleId;

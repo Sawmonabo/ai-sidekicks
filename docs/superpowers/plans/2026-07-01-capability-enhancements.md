@@ -50,7 +50,7 @@ Every task inherits all of these. Exact values are copied from the Design and th
 | 7 | B6 Spec-016 | W1·L0.5 | 1, 3, 10 |
 | 8 | B7 Spec-024 | W1·L1 | 1, 5 |
 | 9 | B8 ADR bundle | W1·L0 | 1 |
-| 10 | B20 Spec-012 | W1·L0 | 1 |
+| 10 | B20 Spec-012 | W1·L0 | 1 (author); **merge-serialized after 3 + 25** (PR #173 B1 `run.running` posture carrier + PR #176 B19 provider-wire — Spec-012's named merge prerequisites) |
 | 11 | B21 Spec-010 | W1·L0.5 | 1, 3 |
 | 12 | B4 Spec-003 | W1·L1 | 3, 5 |
 | 28 | W1.5 spec re-promotions | W1.5 | 3–12 (every W1 spec bundle) |
@@ -197,11 +197,12 @@ Every doc task's final steps invoke this procedure with its own branch/commit/fi
 
 **Design contract:** §4 B20. **Files:** Modify `docs/specs/012-approvals-permissions-and-trust-boundaries.md`.
 
-**Interfaces:** Produces — `executionPosture { mode: 'trusted' | 'workspace-sandboxed' | 'readonly-sandboxed', networkAccess, writableRoots, profileName? }` as a Cedar authorization input (minimum-posture per trust level; posture recorded on spawn events); per-provider legs incl. the Claude `failIfUnavailable`/`allowUnsandboxedCommands:false`/curated credential deny-list mechanics + the three verified boundary facts (subagent inheritance, no native-Windows sandbox, domain-fronting-weak broad allows); the callback-tool Cedar-governance rule. Landing zones per RA-4 (:41–45, :63). Consumed by Tasks 5, 7, 14, 16.
+**Interfaces:** Produces — `executionPosture { mode: 'trusted' | 'workspace-sandboxed' | 'readonly-sandboxed', networkAccess, allowedDomains?, writableRoots, profileName?, credentialPolicyRef? }` as a Cedar authorization input (minimum-posture per trust level — compared per-axis, never cross-axis, per Spec-012's strictness orders; the complete posture object recorded on `run.running` (post-setup-gate spawn success) — 2026-07-02 Spec-012 hardening); per-provider legs incl. the Claude `failIfUnavailable`/`allowUnsandboxedCommands:false`/curated credential deny-list mechanics + the three verified boundary facts (subagent inheritance, no native-Windows sandbox, domain-fronting-weak broad allows); the callback-tool Cedar-governance rule. Landing zones per RA-4 (:41–45, :63). Consumed by Tasks 5, 7, 14, 16.
 
-- [ ] **Step 1:** SBP-1 bundle=`b20`, branch=`docs/b20-spec012-execution-posture`.
-- [ ] **Step 2:** Author per Design §4 B20; re-verify :41–45/:63.
-- [ ] **Step 3:** SBP-3/4/5/6 — subject `docs(repo): spec-012 — execution postures + callback-tool authz (b20)`, trailer `Refs: Spec-012`.
+- [x] **Step 1:** SBP-1 bundle=`b20`, branch=`docs/b20-spec012-execution-posture`.
+- [x] **Step 2:** Author per Design §4 B20; re-verify :41–45/:63.
+- [x] **Step 3:** SBP-3/4/5/6 — subject `docs(repo): spec-012 — execution postures + callback-tool authz (b20)`, trailer `Refs: Spec-012`.
+- **Step 4 (merge gate — prose, deliberately not a tracked checkbox: it is satisfied at merge time, after this PR's checkboxes land):** merge only after Task 3 (B1, PR #173) and Task 25 (B19, PR #176) are merged — Spec-012 names both as merge prerequisites (the `run.running` posture carrier field and the provider-wire reference doc). Concretely, after B1 merges: merge `develop` into this branch, extend the just-landed api-payload `RunStateChangeEvent.executionPosture` mirror with `credentialPolicyRef?: string` + its REQUIRED-on-sandboxed-modes comment (the Spec-012 §Required Behavior contract — the spec text announces the mirror gains the field with this bundle), re-run the corpus gates, push, and only then merge this PR.
 
 ### Task 11: B21 — Spec-010 turn-snapshot bundle (after Task 3)
 
@@ -269,9 +270,9 @@ Every doc task's final steps invoke this procedure with its own branch/commit/fi
 
 ### Task 16: B13 — Plan-012 bundle (after Task 14 — shared dep-map :154 row; flips → W2.5)
 
-**Design contract:** §4 W2 table, B13 row. **Files:** Modify `docs/plans/012-approvals-permissions-and-trust-boundaries.md`, `docs/domain/run-state-machine.md` (idle-exemption §Invariants mirror — lands after B2's W1 transition amendment in the same file; cross-wave order serializes it), `docs/architecture/cross-plan-dependencies.md` (P2-8 annotation on the existing Plan-012→Plan-005 §3 :154 row — no new edge, Design §3.3; the two `policy/` CREATEs registered by **extending the existing §2 `src/policy/` row's file enumeration** (:95 — Plan-012 already owns the directory; a second row would duplicate the owner)).
+**Design contract:** §4 W2 table, B13 row. **Files:** Modify `docs/plans/012-approvals-permissions-and-trust-boundaries.md`, `docs/architecture/schemas/local-sqlite-schema.md` (`credential_policy_artifacts` table row — CREATE owner lands in Plan-012 via this bundle per the Design §4 B13 row), `docs/domain/run-state-machine.md` (idle-exemption §Invariants mirror — lands after B2's W1 transition amendment in the same file; cross-wave order serializes it), `docs/architecture/cross-plan-dependencies.md` (P2-8 annotation on the existing Plan-012→Plan-005 §3 :154 row — no new edge, Design §3.3; the two `policy/` CREATEs registered by **extending the existing §2 `src/policy/` row's file enumeration** (:95 — Plan-012 already owns the directory; a second row would duplicate the owner)).
 
-**Interfaces:** Consumes Tasks 3, 5, 9, 10, 14 (B10's CP-005-7 tag lands on the same :154 row first). Produces — I-012-20 allow-listed spawn env; NEW T2.8 `driver-ask-normalizer.ts`; P1-7 bench task (`permission-check-service.bench.ts`, end-to-end incl. marshaling, before ADR-012's 2026-10-01 Check Date); P2-4 late-CREATE guard (typed `reason` extension); P2-8 capability gate; P1-3 run-half; `approvalsReviewer: "user"` invariant; R8 posture-as-authz tasks + callback-tool Cedar governance. Consumed by Task 23 (flip promotion).
+**Interfaces:** Consumes Tasks 3, 5, 9, 10, 14 (B10's CP-005-7 tag lands on the same :154 row first). Produces — I-012-20 allow-listed spawn env; NEW T2.8 `driver-ask-normalizer.ts`; P1-7 bench task (`permission-check-service.bench.ts`, end-to-end incl. marshaling, before ADR-012's 2026-10-01 Check Date); P2-4 late-CREATE guard (typed `reason` extension); P2-8 capability gate; P1-3 run-half; `approvalsReviewer: "user"` invariant; R8 posture-as-authz tasks + callback-tool Cedar governance; the `credential_policy_artifacts` daemon-SQLite table (content-addressed sha256 PK; write-ahead persist before the first posture stamp; schema-doc EXTEND + migration). Consumed by Task 23 (flip promotion).
 
 - [ ] **Step 1:** SBP-1 bundle=`b13`, branch=`docs/b13-plan012-approvals`. Confirm Task 14 is merged (its CP-005-7 tag edits the same dep-map :154 row this bundle's P2-8 annotation extends); rebase on current `develop`.
 - [ ] **Step 2:** Author per the B13 row; **declare the flip** (`approved` → `review`, I-012-20 is a new invariant — Status Flip Rule row 3) in the plan header and PR body.
@@ -428,7 +429,7 @@ Rule: every Design item maps to ≥1 merged task; every net-new file/table has e
 | P0-4 | 14 + 16 (invariant-level; no W1 contract) |
 | P1-10 | 15 (B11) + 21 |
 | P2-3 (already-landed residual), P3-2 | 17 (B14) |
-| P2-4, P2-8 | 16 (B13) |
+| P2-4, P2-8, `credential_policy_artifacts` table (CREATE — `schemas/local-sqlite-schema.md` EXTEND + migration) | 16 (B13) |
 | P2-5 | 25 (B19) + 14 (`Reference:` lines) |
 | P2-10-L1 | 14 (B10) |
 | P3-6 | 18 (B16) |
@@ -474,5 +475,5 @@ Rule: every Design item maps to ≥1 merged task; every net-new file/table has e
 
 1. **Spec coverage:** all Design §4 bundles (W0, B1–B23) map to Tasks 2–26; §5's 34 rows and §5.1's 7 rows appear in the ledger; W2.5 (R7) is Task 23; the W1.5 spec gate is Task 28; R9's zero-BL + bucket rules are Global Constraints; Task 27 executes the §1.1 exit criterion. No gaps found.
 2. **Placeholder scan:** no TBD/TODO; every task names exact files, deliverables, and commands. B23's file list is deliberately defined by Plan-010's B22 amendment (the source-of-truth chain, not a placeholder).
-3. **Consistency:** bundle IDs, task dependencies, and the Task DAG match the Design §7 DAG (W1 three-level closure — every cross-bundle citation is an edge: **B3 after B8+B20**, **B5 after B8**, **B6 after B1+B20**, **B21 after B1**, **B2 after B3/B8/B21** incl. the shared `queue-and-intervention-model.md` mirror, **B4 after B1+B3**, **B7 after B3**; **every W2 bundle after the W1.5 spec gate**; **B9 after B1/B2/B3/B8/B11/B21/B22 + Plan-006's and Plan-010's W2.5 re-audits** — B11 publishes the invoked append lock; both consumed contracts post-audit stable; B12 after B11 + Plan-006's W2.5 re-audit; **B13 after B10** — the shared dep-map :154 row; B14 after B3/B5/B8; B15 after B1/B6/B17 + Plan-027's W2.5 re-audit; **B17 after B7+B11** — the shared schema-doc serialization; B18 after B4/B8/B10 + Plan-005's W2.5 re-audit; **B19 before B10** — its `Reference:` targets must exist; B23 after B21/B22/Plan-010 promotion); flip declarations match Design §6 item 3; the nine W1 spec flips restore via Task 28 and B18's Spec-006 flip via Task 24 Step 5 (runbook:233).
+3. **Consistency:** bundle IDs, task dependencies, and the Task DAG match the Design §7 DAG (W1 three-level closure — every cross-bundle citation is an edge: **B3 after B8+B20**, **B5 after B8**, **B6 after B1+B20**, **B21 after B1**, **B2 after B3/B8/B21** incl. the shared `queue-and-intervention-model.md` mirror, **B4 after B1+B3**, **B7 after B3**; **every W2 bundle after the W1.5 spec gate**; **B9 after B1/B2/B3/B8/B11/B21/B22 + Plan-006's and Plan-010's W2.5 re-audits** — B11 publishes the invoked append lock; both consumed contracts post-audit stable; B12 after B11 + Plan-006's W2.5 re-audit; **B13 after B10** — the shared dep-map :154 row; B14 after B3/B5/B8; B15 after B1/B6/B17 + Plan-027's W2.5 re-audit; **B17 after B7+B11** — the shared schema-doc serialization; B18 after B4/B8/B10 + Plan-005's W2.5 re-audit; **B19 before B10** — its `Reference:` targets must exist; **B20 merges after B1 + B19** — Spec-012's `run.running` posture carrier + provider-wire citations (authoring stays W1·L0-parallel); B23 after B21/B22/Plan-010 promotion); flip declarations match Design §6 item 3; the nine W1 spec flips restore via Task 28 and B18's Spec-006 flip via Task 24 Step 5 (runbook:233).
 4. **Adversarial-review fold-in (2026-07-02):** four independent adversarial passes (corpus / CLI / architecture / executability) ran against the committed checkpoint; every surviving finding is folded into this plan and the Design — the temp-index snapshot recipe, the run-state-machine amendment (Task 4), the worktree-gates correction (SBP-1/SBP-3), the commitlint-verified subject set (every subject re-verified 2026-07-02 after the self-containment naming rewrite), the B11→B17 serialization, W0's twelve sites, and the phase-granular B23 dispatch.
