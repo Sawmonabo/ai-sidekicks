@@ -23,7 +23,7 @@ The control plane was about to gain multiple consumers (CLI, desktop app, browse
 
 ## Decision
 
-Use tRPC v11 for control plane request-response operations and SSE subscriptions (notifications, run streaming). Use WebSocket with JSON-RPC 2.0 payloads for bidirectional collaboration channels (presence, live event streaming, relay coordination).
+Use tRPC v11 for control plane request-response operations and SSE subscriptions (notifications, run streaming). Use WebSocket with JSON-RPC 2.0 payloads for bidirectional collaboration channels (presence, live collaboration events — typing / shared editing, relay coordination; session-timeline and run-output event streams stay on tRPC SSE per Spec-008's transport assignment — enumeration corrected by the 2026-07-02 Decision Log row).
 
 ## Alternatives Considered
 
@@ -116,3 +116,4 @@ Use tRPC v11 for control plane request-response operations and SSE subscriptions
 | ---------- | -------- | ------------- |
 | 2026-04-15 | Proposed | Initial draft |
 | 2026-04-15 | Accepted | ADR accepted  |
+| 2026-07-02 | Amended — WebSocket subset enumeration corrected | Capability-enhancement campaign (B8 companion edit): the §Decision WebSocket enumeration said "live event streaming", contradicting Spec-008's transport assignment (session-timeline / run-output streams are SSE-owned); restated as live collaboration events (typing / shared editing). ADR-009's 2026-07-02 narrowing cites this ADR as the split authority, so the authority itself now carries the correct enumeration. |

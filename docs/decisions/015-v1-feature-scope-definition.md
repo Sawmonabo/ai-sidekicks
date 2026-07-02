@@ -1,14 +1,14 @@
 # ADR-015: V1 Feature Scope Definition
 
-| Field         | Value                                                                 |
-| ------------- | --------------------------------------------------------------------- |
-| **Status**    | `accepted`                                                            |
-| **Type**      | `Type 1 (two-way door)`                                               |
-| **Domain**    | `Scope / Product`                                                     |
-| **Date**      | `2026-04-17`                                                          |
-| **Amended**   | `2026-04-22` (workflow V1.1 → V1 per BL-097 — see §Amendment History) |
-| **Author(s)** | `Claude (AI-assisted)`                                                |
-| **Reviewers** | `Accepted 2026-04-17`; amendment accepted `2026-04-22`                |
+| Field | Value |
+| --- | --- |
+| **Status** | `accepted` |
+| **Type** | `Type 1 (two-way door)` |
+| **Domain** | `Scope / Product` |
+| **Date** | `2026-04-17` |
+| **Amended** | `2026-04-22` (workflow V1.1 → V1 per BL-097); `2026-07-02` (V1 scope 17 → 23 per the capability-enhancement campaign — see §Amendment History) |
+| **Author(s)** | `Claude (AI-assisted)` |
+| **Reviewers** | `Accepted 2026-04-17`; amendments accepted `2026-04-22`, `2026-07-02` |
 
 ## Context
 
@@ -31,9 +31,9 @@ The pre-implementation audit completed 2026-04-16 before any implementation plan
 
 ## Decision
 
-V1 consists of **17 features** (amended 2026-04-22 per BL-097 — was 16 at 2026-04-17 acceptance; see §Amendment History). V1.1 defers **3 features** and carries **2 criterion-gated sub-feature commitments** (see §V1.1 Criterion-Gated Commitments below). Everything else inferable from the product vision is out of scope for the V1 horizon and carries a V2 label for future re-evaluation.
+V1 consists of **23 features** (amended 2026-07-02 per the capability-enhancement campaign — was 17 from the 2026-04-22 BL-097 amendment and 16 at 2026-04-17 acceptance; see §Amendment History). V1.1 defers **3 features** and carries **2 criterion-gated sub-feature commitments** (see §V1.1 Criterion-Gated Commitments below). Everything else inferable from the product vision is out of scope for the V1 horizon and carries a V2 label for future re-evaluation.
 
-### V1 Features (17)
+### V1 Features (23)
 
 | # | Feature | Governing Spec(s) |
 | --- | --- | --- |
@@ -54,6 +54,12 @@ V1 consists of **17 features** (amended 2026-04-22 per BL-097 — was 16 at 2026
 | 15 | Desktop GUI | Spec-023 (from BL-041) |
 | 16 | Multi-Agent Channels | [Spec-016](../specs/016-multi-agent-channels-and-orchestration.md) |
 | 17 | Workflow authoring and execution (full engine) | [Spec-017](../specs/017-workflow-authoring-and-execution.md); V1 engine scope per BL-097 resolution (see §Amendment History) covers DAG executor, all four phase types (`single-agent`, `automated`, `multi-agent` OWN-only, `human`), all four gate types, parallel execution with `ParallelJoinPolicy`, resource pools, and 23 workflow event types — full contract pinned in Spec-017 + Plan-017 (31 amendments SA-1…SA-31 from BL-097 research: 27 land in Spec-017 body; SA-24/29/30/31 land in Plan-017 per implementation-detail separation; primary sources consolidated in §Research Conducted). |
+| 18 | MCP server configuration and governance | Spec-028 + Plan-028 (**land with the campaign's B18 bundle, Task 24** — server-config CRUD, operator-managed trusted-server store with Cedar-gated per-tool overrides, zero-billed-turn status/health probing, server OAuth); authored net-new in the capability-enhancement campaign, R4 — see §Amendment History (amendment 2026-07-02) |
+| 19 | Session time-travel (run rollback) | [Spec-004](../specs/004-queue-steer-pause-resume.md) (`rollback` intervention on the generic dispatch — to land via the campaign's B2 bundle, a named merge prerequisite before Plan-004 implements rollback; not yet in the authoritative spec), [ADR-017](./017-shared-event-sourcing-scope.md) (forward `run.rolled_back` event; the log never truncates — registered by the campaign's Spec-006 B1 amendment, in flight as PR #173 and not yet in the authoritative spec; a named merge prerequisite) |
+| 20 | Session goals | [Spec-016](../specs/016-multi-agent-channels-and-orchestration.md) (per-session structured goal, set/clear RPC + `session.goal_*` events — to land via the campaign's B6 bundle, queued and not yet authored; events registered by the Spec-006 B1 amendment, in flight as PR #173 — both named merge prerequisites, neither yet in the authoritative specs) |
+| 21 | Session callback tools | [Spec-005](../specs/005-provider-driver-contract-and-capabilities.md) (daemon-registered tool shape — to land via the campaign's B3 bundle, queued and not yet authored), [Spec-012](../specs/012-approvals-permissions-and-trust-boundaries.md) (Cedar-governed identically to provider tools — B20 amendment, in flight as PR #175; both named merge prerequisites, neither yet in the authoritative specs) |
+| 22 | Execution postures and sandbox profiles | [Spec-012](../specs/012-approvals-permissions-and-trust-boundaries.md) (`executionPosture` authorization semantics — B20 amendment, in flight as PR #175 and not yet in the authoritative spec), [Spec-005](../specs/005-provider-driver-contract-and-capabilities.md) (posture shape — to land via the campaign's B3 bundle, queued; both named merge prerequisites) |
+| 23 | Realtime voice channels (capability-gated) | [Spec-016](../specs/016-multi-agent-channels-and-orchestration.md) (V1-scope-decision reservation — to land via the campaign's B6 bundle, queued and not yet authored), [Spec-006](../specs/006-session-event-taxonomy-and-audit-log.md) (reserved `realtime_*` family — B1 amendment, in flight as PR #173; both named merge prerequisites, neither yet in the authoritative specs); gated on upstream Codex realtime-flag stabilization (named external gate — no Claude-leg emulation claimed) |
 
 ### V1.1 Features (3, deferred)
 
@@ -156,6 +162,13 @@ The antithesis assumes V1 launch speed is the dominant cost. For this product, l
 ## References
 
 ### Research Conducted
+
+**2026-07-02 amendment (campaign B8) sources:**
+
+- [MCP specification 2025-11-25 — Tools page](https://modelcontextprotocol.io/specification/2025-11-25/server/tools) — the execution-safety surface grounding feature #18's governance gates: `execution.taskSupport` on tool definitions, and the Tools-page trust warning — "clients **MUST** consider tool annotations to be untrusted unless they come from trusted servers" (verified verbatim 2026-07-02). The MUST binds trust classification, not behavior derivation — the schema doc-comments phrase the same rule as hints ("should never make tool use decisions based on ToolAnnotations received from untrusted servers") — so the gates bind on the operator-managed trusted-server store, never on annotation self-claims
+- [MCP blog — tool annotations (2026-03-16)](https://blog.modelcontextprotocol.io/posts/2026-03-16-tool-annotations/) — annotation-trust guidance consumed by the same gates
+- [MCP Authorization (2025-11-25)](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization) — the OAuth surface feature #18's `server OAuth` scope targets: OAuth 2.1 (IETF draft) with Authorization Server Metadata, Dynamic Client Registration, and Protected Resource Metadata (verified live 2026-07-02); Spec-028 pins its flow against this revision
+- Feature #23's external gate: the `thread/realtime/*` server-notification family is present but feature-gated OFF in the Codex app-server schema regenerated at `codex-cli 0.141.0` — receipts in the campaign's provider-wire reference `docs/reference/provider-wire/codex.md` (B19 — merged as PR #176, follow-up fixes in PR #177, so the receipt file is verifiable in-tree; regenerated from the pinned binary via `codex app-server generate-json-schema`, upstream [openai/codex](https://github.com/openai/codex))
 
 The 2026-04-22 amendment promoting Feature 17 (Workflow authoring and execution) from V1.1 → V1 is grounded in primary-source evidence across seven research dimensions: parallel execution (Pass A — DAG executor, resource pools, parallel join policy), multi-agent channel contract (Pass B — ownership, sub-workflow lifecycle, BIND-criterion evidence backing §V1.1 Criterion-Gated Commitments), event taxonomy (CloudEvents / OpenTelemetry / Temporal — anchors SA-18/19/20), persistence patterns (Pass G — SQLite WAL, Crosby & Wallach hash-chain, Trillian, AuditableLLM), test infrastructure (fast-check, Jazzer.js — anchors SA-29), human-phase upload safety (OWASP — anchors I6), post-V1 freeze-regret evidence (Pass D — 7-system V1-shipping-pattern survey backing the full-engine-at-V1 thesis), and security invariants I1–I7 (Pass E — CVE corpus per invariant). Cross-Pass duplications (Crosby & Wallach, OWASP File Upload, CloudEvents, OpenTelemetry semconv, Temporal events) are cited once with the broadest-applicable Pass framing. Additional Pass C (human-phase UX), Pass F (event-taxonomy detail), Pass G (persistence-pattern detail), and Pass H (testing-strategy detail) primaries land in Spec-017 §References and Plan-017 §References per dual-mapping established at amendment time.
 
@@ -277,6 +290,39 @@ This section records material amendments to this ADR. Each amendment preserves t
 
 **Amendment precedent:** This is the first material amendment to ADR-015. Future amendments follow the same structure: a Before/After table, a Why paragraph, a How-decided paragraph, a Cross-references-consuming-this-amendment list, and a Decision Log row. Supersession (creating ADR-015.1 or ADR-N) remains the correct path for non-additive stance reversals; amendments are for additive scope adjustments where ≥90% of the original context and alternatives analysis remains applicable.
 
+### Amendment 2026-07-02: V1 scope 17 → 23 features (capability-enhancement campaign)
+
+**What changed:**
+
+|  | Before (2026-04-22) | After (2026-07-02) |
+| --- | --- | --- |
+| V1 feature count | 17 | **23** (added #18 MCP server configuration and governance, #19 session time-travel, #20 session goals, #21 session callback tools, #22 execution postures and sandbox profiles, #23 realtime voice channels — capability-gated) |
+| V1.1 deferred features | 3 (MLS, email invite, cross-node artifacts) | 3 (unchanged — none is a capability-bearing deferral in the R3 sense; each stays deferred on its own gate) |
+| V1.1 criterion-gated commitments | 2 (BIND multi-phase channel reuse; human-phase default timeout) | 2 (unchanged) |
+
+**Why:** The capability-enhancement integration campaign (design + companion plan drafted 2026-07-01/02) adopted, under the owner's standing "richest features and capabilities" ruling (R3), every capability-bearing enhancement that a prior-art survey of a comparable multi-provider agent runtime surfaced and that the V1 corpus had left deferred or unspecified. Six of those mint net-new V1 features rather than amend existing ones:
+
+- **#18 MCP server configuration and governance (R4):** full server-config CRUD, an operator-managed trusted-server store with Cedar-gated per-tool `idempotency_class` overrides, zero-billed-turn status/health probing, and server-OAuth flows. Authored net-new as Spec-028 + Plan-028 (not a criterion-gated V1.1 stub), consuming the MCP 2025-11-25 execution-safety surfaces.
+- **#19 session time-travel:** run rollback as a version-guarded, state-gated `rollback` intervention on the existing generic dispatch, modeled as a forward `run.rolled_back` event on the authoritative log (the log never truncates — [ADR-017](./017-shared-event-sourcing-scope.md) as amended 2026-07-02).
+- **#20 session goals:** a per-session structured goal with set/clear RPC and `session.goal_*` events.
+- **#21 session callback tools:** a daemon-hosted tool registry exposed into every run, Cedar-governed identically to provider tools.
+- **#22 execution postures and sandbox profiles:** a per-run `executionPosture` treated as an authorization input (not merely a spawn knob), with daemon-side provider-uniform presets.
+- **#23 realtime voice channels:** reserved and designed but **capability-gated** on a named external gate — the upstream Codex realtime feature flag, still under development — with no emulation claimed for the Claude leg.
+
+Remote provider transports and provider-native subagents were adopted in the same campaign but **amend existing features** (cross-node dispatch under Spec-024; orchestration under Spec-016) rather than minting feature numbers, so the count rises by six, not eight. The context-window fourth budget stays rejected on **correctness** grounds (estimated-grade window data driving hard interrupts would block co-participants on false positives) — a correctness rejection, not a capability deferral, so it does not read against the R3 ruling.
+
+**How decided:** The campaign design doc is the ratified contract; every structural decision (its R1–R9 ruling table) was presented to and explicitly ratified by the owner during the 2026-07-01/02 brainstorming session. Feature-vs-amendment classification followed one rule: a capability that mints a net-new user-facing surface with its own governing spec (or a distinct reserved event family) is a feature; a capability that extends an already-listed feature's spec is an amendment. The 23-count is re-derived by enumerating the §Decision V1-features table rows, not by incrementing a prior count.
+
+**Cross-references that consume this amendment:**
+
+- [ADR-017: Shared Event Sourcing Scope](./017-shared-event-sourcing-scope.md) — "17 features" reference updated to "23"; also carries the forward-`run.rolled_back` decision row backing #19 (same campaign PR, B8)
+- [ADR-020: V1 Deployment Model and OSS License](./020-v1-deployment-model-and-oss-license.md) — "17-feature surface" → "23-feature surface" (three sites)
+- [v1-feature-scope.md](../architecture/v1-feature-scope.md) — "17-feature surface" → "23-feature surface" (two sites)
+- [deployment-topology.md](../architecture/deployment-topology.md) — self-hosted-topology "17-feature V1 surface" → "23-feature V1 surface"
+- [cross-plan-dependencies.md](../architecture/cross-plan-dependencies.md) — "V1 scope is 17 features" → "23 features"
+- [README.md](../../README.md) — the §V1 Scope feature census (prose count + enumerated table) extended to 23
+- [CLAUDE.md](../../CLAUDE.md) — the repository-summary "V1 ships 17 features … across 27 implementation plans" line: the 17 → 23 feature ripple is applied **in this amendment's PR** together with an explicit pending-28th clause on the plan axis (feature #18's Plan-028 gates MCP-governance code); only the plan-count reconciliation (27 → 28) completes when Plan-028 lands with the campaign's B18 bundle
+
 ## Decision Log
 
 | Date | Event | Notes |
@@ -284,3 +330,4 @@ This section records material amendments to this ADR. Each amendment preserves t
 | 2026-04-17 | Proposed | Drafted against BL-038 exit criteria |
 | 2026-04-17 | Accepted | ADR accepted as the governing V1 scope definition |
 | 2026-04-22 | Amended | Workflow promoted V1.1 → V1 per BL-097; feature count 16 → 17; V1.1 deferred-feature count 4 → 3; added 2 V1.1 criterion-gated commitments (BIND multi-phase channel reuse; human-phase default timeout). Amendment grounded in Wave 1 + Wave 2 research; primary-source citations consolidated in §References → §Research Conducted; rationale and cross-reference list in §Amendment History. |
+| 2026-07-02 | Amended — V1 scope 17 → 23 features (R4 + R8) | Capability-enhancement campaign: feature count 17 → 23; added #18 MCP server configuration and governance (net-new Spec-028 + Plan-028, R4), #19 session time-travel, #20 session goals, #21 session callback tools, #22 execution postures and sandbox profiles, #23 realtime voice channels (capability-gated on the upstream Codex realtime flag). Remote transports and provider-native subagents amend existing features (Spec-024 / Spec-016) rather than minting numbers. V1.1 deferred-feature count (3) and criterion-gated commitments (2) unchanged; count re-derived by enumerating the §Decision table rows. Rationale, Before/After table, and cross-reference list in §Amendment History (amendment 2026-07-02). ADR stays `accepted`. |

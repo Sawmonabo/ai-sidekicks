@@ -23,13 +23,13 @@ Approval logic was accumulating inside application code, making it impossible to
 
 ## Decision
 
-Use Cedar (CNCF sandbox) as the approval policy engine. V1 defines policies in YAML that are compiled to Cedar at build time. V1.1 evaluates Cedar WASM for runtime policy evaluation, enabling dynamic policy updates without redeployment.
+Use Cedar (CNCF sandbox) as the approval policy engine. V1 defines policies in YAML that are compiled to Cedar at build time and evaluated in-process by the resident, signature-verified `@cedar-policy/cedar-wasm` authorizer (per the 2026-06-10 and 2026-07-02 Decision Log rows — WASM is the V1 evaluation substrate, not a V1.1 arrival). V1.1 adds runtime policy-bundle loading, enabling dynamic policy updates without redeployment.
 
 ## Alternatives Considered
 
 ### Option A: Cedar with YAML Policy Definitions (Chosen)
 
-- **What:** Define approval policies in YAML, compile to Cedar policy sets. Evaluate with Cedar WASM in V1.1.
+- **What:** Define approval policies in YAML, compile to Cedar policy sets, evaluate in-process with the resident Cedar WASM authorizer from V1. Runtime policy-bundle loading arrives in V1.1.
 - **Steel man:** Cedar's principal-action-resource-context model is purpose-built for authorization. CNCF backing signals longevity. WASM target enables in-process evaluation without native FFI.
 
 ### Option B: OPA / Rego (Rejected)
@@ -47,8 +47,8 @@ Use Cedar (CNCF sandbox) as the approval policy engine. V1 defines policies in Y
 | # | Assumption | Evidence | What Breaks If Wrong |
 | --- | --- | --- | --- |
 | 1 | Cedar's principal-action-resource-context model can express all 9 approval categories without contortion. | Cedar is purpose-built for authorization; Microsoft's Agent Governance Toolkit uses it for agent policy. | We would need a second policy language for categories that do not fit, fragmenting the engine. |
-| 2 | Cedar WASM is usable in-process from a TypeScript host without unacceptable startup or evaluation overhead. | Cedar publishes WASM artifacts; policy evaluation benchmarks are in the microsecond range for typical request counts. | We would need a sidecar policy service or a native Go/Rust binding, complicating deployment. |
-| 3 | YAML-to-Cedar compilation in V1 gives operators enough authoring ergonomics until runtime evaluation ships in V1.1. | YAML captures the structural aspects of policies; runtime Cedar arrives as soon as WASM integration is proven. | Operators demand live policy edits before V1.1, forcing an earlier WASM ship with more risk. |
+| 2 | Cedar WASM is usable in-process from a TypeScript host without unacceptable startup or evaluation overhead. | Cedar publishes WASM artifacts; the microsecond policy-evaluation benchmarks are **native-engine** figures — the WASM path (including JS↔WASM marshaling) has no published benchmark and stays unvalidated until the campaign-B13 end-to-end benchmark (2026-07-02 B8 amendment; see §Decision Validation). | We would need a sidecar policy service or a native Go/Rust binding, complicating deployment. |
+| 3 | YAML-to-Cedar compilation in V1 gives operators enough authoring ergonomics until runtime **policy-bundle loading** ships in V1.1 (the resident WASM evaluator itself ships at V1 — 2026-07-02 Decision Log row; this assumption is only about bundle-loading timing). | YAML captures the structural aspects of policies; runtime bundle loading arrives as soon as the signing/custody pipeline is proven. | Operators demand live policy edits before V1.1, forcing an earlier bundle-loading ship with more risk. |
 | 4 | Cedar remains an actively maintained CNCF project over the product lifetime. | Cedar is a CNCF sandbox project with AWS and Microsoft involvement and a published roadmap. | If Cedar stagnates, we would migrate to OPA/Rego or a bespoke engine — a multi-quarter effort. |
 
 ## Failure Mode Analysis
@@ -78,7 +78,7 @@ Use Cedar (CNCF sandbox) as the approval policy engine. V1 defines policies in Y
 ### Negative (accepted trade-offs)
 
 - Cedar is newer and less widely adopted than OPA; smaller ecosystem of tooling and examples
-- V1 uses YAML-to-Cedar compilation, adding a build step before full runtime evaluation is available
+- V1 uses YAML-to-Cedar compilation, adding a redeploy per policy change (the compiled set is build-embedded); V1.1 removes that cost with runtime policy-bundle loading — the deferral is bundle loading only, the resident WASM evaluator ships at V1
 
 ## Policy Chain of Custody
 
@@ -86,9 +86,9 @@ Cedar's security model assumes trustworthy policy input. A daemon that evaluates
 
 ### Scope By Phase
 
-**V1 (policies compiled into the daemon image).** Policy text is embedded in the daemon binary at build time per the decision in §Decision. The signed artifact at V1 is therefore the daemon container image itself. Policy chain of custody collapses into image supply-chain integrity: the image is signed by the operator's release signing key, and daemons refuse to start if the image they were launched from cannot be verified against the pinned operator public key.
+**V1 (compiled policy set embedded at build time; resident in-process WASM evaluation).** Policy text is compiled to a Cedar policy set and embedded in the daemon artifact at build time per §Decision, and evaluated from V1 by the resident, signature-verified `@cedar-policy/cedar-wasm` authorizer (2026-07-02 Decision Log row). The in-process verified artifact is the **compiled policy set** — Ed25519 detached signature under the operator release key, verified on every daemon start before any `PermissionCheck` is served, in both topologies (2026-06-10 Decision Log row) — while whole-image signing remains the distribution pipeline's supply-chain layer: images are signed by the operator's release signing key, and containerized daemons additionally refuse to start if the image they were launched from cannot be verified against the pinned operator public key.
 
-**V1.1 (runtime Cedar WASM evaluation).** Policy text ships as a detached bundle `policy-bundle-v{N}.cedar.tar.gz` with a companion detached signature `policy-bundle-v{N}.cedar.tar.gz.sig`. The daemon loads the bundle into the `@cedar-policy/cedar-wasm` evaluator at runtime. Policy chain of custody becomes a distinct concern from image signing. This section's bundle-level rules apply from V1.1 forward; the V1 image-signing rules above remain the floor.
+**V1.1 (runtime policy-bundle loading).** Policy text ships as a detached bundle `policy-bundle-v{N}.cedar.tar.gz` with a companion detached signature `policy-bundle-v{N}.cedar.tar.gz.sig`. The daemon loads the bundle into the **already-resident** `@cedar-policy/cedar-wasm` evaluator at runtime — the evaluator itself ships at V1; V1.1 adds dynamic loading, not WASM evaluation. Policy chain of custody becomes a distinct concern from image signing. This section's bundle-level rules apply from V1.1 forward; the V1 rules above remain the floor.
 
 ### Signing Key Identity
 
@@ -183,10 +183,17 @@ The operational procedures for signing a V1.1 policy bundle, diagnosing a daemon
 | Metric | Target | Measurement Method | Check Date |
 | --- | --- | --- | --- |
 | Approval categories expressible purely in Cedar (no app-side fallback) | 9 / 9 categories from the canonical `ApprovalCategory` enum | Policy spec review | `2026-07-01` |
-| Cedar policy evaluation latency per request | < 1 ms at p95 | Approval service metrics | `2026-10-01` |
+| Cedar end-to-end policy decision latency per request — WASM build, **including JS↔WASM marshaling** (empirical target; no published WASM benchmark exists — 2026-07-02 B8 amendment) | < 1 ms at p95 | Campaign B13 benchmark, then approval service metrics | `2026-10-01` |
 | Operator-initiated policy updates that ship without a code deploy (V1.1) | 100% of tuning changes post-V1.1 | Change log of policy sets vs code releases | `2026-12-01` |
 
 ## References
+
+**2026-07-02 amendment (campaign B8) sources:**
+
+- [AWS — Amazon Verified Permissions at scale](https://aws.amazon.com/blogs/security/use-amazon-verified-permissions-for-fine-grained-authorization-at-scale/) — the decision-caching guidance (a remote-PDP optimization carrying an explicit staleness warning) whose scope the amendment narrows to exclude the local in-process authorizer
+- [Zanzibar: Google's Consistent, Global Authorization System (USENIX ATC '19)](https://www.usenix.org/conference/atc19/presentation/pang) — the distributed-authorizer caching precedent acknowledged as valid outside the local in-process posture
+- Cedar native-engine benchmarks — [arXiv:2403.04651](https://arxiv.org/abs/2403.04651) / [OOPSLA 2024](https://dl.acm.org/doi/10.1145/3649835): the published microsecond figures measure the native engine only
+- [cedar-wasm README](https://github.com/cedar-policy/cedar/blob/main/cedar-wasm/README.md) — carries no WASM performance claims, hence the `<1ms p95` target is empirical, measured end-to-end including JS↔WASM marshaling (benched by the campaign's B13 task)
 
 - [ADR-007: Collaboration Trust And Permission Model](./007-collaboration-trust-and-permission-model.md)
 - [Spec-012: Approvals Permissions And Trust Boundaries](../specs/012-approvals-permissions-and-trust-boundaries.md)
@@ -202,3 +209,4 @@ The operational procedures for signing a V1.1 policy bundle, diagnosing a daemon
 | 2026-06-10 | Clarified | Tier-6 plan-readiness audit (Plan-012 D-012-9): the V1 evaluation engine is `@cedar-policy/cedar-wasm` (`isAuthorized`) running in-process over the build-embedded, signature-verified compiled policy set — the V1→V1.1 delta is the policy SOURCE only (build-embedded static set → runtime-loaded signed bundle); the engine is identical in both phases. A thrown evaluation error maps to deny (fail-closed), never allow. Pins the §Decision ambiguity ("compiled from YAML" named no V1 evaluator); reverses nothing. |
 | 2026-06-10 | Clarified | Tier-6 audit (Plan-012 D-012-9): the V1 verified artifact, as enforced in-process, is the compiled Cedar policy set — Ed25519 detached signature over its canonical bytes under the operator release key, verified against the pinned `OPERATOR_PUBLIC_KEY` on every daemon start BEFORE any PermissionCheck is served; verification failure → the daemon refuses to start (typed log `policy-artifact-signature-invalid`). This realizes §Scope By Phase (V1) in both topologies (containerized AND shell-spawned desktop daemon, where no container image exists); whole-image signing remains the distribution pipeline's supply-chain layer, not an in-process check. |
 | 2026-06-10 | Corrected | Tier-6 audit (Plan-012 D-012-9): package name `@cedarpolicy/cedar-wasm` → `@cedar-policy/cedar-wasm` (the unhyphenated scope does not exist on npm — 404 verified 2026-06-10; dependency-confusion hazard). Version pin re-anchored to Cedar v4.11 (current stable, npm-verified). |
+| 2026-07-02 | Amended — resident-authorizer posture + scoped no-caching + empirical WASM latency target | Capability-enhancement campaign (B8), P1-7. Records the V1 authorizer posture as **resident compiled-authorizer**: the signature-verified compiled Cedar policy set is parsed once and held resident in-process (building on the 2026-06-10 `@cedar-policy/cedar-wasm` `isAuthorized` in-process ruling above), then evaluated per request with **no decision cache**. Decision caching is rejected **scoped to the local in-process authorizer only** ("buys nothing at in-process latency and adds policy-update staleness") — not a universal anti-pattern: remote-PDP / Zanzibar-style caching stays valid elsewhere (§9 BP-11 of the campaign design — AWS's caching guidance is a remote-PDP optimization carrying an explicit staleness warning). The §Success Criteria "Cedar policy evaluation latency per request `< 1 ms at p95`" row (Check Date `2026-10-01`) is retied as an **empirical** target **measured end-to-end on the WASM build including JS↔WASM marshaling** (§9 BP-12 — published microsecond figures are the native engine; no WASM benchmark exists), benchmarked before that Check Date by the Plan-012 bundle (B13). Engine and YAML→Cedar decision unchanged; ADR stays `accepted`. |
