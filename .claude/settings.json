@@ -2,8 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "env": {
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
-    "ENABLE_LSP_TOOL": "1",
-    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "300000"
+    "ENABLE_LSP_TOOL": "1"
   },
   "permissions": {
     "allow": [
@@ -118,7 +117,6 @@
     ]
   },
   "alwaysThinkingEnabled": true,
-  "autoCompactWindow": 300000,
   "companyAnnouncements": [
     "Hey Sawbo, I can't fix bugs you haven't written yet. Get coding!",
     "Sawbo, today's mass hallucination brought to you by stochastic parrots everywhere.",
