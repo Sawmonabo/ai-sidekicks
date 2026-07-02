@@ -624,7 +624,7 @@ describe("RuntimeNodeDetachResponseSchema (C3: null no-content payload)", () => 
 //
 // C4 acceptance criterion: the exported 7-name `runtime_node.*` set is exactly
 // equal (as a sorted set) to the 7 names in the Runtime Node Lifecycle taxonomy
-// table at Spec-006 lines 374-380 — neither superset nor subset. The SET
+// table at Spec-006 lines 407-413 — neither superset nor subset. The SET
 // MEMBERSHIP is the contract (additions MINOR, removals MAJOR under ADR-018
 // §Decision #8), not the declaration order, so the equality is asserted
 // order-independently against a hardcoded expected-7 array re-derived from the
@@ -632,16 +632,16 @@ describe("RuntimeNodeDetachResponseSchema (C3: null no-content payload)", () => 
 //
 // The `expectedSevenFromSpec006` array is the test's independent source of truth,
 // each entry mapped to its Spec-006 table row:
-//   • runtime_node.registered          — Spec-006:379
-//   • runtime_node.online              — Spec-006:380
-//   • runtime_node.degraded            — Spec-006:381
-//   • runtime_node.offline             — Spec-006:382
-//   • runtime_node.revoked             — Spec-006:383
-//   • runtime_node.capability_declared — Spec-006:384
-//   • runtime_node.capability_updated  — Spec-006:385
-// The 2 `session.clock_*` rows (Spec-006:386-387) are DELIBERATELY ABSENT: they
+//   • runtime_node.registered          — Spec-006:407
+//   • runtime_node.online              — Spec-006:408
+//   • runtime_node.degraded            — Spec-006:409
+//   • runtime_node.offline             — Spec-006:410
+//   • runtime_node.revoked             — Spec-006:411
+//   • runtime_node.capability_declared — Spec-006:412
+//   • runtime_node.capability_updated  — Spec-006:413
+// The 2 `session.clock_*` rows (Spec-006:414-415) are DELIBERATELY ABSENT: they
 // share the `runtime_node_lifecycle` category but retain the `session.` prefix by
-// name-preservation (Spec-006:389 / ADR-018 §Decision #8) and were promoted
+// name-preservation (Spec-006:417 / ADR-018 §Decision #8) and were promoted
 // from Spec-015 §Reserved Events.
 const expectedSevenFromSpec006 = [
   "runtime_node.registered",
@@ -654,11 +654,11 @@ const expectedSevenFromSpec006 = [
 ];
 
 describe("RUNTIME_NODE_EVENT_NAMES (C4: 7-name runtime_node.* taxonomy)", () => {
-  it("is exactly the sorted set of the 7 names in Spec-006 lines 374-380", () => {
+  it("is exactly the sorted set of the 7 names in Spec-006 lines 407-413", () => {
     // Order-independent SET equality: sort both sides so a reorder of either the
     // export tuple or the spec table does not spuriously fail, while a
     // missing/extra/renamed name does (the membership IS the contract per
-    // Spec-006:379-385). A spread is required because the export is `readonly` and
+    // Spec-006:407-413). A spread is required because the export is `readonly` and
     // `.sort()` mutates in place.
     expect([...RUNTIME_NODE_EVENT_NAMES].sort()).toEqual([...expectedSevenFromSpec006].sort());
   });
@@ -673,14 +673,14 @@ describe("RUNTIME_NODE_EVENT_NAMES (C4: 7-name runtime_node.* taxonomy)", () => 
 
   it("every entry carries the runtime_node. prefix (catches a session.clock_* leak)", () => {
     // The prefix guard is the discriminating assertion: if a `session.clock_*`
-    // name (Spec-006:386-387) leaked into the set it would fail here even if the
+    // name (Spec-006:414-415) leaked into the set it would fail here even if the
     // count stayed at 7, because those names retain the `session.` prefix.
     for (const eventName of RUNTIME_NODE_EVENT_NAMES) {
       expect(eventName.startsWith("runtime_node.")).toBe(true);
     }
   });
 
-  it("excludes the session.clock_* pair (name-preservation boundary, Spec-006:386-389)", () => {
+  it("excludes the session.clock_* pair (name-preservation boundary, Spec-006:414-417)", () => {
     // Explicit negative: the two same-category clock events are NOT in the set.
     expect(RUNTIME_NODE_EVENT_NAMES).not.toContain("session.clock_unsynced");
     expect(RUNTIME_NODE_EVENT_NAMES).not.toContain("session.clock_corrected");
@@ -778,7 +778,7 @@ describe("VersionFloorExceededErrorSchema (C5: VERSION_FLOOR_EXCEEDED typed-cont
 // --------------------------------------------------------------------------
 //
 // Backstops the 5 daemon-reachable per-event PAYLOAD shapes authored in Plan-003
-// Phase 2 (CP-003-1; Spec-006:379-385): `registered`, `online`, `offline`,
+// Phase 2 (CP-003-1; Spec-006:407-413): `registered`, `online`, `offline`,
 // `capability_declared`, `capability_updated`. These validate the
 // `EventEnvelope.payload` CONTENTS only — the integrity envelope + discriminated-
 // union registration are Plan-006 Tier 4. The discriminating coverage:

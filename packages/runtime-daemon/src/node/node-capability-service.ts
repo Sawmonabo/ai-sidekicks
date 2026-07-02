@@ -64,7 +64,7 @@
 // (least-privilege schedulability), line 92 (capability/trust changes emitted as
 // session events), line 115 (no implicit capability exposure on attach), line 133
 // (serial re-attach satisfies the node-scoped gate without re-declaring),
-// Spec-006 lines 375 (online payload), 379-380 (capability_declared /
+// Spec-006 lines 403 (online payload), 379-380 (capability_declared /
 // capability_updated payload shapes), invariant I-003-2 (the declaration is the
 // precondition that gates `online`).
 
