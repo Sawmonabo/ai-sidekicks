@@ -159,7 +159,7 @@ interface SidekicksBridge {
     ): Unsubscribe;
   };
 
-  // control-plane RPC — request/response over tRPC, live updates over WebSocket JSON-RPC 2.0
+  // control-plane RPC — request/response + session-timeline/run-output subscriptions over tRPC (SSE per Spec-008); presence/collaboration/relay coordination over WebSocket JSON-RPC 2.0
   controlPlane: {
     call<P extends CpProcedure>(procedure: P, input: CpInput<P>): Promise<CpOutput<P>>;
     subscribeRelay(sessionId: SessionId, handler: RelayEventHandler): Unsubscribe;

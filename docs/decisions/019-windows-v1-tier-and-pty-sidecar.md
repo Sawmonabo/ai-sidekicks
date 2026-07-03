@@ -193,7 +193,7 @@ These metrics gate substrate-promotion close (per §Substrate Promotion Window a
 
 **2026-07-02 amendment (campaign B8) sources:**
 
-- [prctl(2)](https://man7.org/linux/man-pages/man2/prctl.2.html) — `PR_SET_PDEATHSIG` caveats (the death signal is cleared on fork/exec paths and is thread-scoped) grounding the arm-per-child + `getppid()` reparent-race re-check
+- [prctl(2)](https://man7.org/linux/man-pages/man2/prctl.2.html) — `PR_SET_PDEATHSIG` caveats (the death signal is cleared for the child of a `fork(2)`, **preserved across normal `execve(2)`**, cleared on set-user-ID / set-group-ID / capability-carrying execs and on credential changes, and thread-scoped on the parent side) grounding the arm-per-child + `getppid()` reparent-race re-check
 - [cgroup-v2 kernel documentation](https://docs.kernel.org/admin-guide/cgroup-v2.html) — `cgroup.kill` tree-kill where available
 - [Windows Job Objects](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects) — `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` last-handle-close semantics + breakaway flags
 - [kqueue(2) (BSD/macOS)](https://man.freebsd.org/cgi/man.cgi?kqueue) — `EVFILT_PROC` process-event watch (the PID-reuse-immune live path)
