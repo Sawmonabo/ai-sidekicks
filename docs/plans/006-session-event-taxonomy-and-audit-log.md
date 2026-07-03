@@ -111,7 +111,7 @@ Plan-006 is the canonical emitter for the two bold-faced categories above (6 eve
 
 Plan-006 provides the append-path infrastructure, canonical envelope, and integrity protocol that all other emitter plans write into; it does not emit their category entries.
 
-**V1 vs V1.1 emission scope (`policy_events`).** Per [ADR-012 §Decision](../decisions/012-cedar-approval-policy-engine.md), V1 compiles Cedar policies into the daemon image at build time; runtime Cedar WASM bundle loading is V1.1. The `policy_bundle.loaded` / `policy_bundle.rejected` types are registered in the V1 taxonomy so the registry is complete from V1 forward, but their emitter ships in V1.1 as part of the bundle loader. Plan-006 implements the type registration only; a V1.1 plan owns the bundle-loader emission surface.
+**V1 vs V1.1 emission scope (`policy_events`).** Per [ADR-012 §Decision](../decisions/012-cedar-approval-policy-engine.md), V1 compiles Cedar policies into the daemon image at build time and evaluates them from V1 in the **resident, signature-verified `@cedar-policy/cedar-wasm` evaluator** (§Scope By Phase); only runtime **policy-bundle** loading into that already-resident evaluator is V1.1 — the WASM evaluator itself is not deferred. The `policy_bundle.loaded` / `policy_bundle.rejected` types are registered in the V1 taxonomy so the registry is complete from V1 forward, but their emitter ships in V1.1 as part of the bundle loader. Plan-006 implements the type registration only; a V1.1 plan owns the bundle-loader emission surface.
 
 ## Integrity Protocol
 

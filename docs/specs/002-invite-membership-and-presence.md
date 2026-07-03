@@ -59,14 +59,14 @@ This spec covers invite lifecycle, join-mode assignment, membership role changes
 - Presence heartbeat payload must include at minimum: `deviceType`, `focusedSessionId`, `focusedChannelId`, `lastActivityAt`, `appVisible`.
 - When a runtime contributor's membership is revoked mid-run, active runs on their node are interrupted and the node is detached. When a collaborator's membership is revoked, pending interventions are expired immediately; read access is revoked after a 30-second grace period.
 - Cross-node presence fan-out uses Postgres `LISTEN/NOTIFY` in V1. Redis Pub/Sub is a documented upgrade path for V1.1 if scale demands it.
-- For local IPC (daemon-to-desktop/CLI over JSON-RPC), the daemon exposes a JSON-RPC presence surface (`PresenceUpdate`, `PresenceRead`) that bridges to the Yjs Awareness state. The Yjs binary protocol runs natively on the WebSocket transport to the control plane; the JSON-RPC transport carries serialized presence state.
+- For local IPC (daemon-to-desktop/CLI over JSON-RPC), the daemon exposes a JSON-RPC presence surface (`PresenceUpdate`, `PresenceRead`) that bridges to the Yjs Awareness state. Presence rides the **WebSocket (JSON-RPC 2.0)** collaboration channel to the control plane per [ADR-014](../decisions/014-trpc-control-plane-api.md) / [Spec-008](../specs/008-control-plane-relay-and-session-join.md) §Control-Plane Transport Protocol; the relay WSS connection is reserved for the Spec-008 §Message Framing binary wire frames (E2E session ciphertext) and carries no presence.
 
 ### Heartbeat Transport
 
 Heartbeats piggyback on the existing event subscription connection. No separate polling endpoint is introduced.
 
 - **Local IPC:** The daemon exposes `PresenceUpdate` and `PresenceRead` JSON-RPC methods (see Interfaces below). The heartbeat is implicit in the WebSocket connection keepalive between the daemon and local clients; a dropped WebSocket triggers the reconnect grace window defined above.
-- **Remote (control plane relay):** Presence heartbeats are sent as lightweight messages on the relay WebSocket -- the same connection used for MLS-encrypted session traffic (see [Spec-008](../specs/008-control-plane-relay-and-session-join.md)). No additional transport or endpoint is required.
+- **Remote (control plane):** Presence heartbeats ride the **WebSocket (JSON-RPC 2.0)** collaboration channel per [ADR-014](../decisions/014-trpc-control-plane-api.md) / [Spec-008](../specs/008-control-plane-relay-and-session-join.md) §Control-Plane Transport Protocol -- **not** the relay WSS connection, which is reserved for the §Message Framing binary wire frames that tunnel E2E-encrypted session ciphertext. No additional transport or endpoint is required.
 
 ## Fallback Behavior
 

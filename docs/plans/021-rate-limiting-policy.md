@@ -443,7 +443,7 @@ Concurrency-cap 429s send only the truthful subset `X-RateLimit-Limit` + `X-Rate
 | Endpoint group (canonical key) | Procedure owner | Wiring owner + mechanism |
 | --- | --- | --- |
 | `session.create` / `session.join` + `general.api` fallback | Plan-008 (shipped surface) | Plan-021 T21.3-6 (Tier 6) |
-| `presence.heartbeat` | Plan-002/Plan-008 (Tier 5) | Plan-021 T21.3-6 (relay-WS frame path via `endpointFor` — not tRPC; Spec-002 carries heartbeats on the relay WebSocket) |
+| `presence.heartbeat` | Plan-002/Plan-008 (Tier 5) | Plan-021 T21.3-6 — heartbeats ride the **WebSocket (JSON-RPC 2.0)** collaboration channel ([Spec-008](./008-control-plane-relay-and-session-join.md) §Control-Plane Transport Protocol), not the relay WSS binary frames; the relay `endpointFor` seam decodes only the 1-byte ciphertext-envelope `type` (§Per-frame endpoint routing) and cannot admit a JSON-RPC frame, so presence-WS rate-limiting is a JSON-RPC-WS-admission concern separate from the relay binary-frame path |
 | `event.query` | Plan-008 SSE/query surface | Plan-021 T21.3-6 for shipped procedures |
 | `event.subscribe` (5 concurrent — concurrency_cap) | Plan-008 SSE subscription registry | SSE surface owner per [BL-144](../backlog.md) (store-side cap, mirrors the BL-120 pattern) |
 | `health.check` | Plan-008 host (+ Plan-025 self-host) | Plan-021 T21.3-6 (hosted); Plan-025 step 7 (self-host) |
