@@ -316,7 +316,7 @@ Update signature verification must use an Ed25519 or ECDSA-P256 signing key pinn
 ### Renderer → Shell → Control Plane (via Preload Bridge)
 
 - Wire format between shell and control plane: tRPC v11 over HTTPS for request/response (incl. relay negotiation); WebSocket (JSON-RPC 2.0) for presence/collaboration events, and the relay WSS connection speaking Spec-008 §Message Framing binary wire frames — per ADR-014 and Spec-008
-- Shell attaches `Authorization: Bearer <PASETO v4.public>` + `DPoP: <signed-proof>` headers; renderer never sees them
+- Shell attaches `Authorization: Bearer <PASETO v4.public>` + `DPoP: <signed-proof>` headers to the tRPC/HTTPS and presence-WebSocket requests; renderer never sees them. **The relay WSS connection is the exception**: it carries no `Authorization`/`DPoP` headers — browsers cannot set custom headers on a WebSocket handshake — and authenticates solely via the R3-issued `connectionToken` presented over two `Sec-WebSocket-Protocol` subprotocol values (`paseto-v4, <base64url(connectionToken)>`), per [Spec-008](008-control-plane-relay-and-session-join.md) §Relay Connection Lifecycle and [Security Architecture](../architecture/security-architecture.md) (§WebSocket authentication to relay)
 
 ### Shell ↔ OS Keystore
 

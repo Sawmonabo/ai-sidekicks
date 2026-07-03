@@ -6,7 +6,7 @@ This document records the V1 / V1.1 / V2 scope triage for the product. It is gov
 
 ## V1 Features (23)
 
-Every V1 feature has a governing spec, with one pending exception: feature #18's spec is authored by the capability-enhancement campaign's B18 bundle and is not yet in the corpus (see its row). Cross-cutting V1 specs (identity, observability, rate limiting, data retention, relay) are listed separately in §Supporting V1 Specs below.
+Every V1 feature has a governing spec, with the following campaign-pending exceptions. **Feature #18** is the one feature with **no governing spec yet in the corpus** — Spec-028 is authored by the capability-enhancement campaign's B18 bundle and is not yet landed (see its row). **Features #19–#23** each have an existing governing spec that is cited today, but each also depends on a **campaign amendment** to that spec (via the B1/B2/B3/B6/B20 bundles) that is still pending — the base spec exists and is cited; the feature-specific amendment is a named merge prerequisite (see each row). Cross-cutting V1 specs (identity, observability, rate limiting, data retention, relay) are listed separately in §Supporting V1 Specs below.
 
 | # | Feature | Governing Spec(s) |
 | --- | --- | --- |
