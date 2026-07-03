@@ -159,7 +159,7 @@ interface SidekicksBridge {
     ): Unsubscribe;
   };
 
-  // control-plane RPC — request/response over tRPC; presence/collaboration/relay coordination over WebSocket JSON-RPC 2.0. Session-timeline / run-output streams are tRPC SSE per Spec-008 — this bridge does not yet expose them; a typed `subscribe` surface lands with the plan wiring renderer control-plane subscriptions (the contracts bridge shape in `packages/contracts` is verbatim-bound to this block)
+  // control-plane RPC — request/response over tRPC; presence/collaboration events over WebSocket JSON-RPC 2.0 (relay traffic rides Spec-008's binary wire frames, not JSON-RPC). Session-timeline / run-output streams are tRPC SSE per Spec-008 — this bridge does not yet expose them; a typed `subscribe` surface lands with the plan wiring renderer control-plane subscriptions (the contracts bridge shape in `packages/contracts` is verbatim-bound to this block)
   controlPlane: {
     call<P extends CpProcedure>(procedure: P, input: CpInput<P>): Promise<CpOutput<P>>;
     subscribeRelay(sessionId: SessionId, handler: RelayEventHandler): Unsubscribe;
@@ -315,7 +315,7 @@ Update signature verification must use an Ed25519 or ECDSA-P256 signing key pinn
 
 ### Renderer → Shell → Control Plane (via Preload Bridge)
 
-- Wire format between shell and control plane: tRPC v11 over HTTPS for request/response; WebSocket (JSON-RPC 2.0) for bidirectional relay coordination per ADR-014 and Spec-008
+- Wire format between shell and control plane: tRPC v11 over HTTPS for request/response (incl. relay negotiation); WebSocket (JSON-RPC 2.0) for presence/collaboration events, and the relay WSS connection speaking Spec-008 §Message Framing binary wire frames — per ADR-014 and Spec-008
 - Shell attaches `Authorization: Bearer <PASETO v4.public>` + `DPoP: <signed-proof>` headers; renderer never sees them
 
 ### Shell ↔ OS Keystore

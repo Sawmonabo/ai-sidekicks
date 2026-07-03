@@ -23,7 +23,7 @@ The control plane was about to gain multiple consumers (CLI, desktop app, browse
 
 ## Decision
 
-Use tRPC v11 for control plane request-response operations and SSE subscriptions (notifications, run streaming). Use WebSocket with JSON-RPC 2.0 payloads for bidirectional collaboration channels (presence, live collaboration events — typing / shared editing, relay coordination; session-timeline and run-output event streams stay on tRPC SSE per Spec-008's transport assignment — enumeration corrected by the 2026-07-02 Decision Log row).
+Use tRPC v11 for control plane request-response operations and SSE subscriptions (notifications, run streaming). Use WebSocket with JSON-RPC 2.0 payloads for bidirectional collaboration channels (presence, live collaboration events — typing / shared editing (relay traffic is outside this JSON-RPC subset: relay negotiation rides tRPC request-response and the relay WSS connection speaks the Spec-008 §Message Framing binary wire frames — ciphertext envelopes and broker control frames alike); session-timeline and run-output event streams stay on tRPC SSE per Spec-008's transport assignment — enumeration corrected by the 2026-07-02 Decision Log row).
 
 ## Alternatives Considered
 

@@ -13,7 +13,7 @@ Sign, distribute, verify, and rotate the operator-signed artifacts that underpin
 - An operator security incident ticket indicates suspected exposure of the operator release signing key.
 - Scope and blast radius:
   - V1 image-signature failure: one daemon node fails to start; approvals on that node unavailable.
-  - V1 policy-set signature failure (`policy-set-signature-invalid`): the daemon refuses to serve approval evaluation on that node — fail-closed, `ApprovalPolicyEngineUnavailable` — until a correctly signed daemon artifact is redeployed (the compiled set is build-embedded, so restoration is an image redeploy, not a bundle push).
+  - V1 policy-set signature failure (typed log `policy-artifact-signature-invalid`, per ADR-012's 2026-06-10 Decision Log row and Plan-012 D-012-9): the daemon **refuses to start** — fail-closed; approvals on that node unavailable until a correctly signed daemon artifact is redeployed (the compiled set is build-embedded, so restoration is an image redeploy, not a bundle push).
   - V1.1 bundle-signature failure: daemon continues running but suspends approval evaluation; existing authorized sessions on that node continue until they require a new approval decision.
   - Suspected operator-key compromise: fleet-wide; every daemon pinned to the compromised key is in scope.
 

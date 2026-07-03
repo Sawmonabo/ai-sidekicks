@@ -62,7 +62,7 @@ The canonical monorepo layout for implementation is:
 
 ## Transport Protocols
 
-- The control plane uses tRPC v11 for request-response and SSE subscriptions, plus WebSocket (JSON-RPC 2.0) for bidirectional collaboration channels (presence, live collaboration events — typing / shared editing, relay coordination; session-timeline and run-output event streams stay on tRPC SSE per Spec-008 — 2026-07-02 ADR-009/ADR-014 correction).
+- The control plane uses tRPC v11 for request-response and SSE subscriptions, plus WebSocket (JSON-RPC 2.0) for bidirectional collaboration channels (presence, live collaboration events — typing / shared editing (relay traffic is outside this JSON-RPC subset: relay negotiation rides tRPC request-response and the relay WSS connection speaks the Spec-008 §Message Framing binary wire frames — ciphertext envelopes and broker control frames alike); session-timeline and run-output event streams stay on tRPC SSE per Spec-008 — 2026-07-02 ADR-009/ADR-014 correction).
 - The local daemon uses JSON-RPC 2.0 with LSP-style Content-Length framing over Unix domain socket (named pipe on Windows).
 
 ## Trust Boundaries

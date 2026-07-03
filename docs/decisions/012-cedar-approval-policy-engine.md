@@ -160,7 +160,7 @@ The V1/V1.1 design deliberately leaves the following for V2+:
 
 ### Cedar Version Pin
 
-V1.1 pins `@cedar-policy/cedar-wasm` at Cedar **v4.11** (current stable as of 2026-06; verified against the npm registry at the Tier-6 audit). Policy bundles declare their target Cedar version in the manifest. Daemons reject bundles whose target version does not match the daemon's compiled cedar-wasm version. Cedar major-version upgrades are a coordinated daemon-image upgrade event and require an ADR-012 amendment.
+The daemon pins `@cedar-policy/cedar-wasm` at Cedar **v4.11** from **V1** (current stable as of 2026-06; verified against the npm registry at the Tier-6 audit; the resident evaluator ships at V1 per the 2026-07-02 amendment, and Plan-012 D-012-9 pins 4.11.x on the embedded set). Policy bundles (V1.1+) declare their target Cedar version in the manifest. Daemons reject bundles whose target version does not match the daemon's compiled cedar-wasm version. Cedar major-version upgrades are a coordinated daemon-image upgrade event and require an ADR-012 amendment.
 
 ### Related Operational Docs
 
