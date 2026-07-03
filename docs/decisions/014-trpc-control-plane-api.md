@@ -112,8 +112,8 @@ Use tRPC v11 for control plane request-response operations and SSE subscriptions
 
 ## Decision Log
 
-| Date       | Event    | Notes         |
-| ---------- | -------- | ------------- |
+| Date | Event | Notes |
+| --- | --- | --- |
 | 2026-04-15 | Proposed | Initial draft |
-| 2026-04-15 | Accepted | ADR accepted  |
+| 2026-04-15 | Accepted | ADR accepted |
 | 2026-07-02 | Amended — WebSocket subset enumeration corrected | Capability-enhancement campaign (B8 companion edit): the §Decision WebSocket enumeration said "live event streaming", contradicting Spec-008's transport assignment (session-timeline / run-output streams are SSE-owned); restated as live collaboration events (typing / shared editing). ADR-009's 2026-07-02 narrowing cites this ADR as the split authority, so the authority itself now carries the correct enumeration. |
