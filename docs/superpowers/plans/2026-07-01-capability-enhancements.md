@@ -110,7 +110,7 @@ Every doc task's final steps invoke this procedure with its own branch/commit/fi
 **Files:**
 
 - Modify: `docs/plans/026-first-run-onboarding.md` (7 sites: :38, :122, :255, :402 `bridge.ts` → `preload/index.ts`; :123, :236, :390 `rpc/router.ts` + `router.add()` → `ipc/registry.ts` + `register()`) — the adversarial corpus pass caught :38/:402 after the initial audit named only :122/:255; a bare grep for `bridge.ts` over the file is the completeness check
-- Modify: `docs/plans/008-control-plane-relay-and-session-join.md` (3 sites: :384 cursor cite `:1097` → `:1144`; :430 + :464 `apps/cli` label "Tier-1-partial" → "Tier-4 remainder")
+- Modify: `docs/plans/008-control-plane-relay-and-session-join.md` (3 sites: :384 cursor cite `:1097` → `:1174`; :430 + :464 `apps/cli` label "Tier-1-partial" → "Tier-4 remainder")
 - Modify: `docs/architecture/cross-plan-dependencies.md` (:100 desktop row gains Plan-007's extender role per :149; NS-27 "§3 …Ownership Rule" staleness at **five** sites :647/:649/:653–:655 — **classify provenance-vs-policy first** via git-blame: if the rule was already §2 when NS-27 closed (2026-05-23), fix all five as drift; if it was §3 then, leave the dated record and add one bracketed "[now §2]" clarifier at the heading)
 
 **Interfaces:** Produces a phantom-free baseline for Task 27's zero-phantom grep. Authority: the campaign's commissioned cross-tier amendment authority (Design R1; runbook:122–129) — cite it as the operative basis in the PR body, with the Housekeeping Exception ([cross-plan-dependencies.md:111–125](../../architecture/cross-plan-dependencies.md)) cited for its intent (one ceremony-free correction PR), noting its (b)/(e) criteria fit loosely for a corpus-audit batch.
