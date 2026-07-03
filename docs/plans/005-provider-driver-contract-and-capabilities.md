@@ -366,6 +366,7 @@ See [Local SQLite Schema §Driver and Runtime Binding Tables](../architecture/sc
 - Contract churn while both initial drivers are under construction → mitigated by Phase 1 contract-stabilization gate before Phase 3 starts.
 - Recovery semantics may diverge before enough conformance tests exist → mitigated by I-005-5 invariant + T4.7 explicit recovery-needed return-value contract test.
 - Remote provider APIs can be mistaken for permission to centralize driver execution unless the local-runtime boundary stays explicit in code and docs → mitigated by I-005-1 invariant + Spec-005:42 reinforcement throughout this plan.
+- Provider rollback/rewind methods are unconfirmed against a live binary — Codex `thread/rollback` is upstream-deprecated beyond the `0.141.0` pin and Claude `--resume-session-at` is binary-probe-only (absent from the live CLI reference) — so before any driver code invoking the provider-side rewind path lands, re-verify the method or its replacement against the then-installed provider binary per [ADR-017](../decisions/017-shared-event-sourcing-scope.md) Decision Log (2026-07-02) + [`codex.md`](../reference/provider-wire/codex.md) / [`claude.md`](../reference/provider-wire/claude.md) (§Gaps recorded). Rollback is feature #19, doc-gated on the campaign's B2 bundle per [cross-plan-dependencies.md](../architecture/cross-plan-dependencies.md) §5.
 
 ## Invariants
 

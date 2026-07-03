@@ -378,6 +378,7 @@ Contracts: see [API Payload Contracts](../architecture/contracts/api-payload-con
 - Ephemeral clone cleanup may leak disk usage — mitigated by D-010-13 (TTL sweep + `cleaned_at` idempotent stamping); residual risk: daemon down past TTL windows
 - Repositories with mandatory bootstrap steps need explicit follow-on setup flows (Spec-010 line 69) — out of scope here by design
 - BL-142 / BL-143 are Plan-007-owned Phase-3 preconditions; if they slip, Phases 1–2 still land
+- The rollback file-restore leg coordinates a provider-side rewind (Codex `thread/rollback` / Claude `--resume-session-at`) whose methods are unconfirmed against a live binary (`thread/rollback` upstream-deprecated beyond the `0.141.0` pin; `--resume-session-at` binary-probe-only) — the daemon-side turn-snapshot file-restore is the durable path regardless, but before any code coordinating the provider rewind lands, re-verify the method or its replacement against the then-installed provider binary per [ADR-017](../decisions/017-shared-event-sourcing-scope.md) Decision Log (2026-07-02) + [`codex.md`](../reference/provider-wire/codex.md) / [`claude.md`](../reference/provider-wire/claude.md) (§Gaps recorded)
 
 ## Progress Log
 
