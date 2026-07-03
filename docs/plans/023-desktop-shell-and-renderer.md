@@ -179,7 +179,7 @@ The full `SidekicksBridge` interface from Spec-023 §Preload Bridge Contract liv
 ### Control-plane tRPC + WebSocket forwarding
 
 - Wire format: tRPC v11 over HTTPS for request/response; the relay WSS connection speaks [Spec-008](../specs/008-control-plane-relay-and-session-join.md) §Message Framing **binary wire frames** for relay event subscription (`subscribeRelay`), while presence/collaboration events use the WebSocket **JSON-RPC 2.0** subset -- per ADR-014 / Spec-008.
-- The main process attaches `Authorization: Bearer <paseto-v4.public>` + `DPoP: <signed-proof>` headers to every outbound HTTP request and the initial WebSocket handshake.
+- The main process attaches `Authorization: Bearer <paseto-v4.public>` + `DPoP: <signed-proof>` headers to every outbound HTTP request and the presence/collaboration WebSocket handshake; the **relay WSS** connection carries no such headers — it authenticates solely via the [Spec-008](../specs/008-control-plane-relay-and-session-join.md) §Relay Connection Lifecycle `Sec-WebSocket-Protocol` subprotocol carrying the short-lived R3-issued `connectionToken` (PASETO v4.public, `aud=relay-connect`, TTL 300s), its sole credential (browsers cannot set custom WS headers — the bearer-token-over-subprotocol idiom), never `Authorization`/`DPoP`.
 - Response sanitization: the main process strips `set-cookie` headers and any upstream auth-material-carrying headers before returning the response body to the renderer.
 
 ### Deep-link transport

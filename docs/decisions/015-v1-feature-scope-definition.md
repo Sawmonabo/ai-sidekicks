@@ -113,6 +113,8 @@ The antithesis assumes V1 launch speed is the dominant cost. For this product, l
 
 ## Alternatives Considered
 
+> **Historical scope note (2026-04-17 decision time).** The options below — including "Option A: V1 = 16 features (Chosen)" — record the original 2026-04-17 analysis, when V1 scope was 16 features. Scope was later amended to 17 (per BL-097, 2026-04-22) and to 23 (capability-enhancement campaign, 2026-07-02); the current V1 surface is defined by [§Decision](#decision) as amended. The 16-/14-feature figures in this section are preserved as the historical record — see [§Amendment History](#amendment-history).
+
 ### Option A: V1 = 16 features (Chosen)
 
 - **What:** Ship the full feature list above as the V1 target.
