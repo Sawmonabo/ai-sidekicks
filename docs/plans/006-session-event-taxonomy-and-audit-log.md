@@ -101,7 +101,7 @@ Plan-006 owns the **130-event type registry across 19 categories** per [Spec-006
 | `audit_integrity` | 3 | **Plan-006** (verifier + observer) |
 | `security_events` | 4 | [Plan-007](./007-local-ipc-and-daemon-control.md) (`security.default.override` Phase 1; `security.update.available` Tier 4) + [Plan-022](./022-data-retention-and-gdpr.md) (`daemon.master_key_source`, `daemon.pii_split_ambiguous`; registered in Spec-006 at the Tier-5 swap per D-022-5) |
 | `event_maintenance` | 3 | **Plan-006** (compactor, schema-migration emitter, shred audit artifact) |
-| `policy_events` | 2 | V1.1 Cedar runtime bundle loader — see V1/V1.1 note below |
+| `policy_events` | 2 | V1.1 policy-bundle loader (the resident Cedar WASM evaluator itself ships at V1) — see V1/V1.1 note below |
 | **Total** | **130** |  |
 
 Plan-006 is the canonical emitter for the two bold-faced categories above (6 event types):
