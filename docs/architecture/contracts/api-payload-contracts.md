@@ -755,7 +755,7 @@ interface GetCapabilitiesResult {
 
 ```ts
 // CapabilityDetails — wrapper shape carried by `runtime_node.capability_declared` and
-// `runtime_node.capability_updated` event payloads (Spec-006:384-385). Bound to the same
+// `runtime_node.capability_updated` event payloads (Spec-006:412-413). Bound to the same
 // three surfaces a driver advertises via `ProviderDriver.getCapabilities()` (GetCapabilitiesResult
 // above): the seven-flag matrix, the negotiated contract version, and the per-tool metadata —
 // here as `NormalizedProviderToolMetadata` (post-default), since these payloads cross the event
@@ -764,7 +764,7 @@ interface GetCapabilitiesResult {
 // surfaces compose one capability snapshot; readers (Plan-013 timeline, Plan-020 dashboards,
 // Plan-015 replay) discriminate `runtime_node.capability_*` events from the discriminated
 // union and consume the snapshot as a single object — there is no driver-method context
-// that requires DriverCapabilities to remain pure. Sources: Spec-006:384-385; Plan-005
+// that requires DriverCapabilities to remain pure. Sources: Spec-006:412-413; Plan-005
 // CP-005-5; Plan-006 Phase 1 T1.4 + Phase 3 doc-mirror audit.
 interface CapabilityDetails {
   flags: Record<DriverCapabilityFlag, boolean>;
@@ -772,14 +772,14 @@ interface CapabilityDetails {
   tools: NormalizedProviderToolMetadata[];
 }
 
-// runtime_node.capability_declared payload (Spec-006:384). Emitted once per driver
+// runtime_node.capability_declared payload (Spec-006:412). Emitted once per driver
 // registration with the daemon's runtime-node bootstrap (Plan-003 territory).
 interface RuntimeNodeCapabilityDeclaredPayload {
   capability: string; // canonical capability identifier (e.g., "provider-driver")
   capabilityDetails: CapabilityDetails;
 }
 
-// runtime_node.capability_updated payload (Spec-006:385). Emitted on driver-version
+// runtime_node.capability_updated payload (Spec-006:413). Emitted on driver-version
 // bump, tool addition/removal, or flag-matrix mutation. `previousState` / `newState`
 // carry the same wrapper shape so consumers diff snapshots structurally.
 interface RuntimeNodeCapabilityUpdatedPayload {
@@ -825,7 +825,7 @@ type EventCategory =
   // Extended per Spec-006 §Runtime Node Lifecycle, §Recovery Events, §Participant Lifecycle,
   // §Audit Integrity, §Security Events, §Event Maintenance, §Policy Events,
   // §Channel Arbitration, §Onboarding Lifecycle, §Cross-Node Dispatch (19 categories total
-  // per Spec-006 §Event Type Summary line 519; 130 event types per line 521 — the Tier-5
+  // per Spec-006 §Event Type Summary line 551; 140 event types per line 553 (140 per the 2026-07-02 B1 amendment) — the Tier-5
   // readiness-audit swap registered daemon.master_key_source + daemon.pii_split_ambiguous
   // under the existing security_events category, Plan-022 D-022-5, and the Tier-6 swap
   // added approval.canceled (D-012-8) plus four Plan-016 types (A-016-6, D-016-10/11/12),
@@ -949,7 +949,7 @@ interface QueueItemCreateResponse {
 // the daemon queue-admission service IN-PROCESS, passing an OrchestrationRunLinkCarrier (see
 // §Plan-016) after its own admission pipeline passes. The in-process admission API returns the
 // minted RunId (the run.queued emission's runId) alongside queueItemId, and run.queued carries the
-// carrier fields durably (Spec-006:187 additive optional fields). The wire run.queueCreate method
+// carrier fields durably (Spec-006:196 additive optional fields). The wire run.queueCreate method
 // never accepts the carrier — child-run creation goes through orchestration.runCreate only.
 
 // QueueItemList
@@ -1023,10 +1023,19 @@ interface RunStateChangeEvent {
   recoveryCondition?: "recovery-needed";
   healthSignal?: "stuck-suspected";
   providerFailureDetail?: string; // populated on `run.failed` when failureCategory='provider'
+  completionKind?: "turn" | "task"; // on `run.completed`: whether the completion closes a conversational turn or the whole task — optional in the shared shape only for pre-B1 history; post-B1 emitters MUST set it (Spec-006 §Run Lifecycle run-state payload, 2026-07-02 B1 amendment)
+  intendedClose?: true; // daemon-initiated closeSession clean-terminal discriminator: present only on that path, absent on every other terminal; consumers MUST NOT classify such a terminal as a crash (Spec-006 §Run Lifecycle "Intended-close discriminator", 2026-07-02 B1 amendment)
+  executionPosture?: {
+    mode: "trusted" | "workspace-sandboxed" | "readonly-sandboxed";
+    networkAccess: "none" | "allowed-domains" | "full";
+    allowedDomains?: string[]; // present iff networkAccess === "allowed-domains", and then non-empty — absent under "none" / "full" (Spec-012 cross-field invariants, fail closed)
+    writableRoots: string[];
+    profileName?: string;
+  }; // stamped only on run.running — the post-setup-gate spawn-success transition, where the resolved workspace root and effective posture are final (Plan-004 gate seam; a run.starting stamp would be premature) — recording the run's effective sandbox/permission posture for audit (Spec-006 §Run Lifecycle run-state payload, 2026-07-02 B1 amendment item 11; shape + policy semantics per Spec-012 §Required Behavior, campaign B20). Optionality is for pre-B20 history and non-running rows only: once B20's posture semantics land, run.running emitters MUST stamp the complete posture object.
   trigger?: "turn_limit" | "budget_exhausted" | "idle_timeout" | "moderation_denied"; // stop-condition provenance (additive per ADR-018): 'turn_limit' rides run.completed at the turn limit (Plan-016 D-016-8 — the value CP-004-10 adds to Plan-004's trigger set); the three InterruptReason values ride run.interrupted on system interrupts (D-016-7). Absent on natural completion and user-initiated paths; the Runs View / timeline stop-condition rendering (Spec-023) reads this field.
   // run.queued linkage (orchestration-created runs only): the OrchestrationRunLinkCarrier fields
   // threaded into the durable payload as optional additive fields (CP-004-10; Plan-016 D-016-3 —
-  // run_links is a pure events-canonical projection rebuilt from this event alone). Spec-006:187.
+  // run_links is a pure events-canonical projection rebuilt from this event alone). Spec-006:196.
   agentId?: AgentId;
   parentRunId?: RunId;
   linkType?: LinkType;
@@ -1034,9 +1043,30 @@ interface RunStateChangeEvent {
   producingNodeId?: NodeId;
   // run.queued effective config: the admission-resolved OrchestrationRunConfig (request override
   // else session default) persisted durably so budget/idle enforcement rebuilds replay-stable even
-  // if session defaults change mid-run (Plan-016 D-016-5, I-016-14; Spec-006:187).
+  // if session defaults change mid-run (Plan-016 D-016-5, I-016-14; Spec-006:196).
   effectiveRunConfig?: OrchestrationRunConfig;
   timestamp: string;
+}
+
+// Provider-initiated mid-run asks (Spec-006 §Driver Ask Events, 2026-07-02 B1 amendment): the third
+// `interactive_request` subfamily. `state` is the closed DriverAskState enum and MUST equal the emitting
+// event type's suffix (requested / responded / expired / canceled — a mismatch is an emitter bug, fail
+// loud). `kind` discriminates permission-approval asks (routed into the approval pipeline) from
+// structured-input asks (routed to the run's interactive surface). For kind 'permission', `input` MUST be
+// set — the normalized requested resource (command / path / tool arguments) the approval decision is about
+// (Spec-006 §Driver Ask Events shape line). `response` appears only on driver_ask.responded rows — the
+// delivered answer (permission decision or structured input) — and post-B1 responded emitters MUST set
+// it (a responded row with no delivered answer is an emitter bug; optionality covers the other three states).
+interface DriverAskEvent {
+  sessionId: SessionId;
+  runId: RunId;
+  askId: string;
+  kind: "permission" | "input";
+  toolName?: string;
+  prompt?: string;
+  input?: unknown;
+  state: "requested" | "responded" | "expired" | "canceled";
+  response?: unknown;
 }
 
 // Run-control mutations (Spec-004:41-43). `pause` interrupts the active run + persists conversation/run
@@ -2405,7 +2435,7 @@ interface AgentListResponse {
 // Orchestration queue-admission carrier (D-016-13) — IN-PROCESS seam type, not a wire shape:
 // the orchestration-run-service passes it to Plan-004's daemon queue-admission service after its
 // own admission pipeline passes; the run.queued event payload then carries these fields durably
-// (Spec-006:187 additive optional fields). The wire run.queueCreate handler never populates it —
+// (Spec-006:196 additive optional fields). The wire run.queueCreate handler never populates it —
 // child-run creation goes through orchestration.runCreate only.
 interface OrchestrationRunLinkCarrier {
   parentRunId?: RunId;
