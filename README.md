@@ -207,11 +207,11 @@ V1 ships 23 core features across CLI and Desktop GUI per [ADR-015: V1 Feature Sc
 | 16 | Multi-agent channels | Cross-agent coordination primitives per [Spec-016](docs/specs/016-multi-agent-channels-and-orchestration.md) |
 | 17 | Workflow authoring and execution | Full workflow engine per [Spec-017](docs/specs/017-workflow-authoring-and-execution.md) |
 | 18 | MCP server configuration and governance | Server-config CRUD, operator-managed trusted-server store, status/health probing, server OAuth — **Spec-028 + Plan-028 pending** (campaign B18; not among the 27 plans below) |
-| 19 | Session time-travel | Run rollback as a version-guarded intervention + forward `run.rolled_back` event (log never truncates) |
-| 20 | Session goals | Per-session structured goal with set/clear RPC and goal events |
-| 21 | Session callback tools | Daemon-registered tools exposed into every run, Cedar-governed |
-| 22 | Execution postures and sandbox profiles | Per-run sandbox posture as an authorization input, provider-uniform presets |
-| 23 | Realtime voice channels | Reserved and capability-gated on upstream Codex realtime-flag stabilization |
+| 19 | Session time-travel | Run rollback as a version-guarded intervention + forward `run.rolled_back` event (log never truncates) — governing amendments pending (B2 queued; B1 in flight as PR #173) |
+| 20 | Session goals | Per-session structured goal with set/clear RPC and goal events — governing amendments pending (B6 queued; B1 in flight as PR #173) |
+| 21 | Session callback tools | Daemon-registered tools exposed into every run, Cedar-governed — governing amendments pending (B3 queued; B20 in flight as PR #175) |
+| 22 | Execution postures and sandbox profiles | Per-run sandbox posture as an authorization input, provider-uniform presets — governing amendment pending (B20 in flight as PR #175; B3 queued) |
+| 23 | Realtime voice channels | Reserved and capability-gated on upstream Codex realtime-flag stabilization — governing amendments pending (B6 queued; B1 in flight as PR #173) |
 
 **V1.1 additions:** MLS relay E2EE, email invite delivery, cross-node shared artifacts, plus the criterion-gated workflow subfeatures named in ADR-015.
 

@@ -72,7 +72,7 @@ The control plane uses a dual-transport architecture per [ADR-014](../decisions/
 **WebSocket (JSON-RPC 2.0) handles:**
 
 - Presence sync (heartbeats, cursor position, active/idle state)
-- Relay message exchange (end-to-end encrypted collaboration traffic; V1 pairwise X25519 + XChaCha20-Poly1305, V1.1+ MLS — see §Relay Encryption)
+- Relay connection establishment only — the relay message exchange itself (end-to-end encrypted collaboration traffic; V1 pairwise X25519 + XChaCha20-Poly1305, V1.1+ MLS — see §Relay Encryption) rides the relay WSS connection's **binary wire frames** per §Message Framing, not JSON-RPC (2026-07-02 ADR-009/ADR-014 correction)
 - Live collaboration events (typing indicators, shared editing state)
 
 ### Client SDK Implementation Guidance
