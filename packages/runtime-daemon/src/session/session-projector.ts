@@ -181,7 +181,7 @@ function bootstrapFromCreated(event: StoredEvent): DaemonSessionSnapshot {
     sessionId: event.sessionId,
     // Spec-001 line 53: a newly created session starts in `provisioning`
     // and transitions to `active` once initial membership, storage, and
-    // control-plane metadata are ready. Spec-006 line 103 enumerates a
+    // control-plane metadata are ready. Spec-006 line 106 enumerates a
     // distinct `session.activated` event for that transition. The full
     // canonical lifecycle (provisioning → active → archived/closed →
     // purge_requested → purged) lives in

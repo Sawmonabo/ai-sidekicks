@@ -122,7 +122,7 @@ export interface ChannelProjection {
 // Plan-001 PR #3 only emits `provisioning` (Spec-001 line 53: a newly
 // created session starts in `provisioning` and transitions to `active`
 // once initial membership, storage, and control-plane metadata are
-// ready). Spec-006 line 103 enumerates a distinct `session.activated`
+// ready). Spec-006 line 106 enumerates a distinct `session.activated`
 // event for the `provisioning -> active` transition; Plan-022 owns
 // `purge_requested` / `purged`; Plan-006 / future plans own `archived` /
 // `closed`. Carrying the full canonical union at the daemon-internal
