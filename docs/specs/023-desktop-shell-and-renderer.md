@@ -159,7 +159,7 @@ interface SidekicksBridge {
     ): Unsubscribe;
   };
 
-  // control-plane RPC — request/response + session-timeline/run-output subscriptions over tRPC (SSE per Spec-008); presence/collaboration/relay coordination over WebSocket JSON-RPC 2.0
+  // control-plane RPC — request/response over tRPC; presence/collaboration/relay coordination over WebSocket JSON-RPC 2.0. Session-timeline / run-output streams are tRPC SSE per Spec-008 — this bridge does not yet expose them; a typed `subscribe` surface lands with the plan wiring renderer control-plane subscriptions (the contracts bridge shape in `packages/contracts` is verbatim-bound to this block)
   controlPlane: {
     call<P extends CpProcedure>(procedure: P, input: CpInput<P>): Promise<CpOutput<P>>;
     subscribeRelay(sessionId: SessionId, handler: RelayEventHandler): Unsubscribe;

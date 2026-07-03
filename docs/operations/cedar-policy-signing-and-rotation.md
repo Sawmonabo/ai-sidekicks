@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Sign, distribute, verify, and rotate the operator-signed artifacts that underpin Cedar approval policy evaluation: the daemon image (V1) and the runtime Cedar policy bundle (V1.1+). Cover the four operational scenarios: signing a new bundle, diagnosing a daemon that refuses to enforce approvals because of signature failure, rotating the operator signing key, and responding to a suspected compromise of the operator signing key.
+Sign, distribute, verify, and rotate the operator-signed artifacts that underpin Cedar approval policy evaluation: the daemon image plus the build-embedded compiled Cedar policy set it carries (V1 — the policy set carries its own Ed25519 detached signature, verified on every daemon start before any `PermissionCheck` is served, per the ADR-012 2026-07-02 amendment) and the runtime Cedar policy bundle (V1.1+). Cover the four operational scenarios: signing a new bundle, diagnosing a daemon that refuses to enforce approvals because of signature failure, rotating the operator signing key, and responding to a suspected compromise of the operator signing key.
 
 ## Symptoms
 
@@ -13,6 +13,7 @@ Sign, distribute, verify, and rotate the operator-signed artifacts that underpin
 - An operator security incident ticket indicates suspected exposure of the operator release signing key.
 - Scope and blast radius:
   - V1 image-signature failure: one daemon node fails to start; approvals on that node unavailable.
+  - V1 policy-set signature failure (`policy-set-signature-invalid`): the daemon refuses to serve approval evaluation on that node — fail-closed, `ApprovalPolicyEngineUnavailable` — until a correctly signed daemon artifact is redeployed (the compiled set is build-embedded, so restoration is an image redeploy, not a bundle push).
   - V1.1 bundle-signature failure: daemon continues running but suspends approval evaluation; existing authorized sessions on that node continue until they require a new approval decision.
   - Suspected operator-key compromise: fleet-wide; every daemon pinned to the compromised key is in scope.
 
