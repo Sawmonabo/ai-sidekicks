@@ -549,7 +549,7 @@ CREATE TABLE approval_requests (
                           'human_phase_contribution'                              -- SA-12 addition; mirrors Spec-012 canonical enum
                         )),
   scope                 TEXT NOT NULL,        -- requested scope descriptor
-  resource_descriptor   TEXT NOT NULL DEFAULT '{}', -- target resource details (JSON; Spec-012 line 82 'must include')
+  resource_descriptor   TEXT NOT NULL DEFAULT '{}', -- target resource details (JSON; Spec-012 line 96 'must include')
   expiry_at             TEXT,                 -- ISO 8601, nullable for no-expiry
   state                 TEXT NOT NULL DEFAULT 'pending'
                         CHECK(state IN ('pending', 'approved', 'rejected', 'expired', 'canceled')),
@@ -567,12 +567,12 @@ CREATE TABLE approval_resolutions (
                                               -- PK = the durable wire id (approvalRequestId): enforces the 1:1 decision row
                                               -- and keeps every column event-derivable for peer/replay rebuild (I-012-9)
   approver_id              TEXT NOT NULL,     -- participant recorded as approver (D-012-12: node-owner binding on the
-                                              -- local socket; verified PASETO sub on authenticated surfaces; Spec-012 line 83)
+                                              -- local socket; verified PASETO sub on authenticated surfaces; Spec-012 line 97)
   decision                 TEXT NOT NULL
                            CHECK(decision IN ('approved', 'rejected')),
   effective_scope          TEXT NOT NULL,     -- granted scope; = request scope unless approver narrowed it (Spec-012 line 59);
                                               -- never broader than requested (domain invariant; Phase-2 enforced)
-  remembered_scope_kind    TEXT               -- 'run' | 'session' when remembering was requested; NULL otherwise (Spec-012 line 104)
+  remembered_scope_kind    TEXT               -- 'run' | 'session' when remembering was requested; NULL otherwise (Spec-012 line 118)
                            CHECK(remembered_scope_kind IS NULL OR remembered_scope_kind IN ('run', 'session')),
   remembered_scope_pattern TEXT,              -- resource-matching pattern for the remembered rule, nullable
   resolved_at              TEXT NOT NULL,
@@ -582,11 +582,11 @@ CREATE TABLE approval_resolutions (
 -- Owner: Plan-012
 CREATE TABLE remembered_approval_rules (
   id                         TEXT PRIMARY KEY,
-  session_id                 TEXT NOT NULL,   -- rules are session-scoped (Spec-012 line 68); membership-invalidation key
+  session_id                 TEXT NOT NULL,   -- rules are session-scoped (Spec-012 line 82); membership-invalidation key
   participant_id             TEXT NOT NULL,   -- the GRANTOR (approver who opted in); audit + membership-invalidation key, not a match key (D-012-10)
-  node_id                    TEXT NOT NULL,   -- executing node whose trust envelope the grant rides; node-trust-invalidation key (Spec-012 line 77)
-  run_id                     TEXT,            -- originating run; NOT NULL iff scope_kind = 'run' (the Spec-012 line 97 'this run only' binding)
-  created_from_request_id    TEXT NOT NULL REFERENCES approval_resolutions(request_id), -- origin decision (Spec-012 line 92 audit history); the durable wire id carried on approval.remembered, so the FK rebuilds byte-equal from events alone (I-012-9)
+  node_id                    TEXT NOT NULL,   -- executing node whose trust envelope the grant rides; node-trust-invalidation key (Spec-012 line 91)
+  run_id                     TEXT,            -- originating run; NOT NULL iff scope_kind = 'run' (the Spec-012 line 111 'this run only' binding)
+  created_from_request_id    TEXT NOT NULL REFERENCES approval_resolutions(request_id), -- origin decision (Spec-012 line 106 audit history); the durable wire id carried on approval.remembered, so the FK rebuilds byte-equal from events alone (I-012-9)
   category                   TEXT NOT NULL
                              CHECK(category IN (
                                'tool_execution', 'file_write', 'network_access', 'destructive_git',
@@ -594,7 +594,7 @@ CREATE TABLE remembered_approval_rules (
                                'human_phase_contribution'                              -- SA-12 addition; mirrors Spec-012 canonical enum
                              )),
   scope_kind                 TEXT NOT NULL
-                             CHECK(scope_kind IN ('run', 'session')),  -- explicit enum, not free-form (Spec-012 line 104)
+                             CHECK(scope_kind IN ('run', 'session')),  -- explicit enum, not free-form (Spec-012 line 118)
   scope_pattern              TEXT,            -- resource-matching pattern within the kind boundary; NULL = category-wide within
                                               -- (session, node, kind); semantics are category-derived (D-012-10)
   granted_at                 TEXT NOT NULL,

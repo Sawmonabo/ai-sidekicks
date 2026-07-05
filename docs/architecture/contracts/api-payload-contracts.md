@@ -1031,7 +1031,8 @@ interface RunStateChangeEvent {
     allowedDomains?: string[]; // present iff networkAccess === "allowed-domains", and then non-empty — absent under "none" / "full" (Spec-012 cross-field invariants, fail closed)
     writableRoots: string[];
     profileName?: string;
-  }; // stamped only on run.running — the post-setup-gate spawn-success transition, where the resolved workspace root and effective posture are final (Plan-004 gate seam; a run.starting stamp would be premature) — recording the run's effective sandbox/permission posture for audit (Spec-006 §Run Lifecycle run-state payload, 2026-07-02 B1 amendment item 11; shape + policy semantics per Spec-012 §Required Behavior, campaign B20). Optionality is for pre-B20 history and non-running rows only: once B20's posture semantics land, run.running emitters MUST stamp the complete posture object.
+    credentialPolicyRef?: string; // content-addressed "sha256:<hex>" over the RFC 8785 JCS-canonicalized credential-policy artifact {schemaVersion: 1, denyPaths: string[], denyEnvVars: string[], envNameMatch: 'case-sensitive' | 'case-insensitive'} (daemon canonicalizes denyEnvVars names to the host's env-name case semantics — case-insensitive-env hosts fold to one spelling, case-sensitive verbatim — and records the host's match mode as envNameMatch so hosts that strip differently never share a ref; then lexicographically sorts + dedupes both arrays before hashing — JCS canonicalizes object members, not array order) — REQUIRED on both sandboxed modes ('workspace-sandboxed' / 'readonly-sandboxed'), absent under mode:'trusted' (the credential policy is realized as part of a sandboxed posture — a trusted run records no enforced credential constraint), so auditors reconstruct exactly which credentials were denied/scrubbed without embedding the raw installation-revealing list; the daemon persists the artifact row write-ahead (before the first citing posture stamp) so the ref never dangles (Spec-012 §Required Behavior, campaign B20).
+  }; // stamped only on run.running — the post-setup-gate spawn-success transition, where the resolved workspace root and effective posture are final (Plan-004 gate seam; a run.starting stamp would be premature) — recording the run's effective sandbox/permission posture for audit (Spec-006 §Run Lifecycle run-state payload, 2026-07-02 B1 amendment item 11; shape + policy semantics per Spec-012 §Required Behavior, campaign B20). Optionality is for pre-B20 history and non-running rows only: once B20's posture semantics land, run.running emitters MUST stamp the complete posture object — including credentialPolicyRef on both sandboxed modes (absent under mode:'trusted').
   trigger?: "turn_limit" | "budget_exhausted" | "idle_timeout" | "moderation_denied"; // stop-condition provenance (additive per ADR-018): 'turn_limit' rides run.completed at the turn limit (Plan-016 D-016-8 — the value CP-004-10 adds to Plan-004's trigger set); the three InterruptReason values ride run.interrupted on system interrupts (D-016-7). Absent on natural completion and user-initiated paths; the Runs View / timeline stop-condition rendering (Spec-023) reads this field.
   // run.queued linkage (orchestration-created runs only): the OrchestrationRunLinkCarrier fields
   // threaded into the durable payload as optional additive fields (CP-004-10; Plan-016 D-016-3 —
@@ -1514,8 +1515,8 @@ interface WorktreeStatusReadResponse {
 
 type RememberedRuleId = string & { readonly __brand: "RememberedRuleId" }; // → §Branded ID Types
 
-// Remembered-grant scope — explicit enum, not free-form (Spec-012 line 104).
-// `request_only` (Spec-012 line 67) is expressed by OMITTING rememberedScope,
+// Remembered-grant scope — explicit enum, not free-form (Spec-012 line 118).
+// `request_only` (Spec-012 line 81) is expressed by OMITTING rememberedScope,
 // never by an enum member. Pattern semantics are category-derived (D-012-10):
 // path categories (file_write, destructive_git) = normalized-absolute-path
 // prefix containment; network_access = exact host equality (no wildcards in V1);
@@ -1553,7 +1554,7 @@ interface ApprovalFlowEventPayload {
   category: ApprovalCategory;
   scope: string;
   requestedBy?: string; // present on approval.requested — recorded requester actor (participant or agent actor id, Spec-012 line 58)
-  resourceDescriptor?: Record<string, unknown>; // present on approval.requested — audit-grade target (Spec-012 line 82)
+  resourceDescriptor?: Record<string, unknown>; // present on approval.requested — audit-grade target (Spec-012 line 96)
   expiryAt?: string; // present on approval.requested when the request carries an expiry (D-012-14)
   approver?: ParticipantId; // present on approval.approved / approval.rejected — the recorded resolver (D-012-12); on approval.remembered it is the rule's GRANTOR (rules mint only via resolve-with-remember)
   effectiveScope?: string; // present on approval.approved / approval.rejected — recorded effective scope (≤ requested, I-012-6)
@@ -1580,7 +1581,7 @@ interface ApprovalRequestCreateRequest {
   runId: RunId;
   category: ApprovalCategory;
   scope: string;
-  resourceDescriptor: Record<string, unknown>; // REQUIRED (Spec-012 line 82); audit-grade target descriptor
+  resourceDescriptor: Record<string, unknown>; // REQUIRED (Spec-012 line 96); audit-grade target descriptor
   expiryAt?: string;
 }
 interface ApprovalRequestCreateResponse {
@@ -1592,7 +1593,7 @@ interface ApprovalRequestCreateResponse {
 // ApprovalResolve
 interface ApprovalResolveRequest {
   approvalRequestId: ApprovalRequestId;
-  approver?: ParticipantId; // informational/routing (Spec-012 line 83; D-012-12). Absent on the
+  approver?: ParticipantId; // informational/routing (Spec-012 line 97; D-012-12). Absent on the
   // local socket → the daemon records its node-owner participant binding; present → cross-checked
   // (local: vs the owner binding; PASETO surfaces: vs the verified `sub`) — mismatch is rejected
   // with `auth.principal_mismatch`. Never authoritative.
@@ -1620,7 +1621,7 @@ interface PermissionCheckResponse {
   allowed: boolean;
   reason: "policy_allow" | "remembered_rule" | "approved" | "pending_approval" | "denied";
   // D-012-17 semantics: policy_allow = Cedar/own-node-envelope permit with no human approval
-  // artifact (Spec-012 lines 47/62/71); remembered_rule = matched an unrevoked rule that passed
+  // artifact (Spec-012 lines 47/62/85); remembered_rule = matched an unrevoked rule that passed
   // at-use re-validation; approved = a recorded approved resolution covers this exact request;
   // pending_approval = request created/open (allowed=false); denied = Cedar forbid, rejected/
   // expired resolution, or fail-closed refusal (the typed `approval.persistence_unavailable`
@@ -1642,7 +1643,7 @@ interface ApprovalProjectionReadResponse {
     requestedBy: string; // recorded requester actor — participant or agent actor id (Spec-012 line 58)
     category: ApprovalCategory;
     scope: string;
-    resourceDescriptor: Record<string, unknown>; // requested resource (Spec-012 line 82)
+    resourceDescriptor: Record<string, unknown>; // requested resource (Spec-012 line 96)
     state: ApprovalState;
     createdAt: string;
     updatedAt: string; // last state-transition instant (expired/canceled rows settle here; no resolution row)
@@ -1658,7 +1659,7 @@ interface ApprovalProjectionReadResponse {
 // RememberedRuleList
 interface RememberedRuleListRequest {
   sessionId: SessionId;
-  includeRevoked?: boolean; // default false; true = audit-history view (Spec-012 line 92)
+  includeRevoked?: boolean; // default false; true = audit-history view (Spec-012 line 106)
 }
 interface RememberedRuleListResponse {
   rules: Array<{
@@ -1675,7 +1676,7 @@ interface RememberedRuleListResponse {
   }>;
 }
 
-// RememberedRuleRevoke — the explicit revocation path (Spec-012 line 92);
+// RememberedRuleRevoke — the explicit revocation path (Spec-012 line 106);
 // writes revoked_at + 'explicit' and emits `approval.rule_revoked`
 interface RememberedRuleRevokeRequest {
   ruleId: RememberedRuleId;
