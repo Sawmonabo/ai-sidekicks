@@ -61,6 +61,7 @@ The control plane uses a dual-transport architecture per [ADR-014](../decisions/
 - Invite lifecycle (create, revoke, accept)
 - Approval operations (request, resolve, escalate)
 - Artifact metadata (publish, query, reference)
+- Relay negotiation (`negotiateRelay` — returns the relay endpoint + short-lived `connectionToken`; the subsequent WSS binary frame exchange is separate, per §Relay Negotiation)
 - Health checks
 
 **SSE (via tRPC subscriptions) handles:**
