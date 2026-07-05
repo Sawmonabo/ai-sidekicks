@@ -114,7 +114,7 @@ Counter limits — registry rows with enforcement class `sliding_window` — use
 
 ## Default Behavior
 
-- All rate limits are active by default for every control plane endpoint and WebSocket connection.
+- All rate limits are active by default for every control plane endpoint and WebSocket connection — **except rows explicitly marked dormant/reserved in the §Registry** (`presence.heartbeat`, `approval.resolve`), whose limit is reserved and arms only when its named V1.1 admission surface ships (see the §Registry dormant-row semantics); a dormant row is not enforced by an ad hoc V1 limiter.
 - Clients that stay within limits receive no rate-limiting headers until they approach the threshold. "Approach the threshold" is defined as: `remaining < 25%` of the row's limit (Tier-6 audit). Headers are always present on 429 responses (concurrency-cap refusals send the truthful subset — limit and remaining — per §Overflow Response), and are suppressed entirely while the backend is in fail-open grace (the degraded response arm carries no window fields to serialize).
 
 ## Fallback Behavior

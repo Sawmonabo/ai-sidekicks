@@ -207,11 +207,11 @@ V1 ships 23 core features across CLI and Desktop GUI per [ADR-015: V1 Feature Sc
 | 16 | Multi-agent channels | Cross-agent coordination primitives per [Spec-016](docs/specs/016-multi-agent-channels-and-orchestration.md) |
 | 17 | Workflow authoring and execution | Full workflow engine per [Spec-017](docs/specs/017-workflow-authoring-and-execution.md) |
 | 18 | MCP server configuration and governance | Server-config CRUD, operator-managed trusted-server store, status/health probing, server OAuth — **Spec-028 + Plan-028 pending** (campaign B18; not among the 27 plans below) |
-| 19 | Session time-travel | Run rollback as a version-guarded intervention + forward `run.rolled_back` event (log never truncates) — governing amendments pending (B2 queued; B1 in flight as PR #173), and durable file restoration needs the B21→B23 turn-snapshot leg gated before Plan-004 Phase 3 (Codex rollback reverts conversation only) |
-| 20 | Session goals | Per-session structured goal with set/clear RPC and goal events — governing amendments pending (B6 queued; B1 in flight as PR #173) |
+| 19 | Session time-travel | Run rollback as a version-guarded intervention + forward `run.rolled_back` event (log never truncates) — governing amendments pending (B2 queued; B1 merged via #173, Spec-006 pending `review → approved`), and durable file restoration needs the B21→B23 turn-snapshot leg gated before Plan-004 Phase 3 (Codex rollback reverts conversation only) |
+| 20 | Session goals | Per-session structured goal with set/clear RPC and goal events — governing amendments pending (B6 queued; B1 merged via #173, Spec-006 pending `review → approved`) |
 | 21 | Session callback tools | Daemon-registered tools exposed into every run, Cedar-governed — governing amendments pending (B3 queued; B20 in flight as PR #175) |
 | 22 | Execution postures and sandbox profiles | Per-run sandbox posture as an authorization input, provider-uniform presets — governing amendment pending (B20 in flight as PR #175; B3 queued) |
-| 23 | Realtime voice channels | Reserved and capability-gated on upstream Codex realtime-flag stabilization — governing amendments pending (B6 queued; B1 in flight as PR #173) |
+| 23 | Realtime voice channels | Reserved and capability-gated on upstream Codex realtime-flag stabilization — governing amendments pending (B6 queued; B1 merged via #173, Spec-006 pending `review → approved`) |
 
 **V1.1 additions:** MLS relay E2EE, email invite delivery, cross-node shared artifacts, plus the criterion-gated workflow subfeatures named in ADR-015.
 
@@ -263,7 +263,7 @@ Each tier's prerequisites are the prior tier's completion. See [`docs/architectu
 Current documentation corpus:
 
 - **27 V1 implementation plans** (+ pending Plan-028 for feature #18, campaign B18) with step-by-step build instructions; 20 are `approved`, Plan-001 is `completed`, and 6 are in `review` (Plan-004, Plan-008, Plan-017, Plan-018, Plan-022, Plan-025)
-- **27 approved specifications** covering every original feature and cross-cutting concern — the six campaign features are doc-gated: feature #18's Spec-028 is pending the B18 bundle, and features #19–#23's governing spec amendments land via the campaign's B1/B2/B3/B6/B20 bundles (B1 + B20 in flight as PRs #173/#175, the rest queued), so implementation of #18–#23 waits on the named bundles, not the existing corpus
+- **27 approved specifications** covering every original feature and cross-cutting concern — the six campaign features are doc-gated: feature #18's Spec-028 is pending the B18 bundle, and features #19–#23's governing spec amendments land via the campaign's B1/B2/B3/B6/B20 bundles (B20 in flight as PR #175; B1 merged via #173, Spec-006 pending `review → approved`; the rest queued), so implementation of #18–#23 waits on the named bundles, not the existing corpus
 - **12 domain models** (run state machine, intervention model, participant model, workflow model, etc.)
 - **16 architecture documents** (schemas, contracts, security, deployment, dependencies)
 - **11 operations runbooks** (CLI commands, SLOs, on-call routing, self-host secure defaults)
