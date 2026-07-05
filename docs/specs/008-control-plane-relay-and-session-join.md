@@ -61,6 +61,7 @@ The control plane uses a dual-transport architecture per [ADR-014](../decisions/
 - Invite lifecycle (create, revoke, accept)
 - Approval operations (request, resolve, escalate)
 - Artifact metadata (publish, query, reference)
+- Relay negotiation (`negotiateRelay` — returns the relay endpoint + short-lived `connectionToken`; the subsequent WSS binary frame exchange is separate, per §Relay Negotiation)
 - Health checks
 
 **SSE (via tRPC subscriptions) handles:**
@@ -72,8 +73,11 @@ The control plane uses a dual-transport architecture per [ADR-014](../decisions/
 **WebSocket (JSON-RPC 2.0) handles:**
 
 - Presence sync (heartbeats, cursor position, active/idle state)
-- Relay message exchange (end-to-end encrypted collaboration traffic; V1 pairwise X25519 + XChaCha20-Poly1305, V1.1+ MLS — see §Relay Encryption)
 - Live collaboration events (typing indicators, shared editing state)
+
+**Relay WSS (binary wire frames — §Message Framing) handles:**
+
+- Relay message exchange (end-to-end encrypted collaboration traffic; V1 pairwise X25519 + XChaCha20-Poly1305, V1.1+ MLS — see §Relay Encryption) — negotiation rides tRPC request/response (ADR-014), the connection authenticates via `Sec-WebSocket-Protocol` at WSS upgrade (§Connection Lifecycle), and every frame on the connection is a §Message Framing binary frame, never JSON-RPC (2026-07-02 ADR-009/ADR-014 correction)
 
 ### Client SDK Implementation Guidance
 

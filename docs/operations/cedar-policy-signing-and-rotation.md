@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Sign, distribute, verify, and rotate the operator-signed artifacts that underpin Cedar approval policy evaluation: the daemon image (V1) and the runtime Cedar policy bundle (V1.1+). Cover the four operational scenarios: signing a new bundle, diagnosing a daemon that refuses to enforce approvals because of signature failure, rotating the operator signing key, and responding to a suspected compromise of the operator signing key.
+Sign, distribute, verify, and rotate the operator-signed artifacts that underpin Cedar approval policy evaluation: the daemon image plus the build-embedded compiled Cedar policy set it carries (V1 — the policy set carries its own detached signature under the daemon's pinned operator signing algorithm (Ed25519 by default, ECDSA P-256 compliance fallback per ADR-012 §Signing Algorithm), verified on every daemon start before any `PermissionCheck` is served, per the ADR-012 2026-07-02 amendment) and the runtime Cedar policy bundle (V1.1+). Cover the four operational scenarios: signing a new bundle, diagnosing a daemon that refuses to enforce approvals because of signature failure, rotating the operator signing key, and responding to a suspected compromise of the operator signing key.
 
 ## Symptoms
 
@@ -13,6 +13,7 @@ Sign, distribute, verify, and rotate the operator-signed artifacts that underpin
 - An operator security incident ticket indicates suspected exposure of the operator release signing key.
 - Scope and blast radius:
   - V1 image-signature failure: one daemon node fails to start; approvals on that node unavailable.
+  - V1 policy-set signature failure (typed log `policy-artifact-signature-invalid`, per ADR-012's 2026-06-10 Decision Log row and Plan-012 D-012-9): the daemon **refuses to start** — fail-closed; approvals on that node unavailable until a correctly signed daemon artifact is redeployed — the compiled set is build-embedded, so restoration replaces the daemon build itself (container-image redeploy in containerized topologies; reinstall/rebuild of the signed desktop daemon where no container image exists, per ADR-012's both-topologies custody rule), never a bundle push.
   - V1.1 bundle-signature failure: daemon continues running but suspends approval evaluation; existing authorized sessions on that node continue until they require a new approval decision.
   - Suspected operator-key compromise: fleet-wide; every daemon pinned to the compromised key is in scope.
 
@@ -44,10 +45,11 @@ Sign, distribute, verify, and rotate the operator-signed artifacts that underpin
 
 (CLI flag names are proposed; concrete surface is finalized in [Plan-012](../plans/012-approvals-permissions-and-trust-boundaries.md).)
 
-### Scenario B — Daemon refuses to enforce approvals (bundle verification failed)
+### Scenario B — Daemon refuses to start or enforce approvals (policy artifact or bundle verification failed)
 
 | Error code | Meaning | Action |
 | --- | --- | --- |
+| `policy-artifact-signature-invalid` (V1) | Build-embedded compiled policy set failed startup verification; the daemon refuses to start. | Replace the daemon build itself — container-image redeploy, or reinstall/rebuild of the signed desktop daemon where no image exists (§Symptoms); confirm the release pipeline signed the embedded set with the daemon's pinned algorithm and key before redeploying. |
 | `policy-bundle-signature-invalid` | Signature does not verify against pinned key. | Confirm correct bundle/signature pair; confirm daemon's pinned key matches the key that signed this bundle; if mismatch, daemon was built against a different operator key and needs rebuild/reinstall. |
 | `policy-bundle-hash-mismatch` | Tarball hash does not match manifest hash. | Bundle is truncated or altered; re-fetch from distribution endpoint. |
 | `policy-bundle-version-rollback` | Candidate `N` is not greater than `last_verified_bundle_version`. | Expected when replaying an older bundle; publish `N > last_verified_bundle_version` or, if the daemon's persisted version is itself wrong, escalate. |
@@ -63,7 +65,7 @@ V1 does not support dual-pinning. Rotation is a coordinated fleet upgrade.
 
 1. Generate the new operator signing keypair on the operator release infrastructure.
 2. Update the release build configuration to pin the new public key (`OPERATOR_PUBLIC_KEY` build arg) in the next daemon image.
-3. Build and sign the next daemon image with the new key. The image itself is signed by the new key from this point forward.
+3. Build and sign the next daemon build with the new key — both the daemon image (containerized topologies) and the build-embedded compiled policy set's detached signature (all topologies). Verify the embedded set locally against the new public key before publishing: an image pinned to the new key but carrying a policy set still signed by the old key fails startup with `policy-artifact-signature-invalid`.
 4. (V1.1+) Sign one final policy bundle with the old key that is valid for the freshness window; this keeps not-yet-upgraded daemons operational during the rollout.
 5. Publish the new daemon image and announce the rotation to all daemon operators with a target upgrade deadline before the freshness window on the last old-key-signed bundle expires.
 6. Self-hosters rebuild their daemon images with the new operator public key on the same schedule.
@@ -75,7 +77,7 @@ Treat as a Severity 1 incident.
 
 1. Immediately revoke access to the compromised key on the operator release infrastructure. Preserve audit logs.
 2. Generate a replacement operator signing keypair on a clean release environment.
-3. Build and sign an emergency daemon image pinned to the replacement public key. Mark the release as emergency in the release notes.
+3. Build and sign an emergency daemon build pinned to the replacement public key — re-sign the build-embedded compiled policy set under the replacement key and verify it locally, so the compromised key is out of the policy-artifact chain, not just the image signature. Mark the release as emergency in the release notes.
 4. Publish the emergency image out-of-band and notify all daemon operators (hosted + self-hosted) to upgrade immediately.
 5. (V1.1+) Do not publish any further policy bundles signed with the compromised key, even if the freshness window would still accept them.
 6. Acknowledge in the incident record the gap period: daemons that have not yet upgraded will continue to accept artifacts signed by the compromised key until they upgrade. V1 has no online revocation channel to close this gap. Track each non-upgraded daemon until it upgrades.

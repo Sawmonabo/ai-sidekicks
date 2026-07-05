@@ -670,12 +670,12 @@ export const RuntimeNodeRosterResponseSchema: z.ZodType<RuntimeNodeRosterRespons
 // MINOR, removals MAJOR under ADR-018 §Decision #8).
 //
 // BOUNDARY — the `session.clock_*` pair is EXCLUDED. `session.clock_unsynced` /
-// `session.clock_corrected` (Spec-006:386-387) sit in the SAME EventCategory
+// `session.clock_corrected` (Spec-006:414-415) sit in the SAME EventCategory
 // (`runtime_node_lifecycle`) but retain the `session.` prefix by name-
-// preservation (Spec-006:389 / ADR-018 §Decision #8 — an event-type rename is
+// preservation (Spec-006:417 / ADR-018 §Decision #8 — an event-type rename is
 // not additive, so it is wire-breaking). They were promoted from Spec-015
 // §Reserved Events and are NOT `runtime_node.*` names: this set is the 7-name
-// `runtime_node.*` prefix set ONLY (Spec-006:379-385), exactly per the C4
+// `runtime_node.*` prefix set ONLY (Spec-006:407-413), exactly per the C4
 // acceptance criterion.
 //
 // CATEGORY OWNERSHIP — all 7 names belong to EventCategory
@@ -801,8 +801,8 @@ export const RUNTIME_NODE_CAPABILITY_KEY_MAX_LEN = 128;
 //
 // FULL LIFECYCLE base — `{sessionId?, nodeId, previousState?, newState, actor?}`.
 // The Spec-006 base payload shared by every `runtime_node.*` LIFECYCLE event
-// (Spec-006:373). `sessionId` is `.optional()` per Spec-006's `sessionId?` base:
-// the daemon always populates it for `runtime_node.*` events (Spec-006:375,
+// (Spec-006:401). `sessionId` is `.optional()` per Spec-006's `sessionId?` base:
+// the daemon always populates it for `runtime_node.*` events (Spec-006:403,
 // "carry the session_id of the attachment they describe"), but the SCHEMA mirrors
 // the spec's optional base. `actor` is the EventEnvelope free-form actor
 // (`participant_id | agent_id | null` per api-payload-contracts.md §EventEnvelope
@@ -841,7 +841,7 @@ const buildRuntimeNodeCapabilityBaseShape = () => ({
 // runtime_node.registered — base + {capabilities, nodeVersion, platform}.
 // --------------------------------------------------------------------------
 //
-// Spec-006:379 ("base + {capabilities[], nodeVersion, platform}"). Emitted by the
+// Spec-006:407 ("base + {capabilities[], nodeVersion, platform}"). Emitted by the
 // T2.1 node-registry when a node is accepted into the roster (Spec-003 §Attach
 // Protocol). Field-type rationale (so reviewers verify, not re-derive):
 //   • `capabilities` = `z.record(z.string(), z.unknown())` — a lossless snapshot
@@ -891,7 +891,7 @@ export const RuntimeNodeRegisteredPayloadSchema: z.ZodType<RuntimeNodeRegistered
 // runtime_node.online — base (no extension).
 // --------------------------------------------------------------------------
 //
-// Spec-006:380 ("base"). Emitted by the T2.1/T2.2 path only AFTER
+// Spec-006:408 ("base"). Emitted by the T2.1/T2.2 path only AFTER
 // `runtime_node.capability_declared` succeeds (I-003-2 ordering, Plan-003 §Phase
 // 2). No payload extension — the full lifecycle base is the whole payload.
 export interface RuntimeNodeOnlinePayload {
@@ -911,7 +911,7 @@ export const RuntimeNodeOnlinePayloadSchema: z.ZodType<RuntimeNodeOnlinePayload>
 // runtime_node.offline — base + {lastHeartbeatAt, reason}.
 // --------------------------------------------------------------------------
 //
-// Spec-006:382 ("base + {lastHeartbeatAt, reason ∈ ['heartbeat_lost',
+// Spec-006:410 ("base + {lastHeartbeatAt, reason ∈ ['heartbeat_lost',
 // 'explicit_shutdown','network_partition']}"). `reason` is authored as the FULL
 // 3-value enum — the COMPLETE contract per Spec-006 — even though Phase 2's T2.5
 // detach producer emits only `explicit_shutdown` (the `heartbeat_lost` /
@@ -943,7 +943,7 @@ export const RuntimeNodeOfflinePayloadSchema: z.ZodType<RuntimeNodeOfflinePayloa
 // runtime_node.capability_declared — REDUCED base + {capability, capabilityDetails}.
 // --------------------------------------------------------------------------
 //
-// Spec-006:384 ("base + {capability, capabilityDetails}"). Emitted by the T2.2
+// Spec-006:412 ("base + {capability, capabilityDetails}"). Emitted by the T2.2
 // capability-service when a node declares a new capability after registration.
 //
 // NAMING NOTE — this `RuntimeNodeCapabilityDeclaredPayload` is a SUPERSET of the
@@ -952,7 +952,7 @@ export const RuntimeNodeOfflinePayloadSchema: z.ZodType<RuntimeNodeOfflinePayloa
 // `capabilityDetails`). Our schema = Spec-006's REDUCED base (`{sessionId?,
 // nodeId, actor?}`) + that doc's extension fields; it does not contradict the
 // canonical interface, it carries the base the canonical doc's extension-only
-// listing omits (the canonical doc documents extensions inline, per Spec-006:373).
+// listing omits (the canonical doc documents extensions inline, per Spec-006:401).
 //
 // `capabilityDetails` ships as interim-opaque `z.record(z.string(), z.unknown())`
 // — marker `Plan-006-Tier-4-binds-canonical`: the canonical `CapabilityDetails`
@@ -988,7 +988,7 @@ export const RuntimeNodeCapabilityDeclaredPayloadSchema: z.ZodType<RuntimeNodeCa
 // runtime_node.capability_updated — REDUCED base + {capability, previousState, newState}.
 // --------------------------------------------------------------------------
 //
-// Spec-006:385 ("base + {capability, previousState, newState}"). Emitted by the
+// Spec-006:413 ("base + {capability, previousState, newState}"). Emitted by the
 // T2.2 capability-service on a capability health/config change. CRITICAL: here
 // `previousState` / `newState` are `CapabilityDetails` SNAPSHOTS (so consumers
 // diff capability snapshots structurally — api-payload-contracts.md:762-767),

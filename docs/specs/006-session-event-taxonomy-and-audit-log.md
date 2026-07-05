@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| **Status** | `approved` |
+| **Status** | `review` |
 | **NNN** | `006` |
 | **Slug** | `session-event-taxonomy-and-audit-log` |
 | **Date** | `2026-04-14` |
@@ -50,6 +50,7 @@ This spec covers event categories, required event fields, ordering, replay, and 
   - repo, workspace, and worktree lifecycle
   - artifact and diff publication
 - Events must be immutable after append.
+- Ordering is **per-aggregate, not global** (B1): within a single run, event order is preserved, and tool events pair by `toolCallId` (the canonical Tool Activity **payload** field — `payload.toolCallId`; provider-native tool-call identifiers such as `tool_use_id` normalize into it); **no global causal-order guarantee exists across aggregates** — consumers MUST NOT infer cross-aggregate causality from interleaved positions across runs, channels, or sessions. The ingest-side bounded reorder buffer's parameters (bound, overflow = flush-in-arrival-order + diagnostic, pairing timeout) are the consuming plan's to name; this spec fixes only the guarantee's scope.
 - Replay must support reading after a known cursor and reading bounded windows.
 
 ## Default Behavior
@@ -93,19 +94,23 @@ Full semantics of the `.version` field are specified in [ADR-018: Cross-Version 
 
 This section enumerates every individual event type within each `EventCategory`. Each type is a string value for the `type` field of `EventEnvelope`. The payload fields listed are the category-specific fields carried inside the `payload` object; the envelope-level fields (`id`, `sessionId`, `sequence`, `occurredAt`, `category`, `actor`, `correlationId`, `causationId`, `version`) are always present and are not repeated here.
 
+> **Amendment (2026-07-02, capability-enhancement campaign B1 — amends the previously-`approved` spec; the header is flipped to `review` for the amendment's review window per the audit runbook's spec-amendment rule, and the campaign plan's Task 28 batch re-promotion restores `approved` after the W1.5 spec gate; dependent plans' code dispatch stays census-gated on that restoration).** This bundle lands eleven coordinated taxonomy changes; each affected section carries the normative text in place. (1) At-most-once **terminal** `run_lifecycle` emission per `(runId, runVersion)` — emitter contract + schema-level backstop partial unique index (§Run Lifecycle). (2) The intended-close discriminator `intendedClose?: true` on terminal run payloads, so a daemon-initiated `closeSession` is never misclassified as a crash (§Run Lifecycle). (3) A scoped event-ordering statement — per-run order preserved, no cross-aggregate causal order — in §Required Behavior. (4) The `completionKind?: 'turn' | 'task'` carve on `run.completed` (§Run Lifecycle). (5) Four `driver_ask.*` types as a third `interactive_request` subfamily covering provider-initiated asks (§Queue and Intervention). (6) Cost-provenance mirrors `costStatus`/`costSource` plus `usage.budget_warning.reason?: 'unpriced-model'` (§Usage Telemetry). (7) Context-window provenance mirrors `windowSource` + `exceeded` (§Usage Telemetry). (8) `usage.rate_limit_update` — the fifth `usage_telemetry` subtype, account-plane, sentinel-bound (§Usage Telemetry; §Daemon-Scope Event Binding And Node-Scope Anchoring). (9) R8 parity event families: `run.rolled_back` (forward, non-terminal), `session.goal_updated` / `session.goal_cleared`, `subagent.started` / `subagent.completed`, callback-tool invocations as ordinary `tool_activity` rows, and the **reserved** `realtime_*` family. (10) Census arithmetic re-derived by row count — 130 → 140 (§Event Type Summary). (11) `executionPosture?` on the run-state payload — the effective sandbox/permission posture stamped by the daemon at provider-process spawn, recorded on `run.running` (the post-setup-gate spawn-success transition; `run.starting` is pre-gate admission where the resolved posture is not yet known — Plan-004 gate seam); the carrier field registers here, the structural shape is typed in the `RunStateChangeEvent.executionPosture?` mirror in [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) (this bundle), and the policy semantics land in [Spec-012 §Required Behavior](./012-approvals-permissions-and-trust-boundaries.md) via campaign B20 (PR #175, a named merge prerequisite for implementing posture semantics).
+
 ### Session Lifecycle (`session_lifecycle`)
 
-Payload shape: `{sessionId, previousState?, newState, actor?}`
+Payload shape: `{sessionId, previousState?, newState, actor?}`; the B1 goal events carry per-type payloads — `session.goal_updated` requires the new goal (`{sessionId, goal, actor}` — `goal` is a structured object whose exact shape is owned by the Spec-016 goal contract the campaign's B6 bundle introduces (a named merge prerequisite before any emitter exists); the event carries the same canonical value the accepted goal set/clear RPC supplied, so RPC and durable event serialize identically), `session.goal_cleared` carries none (`{sessionId, actor}`; clearing is the distinct operation, so an update without a goal is malformed rather than an implicit clear) — and a goal change is not a state transition.
 
-| Type                      | Description                                                      |
-| ------------------------- | ---------------------------------------------------------------- |
-| `session.created`         | A new session has been created.                                  |
-| `session.activated`       | A session has moved from created to active.                      |
-| `session.archived`        | A session has been archived and is no longer active.             |
-| `session.reactivated`     | An archived session has been returned to active state.           |
-| `session.closed`          | A session has been permanently closed and cannot be reactivated. |
-| `session.purge_requested` | A purge of session data has been requested.                      |
-| `session.purged`          | Session data has been permanently deleted.                       |
+| Type | Description |
+| --- | --- |
+| `session.created` | A new session has been created. |
+| `session.activated` | A session has moved from created to active. |
+| `session.archived` | A session has been archived and is no longer active. |
+| `session.reactivated` | An archived session has been returned to active state. |
+| `session.closed` | A session has been permanently closed and cannot be reactivated. |
+| `session.purge_requested` | A purge of session data has been requested. |
+| `session.purged` | Session data has been permanently deleted. |
+| `session.goal_updated` | The session's structured goal has been set or updated (B1; payload requires `{goal}`). |
+| `session.goal_cleared` | The session's structured goal has been cleared (B1). |
 
 > See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed payload definitions.
 
@@ -176,11 +181,15 @@ Payload shapes: `arbitration.*` carry `{sessionId, channelId, unreachableNodeId,
 
 ### Run Lifecycle (`run_lifecycle`)
 
-One event per state from the [Run State Machine](../domain/run-state-machine.md)'s 9 canonical states.
+One event per state from the [Run State Machine](../domain/run-state-machine.md)'s 9 canonical states, plus the forward (non-state) `run.rolled_back` event (B1).
 
-Payload shape: `{sessionId, runId, runVersion, previousState, newState, channelId?, failureCategory?: RunFailureCategory, recoveryCondition?: 'recovery-needed', trigger?: 'turn_limit' | 'budget_exhausted' | 'idle_timeout' | 'moderation_denied'}`
+Payload shape: `{sessionId, runId, runVersion, previousState, newState, channelId?, failureCategory?: RunFailureCategory, recoveryCondition?: 'recovery-needed', trigger?: 'turn_limit' | 'budget_exhausted' | 'idle_timeout' | 'moderation_denied', completionKind?: 'turn' | 'task', intendedClose?: true, executionPosture?: ExecutionPosture}` — this state-transition shape governs the nine state events; `executionPosture?` (structural shape per the typed `RunStateChangeEvent.executionPosture?` mirror in [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) — this bundle, the canonical in-corpus shape source; policy semantics per [Spec-012](./012-approvals-permissions-and-trust-boundaries.md), campaign B20 — PR #175, a named merge prerequisite for implementing posture semantics) is stamped only on `run.running` — the post-setup-gate spawn-success transition (Plan-004's gate seam admits `queued → starting`, then setup gates — Plan-010's execution-root gate among them — run **before** `driver.startRun`, so the resolved workspace root and effective posture are final only when `running` fires; a `run.starting` stamp would be premature) — recording the run's effective posture for audit, and is absent on every other transition (the audit-stub projection preserves `executionPosture` — and `credentialPolicyRef` once the in-flight Spec-012 execution-posture amendment (PR #175) lands it on the carrier — on posture-bearing `run.running` rows, §Compacted Event Format, so the boundary stays reconstructable after compaction); `run.rolled_back` is per-type (see its row) and carries no `previousState`/`newState`.
 
 `runVersion` is the run aggregate's **any-run-progression counter** (Plan-004 D-004-1): it increments on every run progression — applied interventions included, not only the state transitions enumerated below — and is the optimistic-concurrency token the `expectedRunVersion` intervention guard compares against ([Spec-004 §Interfaces And Contracts](004-queue-steer-pause-resume.md#interfaces-and-contracts)). It is a **payload** field, distinct from the envelope-level `.version` (§EventEnvelope Version Semantics above): `.version` is the immutable semver wire-contract version bound into the Ed25519 signature, whereas `runVersion` is a mutable per-run counter carried inside `payload` — the two share the word "version" but are different contracts and must never be conflated. Because `runVersion` also advances on applied interventions that cause no state change (e.g. a native steer), the authoritative source of a run's current `runVersion` is the run-state read / `run.subscribeState` stream and the intervention / pause / resume responses, not the `run.*` event sequence alone. A no-state-change advance is **not** broadcast as a discrete `run.*` event — there is no state transition to record ([Spec-004:85](004-queue-steer-pause-resume.md)) — so a _non-intervening_ subscriber tracking `runVersion` off the event sequence may hold a stale comparand. Its next guarded intervention / pause / resume is then correctly rejected `expired` (the comparand genuinely _is_ stale — this is the optimistic-concurrency guard working, not a false rejection), whereupon it re-reads run-state for the fresh `runVersion` and retries: the reject → re-read → retry loop is the designed correction, and V1 adds **no** broadcast/read-model push for no-state-change bumps. The _intervening_ caller never round-trips — its `RunControlAck` / `InterventionRequestResponse` / pause-resume ack carries the post-application `runVersion` directly (per [api-payload-contracts.md](../architecture/contracts/api-payload-contracts.md)).
+
+**At-most-once terminal emission (B1).** For the three terminal types (`run.completed` / `run.interrupted` / `run.failed`), at most one terminal `run_lifecycle` event exists per `(runId, runVersion)`. The emitter owns the guarantee: the terminal guard + state swap + append execute under the per-session append lock with read-your-writes state, so a duplicate terminal attempt is rejected before append. A schema-level **partial unique index backstops** the emitter contract — `UNIQUE` on (`json_extract(payload, '$.runId')`, `json_extract(payload, '$.runVersion')`) `WHERE category = 'run_lifecycle' AND type IN ('run.completed', 'run.interrupted', 'run.failed')`, predicated on `session_events`'s real scalar `category` + `type` columns ([local-sqlite-schema.md](../architecture/schemas/local-sqlite-schema.md)) — as a **fail-loud invariant detector**: an index violation surfaces a bug, never silently no-ops (an append-if-absent API remains rejected). The backstop index itself — and the projection-level CHECK below — ship with the campaign's B11 schema work (the append-lock bundle the design assigns them to), a named gate before any post-B1 terminal emitter treats the backstop as active; the schema mirror ([local-sqlite-schema.md](../architecture/schemas/local-sqlite-schema.md)) gains the index DDL when that migration lands, and until then the emitter-side guard is the sole enforcement. Terminal payloads MUST carry non-null `runId` and `runVersion` (an emitter precondition, mirrored as that same projection-level CHECK): SQLite UNIQUE indexes treat NULLs as distinct, so a NULL key would silently bypass the backstop for exactly the malformed rows it exists to catch. The same NULL-bypass would reopen at compaction — §Event Compaction Policy replaces `payload` with the audit-stub projection — so the stub projection for terminal `run_lifecycle` rows MUST preserve `runId` + `runVersion`, keeping the index keyed for the row's whole retention life.
+
+**Intended-close discriminator (B1).** A daemon-initiated `closeSession` produces a clean terminal: the terminal payload carries `intendedClose: true`, and consumers MUST NOT classify such a terminal as a crash. The field is absent on every other terminal path (natural completion, user cancel, failure), so its presence is the discriminator — orderly shutdown stays distinguishable from abnormal termination in the durable record.
 
 | Type | Description |
 | --- | --- |
@@ -190,9 +199,10 @@ Payload shape: `{sessionId, runId, runVersion, previousState, newState, channelI
 | `run.waiting_for_approval` | The run is blocked on an approval request. |
 | `run.waiting_for_input` | The run is blocked on participant input or structured answers. |
 | `run.paused` | The run has been intentionally suspended. |
-| `run.completed` | The run finished successfully. `trigger: 'turn_limit'` marks a turn-limit completion (Plan-016 D-016-8); absent on natural completion. |
+| `run.completed` | The run finished successfully. `trigger: 'turn_limit'` marks a turn-limit completion (Plan-016 D-016-8); absent on natural completion. `completionKind` distinguishes a turn-complete (`'turn'`) from a task-complete (`'task'`) terminal (B1 — the normalized event-kind census's turn-vs-task distinction made explicit); it is optional in the shared shape only for pre-B1 history — post-B1 emitters MUST set it on every new `run.completed` row, since replay distinguishes turn- from task-complete only through it. |
 | `run.interrupted` | The run ended due to an interrupt or cancel path. System interrupts carry `trigger` from the Plan-016 `InterruptReason` closed set (`budget_exhausted` / `idle_timeout` / `moderation_denied`, D-016-7); absent on user-initiated cancel. |
 | `run.failed` | The run ended due to an unrecovered error. `failureCategory` and `recoveryCondition` provide detail. |
+| `run.rolled_back` | The run was rolled back to an earlier position (time-travel intervention; B1). A **forward, non-terminal** event — the authoritative log never truncates or rewrites; rolled-back turns remain queryable history marked superseded by projection. Non-terminal classification means zero interaction with the at-most-once-terminal backstop index. Per-type payload (non-state): `{sessionId, runId, runVersion, channelId?, targetPosition}` — `targetPosition` is the turn-boundary rewind anchor; its exact structural type is owned by the rollback intervention contract (`applyIntervention('rollback', {targetPosition})`) that Spec-004 §Required Behavior gains via the campaign's B2 bundle (a named merge prerequisite before any emitter exists — Plan-004's rollback tasks are sequenced after B2), and this event carries the same value the accepted intervention supplied, so the intervention request and the durable event serialize identically. No `previousState`/`newState` (a rollback is not a state transition, so schema authors give it its own shape rather than fabricating one). |
 
 > See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed payload definitions.
 
@@ -222,6 +232,17 @@ Payload shape: `{sessionId, interventionId, targetRunId, type: InterventionType,
 | `intervention.rejected`  | An intervention request has been rejected.                       |
 | `intervention.degraded`  | An intervention was applied but with degraded effect.            |
 | `intervention.expired`   | An intervention request has expired without being applied.       |
+
+#### Driver Ask Events
+
+Provider-initiated asks (B1) — the third `interactive_request` subfamily beside queue items and interventions: the provider CLI, mid-run, asks a human for something. Payload shape: `{sessionId, runId, askId, kind: 'permission' | 'input', toolName?, prompt?, input?, state: 'requested' | 'responded' | 'expired' | 'canceled'}` — for `kind: 'permission'` the payload MUST carry `input` (the normalized requested resource — command / path / tool arguments — the approval decision is about, so two same-tool asks are always distinguishable in audit) — `state` is the closed `DriverAskState` enum and MUST equal the emitting event type's suffix (denormalized so latest-row projections read one field; a mismatch is an emitter bug and fails loud, never repairs silently); `kind` discriminates permission-approval asks (Claude `can_use_tool` / `--permission-prompt-tool`) from structured-input asks (Codex `item/tool/requestUserInput` and MCP elicitation). Permission-kind asks route into the approval pipeline; input-kind asks route to the run's interactive surface.
+
+| Type | Description |
+| --- | --- |
+| `driver_ask.requested` | The provider has asked mid-run — a permission approval or a structured input request. |
+| `driver_ask.responded` | A participant (or policy) answered the ask and the response was delivered to the provider. Payload additionally carries `{response}` — the delivered answer (the permission decision for `kind: 'permission'`; the structured input value for `kind: 'input'`) — so replay and audit can reconstruct what unblocked the run. |
+| `driver_ask.expired` | The ask timed out without a response. |
+| `driver_ask.canceled` | The ask was withdrawn — the provider retracted it or the run ended first. |
 
 > See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed payload definitions.
 
@@ -290,7 +311,9 @@ Payload shape: `{sessionId, runId, channelId?, contentType?, contentLength?}`
 
 ### Tool Activity (`tool_activity`)
 
-Payload shape: `{sessionId, runId, toolName, toolCallId?, channelId?, durationMs?}`
+Payload shape: `{sessionId, runId, toolName, toolCallId?, channelId?, durationMs?}` — `toolCallId` optionality is pre-B1 history only: post-B1 live tool emitters MUST set it (it is the pairing key correlating `tool.invoked` / `tool.result` / `tool.error` and the reorder buffer's correlation input — same post-B1 MUST pattern as `completionKind`). This tool shape governs the three live-invocation rows (`tool.invoked` / `tool.result` / `tool.error`) only; the two recovery rows (`tool.replayed`, `tool.skipped_during_recovery`) are per-type (see their rows — keyed by `commandId`, carrying no `toolName`), and the two `subagent.*` rows are per-type (see their rows) and carry no `toolName`.
+
+Callback-tool invocations — the daemon-registered session tool set — land as ordinary `tool.invoked` / `tool.result` / `tool.error` rows; no dedicated family exists (B1).
 
 | Type | Description |
 | --- | --- |
@@ -299,6 +322,8 @@ Payload shape: `{sessionId, runId, toolName, toolCallId?, channelId?, durationMs
 | `tool.error` | A tool invocation has failed with an error. |
 | `tool.replayed` | A tool with `idempotency_class ∈ {idempotent, compensable}` was re-executed during restart recovery per [Spec-015 §Idempotency Classes and Recovery Behavior](015-persistence-recovery-and-replay.md#idempotency-classes-and-recovery-behavior). Payload: `{sessionId, runId, commandId, idempotencyClass, dedupeKey?}`. |
 | `tool.skipped_during_recovery` | A tool with `idempotency_class = 'manual_reconcile_only'` was detected in-flight during recovery and was **not** re-executed per [Spec-015 §Idempotency Classes and Recovery Behavior](015-persistence-recovery-and-replay.md#idempotency-classes-and-recovery-behavior). Payload: `{sessionId, runId, commandId, reason}`. |
+| `subagent.started` | A provider-native in-session subagent started under the run's subagent policy (B1; provider-attributed). Per-type payload (non-tool — no `toolName`): `{sessionId, runId, provider, subagentId, parentToolCallId?}`. |
+| `subagent.completed` | A provider-native in-session subagent finished; per-type payload identical to `subagent.started` (`{sessionId, runId, provider, subagentId, parentToolCallId?}`, no `toolName`) so completions pair to starts on the (`runId`, `provider`, `subagentId`) triple — `subagentId` is provider-native and unique only within its provider's run scope, so the bare id never pairs across runs or providers — and its usage aggregates into the run's own budgets (B1). |
 
 > See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed payload definitions.
 
@@ -342,14 +367,17 @@ Lifecycle discipline: five terminal events — `.rejected`, `.denied`, `.failed`
 
 ### Usage Telemetry (`usage_telemetry`)
 
-Payload shape: `{sessionId, runId?, tokenCount?, inputTokens?, outputTokens?, costCents?, windowUsedTokens?, windowMaxTokens?}`
+Payload shape: `{sessionId, runId?, tokenCount?, inputTokens?, outputTokens?, costCents?, costStatus?: 'priced' | 'unpriced', costSource?: 'provider_reported' | 'derived_exact' | 'derived_family_prefix', windowUsedTokens?, windowMaxTokens?, windowSource?: 'provider_reported' | 'model_default' | 'estimated', exceeded?: boolean}` (B1 — cost provenance mirrors the three-tier cost-derivation ladder; `windowSource` + `exceeded` mirror context-window provenance; both vocabularies deliberately parallel). This shape governs the three metered update types (`usage.token_count`, `usage.cost_update`, `usage.context_window_update`) only — with per-type requiredness on post-B1 emitters: `usage.cost_update` MUST set `costStatus` + `costSource` (priced-vs-unpriced provenance is the row's purpose) and `usage.context_window_update` MUST set `windowSource` + `exceeded` (authoritative-vs-estimated provenance and the headroom signal Plan-016/B15 budget consumers depend on); optionality on those fields is pre-B1 history only; `usage.budget_warning` is per-type (see its row: `{sessionId, runId?, agentId?, budgetType, limitValue, observedValue, reason?}`); `usage.rate_limit_update` is per-type — exactly `{provider, windowMins, usedPercent, resetsAt?}`, with no `sessionId` in the payload (session binding happens at the envelope via the node-scope sentinel per §Daemon-Scope Event Binding And Node-Scope Anchoring).
 
 | Type | Description |
 | --- | --- |
 | `usage.token_count` | A token consumption snapshot has been recorded for a run. |
 | `usage.cost_update` | A cost accumulation update has been recorded. |
 | `usage.context_window_update` | The context window utilization has changed significantly. |
-| `usage.budget_warning` | A budget scope crossed its 80% warning threshold ([Spec-016 §Budget Policies](./016-multi-agent-channels-and-orchestration.md)). Payload: `{sessionId, runId?, agentId?, budgetType: 'run_tokens' \| 'session_cost' \| 'agent_turns', limitValue, observedValue}` — fired once per (scope, budgetType) crossing by the daemon BudgetAccountant. Emitter Plan-016; registered by the Tier-6 audit (A-016-6). |
+| `usage.budget_warning` | A budget scope crossed its 80% warning threshold ([Spec-016 §Budget Policies](./016-multi-agent-channels-and-orchestration.md)). Payload: `{sessionId, runId?, agentId?, budgetType: 'run_tokens' \| 'session_cost' \| 'agent_turns', limitValue, observedValue, reason?: 'unpriced-model'}` — fired once per (scope, budgetType) crossing by the daemon BudgetAccountant; `reason: 'unpriced-model'` marks the budget-indeterminate warning for a model family with no cost derivation (B1). Emitter Plan-016; registered by the Tier-6 audit (A-016-6). |
+| `usage.rate_limit_update` | An account-scoped provider-quota snapshot (B1): payload `{provider, windowMins, usedPercent, resetsAt?}`, keyed by `(provider, windowMins)`, carrying **no `runId`** — account-plane, not run-plane; a display/quota surface only, kept off the security/admission plane. Consumer obligations (staleness defenses): an empty snapshot is a no-op; `windowMins <= 0` is dropped; a lower-`usedPercent` reading is dropped **only when window identity is confirmed** (same `resetsAt`) — usage climbs monotonically within a window, but when `resetsAt` is absent on either reading the window boundary is unknowable and the **newest reading wins**: a post-reset low reading is otherwise indistinguishable from a stale same-window decrease, pinning the display at the prior window's high-water mark; fail-open to freshest data, since a transient stale decrease self-corrects on the next snapshot. |
+
+**Session binding.** `usage.token_count` / `usage.cost_update` / `usage.context_window_update` / `usage.budget_warning` carry the real `sessionId` of the run or session they meter; `usage.rate_limit_update` is account-plane with no single owning session and binds to the reserved node-scope sentinel `session_id` per [§Daemon-Scope Event Binding And Node-Scope Anchoring](#daemon-scope-event-binding-and-node-scope-anchoring).
 
 > See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed payload definitions.
 
@@ -456,7 +484,7 @@ Payload shape: `{sessionId, anchorId?, verifierNodeId}` (base). Per-event payloa
 
 ### Security Events (`security_events`)
 
-Daemon-emitted events recording operator-facing security and data-protection posture transitions — fail-safe-default overrides and update-availability signals per [Spec-027 §Required Behavior](./027-self-host-secure-defaults.md#required-behavior), plus the daemon master-key custody source and the PII-split containment signal per [Spec-022](./022-data-retention-and-gdpr.md) (registered here at the Tier-5 readiness-audit swap, Plan-022 D-022-5). These events belong to a distinct category from `audit_integrity` (which records the audit log's tamper-evidence state) and from `event_maintenance` (which records operations on the event stream itself) because they describe **the daemon's security and data-protection posture** at process scope. Like those two infrastructure-state categories, security events fire at daemon scope across all sessions hosted on the node — they are not session-scoped. (These daemon-scope categories fire at process scope across all sessions, so they bind to a **reserved node-scope sentinel `session_id`** in the daemon-local `session_events` store: the local SQLite `session_id` is `TEXT NOT NULL` with **no** foreign key (see [local-sqlite-schema.md](../architecture/schemas/local-sqlite-schema.md)), so a reserved sentinel value is admissible without a phantom `sessions` row. The sentinel is pinned to the **RFC 9562 §5.10 Max UUID** `ffffffff-ffff-ffff-ffff-ffffffffffff`: the wire-path `EventEnvelopeSchema` validates every `sessionId` with `SessionIdSchema` (`z.uuid()`, [`packages/contracts/src/session.ts`](../../packages/contracts/src/session.ts)) regardless of the local store's looser `TEXT` typing, so the sentinel **must** be a `z.uuid()`-admissible value or the two `daemon.*` events would be rejected before append/serialization — `z.uuid()` accepts the Max UUID (verified, Zod 4.3.6). The Max UUID is chosen over the Nil UUID deliberately: it is a standards-reserved sentinel distinguishable from an accidental nil/zero-init, and is structurally disjoint from the `gen_random_uuid()` v4 id space (version nibble `f`, not `4`), so it can never collide with a real session id. In the daemon-local store it forms its own monotonic-sequence + BLAKE3 hash-chain + anchor partition exactly as a real session id does — reusing the existing per-session machinery, not a new replay mechanism. This identical-partition property is **local-only**: the control-plane anchor _upload_ cannot accept the sentinel (`event_log_anchors.session_id` is a non-null FK to `sessions(id)`, which the sentinel is deliberately not), so node-scope (sentinel-partitioned) chains are witnessed **locally only** in V1 — their control-plane upload is a V1.1 extension gated on a node-identity trust anchor (see [§Daemon-Scope Event Binding And Node-Scope Anchoring](#daemon-scope-event-binding-and-node-scope-anchoring) and [ADR-017 §Node-Scope Anchor Witnessing](../decisions/017-shared-event-sourcing-scope.md#node-scope-anchor-witnessing-v1-local-only-v11-control-plane-upload)). The two Plan-022 `daemon.*` events registered above (`daemon.master_key_source`, `daemon.pii_split_ambiguous`) bind to this sentinel per [Plan-022 §Ratified Design Decisions D-022-8](../plans/022-data-retention-and-gdpr.md#ratified-design-decisions-tier-5-audit-2026-05-30). The cross-category binding rule for all daemon-scope events — `audit_integrity` (`key_reuse_detected`), `event_maintenance`, and the daemon-startup `runtime_node_lifecycle` clock events — is specified canonically in [§Daemon-Scope Event Binding And Node-Scope Anchoring](#daemon-scope-event-binding-and-node-scope-anchoring) below.)
+Daemon-emitted events recording operator-facing security and data-protection posture transitions — fail-safe-default overrides and update-availability signals per [Spec-027 §Required Behavior](./027-self-host-secure-defaults.md#required-behavior), plus the daemon master-key custody source and the PII-split containment signal per [Spec-022](./022-data-retention-and-gdpr.md) (registered here at the Tier-5 readiness-audit swap, Plan-022 D-022-5). These events belong to a distinct category from `audit_integrity` (which records the audit log's tamper-evidence state) and from `event_maintenance` (which records operations on the event stream itself) because they describe **the daemon's security and data-protection posture** at process scope. Like those two infrastructure-state categories, security events fire at daemon scope across all sessions hosted on the node — they are not session-scoped. (These daemon-scope categories fire at process scope across all sessions, so they bind to a **reserved node-scope sentinel `session_id`** in the daemon-local `session_events` store: the local SQLite `session_id` is `TEXT NOT NULL` with **no** foreign key (see [local-sqlite-schema.md](../architecture/schemas/local-sqlite-schema.md)), so a reserved sentinel value is admissible without a phantom `sessions` row. The sentinel is pinned to the **RFC 9562 §5.10 Max UUID** `ffffffff-ffff-ffff-ffff-ffffffffffff`: the wire-path `EventEnvelopeSchema` validates every `sessionId` with `SessionIdSchema` (`z.uuid()`, [`packages/contracts/src/session.ts`](../../packages/contracts/src/session.ts)) regardless of the local store's looser `TEXT` typing, so the sentinel **must** be a `z.uuid()`-admissible value or the two `daemon.*` events would be rejected before append/serialization — `z.uuid()` accepts the Max UUID (verified, Zod 4.3.6). The Max UUID is chosen over the Nil UUID deliberately: it is a standards-reserved sentinel distinguishable from an accidental nil/zero-init, and is structurally disjoint from the `gen_random_uuid()` v4 id space (version nibble `f`, not `4`), so it can never collide with a real session id. In the daemon-local store it forms its own monotonic-sequence + BLAKE3 hash-chain + anchor partition exactly as a real session id does — reusing the existing per-session machinery, not a new replay mechanism. This identical-partition property is **local-only**: the control-plane anchor _upload_ cannot accept the sentinel (`event_log_anchors.session_id` is a non-null FK to `sessions(id)`, which the sentinel is deliberately not), so node-scope (sentinel-partitioned) chains are witnessed **locally only** in V1 — their control-plane upload is a V1.1 extension gated on a node-identity trust anchor (see [§Daemon-Scope Event Binding And Node-Scope Anchoring](#daemon-scope-event-binding-and-node-scope-anchoring) and [ADR-017 §Node-Scope Anchor Witnessing](../decisions/017-shared-event-sourcing-scope.md#node-scope-anchor-witnessing-v1-local-only-v11-control-plane-upload)). The two Plan-022 `daemon.*` events registered above (`daemon.master_key_source`, `daemon.pii_split_ambiguous`) bind to this sentinel per [Plan-022 §Ratified Design Decisions D-022-8](../plans/022-data-retention-and-gdpr.md#ratified-design-decisions-tier-5-audit-2026-05-30). The cross-category binding rule for all daemon-scope events — `audit_integrity` (`key_reuse_detected`), `event_maintenance`, the daemon-startup `runtime_node_lifecycle` clock events, and the account-plane `usage.rate_limit_update` (`usage_telemetry`, B1) — is specified canonically in [§Daemon-Scope Event Binding And Node-Scope Anchoring](#daemon-scope-event-binding-and-node-scope-anchoring) below.)
 
 **Invariant: at-most-once-per-startup emission for `security.default.override`.** Per [Plan-007 §Invariants I-007-4](../plans/007-local-ipc-and-daemon-control.md#invariants), each active override emits exactly one `security.default.override` event per process startup, never per request. Multi-override scenarios emit one event per distinct override.
 
@@ -516,27 +544,32 @@ Payload shape: `{nodeId, bundleId, bundleVersion}` (base). Per-event payload ext
 
 > See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed payload definitions.
 
+### Reserved Family: `realtime_*`
+
+Reserved, no types registered (B1): realtime/voice channel events are gated behind the R8 capability gate — the upstream provider realtime flag has not stabilized, so no emitter, payload shape, or type enumeration is invented here. The family name is reserved in the census so a future registration is additive rather than a rename.
+
 ### Event Type Summary
 
-Total enumerated event types: **130** <!-- corpus:total-check column="Count" prose-total="Total enumerated event types" -->
+Total enumerated event types: **140** <!-- corpus:total-check column="Count" prose-total="Total enumerated event types" -->
 
 | Category | Count | Types |
 | --- | --- | --- |
-| `session_lifecycle` (session) | 7 | `session.created` through `session.purged` |
+| `session_lifecycle` (session) | 9 | `session.created` through `session.goal_cleared` (incl. the B1 goal events) |
 | `membership_change` (invite/membership) | 9 | `invite.created` through `membership.reactivated` (incl. `membership.created`) |
 | `membership_change` (presence) | 4 | `presence.online` through `presence.offline` |
 | `session_lifecycle` (channel/agent) | 7 | `channel.created` through `agent.config_updated` (incl. `channel.unmuted`) |
 | `channel_arbitration` | 3 | `arbitration.paused`, `arbitration.resumed`, `orchestration.rejected` |
-| `run_lifecycle` | 9 | `run.queued` through `run.failed` |
+| `run_lifecycle` | 10 | `run.queued` through `run.rolled_back` (incl. the B1 forward rollback event) |
 | `interactive_request` (queue) | 5 | `queue_item.created` through `queue_item.expired` |
 | `interactive_request` (intervention) | 6 | `intervention.requested` through `intervention.expired` |
+| `interactive_request` (driver ask) | 4 | `driver_ask.requested` through `driver_ask.canceled` (B1) |
 | `approval_flow` | 8 | `approval.requested` through `moderation.review_flagged` |
 | `session_lifecycle` (repo/workspace/worktree) | 11 | `repo.attached` through `worktree.retired` |
 | `artifact_publication` | 6 | `artifact.published` through `pr.submitted` |
 | `assistant_output` | 2 | `assistant.message`, `assistant.thinking_update` |
-| `tool_activity` | 5 | `tool.invoked` through `tool.skipped_during_recovery` |
+| `tool_activity` | 7 | `tool.invoked` through `subagent.completed` (incl. the B1 subagent-lifecycle rows) |
 | `cross_node_dispatch` | 13 | `dispatch.sent`, `dispatch.received`, `dispatch.rejected`, `dispatch.approval_requested`, `dispatch.approved`, `dispatch.denied`, `dispatch.executed`, `dispatch.completed`, `dispatch.failed`, `dispatch.expired`, `dispatch.result_buffered`, `dispatch.approval_observed`, `dispatch.result_observed` |
-| `usage_telemetry` | 4 | `usage.token_count` through `usage.budget_warning` |
+| `usage_telemetry` | 5 | `usage.token_count` through `usage.rate_limit_update` |
 | `onboarding_lifecycle` | 2 | `onboarding.choice_made`, `onboarding.choice_reset` |
 | `runtime_node_lifecycle` | 9 | `runtime_node.registered` through `session.clock_corrected` |
 | `recovery_events` | 3 | `recovery.attempted`, `recovery.succeeded`, `recovery.failed` |
@@ -545,7 +578,8 @@ Total enumerated event types: **130** <!-- corpus:total-check column="Count" pro
 | `security_events` | 4 | `security.default.override`, `security.update.available`, `daemon.master_key_source`, `daemon.pii_split_ambiguous` |
 | `event_maintenance` | 3 | `schema.migrated`, `event.compacted`, `event.shredded` |
 | `policy_events` | 2 | `policy_bundle.loaded`, `policy_bundle.rejected` |
-| **Total** | **130** | Exceeds Forge's 69-type baseline by 88% |
+| _reserved:_ `realtime_*` | 0 | reserved family, no types registered — gated on upstream realtime-flag stabilization (R8, B1) |
+| **Total** | **140** | Exceeds Forge's 69-type baseline by 103% |
 
 ## Integrity Protocol
 
@@ -581,6 +615,7 @@ Not every event describes activity inside a session. Some describe the **daemon 
 - every `event_maintenance` type — `schema.migrated`, `event.compacted`, `event.shredded` (an `event.compacted` scoped to a single session's compaction MAY instead carry that session's id);
 - `key_reuse_detected` (category `audit_integrity`) — a node-level key-collision observation, distinct from `audit_integrity_verified` / `audit_integrity_failed`, which carry the real `session_id` of the range they verified (or the sentinel when they verify the node-scope chain itself);
 - the daemon-startup clock events `session.clock_unsynced` / `session.clock_corrected` (category `runtime_node_lifecycle`) — distinct from `runtime_node.*`, which describe a node's attachment to a specific session and carry that `session_id`;
+- `usage.rate_limit_update` (category `usage_telemetry`, B1) — an account-scoped provider-quota snapshot spanning every session the account's runs touch, so it has no single owning session; the other four `usage_telemetry` types carry the real `sessionId` of the run or session they meter;
 - every `participant_lifecycle` type — `participant.exported`, `participant.purge_requested`, `participant.purged`, `participant.tokens_revoked_all`, `participant.device_reset` — which describe the **participant entity itself** (account-level existence and keyring state), not its role in any one session ([§Participant Lifecycle](#participant-lifecycle-participant_lifecycle)): a single such event spans every session the participant touched, so it has no one owning `session_id` (participant-scope). When the event names affected sessions they live in the **payload** (`participant.purged.affectedSessionIds[]`), never in the row's `session_id` — the event is not hidden: it anchors in the daemon's sentinel-partitioned node-scope chain exactly like any daemon-scope event, and `affectedSessionIds[]` cross-references the touched sessions for audit. Emitted once per participant action (aggregate), not once per affected session.
 
 **Sentinel constant.** The sentinel is the RFC 9562 §5.10 **Max UUID** `ffffffff-ffff-ffff-ffff-ffffffffffff`, applied uniformly across **all** daemon-scope bindings — not only the two Plan-022 `daemon.*` events that first reserved it. Its rationale (`z.uuid()`-admissibility on the wire path, deliberate disjointness from the `gen_random_uuid()` v4 id space, FK-free admissibility in the `TEXT NOT NULL` local `session_id`) is detailed in [§Security Events](#security-events-security_events).
@@ -626,6 +661,10 @@ An audit stub retains:
   occurredAt: string,   // original timestamp preserved
   category: EventCategory,
   type: string,         // original type preserved
+  runId?: RunId,        // REQUIRED on terminal run_lifecycle rows and posture-bearing run.running rows (backstop-index key)
+  runVersion?: number,  // REQUIRED on terminal run_lifecycle rows and posture-bearing run.running rows (the keys survive compaction — §Run Lifecycle)
+  executionPosture?: ExecutionPosture, // REQUIRED on posture-bearing run.running rows — the audit boundary survives compaction
+  credentialPolicyRef?: string, // preserved when the source run.running payload carries it; becomes REQUIRED alongside executionPosture once the in-flight Spec-012 execution-posture amendment (PR #175) lands the field on the carrier
   actor: string | null,
   compactedAt: string,  // when compaction occurred
   retentionClass: 'audit_stub',
@@ -633,7 +672,7 @@ An audit stub retains:
 }
 ```
 
-At compaction the `payload` column is **replaced** (not nulled — the column is `NOT NULL`) by the JCS-canonicalized audit-stub projection above; `pii_payload`, `correlationId`, and `causationId` are removed (set NULL). The `summary` field is generated at compaction time from the original payload. The compactor then writes a per-row **`stub_signature`** — an Ed25519 signature over the **exact canonical byte string it stores in `payload`** (the RFC 8785 JCS serialization of the audit-stub projection) using the daemon's session signing key. **Sign-exact-bytes invariant:** the compactor signs the identical byte string it persists to `payload`, with no re-serialization between signing and storing; consequently a verifier authenticates the stub by checking `stub_signature` **directly over the stored `payload` bytes** — it never re-canonicalizes or reconstructs the projection from the scalar columns (`compactedAt` and `summary` are not columns; they exist only inside the stored projection). See [§ Post-Compaction Integrity](#post-compaction-integrity). The replay and renderer contracts read this stub from `payload` and MUST surface it with `retentionClass: 'audit_stub'` (never a silent omission) per [§ Replay Interaction with Compacted Regions](#replay-interaction-with-compacted-regions).
+At compaction the `payload` column is **replaced** (not nulled — the column is `NOT NULL`) by the JCS-canonicalized audit-stub projection above; `pii_payload`, `correlationId`, and `causationId` are removed (set NULL). The `summary` field is generated at compaction time from the original payload. For terminal `run_lifecycle` rows (`run.completed` / `run.interrupted` / `run.failed`) the projection additionally preserves the original payload's `runId` + `runVersion` (B1) — the at-most-once-terminal backstop index (§Run Lifecycle) is keyed on those payload fields, and compacting them away would re-admit duplicate terminals as indexed NULLs. The compactor then writes a per-row **`stub_signature`** — an Ed25519 signature over the **exact canonical byte string it stores in `payload`** (the RFC 8785 JCS serialization of the audit-stub projection) using the daemon's session signing key. **Sign-exact-bytes invariant:** the compactor signs the identical byte string it persists to `payload`, with no re-serialization between signing and storing; consequently a verifier authenticates the stub by checking `stub_signature` **directly over the stored `payload` bytes** — it never re-canonicalizes or reconstructs the projection from the scalar columns (`compactedAt` and `summary` are not columns; they exist only inside the stored projection). See [§ Post-Compaction Integrity](#post-compaction-integrity). The replay and renderer contracts read this stub from `payload` and MUST surface it with `retentionClass: 'audit_stub'` (never a silent omission) per [§ Replay Interaction with Compacted Regions](#replay-interaction-with-compacted-regions).
 
 ### Post-Compaction Integrity
 

@@ -4,9 +4,9 @@
 
 This document records the V1 / V1.1 / V2 scope triage for the product. It is governed by [ADR-015: V1 Feature Scope Definition](../decisions/015-v1-feature-scope-definition.md). Any change to the triage below requires an ADR update or supersession.
 
-## V1 Features (17)
+## V1 Features (23)
 
-Every V1 feature has a governing spec. Cross-cutting V1 specs (identity, observability, rate limiting, data retention, relay) are listed separately in §Supporting V1 Specs below.
+Every V1 feature has a governing spec, with the following campaign-pending exceptions. **Feature #18** is the one feature with **no governing spec yet in the corpus** — Spec-028 is authored by the capability-enhancement campaign's B18 bundle and is not yet landed (see its row). **Features #19–#23** each have an existing governing spec that is cited today, but each also depends on a **campaign amendment** to that spec (via the B1/B2/B3/B6/B20 bundles) that is still pending — the base spec exists and is cited; the feature-specific amendment is a named merge prerequisite (see each row). Cross-cutting V1 specs (identity, observability, rate limiting, data retention, relay) are listed separately in §Supporting V1 Specs below.
 
 | # | Feature | Governing Spec(s) |
 | --- | --- | --- |
@@ -27,6 +27,12 @@ Every V1 feature has a governing spec. Cross-cutting V1 specs (identity, observa
 | 15 | Desktop GUI | [Spec-023: Desktop Shell and Renderer](../specs/023-desktop-shell-and-renderer.md) |
 | 16 | Multi-Agent Channels | [Spec-016](../specs/016-multi-agent-channels-and-orchestration.md) (V1-readiness review per BL-042) |
 | 17 | Workflow authoring and execution (full engine) | [Spec-017](../specs/017-workflow-authoring-and-execution.md) (promoted V1.1→V1 per BL-097) |
+| 18 | MCP server configuration and governance | Spec-028 + Plan-028 — **pending**: to be authored by the capability-enhancement campaign's B18 bundle, a named merge prerequisite before feature #18 is implementable (not yet in the corpus; do not cite until landed). Scope: operator-managed trusted-server store, Cedar-gated per-tool overrides |
+| 19 | Session time-travel (run rollback) | [Spec-004](../specs/004-queue-steer-pause-resume.md) (`rollback` intervention — campaign B2, **pending**: queued and not yet authored; a named merge prerequisite) + forward `run.rolled_back` event ([Spec-006](../specs/006-session-event-taxonomy-and-audit-log.md), 2026-07-02 B1 amendment, **in-tree**: merged via PR #173, residual gate = Spec-006 `review → approved` promotion — the W1.5 re-promotion gate / Task 28) + the daemon-side turn-snapshot **file-restore** leg ([Spec-010](../specs/010-worktree-lifecycle-and-execution-modes.md) + [Plan-010](../plans/010-worktree-lifecycle-and-execution-modes.md), campaign B21→B22→B23 / Task 26, **pending**: gated before Plan-004 Phase 3 rollback dispatch — Codex `thread/rollback` (upstream-deprecated beyond the `0.141.0` pin — re-verify per the provider-wire receipt) reverts conversation only, so worktree restoration is the daemon's) |
+| 20 | Session goals | [Spec-016](../specs/016-multi-agent-channels-and-orchestration.md) (goal set/clear RPC — campaign B6, **pending**: queued and not yet authored; `session.goal_*` events per the 2026-07-02 Spec-006 B1 amendment, **in-tree**: merged via PR #173, residual gate = Spec-006 `review → approved` promotion / Task 28 — both named merge prerequisites: the B6 goal RPC queued, the B1 events in-tree pending promotion) |
+| 21 | Session callback tools | [Spec-005](../specs/005-provider-driver-contract-and-capabilities.md) (registry shape — campaign B3, **pending**: queued and not yet authored; a named merge prerequisite) + [Spec-012](../specs/012-approvals-permissions-and-trust-boundaries.md) (Cedar governance — 2026-07-02 B20 amendment, **pending**: in flight as PR #175; a named merge prerequisite) |
+| 22 | Execution postures and sandbox profiles | [Spec-012](../specs/012-approvals-permissions-and-trust-boundaries.md) (`executionPosture` authorization semantics — 2026-07-02 B20 amendment, **pending**: in flight as PR #175; a named merge prerequisite) + [Spec-005](../specs/005-provider-driver-contract-and-capabilities.md) (driver legs — campaign B3, **pending**: queued and not yet authored; a named merge prerequisite) |
+| 23 | Realtime voice channels (capability-gated) | [Spec-016](../specs/016-multi-agent-channels-and-orchestration.md) (V1-scope-decision reservation — campaign B6, **pending**: queued and not yet authored; a named merge prerequisite) + [Spec-006](../specs/006-session-event-taxonomy-and-audit-log.md) (reserved `realtime_*` family — 2026-07-02 B1 amendment, **in-tree**: merged via PR #173, residual gate = Spec-006 `review → approved` promotion — the W1.5 re-promotion gate / Task 28); gated on upstream Codex realtime-flag stabilization |
 
 ## V1.1 Features (3, Deferred)
 
@@ -46,12 +52,12 @@ Any feature inferable from the product vision but not listed above — including
 
 ## Deployment Options (V1)
 
-Per [ADR-020: V1 Deployment Model and OSS License](../decisions/020-v1-deployment-model-and-oss-license.md), V1 ships over two deployment options — the same 17-feature surface runs in either; this is not a feature-count change to the triage above:
+Per [ADR-020: V1 Deployment Model and OSS License](../decisions/020-v1-deployment-model-and-oss-license.md), V1 ships over two deployment options — the same 23-feature surface runs in either; this is not a feature-count change to the triage above:
 
 - **Free self-hosted (OSS).** Users obtain the product via `git clone`, `npm install`, Homebrew formula, or release-binary download. The daemon defaults to a project-operated free public relay at a published URL so first-run collaboration is zero-configuration. Users can override via config (`RELAY_URL=…` or `--relay-url=…`) to point at their own self-hosted relay. Community-supported via GitHub Issues and Security Advisories; no SLA.
 - **Hosted SaaS.** The project operates the same codebase as a managed service at a separate URL. Users sign up, receive a scoped token, and their daemons point at the hosted control plane. Vendor-supported for paying customers.
 
-Both deployment options ship the 17-feature V1 surface identically. The rate-limiter abstraction in `deployment-topology.md` §Rate Limiting By Deployment uses Cloudflare-native `rate_limit` for hosted and project-operated relay, and `rate-limiter-flexible` with Postgres for the self-hostable relay — both ship in V1. First-run UX presents a one-time three-way choice (free public relay / self-host / sign up for hosted) per Spec-026 (from BL-081).
+Both deployment options ship the 23-feature V1 surface identically. The rate-limiter abstraction in `deployment-topology.md` §Rate Limiting By Deployment uses Cloudflare-native `rate_limit` for hosted and project-operated relay, and `rate-limiter-flexible` with Postgres for the self-hostable relay — both ship in V1. First-run UX presents a one-time three-way choice (free public relay / self-host / sign up for hosted) per Spec-026 (from BL-081).
 
 ## Platform Support (V1)
 
@@ -84,13 +90,13 @@ Cross-cutting V1 specs that multiple V1 features depend on. These are required b
 
 ## Spec Coverage Assessment
 
-- **V1 features:** all 17 have a governing spec — Spec-023 (Desktop Shell + Renderer) landed per BL-041, Spec-016 (Multi-Agent Channels) completed its V1-readiness review per BL-042, and Spec-017 (Workflow authoring and execution) carries 27 of 31 amendments from BL-097 Wave 1+2 research in its body (SA-1…SA-23, SA-25, SA-26, SA-27, SA-28); SA-24/29/30/31 land in Plan-017 per implementation-detail separation.
+- **V1 features:** all 23 have a governing spec, with one pending exception — feature #18's Spec-028 is authored by the capability-enhancement campaign's B18 bundle and is not yet in the corpus (see its row above), and features #19–#23 are governed by existing specs whose amendments land via the named campaign bundles in their rows — doc-gated until those bundles merge (B20 in flight as PR #175; B1 merged via #173, Spec-006 pending `review → approved`; the rest queued). Of the original 17 — Spec-023 (Desktop Shell + Renderer) landed per BL-041, Spec-016 (Multi-Agent Channels) completed its V1-readiness review per BL-042, and Spec-017 (Workflow authoring and execution) carries 27 of 31 amendments from BL-097 Wave 1+2 research in its body (SA-1…SA-23, SA-25, SA-26, SA-27, SA-28); SA-24/29/30/31 land in Plan-017 per implementation-detail separation.
 - **V1.1 features:** all 3 have a governing spec referenced above. The MLS spec surface (Spec-008) is being rewritten to declare pairwise-first for V1 and MLS as the V1.1 upgrade per BL-048.
 - **V2 features:** intentionally uncovered. V2 scope decisions are made post-V1 and add specs as needed.
 
 ## Backlog Coverage Assessment
 
-All V1 features and supporting V1 specs have corresponding implementation plans (Plans 001–020 for existing V1 features, including Plan-016 for Multi-Agent Channels and Plan-017 for Workflow authoring and execution promoted to V1 per BL-097; Plan-021 per BL-044, Plan-022 per BL-045, Plan-023 per BL-043, Plan-024 per BL-078, Plan-025 per BL-080, Plan-026 per BL-082, and Plan-027 for Spec-024 cross-node dispatch and approval). Tier assignments in `cross-plan-dependencies.md` align against ADR-015 per BL-054.
+All V1 features and supporting V1 specs have corresponding implementation plans, with one pending exception: feature #18's Plan-028 is authored by the campaign's B18 bundle and is not yet in the corpus (no tier row until it lands), and features #19–#23 land inside existing plans via the campaign bundles named in their rows (Plans 001–020 for existing V1 features, including Plan-016 for Multi-Agent Channels and Plan-017 for Workflow authoring and execution promoted to V1 per BL-097; Plan-021 per BL-044, Plan-022 per BL-045, Plan-023 per BL-043, Plan-024 per BL-078, Plan-025 per BL-080, Plan-026 per BL-082, and Plan-027 for Spec-024 cross-node dispatch and approval). Tier assignments in `cross-plan-dependencies.md` align against ADR-015 per BL-054.
 
 ## References
 

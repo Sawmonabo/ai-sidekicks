@@ -23,7 +23,7 @@ The architecture program needs a stable IPC contract before CLI, desktop, and da
 
 ## Decision
 
-Use JSON-RPC 2.0 with LSP-style `Content-Length` header framing over a Unix domain socket (named pipe on Windows) for local daemon IPC. Provide a WebSocket adapter for browser and remote clients that carries the same JSON-RPC payloads.
+Use JSON-RPC 2.0 with LSP-style `Content-Length` header framing over a Unix domain socket (named pipe on Windows) for local daemon IPC. For browser and remote clients the control-plane API is tRPC v11 (request-response + SSE) per [ADR-014](./014-trpc-control-plane-api.md); WebSocket carrying JSON-RPC payloads is scoped to the **bidirectional collaboration subset only** (presence, live collaboration events — typing / shared editing (relay traffic is outside this JSON-RPC subset: relay negotiation rides tRPC request-response and the relay WSS connection speaks the Spec-008 §Message Framing binary wire frames — ciphertext envelopes and broker control frames alike)); session-timeline and run-output event streaming stay on tRPC SSE per Spec-008's transport assignment and are explicitly **not** part of the WebSocket subset — clause narrowed by the 2026-07-02 Decision Log row (campaign B8).
 
 ## Alternatives Considered
 
@@ -58,7 +58,7 @@ Use JSON-RPC 2.0 with LSP-style `Content-Length` header framing over a Unix doma
 | --- | --- | --- | --- |
 | 1 | V8 native JSON parsing is fast enough for daemon message volume. | MCP, LSP, and reference apps (Claude Code, Cursor, Windsurf) ship on JSON/stdio at scale. | If tool-call payloads or streamed artifacts push per-message parse cost above the single-digit-ms budget, we would need a binary format. |
 | 2 | Local IPC consumers can open a Unix domain socket on macOS/Linux and a named pipe on Windows. | Node.js `net` module supports both APIs transparently via path-style addresses. | If a supported runtime cannot speak either, we would need a TCP loopback fallback with its own auth story. |
-| 3 | The same JSON-RPC payloads can be reused verbatim over a WebSocket adapter for browser and remote clients. | ADR-008 positions WebSocket as the browser/remote transport, and JSON-RPC 2.0 is transport-agnostic. | If browser clients need a different payload shape, we would carry two serialization schemas. |
+| 3 | The same JSON-RPC payloads can be reused verbatim over a WebSocket adapter — narrowed 2026-07-02 to the bidirectional collaboration subset only (see §Decision Log; ADR-014 owns the browser/remote request-response transport). | ADR-008 positions WebSocket as the browser/remote transport, and JSON-RPC 2.0 is transport-agnostic. | If browser clients need a different payload shape, we would carry two serialization schemas. |
 | 4 | Content-Length framing is robust against embedded newlines and partial reads. | LSP has used this framing for years without corruption issues across large tooling ecosystems. | If framing proves ambiguous (e.g., mismatched header parsers), we would have to add explicit length-prefixed binary framing. |
 
 ## Failure Mode Analysis
@@ -115,7 +115,8 @@ Use JSON-RPC 2.0 with LSP-style `Content-Length` header framing over a Unix doma
 
 ## Decision Log
 
-| Date       | Event    | Notes         |
-| ---------- | -------- | ------------- |
+| Date | Event | Notes |
+| --- | --- | --- |
 | 2026-04-15 | Proposed | Initial draft |
-| 2026-04-15 | Accepted | ADR accepted  |
+| 2026-04-15 | Accepted | ADR accepted |
+| 2026-07-02 | Amended — wire-format scope narrowed to the ADR-014 transport split | Capability-enhancement campaign (B8), P3-8: the §Decision browser/remote clause ("Provide a WebSocket adapter for browser and remote clients that carries the same JSON-RPC payloads") is narrowed to [ADR-014](./014-trpc-control-plane-api.md)'s transport split. JSON-RPC 2.0 over `Content-Length`-framed Unix-domain-socket/named-pipe stays the **local daemon IPC** wire; the browser/remote **control-plane API** is tRPC v11 (typed request-response + SSE subscriptions), and JSON-RPC-2.0-over-WebSocket is scoped to the **bidirectional collaboration subset only** (presence, live collaboration events — typing / shared editing (relay traffic is outside this JSON-RPC subset: relay negotiation rides tRPC request-response and the relay WSS connection speaks the Spec-008 §Message Framing binary wire frames — ciphertext envelopes and broker control frames alike); session-timeline and run-output event streams stay on tRPC SSE per Spec-008) per [ADR-014](./014-trpc-control-plane-api.md) §Decision. The original "same payloads over WebSocket" phrasing predates ADR-014 and overclaimed the WebSocket surface. Core JSON-RPC-for-local-IPC decision unchanged; ADR stays `accepted`. |
