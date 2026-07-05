@@ -45,7 +45,7 @@
 // Capability key — `"provider-driver-<driverName>"` (CP-005-5)
 // --------------------------------------------------------------------------
 // The emitted `capability` identifier is `"provider-driver-" + driverName`
-// (e.g. `provider-driver-claude`), per CP-005-5 (Plan-005:419-420), which
+// (e.g. `provider-driver-claude`), per CP-005-5 (Plan-005:420-421), which
 // directs the emit on driver registration + refresh with
 // `capability: "provider-driver-{codex|claude}"`. The DRIVER-NAME SUFFIX
 // disambiguates MULTIPLE drivers on one runtime node IN-PLAN — it is the
@@ -163,7 +163,7 @@ import {
 /**
  * The driver-name-suffixed capability identifier emitted on every
  * `runtime_node.capability_*` event — `"provider-driver-<driverName>"`
- * (e.g. `provider-driver-claude`). Per CP-005-5 (Plan-005:419-420), the
+ * (e.g. `provider-driver-claude`). Per CP-005-5 (Plan-005:420-421), the
  * suffix disambiguates multiple drivers on one runtime node IN-PLAN.
  */
 function providerDriverCapabilityKey(driverName: string): string {

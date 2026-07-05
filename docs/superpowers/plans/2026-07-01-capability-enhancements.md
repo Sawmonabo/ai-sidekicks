@@ -188,10 +188,10 @@ Every doc task's final steps invoke this procedure with its own branch/commit/fi
 
 **Interfaces:** Produces — ADR-009 P3-8 narrowing; ADR-012 P1-7 resident-authorizer posture + scoped no-caching + end-to-end WASM <1ms empirical target; ADR-017 P1-5 local-log-authoritative + R8 forward-`run.rolled_back` row; ADR-019 P2-2/P3-5 two-layer orphan defense + both resync tiers + Phase-3B kill wire-through (full §9 BP-16..BP-20 mechanics); ADR-015 **17 → 23 features** (#18 MCP governance, #19 time-travel, #20 goals, #21 callback tools, #22 execution postures, #23 realtime gated) + README census ripple (here or Task 24 — decide at authoring, declare in the PR body). Consumed by Tasks 4, 5, 6, 16, 18, 24.
 
-- [ ] **Step 1:** SBP-1 bundle=`b8`, branch=`docs/b8-adr-decision-rows`.
-- [ ] **Step 2:** Author the five Decision-Log rows (+ ADR-015 §Amendment History) per Design §4 B8; all five stay `accepted`.
-- [ ] **Step 3:** If the README feature census is edited here, re-derive the 23-count by listing rows and run ripple-check; otherwise record the explicit hand-off to Task 24 in the PR body.
-- [ ] **Step 4:** SBP-3/4/5/6 — subject `docs(repo): five adr decision-log rows — corpus + r8 scope (b8)`, trailer `Refs: ADR-009, ADR-012, ADR-015, ADR-017, ADR-019`.
+- [x] **Step 1:** SBP-1 bundle=`b8`, branch=`docs/b8-adr-decision-rows`.
+- [x] **Step 2:** Author the five Decision-Log rows (+ ADR-015 §Amendment History) per Design §4 B8; all five stay `accepted`.
+- [x] **Step 3:** If the README feature census is edited here, re-derive the 23-count by listing rows and run ripple-check; otherwise record the explicit hand-off to Task 24 in the PR body.
+- [x] **Step 4:** SBP-3/4/5/6 — subject `docs(repo): five adr decision-log rows — corpus + r8 scope (b8)`, trailer `Refs: ADR-009, ADR-012, ADR-015, ADR-017, ADR-019`.
 
 ### Task 10: B20 — Spec-012 execution-posture bundle
 

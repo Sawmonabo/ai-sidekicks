@@ -274,6 +274,22 @@ export interface SidekicksBridge {
 
   // control-plane RPC — request/response over tRPC, live updates over WebSocket JSON-RPC 2.0
   readonly controlPlane: {
+    /**
+     * Generic renderer-facing forwarder for control-plane request/response procedures
+     * (session CRUD, membership, invites, approvals, artifacts, health — Spec-008
+     * §Control-Plane Transport Protocol).
+     *
+     * CONTRACT CONSTRAINT — relay negotiation is NOT reachable through this forwarder.
+     * `negotiateRelay` returns a `RelayNegotiationResponse` carrying the short-lived relay
+     * `connectionToken` (a PASETO `aud=relay-connect` bearer credential) which Spec-023
+     * §Trust Stance confines to the main process and forbids on the preload bridge. Relay
+     * negotiation runs main-process-owned and consumes the token in-process to open the
+     * relay WSS; the renderer reaches the relay only via `subscribeRelay` (relay events,
+     * never the token). The main-process `controlPlane.call` handler MUST reject any
+     * relay-negotiation procedure. (A structural exclusion is not expressible against the
+     * opaque `CpProcedure` brand; closing `CpProcedure` to a named allow-list that omits
+     * relay negotiation is a Plan-023 bridge-contract concern.)
+     */
     call<P extends CpProcedure>(procedure: P, input: CpInput<P>): Promise<CpOutput<P>>;
     subscribeRelay(sessionId: SessionId, handler: RelayEventHandler): Unsubscribe;
   };

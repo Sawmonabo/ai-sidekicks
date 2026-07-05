@@ -185,7 +185,7 @@ The CLI (`sidekicks`) is the first client delivery track — it proves the typed
 
 ## V1 Scope
 
-V1 ships 17 core features across CLI and Desktop GUI per [ADR-015: V1 Feature Scope Definition](docs/decisions/015-v1-feature-scope-definition.md).
+V1 ships 23 core features across CLI and Desktop GUI per [ADR-015: V1 Feature Scope Definition](docs/decisions/015-v1-feature-scope-definition.md) (amended 2026-07-02 per the capability-enhancement campaign — was 17).
 
 | # | Feature | Description |
 | --- | --- | --- |
@@ -206,6 +206,12 @@ V1 ships 17 core features across CLI and Desktop GUI per [ADR-015: V1 Feature Sc
 | 15 | Desktop GUI | Electron shell + React/Vite renderer over the same typed SDK |
 | 16 | Multi-agent channels | Cross-agent coordination primitives per [Spec-016](docs/specs/016-multi-agent-channels-and-orchestration.md) |
 | 17 | Workflow authoring and execution | Full workflow engine per [Spec-017](docs/specs/017-workflow-authoring-and-execution.md) |
+| 18 | MCP server configuration and governance | Server-config CRUD, operator-managed trusted-server store, status/health probing, server OAuth — **Spec-028 + Plan-028 pending** (campaign B18; not among the 27 plans below) |
+| 19 | Session time-travel | Run rollback as a version-guarded intervention + forward `run.rolled_back` event (log never truncates) — governing amendments pending (B2 queued; B1 merged via #173, Spec-006 pending `review → approved`), and durable file restoration needs the B21→B23 turn-snapshot leg gated before Plan-004 Phase 3 (Codex rollback reverts conversation only) |
+| 20 | Session goals | Per-session structured goal with set/clear RPC and goal events — governing amendments pending (B6 queued; B1 merged via #173, Spec-006 pending `review → approved`) |
+| 21 | Session callback tools | Daemon-registered tools exposed into every run, Cedar-governed — governing amendments pending (B3 queued; B20 in flight as PR #175) |
+| 22 | Execution postures and sandbox profiles | Per-run sandbox posture as an authorization input, provider-uniform presets — governing amendment pending (B20 in flight as PR #175; B3 queued) |
+| 23 | Realtime voice channels | Reserved and capability-gated on upstream Codex realtime-flag stabilization — governing amendments pending (B6 queued; B1 merged via #173, Spec-006 pending `review → approved`) |
 
 **V1.1 additions:** MLS relay E2EE, email invite delivery, cross-node shared artifacts, plus the criterion-gated workflow subfeatures named in ADR-015.
 
@@ -213,7 +219,7 @@ V1 ships 17 core features across CLI and Desktop GUI per [ADR-015: V1 Feature Sc
 
 ## Build Order
 
-Implementation follows the tiered dependency graph defined in [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md). V1 spans 27 implementation plans; Plan-001 Shared Session Core is `completed`, six plans are in `review` (Plan-004, Plan-008, Plan-017 Workflow Authoring, Plan-018, Plan-022, Plan-025 Self-Hostable Node Relay), and the rest are `approved`.
+Implementation follows the tiered dependency graph defined in [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md). V1 spans 27 implementation plans (a pending 28th — Plan-028 for feature #18's MCP governance — lands with the campaign's B18 bundle, and MCP-governance code is gated on it); Plan-001 Shared Session Core is `completed`, six plans are in `review` (Plan-004, Plan-008, Plan-017 Workflow Authoring, Plan-018, Plan-022, Plan-025 Self-Hostable Node Relay), and the rest are `approved`.
 
 ```
 Tier 1  ► Plan-001  Shared Session Core
@@ -256,8 +262,8 @@ Each tier's prerequisites are the prior tier's completion. See [`docs/architectu
 
 Current documentation corpus:
 
-- **27 V1 implementation plans** with step-by-step build instructions; 20 are `approved`, Plan-001 is `completed`, and 6 are in `review` (Plan-004, Plan-008, Plan-017, Plan-018, Plan-022, Plan-025)
-- **27 approved specifications** covering every feature and cross-cutting concern
+- **27 V1 implementation plans** (+ pending Plan-028 for feature #18, campaign B18) with step-by-step build instructions; 20 are `approved`, Plan-001 is `completed`, and 6 are in `review` (Plan-004, Plan-008, Plan-017, Plan-018, Plan-022, Plan-025)
+- **27 approved specifications** covering every original feature and cross-cutting concern — the six campaign features are doc-gated: feature #18's Spec-028 is pending the B18 bundle, and features #19–#23's governing spec amendments land via the campaign's B1/B2/B3/B6/B20 bundles (B20 in flight as PR #175; B1 merged via #173, Spec-006 pending `review → approved`; the rest queued), so implementation of #18–#23 waits on the named bundles, not the existing corpus
 - **12 domain models** (run state machine, intervention model, participant model, workflow model, etc.)
 - **16 architecture documents** (schemas, contracts, security, deployment, dependencies)
 - **11 operations runbooks** (CLI commands, SLOs, on-call routing, self-host secure defaults)

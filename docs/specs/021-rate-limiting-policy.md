@@ -5,7 +5,7 @@
 | **Status** | `approved` |
 | **NNN** | `021` |
 | **Slug** | `rate-limiting-policy` |
-| **Date** | `2026-04-15` (amended 2026-06-10, Tier-6 readiness audit) |
+| **Date** | `2026-04-15` (amended 2026-06-10, Tier-6 readiness audit; amended 2026-07-02, capability-enhancement campaign B8 — `presence.heartbeat` V1-enforcement status) |
 | **Author(s)** | `Codex` |
 | **Depends On** | [Deployment Topology](../architecture/deployment-topology.md), [Security Architecture](../architecture/security-architecture.md) |
 | **Implementation Plan** | [Plan-021: Rate Limiting Policy](../plans/021-rate-limiting-policy.md) |
@@ -63,7 +63,7 @@ This registry is the **single enumeration** of every enforced limit (Tier-6 audi
 | `invite.pending_cap` | Pending invites | 100 concurrent | — | per session | authenticated | — | concurrency_cap |
 | `invite.accept` | Invite accept (token brute-force guard) | 10/min | 60s | per token-hash | anonymous | — | sliding_window |
 | `invite.redeem_ip` | Invite redemption attempts (source guard) | 5/min | 60s | per IP | anonymous | — | sliding_window |
-| `presence.heartbeat` | Presence heartbeat | 10/min | 60s | per participant | authenticated | — | sliding_window |
+| `presence.heartbeat` | Presence heartbeat | 10/min | 60s | per participant | authenticated | — | sliding_window — dormant in V1 (see registry semantics below) |
 | `event.query` | Event query (read) | 60/min | 60s | per participant | authenticated | ✓ | sliding_window |
 | `event.subscribe` | Event subscribe (SSE) | 5 concurrent | — | per participant | authenticated | — | concurrency_cap |
 | `approval.resolve` | Approval resolve | 30/min | 60s | per participant | authenticated | ✓ | sliding_window — dormant in V1 (see registry semantics below) |
@@ -77,7 +77,7 @@ Registry semantics (Tier-6 audit, D-021-6):
 - **Fallback buckets.** `general.api` applies to every authenticated control-plane procedure that has no more-specific registry row; `unauthenticated.request` applies to every unauthenticated procedure with no more-specific row. A request is counted against exactly one sliding-window row: the most specific matching row, else its tier's fallback bucket.
 - **Stacked invite-redemption limits.** `invite.accept` (per token-hash — throttles brute force against one token) and `invite.redeem_ip` (per IP — throttles one source spraying many tokens) are deliberately **both** enforced on the redemption path; they defend distinct axes. The redemption acceptance criterion (AC-3) anchors on `invite.redeem_ip`.
 - **Concurrency caps are not counters.** Rows with `enforcement class: concurrency_cap` are enforced at the owning resource surface (the invite store enforces `invite.pending_cap` at creation time; the SSE subscription registry enforces `event.subscribe` at subscribe time), not by the sliding-window limiter. They share the standard overflow envelope and `429` status, with the timing fields and timing headers omitted per §Overflow Response (cap capacity frees when an existing holder releases, not at a known reset time).
-- **Dormant rows.** `approval.resolve` is priced and reserved but wired by nobody in V1: Plan-012's ratified transport is daemon JSON-RPC only (Plan-012 D-012-5; no control-plane tRPC sibling exists), and the local daemon IPC path is excluded from rate limiting (see §Scope and §Non-Goals). Plan-027's V1 cross-node approval is target-node-owner-scoped — resolution happens on the owner's daemon over local IPC — so no network-reachable `approval.resolve` surface exists in V1. The row re-arms via BL-145 if the §ADR Triggers topology condition fires (the daemon becoming network-reachable).
+- **Dormant rows.** `approval.resolve` is priced and reserved but wired by nobody in V1: Plan-012's ratified transport is daemon JSON-RPC only (Plan-012 D-012-5; no control-plane tRPC sibling exists), and the local daemon IPC path is excluded from rate limiting (see §Scope and §Non-Goals). Plan-027's V1 cross-node approval is target-node-owner-scoped — resolution happens on the owner's daemon over local IPC — so no network-reachable `approval.resolve` surface exists in V1. The row re-arms via BL-145 if the §ADR Triggers topology condition fires (the daemon becoming network-reachable). `presence.heartbeat` is likewise priced and reserved but not enforced in V1 — for a distinct reason: unlike `approval.resolve` (which has no V1 surface at all), the heartbeat channel is **live** in V1 (heartbeats flow), but they ride the **WebSocket (JSON-RPC 2.0)** collaboration channel ([Spec-002](../specs/002-invite-membership-and-presence.md) §Heartbeat Transport; [Spec-008](../specs/008-control-plane-relay-and-session-join.md) §Control-Plane Transport Protocol), which ships **no per-message admission surface** in V1 — the connection is PASETO-authenticated per participant at handshake, but individual heartbeat messages are neither a tRPC procedure (nothing for the limiter to wrap) nor a relay binary frame (the per-frame seam decodes only the ciphertext-envelope `type`), so nothing meters them. The 10/min limit stays reserved; per-message metering arms with the V1.1 JSON-RPC-WS message-admission surface (that surface is the gate — mirroring `keypackage.upload`'s MLS gate — no new backlog item). The unmetered-but-authenticated channel is an accepted V1 posture, bounded by the per-participant authentication established at connect.
 - **Per-frame WS limiting.** `ws.message` is evaluated per message frame (see §WebSocket Overflow Response), not per connection establishment alone.
 
 ### Overflow Response
@@ -114,7 +114,7 @@ Counter limits — registry rows with enforcement class `sliding_window` — use
 
 ## Default Behavior
 
-- All rate limits are active by default for every control plane endpoint and WebSocket connection.
+- All rate limits are active by default for every control plane endpoint and WebSocket connection — **except rows explicitly marked dormant/reserved in the §Registry** (`presence.heartbeat`, `approval.resolve`), whose limit is reserved and arms only when its named V1.1 admission surface ships (see the §Registry dormant-row semantics); a dormant row is not enforced by an ad hoc V1 limiter.
 - Clients that stay within limits receive no rate-limiting headers until they approach the threshold. "Approach the threshold" is defined as: `remaining < 25%` of the row's limit (Tier-6 audit). Headers are always present on 429 responses (concurrency-cap refusals send the truthful subset — limit and remaining — per §Overflow Response), and are suppressed entirely while the backend is in fail-open grace (the degraded response arm carries no window fields to serialize).
 
 ## Fallback Behavior
