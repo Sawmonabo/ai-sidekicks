@@ -129,7 +129,9 @@ Partial-apply is not permitted. A bundle is accepted whole or rejected whole.
 
 ### Verification On Daemon Start And Update
 
-On every daemon start and on every bundle-update attempt, the daemon:
+**V1 (build-embedded compiled policy set).** On every daemon start, before any `PermissionCheck` is served, the daemon verifies the detached signature over the build-embedded compiled Cedar policy set against the pinned operator public key, using the algorithm pinned at build time (§Signing Algorithm). There is no manifest, tarball hash, freshness window, or monotonic version counter at V1 — those are the V1.1 bundle-only checks below, and a V1 daemon MUST NOT apply the `policy-bundle-*` checks to the build-embedded set. On failure — signature invalid, or the compiled set absent/corrupt — the daemon **fails closed and refuses to start**, emitting the typed log `policy-artifact-signature-invalid` (2026-06-10 + 2026-07-02 Decision Log rows; enforced in both topologies per §Scope By Phase). Whole-image signature verification (containerized daemons only) is a separate supply-chain layer, not this in-process check.
+
+**V1.1 (runtime policy bundle).** On every daemon start and on every bundle-update attempt, the daemon:
 
 1. Parses the detached `.sig` using the algorithm pinned at the daemon's build time (not a value read from `manifest.algorithm`). A bundle whose `manifest.algorithm` disagrees with the pinned algorithm is rejected with `policy-bundle-algorithm-mismatch` before any cryptographic verification is attempted, closing the attack where a malicious bundle advertises the pinned algorithm while its `.sig` is produced under a different one.
 2. Verifies the signature against the pinned operator public key.
