@@ -21,7 +21,7 @@ Explicit invocation only:
 - The user asks for this pipeline by name — `run plan-execution on Plan-NNN`, `execute Plan-NNN through the plan-execution pipeline`, or equivalent, or
 - The user asks to resume an in-flight plan-execution run — a `feat/plan-NNN-*` branch whose draft PR body carries this skill's `## Task DAG` block (state recovery).
 
-**Not triggers:** ordinary requests that happen to name a plan — `work on Plan-NNN`, `start Plan-NNN`, `continue Plan-NNN`, `fix <thing> from Plan-NNN`. Handle those as direct development: branch off `develop`, implement, open a PR per CONTRIBUTING.md. Plan-scoped code work is not gated on this skill — doc-first ordering, plan-readiness audits, and status-promotion gates are repo policy that apply to every code PR regardless of how it is executed. If it is genuinely unclear whether the user wants the full pipeline, ask; do not default into it.
+**Not triggers:** ordinary requests that happen to name a plan — `work on Plan-NNN`, `start Plan-NNN`, `continue Plan-NNN`, `fix <thing> from Plan-NNN`. Handle those as direct development: branch off `develop`, implement, open a PR per CONTRIBUTING.md. Plan-scoped code work is not gated on this skill — doc-first ordering, plan-readiness audits, and status-promotion gates are repo policy that apply to every code PR regardless of how it is executed. One pipeline convention carries over to the direct path: a PR that ships plan-scoped work MUST include the `Plan-NNN` token in its title (CONTRIBUTING.md §PR Workflow step 3) — preflight Gate 6 recovers manifest drift by searching merged PR titles, and a token-less title is invisible to it. If it is genuinely unclear whether the user wants the full pipeline, ask; do not default into it.
 
 ## Your Role: Orchestrator
 
@@ -138,7 +138,7 @@ Run the preflight tool with the plan file (and optional explicit phase if the us
 node .claude/skills/plan-execution/scripts/preflight.mjs docs/plans/NNN-*.md [phase-number]
 ```
 
-The tool resolves the next-up phase, runs all mechanical gates (project-locality, audit checkbox, phase un-shipped, tasks-block G4 cites, phase preconditions, manifest freshness), and emits the phase number on `stdout` when it passes. Full contract: [`references/preflight-contract.md`](references/preflight-contract.md). Gate 6 (manifest freshness) cross-checks the plan's Shipment Manifest against merged `Plan-NNN in:title` code PRs and halts on drift; `--allow-stale-manifest` is the explicit offline escape — never pass it on a normal run.
+The tool resolves the next-up phase, runs all mechanical gates (project-locality, audit checkbox, phase un-shipped, tasks-block G4 cites, phase preconditions, manifest freshness), and emits the phase number on `stdout` when it passes. Full contract: [`references/preflight-contract.md`](references/preflight-contract.md). Gate 6 (manifest freshness) cross-checks the plan's Shipment Manifest against merged `Plan-NNN in:title` PRs touching material paths (`packages/`, `apps/`, `.github/`) and halts on drift; `--allow-stale-manifest` is the explicit offline escape — never pass it on a normal run.
 
 **On non-zero exit:** halt with `RESULT: NEEDS_CONTEXT` and surface the tool's `stdout` verbatim — the message is self-contained (failure type, file paths, remediation hint). Do not paraphrase; the message is the contract.
 

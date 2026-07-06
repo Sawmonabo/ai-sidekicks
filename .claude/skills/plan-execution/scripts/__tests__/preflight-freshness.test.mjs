@@ -81,13 +81,28 @@ test("fresh manifest — every merged in-title PR has an entry", () => {
   assert.equal(r.ok, true);
 });
 
-test("missing doc-only PR does not count as stale (code-touching filter)", () => {
+test("missing doc-only PR does not count as stale (material-path filter)", () => {
+  // Root files are included in the fixture deliberately: real governance PRs
+  // whose titles cite plans also ship root files (PR #1: .gitignore, README.md,
+  // AGENTS.md under a Plan-001 title). An exclude-docs inversion of the filter
+  // would classify that PR material and permanently false-halt Plan-001 — this
+  // test pins the allow-list semantics against that regression.
   stubGh({
     listResult: [
       { number: 10, title: "feat(x): T1.1", mergedAt: "2026-05-01T00:00:00Z" },
       { number: 11, title: "docs(repo): plan-001 governance", mergedAt: "2026-05-02T00:00:00Z" },
     ],
-    viewFilesByPr: { 11: { files: ["docs/plans/001-fixture.md", "docs/backlog.md"] } },
+    viewFilesByPr: {
+      11: {
+        files: [
+          "docs/plans/001-fixture.md",
+          "docs/backlog.md",
+          ".gitignore",
+          "README.md",
+          "AGENTS.md",
+        ],
+      },
+    },
   });
   const r = gateManifestFreshness(PLAN_SOURCE, 1);
   assert.equal(r.ok, true);
@@ -124,7 +139,7 @@ test("plan number is zero-padded in the search string", () => {
 // Stale detection
 // ============================================================
 
-test("missing code-touching PR halts with rebuild remediation", () => {
+test("missing material PR halts with rebuild remediation", () => {
   stubGh({
     listResult: [
       { number: 10, title: "feat(x): T1.1", mergedAt: "2026-05-01T00:00:00Z" },
@@ -137,13 +152,13 @@ test("missing code-touching PR halts with rebuild remediation", () => {
   assert.equal(r.kind, "manifest_stale");
   assert.match(r.halt, /PR #87/);
   assert.match(r.halt, /merged 2026-05-21/);
-  assert.match(r.halt, /1 code file\(s\)/);
+  assert.match(r.halt, /1 material file\(s\)/);
   assert.match(r.halt, /rebuild-shipment-manifest\.mjs/);
   assert.match(r.halt, /--plan 001 --dry-run/);
   assert.match(r.halt, /--allow-stale-manifest/);
 });
 
-test("apps/ paths count as code-touching", () => {
+test("apps/ paths count as material", () => {
   stubGh({
     listResult: [{ number: 74, title: "fix(desktop): gc lift", mergedAt: "2026-05-18T00:00:00Z" }],
     viewFilesByPr: { 74: { files: ["apps/desktop/src/main/index.ts"] } },
@@ -151,6 +166,26 @@ test("apps/ paths count as code-touching", () => {
   const r = gateManifestFreshness(PLAN_SOURCE, 1);
   assert.equal(r.ok, false);
   assert.equal(r.kind, "manifest_stale");
+});
+
+test("workflow-only PR counts as material (Plan-024 T-024-4-1 class)", () => {
+  // Plan-024 Phase 4 ships tasks whose ONLY file is a .github/workflows/*.yml
+  // (sidecar-build.yml). A packages/apps-only allow-list would classify such a
+  // shipment doc-only and let Gate 3 re-open shipped work (Codex P2, PR #182).
+  stubGh({
+    listResult: [
+      {
+        number: 200,
+        title: "ci(repo): sidecar build matrix (Plan-024 T-024-4-1)",
+        mergedAt: "2026-08-01T00:00:00Z",
+      },
+    ],
+    viewFilesByPr: { 200: { files: [".github/workflows/sidecar-build.yml"] } },
+  });
+  const r = gateManifestFreshness(PLAN_SOURCE, 1);
+  assert.equal(r.ok, false);
+  assert.equal(r.kind, "manifest_stale");
+  assert.match(r.halt, /PR #200/);
 });
 
 // ============================================================

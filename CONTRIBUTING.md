@@ -126,7 +126,7 @@ If the binary is missing, the lefthook hook emits a `WARNING:` to stderr and let
 
 1. **Branch off `develop`.** `git switch develop && git pull && git switch -c feat/plan-001-monorepo-scaffold`
 2. **Commit using Conventional Commits format.** Pre-commit hooks (lefthook + lint-staged + commitlint) catch format errors locally; CI re-runs them as enforcement per ADR-023 §Axis 2.
-3. **Open the PR (base `develop`).** PR title MUST match conventional-commit subject format — it becomes the squash-commit subject on `develop`. PR body explains the change; code PRs include a Test Plan section.
+3. **Open the PR (base `develop`).** PR title MUST match conventional-commit subject format — it becomes the squash-commit subject on `develop`. A PR that ships work for a specific plan (implementing, fixing, or extending Plan-NNN tasks — whether via `/plan-execution` or direct development) MUST also include the `Plan-NNN` token in the title: the plan-execution preflight's manifest-freshness gate recovers shipment drift by searching merged PR titles (`Plan-NNN in:title`), and a title carrying the plan only in the body `Refs:` line is invisible to it. PR body explains the change; code PRs include a Test Plan section.
 4. **Address review.** Push additional commits to the same branch; squash-merge collapses them.
 5. **Merge.** `gh pr merge --squash --delete-branch` — squashes the branch, deletes both local and remote, fast-forwards local `develop`.
 

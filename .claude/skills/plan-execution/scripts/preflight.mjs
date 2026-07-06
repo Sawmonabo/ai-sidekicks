@@ -543,8 +543,14 @@ export function gateAuditCheckbox(planSource, planFile) {
 // classes out: (1) `in:title` only — never `in:title,body` (PR bodies cite
 // plans in passing constantly; titles cite the plan they ship for — empirical
 // sweep 2026-07-06: title-search precision was exact across all 27 plans);
-// (2) only PRs whose diff touches packages/ or apps/ count (doc-governance PRs
-// citing a plan in the title are not shipments); (3) a missing entry HALTS
+// (2) only PRs whose diff touches a MATERIAL_PATH_PREFIXES path count —
+// packages/ + apps/ are the ownership map's code families, and .github/ covers
+// workflow-only shipments (Plan-024 T-024-4-1 ships sidecar-build.yml alone;
+// Codex P2 on PR #182). The inverted form (material = anything outside docs/)
+// was rejected on corpus evidence: governance PRs whose titles cite plans also
+// touch root files (PR #1 ships .gitignore/README.md/AGENTS.md under a
+// Plan-001 title), so exclude-docs would permanently false-halt Plan-001;
+// (3) a missing entry HALTS
 // with the rebuild tool as remediation — the gate never derives or writes
 // manifest entries itself (rebuild's operator-confirmation model owns phase /
 // task attribution ambiguity).
@@ -554,6 +560,7 @@ export function gateAuditCheckbox(planSource, planFile) {
 // saturation, and file-list truncation all HALT rather than pass. The
 // explicit CLI escape is --allow-stale-manifest (skip is logged to stderr).
 export const FRESHNESS_FETCH_LIMIT = 100;
+export const MATERIAL_PATH_PREFIXES = ["packages/", "apps/", ".github/"];
 
 export function gateManifestFreshness(planSource, planNumber) {
   const manifest = parseManifestBlock(planSource);
@@ -619,7 +626,7 @@ export function gateManifestFreshness(planSource, planNumber) {
           "",
           `gh pr view ${pullRequest.number} returned ${files.length} of`,
           `${details.changedFiles} changed files — the GraphQL files(first: 100)`,
-          "ceiling truncated the list, so the code-touching classification for",
+          "ceiling truncated the list, so the material-path classification for",
           `PR #${pullRequest.number} cannot be trusted (mirrors`,
           "rebuild-shipment-manifest.mjs exit-7 discipline). Classify the PR",
           "manually, reconcile the manifest, and re-run — or bypass explicitly",
@@ -627,17 +634,17 @@ export function gateManifestFreshness(planSource, planNumber) {
         ].join("\n"),
       };
     }
-    const codeFileCount = files.filter(
+    const materialFileCount = files.filter(
       (f) =>
         typeof f.path === "string" &&
-        (f.path.startsWith("packages/") || f.path.startsWith("apps/")),
+        MATERIAL_PATH_PREFIXES.some((prefix) => f.path.startsWith(prefix)),
     ).length;
-    if (codeFileCount > 0) {
+    if (materialFileCount > 0) {
       stale.push({
         number: pullRequest.number,
         title: pullRequest.title,
         mergedAt: pullRequest.mergedAt,
-        codeFileCount,
+        materialFileCount,
       });
     }
   }
@@ -650,12 +657,13 @@ export function gateManifestFreshness(planSource, planNumber) {
       "## Preflight halt: shipment manifest is stale (Gate 6 — manifest freshness)",
       "",
       `Plan-${paddedPlan}'s ### Shipment Manifest has no entry for ${stale.length} merged`,
-      `code PR(s) whose title cites Plan-${paddedPlan}:`,
+      `material PR(s) whose title cites Plan-${paddedPlan} (diff touches`,
+      `${MATERIAL_PATH_PREFIXES.join(" / ")}):`,
       "",
       ...stale.map(
         (p) =>
           `  - PR #${p.number} (merged ${String(p.mergedAt ?? "").split("T")[0]}, ` +
-          `${p.codeFileCount} code file(s)): ${p.title}`,
+          `${p.materialFileCount} material file(s)): ${p.title}`,
       ),
       "",
       "Gate 3 selects the next phase by comparing declared tasks against this",
