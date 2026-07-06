@@ -2586,6 +2586,10 @@ interface OrchestrationBudgetState {
   // (Spec-016 §Cost Derivation And Absent-Cost Semantics, campaign B6); empty by default
   unpricedFamilyCaps: { modelFamily: string; hardCapUsdCents: number }[];
   observedCostCents: number; // BudgetAccountant projection (in-memory, replay-rebuilt)
+  // Σ hardCapUsdCents over active native-cap-escape runs — admission predicate:
+  // observed + reserved + newCap ≤ costLimitCents; released at run-terminal
+  // (Spec-016 §Cost Derivation And Absent-Cost Semantics, campaign B6); same projection lifecycle
+  reservedCostCents: number;
 }
 type OrchestrationBudgetReadResponse = OrchestrationBudgetState;
 interface OrchestrationBudgetUpdateRequest {

@@ -256,7 +256,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 - **T3.1 — Mutation binders.**
   - **Files:** `packages/runtime-daemon/src/ipc/handlers/` (EXTEND — per-namespace handler files per the existing convention).
-  - **Provides:** `channel.create` / `channel.mute` / `channel.unmute` / `channel.archive`, `orchestration.runCreate`, `orchestration.budgetUpdate` (session-owner authz at the wire boundary — D-016-5), `agent.attach` / `agent.detach` / `agent.configUpdate` — schema-validated, delegating to Phase 2 services.
+  - **Provides:** `channel.create` / `channel.mute` / `channel.unmute` / `channel.archive`, `orchestration.runCreate`, `orchestration.budgetUpdate` (session-owner authz at the wire boundary — D-016-5), `agent.attach` / `agent.detach` / `agent.configUpdate`, and `session.goalUpdate` / `session.goalClear` (owner/collaborator authz at the wire boundary — campaign B6 2026-07-06) — schema-validated, delegating to Phase 2 services.
   - **Consumes:** T1.2 pairs; T2.1–T2.5 services; `MethodRegistry` (Plan-007-partial).
   - **Spec coverage:** Spec-016 §Interfaces And Contracts (mutation surface).
   - **Verifies invariant:** I-016-1.
@@ -284,7 +284,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
   - **Tests:** marshal round-trips per method; rejection surfaces the typed code; deep-equal pass-through of response fields.
 - **T3.5 — Registration + dispatch test suite.**
   - **Files:** `packages/runtime-daemon/src/ipc/__tests__/` (EXTEND).
-  - **Provides:** all-thirteen registration assertion against the [api-payload registry table](../architecture/contracts/api-payload-contracts.md); BL-142 camelCase acceptance rows for the six camelCase strings; namespace-collision guard (no `channel.list` shadowing — the gateway string stays Plan-002's).
+  - **Provides:** all-fifteen registration assertion against the [api-payload registry table](../architecture/contracts/api-payload-contracts.md) (thirteen original + the two goal RPCs — campaign B6 2026-07-06); BL-142 camelCase acceptance rows for the eight camelCase strings (incl. `session.goalUpdate` / `session.goalClear`); namespace-collision guard (no `channel.list` shadowing — the gateway string stays Plan-002's).
   - **Consumes:** T3.1/T3.2.
   - **Spec coverage:** Spec-016 §Interfaces And Contracts (registry parity).
   - **Verifies invariant:** I-016-1.
