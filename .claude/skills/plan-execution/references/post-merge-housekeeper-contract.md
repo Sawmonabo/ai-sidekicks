@@ -241,7 +241,7 @@ The atomic value is backticked (`` `completed` ``); the parenthetical resolution
 
 ## Housekeeping commit landing
 
-The orchestrator lands the housekeeping commit via its own auto-merge PR — never via direct push to `develop`. This preserves the SKILL.md hard rule (line 45: "Never push to `develop` or `main` directly") end-to-end and gives the housekeeping diff the same CI gate (lychee + docs-corpus + lint) that feature PRs receive.
+The orchestrator lands the housekeeping commit via its own gated squash-merge PR — never via direct push to `develop`. This preserves the SKILL.md hard rule (line 45: "Never push to `develop` or `main` directly") end-to-end and gives the housekeeping diff the same CI gate (lychee + docs-corpus + lint) that feature PRs receive.
 
 **Branch naming.** `housekeeping/PR<N>` where `<N>` is the merged feature-PR number. Strict format — the orchestrator's Phase E step 7 hard-codes this shape and downstream tooling (resume diagnostic; future audit scripts) keys off it.
 
@@ -251,7 +251,7 @@ The orchestrator lands the housekeeping commit via its own auto-merge PR — nev
 chore(repo): housekeeping for PR #<N> — NS-XX <flip-or-create>
 ```
 
-This means the squash-commit subject on `develop` after auto-merge matches what the subagent's manifest suggested — Phase E's commit-message contract holds across both branch-side and develop-side history.
+This means the squash-commit subject on `develop` after the gated merge matches what the subagent's manifest suggested — Phase E's commit-message contract holds across both branch-side and develop-side history.
 
 **PR body.** Auto-generated stub with required cross-references:
 
@@ -263,7 +263,7 @@ Refs: NS-XX (or NS-NN..NS-MM for range entries; comma-list for multi-NS).
 <concerns_block — only if subagent returned DONE_WITH_CONCERNS>
 ```
 
-**Auto-merge mechanics.** `gh pr merge <housekeeping-pr#> --auto --squash --delete-branch` queues the squash-merge to fire when required CI checks return SUCCESS. The orchestrator then polls via `gh pr checks <housekeeping-pr#> --watch --interval 10` until the PR transitions to `merged`. Typical wall-clock: 2-3 min on a doc-only diff.
+**Merge mechanics.** Auto-merge is DISABLED on this repository — `gh pr merge --auto` fails with `Auto merge is not allowed for this repository (enablePullRequestAutoMerge)` (verified PR #119). The orchestrator instead waits for required checks (`gh pr checks <housekeeping-pr#> --watch --interval 10`), polls `gh pr view <housekeeping-pr#> --json mergeStateStatus -q .mergeStateStatus` until `CLEAN` (required checks `ci-gate` + `docs-corpus-gate` green + zero unresolved threads under `required_conversation_resolution`), then merges directly: `gh pr merge <housekeeping-pr#> --squash --delete-branch`. Typical wall-clock: 2-3 min on a doc-only diff.
 
 **CI failure on housekeeping PR.** Halt Phase E and surface to user. Phase E does NOT auto-fix housekeeping CI failures because they almost always indicate one of: (a) a §6-catalog cite that the script-stage `affected_files` superset check missed; (b) a malformed Status: line the subagent composed; (c) a `### Shipment Manifest` entry whose YAML broke the manifest schema parser or whose embedded fields broke a docs-corpus invariant. All three cases need user adjudication — the housekeeping subagent has already returned DONE/DONE_WITH_CONCERNS by this point and is not re-dispatchable for CI-driven failures.
 

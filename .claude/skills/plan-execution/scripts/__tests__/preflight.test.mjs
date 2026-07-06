@@ -2616,6 +2616,11 @@ shipped:
 // silent-disable class is caught (a durable spawn guard, not a one-time run).
 // REPO_ROOT/SKILL_MD resolve from the script's own __dirname, so the real repo
 // satisfies Gate 1 while the temp plan drives Gates 2–5 from planSource.
+// --allow-stale-manifest is passed because the CLI defaults Gate 6 (manifest
+// freshness) ON and Gate 6 shells the real gh — a fixture plan named 001-*
+// would be cross-checked against the real repo's merged Plan-001 PRs (network
+// in a unit test + a guaranteed stale halt). The flag is the documented
+// offline escape; its stderr skip-line is asserted so the bypass stays loud.
 
 const PREFLIGHT_CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "preflight.mjs");
 
@@ -2677,8 +2682,11 @@ shipped: []
 ### Notes
 `,
   );
-  const r = spawnSync(process.execPath, [PREFLIGHT_CLI, planFile, "2"], { encoding: "utf8" });
+  const r = spawnSync(process.execPath, [PREFLIGHT_CLI, planFile, "2", "--allow-stale-manifest"], {
+    encoding: "utf8",
+  });
   assert.equal(r.status, 1, `status=${r.status} stdout=${r.stdout} stderr=${r.stderr}`);
+  assert.match(r.stderr, /Gate 6 \(manifest freshness\) SKIPPED via --allow-stale-manifest/);
   assert.match(r.stdout, /precondition unmet/i);
   assert.match(r.stdout, /Plan-99 not found/);
 });

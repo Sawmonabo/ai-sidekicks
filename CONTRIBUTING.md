@@ -6,7 +6,7 @@ For decisions and rationale behind these choices, see [ADR-022 — V1 Toolchain 
 
 ## Repository State
 
-The repository is in the V1 doc-first phase. There is no source code yet — `package.json` is a placeholder. The next milestone is [Plan-001](docs/plans/001-shared-session-core.md) PR #1 (the first code-execution PR). Until that PR opens, only doc PRs are expected. See [`CLAUDE.md`](CLAUDE.md) for current state details.
+The repository is in mixed doc + code execution: [Plan-001](docs/plans/001-shared-session-core.md) has shipped all five phases, `package.json` is real (pnpm workspace + Turbo), and code PRs land tier by tier alongside governance docs. [`CLAUDE.md`](CLAUDE.md) §Current State is the live census of shipped PRs, active gates, and audit status — this file deliberately does not duplicate it.
 
 ## Branch Model
 

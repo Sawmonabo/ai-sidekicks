@@ -528,6 +528,187 @@ export function gateAuditCheckbox(planSource, planFile) {
   };
 }
 
+// Gate 6 — manifest freshness. Plan-level: numbered by accretion order (Gates
+// 1-5 keep their historical numbers — docs, tests, and halt messages reference
+// them by number), but EXECUTED between Gate 2 and the per-phase walk, because
+// a stale manifest corrupts Gate 3's declared-vs-shipped set comparison (a
+// merged-but-unrecorded shipment re-opens an already-shipped phase).
+//
+// This is NOT a return to the pre-Commit-3 gh-search shipment inference that
+// the manifest refactor removed (see preflight-contract.md §Gate 3 "Why
+// manifest set-comparison, not gh search"). The manifest remains the sole
+// authority for phase selection; gh is consulted only to cross-check manifest
+// COMPLETENESS — the BL-110 doctrine that ground truth stays git and the
+// manifest is a cache. Three deliberate narrowings keep the old false-match
+// classes out: (1) `in:title` only — never `in:title,body` (PR bodies cite
+// plans in passing constantly; titles cite the plan they ship for — empirical
+// sweep 2026-07-06: title-search precision was exact across all 27 plans);
+// (2) only PRs whose diff touches packages/ or apps/ count (doc-governance PRs
+// citing a plan in the title are not shipments); (3) a missing entry HALTS
+// with the rebuild tool as remediation — the gate never derives or writes
+// manifest entries itself (rebuild's operator-confirmation model owns phase /
+// task attribution ambiguity).
+//
+// Fail-closed contract (ADR-023 gate-vs-detector discipline: gates fail
+// closed, detectors warn): gh unreachable, malformed output, fetch
+// saturation, and file-list truncation all HALT rather than pass. The
+// explicit CLI escape is --allow-stale-manifest (skip is logged to stderr).
+export const FRESHNESS_FETCH_LIMIT = 100;
+
+export function gateManifestFreshness(planSource, planNumber) {
+  const manifest = parseManifestBlock(planSource);
+  // Structural manifest defects halt in Gate 3 with richer remediation text;
+  // freshness only cross-checks a manifest that already parses. Future-schema
+  // manifests stay opaque per the lib/manifest.mjs fail-open policy.
+  if (!manifest.ok) return { ok: true, reason: "deferred_to_gate3" };
+  if (manifest.version > MANIFEST_SCHEMA_VERSION) {
+    return { ok: true, reason: "manifest_future_schema" };
+  }
+  const manifestPrs = new Set(manifest.shipped.map((entry) => entry.pr));
+  const paddedPlan = String(planNumber).padStart(3, "0");
+  const listRun = runGh(
+    `gh pr list --state merged --search "Plan-${paddedPlan} in:title" ` +
+      `--json number,title,mergedAt --limit ${FRESHNESS_FETCH_LIMIT}`,
+  );
+  if (!listRun.ok) return ghUnreachableHalt(paddedPlan, listRun.error);
+  let merged;
+  try {
+    merged = JSON.parse(listRun.out);
+  } catch (e) {
+    return ghMalformedHalt(paddedPlan, `gh pr list output is not JSON: ${e.message}`);
+  }
+  if (!Array.isArray(merged)) {
+    return ghMalformedHalt(paddedPlan, "gh pr list output is not a JSON array");
+  }
+  if (merged.length === FRESHNESS_FETCH_LIMIT) {
+    return {
+      ok: false,
+      kind: "freshness_fetch_saturated",
+      halt: [
+        "## Preflight halt: manifest-freshness fetch saturated (Gate 6)",
+        "",
+        `gh pr list returned exactly ${FRESHNESS_FETCH_LIMIT} matches for`,
+        `"Plan-${paddedPlan} in:title" — the result MAY be truncated, so manifest`,
+        "completeness cannot be cross-checked. Raise FRESHNESS_FETCH_LIMIT in",
+        "preflight.mjs (mirroring rebuild-shipment-manifest.mjs's FETCH_LIMIT",
+        "anti-silent-truncation discipline) and re-run.",
+      ].join("\n"),
+    };
+  }
+  const stale = [];
+  for (const pullRequest of merged) {
+    if (manifestPrs.has(pullRequest.number)) continue;
+    const viewRun = runGh(`gh pr view ${pullRequest.number} --json files,changedFiles`);
+    if (!viewRun.ok) return ghUnreachableHalt(paddedPlan, viewRun.error);
+    let details;
+    try {
+      details = JSON.parse(viewRun.out);
+    } catch (e) {
+      return ghMalformedHalt(
+        paddedPlan,
+        `gh pr view ${pullRequest.number} output is not JSON: ${e.message}`,
+      );
+    }
+    const files = Array.isArray(details.files) ? details.files : [];
+    if (typeof details.changedFiles === "number" && files.length < details.changedFiles) {
+      return {
+        ok: false,
+        kind: "freshness_files_truncated",
+        halt: [
+          "## Preflight halt: manifest-freshness file list truncated (Gate 6)",
+          "",
+          `gh pr view ${pullRequest.number} returned ${files.length} of`,
+          `${details.changedFiles} changed files — the GraphQL files(first: 100)`,
+          "ceiling truncated the list, so the code-touching classification for",
+          `PR #${pullRequest.number} cannot be trusted (mirrors`,
+          "rebuild-shipment-manifest.mjs exit-7 discipline). Classify the PR",
+          "manually, reconcile the manifest, and re-run — or bypass explicitly",
+          "with --allow-stale-manifest.",
+        ].join("\n"),
+      };
+    }
+    const codeFileCount = files.filter(
+      (f) =>
+        typeof f.path === "string" &&
+        (f.path.startsWith("packages/") || f.path.startsWith("apps/")),
+    ).length;
+    if (codeFileCount > 0) {
+      stale.push({
+        number: pullRequest.number,
+        title: pullRequest.title,
+        mergedAt: pullRequest.mergedAt,
+        codeFileCount,
+      });
+    }
+  }
+  if (stale.length === 0) return { ok: true };
+  return {
+    ok: false,
+    kind: "manifest_stale",
+    stale,
+    halt: [
+      "## Preflight halt: shipment manifest is stale (Gate 6 — manifest freshness)",
+      "",
+      `Plan-${paddedPlan}'s ### Shipment Manifest has no entry for ${stale.length} merged`,
+      `code PR(s) whose title cites Plan-${paddedPlan}:`,
+      "",
+      ...stale.map(
+        (p) =>
+          `  - PR #${p.number} (merged ${String(p.mergedAt ?? "").split("T")[0]}, ` +
+          `${p.codeFileCount} code file(s)): ${p.title}`,
+      ),
+      "",
+      "Gate 3 selects the next phase by comparing declared tasks against this",
+      "manifest; a missing entry can re-open an already-shipped phase and",
+      "re-dispatch completed work. Ground truth stays git — the manifest is the",
+      "cache (BL-110). Reconcile, then re-run preflight:",
+      "",
+      "  node --experimental-strip-types \\",
+      "    .claude/skills/plan-execution/scripts/rebuild-shipment-manifest.mjs \\",
+      `    --plan ${paddedPlan} --dry-run`,
+      "",
+      "Inspect the emitted entries, resolve operator-confirmation ambiguities",
+      "(phase/task attribution), apply them to the plan file, and land the",
+      "manifest edit through a PR. Emergency bypass (gh outage / offline):",
+      "re-run preflight with --allow-stale-manifest (skip is logged to stderr).",
+    ].join("\n"),
+  };
+}
+
+function ghUnreachableHalt(paddedPlan, error) {
+  return {
+    ok: false,
+    kind: "freshness_gh_unreachable",
+    halt: [
+      "## Preflight halt: manifest-freshness cross-check unavailable (Gate 6)",
+      "",
+      `gh failed while cross-checking Plan-${paddedPlan}'s manifest against merged`,
+      `PRs: ${error}`,
+      "",
+      "Gate 6 fails closed (ADR-023 gate discipline): a manifest that cannot be",
+      "cross-checked is treated as potentially stale rather than silently",
+      "trusted. Fix gh (auth/network) and re-run, or bypass explicitly with",
+      "--allow-stale-manifest (skip is logged to stderr).",
+    ].join("\n"),
+  };
+}
+
+function ghMalformedHalt(paddedPlan, detail) {
+  return {
+    ok: false,
+    kind: "freshness_gh_malformed",
+    halt: [
+      "## Preflight halt: manifest-freshness cross-check unavailable (Gate 6)",
+      "",
+      `Unexpected gh output while cross-checking Plan-${paddedPlan}'s manifest:`,
+      detail,
+      "",
+      "Gate 6 fails closed. Investigate the gh installation / API response and",
+      "re-run, or bypass explicitly with --allow-stale-manifest.",
+    ].join("\n"),
+  };
+}
+
 // Strict per-phase audit gate, called inside _checkPhase after the target
 // phase has been resolved. Passes when EITHER the plan-level checkbox is
 // ticked OR THIS phase declares `type: audit_status` in its preconditions
@@ -2264,7 +2445,7 @@ function _checkPhase(planSource, planNumber, phase, planFile, opts) {
 export function runPreflight(
   planFile,
   phaseArg,
-  { repoRoot = REPO_ROOT, skillMd = SKILL_MD } = {},
+  { repoRoot = REPO_ROOT, skillMd = SKILL_MD, checkFreshness = false } = {},
 ) {
   const g1 = gateProjectLocality({ repoRoot, skillMd });
   if (!g1.ok) return { exit: 1, stdout: g1.halt };
@@ -2288,6 +2469,15 @@ export function runPreflight(
       exit: 2,
       stderr: `no \`### Phase N\` headers found in ${planFile} (accepted separators: \`—\`, \`:\`, \`-\`)`,
     };
+
+  // Gate 6 — manifest freshness. CLI runs default it ON (--allow-stale-manifest
+  // is the explicit escape); programmatic/test callers opt in via
+  // checkFreshness so fixture-driven suites stay network-free. Runs before the
+  // phase walk because a stale manifest corrupts Gate 3's phase selection.
+  if (checkFreshness) {
+    const g6 = gateManifestFreshness(planSource, planNumber);
+    if (!g6.ok) return { exit: 1, stdout: g6.halt };
+  }
 
   const opts = { repoRoot };
   if (phaseArg !== undefined && phaseArg !== null) {
@@ -2343,19 +2533,33 @@ export function runPreflight(
 
 async function main() {
   const args = process.argv.slice(2);
-  if (args.length === 0 || args[0] === "--help" || args[0] === "-h") {
+  const knownFlags = new Set(["--allow-stale-manifest", "--help", "-h"]);
+  const unknownFlags = args.filter((a) => a.startsWith("-") && !knownFlags.has(a));
+  if (unknownFlags.length > 0) {
+    process.stderr.write(`unknown flag(s): ${unknownFlags.join(", ")}\n`);
+    process.exit(2);
+  }
+  const allowStaleManifest = args.includes("--allow-stale-manifest");
+  const positional = args.filter((a) => !a.startsWith("-"));
+  if (positional.length === 0 || args.includes("--help") || args.includes("-h")) {
     process.stderr.write(
-      "Usage: node preflight.mjs <plan-file> [phase-number]\nSee ../references/preflight-contract.md.\n",
+      "Usage: node preflight.mjs <plan-file> [phase-number] [--allow-stale-manifest]\n" +
+        "See ../references/preflight-contract.md.\n",
     );
     process.exit(2);
   }
-  const planFile = args[0];
-  const phaseArg = args[1] !== undefined ? Number(args[1]) : undefined;
-  if (args[1] !== undefined && (Number.isNaN(phaseArg) || !Number.isInteger(phaseArg))) {
-    process.stderr.write(`bad phase argument: ${args[1]}\n`);
+  const planFile = positional[0];
+  const phaseArg = positional[1] !== undefined ? Number(positional[1]) : undefined;
+  if (positional[1] !== undefined && (Number.isNaN(phaseArg) || !Number.isInteger(phaseArg))) {
+    process.stderr.write(`bad phase argument: ${positional[1]}\n`);
     process.exit(2);
   }
-  const result = runPreflight(planFile, phaseArg);
+  if (allowStaleManifest) {
+    process.stderr.write(
+      "preflight: Gate 6 (manifest freshness) SKIPPED via --allow-stale-manifest\n",
+    );
+  }
+  const result = runPreflight(planFile, phaseArg, { checkFreshness: !allowStaleManifest });
   if (result.stdout) process.stdout.write(result.stdout + "\n");
   if (result.stderr) process.stderr.write(result.stderr + "\n");
   process.exit(result.exit);

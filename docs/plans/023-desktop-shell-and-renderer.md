@@ -407,6 +407,63 @@ shipped:
       - pnpm-workspace.yaml
     verifies_invariant: []
     spec_coverage: []
+  - phase: 1
+    task: GC-regression-test-lift
+    pr: 74
+    sha: 9b1f409
+    merged_at: 2026-05-18
+    files:
+      - .github/workflows/ci.yml
+      - apps/desktop/src/main/index.ts
+      - apps/desktop/test/lifecycle.gc.test.ts
+      - docs/decisions/024-electron-main-process-window-retention.md
+      - docs/specs/023-desktop-shell-and-renderer.md
+    verifies_invariant: []
+    spec_coverage: []
+    notes: |
+      Backfill (BL-110 Gate 6 baseline reconciliation, 2026-07-06): follow-up PR shipped outside a plan-execution run; descriptive task label, not a DAG task id. Lifted the Plan-023 GC regression test from Tier 8 remainder to in-scope (ADR-024 companion).
+  - phase: 1
+    task: tier1-partial-carve-out
+    pr: 24
+    sha: 8c838d4
+    merged_at: 2026-05-01
+    files:
+      - apps/desktop/src/index.ts
+      - docs/architecture/component-architecture-desktop-app.md
+      - docs/architecture/container-architecture.md
+      - docs/architecture/cross-plan-dependencies.md
+      - docs/archive/backlog-archive.md
+      - docs/backlog.md
+      - docs/decisions/016-electron-desktop-shell.md
+      - docs/decisions/022-v1-toolchain-selection.md
+      - docs/plans/001-shared-session-core.md
+      - docs/plans/002-invite-membership-and-presence.md
+      - docs/plans/003-runtime-node-attach.md
+      - docs/plans/004-queue-steer-pause-resume.md
+      - docs/plans/006-session-event-taxonomy-and-audit-log.md
+      - docs/plans/007-local-ipc-and-daemon-control.md
+      - docs/plans/008-control-plane-relay-and-session-join.md
+      - docs/plans/009-repo-attachment-and-workspace-binding.md
+      - docs/plans/010-worktree-lifecycle-and-execution-modes.md
+      - docs/plans/011-gitflow-pr-and-diff-attribution.md
+      - docs/plans/012-approvals-permissions-and-trust-boundaries.md
+      - docs/plans/013-live-timeline-visibility-and-reasoning-surfaces.md
+      - docs/plans/014-artifacts-files-and-attachments.md
+      - docs/plans/015-persistence-recovery-and-replay.md
+      - docs/plans/016-multi-agent-channels-and-orchestration.md
+      - docs/plans/017-workflow-authoring-and-execution.md
+      - docs/plans/018-identity-and-participant-state.md
+      - docs/plans/019-notifications-and-attention-model.md
+      - docs/plans/020-observability-and-failure-recovery.md
+      - docs/plans/023-desktop-shell-and-renderer.md
+      - docs/plans/024-rust-pty-sidecar.md
+      - docs/plans/026-first-run-onboarding.md
+      - docs/plans/027-cross-node-dispatch-and-approval.md
+      - docs/reference/design-audits/architecture-ops.md
+    verifies_invariant: []
+    spec_coverage: []
+    notes: |
+      Backfill (BL-110 Gate 6 baseline reconciliation, 2026-07-06): follow-up PR shipped outside a plan-execution run; descriptive task label, not a DAG task id. BL-101 Tier 1 Partial substrate carve-out; seeded apps/desktop/src/index.ts.
 ```
 
 ### Notes

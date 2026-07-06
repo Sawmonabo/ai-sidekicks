@@ -856,6 +856,58 @@ shipped:
       ]
     notes: |
       Tier 1 Phase 3 — session.* Handlers + SDK Zod Layer. Multi-task PR (T-007p-3-3 verification deferred to Plan-001 Phase 5 consume time). Backfilled 2026-05-10. I-007-10 + I-007-11 added retroactively per BL-113 audit: I-007-10 (subscribe-init response precedes first notification frame) shipped via PR #19's `9f47116` sequencing fix + `subscribeInitResultSchema` synchronous registration in `#handleResponse`; I-007-11 (`LocalSubscriptionProducer<T>.onCancel` fires across all externally-imposed cancel paths) shipped via PR #19's F5 lifecycle-hook addition.
+  - phase: 2
+    task: P2-post-merge-polish
+    pr: 18
+    sha: 7e100ff
+    merged_at: 2026-04-29
+    files:
+      - docs/plans/007-local-ipc-and-daemon-control.md
+      - lint-staged.config.mjs
+      - packages/contracts/src/jsonrpc-negotiation.ts
+      - packages/runtime-daemon/src/ipc/__tests__/__fixtures__/zod-schemas.ts
+      - packages/runtime-daemon/src/ipc/__tests__/local-ipc-gateway.test.ts
+      - packages/runtime-daemon/src/ipc/__tests__/protocol-negotiation.test.ts
+      - packages/runtime-daemon/src/ipc/__tests__/registry.test.ts
+      - packages/runtime-daemon/src/ipc/__tests__/streaming-primitive.test.ts
+      - packages/runtime-daemon/src/ipc/local-ipc-gateway.ts
+      - packages/runtime-daemon/src/ipc/protocol-negotiation.ts
+      - packages/runtime-daemon/src/ipc/registry.ts
+      - packages/runtime-daemon/src/ipc/streaming-primitive.ts
+    verifies_invariant: []
+    spec_coverage: []
+    notes: |
+      Backfill (BL-110 Gate 6 baseline reconciliation, 2026-07-06): follow-up PR shipped outside a plan-execution run; descriptive task label, not a DAG task id. Post-merge polish from PR #17 (Phase 2) Phase D review — five OBSERVATION-class items.
+  - phase: 2
+    task: BL-114-115-116-triad
+    pr: 76
+    sha: 331ba2e
+    merged_at: 2026-05-19
+    files:
+      - docs/architecture/contracts/api-payload-contracts.md
+      - docs/architecture/cross-plan-dependencies.md
+      - docs/archive/backlog-archive.md
+      - docs/backlog.md
+      - docs/plans/001-shared-session-core.md
+      - docs/plans/007-local-ipc-and-daemon-control.md
+      - docs/specs/007-local-ipc-and-daemon-control.md
+      - packages/client-sdk/src/sessionClient.ts
+      - packages/client-sdk/src/transport/__tests__/jsonRpcClient.test.ts
+      - packages/client-sdk/src/transport/jsonRpcClient.ts
+      - packages/client-sdk/src/transport/types.ts
+      - packages/contracts/src/jsonrpc-registry.ts
+      - packages/contracts/src/jsonrpc-streaming.ts
+      - packages/contracts/src/jsonrpc.ts
+      - packages/contracts/src/session.ts
+      - packages/runtime-daemon/src/ipc/__tests__/streaming-primitive.test.ts
+      - packages/runtime-daemon/src/ipc/handlers/__tests__/session-handlers.test.ts
+      - packages/runtime-daemon/src/ipc/handlers/session-subscribe.ts
+      - packages/runtime-daemon/src/ipc/local-ipc-gateway.ts
+      - packages/runtime-daemon/src/ipc/streaming-primitive.ts
+    verifies_invariant: []
+    spec_coverage: []
+    notes: |
+      Backfill (BL-110 Gate 6 baseline reconciliation, 2026-07-06): follow-up PR shipped outside a plan-execution run; descriptive task label, not a DAG task id. BL-114/115/116 escalation-triad cleanup; spans Phase 2/3 surfaces, attributed to Phase 2 (dominant surface: jsonrpc-streaming + registry contracts).
 ```
 
 ### Notes

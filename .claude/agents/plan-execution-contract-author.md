@@ -17,7 +17,7 @@ You are dispatched in isolation. You see only the input the orchestrator gave yo
 
 ### Action contract
 
-> **Your first concrete tool invocation is `Read` on one of the `target_paths` (or, if creating from scratch, `Read` on a neighboring file in the same package to mirror conventions).** Use the tool API directly. The orchestrator runs `pnpm --filter <pkg> exec tsc --noEmit` plus `pnpm --filter <pkg> test` against your `target_paths` after you return; if the files weren't actually written, typecheck fails and the orchestrator round-trips your dispatch.
+> **Your first concrete tool invocation is `Read` on one of the `target_paths` (or, if creating from scratch, `Read` on a neighboring file in the same package to mirror conventions).** Use the tool API directly. The orchestrator runs `pnpm --filter <pkg> run typecheck` (which includes `tsconfig.test.json` validation) plus `pnpm --filter <pkg> test` against your `target_paths` after you return; if the files weren't actually written, typecheck fails and the orchestrator round-trips your dispatch.
 
 ## Inputs
 
@@ -84,7 +84,7 @@ For each non-trivial design choice (field naming, optional vs required, error sh
 - `RESULT: NEEDS_CONTEXT` — Plan/spec is ambiguous on a contract detail. State the question.
 - `RESULT: BLOCKED` — You cannot produce the contract (missing dependency, contradictory spec). State the blocker.
 
-You do not have shell access (no `Bash` tool), so you cannot run `pnpm tsc --noEmit` or `pnpm test` yourself. The orchestrator runs typecheck and per-package tests against your target package after the Phase C review pipeline clears and before committing your work (`pnpm --filter <pkg> exec tsc --noEmit` then `pnpm --filter <pkg> test`, or `pnpm typecheck` then `pnpm test` at root if the contract spans multiple packages). If either step fails, the orchestrator halts Phase B.1 and round-trips the failure back to you as a follow-on dispatch — same pattern as a reviewer ACTIONABLE finding.
+You do not have shell access (no `Bash` tool), so you cannot run `pnpm tsc --noEmit` or `pnpm test` yourself. The orchestrator runs typecheck and per-package tests against your target package after the Phase C review pipeline clears and before committing your work (`pnpm --filter <pkg> run typecheck` then `pnpm --filter <pkg> test`, or `pnpm typecheck` then `pnpm test` at root if the contract spans multiple packages). If either step fails, the orchestrator halts Phase B.1 and round-trips the failure back to you as a follow-on dispatch — same pattern as a reviewer ACTIONABLE finding.
 
 ## Report format
 
