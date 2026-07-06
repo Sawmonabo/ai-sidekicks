@@ -163,7 +163,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
   - **Files:** `packages/runtime-daemon/src/orchestration/__tests__/orchestration-schema-conformance.test.ts` (NEW).
   - **Provides:** mechanical lockstep checks — `ChannelState` / `AgentState` / `LinkType` contract enums vs DDL CHECK lists; `session_budgets` columns vs `OrchestrationBudgetState` fields; defaults vs the Spec-016 §Budget Policies + §Scheduler Limits tables (100000 tokens / 1000¢ / 50 turns / 5 channels / 25 depth / 10 pending / 5 children / 300000 ms); `session_budgets` non-negative-integer CHECKs vs the wire pairs' `.int().nonnegative()` bounds.
   - **Consumes:** T1.1–T1.3.
-  - **Spec coverage:** Spec-016 §Budget Policies line 101 (defaults table), §Scheduler Limits line 143 (defaults table).
+  - **Spec coverage:** Spec-016 §Budget Policies line 103 (defaults table), §Scheduler Limits line 168 (defaults table).
   - **Verifies invariant:** I-016-2.
   - **Tests:** the suite is the test — one row per pinned pair (documented-pin ≠ enforced-pin discipline).
 
@@ -209,7 +209,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
   - **Files:** `packages/runtime-daemon/src/orchestration/budget-accountant.ts` (NEW).
   - **Provides:** in-memory projection over `usage_telemetry` + `run.*` (replay-rebuilt, no accumulator table; per-run ceilings read from the durable `run.queued` `effectiveRunConfig` — D-016-5); once-per-(scope, type) 80% `usage.budget_warning` emission; 100% interrupt via the in-process entrypoint (`budget_exhausted`, D-016-7); session-cost ceiling fan-out (interrupt all active + admission block); `session_budgets` read/update service (row materializes with spec defaults on first touch); admission-block accessor for T2.3.
   - **Consumes:** `usage_telemetry` events (CP-016-9); `getRun` + in-process intervention (CP-016-1/7); T1.3 `session_budgets`.
-  - **Spec coverage:** Spec-016 §Budget Policies line 109 (80%/100% per-run/per-agent/per-session budget semantics, owner raise).
+  - **Spec coverage:** Spec-016 §Budget Policies line 111 (80%/100% per-run/per-agent/per-session budget semantics, owner raise).
   - **Verifies invariant:** I-016-12.
   - **Tests:** warning fires exactly once per crossing (incl. across restart via replay rebuild); per-run token ceiling interrupts only the offender and enforces the persisted `run.queued` `effectiveRunConfig` across restart (a mid-run session-default change never alters an in-flight run's limit); session ceiling interrupts all + blocks admission; owner raise unblocks; defaults row materializes on first read.
 - **T2.6 — Turn-policy arbiter.**
@@ -237,7 +237,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
   - **Files:** `packages/runtime-daemon/src/orchestration/__tests__/orchestration-replay-conformance.test.ts` (NEW).
   - **Provides:** end-to-end replay determinism (channels/agents/run_links byte-equal rebuild; relay-shaped event-only rebuild); non-cascade conformance (parent interrupted/failed/paused leaves children untouched — [run-state-machine.md §Child-Run Behavior](../domain/run-state-machine.md) as rewritten at this audit); zero-residue refusal audit (a refusal leaves only the `orchestration.rejected` event).
   - **Consumes:** T2.1–T2.8.
-  - **Spec coverage:** Spec-016 §State And Data Implications; Spec-016 §Intervention Propagation; Spec-016 AC2 (line 184 — linkage survives replay/reconnect).
+  - **Spec coverage:** Spec-016 §State And Data Implications; Spec-016 §Intervention Propagation; Spec-016 AC2 (line 209 — linkage survives replay/reconnect).
   - **Verifies invariant:** I-016-4, I-016-5, I-016-8, I-016-9, I-016-11, I-016-20.
   - **Tests:** the suite is the test (one section per invariant above).
 
@@ -293,14 +293,14 @@ Target paths below assume the canonical implementation topology defined in [Cont
   - **Files:** `packages/runtime-daemon/src/ipc/__tests__/` (EXTEND).
   - **Provides:** end-to-end wire assertions for every refusal path (depth, active-child, pending, channel limit, queue depth, turn limit, budget, node locality, `channel.inactive`, `channel.name_reserved`, `agent.not_found`, `agent.not_ready`, `run.not_found` reuse).
   - **Consumes:** T3.1–T3.4.
-  - **Spec coverage:** Spec-016 §Fallback Behavior; Spec-016 AC3 (line 185 — the delegation wire surface).
+  - **Spec coverage:** Spec-016 §Fallback Behavior; Spec-016 AC3 (line 210 — the delegation wire surface).
   - **Verifies invariant:** I-016-6, I-016-7, I-016-8.
   - **Tests:** each code observed at the SDK boundary with `data.fields` intact.
 - **T3.7 — Replay/restart + SDK integration suite.**
   - **Files:** `packages/client-sdk/src/__tests__/orchestration-integration.test.ts` (NEW).
   - **Provides:** spawned-daemon integration: create channel → attach agent → orchestrate child → read links → restart daemon → re-read (linkage + visibility survive); SDK-observed budget warning + interrupt sequence.
   - **Consumes:** T3.1–T3.4; Phase 2 services.
-  - **Spec coverage:** Spec-016 AC1 (line 183 — multiple concurrent agents and channels), AC2 (line 184 — linkage survives replay and reconnect), AC3 (line 185 — delegated work without native subagent APIs).
+  - **Spec coverage:** Spec-016 AC1 (line 208 — multiple concurrent agents and channels), AC2 (line 209 — linkage survives replay and reconnect), AC3 (line 210 — delegated work without native subagent APIs).
   - **Verifies invariant:** I-016-4, I-016-5, I-016-16.
   - **Tests:** the suite is the test (spawn-based per the bin-guard testing convention).
 

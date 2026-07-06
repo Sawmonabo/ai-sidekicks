@@ -1039,11 +1039,11 @@ CREATE INDEX idx_agents_session ON agents(session_id);
 CREATE TABLE session_budgets (
   session_id                    TEXT PRIMARY KEY,
   cost_limit_cents              INTEGER NOT NULL DEFAULT 1000,  -- Spec-016: $10 per session
-  turn_limit_per_agent          INTEGER NOT NULL DEFAULT 50,    -- Spec-016:107: max consecutive turns per (channel, agent), reset on interleave (D-016-8) — not a per-session total
+  turn_limit_per_agent          INTEGER NOT NULL DEFAULT 50,    -- Spec-016:109: max consecutive turns per (channel, agent), reset on interleave (D-016-8) — not a per-session total
   max_executing_channels        INTEGER NOT NULL DEFAULT 5,     -- Spec-016 §Scheduler Limits
   max_queue_depth_per_channel   INTEGER NOT NULL DEFAULT 25,
   max_pending_orchestration_runs INTEGER NOT NULL DEFAULT 10,
-  active_child_limit            INTEGER NOT NULL DEFAULT 5,     -- Spec-016:150 daemon default, configurable
+  active_child_limit            INTEGER NOT NULL DEFAULT 5,     -- Spec-016:175 daemon default, configurable
   updated_at                    TEXT NOT NULL,
   -- Non-negative-integer floors on every limit; wire mirror = orchestration.budgetUpdate Zod .int().nonnegative() (D-016-5)
   CHECK (typeof(cost_limit_cents) = 'integer' AND cost_limit_cents >= 0),

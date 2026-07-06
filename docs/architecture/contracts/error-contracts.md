@@ -170,11 +170,11 @@ Channel lifecycle codes (Plan-016, Tier-6 audit D-016-16). Daemon-only authority
 
 ### Orchestration
 
-Orchestration admission-refusal codes (Plan-016, Tier-6 audit D-016-16). Every code is a zero-residue create-time refusal — no run row, no queue item, no partial state survives the rejection (I-016-8); the daemon additionally records the refusal durably via the `orchestration.rejected` event (Spec-016:89 "records the refusal visibly"). The event name `orchestration.rejected` and these error codes share a root but no token collides with an event name. The parent-run-missing case reuses §Run `run.not_found` (no new semantic — D-016-16).
+Orchestration admission-refusal codes (Plan-016, Tier-6 audit D-016-16). Every code is a zero-residue create-time refusal — no run row, no queue item, no partial state survives the rejection (I-016-8); the daemon additionally records the refusal durably via the `orchestration.rejected` event (Spec-016:91 "records the refusal visibly"). The event name `orchestration.rejected` and these error codes share a root but no token collides with an event name. The parent-run-missing case reuses §Run `run.not_found` (no new semantic — D-016-16).
 
 | Code | Description | HTTP Status |
 | --- | --- | --- |
-| `orchestration.depth_exceeded` | Creating run is itself a child — V1 permits exactly one level of run nesting (Spec-016:55; `data.fields`: `parentRunId`, `maxDepth: 1`) | 409 |
+| `orchestration.depth_exceeded` | Creating run is itself a child — V1 permits exactly one level of run nesting (Spec-016:57; `data.fields`: `parentRunId`, `maxDepth: 1`) | 409 |
 | `orchestration.active_child_limit_exceeded` | Parent already has the configured number of active children (`data.fields`: `parentRunId`, `limit`, `activeChildCount`) | 429 |
 | `orchestration.pending_limit_exceeded` | Session already has the maximum pending orchestration-created runs (Spec-016 §Scheduler Limits; `data.fields`: `limit`) | 429 |
 | `orchestration.channel_limit_exceeded` | Admitting the run would open a new executing channel beyond the maximum concurrently executing channels (Spec-016 §Scheduler Limits; `data.fields`: `limit`) — the run may instead be held `queued`; this code fires only when the target channel's queue is also exhausted (a busy target channel with a full queue is `orchestration.queue_depth_exceeded` regardless of the executing-channel count) | 429 |

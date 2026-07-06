@@ -98,7 +98,7 @@ This section enumerates every individual event type within each `EventCategory`.
 
 ### Session Lifecycle (`session_lifecycle`)
 
-Payload shape: `{sessionId, previousState?, newState, actor?}`; the B1 goal events carry per-type payloads — `session.goal_updated` requires the new goal (`{sessionId, goal, actor}` — `goal` is a structured object whose exact shape is owned by the Spec-016 goal contract the campaign's B6 bundle introduces (a named merge prerequisite before any emitter exists); the event carries the same canonical value the accepted goal set/clear RPC supplied, so RPC and durable event serialize identically), `session.goal_cleared` carries none (`{sessionId, actor}`; clearing is the distinct operation, so an update without a goal is malformed rather than an implicit clear) — and a goal change is not a state transition.
+Payload shape: `{sessionId, previousState?, newState, actor?}`; the B1 goal events carry per-type payloads — `session.goal_updated` requires the new goal (`{sessionId, goal, actor}` — `goal` is a structured object whose exact shape is owned by the [Spec-016 §Session Goals](016-multi-agent-channels-and-orchestration.md#session-goals) contract (`{ text: string }`, landed 2026-07-06 via campaign B6); the event carries the same canonical value the accepted goal set/clear RPC supplied, so RPC and durable event serialize identically), `session.goal_cleared` carries none (`{sessionId, actor}`; clearing is the distinct operation, so an update without a goal is malformed rather than an implicit clear) — and a goal change is not a state transition.
 
 | Type | Description |
 | --- | --- |

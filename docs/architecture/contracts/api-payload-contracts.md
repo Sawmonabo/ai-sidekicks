@@ -2510,7 +2510,7 @@ interface ChannelRosterReadResponse {
     state: ChannelState;
     config: ChannelConfig;
     arbitration: {
-      state: "active" | "paused"; // round-robin arbitration pause (Spec-016:122-124) — daemon projection from arbitration.* events
+      state: "active" | "paused"; // round-robin arbitration pause (Spec-016:130-132) — daemon projection from arbitration.* events
       turnPolicy: TurnPolicy;
       unreachableNodeId?: NodeId; // present while paused on an unreachable node
       unreachableAgentId?: AgentId;
@@ -2524,7 +2524,7 @@ interface ChannelRosterReadResponse {
 // Plan-004 queue admission; zero-residue typed refusal + durable orchestration.rejected on deny)
 interface OrchestrationRunCreateRequest {
   sessionId: SessionId;
-  parentRunId?: RunId; // present = child run; child-of-child refused (depth 1, Spec-016:198)
+  parentRunId?: RunId; // present = child run; child-of-child refused (depth 1, Spec-016:223)
   targetAgentId: AgentId; // must resolve in the agents projection (agent.not_found / agent.not_ready)
   targetNodeId?: NodeId; // V1: must be locally attached or absent (orchestration.node_not_local; cross-node = Spec-024/Plan-027, D-016-9)
   targetChannelId: ChannelId; // accepts the derived main id without a channels row (D-016-15)

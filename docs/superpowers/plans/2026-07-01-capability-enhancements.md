@@ -168,9 +168,9 @@ Every doc task's final steps invoke this procedure with its own branch/commit/fi
 
 **Interfaces:** Consumes Tasks 3 (B1's `session.goal_updated`/`goal_cleared` + subagent-lifecycle registrations the R8 sections cite) and 10 (B20's command-policy posture presets the single-supervisor enforcement names). Produces — the 3-tier cost subsection in §Budget Policies (:101–109: provider-emitted sanity-bounded → family-table derived → fail-closed unpriced halt; enforcement never branches on `costSource`; current model families per C-8; `--max-budget-usd` defense-in-depth per C-12; the owner-cap unblock scoped to native-cap legs — Claude today; a capless leg (Codex, `token_budget` under development) stays fail-closed until its pricing-table entry lands); R8 sections (a) Session goals, (b) provider-native subagents under the **single-supervisor invariant** (budget roll-up, approval flow-through, timeline normalization; out-of-session supervisors disabled), (c) realtime reservation as a §Resolved Questions V1-scope-decision entry (RA-5 — no channel-model change). Consumed by Tasks 14, 22.
 
-- [ ] **Step 1:** SBP-1 bundle=`b6`, branch=`docs/b6-spec016-budget-orchestration`. Confirm Tasks 3 and 10 are merged (the cited event registrations; the posture presets).
-- [ ] **Step 2:** Author per Design §4 B6; re-verify :101–109; confirm the three-budget table and D-016-8's closed stop-condition set are untouched.
-- [ ] **Step 3:** SBP-3/4/5/6 — subject `docs(repo): spec-016 — 3-tier cost + goals/subagents/realtime (b6)`, trailer `Refs: Spec-016`.
+- [x] **Step 1:** SBP-1 bundle=`b6`, branch=`docs/b6-spec016-budget-orchestration`. Confirm Tasks 3 and 10 are merged (the cited event registrations; the posture presets).
+- [x] **Step 2:** Author per Design §4 B6; re-verify :101–109; confirm the three-budget table and D-016-8's closed stop-condition set are untouched.
+- [x] **Step 3:** SBP-3/4/5/6 — subject `docs(repo): spec-016 — 3-tier cost + goals/subagents/realtime (b6)`, trailer `Refs: Spec-016`.
 
 ### Task 8: B7 — Spec-024 bundle (after Task 5)
 
