@@ -107,7 +107,7 @@ CREATE TABLE interventions (
                          CHECK(state IN ('requested', 'accepted', 'applied', 'rejected', 'degraded', 'expired')),
   payload                TEXT NOT NULL DEFAULT '{}', -- JSON: type-specific fields
   expected_run_version   INTEGER NOT NULL,           -- MANDATORY fail-closed comparand (Spec-004:63 / Plan-004 D-004-2)
-  client_idempotency_key TEXT NOT NULL,              -- MANDATORY client-generated UUID; replay-or-conflict intervention dedupe (Spec-005 §Required Behavior, campaign B3)
+  client_idempotency_key TEXT NOT NULL,              -- MANDATORY requester-generated UUID (participant client or daemon system-origination); replay-or-conflict intervention dedupe (Spec-005 §Required Behavior, campaign B3)
   result                 TEXT,                       -- JSON: outcome details
   initiator_id           TEXT,                       -- participant or system
   created_at             TEXT NOT NULL,
@@ -154,16 +154,20 @@ CREATE INDEX idx_command_receipts_inflight ON command_receipts(run_id)
 -- `semver` package. The 4096/64 length literals are the canonical bounds that
 -- the T2.2 write-path guard reuses, so the two layers stay consistent.
 CREATE TABLE runtime_bindings (
-  id                TEXT PRIMARY KEY,
-  run_id            TEXT NOT NULL,
-  driver_name       TEXT NOT NULL,            -- e.g. 'claude', 'codex'
-  contract_version  TEXT NOT NULL             -- canonical, identifying semver of driver contract (build metadata rejected by the T2.2 write-path Zod guard)
-                    CHECK (length(contract_version) > 0 AND length(contract_version) <= 64 AND instr(contract_version, char(0)) = 0),
-  resume_handle     TEXT                      -- provider-owned opaque handle
-                    CHECK (resume_handle IS NULL OR (length(resume_handle) > 0 AND length(resume_handle) <= 4096 AND instr(resume_handle, char(0)) = 0)),
-  runtime_metadata  TEXT NOT NULL DEFAULT '{}', -- JSON: provider-specific recovery data
-  created_at        TEXT NOT NULL,
-  updated_at        TEXT NOT NULL
+  id                  TEXT PRIMARY KEY,
+  run_id              TEXT NOT NULL,
+  driver_name         TEXT NOT NULL,            -- e.g. 'claude', 'codex'
+  contract_version    TEXT NOT NULL             -- canonical, identifying semver of driver contract (build metadata rejected by the T2.2 write-path Zod guard)
+                      CHECK (length(contract_version) > 0 AND length(contract_version) <= 64 AND instr(contract_version, char(0)) = 0),
+  cli_version_raw     TEXT                      -- verbatim provider-reported CLI version captured at binding write (Spec-005 §Required Behavior `cliVersion` report, campaign B3); NULL only on pre-B3 rows — the write path stores the pair or neither
+                      CHECK (cli_version_raw IS NULL OR (length(cli_version_raw) > 0 AND length(cli_version_raw) <= 128 AND instr(cli_version_raw, char(0)) = 0)),
+  cli_version_semver  TEXT                      -- parsed floor-compare form of the pair; the fail-closed floor gate (`driver.cli_version_unparseable`) runs before any binding write, so a stored pair is always parseable
+                      CHECK ((cli_version_semver IS NULL) = (cli_version_raw IS NULL)),
+  resume_handle       TEXT                      -- provider-owned opaque handle
+                      CHECK (resume_handle IS NULL OR (length(resume_handle) > 0 AND length(resume_handle) <= 4096 AND instr(resume_handle, char(0)) = 0)),
+  runtime_metadata    TEXT NOT NULL DEFAULT '{}', -- JSON: provider-specific recovery data
+  created_at          TEXT NOT NULL,
+  updated_at          TEXT NOT NULL
 );
 
 CREATE INDEX idx_runtime_bindings_run ON runtime_bindings(run_id);
@@ -215,10 +219,14 @@ CREATE TABLE driver_tools (
 -- would otherwise spuriously fire `runtime_node.capability_updated` on a
 -- non-change).
 CREATE TABLE driver_contract_meta (
-  driver_name       TEXT PRIMARY KEY,
-  contract_version  TEXT NOT NULL             -- canonical, identifying semver of the driver's advertised capability contract (build metadata rejected by the T2.4 write-path Zod guard)
-                    CHECK (length(contract_version) > 0 AND length(contract_version) <= 64 AND instr(contract_version, char(0)) = 0),
-  refreshed_at      TEXT NOT NULL             -- last capability-refresh write (matches driver_capabilities.refreshed_at cadence)
+  driver_name         TEXT PRIMARY KEY,
+  contract_version    TEXT NOT NULL             -- canonical, identifying semver of the driver's advertised capability contract (build metadata rejected by the T2.4 write-path Zod guard)
+                      CHECK (length(contract_version) > 0 AND length(contract_version) <= 64 AND instr(contract_version, char(0)) = 0),
+  cli_version_raw     TEXT                      -- cached `cliVersion.raw` from the last capability refresh (Spec-005 §Required Behavior, campaign B3); NULL only on pre-B3 rows
+                      CHECK (cli_version_raw IS NULL OR (length(cli_version_raw) > 0 AND length(cli_version_raw) <= 128 AND instr(cli_version_raw, char(0)) = 0)),
+  cli_version_semver  TEXT                      -- cached parsed form; cold-start hydration MUST treat a NULL pair as a cache miss and refresh from the driver — the required `GetCapabilitiesResult.cliVersion` is never fabricated from cache
+                      CHECK ((cli_version_semver IS NULL) = (cli_version_raw IS NULL)),
+  refreshed_at        TEXT NOT NULL             -- last capability-refresh write (matches driver_capabilities.refreshed_at cadence)
 );
 ```
 

@@ -44,7 +44,7 @@ import {
 // `runtime_node_attachments` (shared-postgres-schema.md:199) — deliberately
 // contrasted against `id` / `session_id` / `participant_id`, which are `UUID`
 // in the SAME table — and `TEXT` in both local SQLite tables
-// (local-sqlite-schema.md:273,282). So `NodeId` is a daemon-minted opaque
+// (local-sqlite-schema.md:281,290). So `NodeId` is a daemon-minted opaque
 // scalar, NOT a server-minted UUID: we mirror `SessionId`'s brand SHAPE but
 // deliberately depart from its UUID parser, using the non-UUID branded-scalar
 // idiom from `session.ts`'s `EventCursorSchema` (z.string().min(1).max(cap)

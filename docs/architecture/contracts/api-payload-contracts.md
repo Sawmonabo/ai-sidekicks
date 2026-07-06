@@ -717,11 +717,11 @@ interface RollbackToParams {
   position: number;
 }
 
-interface DriverRollbackResult {
-  status: "applied" | "degraded";
-  sessionPosition?: number; // on `applied`: the driver-confirmed post-rollback position — recorded as the new authoritative position floor for recovery position-compares (Spec-015 semantics via campaign B5/B14)
-  fallbackAction?: string;
-}
+type DriverRollbackResult =
+  // A successful rollback without a confirmed floor is structurally inexpressible (mirrors
+  // `DriverResumeResult`): position-compares consume it per Spec-015 via campaign B5/B14.
+  | { status: "applied"; sessionPosition: number } // REQUIRED driver-confirmed post-rollback position — the new authoritative recovery floor
+  | { status: "degraded"; fallbackAction?: string };
 
 // Session-goal injection (campaign B3). `goalText` is the daemon-rendered textual form of the
 // session's structured goal — the structured shape is owned by the Spec-016 goal contract
