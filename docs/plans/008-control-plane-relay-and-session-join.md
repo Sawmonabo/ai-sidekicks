@@ -99,7 +99,7 @@ Every control-plane Tier-5 endpoint (`SessionJoin`, `PresenceRegister`, `RelayNe
 
 ### I-008-5 — Relay is zero-knowledge (E2EE; never plaintext)
 
-The relay broker MUST forward only opaque per-recipient `{sender_ephemeral, recipient_id, seq, nonce, ciphertext+tag}` envelopes and MUST NOT decrypt, inspect, or persist plaintext payloads (Spec-008:117, 132, 202 — honest-but-curious relay threat model; the broker routes on `recipient_id` alone and forwards `sender_ephemeral`/`seq`/`nonce`/`ciphertext+tag` opaquely). Relay sharding and WebSocket Hibernation operate on ciphertext frames only.
+The relay broker MUST forward only opaque per-recipient `{sender_ephemeral, recipient_id, seq, nonce, ciphertext+tag}` envelopes and MUST NOT decrypt, inspect, or persist plaintext payloads (Spec-008:116, 132, 202 — honest-but-curious relay threat model; the broker routes on `recipient_id` alone and forwards `sender_ephemeral`/`seq`/`nonce`/`ciphertext+tag` opaquely). Relay sharding and WebSocket Hibernation operate on ciphertext frames only.
 
 ### I-008-6 — Session-granularity forward secrecy via ephemeral-key zeroization
 
