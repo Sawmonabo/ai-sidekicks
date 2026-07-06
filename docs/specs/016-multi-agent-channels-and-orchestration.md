@@ -19,12 +19,12 @@ Define how multiple agents collaborate inside a session and how their channels a
 
 ## Scope
 
-This spec covers channel creation, parent-child run linkage, cross-agent collaboration, and background helper activity.
+This spec covers channel creation, parent-child run linkage, cross-agent collaboration, and background helper activity — including session goals, cost derivation for budget enforcement, and the orchestration-level governance of provider-native in-session subagents (campaign B6).
 
 ## Non-Goals
 
 - Workflow authoring syntax
-- Provider-native subagent APIs
+- Defining provider-native subagent APIs — the `subagentPolicy` and driver-op shapes are [Spec-005](005-provider-driver-contract-and-capabilities.md)'s; this spec governs only their orchestration use (§Provider-Native Subagents, campaign B6)
 - Notification policy
 
 ## Domain Dependencies
@@ -108,7 +108,7 @@ Tier-6 audit ratifications (D-016-19): a `round-robin` channel requires a non-em
 | Cost limit per session | Max estimated cost across all runs       | $10.00        |
 | Turn limit per agent   | Max consecutive turns an agent can take  | 50            |
 
-V1 budget enforcement is a hard ceiling, tightened from advisory during the 2026-04-17 V1-readiness review (Spec-016 was authored 2026-04-14, predating ADR-015's V1 quality bar declaration by three days, so the original advisory posture no longer matches the V1 gate). The daemon emits `usage.budget_warning` events (the registered [Spec-006 §Usage Telemetry](006-session-event-taxonomy-and-audit-log.md) name for the warning this paragraph previously called `usage_warning` — Tier-6 audit, A-016-6) at 80% of any budget limit, once per (scope, budget-type) crossing, and issues an `interrupt` intervention via the generic dispatcher ([ADR-011](../decisions/011-generic-intervention-dispatch.md)) at 100%. Per-run token ceilings interrupt the specific offending run with `reason: budget_exhausted`; the per-agent turn limit is a stop condition, not a budget interrupt — at the limit the run **completes** with `trigger: 'turn_limit'` per §Stop Conditions (D-016-8). Session-level cost ceilings interrupt all active runs in the session and block further queue admission until the session owner raises the limit ("session admin" resolved to the session `owner` role — the only administrative role in the V1 model (`packages/contracts/src/session.ts`); raise via `OrchestrationBudgetUpdate`, owner-only — Tier-6 audit, D-016-5). Conclusion detection (agent determines task is complete) remains V2.
+V1 budget enforcement is a hard ceiling, tightened from advisory during the 2026-04-17 V1-readiness review (Spec-016 was authored 2026-04-14, predating ADR-015's V1 quality bar declaration by three days, so the original advisory posture no longer matches the V1 gate). The daemon emits `usage.budget_warning` events (the registered [Spec-006 §Usage Telemetry](006-session-event-taxonomy-and-audit-log.md) name for the warning this paragraph previously called `usage_warning` — Tier-6 audit, A-016-6) at 80% of any budget limit, once per (scope, budget-type) crossing — and additionally, off-threshold, on the unpriced-model condition per §Cost Derivation And Absent-Cost Semantics (campaign B6) — and issues an `interrupt` intervention via the generic dispatcher ([ADR-011](../decisions/011-generic-intervention-dispatch.md)) at 100%. Per-run token ceilings interrupt the specific offending run with `reason: budget_exhausted`; the per-agent turn limit is a stop condition, not a budget interrupt — at the limit the run **completes** with `trigger: 'turn_limit'` per §Stop Conditions (D-016-8). Session-level cost ceilings interrupt all active runs in the session and block further queue admission until the session owner raises the limit ("session admin" resolved to the session `owner` role — the only administrative role in the V1 model (`packages/contracts/src/session.ts`); raise via `OrchestrationBudgetUpdate`, owner-only — Tier-6 audit, D-016-5). Conclusion detection (agent determines task is complete) remains V2.
 
 ### Cost Derivation And Absent-Cost Semantics
 
@@ -151,7 +151,7 @@ Tier-6 audit ratification (D-016-10): the pre-turn gate point is `PermissionChec
 ## Session Goals
 
 - A session MAY carry one structured goal (campaign B6): `goal: { text: string }` — the structured object [Spec-006 §Session Lifecycle](006-session-event-taxonomy-and-audit-log.md) binds to `session.goal_updated.goal` (campaign B1). The single required member is `text`; extending the shape requires a spec revision, and an update without a goal is malformed rather than an implicit clear (clearing is the distinct operation).
-- Set and clear are owner/member RPC operations (`SessionGoalUpdate` / `SessionGoalClear`, following this spec's `OrchestrationBudgetUpdate` naming precedent); an accepted operation emits the registered `session.goal_updated` / `session.goal_cleared` event carrying the same canonical value the RPC supplied, so RPC and durable event serialize identically. A goal change is not a run-state transition.
+- Set and clear are owner/member RPC operations (`SessionGoalUpdate` / `SessionGoalClear`, following this spec's `OrchestrationBudgetUpdate` naming precedent; wire shapes `SessionGoalUpdateRequest` / `SessionGoalClearRequest` + the `session.goalUpdate` / `session.goalClear` method rows live in [API Payload Contracts](../architecture/contracts/api-payload-contracts.md), this bundle); an accepted operation emits the registered `session.goal_updated` / `session.goal_cleared` event carrying the same canonical value the RPC supplied, so RPC and durable event serialize identically. A goal change is not a run-state transition.
 - Goal state derives from the event log as a projection — there is no separate goal store; the current goal is whatever the latest goal event says.
 - Provider delivery (parity triad, campaign B6): the Codex leg is native (`thread/goal/*`); the Claude leg is emulated — the daemon stores the goal and injects it via system-prompt composition on turn start and resume. Delivery to a live run rides the [Spec-005](005-provider-driver-contract-and-capabilities.md) driver operations (`setSessionGoal` / `clearSessionGoal`), whose `goalText` is rendered from `goal.text`; the mechanism grade (`native | emulated`) is recorded in the Spec-005 capability matrix (`session_goals`).
 

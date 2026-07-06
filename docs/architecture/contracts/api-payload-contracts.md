@@ -2510,7 +2510,7 @@ interface ChannelRosterReadResponse {
     state: ChannelState;
     config: ChannelConfig;
     arbitration: {
-      state: "active" | "paused"; // round-robin arbitration pause (Spec-016:130-132) — daemon projection from arbitration.* events
+      state: "active" | "paused"; // round-robin arbitration pause (Spec-016:186-188) — daemon projection from arbitration.* events
       turnPolicy: TurnPolicy;
       unreachableNodeId?: NodeId; // present while paused on an unreachable node
       unreachableAgentId?: AgentId;
@@ -2598,6 +2598,19 @@ interface OrchestrationBudgetUpdateRequest {
 }
 type OrchestrationBudgetUpdateResponse = OrchestrationBudgetState;
 
+interface SessionGoal {
+  text: string; // the Spec-016 §Session Goals structured shape — the single required member; extending it requires a spec revision (campaign B6)
+}
+interface SessionGoalUpdateRequest {
+  sessionId: SessionId;
+  goal: SessionGoal;
+}
+type SessionGoalUpdateResponse = { sessionId: SessionId; goal: SessionGoal };
+interface SessionGoalClearRequest {
+  sessionId: SessionId;
+}
+type SessionGoalClearResponse = { sessionId: SessionId };
+
 // Agent surface (A-016-2 — Plan-016 owns the V1 agent identity + lifecycle surface).
 // AgentState is the canonical 4-state lifecycle from domain/agent-channel-and-run-model.md
 // §Lifecycle — the contract adopts it rather than minting a parallel enum. V1 wire mapping:
@@ -2684,6 +2697,8 @@ interface OrchestrationRunLinkCarrier {
 | `orchestration.childRunLinkRead` | RPC | `ChildRunLinkReadRequest` → `ChildRunLinkReadResponse` | run_links projection + event-folded `rejectedCreates` (zero-residue refusals, I-016-8) |
 | `orchestration.budgetRead` | RPC | `OrchestrationBudgetReadRequest` → `OrchestrationBudgetReadResponse` |  |
 | `orchestration.budgetUpdate` | RPC | `OrchestrationBudgetUpdateRequest` → `OrchestrationBudgetUpdateResponse` | Session-owner-only (wire-boundary authorization) |
+| `session.goalUpdate` | RPC | `SessionGoalUpdateRequest` → `SessionGoalUpdateResponse` | Owner/member ([Spec-016 §Session Goals](../../specs/016-multi-agent-channels-and-orchestration.md#session-goals), campaign B6); an accepted update emits `session.goal_updated` carrying the same canonical `goal` |
+| `session.goalClear` | RPC | `SessionGoalClearRequest` → `SessionGoalClearResponse` | Owner/member; an accepted clear emits `session.goal_cleared` (clearing is the distinct operation — an update without a goal is malformed) |
 | `agent.attach` | RPC | `AgentAttachRequest` → `AgentAttachResponse` | Emits `agent.attached` |
 | `agent.detach` | RPC | `AgentDetachRequest` → `AgentDetachResponse` | Emits `agent.detached` |
 | `agent.configUpdate` | RPC | `AgentConfigUpdateRequest` → `AgentConfigUpdateResponse` | Emits `agent.config_updated` |
