@@ -809,14 +809,20 @@ interface ProviderMode {
 // RunStateChangeEvent field — shape owned by Spec-005, policy semantics by Spec-012 §Required
 // Behavior, campaign B20). Referenced by RunStateChangeEvent.executionPosture? (the run.running
 // audit stamp) and by CreateSessionParams/StartRunParams (the spawn/turn carriers).
-interface ExecutionPosture {
-  mode: "trusted" | "workspace-sandboxed" | "readonly-sandboxed";
-  networkAccess: "none" | "allowed-domains" | "full";
-  allowedDomains?: string[]; // present iff networkAccess === "allowed-domains", and then non-empty — absent under "none" / "full" (Spec-012 cross-field invariants, fail closed)
+type ExecutionPostureNetwork =
+  | { networkAccess: "none" | "full"; allowedDomains?: never } // allowedDomains structurally absent
+  | { networkAccess: "allowed-domains"; allowedDomains: [string, ...string[]] }; // non-empty by construction (Spec-012 cross-field invariants, fail closed)
+
+type ExecutionPosture = ExecutionPostureNetwork & {
   writableRoots: string[];
   profileName?: string;
-  credentialPolicyRef?: string; // content-addressed "sha256:<hex>" over the RFC 8785 JCS-canonicalized credential-policy artifact {schemaVersion: 1, denyPaths: string[], denyEnvVars: string[], envNameMatch: 'case-sensitive' | 'case-insensitive'} (daemon canonicalizes denyEnvVars names to the host's env-name case semantics — case-insensitive-env hosts fold to one spelling, case-sensitive verbatim — and records the host's match mode as envNameMatch so hosts that strip differently never share a ref; then lexicographically sorts + dedupes both arrays before hashing — JCS canonicalizes object members, not array order) — REQUIRED on both sandboxed modes ('workspace-sandboxed' / 'readonly-sandboxed'), absent under mode:'trusted' (the credential policy is realized as part of a sandboxed posture — a trusted run records no enforced credential constraint), so auditors reconstruct exactly which credentials were denied/scrubbed without embedding the raw installation-revealing list; the daemon persists the artifact row write-ahead (before the first citing posture stamp) so the ref never dangles (Spec-012 §Required Behavior, campaign B20).
-}
+} & (
+    | { mode: "trusted"; credentialPolicyRef?: never } // a trusted run records no enforced credential constraint — a posture carrying mode "trusted" AND a policy ref is unrepresentable
+    | {
+        mode: "workspace-sandboxed" | "readonly-sandboxed";
+        credentialPolicyRef: string; // content-addressed "sha256:<hex>" over the RFC 8785 JCS-canonicalized credential-policy artifact {schemaVersion: 1, denyPaths: string[], denyEnvVars: string[], envNameMatch: 'case-sensitive' | 'case-insensitive'} (daemon canonicalizes denyEnvVars names to the host's env-name case semantics — case-insensitive-env hosts fold to one spelling, case-sensitive verbatim — and records the host's match mode as envNameMatch so hosts that strip differently never share a ref; then lexicographically sorts + dedupes both arrays before hashing — JCS canonicalizes object members, not array order) — REQUIRED on both sandboxed modes ('workspace-sandboxed' / 'readonly-sandboxed'), absent under mode:'trusted' (the credential policy is realized as part of a sandboxed posture — a trusted run records no enforced credential constraint), so auditors reconstruct exactly which credentials were denied/scrubbed without embedding the raw installation-revealing list; the daemon persists the artifact row write-ahead (before the first citing posture stamp) so the ref never dangles (Spec-012 §Required Behavior, campaign B20).
+      }
+  );
 
 // Daemon-curated callback tool exposed into a session (campaign B3; authorization semantics
 // Spec-012, campaign B20). Mirrors the function-form provider tool shape (name + description +
@@ -864,11 +870,11 @@ interface SubagentDefinition {
 // Spec-024 cross-node dispatch, recorded as the parity mechanism. `bearerTokenRef` is a
 // daemon-config reference to the ws bearer credential — a reference, never the secret value
 // (the credentialPolicyRef ref-not-value pattern).
-interface DriverTransportConfig {
-  transport: "stdio" | "unix-socket" | "websocket"; // "stdio" is the V1 default
-  endpoint?: string; // unix:// or ws:// URL; required for the non-stdio transports
-  bearerTokenRef?: string;
-}
+type DriverTransportConfig =
+  | { transport: "stdio" } // the V1 default — no local listener, no endpoint
+  | { transport: "unix-socket"; endpoint: string } // unix:// URL, REQUIRED
+  // ws:// URL + bearer credential reference, both REQUIRED — an unauthenticated ws listener is unrepresentable:
+  | { transport: "websocket"; endpoint: string; bearerTokenRef: string };
 
 interface DriverCapabilities {
   flags: Record<DriverCapabilityFlag, boolean>;

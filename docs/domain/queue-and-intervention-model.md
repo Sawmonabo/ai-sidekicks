@@ -144,7 +144,7 @@ The driver-result and intervention-lifecycle vocabularies are distinct and map n
 | `applied` | driver → daemon | Driver returned `status: 'applied'` — the intervention took effect natively |
 | `degraded` | driver → daemon | Driver returned `status: 'degraded'` — the type is unsupported at the driver boundary and the orchestration layer fell back (`fallbackAction`) |
 
-Static capability refusal is a separate, earlier surface: the daemon MAY refuse dispatch outright with the `driver.capability_unsupported` error code when the driver's declared flags exclude the intervention type entirely, reserving `degraded` for the dynamic driver-boundary outcome (the two are not in conflict — [Plan-005](../plans/005-provider-driver-contract-and-capabilities.md) adjudicates the static/dynamic split).
+Static capability refusal is a separate, earlier surface with a narrow carve-out: the daemon MAY refuse dispatch outright with `driver.capability_unsupported` ONLY for an intervention type that has no documented orchestration fallback under the excluded flag. A type with a documented fallback — e.g. `steer` under Claude's `steer: false`, which degrades to the queue+interrupt composite per Spec-005 §Per-Driver Capability Matrix — MUST enter the lifecycle and terminate `degraded`, so the fallback is recorded on the intervention row (`fallbackAction`); static refusal never substitutes for a documented degraded path ([Plan-005](../plans/005-provider-driver-contract-and-capabilities.md) adjudicates the static/dynamic split within that rule).
 
 ## Boundary: Interventions vs Interactive Requests
 

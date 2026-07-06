@@ -138,6 +138,7 @@ The canonical run lifecycle has one failure terminal state: `failed`. Additional
 | --- | --- | --- |
 | `stuck-suspected` | The run appears active but has exceeded progress thresholds without reaching a valid blocking or terminal state. | Derived run-health signal, not `RunState` |
 | `recovery-needed` | Automatic recovery did not return the run to safe progress and operator or participant action is required. | Recovery condition, not `RunState` |
+| `reauth-required` | Provider credentials or the provider session expired mid-run or during resume; re-authentication on the runtime node is required before recovery proceeds (Spec-005 §Fallback Behavior `RecoveryCondition`, campaign B3). | Recovery condition, not `RunState` |
 | `provider failure` | The provider or driver could not safely start, continue, or resume the run. | Failure category, not `RunState` |
 | `transport failure` | A required transport path failed independently of provider semantics. | Failure category, not `RunState` |
 | `local persistence failure` | Canonical local storage was unavailable or inconsistent enough that recovery or safe mutation could not continue. | Failure category, not `RunState` |
